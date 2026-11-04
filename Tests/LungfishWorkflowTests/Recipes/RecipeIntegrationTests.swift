@@ -347,7 +347,7 @@ final class RecipeIntegrationTests: XCTestCase {
         XCTAssertEqual(output.supplementaryInvocations.map(\.tool), [.fastp])
 
         func headers(_ url: URL) throws -> [String] {
-            try FASTQReadLayoutClassifier.readHeaders(from: url).headers
+            try FASTQReadLayoutClassifier.readHeaders(from: url, limit: 100_000).headers
         }
         XCTAssertEqual(try headers(output.r1), ["m-long merged_120_30"], "merged reads are judged one by one")
         // The 150 bp R1 of the short-mate pair is NOT kept as an orphan.

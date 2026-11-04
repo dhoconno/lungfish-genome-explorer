@@ -456,7 +456,7 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         XCTAssertEqual(scan.pairs, pairs)
         XCTAssertEqual(scan.unpaired, classification.mergedReadCount)
         XCTAssertEqual(try FASTQPairInterleaver.countRecords(in: fastqURL), classification.totalReadCount)
-        let headers = try FASTQReadLayoutClassifier.readHeaders(from: fastqURL).headers
+        let headers = try FASTQReadLayoutClassifier.readHeaders(from: fastqURL, limit: 100_000).headers
         var mateCounts: [String: Int] = [:]
         for header in headers where !header.contains("merged_") {
             mateCounts[String(header.split(separator: " ").first ?? ""), default: 0] += 1

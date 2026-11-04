@@ -110,8 +110,9 @@ public struct FASTQReadLayoutClassification: Codable, Sendable, Equatable {
 
 extension FASTQReadLayoutClassifier {
 
-    /// Default number of records scanned. Even, so a limit never splits a pair.
-    public static let defaultRecordLimit = 100_000
+    /// Default number of records scanned, so every default caller reads the whole file. A bounded scan never says
+    /// strict, since a read past its limit puts every later pair out of step (row READ-LAYOUT-PARTIAL-SCAN).
+    public static let defaultRecordLimit = Int.max
 
     // MARK: Pure classification
 
@@ -177,7 +178,7 @@ extension FASTQReadLayoutClassifier {
     ///   - scannedWholeFile: Whether the scan covers the whole file.
     ///   - metadata: Bundle and sidecar evidence.
     ///   - wholeFileScanOutranksTheMerge: As in `classify(headers:...)`.
-    static func classify(
+    public static func classify(
         scannedRecords: Int,
         matePairs pairs: Int,
         unpairedRecords unpaired: Int,
@@ -191,7 +192,15 @@ extension FASTQReadLayoutClassifier {
             ? "all \(scannedRecords) records"
             : "the first \(scannedRecords) records"
 
-        if pairs > 0, unpaired == 0 {
+        if pairs > 0, unpaired == 0, !scannedWholeFile {
+            // Only a count of the whole file proves it strict. The rest of the file can hold single reads, and one of
+            // them puts every later pair out of step.
+            let merge = metadata.hasMergedOrUnpairedReads
+                ? " The dataset metadata also records merged or unpaired reads (\(metadata.mergeEvidence ?? "merge evidence"))."
+                : ""
+            layout = .mixedInterleaved
+            reason = "Mates alternate in \(scope), but the rest of the file was not read, so no tool may pair its records by position.\(merge)"
+        } else if pairs > 0, unpaired == 0 {
             if metadata.hasMergedOrUnpairedReads, scannedWholeFile, wholeFileScanOutranksTheMerge {
                 // A scan of the whole file counted every record and found
                 // no single read, which outranks a merge in the lineage or
@@ -235,10 +244,11 @@ extension FASTQReadLayoutClassifier {
 
     /// Reads up to `limit` record headers from a 4-line FASTQ file (plain or gzip).
     ///
-    /// Stops early (returning what was read) if a header line does not start with `@`.
+    /// Stops early (returning what was read) if a header line does not start with `@`. The limit is required, since
+    /// every header stays in memory. A scan of a whole file goes through ``countMates(in:limit:)``.
     public static func readHeaders(
         from fastqURL: URL,
-        limit: Int = defaultRecordLimit
+        limit: Int
     ) throws -> (headers: [String], scannedWholeFile: Bool) {
         var headers: [String] = []
         var lineIndex = 0
@@ -263,8 +273,8 @@ extension FASTQReadLayoutClassifier {
 
     /// Counts the adjacent mates of up to `limit` records of a 4-line FASTQ file (plain or gzip), holding one
     /// header at a time. The counts and stops are those `classify(headers:...)` gets from `readHeaders`, so a
-    /// scan of a whole file costs no memory per record.
-    static func countMates(
+    /// scan of a whole file costs no memory per record. A cancelled task stops the scan and it throws.
+    public static func countMates(
         in fastqURL: URL,
         limit: Int = defaultRecordLimit
     ) throws -> (scannedRecords: Int, matePairs: Int, unpairedRecords: Int, scannedWholeFile: Bool) {
@@ -285,6 +295,7 @@ extension FASTQReadLayoutClassifier {
                     throw StopScan()
                 }
                 scanned += 1
+                if scanned & 0x3FFF == 0 { try Task.checkCancellation() }
                 let header = String(line.dropFirst())
                 if let first = held, areMates(first, header) {
                     pairs += 1
@@ -302,16 +313,40 @@ extension FASTQReadLayoutClassifier {
         return (scanned, pairs, unpaired, !reachedLimit)
     }
 
+    /// Whether the first `limit` records of a file alternate mates, with no single read among them and at least one
+    /// pair. A cue for a proposal a person can change, and never a proof, since the rest of the file is not read.
+    public static func firstRecordsAlternate(in inputURL: URL, limit: Int) -> Bool {
+        guard limit < defaultRecordLimit,
+              let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: inputURL),
+              let scan = try? countMates(in: fastqURL, limit: limit) else {
+            return false
+        }
+        return scan.matePairs > 0 && scan.unpairedRecords == 0
+    }
+
     /// Classifies a FASTQ file or `.lungfishfastq` bundle.
     ///
     /// For a bundle, metadata comes from `derived.manifest.json`,
     /// `read-manifest.json`, and the primary FASTQ sidecar; the scanned file is
     /// the bundle's primary physical FASTQ (for a virtual bundle, its preview).
+    /// A person's own choice of single-end, recorded at import, settles the
+    /// layout with nothing read (``FASTQPairingMetadataHints/recordsExplicitSingleEnd``).
     public static func classify(
         inputURL: URL,
         limit: Int = defaultRecordLimit
     ) -> FASTQReadLayoutClassification {
         let evidence = metadataEvidence(for: inputURL)
+        if evidence.hints.recordsExplicitSingleEnd, !evidence.hints.hasMergedOrUnpairedReads {
+            return FASTQReadLayoutClassification(
+                layout: .singleEnd,
+                scannedRecords: 0,
+                matePairs: 0,
+                unpairedRecords: 0,
+                scannedWholeFile: false,
+                metadata: evidence.hints,
+                reason: "The bundle metadata records single-end reads, chosen at import."
+            )
+        }
         let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: inputURL)
         guard let fastqURL,
               let scan = try? countMates(in: fastqURL, limit: limit) else {

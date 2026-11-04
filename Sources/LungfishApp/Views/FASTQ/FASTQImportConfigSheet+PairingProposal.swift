@@ -27,8 +27,7 @@ extension FASTQImportConfigSheet {
         let loneFiles = pairs.prefix(pairingProposalFileLimit).map(\.r1)
         guard !loneFiles.isEmpty else { return 0 }
         let allInterleaved = loneFiles.allSatisfy {
-            FASTQReadLayoutClassifier.classify(inputURL: $0, limit: pairingProposalRecordLimit).layout
-                == .strictlyInterleaved
+            FASTQReadLayoutClassifier.firstRecordsAlternate(in: $0, limit: pairingProposalRecordLimit)
         }
         return allInterleaved ? 2 : 0
     }

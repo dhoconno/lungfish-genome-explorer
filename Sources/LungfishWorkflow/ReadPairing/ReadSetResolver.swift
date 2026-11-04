@@ -355,9 +355,11 @@ public struct ReadSetResolver: Sendable {
         }
         let resolution: FASTQInputLayoutResolution
         if let hints {
-            let scan = try FASTQReadLayoutClassifier.readHeaders(from: file)
+            let scan = try FASTQReadLayoutClassifier.countMates(in: file)
             let classification = FASTQReadLayoutClassifier.classify(
-                headers: scan.headers,
+                scannedRecords: scan.scannedRecords,
+                matePairs: scan.matePairs,
+                unpairedRecords: scan.unpairedRecords,
                 scannedWholeFile: scan.scannedWholeFile,
                 metadata: hints
             )
@@ -372,11 +374,11 @@ public struct ReadSetResolver: Sendable {
         } else {
             resolution = FASTQInputLayoutResolver.resolve(inputURLs: [file])
         }
-        // The scan reads a bounded number of records. The whole-file count
-        // of a materialization outranks it in both directions. Pairs followed
-        // by single reads past the scan limit (the D2 shape) are mixed, never
-        // strict pairs, and a mixed stream whose counts show one kind of
-        // record is that kind (`resolvingStreamsByTheirCounts`).
+        // The whole-file count of a materialization outranks the merge
+        // evidence in both directions. Pairs followed by single reads (the D2
+        // shape) are mixed, never strict pairs, and a mixed stream whose
+        // counts show one kind of record is that kind
+        // (`resolvingStreamsByTheirCounts`).
         var layout = resolution.layout
         var layoutReason = resolution.reason
         if let counts = materializedCounts, counts.pairs > 0, counts.unpaired > 0, layout != .mixedMergedAndPairs {

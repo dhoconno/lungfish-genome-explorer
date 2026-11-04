@@ -195,12 +195,13 @@ public enum FASTQInputLayoutResolver {
     ///     metadata; a materialized scratch file is scanned on its own.
     ///   - pairedFiles: whether the caller bound exactly two files as R1/R2.
     ///   - explicit: a layout the caller already knows; final when non-nil.
-    ///   - recordLimit: how many records the scan reads before deciding.
+    ///   - recordLimit: how many records the scan reads before deciding. The
+    ///     default is the whole file, and a bounded scan never says strict.
     public static func resolve(
         inputURLs: [URL],
         pairedFiles: Bool = false,
         explicit: FASTQInputLayout? = nil,
-        recordLimit: Int = FASTQReadLayoutClassifier.defaultRecordLimit
+        recordLimit: Int = .max
     ) -> FASTQInputLayoutResolution {
         if let explicit {
             return FASTQInputLayoutResolution(
@@ -267,7 +268,7 @@ public enum FASTQInputLayoutResolver {
     public static func resolve(
         fastqURL: URL,
         metadataFrom hintURL: URL?,
-        recordLimit: Int = FASTQReadLayoutClassifier.defaultRecordLimit
+        recordLimit: Int = .max
     ) -> FASTQInputLayoutResolution {
         guard let hintURL else {
             return resolve(inputURLs: [fastqURL], recordLimit: recordLimit)

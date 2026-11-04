@@ -180,7 +180,7 @@ final class FASTQOperationOutputImporterMergeLineageTests: XCTestCase {
         )
         XCTAssertEqual(prepared.decisions.first?.pairCount, 1)
         let mates = try XCTUnwrap(prepared.samples.first).fastqURLs
-        XCTAssertEqual(try mates.map { try FASTQReadLayoutClassifier.readHeaders(from: $0).headers }, [["u1/1"], ["u1/2"]])
+        XCTAssertEqual(try mates.map { try FASTQReadLayoutClassifier.readHeaders(from: $0, limit: 100_000).headers }, [["u1/1"], ["u1/2"]])
     }
 
     /// A grandchild that keeps one pair and one mate of the other holds a pair
@@ -287,7 +287,7 @@ final class FASTQOperationOutputImporterMergeLineageTests: XCTestCase {
         let child = try await Self.importFilterOutput(
             Self.childPairs, named: "merge-pairs", of: fixtures.mergeDerivative, fixtures: fixtures, root: root
         )
-        let pairCount = FASTQReadLayoutClassifier.defaultRecordLimit / 2
+        let pairCount = 50_000
         var records = (0..<pairCount).flatMap { index in
             [(id: "p\(index)/1", sequence: "ACGTACGTAC"), (id: "p\(index)/2", sequence: "ACGTACGTAC")]
         }

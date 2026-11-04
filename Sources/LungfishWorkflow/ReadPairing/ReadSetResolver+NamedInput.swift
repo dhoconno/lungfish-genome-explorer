@@ -129,9 +129,12 @@ extension ReadSetResolver {
                 reason: "The bundle metadata records single-end reads, chosen at import."
             )
         }
-        let scan = (try? FASTQReadLayoutClassifier.readHeaders(from: file)) ?? (headers: [], scannedWholeFile: true)
+        let scan = (try? FASTQReadLayoutClassifier.countMates(in: file))
+            ?? (scannedRecords: 0, matePairs: 0, unpairedRecords: 0, scannedWholeFile: true)
         let classification = FASTQReadLayoutClassifier.classify(
-            headers: scan.headers,
+            scannedRecords: scan.scannedRecords,
+            matePairs: scan.matePairs,
+            unpairedRecords: scan.unpairedRecords,
             scannedWholeFile: scan.scannedWholeFile,
             metadata: evidence.hints,
             wholeFileScanOutranksTheMerge: evidence.scanOutranksTheMerge

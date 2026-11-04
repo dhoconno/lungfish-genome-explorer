@@ -106,12 +106,14 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
         XCTAssertEqual(result.layout, .mixedInterleaved)
     }
 
-    func testTruncatedScanEndingMidPairStaysStrict() {
+    /// A bounded scan never says strict (BIO ruling READ-LAYOUT-PARTIAL-SCAN, item 5). It still does not count a final
+    /// record that may be half a pair.
+    func testTruncatedScanEndingMidPairIsNeverStrict() {
         let result = FASTQReadLayoutClassifier.classify(
             headers: ["a/1", "a/2", "b/1"],
             scannedWholeFile: false
         )
-        XCTAssertEqual(result.layout, .strictlyInterleaved)
+        XCTAssertEqual(result.layout, .mixedInterleaved)
         XCTAssertEqual(result.unpairedRecords, 0)
     }
 
@@ -302,7 +304,8 @@ final class FASTQReadLayoutClassifierTests: XCTestCase {
         XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: uncounted).layout, .strictlyInterleaved)
 
         let counted = try makeMergeLineageChild(headers: headers, roles: pairsOnlyRoles(naming: "reads.fastq", pairs: 2))
-        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: counted, limit: 2).layout, .strictlyInterleaved)
+        // A count with no recorded size is not bound to this file, so a bounded scan stays no proof (item 5).
+        XCTAssertEqual(FASTQReadLayoutClassifier.classify(inputURL: counted, limit: 2).layout, .mixedInterleaved)
         let result = FASTQReadLayoutClassifier.classify(inputURL: counted)
         XCTAssertEqual(result.layout, .strictlyInterleaved)
         XCTAssertFalse(result.metadata.hasMergedOrUnpairedReads)

@@ -10,7 +10,9 @@ import Foundation
 /// (``ReadPair/parse(from:)``: `/1` `/2` suffixes, or Illumina ` 1:N:` / ` 2:N:`
 /// comments) gives the same pair ID with read 1 followed by read 2. Records
 /// with no pair marker are mates when their read IDs are identical (the
-/// BBTools and SRA convention). The scan is bounded by ``defaultRecordLimit``.
+/// BBTools and SRA convention). Every default scan reads the whole file
+/// (``defaultRecordLimit``), and only a scan of the whole file can call a file
+/// strictly interleaved.
 public enum FASTQReadLayoutClassifier {
 
     // MARK: Pairing rule

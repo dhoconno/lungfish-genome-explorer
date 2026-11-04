@@ -644,8 +644,8 @@ final class FASTQOperationOutputImporterToolCommandTests: XCTestCase {
         let mates = try XCTUnwrap(prepared.samples.first).fastqURLs
         XCTAssertEqual(mates.count, 2)
         guard mates.count == 2 else { return }
-        XCTAssertEqual(try FASTQReadLayoutClassifier.readHeaders(from: mates[0]).headers, ["u1/1"])
-        XCTAssertEqual(try FASTQReadLayoutClassifier.readHeaders(from: mates[1]).headers, ["u1/2"])
+        XCTAssertEqual(try FASTQReadLayoutClassifier.readHeaders(from: mates[0], limit: 100_000).headers, ["u1/1"])
+        XCTAssertEqual(try FASTQReadLayoutClassifier.readHeaders(from: mates[1], limit: 100_000).headers, ["u1/2"])
     }
 }
 
