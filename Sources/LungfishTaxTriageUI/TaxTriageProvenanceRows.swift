@@ -47,17 +47,17 @@ enum TaxTriageProvenanceRows {
         ]
     }
 
-    /// The summary bar's Samples card, where nil reads Not recorded. A result with no sidecar keeps the card's
-    /// earlier value of one sample.
+    /// The summary bar's Samples card, where nil reads Not recorded. A result with no sidecar, and a record that
+    /// lists no samples, both read Not recorded.
     static func summarySampleCount(_ result: TaxTriageResult?) -> Int? {
-        guard let result else { return 1 }
+        guard let result else { return nil }
         return result.config.samples.isEmpty ? nil : result.config.samples.count
     }
 
-    /// The summary bar's Runtime card, where nil reads Not recorded. A result with no sidecar keeps the card's
-    /// earlier value of zero.
+    /// The summary bar's Runtime card, where nil reads Not recorded. A result with no sidecar, and a record that
+    /// lists no samples, both read Not recorded.
     static func summaryRuntime(_ result: TaxTriageResult?) -> TimeInterval? {
-        guard let result else { return 0 }
+        guard let result else { return nil }
         return result.config.samples.isEmpty ? nil : result.runtime
     }
 
