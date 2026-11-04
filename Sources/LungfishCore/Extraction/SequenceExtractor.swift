@@ -315,12 +315,26 @@ public enum SequenceExtractor {
             effectiveEnd = flankEnd
 
             // Fetch the two flanking segments once, in genomic order.
-            let lowFlankSeq: String? = flankStart < boundingStart
-                ? sequenceProvider(chromosome, flankStart, boundingStart)
-                : nil
-            let highFlankSeq: String? = boundingEnd < flankEnd
-                ? sequenceProvider(chromosome, boundingEnd, flankEnd)
-                : nil
+            // A flank that was asked for and cannot be read is a failed read, as an exon is. Leaving it
+            // out would hand back a shorter sequence with no word.
+            let lowFlankSeq: String?
+            if flankStart < boundingStart {
+                guard let flank = sequenceProvider(chromosome, flankStart, boundingStart) else {
+                    throw ExtractionError.sequenceNotAvailable("\(chromosome):\(flankStart)-\(boundingStart)")
+                }
+                lowFlankSeq = flank
+            } else {
+                lowFlankSeq = nil
+            }
+            let highFlankSeq: String?
+            if boundingEnd < flankEnd {
+                guard let flank = sequenceProvider(chromosome, boundingEnd, flankEnd) else {
+                    throw ExtractionError.sequenceNotAvailable("\(chromosome):\(boundingEnd)-\(flankEnd)")
+                }
+                highFlankSeq = flank
+            } else {
+                highFlankSeq = nil
+            }
 
             // Exon sequences, individually reverse-complemented when requested
             // and assembled in transcription order — matching

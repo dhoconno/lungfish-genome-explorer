@@ -284,10 +284,7 @@ public final class IndexedFASTAReader: Sendable {
             throw FASTAError.invalidEncoding
         }
 
-        let sequence = Self.sequenceText(fromIndexedWindow: rawSequence)
-        let clampedLength = min(region.length, sequence.count)
-
-        return String(sequence.prefix(clampedLength))
+        return try Self.regionBases(region, fromIndexedWindow: rawSequence)
     }
 
     /// Fetches a full sequence by name.
@@ -346,10 +343,7 @@ public final class IndexedFASTAReader: Sendable {
             throw FASTAError.invalidEncoding
         }
 
-        let sequence = Self.sequenceText(fromIndexedWindow: rawSequence)
-        let clampedLength = min(region.length, sequence.count)
-
-        return String(sequence.prefix(clampedLength))
+        return try Self.regionBases(region, fromIndexedWindow: rawSequence)
     }
 
     /// Strips FASTA line-wrapping newlines (LF and CR) from a raw indexed

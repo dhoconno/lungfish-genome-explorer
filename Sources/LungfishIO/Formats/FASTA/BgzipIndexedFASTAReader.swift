@@ -327,10 +327,7 @@ public actor BgzipIndexedFASTAReader {
         // Stripping only "\n" left a stray "\r" (and dropped a base) for
         // every line of a CRLF-terminated FASTA. Shares the exact stripping
         // logic FASTAIndex.fetch already used correctly for plain FASTA.
-        let sequence = IndexedFASTAReader.sequenceText(fromIndexedWindow: rawString)
-        let clampedLength = min(region.length, sequence.count)
-
-        return String(sequence.prefix(clampedLength))
+        return try IndexedFASTAReader.regionBases(region, fromIndexedWindow: rawString)
     }
 
     /// Fetches a full sequence by name.
@@ -601,11 +598,9 @@ public final class SyncBgzipFASTAReader: Sendable {
 
         // Remove newlines (LF and CR) and trim to exact length (see
         // fetch(region:) above for why CR must also be stripped).
-        let sequence = IndexedFASTAReader.sequenceText(fromIndexedWindow: rawString)
-        let clampedLength = min(region.length, sequence.count)
-
-        bgzipLogger.info("fetchSync: DONE \(region.description) -> \(clampedLength) bases")
-        return String(sequence.prefix(clampedLength))
+        let bases = try IndexedFASTAReader.regionBases(region, fromIndexedWindow: rawString)
+        bgzipLogger.info("fetchSync: DONE \(region.description) -> \(bases.count) bases")
+        return bases
     }
     
     /// Reads and decompresses a range of uncompressed bytes.

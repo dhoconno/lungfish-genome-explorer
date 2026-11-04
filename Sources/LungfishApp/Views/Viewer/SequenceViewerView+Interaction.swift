@@ -1329,7 +1329,7 @@ extension SequenceViewerView {
             guard let self else { return }
             guard let bases = await self.fetchAnnotationBasesAsync(annotation) else {
                 guard thisGeneration == self.fastaOperationFetchGeneration else { return }
-                NSSound.beep()
+                self.presentAnnotationSequenceFailure(annotation, step: .copySequence)
                 return
             }
             guard thisGeneration == self.fastaOperationFetchGeneration else { return }
@@ -1360,7 +1360,7 @@ extension SequenceViewerView {
             guard let self else { return }
             guard let bases = await self.fetchAnnotationBasesAsync(annotation) else {
                 guard thisGeneration == self.fastaOperationFetchGeneration else { return }
-                NSSound.beep()
+                self.presentAnnotationSequenceFailure(annotation, step: .copyComplement)
                 return
             }
             guard thisGeneration == self.fastaOperationFetchGeneration else { return }
@@ -1380,7 +1380,7 @@ extension SequenceViewerView {
             guard let self else { return }
             guard let bases = await self.fetchAnnotationBasesAsync(annotation) else {
                 guard thisGeneration == self.fastaOperationFetchGeneration else { return }
-                NSSound.beep()
+                self.presentAnnotationSequenceFailure(annotation, step: .copyReverseComplement)
                 return
             }
             guard thisGeneration == self.fastaOperationFetchGeneration else { return }
@@ -1450,7 +1450,7 @@ extension SequenceViewerView {
             guard let self else { return }
             guard let bases = await self.fetchAnnotationBasesAsync(annotation) else {
                 guard thisGeneration == self.fastaOperationFetchGeneration else { return }
-                NSSound.beep()
+                self.presentAnnotationSequenceFailure(annotation, step: .copySequence)
                 return
             }
             guard thisGeneration == self.fastaOperationFetchGeneration else { return }
@@ -1631,7 +1631,7 @@ extension SequenceViewerView {
             guard let self else { return }
             guard let bases = await self.fetchAnnotationBasesAsync(annotation) else {
                 guard thisGeneration == self.fastaOperationFetchGeneration else { return }
-                NSSound.beep()
+                self.presentAnnotationSequenceFailure(annotation, step: .copyReverseComplement)
                 return
             }
             guard thisGeneration == self.fastaOperationFetchGeneration else { return }
@@ -1666,9 +1666,8 @@ extension SequenceViewerView {
                 let start = max(0, interval.start)
                 let end = interval.end
                 let region = GenomicRegion(chromosome: chrom, start: start, end: end)
-                if let bases = try? await Self.fetchBundleRegionOffMain(bundle: bundle, region: region) {
-                    allBases += bases
-                }
+                guard let bases = try? await Self.fetchBundleRegionOffMain(bundle: bundle, region: region) else { return nil }
+                allBases += bases
             }
             return allBases.isEmpty ? nil : allBases
         } else if let seq = sequence {
