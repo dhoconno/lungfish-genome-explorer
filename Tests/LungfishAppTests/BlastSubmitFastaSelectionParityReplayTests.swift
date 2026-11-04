@@ -26,7 +26,7 @@ final class BlastSubmitFastaSelectionParityReplayTests: XCTestCase {
         scratch = try TestTempDirectory.make(prefix: "blast-fasta-parity")
         server = try BlastSubmitParity.standIn()
         saved = ProcessEnvironmentOverride(
-            set: [BlastSubmitParity.standInVariable: server.baseURL.absoluteString], unset: ["NCBI_API_KEY"]
+            set: [BlastSubmitParity.standInVariable: server.baseURL.absoluteString, BlastSubmitParity.timeScaleVariable: BlastSubmitParity.fastClock], unset: ["NCBI_API_KEY"]
         )
         harness = BlastSubmitParity.harness(cli: try BlastSubmitParity.cli(for: Self.self), server: server)
     }

@@ -32,6 +32,9 @@ import LungfishWorkflow
 enum BlastSubmitParity {
     /// The variable that points a debug build's BLAST service at a stand-in origin.
     static let standInVariable = BlastServiceEndpoints.standInOriginVariable
+    /// The variable and value that scale the search clock, so an 11 s contact slot costs 18 ms and no test waits it out.
+    static let timeScaleVariable = BlastStandInState.timeScaleVariable
+    static let fastClock = "600"
 
     /// The one case of each class, one selection searched once.
     enum Case: String, Sendable {
@@ -74,7 +77,7 @@ enum BlastSubmitParity {
     static func harness(cli: URL, server: LoopbackHTTPStandIn) -> RouteParityHarness {
         let origin = server.baseURL.absoluteString
         return RouteParityHarness(cliBinary: cli, kind: .bundle, masks: masks, replayTimeout: .seconds(120)) { _ in
-            [standInVariable: origin]
+            [standInVariable: origin, timeScaleVariable: fastClock]
         }
     }
 
@@ -92,7 +95,7 @@ enum BlastSubmitParity {
     /// route moved.
     static func inProcessSearch(_ request: BlastVerificationRequest, server: LoopbackHTTPStandIn) async -> RouteParitySideOutcome {
         do {
-            let service = BlastService(environment: [standInVariable: server.baseURL.absoluteString])
+            let service = BlastService(environment: [standInVariable: server.baseURL.absoluteString, timeScaleVariable: fastClock])
             return RouteParitySideOutcome(end: .completed, detail: summary(try await service.verify(request: request)))
         } catch {
             return RouteParitySideOutcome(end: .failed, detail: "\(error)")
