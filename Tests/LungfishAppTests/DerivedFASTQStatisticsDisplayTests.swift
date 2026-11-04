@@ -66,6 +66,52 @@ final class DerivedFASTQStatisticsDisplayTests: XCTestCase {
         )
     }
 
+    // MARK: - A derived dataset that does not open
+
+    /// The route that shows stored statistics clears nothing first, so a refusal has to take the last numbers away.
+    @MainActor
+    func testADerivedDatasetThatDoesNotOpenLeavesNoNumbersInTheInspector() async throws {
+        isolateAlignmentPaneDefaults()
+        let root = try TestTempDirectory.make(prefix: "DerivedFASTQRefusal")
+        let hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
+        defer {
+            hostDefaults.restore()
+            TestTempDirectory.cleanup(root)
+        }
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let split = harness.split
+        let viewer = split.viewerController!
+        let row = try await buildRow(of: "FASTQ", under: root)
+        harness.select(row)
+        let shown = await waitUntil(budget: .lookup) {
+            split.inspectorController.viewModel.documentSectionViewModel.fastqStatistics != nil
+        }
+        XCTAssertTrue(shown, "the first read set's numbers never reached the Inspector")
+        let operation = FASTQDerivativeOperation(kind: .demultiplex, toolUsed: "exact-barcode-demux", toolVersion: nil)
+        let manifest = FASTQDerivedBundleManifest(
+            name: "BC02", parentBundleRelativePath: "../root.lungfishfastq",
+            rootBundleRelativePath: "../root.lungfishfastq", rootFASTQFilename: "reads.fastq",
+            lineage: [operation], operation: operation, cachedStatistics: Self.scored, pairingMode: nil
+        )
+
+        split.displayDerivedFASTQDataset(
+            manifest,
+            sourceURL: root.appendingPathComponent("BC02.\(FASTQBundle.directoryExtension)", isDirectory: true),
+            fastqURL: root.appendingPathComponent("gone.fastq"),
+            viewerController: viewer,
+            isCurrentRequest: { true }
+        )
+
+        let words = viewer.statusBar.positionLabel.stringValue
+        XCTAssertTrue(words.hasPrefix("Unable to open the FASTQ dataset. "), "the status line never said the dataset did not open: \(words)")
+        XCTAssertNil(viewer.fastqDatasetController, "a derived dataset that did not open is on screen")
+        XCTAssertNil(
+            split.inspectorController.viewModel.documentSectionViewModel.fastqStatistics,
+            "the Inspector still shows the last read set's numbers under a derived dataset that did not open"
+        )
+    }
+
     // MARK: - Measured once this session, and nothing written
 
     private actor CallCount {
