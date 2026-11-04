@@ -99,9 +99,25 @@ final class MHCReferenceBundleSurfaceRouteTests: XCTestCase {
             "the status line never said the bundle did not open: \(words())"
         )
         XCTAssertTrue(words().contains("Select it again."), words())
+        XCTAssertFalse(viewer.statusBar.isHidden, "the words are in a hidden status bar")
         XCTAssertFalse(words().contains("bundle:"), "the words name an internal kind id: \(words())")
         XCTAssertNil(viewer.mhcReferenceBundleViewController)
         XCTAssertNil(summary.mhcReferenceBundleDocument, "the Inspector describes a bundle that is not shown")
+    }
+
+    /// The route for a Finder double-click, Open Recent or the dock says the same words.
+    func testAnMHCReferenceBundleOpenedOutsideTheSidebarThatDoesNotOpenSaysWhatToTry() {
+        viewer.surfaceHost.registry.register(.bundle(.mhcReference)) { RefusingMHCSurface() }
+
+        controller.displayMHCReferenceBundleFromExternalOpen(at: mhcBundle)
+
+        let words = viewer.statusBar.positionLabel.stringValue
+        XCTAssertTrue(words.contains("Unable to open the MHC reference bundle."), words)
+        XCTAssertTrue(words.contains("Select it again."), words)
+        XCTAssertFalse(words.contains("bundle:"), words)
+        XCTAssertFalse(viewer.statusBar.isHidden, "the words are in a hidden status bar")
+        XCTAssertNil(viewer.mhcReferenceBundleViewController)
+        XCTAssertNil(summary.mhcReferenceBundleDocument)
     }
 
     // MARK: - Its own kind
