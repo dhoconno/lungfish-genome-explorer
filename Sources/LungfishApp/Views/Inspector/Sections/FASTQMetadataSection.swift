@@ -204,15 +204,30 @@ public final class FASTQMetadataSectionViewModel {
         DispatchQueue.main.asyncAfter(deadline: .now() + autosaveInterval, execute: item)
     }
 
-    /// Immediately saves current metadata to disk.
+    /// The bundle whose failed save was reported, so that autosave, which comes here after each pause, reports a
+    /// read-only volume once and not after every edit. A save that works clears it.
+    private var saveFailureReportedBundle: URL?
+
+    /// Immediately saves current metadata to disk. The write comes first. On a failed write the edit stays unsaved,
+    /// so Revert returns to the last edit that reached the disk and no listener hears of a save, and the person gets
+    /// words (METADATA-EDIT-READONLY, Phase 3.2).
     func performSave() {
         guard let bundleURL, let metadata else { return }
         let shouldPersistReadType = assemblyReadTypeChangedSinceLastSave
             || assemblyReadType != lastSavedAssemblyReadType
+        do {
+            try FASTQBundleCSVMetadata.save(metadata.toLegacyCSV(), to: bundleURL)
+        } catch {
+            if saveFailureReportedBundle != bundleURL {
+                saveFailureReportedBundle = bundleURL
+                let name = bundleURL.deletingPathExtension().lastPathComponent
+                saveFailurePresenter(InspectorFailureReports.saveMetadataEdit(bundleName: name, error))
+            }
+            return
+        }
+        saveFailureReportedBundle = nil
         lastSavedMetadata = metadata
         lastSavedAssemblyReadType = assemblyReadType
-        let legacyCSV = metadata.toLegacyCSV()
-        try? FASTQBundleCSVMetadata.save(legacyCSV, to: bundleURL)
         if shouldPersistReadType {
             persistAssemblyReadTypeToTargets()
         }
