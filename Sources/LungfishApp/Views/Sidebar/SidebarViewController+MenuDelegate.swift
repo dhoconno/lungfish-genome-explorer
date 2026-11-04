@@ -953,20 +953,20 @@ extension SidebarViewController: NSMenuDelegate {
                         sourceMeta = FASTQSampleMetadata(sampleName: sourceName)
                     }
 
-                    // Apply to each target bundle
-                    for targetURL in targetURLs {
-                        let targetName = targetURL.deletingPathExtension().lastPathComponent
-                        let cloned = sourceMeta.cloned(withName: targetName)
-                        let legacyCSV = cloned.toLegacyCSV()
-                        try? FASTQBundleCSVMetadata.save(legacyCSV, to: targetURL)
+                    // Apply to each target bundle, and say which ones could not be written (UWORDS, Phase 3.2)
+                    let failed = Self.cloneMetadata(sourceMeta, to: targetURLs.sorted { $0.path < $1.path })
+                    if let report = Self.cloneMetadataFailureReport(failed, of: targetURLs.count) {
+                        FailurePresenter.present(report, in: window)
                     }
 
-                    // Post notification to refresh the inspector if needed
-                    NotificationCenter.default.post(
-                        name: .sampleMetadataDidChange,
-                        object: self,
-                        userInfo: self?.windowScopedUserInfo([:]) ?? [:]
-                    )
+                    // Post notification to refresh the inspector when a copy was written
+                    if failed.count < targetURLs.count {
+                        NotificationCenter.default.post(
+                            name: .sampleMetadataDidChange,
+                            object: self,
+                            userInfo: self?.windowScopedUserInfo([:]) ?? [:]
+                        )
+                    }
                 }
             }
         }
