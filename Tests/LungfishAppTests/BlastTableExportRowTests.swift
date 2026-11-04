@@ -117,8 +117,10 @@ final class BlastTableExportRowTests: XCTestCase {
         XCTAssertEqual(rows.last?[4], "")
     }
 
-    /// BIO-BLAST-TIES section 5. The tie's counts follow every column a table had, and an old record leaves them empty.
-    func testExportEndsWithTheTieCounts() {
+    /// BIO-BLAST-TIES section 5, with `Judged At` last (BLAST-ESVIRITU-FIRST-WORD). The tie's counts follow every column
+    /// a table had before them and are the three columns before `Judged At`, and an old record leaves them empty. This
+    /// fixture records no basis, so its `Judged At` cell is empty.
+    func testTheTieCountsAreTheThreeColumnsBeforeJudgedAt() {
         let tie = BlastTieSummary(
             hitListSize: 500, hitsReturned: 500, bestBitScore: 139.619, tied: 288, inClade: 117, outside: 171,
             runsPastList: false, outsideExamples: []
@@ -134,9 +136,9 @@ final class BlastTableExportRowTests: XCTestCase {
         let lines = BlastVerificationTableExport.tableContent(result: result, separator: ",")
             .split(separator: "\n")
             .map { $0.split(separator: ",", omittingEmptySubsequences: false).map(String.init) }
-        XCTAssertEqual(Array(lines[0].suffix(3)), ["tied", "tied_in_taxon", "tied_outside"])
-        XCTAssertEqual(Array(lines[1].suffix(3)), ["288", "117", "171"])
-        XCTAssertEqual(Array(lines[2].suffix(3)), ["", "", ""])
+        XCTAssertEqual(Array(lines[0].suffix(4)), ["tied", "tied_in_taxon", "tied_outside", "Judged At"])
+        XCTAssertEqual(Array(lines[1].suffix(4)), ["288", "117", "171", ""])
+        XCTAssertEqual(Array(lines[2].suffix(4)), ["", "", "", ""])
     }
 
     /// `blast submit`'s complete message adds what was sent only when it differs from the rows counted, so the
