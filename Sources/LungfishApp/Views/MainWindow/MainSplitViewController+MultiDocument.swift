@@ -310,7 +310,7 @@ extension MainSplitViewController {
 
                 // Display combined sequences from all documents in the collection view
                 self.displayMultiDocumentCollection(loadedDocs)
-                self.sayWhatDidNotRead(unread, anyDocumentRead: !loadedDocs.isEmpty)
+                self.viewerController.sayWhatDidNotRead(unread, anyDocumentRead: !loadedDocs.isEmpty)
             }
         } else if !fullyLoadedDocuments.isEmpty {
             // All documents already loaded, display immediately
@@ -361,18 +361,6 @@ extension MainSplitViewController {
         ) else { return }
         recordUITestEvent("viewport.collection.displayed sequences=\(allSequences.count)")
         mainSplitLogger.info("displayMultiDocumentCollection: Displayed collection with \(allSequences.count) sequences from \(documents.count) files")
-    }
-
-    /// Says which files of a selection did not read. With none read the viewer has nothing to show, so the status line says
-    /// why. With some read the list shows them, under a sheet that names what is missing from it.
-    private func sayWhatDidNotRead(_ unread: [(name: String, error: any Error)], anyDocumentRead: Bool) {
-        guard let first = unread.first else { return }
-        if !anyDocumentRead {
-            viewerController.clearViewport(statusMessage: viewerController.surfaceFailureWords("Unable to open the FASTA collection.", first.error))
-        } else if let window = view.window {
-            let name = unread.count > 1 ? "\(first.name) and \(unread.count - 1) more" : first.name
-            FailurePresenter.present(MainWindowFailureReports.openFile(named: name, first.error), in: window)
-        }
     }
 
     @objc func handleDocumentLoaded(_ notification: Notification) {

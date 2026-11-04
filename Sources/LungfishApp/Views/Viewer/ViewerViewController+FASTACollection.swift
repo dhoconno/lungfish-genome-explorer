@@ -273,6 +273,18 @@ extension ViewerViewController {
         }
     }
 
+    /// Says which files of a selection did not read. With none read the viewer has nothing to show, so the status line says
+    /// why. With some read the list shows them, under a sheet that names what is missing from it.
+    func sayWhatDidNotRead(_ unread: [(name: String, error: any Error)], anyDocumentRead: Bool) {
+        guard let first = unread.first else { return }
+        if !anyDocumentRead {
+            clearViewport(statusMessage: surfaceFailureWords("Unable to open the FASTA collection.", first.error))
+        } else if let window = view.window {
+            let name = unread.count > 1 ? "\(first.name) and \(unread.count - 1) more" : first.name
+            FailurePresenter.present(MainWindowFailureReports.openFile(named: name, first.error), in: window)
+        }
+    }
+
     /// Removes the FASTA collection browser and restores normal viewer components. A search the list has running goes
     /// on, since only NCBI's answer or the person ends one, so the surface has nothing to stop on its way out.
     public func hideFASTACollectionView() {

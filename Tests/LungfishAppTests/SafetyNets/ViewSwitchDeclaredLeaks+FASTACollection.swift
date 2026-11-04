@@ -8,12 +8,12 @@
 
 extension ViewSwitchDeclaredLeaks {
     static let fromTheFASTACollectionKind: [DeclaredViewSwitchLeak] = [
-        leak("FASTA collection", to: ["FASTQ"], "NET-PROVENANCE-STAYS", [
+        leak("FASTA collection", to: ["FASTQ"], "INSPECTOR-STALE, NET-PROVENANCE-STAYS", [
             "+ provenance: sequence ../k21-fastacollection/Inputs/clusters.fasta",
             "- inspector: fastqStatistics",
             "- provenance: fastqBundle Reads/illumina-reads.lungfishfastq",
         ]),
-        leak("Tree", to: ["FASTA collection"], "NET-INSPECTOR-DOCUMENT-STAYS", [
+        leak("Tree", to: ["FASTA collection"], "INSPECTOR-STALE", [
             "+ inspectorTab: genomics selection of [document, selection, view, derive, provenance]",
             "+ inspectorBlocks: selection, variant",
             "- inspectorTab: genomics document of [document, selection, view, derive, provenance]",
@@ -22,7 +22,7 @@ extension ViewSwitchDeclaredLeaks {
         leak("FASTA document", to: ["FASTA collection"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("FASTA collection", to: ["Quick Look"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
+        leak("FASTA collection", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: genomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ provenance: sequence ../k21-fastacollection/Inputs/clusters.fasta",
@@ -36,7 +36,7 @@ extension ViewSwitchDeclaredLeaks {
         leak("Quick Look", to: ["FASTA collection"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("FASTA collection", to: ["PDF"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
+        leak("FASTA collection", to: ["PDF"], "NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: genomics",
             "+ provenance: sequence ../k21-fastacollection/Inputs/clusters.fasta",
             "+ inspectorTab: genomics document of [document, selection, view, derive, provenance]",
