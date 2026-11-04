@@ -478,6 +478,34 @@ final class AIHaplotypingRunnerTests: XCTestCase {
         }
     }
 
+    func testRunnerStopsOnQuotaExceededWithoutRetryAndRecordsQuotaCategory() async throws {
+        let provider = MockStructuredProvider { _ in
+            throw AIProviderError.quotaExceeded("raw provider body with secret-token")
+        }
+        let runner = AIHaplotypingRunner(provider: provider, promptRegistry: .builtIn)
+
+        do {
+            _ = try await runner.run(
+                result: makeResult(calls: [makeCall(sample: "DW472", genotype: "12_M9_B_001_01")]),
+                sidecar: nil,
+                options: AIHaplotypingRunOptions(
+                    mode: .aiDiscovery,
+                    providerID: .openAI,
+                    maxObservationsPerChunk: 10
+                )
+            )
+            XCTFail("Expected provider failure")
+        } catch let failure as AIHaplotypingRunFailure {
+            XCTAssertEqual(failure.stage, .provider)
+            XCTAssertEqual(failure.sanitizedErrorCategory, "quota_exceeded")
+            XCTAssertTrue(failure.message.localizedCaseInsensitiveContains("quota"), failure.message)
+            XCTAssertFalse(failure.message.localizedCaseInsensitiveContains("rate limited"), failure.message)
+            XCTAssertFalse(failure.message.contains("secret-token"))
+        }
+        let requests = await provider.recordedRequests()
+        XCTAssertEqual(requests.count, 1, "A quota failure stops the run without a retry.")
+    }
+
     func testRunnerReportsInvalidStructuredProviderResponseDetail() async throws {
         let provider = MockStructuredProvider { _ in
             throw AIProviderError.invalidResponse(
