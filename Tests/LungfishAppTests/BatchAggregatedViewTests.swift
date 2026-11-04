@@ -630,36 +630,6 @@ final class BatchTableSelectionIdentityTests: XCTestCase {
         )
     }
 
-    func testEsVirituUniqueReadRefreshDoesNotReemitSelectionCallbacks() {
-        let table = ViralDetectionTableView(frame: .zero)
-        table.resultIdentity = "/project/Analyses/esviritu-selection-refresh"
-        table.result = Self.esvirituResult([
-            Self.viralAssembly(sampleId: "sample-A", assembly: "GCF_A", accession: "NC_A", reads: 40),
-        ])
-
-        var assemblySelectionCount = 0
-        table.onAssemblySelected = { _ in
-            assemblySelectionCount += 1
-        }
-
-        let assemblyRow = Self.row(in: table.testOutlineView) { item in
-            guard let assemblyItem = item as? ViralDetectionTableView.ViralAssemblyItem else { return false }
-            return assemblyItem.assembly.assembly == "GCF_A"
-        }
-        table.testOutlineView.selectRowIndexes(IndexSet(integer: assemblyRow), byExtendingSelection: false)
-        table.outlineViewSelectionDidChange(
-            Notification(name: NSOutlineView.selectionDidChangeNotification, object: table.testOutlineView)
-        )
-
-        assemblySelectionCount = 0
-        table.setUniqueReadCount(7, forContig: "NC_A", inAssembly: "GCF_A")
-        XCTAssertEqual(
-            assemblySelectionCount,
-            0,
-            "Updating MiniBAM-derived read counts must not re-enter the selection/detail callback path"
-        )
-    }
-
     func testEsVirituMiniBAMStatsDoNotOverwriteStaticUniqueReadCounts() {
         let viewController = EsVirituResultViewController()
         isolateLayouts(viewController)

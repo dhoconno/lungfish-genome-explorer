@@ -166,32 +166,6 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         }
     }
 
-    /// Updates the unique read count for a single contig/segment and refreshes the display.
-    ///
-    /// Also recomputes the parent assembly total as the sum of its contig unique reads.
-    public func setUniqueReadCount(_ count: Int, forContig contigAccession: String, inAssembly assemblyAccession: String) {
-        uniqueReadCountsByContig[contigAccession] = count
-
-        // Recompute assembly total from per-contig values
-        let items = sortedDisplayItems
-        if let item = items.first(where: { item in
-            item.assembly.assembly == assemblyAccession
-                && item.assembly.contigs.contains(where: { $0.accession == contigAccession })
-        }) {
-            let assemblyTotal = item.assembly.contigs.reduce(0) { sum, contig in
-                let sampleId = contig.sampleId
-                return sum + (uniqueReadCountsBySampleContig["\(sampleId)\t\(contig.accession)"]
-                    ?? uniqueReadCountsByContig[contig.accession]
-                    ?? 0)
-            }
-            uniqueReadCountsByAssembly[assemblyAccession] = assemblyTotal
-            uniqueReadCountsBySampleAssembly[assemblyKey(for: item.assembly)] = assemblyTotal
-
-            // Reload the assembly row and its children
-            reloadItemPreservingSelection(item, reloadChildren: true, notifySelectionCallbacks: false)
-        }
-    }
-
     /// Returns the contig-level GenBank accessions for all selected rows.
     ///
     /// For assembly rows, expands to all constituent contig accessions so the
