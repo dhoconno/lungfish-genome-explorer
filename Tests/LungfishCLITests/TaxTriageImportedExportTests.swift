@@ -86,6 +86,33 @@ final class TaxTriageImportedExportTests: XCTestCase {
         XCTAssertFalse(try reportText(of: result).contains("Not recorded"))
     }
 
+    /// A two-sample batch with no root `report/` opens both samples, and the control's mark reaches the matrix.
+    func testImportedTwoSampleBatchOpensBothSamples() async throws {
+        let source = folder.appendingPathComponent("batch", isDirectory: true)
+        try writeReport(for: "S1", rows: 3, to: source.appendingPathComponent("S1/report/S1.odr.txt"))
+        try writeReport(for: "NTC1", rows: 1, to: source.appendingPathComponent("NTC1/report/NTC1.odr.txt"))
+        let config = TaxTriageConfig(
+            samples: [
+                TaxTriageSample(sampleId: "S1", fastq1: URL(fileURLWithPath: "/nonexistent/S1.fastq.gz")),
+                TaxTriageSample(sampleId: "NTC1", fastq1: URL(fileURLWithPath: "/nonexistent/NTC1.fastq.gz"), isNegativeControl: true),
+            ],
+            platform: .oxford,
+            outputDirectory: source
+        )
+        try TaxTriageResult(config: config, runtime: 1234.5, exitCode: 0, outputDirectory: source).save()
+        let imported = try MetagenomicsImportService.importTaxTriage(
+            inputURL: source,
+            outputDirectory: folder.appendingPathComponent("imports", isDirectory: true)
+        )
+        XCTAssertEqual(imported.reportEntryCount, 4)
+        let build = try BuildDbCommand.TaxTriageSubcommand.parse([imported.resultDirectory.path, "--no-cleanup", "-q"])
+        try await build.run()
+        let database = try TaxTriageDatabase(at: imported.resultDirectory.appendingPathComponent("taxtriage.sqlite"))
+        XCTAssertEqual(try database.fetchSamples().map(\.sample).sorted(), ["NTC1", "S1"])
+        let shared = try XCTUnwrap(try matrixLines(of: imported.resultDirectory).first { $0.hasPrefix("\(Self.shared),") })
+        XCTAssertTrue(shared.contains(",2/2,Yes,"), "the matrix did not flag the organism the control holds: \(shared)")
+    }
+
     // MARK: - Helpers
 
     /// Imports a run folder of flat reports (`S1` holds 3 rows and each other sample 1) and builds the database.
