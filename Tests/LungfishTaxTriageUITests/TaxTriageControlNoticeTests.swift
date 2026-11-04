@@ -43,6 +43,20 @@ final class TaxTriageControlNoticeTests: XCTestCase {
         XCTAssertTrue(words.contains("Run it again, or check it another way, before you rely on these results."), words)
     }
 
+    /// Row 3. A control whose task Nextflow ignored and that has no rows is not a clean control.
+    func testViewerSaysAControlWhoseTaskNextflowIgnoredHasNoResult() throws {
+        let fixture = try Fixture(
+            listed: [("sample-1", false), ("sample-2", false), ("NTC1", true)],
+            databaseSamples: ["sample-1", "sample-2"],
+            ignored: ["NTC1"]
+        )
+        defer { fixture.cleanUp() }
+        let vc = fixture.makeController()
+
+        let words = try XCTUnwrap(vc.testControlsNotRecordedNoticeWords, "the viewer said nothing about a control whose task was ignored")
+        XCTAssertTrue(words.contains("The negative control NTC1 failed, so Lungfish has no result for it."), words)
+    }
+
     func testViewerNamesAControlItCannotFindInTheResults() throws {
         let fixture = try Fixture(
             listed: [("sample-1", false), ("sample-2", false), ("NTC 9", true)],
@@ -183,7 +197,7 @@ final class TaxTriageControlNoticeTests: XCTestCase {
         /// `listed` are the samples the sidecar lists as typed, with their control mark. `databaseSamples` hold
         /// Alpha virus in the database, and the first of them holds Beta virus too. `failed` are the samples the
         /// sidecar lists as failed.
-        init(listed: [(String, Bool)], databaseSamples: [String], failed: [String] = []) throws {
+        init(listed: [(String, Bool)], databaseSamples: [String], failed: [String] = [], ignored: [String] = []) throws {
             let fm = FileManager.default
             root = fm.temporaryDirectory
                 .appendingPathComponent("TaxTriageControlNotice-\(UUID().uuidString)", isDirectory: true)
@@ -213,6 +227,15 @@ final class TaxTriageControlNoticeTests: XCTestCase {
                 runtime: 61,
                 exitCode: 0,
                 outputDirectory: root,
+                ignoredFailures: ignored.map {
+                    TaxTriageIgnoredFailure(
+                        processPath: "NFCORE_TAXTRIAGE:TAXTRIAGE:MINIMAP2_ALIGN",
+                        processName: "MINIMAP2_ALIGN",
+                        taskLabel: "MINIMAP2_ALIGN (\($0))",
+                        sampleID: $0,
+                        exitCode: 137
+                    )
+                },
                 sampleFailures: failed.map {
                     TaxTriageSampleFailure(
                         sampleID: $0,
