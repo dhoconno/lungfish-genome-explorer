@@ -3,6 +3,11 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import Synchronization
+
+/// The rows a cancel of all ended. A cancel callback runs off the main thread and after ``OperationCenter/cancelAll()`` has
+/// returned, so a flag that holds only while that call runs cannot tell it which cancel it is.
+private let rowsCancelledByAQuit = Mutex<Set<UUID>>([])
 
 public extension OperationCenter.Item.State {
     /// Whether the row has reached its end, the one set a person can clear. A waiting row has not, though it is not active.
@@ -45,6 +50,27 @@ public extension OperationCenter {
         items[index].detail = detail
         changes.send(.updated(id: id, index: index))
         postStateChangedNotification(id: id, state: .running)
+        return true
+    }
+
+    /// Whether a cancel of all, as a quit does, ended the row. A quit is no person's Stop, so a search stays at NCBI.
+    nonisolated static func wasCancelledByAQuit(id: UUID) -> Bool {
+        rowsCancelledByAQuit.withLock { $0.contains(id) }
+    }
+
+    internal nonisolated static func noteCancelledByAQuit(_ ids: [UUID]) {
+        rowsCancelledByAQuit.withLock { $0.formUnion(ids) }
+    }
+
+    /// Takes a row whose Cancel was not taken back to waiting, since its search goes on.
+    /// - Returns: Whether the row took the state.
+    @discardableResult
+    func returnToWaiting(id: UUID, detail: String) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }), items[index].state == .cancelling else { return false }
+        items[index].state = .waiting
+        items[index].detail = detail
+        changes.send(.updated(id: id, index: index))
+        postStateChangedNotification(id: id, state: .waiting)
         return true
     }
 

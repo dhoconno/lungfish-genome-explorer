@@ -1819,7 +1819,7 @@ public class ViewerViewController: NSViewController {
                     controller.showBlastResults(result, recordURL: recordURL)
                 } catch let parked as BlastSubmitParked {
                     self?.clearActiveFASTABlast(runID: runID)
-                    await Self.parkBlastRow(opID, words: parked.words, output: parked.output) { controller?.ensureBlastDrawer().showWaiting($0) }
+                    await Self.parkFASTABlastRow(opID, parked, controller: controller)
                 } catch is CancellationError {
                     OperationCenter.shared.acknowledgeCancellation(id: opID)
                     self?.clearActiveFASTABlast(runID: runID)
@@ -1833,7 +1833,7 @@ public class ViewerViewController: NSViewController {
                 }
             }
 
-            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+            Self.setFASTABlastCancel(operationID: opID, output: plan?.request.outputURL, task: task)
             activeFASTABlastTask = task
         }
     }

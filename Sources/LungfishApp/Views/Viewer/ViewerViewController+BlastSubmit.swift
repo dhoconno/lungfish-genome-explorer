@@ -145,7 +145,8 @@ extension ViewerViewController {
     static func fastaBlastRunner(
         plan: BlastSubmitPlan?,
         operationID: UUID,
-        override: FASTABlastVerificationRunner?
+        override: FASTABlastVerificationRunner?,
+        runner: CLIBlastSubmitRunner = CLIBlastSubmitRunner()
     ) -> FASTABlastSearch {
         if let override {
             return { request, progress in
@@ -161,12 +162,51 @@ extension ViewerViewController {
             let output = plan.request.outputURL
             BlastInFlightMonitor.shared.viewerRunBegan(output: output, row: operationID)
             defer { BlastInFlightMonitor.shared.viewerRunEnded(output: output) }
-            let outcome = try await plan.run(runner: CLIBlastSubmitRunner()) { event in
+            let outcome = try await plan.run(runner: runner) { event in
                 bridge(event)
                 if case let .progress(fraction, message) = event { progress(fraction, message) }
             }
             let completed = try outcome.collected(output: output)
             return (completed.result, completed.recordURL)
+        }
+    }
+
+    /// Parks a FASTA row. Its pane is on no row, so no lookup brings a late result to it, and a watcher does (BIO SF2).
+    static func parkFASTABlastRow(
+        _ operationID: UUID,
+        _ parked: BlastSubmitParked,
+        controller: FASTACollectionViewController?,
+        monitor: BlastInFlightMonitor = .shared
+    ) async {
+        await parkBlastRow(operationID, words: parked.words, output: parked.output, monitor: monitor) {
+            controller?.ensureBlastDrawer().showWaiting($0)
+        }
+        guard let controller else { return }
+        BlastParkedPaneWatcher.watch(output: parked.output, drawer: controller.ensureBlastDrawer()) { [weak controller] result, recordURL in
+            controller?.showBlastResults(result, recordURL: recordURL)
+        }
+    }
+
+    /// The Cancel of a FASTA row, as ``launchBlastSubmit(_:operationID:runner:drawer:monitor:completeDetail:)`` has it. A
+    /// person's Cancel ends the leaf through its task, then stops the search, and the row says so. A quit sends SIGTERM alone,
+    /// so the search stays at NCBI. With no plan, a test's runner stands in and no search exists to stop.
+    static func setFASTABlastCancel(
+        operationID: UUID,
+        output: URL?,
+        task: Task<Void, Never>,
+        stopper: CLIBlastSubmitRunner = CLIBlastSubmitRunner()
+    ) {
+        OperationCenter.shared.setCancelCallback(for: operationID) {
+            let quitting = OperationCenter.wasCancelledByAQuit(id: operationID)
+            task.cancel()
+            guard !quitting, let output else { return }
+            Task { @MainActor in
+                await task.value
+                guard FileManager.default.fileExists(atPath: output.appendingPathComponent(BlastSearchFile.fileName).path) else { return }
+                OperationCenter.shared.setStoppedWords(id: operationID, words: BlastSearchWords.stopped)
+                await stopper.stopSearch(output: output)
+                BlastSearchNews.post()
+            }
         }
     }
 
@@ -184,8 +224,12 @@ extension ViewerViewController {
         show: @MainActor (BlastLiveSearch) -> Void
     ) async {
         let search = await readBlastSearch(in: output)
-        guard OperationCenter.shared.park(id: operationID, detail: words) else { return }
+        guard OperationCenter.shared.park(id: operationID, detail: words) else {
+            monitor.viewerRunEnded(output: output)
+            return
+        }
         monitor.viewerRunParked(output: output, row: operationID)
+        monitor.viewerRunEnded(output: output)
         if let search { show(search) }
         BlastSearchNews.post()
     }
@@ -224,7 +268,6 @@ extension ViewerViewController {
                     drawer.results(result, recordURL)
                     BlastSearchNews.post()
                 case .waiting(let words):
-                    monitor.viewerRunEnded(output: output)
                     await parkBlastRow(operationID, words: words, output: output, monitor: monitor) { drawer.waiting?($0) }
                 }
             } catch is CancellationError {
@@ -249,7 +292,7 @@ extension ViewerViewController {
         }
         OperationCenter.shared.setCancelCallback(for: operationID) {
             // A quit is no person's Stop, so the search stays at NCBI and LGE checks it at the next launch.
-            let quitting = MainActor.assumeIsolated { OperationCenter.shared.isCancellingAll }
+            let quitting = OperationCenter.wasCancelledByAQuit(id: operationID)
             if quitting { runner.cancel() } else { runner.cancelAsAPersonsStop() }
             task.cancel()
         }
