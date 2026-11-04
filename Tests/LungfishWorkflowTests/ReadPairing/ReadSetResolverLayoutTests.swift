@@ -45,6 +45,22 @@ final class ReadSetResolverLayoutTests: XCTestCase {
         return (r1, r2)
     }
 
+    // MARK: - A named input
+
+    /// QA review should-fix 3. A cancel is no answer about a file read alone, so it must not read as single-end or as
+    /// strict. Its twins in the classifier and the resolver have tests of their own.
+    func testNamedInputCancelledScanIsNeverSingleEnd() async throws {
+        let file = root.appendingPathComponent("large.fastq")
+        try FASTQLayoutRecordFixtures.write([.pairs(70_000)], to: file)
+        let layout = Task.detached { () -> FASTQInputLayoutResolution in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return ReadSetResolver.layoutOfFileAlone(file)
+        }
+        let resolved = await layout.value
+        XCTAssertEqual(resolved.layout, .mixedMergedAndPairs, resolved.reason)
+        XCTAssertTrue(resolved.reason.contains("cancelled"), resolved.reason)
+    }
+
     // MARK: - Roots
 
     func testSingleEndRootIsSingleReadsWithNoStep() async throws {
