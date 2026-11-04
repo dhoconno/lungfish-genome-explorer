@@ -208,7 +208,12 @@ package enum NativeProjectCopyImportService {
         for url in candidates where try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true {
             let target = url.resolvingSymlinksInPath()
             guard try target.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
-                throw CocoaError(.fileReadUnsupportedScheme, userInfo: [NSLocalizedDescriptionKey: "Import requires a concrete directory; directory links are unsupported at \(url.path)."])
+                // The person knows the link by its place in the item, not by the hidden folder the copy is built in.
+                let prefix = root.standardizedFileURL.path + "/"
+                let path = url.standardizedFileURL.path
+                throw NativeProjectCopyImportError.folderLink(
+                    link: path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : url.lastPathComponent
+                )
             }
             try fm.removeItem(at: url)
             try fm.copyItem(at: target, to: url)

@@ -159,9 +159,18 @@ package enum CrossProjectItemCopier {
         case recordFileMissing(item: String, file: String)
         /// A file of the copy does not match the original.
         case copyDiffers(item: String, file: String)
+        /// A link inside the item points to a folder, which the copy cannot follow.
+        case folderLink(item: String, link: String)
 
         package var errorDescription: String? {
             switch self {
+            case .folderLink(let item, let link):
+                return [
+                    "\(item) was not copied.",
+                    "\(link) in \(item) is a link to a folder, and Lungfish copies a link to a file but not a link to a folder.",
+                    "This copy changed nothing in the original.",
+                    "Replace the link with a copy of the folder it points to, or remove the link, then copy it again."
+                ].joined(separator: " ")
             case .recordFileMissing(let item, let file):
                 // The cause is BIO's (ruling BIO-COPY-CHANGED-FILES section 3). The record cannot say who removed the file,
                 // and Lungfish removes files of its own when it builds a result's database.
@@ -419,10 +428,15 @@ package enum CrossProjectItemCopier {
             case .sourceOutputMissing(let path): problem = .recordFileMissing(item: name, file: pathInside(item, path))
             case .unsupportedSourceProvenance: return nil
             }
+        case let native as NativeProjectCopyImportError:
+            // A link to a folder inside the item (finding 3 of the COPYFOLDER-2 report) is refused in the same voice.
+            switch native {
+            case .folderLink(let link): problem = .folderLink(item: name, link: link)
+            }
         default:
             return nil
         }
-        copierLogger.error("Copy of \(name, privacy: .public) refused on its record: \(String(describing: error), privacy: .private)")
+        copierLogger.error("Copy of \(name, privacy: .public) refused: \(String(describing: error), privacy: .private)")
         return problem
     }
 
