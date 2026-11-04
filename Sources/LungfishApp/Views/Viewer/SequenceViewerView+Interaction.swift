@@ -1246,7 +1246,7 @@ extension SequenceViewerView {
     @objc func copyComplementAction(_ sender: Any?) {
         guard let seq = sequence,
               let range = selectionRange else {
-            NSSound.beep()
+            presentSelectionRefusal(step: "Copy the complement")
             return
         }
 
@@ -1274,7 +1274,7 @@ extension SequenceViewerView {
     @objc func copyReverseComplementAction(_ sender: Any?) {
         guard let seq = sequence,
               let range = selectionRange else {
-            NSSound.beep()
+            presentSelectionRefusal(step: "Copy the reverse complement")
             return
         }
 
@@ -1592,7 +1592,6 @@ extension SequenceViewerView {
     }
 
     func presentFASTAOperationInputError(_ error: Error) {
-        NSSound.beep()
         guard let window else {
             sequenceViewerLogger.warning("Unable to prepare FASTA operation input: \(error.localizedDescription, privacy: .public)")
             return
@@ -2029,14 +2028,14 @@ extension SequenceViewerView {
     /// Copies the selected sequence to the clipboard
     public func copySelectionToClipboard() {
         guard let seq = sequence else {
-            NSSound.beep()
+            presentSelectionRefusal(step: "Copy the selection")
             return
         }
         if selectionRange == nil {
             selectVisibleRegion()
         }
         guard let range = selectionRange else {
-            NSSound.beep()
+            presentSelectionRefusal(step: "Copy the selection")
             return
         }
 

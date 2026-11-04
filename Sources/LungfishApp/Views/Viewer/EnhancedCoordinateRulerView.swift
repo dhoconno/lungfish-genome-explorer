@@ -1024,7 +1024,7 @@ extension ViewerViewController: EnhancedCoordinateRulerDelegate {
         // separator commas, a bare chromosome name, and `..` ranges.
         let knownChromosomes = currentBundleDataProvider?.chromosomes.map(\.name) ?? []
         guard let query = try? LocusQueryParser.parse(input, knownChromosomes: knownChromosomes) else {
-            NSSound.beep()
+            presentViewerRefusal(ViewerRefusalReports.locusNotRead(input: input))
             return
         }
 
@@ -1032,7 +1032,7 @@ extension ViewerViewController: EnhancedCoordinateRulerDelegate {
         case .chromosome(let name):
             guard let provider = currentBundleDataProvider,
                   let chromInfo = provider.chromosomeInfo(named: name) else {
-                NSSound.beep()
+                presentViewerRefusal(ViewerRefusalReports.sequenceNotFound(name: name, knownChromosomes: knownChromosomes))
                 return
             }
             navigateToChromosomeAndPosition(
