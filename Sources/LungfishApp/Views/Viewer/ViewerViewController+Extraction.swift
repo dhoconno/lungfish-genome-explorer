@@ -86,7 +86,7 @@ extension SequenceViewerView {
 
     func copyAnnotationAsFASTAImpl(_ annotation: SequenceAnnotation) {
         guard let provider = makeSequenceProvider(for: annotation) else {
-            NSSound.beep()
+            presentExtractionRefusal(ExtractionRefusalReports.noSequence(step: "Copy the annotation as FASTA"))
             return
         }
 
@@ -138,7 +138,7 @@ extension SequenceViewerView {
             }
         }
         guard !records.isEmpty else {
-            NSSound.beep()
+            presentExtractionRefusal(ExtractionRefusalReports.nothingToExtract(selected: annotations.count, leftOut: leftOut))
             return
         }
         let suggestedName = annotations.count == 1 ? annotations[0].name : "selected-annotations"
@@ -149,7 +149,7 @@ extension SequenceViewerView {
 
     func runAnnotationFASTAOperationImpl(_ annotation: SequenceAnnotation) {
         guard let provider = makeSequenceProvider(for: annotation) else {
-            NSSound.beep()
+            presentExtractionRefusal(ExtractionRefusalReports.noSequence(step: "Prepare the annotation for a FASTQ/FASTA operation"))
             return
         }
 
@@ -179,7 +179,7 @@ extension SequenceViewerView {
 
     func copyAnnotationTranslationAsFASTAImpl(_ annotation: SequenceAnnotation) {
         guard let provider = makeSequenceProvider(for: annotation) else {
-            NSSound.beep()
+            presentExtractionRefusal(ExtractionRefusalReports.noSequence(step: "Copy the translation as FASTA"))
             return
         }
 
@@ -195,7 +195,7 @@ extension SequenceViewerView {
             )
             guard let proteinFASTA = SequenceExtractor.formatProteinFASTA(result) else {
                 extractionLogger.warning("No protein sequence available for '\(annotation.name)'")
-                NSSound.beep()
+                presentExtractionRefusal(ExtractionRefusalReports.noProtein(step: "Copy the translation as FASTA"))
                 return
             }
             let pasteboard = NSPasteboard.general
@@ -212,7 +212,7 @@ extension SequenceViewerView {
 
     @objc func copySelectionAsFASTA(_ sender: Any?) {
         guard let region = currentVisibleViewportRegion() else {
-            NSSound.beep()
+            presentExtractionRefusal(ExtractionRefusalReports.noRegion(step: "Copy the visible region as FASTA"))
             return
         }
         let chromLength = region.chromosomeLength
@@ -261,6 +261,12 @@ extension SequenceViewerView {
             ),
             in: window
         )
+    }
+
+    /// Shows words in place of a beep when an extraction is refused before it starts, since the viewer holds no
+    /// sequence, no region or no translation to work from (UWORDS, FASTAREAD review backlog item 8).
+    private func presentExtractionRefusal(_ report: FailureReport) {
+        FailurePresenter.present(report, in: window)
     }
 
     /// Tells the person which annotations a multi-annotation extraction left out, then runs `proceed` (review of
@@ -323,7 +329,7 @@ extension SequenceViewerView {
 
     @objc func extractSelectionSequence(_ sender: Any?) {
         guard let region = currentVisibleViewportRegion() else {
-            NSSound.beep()
+            presentExtractionRefusal(ExtractionRefusalReports.noRegion(step: "Extract the visible region"))
             return
         }
         presentExtractionSheet(
@@ -406,7 +412,7 @@ extension SequenceViewerView {
         switch source {
         case .annotation(let annotation):
             guard let p = makeSequenceProvider(for: annotation) else {
-                NSSound.beep()
+                presentExtractionRefusal(ExtractionRefusalReports.noSequence(step: "Extract the annotation"))
                 return
             }
             provider = p
@@ -444,7 +450,7 @@ extension SequenceViewerView {
             case .clipboardProtein:
                 guard let proteinFASTA = SequenceExtractor.formatProteinFASTA(result) else {
                     extractionLogger.warning("No protein sequence available")
-                    NSSound.beep()
+                    presentExtractionRefusal(ExtractionRefusalReports.noProtein(step: "Extract the protein translation"))
                     return
                 }
                 let pasteboard = NSPasteboard.general
@@ -562,7 +568,7 @@ extension SequenceViewerView {
         routeContext: OperationRouteContext
     ) {
         guard let sequence else {
-            NSSound.beep()
+            presentExtractionRefusal(ExtractionRefusalReports.noDocumentSequence(step: "Extract the region into a bundle"))
             return
         }
         let documentURL = viewController?.currentDocument.flatMap { document -> URL? in
