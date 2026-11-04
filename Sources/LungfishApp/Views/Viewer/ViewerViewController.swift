@@ -3518,6 +3518,19 @@ extension ViewerViewController {
         statusBar.positionLabel.stringValue
     }
 
+    var testPreviewSelectionText: String {
+        statusBar.selectionLabel.stringValue
+    }
+
+    var testHasPDFPreview: Bool {
+        pdfView != nil
+    }
+
+    /// The view that draws the file, whichever way it is previewed.
+    var testPreviewContentView: NSView? {
+        pdfView ?? plainTextPreviewScrollView ?? quickLookView
+    }
+
     func testTapBundleBackNavigation() {
         bundleBackNavigationButtonTapped(nil)
     }
