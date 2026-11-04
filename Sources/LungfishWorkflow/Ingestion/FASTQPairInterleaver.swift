@@ -92,6 +92,11 @@ extension FASTQPairInterleaver {
         try deinterleave(interleaved: interleaved, r1: sink1, r2: sink2, launcher: ToolProcessChildLauncher())
     }
 
+    /// ``verifyMates(interleaved:launcher:)`` with the launcher that starts `gzip -dc` through ``ToolProcess``.
+    public static func verifyMates(interleaved: URL) throws {
+        try verifyMates(interleaved: interleaved, launcher: ToolProcessChildLauncher())
+    }
+
     /// ``partitionMixed(interleaved:r1:r2:unpaired:launcher:)`` with the
     /// launcher that starts `gzip -dc` through ``ToolProcess``.
     public static func partitionMixed(

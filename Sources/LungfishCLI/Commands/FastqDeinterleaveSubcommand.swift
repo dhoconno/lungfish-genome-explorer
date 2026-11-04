@@ -47,6 +47,30 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
             + "the pairs then go to --out1 and --out2, matched by read name."
     }
 
+    /// A file recorded as pairs, with no merge evidence, whose whole scan found no adjacent mates may hold mates in a name
+    /// form the layout scan does not read (`SRR123.1.1`, `SRR123.1.2`). LGE's own name check reads every name. When it
+    /// holds, the file is strict and its pairs reach R1 and R2. Otherwise the layout stays.
+    static func resolutionBorneOutByNames(
+        _ resolution: FASTQInputLayoutResolution,
+        inputURL: URL
+    ) async -> FASTQInputLayoutResolution {
+        guard resolution.layout == .mixedMergedAndPairs, let scan = resolution.classification,
+              scan.scannedWholeFile, scan.scannedRecords > 0, scan.matePairs == 0,
+              scan.metadata.claimsPairedContent, !scan.metadata.hasMergedOrUnpairedReads else { return resolution }
+        let holds = await Task.detached { (try? FASTQPairInterleaver.verifyMates(interleaved: inputURL)) != nil }.value
+        guard holds else { return resolution }
+        let reason = "The file is recorded as pairs, and LGE's name check found each of its \(scan.scannedRecords) records beside its mate, in a name form the layout scan does not read."
+        return FASTQInputLayoutResolution(
+            layout: .strictlyInterleaved,
+            source: .contentScan,
+            classification: FASTQReadLayoutClassification(
+                layout: .strictlyInterleaved, scannedRecords: scan.scannedRecords, matePairs: scan.scannedRecords / 2,
+                unpairedRecords: 0, scannedWholeFile: true, metadata: scan.metadata, reason: reason
+            ),
+            reason: reason
+        )
+    }
+
     func run() async throws {
         let out1URL = URL(fileURLWithPath: out1)
         let out2URL = URL(fileURLWithPath: out2)
@@ -59,7 +83,10 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
             cliArguments += ["--unpaired", unpaired]
         }
 
-        let resolution = FASTQInputLayoutResolver.resolve(fastqURL: inputURL, metadataFrom: resolvedInput.pairingMetadataURL)
+        let resolution = await Self.resolutionBorneOutByNames(
+            FASTQInputLayoutResolver.resolve(fastqURL: inputURL, metadataFrom: resolvedInput.pairingMetadataURL),
+            inputURL: inputURL
+        )
         var parameters: [String: ParameterValue] = [
             "input": .file(resolvedInput.originalURL),
             "out1": .file(out1URL),
