@@ -1177,7 +1177,7 @@ private struct NvdBAMCopyResult {
     let indexCount: Int
 }
 
-private func ensureDirectoryExists(_ directory: URL) throws {
+func ensureDirectoryExists(_ directory: URL) throws {
     do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     } catch {

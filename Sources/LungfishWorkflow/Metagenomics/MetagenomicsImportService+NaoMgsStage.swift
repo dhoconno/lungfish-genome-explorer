@@ -19,11 +19,15 @@ struct NaoMgsSingleSampleStageResult {
 extension MetagenomicsImportService {
     /// Imports a single pre-partitioned sample TSV into a staging directory.
     /// Produces a per-sample SQLite database and BAM files without fetching references.
+    ///
+    /// `samtoolsPath` is the samtools that writes the BAM. It is the managed one unless a test names a
+    /// stand-in, and nil means there is none.
     static func importNaoMgsSingleSampleStage(
         inputURL: URL,
         stagingDirectory: URL,
         sampleName: String,
-        minIdentity: Double = 0
+        minIdentity: Double = 0,
+        samtoolsPath: String? = MetagenomicsImportService.managedSamtoolsExecutableURL()?.path
     ) async throws -> NaoMgsSingleSampleStageResult {
         let fm = FileManager.default
         let stageDir = stagingDirectory.appendingPathComponent(sampleName, isDirectory: true)
@@ -40,7 +44,7 @@ extension MetagenomicsImportService {
         // Materialize BAMs for this sample.
         var createdBAM = false
         var materializationSteps: [NaoMgsBamMaterializationStep] = []
-        if let samtoolsPath = managedSamtoolsExecutableURL()?.path {
+        if let samtoolsPath {
             let materialized = try NaoMgsBamMaterializer.materializeAllWithProvenance(
                 dbPath: hitsDBURL.path,
                 resultURL: stageDir,
