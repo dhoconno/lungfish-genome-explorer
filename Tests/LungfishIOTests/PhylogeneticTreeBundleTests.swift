@@ -540,6 +540,52 @@ final class PhylogeneticTreeBundleTests: XCTestCase {
         XCTAssertEqual((provenanceJSON["metadataFile"] as? [String: Any])?["path"] as? String, sourceBundleURL.appendingPathComponent("metadata.tsv").path)
     }
 
+    // MARK: - A tree that repeats a node id (row PHYLO-DUP-NODE-ID)
+
+    /// Every tree view keys the nodes by id with `Dictionary(uniqueKeysWithValues:)`, which traps on a repeat. A bundle
+    /// whose normalized tree repeats an id (a hand edit or a damaged file) is refused at load, with the id named, so no
+    /// view builds and the words of the failed open reach the person.
+    func testALoadRefusesATreeThatRepeatsANodeIdAndNamesTheId() throws {
+        let sourceURL = try writeSource(name: "repeat.nwk", contents: "((A:0.1,B:0.2)90:0.3,C:0.4);")
+        let bundleURL = workspaceURL.appendingPathComponent("Repeat.lungfishtree", isDirectory: true)
+        _ = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: bundleURL)
+        let repeated = try repeatFirstNodeId(in: bundleURL)
+
+        XCTAssertThrowsError(try PhylogeneticTreeBundle.load(from: bundleURL)) { error in
+            guard case .parseFailed(let words)? = error as? PhylogeneticTreeBundleError else {
+                return XCTFail("expected parseFailed, got \(error)")
+            }
+            XCTAssertTrue(words.contains(repeated), "the words name the repeated id: \(words)")
+            XCTAssertTrue(words.contains("tree/primary.normalized.json"), "the words name the file: \(words)")
+        }
+    }
+
+    /// Ids come from the place of a node in the tree, so a Newick that repeats a tip label, or a node label and a tip
+    /// label, still gives every node an id of its own and loads. LGE's own writer cannot produce a repeat.
+    func testANewickWithARepeatedLabelStillGivesEveryNodeItsOwnId() throws {
+        let sourceURL = try writeSource(name: "same-label.nwk", contents: "((A:0.1,A:0.2)A:0.3,A:0.4);")
+        let bundleURL = workspaceURL.appendingPathComponent("SameLabel.lungfishtree", isDirectory: true)
+        _ = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: bundleURL)
+
+        let loaded = try PhylogeneticTreeBundle.load(from: bundleURL)
+
+        let ids = loaded.normalizedTree.nodes.map(\.id)
+        XCTAssertEqual(ids.count, 5)
+        XCTAssertEqual(Set(ids).count, ids.count)
+    }
+
+    /// Writes the first node's id over the second node's, as a hand edit or a damaged file would, and returns it.
+    private func repeatFirstNodeId(in bundleURL: URL) throws -> String {
+        let url = bundleURL.appendingPathComponent("tree/primary.normalized.json")
+        var json = try jsonObject(at: url)
+        var nodes = try XCTUnwrap(json["nodes"] as? [[String: Any]])
+        let id = try XCTUnwrap(nodes[0]["id"] as? String)
+        nodes[1]["id"] = id
+        json["nodes"] = nodes
+        try JSONSerialization.data(withJSONObject: json).write(to: url, options: .atomic)
+        return id
+    }
+
     private func writeSource(name: String, contents: String) throws -> URL {
         let url = workspaceURL.appendingPathComponent(name)
         try Data(contents.utf8).write(to: url, options: .atomic)
