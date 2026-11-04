@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishGenotypeUI
 @testable import LungfishIO
+@testable import LungfishKit
 
 /// Review finding B1. The window's undo manager does not retain its targets,
 /// and the viewer builds a new `GenotypeResultViewController` for every result
@@ -74,7 +75,48 @@ final class GenotypeResultUndoLifetimeTests: XCTestCase {
         XCTAssertTrue(otherUndone, "Undo another view registered survives the switch")
     }
 
+    /// Another surface can take the slot with no hide call at all, and the Undo has gone before that surface loads.
+    func testAReplacementThroughTheHostRemovesTheUndoBeforeTheNextSurfaceLoads() throws {
+        let host = makeHostedSplit()
+        defer { host.window.close() }
+        let viewer = host.split.viewerController!
+        let controller = try viewer.displayGenotypeResult(Self.makeResult())
+        let undoManager = try XCTUnwrap(controller.view.window?.undoManager)
+        registerReviewUndo(on: undoManager, target: controller)
+        var undoAtLoad = true
+        let next = SurfaceKind.bundle(.primerAnalysis)
+        viewer.surfaceHost.registry.register(next) {
+            LoadWatchingSurface(kind: next) { undoAtLoad = undoManager.canUndo }
+        }
+
+        viewer.surfaceHost.show(kind: next, input: ())
+
+        XCTAssertFalse(undoAtLoad, "the next surface loaded with Undo still on the controller")
+        XCTAssertFalse(undoManager.canUndo)
+        XCTAssertNil(viewer.genotypeResultViewController)
+    }
+
     // MARK: - Helpers
+
+    /// A surface that reports when it loads, for reading what the removal did before it.
+    @MainActor
+    private final class LoadWatchingSurface: ResultViewport {
+        let controller = NSViewController()
+        let surfaceKind: SurfaceKind
+        let onLoad: () -> Void
+
+        init(kind: SurfaceKind, onLoad: @escaping () -> Void) {
+            surfaceKind = kind
+            self.onLoad = onLoad
+            controller.view = NSView()
+        }
+
+        var viewController: NSViewController { controller }
+
+        func load(input: Any, token: AsyncRequestToken<SurfaceRequest>) async throws {
+            onLoad()
+        }
+    }
 
     private func makeHostedSplit() -> (window: NSWindow, split: MainSplitViewController) {
         let split = MainSplitViewController()
