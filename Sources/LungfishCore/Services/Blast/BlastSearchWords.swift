@@ -149,6 +149,11 @@ package enum BlastSearchWords {
     /// what it finds, so this names no time to come.
     package static let checkAlreadyUnderWay = "LGE is already checking this search. What NCBI says will show here when that check ends."
 
+    /// The same case for Send Again (LASTROWS fix round, UX SF1). The press sent nothing, and the pass under way tells the pane
+    /// what it finds, so this says the search was not sent again and names no time to come.
+    package static let sendAgainDuringCheck =
+        "LGE is checking this search now, so it did not send it again. What NCBI says will show here when that check ends."
+
     /// Every route, moved project.
     package static func folderMissing(path: String, rid: String?) -> String {
         let stays = rid.map { "The search stays at NCBI as request ID \($0)." } ?? "No search is known to be waiting at NCBI."

@@ -62,6 +62,18 @@ final class BlastRowWordsTests: XCTestCase {
         XCTAssertNil(words.rangeOfCharacter(from: .decimalDigits), "no time to come: \(words)")
     }
 
+    /// Send Again pressed while LGE's own pass is checking says that nothing was sent again, with none of the banned words and no
+    /// time to come (LASTROWS fix round, UX SF1).
+    func testTheSendAgainDuringCheckWordsSayNothingWasSentAndNameNoTimeToCome() {
+        let words = BlastSearchWords.sendAgainDuringCheck
+        XCTAssertTrue(words.contains("did not send it again"), words)
+        let lowercased = words.lowercased()
+        for banned in ["failed", "error", "timed out", "retry", "polling", "attempt", "copy", "copies", "soon", "minutes"] {
+            XCTAssertFalse(lowercased.contains(banned), banned)
+        }
+        XCTAssertNil(words.rangeOfCharacter(from: .decimalDigits), "no time to come: \(words)")
+    }
+
     // MARK: - NCBI's 100 searches
 
     func testThePastOneHundredLineNamesASlowerQueueAndNoRefusal() {

@@ -194,6 +194,50 @@ final class BlastInFlightMonitorTests: XCTestCase {
         await monitor.passesFinished()
     }
 
+    /// Send Again pressed while the monitor's own pass is checking says that nothing was sent again, and sends nothing
+    /// (LASTROWS fix round, UX SF1). The sentence for Check Now alone leaves a person thinking the search went out a second time.
+    func testSendAgainDuringTheMonitorsOwnPassSaysNothingWasSentAgain() async throws {
+        let folder = try TestTempDirectory.make(prefix: "blast-send-again-during-pass")
+        defer { TestTempDirectory.cleanup(folder) }
+        let search = try waitingSearch(in: folder)
+        let line = search.line
+        let (held, release) = AsyncStream<Void>.makeStream()
+        let asked = Asked()
+        let moment = Date().addingTimeInterval(7_200)
+        let monitor = BlastInFlightMonitor(
+            worker: BlastInFlightMonitor.Worker(
+                lines: { _ in [line] },
+                pass: { output, extra, _ in
+                    asked.pass(output, extra: extra)
+                    for await _ in held { break }
+                    return .noNews(words: "")
+                },
+                stop: { _ in }
+            ),
+            now: { moment }
+        )
+        let pane = try pane(on: search)
+        await monitor.refresh()
+        let row = try XCTUnwrap(monitor.row(ofSearch: search.file.searchID))
+        rows.append(row)
+        let began = await waitUntil(timeout: WaitBudget.lookup.duration) { asked.passes.count == 1 }
+        XCTAssertTrue(began, "the monitor's own pass never began")
+
+        monitor.perform(.sendAgain, folder: search.output)
+
+        let said = await waitUntil(timeout: WaitBudget.lookup.duration) { !pane.noteLabel.stringValue.isEmpty }
+        XCTAssertTrue(said, "a Send Again during the monitor's own pass said nothing")
+        let words = pane.noteLabel.stringValue.lowercased()
+        XCTAssertTrue(words.contains("did not send it again"), "the pane reads: \(words)")
+        for banned in ["failed", "error", "timed out", "retry", "polling", "attempt"] {
+            XCTAssertFalse(words.contains(banned), banned)
+        }
+        XCTAssertEqual(asked.passes.count, 1, "the press started a second check")
+        XCTAssertFalse(asked.extras.joined().contains("--send-again"), "the press sent the search again")
+        release.yield()
+        await monitor.passesFinished()
+    }
+
     private var rows: [UUID] = []
 
     override func tearDown() async throws {
@@ -238,10 +282,17 @@ final class BlastInFlightMonitorTests: XCTestCase {
 
     /// Lists what the monitor asks of its worker.
     private final class Asked: Sendable {
-        private let state = Mutex<(passes: [String], stops: [String])>(([], []))
+        private let state = Mutex<(passes: [String], stops: [String], extras: [[String]])>(([], [], []))
         var passes: [String] { state.withLock { $0.passes } }
         var stops: [String] { state.withLock { $0.stops } }
-        func pass(_ output: URL) { state.withLock { $0.passes.append(output.lastPathComponent) } }
+        /// The options each pass was given after its command, such as `--check-now` or `--send-again`.
+        var extras: [[String]] { state.withLock { $0.extras } }
+        func pass(_ output: URL, extra: [String] = []) {
+            state.withLock {
+                $0.passes.append(output.lastPathComponent)
+                $0.extras.append(extra)
+            }
+        }
         func stop(_ output: URL) { state.withLock { $0.stops.append(output.lastPathComponent) } }
     }
 

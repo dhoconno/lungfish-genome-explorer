@@ -187,7 +187,8 @@ final class BlastInFlightMonitor {
         }
         guard passes[searchID] == nil else {
             // A pass is checking now and tells the pane what it finds, so the press starts no second one and is answered.
-            BlastSearchPaneActions.say(BlastSearchWords.checkAlreadyUnderWay, about: folder)
+            let sendingAgain = extra == ["--send-again"]
+            BlastSearchPaneActions.say(sendingAgain ? BlastSearchWords.sendAgainDuringCheck : BlastSearchWords.checkAlreadyUnderWay, about: folder)
             return
         }
         ended.remove(searchID)
