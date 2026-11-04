@@ -264,7 +264,7 @@ final class ReadsLaunchCommandTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: run.marker.path), "the cancel reached the command")
         XCTAssertFalse(AnalysesFolder.isAnalysisIncomplete(run.folder), "the kept folder is listed")
         XCTAssertEqual(outcome.state, .cancelled, "the row ends cancelled")
-        XCTAssertTrue(outcome.returned, "the route reports the run as finished")
+        XCTAssertEqual(outcome.returned, .succeeded, "the route reports the run as finished")
     }
 
     /// A cancel `map` honours, with its `failed` line and exit 125, removes the run's folder.
@@ -286,7 +286,7 @@ final class ReadsLaunchCommandTests: XCTestCase {
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: run.folder.path), "a cancelled run's folder goes")
         XCTAssertEqual(outcome.state, .cancelled)
-        XCTAssertFalse(outcome.returned)
+        XCTAssertEqual(outcome.returned, .stopped, "a cancelled run is stopped, not failed")
     }
 
     /// A `lungfish-cli` stand-in that runs `body` whatever it is given.
@@ -339,7 +339,7 @@ private struct MappingCancelRun {
 
     /// Runs the route on `cli`, cancels its row once the stand-in has started, and returns what the
     /// route returned and the state its row ended in.
-    func cancelOnceStarted(cli: URL) async throws -> (returned: Bool, state: OperationCenter.Item.State?) {
+    func cancelOnceStarted(cli: URL) async throws -> (returned: ManagedMappingOutcome, state: OperationCenter.Item.State?) {
         let operation = OperationIDBox()
         let request = self.request
         let folder = self.folder

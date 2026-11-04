@@ -123,6 +123,8 @@ extension AppDelegate {
         let taskHandle = MappingBatchTaskHandle()
         let task = Task.detached { [weak self] in
             var anySucceeded = false
+            // The failed samples, for the one alert the batch shows when the loop ends (UWORDS).
+            var failures = MappingBatchFailures()
             var preassignedIterator = perRequestDirectories.makeIterator()
             for request in requests {
                 let preassignedDirectory = preassignedIterator.next() ?? nil
@@ -130,7 +132,7 @@ extension AppDelegate {
                 guard let self else { break }
                 // `lungfish-cli map` runs for the same request and folder (decision C4). The row's
                 // cancel also reaches the command at once.
-                let succeeded = await self.runSingleManagedMappingThroughCLI(
+                let outcome = await self.runSingleManagedMappingThroughCLI(
                     request: request,
                     warning: plan.warning,
                     routeContext: routeContext,
@@ -142,7 +144,8 @@ extension AppDelegate {
                         batchOutputHold.didLaunchChild()
                     }
                 )
-                anySucceeded = anySucceeded || succeeded
+                if outcome == .succeeded { anySucceeded = true }
+                failures.record(outcome, sample: request.sampleName)
             }
 
             // Empty-batch cleanup (spec §6): only after every child has
@@ -208,8 +211,9 @@ extension AppDelegate {
         ["map"] + MappingCLIInvocationBuilder.arguments(for: request) + ["--format", "json"]
     }
 
-    /// Runs one request through `lungfish-cli map` on `CLIReadsRunner` and returns whether its
-    /// result stands (Phase 2.10, decisions C4 and C5). The command writes the BAM, the sidecars, the viewer bundle and the source bundle's analysis
+    /// Runs one request through `lungfish-cli map` on `CLIReadsRunner` and returns how it ended, a
+    /// result that stands, a stop the person asked for, or a failure with its words (Phase 2.10,
+    /// decisions C4 and C5, and UWORDS of Phase 3.2). The command writes the BAM, the sidecars, the viewer bundle and the source bundle's analysis
     /// history, so the app only reads the result back to complete the row. The folder goes only when
     /// the run threw, with a failure or a cancel the command honoured. A
     /// run whose command finished keeps its folder whatever the row says (fix 8 of lane A46). A
@@ -225,7 +229,7 @@ extension AppDelegate {
         runner: CLIReadsRunner = CLIReadsRunner(),
         cancelBatch: @escaping @Sendable () -> Void,
         registerCancel: @MainActor (UUID) -> Void
-    ) async -> Bool {
+    ) async -> ManagedMappingOutcome {
         var request = initialRequest
         var ownedAnalysisDirectory: URL?
         if let preassignedAnalysisDirectory {
@@ -260,7 +264,7 @@ extension AppDelegate {
         }
         guard let opID = began.startedID else {
             discardOwnedAnalysisDirectory()
-            return false
+            return .stopped
         }
 
         // Only a run that threw, in the runner or in the UI-test backend, loses its folder.
@@ -279,24 +283,25 @@ extension AppDelegate {
         } catch is CancellationError {
             discardOwnedAnalysisDirectory()
             OperationCenter.shared.acknowledgeCancellation(id: opID)
-            return false
+            return .stopped
         } catch {
             discardOwnedAnalysisDirectory()
-            _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+            let words = error.localizedDescription
+            _ = OperationCenter.shared.fail(id: opID, detail: words)
             reloadSidebarAfterMapping(routeContext: routeContext)
-            return false
+            return .failed(words)
         }
 
         if let result = uiTestResult {
             guard OperationCenter.shared.complete(
                 id: opID,
                 detail: MappingRunProgress.completionDetail(mappedReads: result.mappedReads, totalReads: result.totalReads)
-            ) else { return false }
+            ) else { return .stopped }
             AppUITestConfiguration.current.appendEvent(
                 "mapping.operation.completed target=\(request.outputDirectory.lastPathComponent)"
             )
             routePostMappingDeterministicCompletion(outputDirectory: request.outputDirectory, request: request)
-            return true
+            return .succeeded
         }
 
         let outputDirectory = request.outputDirectory
@@ -305,9 +310,10 @@ extension AppDelegate {
             result = try await Task.detached { try MappingResult.load(from: outputDirectory) }.value
         } catch {
             // `map` finished, so its folder stays, unlisted, for review.
-            _ = OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+            let words = error.localizedDescription
+            _ = OperationCenter.shared.fail(id: opID, detail: words)
             reloadSidebarAfterMapping(routeContext: routeContext)
-            return false
+            return .failed(words)
         }
         if !OperationCenter.shared.complete(
             id: opID,
@@ -323,7 +329,7 @@ extension AppDelegate {
             }
         }
         reloadSidebarAfterMapping(routeContext: routeContext)
-        return true
+        return .succeeded
     }
 
     private func reloadSidebarAfterMapping(routeContext: OperationRouteContext?) {
