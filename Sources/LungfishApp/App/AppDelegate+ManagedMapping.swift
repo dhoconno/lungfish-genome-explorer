@@ -81,7 +81,8 @@ extension AppDelegate {
     /// the hidden mapping key and the in-process route it kept.
     func runManagedMapping(
         plan: MappingRunPlan,
-        routeContext explicitRouteContext: OperationRouteContext? = nil
+        routeContext explicitRouteContext: OperationRouteContext? = nil,
+        presentFailure: @escaping @MainActor (FailureReport, NSWindow?) -> Void = { FailurePresenter.present($0, in: $1) }
     ) {
         let routeContext = explicitRouteContext ?? currentOperationRouteContext()
         guard canWriteProjectOutputs(
@@ -166,7 +167,7 @@ extension AppDelegate {
                 // One alert for the samples that failed, on the window that started the run. Their words sit on
                 // rows of the Operations window, which this route does not open (UWORDS, Phase 3.2).
                 if let report = batchFailures.report(totalSamples: requests.count) {
-                    FailurePresenter.present(report, in: owner?.targetMainWindowController(routeContext: routeContext)?.window)
+                    presentFailure(report, owner?.targetMainWindowController(routeContext: routeContext)?.window)
                 }
             }
         }

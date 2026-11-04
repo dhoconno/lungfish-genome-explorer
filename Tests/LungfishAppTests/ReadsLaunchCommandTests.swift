@@ -219,17 +219,27 @@ final class ReadsLaunchCommandTests: XCTestCase {
         let title = "Map Reads (\(MappingTool.minimap2.displayName)): cli-launch"
         let before = Set(OperationCenter.shared.items.map(\.id))
         let appDelegate = AppDelegate()
+        // The stand-in refuses, so the batch ends with its one alert. The test reads the words and opens no alert.
+        final class PresentedReports { var items: [FailureReport] = [] }
+        let presented = PresentedReports()
 
         appDelegate.runManagedMapping(
             plan: MappingRunPlan(requests: [request], mode: .perBundle, warning: nil),
-            routeContext: nil
+            routeContext: nil,
+            presentFailure: { report, _ in presented.items.append(report) }
         )
         var ended: OperationCenter.Item?
         await waitUntil(timeout: .seconds(30)) {
             ended = OperationCenter.shared.items.first { !before.contains($0.id) && $0.title == title && $0.finishedAt != nil }
             return ended != nil
         }
+        await waitUntil(timeout: .seconds(30)) { !presented.items.isEmpty }
         withExtendedLifetime(appDelegate) {}
+        XCTAssertEqual(presented.items.first?.title, "Could not run Map Reads for cli-launch")
+        XCTAssertTrue(
+            presented.items.first?.whatHappened.contains("the stand-in refused") == true,
+            presented.items.first?.whatHappened ?? "the batch showed no alert"
+        )
 
         let item = try XCTUnwrap(ended, "the row never ended")
         defer { OperationCenter.shared.clearItem(id: item.id) }

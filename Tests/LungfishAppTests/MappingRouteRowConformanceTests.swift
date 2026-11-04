@@ -136,7 +136,7 @@ struct MappingRouteRow: Equatable {
         let subscription = OperationCenter.shared.$items.sink { items in recorder.take(items) }
         defer { subscription.cancel() }
         let appDelegate = AppDelegate()
-        appDelegate.runManagedMapping(plan: MappingRunPlan(requests: [request], mode: .perBundle, warning: nil))
+        appDelegate.runManagedMapping(plan: MappingRunPlan(requests: [request], mode: .perBundle, warning: nil), presentFailure: { _, _ in })
         // A real mapping run, so the wait is long, and it returns once the row ends.
         let deadline = Date().addingTimeInterval(120)
         while Date() < deadline, recorder.ended == nil {
