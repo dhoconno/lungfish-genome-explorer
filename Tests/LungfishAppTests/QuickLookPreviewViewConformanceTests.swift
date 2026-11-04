@@ -7,6 +7,7 @@
 
 import AppKit
 import LungfishTestSupport
+import Quartz
 import XCTest
 @testable import LungfishApp
 
@@ -53,6 +54,41 @@ final class QuickLookPreviewViewConformanceTests: XCTestCase {
 
         XCTAssertFalse(viewer.testHasQuickLookView)
         XCTAssertNil(before?.view?.superview, "a clear left the view in the window")
+    }
+
+    /// A view that leaves the window must also be closed, since that is what stops a movie or a sound. The header says
+    /// `close` releases the current preview item, so a view that left with no item was closed and a view that still holds
+    /// its item was only taken out. The test keeps each view alive to read it. No movie fixture is needed for this, and
+    /// hearing the sound stop is a walk row.
+    func testTheRealQuickLookViewReleasesItsItemWhenItGoes() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        viewer.embeddedFilePreviewRenderer = { viewer, url in viewer.renderEmbeddedFilePreview(url: url) }
+        let image = try RoutingSafetyNetFixtures.pngImage(named: "coverage.png", in: root)
+        let page = root.appendingPathComponent("report.html")
+        try "<html><body>report</body></html>\n".write(to: page, atomically: true, encoding: .utf8)
+        let table = root.appendingPathComponent("table.csv")
+        try "sample,reads\nHG002,1200\n".write(to: table, atomically: true, encoding: .utf8)
+
+        var held: [QLPreviewView] = []
+        for file in [image, page, table] {
+            XCTAssertTrue(viewer.displayQuickLookPreview(url: file), "\(file.lastPathComponent) did not open")
+            let view = try XCTUnwrap(viewer.quickLookPreviewController?.quickLookView, "\(file.lastPathComponent) has no Quick Look view")
+            XCTAssertNotNil(view.previewItem, "the live view holds no item while it shows")
+            XCTAssertTrue(view.shouldCloseWithWindow, "a window close would leave the view open")
+            for gone in held {
+                XCTAssertNil(gone.previewItem, "the view left the window but was never closed, after \(file.lastPathComponent)")
+            }
+            held.append(view)
+        }
+
+        viewer.clearViewport()
+
+        XCTAssertEqual(held.count, 3, "the live view was not drawn for every file")
+        for gone in held {
+            XCTAssertNil(gone.previewItem, "the view left the window but was never closed, after a clear")
+        }
     }
 
     private struct QuickLookViewHandle {
