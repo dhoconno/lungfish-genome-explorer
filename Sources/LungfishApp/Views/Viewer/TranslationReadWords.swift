@@ -11,9 +11,10 @@ import LungfishIO
 /// `TranslationEngine.annotatedCodingLength(of:)`, never from the route, so the Inspector, the viewer track and the
 /// hover cannot disagree.
 enum TranslationReadWords {
-    /// The Inspector line under a protein built from fewer bases than the annotation names.
+    /// The Inspector line under a protein built from fewer bases than the annotation names. It ends with the step
+    /// for the one cause a person can fix, an annotation from another assembly of the reference.
     static func clippedNotice(read: Int, annotated: Int) -> String {
-        "The sequence ends inside this annotation, so only \(read) of its \(annotated) coding bases were read. The protein shown is built from those bases alone."
+        "The sequence ends inside this annotation, so only \(read) of its \(annotated) coding bases were read. The protein shown is built from those bases alone. If the annotation should lie wholly inside this sequence, check that the annotation and the reference are from the same assembly."
     }
 
     /// The Inspector line for a CDS whose bases could not be read, in place of a protein.
