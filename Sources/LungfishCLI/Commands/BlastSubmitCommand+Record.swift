@@ -180,6 +180,13 @@ extension BlastCommand.SubmitSubcommand {
         case .needsAPerson(let words):
             // The search stays in `fetching` with its reply kept, so nothing has failed for a record to say.
             throw fail(words)
+        case .parked(let words):
+            events.emit(.waiting(message: words, state: .parked))
+            if chatty {
+                print(words)
+                print("To collect it later, run: lungfish-cli blast resume --output \(output.path)")
+            }
+            throw CLIExitCode.parked.exitCode
         }
     }
 
@@ -244,13 +251,13 @@ extension BlastCommand.SubmitSubcommand {
         try ProvenanceWriter(signingProvider: provider).write(envelope, toSidecar: sidecar)
     }
 
-    /// The record of a run that SIGTERM cancelled, in the result folder beside the query copy.
+    /// The record of a search a person stopped, in the result folder beside the query copy.
     func writeCancelledRecord(in output: URL, query: StagedQuery, startedAt: Date) {
         let record = CancelledAlignmentWorkflowRecord(
             workflow: Self.workflowName,
             argv: recordedCommandLine(),
             explicit: explicitOptions(query: query),
-            note: "SIGTERM cancelled the BLAST search. No result was saved, and the folder keeps the query copy.",
+            note: "A person stopped the BLAST search, and NCBI may still finish it. No result was saved, and the folder keeps the query copy and every request ID.",
             startedAt: startedAt,
             url: CancelledAlignmentWorkflowRecord.newURL(in: output, workflow: Self.workflowName)
         )
@@ -307,6 +314,7 @@ extension BlastCommand.SubmitSubcommand {
         if let subsampleSeed { argv += ["--subsample-seed", String(subsampleSeed)] }
         if database != BlastDatabaseID.coreNT.rawValue { argv += ["--database", database] }
         if let entrezQuery { argv += ["--entrez-query", entrezQuery] }
+        if park { argv.append("--park") }
         return argv
     }
 }

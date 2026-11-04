@@ -412,6 +412,7 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
         case .output: return "output"
         case .complete: return "complete"
         case .failed: return "failed"
+        case .waiting: return "waiting"
         }
     }
 

@@ -110,7 +110,7 @@ actor CLINativeBundleImportRunner {
                     case let .failed(message, _):
                         // The failure stays in the operation log at error level, as it did before.
                         bridge(.log(level: .error, message: message))
-                    case .progress, .log, .output, .complete:
+                    case .progress, .log, .output, .complete, .waiting:
                         bridge(event)
                     }
                 }

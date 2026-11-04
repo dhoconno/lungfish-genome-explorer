@@ -10,17 +10,33 @@ import Foundation
 /// as one session, could answer a status check from its cache, and names this Mac's system and languages. These sessions
 /// do none of that (ARCH-BLAST-RESILIENCE section 9).
 ///
-/// Checks and fetches wait for a connection, since a check that waits is no news (section 5). A POST does not wait,
-/// since a POST that waited and timed out would read as one that may have been sent, when it never left this Mac.
+/// A status check waits for a connection, since a check that waits is no news (section 5), and for no longer than
+/// ``BlastSearchPolicy/checkResourceLimit``, since it sits out its whole limit on a refused connection as on no network.
+/// A POST does not wait, since a POST that waited and timed out would read as one that may have been sent, when it never
+/// left this Mac. A fetch does not wait, since a fetch that reached nothing goes again at the next tick, and its limit is
+/// there for a slow reply and must not hold up a pass on a connection that is refused.
 public struct BlastHTTPClient: HTTPClient {
     /// All that a request says of its sender. NCBI gets LGE's name as `tool` as well.
     package static let userAgent = "lungfish"
     package static let acceptLanguage = "en"
 
-    private static let waiting = URLSession(configuration: configuration(waitsForConnectivity: true))
-    private static let notWaiting = URLSession(configuration: configuration(waitsForConnectivity: false))
+    private static let waiting = URLSession(
+        configuration: configuration(waitsForConnectivity: true, limit: BlastSearchPolicy.checkResourceLimit)
+    )
+    private static let notWaiting = URLSession(
+        configuration: configuration(waitsForConnectivity: false, limit: BlastSearchPolicy.contactResourceLimit)
+    )
 
-    public init() {}
+    private let checks: URLSession
+
+    public init() {
+        self.checks = Self.waiting
+    }
+
+    /// A client whose status checks give up after `checkLimit`, for a test that must not sit out the real limit.
+    package init(checkLimit: TimeInterval) {
+        self.checks = URLSession(configuration: Self.configuration(waitsForConnectivity: true, limit: checkLimit))
+    }
 
     public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         try await session(for: request).data(for: request)
@@ -31,10 +47,11 @@ public struct BlastHTTPClient: HTTPClient {
     }
 
     private func session(for request: URLRequest) -> URLSession {
-        request.httpMethod == "POST" ? Self.notWaiting : Self.waiting
+        let isCheck = request.httpMethod != "POST" && request.url?.query?.contains("FORMAT_OBJECT=SearchInfo") == true
+        return isCheck ? checks : Self.notWaiting
     }
 
-    private static func configuration(waitsForConnectivity: Bool) -> URLSessionConfiguration {
+    private static func configuration(waitsForConnectivity: Bool, limit: TimeInterval) -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
         configuration.httpCookieAcceptPolicy = .never
@@ -43,7 +60,7 @@ public struct BlastHTTPClient: HTTPClient {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpAdditionalHeaders = ["User-Agent": userAgent, "Accept-Language": acceptLanguage]
         configuration.waitsForConnectivity = waitsForConnectivity
-        configuration.timeoutIntervalForResource = BlastSearchPolicy.contactResourceLimit
+        configuration.timeoutIntervalForResource = limit
         return configuration
     }
 }

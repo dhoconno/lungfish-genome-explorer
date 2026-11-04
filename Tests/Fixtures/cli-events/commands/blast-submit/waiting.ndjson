@@ -1,0 +1,30 @@
+{"event":"start","message":"Preparing to BLAST query-from-viewer.fasta","progress":0,"schemaVersion":2}
+{"event":"progress","message":"Sending 2 sequences to NCBI","progress":0.15,"schemaVersion":2}
+{"event":"progress","message":"Sent 2 sequences to NCBI, request ID FAULT1. LGE may send them again, at most three sends in all.","progress":0.2,"schemaVersion":2}
+{"event":"progress","message":"NCBI has the search, request ID FAULT1","progress":0.2,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, request ID FAULT1","progress":0.2,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, request ID FAULT1. Last checked 4:39 AM","progress":0.24785803989685273,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, request ID FAULT1. Last checked 4:40 AM","progress":0.3143464889015566,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, request ID FAULT1. Last checked 4:41 AM","progress":0.37324669656010573,"schemaVersion":2}
+{"event":"progress","message":"NCBI has not answered after 3 min 55 s, so LGE sent the same sequences again, request ID FAULT2, send 2 of 3. The first answer counts.","progress":0.43320309135397767,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 2 sends so far. Last checked 4:41 AM","progress":0.4332203414588697,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 2 sends so far. Last checked 4:43 AM","progress":0.4397626442605528,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 2 sends so far. Last checked 4:43 AM","progress":0.4502705127564148,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 2 sends so far. Last checked 4:44 AM","progress":0.4883907996084953,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 2 sends so far. Last checked 4:44 AM","progress":0.4953302521408107,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 2 sends so far. Last checked 4:45 AM","progress":0.5325925829253584,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 2 sends so far. Last checked 4:45 AM","progress":0.5384196367130212,"schemaVersion":2}
+{"event":"progress","message":"NCBI has not answered after 7 min 27 s, so LGE sent the same sequences again, request ID FAULT3, send 3 of 3. The first answer counts.","progress":0.5711563915807037,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 3 sends so far. Last checked 4:45 AM","progress":0.5711843408577166,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 3 sends so far. Last checked 4:46 AM","progress":0.5765523279186607,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 3 sends so far. Last checked 4:46 AM","progress":0.5838710013659871,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 3 sends so far. Last checked 4:47 AM","progress":0.5881652647337459,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 3 sends so far. Last checked 4:47 AM","progress":0.6124561779536919,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 3 sends so far. Last checked 4:48 AM","progress":0.6179291224951807,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 3 sends so far. Last checked 4:48 AM","progress":0.6232752362028973,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 3 sends so far. Last checked 4:48 AM","progress":0.6425533916063644,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 3 sends so far. Last checked 4:49 AM","progress":0.647709734681491,"schemaVersion":2}
+{"event":"progress","message":"Waiting for NCBI, 3 sends so far. Last checked 4:49 AM","progress":0.652253929692614,"schemaVersion":2}
+{"event":"progress","message":"All 3 sends are still waiting at NCBI after 10 min 29 s. LGE keeps checking. Next check about 4:49 AM.","progress":0.660407309990253,"schemaVersion":2}
+{"event":"progress","message":"Waiting at NCBI since 4:39 AM, 3 sends. Last checked 4:49 AM, next check about 4:49 AM","progress":0.6604454082344755,"schemaVersion":2}
+{"event":"waiting","message":"Waiting at NCBI since 4:39 AM, 3 sends. Last checked 4:49 AM, next check about 4:49 AM","schemaVersion":2,"state":"parked"}

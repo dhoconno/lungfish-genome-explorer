@@ -129,7 +129,7 @@ struct CLIClassifierRowEvents: Sendable {
 
     mutating func effects(of event: CLIEvent) -> Effects {
         switch event {
-        case .start, .complete, .failed:
+        case .start, .complete, .failed, .waiting:
             // The begin text stays the first detail, and the runner reads the end of the run
             // from the transport.
             return Effects()

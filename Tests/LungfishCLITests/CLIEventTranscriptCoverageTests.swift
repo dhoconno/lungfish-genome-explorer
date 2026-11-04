@@ -63,6 +63,8 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         "blast submit",
         // `blast resume` goes on with a search on the same stand-in (BlastSearchChildTests, lane BLASTNET of Phase 3.2).
         "blast resume",
+        // `blast stop` writes `stopped` and a cancelled record with no contact (BlastParkAndStopChildTests, lane BLASTCOLLECT).
+        "blast stop",
         // `extract taxa-collection` runs seqkit grep through TaxonomyExtractionPipeline. Its transcripts are runs of
         // the built CLI on the argv of the taxa collections drawer's Extract button, recaptured with
         // LUNGFISH_RECAPTURE_CLI_EVENTS=1 (TaxaCollectionEventTranscriptReplayTests, lane A66 of Phase 2.11).
@@ -200,10 +202,15 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
                 XCTFail("\(transcript.label) does not begin with a start event")
                 continue
             }
+            if transcript.name.hasPrefix("waiting") {
+                // A search that parks ends in `waiting`, which is no outcome, and a reader that does not know it ignores it.
+                if case .waiting = events.last {} else { XCTFail("\(transcript.label) does not end in waiting") }
+                continue
+            }
             let terminal = events.filter {
                 switch $0 {
                 case .complete, .failed: return true
-                case .start, .progress, .log, .output: return false
+                case .start, .progress, .log, .output, .waiting: return false
                 }
             }
             XCTAssertEqual(terminal.count, 1, "\(transcript.label) holds \(terminal.count) terminal events")
@@ -221,7 +228,8 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
     func testTheFrozenVersion1ReaderReadsEveryTranscriptToTheSameOutcomeAndOutputs() throws {
         let current = CLIEventLineDecoder()
         let frozen = FrozenCLIEventV1LineDecoder()
-        for transcript in try transcripts() {
+        // A version 1 reader never asked for a search to park, so a transcript that ends in `waiting` is not for it.
+        for transcript in try transcripts() where !transcript.name.hasPrefix("waiting") {
             var currentOutcome: CLIEvent?
             var frozenOutcome: FrozenCLIEventV1?
             for line in transcript.lines {

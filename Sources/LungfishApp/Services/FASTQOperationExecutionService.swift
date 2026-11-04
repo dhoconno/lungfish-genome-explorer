@@ -60,7 +60,7 @@ struct FASTQCLIProgressEvent: Sendable, Equatable {
             // Activity is useful even when the tool has no measurable denominator.
             // The legacy callback's fraction is unspecified, not measured progress.
             return FASTQCLIProgressEvent(progress: 0, message: message)
-        case .output, .complete, .failed:
+        case .output, .complete, .failed, .waiting:
             return nil
         }
     }
@@ -798,7 +798,7 @@ struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
                     // Compatibility for callers which have only one activity callback.
                     progress(0, message)
                 }
-            case .output, .complete, .failed:
+            case .output, .complete, .failed, .waiting:
                 break
             }
         }

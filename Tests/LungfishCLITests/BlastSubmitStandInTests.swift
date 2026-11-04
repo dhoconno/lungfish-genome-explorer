@@ -162,7 +162,7 @@ final class BlastSubmitStandInTests: XCTestCase {
         try Self.recaptureIfAsked("failed", stdout: result.stdoutText, scratch: scratch)
     }
 
-    func testSIGTERMCancelsTheSearchInsideTheGrace() async throws {
+    func testSIGTERMEndsTheLeafInsideTheGraceAndLeavesTheSearch() async throws {
         let server = try Self.standIn()
         defer { server.stop() }
         let output = scratch.appendingPathComponent("cancelled", isDirectory: true)
@@ -177,14 +177,12 @@ final class BlastSubmitStandInTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(50))
         }
         XCTAssertTrue(server.requests.contains { $0.method == "POST" }, "the leaf never submitted")
-        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(run, record: {
-            let names = try FileManager.default.contentsOfDirectory(atPath: output.path)
-                .filter { $0.hasPrefix("lungfish-blast-submit-") && $0.hasSuffix(".lungfish-provenance.json") }
-            XCTAssertEqual(names.count, 1, "one cancelled record, found \(names)")
-            return try names.first.flatMap {
-                try ProvenanceEnvelopeReader.load(fromSidecar: output.appendingPathComponent($0))?.status.rawValue
-            }
-        })
+        let stop = await CLISIGTERMHarness.cancel(run)
+        CLISIGTERMHarness.assertCancelledExit(stop, within: CLISIGTERMHarness.operationGrace)
+        CLISIGTERMHarness.assertNoProcessLeft(stop)
+        let names = try FileManager.default.contentsOfDirectory(atPath: output.path)
+            .filter { $0.hasPrefix("lungfish-blast-submit-") && $0.hasSuffix(".lungfish-provenance.json") }
+        XCTAssertEqual(names, [], "the search lives on, so no record says it was cancelled")
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.appendingPathComponent("blast-result.json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: output.appendingPathComponent("query.fasta").path))
         XCTAssertFalse(stop.standardOutput.contains(#""event":"failed""#), "a cancel reports no failed event")

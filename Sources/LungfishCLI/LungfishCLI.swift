@@ -168,6 +168,8 @@ enum CLIExitCode: Int32 {
     case workflowError = 64
     case containerError = 65
     case networkError = 66
+    /// The work goes on without this process, as a BLAST search waiting at NCBI does (sysexits' EX_TEMPFAIL).
+    case parked = 75
     case timeout = 124
     case cancelled = 125
     case dependency = 126

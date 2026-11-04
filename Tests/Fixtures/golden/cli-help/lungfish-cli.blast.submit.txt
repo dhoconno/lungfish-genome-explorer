@@ -49,6 +49,8 @@ OPTIONS:
   --extra-args <extra-args>
                           Additional BLAST URL API parameters as KEY=VALUE
                           tokens (for example WORD_SIZE=11)
+  --park                  Exit 75 with a waiting event once every send has been
+                          out long enough, and leave the search to blast resume
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)

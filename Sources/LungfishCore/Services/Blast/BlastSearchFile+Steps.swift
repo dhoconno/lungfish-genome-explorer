@@ -19,6 +19,8 @@ extension BlastSearchFile {
         case spend
         /// A file that says waiting and holds no send still alive.
         case noneLive
+        /// A folder that may not POST has nothing it may do.
+        case nothing
     }
 
     /// The winner's place in ``copies``, or the first when none has won.
@@ -71,11 +73,14 @@ extension BlastSearchFile {
 
     /// What this search does next and when. Of what is due now the earlier POST goes first, so of two sends READY at one
     /// tick the earlier wins (BIO-BLAST-TIES item 12), and any check goes before a new POST, which a READY can save.
-    package func nextStep(now: Date) -> (step: Step, due: Date) {
+    ///
+    /// With `mayPost` false, as for a copied project, it only checks and fetches and strikes no guard (item 19).
+    package func nextStep(now: Date, mayPost: Bool = true) -> (step: Step, due: Date) {
         switch state {
         case .fetching:
             return (.fetch(copy: winnerIndex), copies[winnerIndex].nextCheckAt ?? now)
         case .sending, .sendUnknown:
+            guard mayPost else { return (.nothing, .distantFuture) }
             return (.put(copy: 0), copies[0].nextCheckAt ?? now)
         case .waiting, .done, .expired, .ncbiFailed, .notSent, .stopped:
             break
@@ -83,18 +88,42 @@ extension BlastSearchFile {
         var steps: [(step: Step, due: Date, place: Int)] = []
         for (index, copy) in copies.enumerated() {
             if copy.state == .sending || copy.state == .sendUnknown {
+                guard mayPost else { continue }
                 steps.append((.put(copy: index), copy.nextCheckAt ?? now, index))
             } else if copy.state == .live {
                 steps.append((.check(copy: index), copy.nextCheckAt ?? now, index))
             }
         }
-        if let due = nextCopyDue() { steps.append((.newCopy, due, copies.count)) }
-        if let due = spendDue() { steps.append((.spend, due, copies.count + 1)) }
+        if mayPost, let due = nextCopyDue() { steps.append((.newCopy, due, copies.count)) }
+        if mayPost, let due = spendDue() { steps.append((.spend, due, copies.count + 1)) }
         let next = steps.min { first, second in
             let (firstDue, secondDue) = (max(first.due, now), max(second.due, now))
             return firstDue == secondDue ? first.place < second.place : firstDue < secondDue
         }
-        guard let next else { return (.noneLive, now) }
+        guard let next else { return mayPost ? (.noneLive, now) : (.nothing, .distantFuture) }
         return (next.step, next.due)
+    }
+
+    /// A person's Check Now. Every send still out is due at once, unless it was checked inside the last minute, and a
+    /// reply LGE is still fetching is due at once.
+    package mutating func checkNow(at now: Date) {
+        for index in copies.indices where copies[index].state == .live {
+            let floor = copies[index].lastCheckAt?.addingTimeInterval(BlastSearchPolicy.checkFloor) ?? now
+            copies[index].nextCheckAt = max(now, floor)
+        }
+        if state == .fetching { copies[winnerIndex].nextCheckAt = now }
+    }
+
+    /// A person's Resume of a search they stopped. It goes back to where its sends stand, with their due times as they
+    /// are, which read as due now once they have passed.
+    package mutating func takeUp() {
+        ending = nil
+        if winnerOrdinal != nil {
+            state = .fetching
+        } else if copies.contains(where: { $0.state == .live }) {
+            state = .waiting
+        } else {
+            state = copies[0].state == .sendUnknown ? .sendUnknown : .sending
+        }
     }
 }

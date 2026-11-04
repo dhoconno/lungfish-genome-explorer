@@ -539,7 +539,7 @@ final class ViralReconWorkflowExecutionService {
         text.split(whereSeparator: \.isNewline).compactMap { line -> String? in
             switch event(of: .standardOutput(String(line))) {
             case .start(let message)? where message.isEmpty: return nil
-            case .start(let message)?, .progress(_, let message)?, .log(_, let message)?: return message
+            case .start(let message)?, .progress(_, let message)?, .log(_, let message)?, .waiting(let message, _)?: return message
             case .output(let path, _)?: return path
             case .complete(let outputs, let message)?: return ([message].compactMap { $0 } + outputs).joined(separator: "\n")
             case .failed(let message, let detail)?: return ([message] + [detail].compactMap { $0 }).joined(separator: "\n")

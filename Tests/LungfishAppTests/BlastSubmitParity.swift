@@ -223,7 +223,7 @@ enum BlastSubmitParity {
 
     /// The cancel of a site's search on `CLISIGTERMHarness` (SWIFT 3, X14). The leaf the plan's argv names
     /// starts against the stand-in, and SIGTERM reaches it once its submission arrives. It exits 125 inside
-    /// the grace with a cancelled record beside the query copy, no result, no `failed` line and no process left.
+    /// the grace with no record, since the search lives on, no result, no `failed` line and no process left.
     @MainActor
     static func assertSIGTERMCancels(
         _ plan: BlastSubmitPlan,
@@ -244,14 +244,12 @@ enum BlastSubmitParity {
         }
         XCTAssertTrue(server.requests.contains { $0.method == "POST" }, "the leaf never submitted", file: file, line: line)
         let output = plan.request.outputURL
-        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(run, record: {
-            let names = try FileManager.default.contentsOfDirectory(atPath: output.path)
-                .filter { $0.hasPrefix("lungfish-blast-submit-") && $0.hasSuffix(".lungfish-provenance.json") }
-            XCTAssertEqual(names.count, 1, "one cancelled record, found \(names)", file: file, line: line)
-            return try names.first.flatMap {
-                try ProvenanceEnvelopeReader.load(fromSidecar: output.appendingPathComponent($0))?.status.rawValue
-            }
-        }, file: file, line: line)
+        let stop = await CLISIGTERMHarness.cancel(run)
+        CLISIGTERMHarness.assertCancelledExit(stop, within: CLISIGTERMHarness.operationGrace, file: file, line: line)
+        CLISIGTERMHarness.assertNoProcessLeft(stop, file: file, line: line)
+        let names = try FileManager.default.contentsOfDirectory(atPath: output.path)
+            .filter { $0.hasPrefix("lungfish-blast-submit-") && $0.hasSuffix(".lungfish-provenance.json") }
+        XCTAssertEqual(names, [], "the search lives on, so no record says it was cancelled", file: file, line: line)
         let fileManager = FileManager.default
         XCTAssertFalse(fileManager.fileExists(atPath: output.appendingPathComponent("blast-result.json").path), file: file, line: line)
         XCTAssertTrue(fileManager.fileExists(atPath: output.appendingPathComponent("query.fasta").path), file: file, line: line)

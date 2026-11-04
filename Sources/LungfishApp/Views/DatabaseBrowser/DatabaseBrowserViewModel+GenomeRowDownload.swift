@@ -113,7 +113,7 @@ struct GenomeRowCLIDownload: Sendable {
                     bridge(.log(level: .info, message: message))
                 case let .failed(message, _):
                     bridge(.log(level: .error, message: message))
-                case .log, .output, .complete:
+                case .log, .output, .complete, .waiting:
                     bridge(event)
                 }
             }

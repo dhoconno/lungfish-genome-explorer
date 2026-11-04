@@ -233,7 +233,7 @@ extension InspectorViewController {
                 return (max(0.10, min(0.80, fraction)), message, .info)
             case let .log(cliLevel, message):
                 return (nil, message, cliLevel.primerTrimOperationLogLevel)
-            case .output:
+            case .output, .waiting:
                 return (nil, "", .info)
             case .complete:
                 return (0.99, "Reloading bundle...", .info)

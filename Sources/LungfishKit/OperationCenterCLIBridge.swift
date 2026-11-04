@@ -147,6 +147,10 @@ private final class RowEvents {
         case .complete, .failed:
             // Handled by the transport's return value / thrown error.
             break
+        case let .waiting(message, _):
+            // The run's end, which the caller reads. The words go in the log, at information level (UX-BLAST-WORDS Q2).
+            guard !message.isEmpty else { return }
+            OperationCenter.shared.log(id: operationID, level: .info, message: message)
         }
     }
 

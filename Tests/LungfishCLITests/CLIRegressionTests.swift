@@ -1786,8 +1786,8 @@ final class BlastCommandRegressionTests: XCTestCase {
         let subs = BlastCommand.configuration.subcommands
         let names = subs.compactMap { $0.configuration.commandName }
         // 2.12 added `blast export` (914079c2f) beside `verify` and `submit`, and 3.2 lane BLASTNET N2 added `blast resume`.
-        XCTAssertEqual(subs.count, 4)
-        XCTAssertEqual(names.sorted(), ["export", "resume", "submit", "verify"])
+        XCTAssertEqual(subs.count, 6)
+        XCTAssertEqual(names.sorted(), ["export", "in-flight", "resume", "stop", "submit", "verify"])
     }
 
     func testDefaultSubcommand() {

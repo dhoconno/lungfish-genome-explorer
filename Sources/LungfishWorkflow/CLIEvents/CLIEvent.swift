@@ -33,6 +33,9 @@ public enum CLIEvent: Sendable, Equatable, Codable {
     /// The operation failed. `detail` is optional extra context (for example
     /// stderr) beyond the human-readable `message`.
     case failed(message: String, detail: String?)
+    /// The run ended and its work goes on without it, so nothing failed and nothing is complete. The leaf exits 75 when
+    /// `state` is ``CLIEventWaitingState/parked`` or ``CLIEventWaitingState/folderMissing``. Only a BLAST search says it.
+    case waiting(message: String, state: CLIEventWaitingState)
 
     /// Every key of a line, shared by the event and its ``CLIEventLine`` envelope so
     /// one container writes and reads the whole object.
@@ -49,6 +52,7 @@ public enum CLIEvent: Sendable, Equatable, Codable {
         case role
         case path
         case artifacts
+        case state
     }
 
     enum EventName {
@@ -58,9 +62,10 @@ public enum CLIEvent: Sendable, Equatable, Codable {
         static let output = "output"
         static let complete = "complete"
         static let failed = "failed"
+        static let waiting = "waiting"
 
         /// The names this reader knows. Any other name is an ignored line.
-        static let all: Set<String> = [start, progress, log, output, complete, failed]
+        static let all: Set<String> = [start, progress, log, output, complete, failed, waiting]
     }
 
     /// The `event` key this case is written under.
@@ -72,6 +77,7 @@ public enum CLIEvent: Sendable, Equatable, Codable {
         case .output: return EventName.output
         case .complete: return EventName.complete
         case .failed: return EventName.failed
+        case .waiting: return EventName.waiting
         }
     }
 
@@ -79,7 +85,7 @@ public enum CLIEvent: Sendable, Equatable, Codable {
     var carriesArtifacts: Bool {
         switch self {
         case .complete, .output: return true
-        case .start, .progress, .log, .failed: return false
+        case .start, .progress, .log, .failed, .waiting: return false
         }
     }
 
@@ -117,6 +123,11 @@ public enum CLIEvent: Sendable, Equatable, Codable {
                 ?? "Operation failed"
             let detail = try container.decodeIfPresent(String.self, forKey: .detail)
             self = .failed(message: message, detail: detail)
+        case EventName.waiting:
+            let message = try container.decodeIfPresent(String.self, forKey: .message) ?? ""
+            // A state this reader does not know reads as parked, so a writer may add one.
+            let state = (try? container.decodeIfPresent(CLIEventWaitingState.self, forKey: .state)) ?? .parked
+            self = .waiting(message: message, state: state)
         default:
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(codingPath: [WireKey.event], debugDescription: "Unknown CLIEvent name '\(name)'")
@@ -167,8 +178,22 @@ public enum CLIEvent: Sendable, Equatable, Codable {
             try container.encode(EventName.failed, forKey: .event)
             try container.encode(message, forKey: .error)
             try container.encodeIfPresent(detail, forKey: .detail)
+        case let .waiting(message, state):
+            try container.encode(EventName.waiting, forKey: .event)
+            try container.encode(message, forKey: .message)
+            try container.encode(state, forKey: .state)
         }
     }
+}
+
+/// How a run that says ``CLIEvent/waiting(message:state:)`` left its work.
+public enum CLIEventWaitingState: String, Sendable, Equatable, Codable {
+    /// The search stays at NCBI, and a later pass goes on with it.
+    case parked
+    /// Another process is working on it, so this one left it alone and exits 0.
+    case alreadyRunning
+    /// The folder it saves into has gone, and the search stays at NCBI until its project opens from where it is now.
+    case folderMissing
 }
 
 /// Severity for ``CLIEvent/log(level:message:)``, mirroring

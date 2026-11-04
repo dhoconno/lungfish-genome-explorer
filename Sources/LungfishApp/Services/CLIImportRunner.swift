@@ -323,7 +323,7 @@ public actor CLIImportRunner {
                     OperationCenter.shared.log(id: id, level: level.importRowLevel, message: message)
                 }
             }
-        case .output, .complete, .failed:
+        case .output, .complete, .failed, .waiting:
             break
         }
     }

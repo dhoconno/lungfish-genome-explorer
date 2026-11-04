@@ -122,6 +122,53 @@ package enum BlastSearchWords {
         return "\(limit), and \(gone). \(fits)\(free > 0 ? ", or send \(free) or fewer reads now" : "")."
     }
 
+    // MARK: A search that outlives its process
+
+    /// Q3, `blast submit` and `blast resume` on SIGTERM with a request ID.
+    package static func leftAtNCBI(rid: String, folder: String) -> String {
+        "LGE stopped checking. The search stays at NCBI as request ID \(rid). To collect it, run: lungfish-cli blast resume --output \(folder)"
+    }
+
+    /// Q3, the same before any request ID.
+    package static let stoppedBeforeAnAnswer = "Stopped before NCBI answered, so no search is known to be waiting."
+
+    /// Row 10.
+    package static let stopped = "Stopped. LGE no longer checks this search. Choose Resume to check it again"
+
+    /// Q3, Stop with the result already in.
+    package static let nothingToStop = "This search had already come back, so there was nothing to stop."
+
+    /// A Stop that a leaf at work did not let go of within its wait.
+    package static let stopNotTaken =
+        "Another LGE process is working on this search and did not let go of it, so LGE did not stop it. Try Stop again."
+
+    /// A pass that found another process at work on the search.
+    package static let alreadyRunning = "Another LGE process is already working on this search, so this one left it alone."
+
+    /// Every route, moved project.
+    package static func folderMissing(path: String, rid: String?) -> String {
+        let stays = rid.map { "The search stays at NCBI as request ID \($0)." } ?? "No search is known to be waiting at NCBI."
+        return "LGE cannot find the folder this search saves into: \(path). \(stays) Open the project from where it is now."
+    }
+
+    /// Every route, copied project.
+    package static func fromAnotherCopy(rid: String?) -> String {
+        let sent = rid.map { ", request ID \($0)" } ?? ""
+        return "This search was sent from another copy of this project\(sent). Choose Check Now to collect it here."
+    }
+
+    /// The row of a search a project's opening took up, until its first pass.
+    package static func adopted(rid: String?) -> String {
+        rid.map { waiting(rid: $0) } ?? sending
+    }
+
+    private static let sending = "Sending to NCBI"
+
+    /// A READY search whose reply is not yet a record.
+    package static func collecting(rid: String?) -> String {
+        rid.map { "NCBI finished this search, request ID \($0). LGE is collecting the result" } ?? "LGE is collecting the result"
+    }
+
     // MARK: Q1 rows of a search sent again
 
     /// A duration of what has happened, as `4 min 12 s` or `5 h 3 min`.
@@ -209,6 +256,11 @@ package enum BlastSearchWords {
 
     package static let heldByTheDayCountLine =
         "LGE did not send this search again, because this Mac is past NCBI's \(BlastSearchPolicy.postsADayBeforeNoCopies) searches in 24 hours."
+
+    /// Q2, a person's send.
+    package static func personSentLine(noun: String, rid: String, sends: Int) -> String {
+        "You sent the same \(noun) again, request ID \(rid). \(sends) sends so far."
+    }
 
     package static func winLine(rid: String, after seconds: TimeInterval, send: Int, sends: Int) -> String {
         "Request ID \(rid) came back, \(duration(seconds)) after the first send, on send \(send) of \(sends). LGE no longer checks the others."

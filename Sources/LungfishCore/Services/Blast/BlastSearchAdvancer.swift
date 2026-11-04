@@ -15,6 +15,8 @@ package enum BlastSearchOutcome: Sendable {
     case ended(BlastSearchFile.State, words: String)
     /// The search stays in `fetching` with its reply kept, and only a person can move it on.
     case needsAPerson(words: String)
+    /// The search stays at NCBI and this process is done with it for now, so a later pass goes on.
+    case parked(words: String)
 }
 
 /// What a publish step throws when writing a record would say something false, so no later try can help.
@@ -37,6 +39,16 @@ package struct BlastSearchAdvancer: Sendable {
     package typealias Progress = @Sendable (Double, String) -> Void
     package typealias Publish = @Sendable (BlastVerificationResult) async throws -> Void
 
+    /// How far one process takes a search (ARCH-BLAST-RESILIENCE item 13).
+    package enum Pass: Sendable, Equatable {
+        /// Until NCBI's answer or the person ends it, as at a shell.
+        case toAnEnding
+        /// Until every send is out long enough, or LGE holds its next send, so that no process sits idle for hours.
+        case untilParked
+        /// What is due now and no more. A READY's fetch goes in the same pass.
+        case once
+    }
+
     private let service: BlastService
     private let store: BlastSearchStore
     private let request: BlastVerificationRequest
@@ -44,11 +56,16 @@ package struct BlastSearchAdvancer: Sendable {
     private let noun: String
     private let progress: Progress
     private let publish: Publish
+    private let pass: Pass
+    private let index: BlastInFlightIndex?
+    private let mayPost: Bool
 
     /// - Parameters:
     ///   - noun: What the words call the sequences, `reads`, `contigs` or `sequences`.
     ///   - publish: Writes the record of a judged result. It throws ``BlastSearchRefusal`` when no later try can help,
     ///     and any other error keeps the reply for the next tick.
+    ///   - index: Takes this search's line, with none for a search in a folder that goes with the run.
+    ///   - mayPost: False for a folder that is a copy of the one the line names, which only checks and fetches.
     package init(
         service: BlastService,
         store: BlastSearchStore,
@@ -56,8 +73,14 @@ package struct BlastSearchAdvancer: Sendable {
         clock: BlastSearchClock,
         noun: String,
         progress: @escaping Progress,
-        publish: @escaping Publish
+        publish: @escaping Publish,
+        pass: Pass = .toAnEnding,
+        index: BlastInFlightIndex? = nil,
+        mayPost: Bool = true
     ) {
+        self.pass = pass
+        self.index = index
+        self.mayPost = mayPost
         self.service = service
         self.store = store
         self.request = request
@@ -72,6 +95,7 @@ package struct BlastSearchAdvancer: Sendable {
     /// Reserves the first send, then makes the form and the search file durable, in that order and before any POST.
     /// LGE's own limit therefore refuses with no contact and no file left in `sending`.
     package func create(
+        searchID: UUID = UUID(),
         origin: BlastSearchFile.Origin,
         query: BlastSubmissionRecord.Query,
         submitArgv: [String]
@@ -80,6 +104,7 @@ package struct BlastSearchAdvancer: Sendable {
         try await service.reservePost(sequenceCount: request.sequences.count, kind: .first, at: clock.now())
         let digest = try store.saveForm(form)
         var file = BlastSearchFile(
+            searchID: searchID,
             origin: origin,
             createdAt: clock.now(),
             submitArgv: submitArgv,
@@ -89,6 +114,7 @@ package struct BlastSearchAdvancer: Sendable {
         )
         file.copies[0].postReserved = true
         try store.save(file)
+        await noteTheLine(file)
         return file
     }
 
@@ -104,12 +130,24 @@ package struct BlastSearchAdvancer: Sendable {
             if file.copies[index].fetchTries >= BlastSearchPolicy.fetchTries { file.copies[index].fetchTries = 0 }
         }
         sayWhereItStands(file)
+        let passStart = clock.now()
         while true {
             try Task.checkCancellation()
             if file.state.isEnding {
                 return .ended(file.state, words: file.ending?.words ?? "")
             }
-            let next = file.nextStep(now: clock.now())
+            if pass == .untilParked, file.state == .waiting, file.spentAt != nil || file.copyHold != nil {
+                return .parked(words: rowWords(file, now: clock.now()))
+            }
+            // A pass reads what is due as of its start, so a send checked in this pass does not come before one still to check.
+            let next = file.nextStep(now: pass == .once ? passStart : clock.now(), mayPost: mayPost)
+            if next.step == .nothing { return .parked(words: rowWords(file, now: clock.now())) }
+            if pass == .once {
+                // A pass is what was due when it began, so a fast clock cannot keep it going. A READY's fetch is that pass's.
+                var mustBeDueBy = passStart
+                if case .fetch = next.step { mustBeDueBy = clock.now() }
+                if next.due > mustBeDueBy { return .parked(words: rowWords(file, now: clock.now())) }
+            }
             let wait = next.due.timeIntervalSince(clock.now())
             if wait > 0 { try await clock.sleep(wait) }
             try Task.checkCancellation()
@@ -126,6 +164,8 @@ package struct BlastSearchAdvancer: Sendable {
                 try await markSpent(&file)
             case .noneLive:
                 try await endWithNoneLive(&file)
+            case .nothing:
+                return .parked(words: rowWords(file, now: clock.now()))
             }
         }
     }
@@ -158,12 +198,37 @@ package struct BlastSearchAdvancer: Sendable {
         while true {
             do {
                 try store.save(file)
+                await noteTheLine(file)
                 return
             } catch {
                 logger.warning("Could not save a BLAST search: \(error.localizedDescription, privacy: .public)")
                 progress(waitingFraction(of: file), BlastSearchWords.fileNotWritten(folder: store.folder.path, reason: error.localizedDescription))
                 try await clock.sleep(BlastSearchPolicy.fetchWait)
             }
+        }
+    }
+
+    /// Makes a change a pass starts from durable, as a person's press or a folder taken up.
+    package func takeStock(_ file: BlastSearchFile) async throws {
+        try await persist(file)
+    }
+
+    /// Keeps this search's line up to date. A copied folder leaves the line with the folder it names.
+    private func noteTheLine(_ file: BlastSearchFile) async {
+        guard let index, mayPost else { return }
+        let now = clock.now()
+        await index.write(BlastInFlightLine(file, output: store.folder, words: rowWords(file, now: now), now: now))
+    }
+
+    /// The row's words wherever the search stands.
+    private func rowWords(_ file: BlastSearchFile, now: Date) -> String {
+        if let ending = file.ending { return ending.words }
+        let rid = file.copies.compactMap(\.rid).last
+        if !mayPost { return BlastSearchWords.fromAnotherCopy(rid: rid) }
+        switch file.state {
+        case .fetching: return BlastSearchWords.collecting(rid: file.winner.rid)
+        case .sending, .sendUnknown: return BlastSearchWords.sending(request.sequences.count, noun: noun)
+        case .waiting, .done, .expired, .ncbiFailed, .notSent, .stopped: return waitingWords(file, now: now)
         }
     }
 
@@ -236,6 +301,29 @@ package struct BlastSearchAdvancer: Sendable {
     }
 
     // MARK: A copy
+
+    /// A person's Send Again. One more send of the same bytes, past the three LGE makes if asked, which passes the guard
+    /// and not LGE's own limit (item 6). A search that had ended goes back to waiting on this send, and NCBI's refusal of
+    /// this send names the ending again. A refusal by the limit throws, and the search stays as it was.
+    package func sendAgain(_ start: BlastSearchFile) async throws -> BlastSearchFile {
+        var file = start
+        let now = clock.now()
+        try await service.reservePost(sequenceCount: request.sequences.count, kind: .copy, at: now)
+        var copy = BlastSearchFile.Copy(ordinal: file.copies.count + 1, kind: .copy, nextCheckAt: now)
+        copy.postReserved = true
+        file.copies.append(copy)
+        file.ending = nil
+        file.winnerOrdinal = nil
+        file.copyHold = nil
+        file.state = .waiting
+        try await persist(file)
+        try await sendThePut(&file, at: file.copies.count - 1)
+        let sends = file.copies.filter { $0.rid != nil }.count
+        if let rid = file.copies.last?.rid {
+            progress(waitingFraction(of: file), BlastSearchWords.personSentLine(noun: noun, rid: rid, sends: sends))
+        }
+        return file
+    }
 
     /// Makes LGE's next own send, or holds it, as the day's count, the guard or the hour's limit says. The guard takes
     /// the copy first and the ledger counts it after, and the guard gets it back on a refusal, so no two locks are ever

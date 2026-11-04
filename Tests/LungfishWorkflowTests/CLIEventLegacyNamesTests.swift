@@ -95,7 +95,7 @@ final class CLIEventLegacyNamesTests: XCTestCase {
             let terminal = events.filter {
                 switch $0 {
                 case .complete, .failed: return true
-                case .start, .progress, .log, .output: return false
+                case .start, .progress, .log, .output, .waiting: return false
                 }
             }
             XCTAssertEqual(terminal.count, 1, "\(name)")

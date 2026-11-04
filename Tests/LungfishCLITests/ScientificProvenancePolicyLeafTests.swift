@@ -253,6 +253,8 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "blast export table": "cli.blast",
         "blast submit": "cli.blast",
         "blast resume": "cli.blast",
+        "blast stop": "cli.blast",
+        "blast in-flight": "cli.blast",
         "blast verify": "cli.blast",
         "build-db esviritu": "cli.build-db",
         "build-db kraken2": "cli.build-db",

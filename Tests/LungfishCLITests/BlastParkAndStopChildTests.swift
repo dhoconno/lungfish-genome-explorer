@@ -205,7 +205,7 @@ final class BlastParkAndStopChildTests: XCTestCase {
         let file = try searchFile()
         XCTAssertEqual(file["state"] as? String, "stopped")
         let names = try cancelledRecords()
-        XCTAssertEqual(names.count, 1, "one cancelled record, found \(names)")
+        XCTAssertEqual(names.count, 1, "one cancelled record, found \(names): \(stop.stderrText)")
         let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: output.appendingPathComponent(try XCTUnwrap(names.first))))
         XCTAssertEqual(envelope.status.rawValue, "cancelled")
         XCTAssertEqual(try rids().count, 3, "a stopped search keeps its request IDs")

@@ -17,17 +17,21 @@ package struct BlastSearchShared: Sendable {
     package let searchLog: BlastSearchLog?
     /// Holds the address a person gave NCBI. With none, as a test's service, NCBI gets LGE's no-reply address.
     package let contactAddress: BlastContactAddressStore?
+    /// Finds searches with no project open and holds each search's lock. With none, as a test's service, neither exists.
+    package let inFlight: BlastInFlightIndex?
 
     package init(
         contactGate: BlastContactGate? = nil,
         copyGuard: BlastCopyGuard = BlastCopyGuard(),
         searchLog: BlastSearchLog? = nil,
-        contactAddress: BlastContactAddressStore? = nil
+        contactAddress: BlastContactAddressStore? = nil,
+        inFlight: BlastInFlightIndex? = nil
     ) {
         self.contactGate = contactGate
         self.copyGuard = copyGuard
         self.searchLog = searchLog
         self.contactAddress = contactAddress
+        self.inFlight = inFlight
     }
 
     /// The files under the active managed storage root, or in a debug stand-in run's own state folder.
@@ -36,7 +40,8 @@ package struct BlastSearchShared: Sendable {
             contactGate: .managedStorageDefault(environment: environment),
             copyGuard: .managedStorageDefault(environment: environment),
             searchLog: .managedStorageDefault(environment: environment),
-            contactAddress: .managedStorageDefault(environment: environment)
+            contactAddress: .managedStorageDefault(environment: environment),
+            inFlight: .managedStorageDefault(environment: environment)
         )
     }
 }
@@ -89,6 +94,18 @@ package struct BlastSearchLog: Sendable {
             replyBytes.map(String.init) ?? "",
         ].joined(separator: "\t")
     }
+
+    /// The line for a search retired with its folder gone, which ends nothing at NCBI and leaves a project's opening free
+    /// to adopt it again. Only the line says so.
+    package static func retiredLine(for line: BlastInFlightLine, at: Date) -> String {
+        [
+            at.formatted(.iso8601), line.searchID.uuidString, line.rids.joined(separator: ","), String(line.rids.count),
+            "", retiredEnding, "", "",
+        ].joined(separator: "\t")
+    }
+
+    /// The ending column of a retired line.
+    package static let retiredEnding = "project gone"
 
     /// Adds `line`, in one write on a file opened to append, so two processes never mix their lines. The header goes
     /// with the first line under a lock on the file itself, tried once, since a second header costs a reader nothing.

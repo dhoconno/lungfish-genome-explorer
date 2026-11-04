@@ -1,0 +1,2 @@
+{"event":"start","message":"Stopping the BLAST search in result","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Stopped. LGE no longer checks this search. Choose Resume to check it again","output":"\/work\/result\/blast-search.json","outputs":["\/work\/result\/blast-search.json"],"progress":1,"schemaVersion":2}

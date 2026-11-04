@@ -192,6 +192,12 @@ package struct BlastSearchFile: Codable, Sendable, Equatable {
         package var state: State
         package var at: Date
         package var words: String
+
+        package init(state: State, at: Date, words: String) {
+            self.state = state
+            self.at = at
+            self.words = words
+        }
     }
 
     /// Why LGE's next own send is held back and until when. It stays due and never ends the search (item 7).
@@ -294,6 +300,17 @@ package enum BlastSearchPolicy {
     /// The limit on one contact's whole exchange, its wait for a connection included. A check past it is no news, so it
     /// bounds what a wait with no network costs, and it leaves room for a slow fetch of a wide reply.
     package static let contactResourceLimit: TimeInterval = 600
+    /// The limit on one status check, its wait for a connection included. `waitsForConnectivity` sits out the whole limit
+    /// on a refused connection, as measured on the stand-in, so this bounds what a check holds up a pass and any send due.
+    package static let checkResourceLimit: TimeInterval = 30
+    /// The fewest seconds between two checks of one request ID, a person's own press included. NCBI: "Do not poll for any
+    /// single RID more often than once a minute."
+    package static let checkFloor: TimeInterval = 60
+    /// How long a line stays past its last contact, which is past the longest NCBI was seen to hold a search. It is
+    /// housekeeping for a line and not a limit on a search, since a project's opening adopts the folder again.
+    package static let lineRetention: TimeInterval = 72 * 3600
+    /// How long a person's Stop waits for a leaf at work to let go of the search.
+    package static let stopWait: TimeInterval = 15
     /// Fetches of a reply that cannot be read, 60 s apart, before a person is asked.
     package static let fetchTries = 5
     package static let fetchWait: TimeInterval = 60

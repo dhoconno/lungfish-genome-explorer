@@ -84,7 +84,7 @@ struct DemoProjectCLIFetch: Sendable {
                     onPhase(DemoProjectCLIProgress.phase(forFraction: fraction, totalBytes: totalBytes))
                 case .log:
                     onLog(event)
-                case .start, .output, .complete, .failed:
+                case .start, .output, .complete, .failed, .waiting:
                     break
                 }
             }

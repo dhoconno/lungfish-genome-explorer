@@ -3,12 +3,20 @@ OVERVIEW: Go on with a BLAST search from its result folder
 Reads blast-search.json in the --output folder, goes on from where the search
 stands with the request IDs it holds, and saves the result there. SIGTERM exits
 125 and leaves the search as it stands, so another resume can go on with it.
+--once makes one pass of what is due and exits 75 with a waiting event while
+the search stays at NCBI. A search someone stopped is taken up again.
 
-USAGE: lungfish-cli blast resume --output <output> [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
+USAGE: lungfish-cli blast resume [<options>] --output <output>
 
 OPTIONS:
   --output <output>       Result folder that holds the search's
                           blast-search.json
+  --once                  Make one pass of what is due, then exit, with 75
+                          while the search still waits
+  --check-now             Check every send now, as often as NCBI allows,
+                          whatever its next check says
+  --send-again            Send the same sequences to NCBI once more, as a
+                          person's own choice
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)

@@ -154,7 +154,7 @@ final class ONTSampleSplitEventStreamTests: XCTestCase {
     private static func isTerminal(_ event: CLIEvent) -> Bool {
         switch event {
         case .complete, .failed: return true
-        case .start, .progress, .log, .output: return false
+        case .start, .progress, .log, .output, .waiting: return false
         }
     }
 

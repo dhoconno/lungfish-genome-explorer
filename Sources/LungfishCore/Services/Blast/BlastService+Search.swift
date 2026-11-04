@@ -212,14 +212,22 @@ extension BlastService {
         origin: BlastSearchFile.Origin,
         clock: BlastSearchClock,
         noun: String,
+        pass: BlastSearchAdvancer.Pass = .toAnEnding,
+        outlivesTheRun: Bool = true,
         progress: @escaping BlastSearchAdvancer.Progress,
         publish: @escaping BlastSearchAdvancer.Publish
     ) async throws -> BlastSearchOutcome {
+        let index = outlivesTheRun ? searchShared.inFlight : nil
         let advancer = BlastSearchAdvancer(
             service: self, store: BlastSearchStore(folder: folder), request: request,
-            clock: clock, noun: noun, progress: progress, publish: publish
+            clock: clock, noun: noun, progress: progress, publish: publish, pass: pass, index: index
         )
-        let file = try await advancer.create(origin: origin, query: query, submitArgv: submitArgv)
+        let searchID = UUID()
+        var lock: BlastSearchLock?
+        if case .taken(let taken) = await index?.takeLock(of: searchID) { lock = taken }
+        defer { lock?.release() }
+        let file = try await advancer.create(searchID: searchID, origin: origin, query: query, submitArgv: submitArgv)
+        if let index { return try await index.runStoppable(searchID) { try await advancer.advance(file) } }
         return try await advancer.advance(file)
     }
 
@@ -269,13 +277,14 @@ extension BlastService {
             origin: BlastSearchFile.Origin(environment: ProcessInfo.processInfo.environment),
             clock: clock,
             noun: "reads",
+            outlivesTheRun: searchFolder != nil,
             progress: { progress?($0, $1) },
             publish: { _ in }
         )
         switch outcome {
         case .done(let result):
             return result
-        case .ended(_, let words), .needsAPerson(let words):
+        case .ended(_, let words), .needsAPerson(let words), .parked(let words):
             throw BlastServiceError.searchEnded(words: words)
         }
     }

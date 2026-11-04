@@ -13,8 +13,8 @@ extension BlastCommand {
     /// BLASTs every sequence of a FASTA file and saves the result beside a copy of the query (Phase 2.11
     /// lane A65, plan decision C1). The viewers' BLAST actions write their reads or contigs to a query
     /// file and run this leaf, so the row of each one names a command. The query reaches NCBI from the
-    /// file and never as command-line text. SIGTERM cancels the search, records the run as cancelled
-    /// and exits 125, as the app's other CLI routes do.
+    /// file and never as command-line text. SIGTERM exits 125, as the app's other CLI routes do, and leaves
+    /// the search as it stands with no record, since the search lives on (ARCH-BLAST-RESILIENCE item 14).
     struct SubmitSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "submit",
@@ -93,6 +93,12 @@ extension BlastCommand {
         )
         var extraArgs: String = ""
 
+        @Flag(
+            name: .customLong("park"),
+            help: "Exit 75 with a waiting event once every send has been out long enough, and leave the search to blast resume"
+        )
+        var park = false
+
         @OptionGroup var globalOptions: GlobalOptions
 
         func validate() throws {
@@ -146,6 +152,7 @@ extension BlastCommand {
                     origin: BlastSearchFile.Origin(environment: environment),
                     clock: clock,
                     noun: "sequences",
+                    pass: park ? .untilParked : .toAnEnding,
                     progress: { events.emitProgress($0, message: $1) },
                     publish: { result in
                         try publishRecord(result: result, request: request, query: query, in: output, runClock: runClock, argv: nil)
@@ -157,8 +164,7 @@ extension BlastCommand {
             case .success(let ending):
                 try finishSearch(ending, output: output, query: query, events: events, chatty: chatty, startedAt: runClock.startedAt)
             case .failure(let error) where error is CancellationError:
-                writeCancelledRecord(in: output, query: query, startedAt: runClock.startedAt)
-                FileHandle.standardError.write(Data("BLAST search cancelled. No result was saved.\n".utf8))
+                BlastCommand.sayLeftForLater(output: output)
                 throw CLIExitCode.cancelled.exitCode
             case .failure(let error):
                 let message = "BLAST search failed: \(error.localizedDescription)"

@@ -35,6 +35,8 @@ struct BlastCommand: AsyncParsableCommand {
             VerifySubcommand.self,
             SubmitSubcommand.self,
             ResumeSubcommand.self,
+            StopSubcommand.self,
+            InFlightSubcommand.self,
             ExportSubcommand.self,
         ],
         defaultSubcommand: VerifySubcommand.self
