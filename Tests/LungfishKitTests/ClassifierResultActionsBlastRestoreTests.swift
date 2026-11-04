@@ -56,15 +56,72 @@ final class ClassifierResultActionsBlastRestoreTests: XCTestCase {
         XCTAssertTrue(actions.isBlastDrawerOpen)
     }
 
-    func testARowWithNoSavedRecordLeavesThePaneAsItIs() async throws {
+    /// BLAST-STALE-PANE-TAXON-ONLY (BIO, lane ROWPANE). The pane shows the selected row's search or nothing, so a row
+    /// with no saved search empties a pane that shows another row's search. This test pinned the opposite before.
+    func testRowWithNoSavedSearchEmptiesThePaneOfAnotherRowsSearch() async throws {
         await select(rowA)
-        var other = try XCTUnwrap(rowA)
-        other.contig = "NC_NONE"
+        XCTAssertEqual(actions.lastBlastResult?.rid, "RID-A")
+        let other = try rowWithNoSearch("NC_NONE")
 
         await select(other)
 
-        XCTAssertEqual(actions.lastBlastResult?.rid, "RID-A", "the pane is not cleared")
+        XCTAssertNil(actions.lastBlastResult, "row A's verdict does not stay under a row with no search")
+        XCTAssertNil(actions.lastBlastRecordURL)
+        XCTAssertNil(actions.restoredBlastRow)
+        XCTAssertNil(actions.blastDrawer.currentResult, "the pane shows its empty state")
+        XCTAssertTrue(actions.blastDrawer.emptyStateDetailText.contains("Select a row"), actions.blastDrawer.emptyStateDetailText)
+    }
+
+    /// A nil row picks no single row, so the pane makes no claim about a row and keeps what it shows.
+    func testNoSingleRowKeepsThePane() async throws {
+        await select(rowA)
+
+        actions.showSelection(count: 2)
+        actions.showNoSelection(prompt: "")
+
+        XCTAssertEqual(actions.lastBlastResult?.rid, "RID-A")
         XCTAssertEqual(actions.restoredBlastRow, rowA)
+    }
+
+    /// The same rule for a run. A result a run brought belongs to the row picked when the run began, and it empties
+    /// when a row with no saved search is picked.
+    func testARunsResultDoesNotStayUnderAnotherRowWithNoSearch() async throws {
+        let rowB = try rowWithNoSearch("NC_B")
+        let rowC = try rowWithNoSearch("NC_C")
+        await select(rowB)
+        actions.showBlastLoading(phase: .submitting, requestId: nil)
+        actions.showBlastResults(try runResult(), recordURL: nil)
+        XCTAssertEqual(actions.lastBlastResult?.rid, "RID-RUN")
+
+        await select(rowC)
+
+        XCTAssertNil(actions.lastBlastResult, "row B's run result does not stay under row C")
+        XCTAssertNil(actions.blastDrawer.currentResult)
+    }
+
+    /// The pin that keeps the rule from over-reaching. A run's result stays when its own row is picked again, even
+    /// when no saved record is found for the row.
+    func testARunsResultStaysWhenItsOwnRowIsPickedAgain() async throws {
+        let rowB = try rowWithNoSearch("NC_B")
+        await select(rowB)
+        actions.showBlastLoading(phase: .submitting, requestId: nil)
+        actions.showBlastResults(try runResult(), recordURL: nil)
+
+        await select(rowB)
+
+        XCTAssertEqual(actions.lastBlastResult?.rid, "RID-RUN", "the run's result is row B's own")
+    }
+
+    private func rowWithNoSearch(_ contig: String) throws -> BlastSavedSearchRow {
+        var row = try XCTUnwrap(rowA)
+        row.contig = contig
+        return row
+    }
+
+    /// A result a run brought, read from a record that no row of these tests selects.
+    private func runResult() throws -> BlastVerificationResult {
+        let recordURL = try saved.saveRecord(rid: "RID-RUN", sourceResult: "result-A", sample: "S9", taxId: 99, contig: "NC_RUN", age: -100)
+        return try BlastSubmissionRecord.load(recordURL).result
     }
 
     func testARunInFlightIsNotReplacedAndARestoreFollowsItsEnd() async throws {
