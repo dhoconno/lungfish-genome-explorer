@@ -1107,6 +1107,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             self?.handleUnresolvedSelection(rows)
         }
         unresolvedTable.onSelectionCleared = { [weak self] in
+            self?.updateBlastRerunRule()
             self?.handleUnresolvedSelection([])
         }
 
@@ -1575,9 +1576,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
             self?.view.layoutSubtreeIfNeeded()
         }
         container.blastResultsTab.presentationStyle = .sequenceBlast
-        container.blastResultsTab.onRerunBlast = { [weak self] in
-            self?.performUnresolvedBlast()
-        }
+        container.blastResultsTab.onRerunBlast = { [weak self] in self?.performUnresolvedBlast() }
         container.blastResultsTab.onCancelBlast = { [weak self] in
             self?.onUnresolvedBlastCancelRequested?()
         }

@@ -1817,16 +1817,15 @@ public class ViewerViewController: NSViewController {
                           self.activeFASTABlastRunID == runID else { return }
                     self.clearActiveFASTABlast(runID: runID)
                     controller.showBlastResults(result, recordURL: recordURL)
+                } catch let parked as BlastSubmitParked {
+                    self?.clearActiveFASTABlast(runID: runID)
+                    await Self.parkBlastRow(opID, words: parked.words, output: parked.output) { controller?.ensureBlastDrawer().showWaiting($0) }
                 } catch is CancellationError {
                     OperationCenter.shared.acknowledgeCancellation(id: opID)
                     self?.clearActiveFASTABlast(runID: runID)
                 } catch {
                     let errorText = error.localizedDescription
-                    guard OperationCenter.shared.fail(
-                        id: opID,
-                        detail: errorText,
-                        errorMessage: errorText
-                    ) else { return }
+                    guard OperationCenter.shared.fail(id: opID, detail: errorText, errorMessage: errorText) else { return }
                     guard let self, let controller,
                           self.activeFASTABlastRunID == runID else { return }
                     self.clearActiveFASTABlast(runID: runID)

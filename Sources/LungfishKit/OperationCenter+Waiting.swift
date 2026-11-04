@@ -30,6 +30,12 @@ public extension OperationCenter {
         return true
     }
 
+    /// Sets what a waiting row's Cancel runs, once the process that began the row has gone.
+    func setWaitingCancelCallback(id: UUID, callback: @escaping @Sendable () -> Void) {
+        guard let index = items.firstIndex(where: { $0.id == id }), items[index].state == .waiting else { return }
+        items[index].onCancel = callback
+    }
+
     /// Takes a waiting row back to running, for a pass that has something to bring back.
     /// - Returns: Whether the row took the state.
     @discardableResult

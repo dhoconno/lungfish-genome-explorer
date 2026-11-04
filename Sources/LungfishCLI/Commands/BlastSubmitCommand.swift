@@ -149,6 +149,8 @@ extension BlastCommand {
                         sequenceCount: query.sequences.count
                     ),
                     submitArgv: submitArgv,
+                    lineage: lineage(recordAt: output.appendingPathComponent(BlastSubmissionRecord.recordFileName)),
+                    sourceStamp: sourceResult.flatMap { BlastVerificationArchive.sourceStamp(ofResult: URL(fileURLWithPath: $0)) },
                     origin: BlastSearchFile.Origin(environment: environment),
                     clock: clock,
                     noun: "sequences",

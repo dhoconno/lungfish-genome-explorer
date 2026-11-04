@@ -874,7 +874,7 @@ public final class FASTACollectionViewController: NSViewController,
         openBlastDrawerIfNeeded()
     }
 
-    private func ensureBlastDrawer() -> BlastResultsDrawerTab {
+    func ensureBlastDrawer() -> BlastResultsDrawerTab {
         if let blastDrawerContainer {
             configureBlastDrawerCallbacks(blastDrawerContainer)
             return blastDrawerContainer.blastResultsTab

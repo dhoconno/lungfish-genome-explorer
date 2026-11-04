@@ -54,7 +54,8 @@ extension ViewerViewController {
                 failure: { [weak controller] text in
                     controller?.showBlastFailure(message: text, runID: runID)
                     showBlastVerificationErrorAlert(text)
-                }
+                },
+                waiting: { [weak controller] in controller?.showBlastWaiting($0, runID: runID) }
             )
         }
     }

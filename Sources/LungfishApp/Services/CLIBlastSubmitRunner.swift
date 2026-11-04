@@ -36,6 +36,8 @@ struct CLIBlastSubmitResult: Sendable, Equatable {
     let recordPath: String
     let queryPath: String?
     let message: String?
+    /// Set when the search outlived the run and waits at NCBI, with no record yet. Then `recordPath` is empty.
+    var waiting: CLISubprocessTransport.Result.Waiting? = nil
 }
 
 enum CLIBlastSubmitRunnerError: Error, LocalizedError, Equatable {
@@ -66,8 +68,11 @@ enum CLIBlastSubmitRunnerError: Error, LocalizedError, Equatable {
 struct CLIBlastSubmitRunner {
     private let transport: CLISubprocessTransport
     private let cancellationRequested = BlastSubmitCancelFlag()
+    private let personStopped = BlastSubmitCancelFlag()
+    private let cliURLOverride: URL?
 
     init(cliURLOverride: URL? = nil) {
+        self.cliURLOverride = cliURLOverride
         self.transport = CLISubprocessTransport(cliURLOverride: cliURLOverride)
     }
 
@@ -92,7 +97,8 @@ struct CLIBlastSubmitRunner {
         for taxId in request.relatedTaxIds.sorted() { arguments += ["--related-taxid", String(taxId)] }
         for name in request.relatedNames { arguments += ["--related-name", name] }
         if let database = request.database { arguments += ["--database", database] }
-        return arguments + ["--format", "json", "--no-progress"]
+        // A viewer's run ends once every send is out and waiting. The row then parks and the monitor goes on (section 6).
+        return arguments + ["--park", "--format", "json", "--no-progress"]
     }
 
     /// Runs `arguments`, handing each event to `onEvent`, and returns the files of the completion.
@@ -108,6 +114,9 @@ struct CLIBlastSubmitRunner {
                 isCancelled: { [cancellationRequested] in cancellationRequested.isSet },
                 onEvent: onEvent
             )
+            if let waiting = result.waiting {
+                return CLIBlastSubmitResult(recordPath: "", queryPath: nil, message: waiting.message, waiting: waiting)
+            }
             guard let record = result.outputs.first else { throw CLIBlastSubmitRunnerError.missingCompletion }
             return CLIBlastSubmitResult(
                 recordPath: record,
@@ -130,6 +139,26 @@ struct CLIBlastSubmitRunner {
                 throw CLIBlastSubmitRunnerError.runFailed(message: message)
             }
         }
+    }
+
+    /// A person's Cancel, which is a Stop of the search. SIGTERM alone leaves the search to go on, as a quit does, so the
+    /// route then runs ``stopSearch(output:)`` (UX-BLAST-WORDS Q3). Returns at once.
+    func cancelAsAPersonsStop() {
+        personStopped.set()
+        cancel()
+    }
+
+    /// Whether the cancel was a person's Stop and not a quit.
+    var wasStoppedByAPerson: Bool { personStopped.isSet }
+
+    /// Runs `blast stop` on the search in `output`, which writes `stopped` and then the cancelled record.
+    func stopSearch(output: URL) async {
+        let stopper = CLISubprocessTransport(cliURLOverride: cliURLOverride)
+        _ = try? await stopper.run(
+            arguments: ["blast", "stop", "--output", output.path, "--format", "json", "--no-progress"],
+            isCancelled: { false },
+            onEvent: { _ in }
+        )
     }
 
     /// Returns at once. The transport sends SIGTERM to the leaf's group and SIGKILL after the grace.

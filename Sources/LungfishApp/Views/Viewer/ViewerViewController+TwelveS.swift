@@ -142,16 +142,19 @@ extension ViewerViewController {
             Self.refuseBlastWithoutProject(window: window)
             return nil
         }
+        let run = BlastDrawerRun()
         let drawer = drawer ?? BlastSubmitDrawer(
             loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
             results: {
                 controller?.onUnresolvedBlastCancelRequested = nil
-                controller?.showBlastResults($0, recordURL: $1)
+                controller?.landBlastResults($0, recordURL: $1, run: run.id)
             },
             failure: {
                 controller?.onUnresolvedBlastCancelRequested = nil
                 controller?.showBlastFailure($0)
-            }
+            },
+            began: { run.id = $0 },
+            waiting: { controller?.showBlastWaiting($0) }
         )
         var preparation: Task<Void, Never>?
         // 1. The row begins with no command. 2. The sequences are exported. 3. The row takes the plan's command.

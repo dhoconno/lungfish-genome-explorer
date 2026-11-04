@@ -149,15 +149,23 @@ public final class ClassifierResultActions: NSObject {
         didSet { scheduleSavedBlastRestore(for: selectedBlastRow) }
     }
     private var selectedBlastRow: BlastSavedSearchRow?
+    /// The row the pane is about: the row picked, or the row a person's run was named for until the selection moves.
+    /// A search's words and verdict reach the pane only on this row.
+    private var paneRow: BlastSavedSearchRow?
     /// The row whose search the pane shows, whether it came back from disk or from a run that began on that row. Nil
     /// when no row is known. A row with no saved search empties the pane unless the pane shows that row's search.
     private var shownBlastRow: BlastSavedSearchRow?
-    /// The row the run in flight is about. It is the row the viewer named, or the row picked when the run began.
-    private var runBlastRow: BlastSavedSearchRow?
+    /// A run in flight and the row it is about, the row the viewer named or else the row picked when it began.
+    private struct BlastRun {
+        var id: UUID
+        var row: BlastSavedSearchRow?
+    }
+    /// The runs that have an operation, newest last. One ended by a Cancel stays until the next run, and reads as ended.
+    private var blastRuns: [BlastRun] = []
+    /// A run that has shown its progress and has no operation yet. The outer nil is no such run.
+    private var pendingBlastRun: BlastSavedSearchRow??
     /// The row a viewer named for the run it is about to hand to the App, until that run begins.
     private var namedBlastRunRow: BlastSavedSearchRow?
-    private var isBlastRunInFlight = false
-    private var blastRunOperationID: UUID?
 
     /// The App opens its extraction dialog for the request.
     public var onExtractionRequested: (@MainActor (ClassifierExtractionRequest) -> Void)?
@@ -182,6 +190,9 @@ public final class ClassifierResultActions: NSObject {
         self.rerunFollowsSelection = rerunFollowsSelection
         blastResultsButton = Self.makeBlastResultsButton()
         super.init()
+        blastDrawer.onCancelBlast = { [weak self] in self?.cancelShownBlastRun() }
+        NotificationCenter.default.addObserver(self, selector: #selector(blastSearchChanged), name: BlastSearchNews.changed, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(operationStateChanged), name: .operationStateChanged, object: nil)
         blastResultsButton.target = self
         blastResultsButton.action = #selector(blastResultsTapped(_:))
         bar.addCustomButton(blastResultsButton)
@@ -232,9 +243,7 @@ public final class ClassifierResultActions: NSObject {
     private func setBlastEnabled(_ enabled: Bool, reason: String? = nil) {
         bar.setBlastEnabled(enabled, reason: reason)
         guard rerunFollowsSelection else { return }
-        blastDrawer.rerunBlastButton.isEnabled = enabled
-        blastDrawer.rerunBlastButton.toolTip = enabled ? nil : reason
-        blastDrawer.rerunBlastButton.setAccessibilityHelp(enabled ? nil : reason)
+        blastDrawer.setRerunRule(enabled: enabled, reason: reason)
     }
 
     // MARK: - Extraction
@@ -247,41 +256,96 @@ public final class ClassifierResultActions: NSObject {
 
     // MARK: - BLAST results
 
-    /// Shows a BLAST result in the pane and opens it. The summary names the sample of the row the run began on, which
-    /// may not be the row picked now.
-    public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
-        endBlastRun(shownRecord: recordURL, shownRow: runBlastRow)
+    /// Shows a BLAST result in the pane and opens it, when the pane is on the row the run began on. The summary names that
+    /// row's sample. A result of another row stays on disk and comes back when that row is picked (UX-BLAST-WORDS Q1), so
+    /// no verdict ever shows under another row's name. `run` names the operation that carries the run.
+    public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?, run: UUID? = nil) {
+        stopSavedBlastScan()
+        let row = endBlastRun(run)
+        guard paneIsOn(row) else {
+            refreshShownRow()
+            return
+        }
+        restoredBlastRow = nil
+        lastBlastRecordURL = recordURL
+        shownBlastRow = row
         lastBlastResult = result
-        blastDrawer.showResults(result, recordURL: recordURL, subject: shownBlastRow?.sample)
+        setBlastBarWord(nil)
+        blastDrawer.showResults(result, recordURL: recordURL, subject: row?.sample)
         setBlastDrawerOpen(true)
     }
 
-    /// Shows a BLAST run's progress in the pane and opens it.
-    public func showBlastLoading(phase: BlastJobPhase, requestId: String?) {
-        noteBlastRunStart()
-        isBlastRunInFlight = true
+    /// Shows a BLAST run's progress in the pane and opens it. A run on another row leaves the pane as it is.
+    public func showBlastLoading(phase: BlastJobPhase, requestId: String?, run: UUID? = nil) {
+        if let run, let known = blastRuns.first(where: { $0.id == run }) {
+            guard paneIsOn(known.row) else { return }
+        } else {
+            noteBlastRunStart()
+        }
         restoredBlastRow = nil
         lastBlastRecordURL = nil
+        setBlastBarWord(nil)
         blastDrawer.showLoading(phase: phase, requestId: requestId)
         setBlastDrawerOpen(true)
     }
 
-    /// Shows why a BLAST run could not start or failed in the pane and opens it.
-    public func showBlastFailure(_ message: String) {
-        endBlastRun(shownRecord: nil)
+    /// Shows why a BLAST run could not start or failed in the pane and opens it. A run on another row says so on its own
+    /// Operations row and leaves the pane as it is.
+    public func showBlastFailure(_ message: String, run: UUID? = nil) {
+        stopSavedBlastScan()
+        var row: BlastSavedSearchRow?
+        if run != nil {
+            row = endBlastRun(run)
+        } else {
+            pendingBlastRun = nil
+        }
+        guard paneIsOn(row) else {
+            refreshShownRow()
+            return
+        }
+        restoredBlastRow = nil
+        lastBlastRecordURL = nil
+        shownBlastRow = nil
+        setBlastBarWord(nil)
         blastDrawer.showFailure(message: message)
         setBlastDrawerOpen(true)
     }
 
-    /// Names the operation that carries the run the pane is waiting for. A Cancel tells the pane nothing, so the run
-    /// counts as running only while its operation is active, and a cancelled run cannot block a saved search.
+    /// Shows a search that has no result to show, in its state's words. A run on another row leaves the pane as it is.
+    package func showBlastWaiting(_ search: BlastLiveSearch, run: UUID? = nil) {
+        if let run, let known = blastRuns.first(where: { $0.id == run }), !paneIsOn(known.row) { return }
+        showLiveSearch(search, row: paneRow)
+    }
+
+    private func showLiveSearch(_ search: BlastLiveSearch, row: BlastSavedSearchRow?) {
+        guard let state = BlastSearchPaneState.make(search, noun: blastDrawer.searchNoun, now: Date()) else { return }
+        showPaneState(state, row: row)
+    }
+
+    private func showPaneState(_ state: BlastSearchPaneState, row: BlastSavedSearchRow?) {
+        lastBlastResult = nil
+        lastBlastRecordURL = nil
+        restoredBlastRow = row
+        shownBlastRow = row
+        setBlastBarWord(state.barWord)
+        blastDrawer.showWaiting(state)
+    }
+
+    /// The BLAST Results button carries a search's word, short enough not to widen the bar (UX-BLAST-WORDS Q1). Its
+    /// VoiceOver label stays its name.
+    private func setBlastBarWord(_ word: String?) {
+        blastResultsButton.title = word ?? ClassifierActionWords.blastResultsTitle
+    }
+
+    /// Names the operation that carries the run the pane is waiting for. Asking twice for one run names it once.
     public func trackBlastRun(operationID: UUID) {
-        // A second search that begins while the first still runs shares one pane with it, so neither verdict can be
-        // told from the other's row. Name neither rather than the wrong one.
-        if blastRunIsActive(), let held = blastRunOperationID, held != operationID { runBlastRow = nil }
-        noteBlastRunStart()
-        isBlastRunInFlight = true
-        blastRunOperationID = operationID
+        guard !blastRuns.contains(where: { $0.id == operationID }) else { return }
+        let row = pendingBlastRun.flatMap { $0 } ?? (pendingBlastRun == nil ? (namedBlastRunRow ?? selectedBlastRow) : nil)
+        pendingBlastRun = nil
+        namedBlastRunRow = nil
+        blastRuns = activeBlastRuns()
+        blastRuns.append(BlastRun(id: operationID, row: row))
+        if let row { paneRow = row }
     }
 
     /// Shows a saved search in the pane and leaves the pane as open or as closed as it is. The record's file comes
@@ -291,96 +355,159 @@ public final class ClassifierResultActions: NSObject {
         lastBlastRecordURL = recordURL
         restoredBlastRow = row
         shownBlastRow = row
+        setBlastBarWord(nil)
         blastDrawer.showResults(result, recordURL: recordURL, subject: row.sample)
     }
 
     /// Names the row a run is about, just before the viewer hands the run to the App. A context-menu command acts on
     /// the clicked row when that row lies outside the selection, and leaves the selection where it is, so the picked
     /// row is not always the row the run was sent for (UX blocker 1 of lane ROWPANE). The name is used once, by the
-    /// run that begins next, and a selection change drops it. A run still running keeps its own row, and one whose
-    /// operation has ended without a word to the pane (a Cancel) no longer counts.
+    /// run that begins next, and a selection change drops it.
     public func noteBlastRunRow(_ row: BlastSavedSearchRow?) {
-        namedBlastRunRow = blastRunIsActive() ? nil : row
+        namedBlastRunRow = row
     }
 
-    /// A run belongs to the row that was named for it, or else to the row picked when it began, so its result can be
-    /// told from another row's later.
+    /// A run belongs to the row that was named for it, or else to the row picked when it began. A run's own later words
+    /// begin nothing, so only a name or an idle pane starts one.
     private func noteBlastRunStart() {
-        guard !isBlastRunInFlight else { return }
-        runBlastRow = namedBlastRunRow ?? selectedBlastRow
+        guard pendingBlastRun == nil else { return }
+        if namedBlastRunRow == nil, !activeBlastRuns().isEmpty { return }
+        let row = namedBlastRunRow ?? selectedBlastRow
         namedBlastRunRow = nil
+        pendingBlastRun = .some(row)
+        if let row { paneRow = row }
     }
 
-    private func endBlastRun(shownRecord recordURL: URL?, shownRow: BlastSavedSearchRow? = nil) {
-        isBlastRunInFlight = false
-        blastRunOperationID = nil
-        restoredBlastRow = nil
-        lastBlastRecordURL = recordURL
-        shownBlastRow = shownRow
-        runBlastRow = nil
+    /// Takes a run off the list and gives its row. With no operation named it is the run still without one, or the newest.
+    private func endBlastRun(_ run: UUID?) -> BlastSavedSearchRow? {
         namedBlastRunRow = nil
+        if let run {
+            guard let index = blastRuns.firstIndex(where: { $0.id == run }) else { return nil }
+            return blastRuns.remove(at: index).row
+        }
+        if let pending = pendingBlastRun {
+            pendingBlastRun = nil
+            return pending
+        }
+        return blastRuns.popLast()?.row
     }
 
-    /// A row with no saved search shows nothing, never the verdict of the row picked before it
-    /// (BLAST-STALE-PANE-TAXON-ONLY). A run's result that began on `row` stays.
+    /// Whether a word about `row` belongs on the pane. A run with no known row names none, and a pane on no single row
+    /// takes any, since the summary says whose verdict it is.
+    private func paneIsOn(_ row: BlastSavedSearchRow?) -> Bool {
+        guard let row, let paneRow else { return true }
+        return row == paneRow
+    }
+
+    /// The runs whose operations still run. A parked search has no process behind it, so it is not among them.
+    private func activeBlastRuns() -> [BlastRun] {
+        let active = Set(OperationCenter.shared.activeItems.map(\.id))
+        return blastRuns.filter { active.contains($0.id) }
+    }
+
+    /// Whether a run about `row` is at work, which keeps the pane on that run. A run with no known row counts for every row.
+    private func blastRunIsActive(onRow row: BlastSavedSearchRow) -> Bool {
+        if let pending = pendingBlastRun, pending == nil || pending == row { return true }
+        return activeBlastRuns().contains { $0.row == nil || $0.row == row }
+    }
+
+    /// The pane's own Cancel, which the row's Cancel answers (BLAST-PANE-CANCEL-DEAD).
+    private func cancelShownBlastRun() {
+        guard let run = activeBlastRuns().last(where: { paneIsOn($0.row) }) else { return }
+        OperationCenter.shared.cancel(id: run.id)
+    }
+
+    /// A row with no saved search shows nothing, never the verdict or the search of the row picked before it
+    /// (BLAST-STALE-PANE-TAXON-ONLY). A run's result that began on `row` stays, and so do a failure's words.
     private func emptyBlastPane(unlessItShows row: BlastSavedSearchRow) {
-        guard lastBlastResult != nil, shownBlastRow != row else { return }
+        guard blastDrawer.showsASearchInProgress || (lastBlastResult != nil && shownBlastRow != row) else { return }
         lastBlastResult = nil
         lastBlastRecordURL = nil
         restoredBlastRow = nil
         shownBlastRow = nil
+        setBlastBarWord(nil)
         blastDrawer.showEmpty()
     }
 
-    /// Whether a run of this pane is still running. A run with no operation yet counts, and one whose operation has
-    /// ended without a word to the pane stops counting here.
-    private func blastRunIsActive() -> Bool {
-        guard isBlastRunInFlight else { return false }
-        guard let blastRunOperationID else { return true }
-        if OperationCenter.shared.activeItems.contains(where: { $0.id == blastRunOperationID }) { return true }
-        isBlastRunInFlight = false
-        self.blastRunOperationID = nil
-        return false
-    }
-
-    /// Looks for the newest saved search of `row` off the main actor, as Kraken2's `scheduleSavedBlastVerificationRestore`
-    /// does. Nothing starts while a run is in flight or when the pane already shows this row's search. A result that
-    /// comes back after the selection moved or a run began is dropped. A row with no saved search empties a pane that
-    /// shows another row's verdict, and a nil row picks no single row, so the pane keeps what it shows.
-    private func scheduleSavedBlastRestore(for row: BlastSavedSearchRow?) {
+    private func stopSavedBlastScan() {
         savedBlastRestoreTask?.cancel()
         savedBlastRestoreTask = nil
+    }
+
+    /// The selection changed. The pane follows it, and a row whose run is at work shows that run again.
+    private func scheduleSavedBlastRestore(for row: BlastSavedSearchRow?) {
+        stopSavedBlastScan()
         selectedBlastRow = row
+        paneRow = row
         namedBlastRunRow = nil
-        guard let row, !blastRunIsActive(), restoredBlastRow != row else { return }
+        guard let row else { return }
+        if activeBlastRuns().contains(where: { $0.row == row }) {
+            if !blastDrawer.showsASearchInProgress { blastDrawer.showLoading(phase: .waiting, requestId: nil) }
+            return
+        }
+        startSavedBlastScan(of: row, force: false)
+    }
+
+    /// Looks for the newest search of `row` off the main actor, as Kraken2's `scheduleSavedBlastVerificationRestore`
+    /// does. Nothing starts while a run about this row is at work or when the pane already shows this row's search, unless
+    /// news of a search forces it. A scan that comes back after the pane moved or a run began is dropped. A row with no
+    /// search empties a pane that shows another row's, and a nil row picks no single row, so the pane keeps what it shows.
+    private func startSavedBlastScan(of row: BlastSavedSearchRow, force: Bool) {
+        stopSavedBlastScan()
+        guard !blastRunIsActive(onRow: row), force || restoredBlastRow != row else { return }
         let project = savedBlastSearchProject?()
         savedBlastRestoreTask = Task { @MainActor [weak self] in
-            let saved = await Self.newestSavedSearch(of: row, inProject: project)
+            let found = await Self.newestSearch(of: row, inProject: project)
             guard let self,
                   !Task.isCancelled,
-                  self.selectedBlastRow == row,
-                  !self.blastRunIsActive(),
-                  self.restoredBlastRow != row else {
+                  self.paneRow == row,
+                  !self.blastRunIsActive(onRow: row),
+                  force || self.restoredBlastRow != row else {
                 return
             }
-            guard let saved else {
+            switch found {
+            case nil:
                 self.emptyBlastPane(unlessItShows: row)
-                return
+            case .saved(let record, let url):
+                guard self.lastBlastRecordURL != url else { return }
+                self.restoreBlastResults(record.result, recordURL: url, row: row)
+            case .live(let search):
+                self.showLiveSearch(search, row: row)
+            case .sourceReplaced(let folder):
+                self.showPaneState(.sourceReplaced(folder: folder), row: row)
             }
-            guard self.lastBlastRecordURL != saved.url else { return }
-            self.restoreBlastResults(saved.record.result, recordURL: saved.url, row: row)
         }
     }
 
-    @concurrent nonisolated private static func newestSavedSearch(
+    /// Asks the disk again about the row the pane is on, and takes the pane off the spinner of a run that has ended.
+    private func refreshShownRow() {
+        if let row = paneRow {
+            startSavedBlastScan(of: row, force: true)
+        } else if case .loading = blastDrawer.displayState, pendingBlastRun == nil, activeBlastRuns().isEmpty {
+            blastDrawer.showEmpty()
+        }
+    }
+
+    /// A search changed on disk, wherever it began. This is how a late result reaches its row (ARCH section 6).
+    @objc private func blastSearchChanged() {
+        refreshShownRow()
+    }
+
+    /// An operation changed. A Cancel tells the pane nothing else, so this takes the pane off the spinner of its run.
+    @objc private func operationStateChanged() {
+        guard case .loading = blastDrawer.displayState else { return }
+        refreshShownRow()
+    }
+
+    @concurrent nonisolated private static func newestSearch(
         of row: BlastSavedSearchRow,
         inProject project: URL?
-    ) async -> (record: BlastSubmissionRecord, url: URL)? {
+    ) async -> BlastRowSearch? {
         guard let project = project ?? BlastVerificationArchive.savedSearchProject(ofResult: row.sourceResultURL) else {
             return nil
         }
-        return BlastVerificationArchive.newestSubmission(in: project) { record, url in
-            row.isSource(of: record.lineage, recordAt: url)
+        return BlastVerificationArchive.newestSearch(in: project) { lineage, url in
+            row.isSource(of: lineage, recordAt: url)
         }
     }
 

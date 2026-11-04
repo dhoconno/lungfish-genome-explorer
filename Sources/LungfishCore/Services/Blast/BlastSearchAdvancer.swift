@@ -98,7 +98,9 @@ package struct BlastSearchAdvancer: Sendable {
         searchID: UUID = UUID(),
         origin: BlastSearchFile.Origin,
         query: BlastSubmissionRecord.Query,
-        submitArgv: [String]
+        submitArgv: [String],
+        lineage: BlastSubmissionRecord.Lineage? = nil,
+        sourceStamp: String? = nil
     ) async throws -> BlastSearchFile {
         let form = try await service.putForm(for: request)
         try await service.reservePost(sequenceCount: request.sequences.count, kind: .first, at: clock.now())
@@ -112,6 +114,8 @@ package struct BlastSearchAdvancer: Sendable {
             query: query,
             formSHA256: digest
         )
+        file.lineage = lineage
+        file.sourceStamp = sourceStamp
         file.copies[0].postReserved = true
         try store.save(file)
         await noteTheLine(file)

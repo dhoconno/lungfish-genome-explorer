@@ -49,8 +49,9 @@ extension ViewerViewController {
                 blastController.trackBlastRun(operationID: opID)
                 Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
                     loading: { blastController.showBlastLoading(phase: $0, requestId: nil) },
-                    results: { blastController.showBlastResults($0, recordURL: $1) },
-                    failure: { blastController.showBlastFailure($0) }
+                    results: { blastController.landBlastResults($0, recordURL: $1, run: opID) },
+                    failure: { blastController.showBlastFailure($0) },
+                    waiting: { blastController.showBlastWaiting($0) }
                 )) { [count = request.readCount] _ in "Results ready for \(count) contig\(count == 1 ? "" : "s")" }
             }
         }

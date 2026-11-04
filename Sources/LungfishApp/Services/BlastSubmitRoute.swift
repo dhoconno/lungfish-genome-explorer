@@ -25,6 +25,12 @@ enum BlastSubmitPlanError: Error, LocalizedError, Equatable {
     }
 }
 
+/// A search that parked, thrown by a caller whose path has no outcome of its own to return.
+struct BlastSubmitParked: Error {
+    let words: String
+    let output: URL
+}
+
 /// One viewer BLAST action planned onto `blast submit` (plan decision C1). The query file the viewer
 /// writes under `<project>/.tmp/`, the result folder the leaf creates and the lineage the record
 /// names are fixed before the row begins, so the row records the command the run executes.
@@ -125,32 +131,41 @@ struct BlastSubmitPlan: Sendable {
         )
     }
 
+    /// What a run of the leaf came to.
+    enum Outcome: Sendable {
+        /// The verdicts the record holds, with the record's URL, since the drawer keeps it for its table export.
+        case collected(BlastVerificationResult, recordURL: URL)
+        /// The search outlived the run and waits at NCBI, which is no failure (ARCH-BLAST-RESILIENCE section 6).
+        case waiting(words: String)
+
+        /// The collected result, or the throw of a search that parked, for a caller that treats it apart.
+        func collected(output: URL) throws -> (result: BlastVerificationResult, recordURL: URL) {
+            switch self {
+            case .collected(let result, let recordURL): return (result, recordURL)
+            case .waiting(let words): throw BlastSubmitParked(words: words, output: output)
+            }
+        }
+    }
+
     /// Writes the query through `DurableReplace`, hashing its bytes once (SWIFT 4, 5), runs the leaf
     /// through `runner` with each event handed to `onEvent`, and returns the verdicts its record holds
-    /// once the record names that digest, so the drawer shows what the leaf searched. The record's URL comes with
-    /// them, since the drawer keeps it for its table export (ARCH ruling T5 of lane 12.33).
+    /// once the record names that digest, so the drawer shows what the leaf searched. A search that parks returns
+    /// its words instead, with no record to read.
     @concurrent func run(
         runner: CLIBlastSubmitRunner,
         onEvent: @escaping @Sendable (CLIEvent) -> Void
-    ) async throws -> (result: BlastVerificationResult, recordURL: URL) {
+    ) async throws -> Outcome {
         let stage = request.queryURL.deletingLastPathComponent()
         try DurableReplace.replace(queryData, named: request.queryURL.lastPathComponent, in: stage)
         let digest = SHA256.hash(data: queryData).map { String(format: "%02x", $0) }.joined()
         let completed = try await runner.run(arguments: arguments, onEvent: onEvent)
+        if let waiting = completed.waiting { return .waiting(words: waiting.message) }
         let recordURL = URL(fileURLWithPath: completed.recordPath)
         let record = try BlastSubmissionRecord.load(recordURL)
         guard record.query.sha256 == digest else {
             throw CLIBlastSubmitRunnerError.queryDigestMismatch(expected: digest, found: record.query.sha256)
         }
-        return (record.result, recordURL)
-    }
-
-    /// The phase a BLAST drawer shows for a progress message of the search.
-    static func phase(forProgressMessage message: String) -> BlastJobPhase {
-        let lowercased = message.lowercased()
-        if lowercased.contains("waiting") { return .waiting }
-        if lowercased.contains("parsing") { return .parsing }
-        return .submitting
+        return .collected(record.result, recordURL: recordURL)
     }
 
     /// `label` as one folder-name word.

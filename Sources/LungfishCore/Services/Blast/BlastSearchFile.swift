@@ -215,6 +215,11 @@ package struct BlastSearchFile: Codable, Sendable, Equatable {
 
         package var reason: Reason
         package var until: Date
+
+        package init(reason: Reason, until: Date) {
+            self.reason = reason
+            self.until = until
+        }
     }
 
     package var schemaVersion: Int
@@ -236,6 +241,11 @@ package struct BlastSearchFile: Codable, Sendable, Equatable {
     package var ending: Ending?
     /// Why the next copy is held, nil when none is. Words say so once for each change of reason.
     package var copyHold: CopyHold?
+    /// What the search was sent from, as its record will name it, so a row finds its search before any record exists.
+    package var lineage: BlastSubmissionRecord.Lineage?
+    /// The digest of the source result's root record when the search went out, so a result that comes back hours later
+    /// can tell that its source was replaced since. Nil when the source has no root record.
+    package var sourceStamp: String?
 
     package init(
         searchID: UUID = UUID(),

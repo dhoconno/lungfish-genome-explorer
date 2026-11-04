@@ -60,6 +60,10 @@ final class BlastInFlightMonitor {
     private var passes: [UUID: Task<Void, Never>] = [:]
     private var lastPassAt: [UUID: Date] = [:]
     private var ended: Set<UUID> = []
+    /// Folders a viewer's own run is at work on, with its row. The monitor begins no row and no pass for them.
+    private var viewerRuns: [String: UUID] = [:]
+    /// Rows of viewer runs that have parked, which go on as the row of their search at the next read of the lines.
+    private var parkedRows: [String: UUID] = [:]
     private var timer: Task<Void, Never>?
     private var started = false
 
@@ -75,12 +79,71 @@ final class BlastInFlightMonitor {
     func start() {
         guard !started else { return }
         started = true
+        BlastSearchPaneActions.perform = { [weak self] action, folder in self?.perform(action, folder: folder) }
         Task { await self.refresh(project: nil) }
     }
 
     /// A project has opened, so its searches with no line are adopted (item 18).
     func projectOpened(_ project: URL) {
+        guard started else { return }
         Task { await self.refresh(project: project) }
+    }
+
+    // MARK: A viewer's own run
+
+    /// A viewer's run is at work on `output`, so its line needs no row of the monitor's.
+    func viewerRunBegan(output: URL, row: UUID) {
+        viewerRuns[output.standardizedFileURL.path] = row
+    }
+
+    func viewerRunEnded(output: URL) {
+        viewerRuns[output.standardizedFileURL.path] = nil
+    }
+
+    /// A viewer's run parked, so its row goes on as this search's row, with one row and never two.
+    func viewerRunParked(output: URL, row: UUID) {
+        parkedRows[output.standardizedFileURL.path] = row
+        guard started else { return }
+        Task { await self.refresh() }
+    }
+
+    // MARK: What a person presses
+
+    /// The pane's Check Now, Send Again, Stop and Resume (UX-BLAST-WORDS Q3).
+    func perform(_ action: BlastSearchPaneState.Action, folder: URL) {
+        Task {
+            switch action {
+            case .stop: await self.stopFromPane(folder)
+            case .checkNow, .resume: await self.personsPass(folder, extra: ["--check-now"])
+            case .sendAgain: await self.personsPass(folder, extra: ["--send-again"])
+            }
+        }
+    }
+
+    /// One pass at a person's asking, which also takes up a search that had ended, such as a stopped one.
+    private func personsPass(_ folder: URL, extra: [String]) async {
+        guard viewerRuns[folder.standardizedFileURL.path] == nil else { return }
+        guard let search = await ViewerViewController.readBlastSearch(in: folder) else { return }
+        let searchID = search.file.searchID
+        guard passes[searchID] == nil else { return }
+        ended.remove(searchID)
+        let line = BlastInFlightLine(
+            search.file, output: folder, words: BlastSearchWords.adopted(rid: search.file.copies.last?.rid), now: now()
+        )
+        take(line)
+        run(pass: line, extra: extra)
+    }
+
+    /// Stop on the row that carries the search, or on the folder alone when no row does.
+    private func stopFromPane(_ folder: URL) async {
+        let path = folder.standardizedFileURL.path
+        let monitored = known.values.first { $0.output == path }.flatMap { rows[$0.searchID] }
+        if let row = viewerRuns[path] ?? monitored {
+            center.cancel(id: row)
+            return
+        }
+        await worker.stop(folder)
+        BlastSearchNews.post()
     }
 
     /// Reads the lines, keeps one row a line, and starts what is due.
@@ -108,8 +171,18 @@ final class BlastInFlightMonitor {
 
     private func take(_ line: BlastInFlightLine) {
         // A line read before its search ended can come after the row has, and it must not begin a second row.
-        guard !ended.contains(line.searchID) else { return }
+        guard !ended.contains(line.searchID), viewerRuns[line.output] == nil else { return }
         known[line.searchID] = line
+        if rows[line.searchID] == nil, let row = parkedRows.removeValue(forKey: line.output) {
+            let output = URL(fileURLWithPath: line.output, isDirectory: true)
+            rows[line.searchID] = row
+            center.park(id: row, detail: line.words)
+            center.setWaitingCancelCallback(id: row) { [weak self] in
+                Task { @MainActor in await self?.stopSearch(line.searchID, output: output) }
+            }
+            center.setWaitingCommand(id: row, command: Self.resumeCommand(output: output))
+            return
+        }
         if let row = rows[line.searchID] {
             if passes[line.searchID] == nil { center.park(id: row, detail: line.words) }
             return
@@ -199,7 +272,9 @@ final class BlastInFlightMonitor {
         case .noNews(let words):
             guard !words.isEmpty else { return }
             center.log(id: row, level: .info, message: words)
+            return
         }
+        BlastSearchNews.post()
     }
 
     private func forget(_ searchID: UUID) {
@@ -218,6 +293,7 @@ final class BlastInFlightMonitor {
         guard let row else { return }
         center.acknowledgeCancellation(id: row)
         center.setStoppedWords(id: row, words: BlastSearchWords.stopped)
+        BlastSearchNews.post()
     }
 }
 

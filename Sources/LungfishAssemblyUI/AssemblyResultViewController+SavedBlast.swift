@@ -13,6 +13,29 @@ extension AssemblyResultViewController {
         savedBlastRestorer.trackRun(operationID: operationID)
     }
 
+    /// A run's result, shown only when the contigs selected are still the ones it was sent for. Otherwise it stays on disk
+    /// and comes back when those contigs are selected, so no verdict shows over another selection.
+    public func landBlastResults(_ result: BlastVerificationResult, recordURL: URL?, run: UUID?) {
+        guard savedBlastRestorer.runLands(operationID: run) else {
+            if !savedBlastRestorer.isRunActive, ensureBlastDrawer().showsASearchInProgress { ensureBlastDrawer().showEmpty() }
+            return
+        }
+        showBlastResults(result, recordURL: recordURL)
+        updateBlastRerunRule()
+    }
+
+    /// Re-run BLAST sends the contigs selected now, so with none it greys and says why (RERUN-SILENT).
+    func updateBlastRerunRule() {
+        guard let drawer = blastDrawerContainer?.blastResultsTab else { return }
+        drawer.setRerunRule(enabled: !selectedContigNames.isEmpty, reason: ClassifierActionWords.selectRowToVerify)
+    }
+
+    /// Shows a search that has gone out and has no result.
+    package func showBlastWaiting(_ search: BlastLiveSearch) {
+        ensureBlastDrawer().showWaiting(search)
+        openBlastDrawerIfNeeded()
+    }
+
     /// The selection changed, so an earlier restore must not finish (Phase 3.1 lane REOPEN2). The key of the new selection
     /// holds the bases of its contigs, which `showSelection` reads next, so this gives the restorer no key. A nil key
     /// cancels the earlier scan and leaves the pane, and the search it shows, as they are. `restoreSavedBlastSearch` then
@@ -42,10 +65,15 @@ extension AssemblyResultViewController {
                 )
             }
             : nil
+        savedBlastRestorer.searchPane = { [weak self] in
+            self?.openBlastDrawerIfNeeded()
+            return self?.ensureBlastDrawer()
+        }
         savedBlastRestorer.select(row, searchingIn: resultURL) { [weak self] result, recordURL in
             guard let self else { return }
             self.ensureBlastDrawer().showResults(result, recordURL: recordURL)
             self.openBlastDrawerIfNeeded()
+            self.updateBlastRerunRule()
         }
     }
 }

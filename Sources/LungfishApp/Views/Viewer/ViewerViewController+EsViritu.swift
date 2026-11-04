@@ -142,12 +142,7 @@ extension ViewerViewController {
             Self.refuseBlastWithoutProject(window: window)
             return nil
         }
-        let drawer = drawer ?? BlastSubmitDrawer(
-            loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
-            results: { controller?.showBlastResults($0, recordURL: $1) },
-            failure: { controller?.showBlastFailure($0) },
-            began: { controller?.resultActions.trackBlastRun(operationID: $0) }
-        )
+        let drawer = drawer ?? BlastSubmitDrawer.classifier { controller?.resultActions }
         var extraction: Task<Void, Never>?
         // 1. The row begins with no command. 2. The reads are extracted. 3. The row takes the plan's command.
         Self.beginEsVirituBlastVerificationOperation(taxonName: detection.name) { opID in

@@ -509,7 +509,7 @@ extension OutputEquivalence {
             "schemaVersion", "searchID", "route", "origin", "createdAt", "state", "submitArgv", "facts", "query", "formSHA256",
             "copies", "guardStruck",
         ]
-        static let blastSearchOptionalKeys: Set<String> = ["winnerOrdinal", "spentAt", "ending"]
+        static let blastSearchOptionalKeys: Set<String> = ["winnerOrdinal", "spentAt", "ending", "lineage", "sourceStamp"]
 
         static func maskBlastSearchClocks(in value: Any, changed: inout Bool) -> Any {
             guard var file = value as? [String: Any], blastSearchKeys.isSubset(of: file.keys),

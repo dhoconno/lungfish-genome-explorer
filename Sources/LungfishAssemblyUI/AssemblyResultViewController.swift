@@ -68,14 +68,14 @@ public final class AssemblyResultViewController: NSViewController {
 
     private var catalog: (any AssemblyContigCatalogProviding)?
     private var allRecords: [AssemblyContigRecord] = []
-    var selectedContigNames: [String] = [] { didSet { scheduleSavedBlastRestore() } }
+    var selectedContigNames: [String] = [] { didSet { scheduleSavedBlastRestore(); updateBlastRerunRule() } }
     private var loadTask: Task<Void, Never>?
     private var loadGeneration = 0
     private var selectionGeneration = 0
 
     private var contextMenu = NSMenu()
     private var splitViewBottomConstraint: NSLayoutConstraint?
-    private var blastDrawerContainer: BlastResultsDrawerContainerView?
+    var blastDrawerContainer: BlastResultsDrawerContainerView?
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
     private(set) var isBlastDrawerOpen = false
     let savedBlastRestorer = SavedBlastSearchRestorer()
@@ -649,9 +649,8 @@ public final class AssemblyResultViewController: NSViewController {
         container.onDragEnd = { [weak self] in
             self?.view.layoutSubtreeIfNeeded()
         }
-        container.blastResultsTab.onRerunBlast = { [weak self] in
-            self?.performBlastSelected()
-        }
+        container.blastResultsTab.onRerunBlast = { [weak self] in self?.performBlastSelected() }
+        container.blastResultsTab.onCancelBlast = { [weak self] in self?.savedBlastRestorer.cancelRun() }
         view.layoutSubtreeIfNeeded()
         container.blastResultsTab.presentationStyle = .contigBlast
         return container.blastResultsTab

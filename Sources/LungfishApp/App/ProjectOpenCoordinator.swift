@@ -48,6 +48,7 @@ final class ProjectOpenCoordinator {
         case .success(let prepared):
             let project = try session.acceptPreparedProject(prepared, generation: generation)
             recordRecentProject(project.url, project.name)
+            BlastInFlightMonitor.shared.projectOpened(project.url)
             return .opened(project)
         case .failure(let error):
             if error is CancellationError { throw error }
@@ -65,6 +66,7 @@ final class ProjectOpenCoordinator {
         do {
             let project = try session.openProject(at: projectURL)
             recordRecentProject(project.url, project.name)
+            BlastInFlightMonitor.shared.projectOpened(project.url)
             return .opened(project)
         } catch {
             let projectName = projectURL.deletingPathExtension().lastPathComponent

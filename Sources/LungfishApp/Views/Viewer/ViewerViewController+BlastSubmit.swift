@@ -15,6 +15,31 @@ struct BlastSubmitDrawer: Sendable {
     let failure: @MainActor @Sendable (String) -> Void
     /// Names the operation that carries the run, which the pane reads to see that a cancelled run has ended.
     var began: (@MainActor @Sendable (UUID) -> Void)? = nil
+    /// Shows a search that has gone out and has no result, from its file, whether its process runs on or has parked.
+    var waiting: (@MainActor @Sendable (BlastLiveSearch) -> Void)? = nil
+
+    /// The drawer of a viewer on `ClassifierResultActions`. Every word names its run, so a result lands on the row the
+    /// run was sent for, whichever row is picked and however many searches are out.
+    @MainActor
+    static func classifier(_ actions: @escaping @MainActor @Sendable () -> ClassifierResultActions?) -> BlastSubmitDrawer {
+        let run = BlastDrawerRun()
+        return BlastSubmitDrawer(
+            loading: { actions()?.showBlastLoading(phase: $0, requestId: nil, run: run.id) },
+            results: { actions()?.showBlastResults($0, recordURL: $1, run: run.id) },
+            failure: { actions()?.showBlastFailure($0, run: run.id) },
+            began: {
+                run.id = $0
+                actions()?.trackBlastRun(operationID: $0)
+            },
+            waiting: { actions()?.showBlastWaiting($0, run: run.id) }
+        )
+    }
+}
+
+/// The operation a drawer reports for, known once its row has begun.
+@MainActor
+final class BlastDrawerRun {
+    var id: UUID?
 }
 
 extension ViewerViewController {
@@ -133,46 +158,99 @@ extension ViewerViewController {
         }
         let bridge = OperationCenterCLIBridge.onEvent(operationID: operationID)
         return { _, progress in
-            let completed = try await plan.run(runner: CLIBlastSubmitRunner()) { event in
+            let output = plan.request.outputURL
+            BlastInFlightMonitor.shared.viewerRunBegan(output: output, row: operationID)
+            defer { BlastInFlightMonitor.shared.viewerRunEnded(output: output) }
+            let outcome = try await plan.run(runner: CLIBlastSubmitRunner()) { event in
                 bridge(event)
                 if case let .progress(fraction, message) = event { progress(fraction, message) }
             }
+            let completed = try outcome.collected(output: output)
             return (completed.result, completed.recordURL)
         }
     }
 
+    /// The search in `output`, read off the main actor, since a project's folder can be slow.
+    @concurrent nonisolated static func readBlastSearch(in output: URL) async -> BlastLiveSearch? {
+        BlastLiveSearch.read(folder: output)
+    }
+
+    /// The leaf parked, so the row waits with no process behind it and the monitor goes on with it. It is never failed.
+    static func parkBlastRow(
+        _ operationID: UUID,
+        words: String,
+        output: URL,
+        monitor: BlastInFlightMonitor = .shared,
+        show: @MainActor (BlastLiveSearch) -> Void
+    ) async {
+        let search = await readBlastSearch(in: output)
+        guard OperationCenter.shared.park(id: operationID, detail: words) else { return }
+        monitor.viewerRunParked(output: output, row: operationID)
+        if let search { show(search) }
+        BlastSearchNews.post()
+    }
+
     /// Runs `plan` for the row `operationID` on `runner` (2.11 A65 M2, decision C5 of 2.10). The leaf's
-    /// events reach the row through `OperationCenterCLIBridge`, each progress message sets the drawer's
-    /// phase, and Cancel stops the leaf's whole process tree through the runner. The row completes with
-    /// `completeDetail` of the verdicts the record holds.
+    /// events reach the row through `OperationCenterCLIBridge`, and each one shows the search as its file now stands.
+    /// A person's Cancel stops the leaf's whole process tree through the runner and then stops the search, while a quit
+    /// sends SIGTERM alone, so the search stays at NCBI. The row completes with `completeDetail` of the verdicts the
+    /// record holds, or parks when every send is waiting, and either way every open pane hears of it.
     @discardableResult
     static func launchBlastSubmit(
         _ plan: BlastSubmitPlan,
         operationID: UUID,
         runner: CLIBlastSubmitRunner = CLIBlastSubmitRunner(),
         drawer: BlastSubmitDrawer,
+        monitor: BlastInFlightMonitor = .shared,
         completeDetail: @escaping @Sendable (BlastVerificationResult) -> String
     ) -> Task<Void, Never> {
         drawer.began?(operationID)
         drawer.loading(.submitting)
-        let onEvent = OperationCenterCLIBridge.onEvent(operationID: operationID) { message in
-            drawer.loading(BlastSubmitPlan.phase(forProgressMessage: message))
+        let output = plan.request.outputURL
+        monitor.viewerRunBegan(output: output, row: operationID)
+        let onEvent = OperationCenterCLIBridge.onEvent(operationID: operationID) { _ in
+            Task { @MainActor in
+                guard let waiting = drawer.waiting, let search = await readBlastSearch(in: output),
+                      OperationCenter.shared.items.first(where: { $0.id == operationID })?.state == .running else { return }
+                waiting(search)
+            }
         }
         let task = Task { @MainActor in
             do {
-                let completed = try await plan.run(runner: runner, onEvent: onEvent)
-                guard OperationCenter.shared.complete(id: operationID, detail: completeDetail(completed.result)) else { return }
-                drawer.results(completed.result, completed.recordURL)
+                switch try await plan.run(runner: runner, onEvent: onEvent) {
+                case .collected(let result, let recordURL):
+                    monitor.viewerRunEnded(output: output)
+                    guard OperationCenter.shared.complete(id: operationID, detail: completeDetail(result)) else { return }
+                    drawer.results(result, recordURL)
+                    BlastSearchNews.post()
+                case .waiting(let words):
+                    monitor.viewerRunEnded(output: output)
+                    await parkBlastRow(operationID, words: words, output: output, monitor: monitor) { drawer.waiting?($0) }
+                }
             } catch is CancellationError {
+                monitor.viewerRunEnded(output: output)
                 OperationCenter.shared.acknowledgeCancellation(id: operationID)
+                guard runner.wasStoppedByAPerson,
+                      FileManager.default.fileExists(atPath: output.appendingPathComponent(BlastSearchFile.fileName).path) else {
+                    BlastSearchNews.post()
+                    return
+                }
+                OperationCenter.shared.setStoppedWords(id: operationID, words: BlastSearchWords.stopped)
+                Task { @MainActor in
+                    await runner.stopSearch(output: output)
+                    BlastSearchNews.post()
+                }
             } catch {
+                monitor.viewerRunEnded(output: output)
                 let errorText = error.localizedDescription
                 guard OperationCenter.shared.fail(id: operationID, detail: errorText, errorMessage: errorText) else { return }
                 drawer.failure(errorText)
             }
         }
         OperationCenter.shared.setCancelCallback(for: operationID) {
-            runner.cancel()
+            // A quit is no person's Stop, so the search stays at NCBI and LGE checks it at the next launch.
+            let quitting = MainActor.assumeIsolated { OperationCenter.shared.isCancellingAll }
+            if quitting { runner.cancel() } else { runner.cancelAsAPersonsStop() }
             task.cancel()
         }
         return task

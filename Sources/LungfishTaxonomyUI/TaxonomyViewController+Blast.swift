@@ -71,26 +71,63 @@ extension TaxonomyViewController {
     ///
     /// - Returns: The task that scans and applies, which tests await, or `nil` when nothing was scheduled.
     @discardableResult
-    func scheduleSavedBlastVerificationRestore(for node: TaxonNode?) -> Task<Void, Never>? {
-        guard let node, !blastRunIsActive, !blastPaneShowsSearch(of: node) else { return nil }
+    func scheduleSavedBlastVerificationRestore(for node: TaxonNode?, force: Bool = false) -> Task<Void, Never>? {
+        guard let node, !blastRunIsActive, force || !blastPaneShowsSearch(of: node) else { return nil }
         guard let directory = blastVerificationDirectoryResolver?(node) else {
             emptyBlastPaneOfOtherRow()
             return nil
         }
+        let sample = owningSampleId(for: node)
         return Task { @MainActor [weak self] in
             let saved = await Self.savedBlastVerificationOffMain(forTaxId: node.taxId, in: directory)
+            let live = await Self.liveBlastSearchOffMain(forTaxId: node.taxId, sample: sample, in: directory)
             guard let self,
                   !self.blastRunIsActive,
                   self.selectedTaxonNode === node,
-                  !self.blastPaneShowsSearch(of: node) else {
+                  force || !self.blastPaneShowsSearch(of: node) else {
                 return
             }
+            if let live {
+                // A search with no result has no taxon in the pane's result, so the row is kept here (ROWPANE-UX R4).
+                self.lastBlastResult = nil
+                self.lastBlastRecordURL = nil
+                self.lastBlastNode = node
+                self.lastBlastSampleId = sample
+                self.taxaCollectionsDrawerView?.blastResultsTab.showWaiting(live)
+                return
+            }
+            guard saved?.recordURL != self.lastBlastRecordURL || saved == nil else { return }
             guard let saved else {
                 self.emptyBlastPaneOfOtherRow()
                 return
             }
             self.applyRestoredBlastVerification(saved.result, recordURL: saved.recordURL, for: node, from: directory)
         }
+    }
+
+    /// The newest thing on a taxon's row when that is a search with no result to show, off the main actor.
+    @concurrent nonisolated static func liveBlastSearchOffMain(
+        forTaxId taxId: Int,
+        sample: String?,
+        in directory: URL
+    ) async -> BlastLiveSearch? {
+        let found = BlastVerificationArchive.newestSearch(in: directory) { lineage, _ in
+            lineage.taxId == taxId && (sample == nil || lineage.sample == nil || lineage.sample == sample)
+        }
+        if case .live(let search) = found { return search }
+        return nil
+    }
+
+    /// Shows a search of the run `runID` that has gone out and has no result.
+    package func showBlastWaiting(_ search: BlastLiveSearch, runID: UUID? = nil) {
+        guard isCurrentBlastRun(runID), lastBlastResult == nil else { return }
+        ensureDrawerOpenOnBlastTab()
+        taxaCollectionsDrawerView?.blastResultsTab.showWaiting(search)
+    }
+
+    /// A search changed on disk, wherever it began, so the row picked is looked up again.
+    @objc func blastSearchNewsArrived() {
+        scheduleSavedBlastVerificationRestore(for: selectedTaxonNode, force: true)
     }
 
     /// The scan of a result's saved searches off the main actor.
@@ -110,7 +147,8 @@ extension TaxonomyViewController {
     /// Empties the pane when it holds a verdict, since a row with no saved search shows nothing and never the verdict of
     /// the row picked before it (BLAST-STALE-PANE-TAXON-ONLY). A failure message names no verdict and stays.
     private func emptyBlastPaneOfOtherRow() {
-        guard lastBlastResult != nil else { return }
+        let inProgress = taxaCollectionsDrawerView?.blastResultsTab.showsASearchInProgress ?? false
+        guard lastBlastResult != nil || inProgress else { return }
         lastBlastResult = nil
         lastBlastRecordURL = nil
         lastBlastNode = nil
@@ -246,6 +284,7 @@ extension TaxonomyViewController {
     func wireBlastDrawerCallbacks() {
         guard let drawer = taxaCollectionsDrawerView else { return }
         let blastTab = drawer.blastResultsTab
+        NotificationCenter.default.addObserver(self, selector: #selector(blastSearchNewsArrived), name: BlastSearchNews.changed, object: nil)
 
         blastTab.onRerunBlast = { [weak self] in
             guard let self,

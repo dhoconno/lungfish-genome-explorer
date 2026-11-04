@@ -209,6 +209,8 @@ extension BlastService {
         in folder: URL,
         query: BlastSubmissionRecord.Query,
         submitArgv: [String],
+        lineage: BlastSubmissionRecord.Lineage? = nil,
+        sourceStamp: String? = nil,
         origin: BlastSearchFile.Origin,
         clock: BlastSearchClock,
         noun: String,
@@ -226,7 +228,9 @@ extension BlastService {
         var lock: BlastSearchLock?
         if case .taken(let taken) = await index?.takeLock(of: searchID) { lock = taken }
         defer { lock?.release() }
-        let file = try await advancer.create(searchID: searchID, origin: origin, query: query, submitArgv: submitArgv)
+        let file = try await advancer.create(
+            searchID: searchID, origin: origin, query: query, submitArgv: submitArgv, lineage: lineage, sourceStamp: sourceStamp
+        )
         if let index { return try await index.runStoppable(searchID) { try await advancer.advance(file) } }
         return try await advancer.advance(file)
     }

@@ -68,12 +68,9 @@ extension ViewerViewController {
                 Self.beginNaoMgsBlastVerificationOperation(
                     taxonName: taxonName, taxId: taxId, cliCommand: plan.cliCommand
                 ) { opID in
-                    Self.launchBlastSubmit(plan, operationID: opID, drawer: BlastSubmitDrawer(
-                        loading: { controller?.showBlastLoading(phase: $0, requestId: nil) },
-                        results: { controller?.showBlastResults($0, recordURL: $1) },
-                        failure: { controller?.showBlastFailure($0) },
-                        began: { controller?.resultActions.trackBlastRun(operationID: $0) }
-                    )) { blastVerificationCompletionDetail($0) }
+                    Self.launchBlastSubmit(
+                        plan, operationID: opID, drawer: .classifier { controller?.resultActions }
+                    ) { blastVerificationCompletionDetail($0) }
                 }
             }
         }

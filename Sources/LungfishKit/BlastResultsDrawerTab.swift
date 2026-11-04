@@ -287,10 +287,13 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         /// The result and the file it was read from, which the table export reads (ARCH ruling T5 of lane 12.33).
         /// Every route a user can run gives a file. Nil only when the FASTA search seam of a test gives none.
         case results(BlastVerificationResult, recordURL: URL?)
+        /// A search with no result to show, in its state's words.
+        case waiting(BlastSearchPaneState)
     }
 
     /// The current display state.
-    public private(set) var displayState: DisplayState = .empty
+    public internal(set) var displayState: DisplayState = .empty
+    public let waitingPane = BlastWaitingPaneView()
     /// The sample the shown result is about, which a re-render of the presentation style keeps (lane ROWPANE).
     private var shownSubject: String?
     public var presentationStyle: BlastResultsDrawerPresentationStyle = .verification {
@@ -384,6 +387,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
     private func commonInit() {
         setupEmptyState()
         setupLoadingState()
+        setupWaitingPane()
         setupResultsState()
         showState(.empty)
 
@@ -400,34 +404,21 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         showState(.empty)
     }
 
-    /// Shows an explicit failure message in the empty-state container.
-    ///
-    /// This is used when a BLAST job fails before results are available so the
-    /// user does not remain in an indefinite loading state.
-    ///
-    /// - Parameter message: User-facing error description.
+    /// Shows a failure's words in the empty-state container, so a search that ended with no result leaves no spinner.
     public func showFailure(message: String) {
         configureEmptyStateAsFailure(message: message)
         displayState = .empty
         showState(.empty)
     }
 
-    /// Shows the loading state with the given phase and optional request ID.
-    ///
-    /// - Parameters:
-    ///   - phase: The current BLAST job phase.
-    ///   - requestId: The NCBI BLAST request ID, if available.
+    /// Shows the loading state with the given phase and optional NCBI request ID.
     public func showLoading(phase: BlastJobPhase, requestId: String?) {
         displayState = .loading(phase: phase, requestId: requestId)
 
         loadingPhaseLabel.stringValue = phase.label(for: presentationStyle)
         loadingPhaseNumberLabel.stringValue = "Phase \(phase.rawValue) of \(BlastJobPhase.totalPhases)"
 
-        if let rid = requestId {
-            loadingDetailLabel.stringValue = "Request ID: \(rid)"
-        } else {
-            loadingDetailLabel.stringValue = ""
-        }
+        loadingDetailLabel.stringValue = requestId.map { "Request ID: \($0)" } ?? ""
 
         // Phase 2 (waiting) uses indeterminate progress
         loadingProgressBar.isIndeterminate = (phase == .waiting)
@@ -538,7 +529,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
     // MARK: - State Switching
 
     /// Shows or hides the appropriate container for the given state.
-    private func showState(_ state: DisplayState) {
+    func showState(_ state: DisplayState) {
+        waitingPane.isHidden = true
         emptyStateContainer.isHidden = true
         loadingStateContainer.isHidden = true
         resultsContainer.isHidden = true
@@ -551,6 +543,9 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             loadingSpinner.startAnimation(nil)
         case .results:
             resultsContainer.isHidden = false
+            loadingSpinner.stopAnimation(nil)
+        case .waiting:
+            waitingPane.isHidden = false
             loadingSpinner.stopAnimation(nil)
         }
     }
@@ -1394,6 +1389,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             showLoading(phase: phase, requestId: requestId)
         case .results(let result, let recordURL):
             showResults(result, recordURL: recordURL, subject: shownSubject)
+        case .waiting(let state):
+            showWaiting(state)
         }
     }
 

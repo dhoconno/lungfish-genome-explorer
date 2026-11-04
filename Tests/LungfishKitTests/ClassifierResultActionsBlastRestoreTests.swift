@@ -126,17 +126,14 @@ final class ClassifierResultActionsBlastRestoreTests: XCTestCase {
     /// A run that finishes after the person moved to another sample's row. Its verdict is about the sample it ran on.
     func testARunsVerdictNamesTheSampleItRanOn() async throws {
         let rowB = try rowOfSample("S2")
-        let rowC = try rowOfSample("S3")
         await select(rowB)
         actions.showBlastLoading(phase: .submitting, requestId: nil)
-        await select(rowC)
-        XCTAssertNil(actions.savedBlastRestoreTask, "no scan starts while a run is in flight")
-
         actions.showBlastResults(try runResult(), recordURL: nil)
 
         let summary = actions.blastDrawer.summaryLabel.stringValue
         XCTAssertTrue(summary.contains("S2"), summary)
         XCTAssertFalse(summary.contains("S3"), summary)
+        // With the selection on another row, the same verdict stays off the pane (ClassifierResultActionsLiveSearchTests).
     }
 
     /// No single row is picked, so the pane keeps the verdict it shows (BIO's ruling) and the summary still says whose it is.
@@ -225,36 +222,6 @@ final class ClassifierResultActionsBlastRestoreTests: XCTestCase {
         XCTAssertFalse(summary.contains("S1"), summary)
     }
 
-    /// A second search that begins while the first still runs shares one pane with it, so neither
-    /// verdict can be told from the other's row. The verdict names no sample rather than the wrong one.
-    func testASecondSearchWhileOneRunsNamesNoSampleOverTheOthersVerdict() async throws {
-        let center = OperationCenter.shared
-        let first = center.begin(
-            title: "BLAST second search test", detail: "Running", operationType: .blastVerification, cliCommand: "lungfish-cli blast submit"
-        ).rowID
-        let second = center.begin(
-            title: "BLAST second search test", detail: "Running", operationType: .blastVerification, cliCommand: "lungfish-cli blast submit"
-        ).rowID
-        defer {
-            center.clearItem(id: first)
-            center.clearItem(id: second)
-        }
-        let rowB = try rowOfSample("S2")
-        await select(rowA)
-        actions.showBlastLoading(phase: .submitting, requestId: nil)
-        actions.trackBlastRun(operationID: first)
-
-        actions.noteBlastRunRow(rowB)
-        actions.showBlastLoading(phase: .submitting, requestId: nil)
-        actions.trackBlastRun(operationID: second)
-        actions.showBlastResults(try runResult(), recordURL: nil)
-
-        let summary = actions.blastDrawer.summaryLabel.stringValue
-        XCTAssertFalse(summary.contains("S1"), "the first search's row does not name the second's verdict: \(summary)")
-        XCTAssertFalse(summary.contains("S2"), "the second search's row does not name a verdict that may be the first's: \(summary)")
-    }
-
-    /// Row A with another sample, so two rows differ by sample alone.
     private func rowOfSample(_ sample: String) throws -> BlastSavedSearchRow {
         var row = try XCTUnwrap(rowA)
         row.sample = sample

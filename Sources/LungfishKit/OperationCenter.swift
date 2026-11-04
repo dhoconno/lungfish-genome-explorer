@@ -1018,6 +1018,8 @@ public final class OperationCenter: ObservableObject {
     /// large copy finishing) and could write into a bundle another operation has just locked. The lock stays held,
     /// through ``abandonedWorkers``, until the worker itself calls a terminal method. The operation leaves the active
     /// list, so Cancel All, the quit warning and the Operations menu no longer wait on it.
+    public private(set) var isCancellingAll = false
+
     public func cancel(id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }),
               items[index].state == .running || items[index].state == .waiting,
@@ -1068,12 +1070,12 @@ public final class OperationCenter: ObservableObject {
         _ = finishWorker(id: id, state: .cancelled, detail: "Cancelled by user", retainBundleLock: true)
     }
 
-    /// Cancels all running operations.
+    /// Cancels all running operations, as a quit does. A cancel callback reads ``isCancellingAll``, since a quit is no
+    /// person's Stop of a BLAST search.
     public func cancelAll() {
-        let runningIDs = items.filter { $0.state == .running }.map(\.id)
-        for id in runningIDs {
-            cancel(id: id)
-        }
+        isCancellingAll = true
+        defer { isCancellingAll = false }
+        for id in items.filter({ $0.state == .running }).map(\.id) { cancel(id: id) }
     }
 
     public func clearCompleted() {
