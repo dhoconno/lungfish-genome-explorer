@@ -132,6 +132,7 @@ final class FASTACollectionSavedBlastTests: XCTestCase {
         XCTAssertTrue(isFound([Self.longSequence, mid], of: list.url), "the sequences sent, from the file they came from")
         XCTAssertTrue(isFound([mid, Self.longSequence], of: list.url), "in any order")
         XCTAssertFalse(isFound([Self.longSequence], of: list.url), "a part of what was sent is another query")
+        XCTAssertFalse(isFound([Self.longSequence, mid, (id: "seq_short", sequence: "GGCCGGCC")], of: list.url), "more than was sent")
         XCTAssertFalse(isFound([Self.longSequence, (id: "seq_mid", sequence: "AATTGGCCAATTGGCCAATA")], of: list.url), "the same ID over other bases")
         XCTAssertFalse(isFound([Self.longSequence, mid], of: other.url), "the same sequences from another file")
         XCTAssertFalse(isFound([], of: list.url), "nothing picked names no row")

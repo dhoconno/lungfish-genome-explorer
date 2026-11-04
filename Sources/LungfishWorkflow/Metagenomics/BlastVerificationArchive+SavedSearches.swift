@@ -60,7 +60,8 @@ extension BlastVerificationArchive {
     /// What tells one run of a source result from another, which `blast submit` keeps in the search file. A root record's ID
     /// names its run and stays through a later write to that record, such as a database build's. A record with no ID gives
     /// its digest. A folder from before root records gives the digest of the document its viewer loads, so its guard is not
-    /// empty. Nil for a source with none of these: a plain FASTA, whose route looks up no row, and a folder no viewer opens.
+    /// empty. Nil for a source with none of these: a plain FASTA, whose row is decided by the IDs and bases picked, so the
+    /// replaced-source guard is off for it, and a folder no viewer opens.
     package static func sourceStamp(ofResult resultURL: URL) -> String? {
         let record = resultURL.appendingPathComponent(BundleKindDescriptor.SidecarNaming.rootRecordFileName)
         guard let data = try? Data(contentsOf: record) else { return documentStamp(ofResult: resultURL) }
