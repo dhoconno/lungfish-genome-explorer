@@ -230,7 +230,8 @@ extension TaxTriageExportCLIGUIParityReplayTests {
         let csv = TaxTriageBatchExporter.generateOrganismMatrixCSV(
             metrics: matrixMetrics,
             sampleIds: sampleIds,
-            negativeControlSampleIds: negativeControlIds
+            negativeControlSampleIds: negativeControlIds,
+            controlMetrics: frozenControlMetrics(view: view)
         )
         let exportedOrganismCount = frozenCrossSampleOrganismCount(in: matrixMetrics)
         try ScientificFileExportProvenance.writeAtomically(.init(
@@ -275,7 +276,8 @@ extension TaxTriageExportCLIGUIParityReplayTests {
             result: result,
             config: config,
             metrics: reportMetrics,
-            sampleIds: sampleIds
+            sampleIds: sampleIds,
+            controlMetrics: frozenControlMetrics(view: view)
         )
         let reportLineCount = report.split(separator: "\n", omittingEmptySubsequences: false).count
         try ScientificFileExportProvenance.writeAtomically(.init(
@@ -374,6 +376,22 @@ extension TaxTriageExportCLIGUIParityReplayTests {
     private static func frozenNegativeControlSampleIds(view: TaxTriageResultViewController) -> Set<String> {
         guard let config = view.taxTriageConfig else { return [] }
         return Set(config.samples.filter(\.isNegativeControl).map(\.sampleId))
+    }
+
+    /// The one move of the frozen writers (lane TTCONTROLS, manager ruling on its step 1). Both writers pass the rows of the
+    /// negative controls across all samples, whatever the selection, which the exporter now needs to flag an organism a
+    /// control holds when the selection leaves the control out. Before the move the report of one sample wrote the false
+    /// `No organisms detected in negative controls.` and the leaf wrote `Alpha virus (detected in: sample-1, sample-2)` and
+    /// `Gamma virus (detected in: sample-2)`. Every other input of the two writers stays as it was at a737125426.
+    /// The rows come from the result folder's database, as the viewer reads a control's organisms
+    /// (`loadContaminationRiskOrganisms`), since `allBatchGroupRows` holds only the ticked samples that match the search.
+    private static func frozenControlMetrics(view: TaxTriageResultViewController) -> [TaxTriageMetric] {
+        let controls = frozenNegativeControlSampleIds(view: view)
+        guard !controls.isEmpty, let resultURL = view.batchGroupURL,
+              let database = try? TaxTriageDatabase(at: resultURL.appendingPathComponent(TaxTriageExportLoader.databaseFileName))
+        else { return [] }
+        let rows = (try? database.fetchRows(samples: controls.sorted())) ?? []
+        return rows.map(TaxTriageExportLoader.metric(from:))
     }
 
     private static func frozenCrossSampleOrganismCount(in metrics: [TaxTriageMetric]) -> Int {
