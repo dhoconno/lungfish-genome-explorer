@@ -291,6 +291,9 @@ package enum BlastSearchPolicy {
     package static let lostPutWait: TimeInterval = 60
     /// The limit on one Put, past which nobody knows whether it arrived.
     package static let putTimeout: TimeInterval = 180
+    /// The limit on one contact's whole exchange, its wait for a connection included. A check past it is no news, so it
+    /// bounds what a wait with no network costs, and it leaves room for a slow fetch of a wide reply.
+    package static let contactResourceLimit: TimeInterval = 600
     /// Fetches of a reply that cannot be read, 60 s apart, before a person is asked.
     package static let fetchTries = 5
     package static let fetchWait: TimeInterval = 60

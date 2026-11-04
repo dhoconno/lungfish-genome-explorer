@@ -90,7 +90,8 @@ extension BlastService {
         try await searchShared.contactGate?.takeSlot()
         var request = URLRequest(url: blastBaseURL, timeoutInterval: BlastSearchPolicy.putTimeout)
         request.httpMethod = "POST"
-        request.httpBody = form
+        let address = await contactAddressInForce()
+        request.httpBody = form + Data("&email=\(Self.formEscape(address))".utf8)
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
         let data: Data
@@ -118,30 +119,42 @@ extension BlastService {
 
     /// One status check, with no retry. It throws when nothing came back that can be read.
     package func statusOnce(rid: String) async throws -> BlastSearchStatusAnswer {
-        var components = URLComponents(url: blastBaseURL, resolvingAgainstBaseURL: false)!
-        components.queryItems = [
+        let url = await contactURL([
             URLQueryItem(name: "CMD", value: "Get"),
             URLQueryItem(name: "RID", value: rid),
             URLQueryItem(name: "FORMAT_OBJECT", value: "SearchInfo"),
-            URLQueryItem(name: "TOOL", value: toolName),
-            URLQueryItem(name: "EMAIL", value: toolEmail),
-        ]
-        let page = String(decoding: try await getOnce(components.url!, what: "status check"), as: UTF8.self)
+        ])
+        let page = String(decoding: try await getOnce(url, what: "status check"), as: UTF8.self)
         return BlastSearchStatusAnswer(status: parseStatusResponse(page), page: page)
     }
 
     /// One fetch of the reply, with no retry and nothing unzipped or parsed.
     package func fetchOnce(rid: String) async throws -> Data {
-        var components = URLComponents(url: blastBaseURL, resolvingAgainstBaseURL: false)!
-        components.queryItems = [
+        let url = await contactURL([
             URLQueryItem(name: "CMD", value: "Get"),
             URLQueryItem(name: "RID", value: rid),
             URLQueryItem(name: "FORMAT_TYPE", value: "JSON2"),
             URLQueryItem(name: "FORMAT_OBJECT", value: "Alignment"),
-            URLQueryItem(name: "TOOL", value: toolName),
-            URLQueryItem(name: "EMAIL", value: toolEmail),
+        ])
+        return try await getOnce(url, what: "result fetch")
+    }
+
+    /// A GET of `items` with the tool and the address NCBI asks for. `URLQueryItem` leaves a plus as it is, which a
+    /// form parser reads as a space, so a plus goes out as `%2B`.
+    private func contactURL(_ items: [URLQueryItem]) async -> URL {
+        var components = URLComponents(url: blastBaseURL, resolvingAgainstBaseURL: false)!
+        components.queryItems = items + [
+            URLQueryItem(name: "tool", value: toolName),
+            URLQueryItem(name: "email", value: await contactAddressInForce()),
         ]
-        return try await getOnce(components.url!, what: "result fetch")
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        return components.url!
+    }
+
+    /// The address NCBI gets with this contact, read anew each time, so it is never held by a record or an argument
+    /// and a change in Settings reaches a search already running (O132).
+    private func contactAddressInForce() async -> String {
+        await searchShared.contactAddress?.addressInForce() ?? toolEmail
     }
 
     private func getOnce(_ url: URL, what: String) async throws -> Data {

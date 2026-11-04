@@ -35,7 +35,8 @@ package struct BlastSearchShared: Sendable {
         BlastSearchShared(
             contactGate: .managedStorageDefault(environment: environment),
             copyGuard: .managedStorageDefault(environment: environment),
-            searchLog: .managedStorageDefault(environment: environment)
+            searchLog: .managedStorageDefault(environment: environment),
+            contactAddress: .managedStorageDefault(environment: environment)
         )
     }
 }

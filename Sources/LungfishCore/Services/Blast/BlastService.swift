@@ -66,7 +66,7 @@ public actor BlastService {
     /// Tool identifier sent with all BLAST requests (NCBI policy).
     let toolName = "lungfish"
 
-    /// Email placeholder sent with BLAST requests (NCBI policy).
+    /// The address NCBI gets when a person has set none in Settings (NCBI policy).
     let toolEmail = "lungfish-app@users.noreply.github.com"
 
     /// Identity threshold for a "verified" verdict (percentage).
@@ -107,7 +107,7 @@ public actor BlastService {
     ///   - now: The clock, injectable for tests.
     ///   - environment: Read only by a debug build, for a stand-in origin (``BlastServiceEndpoints``).
     public init(
-        httpClient: HTTPClient = URLSessionHTTPClient(),
+        httpClient: HTTPClient = BlastHTTPClient(),
         rateLimits: BlastRateLimitConfiguration = .ncbiDefault,
         submissionLedger: any BlastSubmissionLedger = InMemoryBlastSubmissionLedger(),
         now: @escaping @Sendable () -> Date = { Date() },
@@ -121,7 +121,7 @@ public actor BlastService {
 
     /// A service that shares `searchShared` with the other processes on this Mac.
     package init(
-        httpClient: HTTPClient = URLSessionHTTPClient(),
+        httpClient: HTTPClient = BlastHTTPClient(),
         rateLimits: BlastRateLimitConfiguration = .ncbiDefault,
         submissionLedger: any BlastSubmissionLedger = InMemoryBlastSubmissionLedger(),
         searchShared: BlastSearchShared,
@@ -660,7 +660,7 @@ public actor BlastService {
         }
     }
 
-    /// The Put body of a search, form-encoded in the order NCBI has always been sent it.
+    /// The Put body of a search up to the address, which ``putOnce(_:)`` adds to each POST and no file ever holds.
     nonisolated func putFormBody(
         query: String,
         program: String,
@@ -681,8 +681,7 @@ public actor BlastService {
             ("MAX_NUM_SEQ", String(maxTargetSeqs)),
             ("FORMAT_TYPE", "JSON2"),
             ("WORD_SIZE", "28"),
-            ("TOOL", toolName),
-            ("EMAIL", toolEmail),
+            ("tool", toolName),
         ]
 
         if megablast {
@@ -960,7 +959,7 @@ public actor BlastService {
         }.joined(separator: "&")
     }
 
-    private nonisolated static func formEscape(_ value: String) -> String {
+    nonisolated static func formEscape(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: formAllowedCharacters) ?? value
     }
 

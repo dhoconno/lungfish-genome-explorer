@@ -508,7 +508,7 @@ final class BlastServiceTests: XCTestCase {
         XCTAssertTrue(body.contains("DATABASE=nt"))
         XCTAssertTrue(body.contains("MEGABLAST=on"))
         XCTAssertTrue(body.contains("FORMAT_TYPE=JSON2"))
-        XCTAssertTrue(body.contains("TOOL=lungfish"))
+        XCTAssertTrue(body.contains("tool=lungfish"))
     }
 
     func testSubmitFormEncodesBLASTBodyDelimiters() async throws {

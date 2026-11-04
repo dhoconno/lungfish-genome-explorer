@@ -78,14 +78,14 @@ final class BlastSiteRequestBytesPinTests: XCTestCase {
     }
 
     /// The `CMD=Put` body every site sends, in the service's parameter order, with the site's Entrez
-    /// filter last when it has one.
+    /// filter after them when it has one and the address last.
     static func expectedPutBody(encodedEntrezQuery: String?) -> String {
         var body = "CMD=Put&PROGRAM=blastn&DATABASE=core_nt"
             + "&QUERY=%3Eread_1%0AACGTACGTAC%0A%3Eread_2%0AGGCCTTAAGG"
             + "&EXPECT=1e-10&HITLIST_SIZE=5&MAX_NUM_SEQ=5&FORMAT_TYPE=JSON2&WORD_SIZE=28"
-            + "&TOOL=lungfish&EMAIL=lungfish-app%40users.noreply.github.com&MEGABLAST=on"
+            + "&tool=lungfish&MEGABLAST=on"
         if let encodedEntrezQuery { body += "&ENTREZ_QUERY=\(encodedEntrezQuery)" }
-        return body
+        return body + "&email=lungfish-app%40users.noreply.github.com"
     }
 
     func testEachSiteSendsTodaysPutBytes() async throws {
@@ -113,14 +113,14 @@ final class BlastSiteRequestBytesPinTests: XCTestCase {
         XCTAssertEqual(sent.map(\.queryItems), [
             [
                 URLQueryItem(name: "CMD", value: "Get"), URLQueryItem(name: "RID", value: "PIN123"),
-                URLQueryItem(name: "FORMAT_OBJECT", value: "SearchInfo"), URLQueryItem(name: "TOOL", value: "lungfish"),
-                URLQueryItem(name: "EMAIL", value: "lungfish-app@users.noreply.github.com"),
+                URLQueryItem(name: "FORMAT_OBJECT", value: "SearchInfo"), URLQueryItem(name: "tool", value: "lungfish"),
+                URLQueryItem(name: "email", value: "lungfish-app@users.noreply.github.com"),
             ],
             [
                 URLQueryItem(name: "CMD", value: "Get"), URLQueryItem(name: "RID", value: "PIN123"),
                 URLQueryItem(name: "FORMAT_TYPE", value: "JSON2"), URLQueryItem(name: "FORMAT_OBJECT", value: "Alignment"),
-                URLQueryItem(name: "TOOL", value: "lungfish"),
-                URLQueryItem(name: "EMAIL", value: "lungfish-app@users.noreply.github.com"),
+                URLQueryItem(name: "tool", value: "lungfish"),
+                URLQueryItem(name: "email", value: "lungfish-app@users.noreply.github.com"),
             ],
         ])
     }

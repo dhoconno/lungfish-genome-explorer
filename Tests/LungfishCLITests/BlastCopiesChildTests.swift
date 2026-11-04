@@ -193,7 +193,9 @@ final class BlastCopiesChildTests: XCTestCase {
         let form = try Data(contentsOf: output().appendingPathComponent("put-form.txt"))
         let bodies = server.requests.filter { $0.method == "POST" }.map(\.body)
         XCTAssertEqual(bodies.count, 3)
-        for body in bodies { XCTAssertEqual(body, form, "every POST is the saved form, byte for byte") }
+        XCTAssertFalse(String(decoding: form, as: UTF8.self).contains("email="), "no file holds the address")
+        let sent = form + Data("&email=lungfish-app%40users.noreply.github.com".utf8)
+        for body in bodies { XCTAssertEqual(body, sent, "every POST is the saved form, byte for byte, and then the address") }
     }
 
     func testAtMostThreeCopies() async throws {

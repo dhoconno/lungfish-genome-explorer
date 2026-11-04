@@ -116,7 +116,10 @@ final class BlastSearchAdvancerTests: XCTestCase {
         XCTAssertEqual(file.formSHA256, BlastSearchStore.digest(of: form))
         XCTAssertEqual(try onDisk().state, .sending)
         _ = try await advancer.advance(file)
-        XCTAssertEqual(server.requests.first?.body, form, "the POST is the saved bytes")
+        XCTAssertEqual(
+            server.requests.first?.body, form + Data("&email=lungfish-app%40users.noreply.github.com".utf8),
+            "the POST is the saved bytes and then the address"
+        )
     }
 
     func testLGEsOwnLimitContactsNothingAndLeavesNoFileInSending() async throws {

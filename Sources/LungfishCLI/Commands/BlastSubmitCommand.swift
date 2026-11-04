@@ -26,6 +26,8 @@ extension BlastCommand {
             subsample the sequences came from.
 
             \(BlastSearchWords.commandLineConsent(stays: "in --output"))
+
+            \(BlastContactAddress.Words.commandHelp)
             """
         )
 

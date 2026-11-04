@@ -97,6 +97,8 @@ struct GeneralSettingsTab: View {
                 }
             }
 
+            BlastContactSettingsSection()
+
             Section("Provenance Signing") {
                 Picker("Provider:", selection: $settings.provenanceSigningProvider) {
                     Text("Off").tag("off")

@@ -164,6 +164,9 @@ public struct BlastVerificationRequest: Sendable {
         var parameters: [String: String] = [:]
         for token in tokens {
             let parts = token.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            if parts.count == 2, BlastContactAddress.parametersSettingsOwn.contains(parts[0].uppercased()) {
+                throw BlastServiceError.contactParameterGiven
+            }
             guard parts.count == 2,
                   !parts[0].isEmpty,
                   !parts[1].isEmpty,
@@ -378,6 +381,9 @@ public enum BlastServiceError: Error, LocalizedError, Sendable {
     /// A BLAST URL API extra argument was not in KEY=VALUE form.
     case invalidExtraArgument(String)
 
+    /// `--blast-param` named the tool or the address, which LGE sets and no record may hold.
+    case contactParameterGiven
+
     public var errorDescription: String? {
         switch self {
         case .submissionFailed(let message):
@@ -402,6 +408,8 @@ public enum BlastServiceError: Error, LocalizedError, Sendable {
             return "Network error while contacting NCBI BLAST: \(message)"
         case .invalidExtraArgument(let token):
             return "Invalid BLAST extra argument '\(token)'. Use KEY=VALUE tokens."
+        case .contactParameterGiven:
+            return BlastContactAddress.Words.parameterRefusal
         }
     }
 }

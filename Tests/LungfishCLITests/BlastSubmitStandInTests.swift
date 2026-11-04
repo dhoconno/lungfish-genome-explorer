@@ -72,9 +72,10 @@ final class BlastSubmitStandInTests: XCTestCase {
             String(decoding: put.body, as: UTF8.self),
             "CMD=Put&PROGRAM=blastn&DATABASE=core_nt&QUERY=%3Eread_1%0AACGTACGTAC%0A%3Eread_2%0AGGCCTTAAGG"
                 + "&EXPECT=1e-10&HITLIST_SIZE=5&MAX_NUM_SEQ=5&FORMAT_TYPE=JSON2&WORD_SIZE=28"
-                + "&TOOL=lungfish&EMAIL=lungfish-app%40users.noreply.github.com&MEGABLAST=on"
-                + "&ENTREZ_QUERY=txid11320%5BOrganism%3Aexp%5D",
-            "the leaf adds the Entrez filter it is given as the last parameter of the Put body"
+                + "&tool=lungfish&MEGABLAST=on"
+                + "&ENTREZ_QUERY=txid11320%5BOrganism%3Aexp%5D"
+                + "&email=lungfish-app%40users.noreply.github.com",
+            "the leaf adds the Entrez filter it is given after the fields, and the address goes on last"
         )
         let record = try BlastSubmissionRecord.load(output.appendingPathComponent("blast-result.json"))
         XCTAssertEqual(record.lineage.sample, "S1")

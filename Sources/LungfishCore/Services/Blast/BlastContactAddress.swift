@@ -31,7 +31,9 @@ package enum BlastContactAddress {
 
     /// The address in `text` with its spaces trimmed, or nil when it is not one address of the right form.
     package static func accepted(_ text: String) -> String? {
-        nil
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count <= maximumLength, trimmed.range(of: shape, options: .regularExpression) != nil else { return nil }
+        return trimmed
     }
 
     /// What `text` reads as in the Settings row.

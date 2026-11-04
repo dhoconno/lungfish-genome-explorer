@@ -10,6 +10,9 @@ sequences are sent again, at most three sends in all, and the record lists
 every send. A search still waiting stays in --output, and lungfish-cli blast
 resume --output <folder> collects it later.
 
+NCBI gets the contact email set in LGE's Settings, or else LGE's shared
+no-reply address.
+
 USAGE: lungfish-cli blast submit [<options>] --query <query> --output <output>
 
 OPTIONS:
