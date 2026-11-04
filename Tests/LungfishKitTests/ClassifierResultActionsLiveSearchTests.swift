@@ -268,10 +268,76 @@ final class ClassifierResultActionsLiveSearchTests: XCTestCase {
         await select(rowA, on: fresh)
 
         XCTAssertNil(fresh.lastBlastResult, "a verdict about the replaced run stays off the new row")
+        XCTAssertEqual(fresh.blastDrawer.waitingPane.headingLabel.stringValue, "This search came back and is saved")
         XCTAssertTrue(
             fresh.blastDrawer.waitingPane.bodyLabel.stringValue.contains("the result it was sent from has changed"),
             fresh.blastDrawer.waitingPane.bodyLabel.stringValue
         )
+    }
+
+    /// A search still at NCBI has not come back, so no words may say it did. The new rows are not what it was sent for.
+    func testAWaitingSearchOfAReplacedSourceIsNotCalledBack() throws {
+        let source = rowA.sourceResultURL
+        let rootRecord = source.appendingPathComponent(BundleKindDescriptor.SidecarNaming.rootRecordFileName)
+        try Data("first run".utf8).write(to: rootRecord)
+        try saveSearch(of: rowA, sourceStamp: try XCTUnwrap(BlastVerificationArchive.sourceStamp(ofResult: source)))
+        try Data("second run".utf8).write(to: rootRecord)
+
+        let row = rowA!
+        let found = BlastVerificationArchive.newestSearch(in: saved.project) { lineage, url in
+            row.isSource(of: lineage, recordAt: url)
+        }
+
+        XCTAssertNil(found)
+    }
+
+    /// A failure with no search file keeps its place on the pane when news of any search arrives. An older verdict may not
+    /// replace it, and a newer one may (UX review, Q3).
+    func testAFailureStaysWhenNewsOfAnotherSearchArrivesAndANewerResultStillLands() async throws {
+        _ = try saved.saveRecord(rid: "RID-OLD", sourceResult: "result-A", sample: "S1", taxId: 7, contig: "NC_1", age: 50_000_000)
+        await select(rowA)
+        XCTAssertEqual(actions.lastBlastResult?.rid, "RID-OLD")
+        let run = beginRow()
+        defer {
+            OperationCenter.shared.complete(id: run, detail: "ended")
+            OperationCenter.shared.clearItem(id: run)
+        }
+        actions.noteBlastRunRow(rowA)
+        actions.trackBlastRun(operationID: run)
+
+        actions.showBlastFailure("LGE's own limit stopped this search, and NCBI was not contacted.", run: run)
+        BlastSearchNews.post()
+        await actions.savedBlastRestoreTask?.value
+
+        XCTAssertNil(actions.lastBlastResult, "the older verdict stays off the pane")
+        guard case .empty = actions.blastDrawer.displayState else {
+            return XCTFail("the pane reads \(actions.blastDrawer.displayState)")
+        }
+
+        _ = try saved.saveRecord(rid: "RID-NEW", sourceResult: "result-A", sample: "S1", taxId: 7, contig: "NC_1", age: -3600)
+        BlastSearchNews.post()
+        await actions.savedBlastRestoreTask?.value
+
+        XCTAssertEqual(actions.lastBlastResult?.rid, "RID-NEW", "a verdict newer than the failure still lands")
+    }
+
+    /// Q1 says no state opens the pane. A person who closed it to read the table finds it as they left it (UX review, Q4).
+    func testARunsResultLeavesThePaneAsThePersonLeftIt() async throws {
+        let run = beginRow()
+        defer {
+            OperationCenter.shared.complete(id: run, detail: "ended")
+            OperationCenter.shared.clearItem(id: run)
+        }
+        await select(rowA)
+        actions.showBlastLoading(phase: .submitting, requestId: nil, run: nil)
+        actions.trackBlastRun(operationID: run)
+        XCTAssertTrue(actions.isBlastDrawerOpen, "the person's own press opens it")
+        actions.setBlastDrawerOpen(false)
+
+        actions.showBlastResults(try runResult(rid: "RID-CLOSED"), recordURL: nil, run: run)
+
+        XCTAssertFalse(actions.isBlastDrawerOpen)
+        XCTAssertEqual(actions.lastBlastResult?.rid, "RID-CLOSED")
     }
 
     // MARK: - The pane's buttons (BLAST-PANE-CANCEL-DEAD, UX-BLAST-WORDS Q3)
@@ -291,7 +357,8 @@ final class ClassifierResultActionsLiveSearchTests: XCTestCase {
 
         actions.blastDrawer.onCancelBlast?()
 
-        XCTAssertTrue(stopped.withLock { $0 }, "the pane's Cancel reaches the run")
+        let reached = await waitUntil(timeout: WaitBudget.lookup.duration) { stopped.withLock { $0 } }
+        XCTAssertTrue(reached, "the pane's Cancel reaches the run")
         center.acknowledgeCancellation(id: id)
         await actions.savedBlastRestoreTask?.value
         XCTAssertFalse(actions.blastDrawer.showsASearchInProgress, "the pane follows the row off its spinner")
@@ -317,17 +384,31 @@ final class ClassifierResultActionsLiveSearchTests: XCTestCase {
     /// The sample and the badge's sentence sit together in the summary, and a re-render keeps both.
     func testTheSummaryKeepsTheSampleAndTheBadgeSentenceTogether() throws {
         let drawer = BlastResultsDrawerTab()
-        let result = try runResult(rid: "RID-TIED")
-        let badge = BlastTieWords.notSpecificSummary(for: result)
+        let tied = BlastReadResult(
+            id: "read_1", verdict: .verified, matchesQueriedTaxon: true,
+            tieSummary: BlastTieSummary(
+                hitListSize: 500, hitsReturned: 500, bestBitScore: 139.619, tied: 4, inClade: 1, outside: 3,
+                runsPastList: false, outsideExamples: ["synthetic construct", "Homo sapiens"]
+            )
+        )
+        let result = BlastVerificationResult(
+            taxonName: "Human immunodeficiency virus 1", taxId: 11676, readResults: [tied],
+            submittedAt: Date(), completedAt: Date(), rid: "RID-TIED", blastProgram: "blastn", database: "core_nt"
+        )
+        let badge = try XCTUnwrap(BlastTieWords.notSpecificSummary(for: result), "every supporting read ties, so the fixture has a badge")
+
         drawer.showResults(result, recordURL: nil, subject: "S7")
+
         let summary = drawer.summaryLabel.stringValue
         XCTAssertTrue(summary.contains("S7"), summary)
-        if let badge {
-            XCTAssertTrue(summary.hasSuffix(". " + badge), summary)
-            XCTAssertEqual(drawer.summaryLabel.toolTip, badge)
-        } else {
-            XCTAssertFalse(summary.hasSuffix(". "), summary)
-        }
+        XCTAssertTrue(summary.hasSuffix(". " + badge), summary)
+        XCTAssertEqual(drawer.summaryLabel.toolTip, badge)
+
+        drawer.showResults(try runResult(rid: "RID-NOT-TIED"), recordURL: nil, subject: "S7")
+
+        XCTAssertTrue(drawer.summaryLabel.stringValue.contains("S7"), drawer.summaryLabel.stringValue)
+        XCTAssertFalse(drawer.summaryLabel.stringValue.hasSuffix(". "), drawer.summaryLabel.stringValue)
+        XCTAssertNil(drawer.summaryLabel.toolTip)
     }
 }
 
@@ -383,6 +464,30 @@ final class BlastSearchPaneStateTests: XCTestCase {
         guarded.copyHold = BlastSearchFile.CopyHold(reason: .guardPause, until: now.addingTimeInterval(3600))
         XCTAssertTrue(try state(guarded).body.contains("so LGE sends nothing again before"))
         XCTAssertNil(BlastSearchPaneState.make(BlastLiveSearch(file: file(.done), folder: folder), noun: "reads", now: now))
+    }
+
+    /// NCBI has finished these three, so the heading may not say LGE still waits for NCBI (UX review, Q1).
+    func testTheHeadingOfAFinishedSearchDoesNotSayItStillWaits() throws {
+        var collecting = file(.fetching)
+        collecting.winnerOrdinal = 1
+        var unread = collecting
+        unread.copies[0].replyUnreadable = true
+        var lastTry = unread
+        lastTry.copies[0].fetchTries = BlastSearchPolicy.fetchTries
+        for (file, heading) in [(collecting, "Collecting the result"), (unread, "Result not read yet"), (lastTry, "Result not read")] {
+            let shown = try state(file)
+            XCTAssertEqual(shown.heading, heading)
+            XCTAssertTrue(shown.body.contains("NCBI finished this search"), shown.body)
+        }
+    }
+
+    func testANotSentPaneSaysNotSentOnce() throws {
+        var notSent = file(.notSent)
+        notSent.ending = BlastSearchFile.Ending(state: .notSent, at: now, words: BlastSearchWords.refused(code: 503, times: 3))
+        let shown = try state(notSent)
+        XCTAssertEqual(shown.heading, "Not sent")
+        XCTAssertFalse(shown.body.hasPrefix("Not sent"), shown.body)
+        XCTAssertTrue(shown.body.contains("Nothing is waiting at NCBI"), shown.body)
     }
 
     /// A waiting search is never failed, and no words give a time to come or call a send a copy (bindings 3, 4 and 5).

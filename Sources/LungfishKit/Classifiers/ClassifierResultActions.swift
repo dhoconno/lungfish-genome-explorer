@@ -256,9 +256,13 @@ public final class ClassifierResultActions: NSObject {
 
     // MARK: - BLAST results
 
-    /// Shows a BLAST result in the pane and opens it, when the pane is on the row the run began on. The summary names that
-    /// row's sample. A result of another row stays on disk and comes back when that row is picked (UX-BLAST-WORDS Q1), so
-    /// no verdict ever shows under another row's name. `run` names the operation that carries the run.
+    /// When the pane took a failure's words. An older verdict or search may not replace them, and a newer one may.
+    private var blastFailureShownAt: Date?
+
+    /// Shows a BLAST result in the pane, when the pane is on the row the run began on, and leaves it as open or as closed as
+    /// the person left it. The summary names that row's sample. A result of another row stays on disk and comes back when that
+    /// row is picked (UX-BLAST-WORDS Q1), so no verdict ever shows under another row's name. `run` names the operation that
+    /// carries the run.
     public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?, run: UUID? = nil) {
         stopSavedBlastScan()
         let row = endBlastRun(run)
@@ -267,12 +271,12 @@ public final class ClassifierResultActions: NSObject {
             return
         }
         restoredBlastRow = nil
+        blastFailureShownAt = nil
         lastBlastRecordURL = recordURL
         shownBlastRow = row
         lastBlastResult = result
         setBlastBarWord(nil)
         blastDrawer.showResults(result, recordURL: recordURL, subject: row?.sample)
-        setBlastDrawerOpen(true)
     }
 
     /// Shows a BLAST run's progress in the pane and opens it. A run on another row leaves the pane as it is.
@@ -285,6 +289,7 @@ public final class ClassifierResultActions: NSObject {
         restoredBlastRow = nil
         lastBlastRecordURL = nil
         setBlastBarWord(nil)
+        blastFailureShownAt = nil
         blastDrawer.showLoading(phase: phase, requestId: requestId)
         setBlastDrawerOpen(true)
     }
@@ -307,6 +312,8 @@ public final class ClassifierResultActions: NSObject {
         lastBlastRecordURL = nil
         shownBlastRow = nil
         setBlastBarWord(nil)
+        lastBlastResult = nil
+        blastFailureShownAt = Date()
         blastDrawer.showFailure(message: message)
         setBlastDrawerOpen(true)
     }
@@ -323,6 +330,7 @@ public final class ClassifierResultActions: NSObject {
     }
 
     private func showPaneState(_ state: BlastSearchPaneState, row: BlastSavedSearchRow?) {
+        blastFailureShownAt = nil
         lastBlastResult = nil
         lastBlastRecordURL = nil
         restoredBlastRow = row
@@ -351,6 +359,7 @@ public final class ClassifierResultActions: NSObject {
     /// Shows a saved search in the pane and leaves the pane as open or as closed as it is. The record's file comes
     /// with it, since the pane's table export reads that file.
     public func restoreBlastResults(_ result: BlastVerificationResult, recordURL: URL, row: BlastSavedSearchRow) {
+        blastFailureShownAt = nil
         lastBlastResult = result
         lastBlastRecordURL = recordURL
         restoredBlastRow = row
@@ -439,6 +448,7 @@ public final class ClassifierResultActions: NSObject {
         stopSavedBlastScan()
         selectedBlastRow = row
         paneRow = row
+        blastFailureShownAt = nil
         namedBlastRunRow = nil
         guard let row else { return }
         if activeBlastRuns().contains(where: { $0.row == row }) {
@@ -469,9 +479,11 @@ public final class ClassifierResultActions: NSObject {
             case nil:
                 self.emptyBlastPane(unlessItShows: row)
             case .saved(let record, let url):
+                if let shown = self.blastFailureShownAt, (record.result.completedAt ?? record.savedAt) <= shown { return }
                 guard self.lastBlastRecordURL != url else { return }
                 self.restoreBlastResults(record.result, recordURL: url, row: row)
             case .live(let search):
+                if let shown = self.blastFailureShownAt, search.file.createdAt <= shown { return }
                 self.showLiveSearch(search, row: row)
             case .sourceReplaced(let folder):
                 self.showPaneState(.sourceReplaced(folder: folder), row: row)
