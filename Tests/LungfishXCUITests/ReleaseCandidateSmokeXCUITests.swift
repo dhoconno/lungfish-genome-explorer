@@ -181,6 +181,7 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
             ("Assembly", ReleaseSmokeFixtures.assemblyRow, any["assembly-result-view"].firstMatch),
             ("Genotype", ReleaseSmokeFixtures.genotypeRow, any["genotype-result-view"].firstMatch),
             ("Quick Look", ReleaseSmokeFixtures.previewFile, any["viewer-plain-text-preview"].firstMatch),
+            ("FASTA collection", ReleaseSmokeFixtures.fastaRow, any["fasta-collection-table-pane"].firstMatch),
             ("FASTQ", ReleaseSmokeFixtures.fastqRow, any["fastq-dataset-view"].firstMatch),
             ("MHC reference", ReleaseSmokeFixtures.mhcRow, any["mhc-reference-bundle-view"].firstMatch),
             ("PDF", ReleaseSmokeFixtures.pdfFile, any["viewer-pdf-preview"].firstMatch),
@@ -345,6 +346,7 @@ enum ReleaseSmokeFixtures {
         try addAssemblyResult(to: project)
         try addGenotypeResult(to: project)
         try addScriptPreview(to: project)
+        try addFASTACollection(to: project)
         try addFASTQBundle(to: project)
         try addMHCReferenceBundle(to: project)
         try addPDFPreview(to: project)
@@ -473,6 +475,19 @@ enum ReleaseSmokeFixtures {
     static func addScriptPreview(to project: URL) throws {
         try "nextflow.enable.dsl = 2\n\nworkflow {\n    println 'HG002'\n}\n"
             .write(to: project.appendingPathComponent(previewFile), atomically: true, encoding: .utf8)
+    }
+
+    /// The FASTA file the FASTA collection kind shows, two records as the matrix row "FASTA file with several records"
+    /// writes it. The viewer's table pane carries `fasta-collection-table-pane`.
+    static let fastaFile = "clusters.fasta"
+
+    /// The sidebar words of that file, which its row carries with or without the extension.
+    static let fastaRow = "clusters"
+
+    /// Writes the FASTA file at the project root, where the sidebar lists it as a file.
+    static func addFASTACollection(to project: URL) throws {
+        try ">cluster_1 first\nACGTACGTACGT\n>cluster_2 second\nGGCCGGCC\n"
+            .write(to: project.appendingPathComponent(fastaFile), atomically: true, encoding: .utf8)
     }
 
     /// A ZIP holding one reference bundle named `name`, in a folder of its own.
