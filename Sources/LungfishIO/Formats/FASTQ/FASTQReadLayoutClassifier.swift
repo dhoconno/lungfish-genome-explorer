@@ -397,9 +397,10 @@ extension FASTQReadLayoutClassifier {
         metadata: FASTQPairingMetadataHints,
         wholeFileScanOutranksTheMerge: Bool
     ) -> FASTQReadLayoutClassification {
+        let recorded = recordedMateCounts(of: fastqURL)
         let scan: (scannedRecords: Int, matePairs: Int, unpairedRecords: Int, scannedWholeFile: Bool)
         do {
-            scan = try recordedMateCounts(of: fastqURL) ?? countMates(in: fastqURL, limit: limit)
+            scan = try recorded ?? countMates(in: fastqURL, limit: limit)
         } catch is CancellationError {
             return FASTQReadLayoutClassification(
                 layout: .mixedInterleaved,
@@ -413,13 +414,25 @@ extension FASTQReadLayoutClassifier {
         } catch {
             return classify(scannedRecords: 0, matePairs: 0, unpairedRecords: 0, scannedWholeFile: true, metadata: metadata)
         }
-        return classify(
+        let classification = classify(
             scannedRecords: scan.scannedRecords,
             matePairs: scan.matePairs,
             unpairedRecords: scan.unpairedRecords,
             scannedWholeFile: scan.scannedWholeFile,
             metadata: metadata,
             wholeFileScanOutranksTheMerge: wholeFileScanOutranksTheMerge
+        )
+        guard recorded != nil else { return classification }
+        // A record must tell a recorded count from a scan, or it says a run read records it never read.
+        return FASTQReadLayoutClassification(
+            layout: classification.layout,
+            scannedRecords: classification.scannedRecords,
+            matePairs: classification.matePairs,
+            unpairedRecords: classification.unpairedRecords,
+            scannedWholeFile: classification.scannedWholeFile,
+            metadata: classification.metadata,
+            reason: classification.reason
+                + " The count was recorded at import and bound to this file's size, so the file was not read again."
         )
     }
 
