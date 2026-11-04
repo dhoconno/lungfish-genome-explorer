@@ -69,7 +69,7 @@ public actor OpenAIProvider: StructuredAIProvider {
         case 401:
             throw AIProviderError.missingAPIKey
         case 429:
-            if parseErrorCode(data) == "insufficient_quota" {
+            if isOpenAIQuotaError(data) {
                 throw AIProviderError.quotaExceeded(parseErrorMessage(data) ?? "OpenAI reported insufficient quota.")
             }
             let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
@@ -119,7 +119,7 @@ public actor OpenAIProvider: StructuredAIProvider {
         case 401:
             throw AIProviderError.missingAPIKey
         case 429:
-            if parseErrorCode(data) == "insufficient_quota" {
+            if isOpenAIQuotaError(data) {
                 throw AIProviderError.quotaExceeded(parseErrorMessage(data) ?? "OpenAI reported insufficient quota.")
             }
             let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)

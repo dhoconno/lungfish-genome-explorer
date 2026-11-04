@@ -142,10 +142,40 @@ func parseErrorMessage(_ data: Data) -> String? {
     return message
 }
 
-func parseErrorCode(_ data: Data) -> String? {
-    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let error = json["error"] as? [String: Any] else {
+/// Returns the `error` object of an API error response body, or `nil` when the
+/// body is not JSON with an `error` object.
+private func parseErrorObject(_ data: Data) -> [String: Any]? {
+    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return nil
     }
-    return (error["code"] as? String) ?? (error["type"] as? String)
+    return json["error"] as? [String: Any]
+}
+
+// MARK: - Quota Detection
+
+/// OpenAI codes that mean the account cannot pay for the request. Waiting and
+/// retrying fails until credits are added or a limit is raised.
+private let openAIQuotaErrorCodes: Set<String> = [
+    "insufficient_quota",
+    "credit_balance_exhausted",
+    "organization_spend_limit_exceeded",
+    "project_spend_limit_exceeded",
+    "organization_usage_limit_exceeded",
+]
+
+/// Returns whether an OpenAI 429 response body says the account is out of credits
+/// or over a spend or usage limit, as opposed to sending requests too fast.
+///
+/// OpenAI sends `error.type` of `insufficient_quota` together with a specific
+/// `error.code` such as `credit_balance_exhausted`, so both fields are read.
+/// The rate limit codes `rate_limit_exceeded` and `slow_down` are not quota.
+///
+/// - Parameter data: The raw HTTP response body.
+func isOpenAIQuotaError(_ data: Data) -> Bool {
+    guard let error = parseErrorObject(data) else { return false }
+    if (error["type"] as? String) == "insufficient_quota" {
+        return true
+    }
+    guard let code = error["code"] as? String else { return false }
+    return openAIQuotaErrorCodes.contains(code)
 }
