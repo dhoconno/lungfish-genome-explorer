@@ -106,28 +106,6 @@ public enum BlastTaxonMatching {
         return .outside
     }
 
-    /// Whether a read's top hits name conflicting organisms.
-    ///
-    /// With tax IDs on every hit, a read conflicts when its hits mix the
-    /// queried genus (clade or relatives) with organisms outside it. When no
-    /// hit falls in the queried genus, or any hit lacks a tax ID, the legacy
-    /// first-word genus comparison decides.
-    public static func hasConflictingOrganisms(
-        hits: [BlastHitSummary],
-        queriedTaxonName: String,
-        context: BlastTaxonomyContext
-    ) -> Bool {
-        let relations = hits.map {
-            relation(hitOrganism: $0.organism, hitTaxId: $0.taxId, queriedTaxonName: queriedTaxonName, context: context)
-        }
-        if !relations.isEmpty, relations.allSatisfy({ $0 != nil }) {
-            let inGenus = relations.contains { $0 == .clade || $0 == .relative }
-            let outside = relations.contains { $0 == .outside }
-            if inGenus { return outside }
-        }
-        return legacyGenusDisagreement(hits: hits)
-    }
-
     /// The legacy rule: top hits disagree when their organism names start
     /// with more than one distinct first word.
     public static func legacyGenusDisagreement(hits: [BlastHitSummary]) -> Bool {

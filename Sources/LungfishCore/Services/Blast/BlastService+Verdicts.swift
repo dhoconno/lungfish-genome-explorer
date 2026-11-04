@@ -17,9 +17,9 @@ extension BlastService {
     /// - **Unverified**: No hits found within the taxon
     /// - **Error**: NCBI returned no usable entry for the read
     ///
-    /// Also builds up to 5 ``BlastHitSummary`` entries per read, flags reads
-    /// whose top hits name conflicting organisms, and attaches the original
-    /// query sequence.
+    /// Also builds up to 5 ``BlastHitSummary`` entries per read, flags a
+    /// supporting read whose tie at the best bit score also holds a record
+    /// outside the clade, and attaches the original query sequence.
     ///
     /// - Parameters:
     ///   - searchResults: Parsed BLAST search results
@@ -94,7 +94,7 @@ extension BlastService {
     ///
     /// Besides the alignment-quality thresholds, this decides whether the top
     /// hit lies inside the queried clade (by tax ID where available, see
-    /// ``BlastTaxonMatching``) and whether the top hits conflict.
+    /// ``BlastTaxonMatching``) and whether its tie is shared (``BlastReadTie``).
     private nonisolated func assignVerdict(
         for result: BlastSearchResult,
         eValueThreshold: Double,
@@ -147,12 +147,6 @@ extension BlastService {
             maxCount: 5
         )
 
-        let hasLCADisagreement = BlastTaxonMatching.hasConflictingOrganisms(
-            hits: topHits,
-            queriedTaxonName: queriedTaxonName,
-            context: context
-        )
-
         // Determine whether the top hit lies in the queried clade
         let hitOrganism = topHit.organism ?? topHit.title
         let relation = BlastTaxonMatching.relation(
@@ -168,6 +162,10 @@ extension BlastService {
         )
         // A list full of ties with no clade record cannot say that none ties, so the read counts neither way.
         let listEndedInTheTie = tie.map { $0.summary.runsPastList && !$0.holdsClade } ?? false
+        // Shared: a supporting read whose tie also holds a record that is not in the clade. A record below the best
+        // score is no conflict. The name rule keeps its first-word comparison of the first five.
+        let hasLCADisagreement = tie.map { verdict == .verified && $0.holdsClade && $0.summary.outside > 0 }
+            ?? BlastTaxonMatching.legacyGenusDisagreement(hits: topHits)
 
         return BlastReadResult(
             id: result.queryId,
@@ -270,17 +268,6 @@ extension BlastService {
                 alignmentLength: bestHSP.alignLength
             )
         }
-    }
-
-    /// The legacy name-only conflict rule: the top hits' organism names start
-    /// with more than one distinct first word. Verdicts now use
-    /// ``BlastTaxonMatching/hasConflictingOrganisms(hits:queriedTaxonName:context:)``,
-    /// which prefers tax IDs and falls back to this rule.
-    ///
-    /// - Parameter hits: Hit summaries to inspect
-    /// - Returns: `true` if multiple first words are present among the hits
-    nonisolated func computeGenusDisagreement(hits: [BlastHitSummary]) -> Bool {
-        BlastTaxonMatching.legacyGenusDisagreement(hits: hits)
     }
 
     /// Determines whether a BLAST hit organism matches the queried taxon by name.

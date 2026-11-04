@@ -162,10 +162,11 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
     /// The original query sequence submitted to BLAST (for FASTA copy).
     public let querySequence: String?
 
-    /// Whether the top hits name conflicting organisms (LCA disagreement).
+    /// Whether the read's hits conflict (LCA disagreement).
     ///
-    /// With tax IDs, the hits conflict when they mix the queried genus with
-    /// organisms outside it. See ``BlastTaxonMatching/hasConflictingOrganisms(hits:queriedTaxonName:context:)``.
+    /// With tax IDs, a supporting read whose tie at the best bit score also holds a record that is not in the
+    /// clade: a relative, a record outside, or a record with no tax ID. A record below the best score is no
+    /// conflict. On the name rule, the first five hits start with more than one first word.
     public let hasLCADisagreement: Bool
 
     /// Whether the top BLAST hit, or a record tied with it at the best bit score,
