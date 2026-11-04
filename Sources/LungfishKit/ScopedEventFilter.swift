@@ -148,6 +148,20 @@ public enum ScopedEventFilter {
         Notification.Name("com.lungfish.genotypeResultIncludedLociChanged"): .window,
         // The haplotype row density is a saved preference.
         Notification.Name("genotypeHaplotypeDensityDidChange"): .application,
+
+        // BLAST search news (Phase 3.2). None of the three carries a window scope, since the app-wide monitor and the
+        // viewer that began a run post them with no window attached, and the scope filter would drop a window event
+        // that has none. Each observer asks the disk or the folder in the event whether the news is about its own row.
+        // LungfishApp, Services/BlastInFlightMonitor.swift. A pass saved a record in a result folder, which any
+        // window that shows that folder may refresh.
+        Notification.Name("BlastInFlightMonitor.searchCameBack"): .application,
+        // LungfishCore, Services/Blast/BlastLiveSearch.swift. A search changed on disk. Every result pane in every
+        // window asks the disk again for its own row, so a late result reaches a window other than the one that
+        // began the run (BLAST-RUN-REPORTS-TO-OLD-VIEWER).
+        Notification.Name("BlastSearchNews.changed"): .application,
+        // LungfishKit, BlastSearchPaneState.swift. What a press came to, with the search's folder as the object.
+        // Every open pane hears it, and the one that shows that folder shows the words.
+        Notification.Name("BlastSearchPaneActions.said"): .application,
     ]
 
     /// The classification of `name`, or nil when the name is not in the table.
