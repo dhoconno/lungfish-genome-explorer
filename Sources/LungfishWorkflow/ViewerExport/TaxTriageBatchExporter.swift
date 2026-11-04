@@ -140,9 +140,11 @@ public enum TaxTriageBatchExporter {
         report += "\n--- Per-Sample Summary ---\n\n"
 
         for sid in sampleIds {
-            let sampleMetrics = metrics.filter { $0.sample == sid }
-            let highConf = sampleMetrics.filter { $0.tassScore >= 0.8 }.count
             let isNTC = negControlIds.contains(sid)
+            let selectedRows = metrics.filter { $0.sample == sid }
+            // A control that the selection or the search left out still holds its rows (lane TTCONTROLS, BIO review).
+            let sampleMetrics = isNTC && selectedRows.isEmpty ? controlMetrics.filter { $0.sample == sid } : selectedRows
+            let highConf = sampleMetrics.filter { $0.tassScore >= 0.8 }.count
             let ntcTag = isNTC ? " [NTC]" : ""
             report += "  \(sid)\(ntcTag): \(sampleMetrics.count) organisms (\(highConf) high confidence)\n"
         }
