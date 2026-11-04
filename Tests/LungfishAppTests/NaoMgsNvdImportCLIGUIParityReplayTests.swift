@@ -36,7 +36,7 @@ import LungfishTestSupport
 final class NaoMgsNvdImportCLIGUIParityReplayTests: XCTestCase {
     private var scratch: URL!
     private var harness: RouteParityHarness!
-    private var storageBefore: String?
+    private var storageBefore: ManagedSamtoolsGate.SavedRoots?
 
     override func setUp() async throws {
         scratch = try TestTempDirectory.make(prefix: "naomgs-nvd-parity")

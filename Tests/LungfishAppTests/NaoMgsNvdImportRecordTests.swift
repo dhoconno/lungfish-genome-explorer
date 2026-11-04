@@ -29,7 +29,7 @@ import LungfishTestSupport
 @MainActor
 final class NaoMgsNvdImportRecordTests: XCTestCase {
     private var root: URL!
-    private var storageBefore: String?
+    private var storageBefore: ManagedSamtoolsGate.SavedRoots?
 
     override func setUp() async throws {
         root = try TestTempDirectory.make(prefix: "naomgs-nvd-import-record")
@@ -42,6 +42,7 @@ final class NaoMgsNvdImportRecordTests: XCTestCase {
     }
 
     func testTheNaoMgsImportWritesItsFolderRecordAndRowWords() async throws {
+        try ManagedSamtoolsGate.requireForXCTest()
         let input = try NaoMgsNvdAppFixtures.naoMgsResult(in: root)
         let run = try await runImport(kind: .naomgs, input: input, fetchReferences: false)
         XCTAssertEqual(run.folderName, "naomgs-S1", "today the folder name drops the sample id after its dot")

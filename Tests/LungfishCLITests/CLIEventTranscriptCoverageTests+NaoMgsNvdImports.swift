@@ -4,13 +4,16 @@
 
 import Foundation
 @testable import LungfishCLI
+import LungfishTestSupport
 
-/// `import nao-mgs` and `import nvd` parse files and run no tool in a test, so their transcripts are captured in
-/// process (Phase 2.12 lane 12.05) on the fixtures of `NaoMgsNvdImportFixtures`, which carry the dotted sample ids
-/// `S1.2024` and `S2.2024`. Each imports into the Imports folder of a scratch project, as the Import Center does.
-/// The NAO-MGS case runs with `--no-fetch-references` and a managed storage under the scratch folder that holds a
-/// fixture taxonomy, so it needs no network and writes nothing into the user's storage. They live here because
-/// the main file is past 800 lines.
+/// `import nao-mgs` and `import nvd` parse files and run no tool in a test except the samtools that writes the BAM of a
+/// NAO-MGS sample, so their transcripts are captured in process (Phase 2.12 lane 12.05) on the fixtures of
+/// `NaoMgsNvdImportFixtures`, which carry the dotted sample ids `S1.2024` and `S2.2024`. Each imports into the
+/// Imports folder of a scratch project, as the Import Center does. The NAO-MGS case runs with `--no-fetch-references`
+/// and a managed storage under the scratch folder that holds a fixture taxonomy, so it needs no network and writes
+/// nothing into the user's storage, and the host's managed samtools stays in reach. A host with none skips the
+/// NAO-MGS complete case, since the import stops there (`ManagedSamtoolsGate`). They live here because the main file
+/// is past 800 lines.
 extension CLIEventTranscriptCoverageTests {
     static func naoMgsNvdImportCaptures() -> [Capture] {
         let cases: [(leaf: String, name: String, input: (URL) throws -> URL)] = [
@@ -21,6 +24,7 @@ extension CLIEventTranscriptCoverageTests {
         ]
         return cases.map { testCase in
             Capture(leaf: testCase.leaf, name: testCase.name) { _ in
+                if testCase.leaf == "import nao-mgs", testCase.name == "complete" { try ManagedSamtoolsGate.requireForXCTest() }
                 let scratch = try ImportStreamCapture.Scratch()
                 defer { scratch.remove() }
                 let storage = try await NaoMgsNvdImportFixtures.installFixtureTaxonomy(in: scratch.root)

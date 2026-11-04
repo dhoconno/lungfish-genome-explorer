@@ -28,10 +28,7 @@ enum NaoMgsNvdImportFixtures {
     /// (`ManagedSamtoolsGate`).
     static func storageEnvironment(_ storage: URL) -> [String: String] {
         var environment = ["LUNGFISH_STORAGE_ROOT": storage.path, "LUNGFISH_FORBID_REAL_MANAGED_STORAGE_WRITES": "1"]
-        if ManagedSamtoolsGate.isAvailable {
-            let store = ManagedStorageConfigStore(homeDirectory: FileManager.default.homeDirectoryForCurrentUser, appIdentity: .current)
-            environment["LUNGFISH_CONDA_ROOT"] = store.currentCondaRootURL().path
-        }
+        if let hostRoot = ManagedSamtoolsGate.hostCondaRoot() { environment["LUNGFISH_CONDA_ROOT"] = hostRoot }
         return environment
     }
 
@@ -134,15 +131,14 @@ enum NaoMgsNvdImportFixtures {
         ((try? FileManager.default.contentsOfDirectory(atPath: imports.path)) ?? []).sorted()
     }
 
-    /// Points this process, and so every command it starts, at `storage`. Returns what to give back to ``restoreStorage(_:)``.
-    static func useStorage(_ storage: URL) -> String? {
-        let before = ProcessInfo.processInfo.environment["LUNGFISH_STORAGE_ROOT"]
-        setenv("LUNGFISH_STORAGE_ROOT", storage.path, 1)
-        return before
+    /// Points this process, and so every command it runs in process or starts, at `storage`, with the host's tools in
+    /// reach for a NAO-MGS import (`ManagedSamtoolsGate.useScratchStorage`). Returns what to give back to ``restoreStorage(_:)``.
+    static func useStorage(_ storage: URL) -> ManagedSamtoolsGate.SavedRoots {
+        ManagedSamtoolsGate.useScratchStorage(storage)
     }
 
-    static func restoreStorage(_ before: String?) {
-        if let before { setenv("LUNGFISH_STORAGE_ROOT", before, 1) } else { unsetenv("LUNGFISH_STORAGE_ROOT") }
+    static func restoreStorage(_ before: ManagedSamtoolsGate.SavedRoots?) {
+        if let before { ManagedSamtoolsGate.restoreRoots(before) }
     }
 
     /// The published `nvd-*` folders in `imports`.

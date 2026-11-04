@@ -15,8 +15,6 @@ import LungfishTestSupport
 /// process, and so the commands it starts, at a storage under the scratch folder that already holds a fixture
 /// taxonomy, so the install stays off the network and out of the user's managed storage.
 enum NaoMgsNvdAppFixtures {
-    private static let storageKey = "LUNGFISH_STORAGE_ROOT"
-
     private static let naoMgsHeader = [
         "seq_id", "sample", "aligner_taxid_lca", "aligner_taxid_top", "aligner_length_normalized_score_mean",
         "aligner_taxid_lca_combined", "aligner_n_assignments_combined", "aligner_length_normalized_score_mean_combined",
@@ -97,14 +95,13 @@ enum NaoMgsNvdAppFixtures {
         return storage
     }
 
-    /// Points this process, and so every command it starts, at `storage`. Returns what to give back to ``restoreStorage(_:)``.
-    static func useStorage(_ storage: URL) -> String? {
-        let before = ProcessInfo.processInfo.environment[storageKey]
-        setenv(storageKey, storage.path, 1)
-        return before
+    /// Points this process, and so every command it runs in process or starts, at `storage`, with the host's tools in
+    /// reach for a NAO-MGS import (`ManagedSamtoolsGate.useScratchStorage`). Returns what to give back to ``restoreStorage(_:)``.
+    static func useStorage(_ storage: URL) -> ManagedSamtoolsGate.SavedRoots {
+        ManagedSamtoolsGate.useScratchStorage(storage)
     }
 
-    static func restoreStorage(_ before: String?) {
-        if let before { setenv(storageKey, before, 1) } else { unsetenv(storageKey) }
+    static func restoreStorage(_ before: ManagedSamtoolsGate.SavedRoots?) {
+        if let before { ManagedSamtoolsGate.restoreRoots(before) }
     }
 }
