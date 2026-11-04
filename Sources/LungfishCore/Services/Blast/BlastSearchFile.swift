@@ -117,10 +117,7 @@ package struct BlastSearchFile: Codable, Sendable, Equatable {
 
     /// One send of the search, with its own RID from NCBI.
     package struct Copy: Codable, Sendable, Equatable {
-        package enum Kind: String, Codable, Sendable {
-            case first
-            case copy
-        }
+        package typealias Kind = BlastSubmissionKind
 
         package enum State: String, Codable, Sendable {
             case sending
@@ -161,6 +158,9 @@ package struct BlastSearchFile: Codable, Sendable, Equatable {
         package var fetchTries: Int
         /// NCBI's words, up to ``BlastSearchPolicy/wordsLimit`` bytes.
         package var words: String?
+        /// Whether LGE's limit already counts the next POST of this send. A POST spends it before it goes out, and one
+        /// that reached nothing gets it back, so a Mac with no network counts one send however long it tries.
+        package var postReserved: Bool
 
         package init(ordinal: Int, kind: Kind, nextCheckAt: Date?) {
             self.ordinal = ordinal
@@ -173,6 +173,7 @@ package struct BlastSearchFile: Codable, Sendable, Equatable {
             self.unknownInARow = 0
             self.replyUnreadable = false
             self.fetchTries = 0
+            self.postReserved = false
         }
     }
 
@@ -255,6 +256,12 @@ package enum BlastSearchPolicy {
     package static let wordsLimit = 2048
     /// Failed checks in a row from which the words say so.
     package static let failedChecksThatAreSaid = 3
+    /// The fewest seconds between any two contacts with BLAST from this Mac.
+    package static let contactSpacing: TimeInterval = 11
+    /// A last slot further ahead than this reads as now, since only a clock moved back leaves one.
+    package static let gateFutureLimit: TimeInterval = 600
+    /// How long a contact tries for the gate's lock before it goes on with its process's own spacing.
+    package static let gateLockWait: TimeInterval = 5
 
     /// The wait after a check at this search age. 1 a minute to 10 min, every 5 min to 1 h, every 15 min to 6 h,
     /// and every 30 min after that, with no end while NCBI says WAITING. NCBI: "Do not poll for any single RID more

@@ -72,11 +72,6 @@ extension BlastService {
         ).utf8)
     }
 
-    /// Counts a first send against LGE's own limit, or refuses it with no contact.
-    package func reserveFirstSend(sequenceCount: Int) async throws {
-        try await enforceSubmitRateLimit(sequenceCount: sequenceCount)
-    }
-
     /// One POST of `form`, inside this process's limit on POSTs in flight.
     package func sendPut(_ form: Data, maxConcurrentSubmissions: Int) async throws -> BlastPutAnswer {
         try await acquireSubmissionSlot(maxConcurrentSubmissions: maxConcurrentSubmissions)
@@ -86,6 +81,7 @@ extension BlastService {
 
     /// One POST of `form`, with no retry. The caller decides what its answer means.
     func putOnce(_ form: Data) async throws -> BlastPutAnswer {
+        try await contactGate?.takeSlot()
         var request = URLRequest(url: blastBaseURL, timeoutInterval: BlastSearchPolicy.putTimeout)
         request.httpMethod = "POST"
         request.httpBody = form
@@ -143,6 +139,7 @@ extension BlastService {
     }
 
     private func getOnce(_ url: URL, what: String) async throws -> Data {
+        try await contactGate?.takeSlot()
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         let data: Data

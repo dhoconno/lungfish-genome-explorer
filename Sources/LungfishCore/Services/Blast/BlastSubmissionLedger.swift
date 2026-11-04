@@ -9,14 +9,67 @@ private let ledgerLogger = Logger(subsystem: LogSubsystem.core, category: "Blast
 
 // MARK: - Ledger Event
 
-/// One BLAST submission: when it was sent and how many reads it carried.
+/// Which kind of POST a ledger event counts. A re-POST counts as what it repeats.
+public enum BlastSubmissionKind: String, Sendable, Codable, Equatable {
+    /// A search's first send.
+    case first
+    /// LGE sending a search again on its own.
+    case copy
+}
+
+/// One BLAST POST: when it was sent, how many reads it carried and what kind it was.
 public struct BlastSubmissionLedgerEvent: Sendable, Codable, Equatable {
     public let date: Date
     public let count: Int
+    public let kind: BlastSubmissionKind
 
-    public init(date: Date, count: Int) {
+    public init(date: Date, count: Int, kind: BlastSubmissionKind = .first) {
         self.date = date
         self.count = max(0, count)
+        self.kind = kind
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case date, count, kind
+    }
+
+    /// An event of an older file holds no `kind`, and every one of those was a first send.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            date: try container.decode(Date.self, forKey: .date),
+            count: try container.decode(Int.self, forKey: .count),
+            kind: try container.decodeIfPresent(BlastSubmissionKind.self, forKey: .kind) ?? .first
+        )
+    }
+}
+
+// MARK: - Limit Refusal
+
+/// What LGE's own limit says to a POST it holds back. NCBI hears nothing of it.
+public struct BlastLimitRefusal: Sendable, Equatable {
+    /// The limit that applied, in reads an hour.
+    public let limit: Int
+    /// The reads that limit has counted in the last hour.
+    public let used: Int
+    /// The reads this POST would carry.
+    public let count: Int
+    /// When the reads fit, nil when they are more than the limit and never will.
+    public let fitsAt: Date?
+    /// When LGE refused.
+    public let refusedAt: Date
+
+    public init(limit: Int, used: Int, count: Int, fitsAt: Date?, refusedAt: Date) {
+        self.limit = limit
+        self.used = used
+        self.count = count
+        self.fitsAt = fitsAt
+        self.refusedAt = refusedAt
+    }
+
+    /// The seconds until the reads fit, nil when they never will.
+    public var retryAfter: TimeInterval? {
+        fitsAt.map { max(1, $0.timeIntervalSince(refusedAt)) }
     }
 }
 
@@ -29,25 +82,50 @@ public enum BlastSubmissionBudget {
     public static let window: TimeInterval = 3600
 
     /// Drops events older than the window, checks that `count` more reads
-    /// fit under `limit`, and records them at `now`.
+    /// fit under `limit`, and records them at `now`. A first send counts only
+    /// first sends, so a copy never refuses one, and a copy counts every POST.
     ///
-    /// - Throws: ``BlastServiceError/rateLimitExceeded(retryAfter:)`` with the
-    ///   seconds until the oldest event in the window expires.
+    /// - Throws: ``BlastServiceError/rateLimitExceeded(_:)`` with when the
+    ///   reads fit, which is later than when the oldest event leaves if they
+    ///   do not fit even then.
     public static func reserve(
         _ events: inout [BlastSubmissionLedgerEvent],
         count: Int,
+        kind: BlastSubmissionKind = .first,
         at now: Date,
         limit: Int,
         window: TimeInterval = window
     ) throws {
         events = prune(events, now: now, window: window)
-        let used = events.reduce(0) { $0 + $1.count }
+        let counted = kind == .first ? events.filter { $0.kind == .first } : events
+        let used = counted.reduce(0) { $0 + $1.count }
         guard used + count <= limit else {
-            let oldest = events.map(\.date).min()
-            let retryAfter = oldest.map { max(1, window - now.timeIntervalSince($0)) } ?? window
-            throw BlastServiceError.rateLimitExceeded(retryAfter: retryAfter)
+            throw BlastServiceError.rateLimitExceeded(BlastLimitRefusal(
+                limit: limit,
+                used: used,
+                count: count,
+                fitsAt: fitTime(of: count, among: counted, used: used, limit: limit, window: window),
+                refusedAt: now
+            ))
         }
-        events.append(BlastSubmissionLedgerEvent(date: now, count: count))
+        events.append(BlastSubmissionLedgerEvent(date: now, count: count, kind: kind))
+    }
+
+    /// When `count` reads fit as `counted` leave the window one by one, nil when they are more than `limit`.
+    private static func fitTime(
+        of count: Int,
+        among counted: [BlastSubmissionLedgerEvent],
+        used: Int,
+        limit: Int,
+        window: TimeInterval
+    ) -> Date? {
+        guard count <= limit else { return nil }
+        var left = used
+        for event in counted.sorted(by: { $0.date < $1.date }) {
+            left -= event.count
+            if left + count <= limit { return event.date.addingTimeInterval(window) }
+        }
+        return nil
     }
 
     /// Events still inside the window at `now`. Events dated in the future
@@ -66,8 +144,8 @@ public enum BlastSubmissionBudget {
 /// Where ``BlastService`` records how many reads it sent to NCBI in the
 /// last hour. Implementations make ``reserve(count:at:limit:)`` atomic.
 public protocol BlastSubmissionLedger: Sendable {
-    /// Atomically checks the rolling-hour budget and records `count` reads.
-    func reserve(count: Int, at now: Date, limit: Int) async throws
+    /// Atomically checks the rolling-hour budget and records `count` reads as `kind`.
+    func reserve(count: Int, kind: BlastSubmissionKind, at now: Date, limit: Int) async throws
 
     /// The events still inside the window at `now`.
     func events(at now: Date) async -> [BlastSubmissionLedgerEvent]
@@ -84,8 +162,8 @@ public actor InMemoryBlastSubmissionLedger: BlastSubmissionLedger {
         self.stored = events
     }
 
-    public func reserve(count: Int, at now: Date, limit: Int) async throws {
-        try BlastSubmissionBudget.reserve(&stored, count: count, at: now, limit: limit)
+    public func reserve(count: Int, kind: BlastSubmissionKind, at now: Date, limit: Int) async throws {
+        try BlastSubmissionBudget.reserve(&stored, count: count, kind: kind, at: now, limit: limit)
     }
 
     public func events(at now: Date) async -> [BlastSubmissionLedgerEvent] {
@@ -97,7 +175,7 @@ public actor InMemoryBlastSubmissionLedger: BlastSubmissionLedger {
 // MARK: - File Ledger
 
 /// A ledger kept as JSON on disk, so quitting and relaunching the app, or
-/// running the CLI beside it, does not reset NCBI's hourly budget.
+/// running the CLI beside it, does not reset LGE's own hourly limit.
 ///
 /// Each reservation takes an exclusive `flock` on a sibling lock file,
 /// re-reads the file, applies the budget rule, and writes the file back
@@ -147,14 +225,14 @@ public actor FileBlastSubmissionLedger: BlastSubmissionLedger {
         }
     }
 
-    public func reserve(count: Int, at now: Date, limit: Int) async throws {
+    public func reserve(count: Int, kind: BlastSubmissionKind, at now: Date, limit: Int) async throws {
         guard let url = await fileURL() else {
-            try BlastSubmissionBudget.reserve(&memoryFallback, count: count, at: now, limit: limit)
+            try BlastSubmissionBudget.reserve(&memoryFallback, count: count, kind: kind, at: now, limit: limit)
             return
         }
         try Self.withExclusiveLock(for: url) {
             var events = Self.read(url) ?? memoryFallback
-            try BlastSubmissionBudget.reserve(&events, count: count, at: now, limit: limit)
+            try BlastSubmissionBudget.reserve(&events, count: count, kind: kind, at: now, limit: limit)
             memoryFallback = events
             Self.write(events, to: url)
         }

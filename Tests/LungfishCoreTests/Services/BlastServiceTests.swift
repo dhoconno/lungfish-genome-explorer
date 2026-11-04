@@ -566,7 +566,6 @@ final class BlastServiceTests: XCTestCase {
 
     func testSubmitRejectsMoreThanFiftySequencesPerHour() async throws {
         let rateLimits = BlastRateLimitConfiguration(
-            minSubmitInterval: 0,
             maxSequencesPerHour: 50,
             submissionSlotPollInterval: 0.001
         )
@@ -599,8 +598,8 @@ final class BlastServiceTests: XCTestCase {
                 sequenceCount: 21
             )
             XCTFail("Expected hourly BLAST sequence rate limit to reject the second submission")
-        } catch BlastServiceError.rateLimitExceeded(let retryAfter) {
-            XCTAssertGreaterThan(retryAfter, 0)
+        } catch BlastServiceError.rateLimitExceeded(let refusal) {
+            XCTAssertGreaterThan(refusal.retryAfter ?? 0, 0)
         }
 
         let requests = await mockClient.requests
@@ -634,7 +633,6 @@ final class BlastServiceTests: XCTestCase {
     func testSubmitHonorsMaxConcurrentSubmissions() async throws {
         let delayedClient = DelayedSubmissionHTTPClient(delayNanoseconds: 100_000_000)
         let rateLimits = BlastRateLimitConfiguration(
-            minSubmitInterval: 0,
             maxSequencesPerHour: 100,
             submissionSlotPollInterval: 0.001
         )
@@ -1426,7 +1424,7 @@ final class BlastServiceTests: XCTestCase {
             .resultParsingFailed(message: "Invalid JSON"),
             .noSequences,
             .inputReadFailed(message: "gzip decompression failed"),
-            .rateLimitExceeded(retryAfter: 30),
+            .rateLimitExceeded(BlastLimitRefusal(limit: 50, used: 40, count: 20, fitsAt: Date(), refusedAt: Date())),
             .httpError(statusCode: 503, body: "Service Unavailable"),
             .networkFailed(message: "The network connection was lost"),
         ]

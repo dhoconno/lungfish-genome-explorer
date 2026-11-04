@@ -79,7 +79,7 @@ final class BlastStandInStateTests: XCTestCase {
     func testTheManagedLedgerFollowsTheStandInState() async throws {
         let ledger = FileBlastSubmissionLedger.managedStorageDefault(environment: standIn(state: state.path))
 
-        try await ledger.reserve(count: 3, at: Date(), limit: 50)
+        try await ledger.reserve(count: 3, kind: .first, at: Date(), limit: 50)
 
         let reread = FileBlastSubmissionLedger(fileURL: state.appendingPathComponent(FileBlastSubmissionLedger.fileName))
         let counted = await reread.events(at: Date()).map(\.count)
@@ -91,7 +91,7 @@ final class BlastStandInStateTests: XCTestCase {
         let ledger = FileBlastSubmissionLedger(fileURL: folder.appendingPathComponent(FileBlastSubmissionLedger.fileName))
         defer { try? FileManager.default.removeItem(at: BlastStandInState.processFolder) }
 
-        try await ledger.reserve(count: 1, at: Date(), limit: 50)
+        try await ledger.reserve(count: 1, kind: .first, at: Date(), limit: 50)
 
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [])
     }

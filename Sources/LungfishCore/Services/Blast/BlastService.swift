@@ -16,11 +16,11 @@ private let logger = Logger(subsystem: LogSubsystem.core, category: "BlastServic
 /// sequences to the NCBI BLAST service, polling for completion, and parsing
 /// results in JSON2 format.
 ///
-/// ## Rate Limiting
+/// ## Limits
 ///
-/// The actor enforces NCBI rate limits internally:
-/// - Minimum 10 seconds between submissions
-/// - Minimum 15 seconds between polls for the same RID
+/// LGE keeps to limits of its own:
+/// - ``BlastContactGate`` spaces every contact from this Mac, across processes
+/// - The ledger counts each POST against an hourly limit, and ``BlastSearchPolicy`` sets how often a search is checked
 /// - Includes `tool=lungfish` identifier in all requests
 ///
 /// ## Usage
@@ -46,13 +46,14 @@ public actor BlastService {
     ///
     /// Its hourly submission ledger lives under the managed storage root
     /// (`<root>/blast/submission-ledger.json`), so quitting the app or
-    /// running the CLI does not reset NCBI's 50-reads-per-hour budget. A
+    /// running the CLI does not reset LGE's own limit of 50 reads an hour. A
     /// debug build pointed at a stand-in keeps it in the run's stand-in state
     /// folder (``BlastStandInState``), and never under the root.
     public static let shared: BlastService = {
         let environment = ProcessInfo.processInfo.environment
         return BlastService(
             submissionLedger: FileBlastSubmissionLedger.managedStorageDefault(environment: environment),
+            contactGate: BlastContactGate.managedStorageDefault(environment: environment),
             environment: environment
         )
     }()
@@ -82,8 +83,8 @@ public actor BlastService {
     /// Local NCBI BLAST etiquette limits.
     private let rateLimits: BlastRateLimitConfiguration
 
-    /// Timestamp of the last BLAST submission (for rate limiting).
-    private var lastSubmitTime: Date?
+    /// Gives each contact its slot. A service with none, as a test's, keeps no spacing.
+    let contactGate: BlastContactGate?
 
     /// Number of currently active NCBI BLAST submission requests.
     var activeSubmissionCount = 0
@@ -112,10 +113,26 @@ public actor BlastService {
         now: @escaping @Sendable () -> Date = { Date() },
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
+        self.init(
+            httpClient: httpClient, rateLimits: rateLimits, submissionLedger: submissionLedger, contactGate: nil,
+            now: now, environment: environment
+        )
+    }
+
+    /// A service whose every contact takes a slot from `contactGate`.
+    package init(
+        httpClient: HTTPClient = URLSessionHTTPClient(),
+        rateLimits: BlastRateLimitConfiguration = .ncbiDefault,
+        submissionLedger: any BlastSubmissionLedger = InMemoryBlastSubmissionLedger(),
+        contactGate: BlastContactGate?,
+        now: @escaping @Sendable () -> Date = { Date() },
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
         self.blastBaseURL = BlastServiceEndpoints(environment: environment).blastURL
         self.httpClient = httpClient
         self.rateLimits = rateLimits
         self.submissionLedger = submissionLedger
+        self.contactGate = contactGate
         self.now = now
     }
 
@@ -619,7 +636,7 @@ public actor BlastService {
         try await acquireSubmissionSlot(maxConcurrentSubmissions: maxConcurrentSubmissions)
         defer { activeSubmissionCount = max(0, activeSubmissionCount - 1) }
 
-        try await enforceSubmitRateLimit(sequenceCount: sequenceCount)
+        try await reservePost(sequenceCount: sequenceCount, kind: .first, at: now())
 
         let body = putFormBody(
             query: query,
@@ -953,29 +970,14 @@ public actor BlastService {
         return allowed
     }()
 
-    /// Enforces NCBI etiquette before a submission.
-    ///
-    /// Reserves the reads in the rolling-hour ledger first, so a submission
-    /// over budget fails at once without waiting, then sleeps out the
-    /// minimum interval since the previous submission. The reservation is
-    /// dated when the submission will actually be sent.
-    func enforceSubmitRateLimit(sequenceCount: Int) async throws {
-        let current = now()
-        var wait: TimeInterval = 0
-        if let lastTime = lastSubmitTime {
-            wait = max(0, rateLimits.minSubmitInterval - current.timeIntervalSince(lastTime))
-        }
-        let sendAt = current.addingTimeInterval(wait)
+    /// Counts one POST against LGE's own limit for its kind, or refuses it with no contact.
+    package func reservePost(sequenceCount: Int, kind: BlastSubmissionKind, at date: Date) async throws {
         try await submissionLedger.reserve(
             count: max(0, sequenceCount),
-            at: sendAt,
-            limit: rateLimits.maxSequencesPerHour
+            kind: kind,
+            at: date,
+            limit: rateLimits.limit(for: kind)
         )
-        lastSubmitTime = sendAt
-        if wait > 0 {
-            logger.debug("Rate limiting: waiting \(wait, privacy: .public)s before next submission")
-            try await Task.sleep(for: .seconds(wait))
-        }
     }
 
     func acquireSubmissionSlot(maxConcurrentSubmissions: Int) async throws {

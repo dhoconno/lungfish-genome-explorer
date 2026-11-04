@@ -198,6 +198,41 @@ final class BlastSearchAdvancerTests: XCTestCase {
         XCTAssertEqual(hand.sleeps, [60, 60, 60], "the Put goes out again at each tick")
     }
 
+    func testAPutThatReachesNothingCountsOneSendHoweverLongItTries() async throws {
+        let ledger = InMemoryBlastSubmissionLedger()
+        let advancer = BlastSearchAdvancer(
+            service: BlastService(httpClient: BlastNoConnectionClient(triesBeforeACancel: 3), submissionLedger: ledger),
+            store: BlastSearchStore(folder: folder),
+            request: BlastVerificationRequest(taxonName: "test", taxId: 0, sequences: reads),
+            clock: hand.clock,
+            noun: "sequences",
+            progress: { _, _ in },
+            publish: { _ in }
+        )
+
+        do {
+            _ = try await advancer.advance(try await create(advancer))
+            XCTFail("only a cancel ends a search that has reached nothing")
+        } catch is CancellationError {}
+
+        let events = await ledger.events(at: hand.now)
+        XCTAssertEqual(events.count, 1, "nothing went out, so the one count stands")
+    }
+
+    func testARePostPastTheLimitStaysDueAndNeverEndsTheSearch() async throws {
+        let server = try standIn([BlastFaultScript(put: [.http(status: 503)])])
+        defer { server.stop() }
+        let advancer = advancer(server, limits: BlastRateLimitConfiguration(maxSequencesPerHour: reads.count))
+
+        let outcome = try await advancer.advance(try await create(advancer))
+
+        guard case .done = outcome else { return XCTFail("the search went on to its result: \(outcome)") }
+        XCTAssertEqual(server.arrivals.filter { $0.contact == .put }.count, 2)
+        // The busy answer's wait, then the rest of the hour the first POST's reads fill.
+        XCTAssertEqual(hand.sleeps[0], 60, accuracy: 0.01)
+        XCTAssertEqual(hand.sleeps[1], 3540, accuracy: 0.01)
+    }
+
     // MARK: The check
 
     func testFailedEndsWithNCBIsWordsAndTheRid() async throws {

@@ -110,6 +110,18 @@ package enum BlastSearchWords {
         "LGE could not save this search in \(folder): \(reason). LGE keeps trying. Check that the folder can be written."
     }
 
+    /// Q5, LGE's own limit. NCBI was not contacted, and the words say so. The time is when the search fits.
+    package static func limitRefusal(_ refusal: BlastLimitRefusal) -> String {
+        let limit = "LGE's own limit stopped this search, and NCBI was not contacted. LGE sends at most \(refusal.limit) reads an hour"
+        guard let fitsAt = refusal.fitsAt else {
+            return "\(limit), so \(refusal.count) reads cannot go as one search. Send \(refusal.limit) or fewer."
+        }
+        let gone = "\(refusal.used) \(refusal.used == 1 ? "has" : "have") gone in the last hour"
+        let fits = "This search of \(counted(refusal.count, "reads")) fits at \(time(fitsAt, now: refusal.refusedAt)). Try again then"
+        let free = refusal.limit - refusal.used
+        return "\(limit), and \(gone). \(fits)\(free > 0 ? ", or send \(free) or fewer reads now" : "")."
+    }
+
     /// The text of an NCBI page without its info blocks and markup, cut to what a file keeps.
     package static func plainWords(ofPage page: String) -> String {
         var text = page.replacingOccurrences(of: "<!--[\\s\\S]*?-->", with: " ", options: .regularExpression)

@@ -314,20 +314,27 @@ public enum BlastJobStatus: Sendable, Equatable {
 
 // MARK: - BLAST Rate Limits
 
-/// Local enforcement knobs for NCBI BLAST etiquette.
+/// LGE's own limits on what it sends to NCBI BLAST. ``BlastContactGate`` spaces the contacts.
 public struct BlastRateLimitConfiguration: Sendable, Equatable {
-    public var minSubmitInterval: TimeInterval
+    /// Reads an hour that first sends may carry, counting first sends alone.
     public var maxSequencesPerHour: Int
+    /// Reads an hour that a copy may bring every POST up to, first sends included.
+    public var maxPostedSequencesPerHour: Int
     public var submissionSlotPollInterval: TimeInterval
 
     public init(
-        minSubmitInterval: TimeInterval = 10,
         maxSequencesPerHour: Int = 50,
+        maxPostedSequencesPerHour: Int = 100,
         submissionSlotPollInterval: TimeInterval = 1
     ) {
-        self.minSubmitInterval = minSubmitInterval
         self.maxSequencesPerHour = maxSequencesPerHour
+        self.maxPostedSequencesPerHour = maxPostedSequencesPerHour
         self.submissionSlotPollInterval = submissionSlotPollInterval
+    }
+
+    /// The limit a POST of this kind counts against.
+    public func limit(for kind: BlastSubmissionKind) -> Int {
+        kind == .first ? maxSequencesPerHour : maxPostedSequencesPerHour
     }
 
     public static let ncbiDefault = BlastRateLimitConfiguration()
@@ -360,7 +367,7 @@ public enum BlastServiceError: Error, LocalizedError, Sendable {
     case inputReadFailed(message: String)
 
     /// Rate limit: must wait before submitting another request.
-    case rateLimitExceeded(retryAfter: TimeInterval)
+    case rateLimitExceeded(BlastLimitRefusal)
 
     /// The HTTP response was not successful.
     case httpError(statusCode: Int, body: String)
@@ -387,8 +394,8 @@ public enum BlastServiceError: Error, LocalizedError, Sendable {
             return "No sequences provided for BLAST verification"
         case .inputReadFailed(let message):
             return "BLAST input read failed: \(message)"
-        case .rateLimitExceeded(let retryAfter):
-            return "NCBI rate limit exceeded. Retry after \(Int(retryAfter)) seconds."
+        case .rateLimitExceeded(let refusal):
+            return BlastSearchWords.limitRefusal(refusal)
         case .httpError(let statusCode, let body):
             return "HTTP \(statusCode): \(body.prefix(200))"
         case .networkFailed(let message):

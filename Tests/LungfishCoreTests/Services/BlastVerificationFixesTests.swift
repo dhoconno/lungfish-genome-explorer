@@ -347,7 +347,6 @@ final class BlastSubmissionLedgerTests: XCTestCase {
     }
 
     private let limits = BlastRateLimitConfiguration(
-        minSubmitInterval: 0,
         maxSequencesPerHour: 50,
         submissionSlotPollInterval: 0.001
     )
@@ -394,8 +393,8 @@ final class BlastSubmissionLedgerTests: XCTestCase {
                 evalue: 1e-10, maxTargetSeqs: 5, megablast: true, sequenceCount: 21
             )
             XCTFail("30 + 21 reads within an hour must be refused after a restart")
-        } catch BlastServiceError.rateLimitExceeded(let retryAfter) {
-            XCTAssertEqual(retryAfter, 3000, accuracy: 0.5, "the first submission expires 50 minutes later")
+        } catch BlastServiceError.rateLimitExceeded(let refusal) {
+            XCTAssertEqual(refusal.retryAfter ?? 0, 3000, accuracy: 0.5, "the first submission expires 50 minutes later")
         }
         let afterRefusal = await client.requests.count
         XCTAssertEqual(afterRefusal, 1, "a refused submission never reaches NCBI")
@@ -413,13 +412,13 @@ final class BlastSubmissionLedgerTests: XCTestCase {
     func testInMemoryLedgerIsTheDefaultAndForgetsOnRestart() async throws {
         let clock = Clock(Date(timeIntervalSince1970: 1_800_000_000))
         let ledger = InMemoryBlastSubmissionLedger()
-        try await ledger.reserve(count: 50, at: clock.now, limit: 50)
+        try await ledger.reserve(count: 50, kind: .first, at: clock.now, limit: 50)
         do {
-            try await ledger.reserve(count: 1, at: clock.now, limit: 50)
+            try await ledger.reserve(count: 1, kind: .first, at: clock.now, limit: 50)
             XCTFail("the 51st read in an hour must be refused")
         } catch BlastServiceError.rateLimitExceeded {}
         let fresh = InMemoryBlastSubmissionLedger()
-        try await fresh.reserve(count: 1, at: clock.now, limit: 50)
+        try await fresh.reserve(count: 1, kind: .first, at: clock.now, limit: 50)
     }
 
     func testUnreadableLedgerFileDoesNotBlockBlast() async throws {
@@ -427,7 +426,7 @@ final class BlastSubmissionLedgerTests: XCTestCase {
         try FileManager.default.createDirectory(at: ledgerURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("not json".utf8).write(to: ledgerURL)
         let ledger = FileBlastSubmissionLedger(fileURL: ledgerURL)
-        try await ledger.reserve(count: 10, at: Date(), limit: 50)
+        try await ledger.reserve(count: 10, kind: .first, at: Date(), limit: 50)
         let events = await ledger.events(at: Date())
         XCTAssertEqual(events.map(\.count), [10], "the corrupt file is replaced by a valid ledger")
     }
@@ -439,10 +438,10 @@ final class BlastSubmissionLedgerTests: XCTestCase {
             BlastSubmissionLedgerEvent(date: start.addingTimeInterval(1200), count: 20),
         ]
         XCTAssertThrowsError(try BlastSubmissionBudget.reserve(&events, count: 11, at: start.addingTimeInterval(1800), limit: 50)) { error in
-            guard case BlastServiceError.rateLimitExceeded(let retryAfter) = error else {
+            guard case BlastServiceError.rateLimitExceeded(let refusal) = error else {
                 return XCTFail("unexpected \(error)")
             }
-            XCTAssertEqual(retryAfter, 1800, accuracy: 0.001)
+            XCTAssertEqual(refusal.retryAfter ?? 0, 1800, accuracy: 0.001)
         }
         XCTAssertNoThrow(try BlastSubmissionBudget.reserve(&events, count: 10, at: start.addingTimeInterval(1800), limit: 50))
         XCTAssertEqual(events.count, 3)

@@ -76,9 +76,9 @@ package struct BlastSearchAdvancer: Sendable {
         submitArgv: [String]
     ) async throws -> BlastSearchFile {
         let form = try await service.putForm(for: request)
-        try await service.reserveFirstSend(sequenceCount: request.sequences.count)
+        try await service.reservePost(sequenceCount: request.sequences.count, kind: .first, at: clock.now())
         let digest = try store.saveForm(form)
-        let file = BlastSearchFile(
+        var file = BlastSearchFile(
             origin: origin,
             createdAt: clock.now(),
             submitArgv: submitArgv,
@@ -86,6 +86,7 @@ package struct BlastSearchAdvancer: Sendable {
             query: query,
             formSHA256: digest
         )
+        file.copies[0].postReserved = true
         try store.save(file)
         return file
     }
@@ -179,6 +180,7 @@ package struct BlastSearchAdvancer: Sendable {
     private func sendThePut(_ file: inout BlastSearchFile) async throws {
         let isTheLastTry = file.state == .sendUnknown
         let form = try await savedForm()
+        guard try await countThisPost(&file) else { return }
         let answer = try await service.sendPut(form, maxConcurrentSubmissions: request.maxConcurrentSubmissions)
         let now = clock.now()
         var copy = file.copies[0]
@@ -209,6 +211,7 @@ package struct BlastSearchAdvancer: Sendable {
             return
         case .notReached(let reason):
             logger.info("A BLAST Put reached nothing: \(reason, privacy: .public)")
+            copy.postReserved = true
             copy.failedInARow += 1
             let next = nextTick(after: now, in: file)
             copy.nextCheckAt = next
@@ -245,6 +248,29 @@ package struct BlastSearchAdvancer: Sendable {
             try await persist(file)
             progress(0.15, BlastSearchWords.notConfirmed(nextTry: next, now: now))
         }
+    }
+
+    /// Counts this POST against LGE's own limit, as what it repeats. It returns false when the limit holds the POST,
+    /// which stays due and never ends the search. The count is spent on disk before the POST goes, so a crash here makes
+    /// the next POST count again and never leaves one uncounted.
+    private func countThisPost(_ file: inout BlastSearchFile) async throws -> Bool {
+        var copy = file.copies[0]
+        if !copy.postReserved {
+            do {
+                try await service.reservePost(sequenceCount: request.sequences.count, kind: copy.kind, at: clock.now())
+            } catch BlastServiceError.rateLimitExceeded(let refusal) {
+                let due = refusal.fitsAt ?? nextTick(after: clock.now(), in: file)
+                copy.nextCheckAt = due
+                file.copies[0] = copy
+                try await persist(file)
+                logger.info("LGE's own limit holds a BLAST send until \(due, privacy: .public)")
+                return false
+            }
+        }
+        copy.postReserved = false
+        file.copies[0] = copy
+        try await persist(file)
+        return true
     }
 
     /// The Put body as first saved. A file that has gone is built again from the same query and options.
