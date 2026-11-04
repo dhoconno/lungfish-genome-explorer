@@ -73,9 +73,9 @@ public enum GUIImportedProvenanceRehydrator {
         requireCLIProvenance: Bool = true,
         importStep: ProvenanceStep? = nil, cancellationCheck: () throws -> Void = {}
     ) throws -> ProvenanceEnvelope {
-        let sourceRoot = provenanceRoot(for: sourceURL)
-        let destinationRoot = try finalProvenanceRoot(for: destinationURL)
-        let source = try loadSourceEnvelopeRecord(for: destinationURL, sourceRoot: destinationRoot)
+        let ownsRecord = foldersHoldTheirOwnRecord(source: sourceURL, destination: destinationURL)
+        let (sourceRoot, destinationRoot) = try relocatedRoots(source: sourceURL, destination: destinationURL, ownsRecord: ownsRecord)
+        let source = try loadSourceEnvelopeRecord(for: ownsRecord ? sourceURL : destinationURL, sourceRoot: ownsRecord ? sourceRoot : destinationRoot)
         guard !requireCLIProvenance || isLungfishCLIEnvelope(source.envelope) else {
             throw GUIImportedProvenanceRehydratorError.unsupportedSourceProvenance(destinationURL.path)
         }
@@ -320,11 +320,11 @@ public enum GUIImportedProvenanceRehydrator {
         }
     }
 
-    private static func provenanceRoot(for sourceURL: URL) -> URL {
+    static func provenanceRoot(for sourceURL: URL) -> URL {
         finalBundleRoot(containing: sourceURL) ?? sourceURL.deletingLastPathComponent().standardizedFileURL
     }
 
-    private static func finalProvenanceRoot(for destinationURL: URL) throws -> URL {
+    static func finalProvenanceRoot(for destinationURL: URL) throws -> URL {
         if let bundleRoot = finalBundleRoot(containing: destinationURL) {
             return bundleRoot
         }
@@ -366,7 +366,7 @@ public enum GUIImportedProvenanceRehydrator {
 
         var seen = Set<String>()
         for candidate in candidates where seen.insert(candidate.standardizedFileURL.path).inserted {
-            guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: candidate) else {
+            guard let envelope = try? ProvenanceEnvelopeReader.load(fromSidecar: candidate) else {
                 continue
             }
             return SourceEnvelopeRecord(envelope: envelope, sidecarURL: candidate)

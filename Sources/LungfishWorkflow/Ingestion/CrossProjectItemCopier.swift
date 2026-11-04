@@ -147,6 +147,14 @@ package enum CrossProjectItemCopier {
     package enum CopyError: Error, LocalizedError {
         case notAProjectItem(URL)
         case destinationInsideSource(URL)
+        /// The provenance record inside the item is missing or cannot be read.
+        case recordUnreadable(item: String)
+        /// A file the record lists differs from the file in the copy.
+        case recordDoesNotMatch(item: String, file: String)
+        /// The record lists a file without a checksum or a size.
+        case recordLacksChecksum(item: String, file: String)
+        /// The record lists no file that lies inside the item.
+        case recordListsNoFile(item: String)
 
         package var errorDescription: String? {
             switch self {
@@ -154,6 +162,22 @@ package enum CrossProjectItemCopier {
                 return "\(url.lastPathComponent) is not a Lungfish bundle or analysis result."
             case .destinationInsideSource(let url):
                 return "\(url.lastPathComponent) cannot be copied into itself."
+            case .recordUnreadable(let item):
+                return "\(item) was not copied. Its provenance record, the file .lungfish-provenance.json inside it, is missing "
+                    + "or cannot be read, so the copy could not carry its record. Nothing in the original was changed. "
+                    + "Restore \(item) from a backup of its project, then copy it again."
+            case .recordDoesNotMatch(let item, let file):
+                return "\(item) was not copied. \(file) has changed since the provenance record of \(item) was written, so the "
+                    + "copy would not match its record. Nothing in the original was changed. Restore \(file) from a backup of its "
+                    + "project or run the analysis again, then copy it again."
+            case .recordLacksChecksum(let item, let file):
+                return "\(item) was not copied. Its provenance record lists \(file) without a checksum, so the copy cannot be "
+                    + "checked against the record. Nothing in the original was changed. Run the analysis again to write a "
+                    + "complete record, then copy it again."
+            case .recordListsNoFile(let item):
+                return "\(item) was not copied. Its provenance record lists no file that lies inside it, so the copy cannot be "
+                    + "checked against the record. Nothing in the original was changed. Run the analysis again to write a "
+                    + "new record, then copy it again."
             }
         }
     }
@@ -274,10 +298,14 @@ package enum CrossProjectItemCopier {
         let stage = try ProjectTempDirectory.create(prefix: "project-copy-", in: targetProjectURL)
         defer { try? fileManager.removeItem(at: stage) }
         let staged = stage.appendingPathComponent(destination.lastPathComponent, isDirectory: true)
-        try copyBytes(
-            kind: kind, from: source, to: staged, recordedAs: destination, identity: identity,
-            checkCancellation: checkCancellation
-        )
+        do {
+            try copyBytes(
+                kind: kind, from: source, to: staged, recordedAs: destination, identity: identity,
+                checkCancellation: checkCancellation
+            )
+        } catch {
+            throw recordProblem(in: error, item: source) ?? error
+        }
         try checkCancellation()
 
         let links = try ProjectItemLinkRewriter.rewrite(context: .init(
@@ -321,6 +349,40 @@ package enum CrossProjectItemCopier {
             "Copied \(kind.displayName, privacy: .public) '\(source.lastPathComponent, privacy: .public)' to \(destination.path, privacy: .public); \(record.unresolvedLinks.count) unresolved source link(s)"
         )
         return Outcome(sourceURL: source, destinationURL: destination, kind: kind, record: record)
+    }
+
+    /// The item's own provenance record could not be carried to the copy (row COPY-PLAIN-FOLDER-SIDECAR). The copy
+    /// refuses in the person's words, which name the item and the file and say what to try, and the technical error
+    /// with its hidden stage path goes to the developer log only. Any other error is not this one and returns nil.
+    private static func recordProblem(in error: any Error, item: URL) -> CopyError? {
+        let name = item.lastPathComponent
+        let problem: CopyError
+        switch error {
+        case let rehydration as ProvenanceRehydrationError:
+            switch rehydration {
+            case .missingSourceProvenance: problem = .recordUnreadable(item: name)
+            case .outputPathNotMapped: problem = .recordListsNoFile(item: name)
+            }
+        case let integrity as GUIImportedProvenanceRehydratorError:
+            switch integrity {
+            case .sourceOutputIntegrityMismatch(let path): problem = .recordDoesNotMatch(item: name, file: pathInside(item, path))
+            case .sourceOutputIntegrityMissing(let path): problem = .recordLacksChecksum(item: name, file: pathInside(item, path))
+            case .unsupportedSourceProvenance: return nil
+            }
+        default:
+            return nil
+        }
+        copierLogger.error("Copy of \(name, privacy: .public) refused on its record: \(String(describing: error), privacy: .private)")
+        return problem
+    }
+
+    /// `path` as the person knows it, inside the item, or its file name when it lies elsewhere.
+    private static func pathInside(_ item: URL, _ path: String) -> String {
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        let root = item.standardizedFileURL.path + "/"
+        if standardized.hasPrefix(root) { return String(standardized.dropFirst(root.count)) }
+        if let range = standardized.range(of: "/\(item.lastPathComponent)/") { return String(standardized[range.upperBound...]) }
+        return URL(fileURLWithPath: path).lastPathComponent
     }
 
     /// Read bundles go through the FASTQ copy workflow, which materialises

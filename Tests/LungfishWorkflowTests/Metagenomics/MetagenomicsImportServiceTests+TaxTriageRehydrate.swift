@@ -259,16 +259,15 @@ extension MetagenomicsImportServiceTests {
         let target = fixture.workspace.appendingPathComponent("R.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
 
-        // Finding COPY-PLAIN-FOLDER-SIDECAR (lane TTIMPORT, proposed S2). `NativeProjectCopyImportService.copy` hands
-        // `rehydrateRelocatedImportedCopy` a plain folder, whose `finalProvenanceRoot` is the enclosing `.lungfish`
-        // project because `isBundleDirectory` accepts any `lungfish*` extension, so the folder's own record is never
-        // looked for. The copy throws `missingSourceProvenance` at the base and after this lane, whatever the record holds.
-        // Delete the known issue when the copier reads the record inside a plain folder.
+        // Row COPY-PLAIN-FOLDER-SIDECAR (lane COPYFOLDER): a plain folder is its own provenance root, so its record is
+        // read inside it. The import writes the result folder itself as the first output of its step with no digest, and
+        // the copy refuses a listed output without one (`recordLacksChecksum`). That check is not weakened here. It waits
+        // for the BIO ruling named in the lane report, and the known issue goes when the ruling lets a folder entry pass.
         var copied: CrossProjectItemCopier.Outcome?
-        try withKnownIssue("The copier looks for a plain folder's record in the project folder") {
+        try withKnownIssue("The copy refuses the result folder's own output entry, which has no digest") {
             copied = try CrossProjectItemCopier.copy(itemAt: imported.resultDirectory, intoProject: target, identity: .neutral)
         } matching: { issue in
-            issue.error.map { "\($0)".contains("missingSourceProvenance") } ?? false
+            issue.error.map { "\($0)".contains("recordLacksChecksum") } ?? false
         }
         guard let outcome = copied else { return }
 
