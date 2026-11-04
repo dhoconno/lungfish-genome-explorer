@@ -192,11 +192,19 @@ final class GenotypeResultSurfaceRouteTests: XCTestCase {
             // close whose own removal had been lost would still look kept.
             harness.split.invalidateDisplayRequest()
             harness.split.inspectorController.clearSelection()
+            // The harness sets isReleasedWhenClosed to false (ViewSwitchWindowHarness.swift:37), so a closed window
+            // keeps its split until the window itself goes. Let go of it here, as the window's release would, so that
+            // only a hold of the split's own can keep it alive.
+            harness.window.contentViewController = nil
             return (edit.bundleURL, edit.lock, edit.scheduler)
         }()
 
         let gone = await waitUntil(budget: .lookup) { weakSplit == nil }
-        XCTAssertTrue(gone, "the split is still alive, so this test cannot tell a lost edit from a kept one")
+        XCTAssertTrue(
+            gone,
+            "the split is still alive after 60 s, so this test cannot tell a lost edit from a kept one. "
+                + "window: \(String(describing: weakSplit?.view.window)), parent: \(String(describing: weakSplit?.parent))"
+        )
         XCTAssertNotNil(weakController, "the queued edit's controller went with the split")
         XCTAssertNotNil(
             controllerID.flatMap { MainSplitViewController.retainedDeferredGenotypeResultControllers[$0] },
