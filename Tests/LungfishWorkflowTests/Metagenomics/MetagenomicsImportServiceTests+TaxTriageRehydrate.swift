@@ -259,17 +259,10 @@ extension MetagenomicsImportServiceTests {
         let target = fixture.workspace.appendingPathComponent("R.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
 
-        // Row COPY-PLAIN-FOLDER-SIDECAR (lane COPYFOLDER): a plain folder is its own provenance root, so its record is
-        // read inside it. The import writes the result folder itself as the first output of its step with no digest, and
-        // the copy refuses a listed output without one (`recordLacksChecksum`). That check is not weakened here. It waits
-        // for the BIO ruling named in the lane report, and the known issue goes when the ruling lets a folder entry pass.
-        var copied: CrossProjectItemCopier.Outcome?
-        try withKnownIssue("The copy refuses the result folder's own output entry, which has no digest") {
-            copied = try CrossProjectItemCopier.copy(itemAt: imported.resultDirectory, intoProject: target, identity: .neutral)
-        } matching: { issue in
-            issue.error.map { "\($0)".contains("recordLacksChecksum") } ?? false
-        }
-        guard let outcome = copied else { return }
+        // Row COPY-PLAIN-FOLDER-SIDECAR (lane COPYFOLDER, ruling BIO-COPY-DIGESTLESS): a plain folder is its own provenance
+        // root, so its record is read inside it. The import writes the result folder itself as the first output of its step
+        // with no digest. Only the item's own folder passes, and the copier compares every file with the original.
+        let outcome = try CrossProjectItemCopier.copy(itemAt: imported.resultDirectory, intoProject: target, identity: .neutral)
 
         let record = try rhRecord(of: outcome.destinationURL)
         #expect(record.steps.prefix(2).map(\.toolName) == ["taxtriage", "lungfish import"])

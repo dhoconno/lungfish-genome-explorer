@@ -155,9 +155,21 @@ package enum CrossProjectItemCopier {
         case recordLacksChecksum(item: String, file: String)
         /// The record lists no file that lies inside the item.
         case recordListsNoFile(item: String)
+        /// A file the record lists is not in the folder.
+        case recordFileMissing(item: String, file: String)
+        /// A file of the copy does not match the original.
+        case copyDiffers(item: String, file: String)
 
         package var errorDescription: String? {
             switch self {
+            case .recordFileMissing(let item, let file):
+                return "\(item) was not copied. \(file) is listed in the provenance record of \(item) but is not in the folder, so "
+                    + "the copy would not match its record. Nothing in the original was changed. Restore \(file) from a backup of "
+                    + "its project or run the analysis again, then copy it again."
+            case .copyDiffers(let item, let file):
+                return "\(item) was not copied. \(file) in the copy does not match the original. Nothing in the original was "
+                    + "changed, and the partial copy was removed. Check that the disk of the target project has room and is "
+                    + "working, then copy it again."
             case .notAProjectItem(let url):
                 return "\(url.lastPathComponent) is not a Lungfish bundle or analysis result."
             case .destinationInsideSource(let url):

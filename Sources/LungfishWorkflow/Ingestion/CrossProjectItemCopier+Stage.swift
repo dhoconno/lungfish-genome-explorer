@@ -156,4 +156,11 @@ extension CrossProjectItemCopier {
             try ProvenanceWriter(signingProvider: nil).write(envelope, to: staged)
         }
     }
+
+    // MARK: - Bytes
+
+    /// Skeleton for the red commit of lane COPYFOLDER. It compares nothing yet.
+    static func verifyStagedBytes(
+        _ files: [ProjectItemCopyRecord.SourceFile], in staged: URL, item: URL, checkCancellation: () throws -> Void
+    ) throws {}
 }
