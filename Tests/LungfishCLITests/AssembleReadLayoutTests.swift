@@ -108,7 +108,9 @@ final class AssembleReadLayoutTests: XCTestCase {
             originalInputURLs: [mixed],
             executionInputURLs: [mixed]
         ))
-        XCTAssertNotNil(AssembleCommand.readLayoutWarning(for: request(scanned.layout), resolution: scanned))
+        let words = try XCTUnwrap(AssembleCommand.readLayoutWarning(for: request(scanned.layout), resolution: scanned))
+        XCTAssertTrue(words.contains("run again without --read-layout"), "a stated layout that a scan outranked says how to keep the pairs: \(words)")
+        XCTAssertTrue(words.contains("no paired-end links"), "the words say what the pairs lose: \(words)")
         let options = AssembleCommand.assemblyResolvedOptions(
             for: request(scanned.layout), originalInputURLs: [mixed], executionInputURLs: [mixed], layoutResolution: scanned
         )
@@ -155,7 +157,9 @@ final class AssembleReadLayoutTests: XCTestCase {
         XCTAssertEqual(request.readPairing, .single)
         let warning = try XCTUnwrap(AssembleCommand.readLayoutWarning(for: request, resolution: resolution))
         XCTAssertTrue(warning.hasPrefix("vsp2.fastq holds merged reads and pairs"), warning)
-        XCTAssertTrue(warning.hasSuffix("assembled as a single read so that mates are not paired by position."), warning)
+        XCTAssertTrue(warning.contains("assembled as a single read so that mates are not paired by position."), warning)
+        XCTAssertTrue(warning.hasSuffix("Its true pairs add no paired-end links to the assembly."), warning)
+        XCTAssertFalse(warning.contains("run again without --read-layout"), "nothing was stated, so there is no statement to drop: \(warning)")
     }
 
     func testExplicitLayoutWinsAndMaterializedCopyUsesTheOriginalBundleAsHint() throws {

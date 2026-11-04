@@ -68,7 +68,14 @@ extension AssembleCommand {
               let inputURL = request.inputURLs.first else {
             return nil
         }
-        return "\(inputURL.lastPathComponent) holds merged reads and pairs (\(resolution.reason)) "
-            + "Every record is assembled as a single read so that mates are not paired by position."
+        let outranked = resolution.reason.hasPrefix("The caller stated")
+        var words = "\(inputURL.lastPathComponent) holds merged reads and pairs (\(resolution.reason)) "
+            + "Every record is assembled as a single read so that mates are not paired by position. "
+            + "Its true pairs add no paired-end links to the assembly."
+        if outranked {
+            words += " To assemble the pairs as pairs, run again without --read-layout, which splits them by name "
+                + "and gives the assembler the pairs beside the single reads."
+        }
+        return words
     }
 }
