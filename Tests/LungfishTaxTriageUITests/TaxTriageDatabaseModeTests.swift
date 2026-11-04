@@ -408,6 +408,9 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
             window.orderOut(nil)
             withExtendedLifetime(projectWindow) {}
         }
+        // The controller's own view size replaces the window's, and this result has no record, so the
+        // not-recorded notice takes its share of the room the test asked for.
+        window.setContentSize(NSSize(width: 1200, height: 900))
         vc.configureFromDatabase(fixture.database, resultURL: fixture.root)
         window.layoutIfNeeded()
         fixture.waitForRows(vc) { $0.count == 4 }

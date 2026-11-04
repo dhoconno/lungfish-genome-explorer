@@ -399,6 +399,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     // MARK: - Child Views
 
     private let summaryBar = TaxTriageSummaryBar()
+    /// Says an import kept no negative controls, between the summary bar and the sample filter row.
+    private let controlsNotRecordedNotice = TaxTriageNotRecordedNoticeView()
     private let sampleFilterControl = NSSegmentedControl()
     /// Popup-menu alternative to `sampleFilterControl` for large sample
     /// counts (the segmented control does not scale — its own
@@ -1232,6 +1234,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private func setupSummaryBar() {
         summaryBar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(summaryBar)
+        view.addSubview(controlsNotRecordedNotice)
     }
 
     // MARK: - Setup: Sample Filter Control
@@ -2357,6 +2360,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Flags every organism that TaxTriage detected in a negative-control
     /// sample, across all samples and independent of the Sample Filter.
     private func loadContaminationRiskOrganisms(from db: TaxTriageDatabase) {
+        // A record that lists no samples names no control, so the table's No may be wrong (BIO-IMPORT-BATCH item 5).
+        let notRecorded = TaxTriageExportSource.controlsAreNotRecorded(in: taxTriageConfig)
+        controlsNotRecordedNotice.show(notRecorded ? TaxTriageNotRecordedNoticeView.words : nil)
         batchFlatTableView.contaminationRiskOrganismKeys = []
         let controls = negativeControlSampleIds().filter { sampleIds.contains($0) }
         guard !controls.isEmpty else { return }
@@ -2584,7 +2590,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         // Sample filter bar collapses to zero height when hidden (single-sample runs).
         let filterHeight = sampleFilterControl.heightAnchor.constraint(equalToConstant: 0)
         sampleFilterHeightConstraint = filterHeight
-        let filterTop = sampleFilterControl.topAnchor.constraint(equalTo: summaryBar.bottomAnchor, constant: 0)
+        let filterTop = sampleFilterControl.topAnchor.constraint(equalTo: controlsNotRecordedNotice.bottomAnchor, constant: 0)
         sampleFilterTopSpacingConstraint = filterTop
         let filterBottom = splitView.topAnchor.constraint(equalTo: sampleFilterControl.bottomAnchor, constant: 0)
         sampleFilterBottomSpacingConstraint = filterBottom
@@ -2602,7 +2608,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             summaryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             summaryHeight,
 
-            // Sample filter control (between summary bar and split view)
+            // Not-recorded notice (below the summary bar, zero height while hidden)
+            controlsNotRecordedNotice.topAnchor.constraint(equalTo: summaryBar.bottomAnchor),
+            controlsNotRecordedNotice.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            controlsNotRecordedNotice.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+
+            // Sample filter control (between the notice and split view)
             filterTop,
             sampleFilterControl.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             filterHeight,
@@ -3532,8 +3543,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Returns the summary bar for testing.
     public var testSummaryBar: TaxTriageSummaryBar { summaryBar }
 
-    /// The words the not-recorded notice shows above the table, nil while it is hidden.
-    var testControlsNotRecordedNoticeWords: String? { nil }
+    /// The not-recorded notice above the table, and the words it shows (nil while it is hidden).
+    var testControlsNotRecordedNotice: TaxTriageNotRecordedNoticeView { controlsNotRecordedNotice }
+    var testControlsNotRecordedNoticeWords: String? { controlsNotRecordedNotice.shownWords }
 
     /// Returns the organism table view for testing.
     var testOrganismTableView: TaxTriageOrganismTableView { organismTableView }

@@ -76,7 +76,11 @@ final class TaxTriageSampleFilterAlignmentPaneTests: XCTestCase {
         // The viewport observes the sample selection of the project window that shows it.
         let projectWindow = ScopeOwningWindowController()
         projectWindow.window = window
+        let requestedSize = window.contentRect(forFrameRect: window.frame).size
         window.contentViewController = vc
+        // The controller's own view size replaces the window's, and the not-recorded notice (this test opens a
+        // result with no record) needs the room the test asked for.
+        window.setContentSize(requestedSize)
         window.orderFront(nil)
         defer {
             window.orderOut(nil)

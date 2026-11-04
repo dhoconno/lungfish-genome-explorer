@@ -41,6 +41,35 @@ final class TaxTriageNotRecordedNoticeTests: XCTestCase {
         XCTAssertNil(vc.testControlsNotRecordedNoticeWords, "a record that lists its samples knows its controls")
     }
 
+    /// The words wrap to the viewer's width and sit above the sample filter row. A hidden notice takes no height.
+    func testNoticeWrapsToTheViewerWidthAndTakesNoHeightWhenHidden() throws {
+        let unknown = try Fixture(sidecar: .listingNoSamples)
+        defer { unknown.cleanUp() }
+        let known = try Fixture(sidecar: .listing(["sample-1", "sample-2"]))
+        defer { known.cleanUp() }
+
+        func layOut(_ vc: TaxTriageResultViewController, width: CGFloat) {
+            vc.view.frame = NSRect(x: 0, y: 0, width: width, height: 700)
+            vc.view.layoutSubtreeIfNeeded()
+            vc.view.layoutSubtreeIfNeeded()
+        }
+
+        let shown = unknown.makeController()
+        layOut(shown, width: 420)
+        let narrow = shown.testControlsNotRecordedNotice.frame
+        layOut(shown, width: 1800)
+        let wide = shown.testControlsNotRecordedNotice.frame
+        XCTAssertGreaterThan(wide.height, 0, "the shown notice has a height")
+        XCTAssertGreaterThan(narrow.height, wide.height, "the words wrap at 420 points, narrow \(narrow), wide \(wide)")
+        let filter = shown.testSampleFilterControl.frame
+        let isBelow = shown.view.isFlipped ? filter.minY >= wide.maxY : filter.maxY <= wide.minY
+        XCTAssertTrue(isBelow, "the sample filter row sits below the notice, notice \(wide), filter \(filter)")
+
+        let hidden = known.makeController()
+        layOut(hidden, width: 420)
+        XCTAssertEqual(hidden.testControlsNotRecordedNotice.frame.height, 0, "a hidden notice takes no height")
+    }
+
     // MARK: - Helpers
 
     private func assertNoticeSaysTheControlsWereNotRecorded(
