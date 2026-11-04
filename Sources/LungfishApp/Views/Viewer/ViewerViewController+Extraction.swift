@@ -117,6 +117,9 @@ extension SequenceViewerView {
     }
 
     func presentAnnotationSequenceExtractionDialog(_ annotations: [SequenceAnnotation]) {
+        // An annotation whose extraction throws is left out of the dialog, and the person is told which (review of
+        // FASTAREAD, finding 1).
+        var leftOut: [(name: String, error: any Error)] = []
         let records = annotations.compactMap { annotation -> String? in
             guard let provider = makeSequenceProvider(for: annotation) else { return nil }
             let chromLength = chromosomeLengthForAnnotation(annotation)
@@ -130,6 +133,7 @@ extension SequenceViewerView {
                 return SequenceExtractor.formatFASTA(result)
             } catch {
                 extractionLogger.error("Failed to prepare annotation extraction for '\(annotation.name)': \(error.localizedDescription)")
+                leftOut.append((name: annotation.name, error: error))
                 return nil
             }
         }
@@ -138,7 +142,9 @@ extension SequenceViewerView {
             return
         }
         let suggestedName = annotations.count == 1 ? annotations[0].name : "selected-annotations"
-        viewController?.presentFASTASequenceExtractionDialog(records: records, suggestedName: suggestedName)
+        presentLeftOutAnnotations(leftOut, of: annotations.count) { [weak self] in
+            self?.viewController?.presentFASTASequenceExtractionDialog(records: records, suggestedName: suggestedName)
+        }
     }
 
     func runAnnotationFASTAOperationImpl(_ annotation: SequenceAnnotation) {
@@ -254,6 +260,57 @@ extension SequenceViewerView {
                 underlying: error
             ),
             in: window
+        )
+    }
+
+    /// Tells the person which annotations a multi-annotation extraction left out, then runs `proceed` (review of
+    /// FASTAREAD, finding 1). An annotation whose bases could not be read is dropped from the records, so without these
+    /// words the dialog opens with fewer records than annotations and no word. `proceed` runs when the person closes the
+    /// sheet, so the extraction dialog does not stack on it, and at once when nothing was left out.
+    func presentLeftOutAnnotations(
+        _ leftOut: [(name: String, error: any Error)],
+        of selectedCount: Int,
+        then proceed: @escaping () -> Void
+    ) {
+        guard !leftOut.isEmpty else {
+            proceed()
+            return
+        }
+        FailurePresenter.present(
+            Self.leftOutAnnotationsReport(leftOut, of: selectedCount),
+            in: window,
+            completion: proceed
+        )
+    }
+
+    /// The words for annotations left out of an extraction. They name how many were left out and the first three, so a
+    /// long selection stays readable, and say why, with the first error in the details.
+    static func leftOutAnnotationsReport(
+        _ leftOut: [(name: String, error: any Error)],
+        of selectedCount: Int
+    ) -> FailureReport {
+        let one = leftOut.count == 1
+        let names = leftOut.prefix(3).map { "\"\($0.name)\"" }.joined(separator: ", ")
+        let rest = leftOut.count > 3 ? " and \(leftOut.count - 3) more" : ""
+        let kept = selectedCount - leftOut.count
+        let readFailed = leftOut.allSatisfy { entry -> Bool in
+            if case LungfishCore.ExtractionError.sequenceNotAvailable = entry.error { return true }
+            return false
+        }
+        let which = one
+            ? "\(names) was left out of the extraction."
+            : "\(leftOut.count) of the \(selectedCount) selected annotations were left out of the extraction: \(names)\(rest)."
+        let why = readFailed
+            ? "Lungfish could not read \(one ? "its" : "their") bases from the reference. The reference's sequence file may be missing, or it may have been changed or cut after it was indexed."
+            : "Lungfish could not extract \(one ? "its" : "their") sequence."
+        let others = kept == 1 ? "The other one is in the extraction." : "The other \(kept) are in the extraction."
+        return FailureReport(
+            failedStep: "Extract every selected annotation",
+            whatHappened: "\(which) \(why) \(others)",
+            nextStep: readFailed
+                ? "Close this message to go on with the rest. Then check that the reference is still in the project. If its sequence file was changed, import the original FASTA again and extract again."
+                : "Close this message to go on with the rest. Then check the annotations and extract again.",
+            underlying: leftOut.first?.error
         )
     }
 
