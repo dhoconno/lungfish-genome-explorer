@@ -198,8 +198,15 @@ public enum TranslationEngine {
             codingSequence: layout.codingSequence,
             aminoAcidPositions: aminoAcidPositions,
             codonTable: table,
-            phaseOffset: layout.phaseOffset
+            phaseOffset: layout.phaseOffset,
+            annotatedCodingLength: annotatedCodingLength(of: annotation)
         )
+    }
+
+    /// The coding bases an annotation names, the sum of the lengths of its intervals. A translation that read
+    /// fewer bases than this lost the rest to the end of the sequence or to a read that failed, and says so.
+    public static func annotatedCodingLength(of annotation: SequenceAnnotation) -> Int {
+        annotation.intervals.reduce(0) { $0 + max(0, $1.length) }
     }
 
     // MARK: - Multi-Frame Translation

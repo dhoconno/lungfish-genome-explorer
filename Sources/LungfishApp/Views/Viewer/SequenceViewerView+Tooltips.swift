@@ -420,7 +420,7 @@ extension SequenceViewerView {
         var details: [String] = []
 
         for cds in overlappingCDS {
-            guard let context = cdsCodingContext(for: cds) else { continue }
+            guard let context = cdsCodingContext(for: cds, noting: &details) else { continue }
             let impactedCodingIndices = context.codingGenomePositions.enumerated().compactMap { pair -> Int? in
                 let genomicPos = pair.element
                 return (genomicPos >= siteStart && genomicPos < siteEnd) ? pair.offset : nil

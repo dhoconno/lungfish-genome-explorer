@@ -188,25 +188,14 @@ public final class SelectionSectionViewModel {
     public init() {}
 
     /// Computes an amino acid translation for the given CDS annotation from the underlying sequence.
-    ///
-    /// Uses the reference bundle's synchronous sequence fetch to extract nucleotides
-    /// for each CDS interval and translates them via `TranslationEngine.translateCDS`.
+    /// `translationNotice` says how many bases a clipped CDS was read from, or that the read failed.
     ///
     /// - Parameter annotation: The CDS/mRNA annotation to translate.
     /// - Returns: The protein string, or nil if translation fails.
     public func computeTranslation(for annotation: SequenceAnnotation) -> String? {
-        guard let bundle = referenceBundle else { return nil }
-
-        let sequenceProvider = ClampedSequenceProvider(bundle: bundle).basesProvider(
-            chromosome: annotation.chromosome ?? bundle.firstChromosomeName ?? ""
-        )
-
-        guard let result = TranslationEngine.translateCDS(
-            annotation: annotation,
-            sequenceProvider: sequenceProvider
-        ) else { return nil }
-
-        return result.protein
+        let reading = translationReading(for: annotation)
+        translationNotice = reading.notice
+        return reading.protein
     }
 
     /// Updates the view model with a new annotation selection.
@@ -224,6 +213,7 @@ public final class SelectionSectionViewModel {
         sequenceRegionSelection = nil
         phylogeneticTreeSelection = nil
         genotypeResultSelection = nil
+        translationNotice = nil
         selectedAnnotation = annotation
         if let annotation = annotation {
             // Reset translation visibility when switching to a different annotation.
@@ -1442,6 +1432,12 @@ public struct SelectionSection: View {
                     .controlSize(.small)
                 } else {
                     Text("No stored translation")
+                        .font(LungfishInspectorStyle.controlFont)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let notice = viewModel.translationNotice {
+                    Text(notice)
                         .font(LungfishInspectorStyle.controlFont)
                         .foregroundStyle(.secondary)
                 }

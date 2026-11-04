@@ -2178,11 +2178,9 @@ public class SequenceViewerView: NSView {
         return ranges
     }
 
-    /// Shows a CDS translation track for the given annotation.
-    ///
-    /// Computes the translation using `TranslationEngine.translateCDS()` with the
-    /// sequence data from the current bundle or loaded sequence. The translation result
-    /// is cached in `activeTranslationResult` and the track is made visible.
+    /// Shows a CDS translation track for the given annotation, computed by `TranslationEngine.translateCDS()` from the
+    /// current bundle or loaded sequence and cached in `activeTranslationResult`. A read that fails shows why, and a
+    /// sequence end that clips the CDS shows in the track label (`TranslationTrackRenderer.label(for:)`).
     ///
     /// - Parameter annotation: The CDS/mRNA annotation to translate.
     func showCDSTranslation(for annotation: SequenceAnnotation) {
@@ -2211,6 +2209,7 @@ public class SequenceViewerView: NSView {
             sequenceProvider: sequenceProvider
         ) else {
             sequenceViewerLogger.warning("showCDSTranslation: translateCDS returned nil for '\(annotation.name, privacy: .public)'")
+            presentAnnotationSequenceFailure(annotation, step: .showTranslation)
             return
         }
 

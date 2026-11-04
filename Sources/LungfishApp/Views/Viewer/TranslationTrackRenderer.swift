@@ -143,8 +143,8 @@ enum TranslationTrackRenderer {
             yOffset: yOffset, trackHeight: trackHeight
         )
 
-        // Draw "Translation" label at left edge
-        drawTrackLabel("Translation", yOffset: yOffset, trackHeight: trackHeight, context: context)
+        // Draw the track label at the left edge, which names how many bases were read when the CDS is clipped
+        drawTrackLabel(label(for: result), yOffset: yOffset, trackHeight: trackHeight, context: context)
     }
 
     // MARK: - Frame Translation

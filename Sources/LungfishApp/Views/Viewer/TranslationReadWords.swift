@@ -57,19 +57,32 @@ extension SelectionSectionViewModel {
     }
 }
 
-// The two routes below are not wired yet. This is the state the red commit tests.
-
 extension TranslationTrackRenderer {
     /// The label drawn at the left edge of the CDS translation track.
     static func label(for result: TranslationResult) -> String {
-        "Translation"
+        TranslationReadWords.trackLabel(for: result)
     }
 }
 
 extension SequenceViewerView {
     /// The coding context of `cds` for a hover, and in `details` the line that says its bases were not all read or
-    /// could not be read.
+    /// could not be read. The figures are the engine's, the bases the context holds and the bases the annotation names.
     func cdsCodingContext(for cds: SequenceAnnotation, noting details: inout [String]) -> CDSCodingContext? {
-        cdsCodingContext(for: cds)
+        let context = cdsCodingContext(for: cds)
+        let label = Self.codingFeatureLabel(for: cds)
+        let annotated = TranslationEngine.annotatedCodingLength(of: cds)
+        let line: String?
+        if let context {
+            let read = context.codingBases.count
+            line = read < annotated
+                ? TranslationReadWords.hoverClippedLine(label: label, read: read, annotated: annotated)
+                : nil
+        } else {
+            line = TranslationReadWords.hoverUnreadLine(label: label)
+        }
+        if let line, !details.contains(line) {
+            details.append(line)
+        }
+        return context
     }
 }
