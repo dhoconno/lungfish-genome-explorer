@@ -79,7 +79,6 @@ struct BatchEsVirituRow: Sendable {
     let family: String?
     let assembly: String
     let readCount: Int
-    /// Nil when the count was never computed. The table shows a dash and an export writes an empty cell.
     let uniqueReads: Int?
     let rpkmf: Double
     let coverageBreadth: Double
@@ -335,9 +334,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     /// All flat rows loaded from each sample's EsViritu detection file in batch mode.
     var allBatchRows: [BatchEsVirituRow] = []
-    /// The Unique Reads of each (sample, contig accession) row of the database, for the table's segment rows. A row
-    /// whose count was never computed has no entry.
-    var batchUniqueReadsBySampleContig: [String: Int] = [:]
 
     /// Flat table used in batch mode (placed inside the right pane of `splitView`).
     private(set) var batchTableView = BatchEsVirituTableView()
@@ -566,9 +562,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             guard let first = group.first else { continue }
             let totalReads = group.reduce(0) { $0 + $1.readCount }
             // A virus's total is known only when every contig was counted.
-            let counted = group.compactMap {
-                ClassifierUniqueReads.normalized(stored: $0.uniqueReads, readCount: $0.readCount)
-            }
+            let counted = group.compactMap { ClassifierUniqueReads.normalized(stored: $0.uniqueReads, readCount: $0.readCount) }
             let totalUniqueReads: Int? = counted.count == group.count ? counted.reduce(0, +) : nil
             let totalCoveredBases = group.reduce(0) { $0 + ($1.coveredBases ?? 0) }
             let assemblyLen = first.assemblyLength ?? 1
@@ -620,7 +614,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         }
 
         allBatchRows = batchRows
-        batchUniqueReadsBySampleContig = Self.uniqueReadsBySampleContig(from: dbRows)
+        detectionTableView.uniqueReadCountsBySampleContig = Self.uniqueReadsBySampleContig(from: dbRows)
     }
 
     /// Updates the persisted `EsVirituBatchAggregatedManifest` with newly computed unique reads.
@@ -637,11 +631,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     private func updateEsVirituBatchAggregatedManifestUniqueReads() -> Task<Void, Never>? {
         guard let batchURL else { return nil }
 
-        let byAssemblyAndSample = Dictionary(
-            uniqueKeysWithValues: allBatchRows.compactMap { row in
-                row.uniqueReads.map { ("\(row.sample)\t\(row.assembly)", $0) }
-            }
-        )
+        let byAssemblyAndSample = Dictionary(uniqueKeysWithValues: allBatchRows.compactMap { row in
+            row.uniqueReads.map { ("\(row.sample)\t\(row.assembly)", $0) } })
 
         // R3-R3ML-5 fixup (round-3 review): route every write for this
         // batchURL through EsVirituBatchManifestMutationSerializer instead
@@ -779,8 +770,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
         let uniqueReadMaps = Self.buildBatchUniqueReadMaps(
             rows: allBatchRows,
-            selectedSamples: selectedSet,
-            contigCounts: batchUniqueReadsBySampleContig
+            selectedSamples: selectedSet
         )
 
         esVirituResult = result
@@ -788,7 +778,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         detectionTableView.result = result
         detectionTableView.uniqueReadCountsByAssembly = uniqueReadMaps.byAssembly
         detectionTableView.uniqueReadCountsBySampleAssembly = uniqueReadMaps.bySampleAssembly
-        detectionTableView.uniqueReadCountsBySampleContig = uniqueReadMaps.bySampleContig
         detectionTableView.metadataColumns.isMultiSampleMode = sampleIds.count > 1
         detectionTableView.metadataColumns.update(
             store: sampleMetadataStore,
@@ -816,20 +805,14 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     static func buildBatchUniqueReadMaps(
         rows: [BatchEsVirituRow],
-        selectedSamples: Set<String>,
-        contigCounts: [String: Int] = [:]
+        selectedSamples: Set<String>
     ) -> BatchUniqueReadMaps {
         var byAssembly: [String: Int] = [:]
         var bySampleAssembly: [String: Int] = [:]
 
-        // A row never counted leaves no entry for its virus. A table row would otherwise fall back on another
-        // sample's count for the same assembly, which is a number that was never counted for this sample.
-        var uncounted: Set<String> = []
+        var uncounted: Set<String> = []  // a row never counted leaves no entry another sample's row could fall back on
         for row in rows where selectedSamples.contains(row.sample) {
-            guard let uniqueReads = row.uniqueReads else {
-                uncounted.insert(row.assembly)
-                continue
-            }
+            guard let uniqueReads = row.uniqueReads else { uncounted.insert(row.assembly); continue }
             byAssembly[row.assembly] = uniqueReads
             bySampleAssembly["\(row.sample)\t\(row.assembly)"] = uniqueReads
         }
@@ -838,23 +821,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         return BatchUniqueReadMaps(
             byAssembly: byAssembly,
             bySampleAssembly: bySampleAssembly,
-            bySampleContig: contigCounts.filter { entry in
-                selectedSamples.contains { entry.key.hasPrefix("\($0)\t") }
-            }
+            bySampleContig: [:]
         )
-    }
-
-    /// The stored Unique Reads of each (sample, contig accession) row, raised to 1 only when the row has reads, as the
-    /// virus row sums them and the export writes them. A row never counted has no entry.
-    static func uniqueReadsBySampleContig(from rows: [EsVirituDetectionRow]) -> [String: Int] {
-        var counts: [String: Int] = [:]
-        for row in rows {
-            guard let unique = ClassifierUniqueReads.normalized(stored: row.uniqueReads, readCount: row.readCount) else {
-                continue
-            }
-            counts["\(row.sample)\t\(row.accession)"] = unique
-        }
-        return counts
     }
 
     @objc private func handleBatchSampleSelectionChanged(_ notification: Notification) {

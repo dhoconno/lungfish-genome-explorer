@@ -890,8 +890,6 @@ public final class NvdDatabase: @unchecked Sendable {
                 blastDbVersion: blastDbVersion,
                 snakemakeRunId: snakemakeRunId,
                 mappedReads: mappedReads,
-                // A stored 0 beside mapped reads came from the old count on the subject name, which found no
-                // reference. It reads as never counted.
                 uniqueReads: (uniqueReads == 0 && mappedReads > 0) ? nil : uniqueReads,
                 totalReads: totalReads,
                 statDbVersion: statDbVersion,

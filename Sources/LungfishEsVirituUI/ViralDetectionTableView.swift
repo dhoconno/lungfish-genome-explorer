@@ -855,7 +855,6 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             }
         case ColumnID.uniqueReads:
             items.sort { a, b in
-                // A count never computed sorts below every counted row.
                 let aVal = uniqueReadCountsBySampleAssembly[assemblyKey(for: a.assembly)]
                     ?? uniqueReadCountsByAssembly[a.assembly.assembly]
                     ?? -1
@@ -1350,10 +1349,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         case ColumnID.uniqueReads:
             guard let unique = uniqueReadCountsByAssembly[assembly.assembly]
                 ?? uniqueReadCountsBySampleAssembly["\(assembly.contigs.first?.sampleId ?? "")\t\(assembly.assembly)"]
-            else {
-                // A count never computed is no number, so it fails a filter that is on.
-                return !filter.isActive
-            }
+            else { return !filter.isActive }  // a count never computed is no number
             return filter.matchesNumeric(Double(unique))
         case ColumnID.rpkmf:
             return filter.matchesNumeric(assembly.rpkmf)

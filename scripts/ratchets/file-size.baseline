@@ -84,7 +84,7 @@ Sources/LungfishCore/Services/Blast/BlastService.swift 1323
 Sources/LungfishCore/Services/NCBI/NCBIService.swift 1921
 Sources/LungfishCore/Storage/PortablePath.swift 1013
 Sources/LungfishCore/Storage/ProjectStore.swift 1568
-Sources/LungfishEsVirituUI/EsVirituResultViewController.swift 1809
+Sources/LungfishEsVirituUI/EsVirituResultViewController.swift 1807
 Sources/LungfishEsVirituUI/ViralDetectionTableView.swift 2101
 Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift 2413
 Sources/LungfishGenotypeUI/GenotypeCallEvidenceView.swift 1605
@@ -129,7 +129,7 @@ Sources/LungfishKit/MiniBAMViewController.swift 1008
 Sources/LungfishKit/MiniPileupView.swift 861
 Sources/LungfishKit/OperationCenter.swift 1381
 Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift 3096
-Sources/LungfishNvdUI/NvdResultViewController.swift 3116
+Sources/LungfishNvdUI/NvdResultViewController.swift 3115
 Sources/LungfishOperations/AI/AIAssistantService.swift 893
 Sources/LungfishOperations/AI/AIToolRegistry.swift 951
 Sources/LungfishOperations/AnnotationSearchIndex.swift 1603

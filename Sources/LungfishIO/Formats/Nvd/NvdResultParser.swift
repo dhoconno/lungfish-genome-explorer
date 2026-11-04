@@ -101,7 +101,9 @@ public struct NvdBlastHit: Sendable, Codable, Equatable {
     /// Number of unique (deduplicated) reads that mapped to this contig.
     ///
     /// Populated post-markdup. Nullable for backward compatibility with databases
-    /// created before the markdup service was introduced.
+    /// created before the markdup service was introduced. Nil also when the count was never computed. The database
+    /// read gives nil for a stored 0 beside mapped reads, since the old import counted on the BLAST subject's name,
+    /// which the BAM does not hold, and stored 0.
     public let uniqueReads: Int?
 
     /// Total reads in the sample used for normalization.

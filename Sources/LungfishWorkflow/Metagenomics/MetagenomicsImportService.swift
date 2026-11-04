@@ -1987,8 +1987,6 @@ private func nvdMarkdupReplayCommand(bamURL: URL, samtoolsPath: String, threads:
         + " && mv \(metagenomicsShellEscape(tempBaiPath)) \(metagenomicsShellEscape(baiPath))"
 }
 
-/// Fills `unique_reads` of each hit with the primary, non-duplicate records of the hit's contig. The BAM's references
-/// are the sample's contigs (`qseqid`) and never the BLAST subjects (`sseqid`), so the count asks for the contig.
 private func nvdPopulateUniqueReads(
     dbPath: String,
     bundleDir: URL,
@@ -2152,8 +2150,7 @@ private func nvdCountReadsWithTelemetry(
     }
     let output = String(data: result.stdout, encoding: .utf8)?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? "0"
-    // samtools exits 0 and prints 0 for a reference the BAM does not hold, which is no count.
-    let count = result.isSuccess && !stderrText.contains("unknown reference") ? Int(output) : nil
+    let count = result.isSuccess && !stderrText.contains("unknown reference") ? Int(output) : nil  // samtools prints 0, exits 0 for a reference the BAM lacks
     return (
         count,
         NvdAuxiliaryStep(
