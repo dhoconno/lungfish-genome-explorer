@@ -11,7 +11,7 @@ final class BlastConfigPopoverViewTests: XCTestCase {
     func testCaptionDefaultsToNt() {
         XCTAssertEqual(
             BlastConfigPopoverView.submissionCaption(database: "nt"),
-            "Submits selected reads to NCBI BLASTN nt for review. Reads leave the app for NCBI."
+            "Sends the selected reads to NCBI BLASTN nt, so they leave this Mac. If NCBI is slow, LGE sends the same reads again, at most three sends in all. The record lists every send."
         )
         XCTAssertEqual(
             BlastConfigPopoverView.submissionCaption(database: "  "),
@@ -23,7 +23,7 @@ final class BlastConfigPopoverViewTests: XCTestCase {
     func testCaptionNamesCoreNt() {
         XCTAssertEqual(
             BlastConfigPopoverView.submissionCaption(database: "core_nt"),
-            "Submits selected reads to NCBI BLASTN core_nt for review. Reads leave the app for NCBI."
+            "Sends the selected reads to NCBI BLASTN core_nt, so they leave this Mac. If NCBI is slow, LGE sends the same reads again, at most three sends in all. The record lists every send."
         )
     }
 
