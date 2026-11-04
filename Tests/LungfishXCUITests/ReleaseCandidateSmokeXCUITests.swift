@@ -333,8 +333,10 @@ enum ReleaseSmokeFixtures {
     }
 
     /// The classifier results project plus the multiple sequence alignment and tree bundles the candidate's own
-    /// `lungfish-cli` builds (`LUNGFISH_TEST_CLI`), plus the Assembly, Genotype and Quick Look text fixtures written
-    /// below, for the view switch of exit check 3.
+    /// `lungfish-cli` builds (`LUNGFISH_TEST_CLI`), plus the fixtures written below, for the view switch of exit check 3.
+    /// The FASTQ, MHC reference and genotype bundles and the FASTA and script files are written by hand, and
+    /// `SmokeFixtureReadTests` (Tests/LungfishAppTests) writes the same bytes and reads them with the app's own loaders,
+    /// so a change to one goes to the other.
     static func makeViewSwitchProject(named name: String) throws -> URL {
         let project = try makeClassifierResultsProject(named: name)
         let trees = try LungfishProjectFixtureBuilder.makeAlignmentTreeBundleProject(named: "ViewSwitchBundles")
