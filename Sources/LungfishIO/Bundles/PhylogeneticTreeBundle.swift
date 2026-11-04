@@ -36,6 +36,15 @@ public struct PhylogeneticTreeBundle: Sendable, Equatable {
             PhylogeneticTreeNormalizedTree.self,
             from: Data(contentsOf: normalizedURL)
         )
+        // Every tree view keys the nodes by id with `Dictionary(uniqueKeysWithValues:)`, which traps on a repeat. The
+        // importer makes each id from the place of the node in the tree, so only a hand edit or a damaged file repeats
+        // one. Refuse it here, before any view builds, with the id named.
+        var seenIDs = Set<String>()
+        for node in normalized.nodes where !seenIDs.insert(node.id).inserted {
+            throw PhylogeneticTreeBundleError.parseFailed(
+                "Two nodes in tree/primary.normalized.json share the id \(node.id), so the tree cannot be drawn. The file may have been edited or damaged."
+            )
+        }
         return PhylogeneticTreeBundle(url: url, manifest: manifest, normalizedTree: normalized)
     }
 
