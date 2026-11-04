@@ -149,11 +149,14 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
         XCTAssertEqual(ReleaseSmokeFixtures.listing(of: project), before, "A refused archive changes nothing in the project")
     }
 
-    /// Exit check 3 of Phase 3.1. One bundle of each kind the smoke can build opens in turn on the candidate, and
-    /// the viewer and the Inspector change with the kind: each kind's viewer shows and the one before it goes, and
+    /// Exit check 3 of Phases 3.1 and 3.2. One bundle of each kind the smoke can build opens in turn on the candidate,
+    /// and the viewer and the Inspector change with the kind: each kind's viewer shows and the one before it goes, and
     /// the NAO-MGS Inspector block shows for the NAO-MGS result only. The kinds come from `ViewSwitchKinds.all`
-    /// (Tests/LungfishAppTests/SafetyNets). NVD, CZ ID, 12S, Assembly, FASTQ, Genotype, MHC reference, both primer
-    /// kinds, FASTA document, Quick Look and Status only have no fixture the smoke can open without managed tools.
+    /// (Tests/LungfishAppTests/SafetyNets). A kind joins the list when its fixture needs no managed tool and its viewer
+    /// carries an accessibility identifier, and a preview kind also shows its status words. Assembly, Genotype and the
+    /// text preview of Quick Look joined in 3.2. Left out: NVD, CZ ID, 12S, both primer kinds and FASTA document, which
+    /// have no fixture the smoke can open without managed tools, as 3.1 found. FASTQ, MHC reference and the PDF and
+    /// image previews have a fixture but no viewer identifier yet. Status only draws no viewer to wait for.
     @MainActor
     func testReleaseCandidateViewSwitchPerKind() throws {
         let robot = try ReleaseAppSmokeRobot()
@@ -174,7 +177,13 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
             ("NAO-MGS", "naomgs", naoMgsBlock),
             ("MSA", "MHC Alignment", any["multiple-sequence-alignment-row-gutter"].firstMatch),
             ("Tree", "MHC Tree", any["phylogenetic-tree-node-table"].firstMatch),
+            ("Assembly", ReleaseSmokeFixtures.assemblyRow, any["assembly-result-view"].firstMatch),
+            ("Genotype", ReleaseSmokeFixtures.genotypeRow, any["genotype-result-view"].firstMatch),
+            ("Quick Look", ReleaseSmokeFixtures.previewFile, any["viewer-plain-text-preview"].firstMatch),
         ]
+        // A preview's status words come from the status bar under it (`Previewing: <file>`), and they stay for the
+        // matrix row "Nextflow script previews as text" (RoutingSafetyNetTable+ContainerAndFileRows).
+        let statusWords = ["Quick Look": "Previewing: \(ReleaseSmokeFixtures.previewFile)"]
         var previous: (name: String, row: String, viewer: XCUIElement)?
         for kind in kinds + [kinds[0]] {
             ReleaseSmokeFixtures.openSidebarItem(containing: kind.row, in: robot.app)
@@ -185,6 +194,11 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
             guard kind.viewer.waitForExistence(timeout: 15) else {
                 robot.failShowingScreen("The \(kind.name) bundle shows no viewer after \(previous?.name ?? "the project") ")
                 return
+            }
+            if let words = statusWords[kind.name] {
+                let said = NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", words, words)
+                XCTAssertTrue(robot.app.staticTexts.matching(said).firstMatch.waitForExistence(timeout: 5),
+                              "The status bar says \"\(words)\" for the \(kind.name) bundle")
             }
             // The NAO-MGS block stands in for a viewer and has its own check below. Kraken2's query takes its root
             // or its Collections toggle, and either goes with the viewer.
@@ -311,7 +325,8 @@ enum ReleaseSmokeFixtures {
     }
 
     /// The classifier results project plus the multiple sequence alignment and tree bundles the candidate's own
-    /// `lungfish-cli` builds (`LUNGFISH_TEST_CLI`), for the view switch of exit check 3.
+    /// `lungfish-cli` builds (`LUNGFISH_TEST_CLI`), plus the Assembly, Genotype and Quick Look text fixtures written
+    /// below, for the view switch of exit check 3.
     static func makeViewSwitchProject(named name: String) throws -> URL {
         let project = try makeClassifierResultsProject(named: name)
         let trees = try LungfishProjectFixtureBuilder.makeAlignmentTreeBundleProject(named: "ViewSwitchBundles")
@@ -320,7 +335,60 @@ enum ReleaseSmokeFixtures {
             try FileManager.default.copyItem(at: trees.appendingPathComponent(bundle, isDirectory: true),
                                              to: project.appendingPathComponent(bundle, isDirectory: true))
         }
+        try addAssemblyResult(to: project)
+        try addGenotypeResult(to: project)
+        try addScriptPreview(to: project)
         return project
+    }
+
+    /// The sidebar words of the SPAdes result of `Tests/Fixtures/analyses`, whose folder starts `spades-`.
+    static let assemblyRow = "spades"
+
+    /// Copies the SPAdes result into Analyses as `makeAnalysesProject` does. Its sidecar names `contigs.fasta` by a path
+    /// inside the folder, and the viewer reads the contigs itself, so the copy opens with no managed tool.
+    static func addAssemblyResult(to project: URL) throws {
+        let folder = "spades-2026-01-15T13-00-00"
+        let destination = project.appendingPathComponent("Analyses/\(folder)", isDirectory: true)
+        try FileManager.default.copyItem(at: LungfishFixtureCatalog.analyses.appendingPathComponent(folder), to: destination)
+        try writeAnalysisMetadata(tool: "spades", in: destination)
+    }
+
+    /// The name a genotype result shares as its folder, its output name and its analysis name, so the sidebar row reads it.
+    static let genotypeRow = "Smoke Genotype"
+
+    /// A genotype result with one call, as `RoutingSafetyNetFixtures.genotypeResultBundle(withCalls: true)` writes it, with
+    /// its manifest as JSON (`ONTGenotypeResultBundleManifest`, `genotype-result.json`). The native matrix reads the two CSV
+    /// files and the stats, and the workbook is only named.
+    static func addGenotypeResult(to project: URL) throws {
+        let name = genotypeRow
+        let bundle = project.appendingPathComponent("\(name).lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try Data("workbook".utf8).write(to: bundle.appendingPathComponent("\(name).xlsx"))
+        let files = ["\(name).retained-demux-genotypes.csv": "sample,genotype,passed_alignments,passed_unique_reads\nDW472,01_Mafa_A1_063g,10,8\n",
+                     "\(name).retained-demux-samples.csv": "sample,passed_alignments,passed_unique_reads\nDW472,10,8\n",
+                     "\(name).retained-demux-stats.json": #"{"totalInputReads":10,"retainedUniqueReads":8}"#,
+                     "retained-demux-genotyping-provenance.json": #"{"workflow":"safety-net"}"#]
+        for (file, text) in files {
+            try text.write(to: bundle.appendingPathComponent(file), atomically: true, encoding: .utf8)
+        }
+        let manifest: [String: Any] = ["schemaVersion": 1, "kind": "ont-barcode-genotype", "outputName": name, "analysisName": name,
+                                       "primaryWorkbookPath": "\(name).xlsx",
+                                       "longSummaryCSVPath": "\(name).retained-demux-genotypes.csv",
+                                       "sampleSummaryCSVPath": "\(name).retained-demux-samples.csv",
+                                       "statsJSONPath": "\(name).retained-demux-stats.json",
+                                       "provenancePath": "retained-demux-genotyping-provenance.json"]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+            .write(to: bundle.appendingPathComponent("genotype-result.json"))
+    }
+
+    /// The Nextflow script the Quick Look kind previews. macOS has no preview for it, so the viewer draws it as text
+    /// itself, which is the matrix row "Nextflow script previews as text".
+    static let previewFile = "main.nf"
+
+    /// Writes the script at the project root, where the sidebar lists it as a file.
+    static func addScriptPreview(to project: URL) throws {
+        try "nextflow.enable.dsl = 2\n\nworkflow {\n    println 'HG002'\n}\n"
+            .write(to: project.appendingPathComponent(previewFile), atomically: true, encoding: .utf8)
     }
 
     /// A ZIP holding one reference bundle named `name`, in a folder of its own.
