@@ -59,6 +59,35 @@ final class ViewportHostTests: XCTestCase {
         XCTAssertEqual(parent.view.subviews, [newerStub.viewController.view])
     }
 
+    /// The awaited show of a load that suspends reads two things once its task ends: its outcome and whether its task
+    /// is still the host's. A superseded load installs nothing, is never told to deactivate and says it was refused,
+    /// even when it throws, so its caller shows no words over the newer surface.
+    func testASupersededLoadThatThrowsInstallsNothingAndIsRefused() async {
+        stubs.holdsLoad = true
+        stubs.loadError = CocoaError(.fileReadCorruptFile)
+        let older = host.show(kind: twelveS, input: "older")
+        stubs.holdsLoad = false
+        stubs.loadError = nil
+        let newer = host.show(kind: kraken2, input: "newer")
+        let newerOutcome = await newer.value
+        let olderStub = stubs.made[0]
+        let newerStub = stubs.made[1]
+
+        olderStub.releaseLoad()
+        let olderOutcome = await older.value
+
+        XCTAssertEqual(label(newerOutcome), "committed")
+        XCTAssertEqual(label(olderOutcome), "refused")
+        XCTAssertTrue(host.loadTask == newer, "the host's task is not the newer show's")
+        XCTAssertFalse(host.loadTask == older, "the older show still reads as the host's")
+        XCTAssertEqual(host.requestedKind, kraken2)
+        XCTAssertEqual(olderStub.deactivationCount, 0, "a refused surface was never installed")
+        XCTAssertNil(olderStub.viewController.parent)
+        XCTAssertTrue(host.activeViewport === newerStub)
+        XCTAssertEqual(parent.children, [newerStub.viewController])
+        XCTAssertEqual(parent.view.subviews, [newerStub.viewController.view])
+    }
+
     func testALoadThatEndsAfterAClearIsRefused() async {
         stubs.holdsLoad = true
         let task = host.show(kind: kraken2, input: "cleared")

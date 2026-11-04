@@ -31,6 +31,7 @@ extension ViewerViewController {
         registry.register(.bundle(.mhcReference)) { MHCReferenceBundleSurface() }
         registry.register(.bundle(.genotypeResult), factory: GenotypeResultSurface.factory())
         registry.register(.bundle(.phylogeneticTree), factory: PhylogeneticTreeSurface.factory())
+        registry.register(.bundle(.multipleSequenceAlignment)) { MultipleSequenceAlignmentSurface() }
         return registry
     }
 
@@ -67,6 +68,35 @@ extension ViewerViewController {
         }
         clearSurface(ifShowing: kind)
         throw error
+    }
+
+    /// Shows a surface whose load suspends and returns it installed, or nil when something newer took over while it
+    /// loaded. The genomics chrome hides before the load, since `showSurface` cannot see one in flight.
+    ///
+    /// Two guards decide, side by side. The host's says no newer show or clear came, and `canCommit`, the caller's own,
+    /// says no newer selection has begun, which can be before that selection's route reaches the host. Whatever took
+    /// over owns the chrome and the status line, so a superseded load changes neither and throws nothing, even if it
+    /// failed. A load that fails while it is still current brings the chrome back, and the error says why.
+    func showSurfaceAfterLoad<Surface: ResultViewport>(
+        _ kind: SurfaceKind,
+        input: Any,
+        as type: Surface.Type,
+        canCommit: @MainActor () -> Bool = { true }
+    ) async throws -> Surface? {
+        enhancedRulerView.isHidden = true
+        viewerView.isHidden = true
+        headerView.isHidden = true
+        statusBar.isHidden = true
+        geneTabBarView.isHidden = true
+        let show = surfaceHost.show(kind: kind, input: input)
+        surfaceKindBeingDisplayed = nil
+        let outcome = await show.value
+        guard surfaceHost.loadTask == show, canCommit() else { return nil }
+        if case .failed(let failure) = outcome {
+            clearSurface(ifShowing: kind)
+            throw failure
+        }
+        return surfaceHost.activeViewport as? Surface
     }
 
     /// Removes the surface of one of `kinds`, when it is the one the host shows or

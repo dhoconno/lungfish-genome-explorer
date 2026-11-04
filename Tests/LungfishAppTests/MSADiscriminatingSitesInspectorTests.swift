@@ -14,6 +14,16 @@ import LungfishWorkflow
 @testable import LungfishCore
 @testable import LungfishIO
 
+/// Adopts an alignment the test has already read, so the viewer's computed slot answers with it.
+@MainActor
+private final class ReadyAlignmentSurface: ResultViewport {
+    let controller: MultipleSequenceAlignmentViewController
+    init(controller: MultipleSequenceAlignmentViewController) { self.controller = controller }
+    var viewController: NSViewController { controller }
+    var surfaceKind: SurfaceKind { .bundle(.multipleSequenceAlignment) }
+    func load(input: Any, token: AsyncRequestToken<SurfaceRequest>) async throws {}
+}
+
 private final class DiscriminatingNotificationCapture: @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [[AnyHashable: Any]?] = []
@@ -389,7 +399,7 @@ final class MSADiscriminatingSitesInspectorTests: XCTestCase {
         let controller = makeIsolatedAlignmentController()
         _ = controller.view
         _ = try await controller.displayBundle(at: bundleURL)
-        viewer.multipleSequenceAlignmentViewController = controller
+        showReady(controller, in: viewer)
 
         let highlight = MSADiscriminatingSitesHighlight(
             columns: [5], rowRolesByID: [bundle.rows[1].id: .exclusion],
@@ -559,7 +569,7 @@ final class MSADiscriminatingSitesInspectorTests: XCTestCase {
         let scope = WindowStateScope()
         viewer.windowStateScope = scope
         inspector.windowStateScope = scope
-        viewer.multipleSequenceAlignmentViewController = viewport
+        showReady(viewport, in: viewer)
         inspector.updateMultipleSequenceAlignmentDocument(bundle)
         viewport.onSelectionStateChanged = { inspector.updateMultipleSequenceAlignmentSelection($0) }
         viewport.notifySelectionStateIfAvailable()
@@ -630,6 +640,12 @@ final class MSADiscriminatingSitesInspectorTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// Shows an alignment this test has already read through the host, as `SurfaceRegistrationStubTests` registers its stand-ins.
+    private func showReady(_ controller: MultipleSequenceAlignmentViewController, in viewer: ViewerViewController) {
+        viewer.surfaceHost.registry.register(.bundle(.multipleSequenceAlignment)) { ReadyAlignmentSurface(controller: controller) }
+        viewer.surfaceHost.show(kind: .bundle(.multipleSequenceAlignment), input: controller)
+    }
 
     private func makeBundle(named name: String, contents: String) throws -> URL {
         let sourceURL = scratchRoot.appendingPathComponent("\(name).fasta")

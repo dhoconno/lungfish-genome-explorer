@@ -18,57 +18,35 @@ extension ViewerViewController {
     /// earlier run saved on the machine cannot decide whether the pane opens.
     static var multipleSequenceAlignmentDefaults: UserDefaults = .standard
 
-    /// Displays a multiple-sequence-alignment bundle, reading the primary
-    /// alignment FASTA off the main actor.
+    /// Shows a multiple-sequence-alignment bundle through the surface host and returns its viewer for the route to wire.
+    /// Returns nil when something newer took over during the load, and throws the reason when a load that is still
+    /// current fails.
     ///
-    /// The primary alignment read is a suspension point, so a newer sidebar
-    /// selection can supersede this request while the read is in flight. The
-    /// caller passes `canCommit` (the display generation guard); it is
-    /// re-checked on the main actor AFTER the awaited read but BEFORE the
-    /// viewport is installed. If the request has been superseded the freshly
-    /// built controller is torn down and NOTHING is committed to the viewport,
-    /// so a stale read cannot clobber a newer selection.
-    public func displayMultipleSequenceAlignmentBundle(
+    /// The primary alignment read is a suspension point, so a newer sidebar selection can supersede this request while
+    /// the read is in flight. The caller passes `canCommit` (the display generation guard), and it and the host's token
+    /// dominate the install and the chrome, because the newer selection now owns those views. The callbacks are wired
+    /// only after the viewer is installed, so a superseded viewer never has one to fire. Removing the viewer cuts them
+    /// in `MultipleSequenceAlignmentSurface.willDeactivate` on every removal, and `onWillDeactivate` runs there too, so
+    /// the route can take the alignment's blocks out of the Inspector.
+    @discardableResult
+    func displayMultipleSequenceAlignmentBundle(
         at url: URL,
-        canCommit: @MainActor () -> Bool = { true }
-    ) async throws {
+        canCommit: @escaping @MainActor () -> Bool = { true },
+        onWillDeactivate: (@MainActor () -> Void)? = nil
+    ) async throws -> MultipleSequenceAlignmentViewController? {
         hideForNativeAlignmentTreeBundle()
-        hideGenomicsStackForNativeBundle()
         let controller = MultipleSequenceAlignmentViewController()
         controller.gutterWidthDefaults = Self.multipleSequenceAlignmentDefaults
-
-        func tearDownFailedController() {
-            controller.view.removeFromSuperview()
-            controller.removeFromParent()
-            showGenomicsStackAfterNativeBundle()
-        }
-
-        do {
-            guard try await controller.displayBundle(at: url, canCommit: canCommit) else {
-                alignmentTreeViewerLogger.info(
-                    "displayMultipleSequenceAlignmentBundle: Superseded before install for \(url.lastPathComponent, privacy: .public)"
-                )
-                return
-            }
-        } catch {
-            tearDownFailedController()
-            throw error
-        }
-
-        // The awaited FASTA read above is a suspension point. If a newer
-        // selection superseded this request while the read was in flight, tear
-        // down only this offscreen controller and commit nothing: the generation
-        // guard must dominate viewport installation and global viewer-chrome
-        // restoration, because the newer selection now owns those views.
-        guard canCommit() else {
+        let input = MultipleSequenceAlignmentSurface.Input(controller: controller, url: url, canCommit: canCommit)
+        guard let surface = try await showSurfaceAfterLoad(
+            .bundle(.multipleSequenceAlignment), input: input, as: MultipleSequenceAlignmentSurface.self, canCommit: canCommit
+        ) else {
             alignmentTreeViewerLogger.info(
                 "displayMultipleSequenceAlignmentBundle: Superseded before install for \(url.lastPathComponent, privacy: .public)"
             )
-            return
+            return nil
         }
-
-        addChild(controller)
-        installNativeBundleSubview(controller.view)
+        surface.onWillDeactivate = onWillDeactivate
 
         controller.onExtractSequenceRequested = { [weak self] fastaRecords, suggestedName in
             self?.presentFASTASequenceExtractionDialog(records: fastaRecords, suggestedName: suggestedName)
@@ -126,10 +104,34 @@ extension ViewerViewController {
             self?.exportMSADistanceMatrixViaCLI(bundleURL: bundleURL, options: options)
         }
         controller.onBottomPaneStateChanged = { [weak self] in self?.syncWindowDrawerToolbarButton() }
+        // The host installed the viewer a hop before this line, when this callback was not yet set.
+        syncWindowDrawerToolbarButton()
 
-        multipleSequenceAlignmentViewController = controller
         contentMode = .genomics
         alignmentTreeViewerLogger.info("displayMultipleSequenceAlignmentBundle: Showing \(url.lastPathComponent, privacy: .public)")
+        return controller
+    }
+
+    /// What the route passes as `onWillDeactivate`. It takes the alignment's own document and selection out of the
+    /// Inspector and leaves every other kind's blocks where they are, since the route gives the next alignment's blocks
+    /// only after that show. It leaves the discriminating sites and pairwise distance models in place, which
+    /// `updateMultipleSequenceAlignmentDocument(nil)` would drop: they hold the roles a person marked, saved nowhere, and
+    /// the Inspector reuses them when the same alignment opens again.
+    static func multipleSequenceAlignmentBlockReset(_ inspector: InspectorViewController?) -> @MainActor () -> Void {
+        { [weak inspector] in
+            guard let inspector else { return }
+            let document = inspector.viewModel.documentSectionViewModel
+            document.multipleSequenceAlignmentDocument = nil
+            document.msaPairwiseDistance?.onShowDistanceMatrix = nil
+            if inspector.viewModel.selectionSectionViewModel.multipleSequenceAlignmentSelection != nil {
+                inspector.updateMultipleSequenceAlignmentSelection(nil)
+            }
+        }
+    }
+
+    /// Hides the alignment viewer, a shim that other display routes call until the hide list goes in Phase 3.2.
+    func hideMultipleSequenceAlignmentBundleView() {
+        clearSurface(ifShowing: .bundle(.multipleSequenceAlignment))
     }
 
     /// Shows the tree bundle at `url` through the surface host and returns its viewer for the route to wire, or throws
@@ -174,12 +176,7 @@ extension ViewerViewController {
     }
 
     func hideAlignmentTreeBundleViews() {
-        if let controller = multipleSequenceAlignmentViewController {
-            controller.view.removeFromSuperview()
-            controller.removeFromParent()
-            multipleSequenceAlignmentViewController = nil
-            revealAnnotationDrawerUnlessNativeBundleInstalled()
-        }
+        hideMultipleSequenceAlignmentBundleView()
         hidePhylogeneticTreeBundleView()
         hideGenotypeResultView()
         hideTwelveSAmpliconResultView()

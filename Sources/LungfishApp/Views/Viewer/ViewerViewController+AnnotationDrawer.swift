@@ -63,12 +63,6 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             return
         }
 
-        // A native bundle viewport has no annotations for the parent drawer to
-        // show. The MSA toggles its own bottom pane instead (ruling U2).
-        if isNativeBundleViewportInstalled {
-            return multipleSequenceAlignmentViewController?.toggleBottomPane() ?? ()
-        }
-
         // A reference viewport shows its bundle in an embedded viewer, which owns the drawer a person sees.
         if let viewport = drawerOwningReferenceViewport { return viewport.toggleEmbeddedAnnotationDrawer() }
 

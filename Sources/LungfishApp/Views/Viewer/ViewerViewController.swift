@@ -214,8 +214,8 @@ public class ViewerViewController: NSViewController {
     /// Native MHC amplicon reference bundle viewport, while the surface host shows it.
     var mhcReferenceBundleViewController: MHCReferenceBundleSurface.Controller? { installedSurface?.viewController as? MHCReferenceBundleSurface.Controller }
 
-    /// Native multiple-sequence alignment bundle viewport.
-    var multipleSequenceAlignmentViewController: MultipleSequenceAlignmentViewController?
+    /// Native multiple-sequence alignment bundle viewport, while the surface host shows it.
+    var multipleSequenceAlignmentViewController: MultipleSequenceAlignmentViewController? { installedSurface?.viewController as? MultipleSequenceAlignmentViewController }
 
     /// Native phylogenetic tree bundle viewport, while the surface host shows it.
     var phylogeneticTreeViewController: PhylogeneticTreeViewController? { installedSurface?.viewController as? PhylogeneticTreeViewController }
@@ -236,8 +236,7 @@ public class ViewerViewController: NSViewController {
     var surfaceKindBeingDisplayed: SurfaceKind?
 
     public var isNativeBundleViewportInstalled: Bool {
-        multipleSequenceAlignmentViewController != nil
-            || installedSurface != nil
+        installedSurface != nil
     }
 
     /// Reveals the parent annotation drawer unless a native bundle viewport

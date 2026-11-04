@@ -261,32 +261,31 @@ extension MainSplitViewController {
                 // `displayMultipleSequenceAlignmentBundle` reads the primary
                 // alignment FASTA off the main actor. A newer sidebar selection
                 // may supersede this load while that read is in flight, so the
-                // generation guard is threaded in and re-checked on the main
-                // actor after the read but before the viewport install — the
-                // guard dominates the install, so a stale read commits nothing.
-                try await self.viewerController.displayMultipleSequenceAlignmentBundle(at: url) { [weak self] in
-                    guard let self else { return false }
-                    return self.canCommitDisplayRequest(displayToken, identity: displayIdentity)
-                }
-                guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                // generation guard is threaded in, and the display returns nil
+                // when something newer took over, so a stale read commits nothing.
+                let displayed = try await self.viewerController.displayMultipleSequenceAlignmentBundle(
+                    at: url,
+                    canCommit: { [weak self] in self?.canCommitDisplayRequest(displayToken, identity: displayIdentity) == true },
+                    onWillDeactivate: ViewerViewController.multipleSequenceAlignmentBlockReset(self.inspectorController)
+                )
+                guard let controller = displayed,
+                      self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                 self.inspectorController.updateMultipleSequenceAlignmentDocument(bundle)
                 self.inspectorController.activeContentSelectionIdentity = displayIdentity
-                if let controller = self.viewerController.multipleSequenceAlignmentViewController {
-                    controller.onReferenceRowChanged = { [weak self] rowID in
-                        guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-                        let settings = self.inspectorController.viewModel.readStyleSectionViewModel
-                        settings.selectedMSAReferenceRowID = rowID
-                        settings.msaResidueIdentityDisplayMode = .dotsToReference
-                    }
-                    controller.onConsensusComparisonRequested = { [weak self] in
-                        guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
-                        let settings = self.inspectorController.viewModel.readStyleSectionViewModel
-                        settings.selectedMSAReferenceRowID = nil
-                        settings.msaResidueIdentityDisplayMode = .dotsToConsensus
-                    }
-                    self.wireMultipleSequenceAlignmentInspector(controller) { [weak self] in
-                        self?.canCommitDisplayRequest(displayToken, identity: displayIdentity) == true
-                    }
+                controller.onReferenceRowChanged = { [weak self] rowID in
+                    guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                    let settings = self.inspectorController.viewModel.readStyleSectionViewModel
+                    settings.selectedMSAReferenceRowID = rowID
+                    settings.msaResidueIdentityDisplayMode = .dotsToReference
+                }
+                controller.onConsensusComparisonRequested = { [weak self] in
+                    guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                    let settings = self.inspectorController.viewModel.readStyleSectionViewModel
+                    settings.selectedMSAReferenceRowID = nil
+                    settings.msaResidueIdentityDisplayMode = .dotsToConsensus
+                }
+                self.wireMultipleSequenceAlignmentInspector(controller) { [weak self] in
+                    self?.canCommitDisplayRequest(displayToken, identity: displayIdentity) == true
                 }
             } catch {
                 guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
@@ -294,7 +293,7 @@ extension MainSplitViewController {
                 mainSplitLogger.error(
                     "displayMultipleSequenceAlignmentBundle: Failed - \(error.localizedDescription, privacy: .public)"
                 )
-                self.viewerController.clearViewport(statusMessage: "Unable to load alignment bundle.")
+                self.viewerController.clearViewport(statusMessage: self.viewerController.surfaceFailureWords("Unable to open the alignment.", error, orElse: "Select the item again. If it still does not open, import or rebuild the alignment."))
             }
         }
     }

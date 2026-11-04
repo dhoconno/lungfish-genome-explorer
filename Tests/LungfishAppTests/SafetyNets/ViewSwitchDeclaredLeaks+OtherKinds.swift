@@ -69,12 +69,11 @@ extension ViewSwitchDeclaredLeaks {
         leak("Reference", to: ["MSA"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("MSA", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
+        leak("MSA", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: genomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspector: multipleSequenceAlignment",
             "+ provenance: multipleSequenceAlignmentBundle ../k13-msa/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa",
-            "+ inspectorTab: genomics document of [document, selection, view, provenance]",
+            "+ inspectorTab: genomics document of [document, selection, view, derive, provenance]",
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
             "- status: Previewing: main.nf",
@@ -120,17 +119,11 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout",
             "- inspectorBlocks: selectAResult, panelLayout",
         ]),
-        leak("MSA", to: ["Kraken2", "EsViritu"], "NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: multipleSequenceAlignment",
-            "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
-            "- inspectorBlocks: panelLayout, sampleFilter=1",
-        ]),
         leak("Tree", to: ["TaxTriage"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("FASTQ", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
+        leak("FASTQ", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: fastq",
-            "+ inspector: multipleSequenceAlignment",
             "+ provenance: esvirituResult ../k02-esviritu/Analyses/esviritu-2026-01-15T10-00-00",
             "+ inspectorTab: fastq document of [document, provenance]",
             "+ inspectorBlocks: document, fastqMetadata, fastqPBAAArtifacts",
@@ -154,11 +147,6 @@ extension ViewSwitchDeclaredLeaks {
             "- mode: empty",
             "- inspectorTab: empty document of [document, selection]",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
-        ]),
-        leak("MSA", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: multipleSequenceAlignment",
-            "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
-            "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
         ]),
         leak("MHC reference", to: ["EsViritu"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: mhcReference=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref",
@@ -211,11 +199,8 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
-        leak("MSA", to: ["CZ ID"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-DOCUMENT-STAYS", [
+        leak("MSA", to: ["CZ ID"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspector: multipleSequenceAlignment",
-            "+ inspectorBlocks: seeTheViewer, panelLayout",
-            "- inspectorBlocks: selectAResult, panelLayout",
         ]),
         leak("Genotype", to: ["NAO-MGS", "NVD", "Reference"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
@@ -299,8 +284,7 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout",
             "- inspectorBlocks: selectAResult, panelLayout",
         ]),
-        leak("MSA", to: ["FASTQ"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS", [
-            "+ inspector: multipleSequenceAlignment",
+        leak("MSA", to: ["FASTQ"], "INSPECTOR-STALE, NET-PROVENANCE-STAYS", [
             "+ provenance: multipleSequenceAlignmentBundle ../k13-msa/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa",
             "- inspector: fastqStatistics",
             "- provenance: fastqBundle Reads/illumina-reads.lungfishfastq",

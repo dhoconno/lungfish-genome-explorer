@@ -21,7 +21,6 @@ extension ViewerViewController {
     var isActiveDrawerOpen: Bool {
         if let viewport = installedSurface { return viewport.isDrawerOpen }
         if isDisplayingFASTQDataset { return isFASTQMetadataDrawerOpen }
-        if let msa = multipleSequenceAlignmentViewController { return msa.isBottomPaneOpen }
         if let viewport = drawerOwningReferenceViewport { return viewport.isEmbeddedAnnotationDrawerOpen }
         return isAnnotationDrawerOpen
     }
