@@ -57,6 +57,27 @@ final class TaxTriageControlNoticeTests: XCTestCase {
         XCTAssertTrue(words.contains("The negative control NTC1 failed, so Lungfish has no result for it."), words)
     }
 
+    /// BIO review, should-fix 2. A control that has rows and a skipped step keeps its Yes and No, and the strip says its
+    /// results may be incomplete. It did not fail, so the strip does not say that.
+    func testViewerSaysAControlWithResultsAndAnIgnoredStepMayBeIncomplete() throws {
+        let fixture = try Fixture(
+            listed: [("sample-1", false), ("sample-2", false), ("NTC1", true)],
+            databaseSamples: ["sample-1", "sample-2", "NTC1"],
+            ignored: ["NTC1"]
+        )
+        defer { fixture.cleanUp() }
+        let vc = fixture.makeController()
+
+        let words = try XCTUnwrap(vc.testControlsNotRecordedNoticeWords, "the viewer said nothing about a control with a skipped step")
+        XCTAssertTrue(
+            words.contains("A step of the negative control NTC1 (MINIMAP2_ALIGN) stopped with an error that the pipeline skipped"),
+            words
+        )
+        XCTAssertTrue(words.contains("may be incomplete"), words)
+        XCTAssertFalse(words.contains("failed"), words)
+        XCTAssertFalse(words.contains("Where no warning sign shows"), words)
+    }
+
     func testViewerNamesAControlItCannotFindInTheResults() throws {
         let fixture = try Fixture(
             listed: [("sample-1", false), ("sample-2", false), ("NTC 9", true)],

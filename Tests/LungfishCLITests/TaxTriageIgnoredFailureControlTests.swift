@@ -101,8 +101,9 @@ final class TaxTriageIgnoredFailureControlTests: XCTestCase {
         XCTAssertTrue(shared.contains(",No,"), shared)
     }
 
-    /// A control that has rows keeps reading from them, and an organism it does not hold still reads No (a question for
-    /// BIO in the lane report, since a task the pipeline ignored may have cost the control some rows).
+    /// A control that has rows keeps reading from them, and an organism it does not hold still reads No, since a cell
+    /// cannot say more (BIO ruling 3, the Known limit). The report says in words that a step of the control was skipped
+    /// and its results may be incomplete (BIO review, should-fix 2).
     func testAnEntryNamingAControlThatHasRowsKeepsReadingItsRows() async throws {
         let result = try await importedRun(
             reports: [("patient", [0, 1]), ("NTC1", [0])], ignored: [Self.ignored("MINIMAP2_ALIGN", "NTC1")]
@@ -113,6 +114,10 @@ final class TaxTriageIgnoredFailureControlTests: XCTestCase {
         let other = try XCTUnwrap(lines.first { $0.hasPrefix("\(Self.other),") })
         XCTAssertTrue(shared.contains(",Yes,"), shared)
         XCTAssertTrue(other.contains(",No,"), other)
+        let report = try reportText(of: result)
+        XCTAssertTrue(report.contains("may be incomplete"), "a step of the control was skipped, but the report said: \(report)")
+        XCTAssertTrue(report.contains("(MINIMAP2_ALIGN)"), report)
+        XCTAssertFalse(report.contains("(failed, no result)"), "the control has rows, so it did not fail: \(report)")
     }
 
     /// FASTQC, NANOPLOT and MULTIQC only draw quality plots (`onlyAffectsQualityPlots`), so a control whose plot failed
