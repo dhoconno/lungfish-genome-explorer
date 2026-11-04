@@ -77,6 +77,7 @@ final class ViralDetectionBlastTaxonomyTests: XCTestCase {
         XCTAssertEqual(context.cladeTaxIds, [3433757, 694003, 31631, 11128, 215681])
         XCTAssertEqual(context.cladeNames, ["Human coronavirus OC43", "Betacoronavirus 1", "Betacoronavirus gravedinis"])
         XCTAssertEqual(context.relatedNames, ["Betacoronavirus"])
+        XCTAssertEqual(context.basis, .species, "a lineage judges at species level (BLAST-ESVIRITU-FIRST-WORD)")
     }
 
     /// With no lineage the row is judged by its names, bare of the rank prefixes no NCBI record carries. A subspecies never
@@ -86,6 +87,11 @@ final class ViralDetectionBlastTaxonomyTests: XCTestCase {
         XCTAssertTrue(context.cladeTaxIds.isEmpty)
         XCTAssertEqual(context.cladeNames, ["Human coronavirus OC43", "Betacoronavirus 1"])
         XCTAssertEqual(context.relatedNames, ["Betacoronavirus"])
+        XCTAssertEqual(context.basis, .names, "no lineage means names alone judge the row (BLAST-ESVIRITU-FIRST-WORD)")
+        XCTAssertEqual(
+            oc43Detection().blastVerificationRequest(sequences: [(id: "r1", sequence: "ACGT")], taxonomyContext: context).judgedAt, .names,
+            "the request carries the basis to the plan and the record"
+        )
 
         let numbered = oc43Detection(subspecies: "t__1").blastTaxonomyContext(databaseDirectory: nil, taxonomyDirectory: nil)
         XCTAssertFalse(numbered.cladeNames.contains("1"))

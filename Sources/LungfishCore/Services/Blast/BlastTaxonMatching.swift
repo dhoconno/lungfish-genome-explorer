@@ -39,16 +39,21 @@ public struct BlastTaxonomyContext: Sendable, Codable, Equatable {
     /// the genus name itself.
     public var relatedNames: [String]
 
+    /// What the verdicts were judged at, nil on a context from before the field (BLAST-ESVIRITU-FIRST-WORD).
+    public var basis: Basis?
+
     public init(
         cladeTaxIds: Set<Int> = [],
         cladeNames: [String] = [],
         relatedTaxIds: Set<Int> = [],
-        relatedNames: [String] = []
+        relatedNames: [String] = [],
+        basis: Basis? = nil
     ) {
         self.cladeTaxIds = cladeTaxIds
         self.cladeNames = cladeNames
         self.relatedTaxIds = relatedTaxIds.subtracting(cladeTaxIds)
         self.relatedNames = relatedNames
+        self.basis = basis
     }
 
     /// Whether the context carries clade tax IDs, which switches matching

@@ -360,6 +360,10 @@ public struct BlastVerificationResult: Sendable, Codable {
     /// How many sequences the database held on this run, from the reply's `stat.db_num`. `nil` on an older record.
     public let databaseSequenceCount: Int?
 
+    /// What the verdicts were judged at. Nil on a record from before the field, which shows no line
+    /// (BLAST-ESVIRITU-FIRST-WORD).
+    public var judgedAt: BlastTaxonomyContext.Basis?
+
     /// The fraction of reads that were verified (0.0-1.0).
     ///
     /// Returns 0 if no reads were submitted. Note: This measures alignment

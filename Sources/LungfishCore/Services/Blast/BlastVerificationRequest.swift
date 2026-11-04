@@ -84,13 +84,18 @@ public struct BlastVerificationRequest: Sendable {
     /// the genus name.
     public let relatedTaxonNames: [String]
 
+    /// What the clade was judged at, which the plan that built this request knows and a count of accepted IDs cannot say.
+    /// Nil when the caller did not say (BLAST-ESVIRITU-FIRST-WORD).
+    public let judgedAt: BlastTaxonomyContext.Basis?
+
     /// The taxonomy BLAST hits are judged against.
     public var taxonomyContext: BlastTaxonomyContext {
         BlastTaxonomyContext(
             cladeTaxIds: acceptedTaxIds,
             cladeNames: acceptedTaxonNames,
             relatedTaxIds: relatedTaxIds,
-            relatedNames: relatedTaxonNames
+            relatedNames: relatedTaxonNames,
+            basis: judgedAt
         )
     }
 
@@ -123,7 +128,8 @@ public struct BlastVerificationRequest: Sendable {
         acceptedTaxIds: Set<Int> = [],
         acceptedTaxonNames: [String] = [],
         relatedTaxIds: Set<Int> = [],
-        relatedTaxonNames: [String] = []
+        relatedTaxonNames: [String] = [],
+        judgedAt: BlastTaxonomyContext.Basis? = nil
     ) {
         self.taxonName = taxonName
         self.taxId = taxId
@@ -140,6 +146,7 @@ public struct BlastVerificationRequest: Sendable {
         self.acceptedTaxonNames = acceptedTaxonNames
         self.relatedTaxIds = relatedTaxIds.subtracting(acceptedTaxIds)
         self.relatedTaxonNames = relatedTaxonNames
+        self.judgedAt = judgedAt
     }
 
     /// Formats the sequences as a multi-FASTA string for BLAST submission.

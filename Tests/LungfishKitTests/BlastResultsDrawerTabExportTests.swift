@@ -61,6 +61,49 @@ final class BlastResultsDrawerTabExportTests: XCTestCase {
         )
     }
 
+    // MARK: - BLAST-ESVIRITU-FIRST-WORD (BIO): the pane and the table say what a row was judged at
+
+    private func summary(judgedAt basis: BlastTaxonomyContext.Basis?) -> String {
+        var result = makeResult()
+        result.judgedAt = basis
+        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        tab.presentationStyle = .verification
+        tab.showResults(result, recordURL: nil)
+        return tab.summaryLabel.stringValue
+    }
+
+    func testRowJudgedByNamesSaysSoBesideItsCounts() {
+        let words = summary(judgedAt: .names)
+        XCTAssertTrue(words.contains("Judged by organism names"), words)
+        XCTAssertTrue(words.contains("NCBI Taxonomy"), words)
+    }
+
+    func testRowJudgedByItsOwnTaxIdSaysSoBesideItsCounts() {
+        let words = summary(judgedAt: .rowTaxId)
+        XCTAssertTrue(words.contains("Judged by this row's own tax ID and name"), words)
+        XCTAssertTrue(words.contains("NCBI Taxonomy"), words)
+    }
+
+    func testASpeciesLevelRowAndAnOlderRecordShowNoJudgedLine() {
+        XCTAssertFalse(summary(judgedAt: .species).contains("Judged by"))
+        XCTAssertFalse(summary(judgedAt: nil).contains("Judged by"), "a record from before the field shows no line")
+    }
+
+    func testExportNamesTheBasisOfEachRow() {
+        func lastCells(_ basis: BlastTaxonomyContext.Basis?) -> [String] {
+            var result = BlastVerificationResult(
+                taxonName: "Oxbow virus", taxId: 0, readResults: [BlastReadResult(id: "read_1", verdict: .unverified)],
+                submittedAt: Date(), completedAt: Date(), rid: "R", blastProgram: "blastn", database: "nt"
+            )
+            result.judgedAt = basis
+            return BlastVerificationTableExport.tableContent(result: result, taxonomy: nil, separator: ",")
+                .split(separator: "\n").map { String($0.split(separator: ",", omittingEmptySubsequences: false).last ?? "") }
+        }
+        XCTAssertEqual(lastCells(.names), ["Judged At", "names"])
+        XCTAssertEqual(lastCells(.species), ["Judged At", "species"])
+        XCTAssertEqual(lastCells(nil), ["Judged At", ""], "an older record has an empty cell")
+    }
+
     /// A change of presentation style draws the shown result again and keeps its sample.
     func testARedrawForAnotherStyleKeepsTheSubject() {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
