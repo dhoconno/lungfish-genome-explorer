@@ -340,10 +340,16 @@ enum TaxTriageParityRawBytes {
     /// receipt, so no `databaseDigest`, note or reference input enters these records. X4's `negative-control` record
     /// and X6's root list a gcfmap their run never wrote (DBID-BIO backlog 1), so those two pins move again when that
     /// is fixed. BIO check: reviews/TAXTRIAGE-PINS-BIO.md.
+    /// Lane READLAYOUT (Phase 3.2, item 12, landing 8 fix) moved the run record of X1, X2, X5, X6, X7 and X8 and the
+    /// per-sample records of X3 and X4, 10 records on each side, through one key alone: `read_layouts`, the block of the
+    /// run parameters that names each decided sample's layout, its reason and what the scan read
+    /// (`TaxTriageRecordFacts`). With that key removed from each new record, `maskedRecordText` gives the SHA-256 this
+    /// file pinned before, on both sides of all 10. The batch roots of X3 and X4, every `taxtriage.sqlite` record and
+    /// every manifest did not move. BIO check: READLAYOUT-landing-fix.md (SCR lanes/READLAYOUT).
     static let pinnedRecords: [TaxTriageParityCase: [String: String]] = [
         .x1: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "f0b0e5b4df4cc065f4720c2bd98151b56be9b302651a0a9dcdfddbca5a39bdb8",
+                "6cb81b744074acdf165d5f0416b7dce98e85807bbbaf65cea373d422eac192bf",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
                 "0067a41eba0d14ee4a07f7299f96c29fdb971606a9cc34387e7ee6a0ff0fa99e",
             "Project.lungfish/Imports/sarscov2-R1.lungfishfastq/derivatives/len-150-any-00000000.lungfishfastq/analyses-manifest.json":
@@ -351,7 +357,7 @@ enum TaxTriageParityRawBytes {
         ],
         .x2: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "379d54c62fa289079d118b0a011636401c7f30f9716460f7e16c8d582a5ad10a",
+                "33dc4baca80625de1f9eac02a5e882c00a71ef54de621f645943782082c4b03f",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
                 "88a3d9d39db4b149d25dd36aa06283df56c36e3602fc787cbab3eb69e1343327",
             "Project.lungfish/Imports/sarscov2-pair.lungfishfastq/analyses-manifest.json":
@@ -361,9 +367,9 @@ enum TaxTriageParityRawBytes {
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
                 "068e9e25964e82d1c1ec616248400e1f56268e596ea802b9090f64f13292db5a",
             "Project.lungfish/Analyses/<analysis>/negative-control/.lungfish-provenance.json":
-                "8f788cf1f27d044feb1aa0d4fd517e0f87a9e7c51fd91863729d61cb289a6fd6",
+                "58e4f2b1562a439fc2d3571e2398c89776258af93540759e83ab495d9890f303",
             "Project.lungfish/Analyses/<analysis>/sarscov2-pair/.lungfish-provenance.json":
-                "e9ccc10f2a1b696acf9c4b0e908664ca0595c1b099f23fe5c564e254915c436c",
+                "03e10e3b87178eb2a7ebdc02177e2d7fb68cc08795741d200fdfe689327012a3",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
                 "bf84658b36bd928b60825bfb4297e5feceb228b2ae6e414ad4b54d5e80cf9892",
             "Project.lungfish/Imports/two-samples/negative-control.lungfishfastq/analyses-manifest.json":
@@ -375,9 +381,9 @@ enum TaxTriageParityRawBytes {
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
                 "25483f9f3f7e5c771d3ffdb2f4f2598ab0f06877c3886e50e8738ce4c92cf286",
             "Project.lungfish/Analyses/<analysis>/negative-control/.lungfish-provenance.json":
-                "6ca39b29112992e35d81bc50f4abdfa8d434ae64573cc36f6ecc093891d30cc7",
+                "f80c3815c71f21a3a676f5b4dce31ee6bff40c6902698084a9766b310088f0aa",
             "Project.lungfish/Analyses/<analysis>/sarscov2-pair/.lungfish-provenance.json":
-                "e9ccc10f2a1b696acf9c4b0e908664ca0595c1b099f23fe5c564e254915c436c",
+                "03e10e3b87178eb2a7ebdc02177e2d7fb68cc08795741d200fdfe689327012a3",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
                 "9558b0e542ae366825da2e9a399209b2078391246edf8df949af7370f59cdd9f",
             "Project.lungfish/Imports/two-samples/sarscov2-pair.lungfishfastq/analyses-manifest.json":
@@ -385,7 +391,7 @@ enum TaxTriageParityRawBytes {
         ],
         .x5: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "f7edda03f5119897e970f87b4005cbf9e9b6e85f1dac18f823573bb99322da15",
+                "6c3145f9b6de1f4c274cc946c2b13024ee5b37d11d3ac99c2969bce9ebdd907c",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
                 "88a3d9d39db4b149d25dd36aa06283df56c36e3602fc787cbab3eb69e1343327",
             "Project.lungfish/Imports/sarscov2-pair.lungfishfastq/analyses-manifest.json":
@@ -393,11 +399,11 @@ enum TaxTriageParityRawBytes {
         ],
         .x6: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "757e5a46a796368e45e568e456fa0ad961e9c6322ba39aa373aa7c2f0f2443d1",
+                "8be486edf3db0f0dd6644036bed878d58d052ef90c6bbcbf24b01b8007f6ee37",
         ],
         .x7: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "ae81b68fdb4df01133f3e4ff5deeda3401046c776173bb4db05a4e29a06b1398",
+                "8809ad2729688b388b9257a3b3578eaa6c76e556599ec7c5bcc8cf7b02b7cacb",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
                 "a7c688a92b250358d0f3dcbd5a05f71d4aa3b4ecdee9960b5860534bc0a70ccb",
             "Project.lungfish/Imports/sarscov2-pair.lungfishfastq/analyses-manifest.json":
@@ -405,7 +411,7 @@ enum TaxTriageParityRawBytes {
         ],
         .x8: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "8c70dc24a840a6f7a952c9c42fa0865c82207a28ab282060158919a7865a836c",
+                "82cd88ffc0c66fb78d1205e693c2c410e24286b02f38b0cc94cfdd1fa4019e42",
         ],
     ]
 
