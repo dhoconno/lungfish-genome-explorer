@@ -165,7 +165,7 @@ class BlastStandInTests(unittest.TestCase):
 
             self.control("release")
             came_back = subprocess.run(
-                [cli, "blast", "resume", "--output", str(output), "--once", *shared],
+                [cli, "blast", "resume", "--output", str(output), "--once", "--check-now", *shared],
                 env=environment, capture_output=True, text=True, timeout=120,
             )
             self.assertEqual(came_back.returncode, 0, came_back.stdout + came_back.stderr)

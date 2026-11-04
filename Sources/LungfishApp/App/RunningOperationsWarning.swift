@@ -27,7 +27,7 @@ enum RunningOperationsWarning {
         }
     }
 
-    static func informativeText(kind: Kind, operations: [OperationCenter.Item]) -> String {
+    static func informativeText(kind: Kind, operations: [OperationCenter.Item], blastSearchesStay: Bool = false) -> String {
         let count = operations.count
         let plural = count == 1 ? "" : "s"
         let listedTitles = operations.prefix(6).map { "• \($0.title)" }.joined(separator: "\n")
@@ -43,6 +43,7 @@ enum RunningOperationsWarning {
             + " Any partial output stays out of the sidebar. The next time you open the project, "
             + "the Operations Panel lists it as Interrupted, with its size on disk and a Remove button.\n\n"
             + listedTitles + overflowNote
+            + (kind == .quit && blastSearchesStay ? "\n\nBLAST searches stay at NCBI. LGE checks them again when you next open LGE." : "")
     }
 }
 
@@ -102,7 +103,9 @@ final class LiveRunningOperationsAlert {
             confirmButton?.hasDestructiveAction = false
         } else {
             alert.messageText = RunningOperationsWarning.messageText(kind: kind, count: current.count)
-            alert.informativeText = RunningOperationsWarning.informativeText(kind: kind, operations: current)
+            alert.informativeText = RunningOperationsWarning.informativeText(
+                kind: kind, operations: current, blastSearchesStay: OperationCenter.shared.hasBlastSearchThatStays
+            )
             switch kind {
             case .quit: confirmButton?.title = "Cancel Operations and Quit"
             case .closeWindow: confirmButton?.title = "Cancel Operations and Close"

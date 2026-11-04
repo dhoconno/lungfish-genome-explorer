@@ -89,6 +89,9 @@ final class BlastInFlightMonitor {
     /// Rows of viewer runs that have parked, which go on as the row of their search at the next read of the lines.
     private var parkedRows: [String: UUID] = [:]
     private var timer: Task<Void, Never>?
+    private var hasReadTheLines = false
+    /// Searches a launch found, whose rows have not yet logged that LGE opened and checked them (UX-BLAST-WORDS Q2).
+    private var foundAtLaunch: Set<UUID> = []
     private var started = false
 
     init(worker: Worker, center: OperationCenter = .shared, now: @escaping @Sendable () -> Date = { Date() }) {
@@ -178,7 +181,12 @@ final class BlastInFlightMonitor {
     func refresh(project: URL? = nil) async {
         do {
             let lines = try await worker.lines(project)
-            for line in lines { take(line) }
+            let atLaunch = !hasReadTheLines
+            hasReadTheLines = true
+            for line in lines {
+                take(line)
+                if atLaunch, rows[line.searchID] != nil { foundAtLaunch.insert(line.searchID) }
+            }
             let live = Set(lines.map(\.searchID))
             for searchID in known.keys where !live.contains(searchID) && passes[searchID] == nil { known[searchID] = nil }
         } catch {
@@ -281,6 +289,9 @@ final class BlastInFlightMonitor {
     }
 
     private func settle(_ line: BlastInFlightLine, row: UUID, output: URL, outcome: PassOutcome) {
+        if foundAtLaunch.remove(line.searchID) != nil {
+            center.log(id: row, level: .info, message: BlastSearchWords.relaunched(at: now(), now: now()))
+        }
         switch outcome {
         case .collected(let outputs, let words):
             center.reopen(id: row, detail: words)
@@ -351,6 +362,15 @@ extension BlastInFlightMonitor.Worker {
     /// A pass that runs longer than this is ended, which ends the process and never the search (section 4).
     static let passWatchdog: Duration = .seconds(600)
 
+    /// Row 7 of UX-BLAST-WORDS Q1, from the record and the search file a pass has just saved.
+    private static func collectedRowWords(output: URL) -> String? {
+        let recordURL = output.appendingPathComponent(BlastSubmissionRecord.recordFileName)
+        guard let record = try? BlastSubmissionRecord.load(recordURL) else { return nil }
+        let counts = blastVerificationCompletionDetail(record.result)
+        guard let file = try? BlastSearchStore(folder: output).load(), let line = BlastSearchWords.collected(in: file) else { return counts }
+        return "\(counts). \(line)"
+    }
+
     /// The worker that runs `lungfish-cli`. A pass runs as a child, so that a project folder that hangs never holds up the app.
     static func cli(cliURLOverride: URL? = nil, environmentAdditions: [String: String] = [:]) -> BlastInFlightMonitor.Worker {
         BlastInFlightMonitor.Worker(
@@ -378,7 +398,8 @@ extension BlastInFlightMonitor.Worker {
                         onEvent: onEvent
                     )
                     if let waiting = result.waiting { return .waiting(words: waiting.message, state: waiting.state) }
-                    return .collected(outputs: result.outputs.map { URL(fileURLWithPath: $0) }, words: result.message ?? "")
+                    let words = collectedRowWords(output: output) ?? result.message ?? ""
+                    return .collected(outputs: result.outputs.map { URL(fileURLWithPath: $0) }, words: words)
                 } catch CLISubprocessTransport.RunError.failedEvent(let message, _) {
                     // A failed event from a search that goes on, such as a reply that cannot be read, is not an ending.
                     let ended = (try? BlastSearchStore(folder: output).load())?.state.isEnding ?? false

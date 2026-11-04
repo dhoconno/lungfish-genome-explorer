@@ -264,7 +264,10 @@ extension ViewerViewController {
                 switch try await plan.run(runner: runner, onEvent: onEvent) {
                 case .collected(let result, let recordURL):
                     monitor.viewerRunEnded(output: output)
-                    guard OperationCenter.shared.complete(id: operationID, detail: completeDetail(result)) else { return }
+                    let counts = completeDetail(result)
+                    let collected = await readBlastSearch(in: output).flatMap { BlastSearchWords.collected(in: $0.file) }
+                    let detail = collected.map { "\(counts). \($0)" } ?? counts
+                    guard OperationCenter.shared.complete(id: operationID, detail: detail) else { return }
                     drawer.results(result, recordURL)
                     BlastSearchNews.post()
                 case .waiting(let words):

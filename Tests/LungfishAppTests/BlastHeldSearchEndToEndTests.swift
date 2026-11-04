@@ -148,6 +148,8 @@ final class BlastHeldSearchEndToEndTests: XCTestCase {
         XCTAssertEqual(saved.result.rid, BlastFaultStandIn.rid(ofPut: 2))
         XCTAssertEqual(saved.result.readResults.first?.topHitAccession, Self.sendBTop)
         XCTAssertEqual(try BlastSearchStore(folder: plan.request.outputURL).load().state, .done)
+        let paneWords = BlastResultsDrawerTab.collectedWords(recordURL: plan.request.outputURL.appendingPathComponent("blast-result.json"))
+        XCTAssertTrue(paneWords.hasSuffix("2 sends, answered by request ID \(BlastFaultStandIn.rid(ofPut: 2))."), paneWords)
 
         let afterReady = server.arrivals.drop { $0.contact != .result }
         XCTAssertFalse(afterReady.contains { $0.contact == .status }, "no send is checked again once one has come back")

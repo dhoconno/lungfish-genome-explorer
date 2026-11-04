@@ -115,6 +115,12 @@ extension BlastCommand {
         /// The result the file holds, the taxonomy saved beside it (nil for an archive that saved no request), and
         /// which of the two forms the file is. The submit record is decoded first.
         static func load(_ url: URL) throws -> (result: BlastVerificationResult, taxonomy: BlastTaxonomyContext?, kind: String) {
+            for folder in [url, url.deletingLastPathComponent()] {
+                let record = folder.appendingPathComponent(BlastSubmissionRecord.recordFileName)
+                guard let search = try? BlastSearchStore(folder: folder).load(), !search.state.isEnding,
+                      !FileManager.default.fileExists(atPath: record.path) else { continue }
+                throw ViewerExportRefusal(BlastSearchWords.noTableWhileWaiting(folder: folder.path))
+            }
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw ViewerExportRefusal(
                     "No saved BLAST search at \(url.path). Pass the blast-result.json of a blast submit folder "

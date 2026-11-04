@@ -185,6 +185,36 @@ package enum BlastSearchWords {
         }
     }
 
+    /// What row 7 says after the counts, with the sends left out at one (UX-BLAST-WORDS Q1). The word is collected, never took.
+    package static func collected(after seconds: TimeInterval, sends: Int) -> String {
+        "Collected \(duration(seconds)) after the first send" + (sends > 1 ? ", \(sends) sends" : "")
+    }
+
+    /// Row 7's ending for a search that has come back, or nil for one that has not.
+    package static func collected(in file: BlastSearchFile) -> String? {
+        guard file.state == .done, let ending = file.ending else { return nil }
+        return collected(after: ending.at.timeIntervalSince(file.createdAt), sends: file.copies.filter { $0.rid != nil }.count)
+    }
+
+    /// What the pane says under the summary of a search that has come back (UX-BLAST-WORDS Q7), or nil for one that has not.
+    package static func collectedOnThePane(in file: BlastSearchFile) -> String? {
+        guard file.state == .done, let ending = file.ending,
+              let rid = file.copies.first(where: { $0.ordinal == file.winnerOrdinal })?.rid else { return nil }
+        let sends = file.copies.filter { $0.rid != nil }.count
+        return "Collected \(duration(ending.at.timeIntervalSince(file.createdAt))) after the first send. "
+            + "\(counted(sends, "sends")), answered by request ID \(rid)."
+    }
+
+    /// The log line of a search that a launch of LGE found (UX-BLAST-WORDS Q2).
+    package static func relaunched(at: Date, now: Date) -> String {
+        "LGE opened at \(time(at, now: now)) and checked this search again."
+    }
+
+    /// What `blast export-table` says of a folder whose search has not come back (UX-BLAST-WORDS, Every route).
+    package static func noTableWhileWaiting(folder: String) -> String {
+        "This folder holds a search still waiting at NCBI, so there is no table yet. Run lungfish-cli blast resume --output \(folder)."
+    }
+
     /// Row 4.
     package static func sentAgain(sends: Int, lastChecked: Date?, now: Date) -> String {
         let row = "Waiting for NCBI, \(sends) sends so far"
@@ -255,7 +285,7 @@ package enum BlastSearchWords {
     }
 
     package static let heldByTheDayCountLine =
-        "LGE did not send this search again, because this Mac is past NCBI's \(BlastSearchPolicy.postsADayBeforeNoCopies) searches in 24 hours."
+        "LGE did not send this search again, because this Mac is past NCBI's \(BlastSearchPolicy.postsADayBeforeNoCopies) searches in 24 hours. NCBI moves a user past that number to a slower queue, and only in extreme cases blocks one."
 
     /// Q2, a person's send.
     package static func personSentLine(noun: String, rid: String, sends: Int) -> String {

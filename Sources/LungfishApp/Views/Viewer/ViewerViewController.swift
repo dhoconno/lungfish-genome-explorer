@@ -1696,9 +1696,9 @@ public class ViewerViewController: NSViewController {
 
     nonisolated static func blastPhase(forProgressMessage message: String) -> BlastJobPhase {
         let lowercased = message.lowercased()
-        if lowercased.contains("waiting") { return .waiting }
-        if lowercased.contains("parsing") { return .parsing }
-        return .submitting
+        if lowercased.contains("sending") || lowercased.contains("submitting") { return .submitting }
+        if lowercased.contains("parsing") || lowercased.contains("collecting") { return .parsing }
+        return .waiting
     }
 
     func exportFASTARecords(_ records: [String], suggestedName: String) {

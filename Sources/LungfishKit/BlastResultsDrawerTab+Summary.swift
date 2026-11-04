@@ -18,8 +18,29 @@ extension BlastResultsDrawerTab {
         if result.errorCount > 0 {
             text += ", \(result.errorCount) with no BLAST result"
         }
+        let counted = countedRows(of: result)
+        return text + " (\(counted.rows)\(counted.sent.map { ", " + $0 } ?? ""))"
+    }
+
+    /// What a verdict's counts are of, and what went out when that differs, one reading for the pane and the Operations row.
+    nonisolated static func countedRows(of result: BlastVerificationResult) -> (rows: String, sent: String?) {
         let (rows, sent) = (result.totalReads, result.judgedSequenceCount)
-        return text + (sent > rows ? " (\(rows) \(rows == 1 ? "fragment" : "fragments"), \(sent) reads)" : " (\(rows) \(rows == 1 ? "read" : "reads"))")
+        guard sent > rows else { return ("\(rows) \(rows == 1 ? "read" : "reads")", nil) }
+        return ("\(rows) \(rows == 1 ? "fragment" : "fragments")", "\(sent) reads")
+    }
+
+    /// The Operations row's reading of ``countedRows(of:)``, as `1 fragment (2 reads)`.
+    nonisolated public static func countedRowWords(of result: BlastVerificationResult) -> String {
+        let counted = countedRows(of: result)
+        return counted.rows + (counted.sent.map { " (\($0))" } ?? "")
+    }
+
+    /// What the pane adds to the summary of a search that came back (UX-BLAST-WORDS Q7), or nothing for a record with no
+    /// search file beside it, which is every record from before searches had one.
+    nonisolated public static func collectedWords(recordURL: URL?) -> String {
+        guard let folder = recordURL?.deletingLastPathComponent(), let file = try? BlastSearchStore(folder: folder).load(),
+              let line = BlastSearchWords.collectedOnThePane(in: file) else { return "" }
+        return ". " + line
     }
 
     /// The words that name the sample a verdict is about, or nothing when no sample is known.
