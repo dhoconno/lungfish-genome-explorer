@@ -209,7 +209,10 @@ final class BatchEsVirituRowTests: XCTestCase {
         XCTAssertEqual(covidRow?.readCount, 8000)
         XCTAssertEqual(covidRow?.rpkmf ?? 0, 200.0, accuracy: 0.001)
         XCTAssertEqual(covidRow?.coverageDepth ?? 0, 55.0, accuracy: 0.001)
-        XCTAssertEqual(covidRow?.uniqueReads, 1)
+        // These assemblies carry no stored unique count, so the count was never computed and the row holds none. A
+        // screen shows that as a dash and an export writes an empty cell. A made-up 1 beside 8000 reads would read as
+        // nearly all duplicates (BIO's rule of ESVUNIQUE, `ClassifierUniqueReads.normalized`).
+        XCTAssertNil(covidRow?.uniqueReads)
         XCTAssertEqual(covidRow?.coverageBreadth ?? 0, 0.0, accuracy: 0.0001)
 
         let fluRow = rows.first(where: { $0.assembly == "GCF_002" })
