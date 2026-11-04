@@ -78,6 +78,10 @@ enum ViewSwitchKinds {
         kind("Quick Look", "Quick Look in empty", "files/Nextflow script previews as text", "k18-quicklook"),
         kind("Status only", "status in empty", "bundles/primer scheme, metadata only", "k19-status"),
         kind("PDF", "PDF in empty", "files/PDF figure", "k20-pdf"),
+        kind(
+            "FASTA collection", "FASTACollectionViewController in genomics",
+            "files/FASTA file with several records", "k21-fastacollection"
+        ),
     ]
 
     private static func kind(

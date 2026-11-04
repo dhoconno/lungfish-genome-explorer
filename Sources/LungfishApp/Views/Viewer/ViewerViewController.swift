@@ -149,15 +149,11 @@ public class ViewerViewController: NSViewController {
     var vcfDatasetController: VCFDatasetViewController? { installedSurface?.viewController as? VCFDatasetViewController }
 
     /// FASTA collection browser (shown in place of sequence viewer for multi-sequence FASTA files)
-    var fastaCollectionController: FASTACollectionViewController?
+    var fastaCollectionController: FASTACollectionViewController? { installedSurface?.viewController as? FASTACollectionViewController }
 
     /// A test's search in place of `blast submit` (`fastaBlastRunner(plan:operationID:override:)`). Nil runs the route.
     var fastaBlastVerificationRunner: FASTABlastVerificationRunner?
     var fastaOperationDialogPresenterForTesting: FASTAOperationDialogPresenter?
-    var activeFASTABlastTask: Task<Void, Never>?
-    var activeFASTABlastOperationID: UUID?
-    var activeFASTABlastRunID: UUID?
-    var lastFASTABlastRequest: (sourceLabel: String, fastaRecords: [String])?
 
     var activeOverlappingReadsExtractionTask: Task<Void, Never>?
 
@@ -1915,10 +1911,7 @@ public class ViewerViewController: NSViewController {
     var bundleBackNavigationAction: (() -> Void)?
 
     var collectionNavBar: NSView?
-    var collectionBackSequences: [LungfishCore.Sequence]?
-    var collectionBackAnnotations: [SequenceAnnotation]?
-    var collectionBackSourceNames: [UUID: String]?
-    var collectionBackSourceURLs: [URL]?
+    var collectionBackController: FASTACollectionViewController?
 
     func showBundleBackNavigationButton(title: String, action: @escaping () -> Void) {
         hideBundleBackNavigationButton()
@@ -2145,7 +2138,8 @@ public class ViewerViewController: NSViewController {
             displayFASTACollection(
                 sequences: document.sequences,
                 annotations: document.annotations,
-                durableSourceURLs: [document.url]
+                durableSourceURLs: [document.url],
+                sourceFiles: document.projectSequenceID == nil ? [document.url] : []
             )
             return
         }

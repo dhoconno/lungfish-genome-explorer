@@ -278,6 +278,21 @@ extension RoutingSafetyNetTable {
                     )
                 )
             },
+            RoutingRow(family: .files, name: "FASTA file with several records", type: .sequence) { context in
+                let fasta = context.url("Inputs/clusters.fasta")
+                try FileManager.default.createDirectory(at: fasta.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try ">cluster_1 first\nACGTACGTACGT\n>cluster_2 second\nGGCCGGCC\n".write(to: fasta, atomically: true, encoding: .utf8)
+                return RoutingRowFixture(
+                    item: RoutingSafetyNetItems.scanned(fasta),
+                    expected: RoutingObservation(
+                        viewports: ["FASTACollectionViewController"],
+                        mode: .genomics,
+                        loaded: ["Inputs/clusters.fasta"],
+                        provenance: "sequence Inputs/clusters.fasta",
+                        inspectorTab: genomicsTab
+                    )
+                )
+            },
             RoutingRow(family: .files, name: "sequence row whose document left the window", type: .sequence) { _ in
                 RoutingRowFixture(
                     item: SidebarItem(title: "MT192765.1", type: .sequence),

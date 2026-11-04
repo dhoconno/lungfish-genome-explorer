@@ -29,6 +29,37 @@ private final class FASTABlastProgressRelay: @unchecked Sendable {
     }
 }
 
+/// The search a collection has under way and the one its Re-run repeats. Each collection holds its own, through the
+/// closures the display gives it, so leaving a collection or searching from another ends none of this one's search.
+/// Only NCBI's answer or the person ends a search.
+@MainActor
+final class FASTACollectionBlastRun {
+    var task: Task<Void, Never>?
+    var operationID: UUID?
+    var runID: UUID?
+    var lastRequest: (sourceLabel: String, fastaRecords: [String])?
+
+    /// Ends the search this collection has under way, for the person's Cancel and for a newer search from this list.
+    func cancel() {
+        guard task != nil || operationID != nil else { return }
+        runID = nil
+        if let operationID {
+            OperationCenter.shared.cancel(id: operationID)
+        } else {
+            task?.cancel()
+        }
+        task = nil
+        operationID = nil
+    }
+
+    func clear(runID: UUID) {
+        guard self.runID == runID else { return }
+        self.runID = nil
+        task = nil
+        operationID = nil
+    }
+}
+
 extension ViewerViewController {
     // MARK: - FASTA Collection Display
 
@@ -38,16 +69,19 @@ extension ViewerViewController {
     /// - Parameters:
     ///   - sequences: All sequences from the FASTA file.
     ///   - annotations: Associated annotations (grouped by chromosome internally).
+    @discardableResult
     public func displayFASTACollection(
         sequences: [LungfishCore.Sequence],
         annotations: [SequenceAnnotation],
-        durableSourceURLs: [URL] = []
-    ) {
+        durableSourceURLs: [URL] = [],
+        sourceFiles: [URL] = []
+    ) -> Bool {
         displayFASTACollection(
             sequences: sequences,
             annotations: annotations,
             sourceNames: [:],
-            durableSourceURLs: durableSourceURLs
+            durableSourceURLs: durableSourceURLs,
+            sourceFiles: sourceFiles
         )
     }
 
@@ -62,12 +96,17 @@ extension ViewerViewController {
     ///   - annotations: Combined annotations from all selected documents.
     ///   - sourceNames: Maps sequence IDs to source file names. Pass empty for
     ///                  single-document display.
+    ///   - sourceFiles: The files the sequences were read from, which must still read for the list to open. A project
+    ///                  sequence has no file, so it adds none.
+    /// - Returns: Whether the list opened. When it did not, the status line says why.
+    @discardableResult
     public func displayFASTACollection(
         sequences: [LungfishCore.Sequence],
         annotations: [SequenceAnnotation],
         sourceNames: [UUID: String],
-        durableSourceURLs: [URL] = []
-    ) {
+        durableSourceURLs: [URL] = [],
+        sourceFiles: [URL] = []
+    ) -> Bool {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
@@ -88,22 +127,11 @@ extension ViewerViewController {
         )
         fastaCollectionSourceURLs = capturedSourceURLs
 
+        // An earlier list's way back ends here, whichever route brought this one.
+        hideCollectionBackButton()
+
         let controller = FASTACollectionViewController()
-        addChild(controller)
-
-        // Hide annotation drawer so it doesn't overlap the collection view
-        annotationDrawerView?.isHidden = true
-
-        let dashView = controller.view
-        dashView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(dashView)
-
-        NSLayoutConstraint.activate([
-            dashView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            dashView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            dashView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            dashView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
+        let blastRun = FASTACollectionBlastRun()
 
         controller.onBlastRequested = withBlastConsent(noun: "sequences") { [weak self, weak controller] selectedSequences in
             guard let controller else { return }
@@ -114,18 +142,20 @@ extension ViewerViewController {
             self?.runGenericBlastVerification(
                 sourceLabel: sourceLabel,
                 fastaRecords: fastaRecords,
-                presentingIn: controller
+                presentingIn: controller,
+                run: blastRun
             )
         }
-        controller.onBlastCancelRequested = { [weak self] in
-            self?.cancelActiveFASTABlast()
+        controller.onBlastCancelRequested = {
+            blastRun.cancel()
         }
         controller.onBlastRerunRequested = withBlastConsent(noun: "sequences") { [weak self, weak controller] in
-            guard let self, let controller, let lastRequest = self.lastFASTABlastRequest else { return }
+            guard let self, let controller, let lastRequest = blastRun.lastRequest else { return }
             self.runGenericBlastVerification(
                 sourceLabel: lastRequest.sourceLabel,
                 fastaRecords: lastRequest.fastaRecords,
-                presentingIn: controller
+                presentingIn: controller,
+                run: blastRun
             )
         }
         controller.onExtractSequenceRequested = { [weak self] selectedSequences in
@@ -175,18 +205,11 @@ extension ViewerViewController {
             )
         }
 
-        controller.configure(
-            sequences: sequences,
-            annotations: annotations,
-            sourceNames: sourceNames
-        )
-        // Store collection data so we can return to it via the back button
-        let allSequences = sequences
-        let allAnnotations = annotations
-        let allSourceNames = sourceNames
-
-        controller.onOpenSequence = { [weak self] sequence, sequenceAnnotations in
-            guard let self else { return }
+        let sequenceCount = sequences.count
+        controller.onOpenSequence = { [weak self, weak controller] sequence, sequenceAnnotations in
+            guard let self, let controller else { return }
+            // The clear removes the list, and the lines below put the genomics chrome on for one sequence. The back
+            // state keeps the list, so Back finds it as the person left it, and any search it has running goes on.
             self.hideFASTACollectionView()
             self.clearBundleDisplay()
             self.contentMode = .genomics
@@ -219,12 +242,7 @@ extension ViewerViewController {
             self.geneTabBarView.isHidden = true
 
             // Add "Back to Collection" button above the viewer
-            self.showCollectionBackButton(
-                sequences: allSequences,
-                annotations: allAnnotations,
-                sourceNames: allSourceNames,
-                durableSourceURLs: capturedSourceURLs
-            )
+            self.showCollectionBackButton(returningTo: controller, sequenceCount: sequenceCount)
 
             self.viewerView.needsDisplay = true
             self.enhancedRulerView.needsDisplay = true
@@ -233,31 +251,32 @@ extension ViewerViewController {
             self.scheduleDeferredRedraw()
         }
 
-        fastaCollectionController = controller
-
-        // Hide normal genomic viewer components
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
-
+        let contents = FASTACollectionSurface.Contents(
+            sequences: sequences, annotations: annotations, sourceNames: sourceNames, sourceFiles: sourceFiles
+        )
+        guard showFASTACollection(FASTACollectionSurface.Input(controller: controller, contents: contents)) else { return false }
         logger.info("displayFASTACollection: Showing browser with \(sequences.count) sequences")
+        return true
     }
 
-    /// Removes the FASTA collection browser and restores normal viewer components.
-    public func hideFASTACollectionView() {
-        guard let controller = fastaCollectionController else { return }
-        cancelActiveFASTABlast()
-        controller.view.removeFromSuperview()
-        controller.removeFromParent()
-        fastaCollectionController = nil
+    /// Shows a list through the host. One that does not open says why in the status line, in place of what the viewer showed.
+    private func showFASTACollection(_ input: FASTACollectionSurface.Input) -> Bool {
+        // Hide annotation drawer so it doesn't overlap the collection view
+        annotationDrawerView?.isHidden = true
+        do {
+            _ = try showSurface(.view(.fastaCollection), input: input, as: FASTACollectionSurface.self)
+            return true
+        } catch {
+            logger.error("displayFASTACollection: did not open: \(error.localizedDescription, privacy: .public)")
+            clearViewport(statusMessage: surfaceFailureWords("Unable to open the FASTA collection.", error))
+            return false
+        }
+    }
 
-        // Restore normal viewer components
-        enhancedRulerView.isHidden = false
-        viewerView.isHidden = false
-        statusBar.isHidden = false
-        revealAnnotationDrawerUnlessNativeBundleInstalled()
+    /// Removes the FASTA collection browser and restores normal viewer components. A search the list has running goes
+    /// on, since only NCBI's answer or the person ends one, so the surface has nothing to stop on its way out.
+    public func hideFASTACollectionView() {
+        clearSurface(ifShowing: .view(.fastaCollection))
     }
 
     private static func fastaRecord(for sequence: LungfishCore.Sequence) -> String {
@@ -281,7 +300,8 @@ extension ViewerViewController {
     private func runGenericBlastVerification(
         sourceLabel: String,
         fastaRecords: [String],
-        presentingIn controller: FASTACollectionViewController
+        presentingIn controller: FASTACollectionViewController,
+        run blastRun: FASTACollectionBlastRun
     ) {
         guard !fastaRecords.isEmpty else {
             controller.showBlastFailure(BlastServiceError.noSequences.localizedDescription)
@@ -302,32 +322,32 @@ extension ViewerViewController {
             try fastaBlastSubmitPlan(sourceLabel: sourceLabel, sequences: sequences)
         }) else { return }
         Self.beginGenericBlastVerificationOperation(sourceLabel: sourceLabel, cliCommand: plan?.cliCommand) { opID in
-            cancelActiveFASTABlast()
-            lastFASTABlastRequest = (sourceLabel, fastaRecords)
+            blastRun.cancel()
+            blastRun.lastRequest = (sourceLabel, fastaRecords)
             let runID = UUID()
-            activeFASTABlastRunID = runID
+            blastRun.runID = runID
             controller.showBlastLoading(phase: .submitting, requestId: nil)
-            activeFASTABlastOperationID = opID
+            blastRun.operationID = opID
 
             let request = BlastVerificationRequest(
                 taxonName: sourceLabel, taxId: 0, sequences: sequences, database: BlastDatabaseID.coreNT.rawValue, entrezQuery: nil
             )
             let runner = Self.fastaBlastRunner(plan: plan, operationID: opID, override: fastaBlastVerificationRunner)
-            let progressRelay = FASTABlastProgressRelay { [weak self, weak controller] fraction, message in
-                guard let self, let controller,
-                      self.activeFASTABlastRunID == runID else { return }
+            let progressRelay = FASTABlastProgressRelay { [weak blastRun, weak controller] fraction, message in
+                // The row reads on with its list gone. A cancelled run's row refuses the update.
                 guard OperationCenter.shared.update(
                     id: opID,
                     progress: fraction,
                     detail: message
                 ) else { return }
+                guard let blastRun, let controller, blastRun.runID == runID else { return }
                 controller.showBlastLoading(
                     phase: Self.blastPhase(forProgressMessage: message),
                     requestId: nil
                 )
             }
 
-            let task = Task { [weak self, weak controller] in
+            let task = Task { [weak blastRun, weak controller] in
                 do {
                     let (result, recordURL) = try await runner(
                         request,
@@ -340,48 +360,27 @@ extension ViewerViewController {
                         id: opID,
                         detail: "Results ready for \(result.readResults.count) sequence\(result.readResults.count == 1 ? "" : "s")"
                     ) else { return }
-                    guard let self, let controller,
-                          self.activeFASTABlastRunID == runID else { return }
-                    self.clearActiveFASTABlast(runID: runID)
+                    guard let blastRun, let controller, blastRun.runID == runID else { return }
+                    blastRun.clear(runID: runID)
                     controller.showBlastResults(result, recordURL: recordURL)
                 } catch let parked as BlastSubmitParked {
-                    self?.clearActiveFASTABlast(runID: runID)
+                    blastRun?.clear(runID: runID)
                     await Self.parkFASTABlastRow(opID, parked, controller: controller)
                 } catch is CancellationError {
                     OperationCenter.shared.acknowledgeCancellation(id: opID)
-                    self?.clearActiveFASTABlast(runID: runID)
+                    blastRun?.clear(runID: runID)
                 } catch {
                     let errorText = error.localizedDescription
                     guard OperationCenter.shared.fail(id: opID, detail: errorText, errorMessage: errorText) else { return }
-                    guard let self, let controller,
-                          self.activeFASTABlastRunID == runID else { return }
-                    self.clearActiveFASTABlast(runID: runID)
+                    guard let blastRun, let controller, blastRun.runID == runID else { return }
+                    blastRun.clear(runID: runID)
                     controller.showBlastFailure(errorText)
                 }
             }
 
             Self.setFASTABlastCancel(operationID: opID, output: plan?.request.outputURL, task: task)
-            activeFASTABlastTask = task
+            blastRun.task = task
         }
-    }
-
-    private func cancelActiveFASTABlast() {
-        guard activeFASTABlastTask != nil || activeFASTABlastOperationID != nil else { return }
-        activeFASTABlastRunID = nil
-        if let operationID = activeFASTABlastOperationID {
-            OperationCenter.shared.cancel(id: operationID)
-        } else {
-            activeFASTABlastTask?.cancel()
-        }
-        activeFASTABlastTask = nil
-        activeFASTABlastOperationID = nil
-    }
-
-    private func clearActiveFASTABlast(runID: UUID) {
-        guard activeFASTABlastRunID == runID else { return }
-        activeFASTABlastRunID = nil
-        activeFASTABlastTask = nil
-        activeFASTABlastOperationID = nil
     }
 
     nonisolated private static func blastPhase(forProgressMessage message: String) -> BlastJobPhase {
@@ -392,12 +391,7 @@ extension ViewerViewController {
     }
 
     /// Shows a navigation bar with "Back to Collection" above the viewer content.
-    private func showCollectionBackButton(
-        sequences: [LungfishCore.Sequence],
-        annotations: [SequenceAnnotation],
-        sourceNames: [UUID: String] = [:],
-        durableSourceURLs: [URL] = []
-    ) {
+    private func showCollectionBackButton(returningTo controller: FASTACollectionViewController, sequenceCount: Int) {
         hideCollectionBackButton()
 
         // Create a thin navigation bar that sits above the viewer content
@@ -409,7 +403,7 @@ extension ViewerViewController {
         button.bezelStyle = .accessoryBarAction
         button.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Back")
         button.imagePosition = .imageLeading
-        button.title = "All Sequences (\(sequences.count))"
+        button.title = "All Sequences (\(sequenceCount))"
         button.font = .systemFont(ofSize: 12, weight: .medium)
         button.target = self
         button.action = #selector(collectionBackButtonTapped(_:))
@@ -439,11 +433,8 @@ extension ViewerViewController {
             separator.bottomAnchor.constraint(equalTo: navBar.bottomAnchor),
         ])
 
-        // Store the collection data so we can return to it
-        collectionBackSequences = sequences
-        collectionBackAnnotations = annotations
-        collectionBackSourceNames = sourceNames
-        collectionBackSourceURLs = durableSourceURLs
+        // Keep the list itself, with the person's place in it, to return to
+        collectionBackController = controller
         collectionBackButton = button
         collectionNavBar = navBar
     }
@@ -452,23 +443,15 @@ extension ViewerViewController {
         collectionNavBar?.removeFromSuperview()
         collectionNavBar = nil
         collectionBackButton = nil
-        collectionBackSequences = nil
-        collectionBackAnnotations = nil
-        collectionBackSourceNames = nil
-        collectionBackSourceURLs = nil
+        collectionBackController = nil
     }
 
     @objc func collectionBackButtonTapped(_ sender: Any?) {
-        guard let sequences = collectionBackSequences,
-              let annotations = collectionBackAnnotations else { return }
-        let sourceNames = collectionBackSourceNames ?? [:]
-        let durableSourceURLs = collectionBackSourceURLs ?? []
+        guard let controller = collectionBackController else { return }
         hideCollectionBackButton()
-        displayFASTACollection(
-            sequences: sequences,
-            annotations: annotations,
-            sourceNames: sourceNames,
-            durableSourceURLs: durableSourceURLs
-        )
+        contentMode = .genomics
+        fastaCollectionSourceURLs = normalizedExistingURLs(fastaCollectionSourceURLs)
+        // No contents, so nothing configures the list again, and it reads no file.
+        _ = showFASTACollection(FASTACollectionSurface.Input(controller: controller, contents: nil))
     }
 }

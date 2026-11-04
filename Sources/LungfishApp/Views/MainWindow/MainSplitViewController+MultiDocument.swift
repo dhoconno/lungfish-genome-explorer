@@ -221,6 +221,7 @@ extension MainSplitViewController {
 
                 // Start with already-loaded documents
                 var loadedDocs = fullyLoadedDocuments
+                var unread: [(name: String, error: any Error)] = []
 
                 let selectedCatalogIDs = Set(catalogDocuments.map(\.id))
                 for document in catalogDocuments {
@@ -233,6 +234,7 @@ extension MainSplitViewController {
                     } catch {
                         guard !Task.isCancelled, self.canCommitDisplayRequest(token, identity: identity) else { return }
                         mainSplitLogger.warning("Selected project sequence failed to load: \(error.localizedDescription)")
+                        unread.append((document.name, error))
                     }
                 }
 
@@ -260,6 +262,7 @@ extension MainSplitViewController {
                         mainSplitLogger.debug("handleMultipleItemsSelected: Lazy loaded '\(existingDoc.name, privacy: .public)'")
                     } catch {
                         mainSplitLogger.error("handleMultipleItemsSelected: Failed to lazy load \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                        unread.append((url.lastPathComponent, error))
                     }
                 }
 
@@ -286,6 +289,7 @@ extension MainSplitViewController {
                         mainSplitLogger.debug("handleMultipleItemsSelected: Loaded '\(document.name, privacy: .public)'")
                     } catch {
                         mainSplitLogger.error("handleMultipleItemsSelected: Failed to load \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                        unread.append((url.lastPathComponent, error))
                     }
                 }
 
@@ -306,6 +310,7 @@ extension MainSplitViewController {
 
                 // Display combined sequences from all documents in the collection view
                 self.displayMultiDocumentCollection(loadedDocs)
+                self.sayWhatDidNotRead(unread, anyDocumentRead: !loadedDocs.isEmpty)
             }
         } else if !fullyLoadedDocuments.isEmpty {
             // All documents already loaded, display immediately
@@ -347,14 +352,27 @@ extension MainSplitViewController {
             return
         }
 
-        viewerController.displayFASTACollection(
+        guard viewerController.displayFASTACollection(
             sequences: allSequences,
             annotations: allAnnotations,
             sourceNames: sourceNames,
-            durableSourceURLs: documents.map(\.url)
-        )
+            durableSourceURLs: documents.map(\.url),
+            sourceFiles: documents.filter { $0.projectSequenceID == nil }.map(\.url)
+        ) else { return }
         recordUITestEvent("viewport.collection.displayed sequences=\(allSequences.count)")
         mainSplitLogger.info("displayMultiDocumentCollection: Displayed collection with \(allSequences.count) sequences from \(documents.count) files")
+    }
+
+    /// Says which files of a selection did not read. With none read the viewer has nothing to show, so the status line says
+    /// why. With some read the list shows them, under a sheet that names what is missing from it.
+    private func sayWhatDidNotRead(_ unread: [(name: String, error: any Error)], anyDocumentRead: Bool) {
+        guard let first = unread.first else { return }
+        if !anyDocumentRead {
+            viewerController.clearViewport(statusMessage: viewerController.surfaceFailureWords("Unable to open the FASTA collection.", first.error))
+        } else if let window = view.window {
+            let name = unread.count > 1 ? "\(first.name) and \(unread.count - 1) more" : first.name
+            FailurePresenter.present(MainWindowFailureReports.openFile(named: name, first.error), in: window)
+        }
     }
 
     @objc func handleDocumentLoaded(_ notification: Notification) {
