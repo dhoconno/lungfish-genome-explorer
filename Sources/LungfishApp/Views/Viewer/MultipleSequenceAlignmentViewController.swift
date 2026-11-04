@@ -338,7 +338,7 @@ struct MultipleSequenceAlignmentAnnotationProjectionRequest: Equatable, Sendable
 }
 
 @MainActor
-final class MultipleSequenceAlignmentViewController: NSViewController {
+final class MultipleSequenceAlignmentViewController: NSViewController, Sendable {
     private(set) var bundleURL: URL?
     private(set) var bundle: MultipleSequenceAlignmentBundle?
 
