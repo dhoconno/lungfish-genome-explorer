@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Lane BLASTCOLLECT, C3 (ARCH-BLAST-RESILIENCE sections 6 and 9, UX-BLAST-WORDS Q1, Q3 and Q8, ROWPANE-UX-2 F2). No
+// Lane BLASTCOLLECT, C3 (ARCH-BLAST-RESILIENCE sections 6 and 9, UX-BLAST-WORDS Q1, Q3 and Q8, finding F2 of the second ROWPANE UX review). No
 // network, no process and no modal. The files are the ones `blast submit` leaves.
 
 import AppKit
@@ -93,7 +93,7 @@ final class ClassifierResultActionsLiveSearchTests: XCTestCase {
         return false
     }
 
-    // MARK: - Two searches for two rows (ROWPANE-UX-2 F2, the cure of its stop-gap)
+    // MARK: - Two searches for two rows (finding F2 of the second ROWPANE UX review, the cure of its stop-gap)
 
     /// Each search's verdict lands on its own row whichever comes back first, and neither shows under the other's name.
     func testTwoSearchesForTwoRowsEachLandOnTheirOwnRow() async throws {
