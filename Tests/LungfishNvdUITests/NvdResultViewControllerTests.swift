@@ -350,7 +350,20 @@ final class NvdResultViewControllerTests: XCTestCase {
             database: "core_nt"
         ), recordURL: nil)
 
+        // The result came back while the pane was shut, and a result leaves a pane the person did not open shut
+        // (UX-BLAST-WORDS Q1, BLASTCOLLECT-UX Q4). The person opens it with the BLAST Results button, finds the result
+        // there, and presses Re-run BLAST, which sends one request.
+        func buttons(in view: NSView) -> [NSButton] {
+            view.subviews.flatMap { ($0 as? NSButton).map { [$0] } ?? buttons(in: $0) }
+        }
+        let results = try XCTUnwrap(
+            buttons(in: vc.testActionBar).first { $0.accessibilityIdentifier() == "classifier-result-blast-results" }
+        )
+        XCTAssertNil(vc.testBlastDrawerContainer, "a result does not open a pane the person left shut")
+        results.performClick(nil)
         let drawer = try XCTUnwrap(vc.testBlastDrawerContainer)
+        XCTAssertEqual(drawer.blastResultsTab.currentResult?.rid, "RID-1", "the result waits in the pane for the person")
+        XCTAssertEqual(blastRequestCount, 0, "opening the pane sends nothing")
         drawer.blastResultsTab.rerunBlastButton.performClick(nil)
 
         XCTAssertEqual(blastRequestCount, 1)
