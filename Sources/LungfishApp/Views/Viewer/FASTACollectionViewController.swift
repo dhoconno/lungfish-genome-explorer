@@ -482,7 +482,7 @@ public final class FASTACollectionViewController: NSViewController,
 
     /// Opens the sequence at `row` in the viewer, what a double-click,
     /// Return and Selection > Table Row > Open Row all do.
-    private func open(row: Int) {
+    func open(row: Int) {
         guard row >= 0, row < displayedSequences.count else { return }
         let seq = displayedSequences[row]
         let annotations = annotationsBySequence[seq.name] ?? []
