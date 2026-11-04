@@ -232,6 +232,31 @@ final class FASTACollectionViewerRoutingTests: XCTestCase {
         XCTAssertNotNil(viewer.children.compactMap { $0 as? FASTACollectionViewController }.first)
     }
 
+    /// A second collection chosen over one sequence takes the first list's back button and bar away. The hide at the top of
+    /// the display finds nothing to clear then, so the display itself drops the way back.
+    func testASecondCollectionOverOneSequenceTakesTheBackButtonAway() async throws {
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        let first = try Sequence(name: "first", alphabet: .dna, bases: "AAAA")
+        let second = try Sequence(name: "second", alphabet: .dna, bases: "CCCC")
+        weak var firstList: FASTACollectionViewController?
+        do {
+            viewer.displayFASTACollection(sequences: [first, second], annotations: [], sourceNames: [:])
+            let list = try XCTUnwrap(viewer.fastaCollectionController)
+            firstList = list
+            list.onOpenSequence?(first, [])
+        }
+        XCTAssertNotNil(viewer.collectionBackButton, "no back button over one sequence")
+
+        viewer.displayFASTACollection(sequences: [second], annotations: [], sourceNames: [:])
+
+        XCTAssertNotNil(viewer.fastaCollectionController, "the second collection never showed")
+        XCTAssertNil(viewer.collectionBackButton, "the first list's back button stays over the second list")
+        XCTAssertNil(viewer.collectionNavBar, "the first list's bar stays over the second list")
+        let released = await LungfishTestSupport.waitUntil(budget: .lookup) { firstList == nil }
+        XCTAssertTrue(released, "the first list outlived the second collection")
+    }
+
     // Fixed at 2s originally; under the full unit tier's parallel CPU load, a
     // 2s-second-sleep-plus-cancellation round trip (see
     // testBlastCancelAndRerunUseTheCurrentAndLastRequests) can be starved past
