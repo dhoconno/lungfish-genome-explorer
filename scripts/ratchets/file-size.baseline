@@ -18,7 +18,7 @@ Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift 2306
 Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1103
 Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift 971
 Sources/LungfishApp/Views/Inspector/InspectorView.swift 888
-Sources/LungfishApp/Views/Inspector/InspectorViewController+MetadataImport.swift 1052
+Sources/LungfishApp/Views/Inspector/InspectorViewController+MetadataImport.swift 1051
 Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 988
 Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1312
 Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift 1885
@@ -56,7 +56,7 @@ Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift 4
 Sources/LungfishApp/Views/Viewer/OperationPreviewView.swift 1766
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Alignment.swift 1411
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+AnnotationRendering.swift 1703
-Sources/LungfishApp/Views/Viewer/SequenceViewerView+Interaction.swift 2095
+Sources/LungfishApp/Views/Viewer/SequenceViewerView+Interaction.swift 2094
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+MultiSequence.swift 1066
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift 1231
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Tooltips.swift 939
