@@ -403,7 +403,7 @@ enum SidebarProjectScanner {
     /// Returns true for a directory an operation is still building, or one
     /// whose run never finished.
     ///
-    /// Two signals hide it. The `.processing` stage marker (``OperationMarker``)
+    /// Three signals hide it, the third a BLAST search with no record (``isBlastSearchWithoutRecord``). The `.processing` stage marker (``OperationMarker``)
     /// covers the short build of a single bundle. An ``AnalysisRunRecord``
     /// covers an analysis result directory for the whole run: it is written
     /// when the directory is created and removed only when the run succeeds
@@ -414,17 +414,6 @@ enum SidebarProjectScanner {
     /// signal is complete, including results from builds before the record.
     static func isIncompleteOutput(_ url: URL) -> Bool {
         OperationMarker.isInProgress(url) || AnalysisRunRecord.isIncomplete(url) || isBlastSearchWithoutRecord(url)
-    }
-
-    /// Whether `url` is the folder of a BLAST search that has no result record yet (BLAST-FAILED-LEFTOVERS). `blast
-    /// submit` writes `blast-search.json` first and `blast-result.json` only when a result exists, so a search that waits
-    /// at NCBI for hours, or that ended with nothing to show, left a folder of `query.fasta` and a provenance file that
-    /// read as a result with nothing in it. The folder shows once its record exists. The Operations row and the viewer's
-    /// pane carry the search until then. A folder with no search file (an older run) is listed as before.
-    static func isBlastSearchWithoutRecord(_ url: URL) -> Bool {
-        let fileManager = FileManager.default
-        return fileManager.fileExists(atPath: url.appendingPathComponent(BlastSearchFile.fileName).path)
-            && !fileManager.fileExists(atPath: url.appendingPathComponent(BlastSubmissionRecord.recordFileName).path)
     }
 
     /// Returns true for the pipeline's own working artefacts, which are never
