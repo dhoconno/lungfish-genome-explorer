@@ -46,6 +46,8 @@ OPTIONS:
   --related-name <related-name>
                           Organism name whose hits count as a relative
                           (repeatable)
+  --judged-at <judged-at> What the verdicts were judged at, species, rowTaxId
+                          or names (recorded, shown beside the counts)
   --extra-args <extra-args>
                           Additional BLAST URL API parameters as KEY=VALUE
                           tokens (for example WORD_SIZE=11)
