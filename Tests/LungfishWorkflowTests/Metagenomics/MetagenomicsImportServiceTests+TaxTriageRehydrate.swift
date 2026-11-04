@@ -178,6 +178,70 @@ extension MetagenomicsImportServiceTests {
         try rhExpectRecordShape(of: imported.resultDirectory)
     }
 
+    /// Item 5: a record that says the run failed is carried, and the result says it may be partial.
+    @Test
+    func testImportTaxTriageSaysWhenTheRunsRecordSaysItFailed() throws {
+        let fixture = try RehydrateFixture()
+        defer { fixture.cleanUp() }
+        try rhWrite(rhReport, "report/S1.odr.txt", in: fixture.source)
+        let runStep = try rhRunStep(in: fixture.source, outputs: ["report/S1.odr.txt"])
+        let failed = rhEnvelope(in: fixture.source, steps: [runStep]).with { $0.status = .failed }
+        try rhWriteRecord(failed, to: fixture.source)
+
+        let imported = try MetagenomicsImportService.importTaxTriage(
+            inputURL: fixture.source, outputDirectory: fixture.imports, preferredName: "imported-failed"
+        )
+
+        #expect(imported.sourceRunNote == "Source run: its record says failed, so this result may be partial.")
+        let record = try rhRecord(of: imported.resultDirectory)
+        #expect(record.steps.map(\.toolName) == ["taxtriage", "lungfish import"])
+        let sourceRun = try #require(rhDictionary(record.options.resolvedDefaults["sourceRun"]))
+        #expect(rhString(sourceRun["status"]) == "failed")
+    }
+
+    /// Item 10: a record that cannot be read is named in the result's words, and the import still succeeds.
+    @Test
+    func testImportTaxTriageWithAnUnreadableRunRecordSaysSo() throws {
+        let fixture = try RehydrateFixture()
+        defer { fixture.cleanUp() }
+        try rhWrite(rhReport, "report/S1.odr.txt", in: fixture.source)
+        try rhWrite("{ not a record", ProvenanceRecorder.provenanceFilename, in: fixture.source)
+
+        let imported = try MetagenomicsImportService.importTaxTriage(
+            inputURL: fixture.source, outputDirectory: fixture.imports, preferredName: "imported-unreadable"
+        )
+
+        let note = try #require(imported.sourceRunNote)
+        #expect(note.hasPrefix("Source run: its record could not be read ("), Comment(rawValue: note))
+        #expect(note.hasSuffix("), so this result records only the import"), Comment(rawValue: note))
+        let record = try rhRecord(of: imported.resultDirectory)
+        #expect(record.steps.map(\.toolName) == ["lungfish import"])
+        #expect(record.options.resolvedDefaults["sourceRunNote"] == .string(note))
+    }
+
+    /// Item 4: an output the run listed and the folder no longer holds leaves the step and is counted.
+    @Test
+    func testImportTaxTriageCountsAnOutputThatIsNoLongerInTheFolder() throws {
+        let fixture = try RehydrateFixture()
+        defer { fixture.cleanUp() }
+        try rhWrite(rhReport, "report/S1.odr.txt", in: fixture.source)
+        try rhWrite("Nextflow 24.10\n", "nextflow.log", in: fixture.source)
+        let runStep = try rhRunStep(in: fixture.source, outputs: ["report/S1.odr.txt", "nextflow.log"])
+        try rhWriteRecord(rhEnvelope(in: fixture.source, steps: [runStep]), to: fixture.source)
+        try FileManager.default.removeItem(at: fixture.source.appendingPathComponent("nextflow.log"))
+
+        let imported = try MetagenomicsImportService.importTaxTriage(
+            inputURL: fixture.source, outputDirectory: fixture.imports, preferredName: "imported-missing"
+        )
+
+        let record = try rhRecord(of: imported.resultDirectory)
+        let carried = try #require(record.steps.first)
+        #expect(carried.outputs.map { URL(fileURLWithPath: $0.path).lastPathComponent } == ["S1.odr.txt"])
+        let sourceRun = try #require(rhDictionary(record.options.resolvedDefaults["sourceRun"]))
+        #expect(sourceRun["outputsNotImported"] == .integer(1))
+        #expect(imported.sourceRunNote == nil)
+    }
+
     /// Item 13, last test and item 14: the real copier takes an imported run to another project and keeps its steps.
     @Test
     func testImportedTaxTriageCopiesToAnotherProject() throws {
