@@ -25,7 +25,8 @@ extension NvdBlastHit {
     /// these names. NVD's adjusted rank can sit below the current species (its
     /// `adjusted_taxid_rank` also reads `clade`). The read walks whole files, so
     /// call this off the main actor when a folder is passed. With no folder, or
-    /// a tax ID the taxonomy does not hold, the clade is the adjusted tax ID.
+    /// a tax ID the taxonomy does not hold, the clade is the adjusted tax ID. The context's basis is `species` with a
+    /// lineage and `rowTaxId` without (BLAST-ESVIRITU-FIRST-WORD).
     public func blastTaxonomyContext(taxonomyDirectory: URL? = nil) -> BlastTaxonomyContext {
         guard let taxId = Int(adjustedTaxid.trimmingCharacters(in: .whitespaces)) else {
             return BlastTaxonomyContext()
@@ -43,7 +44,7 @@ extension NvdBlastHit {
             }
         }
         return NCBITaxonomyLineage.blastTaxonomyContext(of: taxId, names: names, taxonomyDirectory: taxonomyDirectory)
-            ?? BlastTaxonomyContext(cladeTaxIds: [taxId], cladeNames: names)
+            ?? BlastTaxonomyContext(cladeTaxIds: [taxId], cladeNames: names, basis: .rowTaxId)
     }
 
     /// The request that re-BLASTs this hit's contig against NCBI `core_nt`.
@@ -65,7 +66,8 @@ extension NvdBlastHit {
             database: BlastDatabaseID.coreNT.rawValue,
             entrezQuery: nil,
             acceptedTaxIds: context.cladeTaxIds,
-            acceptedTaxonNames: context.cladeNames
+            acceptedTaxonNames: context.cladeNames,
+            judgedAt: context.basis
         )
     }
 

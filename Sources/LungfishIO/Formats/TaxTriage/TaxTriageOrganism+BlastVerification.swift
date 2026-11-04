@@ -21,15 +21,16 @@ extension TaxTriageOrganism {
     /// taxonomy tree beside its results, so descendants such as strains are
     /// recognised by name: a hit reporting a strain-level tax ID still supports
     /// the organism when its NCBI organism name contains this one. A row
-    /// without a tax ID is judged by name alone. There are no known relatives.
+    /// without a tax ID is judged by name alone. There are no known relatives. The context's basis says which of the
+    /// three it came to, `species`, `rowTaxId` or `names` (BLAST-ESVIRITU-FIRST-WORD).
     public func blastTaxonomyContext(taxonomyDirectory: URL? = nil) -> BlastTaxonomyContext {
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let names = trimmedName.isEmpty ? [] : [trimmedName]
         guard let taxId, taxId > 0 else {
-            return BlastTaxonomyContext(cladeNames: names)
+            return BlastTaxonomyContext(cladeNames: names, basis: .names)
         }
         return NCBITaxonomyLineage.blastTaxonomyContext(of: taxId, names: names, taxonomyDirectory: taxonomyDirectory)
-            ?? BlastTaxonomyContext(cladeTaxIds: [taxId], cladeNames: names)
+            ?? BlastTaxonomyContext(cladeTaxIds: [taxId], cladeNames: names, basis: .rowTaxId)
     }
 
     /// The request that re-BLASTs reads assigned to this organism against NCBI `core_nt`.
@@ -49,7 +50,8 @@ extension TaxTriageOrganism {
             database: BlastDatabaseID.coreNT.rawValue,
             entrezQuery: nil,
             acceptedTaxIds: context.cladeTaxIds,
-            acceptedTaxonNames: context.cladeNames
+            acceptedTaxonNames: context.cladeNames,
+            judgedAt: context.basis
         )
     }
 }

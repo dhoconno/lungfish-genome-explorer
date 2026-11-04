@@ -108,6 +108,9 @@ extension BlastCommand {
             if let subsampleCount, subsampleCount < 1 {
                 throw ValidationError("--subsample-count must be at least 1")
             }
+            if let judgedAt, BlastTaxonomyContext.Basis(rawValue: judgedAt) == nil {
+                throw ValidationError("--judged-at must be species, rowTaxId or names, not \(judgedAt)")
+            }
             _ = try BlastVerificationRequest.parseBlastURLAPIExtraParameters(extraArgs)
         }
 

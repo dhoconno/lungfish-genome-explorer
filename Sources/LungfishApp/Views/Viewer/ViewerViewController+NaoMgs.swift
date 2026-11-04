@@ -100,7 +100,9 @@ extension ViewerViewController {
     /// taxon's own tax ID and name judge, and a descendant or parent named otherwise counts as outside.
     ///
     /// `taxonomyDirectory` is ``installedNCBITaxonomyDirectory()``. Reading it walks whole files, so a caller on the
-    /// main actor builds this plan through ``blastSubmitPlanOffMainActor(_:)``.
+    /// main actor builds this plan through ``blastSubmitPlanOffMainActor(_:)``. The plan sends what it judged at to the
+    /// leaf as `--judged-at` (BLAST-ESVIRITU-FIRST-WORD), `species` with a lineage, else `rowTaxId`, or `names` with no
+    /// tax ID.
     nonisolated static func naoMgsBlastSubmitPlan(
         taxonName: String,
         taxId: Int,
@@ -119,6 +121,7 @@ extension ViewerViewController {
         guard projectURL != nil else { throw BlastSubmitPlanError.noProject }
         let context = NCBITaxonomyLineage.blastTaxonomyContext(of: taxId, names: [taxonName], taxonomyDirectory: taxonomyDirectory)
         let acceptedTaxIds = context.map { $0.cladeTaxIds.sorted() } ?? (taxId > 0 ? [taxId] : [])
+        let judgedAt: BlastTaxonomyContext.Basis = context?.basis ?? (taxId > 0 ? .rowTaxId : .names)
         let longestCount = min(5, readCount / 4)
         let seed: UInt64 = 0
         let subsampled = BlastService(environment: [:]).subsampleReads(
@@ -131,7 +134,8 @@ extension ViewerViewController {
             outputParentURL: projectURL, taxId: taxId,
             sample: BlastSavedSearchRow.lineageSample(of: samples),
             subsampleCount: subsampled.count, subsampleSeed: seed,
-            acceptedTaxIds: acceptedTaxIds, acceptedNames: context?.cladeNames ?? [taxonName], date: date
+            acceptedTaxIds: acceptedTaxIds, acceptedNames: context?.cladeNames ?? [taxonName],
+            judgedAt: judgedAt.rawValue, date: date
         )
     }
 

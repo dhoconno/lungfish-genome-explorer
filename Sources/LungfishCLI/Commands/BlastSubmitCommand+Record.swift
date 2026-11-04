@@ -133,6 +133,7 @@ extension BlastCommand.SubmitSubcommand {
         if let subsampleCount { options["subsampleCount"] = .integer(subsampleCount) }
         if let subsampleSeed { options["subsampleSeed"] = .string(String(subsampleSeed)) }
         if let entrezQuery { options["entrezQuery"] = .string(entrezQuery) }
+        if let judgedAt { options["judgedAt"] = .string(judgedAt) }
         if !extraArgs.isEmpty { options["extraArgs"] = .string(extraArgs) }
         return options
     }

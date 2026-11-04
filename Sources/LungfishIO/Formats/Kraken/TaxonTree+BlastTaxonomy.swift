@@ -20,10 +20,11 @@ extension TaxonTree {
     ///   with the genus name leading the related names. A taxon at or above
     ///   genus rank has no relatives.
     ///
-    /// A taxon missing from the tree yields a clade of just `taxId`.
+    /// A taxon missing from the tree yields a clade of just `taxId`. The context's basis is `species` for a clade the
+    /// tree gave and `rowTaxId` for that lone tax ID (BLAST-ESVIRITU-FIRST-WORD).
     public func blastTaxonomyContext(for taxId: Int) -> BlastTaxonomyContext {
         guard let node = node(taxId: taxId) else {
-            return BlastTaxonomyContext(cladeTaxIds: [taxId])
+            return BlastTaxonomyContext(cladeTaxIds: [taxId], basis: .rowTaxId)
         }
         var root = node
         var ancestor = node.rank == .species ? nil : node.parent
@@ -49,7 +50,7 @@ extension TaxonTree {
             cursor = current.parent
         }
         guard node.rank != .genus, let genus else {
-            return BlastTaxonomyContext(cladeTaxIds: cladeIds, cladeNames: cladeNames)
+            return BlastTaxonomyContext(cladeTaxIds: cladeIds, cladeNames: cladeNames, basis: .species)
         }
 
         let relatives = genus.allDescendants().filter { !cladeIds.contains($0.taxId) }
@@ -58,7 +59,8 @@ extension TaxonTree {
             cladeTaxIds: cladeIds,
             cladeNames: cladeNames,
             relatedTaxIds: Set(relatives.map(\.taxId)),
-            relatedNames: relatedNames
+            relatedNames: relatedNames,
+            basis: .species
         )
     }
 }

@@ -56,7 +56,8 @@ public enum NCBITaxonomyLineage {
     ///
     /// The clade names are `names`, the row's own, then the scientific names of the path that `names.dmp` holds. A path
     /// name puts "Rotavirus A" beside "Human rotavirus A", so a strain record the clade does not list still counts when
-    /// its organism holds one. The clade has no relatives, as a route with no tree has none.
+    /// its organism holds one. The clade has no relatives, as a route with no tree has none. Its basis is `species`
+    /// (BLAST-ESVIRITU-FIRST-WORD), and a caller that falls back to the row's own tax ID or name sets its own.
     public static func blastTaxonomyContext(
         of taxId: Int,
         names: [String],
@@ -71,7 +72,7 @@ public enum NCBITaxonomyLineage {
         for id in clade.path {
             if let name = pathNames[id], !accepted.contains(name) { accepted.append(name) }
         }
-        return BlastTaxonomyContext(cladeTaxIds: clade.taxIds, cladeNames: accepted)
+        return BlastTaxonomyContext(cladeTaxIds: clade.taxIds, cladeNames: accepted, basis: .species)
     }
 
     // MARK: - merged.dmp
