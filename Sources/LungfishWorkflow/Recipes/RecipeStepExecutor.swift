@@ -151,6 +151,9 @@ public struct StepOutput: Sendable {
     public let supplementaryInvocations: [RecipeSupplementaryInvocation]
     /// Database files the step read, by their identity, checked against the lock before its tool ran.
     public let databases: [RecipeDatabaseRecord]
+    /// Pairs the step dropped because they did not merge, as its tool's report gives them. Nil when the step
+    /// dropped none by design, or when its report gives no figure (row AMPLICON-MERGE-DROP-WORDS).
+    public let droppedUnmergedPairs: Int?
 
     public init(r1: URL, r2: URL? = nil, r3: URL? = nil,
                 format: RecipeFileFormat, readCount: Int? = nil,
@@ -161,7 +164,8 @@ public struct StepOutput: Sendable {
                 completedAt: Date? = nil,
                 mixedLayout: RecipeMixedLayoutCounts? = nil,
                 supplementaryInvocations: [RecipeSupplementaryInvocation] = [],
-                databases: [RecipeDatabaseRecord] = []) {
+                databases: [RecipeDatabaseRecord] = [],
+                droppedUnmergedPairs: Int? = nil) {
         self.r1 = r1
         self.r2 = r2
         self.r3 = r3
@@ -178,6 +182,7 @@ public struct StepOutput: Sendable {
         self.mixedLayout = mixedLayout
         self.supplementaryInvocations = supplementaryInvocations
         self.databases = databases
+        self.droppedUnmergedPairs = droppedUnmergedPairs
     }
 }
 

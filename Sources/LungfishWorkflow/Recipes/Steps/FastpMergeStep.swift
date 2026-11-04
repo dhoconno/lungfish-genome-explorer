@@ -91,7 +91,8 @@ public struct FastpMergeStep: RecipeStepExecutor {
             exitStatus: Int(result.exitCode),
             stderr: result.stderr,
             startedAt: mergeClock.startedAt,
-            completedAt: completedAt
+            completedAt: completedAt,
+            droppedUnmergedPairs: counts?.unmergedPairs
         )
     }
 }

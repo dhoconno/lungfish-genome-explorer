@@ -49,6 +49,10 @@ public struct RecipeStepResult: Codable, Sendable {
     /// The switch whose value turned this step off, so that it did not run. Nil for a step that ran and for every
     /// record written before 2026-10-22 (CHTC lane C2-MERGED, QA review point 9).
     public let turnedOffBy: RecipeSwitchSetting?
+    /// Pairs a merge step dropped because they did not merge, as its tool's report gave them (fastp with
+    /// `keepUnmerged` off). Nil for every other step, for a merge that kept its unmerged pairs, for a report
+    /// that gave no figure and for every record written before 2026-11-04 (row AMPLICON-MERGE-DROP-WORDS).
+    public let droppedUnmergedPairs: Int?
 
     private enum CodingKeys: String, CodingKey {
         case stepName
@@ -69,6 +73,7 @@ public struct RecipeStepResult: Codable, Sendable {
         case completedAt
         case databases
         case turnedOffBy
+        case droppedUnmergedPairs
     }
 
     private static let deduplicationComponentID = "fastp-dedup"
@@ -93,7 +98,8 @@ public struct RecipeStepResult: Codable, Sendable {
         startedAt: Date? = nil,
         completedAt: Date? = nil,
         databases: [RecipeDatabaseRecord] = [],
-        turnedOffBy: RecipeSwitchSetting? = nil
+        turnedOffBy: RecipeSwitchSetting? = nil,
+        droppedUnmergedPairs: Int? = nil
     ) {
         self.init(
             stepName: stepName,
@@ -113,7 +119,8 @@ public struct RecipeStepResult: Codable, Sendable {
             startedAt: startedAt,
             completedAt: completedAt,
             databases: databases,
-            turnedOffBy: turnedOffBy
+            turnedOffBy: turnedOffBy,
+            droppedUnmergedPairs: droppedUnmergedPairs
         )
     }
 
@@ -138,7 +145,8 @@ public struct RecipeStepResult: Codable, Sendable {
         startedAt: Date?,
         completedAt: Date?,
         databases: [RecipeDatabaseRecord],
-        turnedOffBy: RecipeSwitchSetting?
+        turnedOffBy: RecipeSwitchSetting?,
+        droppedUnmergedPairs: Int?
     ) {
         self.stepName = stepName
         self.tool = tool
@@ -158,6 +166,7 @@ public struct RecipeStepResult: Codable, Sendable {
         self.completedAt = completedAt
         self.databases = databases
         self.turnedOffBy = turnedOffBy
+        self.droppedUnmergedPairs = droppedUnmergedPairs
     }
 
     public init(from decoder: any Decoder) throws {
@@ -189,6 +198,7 @@ public struct RecipeStepResult: Codable, Sendable {
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
         databases = try container.decodeIfPresent([RecipeDatabaseRecord].self, forKey: .databases) ?? []
         turnedOffBy = try container.decodeIfPresent(RecipeSwitchSetting.self, forKey: .turnedOffBy)
+        droppedUnmergedPairs = try container.decodeIfPresent(Int.self, forKey: .droppedUnmergedPairs)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -221,6 +231,7 @@ public struct RecipeStepResult: Codable, Sendable {
             try container.encode(databases, forKey: .databases)
         }
         try container.encodeIfPresent(turnedOffBy, forKey: .turnedOffBy)
+        try container.encodeIfPresent(droppedUnmergedPairs, forKey: .droppedUnmergedPairs)
     }
 
     public func replacingAuxiliaryOutputs(
@@ -245,7 +256,8 @@ public struct RecipeStepResult: Codable, Sendable {
             startedAt: startedAt,
             completedAt: completedAt,
             databases: databases,
-            turnedOffBy: turnedOffBy
+            turnedOffBy: turnedOffBy,
+            droppedUnmergedPairs: droppedUnmergedPairs
         )
     }
 

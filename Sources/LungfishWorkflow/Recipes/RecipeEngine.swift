@@ -362,7 +362,7 @@ public final class RecipeEngine: Sendable {
                     stderr: currentOutput.stderr,
                     startedAt: currentOutput.startedAt,
                     completedAt: currentOutput.completedAt,
-                    databases: currentOutput.databases
+                    databases: currentOutput.databases, droppedUnmergedPairs: currentOutput.droppedUnmergedPairs
                 ))
                 // A step that ran a second process (the length filter's
                 // pair-aware fastp pass) gets one record per process so the

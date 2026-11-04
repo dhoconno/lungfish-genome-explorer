@@ -2,7 +2,7 @@
     "formatVersion": 1,
     "id": "illumina-amplicon-merge",
     "name": "Illumina Amplicon Merge",
-    "description": "Prepare paired-end Illumina amplicon reads for exact-match genotyping by keeping only overlap-merged synthetic reads. The normal FASTQ import finalization step then clumpifies and compresses each sample bundle.",
+    "description": "Prepare paired-end Illumina amplicon reads for exact-match genotyping by keeping only reads merged from overlapping pairs. Pairs that do not overlap are dropped and are not stored. The normal FASTQ import finalization step then clumpifies and compresses each sample bundle.",
     "author": "Lungfish Built-in",
     "tags": ["illumina", "amplicon", "paired-end", "genotyping", "merge"],
     "platforms": ["illumina"],

@@ -423,7 +423,7 @@ public enum FASTQBatchImporter {
         if let summary = recipeApplied.humanScrubSummary {
             events.append(readDeltaEvent(sample: sample, label: "Human scrub", summary: summary))
         }
-        return events
+        return events + mergeDropNotices(sample: sample, recipeApplied: recipeApplied)
     }
 
     private static func readDeltaEvent(
