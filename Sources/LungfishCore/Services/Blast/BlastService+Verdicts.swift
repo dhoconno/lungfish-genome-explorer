@@ -114,8 +114,12 @@ extension BlastService {
             )
         }
 
+        // NCBI's order among records tied at the best score is not evidence. The tax ID rule looks at the whole tie.
+        let tie = BlastReadTie(hits: result.hits, hitListSize: hitListSize, queriedTaxonName: queriedTaxonName, context: context)
+        let hits = tie?.displayOrder(of: result.hits) ?? result.hits
+
         // Find the best HSP across all hits
-        guard let topHit = result.hits.first,
+        guard let topHit = hits.first,
               let bestHSP = topHit.hsps.first else {
             // No hits at all
             return BlastReadResult(
@@ -142,7 +146,7 @@ extension BlastService {
 
         // Build up to 5 hit summaries sorted by best HSP e-value
         let topHits = buildHitSummaries(
-            hits: result.hits,
+            hits: hits,
             queryLength: result.queryLength,
             maxCount: 5
         )
@@ -155,8 +159,6 @@ extension BlastService {
             queriedTaxonName: queriedTaxonName,
             context: context
         )
-        // NCBI's order among records tied at the best score is not evidence. The tax ID rule looks at the whole tie.
-        let tie = BlastReadTie(hits: result.hits, hitListSize: hitListSize, queriedTaxonName: queriedTaxonName, context: context)
         let matchesQueriedTaxon = tie?.holdsClade ?? Self.legacyNameMatchesQueriedTaxon(
             hitOrganism: hitOrganism, queriedTaxonName: queriedTaxonName, acceptedTaxonNames: context.cladeNames
         )
@@ -182,7 +184,8 @@ extension BlastService {
             hasLCADisagreement: hasLCADisagreement,
             matchesQueriedTaxon: matchesQueriedTaxon,
             submittedMate: sequenceMates[result.queryId],
-            topHitRelation: relation
+            topHitRelation: relation,
+            tieSummary: tie?.summary
         )
     }
 

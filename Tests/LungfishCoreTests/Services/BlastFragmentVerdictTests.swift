@@ -126,7 +126,7 @@ final class BlastFragmentVerdictTests: XCTestCase {
         let xmlOrder = judgedSecondMateAlone(walkHits)
         XCTAssertEqual(xmlOrder.supportingCount, 1, "in the reply's order")
         XCTAssertEqual(xmlOrder.confidence, .supported, "in the reply's order")
-        XCTAssertEqual(xmlOrder.readResults.first?.topHitRelation, .outside, "the relation stays the first record's")
+        XCTAssertEqual(xmlOrder.readResults.first?.topHitRelation, .clade, "a shared tie shows its first clade record first")
 
         var hits = walkHits
         hits.swapAt(0, 1)
@@ -256,7 +256,7 @@ final class BlastFragmentVerdictTests: XCTestCase {
         XCTAssertEqual(result.totalReads, 1)
         XCTAssertEqual(result.judgedSequenceCount, 2)
         let row = try XCTUnwrap(result.readResults.first)
-        XCTAssertEqual(row.topHitAccession, "PX372844")
+        XCTAssertEqual(row.topHitAccession, "OQ751369")
         XCTAssertTrue(row.hasLCADisagreement)
         XCTAssertEqual(row.querySequence, mate2)
         XCTAssertEqual(row.otherMates?.first?.verdict, .unverified)
@@ -311,7 +311,7 @@ final class BlastFragmentVerdictTests: XCTestCase {
         XCTAssertEqual(result.totalReads, 1)
         XCTAssertEqual(result.supportingCount, 1)
         XCTAssertEqual(result.judgedSequenceCount, 2)
-        XCTAssertEqual(result.readResults.first?.topHitAccession, "PX372844")
+        XCTAssertEqual(result.readResults.first?.topHitAccession, "OQ751369")
     }
 
     // MARK: - Reconciling answers with sequences

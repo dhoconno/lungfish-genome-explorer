@@ -103,7 +103,10 @@ extension BlastService {
             parseHit(hitDict)
         }
 
-        return BlastSearchResult(queryId: queryTitle, queryLength: queryLen, hits: hits)
+        return BlastSearchResult(
+            queryId: queryTitle, queryLength: queryLen, hits: hits,
+            databaseSequenceCount: Self.jsonInt((search["stat"] as? [String: Any])?["db_num"])
+        )
     }
 
     /// Parses a single hit from the JSON2 hits array.

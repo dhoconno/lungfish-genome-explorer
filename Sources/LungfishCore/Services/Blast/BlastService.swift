@@ -417,8 +417,8 @@ public actor BlastService {
             submittedAt: submittedAt,
             completedAt: completedAt,
             rid: rid,
-            blastProgram: request.program,
-            database: request.database
+            blastProgram: request.program, database: request.database,
+            databaseSequenceCount: searchResults.lazy.compactMap(\.databaseSequenceCount).first
         )
     }
 

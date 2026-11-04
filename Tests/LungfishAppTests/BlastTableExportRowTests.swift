@@ -87,7 +87,7 @@ final class BlastTableExportRowTests: XCTestCase {
     }
 
     private func walkFragment(rows otherMates: [BlastReadResult]?) -> BlastVerificationResult {
-        let hits = ["PX372844", "OQ751369", "ON783971", "MN965909", "MN965880"].enumerated().map { index, accession in
+        let hits = ["OQ751369", "PX372844", "ON783971", "MN965909", "MN965880"].enumerated().map { index, accession in
             BlastHitSummary(
                 rank: index + 1, accession: accession, organism: "Organism \(index)", taxId: 11676,
                 percentIdentity: 100, queryCoverage: 100, eValue: 4.2664e-29, bitScore: 139.619, alignmentLength: 75
@@ -110,7 +110,7 @@ final class BlastTableExportRowTests: XCTestCase {
             .dropFirst()
             .map { $0.split(separator: ",", omittingEmptySubsequences: false).map(String.init) }
         XCTAssertEqual(rows.count, 6, "five hit rows and one no-hit row")
-        XCTAssertEqual(rows.prefix(5).map { $0[4] }, ["PX372844", "OQ751369", "ON783971", "MN965909", "MN965880"])
+        XCTAssertEqual(rows.prefix(5).map { $0[4] }, ["OQ751369", "PX372844", "ON783971", "MN965909", "MN965880"])
         XCTAssertEqual(rows.prefix(5).map { $0[1] }, Array(repeating: "verified", count: 5))
         XCTAssertEqual(rows.last?[0], "SRR12486983.3484597")
         XCTAssertEqual(rows.last?[1], "unverified")
