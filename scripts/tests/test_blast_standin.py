@@ -1,10 +1,12 @@
 """The stand-in a walk's BLAST rows run on. Nothing here leaves 127.0.0.1."""
 
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 import urllib.error
 import urllib.parse
@@ -136,6 +138,40 @@ class BlastStandInTests(unittest.TestCase):
             for word in ("ncbi_sid", "MYNCBI_USER", "Set-Cookie", "wisc.edu", "EMAIL"):
                 self.assertNotIn(word, text, name)
             self.assertIn("BlastOutput2", text)
+
+    @unittest.skipUnless((ROOT / ".build" / "debug" / "lungfish-cli").exists(), "the Debug CLI is not built")
+    def test_the_debug_cli_parks_on_a_held_search_and_collects_it_after_a_release(self):
+        with tempfile.TemporaryDirectory() as folder:
+            place = Path(folder)
+            query = place / "query.fasta"
+            query.write_text(">walk_read\n" + "ACGTT" * 100 + "\n")
+            output = place / "search"
+            output.mkdir()
+            cli = str(ROOT / ".build" / "debug" / "lungfish-cli")
+            environment = {
+                **os.environ,
+                "LUNGFISH_BLAST_STAND_IN_ORIGIN": self.origin,
+                "LUNGFISH_BLAST_STAND_IN_STATE": str(place / "state"),
+                "LUNGFISH_BLAST_STAND_IN_TIME_SCALE": "600",
+            }
+            shared = ["--format", "json", "--no-progress"]
+            parked = subprocess.run(
+                [cli, "blast", "submit", "--query", str(query), "--output", str(output), "--name", "Walk", "--park", *shared],
+                env=environment, capture_output=True, text=True, timeout=120,
+            )
+            self.assertEqual(parked.returncode, 75, parked.stdout + parked.stderr)
+            self.assertIn('"waiting"', parked.stdout)
+            self.assertEqual(self.control("state")["puts"], 3, "the first send and two copies")
+
+            self.control("release")
+            came_back = subprocess.run(
+                [cli, "blast", "resume", "--output", str(output), "--once", *shared],
+                env=environment, capture_output=True, text=True, timeout=120,
+            )
+            self.assertEqual(came_back.returncode, 0, came_back.stdout + came_back.stderr)
+            record = json.loads((output / "blast-result.json").read_text())
+            self.assertIn(record["result"]["rid"], {"WALK1", "WALK2", "WALK3"})
+            self.assertEqual(record["result"]["readResults"][0]["id"], "walk_read")
 
 
 if __name__ == "__main__":

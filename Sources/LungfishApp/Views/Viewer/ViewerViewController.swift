@@ -1694,7 +1694,7 @@ public class ViewerViewController: NSViewController {
         activeFASTABlastOperationID = nil
     }
 
-    nonisolated private static func blastPhase(forProgressMessage message: String) -> BlastJobPhase {
+    nonisolated static func blastPhase(forProgressMessage message: String) -> BlastJobPhase {
         let lowercased = message.lowercased()
         if lowercased.contains("waiting") { return .waiting }
         if lowercased.contains("parsing") { return .parsing }

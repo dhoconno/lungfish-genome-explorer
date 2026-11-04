@@ -220,4 +220,54 @@ final class BlastHeldSearchEndToEndTests: XCTestCase {
         XCTAssertNotEqual(Self.sendATop, Self.sendBTop)
         XCTAssertNil(monitor.row(ofSearch: searchID), "the row's search has ended")
     }
+
+    /// BIO 4.5. A quit while the result is on its way leaves the search to go on, and no record says anything of it.
+    func testASIGTERMDuringTheHeldFetchLeavesNoRecord() async throws {
+        let gate = DispatchSemaphore(value: 0)
+        let body = try Self.reply("sars-cov-2-one-read-send-a")
+        let server = try LoopbackHTTPStandIn.start { request in
+            guard request.path == "/blast/Blast.cgi" else { return .notFound }
+            if request.method == "POST" {
+                return .text("<!--QBlastInfoBegin\n    RID = HELDFETCH\n    RTOE = 1\nQBlastInfoEnd-->")
+            }
+            if request.queryItems.contains(URLQueryItem(name: "FORMAT_OBJECT", value: "SearchInfo")) {
+                return .text("<!--QBlastInfoBegin\n    Status=READY\nQBlastInfoEnd-->")
+            }
+            _ = gate.wait(timeout: .now() + .seconds(60))
+            return LoopbackHTTPResponse(contentType: "application/json", body: body)
+        }
+        defer {
+            gate.signal()
+            server.stop()
+        }
+        let plan = try makePlan()
+        let output = plan.request.outputURL
+        let stage = plan.request.queryURL.deletingLastPathComponent()
+        try DurableReplace.replace(plan.queryData, named: plan.request.queryURL.lastPathComponent, in: stage)
+        let run = try CLISIGTERMHarness.launchCLI(
+            plan.arguments,
+            environment: [
+                BlastServiceEndpoints.standInOriginVariable: server.baseURL.absoluteString,
+                BlastStandInState.stateVariable: stateFolder.path,
+                BlastStandInState.timeScaleVariable: BlastSubmitParity.fastClock,
+            ],
+            testClass: Self.self
+        )
+        defer { run.stop() }
+        let statusCheck = URLQueryItem(name: "FORMAT_OBJECT", value: "SearchInfo")
+        let fetching = await waitUntil(budget: .lookup) {
+            server.requests.contains { $0.method == "GET" && !$0.queryItems.contains(statusCheck) }
+        }
+        XCTAssertTrue(fetching, "the leaf never fetched")
+
+        let stop = await CLISIGTERMHarness.cancel(run)
+
+        CLISIGTERMHarness.assertCancelledExit(stop, within: CLISIGTERMHarness.operationGrace)
+        CLISIGTERMHarness.assertNoProcessLeft(stop)
+        let names = try FileManager.default.contentsOfDirectory(atPath: output.path)
+        XCTAssertFalse(names.contains { $0.hasSuffix(".lungfish-provenance.json") }, "\(names)")
+        XCTAssertFalse(names.contains("blast-result.json"), "\(names)")
+        XCTAssertFalse(try BlastSearchStore(folder: output).load().state.isEnding, "a quit ends no search")
+        XCTAssertFalse(stop.standardOutput.contains(#""event":"failed""#), "a quit reports no failure")
+    }
 }

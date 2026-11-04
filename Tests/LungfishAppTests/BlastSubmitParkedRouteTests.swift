@@ -188,14 +188,18 @@ final class BlastSubmitParkedRouteTests: XCTestCase {
         let id = beginRow(for: plan)
         defer { OperationCenter.shared.clearItem(id: id) }
 
+        let runner = CLIBlastSubmitRunner(cliURLOverride: cli)
         let task = ViewerViewController.launchBlastSubmit(
-            plan, operationID: id, runner: CLIBlastSubmitRunner(cliURLOverride: cli), drawer: ParkedDrawerSpy().drawer, monitor: idleMonitor
+            plan, operationID: id, runner: runner, drawer: ParkedDrawerSpy().drawer, monitor: idleMonitor
         ) { _ in "completed" }
         let started = await waitUntil(timeout: .seconds(30)) { FileManager.default.fileExists(atPath: log.path) }
         XCTAssertTrue(started)
 
         OperationCenter.shared.cancelAll()
+        // The leaf sleeps until the SIGTERM of the cancel callback, so this returns only after that callback has read the quit.
         await task.value
+        XCTAssertFalse(runner.wasStoppedByAPerson, "the callback read this quit as a person's Stop")
+        XCTAssertNotEqual(item(id)?.detail, BlastSearchWords.stopped)
 
         let argv = try String(contentsOf: log, encoding: .utf8)
         XCTAssertFalse(argv.contains("blast stop"), argv)
