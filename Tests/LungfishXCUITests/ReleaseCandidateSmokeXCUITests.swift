@@ -180,6 +180,7 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
             ("Assembly", ReleaseSmokeFixtures.assemblyRow, any["assembly-result-view"].firstMatch),
             ("Genotype", ReleaseSmokeFixtures.genotypeRow, any["genotype-result-view"].firstMatch),
             ("Quick Look", ReleaseSmokeFixtures.previewFile, any["viewer-plain-text-preview"].firstMatch),
+            ("FASTQ", ReleaseSmokeFixtures.fastqRow, any["fastq-dataset-view"].firstMatch),
         ]
         // A preview's status words come from the status bar under it (`Previewing: <file>`), and they stay for the
         // matrix row "Nextflow script previews as text" (RoutingSafetyNetTable+ContainerAndFileRows).
@@ -338,7 +339,30 @@ enum ReleaseSmokeFixtures {
         try addAssemblyResult(to: project)
         try addGenotypeResult(to: project)
         try addScriptPreview(to: project)
+        try addFASTQBundle(to: project)
         return project
+    }
+
+    /// The sidebar words of the FASTQ bundle, which its folder name carries.
+    static let fastqRow = "Smoke FASTQ"
+
+    /// A FASTQ bundle with cached statistics, so the dashboard opens with no seqkit (the unit matrix row "FASTQ bundle with
+    /// cached statistics"). The reads are two records of 8 bases at quality 40. The sidecar `reads.fastq.lungfish-meta.json`
+    /// (`FASTQMetadataStore.metadataURL`) holds their `FASTQDatasetStatistics` as the encoder writes them, with 12 of 16
+    /// bases G or C. The length histogram has Int keys, so it is an object, and the quality histogram has UInt8 keys, so it
+    /// is a list of key and count. The per-position quality list is empty, which the charts draw as no boxes.
+    static func addFASTQBundle(to project: URL) throws {
+        let bundle = project.appendingPathComponent("\(fastqRow).lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try "@read1\nACGTACGT\n+\nIIIIIIII\n@read2\nGGCCGGCC\n+\nIIIIIIII\n"
+            .write(to: bundle.appendingPathComponent("reads.fastq"), atomically: true, encoding: .utf8)
+        let statistics: [String: Any] = ["readCount": 2, "baseCount": 16, "meanReadLength": 8.0, "minReadLength": 8,
+                                         "maxReadLength": 8, "medianReadLength": 8, "n50ReadLength": 8, "meanQuality": 40.0,
+                                         "q20Percentage": 100.0, "q30Percentage": 100.0, "gcContent": 0.75,
+                                         "readLengthHistogram": ["8": 2], "qualityScoreHistogram": [40, 16],
+                                         "perPositionQuality": [Any]()]
+        try JSONSerialization.data(withJSONObject: ["computedStatistics": statistics], options: [.prettyPrinted, .sortedKeys])
+            .write(to: bundle.appendingPathComponent("reads.fastq.lungfish-meta.json"))
     }
 
     /// The sidebar words of the SPAdes result of `Tests/Fixtures/analyses`, whose folder starts `spades-`.

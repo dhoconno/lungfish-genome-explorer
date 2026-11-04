@@ -128,12 +128,20 @@ final class FASTQDatasetSurface: ResultViewport {
         viewer?.toggleFASTQMetadataDrawer()
     }
 
+    /// The identifier the container's view carries, which the view switch smoke test finds (exit check 3 of Phase 3.2).
+    static let viewIdentifier = "fastq-dataset-view"
+
     func load(input: Any, token: AsyncRequestToken<SurfaceRequest>) async throws {
         let request = try expectInput(input, as: Input.self)
         if let fastqURL = request.fastqURL { try FASTQDatasetOpenError.check(fastqURL) }
         let container = FASTQDatasetContainerController(dashboard: request.dashboard)
         // The dashboard's view is loaded before it is configured, as the old display had it.
         _ = container.view
+        // The container's view is a plain NSView, which AppKit leaves out of the accessibility tree, identifier or not,
+        // so it becomes a group, as the Kraken2 surface's view does. No label or help is set, so no words change.
+        container.view.setAccessibilityIdentifier(Self.viewIdentifier)
+        container.view.setAccessibilityElement(true)
+        container.view.setAccessibilityRole(.group)
         request.dashboard.configure(
             statistics: request.statistics,
             records: request.records,
