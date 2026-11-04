@@ -206,7 +206,8 @@ final class PhylogeneticTreeSurfaceRouteTests: XCTestCase {
             "the status line never said the tree did not open: \(words())", file: file, line: line
         )
         XCTAssertTrue(words().contains(fileWords), "the status line left out the file's own words: \(words())", file: file, line: line)
-        XCTAssertTrue(words().contains("Select the item again."), "the status line gave no next step: \(words())", file: file, line: line)
+        XCTAssertTrue(words().contains(fileWords + ". Select the item again."), "the file's words do not end in a full stop before the next step: \(words())", file: file, line: line)
+        XCTAssertTrue(words().contains("import or rebuild the tree."), "the next step cannot help a bundle that is not whole: \(words())", file: file, line: line)
         XCTAssertFalse(words().contains("bundle:"), "the words name an internal kind id: \(words())", file: file, line: line)
         XCTAssertFalse(viewer.statusBar.isHidden, "the words are in a hidden status bar", file: file, line: line)
         XCTAssertNil(viewer.phylogeneticTreeViewController, "a tree that did not open is on screen", file: file, line: line)

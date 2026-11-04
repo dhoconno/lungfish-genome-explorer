@@ -89,11 +89,12 @@ extension ViewerViewController {
 
     /// The words a person reads when a surface did not open. They say what happened and
     /// then what to try, which `localizedDescription` alone leaves out. An error with no
-    /// next step of its own gets the one every `SurfaceError` carries.
-    func surfaceFailureWords(_ headline: String, _ error: any Error) -> String {
+    /// next step of its own gets `fallback`, and a description with no full stop gets one.
+    func surfaceFailureWords(_ headline: String, _ error: any Error, orElse fallback: String = "Select the item again.") -> String {
         let localized = error as? any LocalizedError
-        let what = localized?.errorDescription ?? error.localizedDescription
-        let next = localized?.recoverySuggestion ?? "Select the item again."
+        var what = localized?.errorDescription ?? error.localizedDescription
+        if let last = what.last, !".!?".contains(last) { what += "." }
+        let next = localized?.recoverySuggestion ?? fallback
         return [headline, what, next].joined(separator: " ")
     }
 }

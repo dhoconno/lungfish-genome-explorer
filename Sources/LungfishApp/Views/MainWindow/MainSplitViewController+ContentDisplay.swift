@@ -661,7 +661,7 @@ extension MainSplitViewController {
                     controller.notifySelectionStateIfAvailable()
                 } catch {
                     mainSplitLogger.error("displayPhylogeneticTreeBundle: Failed - \(error.localizedDescription, privacy: .public)")
-                    self.viewerController.clearViewport(statusMessage: self.viewerController.surfaceFailureWords("Unable to open the phylogenetic tree.", error))
+                    self.viewerController.clearViewport(statusMessage: self.viewerController.surfaceFailureWords("Unable to open the phylogenetic tree.", error, orElse: "Select the item again. If it still does not open, import or rebuild the tree."))
                 }
             }
         }
