@@ -9,6 +9,7 @@ public enum GUIImportedProvenanceRehydratorError: Error, LocalizedError, Sendabl
     case unsupportedSourceProvenance(String)
     case sourceOutputIntegrityMissing(String)
     case sourceOutputIntegrityMismatch(String)
+    case sourceOutputMissing(String)
 
     public var errorDescription: String? {
         switch self {
@@ -18,6 +19,8 @@ public enum GUIImportedProvenanceRehydratorError: Error, LocalizedError, Sendabl
             return "Source provenance output is missing checksum or file size for \(path)"
         case .sourceOutputIntegrityMismatch(let path):
             return "Source provenance output checksum or file size does not match \(path)"
+        case .sourceOutputMissing(let path):
+            return "Source provenance output is not in the folder: \(path)"
         }
     }
 }
@@ -79,7 +82,7 @@ public enum GUIImportedProvenanceRehydrator {
         guard !requireCLIProvenance || isLungfishCLIEnvelope(source.envelope) else {
             throw GUIImportedProvenanceRehydratorError.unsupportedSourceProvenance(destinationURL.path)
         }
-        let sourceDescriptors = outputDescriptors(from: source.envelope)
+        let sourceDescriptors = (ownsRecord ? runLevelOutputDescriptors(from: source.envelope) : outputDescriptors(from: source.envelope))
             .filter {
                 isRelevantCopiedOutputPath(
                     $0.path,
@@ -98,7 +101,9 @@ public enum GUIImportedProvenanceRehydrator {
         guard !pathMap.isEmpty else {
             throw ProvenanceRehydrationError.outputPathNotMapped(sourceURL.path)
         }
-        try validateMappedOutputIntegrity(sourceDescriptors, pathMap: pathMap, cancellationCheck: cancellationCheck)
+        try validateMappedOutputIntegrity(sourceDescriptors, pathMap: pathMap,
+                                          itemFolder: ownsRecord ? destinationURL.standardizedFileURL.path : nil,
+                                          cancellationCheck: cancellationCheck)
 
         // Validate the copied source generation first, then rebind nested Excel
         // replay artifacts before the root envelope rehashes stored outputs.
@@ -531,27 +536,6 @@ public enum GUIImportedProvenanceRehydrator {
         }
     }
 
-    private static func validateMappedOutputIntegrity(
-        _ descriptors: [ProvenanceFileDescriptor],
-        pathMap: [String: String], cancellationCheck: () throws -> Void
-    ) throws {
-        for descriptor in descriptors {
-            guard let expectedChecksum = descriptor.checksumSHA256,
-                  let expectedFileSize = descriptor.fileSize else {
-                throw GUIImportedProvenanceRehydratorError.sourceOutputIntegrityMissing(descriptor.path)
-            }
-            guard let finalPath = mappedPath(for: descriptor.path, in: pathMap) else {
-                continue
-            }
-            let finalURL = URL(fileURLWithPath: finalPath)
-            let actualChecksum = try ProvenanceFileHasher.sha256(of: finalURL, cancellationCheck: cancellationCheck)
-            let actualFileSize = try ProvenanceFileHasher.fileSize(of: finalURL)
-            guard expectedChecksum == actualChecksum, expectedFileSize == actualFileSize else {
-                throw GUIImportedProvenanceRehydratorError.sourceOutputIntegrityMismatch(descriptor.path)
-            }
-        }
-    }
-
     private static func validateCopiedOutputIntegrity(
         _ descriptors: [ProvenanceFileDescriptor],
         sourceRoot: URL
@@ -766,7 +750,7 @@ public enum GUIImportedProvenanceRehydrator {
         return result
     }
 
-    private static func mappedPath(for path: String, in pathMap: [String: String]) -> String? {
+    static func mappedPath(for path: String, in pathMap: [String: String]) -> String? {
         if let mapped = pathMap[path] {
             return mapped
         }

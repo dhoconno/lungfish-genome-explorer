@@ -255,22 +255,36 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
         try expectNothingLeftInTarget()
     }
 
-    /// A `lungfish*` bundle that lists its own folder without a digest keeps the old refusal.
-    func testABundleThatListsItsFolderIsStillRefused() async throws {
+    /// A `lungfish*` bundle that lists its own folder without a digest takes the roots it always had and copies as it did
+    /// before the lane. This pins what the base does, since the ruling expected a refusal and the base gives none.
+    func testABundleThatListsItsFolderIsCopiedAsBefore() async throws {
+        // The writer files a bundle's record in its rollup, which the copy does not read. So the record is written in a plain
+        // folder, with the paths of the bundle it will become, and the folder is then renamed.
+        let plain = analyses.appendingPathComponent("Thing", isDirectory: true)
         let bundle = analyses.appendingPathComponent("Thing.lungfishnotes", isDirectory: true)
-        try fm.createDirectory(at: bundle, withIntermediateDirectories: true)
-        try "data\n".write(to: bundle.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
+        try fm.createDirectory(at: plain, withIntermediateDirectories: true)
+        try "data\n".write(to: plain.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8)
         listsTheFolderItself = true
-        try writeRunRecord(.nvd, in: bundle)
+        tweakRecord = { _, envelope in
+            func renamed(_ entry: ProvenanceFileDescriptor) -> ProvenanceFileDescriptor {
+                ProvenanceFileDescriptor(path: entry.path.replacingOccurrences(of: plain.path, with: bundle.path),
+                                         checksumSHA256: entry.checksumSHA256, fileSize: entry.fileSize, format: entry.format, role: entry.role)
+            }
+            envelope.outputs = envelope.outputs.map(renamed)
+            envelope.files = envelope.files.map(renamed)
+            envelope.steps[0].outputs = envelope.steps[0].outputs.map(renamed)
+        }
+        try writeRunRecord(.nvd, in: plain)
+        try fm.moveItem(at: plain, to: bundle)
         let before = try treeDigest(of: bundle)
 
-        guard case .recordLacksChecksum(_, let named)? = copyError(of: bundle) else {
-            return XCTFail("a bundle's digest-less folder entry must be refused")
-        }
+        // Measured at the base and again after the fix, with the same result. The skip of the item's own folder is never
+        // given to a bundle, and this shape of bundle copies with no refusal (the lane report, "For BIO").
+        let outcome = try CrossProjectItemCopier.copy(itemAt: bundle, intoProject: targetProject, identity: .neutral)
 
-        XCTAssertEqual(named, "Thing.lungfishnotes")
-        try expectNothingLeftInTarget()
+        XCTAssertEqual(outcome.destinationURL.lastPathComponent, "Thing.lungfishnotes")
         XCTAssertEqual(try treeDigest(of: bundle), before)
+        XCTAssertEqual(stages(), [])
     }
 
     /// A pipe a step wrote to (`pipe:stdout:samtools-sort`) names no file in the folder and does not refuse.

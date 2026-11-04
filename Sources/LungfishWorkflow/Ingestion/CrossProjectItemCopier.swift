@@ -318,6 +318,11 @@ package enum CrossProjectItemCopier {
         } catch {
             throw recordProblem(in: error, item: source) ?? error
         }
+        // A plain result folder is compared whole against the listing taken above, before the link and stage rewrites
+        // change JSON on purpose (ruling BIO-COPY-DIGESTLESS items 6 and 7).
+        if GUIImportedProvenanceRehydrator.foldersHoldTheirOwnRecord(source: source, destination: staged) {
+            try verifyStagedBytes(sourceFiles, in: staged, item: source, checkCancellation: checkCancellation)
+        }
         try checkCancellation()
 
         let links = try ProjectItemLinkRewriter.rewrite(context: .init(
@@ -379,6 +384,7 @@ package enum CrossProjectItemCopier {
             switch integrity {
             case .sourceOutputIntegrityMismatch(let path): problem = .recordDoesNotMatch(item: name, file: pathInside(item, path))
             case .sourceOutputIntegrityMissing(let path): problem = .recordLacksChecksum(item: name, file: pathInside(item, path))
+            case .sourceOutputMissing(let path): problem = .recordFileMissing(item: name, file: pathInside(item, path))
             case .unsupportedSourceProvenance: return nil
             }
         default:

@@ -51,8 +51,22 @@ extension MetagenomicsImportServiceTests {
         #expect(cpCanonical(output.path) == cpCanonical(outcome.destinationURL.path), sourceLocation: sourceLocation)
         #expect(output.checksumSHA256 == nil, sourceLocation: sourceLocation)
         let after = try scenario.digests(of: outcome.destinationURL)
+        // The copier rewrites the project paths that a JSON file holds, on purpose, so such a file is compared with the
+        // source project and the target project named the same. Every other file is compared byte for byte.
+        // The rewrite also serializes the file again, so the two are compared as parsed JSON.
+        func parsed(_ url: URL) throws -> NSObject? {
+            let text = try String(contentsOf: url, encoding: .utf8)
+                .replacingOccurrences(of: #"[^"\s]*/[QR]\.lungfish"#, with: "@", options: .regularExpression)
+            return try JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]) as? NSObject
+        }
         for (relative, digest) in before where relative != ProvenanceRecorder.provenanceFilename {
-            #expect(after[relative] == digest, Comment(rawValue: "\(relative) differs in the copy"), sourceLocation: sourceLocation)
+            if relative.lowercased().hasSuffix(".json") {
+                let first = try parsed(scenario.folder.appendingPathComponent(relative))
+                let second = try parsed(outcome.destinationURL.appendingPathComponent(relative))
+                #expect(first == second, Comment(rawValue: "\(relative) differs in the copy"), sourceLocation: sourceLocation)
+            } else {
+                #expect(after[relative] == digest, Comment(rawValue: "\(relative) differs in the copy"), sourceLocation: sourceLocation)
+            }
         }
         #expect(try scenario.digests(of: scenario.folder) == before, "the original is untouched", sourceLocation: sourceLocation)
         #expect(scenario.stages() == [], sourceLocation: sourceLocation)

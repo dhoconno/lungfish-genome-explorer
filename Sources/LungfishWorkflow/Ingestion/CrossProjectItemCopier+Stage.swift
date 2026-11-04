@@ -159,8 +159,31 @@ extension CrossProjectItemCopier {
 
     // MARK: - Bytes
 
-    /// Skeleton for the red commit of lane COPYFOLDER. It compares nothing yet.
+    /// Compares every file the copy read from the source item, listed in a record or not and hidden ones too, with the file
+    /// in the staged copy, and throws `copyDiffers` naming the first that is missing or differs in size or SHA-256. The
+    /// native copy writes a new record at the root of a plain result folder, so that record and its `.sig` are the only
+    /// files that may differ. It must run before the link and stage rewrites, which change JSON on purpose (row
+    /// COPY-PLAIN-FOLDER-SIDECAR, ruling BIO-COPY-DIGESTLESS item 6). A cancel from `checkCancellation` is thrown as it is.
     static func verifyStagedBytes(
         _ files: [ProjectItemCopyRecord.SourceFile], in staged: URL, item: URL, checkCancellation: () throws -> Void
-    ) throws {}
+    ) throws {
+        let record = ProvenanceWriter.provenanceFilename
+        for file in files where file.path != record && file.path != record + ".sig" {
+            try checkCancellation()
+            let url = staged.appendingPathComponent(file.path)
+            let differs = CopyError.copyDiffers(item: item.lastPathComponent, file: file.path)
+            guard FileManager.default.fileExists(atPath: url.path),
+                  (try? ProvenanceFileHasher.fileSize(of: url)) == file.size else { throw differs }
+            var cancelled: (any Error)?
+            let digest: String
+            do {
+                digest = try ProvenanceFileHasher.sha256(of: url, cancellationCheck: {
+                    do { try checkCancellation() } catch { cancelled = error; throw error }
+                })
+            } catch {
+                throw cancelled ?? differs
+            }
+            guard digest == file.sha256 else { throw differs }
+        }
+    }
 }
