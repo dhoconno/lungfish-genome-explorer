@@ -21,7 +21,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 659 | LungfishCore |
-| LungfishKit | library | Sources/LungfishKit | 160 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishKit | library | Sources/LungfishKit | 161 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
@@ -1612,6 +1612,7 @@ None.
 - `BatchTableView` class, `Sources/LungfishKit/BatchTableView.swift`
 - `BlastConfigPopoverView` struct, `Sources/LungfishKit/BlastConfigPopoverView.swift`
 - `BlastJobPhase` enum, `Sources/LungfishKit/BlastResultsDrawerTab.swift`
+- `BlastJudgedAtLabel` class, `Sources/LungfishKit/BlastResultsDrawerTab+Summary.swift`
 - `BlastRequest` struct, `Sources/LungfishKit/Surfaces/BlastRequest.swift`
 - `BlastResultsDrawerContainerView` class, `Sources/LungfishKit/BlastResultsDrawerContainerView.swift`
 - `BlastResultsDrawerTab` class, `Sources/LungfishKit/BlastResultsDrawerTab.swift`
