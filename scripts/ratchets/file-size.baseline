@@ -26,7 +26,7 @@ Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift 2788
 Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1583
 Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 807
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1332
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1048
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1045
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 992
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1111
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 827
@@ -63,7 +63,7 @@ Sources/LungfishApp/Views/Viewer/SequenceViewerView+Tooltips.swift 939
 Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift 2843
 Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 884
 Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift 870
-Sources/LungfishApp/Views/Viewer/ViewerViewController.swift 4042
+Sources/LungfishApp/Views/Viewer/ViewerViewController.swift 4041
 Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift 1822
 Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift 2040
 Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift 1077
