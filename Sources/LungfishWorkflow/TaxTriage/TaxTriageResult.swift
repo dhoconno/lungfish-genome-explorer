@@ -391,9 +391,12 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         outputDirectory: URL
     ) -> Bool {
         guard failure.processName == "ALIGNMENT_PER_SAMPLE",
-              let sampleID = failure.sampleID else {
+              let cutID = failure.sampleID else {
             return false
         }
+        // `sampleID` stops at the first dot and the pipeline names its files by the whole tag, so a sample `NTC.1` was looked
+        // up as `NTC` and the routine failure of its clean control stayed in the list (lane TTCONTROLS, BIO closing read).
+        let sampleID = failure.taskLabel.hasPrefix(cutID) ? failure.taskLabel : cutID
 
         let mergedTaxidURL = outputDirectory
             .appendingPathComponent("map", isDirectory: true)

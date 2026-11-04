@@ -1402,6 +1402,37 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertTrue(sanitized.isEmpty)
     }
 
+    /// The parser cuts a task's tag at its first dot (`sampleID` `NTC`) and the pipeline names the sample's files by the
+    /// whole tag (`NTC.1`), so the routine failure of a clean control with a dot in its name has to be looked up by the
+    /// whole tag (lane TTCONTROLS, BIO closing read, fix B).
+    func testRoutineEmptyReferenceFailureOfADottedSampleIsDropped() throws {
+        let outputDirectory = try makeTempDirectory(prefix: "taxtriage-output")
+        defer { try? FileManager.default.removeItem(at: outputDirectory) }
+
+        for directory in ["map", "combine", "download"] {
+            try FileManager.default.createDirectory(
+                at: outputDirectory.appendingPathComponent(directory, isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+        try "Acc\tAssembly\tOrganism_Name\tDescription\tMapped_Value\n".write(
+            to: outputDirectory.appendingPathComponent("map/NTC.1.merged.taxid.tsv"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try Data().write(to: outputDirectory.appendingPathComponent("combine/NTC.1.combined.gcfmap.tsv"))
+        try Data().write(to: outputDirectory.appendingPathComponent("download/NTC.1.dwnld.references.fasta"))
+
+        let note = "NOTE: Process `NFCORE_TAXTRIAGE:TAXTRIAGE:REPORT:ALIGNMENT_PER_SAMPLE (NTC.1)` terminated with an error exit status (1) -- Error is ignored"
+        let failures = TaxTriageResult.parseIgnoredFailures(fromNextflowLogText: note)
+        XCTAssertEqual(failures.map(\.taskLabel), ["NTC.1"])
+        XCTAssertEqual(failures.map(\.sampleID), ["NTC"])
+
+        let sanitized = TaxTriageResult.sanitizeIgnoredFailures(failures, outputDirectory: outputDirectory)
+
+        XCTAssertTrue(sanitized.isEmpty, "the routine failure of the sample NTC.1 stayed in the list: \(sanitized)")
+    }
+
     func testSanitizeIgnoredFailuresRetainsNonBenignWarnings() throws {
         let outputDirectory = try makeTempDirectory(prefix: "taxtriage-output")
         defer { try? FileManager.default.removeItem(at: outputDirectory) }

@@ -129,6 +129,32 @@ final class TaxTriageIgnoredFailureControlTests: XCTestCase {
         XCTAssertTrue(shared.contains(",No,"), shared)
     }
 
+    /// A clean control with a dot in its name makes the pipeline's routine empty-reference entry, and the step that saves
+    /// the run drops it. The helper that drops it looked the files up by the name cut at the first dot, kept the entry,
+    /// and the control then read as failed with words that were false (lane TTCONTROLS, BIO closing read, fix B).
+    func testACleanControlWhoseNameHasADotStaysCleanWhenOnlyTheRoutineEntryNamesIt() async throws {
+        let source = folder.appendingPathComponent("run", isDirectory: true)
+        for directory in ["map", "combine", "download"] {
+            try FileManager.default.createDirectory(
+                at: source.appendingPathComponent(directory, isDirectory: true), withIntermediateDirectories: true
+            )
+        }
+        try "Acc\tAssembly\tOrganism_Name\tDescription\tMapped_Value\n".write(
+            to: source.appendingPathComponent("map/NTC.1.merged.taxid.tsv"), atomically: true, encoding: .utf8
+        )
+        try Data().write(to: source.appendingPathComponent("combine/NTC.1.combined.gcfmap.tsv"))
+        try Data().write(to: source.appendingPathComponent("download/NTC.1.dwnld.references.fasta"))
+        let routine = try Self.parsedEntry(process: "ALIGNMENT_PER_SAMPLE", tag: "NTC.1")
+
+        let kept = TaxTriageResult.sanitizeIgnoredFailures([routine], outputDirectory: source)
+        let result = try await importedRun(reports: [("patient", [0, 1])], control: "NTC.1", ignored: kept)
+
+        let shared = try XCTUnwrap(try matrixLines(of: result).first { $0.hasPrefix("\(Self.shared),") })
+        XCTAssertTrue(shared.contains(",No,"), "the control is clean, but the matrix said: \(shared)")
+        let report = try reportText(of: result)
+        XCTAssertFalse(report.contains("failed, no result"), "the control is clean, but the report said: \(report)")
+    }
+
     // MARK: - Helpers
 
     private static func ignored(_ process: String, _ sample: String) -> TaxTriageIgnoredFailure {
