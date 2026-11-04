@@ -271,6 +271,29 @@ final class AssemblyProvenanceReassemblyInputsTests: XCTestCase {
         XCTAssertTrue(inputs.missing.isEmpty && inputs.changed.isEmpty, "\(inputs)")
     }
 
+    /// An input that exists but cannot be read is not one the record holds no checksum for. The record holds one,
+    /// the copy's own reads are there and Lungfish may not read them, so the words must say that and not "no checksum".
+    func testReadsThatCannotBeReadAreNotCalledUnchecked() async throws {
+        try XCTSkipIf(getuid() == 0, "root reads a file whose permissions are 0")
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let recorded = root.appendingPathComponent("Mito.lungfish/Imports/reads.fastq")
+        let own = root.appendingPathComponent("Mito.lungfish copy/Imports/reads.fastq")
+        try write(reads("a"), to: recorded)
+        try write(reads("a"), to: own)
+        let record = try checksummed(recorded)
+        try FileManager.default.removeItem(at: root.appendingPathComponent("Mito.lungfish"))
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: own.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: own.path) }
+
+        let inputs = await provenance(inputs: [record], requested: [recorded.path])
+            .reassemblyInputFiles(projectURL: root.appendingPathComponent("Mito.lungfish copy"))
+        XCTAssertEqual(inputs.unreadable, [recorded.path])
+        XCTAssertTrue(inputs.unverified.isEmpty, "the record holds a checksum: \(inputs.unverified)")
+        XCTAssertTrue(inputs.found.isEmpty, "\(inputs.found)")
+        XCTAssertTrue(inputs.missing.isEmpty && inputs.changed.isEmpty, "\(inputs)")
+    }
+
     /// Guard. Reads that are still the recorded bytes resolve.
     func testUnchangedExternalReadsResolve() async throws {
         let root = try makeRoot()

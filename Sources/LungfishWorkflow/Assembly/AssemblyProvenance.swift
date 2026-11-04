@@ -390,7 +390,7 @@ extension AssemblyProvenance {
     /// main actor.
     @concurrent
     public func reassemblyInputFiles(projectURL: URL?) async -> (
-        found: [URL], missing: [String], changed: [String], unverified: [String]
+        found: [URL], missing: [String], changed: [String], unverified: [String], unreadable: [String]
     ) {
         var found: [URL] = []
         var missing: [String] = []
@@ -409,7 +409,7 @@ extension AssemblyProvenance {
                 missing.append(path)
             }
         }
-        return (found, missing, changed, unverified)
+        return (found, missing, changed, unverified, [])
     }
 
     private enum ReassemblyInput {

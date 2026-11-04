@@ -259,6 +259,26 @@ final class SidebarReassembleInputsTests: XCTestCase {
         XCTAssertEqual(paths(try XCTUnwrap(presented.first)), paths(shapes.looseFiles))
     }
 
+    /// A read the record holds a checksum for, that Lungfish may not read now, is neither unchecked nor changed.
+    /// Reassemble says so and stops, and does not ask whether to go on.
+    func testReassembleRefusesReadsItCannotRead() async throws {
+        try XCTSkipIf(getuid() == 0, "root reads a file whose permissions are 0")
+        let original = try await assembleInProcess(shapes.looseFiles, name: "unreadable-assembly")
+        let locked = shapes.looseFiles[0]
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: locked.path) }
+
+        guard case .refuse(let reason) = await sidebar.reassemblePlan(
+            forBundleAt: original.bundle, title: "unreadable-assembly"
+        ) else {
+            return XCTFail("Reassemble went on with reads that Lungfish cannot read")
+        }
+        XCTAssertTrue(reason.contains("cannot read now"), reason)
+        XCTAssertTrue(reason.contains("loose_a.fastq"), reason)
+        XCTAssertFalse(reason.contains("loose_b.fastq"), reason)
+        XCTAssertFalse(reason.contains("no checksum"), reason)
+    }
+
     // MARK: - Helpers
 
     private struct InProcessAssembly {
