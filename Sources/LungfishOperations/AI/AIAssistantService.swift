@@ -44,13 +44,19 @@ public final class AIAssistantService {
     private let providerValidationTTL: TimeInterval = 300
     private var providerValidationCache: [String: Date] = [:]
     private let providerResolverOverride: (@MainActor @Sendable () async throws -> [any AIProvider])?
+    private let providerValidatorOverride: (@MainActor @Sendable (any AIProvider) async throws -> Void)?
 
+    /// - Parameters:
+    ///   - providerResolver: Replaces the Keychain lookup. Its providers skip validation unless `providerValidator` is also given.
+    ///   - providerValidator: Replaces `validateCredentials()`, so a test can make a provider fail validation.
     public init(
         toolRegistry: AIToolRegistry,
-        providerResolver: (@MainActor @Sendable () async throws -> [any AIProvider])? = nil
+        providerResolver: (@MainActor @Sendable () async throws -> [any AIProvider])? = nil,
+        providerValidator: (@MainActor @Sendable (any AIProvider) async throws -> Void)? = nil
     ) {
         self.toolRegistry = toolRegistry
         self.providerResolverOverride = providerResolver
+        self.providerValidatorOverride = providerValidator
     }
 
     /// Local preview only; never resolves or contacts a provider.
@@ -247,7 +253,8 @@ public final class AIAssistantService {
             guard !providers.isEmpty else {
                 throw AIProviderError.missingAPIKey
             }
-            return providers
+            guard providerValidatorOverride != nil else { return providers }
+            return try await validatedProviders(providers)
         }
 
         let settings = AppSettings.shared
@@ -265,11 +272,7 @@ public final class AIAssistantService {
         guard !providers.isEmpty else {
             throw AIProviderError.missingAPIKey
         }
-        let validated = try await filterValidProviders(providers)
-        guard !validated.isEmpty else {
-            throw AIProviderError.invalidResponse("No configured AI provider has a valid API key with available credits.")
-        }
-        return validated
+        return try await validatedProviders(providers)
     }
 
     private func makeProvider(
@@ -335,6 +338,14 @@ public final class AIAssistantService {
         throw lastError ?? firstError ?? AIProviderError.networkError("No provider response")
     }
 
+    private func validatedProviders(_ providers: [any AIProvider]) async throws -> [any AIProvider] {
+        let validated = try await filterValidProviders(providers)
+        guard !validated.isEmpty else {
+            throw AIProviderError.invalidResponse("No configured AI provider has a valid API key with available credits.")
+        }
+        return validated
+    }
+
     private func filterValidProviders(_ providers: [any AIProvider]) async throws -> [any AIProvider] {
         var valid: [any AIProvider] = []
         for provider in providers {
@@ -355,7 +366,11 @@ public final class AIAssistantService {
 
         do {
             logger.debug("Validating provider \(provider.name, privacy: .public) model=\(provider.modelId, privacy: .public)")
-            try await provider.validateCredentials()
+            if let providerValidatorOverride {
+                try await providerValidatorOverride(provider)
+            } else {
+                try await provider.validateCredentials()
+            }
             providerValidationCache[cacheKey] = Date()
             return true
         } catch let providerError as AIProviderError {
