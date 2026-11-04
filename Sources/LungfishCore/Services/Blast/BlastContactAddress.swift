@@ -60,7 +60,7 @@ package enum BlastContactAddress {
         package static let label = "Contact email (optional):"
         package static let placeholder = "name@example.org"
         package static let caption = "NCBI asks BLAST tools for an address so that it can reach you if your searches cause a problem. "
-            + "LGE sends this address only to NCBI, with each BLAST contact. LGE keeps it in this Mac's settings, and never in "
+            + "LGE sends this address only to NCBI, with each BLAST contact. LGE keeps it in your Storage Location, so a new location starts with none, and never in "
             + "project files, records, logs or replay commands. It is not known to make a search faster."
         package static let commandHelp = "NCBI gets the contact email set in LGE's Settings, or else LGE's shared no-reply address."
         package static let parameterRefusal = "Set the contact email in LGE's Settings, not with --blast-param. "
@@ -80,7 +80,8 @@ package enum BlastContactAddress {
 
         /// What the Settings row says when the address could not be kept.
         package static func saveFailed(_ reason: String) -> String {
-            "LGE could not keep this address: \(reason) Try again, or check that the storage location is available."
+            let why = reason.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+            return "LGE could not keep this address: \(why). Change the address to try again, and check that your Storage Location is available."
         }
     }
 }

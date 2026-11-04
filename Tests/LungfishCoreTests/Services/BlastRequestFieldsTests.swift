@@ -122,6 +122,48 @@ final class BlastRequestFieldsTests: XCTestCase {
         XCTAssertTrue(BlastContactAddress.Words.state(.empty).contains("no-reply"))
         XCTAssertTrue(BlastContactAddress.Words.state(.valid).contains("sends this address"))
         XCTAssertTrue(BlastContactAddress.Words.state(.notValid).contains("name@example.org"))
+        XCTAssertTrue(
+            BlastContactAddress.Words.caption.contains(
+                "LGE keeps it in your Storage Location, so a new location starts with none, and never in project files, records, logs or replay commands."
+            ),
+            "the address lives under the Storage Location, and the caption says so"
+        )
+    }
+
+    func testSaveFailedWordsStayOneSentenceWhateverTheReasonEndsWith() {
+        for reason in ["You do not have permission.", "Operation not permitted"] {
+            let words = BlastContactAddress.Words.saveFailed(reason)
+            XCTAssertFalse(words.contains(".."), words)
+            XCTAssertTrue(words.contains("Storage Location"), words)
+            XCTAssertTrue(words.hasSuffix("available."), words)
+        }
+    }
+
+    func testASaveThatCannotBeWrittenThrowsAndKeepsTheOldAddress() async throws {
+        let folder = scratch.appendingPathComponent("kept", isDirectory: true)
+        let store = BlastContactAddressStore(file: folder.appendingPathComponent(BlastContactAddress.fileName))
+        try await store.save("old@example.org")
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+        addTeardownBlock { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path) }
+
+        do {
+            try await store.save("new@example.org")
+            XCTFail("a folder nobody can write to keeps the old address")
+        } catch {
+            XCTAssertFalse(error.localizedDescription.isEmpty)
+        }
+        let kept = await store.savedText()
+        XCTAssertEqual(kept, "old@example.org")
+
+        let file = scratch.appendingPathComponent("a-file")
+        try Data("x".utf8).write(to: file)
+        let blocked = BlastContactAddressStore(file: file.appendingPathComponent("blast/\(BlastContactAddress.fileName)"))
+        do {
+            try await blocked.save("new@example.org")
+            XCTFail("a folder path that is a file cannot hold the address")
+        } catch {
+            XCTAssertFalse(error.localizedDescription.isEmpty)
+        }
     }
 
     func testTheStoreKeepsTheAddressPrivateAndNeverServesABadOne() async throws {
