@@ -795,10 +795,8 @@ public final class FASTACollectionViewController: NSViewController,
     // MARK: - Selection Detail
 
     private func updateSelectionDetail() {
-        if isBlastDrawerOpen,
-           case .loading = blastDrawerContainer?.blastResultsTab.displayState {
-            onBlastCancelRequested?()
-        }
+        // A search under way keeps its pane. Only the pane's Cancel ends it, and a new selection, sort or filter is not a Cancel.
+        if isBlastDrawerOpen, case .loading = blastDrawerContainer?.blastResultsTab.displayState { return }
         closeBlastDrawerIfNeeded(animated: view.window != nil)
         let selection = selectedSequences()
         selectionDetailView.setSequences(selection)

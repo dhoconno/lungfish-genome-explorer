@@ -56,7 +56,8 @@ final class FASTACollectionViewControllerTests: XCTestCase {
         XCTAssertGreaterThan(vc.testDetailHeight, 1)
     }
 
-    func testSelectionChangeCancelsLoadingBlastBeforeRestoringFASTASelectionDetail() throws {
+    /// A selection change is not a Cancel. The search keeps its pane, and the pane's own Cancel ends it and restores the details.
+    func testSelectionChangeLeavesLoadingBlastRunningAndThePanesCancelRestoresFASTASelectionDetail() throws {
         let vc = FASTACollectionViewController()
         var cancellationCount = 0
         vc.onBlastCancelRequested = { cancellationCount += 1 }
@@ -73,6 +74,11 @@ final class FASTACollectionViewControllerTests: XCTestCase {
         vc.showBlastLoading(phase: .waiting, requestId: "RID-1")
 
         vc.testSelectRows([1])
+
+        XCTAssertEqual(cancellationCount, 0, "a selection change cancelled the search")
+        XCTAssertTrue(vc.testBlastDrawerIsOpen, "a selection change closed the search's pane")
+
+        vc.testBlastDrawerTab?.onCancelBlast?()
 
         XCTAssertEqual(cancellationCount, 1)
         XCTAssertFalse(vc.testBlastDrawerIsOpen)
