@@ -8,6 +8,8 @@
 import AppKit
 import Foundation
 import XCTest
+@testable import LungfishAssemblyUI
+@testable import LungfishTaxonomyUI
 @testable import LungfishApp
 import LungfishAssemblyUI
 import LungfishCore
@@ -151,6 +153,15 @@ final class BlastSubmitParkedRouteTests: XCTestCase {
         let assembly = AssemblyResultViewController()
         _ = assembly.view
         assembly.showBlastWaiting(search)
+        guard case .waiting = assembly.ensureBlastDrawer().displayState else {
+            return XCTFail("Assembly reads \(assembly.ensureBlastDrawer().displayState)")
+        }
+        let kraken2 = TaxonomyViewController()
+        _ = kraken2.view
+        kraken2.showBlastWaiting(search)
+        guard case .waiting? = kraken2.testBlastResultsTab?.displayState else {
+            return XCTFail("Kraken2 reads \(String(describing: kraken2.testBlastResultsTab?.displayState))")
+        }
         let twelveS = TwelveSAmpliconResultViewController()
         _ = twelveS.view
         twelveS.showBlastWaiting(search)

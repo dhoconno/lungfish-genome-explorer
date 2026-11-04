@@ -76,7 +76,7 @@ final class BlastSubmitKraken2ParityReplayTests: XCTestCase {
         let request = try await lookedUpRequest()
         let root = scratch.appendingPathComponent("cancel", isDirectory: true)
         try Self.makeProject(root)
-        try await BlastSubmitParity.assertSIGTERMCancels(try Self.plan(request, root), server: server, testClass: Self.self)
+        try await BlastSubmitParity.assertSIGTERMCancels(try Self.plan(request, root), testClass: Self.self)
     }
 
     // MARK: - The site

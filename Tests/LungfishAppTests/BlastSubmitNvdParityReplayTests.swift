@@ -61,7 +61,7 @@ final class BlastSubmitNvdParityReplayTests: XCTestCase {
     func testSIGTERMCancelsTheContigSearchInsideTheGrace() async throws {
         let root = scratch.appendingPathComponent("cancel", isDirectory: true)
         try Self.makeProject(root)
-        try await BlastSubmitParity.assertSIGTERMCancels(try Self.plan(root), server: server, testClass: Self.self)
+        try await BlastSubmitParity.assertSIGTERMCancels(try Self.plan(root), testClass: Self.self)
     }
 
     // MARK: - The site

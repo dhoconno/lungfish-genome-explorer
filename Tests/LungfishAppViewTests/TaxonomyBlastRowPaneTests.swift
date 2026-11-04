@@ -31,6 +31,70 @@ final class TaxonomyBlastRowPaneTests: XCTestCase {
         TestTempDirectory.cleanup(scratch)
     }
 
+    /// A search of `taxId` from `sample` with no result, as `blast submit` leaves it while every send waits.
+    private func waitingSearchFile(taxId: Int, sample: String?, source: URL) -> BlastSearchFile {
+        let request = BlastVerificationRequest(
+            taxonName: "Viruses", taxId: taxId, sequences: [(id: "read_1", sequence: "ACGT")], database: "nt"
+        )
+        var file = BlastSearchFile(
+            origin: .standIn, createdAt: Date(), submitArgv: [], facts: BlastSearchFile.Facts(request),
+            query: BlastSubmissionRecord.Query(fileName: "query.fasta", sha256: "x", sequenceCount: 1), formSHA256: "x"
+        )
+        file.state = .waiting
+        file.copies[0].rid = "RID-KRAKEN-WAITING"
+        file.copies[0].state = .live
+        file.spentAt = Date()
+        file.lineage = BlastSubmissionRecord.Lineage(sourceResult: source.path, sample: sample, taxId: taxId, contig: nil)
+        return file
+    }
+
+    /// BLAST-WAITING-NOT-ON-ROW on Kraken2. A row whose search waits reads Waiting after a reselect or a relaunch, and the
+    /// same taxon in another sample does not read this sample's search.
+    func testARowWhoseSearchWaitsReadsWaitingAndAnotherSamplesRowDoesNot() async throws {
+        let display = try makeDisplay(savedIn: [])
+        let vc = display.controller
+        let directory = try XCTUnwrap(vc.blastVerificationDirectoryResolver?(display.virusesInS1))
+        let folder = BlastVerificationArchive.directoryURL(for: directory).appendingPathComponent("live-1", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try BlastSearchStore(folder: folder).save(
+            waitingSearchFile(taxId: display.virusesInS1.taxId, sample: "S1", source: directory)
+        )
+
+        vc.testSunburstView.onNodeSelected?(display.virusesInS1)
+        await vc.scheduleSavedBlastVerificationRestore(for: display.virusesInS1)?.value
+
+        guard case .waiting(let state)? = vc.testBlastResultsTab?.displayState else {
+            return XCTFail("the row reads \(String(describing: vc.testBlastResultsTab?.displayState))")
+        }
+        XCTAssertEqual(state.requestIDs, ["RID-KRAKEN-WAITING"])
+        XCTAssertEqual(state.heading, "Still waiting at NCBI")
+        XCTAssertFalse(state.body.lowercased().contains("failed"), state.body)
+
+        vc.testSunburstView.onNodeSelected?(display.virusesInS2)
+        await vc.scheduleSavedBlastVerificationRestore(for: display.virusesInS2)?.value
+
+        if case .waiting? = vc.testBlastResultsTab?.displayState {
+            XCTFail("sample S1's waiting search shows under sample S2's row")
+        }
+    }
+
+    /// A run's search that has gone out fills the pane in its state's words.
+    func testShowBlastWaitingFillsThePane() async throws {
+        let display = try makeDisplay(savedIn: [])
+        let vc = display.controller
+        let search = BlastLiveSearch(
+            file: waitingSearchFile(taxId: display.virusesInS1.taxId, sample: "S1", source: scratch),
+            folder: scratch
+        )
+
+        vc.showBlastWaiting(search)
+
+        guard case .waiting? = vc.testBlastResultsTab?.displayState else {
+            return XCTFail("the pane reads \(String(describing: vc.testBlastResultsTab?.displayState))")
+        }
+        XCTAssertEqual(vc.testBlastResultsTab?.waitingPane.requestIDsLabel.stringValue, "RID-KRAKEN-WAITING")
+    }
+
     /// BIO's real case. Two samples hold one taxon (Viruses, 10239), and each sample's folder holds its own saved
     /// search of it. Selecting the second sample's row must show the second sample's search. At the base the taxon
     /// matched, so the first sample's verdict stayed under the second sample's row.

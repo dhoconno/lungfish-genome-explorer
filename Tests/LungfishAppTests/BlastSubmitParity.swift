@@ -224,28 +224,28 @@ enum BlastSubmitParity {
         await harness.assertSignaturesVerify(runs, opening: { record(under: resultsParent($0)) }, file: file, line: line)
     }
 
-    /// The cancel of a site's search on `CLISIGTERMHarness` (SWIFT 3, X14). The leaf the plan's argv names
-    /// starts against the stand-in, and SIGTERM reaches it once its submission arrives. It exits 125 inside
-    /// the grace with no record, since the search lives on, no result, no `failed` line and no process left.
+    /// The cancel of a site's search on `CLISIGTERMHarness` (SWIFT 3, X14). The leaf the plan's argv names starts against a
+    /// stand-in that holds the search and is never released, so the search cannot end before the SIGTERM however long a
+    /// loaded Mac takes to send it. SIGTERM reaches the leaf once its submission arrives. It exits 125 inside the grace
+    /// with no record, since the search lives on, no result, no `failed` line and no process left. A result file here
+    /// would be the leaf's own fault and not a race.
     @MainActor
     static func assertSIGTERMCancels(
         _ plan: BlastSubmitPlan,
-        server: LoopbackHTTPStandIn,
         testClass: AnyClass,
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
         let stage = plan.request.queryURL.deletingLastPathComponent()
         try DurableReplace.replace(plan.queryData, named: plan.request.queryURL.lastPathComponent, in: stage)
+        let held = try BlastFaultStandIn.start(scripts: [BlastFaultScript(search: .held)])
+        defer { held.stop() }
         let run = try CLISIGTERMHarness.launchCLI(
-            plan.arguments, environment: [standInVariable: server.baseURL.absoluteString], testClass: testClass
+            plan.arguments, environment: [standInVariable: held.baseURL.absoluteString], testClass: testClass
         )
         defer { run.stop() }
-        let deadline = ContinuousClock.now + CLISIGTERMHarness.processWait
-        while !server.requests.contains(where: { $0.method == "POST" }), ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        XCTAssertTrue(server.requests.contains { $0.method == "POST" }, "the leaf never submitted", file: file, line: line)
+        let submitted = await held.waitForRequest(count: 1, of: .put, deadline: CLISIGTERMHarness.processWait)
+        XCTAssertTrue(submitted, "the leaf never submitted", file: file, line: line)
         let output = plan.request.outputURL
         let stop = await CLISIGTERMHarness.cancel(run)
         CLISIGTERMHarness.assertCancelledExit(stop, within: CLISIGTERMHarness.operationGrace, file: file, line: line)
@@ -254,7 +254,12 @@ enum BlastSubmitParity {
             .filter { $0.hasPrefix("lungfish-blast-submit-") && $0.hasSuffix(".lungfish-provenance.json") }
         XCTAssertEqual(names, [], "the search lives on, so no record says it was cancelled", file: file, line: line)
         let fileManager = FileManager.default
-        XCTAssertFalse(fileManager.fileExists(atPath: output.appendingPathComponent("blast-result.json").path), file: file, line: line)
+        XCTAssertFalse(
+            fileManager.fileExists(atPath: output.appendingPathComponent("blast-result.json").path),
+            "the stand-in holds the search, so a result here is the leaf's fault. The leaf ended \(stop), and the search reads "
+                + ((try? BlastSearchStore(folder: output).load()).map { "\($0.state)" } ?? "no state"),
+            file: file, line: line
+        )
         XCTAssertTrue(fileManager.fileExists(atPath: output.appendingPathComponent("query.fasta").path), file: file, line: line)
         XCTAssertFalse(stop.standardOutput.contains(#""event":"failed""#), "a cancel reports no failed event", file: file, line: line)
     }
