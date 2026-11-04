@@ -31,7 +31,8 @@ private final class FASTABlastProgressRelay: @unchecked Sendable {
 
 /// The search a collection has under way and the one its Re-run repeats. Each collection holds its own, through the
 /// closures the display gives it, so leaving a collection or searching from another ends none of this one's search.
-/// Only NCBI's answer or the person ends a search.
+/// A newer search from the same list leaves an older one running on its row. Its answer reaches the row and never the
+/// pane. Only NCBI's answer or the person ends a search.
 @MainActor
 final class FASTACollectionBlastRun {
     var task: Task<Void, Never>?
@@ -39,7 +40,7 @@ final class FASTACollectionBlastRun {
     var runID: UUID?
     var lastRequest: (sourceLabel: String, fastaRecords: [String])?
 
-    /// Ends the search this collection has under way, for the person's Cancel and for a newer search from this list.
+    /// Ends the search this collection has under way, for the person's Cancel.
     func cancel() {
         guard task != nil || operationID != nil else { return }
         runID = nil
@@ -334,7 +335,6 @@ extension ViewerViewController {
             try fastaBlastSubmitPlan(sourceLabel: sourceLabel, sequences: sequences)
         }) else { return }
         Self.beginGenericBlastVerificationOperation(sourceLabel: sourceLabel, cliCommand: plan?.cliCommand) { opID in
-            blastRun.cancel()
             blastRun.lastRequest = (sourceLabel, fastaRecords)
             let runID = UUID()
             blastRun.runID = runID
@@ -376,8 +376,10 @@ extension ViewerViewController {
                     blastRun.clear(runID: runID)
                     controller.showBlastResults(result, recordURL: recordURL)
                 } catch let parked as BlastSubmitParked {
+                    // A newer search from this list owns the pane, so an older one that parks leaves it alone.
+                    let ownsThePane = blastRun?.runID == runID
                     blastRun?.clear(runID: runID)
-                    await Self.parkFASTABlastRow(opID, parked, controller: controller)
+                    await Self.parkFASTABlastRow(opID, parked, controller: ownsThePane ? controller : nil)
                 } catch is CancellationError {
                     OperationCenter.shared.acknowledgeCancellation(id: opID)
                     blastRun?.clear(runID: runID)
