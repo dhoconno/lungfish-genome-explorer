@@ -184,11 +184,7 @@ public enum GenotypeHaplotypeAnalysisResolver {
             }
         }
         if let path = result.stats.rawMetrics["referenceFasta"] { paths.append(path) }
-        var currentProject: URL? = result.bundleURL
-        while let candidate = currentProject, candidate.path != "/", candidate.pathExtension != "lungfish" {
-            currentProject = candidate.deletingLastPathComponent()
-        }
-        if currentProject?.pathExtension != "lungfish" { currentProject = nil }
+        let currentProject = ProjectTempDirectory.findProjectRoot(result.bundleURL)
         var visited = Set<URL>()
         for path in paths {
             let original = path.hasPrefix("/") ? URL(fileURLWithPath: path) : result.bundleURL.appendingPathComponent(path)
@@ -196,10 +192,15 @@ public enum GenotypeHaplotypeAnalysisResolver {
             // A copied project retains the original absolute argv. Rebase only
             // the recorded suffix within that project; do not search unrelated
             // reference databases by definition name.
-            if let currentProject, let range = path.range(of: ".lungfish/") {
-                candidates.append(currentProject.appendingPathComponent(String(path[range.upperBound...])))
+            if let currentProject, let inside = ProjectTempDirectory.pathInsideRecordedProject(path) {
+                candidates.append(currentProject.appendingPathComponent(inside))
             }
-            candidates.append(original)
+            // The recorded path decides only when it lies in no project or in this one. A reference in
+            // another project never decides the calls of this one.
+            let originalProject = ProjectTempDirectory.findProjectRoot(original)
+            if currentProject == nil || originalProject == nil || originalProject == currentProject {
+                candidates.append(original)
+            }
             for candidate in candidates {
                 var reference = candidate.standardizedFileURL
                 while reference.path != "/", !MHCAmpliconReferenceBundle.isBundleURL(reference) {

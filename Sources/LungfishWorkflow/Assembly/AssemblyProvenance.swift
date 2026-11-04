@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import CryptoKit
 import LungfishCore
 import LungfishIO
 
@@ -372,25 +373,146 @@ extension AssemblyProvenance {
         return paths
     }
 
-    /// ``reassemblyInputPaths`` found on disk, each at its recorded path or,
-    /// when it has moved, by name in the project folder, its FASTQ folder or
-    /// its Reads folder, as Reassemble has always looked. `missing` holds the
-    /// recorded paths found nowhere.
-    public func reassemblyInputFiles(projectURL: URL?) async -> (found: [URL], missing: [String], changed: [String], unverified: [String]) {
+    /// ``reassemblyInputPaths`` found on disk, each checked against the record this run kept of its reads
+    /// (REASSEMBLE-COPY-INPUT). Each input is looked for in this order, and the first place that holds the
+    /// recorded bytes is the one used.
+    ///
+    /// 1. The same path inside the open project, which is where a copied, renamed or moved project holds its own
+    ///    reads (``ProjectTempDirectory/pathInsideRecordedProject(_:)``).
+    /// 2. Its file name in the project folder and in its FASTQ, Reads and Imports folders.
+    /// 3. The recorded path.
+    ///
+    /// A place is checked against the records whose path is the input or lies inside it, since a bundle is asked
+    /// for and the record names its primary file. The size comes first and the SHA-256 after it. Reads that exist
+    /// only with other bytes are `changed` and never `found`. Reads that cannot be checked, since the record holds
+    /// no checksum or no record, are `unverified`, and `found` holds them too so that the person can go on once
+    /// asked. `missing` holds the recorded paths found nowhere. The checks read the files, so this runs off the
+    /// main actor.
+    @concurrent
+    public func reassemblyInputFiles(projectURL: URL?) async -> (
+        found: [URL], missing: [String], changed: [String], unverified: [String]
+    ) {
         var found: [URL] = []
         var missing: [String] = []
+        var changed: [String] = []
+        var unverified: [String] = []
         for path in reassemblyInputPaths {
-            let recordedURL = URL(fileURLWithPath: path)
-            let folders = projectURL.map { [$0, $0.appendingPathComponent("FASTQ"), $0.appendingPathComponent("Reads")] } ?? []
-            let candidates = (path.hasPrefix("/") ? [recordedURL] : [])
-                + folders.map { $0.appendingPathComponent(recordedURL.lastPathComponent) }
-            if let file = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
-                found.append(file)
-            } else {
+            switch resolvedReassemblyInput(path, projectURL: projectURL) {
+            case .verified(let url):
+                found.append(url)
+            case .unverified(let url):
+                found.append(url)
+                unverified.append(path)
+            case .changed:
+                changed.append(path)
+            case .missing:
                 missing.append(path)
             }
         }
-        return (found, missing, [], [])
+        return (found, missing, changed, unverified)
+    }
+
+    private enum ReassemblyInput {
+        case verified(URL), unverified(URL), changed, missing
+    }
+
+    private enum ReadsComparison {
+        case same, differs, unchecked
+    }
+
+    private func resolvedReassemblyInput(_ path: String, projectURL: URL?) -> ReassemblyInput {
+        let records = inputs.filter { Self.record($0, isAtOrInside: path) }
+        var unchecked: URL?
+        var differs = false
+        for candidate in Self.reassemblyCandidates(for: path, projectURL: projectURL)
+        where FileManager.default.fileExists(atPath: candidate.path) {
+            switch Self.comparison(of: candidate, standingFor: path, with: records) {
+            case .same: return .verified(candidate)
+            case .unchecked: unchecked = unchecked ?? candidate
+            case .differs: differs = true
+            }
+        }
+        if let unchecked { return .unverified(unchecked) }
+        return differs ? .changed : .missing
+    }
+
+    /// The places an input may be, best first and none twice.
+    private static func reassemblyCandidates(for path: String, projectURL: URL?) -> [URL] {
+        var candidates: [URL] = []
+        if let projectURL {
+            if let inside = ProjectTempDirectory.pathInsideRecordedProject(path) {
+                candidates.append(projectURL.appendingPathComponent(inside))
+            }
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            let folders = [projectURL] + ["FASTQ", "Reads", "Imports"].map { projectURL.appendingPathComponent($0) }
+            candidates += folders.map { $0.appendingPathComponent(name) }
+        }
+        if path.hasPrefix("/") { candidates.append(URL(fileURLWithPath: path)) }
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0.standardizedFileURL.path).inserted }
+    }
+
+    /// Whether `record` is of the input `path` or of a file inside it.
+    private static func record(_ record: InputFileRecord, isAtOrInside path: String) -> Bool {
+        guard let recorded = record.originalPath else { return !path.hasPrefix("/") && record.filename == path }
+        guard path.hasPrefix("/") else { return false }
+        let input = standardizedPath(path)
+        let at = standardizedPath(recorded)
+        return at == input || at.hasPrefix(input + "/")
+    }
+
+    /// The file of `record` as it stands in `candidate`, the place that stands for the input `path`.
+    private static func file(of record: InputFileRecord, in candidate: URL, standingFor path: String) -> URL {
+        guard let recorded = record.originalPath, path.hasPrefix("/") else { return candidate }
+        let input = standardizedPath(path)
+        let at = standardizedPath(recorded)
+        guard at.hasPrefix(input + "/") else { return candidate }
+        return candidate.appendingPathComponent(String(at.dropFirst(input.count + 1)))
+    }
+
+    private static func comparison(
+        of candidate: URL, standingFor path: String, with records: [InputFileRecord]
+    ) -> ReadsComparison {
+        guard !records.isEmpty else { return .unchecked }
+        var result = ReadsComparison.same
+        for record in records {
+            switch comparison(of: file(of: record, in: candidate, standingFor: path), with: record) {
+            case .differs: return .differs
+            case .unchecked: result = .unchecked
+            case .same: break
+            }
+        }
+        return result
+    }
+
+    /// The size first, since another size settles it without reading the file, and the SHA-256 after it.
+    private static func comparison(of file: URL, with record: InputFileRecord) -> ReadsComparison {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory) else { return .differs }
+        let sizeIsRecorded = record.sha256 != nil || record.sizeBytes > 0
+        if isDirectory.boolValue {
+            // A bundle recorded as a whole, as AssemblyInputMaterialization records it.
+            guard let manifest = try? ProvenanceFileHasher.directoryManifest(for: file, role: .input) else { return .unchecked }
+            let size = Int64(clamping: manifest.files.reduce(UInt64(0)) { $0 + ($1.fileSize ?? 0) })
+            if sizeIsRecorded, size != record.sizeBytes { return .differs }
+            guard let recorded = record.sha256 else { return .unchecked }
+            return bundleChecksum(of: manifest) == recorded ? .same : .differs
+        }
+        guard let size = try? ProvenanceFileHasher.fileSize(of: file) else { return .unchecked }
+        if sizeIsRecorded, Int64(clamping: size) != record.sizeBytes { return .differs }
+        guard let recorded = record.sha256 else { return .unchecked }
+        guard let actual = try? ProvenanceFileHasher.sha256(of: file) else { return .unchecked }
+        return actual == recorded ? .same : .differs
+    }
+
+    /// One checksum over the relative path, checksum and size of every file a bundle holds, in the form
+    /// AssemblyInputMaterialization writes for a bundle input.
+    private static func bundleChecksum(of manifest: ProvenanceDirectoryManifest) -> String {
+        let canonical = manifest.files
+            .sorted { $0.path < $1.path }
+            .map { [$0.path, $0.checksumSHA256 ?? "", $0.fileSize.map(String.init) ?? "0"].joined(separator: "\t") }
+            .joined(separator: "\n")
+        return SHA256.hash(data: Data(canonical.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     private static func standardizedPath(_ path: String) -> String {

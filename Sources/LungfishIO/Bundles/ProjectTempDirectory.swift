@@ -161,6 +161,24 @@ public enum ProjectTempDirectory {
         return nil
     }
 
+    // MARK: - pathInsideRecordedProject
+
+    /// What follows the first folder of `recordedPath` named as a project or as Finder's copy of one, `P.lungfish`,
+    /// `P.lungfish copy` or `P.lungfish copy 2`. It is nil when no folder is named so, or when nothing follows it.
+    /// A path a project recorded about its own files names the folder it was written in, so after the project is
+    /// copied, renamed or moved only this part still means something, and the reader puts it under the project that
+    /// holds the file now. The home folder's `~/.lungfish` never matches, since a project name has a stem.
+    public static func pathInsideRecordedProject(_ recordedPath: String) -> String? {
+        let components = recordedPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard let index = components.firstIndex(where: isProjectFolderName),
+              index + 1 < components.count else { return nil }
+        return components[(index + 1)...].joined(separator: "/")
+    }
+
+    private static func isProjectFolderName(_ name: String) -> Bool {
+        name.range(of: #"^.+\.lungfish( copy( \d+)?)?$"#, options: .regularExpression) != nil
+    }
+
     // MARK: - tempRoot
 
     /// Returns the `.tmp/` directory URL inside the given project directory.

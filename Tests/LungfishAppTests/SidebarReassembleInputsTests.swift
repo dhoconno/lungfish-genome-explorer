@@ -196,6 +196,25 @@ final class SidebarReassembleInputsTests: XCTestCase {
         XCTAssertFalse(reason.contains("loose_b.fastq"), reason)
     }
 
+    /// An older record holds no checksum, so the plan asks before it opens the wizard and says which reads it could
+    /// not check. Declined, the wizard stays closed. Agreed, it opens on the same reads.
+    func testReassembleAsksFirstWhenTheRecordHoldsNoChecksum() async throws {
+        let original = try await assembleInProcess(shapes.looseFiles, name: "unchecked-assembly")
+        let recordURL = original.bundle.appendingPathComponent("assembly/provenance.json")
+        let withoutChecksums = try String(contentsOf: recordURL, encoding: .utf8)
+            .replacingOccurrences(of: #"\n\s*"sha256" : "[0-9a-f]+","#, with: "", options: .regularExpression)
+        try withoutChecksums.write(to: recordURL, atomically: true, encoding: .utf8)
+
+        guard case .openAfterAsking(let question, let inputFiles, _, _) = await sidebar.reassemblePlan(
+            forBundleAt: original.bundle, title: "unchecked-assembly"
+        ) else {
+            return XCTFail("Reassemble opened the wizard on reads it could not check")
+        }
+        XCTAssertTrue(question.contains("holds no checksum for"), question)
+        XCTAssertTrue(question.contains("loose_a.fastq") && question.contains("loose_b.fastq"), question)
+        XCTAssertEqual(paths(inputFiles), paths(shapes.looseFiles))
+    }
+
     // MARK: - Helpers
 
     private struct InProcessAssembly {
@@ -299,6 +318,9 @@ final class SidebarReassembleInputsTests: XCTestCase {
         switch await sidebar.reassemblePlan(forBundleAt: bundle, title: bundle.deletingPathExtension().lastPathComponent) {
         case .open(let inputFiles, let outputDirectory, let initialTool):
             return Launch(inputFiles: inputFiles, outputDirectory: outputDirectory, initialTool: initialTool)
+        case .openAfterAsking(let question, _, _, _):
+            XCTFail("\(label): Reassemble asked first, \(question)", file: file, line: line)
+            throw Refused()
         case .refuse(let reason):
             XCTFail("\(label): Reassemble refused, \(reason)", file: file, line: line)
             throw Refused()
