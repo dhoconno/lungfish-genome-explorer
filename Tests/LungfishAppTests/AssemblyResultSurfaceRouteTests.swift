@@ -95,6 +95,17 @@ final class AssemblyResultSurfaceRouteTests: XCTestCase {
             harness.select(try makeResult(of: tool).item)
 
             await assertShows(tool, in: viewer)
+            // The numbers of the contigs `makeResult` writes (20 and 12 bases), read for every tool and not only the seed's.
+            await assertSummary("assembly-result-summary-contigs", reads: "2", in: viewer)
+            await assertSummary("assembly-result-summary-total-bp", reads: "32", in: viewer)
+            await assertSummary("assembly-result-summary-n50", reads: "20 bp", in: viewer)
+            await assertSummary("assembly-result-summary-longest", reads: "20 bp", in: viewer)
+            let filled = await waitUntil(budget: .lookup) {
+                viewer.assemblyResultController?.testContigTableView.displayedRows.map(\.lengthBP) == [20, 12]
+            }
+            XCTAssertTrue(
+                filled, "\(tool.displayName)'s table reads \(String(describing: viewer.assemblyResultController?.testContigTableView.displayedRows.map(\.lengthBP)))"
+            )
             XCTAssertEqual(AlignmentChrome(viewer), chromeCovered, "the genomics chrome shows under \(tool.displayName)")
             XCTAssertEqual(viewer.contentMode, .assembly)
         }
