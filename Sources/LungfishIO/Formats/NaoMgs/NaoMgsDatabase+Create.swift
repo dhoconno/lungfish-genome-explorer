@@ -278,6 +278,8 @@ extension NaoMgsDatabase {
 
                     // R2 fields
                     let refStartRev = naoIntField(fields, map.refStartRev)
+                    let r1Placed = hasR1 && (map.refStart == nil || naoParsedIntField(fields, map.refStart) != nil)  // 0 is the first base, NA and empty are no start
+                    let r2HasStart = naoParsedIntField(fields, map.refStartRev) != nil
                     let editDistRev = naoIntField(fields, map.editDistanceRev)
                     let qLenRev = naoIntField(fields, map.queryLenRev)
                     let rcRevStr = naoStringField(fields, map.queryRCRev).lowercased()
@@ -317,7 +319,7 @@ extension NaoMgsDatabase {
 
                     // R1 fields — NULL if R1 is absent
                     if hasR1 {
-                        sqlite3_bind_int64(insertStmt, 6, Int64(refStart))
+                        if r1Placed { sqlite3_bind_int64(insertStmt, 6, Int64(refStart)) } else { sqlite3_bind_null(insertStmt, 6) }
                         naoBindText(insertStmt, 7, cigar)
                         naoBindText(insertStmt, 8, readSeq)
                         naoBindText(insertStmt, 9, readQual)
@@ -353,11 +355,7 @@ extension NaoMgsDatabase {
 
                     // R2 fields
                     if hasR2 {
-                        if map.refStartRev != nil, refStartRev > 0 {
-                            sqlite3_bind_int64(insertStmt, 19, Int64(refStartRev))
-                        } else {
-                            sqlite3_bind_null(insertStmt, 19)
-                        }
+                        if r2HasStart { sqlite3_bind_int64(insertStmt, 19, Int64(refStartRev)) } else { sqlite3_bind_null(insertStmt, 19) }
                         naoBindText(insertStmt, 20, readSeqRev)
                         if !readQualRev.isEmpty && readQualRev != "NA" {
                             naoBindText(insertStmt, 21, readQualRev)
@@ -409,7 +407,18 @@ extension NaoMgsDatabase {
 
                     insertedCount += 1
 
+                    if insertedCount % batchSize == 0 {
+                        sqlite3_exec(openedDB, "COMMIT", nil, nil, nil)
+                        sqlite3_exec(openedDB, "BEGIN TRANSACTION", nil, nil, nil)
+                        let fraction = 0.02 + 0.63 * Double(fileIndex) / Double(totalFiles)
+                            + 0.63 / Double(totalFiles)
+                            * Double(insertedCount) / Double(max(1, insertedCount + 1_000_000))
+                        progress?(fraction, "\(fileProgress)Inserting hits \(insertedCount)...")
+                    }
+
                     // --- Update streaming accumulators (class = mutate in-place) ---
+                    let alignmentCount = (r1Placed ? 1 : 0) + (hasR2 && (map.refStartRev == nil || r2HasStart) ? 1 : 0)
+                    guard alignmentCount > 0 else { return }  // A row with no placed mate counts nothing and opens no taxon.
                     let acc: TaxonAccumulator
                     if let existing = accumulators[sampleName]?[taxId] {
                         acc = existing
@@ -417,7 +426,6 @@ extension NaoMgsDatabase {
                         acc = TaxonAccumulator()
                         accumulators[sampleName, default: [:]][taxId] = acc
                     }
-                    let alignmentCount = (hasR1 ? 1 : 0) + (hasR2 ? 1 : 0)
                     acc.hitCount += alignmentCount
                     acc.identitySum += percentIdentity * Double(alignmentCount)
                     acc.bitScoreSum += effectiveBitScore * Double(alignmentCount)
@@ -425,7 +433,7 @@ extension NaoMgsDatabase {
                     acc.accessions.insert(subjectSeqId)
                     if acc.name.isEmpty { acc.name = subjectTitle }
 
-                    if hasR1 {
+                    if r1Placed {
                         let r1Len = qLen > 0 ? qLen : readSeq.count
                         let r1SigHash = alignmentHash(
                             accession: subjectSeqId,
@@ -437,7 +445,7 @@ extension NaoMgsDatabase {
                         acc.accessionSignatures[subjectSeqId, default: []].insert(r1SigHash)
                         acc.accessionReadCounts[subjectSeqId, default: 0] += 1
                     }
-                    if hasR2 && refStartRev > 0 {
+                    if hasR2 && r2HasStart {
                         let r2Len = qLenRev > 0 ? qLenRev : readSeqRev.count
                         let r2SigHash = alignmentHash(
                             accession: subjectSeqId,
@@ -451,26 +459,17 @@ extension NaoMgsDatabase {
                     }
 
                     // Per-accession coverage intervals
-                    if hasR1 {
+                    if r1Placed {
                         let r1Len = qLen > 0 ? qLen : readSeq.count
                         acc.accessionIntervals[subjectSeqId, default: []].append((start: refStart, end: refStart + r1Len))
                         let r1End = refStart + r1Len
                         acc.accessionMaxExtent[subjectSeqId] = max(acc.accessionMaxExtent[subjectSeqId] ?? 0, r1End)
                     }
-                    if hasR2 && refStartRev > 0 {
+                    if hasR2 && r2HasStart {
                         let r2Len = qLenRev > 0 ? qLenRev : readSeqRev.count
                         acc.accessionIntervals[subjectSeqId, default: []].append((start: refStartRev, end: refStartRev + r2Len))
                         let r2End = refStartRev + r2Len
                         acc.accessionMaxExtent[subjectSeqId] = max(acc.accessionMaxExtent[subjectSeqId] ?? 0, r2End)
-                    }
-
-                    if insertedCount % batchSize == 0 {
-                        sqlite3_exec(openedDB, "COMMIT", nil, nil, nil)
-                        sqlite3_exec(openedDB, "BEGIN TRANSACTION", nil, nil, nil)
-                        let fraction = 0.02 + 0.63 * Double(fileIndex) / Double(totalFiles)
-                            + 0.63 / Double(totalFiles)
-                            * Double(insertedCount) / Double(max(1, insertedCount + 1_000_000))
-                        progress?(fraction, "\(fileProgress)Inserting hits \(insertedCount)...")
                     }
                 }
 

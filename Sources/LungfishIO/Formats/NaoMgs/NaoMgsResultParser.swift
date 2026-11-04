@@ -523,10 +523,16 @@ func naoStringField(_ fields: [String], _ index: Int?) -> String {
     return fields[idx]
 }
 
+/// Extracts an integer field, returning nil if missing, empty, `NA` or not a whole number.
+/// A start of 0 is a value (the first base), so a caller that asks whether a mate has a start tests this and not `naoIntField`.
+func naoParsedIntField(_ fields: [String], _ index: Int?) -> Int? {
+    guard let idx = index, idx < fields.count else { return nil }
+    return Int(fields[idx])
+}
+
 /// Safely extracts an integer field, returning 0 if missing or unparseable.
 func naoIntField(_ fields: [String], _ index: Int?) -> Int {
-    guard let idx = index, idx < fields.count else { return 0 }
-    return Int(fields[idx]) ?? 0
+    naoParsedIntField(fields, index) ?? 0
 }
 
 /// Safely extracts a double field, returning 0.0 if missing or unparseable.
@@ -543,10 +549,15 @@ func naoStringField(_ fields: [Substring], _ index: Int?) -> String {
     return String(fields[idx])
 }
 
+/// Extracts an integer field from a Substring array, returning nil if missing, empty, `NA` or not a whole number.
+func naoParsedIntField(_ fields: [Substring], _ index: Int?) -> Int? {
+    guard let idx = index, idx < fields.count else { return nil }
+    return Int(fields[idx])
+}
+
 /// Safely extracts an integer field from a Substring array.
 func naoIntField(_ fields: [Substring], _ index: Int?) -> Int {
-    guard let idx = index, idx < fields.count else { return 0 }
-    return Int(fields[idx]) ?? 0
+    naoParsedIntField(fields, index) ?? 0
 }
 
 /// Safely extracts a double field from a Substring array.
