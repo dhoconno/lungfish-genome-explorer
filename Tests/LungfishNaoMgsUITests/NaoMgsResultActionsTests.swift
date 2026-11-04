@@ -235,6 +235,38 @@ final class NaoMgsResultActionsTests: XCTestCase {
         XCTAssertTrue(words.contains("did not open"), words)
     }
 
+    /// UX should-fix 1 of lane ROWPANE. The bar's Verify with BLAST reaches the popover's own guard, not
+    /// `executeBlastVerification`, so this holds the bar's route. A result whose database did not open still lists the
+    /// taxa it cached. Put a bare return back in that guard and the click is silent again.
+    func testBarVerifyWithNoDatabaseSaysWhy() throws {
+        let vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
+        _ = vc.view
+        vc.onBlastVerification = { _, _, _ in }
+        let row = NaoMgsTaxonSummaryRow(
+            sample: "sample-A", taxId: 1_000, name: "Taxon 0", hitCount: 2, uniqueReadCount: 2, avgIdentity: 99,
+            avgBitScore: 200, avgEditDistance: 1, pcrDuplicateCount: 0, accessionCount: 1,
+            topAccessions: ["NC_000001.1"], bamPath: nil, bamIndexPath: nil
+        )
+        let manifest = NaoMgsManifest(
+            sampleName: "sample-A", sourceFilePath: "/tmp/naomgs.tsv", hitCount: 2,
+            taxonCount: 1, topTaxon: "Taxon 0", topTaxonId: 1_000
+        )
+        vc.configureWithCachedRows([row], manifest: manifest, awaitingDatabase: false)
+        XCTAssertTrue(
+            waitUntilOnRunLoop(budget: .lookup) { vc.testDisplayedTaxonOrder.count == 1 },
+            "the cached taxon did not list"
+        )
+        vc.testSelectTaxonomyRow(0)
+
+        vc.testActionBar.onBlastVerify?()
+
+        let drawer = try XCTUnwrap(vc.testBlastDrawerContainer, "the BLAST results open to say why")
+        let words = drawer.blastResultsTab.emptyStateDetailText
+        XCTAssertTrue(words.hasPrefix("Verify with BLAST needs this result's database"), words)
+        XCTAssertTrue(words.contains("did not open"), words)
+    }
+
     private static func hit(read: Int) -> NaoMgsVirusHit {
         NaoMgsVirusHit(
             sample: "sample-A", seqId: "read-\(read)", taxId: 1_000,

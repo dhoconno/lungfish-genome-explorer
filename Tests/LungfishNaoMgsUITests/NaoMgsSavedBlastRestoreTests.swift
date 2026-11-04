@@ -7,6 +7,7 @@
 // match on the tax ID alone would show another result's search on this row.
 
 import AppKit
+import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishTestSupport
@@ -95,6 +96,34 @@ final class NaoMgsSavedBlastRestoreTests: XCTestCase {
         vc.configure(database: database, manifest: manifest, bundleURL: result)
         let loaded = await waitUntil(timeout: WaitBudget.lookup.duration) { self.vc.testDisplayedTaxonOrder.count == 2 }
         XCTAssertTrue(loaded, "the rows load")
+    }
+
+    /// UX blocker 1 of lane ROWPANE. A context-menu command acts on the clicked row when that row lies outside the
+    /// selection, and the selection stays where it is. The run is about the clicked row, so its verdict names that
+    /// row's sample. At the base it named the selected row's sample over the clicked row's reads.
+    func testARunStartedFromAClickedRowOutsideTheSelectionNamesThatRowsSample() async throws {
+        try await openResult()
+        try select(sample: "sample-A", taxId: 1_000)
+        await vc.resultActions.savedBlastRestoreTask?.value
+        let actions = vc.resultActions
+        var submitted = 0
+        // The App shows the run's progress at the top of its submit.
+        vc.onBlastVerification = { _, _, _ in
+            submitted += 1
+            actions.showBlastLoading(phase: .submitting, requestId: nil)
+        }
+        let clicked = try XCTUnwrap(vc.testDisplayedTaxonOrder.firstIndex { $0.contains("sample-B") })
+
+        vc.testingVerifyWithBlast(row: clicked, readCount: 2)
+
+        XCTAssertEqual(submitted, 1, "the clicked row's reads are sent")
+        let recordURL = try saved.saveRecord(
+            rid: "RID-RUN", sourceResult: "naomgs-A", sample: "sample-Z", taxId: 99, contig: nil, age: -100
+        )
+        actions.showBlastResults(try BlastSubmissionRecord.load(recordURL).result, recordURL: nil)
+        let summary = actions.blastDrawer.summaryLabel.stringValue
+        XCTAssertTrue(summary.contains("sample-B"), "the verdict names the clicked row's sample: \(summary)")
+        XCTAssertFalse(summary.contains("sample-A"), "the verdict does not name the selected row: \(summary)")
     }
 
     private func select(sample: String, taxId: Int) throws {

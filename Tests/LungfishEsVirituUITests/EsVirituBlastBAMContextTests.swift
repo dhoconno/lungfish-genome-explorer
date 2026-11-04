@@ -108,6 +108,58 @@ final class EsVirituBlastBAMContextTests: XCTestCase {
         XCTAssertEqual(received.first?.index, index)
     }
 
+    /// UX blocker 1 of lane ROWPANE. A context-menu command acts on the clicked row when that row lies outside the
+    /// selection, and the selection stays where it is. The run is about the clicked row, so its verdict names that
+    /// row's sample. At the base it named the selected row's sample over the clicked row's reads.
+    @MainActor func testARunStartedFromAClickedRowOutsideTheSelectionNamesThatRowsSample() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("EsVirituRunRow-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        let saved = try SavedBlastSearchProject()
+        defer {
+            try? fm.removeItem(at: root)
+            saved.remove()
+        }
+        let database = try EsVirituDatabase.create(
+            at: root.appendingPathComponent("esviritu.sqlite"),
+            rows: [
+                Self.row(sample: "A", virus: "Virus A", accession: "NC_A.1", assembly: "ASM_A", bam: nil, index: nil),
+                Self.row(sample: "B", virus: "Virus B", accession: "NC_B.1", assembly: "ASM_B", bam: nil, index: nil),
+            ],
+            metadata: ["tool": "test"]
+        )
+        let controller = EsVirituResultViewController()
+        controller.classifierAlignmentViewerFactory = { BlastContextQuietViewer() }
+        let layouts = makeTestDefaultsSuite(prefix: "EsVirituBlastBAMContextTests")
+        controller.testDetectionTableView.metadataColumns.userDefaults = layouts.defaults
+        controller.testBatchTableView.metadataColumns.userDefaults = layouts.defaults
+        _ = controller.view
+        controller.configureFromDatabase(database, resultURL: root)
+        let actions = controller.resultActions
+        var sent: [String] = []
+        // The App shows the run's progress at the top of its submit.
+        controller.onBlastVerification = { detection, _, _, _, _ in
+            sent.append(detection.sampleId)
+            actions.showBlastLoading(phase: .submitting, requestId: nil)
+        }
+        let table = controller.testDetectionTableView
+        table.onDetectionSelected?(Self.detection(sample: "A", accession: "NC_A.1", assembly: "ASM_A"))
+
+        table.onBlastRequested?(Self.detection(sample: "B", accession: "NC_B.1", assembly: "ASM_B"), 30, ["NC_B.1"])
+
+        XCTAssertEqual(sent, ["B"], "the clicked row's reads are sent")
+        _ = try saved.result("esviritu-A")
+        let recordURL = try saved.saveRecord(
+            rid: "RID-RUN", sourceResult: "esviritu-A", sample: "Z", taxId: 99, contig: nil, age: -100
+        )
+        actions.showBlastResults(try BlastSubmissionRecord.load(recordURL).result, recordURL: nil)
+        let summary = actions.blastDrawer.summaryLabel.stringValue
+        XCTAssertTrue(summary.contains("sample B"), "the verdict names the clicked row's sample: \(summary)")
+        XCTAssertFalse(summary.contains("sample A"), "the verdict does not name the selected row: \(summary)")
+        withExtendedLifetime(database) {}
+    }
+
     private static func detection(sample: String, accession: String, assembly: String) -> ViralDetection {
         ViralDetection(
             sampleId: sample, name: "Virus \(sample)", description: "", length: 4_200, segment: nil,

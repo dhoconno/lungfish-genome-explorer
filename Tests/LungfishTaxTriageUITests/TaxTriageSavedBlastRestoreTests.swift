@@ -6,6 +6,7 @@
 // tax ID and the accessions it searched.
 
 import AppKit
+import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishTestSupport
@@ -82,6 +83,35 @@ final class TaxTriageSavedBlastRestoreTests: XCTestCase {
         XCTAssertEqual(forwarded.last?.accessions, ["NC_1001"])
         XCTAssertEqual(forwarded.last?.bamURL?.lastPathComponent, "sample-1.bam")
         XCTAssertEqual(forwarded.last?.bamIndexURL?.lastPathComponent, "sample-1.bam.bai")
+    }
+
+    /// UX blocker 1 of lane ROWPANE. A context-menu command acts on the clicked row when that row lies outside the
+    /// selection, and the selection stays where it is. The run is about the clicked row, so its verdict names that
+    /// row's sample. At the base it named the selected row's sample over the clicked row's reads.
+    func testARunStartedFromAClickedRowOutsideTheSelectionNamesThatRowsSample() async throws {
+        try await openResult()
+        try select(sample: "sample-1")
+        await controller.resultActions.savedBlastRestoreTask?.value
+        let actions = controller.resultActions
+        var sent: [String?] = []
+        // The App shows the run's progress at the top of its submit.
+        controller.onBlastVerification = { organism, _, _, _, _ in
+            sent.append(organism.sample)
+            actions.showBlastLoading(phase: .submitting, requestId: nil)
+        }
+        let table = controller.testBatchFlatTableView
+        let clicked = try XCTUnwrap(table.displayedRows.first { $0.sample == "sample-2" })
+
+        table.onBlastVerifyRequested?(clicked, 20)
+
+        XCTAssertEqual(sent, ["sample-2"], "the clicked row's reads are sent")
+        let recordURL = try saved.saveRecord(
+            rid: "RID-RUN", sourceResult: "taxtriage-A", sample: "sample-9", taxId: 99, contig: "NC_RUN", age: -100
+        )
+        actions.showBlastResults(try BlastSubmissionRecord.load(recordURL).result, recordURL: nil)
+        let summary = actions.blastDrawer.summaryLabel.stringValue
+        XCTAssertTrue(summary.contains("sample-2"), "the verdict names the clicked row's sample: \(summary)")
+        XCTAssertFalse(summary.contains("sample-1"), "the verdict does not name the selected row: \(summary)")
     }
 
     private func openResult(secondSampleAccession: String = "NC_1001") async throws {
