@@ -329,6 +329,7 @@ public enum MetagenomicsImportService {
 
         let sourceRun = try? TaxTriageResult.load(from: inputURL)
         let copiedFiles = try copyInputPayload(from: inputURL, into: resultDirectory)
+        let carried = taxTriageSourceRun(from: inputURL, in: resultDirectory)
         // The copy put the source's own marks over the importer's, so the importer's win again (a run made in a project is `isBatch` true).
         writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.taxtriage.toolIdentifier, to: resultDirectory)
         let copiedRegularFiles = copiedFiles.filter { isRegularFile($0) }
@@ -396,8 +397,10 @@ public enum MetagenomicsImportService {
                     "importedFileCount": .integer(allOutputFiles.count),
                     "reportEntryCount": .integer(reportEntries),
                     "ignoredFailureCount": .integer(ignoredFailures.count),
-                ]),
-                runClock: runClock
+                ]).merging(carried.recordFacts) { existing, _ in existing },
+                runClock: runClock,
+                priorSteps: carried.steps,
+                priorStepIDs: carried.lastStepIDs
             )
         } catch {
             try? fm.removeItem(at: resultDirectory)
@@ -409,7 +412,8 @@ public enum MetagenomicsImportService {
         return TaxTriageImportResult(
             resultDirectory: resultDirectory,
             importedFileCount: allOutputFiles.count,
-            reportEntryCount: reportEntries
+            reportEntryCount: reportEntries,
+            sourceRunNote: carried.note
         )
     }
 
@@ -1309,7 +1313,9 @@ private func writeMetagenomicsImportProvenance(
     runClock: ProvenanceRunClock,
     workflowName: String? = nil,
     toolName: String = "lungfish import",
-    additionalSteps: [ProvenanceStep] = []
+    additionalSteps: [ProvenanceStep] = [],
+    priorSteps: [ProvenanceStep] = [],
+    priorStepIDs: [UUID] = []
 ) throws {
     let completedAt = runClock.now
     let reportedResultDirectory = publishedResultDirectory ?? resultDirectory
@@ -1341,6 +1347,7 @@ private func writeMetagenomicsImportProvenance(
         outputs: outputs,
         exitStatus: 0,
         wallTimeSeconds: wallTime,
+        dependsOn: priorStepIDs,
         startedAt: runClock.startedAt,
         completedAt: completedAt
     )
@@ -1364,12 +1371,12 @@ private func writeMetagenomicsImportProvenance(
         files: uniqueProvenanceDescriptors(
             inputDescriptors
                 + outputs
-                + additionalSteps.flatMap(\.inputs)
-                + additionalSteps.flatMap(\.outputs)
+                + (priorSteps + additionalSteps).flatMap(\.inputs)
+                + (priorSteps + additionalSteps).flatMap(\.outputs)
         ),
         output: resultDirectoryDescriptor,
         outputs: outputs,
-        steps: [step] + additionalSteps,
+        steps: priorSteps + [step] + additionalSteps,
         wallTimeSeconds: wallTime,
         exitStatus: 0
     )
@@ -1673,7 +1680,7 @@ private func metagenomicsFileFormat(for url: URL) -> FileFormat {
     return .unknown
 }
 
-private func isGeneratedProvenanceArtifact(_ url: URL, root: URL) -> Bool {
+func isGeneratedProvenanceArtifact(_ url: URL, root: URL) -> Bool {
     let relativePath = relativePath(from: root, to: url)
     return url.lastPathComponent == ProvenanceRecorder.provenanceFilename
         || relativePath == ProvenanceWriter.bundleRollupFilename

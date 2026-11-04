@@ -40,7 +40,7 @@ Sources/LungfishApp/Views/PluginManager/PluginManagerView.swift 1283
 Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift 1059
 Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialogState.swift 1049
 Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift 1849
-Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift 1081
+Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift 1079
 Sources/LungfishApp/Views/Sidebar/SidebarViewController+MenuDelegate.swift 1130
 Sources/LungfishApp/Views/Sidebar/SidebarViewController+OutlineDataSource.swift 1119
 Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift 2616
@@ -135,7 +135,7 @@ Sources/LungfishOperations/AI/AIToolRegistry.swift 951
 Sources/LungfishOperations/AnnotationSearchIndex.swift 1603
 Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift 1563
 Sources/LungfishTaxTriageUI/TaxTriageBatchOverviewView.swift 867
-Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 4548
+Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 4534
 Sources/LungfishTaxonomyUI/TaxaCollectionsDrawerView.swift 806
 Sources/LungfishTaxonomyUI/TaxonomySunburstView.swift 874
 Sources/LungfishTaxonomyUI/TaxonomyTableView.swift 1582

@@ -316,6 +316,7 @@ extension ImportCommand {
                 ("Report entries", imported.reportEntryCount > 0 ? String(imported.reportEntryCount) : "N/A"),
                 ("Output", imported.resultDirectory.lastPathComponent),
             ]))
+            if let note = imported.sourceRunNote { importRun.say(note) }
             importRun.say("")
 
             // List imported files.

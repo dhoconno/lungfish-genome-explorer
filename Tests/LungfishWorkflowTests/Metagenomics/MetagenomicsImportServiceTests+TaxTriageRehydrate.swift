@@ -201,7 +201,7 @@ extension MetagenomicsImportServiceTests {
         // looked for. The copy throws `missingSourceProvenance` at the base and after this lane, whatever the record holds.
         // Delete the known issue when the copier reads the record inside a plain folder.
         var copied: CrossProjectItemCopier.Outcome?
-        withKnownIssue("The copier looks for a plain folder's record in the project folder") {
+        try withKnownIssue("The copier looks for a plain folder's record in the project folder") {
             copied = try CrossProjectItemCopier.copy(itemAt: imported.resultDirectory, intoProject: target, identity: .neutral)
         } matching: { issue in
             issue.error.map { "\($0)".contains("missingSourceProvenance") } ?? false
@@ -361,6 +361,13 @@ private func rhExpectRecordShape(of folder: URL) throws {
     let sidecar = folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
     let text = String(decoding: try Data(contentsOf: sidecar), as: UTF8.self)
     #expect(!text.contains("legacyWorkflowRun"))
-    let expectedGaps: [String] = []
-    #expect(ProvenanceCompleteness.issues(in: try rhRecord(of: folder)) == expectedGaps)
+    let record = try rhRecord(of: folder)
+    // The importer's input for the source folder holds no digest. The check lets a folder that exists pass and lists
+    // one that was deleted, which is every test here that deletes its source (the same at the base, so not this lane's).
+    let sourceGone = record.files.contains {
+        $0.role == .input && $0.path.hasSuffix("/" + rhRunFolder) && !FileManager.default.fileExists(atPath: $0.path)
+    }
+    let expectedGaps = sourceGone ? ["Missing checksum or size for 1 file descriptor: \(rhRunFolder)."] : []
+    let gaps = ProvenanceCompleteness.issues(in: record)
+    #expect(gaps == expectedGaps, "completeness gaps: \(gaps)")
 }
