@@ -124,6 +124,7 @@ final class ToolTimeLimitTests: XCTestCase {
     /// Every file of `Sources` that holds a fixed limit, with how many lines of each kind. A file the lane lifted
     /// holds only the helper lines it kept.
     private static let entries: [Entry] = [
+        entry("LungfishApp/StateManagement/ProjectTaskTerminationRegistry.swift", helper: 1, "Quit's wait for annotation saves"),
         entry("LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewModel+SRAWindowDownload.swift", helper: 1, "network request"),
         entry("LungfishApp/Views/Viewer/ProgressOverlayView.swift", helper: 1, "overlay delay, no tool"),
         entry("LungfishCLI/Commands/DebugCommand.swift", helper: 2, "debug probes"),
@@ -136,7 +137,7 @@ final class ToolTimeLimitTests: XCTestCase {
         entry("LungfishCore/Services/AI/AnthropicProvider.swift", helper: 1, "network request"),
         entry("LungfishCore/Services/AI/GeminiProvider.swift", helper: 1, "network request"),
         entry("LungfishCore/Services/AI/OpenAIProvider.swift", helper: 2, "network request"),
-        entry("LungfishCore/Services/Blast/BlastService.swift", helper: 1, "network request"),
+        entry("LungfishCore/Services/Blast/BlastSearchFile.swift", helper: 1, "network request"),
         entry("LungfishCore/Services/ENA/ENAService.swift", helper: 1, "network request"),
         entry("LungfishCore/Services/NCBI/NCBIService.swift", helper: 4, "network request"),
         entry("LungfishCore/Services/NCBI/SRAService+ENADownload.swift", helper: 1, "network request"),
