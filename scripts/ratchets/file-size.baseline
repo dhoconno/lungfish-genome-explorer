@@ -152,7 +152,7 @@ Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 836
 Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1145
 Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift 860
 Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 902
-Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2648
+Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2647
 Sources/LungfishWorkflow/Ingestion/FASTQIngestionPipeline.swift 863
 Sources/LungfishWorkflow/MSA/MSAReferenceBundleBuilder.swift 819
 Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1208
