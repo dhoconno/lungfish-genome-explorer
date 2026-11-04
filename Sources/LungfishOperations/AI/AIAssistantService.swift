@@ -378,27 +378,6 @@ public final class AIAssistantService {
         }
     }
 
-    private func normalizeProviderError(_ error: Error) -> AIProviderError {
-        if let providerError = error as? AIProviderError {
-            return providerError
-        }
-        if let urlError = error as? URLError {
-            switch urlError.code {
-            case .timedOut:
-                return .networkError("AI request timed out.")
-            case .notConnectedToInternet:
-                return .networkError("No internet connection.")
-            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
-                return .networkError("Unable to reach AI provider host (\(urlError.code.rawValue)).")
-            case .networkConnectionLost:
-                return .networkError("Network connection was lost.")
-            default:
-                return .networkError("Network error (\(urlError.code.rawValue)): \(urlError.localizedDescription)")
-            }
-        }
-        return .networkError(error.localizedDescription)
-    }
-
     private func withProviderTimeout<T: Sendable>(
         seconds: TimeInterval,
         operation: @escaping @Sendable () async throws -> T
