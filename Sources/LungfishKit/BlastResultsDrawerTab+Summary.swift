@@ -23,7 +23,7 @@ extension BlastResultsDrawerTab {
     }
 
     /// Sets the one-line summary, its tooltip and its help for a taxon verification. How the row was judged is not part of
-    /// it, since the label cuts its tail and that caveat must not go (BLASTCOLLECT-UX-2). It has ``judgedAtLabel``.
+    /// it, since the label cuts its tail and that caveat must not go. It has ``judgedAtLabel``.
     func applyVerificationSummary(result: BlastVerificationResult, subject: String?, recordURL: URL?) {
         let badgeWords = BlastTieWords.notSpecificSummary(for: result)
         summaryLabel.stringValue = Self.verificationSummary(for: result, subject: subject)

@@ -36,7 +36,7 @@ final class RunningOperationsWarningTests: XCTestCase {
         )
     }
 
-    /// BLASTCOLLECT-UX-2 should-fix 3. A BLAST row left on the alert has nothing saved, and no BLAST file writes an
+    /// A BLAST row left on the alert has nothing saved, and no BLAST file writes an
     /// analysis run record, so the Operations Panel lists no Interrupted row for it. The alert says the search is lost.
     func testABlastSearchWithNothingSavedIsNotPromisedAnInterruptedRow() {
         let center = OperationCenter()

@@ -36,7 +36,7 @@ final class BlastInFlightMonitorTests: XCTestCase {
     }
 
     /// Closing a window with a saved search at work raised a sheet that said nothing was running, and its Close stopped the
-    /// search (BLASTCOLLECT-UX-2 blocker 2). The close gate, the sheet and the cancel read one list that leaves a saved
+    /// search. The close gate, the sheet and the cancel read one list that leaves a saved
     /// search out and keeps a row with nothing saved, which a close would lose. At the lane head the method did not exist,
     /// so this test did not build.
     func testTheCloseListLeavesOutASavedSearchAndKeepsARowWithNothingSaved() throws {

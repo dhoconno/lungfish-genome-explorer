@@ -40,7 +40,7 @@ enum RunningOperationsWarning {
             lead = "Closing this window now will cancel the following operation\(plural) for this project."
         }
         // A BLAST row left on this list has nothing saved, and no BLAST file writes the run record that the Operations
-        // Panel's Interrupted rows come from, so the Interrupted sentence is false for it (BLASTCOLLECT-UX-2).
+        // Panel's Interrupted rows come from, so the Interrupted sentence is false for it.
         let blastRows = operations.filter { $0.operationType == .blastVerification }.count
         let verb = kind == .quit ? "quitting" : "closing"
         let after = blastRows > 0 && blastRows == count

@@ -91,7 +91,7 @@ final class BlastResultsDrawerTabExportTests: XCTestCase {
         XCTAssertEqual(tab(judgedAt: nil).judgedAtLabel.stringValue, "", "a record from before the field shows no line")
     }
 
-    /// BLASTCOLLECT-UX-2 blocker 1. The words shared the one-line summary label, which cuts its tail, so a person at an
+    /// The words shared the one-line summary label, which cuts its tail, so a person at an
     /// ordinary width never read them. They have a row of their own under the summary, and no row when there is nothing
     /// to say. At the lane head `judgedAtLabel` did not exist, so this test did not build.
     func testJudgedAtLineIsItsOwnLabelUnderTheSummary() {
