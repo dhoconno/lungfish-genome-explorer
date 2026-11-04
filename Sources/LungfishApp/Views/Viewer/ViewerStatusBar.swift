@@ -26,11 +26,11 @@ public class ViewerStatusBar: NSView {
 
     private func setupViews() {
 
-        positionLabel = createLabel()
+        positionLabel = createLabel(keepsWholeTextAsToolTip: true)
         positionLabel.stringValue = "No sequence loaded"
         positionLabel.alignment = .left
 
-        selectionLabel = createLabel()
+        selectionLabel = createLabel(keepsWholeTextAsToolTip: true)
         selectionLabel.stringValue = ""
         selectionLabel.alignment = .center
 
@@ -57,8 +57,10 @@ public class ViewerStatusBar: NSView {
         scaleLabel.setAccessibilityIdentifier("scale-label")
     }
 
-    private func createLabel() -> NSTextField {
-        let label = NSTextField(labelWithString: "")
+    private func createLabel(keepsWholeTextAsToolTip: Bool = false) -> NSTextField {
+        let label: NSTextField = keepsWholeTextAsToolTip
+            ? StatusBarLabel(labelWithString: "")
+            : NSTextField(labelWithString: "")
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = NSFont.systemFont(ofSize: 11, weight: .regular)
         label.textColor = .secondaryLabelColor
@@ -94,5 +96,20 @@ public class ViewerStatusBar: NSView {
         positionLabel.setAccessibilityValue(positionLabel.stringValue)
         selectionLabel.setAccessibilityValue(selectionLabel.stringValue)
         scaleLabel.setAccessibilityValue(scaleLabel.stringValue)
+    }
+}
+
+/// A status bar label whose tooltip is its whole text. The bar gives each label a third of its width and cuts a long
+/// sentence in the middle, so a refusal's file name, cause and next step can sit in the cut part. Writers set
+/// `stringValue` directly (`ViewerViewController+QuickLook.swift`, `MainSplitViewController+ContentDisplay.swift`) or
+/// through `update`, so the tooltip and the accessibility value follow `stringValue` itself.
+private final class StatusBarLabel: NSTextField {
+    override var stringValue: String {
+        didSet {
+            // The position label is rewritten on every mouse move, so an unchanged tooltip is not registered again.
+            let whole: String? = stringValue.isEmpty ? nil : stringValue
+            if toolTip != whole { toolTip = whole }
+            setAccessibilityValue(stringValue)
+        }
     }
 }
