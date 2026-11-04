@@ -136,7 +136,10 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
             !samples.contains { Self.belongs(name, to: $0.sampleId, sharing: sharing) }
         }
         let failed = Set(failedSampleIDs)
-        let ignored = Set(ignoredFailures.filter { !$0.onlyAffectsQualityPlots }.compactMap(\.sampleID))
+        // The parser cuts a task's tag at its first dot and the pipeline keeps dots in a name, so a control `NTC.1` is `NTC`
+        // by `sampleID` and `NTC.1` by the whole tag, which `taskLabel` holds (lane TTCONTROLS, BIO review).
+        let ignoredTags = ignoredFailures.filter { !$0.onlyAffectsQualityPlots }
+        let ignored = Set(ignoredTags.compactMap(\.sampleID) + ignoredTags.map(\.taskLabel))
 
         var controls: [Control] = []
         var controlSampleIds: Set<String> = []
