@@ -21,6 +21,7 @@ extension FASTQBatchImporter {
         ofStored fastqURL: URL,
         named name: String,
         pairing: RecordedPairing,
+        fromMateFiles: Bool,
         in metadata: inout PersistedFASTQMetadata
     ) throws {
         let scan: (scannedRecords: Int, matePairs: Int, unpairedRecords: Int, scannedWholeFile: Bool)
@@ -35,6 +36,10 @@ extension FASTQBatchImporter {
               let size = (try? FileManager.default.attributesOfItem(atPath: fastqURL.path)[.size] as? NSNumber)?.int64Value else {
             return
         }
+        // Mates the layout scan cannot read (`SRR123.1.1`, `SRR123.1.2`) count as single reads. No count is kept, so that
+        // no stale proof outlives the scan's rule, and each run scans. A pair imported from R1 and R2 files records its
+        // count like any other file, so a wizard names its layout at once.
+        if fromMateFiles, pairing.mode == .interleaved, scan.unpairedRecords > 0, metadata.readClassification == nil { return }
         metadata.recordedReadCount = FASTQRecordedReadCount(
             pairedR1: scan.matePairs,
             pairedR2: scan.matePairs,

@@ -850,7 +850,7 @@ public enum FASTQBatchImporter {
                 forMixedLayout: Self.storedMixedLayout(recipeMixedLayout, removing: ingestionResult.readsRemovedByStorage),
                 bundleFASTQName: bundleFASTQName
             )
-            if processingPair.r2 == nil { try Self.recordCount(ofStored: stagingBundleFASTQURL, named: bundleFASTQName, pairing: recordedPairing, in: &metadata) }
+            try Self.recordCount(ofStored: stagingBundleFASTQURL, named: bundleFASTQName, pairing: recordedPairing, fromMateFiles: processingPair.r2 != nil, in: &metadata)
             applyPlatformMetadata(to: &metadata, config: config)
             if let recipe = config.newRecipe, !recipeStepResults.isEmpty {
                 metadata.ingestion?.recipeApplied = RecipeAppliedInfo(
