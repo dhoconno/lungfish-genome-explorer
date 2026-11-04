@@ -160,6 +160,96 @@ extension OutputEquivalenceTests {
         }
     }
 
+    /// A BLAST search file (`blast-search.json`) holds the ID the search drew and the times of its contacts, which two
+    /// searches never share. The contract masks `searchID`, `createdAt`, `ending.at` and each copy's `postAt`,
+    /// `lastCheckAt`, `nextCheckAt` and `readyAt`, in a JSON payload that holds the file's own keys and none beyond its
+    /// optional ones. Every other value, `spentAt` among them, the same keys in any other document, a key one level
+    /// down and a document with another key or without a named one are still compared (manager's ruling on lane
+    /// BLASTNET N2, moving the row of ARCH-BLAST-RESILIENCE's pins table up from C2).
+    func testBlastSearchClocksMaskTheNamedValuesAndNoOthers() throws {
+        let top = try TestTempDirectory.make(prefix: "blast-search-clocks")
+        addTeardownBlock { TestTempDirectory.cleanup(top) }
+        let a = top.appendingPathComponent("a", isDirectory: true)
+        let b = top.appendingPathComponent("b", isDirectory: true)
+        let name = "Project.lungfish/blast-verifications/search/blast-search.json"
+        let found = { try OutputEquivalence.differences(a, b, kind: .files) }
+        typealias Edit = (inout [String: Any]) -> Void
+
+        // The file as the search writes it, with its clocks read from `base`, and an edit applied to the document first.
+        let file = { (id: String, base: Int, edit: Edit) throws -> Data in
+            let clock = { (offset: Int) in "2026-11-04T\(10 + base):00:\(String(format: "%02d", offset))Z" }
+            let copy: [String: Any] = [
+                "ordinal": 1, "kind": "first", "rid": "FAULT1", "rtoe": 0, "state": "ready", "failedContacts": 0, "fetchTries": 1,
+                "postAt": clock(1), "lastCheckAt": clock(2), "nextCheckAt": clock(3), "readyAt": clock(4),
+            ]
+            var document: [String: Any] = [
+                "schemaVersion": 1, "searchID": id, "route": "ncbi", "origin": "standIn", "createdAt": clock(0), "state": "done",
+                "submitArgv": ["blast", "submit"], "facts": ["taxId": 11320], "query": ["sha256": String(repeating: "a", count: 64)],
+                "formSHA256": String(repeating: "c", count: 64), "copies": [copy], "guardStruck": false, "winnerOrdinal": 1,
+                "ending": ["state": "done", "at": clock(5), "words": "The result is saved."],
+            ]
+            edit(&document)
+            return try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys, .prettyPrinted])
+        }
+        let write = { (data: Data, root: URL) throws in
+            let url = root.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url)
+        }
+        let idA = "0F8E1C2A-3B4D-4E5F-8A6B-7C8D9E0F1A2B"
+        let idB = "9A8B7C6D-5E4F-4A3B-9C2D-1E0F9A8B7C6D"
+        func inFirstCopy(_ edit: @escaping Edit) -> Edit {
+            { document in
+                var copies = document["copies"] as? [[String: Any]] ?? []
+                edit(&copies[0])
+                document["copies"] = copies
+            }
+        }
+
+        try write(file(idA, 0) { _ in }, a)
+        try write(file(idB, 1) { _ in }, b)
+        XCTAssertEqual(try found(), [], "only the ID and the clocks differ")
+
+        // A file with no ending and no clock on its copy, as a search that has only begun, still masks what it holds.
+        let begun: Edit = { document in
+            document["ending"] = nil
+            document["winnerOrdinal"] = nil
+            inFirstCopy { copy in
+                for key in ["lastCheckAt", "readyAt"] { copy[key] = nil }
+            }(&document)
+        }
+        try write(file(idA, 0, begun), a)
+        try write(file(idB, 1, begun), b)
+        XCTAssertEqual(try found(), [], "a search that has only begun still masks")
+
+        // Each change differs in the one file on top of the clocks. The last ones leave the clocks to be compared as
+        // written, with each side's own values.
+        let cases: [(label: String, both: Bool, edit: Edit)] = [
+            ("state", false, { $0["state"] = "expired" }),
+            ("route", false, { $0["route"] = "local" }),
+            ("formSHA256", false, { $0["formSHA256"] = String(repeating: "d", count: 64) }),
+            ("query digest", false, { $0["query"] = ["sha256": String(repeating: "b", count: 64)] }),
+            ("submitArgv", false, { $0["submitArgv"] = ["blast", "verify"] }),
+            ("spentAt", false, { $0["spentAt"] = "2026-11-04T12:00:00Z" }),
+            ("winnerOrdinal", false, { $0["winnerOrdinal"] = 2 }),
+            ("ending words", false, { $0["ending"] = ["state": "done", "at": "2026-11-04T12:00:00Z", "words": "other"] }),
+            ("a copy's RID", false, inFirstCopy { $0["rid"] = "FAULT2" }),
+            ("a copy's failed contacts", false, inFirstCopy { $0["failedContacts"] = 3 }),
+            ("a copy's state", false, inFirstCopy { $0["state"] = "expired" }),
+            ("another key", true, { $0["note"] = "x" }),
+            ("no createdAt", true, { $0["createdAt"] = nil }),
+            ("no searchID", true, { $0["searchID"] = nil }),
+            ("keys one level down", true, { $0 = ["record": $0] }),
+        ]
+        for (label, both, edit) in cases {
+            try write(file(idA, 0, both ? edit : { _ in }), a)
+            try write(file(idB, 1, edit), b)
+            let result = try found()
+            XCTAssertEqual(result.count, 1, "\(label): \(result)")
+            XCTAssertTrue(result.first?.hasPrefix("differs: \(name)") == true, "\(label): \(result)")
+        }
+    }
+
     /// Three result sidecars hold a run clock. A classification result (`classification-result.json`) states the
     /// seconds the pipeline or conversion ran (`runtime`) and the time it was saved (`savedAt`), an EsViritu result
     /// (`esviritu-result.json`) the time it was saved, and an analysis folder's `analysis-metadata.json` the time the

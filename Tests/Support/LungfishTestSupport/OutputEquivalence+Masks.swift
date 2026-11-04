@@ -49,7 +49,7 @@ extension OutputEquivalence {
         /// A file name gets the UUID and run ID masks. Payload text, request
         /// bodies and plans get the roots and run wall time masks, a FASTQ
         /// sidecar's three clock values, a demo project install record's
-        /// install time, a `blast submit` record's three clock values and the run clocks of three result sidecars alone,
+        /// install time, a `blast submit` record's three clock values, a BLAST search file's ID and clock values and the run clocks of three result sidecars alone,
         /// so any other date, a host or a read ID in data is compared as written.
         /// A managed plan gives a provenance envelope the provenance masks and every other file, a manifest
         /// included, the payload masks. It also masks the clock values of its receipt and pack status cache by
@@ -71,7 +71,7 @@ extension OutputEquivalence {
                 records: records,
                 names: [Masks.uuids, Masks.runIDs],
                 payloads: [
-                    Masks.roots, Masks.runWallTime, Masks.fastqSidecarClocks, Masks.demoInstallClock, Masks.blastRecordClocks, Masks.resultSidecarClocks, Masks.primerOrderCaptureClocks,
+                    Masks.roots, Masks.runWallTime, Masks.fastqSidecarClocks, Masks.demoInstallClock, Masks.blastRecordClocks, Masks.blastSearchClocks, Masks.resultSidecarClocks, Masks.primerOrderCaptureClocks,
                 ],
                 managed: [Masks.managedStateClocks],
                 managedNames: [Masks.managedRecordStamp]
@@ -492,6 +492,43 @@ extension OutputEquivalence {
             record["result"] = result
             changed = true
             return record
+        }
+
+        /// What a BLAST search file (`blast-search.json`) holds that no two searches share, the ID it drew (`searchID`),
+        /// when it began and ended (`createdAt`, `ending.at`), and when each send went out, was checked, is next due and
+        /// read READY (`postAt`, `lastCheckAt`, `nextCheckAt`, `readyAt` of each object in `copies`). It reads a JSON object
+        /// that holds the file's twelve keys and no key beyond those and the optional `winnerOrdinal`, `spentAt` and
+        /// `ending`. So the same keys in any other document, a key one level down, a document with another key or without
+        /// a named one, and every other value, such as `spentAt`, the form digest, the RID, the state and the words, are
+        /// compared as written (manager's ruling on lane BLASTNET N2, by the rule of the BIO ruling on lane A45 M3c).
+        public static let blastSearchClocks = Mask(name: "blastSearchClocks") { text, _ in
+            rewritingJSON(text) { value, changed in maskBlastSearchClocks(in: value, changed: &changed) }
+        }
+
+        static let blastSearchKeys: Set<String> = [
+            "schemaVersion", "searchID", "route", "origin", "createdAt", "state", "submitArgv", "facts", "query", "formSHA256",
+            "copies", "guardStruck",
+        ]
+        static let blastSearchOptionalKeys: Set<String> = ["winnerOrdinal", "spentAt", "ending"]
+
+        static func maskBlastSearchClocks(in value: Any, changed: inout Bool) -> Any {
+            guard var file = value as? [String: Any], blastSearchKeys.isSubset(of: file.keys),
+                  Set(file.keys).isSubset(of: blastSearchKeys.union(blastSearchOptionalKeys)),
+                  let copies = file["copies"] as? [[String: Any]]
+            else { return value }
+            file["searchID"] = "<SEARCH-ID>"
+            file["createdAt"] = "<TIMESTAMP>"
+            file["copies"] = copies.map { copy in
+                copy.reduce(into: copy) { masked, item in
+                    if ["postAt", "lastCheckAt", "nextCheckAt", "readyAt"].contains(item.key) { masked[item.key] = "<TIMESTAMP>" }
+                }
+            }
+            if var ending = file["ending"] as? [String: Any], ending["at"] != nil {
+                ending["at"] = "<TIMESTAMP>"
+                file["ending"] = ending
+            }
+            changed = true
+            return file
         }
 
         /// Sets the `value` of a display item labelled exactly `Wall Time` to `<DURATION>`, the wall time
