@@ -16,7 +16,7 @@ python3 scripts/release/release.py configure-machine --signing-identity LABEL --
 python3 scripts/release/release.py setup [--profile PATH]
 python3 scripts/release/release.py doctor [--profile PATH]
 python3 scripts/release/release.py package preview|stable
-python3 scripts/release/release.py publish preview|stable [--profile PATH]
+python3 scripts/release/release.py publish preview|stable [--profile PATH] --evidence-read PATH
 ```
 
 `publish` also takes the required `--evidence-read PATH`, the QA expert's PASS file for the
