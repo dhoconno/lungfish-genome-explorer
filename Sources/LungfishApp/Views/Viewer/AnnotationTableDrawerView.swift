@@ -1861,7 +1861,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 strand: form.strandField.stringValue,
                 attributes: form.attributesField.stringValue
             ) == true else {
-                NSSound.beep()
+                self?.presentAnnotationFormRefusal(form, step: "Add the annotation", command: "Add Annotation")
                 return
             }
         }
@@ -1871,7 +1871,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult,
               let rowID = result.annotationRowId,
               let searchIndex else {
-            NSSound.beep()
+            presentAnnotationRefusal(ViewerRefusalReports.annotationNotEditable(step: "Edit the annotation"))
             return
         }
         let currentRecord = searchIndex.lookupAnnotation(for: result)
@@ -1905,7 +1905,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
               let displayStart = Int(form.startField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
               let displayEnd = Int(form.endField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
               displayStart >= 1, displayEnd >= displayStart else {
-            NSSound.beep()
+            presentAnnotationFormRefusal(form, step: "Save the annotation", command: "Edit Annotation")
             return
         }
         let start = GenomicCoordinateDisplay.storedStart(fromDisplay: displayStart)
@@ -1914,7 +1914,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let parsedAttrs = attributes.isEmpty ? [:] : AnnotationDatabase.parseAttributes(attributes)
         let geneName = parsedAttrs["gene"] ?? parsedAttrs["gene_name"] ?? parsedAttrs["gene_id"]
         guard let searchIndex else {
-            NSSound.beep()
+            presentAnnotationRefusal(ViewerRefusalReports.annotationNotEditable(step: "Save the annotation"))
             return
         }
         guard searchIndex.updateAnnotation(
@@ -1929,7 +1929,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             attributes: attributes.isEmpty ? nil : attributes,
             geneName: geneName
         ) else {
-            NSSound.beep()
+            presentAnnotationRefusal(ViewerRefusalReports.annotationNotWritten(step: "Save the annotation", name: name))
             return
         }
         updateDisplayedAnnotations()

@@ -431,7 +431,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
     ) {
         let editable = annotations.filter { $0.annotationRowId != nil }
         guard !editable.isEmpty else {
-            NSSound.beep()
+            presentViewerRefusal(ViewerRefusalReports.nothingToDelete(count: annotations.count))
             return
         }
         guard Set(editable.map(\.trackId)).count == 1 else {
@@ -443,7 +443,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             return
         }
         guard let bundleURL = currentBundleURL ?? viewerView.currentReferenceBundle?.url else {
-            NSSound.beep()
+            presentViewerRefusal(ViewerRefusalReports.noBundleToDeleteFrom(step: editable.count == 1 ? "Delete the selected annotation" : "Delete the selected annotations"))
             return
         }
 
@@ -473,7 +473,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             rows.compactMap(\.annotationRowId).sorted()
         }.filter { !$0.value.isEmpty }
         guard !rowIDsByTrack.isEmpty else {
-            NSSound.beep()
+            presentViewerRefusal(ViewerRefusalReports.nothingToDelete(count: annotations.count))
             return
         }
         guard rowIDsByTrack.count == 1,
@@ -557,7 +557,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         trackName: String
     ) {
         guard let bundleURL = currentBundleURL ?? viewerView.currentReferenceBundle?.url else {
-            NSSound.beep()
+            presentViewerRefusal(ViewerRefusalReports.noBundleToDeleteFrom(step: "Delete the annotation track"))
             return
         }
 
