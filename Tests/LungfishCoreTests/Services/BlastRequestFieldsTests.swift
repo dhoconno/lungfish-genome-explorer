@@ -267,22 +267,32 @@ final class BlastRequestFieldsTests: XCTestCase {
 
     // MARK: The ZIP route, which BLAST-RESULT-ZIP left as it is
 
-    /// A pin. It carries a reply as wide as BIO-BLAST-TIES sets, 500 records, so a failure here brings the row back.
+    /// A pin. It carries a reply as wide as BIO-BLAST-TIES sets, seven reads of 500 records with titles of 1.1 KB and
+    /// over 3 MB in all, so a failure here brings the row back.
     func testAZipReplyStillParses() async throws {
-        let hits = (1...500).map { index in
-            #"{"description":[{"accession":"A\#(index).1","title":"t","sciname":"Influenza A virus","taxid":11320}],"#
-                + #""hsps":[{"bit_score":140.0,"evalue":1e-30,"identity":76,"align_len":76,"query_from":1,"query_to":76}]}"#
+        let title = String(repeating: "t", count: 1_100)
+        var entries: [URL] = []
+        var totalBytesOfTheSevenFiles = 0
+        for read in 1...7 {
+            let hits: [String] = (1...500).map { index in
+                #"{"description":[{"accession":"A\#(read)_\#(index).1","title":"\#(title)","sciname":"Influenza A virus","taxid":11320}],"#
+                    + #""hsps":[{"bit_score":140.0,"evalue":1e-30,"identity":76,"align_len":76,"query_from":1,"query_to":76}]}"#
+            }
+            let report = #"{"BlastOutput2":{"report":{"results":{"search":{"query_title":"read_\#(read)","query_len":76,"hits":["#
+                + hits.joined(separator: ",") + "]}}}}}"
+            let entry = scratch.appendingPathComponent("R1_\(read).json")
+            try Data(report.utf8).write(to: entry)
+            totalBytesOfTheSevenFiles += report.utf8.count
+            entries.append(entry)
         }
-        let report = #"{"BlastOutput2":{"report":{"results":{"search":{"query_title":"read_1","query_len":76,"hits":["#
-            + hits.joined(separator: ",") + "]}}}}}"
+        XCTAssertGreaterThan(totalBytesOfTheSevenFiles, 3_000_000, "the archive holds the width BIO-BLAST-TIES sets")
         let manifest = scratch.appendingPathComponent("R1.json")
-        let entry = scratch.appendingPathComponent("R1_1.json")
         let archive = scratch.appendingPathComponent("R1.zip")
-        try Data(#"{"BlastJSON":[{"$ref":"R1_1.json"}]}"#.utf8).write(to: manifest)
-        try Data(report.utf8).write(to: entry)
+        let references = (1...7).map { #"{"$ref":"R1_\#($0).json"}"# }.joined(separator: ",")
+        try Data(#"{"BlastJSON":[\#(references)]}"#.utf8).write(to: manifest)
         let zipped = try await ToolProcess.run(ToolProcessSpec(
             executableURL: URL(fileURLWithPath: "/usr/bin/zip"),
-            arguments: ["-q", "-j", archive.path, manifest.path, entry.path],
+            arguments: ["-q", "-j", archive.path, manifest.path] + entries.map(\.path),
             environment: ["PATH": "/usr/bin:/bin"],
             timeout: .seconds(30)
         ))
@@ -294,7 +304,7 @@ final class BlastRequestFieldsTests: XCTestCase {
 
         let results = try await service(on: server).getResults(rid: "R1")
 
-        XCTAssertEqual(results.count, 1)
-        XCTAssertEqual(results.first?.hits.count, 500, "every record of a wide reply comes through the archive")
+        XCTAssertEqual(results.count, 7, "one result for each read")
+        XCTAssertTrue(results.allSatisfy { $0.hits.count == 500 }, "every record of a wide reply comes through the archive")
     }
 }
