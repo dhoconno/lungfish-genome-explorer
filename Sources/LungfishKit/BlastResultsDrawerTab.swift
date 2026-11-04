@@ -446,8 +446,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         switch presentationStyle {
         case .verification:
             let badgeWords = BlastTieWords.notSpecificSummary(for: result)
-            summaryLabel.stringValue = Self.verificationSummary(for: result, subject: subject) + (badgeWords.map { ". " + $0 } ?? "") + Self.collectedWords(recordURL: recordURL)
-                + (result.judgedAt?.judgedAtWords.map { ". " + $0 } ?? "")
+            summaryLabel.stringValue = Self.verificationSummary(for: result, subject: subject) + (badgeWords.map { ". " + $0 } ?? "") + Self.collectedWords(recordURL: recordURL) + (result.judgedAt?.judgedAtWords.map { ". " + $0 } ?? "")
             [summaryLabel, confidenceLabel].forEach { $0.toolTip = badgeWords; $0.setAccessibilityHelp(badgeWords) }
 
             let confidence = result.confidence

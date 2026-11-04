@@ -37,3 +37,12 @@ extension BlastTaxonomyContext {
         }
     }
 }
+
+extension BlastVerificationResult {
+    /// This result with what its verdicts were judged at (BLAST-ESVIRITU-FIRST-WORD).
+    public func judged(at basis: BlastTaxonomyContext.Basis?) -> BlastVerificationResult {
+        var copy = self
+        copy.judgedAt = basis
+        return copy
+    }
+}

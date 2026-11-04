@@ -410,7 +410,7 @@ public actor BlastService {
                 message: "NCBI returned no usable result for any of the \(readResults.count) reads (RID \(rid)): \(reason)"
             )
         }
-        var result = BlastVerificationResult(
+        return BlastVerificationResult(
             taxonName: request.taxonName,
             taxId: request.taxId,
             readResults: readResults,
@@ -419,9 +419,7 @@ public actor BlastService {
             rid: rid,
             blastProgram: request.program, database: request.database,
             databaseSequenceCount: searchResults.lazy.compactMap(\.databaseSequenceCount).first
-        )
-        result.judgedAt = request.judgedAt
-        return result
+        ).judged(at: request.judgedAt)
     }
 
     /// Message on the `.error` row of a read NCBI returned no entry for.
