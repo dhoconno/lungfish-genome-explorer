@@ -31,12 +31,15 @@ public enum TaxTriageBatchExporter {
     ///   - negativeControlSampleIds: Sample IDs marked as negative controls.
     ///   - controlsNotRecorded: True when the result does not say which samples were controls, so the Contamination
     ///     Risk column reads Not recorded instead of Yes or No.
+    ///   - controlsNotChecked: True when a control never ran or cannot be found, so an organism that no control
+    ///     that ran holds reads Not checked instead of No.
     /// - Returns: CSV string.
     public static func generateOrganismMatrixCSV(
         metrics: [TaxTriageMetric],
         sampleIds: [String],
         negativeControlSampleIds: Set<String> = [],
-        controlsNotRecorded: Bool = false
+        controlsNotRecorded: Bool = false,
+        controlsNotChecked: Bool = false
     ) -> String {
         let rows = buildCrossSampleData(
             metrics: metrics,
@@ -54,7 +57,8 @@ public enum TaxTriageBatchExporter {
             csv += "\(DelimitedText.csvField(row.organism))"
             csv += ",\(String(format: "%.4f", row.meanTASS))"
             csv += ",\(row.sampleCount)/\(sampleIds.count)"
-            csv += ",\(controlsNotRecorded ? notRecorded : (row.isContaminationRisk ? "Yes" : "No"))"
+            let risk = row.isContaminationRisk ? "Yes" : (controlsNotChecked ? notChecked : "No")
+            csv += ",\(controlsNotRecorded ? notRecorded : risk)"
             for sid in sampleIds {
                 if let score = row.perSampleTASS[sid] {
                     csv += ",\(String(format: "%.4f", score))"
@@ -87,7 +91,13 @@ public enum TaxTriageBatchExporter {
         metrics: [TaxTriageMetric],
         sampleIds: [String]
     ) -> String {
-        let negControlIds = Set(config.samples.filter(\.isNegativeControl).map(\.sampleId))
+        // The controls as the results name them, since the pipeline renames a sample (lane TTBUILDDB).
+        let match = TaxTriageControlMatch(
+            samples: config.samples,
+            failedSampleIDs: result.sampleFailures.map(\.sampleID),
+            databaseSampleIds: sampleIds
+        )
+        let negControlIds = match.controlSampleIds
         let controlsNotRecorded = TaxTriageExportSource.controlsAreNotRecorded(in: config)
         let rows = buildCrossSampleData(
             metrics: metrics,
@@ -111,8 +121,11 @@ public enum TaxTriageBatchExporter {
         if controlsNotRecorded {
             report += "Negative Controls: Not recorded. This import does not say which samples were controls, "
                 + "so contamination risk is unknown.\n"
-        } else if !negControlIds.isEmpty {
-            report += "Negative Controls: \(negControlIds.sorted().joined(separator: ", "))\n"
+        } else if !match.controls.isEmpty {
+            report += "Negative Controls: \(match.controls.map(controlLabel).joined(separator: ", "))\n"
+            for note in match.notes {
+                report += "\(note)\n"
+            }
         }
 
         report += "\n--- Per-Sample Summary ---\n\n"
@@ -137,16 +150,23 @@ public enum TaxTriageBatchExporter {
             }
         }
 
-        if !negControlIds.isEmpty {
+        if !match.controls.isEmpty {
             let contamOrganisms = rows.filter(\.isContaminationRisk)
             report += "\n--- Contamination Risk Organisms ---\n\n"
             if contamOrganisms.isEmpty {
-                report += "  No organisms detected in negative controls.\n"
+                if !match.hasUncheckedControl {
+                    report += "  No organisms detected in negative controls.\n"
+                } else if match.controls.contains(where: { $0.state == .found || $0.state == .noOrganisms }) {
+                    report += "  No organisms detected in the negative controls that ran.\n"
+                }
             } else {
                 for row in contamOrganisms {
                     let samples = row.perSampleTASS.keys.sorted().joined(separator: ", ")
                     report += "  \(row.organism) (detected in: \(samples))\n"
                 }
+            }
+            if match.hasUncheckedControl {
+                report += "  \(uncheckedWords(of: match))\n"
             }
         }
 
@@ -169,6 +189,52 @@ public enum TaxTriageBatchExporter {
 
     /// The word an export shows where the import did not record a value (BIO ruling BIO-IMPORT-BATCH, item 3).
     public static let notRecorded = "Not recorded"
+
+    /// The word an export shows for Contamination Risk where a negative control never ran or cannot be found, so
+    /// the organism may be in it (lane TTBUILDDB, row TAXTRIAGE-FAILED-CONTROL-READS-CLEAN).
+    public static let notChecked = "Not checked"
+
+    /// A control as the `Negative Controls:` line names it, with what the result says about it.
+    private static func controlLabel(_ control: TaxTriageControlMatch.Control) -> String {
+        var remarks: [String] = []
+        if control.isRenamed { remarks.append("named \(control.resultsName) in the results") }
+        switch control.state {
+        case .found: break
+        case .noOrganisms: remarks.append("no organisms listed")
+        case .failed: remarks.append("failed, never ran")
+        case .notFound: remarks.append("not found in the results")
+        }
+        return remarks.isEmpty ? control.sampleId : "\(control.sampleId) (\(remarks.joined(separator: ", ")))"
+    }
+
+    /// The words that take the place of `No organisms detected in negative controls.` where a control never ran or
+    /// cannot be found. They say what is unknown and what to do (BIO reviews them).
+    private static func uncheckedWords(of match: TaxTriageControlMatch) -> String {
+        let partly = match.controls.contains { $0.state == .found || $0.state == .noOrganisms }
+        var sentences = [partly ? "Contamination risk is only partly checked." : "Contamination risk is not checked."]
+        let failed = match.failedControls.map(\.sampleId)
+        if !failed.isEmpty {
+            sentences.append(failed.count == 1
+                ? "The negative control \(failed[0]) failed, so it was never classified."
+                : "The negative controls \(TaxTriageControlMatch.listing(failed)) failed, so they were never classified.")
+            sentences.append(
+                "Run \(failed.count == 1 ? "it" : "them") again, or check \(failed.count == 1 ? "it" : "them") "
+                    + "another way, before you rely on these results."
+            )
+        }
+        let missing = match.notFoundControls
+        if !missing.isEmpty {
+            let names = missing.map { $0.isRenamed ? "\($0.sampleId) (named \($0.resultsName) in the results)" : $0.sampleId }
+            sentences.append(
+                "The results hold no organisms for the negative control\(missing.count == 1 ? "" : "s") "
+                    + "\(TaxTriageControlMatch.listing(names)), but they hold samples that the run does not list "
+                    + "(\(match.unlistedSampleIds.joined(separator: ", "))), so Lungfish cannot tell whether "
+                    + "\(missing.count == 1 ? "its" : "their") organisms are among them."
+            )
+            sentences.append("Look in the control's own results before you rely on these results.")
+        }
+        return sentences.joined(separator: " ")
+    }
 
     /// Builds cross-sample organism data.
     private struct CrossSampleData {

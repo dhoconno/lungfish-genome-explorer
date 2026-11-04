@@ -3007,10 +3007,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     // MARK: - Negative Control Helpers
 
-    /// Returns sample IDs marked as negative controls in the config.
+    /// Returns the samples of the result that belong to the config's negative controls, read through the pipeline's renaming.
     private func negativeControlSampleIds() -> Set<String> {
         guard let config = taxTriageConfig else { return [] }
-        return Set(config.samples.filter(\.isNegativeControl).map(\.sampleId))
+        return TaxTriageControlMatch(samples: config.samples, failedSampleIDs: [], databaseSampleIds: sampleIds + metrics.compactMap(\.sample)).controlSampleIds
     }
 
     // MARK: - NSSplitViewDelegate

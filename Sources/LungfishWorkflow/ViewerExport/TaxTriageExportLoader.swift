@@ -145,6 +145,21 @@ public struct TaxTriageExportSource {
         return Set(config.samples.filter(\.isNegativeControl).map(\.sampleId))
     }
 
+    /// The run's negative controls matched to the samples of the database, read through the pipeline's own renaming
+    /// of sample names, so a control typed `NTC 1` is found under `NTC_1` (lane TTBUILDDB). The matrix, the report
+    /// and the results export flag the samples it names, and not the typed names.
+    public var controlMatch: TaxTriageControlMatch {
+        TaxTriageControlMatch(
+            samples: result?.config.samples ?? [],
+            failedSampleIDs: result?.sampleFailures.map(\.sampleID) ?? [],
+            databaseSampleIds: sampleIds
+        )
+    }
+
+    /// True when a control never ran or cannot be found, so Contamination Risk reads Not checked where it would read
+    /// No.
+    public var controlsNotChecked: Bool { controlMatch.hasUncheckedControl }
+
     /// True when the result does not say which samples were negative controls: it has no sidecar, or its sidecar
     /// lists no samples. A run that lists samples and marks none is not in this state and keeps No and a blank
     /// cell (BIO ruling BIO-IMPORT-BATCH, item 2).
@@ -306,9 +321,11 @@ public enum TaxTriageExportLoader {
         }
         // Every organism a negative control holds, across all samples whatever the selection, read as the viewer
         // reads them (`loadContaminationRiskOrganisms`).
-        let controlIds = Set(result?.config.samples.filter(\.isNegativeControl).map(\.sampleId) ?? [])
-            .filter { sampleIds.contains($0) }
-            .sorted()
+        let controlIds = TaxTriageControlMatch(
+            samples: result?.config.samples ?? [],
+            failedSampleIDs: result?.sampleFailures.map(\.sampleID) ?? [],
+            databaseSampleIds: sampleIds
+        ).controlSampleIds.sorted()
         var contaminationRiskOrganismKeys: Set<String> = []
         if !controlIds.isEmpty {
             let controlRows = (try? database.fetchRows(samples: controlIds)) ?? []
@@ -341,13 +358,15 @@ extension TaxTriageResultsExport {
     /// database stores none.
     ///
     /// Contamination Risk reads Not recorded when `controlsNotRecorded` is true, since the result does not say which
-    /// samples were negative controls (BIO ruling BIO-IMPORT-BATCH, item 3).
+    /// samples were negative controls (BIO ruling BIO-IMPORT-BATCH, item 3). Where the cell would be blank it reads
+    /// Not checked when `controlsNotChecked` is true, since a control never ran or cannot be found.
     public static func buildDelimitedExport(
         rows: [TaxTriageMetric],
         totalReadsByKey: [String: Int],
         uniqueReadsByKey: [String: Int],
         contaminationRiskOrganismKeys: Set<String>,
         controlsNotRecorded: Bool = false,
+        controlsNotChecked: Bool = false,
         metadataHeaders: [String],
         metadataValuesBySample: [String: [String]],
         separator: String
@@ -380,7 +399,9 @@ extension TaxTriageResultsExport {
                 row.taxId.map { "\($0)" } ?? "",
                 escapeField(row.rank ?? "", separator: separator),
                 row.abundance.map { String(format: "%.6f", $0) } ?? "",
-                controlsNotRecorded ? TaxTriageBatchExporter.notRecorded : (isContaminationRisk ? "yes" : ""),
+                controlsNotRecorded
+                    ? TaxTriageBatchExporter.notRecorded
+                    : (isContaminationRisk ? "yes" : (controlsNotChecked ? TaxTriageBatchExporter.notChecked : "")),
             ]
             for value in metadataValuesBySample[sample] ?? [] {
                 fields.append(escapeField(value, separator: separator))

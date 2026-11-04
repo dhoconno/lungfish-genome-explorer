@@ -76,8 +76,9 @@ extension TaxTriageCommand {
             let content = TaxTriageBatchExporter.generateOrganismMatrixCSV(
                 metrics: source.metrics,
                 sampleIds: source.sampleIds,
-                negativeControlSampleIds: source.negativeControlSampleIds,
-                controlsNotRecorded: source.controlsNotRecorded
+                negativeControlSampleIds: source.controlMatch.controlSampleIds,
+                controlsNotRecorded: source.controlsNotRecorded,
+                controlsNotChecked: source.controlsNotChecked
             )
             let organisms = source.crossSampleOrganismCount
             let noun = organisms == 1 ? "organism" : "organisms"
