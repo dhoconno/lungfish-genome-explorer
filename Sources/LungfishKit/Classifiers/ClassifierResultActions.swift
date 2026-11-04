@@ -276,6 +276,9 @@ public final class ClassifierResultActions: NSObject {
     /// Names the operation that carries the run the pane is waiting for. A Cancel tells the pane nothing, so the run
     /// counts as running only while its operation is active, and a cancelled run cannot block a saved search.
     public func trackBlastRun(operationID: UUID) {
+        // A second search that begins while the first still runs shares one pane with it, so neither verdict can be
+        // told from the other's row. Name neither rather than the wrong one (ROWPANE-UX-2 F2).
+        if blastRunIsActive(), let held = blastRunOperationID, held != operationID { runBlastRow = nil }
         noteBlastRunStart()
         isBlastRunInFlight = true
         blastRunOperationID = operationID
