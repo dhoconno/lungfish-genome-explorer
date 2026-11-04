@@ -338,30 +338,30 @@ public final class AIAssistantService {
         throw lastError ?? firstError ?? AIProviderError.networkError("No provider response")
     }
 
+    /// Keeps the providers whose credentials validate. When none does and one of them reports that its
+    /// credits or quota are used up, throws that provider's own quota error, so the reply names the cause.
     private func validatedProviders(_ providers: [any AIProvider]) async throws -> [any AIProvider] {
-        let validated = try await filterValidProviders(providers)
-        guard !validated.isEmpty else {
-            throw AIProviderError.invalidResponse("No configured AI provider has a valid API key with available credits.")
-        }
-        return validated
-    }
-
-    private func filterValidProviders(_ providers: [any AIProvider]) async throws -> [any AIProvider] {
         var valid: [any AIProvider] = []
+        var failures: [AIProviderError] = []
         for provider in providers {
-            if try await isProviderValidated(provider) {
+            if let failure = await validationFailure(of: provider) {
+                failures.append(failure)
+            } else {
                 valid.append(provider)
             }
         }
-        return valid
+        guard valid.isEmpty else { return valid }
+        let quotaFailure = failures.first { if case .quotaExceeded = $0 { true } else { false } }
+        throw quotaFailure ?? AIProviderError.invalidResponse("No configured AI provider has a valid API key with available credits.")
     }
 
-    private func isProviderValidated(_ provider: any AIProvider) async throws -> Bool {
+    /// Returns nil when the provider validates, or the error that made validation fail.
+    private func validationFailure(of provider: any AIProvider) async -> AIProviderError? {
         let cacheKey = "\(provider.name)|\(provider.modelId)"
         if let lastValidatedAt = providerValidationCache[cacheKey],
            Date().timeIntervalSince(lastValidatedAt) < providerValidationTTL {
             logger.debug("Provider validation cache hit for \(provider.name, privacy: .public) model=\(provider.modelId, privacy: .public)")
-            return true
+            return nil
         }
 
         do {
@@ -372,13 +372,11 @@ public final class AIAssistantService {
                 try await provider.validateCredentials()
             }
             providerValidationCache[cacheKey] = Date()
-            return true
-        } catch let providerError as AIProviderError {
-            logger.warning("Provider validation failed for \(provider.name, privacy: .public): \(providerError.localizedDescription, privacy: .public)")
-            return false
+            return nil
         } catch {
-            logger.warning("Provider validation failed for \(provider.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return false
+            let providerError = normalizeProviderError(error)
+            logger.warning("Provider validation failed for \(provider.name, privacy: .public): \(providerError.localizedDescription, privacy: .public)")
+            return providerError
         }
     }
 
