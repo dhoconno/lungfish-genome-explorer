@@ -89,7 +89,17 @@ final class ImportDatabaseIdentityRecordTests: XCTestCase {
             outputDirectory: imports
         )
 
-        try assertNamesNoDatabase(in: result.resultDirectory, tool: "TaxTriage")
+        // The fixture holds no taxtriage-result.json, so the import says it found no run record (BIO-IMPORT-BATCH item 6).
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: result.resultDirectory))
+        let resolved = envelope.options.resolvedDefaults
+        XCTAssertEqual(resolved["databaseIdentityStatus"], .string("notNamedBySource"))
+        XCTAssertEqual(
+            resolved["databaseIdentityNote"],
+            .string(
+                "No run record was found, so this record cannot name the release that made its calls. "
+                    + "Cite it from the run that made the result."
+            )
+        )
     }
 
     func testNaoMgsImportRecordSaysSourceNamesNoDatabase() async throws {
