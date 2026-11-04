@@ -176,7 +176,7 @@ public struct FASTQInputLayoutResolution: Codable, Sendable, Equatable {
 ///    that was defaulted, detected, or recorded before `pairingSource` existed
 ///    does not: imports with no pairing choice recorded `single_end` for files
 ///    whose records alternate mates, so those are scanned,
-/// 5. a bounded scan of the records (``FASTQReadLayoutClassifier``), with the
+/// 5. the count import recorded, or a scan of the records (``FASTQReadLayoutClassifier``), with the
 ///    bundle metadata as hints that can demote strict to mixed (a VSP2 merge
 ///    recipe in the lineage, a read classification with merged reads). A scan
 ///    that read the whole of a file holding every read of its input counts
@@ -201,7 +201,7 @@ public enum FASTQInputLayoutResolver {
         inputURLs: [URL],
         pairedFiles: Bool = false,
         explicit: FASTQInputLayout? = nil,
-        recordLimit: Int = .max
+        recordLimit: Int = FASTQReadLayoutClassifier.defaultRecordLimit
     ) -> FASTQInputLayoutResolution {
         if let explicit {
             return FASTQInputLayoutResolution(
@@ -268,7 +268,7 @@ public enum FASTQInputLayoutResolver {
     public static func resolve(
         fastqURL: URL,
         metadataFrom hintURL: URL?,
-        recordLimit: Int = .max
+        recordLimit: Int = FASTQReadLayoutClassifier.defaultRecordLimit
     ) -> FASTQInputLayoutResolution {
         guard let hintURL else {
             return resolve(inputURLs: [fastqURL], recordLimit: recordLimit)
@@ -299,15 +299,11 @@ public enum FASTQInputLayoutResolver {
         let scanURL = scansABundle
             ? (FASTQBundle.resolvePrimaryFASTQURL(for: standardized) ?? standardized)
             : standardized
-        let scan = (try? FASTQReadLayoutClassifier.countMates(in: scanURL, limit: recordLimit))
-            ?? (scannedRecords: 0, matePairs: 0, unpairedRecords: 0, scannedWholeFile: true)
         // A scan of the whole of the file read counts it. The primary file
         // of a bundle counts the bundle only when it holds every read.
-        let classification = FASTQReadLayoutClassifier.classify(
-            scannedRecords: scan.scannedRecords,
-            matePairs: scan.matePairs,
-            unpairedRecords: scan.unpairedRecords,
-            scannedWholeFile: scan.scannedWholeFile,
+        let classification = FASTQReadLayoutClassifier.classifyFile(
+            scanURL,
+            limit: recordLimit,
             metadata: hints,
             wholeFileScanOutranksTheMerge: evidence.wholeFileScanOutranksTheMerge
                 && (!scansABundle || FASTQReadLayoutClassifier.holdsEveryRead(scanURL, ofBundle: standardized))

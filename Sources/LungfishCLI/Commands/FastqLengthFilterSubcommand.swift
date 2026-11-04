@@ -151,6 +151,10 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
             "interleaved": .boolean(layoutPlan.isPaired),
             "readLayout": pairingDecision.readLayoutProvenanceValue,
             "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
+            "scannedRecords": pairingDecision.resolution.scannedRecordsProvenanceValue,
+            "scannedWholeFile": pairingDecision.resolution.scannedWholeFileProvenanceValue,
+            "pairs": pairingDecision.resolution.pairsProvenanceValue,
+            "unpairedReads": pairingDecision.resolution.unpairedReadsProvenanceValue,
             "force": .boolean(output.force),
             "compress": .boolean(output.compress)
         ]

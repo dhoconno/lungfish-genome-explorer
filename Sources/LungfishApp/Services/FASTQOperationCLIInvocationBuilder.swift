@@ -153,8 +153,12 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         guard pairingMode == .interleaved || pairingMode == .singleEnd, let inputURL else {
             return pairingArguments(for: pairingMode)
         }
-        let layout = FASTQInputLayoutResolver.resolve(fastqURL: inputURL, metadataFrom: metadataURL).layout
-        switch layout {
+        // This runs on the main actor, so it reads no whole file. A longer file with no recorded count names no
+        // pairing, and the command decides when it runs.
+        let resolution = FASTQInputLayoutResolver.resolve(
+            fastqURL: inputURL, metadataFrom: metadataURL, recordLimit: FASTQReadLayoutClassifier.cueRecordLimit)
+        if let scan = resolution.classification, !scan.scannedWholeFile { return [] }
+        switch resolution.layout {
         case .strictlyInterleaved: return ["--pairing", "interleaved"]
         case .mixedMergedAndPairs: return ["--pairing", pairsByName ? "interleaved" : "single"]
         case .singleEnd: return ["--pairing", "single"]

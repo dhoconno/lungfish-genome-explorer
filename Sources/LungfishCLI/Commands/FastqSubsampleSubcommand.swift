@@ -153,6 +153,10 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
                 "interleaved": .boolean(isInterleaved),
                 "readLayout": pairingDecision.readLayoutProvenanceValue,
                 "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
+                "scannedRecords": pairingDecision.resolution.scannedRecordsProvenanceValue,
+                "scannedWholeFile": pairingDecision.resolution.scannedWholeFileProvenanceValue,
+                "pairs": pairingDecision.resolution.pairsProvenanceValue,
+                "unpairedReads": pairingDecision.resolution.unpairedReadsProvenanceValue,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],

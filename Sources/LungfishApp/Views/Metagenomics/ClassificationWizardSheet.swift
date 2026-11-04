@@ -655,7 +655,7 @@ struct ClassificationWizardSheet: View {
 
             return Self.makeProfileConfig(
                 sample: sample,
-                readPlan: plans[sample.sampleId] ?? ClassificationSampleReadPlan.plan(for: sample),
+                readPlan: plans[sample.sampleId] ?? ClassificationSampleReadPlan.planWithoutReadingWholeFile(for: sample),
                 database: db,
                 databasePath: dbPath,
                 outputDirectory: outputDir,

@@ -347,9 +347,7 @@ extension FASTQReadLayoutClassifier {
                 reason: "The bundle metadata records single-end reads, chosen at import."
             )
         }
-        let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: inputURL)
-        guard let fastqURL,
-              let scan = try? countMates(in: fastqURL, limit: limit) else {
+        guard let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: inputURL) else {
             return classify(
                 scannedRecords: 0,
                 matePairs: 0,
@@ -361,15 +359,79 @@ extension FASTQReadLayoutClassifier {
         // Only a file that holds every read of its input is counted by a
         // scan of it. A virtual bundle's preview and a chunked root's first
         // chunk are not.
+        return classifyFile(
+            fastqURL,
+            limit: limit,
+            metadata: evidence.hints,
+            wholeFileScanOutranksTheMerge: evidence.wholeFileScanOutranksTheMerge
+                && holdsEveryRead(fastqURL, ofBundle: bundleURL(holding: inputURL))
+        )
+    }
+
+    /// The count import recorded for these bytes, in the form of ``countMates(in:limit:)``, or nil. The sidecar store
+    /// drops a count whose size is not this file's. This is the one proof beside a scan of the whole file, so it
+    /// answers a bounded call too.
+    public static func recordedMateCounts(
+        of fastqURL: URL
+    ) -> (scannedRecords: Int, matePairs: Int, unpairedRecords: Int, scannedWholeFile: Bool)? {
+        guard let count = FASTQMetadataStore.load(for: fastqURL)?.recordedReadCount else { return nil }
+        return (count.pairedR1 + count.pairedR2 + count.unpaired, count.pairedR1, count.unpaired, true)
+    }
+
+    /// Classifies one file from its recorded count, or else a scan. A cancelled scan is no answer about the file, so it
+    /// never reads as a file with no records, which is single-end. It answers mixed, so no tool pairs by position, and
+    /// the run stops at its next cancel check. A file that cannot be read keeps its own words.
+    public static func classifyFile(
+        _ fastqURL: URL,
+        limit: Int,
+        metadata: FASTQPairingMetadataHints,
+        wholeFileScanOutranksTheMerge: Bool
+    ) -> FASTQReadLayoutClassification {
+        let scan: (scannedRecords: Int, matePairs: Int, unpairedRecords: Int, scannedWholeFile: Bool)
+        do {
+            scan = try recordedMateCounts(of: fastqURL) ?? countMates(in: fastqURL, limit: limit)
+        } catch is CancellationError {
+            return FASTQReadLayoutClassification(
+                layout: .mixedInterleaved,
+                scannedRecords: 0,
+                matePairs: 0,
+                unpairedRecords: 0,
+                scannedWholeFile: false,
+                metadata: metadata,
+                reason: "The scan of the reads was cancelled before it read the whole file, so no tool may pair its records by position."
+            )
+        } catch {
+            return classify(scannedRecords: 0, matePairs: 0, unpairedRecords: 0, scannedWholeFile: true, metadata: metadata)
+        }
         return classify(
             scannedRecords: scan.scannedRecords,
             matePairs: scan.matePairs,
             unpairedRecords: scan.unpairedRecords,
             scannedWholeFile: scan.scannedWholeFile,
-            metadata: evidence.hints,
-            wholeFileScanOutranksTheMerge: evidence.wholeFileScanOutranksTheMerge
-                && holdsEveryRead(fastqURL, ofBundle: bundleURL(holding: inputURL))
+            metadata: metadata,
+            wholeFileScanOutranksTheMerge: wholeFileScanOutranksTheMerge
         )
+    }
+
+    /// Whether only a read of the whole file could say more about `inputURL`. It is one file that holds every read of
+    /// its input, and nothing recorded counts its kinds of reads. A planner's preview would read such a file whole, so
+    /// a wizard does not ask one.
+    public static func onlyAWholeReadCanTell(inputURL: URL) -> Bool {
+        guard let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: inputURL) else { return false }
+        return !metadataHints(for: inputURL).hasMergedOrUnpairedReads
+            && holdsEveryRead(fastqURL, ofBundle: bundleURL(holding: inputURL))
+    }
+
+    /// The most a wizard or a dialog reads of a file on its own.
+    public static let cueRecordLimit = 2_000
+
+    /// What a wizard may know at once, off any whole-file read. A recorded count, a person's own recorded Single-end,
+    /// or a file short enough to be read whole within ``cueRecordLimit``. Nil leaves the layout to the run, which reads
+    /// the file off the main actor with a cancel check.
+    public static func classifyWithoutReadingWholeFile(inputURL: URL) -> FASTQReadLayoutClassification? {
+        let classification = classify(inputURL: inputURL, limit: cueRecordLimit)
+        let settled = classification.scannedRecords == 0 && classification.metadata.recordsExplicitSingleEnd
+        return classification.scannedWholeFile || settled ? classification : nil
     }
 
     /// Gathers pairing and merge evidence from bundle and sidecar metadata.

@@ -671,7 +671,7 @@ struct EsVirituWizardSheet: View {
                 outputDir = baseDir.appendingPathComponent("esviritu-\(runToken)")
             }
 
-            let plan = plans[sample.sampleId] ?? EsVirituSampleReadPlan.plan(for: sample)
+            let plan = plans[sample.sampleId] ?? EsVirituSampleReadPlan.planWithoutReadingWholeFile(for: sample)
             var config = EsVirituConfig(
                 inputFiles: sample.inputFiles,
                 isPairedEnd: sample.isPairedEnd,

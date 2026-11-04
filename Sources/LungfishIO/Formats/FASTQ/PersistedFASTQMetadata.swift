@@ -42,6 +42,10 @@ public struct PersistedFASTQMetadata: Codable, Sendable {
     /// Nil for homogeneous single-end or paired-end bundles.
     public var readClassification: ReadClassification?
 
+    /// The count of this file's records taken at import and bound to its size. Every lone file records it, a file of
+    /// one kind included, where ``readClassification`` stays nil. A person's own Single-end outranks it.
+    public var recordedReadCount: FASTQRecordedReadCount?
+
     /// Optional FASTQ demultiplex metadata edited in the FASTQ bottom drawer.
     public var demultiplexMetadata: FASTQDemultiplexMetadata?
 
@@ -71,7 +75,8 @@ public struct PersistedFASTQMetadata: Codable, Sendable {
         demultiplexMetadata: FASTQDemultiplexMetadata? = nil,
         sequencingPlatform: SequencingPlatform? = nil,
         assemblyReadType: FASTQAssemblyReadType? = nil,
-        platformAssignment: PlatformAssignment? = nil
+        platformAssignment: PlatformAssignment? = nil,
+        recordedReadCount: FASTQRecordedReadCount? = nil
     ) {
         self.computedStatistics = computedStatistics
         self.sraRunInfo = sraRunInfo
@@ -85,5 +90,33 @@ public struct PersistedFASTQMetadata: Codable, Sendable {
         self.sequencingPlatform = sequencingPlatform
         self.assemblyReadType = assemblyReadType
         self.platformAssignment = platformAssignment
+        self.recordedReadCount = recordedReadCount
+    }
+}
+
+/// The count of a lone FASTQ file's records, taken from the stored file at import and bound to it by its size, so a
+/// file replaced under the same name keeps no stale proof (row READ-LAYOUT-PARTIAL-SCAN).
+public struct FASTQRecordedReadCount: Codable, Sendable, Equatable {
+    /// Read 1 of each adjacent mate pair.
+    public let pairedR1: Int
+    /// Read 2 of each adjacent mate pair.
+    public let pairedR2: Int
+    /// Records without an adjacent mate (merged, orphan or single reads).
+    public let unpaired: Int
+    /// The size of the stored file the count was taken from.
+    public let storedSizeBytes: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case pairedR1 = "paired_r1"
+        case pairedR2 = "paired_r2"
+        case unpaired
+        case storedSizeBytes
+    }
+
+    public init(pairedR1: Int, pairedR2: Int, unpaired: Int, storedSizeBytes: Int64) {
+        self.pairedR1 = pairedR1
+        self.pairedR2 = pairedR2
+        self.unpaired = unpaired
+        self.storedSizeBytes = storedSizeBytes
     }
 }

@@ -76,7 +76,9 @@ extension ClassificationPipeline {
         }
         let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [source])
         guard resolution.layout != .strictlyInterleaved else {
-            return (config, resolution, nil)
+            var verified = config
+            verified.inputLayout = resolution.classification ?? config.inputLayout
+            return (verified, resolution, nil)
         }
         var adjusted = config
         adjusted.interleavedInput = false

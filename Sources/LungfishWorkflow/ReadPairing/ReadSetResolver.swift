@@ -355,7 +355,7 @@ public struct ReadSetResolver: Sendable {
         }
         let resolution: FASTQInputLayoutResolution
         if let hints {
-            let scan = try FASTQReadLayoutClassifier.countMates(in: file)
+            let scan = try FASTQReadLayoutClassifier.recordedMateCounts(of: file) ?? FASTQReadLayoutClassifier.countMates(in: file)
             let classification = FASTQReadLayoutClassifier.classify(
                 scannedRecords: scan.scannedRecords,
                 matePairs: scan.matePairs,

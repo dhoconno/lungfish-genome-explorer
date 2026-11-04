@@ -31,6 +31,8 @@ extension EsVirituConfig {
             parameters["inputReadLayoutMatePairs"] = .int(inputLayout.matePairs)
             parameters["inputReadLayoutUnpairedRecords"] = .int(inputLayout.unpairedRecords)
             parameters["inputReadLayoutReason"] = .string(inputLayout.reason)
+            parameters["inputReadLayoutScannedRecords"] = .int(inputLayout.scannedRecords)
+            parameters["inputReadLayoutScannedWholeFile"] = .bool(inputLayout.scannedWholeFile)
         }
         return parameters
     }

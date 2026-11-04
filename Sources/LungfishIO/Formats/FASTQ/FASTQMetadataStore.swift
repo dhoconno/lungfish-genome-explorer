@@ -48,6 +48,10 @@ public enum FASTQMetadataStore {
         }
     }
 
+    private static func fileSize(of url: URL) -> Int64? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value
+    }
+
     /// Loads the sidecar, or nil when there is none. Unlike ``load(for:)`` it
     /// throws when a sidecar exists but cannot be read or decoded, so a caller
     /// that rewrites the sidecar never replaces a file it could not read.
@@ -56,7 +60,14 @@ public enum FASTQMetadataStore {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(PersistedFASTQMetadata.self, from: Data(contentsOf: url))
+        var metadata = try decoder.decode(PersistedFASTQMetadata.self, from: Data(contentsOf: url))
+        // A file replaced under the same name has another size. What was counted of the old file goes, the roles
+        // recorded with the count included, so every reader of the sidecar sees no stale proof.
+        if let count = metadata.recordedReadCount, let size = fileSize(of: fastqURL), size != count.storedSizeBytes {
+            metadata.recordedReadCount = nil
+            metadata.readClassification = nil
+        }
+        return metadata
     }
 
     /// Saves metadata to the sidecar JSON file. A failed write is logged, not
@@ -88,7 +99,12 @@ public enum FASTQMetadataStore {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(metadata).write(to: metadataURL(for: fastqURL), options: .atomic)
+        // A count that came along with a sidecar copied from another file says nothing of this one.
+        var bound = metadata
+        if let count = bound.recordedReadCount, fileSize(of: fastqURL) != count.storedSizeBytes {
+            bound.recordedReadCount = nil
+        }
+        try encoder.encode(bound).write(to: metadataURL(for: fastqURL), options: .atomic)
     }
 
     /// Deletes the sidecar metadata file if it exists.

@@ -165,6 +165,10 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
             "countedOutputReadCount": countedOutputReadCount,
             "readLayout": .string(resolution.layout.rawValue),
             "readLayoutReason": .string(resolution.reason),
+            "scannedRecords": resolution.scannedRecordsProvenanceValue,
+            "scannedWholeFile": resolution.scannedWholeFileProvenanceValue,
+            "pairs": resolution.pairsProvenanceValue,
+            "unpairedReads": resolution.unpairedReadsProvenanceValue,
             "unpairedPassthroughReads": .integer(passthroughReadCount),
             "force": .boolean(output.force),
             "compress": .boolean(output.compress)

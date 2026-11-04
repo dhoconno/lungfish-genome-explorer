@@ -2205,7 +2205,7 @@ public actor ClassificationPipeline {
             "databaseCoreFileSizes": databaseCoreFileSizesOption(at: effectiveConfig.databasePath),
             "profileState": .string(profileState ?? outcome.state.rawValue),
         ]
-        resolvedDefaults.merge(requestedConfig.readSetPlan?.provenanceParameters ?? [:]) { current, _ in current }
+        resolvedDefaults.merge((requestedConfig.readSetPlan?.provenanceParameters ?? [:]).merging(effectiveConfig.inputLayout?.provenanceParameters ?? [:]) { current, _ in current }) { current, _ in current }
         // No read format is explicit, since a planned one looks the same. A changed request is resolved (SW26 note 2).
         if requestedConfig.readFormat != effectiveConfig.readFormat {
             resolvedDefaults["requestedReadFormat"] = .string(requestedConfig.readFormat.rawValue)

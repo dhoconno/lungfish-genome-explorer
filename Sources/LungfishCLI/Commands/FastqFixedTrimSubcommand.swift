@@ -105,6 +105,10 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
                 "interleaved": .boolean(outcome.plan.isPaired),
                 "readLayout": pairingDecision.readLayoutProvenanceValue,
                 "readLayoutReason": pairingDecision.readLayoutReasonProvenanceValue,
+                "scannedRecords": pairingDecision.resolution.scannedRecordsProvenanceValue,
+                "scannedWholeFile": pairingDecision.resolution.scannedWholeFileProvenanceValue,
+                "pairs": pairingDecision.resolution.pairsProvenanceValue,
+                "unpairedReads": pairingDecision.resolution.unpairedReadsProvenanceValue,
                 "fastpLayoutPlan": outcome.plan.provenanceValue,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)

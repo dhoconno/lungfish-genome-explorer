@@ -14,26 +14,34 @@ public struct ClassificationSampleReadPlan: Equatable, Sendable {
     public let format: ClassificationConfig.ReadFormat
     public let layout: FASTQReadLayoutClassification?
     public var readSet: KrakenReadSetPreview? = nil
+    /// No count is recorded and the file is too long to read here, so the run decides. `format` asks for pairs, and
+    /// `ClassificationPipeline.reconcileInterleavedRequest` keeps them only for a file that is strict when read whole.
+    public var layoutDecidedAtRunTime = false
 
     public init(
         format: ClassificationConfig.ReadFormat,
         layout: FASTQReadLayoutClassification?,
-        readSet: KrakenReadSetPreview? = nil
+        readSet: KrakenReadSetPreview? = nil,
+        layoutDecidedAtRunTime: Bool = false
     ) {
         self.format = format
         self.layout = layout
         self.readSet = readSet
+        self.layoutDecidedAtRunTime = layoutDecidedAtRunTime
     }
 
     public var plansReadSet: Bool { readSet?.plansReadSet ?? false }
 
     public var label: String {
-        readSet?.inputLabel ?? ClassificationConfig.ReadFormat.inputLabel(format: format, layout: layout?.layout)
+        if let label = readSet?.inputLabel { return label }
+        if layoutDecidedAtRunTime { return "Read layout is decided when the run starts" }
+        return ClassificationConfig.ReadFormat.inputLabel(format: format, layout: layout?.layout)
     }
 
     /// Compact tag for the batch sample list.
     public var shortLabel: String {
         if plansReadSet { return readSet == .pairs(withSingleReads: false) ? "PE" : "PE + merged" }
+        if layoutDecidedAtRunTime { return "decided at run" }
         switch format {
         case .paired: return "PE"
         case .interleaved: return "interleaved PE"
@@ -52,9 +60,19 @@ public struct ClassificationSampleReadPlan: Equatable, Sendable {
         return ClassificationSampleReadPlan(format: .forSingleFile(layout.layout), layout: layout)
     }
 
+    /// The plan a wizard takes, which reads no whole file (``FASTQReadLayoutClassifier/classifyWithoutReadingWholeFile(inputURL:)``).
+    public static func planWithoutReadingWholeFile(for sample: MetagenomicsSampleInput) -> ClassificationSampleReadPlan {
+        if sample.isPairedEnd { return ClassificationSampleReadPlan(format: .paired, layout: nil) }
+        guard let layout = FASTQReadLayoutClassifier.classifyWithoutReadingWholeFile(inputURL: sample.fastq1) else {
+            return ClassificationSampleReadPlan(format: .interleaved, layout: nil, layoutDecidedAtRunTime: true)
+        }
+        return ClassificationSampleReadPlan(format: .forSingleFile(layout.layout), layout: layout)
+    }
+
     /// The plan with the bundle's read set read from its metadata.
     public static func planned(for sample: MetagenomicsSampleInput) async -> ClassificationSampleReadPlan {
-        var plan = plan(for: sample)
+        var plan = planWithoutReadingWholeFile(for: sample)
+        if plan.layoutDecidedAtRunTime, FASTQReadLayoutClassifier.onlyAWholeReadCanTell(inputURL: sample.fastq1) { return plan }
         guard let bundle = KrakenReadSetPlanner.plannableInput(sample.inputFiles) else { return plan }
         plan.readSet = await KrakenReadSetPlanner.preview(bundle: bundle)
         return plan
@@ -128,21 +146,38 @@ public struct EsVirituSampleReadPlan: Equatable, Sendable {
         return EsVirituSampleReadPlan(format: .forSingleFile(layout.layout), layout: layout)
     }
 
+    /// The plan a wizard takes, which reads no whole file (``FASTQReadLayoutClassifier/classifyWithoutReadingWholeFile(inputURL:)``).
+    /// With no answer the run decides. `format` asks for pairs, which `EsVirituConfig.verifyingInterleavedInput` keeps
+    /// only for a file that is strict when read whole.
+    public static func planWithoutReadingWholeFile(for sample: MetagenomicsSampleInput) -> EsVirituSampleReadPlan {
+        if sample.isPairedEnd { return EsVirituSampleReadPlan(format: .paired, layout: nil) }
+        guard let layout = FASTQReadLayoutClassifier.classifyWithoutReadingWholeFile(inputURL: sample.fastq1) else {
+            return EsVirituSampleReadPlan(format: .interleaved, layout: nil, readSet: .decidedAtRunTime)
+        }
+        return EsVirituSampleReadPlan(format: .forSingleFile(layout.layout), layout: layout)
+    }
+
     /// ``plan(for:classify:)`` with what the read-set planner will do for the
     /// sample's bundle or file. Separate R1 and R2 files in a deinterleaved
     /// bundle run `paired`. Any other input the planner decides keeps the
     /// classified format, and the planner sets the files when the run starts.
     public static func planned(
         for sample: MetagenomicsSampleInput,
-        classify: (URL) -> FASTQReadLayoutClassification = { FASTQReadLayoutClassifier.classify(inputURL: $0) },
+        classify: ((URL) -> FASTQReadLayoutClassification)? = nil,
         preview: (URL) async -> SamplesheetReadSetPreview = { await SamplesheetReadSetPlanner.preview(input: $0) }
     ) async -> EsVirituSampleReadPlan {
-        let classified = plan(for: sample, classify: classify)
+        let classified = classify.map { plan(for: sample, classify: $0) } ?? planWithoutReadingWholeFile(for: sample)
         guard !sample.isPairedEnd else { return classified }
+        if classify == nil, classified.readSet == .decidedAtRunTime,
+           FASTQReadLayoutClassifier.onlyAWholeReadCanTell(inputURL: sample.fastq1) {
+            return classified
+        }
         let readSet = await preview(sample.fastq1)
         if case .pairs(withSingleReads: false) = readSet {
             return EsVirituSampleReadPlan(format: .paired, layout: nil, readSet: readSet)
         }
-        return EsVirituSampleReadPlan(format: classified.format, layout: classified.layout, readSet: readSet)
+        // A planner that sees single reads says nothing of a file nobody has read whole.
+        let undecided = classified.readSet == .decidedAtRunTime && readSet == .singleReads
+        return EsVirituSampleReadPlan(format: classified.format, layout: classified.layout, readSet: undecided ? classified.readSet : readSet)
     }
 }

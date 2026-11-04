@@ -845,12 +845,12 @@ public enum FASTQBatchImporter {
                 storageInputSizeBytes: ingestionResult.originalSizeBytes,
                 storageOutputSizeBytes: ingestionResult.finalSizeBytes
             )
-            var metadata = PersistedFASTQMetadata()
-            metadata.ingestion = ingestion
+            var metadata = PersistedFASTQMetadata(ingestion: ingestion)
             metadata.readClassification = Self.readClassification(
                 forMixedLayout: Self.storedMixedLayout(recipeMixedLayout, removing: ingestionResult.readsRemovedByStorage),
                 bundleFASTQName: bundleFASTQName
             )
+            if processingPair.r2 == nil { try Self.recordCount(ofStored: stagingBundleFASTQURL, named: bundleFASTQName, pairing: recordedPairing, in: &metadata) }
             applyPlatformMetadata(to: &metadata, config: config)
             if let recipe = config.newRecipe, !recipeStepResults.isEmpty {
                 metadata.ingestion?.recipeApplied = RecipeAppliedInfo(
@@ -2570,12 +2570,11 @@ public enum FASTQBatchImporter {
     private static func deinterleavePairedInput(sourceFASTQ: URL, outputR1: URL, outputR2: URL) async throws {
         let runner = NativeToolRunner.shared
         let env = await bbToolsEnvironment()
-        let result = try await runner.run(
-            .reformat,
-            arguments: BBToolsPairArguments.deinterleave(input: sourceFASTQ.path, out1: outputR1.path, out2: outputR2.path),
-            environment: env,
-            timeout: AnalysisTimeLimit.launchTimeout
-        )
+        let result = try await BBToolsPairArguments.runDeinterleave(
+            input: sourceFASTQ.path, out1: outputR1.path, out2: outputR2.path,
+            run: { try await runner.run(.reformat, arguments: $0, environment: env, timeout: AnalysisTimeLimit.launchTimeout) },
+            failureWords: { $0.isSuccess ? nil : $0.stderr }
+        ).outcome
         guard result.isSuccess else {
             throw BatchImportError.unknownRecipe("reformat.sh deinterleave failed: \(result.stderr.suffix(500))")
         }
