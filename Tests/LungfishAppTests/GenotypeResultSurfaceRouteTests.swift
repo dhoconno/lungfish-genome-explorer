@@ -381,6 +381,111 @@ final class GenotypeResultSurfaceRouteTests: XCTestCase {
         )
     }
 
+    // MARK: - Quit
+
+    /// What one Quit did: how often the sheet was asked, what AppKit was told, and the comment bodies the bundle's file held
+    /// at the moment of each reply.
+    private final class QuitLog {
+        var asked = 0
+        var replies: [Bool] = []
+        var savedBodiesAtReply: [[String]] = []
+    }
+
+    /// Starts a Quit whose sheet is answered by `answer`, with `timeout` for the wait on the edits. `duringWait` runs
+    /// right after the Quit has started. It returns once AppKit has its reply.
+    private func quit(
+        over edit: HeldEdit,
+        answering answer: Bool,
+        timeout: Duration = .milliseconds(300),
+        duringWait: (@MainActor () -> Void)? = nil
+    ) async throws -> QuitLog {
+        let log = QuitLog()
+        let savedTimeout = ProjectTaskTerminationRegistry.annotationSaveTimeout
+        ProjectTaskTerminationRegistry.annotationSaveTimeout = timeout
+        GenotypeEditQuitConfirmation.testingAnswer = {
+            log.asked += 1
+            return answer
+        }
+        defer {
+            ProjectTaskTerminationRegistry.annotationSaveTimeout = savedTimeout
+            GenotypeEditQuitConfirmation.testingAnswer = nil
+        }
+        let delegate = AppDelegate()
+        let bundleURL = edit.bundleURL
+        let immediate = delegate.testingApplicationShouldTerminate { reply in
+            log.replies.append(reply)
+            let saved = try? ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+            log.savedBodiesAtReply.append(saved?.matrixComments.map(\.body) ?? [])
+        }
+        XCTAssertEqual(immediate, .terminateLater, "Quit did not wait for the waiting edit")
+        duringWait?()
+        let replied = await waitUntil(budget: .lookup) { !log.replies.isEmpty }
+        XCTAssertTrue(replied, "AppKit never got a reply to the Quit")
+        withExtendedLifetime(delegate) {}
+        return log
+    }
+
+    /// Frees the lock, fires the held retry and reads the edit back, so the test leaves nothing waiting.
+    private func finish(_ edit: HeldEdit, file: StaticString = #filePath, line: UInt = #line) async throws {
+        edit.lock.release()
+        edit.scheduler.fire()
+        await GenotypeResultViewController.waitForAnnotationEditsToSave(timeout: .seconds(5))
+        XCTAssertFalse(GenotypeResultViewController.isSavingAnnotationEdits, "the edit never finished", file: file, line: line)
+        let saved = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: edit.bundleURL)
+        XCTAssertTrue(
+            saved.matrixComments.contains { $0.body == edit.body },
+            "the edit was lost: \(saved.matrixComments.map(\.body))",
+            file: file,
+            line: line
+        )
+    }
+
+    /// The wait ends on its deadline with the edit still waiting for its workbook, so Quit asks. Don't Quit keeps the app,
+    /// the edit is still queued, and it is saved when the workbook update ends.
+    func testQuitAsksWhenAnEditStillWaitsAndDontQuitKeepsTheAppAndTheEdit() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let edit = try await holdAnEdit(in: harness, row: try await buildRow(of: "Genotype"), body: "kept by Don't Quit")
+
+        let log = try await quit(over: edit, answering: false)
+
+        XCTAssertEqual(log.asked, 1, "Quit did not ask about the waiting edit")
+        XCTAssertEqual(log.replies, [false], "Don't Quit still quit")
+        XCTAssertEqual(edit.controller?.testingDeferredMatrixAnnotationMutationCount, 1, "Don't Quit lost the waiting edit")
+        try await finish(edit)
+    }
+
+    /// Quit Anyway quits at once, with the edit unsaved.
+    func testQuitAnywayQuitsAfterTheSheetAskedAboutTheWaitingEdit() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let edit = try await holdAnEdit(in: harness, row: try await buildRow(of: "Genotype"), body: "left by Quit Anyway")
+
+        let log = try await quit(over: edit, answering: true)
+
+        XCTAssertEqual(log.asked, 1, "Quit did not ask about the waiting edit")
+        XCTAssertEqual(log.replies, [true], "Quit Anyway did not quit")
+        XCTAssertEqual(log.savedBodiesAtReply, [[]], "the edit was saved, so there was nothing to ask about")
+        try await finish(edit)
+    }
+
+    /// The workbook update ends during the wait, so the edit is saved before Quit goes on and no sheet is shown.
+    func testQuitDoesNotAskWhenTheWorkbookUpdateEndsDuringTheWait() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let edit = try await holdAnEdit(in: harness, row: try await buildRow(of: "Genotype"), body: "saved during the wait")
+
+        let log = try await quit(over: edit, answering: false, timeout: .seconds(10)) {
+            edit.lock.release()
+            edit.scheduler.fire()
+        }
+
+        XCTAssertEqual(log.asked, 0, "Quit asked about an edit that saved in time")
+        XCTAssertEqual(log.replies, [true])
+        XCTAssertEqual(log.savedBodiesAtReply, [[edit.body]], "Quit went on before the edit was saved")
+        try await finish(edit)
+    }
+
     /// Builds the sidebar row of one matrix kind under its own folder.
     private func buildRow(of name: String) async throws -> SidebarItem {
         let kind = try XCTUnwrap(ViewSwitchKinds.all.first { $0.name == name }, "the matrix has no kind \(name)")

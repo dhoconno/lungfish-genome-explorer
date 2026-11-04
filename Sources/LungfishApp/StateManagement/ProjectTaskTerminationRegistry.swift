@@ -7,6 +7,10 @@ import LungfishGenotypeUI
 enum ProjectTaskTerminationRegistry {
     private static var tasks: [UUID: Task<Void, Never>] = [:]
 
+    /// How long Quit waits for the annotation edits that are saving or waiting for their workbook (2.11 S35). A test
+    /// shortens it, since the wait ends on this deadline when an edit stays unsaved.
+    static var annotationSaveTimeout: Duration = .seconds(15)
+
     static var hasPendingTasks: Bool { !tasks.isEmpty || GenotypeResultViewController.isSavingAnnotationEdits }
 
     static func start(
@@ -31,6 +35,6 @@ enum ProjectTaskTerminationRegistry {
         }
         // An annotation edit renames its pair of files away from the main thread, so Quit
         // waits for the edits that are saving, up to a deadline (2.11 S35).
-        await GenotypeResultViewController.waitForAnnotationEditsToSave()
+        await GenotypeResultViewController.waitForAnnotationEditsToSave(timeout: annotationSaveTimeout)
     }
 }
