@@ -158,7 +158,7 @@ extension RoutingSafetyNetTable {
                 return RoutingRowFixture(
                     item: try RoutingSafetyNetItems.scannedAnalysis(batch),
                     expected: RoutingObservation(
-                        status: "Unable to open the mapping result. The data couldn’t be read because it is missing. Select the item again. If it still does not open, check that the result's folder is complete or run the mapping again.",
+                        status: "Unable to open the mapping result. No saved mapping result in \(batch.path). Select the item again. If it still does not open, check that the result's folder is complete or run the mapping again.",
                         provenance: "analysisResult \(path)"
                     )
                 )

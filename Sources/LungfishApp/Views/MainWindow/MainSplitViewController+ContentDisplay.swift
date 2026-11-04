@@ -827,6 +827,7 @@ extension MainSplitViewController {
         }
     }
 
+    // The Inspector keeps its last block after the viewer leaves, so a viewport that left takes no more settings.
     func wireDirectReferenceViewportInspectorUpdates() {
         guard let controller = viewerController.referenceBundleViewportController else { return }
         controller.onEmbeddedReferenceBundleLoaded = { [weak self, weak controller] bundle in
@@ -835,7 +836,7 @@ extension MainSplitViewController {
                 from: bundle,
                 hiddenVariantTrackIDs: controller.embeddedHiddenVariantTrackIDs,
                 applySettings: { [weak controller] payload in
-                    controller?.applyEmbeddedReadDisplaySettings(payload)
+                    if controller?.parent != nil { controller?.applyEmbeddedReadDisplaySettings(payload) }
                 }
             )
         }
@@ -854,7 +855,7 @@ extension MainSplitViewController {
                 from: bundle,
                 hiddenVariantTrackIDs: controller.embeddedHiddenVariantTrackIDs,
                 applySettings: { [weak controller] payload in
-                    controller?.applyEmbeddedReadDisplaySettings(payload)
+                    if controller?.parent != nil { controller?.applyEmbeddedReadDisplaySettings(payload) }
                 }
             )
         }

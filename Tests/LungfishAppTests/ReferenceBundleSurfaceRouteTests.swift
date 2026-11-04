@@ -452,10 +452,13 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         }
         XCTAssertTrue(settled, "the viewport never settled with its Inspector block")
         opened = nil
+        // A refresh still reading its stats when the viewer leaves goes on to its builder, and that is no stale filter.
+        let inFlight = left?.mappingRowsRefreshTask
 
         harness.select(fastq)
         let moved = await waitUntil(budget: .lookup) { viewer.contentMode == .fastq }
         XCTAssertTrue(moved, "the FASTQ dashboard never replaced the viewport")
+        await inFlight?.value
         let stale = try XCTUnwrap(readStyle.onSettingsChanged, "the block is gone, so this test proves nothing")
         let before = builds.calls
 
