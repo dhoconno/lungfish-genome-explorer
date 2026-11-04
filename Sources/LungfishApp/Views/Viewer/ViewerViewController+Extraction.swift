@@ -107,7 +107,7 @@ extension SequenceViewerView {
             extractionLogger.info("Copied FASTA for '\(annotation.name)' (\(result.nucleotideSequence.count) bp) to clipboard")
         } catch {
             extractionLogger.error("Failed to extract sequence for FASTA: \(error.localizedDescription)")
-            NSSound.beep()
+            presentExtractionFailure(step: "Copy the annotation as FASTA", error: error)
         }
     }
 
@@ -162,7 +162,7 @@ extension SequenceViewerView {
             )
         } catch {
             extractionLogger.error("Failed to prepare annotation for FASTQ/FASTA operation: \(error.localizedDescription)")
-            NSSound.beep()
+            presentExtractionFailure(step: "Prepare the annotation for a FASTQ/FASTA operation", error: error)
         }
     }
 
@@ -198,7 +198,7 @@ extension SequenceViewerView {
             extractionLogger.info("Copied protein FASTA for '\(annotation.name)' to clipboard")
         } catch {
             extractionLogger.error("Failed to extract translation for FASTA: \(error.localizedDescription)")
-            NSSound.beep()
+            presentExtractionFailure(step: "Copy the translation as FASTA", error: error)
         }
     }
 
@@ -229,8 +229,32 @@ extension SequenceViewerView {
             extractionLogger.info("Copied visible-region FASTA (\(result.nucleotideSequence.count) bp) to clipboard")
         } catch {
             extractionLogger.error("Failed to extract visible region for FASTA: \(error.localizedDescription)")
-            NSSound.beep()
+            presentExtractionFailure(step: "Copy the visible region as FASTA", error: error)
         }
+    }
+
+    /// Shows words in place of a beep when an extraction ends in a throw (review of FASTAREAD, blocker 1).
+    ///
+    /// `SequenceExtractor` throws `ExtractionError.sequenceNotAvailable` when the provider answers nil for a range
+    /// it asked for. After the short-read fix that is what a reference gives when its sequence file was changed or
+    /// cut after it was indexed (`IndexedFASTAReader.regionBases`). `step` names the route that failed and starts
+    /// with a verb, as `FailureReport.failedStep` asks, such as "Copy the annotation as FASTA".
+    private func presentExtractionFailure(step: String, error: any Error) {
+        let readFailed: Bool
+        if case LungfishCore.ExtractionError.sequenceNotAvailable = error { readFailed = true } else { readFailed = false }
+        FailurePresenter.present(
+            FailureReport(
+                failedStep: step,
+                whatHappened: readFailed
+                    ? "Lungfish could not read the bases this extraction needs from the reference, so nothing was copied or created. The reference's sequence file may be missing, or it may have been changed or cut after it was indexed."
+                    : "Lungfish could not extract this sequence, so nothing was copied or created.",
+                nextStep: readFailed
+                    ? "Check that the reference is still in the project. If its sequence file was changed, import the original FASTA again, then extract again."
+                    : "Check the region and the extraction options, then try again.",
+                underlying: error
+            ),
+            in: window
+        )
     }
 
     // MARK: - Extract Sheet Actions
@@ -382,7 +406,7 @@ extension SequenceViewerView {
             }
         } catch {
             extractionLogger.error("Extraction failed: \(error.localizedDescription)")
-            NSSound.beep()
+            presentExtractionFailure(step: "Extract the sequence", error: error)
         }
     }
 
