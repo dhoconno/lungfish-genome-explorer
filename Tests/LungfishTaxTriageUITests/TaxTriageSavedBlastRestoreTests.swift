@@ -114,6 +114,34 @@ final class TaxTriageSavedBlastRestoreTests: XCTestCase {
         XCTAssertFalse(summary.contains("sample-1"), "the verdict does not name the selected row: \(summary)")
     }
 
+    /// ROWPANE-UX-2 F1. Re-run repeats the request of the row the run was sent for (the clicked row's reads), so its
+    /// verdict names that row's sample too. At the landed head the Re-run named no row and the pane took the pick.
+    func testReRunAfterAClickedRowRunNamesTheClickedRowsSample() async throws {
+        try await openResult()
+        try select(sample: "sample-1")
+        await controller.resultActions.savedBlastRestoreTask?.value
+        let actions = controller.resultActions
+        controller.onBlastVerification = { _, _, _, _, _ in
+            actions.showBlastLoading(phase: .submitting, requestId: nil)
+        }
+        let table = controller.testBatchFlatTableView
+        let clicked = try XCTUnwrap(table.displayedRows.first { $0.sample == "sample-2" })
+        table.onBlastVerifyRequested?(clicked, 20)
+        let recordURL = try saved.saveRecord(
+            rid: "RID-RUN", sourceResult: "taxtriage-A", sample: "sample-9", taxId: 99, contig: "NC_RUN", age: -100
+        )
+        let result = try BlastSubmissionRecord.load(recordURL).result
+        actions.showBlastResults(result, recordURL: nil)
+        let drawer = controller.view.subviews.compactMap { $0 as? BlastResultsDrawerTab }.first
+
+        try XCTUnwrap(drawer?.onRerunBlast, "the pane offers Re-run")()
+        actions.showBlastResults(result, recordURL: nil)
+
+        let summary = actions.blastDrawer.summaryLabel.stringValue
+        XCTAssertTrue(summary.contains("sample-2"), "the Re-run's verdict names the sample of the row it repeats: \(summary)")
+        XCTAssertFalse(summary.contains("sample-1"), "the Re-run's verdict does not name the selected row: \(summary)")
+    }
+
     private func openResult(secondSampleAccession: String = "NC_1001") async throws {
         let result = try saved.result("taxtriage-A")
         for sample in ["sample-1", "sample-2"] {

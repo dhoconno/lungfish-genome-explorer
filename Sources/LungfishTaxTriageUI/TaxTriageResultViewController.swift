@@ -2754,15 +2754,16 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     private func requestBlastVerification(for row: TaxTriageTableRow, readCount: Int) {
-        resultActions.noteBlastRunRow(blastSavedSearchRow(for: row))
         forwardBlastVerification(blastOrganism(for: row), readCount, accessions(for: row), bamURL, bamIndexURL)
     }
 
-    /// Hands a BLAST request to the host and keeps its sample, accessions and BAM for the drawer's re-run.
+    /// Hands a BLAST request to the host and keeps its sample, accessions and BAM for the drawer's re-run. Every send
+    /// names its own row, a re-run too, so a run is about the row it repeats (ROWPANE-UX-2 F1).
     private func forwardBlastVerification(
         _ organism: TaxTriageOrganism, _ readCount: Int, _ accessions: [String]?, _ bamURL: URL?, _ bamIndexURL: URL?
     ) {
         lastBlastRequest = (organism.sample, accessions, bamURL, bamIndexURL)
+        resultActions.noteBlastRunRow(batchGroupURL.map { organism.blastSavedSearchRow(accessions: accessions ?? [], sourceResultURL: $0) })
         onBlastVerification?(organism, readCount, accessions, bamURL, bamIndexURL)
     }
 
@@ -2788,7 +2789,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         } else {
             metricBamIndexURL = bamIndexURL
         }
-        resultActions.noteBlastRunRow(blastSavedSearchRow(for: metric))
         forwardBlastVerification(organism, readCount, rowAccessions, metricBamURL, metricBamIndexURL)
     }
 
