@@ -80,7 +80,7 @@ Sources/LungfishCore/Bundles/BundleManifest.swift 814
 Sources/LungfishCore/Bundles/Converters/AnnotationConverter.swift 866
 Sources/LungfishCore/Bundles/ReferenceBundleBuilder.swift 1361
 Sources/LungfishCore/Models/AppSettings.swift 827
-Sources/LungfishCore/Services/Blast/BlastService.swift 1323
+Sources/LungfishCore/Services/Blast/BlastService.swift 990
 Sources/LungfishCore/Services/NCBI/NCBIService.swift 1921
 Sources/LungfishCore/Storage/PortablePath.swift 1013
 Sources/LungfishCore/Storage/ProjectStore.swift 1568
