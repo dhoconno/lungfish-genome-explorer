@@ -16,7 +16,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 0 | LungfishCLI |
-| LungfishCore | library | Sources/LungfishCore | 337 | LungfishPortable |
+| LungfishCore | library | Sources/LungfishCore | 342 | LungfishPortable |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -33,7 +33,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 1578 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
-| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 82 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
+| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 86 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
 
 ## Test targets
 
@@ -459,8 +459,10 @@ None.
 - `BlastHitRelation` enum, `Sources/LungfishCore/Services/Blast/BlastTaxonMatching.swift`
 - `BlastHitSummary` struct, `Sources/LungfishCore/Services/Blast/BlastResult.swift`
 - `BlastHSP` struct, `Sources/LungfishCore/Services/Blast/BlastResult.swift`
+- `BlastHTTPClient` struct, `Sources/LungfishCore/Services/Blast/BlastHTTPClient.swift`
 - `BlastJobStatus` enum, `Sources/LungfishCore/Services/Blast/BlastVerificationRequest.swift`
 - `BlastJobSubmission` struct, `Sources/LungfishCore/Services/Blast/BlastVerificationRequest.swift`
+- `BlastLimitRefusal` struct, `Sources/LungfishCore/Services/Blast/BlastSubmissionLedger.swift`
 - `BlastRateLimitConfiguration` struct, `Sources/LungfishCore/Services/Blast/BlastVerificationRequest.swift`
 - `BlastReadResult` struct, `Sources/LungfishCore/Services/Blast/BlastResult.swift`
 - `BlastReadSource` struct, `Sources/LungfishCore/Services/Blast/BlastService+Sources.swift`
@@ -469,11 +471,14 @@ None.
 - `BlastService` actor, `Sources/LungfishCore/Services/Blast/BlastService.swift`
 - `BlastServiceError` enum, `Sources/LungfishCore/Services/Blast/BlastVerificationRequest.swift`
 - `BlastSubmissionBudget` enum, `Sources/LungfishCore/Services/Blast/BlastSubmissionLedger.swift`
+- `BlastSubmissionKind` enum, `Sources/LungfishCore/Services/Blast/BlastSubmissionLedger.swift`
 - `BlastSubmissionLedger` protocol, `Sources/LungfishCore/Services/Blast/BlastSubmissionLedger.swift`
 - `BlastSubmissionLedgerEvent` struct, `Sources/LungfishCore/Services/Blast/BlastSubmissionLedger.swift`
 - `BlastSubmissionRecord` struct, `Sources/LungfishCore/Services/Blast/BlastSubmissionRecord.swift`
 - `BlastTaxonMatching` enum, `Sources/LungfishCore/Services/Blast/BlastTaxonMatching.swift`
 - `BlastTaxonomyContext` struct, `Sources/LungfishCore/Services/Blast/BlastTaxonMatching.swift`
+- `BlastTieSummary` struct, `Sources/LungfishCore/Services/Blast/BlastTieSummary.swift`
+- `BlastTieWords` enum, `Sources/LungfishCore/Services/Blast/BlastTieSummary.swift`
 - `BlastVerdict` enum, `Sources/LungfishCore/Services/Blast/BlastResult.swift`
 - `BlastVerificationRequest` struct, `Sources/LungfishCore/Services/Blast/BlastVerificationRequest.swift`
 - `BlastVerificationResult` struct, `Sources/LungfishCore/Services/Blast/BlastResult.swift`
@@ -3637,6 +3642,10 @@ None.
 - `AXProcessProbe` enum, `Tests/Support/LungfishTestSupport/AXProcessProbe.swift`
 - `BamFixtureBuilder` enum, `Tests/Support/LungfishTestSupport/BamFixtureBuilder.swift`
 - `BareRunWriterParity` enum, `Tests/Support/LungfishTestSupport/BareRunWriterParity.swift`
+- `BlastFaultArrival` struct, `Tests/Support/LungfishTestSupport/BlastFaultStandIn.swift`
+- `BlastFaultContact` enum, `Tests/Support/LungfishTestSupport/BlastFaultStandIn.swift`
+- `BlastFaultScript` struct, `Tests/Support/LungfishTestSupport/BlastFaultScript.swift`
+- `BlastFaultStandIn` class, `Tests/Support/LungfishTestSupport/BlastFaultStandIn.swift`
 - `BundleAlignmentFixture` struct, `Tests/Support/LungfishTestSupport/BundleAlignmentFixture.swift`
 - `BundleFixtureResourceError` enum, `Tests/Support/LungfishTestSupport/BundleFixtureResource.swift`
 - `CallerIdentityPaths` enum, `Tests/Support/LungfishTestSupport/CallerIdentityPaths.swift`
