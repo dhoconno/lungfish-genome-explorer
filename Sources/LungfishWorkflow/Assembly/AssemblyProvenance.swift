@@ -376,7 +376,7 @@ extension AssemblyProvenance {
     /// when it has moved, by name in the project folder, its FASTQ folder or
     /// its Reads folder, as Reassemble has always looked. `missing` holds the
     /// recorded paths found nowhere.
-    public func reassemblyInputFiles(projectURL: URL?) -> (found: [URL], missing: [String]) {
+    public func reassemblyInputFiles(projectURL: URL?) async -> (found: [URL], missing: [String], changed: [String], unverified: [String]) {
         var found: [URL] = []
         var missing: [String] = []
         for path in reassemblyInputPaths {
@@ -390,7 +390,7 @@ extension AssemblyProvenance {
                 missing.append(path)
             }
         }
-        return (found, missing)
+        return (found, missing, [], [])
     }
 
     private static func standardizedPath(_ path: String) -> String {

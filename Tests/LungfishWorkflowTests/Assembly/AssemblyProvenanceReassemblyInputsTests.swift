@@ -130,6 +130,173 @@ final class AssemblyProvenanceReassemblyInputsTests: XCTestCase {
         )
     }
 
+    // MARK: - Which copy of the reads Reassemble takes (REASSEMBLE-COPY-INPUT)
+
+    /// A copied project reassembles from its own Imports while the original still exists, never from the
+    /// original's path.
+    func testCopyUsesItsOwnImportsWhileTheOriginalExists() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let recorded = root.appendingPathComponent("Mito.lungfish/Imports/reads.fastq")
+        let own = root.appendingPathComponent("Mito.lungfish copy/Imports/reads.fastq")
+        try write(reads("a"), to: recorded)
+        try write(reads("a"), to: own)
+        let record = try checksummed(recorded)
+
+        let inputs = await provenance(inputs: [record], requested: [recorded.path])
+            .reassemblyInputFiles(projectURL: root.appendingPathComponent("Mito.lungfish copy"))
+        XCTAssertEqual(inputs.found.map(\.path), [own.path])
+        XCTAssertTrue(inputs.missing.isEmpty && inputs.changed.isEmpty && inputs.unverified.isEmpty, "\(inputs)")
+    }
+
+    /// The original is gone and the copy's Imports holds the reads, so nothing is missing.
+    func testCopyFindsItsOwnImportsWithTheOriginalGone() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let recorded = root.appendingPathComponent("Mito.lungfish/Imports/reads.fastq")
+        let own = root.appendingPathComponent("Mito.lungfish copy/Imports/reads.fastq")
+        try write(reads("a"), to: recorded)
+        try write(reads("a"), to: own)
+        let record = try checksummed(recorded)
+        try FileManager.default.removeItem(at: root.appendingPathComponent("Mito.lungfish"))
+
+        let inputs = await provenance(inputs: [record], requested: [recorded.path])
+            .reassemblyInputFiles(projectURL: root.appendingPathComponent("Mito.lungfish copy"))
+        XCTAssertTrue(inputs.missing.isEmpty, "\(inputs.missing)")
+        XCTAssertEqual(inputs.found.map(\.path), [own.path])
+    }
+
+    /// A project renamed since the run holds the bundle the run named under its new name.
+    func testMovedProjectFindsItsImports() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let oldBundle = root.appendingPathComponent("Old.lungfish/Imports/sample.lungfishfastq")
+        let newBundle = root.appendingPathComponent("New.lungfish/Imports/sample.lungfishfastq")
+        try write(reads("a"), to: newBundle.appendingPathComponent("sample.fastq"))
+        let record = try checksummed(
+            newBundle.appendingPathComponent("sample.fastq"),
+            as: oldBundle.appendingPathComponent("sample.fastq").path
+        )
+
+        let inputs = await provenance(inputs: [record], requested: [oldBundle.path])
+            .reassemblyInputFiles(projectURL: root.appendingPathComponent("New.lungfish"))
+        XCTAssertTrue(inputs.missing.isEmpty, "\(inputs.missing)")
+        XCTAssertEqual(inputs.found.map(\.path), [newBundle.path])
+    }
+
+    /// Reads replaced at the recorded path since the run are not the original reads.
+    func testReplacedReadsAtTheRecordedPathAreChanged() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let external = root.appendingPathComponent("Sequencer/run1/reads.fastq")
+        try write(reads("a"), to: external)
+        let record = try checksummed(external)
+        try write(reads("b"), to: external)
+
+        let inputs = await provenance(inputs: [record], requested: [external.path])
+            .reassemblyInputFiles(projectURL: root.appendingPathComponent("Mito.lungfish"))
+        XCTAssertEqual(inputs.changed, [external.path])
+        XCTAssertTrue(inputs.found.isEmpty, "\(inputs.found)")
+        XCTAssertTrue(inputs.missing.isEmpty && inputs.unverified.isEmpty, "\(inputs)")
+    }
+
+    /// A file of the same name in the project's FASTQ folder, with other bytes, is not the recorded read.
+    func testSameNameOtherBytesInFASTQIsNotUsed() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let gone = root.appendingPathComponent("Sequencer/run1/reads.fastq")
+        let lookalike = root.appendingPathComponent("Mito.lungfish/FASTQ/reads.fastq")
+        try write(reads("a"), to: gone)
+        let record = try checksummed(gone)
+        try FileManager.default.removeItem(at: gone)
+        try write(reads("b"), to: lookalike)
+
+        let inputs = await provenance(inputs: [record], requested: [gone.path])
+            .reassemblyInputFiles(projectURL: root.appendingPathComponent("Mito.lungfish"))
+        XCTAssertFalse(inputs.found.contains { $0.path == lookalike.path }, "\(inputs.found)")
+        XCTAssertEqual(inputs.changed, [gone.path])
+    }
+
+    /// The record is on the bundle's primary file and the request is on the bundle, so the file is what is compared.
+    func testBundleInputComparesItsPrimaryFile() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent("Sequencer/sample.lungfishfastq")
+        let primary = bundle.appendingPathComponent("sample.fastq")
+        try write(reads("a"), to: primary)
+        let run = provenance(inputs: [try checksummed(primary)], requested: [bundle.path])
+
+        let unchanged = await run.reassemblyInputFiles(projectURL: nil)
+        XCTAssertEqual(unchanged.found.map(\.path), [bundle.path])
+        XCTAssertTrue(unchanged.changed.isEmpty && unchanged.unverified.isEmpty, "\(unchanged)")
+
+        try write(reads("b"), to: primary)
+        let replaced = await run.reassemblyInputFiles(projectURL: nil)
+        XCTAssertEqual(replaced.changed, [bundle.path])
+        XCTAssertTrue(replaced.found.isEmpty, "\(replaced.found)")
+    }
+
+    /// An older record may hold no checksum, so the reads cannot be checked and the person is asked.
+    func testRecordWithoutChecksumIsUnverified() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("Sequencer/run1/reads.fastq")
+        try write(reads("a"), to: file)
+        let checked = try checksummed(file)
+        let record = InputFileRecord(
+            filename: checked.filename, originalPath: checked.originalPath, sha256: nil, sizeBytes: checked.sizeBytes
+        )
+
+        let inputs = await provenance(inputs: [record], requested: [file.path]).reassemblyInputFiles(projectURL: nil)
+        XCTAssertEqual(inputs.unverified, [file.path])
+        XCTAssertEqual(inputs.found.map(\.path), [file.path], "the person may go on once asked")
+        XCTAssertTrue(inputs.missing.isEmpty && inputs.changed.isEmpty, "\(inputs)")
+    }
+
+    /// Guard. Reads that are still the recorded bytes resolve.
+    func testUnchangedExternalReadsResolve() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("Sequencer/run1/reads.fastq")
+        try write(reads("a"), to: file)
+        let record = try checksummed(file)
+
+        let inputs = await provenance(inputs: [record], requested: [file.path])
+            .reassemblyInputFiles(projectURL: root.appendingPathComponent("Mito.lungfish"))
+        XCTAssertEqual(inputs.found.map(\.path), [file.path])
+        XCTAssertTrue(inputs.missing.isEmpty && inputs.changed.isEmpty && inputs.unverified.isEmpty, "\(inputs)")
+    }
+
+    // MARK: - Files on disk
+
+    private func makeRoot() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("reassembly-inputs-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root.resolvingSymlinksInPath()
+    }
+
+    private func write(_ text: String, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: url)
+    }
+
+    /// FASTQ text of one fixed size, so `reads("a")` and `reads("b")` differ in their bytes alone.
+    private func reads(_ tag: String) -> String {
+        "@read_\(tag)\nACGTACGTAC\n+\nIIIIIIIIII\n"
+    }
+
+    /// The record a run keeps for `file`, with its size and checksum, under `path` (the file's own path when the
+    /// run read it where it stands).
+    private func checksummed(_ file: URL, as path: String? = nil) throws -> InputFileRecord {
+        InputFileRecord(
+            filename: file.lastPathComponent,
+            originalPath: path ?? file.path,
+            sha256: try ProvenanceFileHasher.sha256(of: file),
+            sizeBytes: Int64(try ProvenanceFileHasher.fileSize(of: file))
+        )
+    }
+
     // MARK: - Helpers
 
     private var virtualSubsetRecords: [InputFileRecord] {

@@ -64,18 +64,138 @@ final class GenotypeReviewedAnalysisResolverTests: XCTestCase {
         XCTAssertEqual(active.samples.first?.calls.first?.haplotype1, "M4DQ")
     }
 
-    private func definition(assay: String = "review-assay") -> GenotypeHaplotypeDefinitionSet {
+    // MARK: A copied project reads its own haplotype definitions (PROJECT-ROOT-NAME-ONLY-CHECKS)
+
+    /// A Finder copy `P.lungfish copy` holds its own reference. The original project's definition of the same ID
+    /// names a haplotype OTHER, and it must not decide the copy's calls.
+    func testFinderNamedCopyReadsItsOwnDefinition() throws {
+        let root = makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = try makeFixture(projectName: "P.lungfish", in: root)
+        try writeReference(in: original.project, haplotype: "OTHER")
+        let copy = try makeFixture(projectName: "P.lungfish copy", in: root)
+        try writeProjectFiles(in: copy.project)
+        try writeReference(in: copy.project, haplotype: "M4DQ")
+        try record(reference: referenceBundle(in: original.project), for: copy.result)
+
+        let active = try XCTUnwrap(GenotypeHaplotypeAnalysisResolver.activeAnalysis(for: copy.result, sidecar: nil))
+        XCTAssertFalse(String(describing: active).contains("OTHER"), "the original project's definition decided the calls")
+        XCTAssertEqual(active.samples.first?.calls.first?.haplotype1, "M4DQ")
+        let file = GenotypeHaplotypeAnalysisResolver.activeDefinitionFileURL(for: copy.result, sidecar: nil)
+        XCTAssertTrue(isInside(file, copy.project), "\(String(describing: file))")
+    }
+
+    /// The copy holds no reference of its own, so no definition can be read for it and the analysis the run saved
+    /// stays as it is.
+    func testCopyWithoutItsOwnReferenceKeepsTheSavedAnalysis() throws {
+        let root = makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = try makeFixture(projectName: "P.lungfish", in: root)
+        try writeReference(in: original.project, haplotype: "OTHER")
+        let copy = try makeFixture(projectName: "P.lungfish copy", in: root)
+        try writeProjectFiles(in: copy.project)
+        try record(reference: referenceBundle(in: original.project), for: copy.result)
+        let saved = GenotypeHaplotypeAnalyzer.analyze(
+            calls: copy.result.calls, definitionSet: definition(), generatedAt: nil, dropoutFilter: nil,
+            matrixReviews: [], locusDenominator: GenotypeLocusDenominator(result: copy.result)
+        )
+        let result = ONTGenotypeResultBundleData(
+            bundleURL: copy.result.bundleURL, manifest: copy.result.manifest, artifacts: copy.result.artifacts,
+            stats: copy.result.stats, calls: copy.result.calls, samples: copy.result.samples, haplotypeAnalysis: saved
+        )
+
+        XCTAssertNil(GenotypeHaplotypeAnalysisResolver.activeDefinitionSet(for: result, sidecar: nil))
+        XCTAssertEqual(GenotypeHaplotypeAnalysisResolver.activeAnalysis(for: result, sidecar: nil), saved)
+    }
+
+    /// A run made inside `P.lungfish copy` recorded that name. The project it sits in now, `Q.lungfish`, holds the
+    /// reference, and the old folder, still there with other definitions, is another project.
+    func testRunInsideAFinderNamedCopyRebases() throws {
+        let root = makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let old = try makeFixture(projectName: "P.lungfish copy", in: root)
+        try writeProjectFiles(in: old.project)
+        try writeReference(in: old.project, haplotype: "OTHER")
+        let current = try makeFixture(projectName: "Q.lungfish", in: root)
+        try writeReference(in: current.project, haplotype: "M4DQ")
+        try record(reference: referenceBundle(in: old.project), for: current.result)
+
+        let active = try XCTUnwrap(GenotypeHaplotypeAnalysisResolver.activeAnalysis(for: current.result, sidecar: nil))
+        XCTAssertFalse(String(describing: active).contains("OTHER"), "the old folder's definition decided the calls")
+        XCTAssertEqual(active.samples.first?.calls.first?.haplotype1, "M4DQ")
+        let file = GenotypeHaplotypeAnalysisResolver.activeDefinitionFileURL(for: current.result, sidecar: nil)
+        XCTAssertTrue(isInside(file, current.project), "\(String(describing: file))")
+    }
+
+    /// Guard. A reference outside any project still resolves from its recorded path.
+    func testReferenceOutsideAnyProjectStillResolves() throws {
+        let root = makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let current = try makeFixture(projectName: "Q.lungfish", in: root)
+        let shared = root.appendingPathComponent("Shared references", isDirectory: true)
+        try writeReference(in: shared, haplotype: "M4DQ")
+        try record(reference: referenceBundle(in: shared), for: current.result)
+
+        XCTAssertEqual(GenotypeHaplotypeAnalysisResolver.activeDefinitionSet(for: current.result, sidecar: nil), definition())
+        let file = GenotypeHaplotypeAnalysisResolver.activeDefinitionFileURL(for: current.result, sidecar: nil)
+        XCTAssertTrue(isInside(file, shared), "\(String(describing: file))")
+    }
+
+    private func makeRoot() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("ReviewedResolverCopy-\(UUID().uuidString)")
+    }
+
+    private func referenceBundle(in folder: URL) -> URL {
+        folder.appendingPathComponent("Reference allele databases/cohort.lungfishmhcref")
+    }
+
+    /// The reference bundle in `folder`, holding the definition `review-defs` with one haplotype named `haplotype`.
+    @discardableResult
+    private func writeReference(in folder: URL, haplotype: String) throws -> URL {
+        let reference = referenceBundle(in: folder)
+        let definitionURL = reference.appendingPathComponent("haplotypes/definition.json")
+        try FileManager.default.createDirectory(at: definitionURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(definition(haplotype: haplotype)).write(to: definitionURL)
+        let manifest = MHCAmpliconReferenceBundleManifest(
+            name: "Recorded cohort reference", referenceFastaPath: "reference.fasta",
+            haplotypeDefinitionPaths: ["haplotypes/definition.json"], defaultHaplotypeDefinitionID: "review-defs",
+            metrics: .init(referenceCount: 1, haplotypeDefinitionCount: 1), createdAt: "2026-09-11T00:00:00Z"
+        )
+        try JSONEncoder().encode(manifest).write(to: reference.appendingPathComponent("mhc-reference.json"))
+        return definitionURL
+    }
+
+    /// The run's provenance, holding the absolute reference path the run was given.
+    private func record(reference: URL, for result: ONTGenotypeResultBundleData) throws {
+        let provenance: [String: Any] = ["argv": ["lungfish-cli", "--reference", reference.path]]
+        try JSONSerialization.data(withJSONObject: provenance).write(to: result.artifacts.provenanceURL)
+    }
+
+    /// What makes Finder's `P.lungfish copy` a project: the metadata file and the project database.
+    private func writeProjectFiles(in project: URL) throws {
+        try Data("{}".utf8).write(to: project.appendingPathComponent("metadata.json"))
+        try Data().write(to: project.appendingPathComponent(".project.db"))
+    }
+
+    private func isInside(_ url: URL?, _ folder: URL) -> Bool {
+        guard let url else { return false }
+        return url.resolvingSymlinksInPath().path.hasPrefix(folder.resolvingSymlinksInPath().path + "/")
+    }
+
+    private func definition(assay: String = "review-assay", haplotype: String = "M4DQ") -> GenotypeHaplotypeDefinitionSet {
         .init(id: "review-defs", assayID: assay, displayName: "Review definitions", speciesName: "MCM",
               speciesCode: "MCM", prefix: "Mafa", locusDefinitions: [
                 .init(locus: "MHC-DQ", sourceLocus: "MHC-DQ", haplotypes: [
-                    .init(name: "M4DQ", diagnosticAlleles: ["M4_marker"]),
+                    .init(name: haplotype, diagnosticAlleles: ["M4_marker"]),
                 ]),
               ])
     }
 
-    private func makeFixture(metrics: [String: String] = ["minSupport": "1"]) throws -> (root: URL, project: URL, result: ONTGenotypeResultBundleData) {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ReviewedResolver-\(UUID().uuidString)")
-        let project = root.appendingPathComponent("Project.lungfish")
+    private func makeFixture(
+        metrics: [String: String] = ["minSupport": "1"], projectName: String = "Project.lungfish", in existingRoot: URL? = nil
+    ) throws -> (root: URL, project: URL, result: ONTGenotypeResultBundleData) {
+        let root = existingRoot ?? FileManager.default.temporaryDirectory.appendingPathComponent("ReviewedResolver-\(UUID().uuidString)")
+        let project = root.appendingPathComponent(projectName)
         let bundle = project.appendingPathComponent("Analyses/Run/cohort.lungfishgenotype")
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
         let manifest = ONTGenotypeResultBundleManifest(

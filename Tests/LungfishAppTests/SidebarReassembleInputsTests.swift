@@ -62,7 +62,7 @@ final class SidebarReassembleInputsTests: XCTestCase {
                 "\(testCase.shape): the run records what it was asked to assemble"
             )
 
-            let launch = try openedWizard(forAssembly: original.bundle, label: testCase.shape)
+            let launch = try await openedWizard(forAssembly: original.bundle, label: testCase.shape)
             XCTAssertEqual(paths(launch.inputFiles), paths(testCase.inputs), "\(testCase.shape): the wizard's inputs")
             XCTAssertEqual(paths([launch.outputDirectory]), paths([project]), testCase.shape)
             XCTAssertEqual(launch.initialTool, .spades, testCase.shape)
@@ -106,7 +106,7 @@ final class SidebarReassembleInputsTests: XCTestCase {
         XCTAssertTrue(sidebar.selectItem(forURL: original.bundle))
 
         var presented: [[URL]] = []
-        sidebar.reassembleSelectedSidebarBundle(presentWizard: { presentingWindow, inputFiles, outputDirectory, initialTool in
+        await sidebar.reassembleSelectedSidebarBundle(presentWizard: { presentingWindow, inputFiles, outputDirectory, initialTool in
             XCTAssertTrue(presentingWindow === window)
             XCTAssertEqual(self.paths([outputDirectory]), self.paths([self.project]))
             XCTAssertEqual(initialTool, .spades)
@@ -142,7 +142,7 @@ final class SidebarReassembleInputsTests: XCTestCase {
             )
             XCTAssertNil(original.provenance.requestedInputs, testCase.shape)
 
-            let launch = try openedWizard(forAssembly: original.bundle, label: testCase.shape)
+            let launch = try await openedWizard(forAssembly: original.bundle, label: testCase.shape)
             XCTAssertEqual(paths(launch.inputFiles), paths(testCase.wizardInputs), "\(testCase.shape): the wizard's inputs")
 
             let reassembled = try await assembleInProcess(
@@ -161,7 +161,7 @@ final class SidebarReassembleInputsTests: XCTestCase {
         let original = try await assembleInProcess(shapes.looseFiles, name: "loose-assembly")
         try FileManager.default.removeItem(at: shapes.looseFiles[1])
 
-        guard case .refuse(let reason) = sidebar.reassemblePlan(forBundleAt: original.bundle, title: "loose-assembly") else {
+        guard case .refuse(let reason) = await sidebar.reassemblePlan(forBundleAt: original.bundle, title: "loose-assembly") else {
             return XCTFail("Reassemble opened the wizard on the remaining input alone")
         }
         XCTAssertTrue(reason.contains("loose_b.fastq"), reason)
@@ -178,8 +178,22 @@ final class SidebarReassembleInputsTests: XCTestCase {
         try FileManager.default.removeItem(at: moved)
 
         sidebar.openProject(at: project)
-        let launch = try openedWizard(forAssembly: original.bundle, label: "moved input")
+        let launch = try await openedWizard(forAssembly: original.bundle, label: "moved input")
         XCTAssertEqual(paths(launch.inputFiles), paths([shapes.looseFiles[0]]))
+    }
+
+    /// The record holds the checksum of the reads the run used. Reads replaced at the recorded path since are not
+    /// the original reads, so Reassemble says so instead of opening the wizard on them (REASSEMBLE-COPY-INPUT).
+    func testReassembleRefusesWhenTheReadsHaveChangedSinceTheAssembly() async throws {
+        let original = try await assembleInProcess(shapes.looseFiles, name: "changed-assembly")
+        try "@replaced\nTTTTTTTTTT\n+\nIIIIIIIIII\n".write(to: shapes.looseFiles[0], atomically: true, encoding: .utf8)
+
+        guard case .refuse(let reason) = await sidebar.reassemblePlan(forBundleAt: original.bundle, title: "changed-assembly") else {
+            return XCTFail("Reassemble opened the wizard on reads that have changed since the assembly")
+        }
+        XCTAssertTrue(reason.contains("have changed"), reason)
+        XCTAssertTrue(reason.contains("loose_a.fastq"), reason)
+        XCTAssertFalse(reason.contains("loose_b.fastq"), reason)
     }
 
     // MARK: - Helpers
@@ -281,8 +295,8 @@ final class SidebarReassembleInputsTests: XCTestCase {
         label: String,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) throws -> Launch {
-        switch sidebar.reassemblePlan(forBundleAt: bundle, title: bundle.deletingPathExtension().lastPathComponent) {
+    ) async throws -> Launch {
+        switch await sidebar.reassemblePlan(forBundleAt: bundle, title: bundle.deletingPathExtension().lastPathComponent) {
         case .open(let inputFiles, let outputDirectory, let initialTool):
             return Launch(inputFiles: inputFiles, outputDirectory: outputDirectory, initialTool: initialTool)
         case .refuse(let reason):
