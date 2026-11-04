@@ -187,10 +187,10 @@ enum ViewerRefusalReports {
     // MARK: - The metadata export and import sheets, which show these in their own label
 
     /// Export was pressed with no sample ticked.
-    static let metadataNothingToExport = "Tick at least one sample, then choose Export again."
+    static let metadataNothingToExport = "Tick at least one sample, then choose Export CSV again."
 
     /// Import was pressed and no row of the file matches a sample of the project.
-    static let metadataNothingToImport = "No sample name in this file matches a sample in the project, so there is nothing to import. Check the sample names in the file, then choose the file again."
+    static let metadataNothingToImport = "No sample in the file matches the project. Check the sample names, then choose the file again."
 
     private static func shortened(_ text: String) -> String {
         text.count > 60 ? String(text.prefix(60)) + "..." : text

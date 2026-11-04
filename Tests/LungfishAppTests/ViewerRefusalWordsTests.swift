@@ -114,6 +114,10 @@ final class ViewerRefusalWordsTests: XCTestCase {
         for words in [ViewerRefusalReports.metadataNothingToExport, ViewerRefusalReports.metadataNothingToImport] {
             XCTAssertTrue(words.hasSuffix("."), words)
             XCTAssertTrue(words.contains("Tick") || words.contains("Check"), words)
+            XCTAssertLessThanOrEqual(
+                words.count, 100,
+                "the sheet shows this on one 11 point line about 600 points wide, and a longer sentence loses its end"
+            )
         }
     }
 
