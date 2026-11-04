@@ -303,6 +303,29 @@ final class GenotypeResultSurfaceRouteTests: XCTestCase {
         try await assertTheEditIsSaved(edit, leftBy: "a second opening of the same result")
     }
 
+    // MARK: - Two controllers on one bundle
+
+    /// The result opened again while the first edit waits gives a second controller its own edit on the same cell. The
+    /// one that reaches the bundle first writes. The other finds the file changed, drops its edit with words and writes
+    /// nothing over the first, so no edit is ever written on a stale base.
+    func testTwoControllersOnOneBundleNeverWriteOnAStaleBaseWhenTheNewOneWritesFirst() async throws {
+        let result = try await writeTwoControllersOneAfterTheOther(newOneFirst: true)
+
+        XCTAssertTrue(result.saved.contains("B body"), "the controller that wrote first lost its edit: \(result.saved)")
+        XCTAssertFalse(result.saved.contains("A body"), "the stale controller wrote over the file: \(result.saved)")
+        XCTAssertEqual(result.keptReports.count, 1, "the kept controller did not report the edit it dropped")
+        XCTAssertTrue(result.newReports.isEmpty, "the controller that wrote first reported a failure")
+    }
+
+    func testTwoControllersOnOneBundleNeverWriteOnAStaleBaseWhenTheKeptOneWritesFirst() async throws {
+        let result = try await writeTwoControllersOneAfterTheOther(newOneFirst: false)
+
+        XCTAssertTrue(result.saved.contains("A body"), "the controller that wrote first lost its edit: \(result.saved)")
+        XCTAssertFalse(result.saved.contains("B body"), "the stale controller wrote over the file: \(result.saved)")
+        XCTAssertEqual(result.newReports.count, 1, "the new controller did not report the edit it dropped")
+        XCTAssertTrue(result.keptReports.isEmpty, "the controller that wrote first reported a failure")
+    }
+
     // MARK: - The words
 
     /// A surface that refuses on the file says what happened and what to try, with no internal kind id, and leaves
@@ -401,6 +424,53 @@ final class GenotypeResultSurfaceRouteTests: XCTestCase {
             scheduler: scheduler,
             undoManager: undoManager
         )
+    }
+
+    /// The failure reports one controller showed, in order.
+    private final class FailureLog {
+        var reports: [FailureReport] = []
+    }
+
+    /// What two controllers on one bundle left behind: the comment bodies in the file and each one's reports.
+    private struct TwoWriters {
+        let saved: [String]
+        let keptReports: [FailureReport]
+        let newReports: [FailureReport]
+    }
+
+    /// The first controller holds "A body" behind the lock. The same result opens again and its controller holds
+    /// "B body" on the same cell. The lock is freed once, and the two held retries run one after the other.
+    private func writeTwoControllersOneAfterTheOther(newOneFirst: Bool) async throws -> TwoWriters {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        let row = try await buildRow(of: "Genotype")
+        let kept = try await holdAnEdit(in: harness, row: row, body: "A body")
+        let keptLog = FailureLog()
+        kept.controller?.testingSetSheetAlertHandler { keptLog.reports.append($0) }
+
+        harness.select(row)
+        let reopened = await waitUntil(budget: .lookup) {
+            viewer.genotypeResultViewController.map { ObjectIdentifier($0) != kept.controllerID } ?? false
+        }
+        XCTAssertTrue(reopened, "the second opening never replaced the first viewer")
+        let second = try XCTUnwrap(viewer.genotypeResultViewController)
+        let secondScheduler = HeldRetryScheduler()
+        second.matrixAnnotationRetryScheduler = secondScheduler
+        let newLog = FailureLog()
+        second.testingSetSheetAlertHandler { newLog.reports.append($0) }
+        second.editMatrixComment(.init(targets: [.column(sample: "DW472")], intent: .upsert(body: "B body")))
+        XCTAssertEqual(second.testingDeferredMatrixAnnotationMutationCount, 1, "the second edit did not wait behind the lock")
+        let waiting = await waitUntil(budget: .lookup) { secondScheduler.pendingCount > 0 }
+        XCTAssertTrue(waiting, "the second edit never asked for its retry")
+
+        kept.lock.release()
+        for scheduler in newOneFirst ? [secondScheduler, kept.scheduler] : [kept.scheduler, secondScheduler] {
+            scheduler.fire()
+            await waitForAnnotationEdits()
+        }
+        let saved = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: kept.bundleURL)
+        return TwoWriters(saved: saved.matrixComments.map(\.body), keptReports: keptLog.reports, newReports: newLog.reports)
     }
 
     /// Checks that the removal kept the controller and its edit, frees the lock, fires the held retry and reads the
