@@ -107,7 +107,7 @@ final class ViewerNaoMgsOperationTests: XCTestCase {
         XCTAssertFalse(readA.hasLCADisagreement, "every top hit is inside Rotavirus A, so none conflicts")
         XCTAssertEqual(readB.verdict, .verified, "a human hit at 100% identity and coverage is a significant match")
         XCTAssertFalse(readB.matchesQueriedTaxon, "Homo sapiens (9606) is outside Rotavirus A")
-        XCTAssertTrue(readB.hasLCADisagreement, "the top hits mix Rotavirus A with Homo sapiens")
+        XCTAssertFalse(readB.hasLCADisagreement, "it contradicts and its tie holds no clade record, so nothing is shared")
 
         let result = BlastVerificationResult(
             taxonName: "Rotavirus A", taxId: 28875, readResults: readResults,

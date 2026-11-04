@@ -119,7 +119,7 @@ final class BlastTaxIdMatchingTests: XCTestCase {
 
         XCTAssertTrue(results[0].hasLCADisagreement, "HSV-1 beside EBV names conflicting organisms")
         XCTAssertTrue(results[0].matchesQueriedTaxon)
-        XCTAssertFalse(results[1].hasLCADisagreement, "HSV-2 is a relative, not a conflict")
+        XCTAssertTrue(results[1].hasLCADisagreement, "a tied HSV-2 is a relative and not in the clade, so the tie is shared")
         XCTAssertTrue(results[1].matchesQueriedTaxon)
         XCTAssertFalse(results[2].matchesQueriedTaxon, "an EBV top hit does not support HSV-1")
         XCTAssertEqual(results[2].topHitRelation, .outside)
@@ -128,7 +128,7 @@ final class BlastTaxIdMatchingTests: XCTestCase {
             taxonName: "Simplexvirus humanalpha1", taxId: 3050292, readResults: results,
             submittedAt: Date(), completedAt: Date(), rid: "R", blastProgram: "blastn", database: "nt"
         )
-        XCTAssertEqual(summary.lcaDisagreementCount, 1)
+        XCTAssertEqual(summary.lcaDisagreementCount, 2)
         XCTAssertEqual(summary.supportingCount, 2)
         XCTAssertEqual(summary.contradictingCount, 1)
 

@@ -96,7 +96,7 @@ final class KrakenBlastTableExportPinTests: XCTestCase {
         XCTAssertEqual(verdicts("pair_one_mate_no_hit"), ["verified", "unverified"], "both mates, deciding mate first")
 
         let csvLines = BlastVerificationTableExport.tableContent(result: result, separator: ",").split(separator: "\n")
-        XCTAssertTrue(csvLines[1].hasSuffix(",\"\(result.taxonName)\",supporting"), "the quoted taxon, \(csvLines[1])")
+        XCTAssertTrue(csvLines[1].hasSuffix(",\"\(result.taxonName)\",supporting,,,"), "the quoted taxon, \(csvLines[1])")
     }
 
     /// One supporting read, one contradicting read, one pair with conflicting mates, one pair whose second mate has no
