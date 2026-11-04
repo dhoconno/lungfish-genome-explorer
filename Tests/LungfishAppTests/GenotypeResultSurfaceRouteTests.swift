@@ -66,9 +66,11 @@ private final class HeldRetryScheduler: GenotypeMatrixAnnotationRetryScheduling 
 
 @MainActor
 final class GenotypeResultSurfaceRouteTests: XCTestCase {
-    /// A matrix edit that waits behind a held publication lock, with an Undo the controller registered.
+    /// A matrix edit that waits behind a held publication lock, with an Undo the controller registered. The controller
+    /// is held weakly, so it stays alive only when the removal keeps it, and `controllerID` finds it in that store.
     private struct HeldEdit {
-        let controller: GenotypeResultViewController
+        weak var controller: GenotypeResultViewController?
+        let controllerID: ObjectIdentifier
         let bundleURL: URL
         let body: String
         let lock: ONTGenotypeBundlePublicationLock
@@ -123,7 +125,7 @@ final class GenotypeResultSurfaceRouteTests: XCTestCase {
             let left = await waitUntil(budget: .lookup) { harness.split.viewerController.genotypeResultViewController == nil }
             XCTAssertTrue(left, "\(kind.name) left the genotype viewer on screen")
             XCTAssertFalse(edit.undoManager.canUndo, "\(kind.name) left an Undo that targets a controller that has gone")
-            XCTAssertNil(edit.controller.onSelectionStateChanged, "\(kind.name) left the viewer's callbacks attached")
+            XCTAssertNil(edit.controller?.onSelectionStateChanged, "\(kind.name) left the viewer's callbacks attached")
             try await assertTheEditIsSaved(edit, leftBy: kind.name)
         }
     }
@@ -186,7 +188,7 @@ final class GenotypeResultSurfaceRouteTests: XCTestCase {
             RefusingSurface(kind: next) {
                 loaded = true
                 undoAtLoad = edit.undoManager.canUndo
-                callbackAtLoad = edit.controller.onSelectionStateChanged != nil
+                callbackAtLoad = edit.controller?.onSelectionStateChanged != nil
             }
         }
 
@@ -309,6 +311,7 @@ final class GenotypeResultSurfaceRouteTests: XCTestCase {
         XCTAssertTrue(undoManager.canUndo)
         return HeldEdit(
             controller: controller,
+            controllerID: ObjectIdentifier(controller),
             bundleURL: bundleURL,
             body: body,
             lock: lock,
@@ -317,16 +320,30 @@ final class GenotypeResultSurfaceRouteTests: XCTestCase {
         )
     }
 
-    /// Frees the lock, fires the held retry and reads the edit back from the bundle's file.
+    /// Checks that the removal kept the controller and its edit, frees the lock, fires the held retry and reads the
+    /// edit back from the bundle's file. The controller is kept by the store alone, since the edit holds it weakly.
     private func assertTheEditIsSaved(
         _ edit: HeldEdit,
         leftBy way: String,
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
+        XCTAssertNotNil(edit.controller, "\(way) let the controller go with its edit still waiting", file: file, line: line)
+        XCTAssertNotNil(
+            MainSplitViewController.retainedDeferredGenotypeResultControllers[edit.controllerID],
+            "\(way) did not keep the controller in the store",
+            file: file,
+            line: line
+        )
         edit.lock.release()
         edit.scheduler.fire()
         await waitForAnnotationEdits()
+        XCTAssertNil(
+            MainSplitViewController.retainedDeferredGenotypeResultControllers[edit.controllerID],
+            "\(way) kept the controller after its edit was saved",
+            file: file,
+            line: line
+        )
         let saved = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: edit.bundleURL)
         XCTAssertTrue(
             saved.matrixComments.contains { $0.body == edit.body },
