@@ -113,6 +113,17 @@ final class TaxTriageImportedExportTests: XCTestCase {
         XCTAssertTrue(shared.contains(",2/2,Yes,"), "the matrix did not flag the organism the control holds: \(shared)")
     }
 
+    /// A control whose id holds a dot keeps its mark through the import, since the pipeline keeps dots in sample names.
+    func testImportedRunKeepsADottedControlsMark() async throws {
+        let result = try await importedRun(samples: [("S1", false), ("NTC.1", true)])
+
+        let shared = try XCTUnwrap(try matrixLines(of: result).first { $0.hasPrefix("\(Self.shared),") })
+        XCTAssertTrue(shared.contains(",2/2,Yes,"), "the matrix did not flag the organism the dotted control holds: \(shared)")
+        let report = try reportText(of: result)
+        XCTAssertTrue(report.contains("Negative Controls: NTC.1"), report)
+        XCTAssertTrue(report.contains("NTC.1 [NTC]"), report)
+    }
+
     // MARK: - Helpers
 
     /// Imports a run folder of flat reports (`S1` holds 3 rows and each other sample 1) and builds the database.
