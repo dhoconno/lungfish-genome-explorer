@@ -36,4 +36,25 @@ final class TaxTriageWizardSampleNamesTests: XCTestCase {
         XCTAssertGreaterThan(meeting.fittingSize.height, 0, "the names meet, but the sample list shows no words")
         XCTAssertEqual(apart.fittingSize.height, 0, "names that stay different need no notice")
     }
+
+    // MARK: - The other settings errors (row WIZARD-ERRORS-NOT-SHOWN, coordinator message of the fix round)
+
+    /// An invalid taxid list greys Run, and the embedded dialog showed only `Finish the settings above to continue`. The
+    /// taxid error shows under the field, and takes no room when the taxids are valid.
+    func testInvalidTaxidsPutTheTaxidErrorUnderTheField() throws {
+        let words = try XCTUnwrap(TaxTriageWizardSheet.removeTaxidsValidationMessage("9606 human"))
+        XCTAssertTrue(words.contains("Exclude host taxa must list NCBI taxids") && words.contains("human"), words)
+        let invalid = NSHostingView(rootView: TaxTriageWizardSheet.taxidsNotice("9606 human"))
+        let valid = NSHostingView(rootView: TaxTriageWizardSheet.taxidsNotice("9606"))
+        XCTAssertGreaterThan(invalid.fittingSize.height, 0, "the taxids are invalid, but the field shows no words")
+        XCTAssertEqual(valid.fittingSize.height, 0, "valid taxids need no notice")
+    }
+
+    /// The same for an advanced-arguments string that does not parse, which also showed only the generic footer.
+    func testInvalidAdvancedArgumentsPutTheirErrorUnderTheField() {
+        let invalid = NSHostingView(rootView: TaxTriageWizardSheet.advancedArgumentsNotice("--flag 'unterminated"))
+        let valid = NSHostingView(rootView: TaxTriageWizardSheet.advancedArgumentsNotice("--flag value"))
+        XCTAssertGreaterThan(invalid.fittingSize.height, 0, "the arguments do not parse, but the field shows no words")
+        XCTAssertEqual(valid.fittingSize.height, 0, "arguments that parse need no notice")
+    }
 }
