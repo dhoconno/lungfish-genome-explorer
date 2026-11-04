@@ -54,7 +54,10 @@ package enum BBToolsPairArguments {
         let fm = FileManager.default
         func stamp(_ path: String) -> String? {
             guard let attributes = try? fm.attributesOfItem(atPath: path) else { return nil }
-            return "\(attributes[.size] ?? 0) \(attributes[.modificationDate] ?? 0)"
+            // `description` prints a date in whole seconds, so a rewrite of the same size inside the same second would
+            // look untouched. The reference interval keeps its fraction, and the file number tells a replaced file.
+            let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0
+            return "\(attributes[.size] ?? 0) \(modified) \(attributes[.systemFileNumber] ?? 0)"
         }
         let before = [out1, out2].map { (path: $0, stamp: stamp($0)) }
         func removeWhatTheRunWrote() {
