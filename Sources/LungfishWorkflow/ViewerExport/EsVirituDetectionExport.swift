@@ -80,7 +80,7 @@ extension EsVirituDetectionExport {
         var headers = [
             "Sample ID", "Virus Name", "Accession", "Assembly", "Kingdom", "Phylum",
             "Class", "Order", "Family", "Genus", "Species", "Subspecies",
-            "Read Count", "RPKMF", "Coverage", "Identity", "Covered Bases",
+            "Read Count", "Unique Reads", "RPKMF", "Coverage", "Identity", "Covered Bases",
             "Nucleotide Diversity", "Assembly Length", "Filtered Reads",
             "Segment", "Length",
         ]
@@ -103,6 +103,10 @@ extension EsVirituDetectionExport {
                 escapeField(detection.species ?? "", separator: separator),
                 escapeField(detection.subspecies ?? "", separator: separator),
                 "\(detection.readCount)",
+                // The stored count of this contig by the rule the TaxTriage export follows. A count that was never
+                // computed writes an empty cell and never 0.
+                ClassifierUniqueReads.normalized(stored: detection.uniqueReads, readCount: detection.readCount)
+                    .map(String.init) ?? "",
                 String(format: "%.2f", detection.rpkmf),
                 String(format: "%.2f", detection.meanCoverage),
                 ViralDetection.identityText(detection.avgReadIdentity),
@@ -142,7 +146,8 @@ extension EsVirituDetectionExport {
         "\(sample)\t\(assembly)"
     }
 
-    /// One database row as the contig the viewer shows. A missing number reads 0 and a missing description is empty.
+    /// One database row as the contig the viewer shows. A missing number reads 0 and a missing description is empty,
+    /// except the unique read count, which stays nil so the export writes an empty cell and never a false 0.
     public static func detection(from row: EsVirituDetectionRow) -> ViralDetection {
         ViralDetection(
             sampleId: row.sample,
@@ -167,7 +172,8 @@ extension EsVirituDetectionExport {
             meanCoverage: row.meanCoverage ?? 0,
             avgReadIdentity: row.avgReadIdentity ?? 0,
             pi: row.pi ?? 0,
-            filteredReadsInSample: row.filteredReadsInSample ?? 0
+            filteredReadsInSample: row.filteredReadsInSample ?? 0,
+            uniqueReads: row.uniqueReads
         )
     }
 

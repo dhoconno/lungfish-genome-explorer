@@ -96,6 +96,11 @@ public struct ViralDetection: Sendable, Codable, Identifiable, Hashable {
     /// Total number of quality-filtered reads in the sample.
     public let filteredReadsInSample: Int
 
+    /// The reads of this contig that are not duplicates, as the result database stores them for each contig (the
+    /// primary mapped records left after `samtools markdup`). Nil when the count was never computed, which is not
+    /// the same as 0. A virus row in the viewer sums the counts of its contigs.
+    public let uniqueReads: Int?
+
     /// Creates a new ``ViralDetection``.
     ///
     /// - Parameters:
@@ -122,6 +127,7 @@ public struct ViralDetection: Sendable, Codable, Identifiable, Hashable {
     ///   - avgReadIdentity: Average read identity percent.
     ///   - pi: Nucleotide diversity.
     ///   - filteredReadsInSample: Total filtered reads in the sample.
+    ///   - uniqueReads: Non-duplicate reads of this contig, or `nil` when the count was never computed.
     public init(
         sampleId: String,
         name: String,
@@ -145,7 +151,8 @@ public struct ViralDetection: Sendable, Codable, Identifiable, Hashable {
         meanCoverage: Double,
         avgReadIdentity: Double,
         pi: Double,
-        filteredReadsInSample: Int
+        filteredReadsInSample: Int,
+        uniqueReads: Int? = nil
     ) {
         self.sampleId = sampleId
         self.name = name
@@ -170,6 +177,7 @@ public struct ViralDetection: Sendable, Codable, Identifiable, Hashable {
         self.avgReadIdentity = avgReadIdentity
         self.pi = pi
         self.filteredReadsInSample = filteredReadsInSample
+        self.uniqueReads = uniqueReads
     }
 }
 

@@ -67,7 +67,7 @@ final class EsVirituExportDetectionsCommandTests: XCTestCase {
         let lines = try String(contentsOf: output, encoding: .utf8).split(separator: "\n").map(String.init)
         XCTAssertEqual(lines.count, 3)
         let fieldCount = lines[0].split(separator: "\t", omittingEmptySubsequences: false).count
-        XCTAssertEqual(fieldCount, 23)
+        XCTAssertEqual(fieldCount, 24)
         for line in lines {
             XCTAssertEqual(line.split(separator: "\t", omittingEmptySubsequences: false).count, fieldCount)
         }

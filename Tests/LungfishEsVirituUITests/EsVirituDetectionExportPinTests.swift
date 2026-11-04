@@ -22,7 +22,7 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
     static let header = [
         "Sample ID", "Virus Name", "Accession", "Assembly", "Kingdom", "Phylum",
         "Class", "Order", "Family", "Genus", "Species", "Subspecies",
-        "Read Count", "RPKMF", "Coverage", "Identity", "Covered Bases",
+        "Read Count", "Unique Reads", "RPKMF", "Coverage", "Identity", "Covered Bases",
         "Nucleotide Diversity", "Assembly Length", "Filtered Reads",
         "Segment", "Length", "Group",
     ]
@@ -31,8 +31,8 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
         let vc = try Self.configuredController()
         let expected = [
             Self.header.joined(separator: "\t"),
-            "sample-A\tAlpha, virus\tNC_A\tGCF_A\tViruses\t\t\t\tTestviridae\t\tAlpha, virus\t\t40\t40.00\t1.00\t99.0\t100\t0.000000\t100\t1000\tS\t100\tcase",
-            "sample-B\tBeta \"virus\"\tNC_B\tGCF_B\tViruses\t\t\t\tTestviridae\t\tBeta \"virus\"\t\t20\t20.00\t1.00\t99.0\t100\t0.000000\t100\t1000\t\t100\tcontrol",
+            "sample-A\tAlpha, virus\tNC_A\tGCF_A\tViruses\t\t\t\tTestviridae\t\tAlpha, virus\t\t40\t31\t40.00\t1.00\t99.0\t100\t0.000000\t100\t1000\tS\t100\tcase",
+            "sample-B\tBeta \"virus\"\tNC_B\tGCF_B\tViruses\t\t\t\tTestviridae\t\tBeta \"virus\"\t\t20\t\t20.00\t1.00\t99.0\t100\t0.000000\t100\t1000\t\t100\tcontrol",
         ].joined(separator: "\n") + "\n"
         XCTAssertEqual(Self.bytes(vc, result: Self.result, separator: "\t"), expected)
     }
@@ -48,7 +48,7 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
         XCTAssertEqual(lines.count, 3)
         XCTAssertTrue(lines.count == 3 && lines[1].hasPrefix("sample-A\t") && lines[1].hasSuffix("\tcase"), "\(lines)")
         XCTAssertTrue(lines.count == 3 && lines[2].hasPrefix("sample-B\t") && lines[2].hasSuffix("\tcontrol"), "\(lines)")
-        XCTAssertEqual(lines.map { $0.split(separator: "\t", omittingEmptySubsequences: false).count }, [23, 23, 23])
+        XCTAssertEqual(lines.map { $0.split(separator: "\t", omittingEmptySubsequences: false).count }, [24, 24, 24])
     }
 
     /// One sample in the file keeps today's bytes.
@@ -61,7 +61,7 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
         )
         XCTAssertEqual(Self.bytes(vc, result: oneSample, separator: "\t"), [
             Self.header.joined(separator: "\t"),
-            "sample-A\tAlpha, virus\tNC_A\tGCF_A\tViruses\t\t\t\tTestviridae\t\tAlpha, virus\t\t40\t40.00\t1.00\t99.0\t100\t0.000000\t100\t1000\tS\t100\tcase",
+            "sample-A\tAlpha, virus\tNC_A\tGCF_A\tViruses\t\t\t\tTestviridae\t\tAlpha, virus\t\t40\t31\t40.00\t1.00\t99.0\t100\t0.000000\t100\t1000\tS\t100\tcase",
         ].joined(separator: "\n") + "\n")
     }
 
@@ -69,8 +69,8 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
         let vc = try Self.configuredController()
         let expected = [
             Self.header.joined(separator: ","),
-            "sample-A,\"Alpha, virus\",NC_A,GCF_A,Viruses,,,,Testviridae,,\"Alpha, virus\",,40,40.00,1.00,99.0,100,0.000000,100,1000,S,100,case",
-            "sample-B,\"Beta \"\"virus\"\"\",NC_B,GCF_B,Viruses,,,,Testviridae,,\"Beta \"\"virus\"\"\",,20,20.00,1.00,99.0,100,0.000000,100,1000,,100,control",
+            "sample-A,\"Alpha, virus\",NC_A,GCF_A,Viruses,,,,Testviridae,,\"Alpha, virus\",,40,31,40.00,1.00,99.0,100,0.000000,100,1000,S,100,case",
+            "sample-B,\"Beta \"\"virus\"\"\",NC_B,GCF_B,Viruses,,,,Testviridae,,\"Beta \"\"virus\"\"\",,20,,20.00,1.00,99.0,100,0.000000,100,1000,,100,control",
         ].joined(separator: "\n") + "\n"
         XCTAssertEqual(Self.bytes(vc, result: Self.result, separator: ","), expected)
     }
@@ -146,7 +146,7 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
     static let result = LungfishIO.EsVirituResult(
         sampleId: "esviritu-pin",
         detections: [
-            detection(name: "Alpha, virus", sampleId: "sample-A", id: "A", reads: 40, segment: "S"),
+            detection(name: "Alpha, virus", sampleId: "sample-A", id: "A", reads: 40, segment: "S", uniqueReads: 31),
             detection(name: "Beta \"virus\"", sampleId: "sample-B", id: "B", reads: 20, segment: nil),
         ],
         assemblies: [],
@@ -159,13 +159,15 @@ final class EsVirituDetectionExportPinTests: XCTestCase {
         toolVersion: nil
     )
 
-    private static func detection(name: String, sampleId: String, id: String, reads: Int, segment: String?) -> ViralDetection {
+    private static func detection(
+        name: String, sampleId: String, id: String, reads: Int, segment: String?, uniqueReads: Int? = nil
+    ) -> ViralDetection {
         ViralDetection(
             sampleId: sampleId, name: name, description: name, length: 100, segment: segment,
             accession: "NC_\(id)", assembly: "GCF_\(id)", assemblyLength: 100, kingdom: "Viruses",
             phylum: nil, tclass: nil, order: nil, family: "Testviridae", genus: nil, species: name,
             subspecies: nil, rpkmf: Double(reads), readCount: reads, coveredBases: 100, meanCoverage: 1,
-            avgReadIdentity: 99, pi: 0, filteredReadsInSample: 1_000
+            avgReadIdentity: 99, pi: 0, filteredReadsInSample: 1_000, uniqueReads: uniqueReads
         )
     }
 }
