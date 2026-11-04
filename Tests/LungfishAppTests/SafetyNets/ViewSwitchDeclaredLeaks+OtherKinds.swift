@@ -47,10 +47,9 @@ extension ViewSwitchDeclaredLeaks {
         leak("FASTQ", to: ["Tree", "TaxTriage"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("Tree", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
+        leak("Tree", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: genomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspector: phylogeneticTree",
             "+ provenance: phylogeneticTreeBundle ../k14-tree/Phylogenetic Trees/known-sarcopterygian.lungfishtree",
             "+ inspectorTab: genomics selection of [document, selection, view, derive, provenance]",
             "+ inspectorBlocks: selection, variant",
@@ -61,11 +60,8 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("Quick Look", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-DOCUMENT-STAYS", [
+        leak("Quick Look", to: ["TaxTriage"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspector: phylogeneticTree",
-            "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
-            "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
         ]),
         leak("FASTA document", to: ["TaxTriage"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
@@ -109,11 +105,6 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorTab: empty document of [document, selection]",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("Tree", to: ["Kraken2", "EsViritu"], "NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: phylogeneticTree",
-            "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
-            "- inspectorBlocks: panelLayout, sampleFilter=1",
-        ]),
         leak("Genotype", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: genotype",
             "+ inspector: genotype=../k11-genotype/Genotyping/DW472-mhc.lungfishgenotype",
@@ -134,11 +125,8 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
-        leak("Tree", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-DOCUMENT-STAYS", [
+        leak("Tree", to: ["TaxTriage"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspector: phylogeneticTree",
-            "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
-            "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
         ]),
         leak("FASTQ", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: fastq",
@@ -216,11 +204,6 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspector: genotype=../k11-genotype/Genotyping/DW472-mhc.lungfishgenotype",
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
-        ]),
-        leak("Tree", to: ["CZ ID"], "NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: phylogeneticTree",
-            "+ inspectorBlocks: seeTheViewer, panelLayout",
-            "- inspectorBlocks: selectAResult, panelLayout",
         ]),
         leak("Assembly", to: ["Kraken2"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",

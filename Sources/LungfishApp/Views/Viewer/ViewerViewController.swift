@@ -217,8 +217,8 @@ public class ViewerViewController: NSViewController {
     /// Native multiple-sequence alignment bundle viewport.
     var multipleSequenceAlignmentViewController: MultipleSequenceAlignmentViewController?
 
-    /// Native phylogenetic tree bundle viewport.
-    var phylogeneticTreeViewController: PhylogeneticTreeViewController?
+    /// Native phylogenetic tree bundle viewport, while the surface host shows it.
+    var phylogeneticTreeViewController: PhylogeneticTreeViewController? { installedSurface?.viewController as? PhylogeneticTreeViewController }
 
     /// Native ONT genotype result bundle viewport, while the surface host shows it.
     var genotypeResultViewController: GenotypeResultViewController? { installedSurface?.viewController as? GenotypeResultViewController }
@@ -237,7 +237,6 @@ public class ViewerViewController: NSViewController {
 
     public var isNativeBundleViewportInstalled: Bool {
         multipleSequenceAlignmentViewController != nil
-            || phylogeneticTreeViewController != nil
             || installedSurface != nil
     }
 

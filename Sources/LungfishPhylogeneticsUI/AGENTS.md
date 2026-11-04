@@ -21,12 +21,13 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 | Node table support columns, `configureSupportPresentation()` | Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController+SupportColumns.swift line 35 |
 | Selection > Tree Node twins, `nodeMenuBarSections`, and the focus rule in `validateMenuItem(_:)` | PhylogeneticTreeViewController.swift lines 915 and 940. The menu is built by `makeTreeNodeMenuItem()` in Sources/LungfishApp/App/MainMenu+TreeNode.swift |
 | `PhylogeneticTreeSelectionState` | Sources/LungfishPhylogeneticsUI/PhylogeneticTreeSelectionState.swift line 7 |
+| The surface, `PhylogeneticTreeSurface` (input the bundle's URL, a load that throws the file's own error, and a `willDeactivate` that cuts both callbacks and runs the App's hook) | Sources/LungfishPhylogeneticsUI/PhylogeneticTreeSurface.swift line 15 |
 | Bundle format | Sources/LungfishIO/Bundles/PhylogeneticTreeBundle.swift |
 | App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+AlignmentTreeBundles.swift |
 
 ## Contracts this module owns
 
-- The controller reaches app services only through `onSelectionStateChanged` and `onTreeBundleOperationRequested` (lines 72 and 73), wired by the App glue file.
+- The controller reaches app services only through `onSelectionStateChanged` and `onTreeBundleOperationRequested` (lines 72 and 73), wired by the App glue file. The surface cuts both when the host removes the viewer, so a controller that something else still holds reaches neither the Inspector nor a command. The viewer holds no edit, since a selection, a collapsed clade and the zoom are not saved and a re-root runs as a command that writes a new bundle.
 - The node context menu, the Selection > Tree Node menu-bar items and the canvas node AX custom actions all come from the same `NodeAction` list, so a new node command is added once and appears in all three. Menu-bar items are enabled only while the node table or the canvas has keyboard focus and a node is selected.
 - Support text and colour read `manifest.supportLabels`. A bundle without labels keeps the single Support column and the old 0 to 1 gradient, and an integer 0 or 1 is never called a posterior when labels are recorded.
 
@@ -40,4 +41,4 @@ Target LungfishPhylogeneticsUITests in Tests/LungfishPhylogeneticsUITests. Run o
 |---|---|
 | `PhylogeneticTreeCanvasView` fills its whole `dirtyRect`, and no view in this module sets `clipsToBounds = true`. On macOS 14 and later that can paint over siblings drawn earlier | PhylogeneticTreeCanvasView.swift line 226 (memory file project_msa_clipstobounds_overpaint.md) |
 | The canvas accepts first responder and takes focus on a click, so a click on the canvas changes which view the menu-bar validation sees | PhylogeneticTreeCanvasView.swift line 239 (`acceptsFirstResponder`) |
-| Phylogenetic trees are one of the four viewports in the hand-written native-bundle check | Sources/LungfishApp/Views/Viewer/ViewerViewController.swift lines 248 to 253 (R1) |
+| Phylogenetic trees show through the surface host, so `isNativeBundleViewportInstalled` answers for them through `installedSurface` and the slot `phylogeneticTreeViewController` is a read-only property over it. Only the multiple-sequence alignment keeps a hand-written arm there | Sources/LungfishApp/Views/Viewer/ViewerViewController.swift lines 221 and 238 to 241 (R1) |

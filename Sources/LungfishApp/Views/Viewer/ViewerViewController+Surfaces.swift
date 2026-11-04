@@ -9,6 +9,7 @@ import LungfishNaoMgsUI
 import LungfishEsVirituUI
 import LungfishGenotypeUI
 import LungfishNvdUI
+import LungfishPhylogeneticsUI
 import LungfishTaxTriageUI
 import LungfishTaxonomyUI
 import LungfishTwelveSUI
@@ -29,6 +30,7 @@ extension ViewerViewController {
         registry.register(.analysis(.czId), factory: CzIdSurface.factory())
         registry.register(.bundle(.mhcReference)) { MHCReferenceBundleSurface() }
         registry.register(.bundle(.genotypeResult), factory: GenotypeResultSurface.factory())
+        registry.register(.bundle(.phylogeneticTree), factory: PhylogeneticTreeSurface.factory())
         return registry
     }
 

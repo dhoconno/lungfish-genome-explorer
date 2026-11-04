@@ -4,6 +4,8 @@
 
 import AppKit
 import LungfishCore
+import LungfishIO
+import LungfishKit
 import LungfishPhylogeneticsUI
 import os.log
 
@@ -130,28 +132,45 @@ extension ViewerViewController {
         alignmentTreeViewerLogger.info("displayMultipleSequenceAlignmentBundle: Showing \(url.lastPathComponent, privacy: .public)")
     }
 
-    public func displayPhylogeneticTreeBundle(at url: URL) throws {
+    /// Shows the tree bundle at `url` through the surface host and returns its viewer for the route to wire, or throws
+    /// the reason it is not installed. The surface's load reads the bundle, so a file that does not read reaches the
+    /// route as that file's own error. Removing the viewer cuts its callbacks in `PhylogeneticTreeSurface.willDeactivate`
+    /// on every removal, and `onWillDeactivate` runs there too, so the route can take the tree's blocks out of the
+    /// Inspector.
+    @discardableResult
+    public func displayPhylogeneticTreeBundle(
+        at url: URL,
+        onWillDeactivate: (@MainActor () -> Void)? = nil
+    ) throws -> PhylogeneticTreeViewController {
         hideForNativeAlignmentTreeBundle()
-        let controller = PhylogeneticTreeViewController()
-        addChild(controller)
-        installNativeBundleSubview(controller.view)
-
-        do {
-            try controller.displayBundle(at: url)
-        } catch {
-            controller.view.removeFromSuperview()
-            controller.removeFromParent()
-            showGenomicsStackAfterNativeBundle()
-            throw error
-        }
-
+        let surface = try showSurface(.bundle(.phylogeneticTree), input: url, as: PhylogeneticTreeSurface.self)
+        guard let controller = surface.controller else { throw SurfaceError.notInstalled(.bundle(.phylogeneticTree)) }
+        surface.onWillDeactivate = onWillDeactivate
         controller.onTreeBundleOperationRequested = { [weak self] request in
             self?.performTreeBundleOperationViaCLI(request)
         }
 
-        phylogeneticTreeViewController = controller
         contentMode = .genomics
         alignmentTreeViewerLogger.info("displayPhylogeneticTreeBundle: Showing \(url.lastPathComponent, privacy: .public)")
+        return controller
+    }
+
+    /// What the route passes as `onWillDeactivate`. It takes the tree's own document and selection out of the
+    /// Inspector and leaves every other kind's blocks where they are, since the route gives the next tree's blocks only
+    /// after that tree's show.
+    static func phylogeneticTreeBlockReset(_ inspector: InspectorViewController?) -> @MainActor () -> Void {
+        { [weak inspector] in
+            guard let inspector else { return }
+            inspector.viewModel.documentSectionViewModel.updatePhylogeneticTreeDocument(nil)
+            if inspector.viewModel.selectionSectionViewModel.phylogeneticTreeSelection != nil {
+                inspector.updatePhylogeneticTreeSelection(nil)
+            }
+        }
+    }
+
+    /// Hides the tree viewer, a shim that other display routes call until the hide list goes in Phase 3.2.
+    func hidePhylogeneticTreeBundleView() {
+        clearSurface(ifShowing: .bundle(.phylogeneticTree))
     }
 
     func hideAlignmentTreeBundleViews() {
@@ -161,11 +180,7 @@ extension ViewerViewController {
             multipleSequenceAlignmentViewController = nil
             revealAnnotationDrawerUnlessNativeBundleInstalled()
         }
-        if let controller = phylogeneticTreeViewController {
-            controller.view.removeFromSuperview()
-            controller.removeFromParent()
-            phylogeneticTreeViewController = nil
-        }
+        hidePhylogeneticTreeBundleView()
         hideGenotypeResultView()
         hideTwelveSAmpliconResultView()
         hideMHCReferenceBundleView()

@@ -652,19 +652,16 @@ extension MainSplitViewController {
                 do {
                     self.inspectorController.clearSelection()
                     let bundle = try PhylogeneticTreeBundle.load(from: url)
+                    let reset = ViewerViewController.phylogeneticTreeBlockReset(self.inspectorController)
+                    let controller = try self.viewerController.displayPhylogeneticTreeBundle(at: url, onWillDeactivate: reset)
                     self.inspectorController.updatePhylogeneticTreeDocument(bundle)
-                    try self.viewerController.displayPhylogeneticTreeBundle(at: url)
-                    if let controller = self.viewerController.phylogeneticTreeViewController {
-                        controller.onSelectionStateChanged = { [weak self] state in
-                            self?.inspectorController.updatePhylogeneticTreeSelection(state)
-                        }
-                        controller.notifySelectionStateIfAvailable()
+                    controller.onSelectionStateChanged = { [weak self] state in
+                        self?.inspectorController.updatePhylogeneticTreeSelection(state)
                     }
+                    controller.notifySelectionStateIfAvailable()
                 } catch {
-                    mainSplitLogger.error(
-                        "displayPhylogeneticTreeBundle: Failed - \(error.localizedDescription, privacy: .public)"
-                    )
-                    self.viewerController.clearViewport(statusMessage: "Unable to load tree bundle.")
+                    mainSplitLogger.error("displayPhylogeneticTreeBundle: Failed - \(error.localizedDescription, privacy: .public)")
+                    self.viewerController.clearViewport(statusMessage: self.viewerController.surfaceFailureWords("Unable to open the phylogenetic tree.", error))
                 }
             }
         }
