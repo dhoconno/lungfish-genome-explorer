@@ -20,7 +20,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishIO | library | Sources/LungfishIO | 658 | LungfishCore |
+| LungfishIO | library | Sources/LungfishIO | 659 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 156 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -33,7 +33,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 1577 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
-| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 81 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
+| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 82 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
 
 ## Test targets
 
@@ -1056,6 +1056,7 @@ None.
 - `FASTQReadLayoutClassification` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQReadLayoutClassifier.swift`
 - `FASTQReadLayoutHandling` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQInputLayout.swift`
 - `FASTQRecord` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQRecord.swift`
+- `FASTQRecordedReadCount` struct, `Sources/LungfishIO/Formats/FASTQ/PersistedFASTQMetadata.swift`
 - `FASTQRiboDetectorEnsure` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift`
 - `FASTQRiboDetectorRetention` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift`
 - `FASTQSampleBarcodeAssignment` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQDemultiplexMetadata.swift`
@@ -3645,6 +3646,7 @@ None.
 - `DerivedFASTQBundleFixture` struct, `Tests/Support/LungfishTestSupport/DerivedFASTQBundleFixture.swift`
 - `EnvelopeCopySources` enum, `Tests/Support/LungfishTestSupport/EnvelopeCopySources.swift`
 - `FakeClassificationCondaFixture` struct, `Tests/Support/LungfishTestSupport/FakeClassificationCondaFixture.swift`
+- `FASTQLayoutRecordFixtures` enum, `Tests/Support/LungfishTestSupport/FASTQLayoutRecordFixtures.swift`
 - `FrozenCLIEventV1` enum, `Tests/Support/LungfishTestSupport/CLIEventCompatCorpus.swift`
 - `FrozenCLIEventV1LineDecoder` struct, `Tests/Support/LungfishTestSupport/CLIEventCompatCorpus.swift`
 - `GenotypeTestFixtures` enum, `Tests/Support/LungfishTestSupport/GenotypeTestFixtures.swift`
