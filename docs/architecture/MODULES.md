@@ -30,7 +30,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1577 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1578 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 82 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
@@ -3374,6 +3374,7 @@ None.
 - `TaxTriageBatchReportExport` enum, `Sources/LungfishWorkflow/ViewerExport/TaxTriageExportLoader.swift`
 - `TaxTriageConfig` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriageConfig.swift`
 - `TaxTriageConfigError` enum, `Sources/LungfishWorkflow/TaxTriage/TaxTriageConfig.swift`
+- `TaxTriageControlMatch` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriageControlMatch.swift`
 - `TaxTriageExportLoader` enum, `Sources/LungfishWorkflow/ViewerExport/TaxTriageExportLoader.swift`
 - `TaxTriageExportSource` struct, `Sources/LungfishWorkflow/ViewerExport/TaxTriageExportLoader.swift`
 - `TaxTriageIgnoredFailure` struct, `Sources/LungfishWorkflow/TaxTriage/TaxTriageResult.swift`
