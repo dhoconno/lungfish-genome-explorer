@@ -222,7 +222,7 @@ final class TaxTriageExportCommandsTests: XCTestCase {
         _ = try reportCommand(["--sample", "sample-1", "--output", one.path]).export()
         XCTAssertEqual(try maskedText(one), Self.expectedReport(
             platform: platform, negativeControls: "sample-2",
-            perSample: ["sample-1: 3 organisms (1 high confidence)", "sample-2 [NTC]: 0 organisms (0 high confidence)"],
+            perSample: ["sample-1: 3 organisms (1 high confidence)", "sample-2 [NTC]: 2 organisms (0 high confidence)"],
             crossSample: ["No organisms detected in multiple samples."],
             contamination: ["Alpha virus (detected in: sample-1, sample-2)", "Gamma virus (detected in: sample-2)"],
             highConfidence: ["Alpha virus: mean TASS=0.910, 1 sample(s)"]

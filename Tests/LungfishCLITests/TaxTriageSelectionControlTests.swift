@@ -55,6 +55,9 @@ final class TaxTriageSelectionControlTests: XCTestCase {
         let report = try reportText(of: result, samples: ["patient"])
         XCTAssertFalse(report.contains("No organisms detected in negative controls."), report)
         XCTAssertTrue(report.contains("\(Self.shared) (detected in: NTC1, patient)"), report)
+        // The per-sample line counts the control from its own rows, not from the ticked samples (BIO review, blocker 1).
+        XCTAssertTrue(report.contains("NTC1 [NTC]: 1 organisms ("), report)
+        XCTAssertFalse(report.contains("NTC1 [NTC]: 0 organisms"), report)
     }
 
     /// The control holds an organism that no ticked sample holds. The report is about the controls, so it lists it.
