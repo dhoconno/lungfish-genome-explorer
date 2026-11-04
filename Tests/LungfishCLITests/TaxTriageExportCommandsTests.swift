@@ -114,12 +114,14 @@ final class TaxTriageExportCommandsTests: XCTestCase {
             "Gamma virus,0.5000,1/2,Yes,,0.5000",
         ].joined(separator: "\n") + "\n")
 
-        // One ticked sample narrows the metrics to its rows and the matrix loses the control's flags, as the viewer's.
+        // One ticked sample narrows the metrics to its rows, and the control's flags stay, since they come from the
+        // control's rows across all samples (lane TTCONTROLS, row TAXTRIAGE-SELECTION-LEAVES-OUT-CONTROL). The old
+        // viewer lost them and read No for an organism the control holds, which this pin once froze.
         let one = folder.appendingPathComponent("matrix-one.csv")
         _ = try matrixCommand(["--sample", "sample-1", "--output", one.path]).export()
         XCTAssertEqual(try text(one), [
             Self.matrixHeader,
-            "Alpha virus,0.9100,1/2,No,0.9100,",
+            "Alpha virus,0.9100,1/2,Yes,0.9100,",
             "Beta virus,0.7600,1/2,No,0.7600,",
             "\(Self.deltaField),0.6000,1/2,No,0.6000,",
         ].joined(separator: "\n") + "\n")
@@ -222,7 +224,7 @@ final class TaxTriageExportCommandsTests: XCTestCase {
             platform: platform, negativeControls: "sample-2",
             perSample: ["sample-1: 3 organisms (1 high confidence)", "sample-2 [NTC]: 0 organisms (0 high confidence)"],
             crossSample: ["No organisms detected in multiple samples."],
-            contamination: ["No organisms detected in negative controls."],
+            contamination: ["Alpha virus (detected in: sample-1, sample-2)", "Gamma virus (detected in: sample-2)"],
             highConfidence: ["Alpha virus: mean TASS=0.910, 1 sample(s)"]
         ))
     }
