@@ -16,7 +16,8 @@ import LungfishGenotypeUI
 enum GenotypeEditQuitConfirmation {
     static let message =
         "A comment or review in a genotype result has not been saved because its workbook is still updating."
-    static let advice = "Quit Anyway discards it. Choose Don't Quit to let the update finish, then quit again."
+    static let advice =
+        "Quit Anyway discards it. If you choose Don't Quit, Lungfish keeps trying to save it until the update ends."
     static let quitButtonTitle = "Quit Anyway"
     static let dontQuitButtonTitle = "Don't Quit"
 
@@ -37,16 +38,24 @@ enum GenotypeEditQuitConfirmation {
         return await presentSheet(on: window)
     }
 
-    private static func presentSheet(on window: NSWindow?) async -> Bool {
+    /// The sheet, built and not shown. Only `Don't Quit` answers Return. `NSAlert` gives Return to the first button it
+    /// is given, so `Quit Anyway` lets go of it, and a stray Return cannot discard a person's edit.
+    static func makeAlert() -> NSAlert {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = message
         alert.informativeText = advice
         let quitButton = alert.addButton(withTitle: quitButtonTitle)
         quitButton.hasDestructiveAction = true
+        quitButton.keyEquivalent = ""
         let dontQuitButton = alert.addButton(withTitle: dontQuitButtonTitle)
         dontQuitButton.keyEquivalent = "\r"
         alert.applyLungfishBranding()
+        return alert
+    }
+
+    private static func presentSheet(on window: NSWindow?) async -> Bool {
+        let alert = makeAlert()
         // With no visible window there is nothing to present a sheet on, and the project rules forbid app-modal
         // runModal. Let the quit proceed, as the sheet for running operations does.
         guard let window = window
