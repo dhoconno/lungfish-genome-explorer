@@ -262,6 +262,33 @@ final class FASTACollectionSavedBlastTests: XCTestCase {
         XCTAssertEqual(sent.last, ["seq_long"], "Re-run repeated the last send and not the sequences picked")
     }
 
+    // MARK: - A pick the send refuses (LASTROWS fix round, BIO SF1)
+
+    /// The send refuses more than its cap, so no search of such a pick can exist. A pick over the cap builds no key and shows no
+    /// search, while a pick of exactly the cap still shows its search. A search over the cap is written by hand, since no send can
+    /// write one, to give the pick over the cap something it would wrongly show.
+    func testAPickOverTheSendCapBuildsNoKeyAndShowsNoSearch() async throws {
+        let cap = ViewerViewController.blastSequenceLimit
+        let many = (0...cap).map { (id: String(format: "seq_%03d", $0), sequence: "ACGTACGTACGTACGTACGT") }
+        let list = try makeList(records: many.map { ">\($0.id)\n\($0.sequence)\n" }.joined())
+        try saveSearch(in: list.project, source: list.url, sequences: many)
+        try saveSearch(in: list.project, source: list.url, sequences: Array(many.prefix(cap)))
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.select(list.item)
+        let collection = try await shownCollection(in: harness.split.viewerController)
+
+        collection.testSelectRows(Array(0...cap))
+        XCTAssertEqual(collection.selectedSequences().count, cap + 1)
+        await collection.savedBlastRestorer?.restoreTask?.value
+        XCTAssertNil(collection.savedBlastRestorer, "a pick the send refuses built a key")
+        XCTAssertFalse(collection.testBlastDrawerIsOpen, "a pick the send refuses showed a search")
+
+        collection.testSelectRows(Array(0..<cap))
+        let atCap = await waitUntil(budget: .lookup) { self.isWaiting(collection) }
+        XCTAssertTrue(atCap, "a pick of exactly the cap lost its search, the pane reads \(String(describing: collection.testBlastDrawerTab?.displayState))")
+    }
+
     // MARK: - Support
 
     /// Ends the test at the first wait that timed out, since the steps after it would only wait again.

@@ -318,6 +318,10 @@ extension ViewerViewController {
         sequences.count == 1 ? sequences[0].name : "\(sequences.count) FASTA sequences"
     }
 
+    /// The most sequences one search from a list sends. The send refuses a pick over it, so no search of such a pick can exist,
+    /// and the look-up of a saved search builds no key for one.
+    static let blastSequenceLimit = 50
+
     private func runGenericBlastVerification(
         sourceLabel: String,
         fastaRecords: [String],
@@ -328,8 +332,8 @@ extension ViewerViewController {
             controller.showBlastFailure(BlastServiceError.noSequences.localizedDescription)
             return
         }
-        guard fastaRecords.count <= 50 else {
-            controller.showBlastFailure("Select 50 or fewer sequences to verify with BLAST.")
+        guard fastaRecords.count <= Self.blastSequenceLimit else {
+            controller.showBlastFailure("Select \(Self.blastSequenceLimit) or fewer sequences to verify with BLAST.")
             return
         }
 
@@ -418,6 +422,8 @@ extension ViewerViewController {
     func restoreSavedBlast(on controller: FASTACollectionViewController, run: FASTACollectionBlastRun, picked: [LungfishCore.Sequence]) {
         controller.savedBlastRestorer = nil
         guard run.runID == nil else { return }
+        // A pick the send refuses has no search, and formatting every base of it at each click is work for nothing.
+        guard picked.count <= Self.blastSequenceLimit else { return }
         let source = fastaExportSourceURLs().first
         let records = picked.map(Self.fastaRecord(for:))
         let sequences = Self.blastSequences(from: records)
