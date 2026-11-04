@@ -21,7 +21,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 659 | LungfishCore |
-| LungfishKit | library | Sources/LungfishKit | 156 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishKit | library | Sources/LungfishKit | 157 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
@@ -1740,6 +1740,7 @@ None.
 - `SurfaceRegistry` class, `Sources/LungfishKit/Surfaces/SurfaceRegistry.swift`
 - `SurfaceRequest` struct, `Sources/LungfishKit/Surfaces/ViewportHost.swift`
 - `SurfaceShowOutcome` enum, `Sources/LungfishKit/Surfaces/ViewportHost.swift`
+- `SurfaceViewID` struct, `Sources/LungfishKit/Surfaces/ResultViewport.swift`
 - `TrackedDividerSplitView` class, `Sources/LungfishKit/TrackedDividerSplitView.swift`
 - `TwoPaneTrackedSplitCoordinator` class, `Sources/LungfishKit/TwoPaneTrackedSplitCoordinator.swift`
 - `UnavailableClassifierAlignmentViewer` class, `Sources/LungfishKit/ClassifierAlignmentEvidence.swift`
