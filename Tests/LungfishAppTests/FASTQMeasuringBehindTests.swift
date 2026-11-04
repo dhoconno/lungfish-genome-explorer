@@ -98,7 +98,7 @@ final class FASTQMeasuringBehindTests: XCTestCase {
     private func showDashboard(of bundle: URL, statistics: FASTQDatasetStatistics) {
         split.viewerController.displayFASTQDataset(
             statistics: statistics, records: [],
-            fastqURL: bundle.appendingPathComponent("reads.fastq"),
+            fastqURL: FASTQBundle.resolvePrimaryFASTQURL(for: bundle),
             sraRunInfo: nil, enaReadRecord: nil, ingestionMetadata: nil,
             fastqSourceURL: bundle, fastqDerivativeManifest: nil
         )
