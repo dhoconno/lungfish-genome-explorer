@@ -47,6 +47,32 @@ final class BlastResultsDrawerTabExportTests: XCTestCase {
         )
     }
 
+    /// The sample goes right after the taxon, so the label's cut tail never takes the counts, and an empty name names
+    /// nothing. These two read the new `subject` parameter, so they cannot compile at the base (lane ROWPANE).
+    func testSummaryNamesTheSubjectRightAfterTheTaxon() {
+        let result = makeResult()
+        XCTAssertEqual(
+            BlastResultsDrawerTab.verificationSummary(for: result, subject: "S2"),
+            "BLAST for Oxbow virus (sample S2): 0 supporting, 0 contradicting (0 reads)"
+        )
+        XCTAssertEqual(
+            BlastResultsDrawerTab.verificationSummary(for: result, subject: ""),
+            BlastResultsDrawerTab.verificationSummary(for: result)
+        )
+    }
+
+    /// A change of presentation style draws the shown result again and keeps its sample.
+    func testARedrawForAnotherStyleKeepsTheSubject() {
+        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        tab.showResults(makeResult(), recordURL: nil, subject: "S2")
+
+        tab.presentationStyle = .contigBlast
+        XCTAssertEqual(tab.summaryLabel.stringValue, "BLAST results for Oxbow virus (sample S2)")
+
+        tab.presentationStyle = .verification
+        XCTAssertTrue(tab.summaryLabel.stringValue.hasPrefix("BLAST for Oxbow virus (sample S2): "), tab.summaryLabel.stringValue)
+    }
+
     /// Ruling BIO-BLAST-MATES Q2. Counts are fragments, and reads are the sequences sent.
     func testSummaryCountsFragmentsAndReads() {
         func fragment(_ id: String) -> BlastReadResult {

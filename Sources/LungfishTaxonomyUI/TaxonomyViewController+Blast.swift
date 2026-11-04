@@ -129,7 +129,7 @@ extension TaxonomyViewController {
         lastBlastRecordURL = recordURL
         lastBlastNode = node
         lastBlastSampleId = owningSampleId(for: node)
-        taxaCollectionsDrawerView?.blastResultsTab.showResults(result, recordURL: recordURL)
+        taxaCollectionsDrawerView?.blastResultsTab.showResults(result, recordURL: recordURL, subject: lastBlastSampleId)
         blastVCLogger.info("Restored saved BLAST verification for txid\(node.taxId, privacy: .public) from \(directory.path, privacy: .public)")
     }
 
@@ -176,7 +176,7 @@ extension TaxonomyViewController {
         ensureDrawerOpenOnBlastTab()
 
         // Switch to BLAST tab and show results
-        taxaCollectionsDrawerView?.showBlastResults(result, recordURL: recordURL)
+        taxaCollectionsDrawerView?.showBlastResults(result, recordURL: recordURL, subject: lastBlastSampleId)
 
         blastVCLogger.info(
             "Showing BLAST results for \(result.taxonName, privacy: .public): \(result.verifiedCount)/\(result.readResults.count) verified"
@@ -274,7 +274,7 @@ extension TaxonomyViewController {
 
         // A verification restored before the drawer existed is waiting.
         if let lastBlastResult, !blastRunIsActive {
-            blastTab.showResults(lastBlastResult, recordURL: lastBlastRecordURL)
+            blastTab.showResults(lastBlastResult, recordURL: lastBlastRecordURL, subject: lastBlastSampleId)
         }
     }
 

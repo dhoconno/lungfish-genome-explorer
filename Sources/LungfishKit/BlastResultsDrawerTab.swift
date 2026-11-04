@@ -288,6 +288,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
 
     /// The current display state.
     public private(set) var displayState: DisplayState = .empty
+    /// The sample the shown result is about, which a re-render of the presentation style keeps (lane ROWPANE).
+    private var shownSubject: String?
     public var presentationStyle: BlastResultsDrawerPresentationStyle = .verification {
         didSet {
             guard oldValue != presentationStyle else { return }
@@ -440,15 +442,18 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
     ///
     /// Populates the summary bar and results outline view with data from the verification result.
     /// Reads are displayed as parent rows with expandable child rows for secondary BLAST hits.
-    public func showResults(_ result: BlastVerificationResult, recordURL: URL?) {
+    /// `subject` names the sample the verdict is about, and the summary says it right after the taxon. A caller that
+    /// knows the row the verdict belongs to passes that row's sample, since two samples can hold one taxon.
+    public func showResults(_ result: BlastVerificationResult, recordURL: URL?, subject: String? = nil) {
         displayState = .results(result, recordURL: recordURL)
+        shownSubject = subject
         let total = result.totalReads
 
         switch presentationStyle {
         case .verification:
             let supporting = result.supportingCount
             let contradicting = result.contradictingCount
-            summaryLabel.stringValue = Self.verificationSummary(for: result)
+            summaryLabel.stringValue = Self.verificationSummary(for: result, subject: subject)
 
             let confidence = result.confidence
             confidenceLabel.stringValue = confidence.displayLabel
@@ -486,7 +491,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             )
             summaryIcon.contentTintColor = confidence.accentColor
         case .contigBlast, .sequenceBlast:
-            summaryLabel.stringValue = "BLAST results for \(result.taxonName)"
+            summaryLabel.stringValue = "BLAST results for \(result.taxonName)\(Self.subjectWords(subject))"
             confidenceLabel.stringValue = ""
             confidenceDots.stringValue = ""
             lcaWarningLabel.stringValue = ""
@@ -1390,7 +1395,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         case .loading(let phase, let requestId):
             showLoading(phase: phase, requestId: requestId)
         case .results(let result, let recordURL):
-            showResults(result, recordURL: recordURL)
+            showResults(result, recordURL: recordURL, subject: shownSubject)
         }
     }
 

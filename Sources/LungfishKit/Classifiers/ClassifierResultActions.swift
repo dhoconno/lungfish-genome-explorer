@@ -226,11 +226,12 @@ public final class ClassifierResultActions: NSObject {
 
     // MARK: - BLAST results
 
-    /// Shows a BLAST result in the pane and opens it.
+    /// Shows a BLAST result in the pane and opens it. The summary names the sample of the row the run began on, which
+    /// may not be the row picked now.
     public func showBlastResults(_ result: BlastVerificationResult, recordURL: URL?) {
         endBlastRun(shownRecord: recordURL, shownRow: runBlastRow)
         lastBlastResult = result
-        blastDrawer.showResults(result, recordURL: recordURL)
+        blastDrawer.showResults(result, recordURL: recordURL, subject: shownBlastRow?.sample)
         setBlastDrawerOpen(true)
     }
 
@@ -266,7 +267,7 @@ public final class ClassifierResultActions: NSObject {
         lastBlastRecordURL = recordURL
         restoredBlastRow = row
         shownBlastRow = row
-        blastDrawer.showResults(result, recordURL: recordURL)
+        blastDrawer.showResults(result, recordURL: recordURL, subject: row.sample)
     }
 
     /// A run belongs to the row that was picked when it began, so its result can be told from another row's later.
