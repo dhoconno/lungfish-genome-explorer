@@ -63,6 +63,15 @@ final class TaxonTreeBlastTaxonomyTests: XCTestCase {
         XCTAssertEqual(tree.blastTaxonomyContext(for: 562).cladeTaxIds, [562])
     }
 
+    /// BLAST-ESVIRITU-FIRST-WORD. The classifier's own tree gave the clade, so the context says `species`, and a taxon the
+    /// tree does not hold is judged by its own tax ID.
+    func testTheContextSaysWhatItWasJudgedAt() throws {
+        let tree = try KreportParser.parse(text: report)
+        XCTAssertEqual(tree.blastTaxonomyContext(for: 3050292).basis, .species)
+        XCTAssertEqual(tree.blastTaxonomyContext(for: 10294).basis, .species)
+        XCTAssertEqual(tree.blastTaxonomyContext(for: 562).basis, .rowTaxId)
+    }
+
     /// Rotavirus as a Kraken 2 report lists it: the binomial species 3432193, then 28875 and its host label 10941 as the
     /// no-rank nodes a report codes S1 and S2 (`TaxonomicRank.intermediate`), and a second genus member that stays a relative.
     private let rotavirusReport = """
