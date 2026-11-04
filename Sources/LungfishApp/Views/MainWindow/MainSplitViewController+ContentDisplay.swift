@@ -321,16 +321,13 @@ extension MainSplitViewController {
             guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
 
             do {
-                // Read the reference FASTA off the main actor; a large reference
-                // must not block the UI during display.
+                // Read the reference FASTA off the main actor so a large reference cannot block the UI.
                 let model = try await MHCReferenceBundleViewportModel.loadAsync(bundleURL: url)
-                // A newer sidebar selection may have superseded this load while the
-                // FASTA read was in flight; re-check the generation guard before
-                // committing the viewport.
+                // A newer selection may have superseded the read, so check the guard before committing.
                 guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                 self.inspectorController.clearSelection()
                 self.inspectorController.updateMHCReferenceBundleDocument(url)
-                self.viewerController.displayMHCReferenceBundle(model) { [weak self] in
+                try self.viewerController.displayMHCReferenceBundle(model) { [weak self] in
                     guard let self else { return }
                     HaplotypeDefinitionManagerWindowController.show(
                         projectURL: self.sidebarController.currentProjectURL
@@ -338,6 +335,10 @@ extension MainSplitViewController {
                         editingBundleURL: url
                     )
                 }
+            } catch let error as SurfaceError {
+                mainSplitLogger.error("displayMHCReferenceBundle: Not shown - \(error.localizedDescription, privacy: .public)")
+                self.inspectorController.clearSelection()
+                self.viewerController.clearViewport(statusMessage: "Unable to open the MHC reference bundle. Select it again.")
             } catch {
                 guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                 self.inspectorController.clearSelection()
@@ -752,18 +753,13 @@ extension MainSplitViewController {
     /// project sidebar (Finder double-click, "Open With", File > Open Recent, drag-to-dock).
     /// `updateMHCReferenceBundleDocument` sets the `.mhcReferenceBundle` provenance target.
     func displayMHCReferenceBundleFromExternalOpen(at url: URL) {
-        // External open is a one-shot (Finder double-click / Open Recent), not a
-        // sidebar selection that a later selection can supersede, so no display
-        // generation guard is needed. Unlike the sidebar path (which uses
-        // `loadAsync` because rapid navigation can spam large reference reads),
-        // this one-shot path reads synchronously to match its non-MHC sibling
-        // `displayReferenceBundleFromExternalOpen` and to keep the inspector and
-        // viewport populated together on return.
+        // A one-shot open that no later selection supersedes, so it needs no display generation guard
+        // and reads synchronously, which keeps the Inspector and the viewport populated together.
         do {
             let model = try MHCReferenceBundleViewportModel.load(bundleURL: url)
             inspectorController.clearSelection()
             inspectorController.updateMHCReferenceBundleDocument(url)
-            viewerController.displayMHCReferenceBundle(model) { [weak self] in
+            try viewerController.displayMHCReferenceBundle(model) { [weak self] in
                 guard let self else { return }
                 HaplotypeDefinitionManagerWindowController.show(
                     projectURL: self.sidebarController.currentProjectURL
@@ -771,6 +767,10 @@ extension MainSplitViewController {
                     editingBundleURL: url
                 )
             }
+        } catch let error as SurfaceError {
+            mainSplitLogger.error("displayMHCReferenceBundleFromExternalOpen: Not shown - \(error.localizedDescription, privacy: .public)")
+            inspectorController.clearSelection()
+            viewerController.clearViewport(statusMessage: "Unable to open the MHC reference bundle. Select it again.")
         } catch {
             mainSplitLogger.error(
                 "displayMHCReferenceBundleFromExternalOpen: Failed - \(error.localizedDescription, privacy: .public)"

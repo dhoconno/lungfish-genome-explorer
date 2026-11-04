@@ -68,16 +68,6 @@ extension ViewSwitchDeclaredLeaks {
             "- inspector: fastqStatistics",
             "- provenance: fastqBundle Reads/illumina-reads.lungfishfastq",
         ]),
-        leak("TaxTriage", to: ["MSA"], "NET-MHC-HOST-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, MultipleSequenceAlignmentViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "- viewports: MultipleSequenceAlignmentViewController",
-        ]),
-        leak("NAO-MGS", to: ["Tree"], "NET-MHC-HOST-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, PhylogeneticTreeViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "- viewports: PhylogeneticTreeViewController",
-        ]),
         // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
         // smaller after NAOMGS's reset (manager ruling 00:4x)
         leak("12S", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
@@ -104,11 +94,6 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorTab: empty document of [document, selection]",
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
-        ]),
-        leak("NVD", to: ["FASTA document"], "NET-MHC-HOST-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "- viewports: none",
         ]),
         // smaller after NVDV's reset (manager ruling 15:56)
         leak("NVD", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
@@ -182,12 +167,9 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("CZ ID", to: ["TaxTriage"], "NET-MHC-HOST-STAYS, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, TaxTriageResultViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
+        leak("CZ ID", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: assembly",
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
-            "- viewports: TaxTriageResultViewController",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
         ]),
         // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)

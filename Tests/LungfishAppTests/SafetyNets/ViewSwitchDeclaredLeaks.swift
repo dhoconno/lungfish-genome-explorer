@@ -8,9 +8,10 @@
 // pass at the base and fail when the leak changes. A fix that removes a leak
 // removes its entry in the same change, because the test then fails on the
 // pair until it does. A ViewportHost migration may change the entries whose
-// from kind or `to` list names its own kind, and only by deleting a fault line,
-// a `to` name or a whole entry. A line it has to add goes to the reviewer with
-// its reason.
+// from kind or `to` list names its own kind, or whose `backlog` field names a
+// row its kind owns, and only by deleting a fault line, a `to` name, a whole
+// entry or an id in `backlog` where no line of it remains. A line it has to add
+// goes to the reviewer with its reason.
 //
 // Each fault line is "+ line" for what the switch shows and the kind alone
 // does not, or "- line" for what the kind alone shows and the switch does not.

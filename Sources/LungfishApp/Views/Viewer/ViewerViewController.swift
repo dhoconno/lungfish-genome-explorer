@@ -211,8 +211,8 @@ public class ViewerViewController: NSViewController {
     /// Shared reference bundle viewport (shown for direct `.lungfishref` bundle opens)
     var referenceBundleViewportController: ReferenceBundleViewportController?
 
-    /// Native MHC amplicon reference bundle viewport.
-    var mhcReferenceBundleViewController: NSHostingController<MHCReferenceBundleViewport>?
+    /// Native MHC amplicon reference bundle viewport, while the surface host shows it.
+    var mhcReferenceBundleViewController: MHCReferenceBundleSurface.Controller? { installedSurface?.viewController as? MHCReferenceBundleSurface.Controller }
 
     /// Native multiple-sequence alignment bundle viewport.
     var multipleSequenceAlignmentViewController: MultipleSequenceAlignmentViewController?

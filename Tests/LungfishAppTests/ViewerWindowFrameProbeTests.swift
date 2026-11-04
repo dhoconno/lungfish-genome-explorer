@@ -68,7 +68,7 @@ final class ViewerWindowFrameProbeTests: XCTestCase {
         window.layoutIfNeeded()
         XCTAssertEqual(window.frame, Self.probeFrame, "the window starts at the probe frame")
 
-        viewer.displayMHCReferenceBundle(model, onEditHaplotypes: {})
+        try viewer.displayMHCReferenceBundle(model, onEditHaplotypes: {})
         let hostingView = try XCTUnwrap(viewer.mhcReferenceBundleViewController?.view)
         let sized = await waitUntil(budget: .standard) {
             window.layoutIfNeeded()

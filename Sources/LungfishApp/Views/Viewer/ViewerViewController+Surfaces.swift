@@ -26,6 +26,7 @@ extension ViewerViewController {
         registry.register(.analysis(.taxtriage), factory: TaxTriageSurface.factory())
         registry.register(.analysis(.kraken2), factory: Kraken2Surface.factory())
         registry.register(.analysis(.czId), factory: CzIdSurface.factory())
+        registry.register(.bundle(.mhcReference)) { MHCReferenceBundleSurface() }
         return registry
     }
 

@@ -168,6 +168,7 @@ extension ViewerViewController {
         }
         hideGenotypeResultView()
         hideTwelveSAmpliconResultView()
+        hideMHCReferenceBundleView()
         showGenomicsStackAfterNativeBundle()
     }
 

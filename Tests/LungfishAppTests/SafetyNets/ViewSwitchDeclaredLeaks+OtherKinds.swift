@@ -7,16 +7,6 @@
 
 extension ViewSwitchDeclaredLeaks {
     static let fromOtherKinds: [DeclaredViewSwitchLeak] = [
-        leak("MHC reference", to: ["MSA"], "NET-MHC-HOST-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, MultipleSequenceAlignmentViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "- viewports: MultipleSequenceAlignmentViewController",
-        ]),
-        leak("MSA", to: ["Tree"], "NET-MHC-HOST-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, PhylogeneticTreeViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "- viewports: PhylogeneticTreeViewController",
-        ]),
         leak("FASTA document", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: genomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
@@ -36,11 +26,6 @@ extension ViewSwitchDeclaredLeaks {
         leak("Reference", to: ["FASTQ"], "NET-ALIGNMENT-SECTION-STAYS", [
             "+ inspectorBlocks: document, alignmentBundle, fastqMetadata, fastqPBAAArtifacts",
             "- inspectorBlocks: document, fastqMetadata, fastqPBAAArtifacts",
-        ]),
-        leak("MHC reference", to: ["Tree"], "NET-MHC-HOST-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, PhylogeneticTreeViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "- viewports: PhylogeneticTreeViewController",
         ]),
         leak("Status only", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: primerScheme=QIASeqDIRECT-SARS2",
@@ -82,16 +67,8 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
         ]),
-        leak("MHC reference", to: ["FASTA document"], "NET-MHC-HOST-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "- viewports: none",
-        ]),
-        leak("FASTA document", to: ["TaxTriage"], "NET-MHC-HOST-STAYS, NET-DOCUMENT-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, TaxTriageResultViewController",
+        leak("FASTA document", to: ["TaxTriage"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "- viewports: TaxTriageResultViewController",
         ]),
         leak("Reference", to: ["MSA"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
@@ -175,12 +152,9 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("MHC reference", to: ["Kraken2"], "NET-MHC-HOST-STAYS, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, TaxonomyViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
+        leak("MHC reference", to: ["Kraken2"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: mhcReference=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref",
             "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
-            "- viewports: TaxonomyViewController",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
         leak("Assembly", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
@@ -198,12 +172,9 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
         ]),
-        leak("MHC reference", to: ["EsViritu"], "NET-MHC-HOST-STAYS, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, EsVirituResultViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
+        leak("MHC reference", to: ["EsViritu"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: mhcReference=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref",
             "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
-            "- viewports: EsVirituResultViewController",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
         leak("Genotype", to: ["Kraken2", "EsViritu"], "NET-INSPECTOR-DOCUMENT-STAYS", [
@@ -211,23 +182,10 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
-        leak("MHC reference", to: ["TaxTriage"], "NET-MHC-HOST-STAYS, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, TaxTriageResultViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
+        leak("MHC reference", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: mhcReference=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref",
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
-            "- viewports: TaxTriageResultViewController",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
-        ]),
-        leak("MSA", to: ["NAO-MGS"], "NET-MHC-HOST-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, NaoMgsResultViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "- viewports: NaoMgsResultViewController",
-        ]),
-        leak("Tree", to: ["NVD"], "NET-MHC-HOST-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, NvdResultViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "- viewports: NvdResultViewController",
         ]),
         leak("Reference", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-ALIGNMENT-SECTION-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: mapping",
@@ -247,11 +205,6 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspector: fastqStatistics",
             "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
-        ]),
-        leak("MHC reference", to: ["NAO-MGS"], "NET-MHC-HOST-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, NaoMgsResultViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "- viewports: NaoMgsResultViewController",
         ]),
         // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
         leak("FASTQ", to: ["EsViritu"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
@@ -289,11 +242,6 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
-        leak("MHC reference", to: ["NVD"], "NET-MHC-HOST-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, NvdResultViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "- viewports: NvdResultViewController",
-        ]),
         leak("FASTA document", to: ["FASTQ"], "INSPECTOR-STALE, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ provenance: sequence ../k17-fasta/Inputs/MT192765.1.fasta",
@@ -319,13 +267,10 @@ extension ViewSwitchDeclaredLeaks {
         leak("FASTQ", to: ["NAO-MGS", "NVD"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: fastqStatistics",
         ]),
-        leak("MHC reference", to: ["CZ ID"], "NET-MHC-HOST-STAYS, NET-INSPECTOR-DOCUMENT-STAYS, NET-DOCUMENT-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, CzIdResultViewController",
+        leak("MHC reference", to: ["CZ ID"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
             "+ inspector: mhcReference=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref",
             "+ inspectorBlocks: seeTheViewer, panelLayout",
-            "- viewports: CzIdResultViewController",
             "- inspectorBlocks: selectAResult, panelLayout",
         ]),
         leak("Reference", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
@@ -366,17 +311,9 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: organism, nvd, seeTheViewer, panelLayout, sampleFilter=3",
             "- inspectorBlocks: nvd, seeTheViewer, panelLayout, sampleFilter=3",
         ]),
-        leak("MHC reference", to: ["Assembly"], "NET-MHC-HOST-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, AssemblyResultViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
-            "- viewports: AssemblyResultViewController",
-        ]),
-        leak("Assembly", to: ["CZ ID"], "NET-MHC-HOST-STAYS, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ viewports: NSHostingController<MHCReferenceBundleViewport>, CzIdResultViewController",
-            "+ native: mhc bundle=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref references=3 definitions=[mhc-simulated-mcm-teaching]",
+        leak("Assembly", to: ["CZ ID"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: assembly",
             "+ inspectorBlocks: seeTheViewer, panelLayout",
-            "- viewports: CzIdResultViewController",
             "- inspectorBlocks: selectAResult, panelLayout",
         ]),
         leak("MSA", to: ["FASTQ"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS", [
