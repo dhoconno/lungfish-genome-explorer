@@ -590,6 +590,42 @@ final class BlastResultsDrawerTests: XCTestCase {
         XCTAssertTrue(tab.lcaWarningLabel.isHidden)
     }
 
+    /// UX review SF3. The sentence that says why the badge reads Not specific is on the badge and the summary, and
+    /// a Supported row carries none.
+    func testTheNotSpecificSentenceIsOnTheBadgeAndTheSummary() throws {
+        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        func row(outside: Int) -> BlastVerificationResult {
+            let tie = BlastTieSummary(
+                hitListSize: 500, hitsReturned: 500, bestBitScore: 139.619, tied: outside + 1, inClade: 1, outside: outside,
+                runsPastList: false, outsideExamples: outside > 0 ? ["Expression vector pHR_SFFV", "synthetic construct"] : []
+            )
+            return BlastVerificationResult(
+                taxonName: "Human immunodeficiency virus 1", taxId: 11676,
+                readResults: [BlastReadResult(id: "read_1", verdict: .verified, matchesQueriedTaxon: true, tieSummary: tie)],
+                submittedAt: Date(), completedAt: Date(), rid: "R", blastProgram: "blastn", database: "core_nt"
+            )
+        }
+        let shared = row(outside: 3)
+        XCTAssertEqual(shared.confidence, .notSpecific)
+        let words = try XCTUnwrap(BlastTieWords.notSpecificSummary(for: shared))
+
+        tab.showResults(shared, recordURL: nil)
+        tab.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(tab.confidenceLabel.toolTip, words, "hovering the badge reads the sentence")
+        XCTAssertEqual(tab.summaryLabel.toolTip, words)
+        XCTAssertEqual(tab.confidenceLabel.accessibilityHelp(), words, "VoiceOver reads it from the badge")
+
+        let specific = row(outside: 0)
+        XCTAssertEqual(specific.confidence, .supported)
+        tab.showResults(specific, recordURL: nil)
+        tab.layoutSubtreeIfNeeded()
+
+        XCTAssertNil(tab.confidenceLabel.toolTip)
+        XCTAssertNil(tab.summaryLabel.toolTip)
+        XCTAssertNil(tab.confidenceLabel.accessibilityHelp())
+    }
+
     // MARK: - Export Button
 
     func testExportButtonExists() throws {

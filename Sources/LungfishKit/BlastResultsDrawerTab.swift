@@ -456,7 +456,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         case .verification:
             let badgeWords = BlastTieWords.notSpecificSummary(for: result)
             summaryLabel.stringValue = Self.verificationSummary(for: result, subject: subject) + (badgeWords.map { ". " + $0 } ?? "")
-            summaryLabel.toolTip = badgeWords
+            [summaryLabel, confidenceLabel].forEach { $0.toolTip = badgeWords; $0.setAccessibilityHelp(badgeWords) }
 
             let confidence = result.confidence
             confidenceLabel.stringValue = confidence.displayLabel
@@ -1860,7 +1860,7 @@ extension BlastResultsDrawerTab: NSOutlineViewDelegate {
             // Show orange LCA warning triangle instead of verdict icon
             let warningImage = NSImage(
                 systemSymbolName: "exclamationmark.triangle",
-                accessibilityDescription: "LCA disagreement"
+                accessibilityDescription: ([result] + (result.otherMates ?? [])).contains { ($0.tieSummary?.outside ?? 0) > 0 } ? "Also matches other records equally" : "Conflicting organisms"
             )
             let imageView = NSImageView(image: warningImage ?? NSImage())
             imageView.translatesAutoresizingMaskIntoConstraints = false
