@@ -36,7 +36,9 @@ final class MSAViewerChromeRoutingTests: XCTestCase {
         let split = MainSplitViewController()
         split.loadViewIfNeeded()
         split.displayMultipleSequenceAlignmentBundleFromSidebar(at: bundle.url)
-        for _ in 0..<1_000 where split.viewerController.multipleSequenceAlignmentViewController == nil {
+        // The host installs the viewer a hop before the route wires its callbacks, so the wait is on the callback and
+        // not on the viewer, which a loaded machine can show first (`ViewerViewController+AlignmentTreeBundles.swift`).
+        for _ in 0..<1_000 where split.viewerController.multipleSequenceAlignmentViewController?.onReferenceRowChanged == nil {
             try await Task.sleep(for: .milliseconds(10))
         }
         let controller = try XCTUnwrap(split.viewerController.multipleSequenceAlignmentViewController)
@@ -57,7 +59,9 @@ final class MSAViewerChromeRoutingTests: XCTestCase {
         let split = MainSplitViewController()
         split.loadViewIfNeeded()
         split.displayMultipleSequenceAlignmentBundleFromSidebar(at: bundle.url)
-        for _ in 0..<1_000 where split.viewerController.multipleSequenceAlignmentViewController == nil {
+        // As above. The route wires the consensus callback after the reference callback in one turn, so waiting on this
+        // one means both are set.
+        for _ in 0..<1_000 where split.viewerController.multipleSequenceAlignmentViewController?.onConsensusComparisonRequested == nil {
             try await Task.sleep(for: .milliseconds(10))
         }
         let controller = try XCTUnwrap(split.viewerController.multipleSequenceAlignmentViewController)
