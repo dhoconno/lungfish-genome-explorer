@@ -314,6 +314,25 @@ extension Kraken2AnalysisRunToolTests {
         )
     }
 
+    /// READLAYOUT item 12, BIO closing review B1. A scan belongs to one sample's file, so the root record of a batch
+    /// names none of it and each sample's own record keeps its scan.
+    func testABatchRootRecordNamesNoSampleScan() async throws {
+        let inputs = [fixtures.singleRoot.path, fixtures.mergeDerivative.path]
+
+        let run = await execute(
+            request(inputs), .project(fixtures.projectURL), batch: true,
+            argv: command(inputs + ["--batch", "--project", fixtures.projectURL.path]),
+            indexing: StubKraken2Indexer()
+        )
+
+        XCTAssertEqual(run.report.status, .completed, run.report.message)
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: XCTUnwrap(run.report.recordURL)))
+        XCTAssertEqual(record.options.explicit["batch"], .boolean(true))
+        for key in ["readLayout", "readLayoutReason", "scannedRecords", "scannedWholeFile", "pairs", "unpairedReads"] {
+            XCTAssertNil(record.options.resolvedDefaults[key], "a batch root record names no sample's \(key)")
+        }
+    }
+
     // MARK: - Helpers
 
     /// A failed or cancelled run keeps its folder, its root record with `status`, and its run

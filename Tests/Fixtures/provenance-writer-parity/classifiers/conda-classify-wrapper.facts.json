@@ -715,6 +715,9 @@
       "type" : "boolean",
       "value" : false
     },
+    "pairs" : {
+      "type" : "null"
+    },
     "profile" : {
       "type" : "boolean",
       "value" : true
@@ -737,13 +740,28 @@
       "type" : "string",
       "value" : "unpaired"
     },
+    "readLayout" : {
+      "type" : "null"
+    },
+    "readLayoutReason" : {
+      "type" : "null"
+    },
     "recursive" : {
       "type" : "boolean",
       "value" : false
     },
+    "scannedRecords" : {
+      "type" : "null"
+    },
+    "scannedWholeFile" : {
+      "type" : "null"
+    },
     "threads" : {
       "type" : "integer",
       "value" : 4
+    },
+    "unpairedReads" : {
+      "type" : "null"
     }
   },
   "status" : "completed",

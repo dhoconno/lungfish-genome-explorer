@@ -30,6 +30,7 @@ extension EsVirituPipeline {
         if let layout = config.inputLayout {
             facts["inputReadLayout"] = .string(layout.layout.rawValue)
             facts["inputReadLayoutScannedRecords"] = .integer(layout.scannedRecords)
+            facts["inputReadLayoutScannedWholeFile"] = .boolean(layout.scannedWholeFile)
             facts["inputReadLayoutMatePairs"] = .integer(layout.matePairs)
             facts["inputReadLayoutUnpairedRecords"] = .integer(layout.unpairedRecords)
             facts["inputReadLayoutReason"] = .string(layout.reason)

@@ -235,7 +235,11 @@ public struct Kraken2AnalysisRunTool: AnalysisRunTool {
             originalInputURLs: allInputs,
             executionInputURLs: []
         )
-        for key in ["outputDirectory", "executionInputs", "readFormat", "pairedEnd", "profileState", "profileReason", "profileMessage", "brackenToolVersion"] {
+        // A scan belongs to one sample's file, so a batch root names none of it (ruling item 12).
+        for key in [
+            "outputDirectory", "executionInputs", "readFormat", "pairedEnd", "profileState", "profileReason", "profileMessage",
+            "brackenToolVersion", "readLayout", "readLayoutReason", "scannedRecords", "scannedWholeFile", "pairs", "unpairedReads",
+        ] {
             options.resolved[key] = nil
         }
         options.explicit["batch"] = .boolean(true)

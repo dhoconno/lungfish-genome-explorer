@@ -180,6 +180,18 @@ public enum Kraken2RunRecordOptions {
         if let minutes = argvOptionValue(argv, names: [AnalysisTimeLimit.optionName]).flatMap(Int.init) {
             options[AnalysisTimeLimit.recordKey] = .integer(minutes)
         }
+        // What was read to decide the layout (ruling item 12). The pipeline writes these on its own record, and on a
+        // one-folder run this root record is the one that stays. Null where no scan decided, and for a file that holds
+        // only part of its input.
+        // The original inputs repeat once for each file the run read, so one file that a plan split into pairs and
+        // single reads is still one input.
+        let sources = unique(originalInputURLs.map(\.standardizedFileURL))
+        let scan = sources.count == 1 && FASTQReadLayoutClassifier.scanHoldsEveryRead(of: sources[0])
+            ? config.inputLayout ?? config.readSetPlan?.layoutClassification
+            : nil
+        options["readLayout"] = scan.map { .string($0.layout.rawValue) } ?? .null
+        options["readLayoutReason"] = scan.map { .string($0.reason) } ?? .null
+        options.merge(FASTQReadLayoutClassification.scanProvenanceParameters(of: scan)) { current, _ in current }
         return options
     }
 

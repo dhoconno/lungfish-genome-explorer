@@ -162,6 +162,50 @@ final class Kraken2RunRecordOptionsTests: XCTestCase {
         XCTAssertEqual(checked.databaseDigest, "sha256:payload-fixture")
     }
 
+    /// READLAYOUT item 12, BIO closing review B1. The pipeline writes the scan on its own record, and on a one-folder
+    /// run this root record is the one that stays, so it names the scan that decided the layout too. Where no scan
+    /// decided, and for a root of several inputs, the six fields are null and not 0.
+    func testRootOptionsNameTheScanThatDecidedTheLayout() throws {
+        let file = root.appendingPathComponent("mixed.fastq")
+        try FASTQLayoutRecordFixtures.write([.pairs(60), .singles(20)], to: file)
+        var config = try result(withBracken: false).result.config
+        config.inputLayout = FASTQInputLayoutResolver.resolve(inputURLs: [file]).classification
+        let request = Kraken2RunRequest(inputArguments: [file.path], databaseName: "Viral")
+        let argv = ["lungfish-cli", "kraken2", "classify", file.path, "--db", "Viral"]
+        let keys = ["readLayout", "readLayoutReason", "scannedRecords", "scannedWholeFile", "pairs", "unpairedReads"]
+        func resolved(_ config: ClassificationConfig, inputs: [URL]) -> [String: ParameterValue] {
+            Kraken2RunRecordOptions.rootOptions(
+                config: config,
+                outcome: .notRequested,
+                request: request,
+                argv: argv,
+                originalInputURLs: inputs,
+                executionInputURLs: inputs
+            ).resolved
+        }
+
+        let scanned = resolved(config, inputs: [file])
+        XCTAssertEqual(scanned["scannedRecords"], .integer(140))
+        XCTAssertEqual(scanned["scannedWholeFile"], .boolean(true))
+        XCTAssertEqual(scanned["pairs"], .integer(60))
+        XCTAssertEqual(scanned["unpairedReads"], .integer(20))
+        XCTAssertEqual(scanned["readLayout"], .string("mixed_interleaved"))
+        if case .string(let reason)? = scanned["readLayoutReason"] {
+            XCTAssertFalse(reason.isEmpty, "the root record says why the scan decided the layout")
+        } else {
+            XCTFail("the root record names the reason of the layout: \(String(describing: scanned["readLayoutReason"]))")
+        }
+
+        let split = resolved(config, inputs: [file, file, file])
+        XCTAssertEqual(split["scannedRecords"], .integer(140), "a plan that split one file into three still read one file")
+        XCTAssertEqual(split["pairs"], .integer(60))
+        let several = resolved(config, inputs: [file, root.appendingPathComponent("other.fastq")])
+        for key in keys { XCTAssertEqual(several[key], .null, "several inputs are no one file's scan, so \(key) is null") }
+        config.inputLayout = nil
+        let unscanned = resolved(config, inputs: [file])
+        for key in keys { XCTAssertEqual(unscanned[key], .null, "no scan decided, so \(key) is null") }
+    }
+
     // MARK: - Helpers
 
     private func result(withBracken: Bool) throws -> (result: ClassificationResult, brackenURL: URL) {
