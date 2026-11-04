@@ -25,11 +25,12 @@ extension MainSplitViewController {
                 originalFilenames: [], ingestionDate: manifest.createdAt, originalSizeBytes: nil
             )
         }
-        let show: @MainActor (FASTQDatasetStatistics) -> Void = { statistics in
-            viewerController.displayFASTQDataset(
+        let show: @MainActor (FASTQDatasetStatistics) -> Void = { [weak self] statistics in
+            let opened = viewerController.displayFASTQDataset(
                 statistics: statistics, records: [], fastqURL: fastqURL, sraRunInfo: nil, enaReadRecord: nil,
                 ingestionMetadata: ingestion, fastqSourceURL: sourceURL, fastqDerivativeManifest: manifest
             )
+            if !opened { self?.inspectorController.clearSelection() }
         }
         if let stored = FASTQStatisticsDisplayRules.storedStatisticsToShow(manifest.cachedStatistics) {
             show(stored)

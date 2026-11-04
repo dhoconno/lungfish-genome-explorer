@@ -20,7 +20,6 @@ extension ViewerViewController {
     /// for the menu title and the button state.
     var isActiveDrawerOpen: Bool {
         if let viewport = installedSurface { return viewport.isDrawerOpen }
-        if isDisplayingFASTQDataset { return isFASTQMetadataDrawerOpen }
         if let viewport = drawerOwningReferenceViewport { return viewport.isEmbeddedAnnotationDrawerOpen }
         return isAnnotationDrawerOpen
     }

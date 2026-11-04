@@ -168,7 +168,7 @@ final class VCFDatasetSurfaceRouteTests: XCTestCase {
         let (summary, variants) = try await readFixture()
         let rest = try await buildRow(of: "Status only", under: root)
 
-        for kind in ViewSwitchKinds.all where kind.name != "Status only" && kind.name != "FASTQ" {
+        for kind in ViewSwitchKinds.all where kind.name != "Status only" {
             let row = try await buildRow(of: kind.name, under: root)
             harness.select(rest)
             let restedAlone = await settle(harness, on: "Status only")
@@ -195,11 +195,9 @@ final class VCFDatasetSurfaceRouteTests: XCTestCase {
         }
     }
 
-    /// The one declared gap, named by id VCF-DATASET-STAYS-UNDER-FASTQ. FASTQ's display (`displayFASTQDataset`) has no
-    /// `hideVCFDatasetView()` in its hide list, so the dashboard stays on screen when a FASTQ bundle opens. That is a
-    /// line of lane FASTQ and the same at the base (the red log of this lane shows it). No person reaches the dashboard
-    /// today. The lane that closes it, or the end of the route, flips this test and drops the loop's exclusion.
-    func testTheFASTQDisplayStillLeavesTheVCFDatasetBehind() async throws {
+    /// FASTQ's display has no `hideVCFDatasetView()` in its hide list. The host replaces the surface it shows, so the
+    /// dashboard goes all the same.
+    func testTheFASTQDisplayTakesTheVCFDatasetAway() async throws {
         let harness = try ViewSwitchWindowHarness()
         defer { harness.close() }
         let viewer = harness.split.viewerController!
@@ -215,7 +213,7 @@ final class VCFDatasetSurfaceRouteTests: XCTestCase {
 
         let opened = await waitUntil(budget: .lookup) { viewer.fastqDatasetController != nil }
         XCTAssertTrue(opened, "the FASTQ dashboard never opened")
-        XCTAssertNotNil(viewer.vcfDatasetController, "the FASTQ route now takes the VCF dataset away: delete VCF-DATASET-STAYS-UNDER-FASTQ")
+        XCTAssertNil(viewer.vcfDatasetController)
     }
 
     /// The first dashboard's filter is memory only and goes with it. The test holds the first controller, since the

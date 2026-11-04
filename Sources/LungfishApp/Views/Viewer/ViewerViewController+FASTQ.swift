@@ -16,10 +16,11 @@ extension ViewerViewController {
 
     // MARK: - FASTQ Dataset Display
 
-    /// Displays the FASTQ dataset dashboard in place of the normal sequence viewer.
+    /// Displays the FASTQ dataset dashboard in place of the normal sequence viewer, through the surface host.
     ///
-    /// Hides the ruler, viewer, and header; adds the FASTQDatasetViewController
-    /// as a child view controller filling the content area.
+    /// - Returns: Whether the dashboard opened. When it did not, the status line says why, and a route that has not
+    ///   cleared the Inspector clears it.
+    @discardableResult
     public func displayFASTQDataset(
         statistics: FASTQDatasetStatistics,
         records: [FASTQRecord],
@@ -29,7 +30,7 @@ extension ViewerViewController {
         ingestionMetadata: IngestionMetadata? = nil,
         fastqSourceURL: URL? = nil,
         fastqDerivativeManifest: FASTQDerivedBundleManifest? = nil
-    ) {
+    ) -> Bool {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideTaxonomyView()
@@ -45,28 +46,6 @@ extension ViewerViewController {
         contentMode = .fastq
 
         let controller = FASTQDatasetViewController()
-        addChild(controller)
-
-        let dashView = controller.view
-        dashView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(dashView)
-
-        let dashBottomConstraint = dashView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-
-        NSLayoutConstraint.activate([
-            dashView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            dashView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            dashView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            dashBottomConstraint,
-        ])
-
-        controller.configure(
-            statistics: statistics,
-            records: records,
-            fastqURL: fastqURL,
-            sourceURL: fastqSourceURL,
-            derivativeManifest: fastqDerivativeManifest
-        )
         controller.onLaunchFASTQOperationCategory = { category in
             let preferredInputURLs = [fastqSourceURL ?? fastqURL].compactMap { $0 }
             AppDelegate.shared?.showFASTQOperationsDialog(
@@ -110,19 +89,32 @@ extension ViewerViewController {
                 userInfo: windowScopedUserInfo(updatedUserInfo)
             )
         }
-        fastqDatasetController = controller
-        fastqDashboardView = dashView
-        fastqDashboardBottomConstraint = dashBottomConstraint
+        do {
+            _ = try showSurface(
+                .bundle(.fastq),
+                input: FASTQDatasetSurface.Input(
+                    dashboard: controller,
+                    statistics: statistics,
+                    records: records,
+                    fastqURL: fastqURL,
+                    sourceURL: fastqSourceURL,
+                    derivativeManifest: fastqDerivativeManifest
+                ),
+                as: FASTQDatasetSurface.self
+            )
+        } catch {
+            logger.error("displayFASTQDataset: \(error.localizedDescription, privacy: .public)")
+            clearViewport(statusMessage: surfaceFailureWords(
+                "Unable to open the FASTQ dataset.",
+                error,
+                orElse: "Select the item again. If it still does not open, import the reads again."
+            ))
+            return false
+        }
+
         // Sync any existing drawer demux config into the new controller
         syncDemuxConfigToController()
         currentFASTQDatasetURL = fastqURL
-
-        // Hide normal genomic viewer components
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
 
         // Post notification for inspector (includes metadata if available)
         var userInfo: [String: Any] = ["statistics": statistics]
@@ -151,22 +143,17 @@ extension ViewerViewController {
         }
 
         logger.info("displayFASTQDataset: Showing dashboard with \(statistics.readCount) reads")
+        return true
     }
 
     /// Removes the FASTQ dataset dashboard and restores normal viewer components.
     public func hideFASTQDatasetView() {
-        guard let controller = fastqDatasetController else { return }
-        teardownFASTQMetadataDrawer()
-        controller.view.removeFromSuperview()
-        controller.removeFromParent()
-        fastqDatasetController = nil
-        fastqDashboardView = nil
-        fastqDashboardBottomConstraint = nil
-        currentFASTQDatasetURL = nil
+        clearSurface(ifShowing: .bundle(.fastq))
+    }
 
-        // Restore normal viewer components
-        enhancedRulerView.isHidden = false
-        viewerView.isHidden = false
-        statusBar.isHidden = false
+    /// What the dashboard leaves on the viewer goes with it. The surface calls this on every removal.
+    func releaseFASTQDashboardState() {
+        teardownFASTQMetadataDrawer()
+        currentFASTQDatasetURL = nil
     }
 }

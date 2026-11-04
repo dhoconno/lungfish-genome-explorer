@@ -58,10 +58,6 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
     /// Toggles the drawer of what is shown, a host surface's own drawer first, with animation.
     public func toggleAnnotationDrawer() {
         if let viewport = installedSurface { return viewport.toggleDrawer() }
-        if isDisplayingFASTQDataset {
-            toggleFASTQMetadataDrawer()
-            return
-        }
 
         // A reference viewport shows its bundle in an embedded viewer, which owns the drawer a person sees.
         if let viewport = drawerOwningReferenceViewport { return viewport.toggleEmbeddedAnnotationDrawer() }

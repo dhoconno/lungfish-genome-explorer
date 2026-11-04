@@ -73,12 +73,7 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
             )
         }
 
-        if let dashboardView = fastqDashboardView {
-            fastqDashboardBottomConstraint?.isActive = false
-            let replacement = dashboardView.bottomAnchor.constraint(equalTo: drawer.topAnchor)
-            replacement.isActive = true
-            fastqDashboardBottomConstraint = replacement
-        }
+        fastqDatasetContainer?.endDashboard(at: drawer.topAnchor)
 
         refreshFASTQMetadataDrawerContent()
     }

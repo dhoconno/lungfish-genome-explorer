@@ -339,7 +339,7 @@ extension MainSplitViewController {
             .flatMap { $0.stamp == payloadStamp ? $0.statistics : nil }
         if let cachedStats = cachedStatisticsMeta?.computedStatistics.flatMap({ $0.isMeasured ? $0 : nil }) ?? sessionStatistics {
             mainSplitLogger.info("loadFASTQDatasetInBackground: Using cached statistics (\(cachedStats.readCount) reads)")
-            viewerController.displayFASTQDataset(
+            let opened = viewerController.displayFASTQDataset(
                 statistics: cachedStats,
                 records: [],
                 fastqURL: fastqURL,
@@ -349,7 +349,7 @@ extension MainSplitViewController {
                 fastqSourceURL: standardizedSourceURL,
                 fastqDerivativeManifest: derivedManifest
             )
-            mainSplitLogger.info("loadFASTQDatasetInBackground: Displayed from cache without read table scan")
+            if !opened { inspectorController.clearSelection() }
             return
         }
 

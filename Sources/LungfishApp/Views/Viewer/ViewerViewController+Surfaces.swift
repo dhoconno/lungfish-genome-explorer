@@ -34,6 +34,7 @@ extension ViewerViewController {
         registry.register(.bundle(.multipleSequenceAlignment)) { MultipleSequenceAlignmentSurface() }
         registry.register(.view(.vcfDataset)) { VCFDatasetSurface() }
         registry.register(.view(.quickLook)) { QuickLookPreviewSurface() }
+        registry.register(.bundle(.fastq)) { [weak self] in FASTQDatasetSurface(viewer: self) }
         return registry
     }
 

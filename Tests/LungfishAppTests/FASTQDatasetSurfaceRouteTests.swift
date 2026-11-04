@@ -529,8 +529,10 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
         XCTAssertEqual(assignments?.map(\.sampleName), [Self.assignment.sampleName], "the operation took other samples", file: file, line: line)
     }
 
-    private func observeLoadedPosts(of viewer: ViewerViewController, into posts: LoadedPosts) -> NSObjectProtocol {
-        NotificationCenter.default.addObserver(forName: .fastqDatasetLoaded, object: viewer, queue: nil) { _ in
+    private func observeLoadedPosts(of observed: ViewerViewController, into posts: LoadedPosts) -> NSObjectProtocol {
+        // The post comes on the main thread, where the observer runs with `queue: nil`.
+        nonisolated(unsafe) let viewer = observed
+        return NotificationCenter.default.addObserver(forName: .fastqDatasetLoaded, object: observed, queue: nil) { _ in
             MainActor.assumeIsolated {
                 posts.seen.append(LoadedPosts.Post(
                     dashboardShows: viewer.fastqDatasetController != nil,

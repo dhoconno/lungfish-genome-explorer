@@ -157,8 +157,11 @@ public class ViewerViewController: NSViewController {
         viewer.renderEmbeddedFilePreview(url: fileURL)
     }
 
-    /// FASTQ dataset dashboard (shown in place of sequence viewer for FASTQ files)
-    var fastqDatasetController: FASTQDatasetViewController?
+    /// FASTQ dataset dashboard, while the surface host shows it.
+    var fastqDatasetController: FASTQDatasetViewController? { fastqDatasetContainer?.dashboard }
+
+    /// The small controller that holds the dashboard on the host, and the dashboard's bottom constraint.
+    var fastqDatasetContainer: FASTQDatasetContainerController? { installedSurface?.viewController as? FASTQDatasetContainerController }
 
     /// VCF dataset dashboard, while the surface host shows it.
     var vcfDatasetController: VCFDatasetViewController? { installedSurface?.viewController as? VCFDatasetViewController }
@@ -376,12 +379,6 @@ public class ViewerViewController: NSViewController {
 
     /// Whether the FASTQ metadata drawer is currently open.
     var isFASTQMetadataDrawerOpen: Bool = false
-
-    /// FASTQ dashboard view (shown in place of sequence viewer for FASTQ files).
-    var fastqDashboardView: NSView?
-
-    /// Bottom constraint for the FASTQ dashboard view.
-    var fastqDashboardBottomConstraint: NSLayoutConstraint?
 
     /// URL of the currently displayed FASTQ dataset.
     var currentFASTQDatasetURL: URL?

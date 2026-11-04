@@ -180,7 +180,9 @@ enum RoutingObserver {
         let viewer: ViewerViewController = split.viewerController
         var observation = RoutingObservation()
         // A preview's wrapper is how the host holds it, and the file below names the kind.
-        observation.viewports = viewer.children.filter { !($0 is QuickLookPreviewController) }.map { String(describing: type(of: $0)) }
+        observation.viewports = viewer.children.filter { !($0 is QuickLookPreviewController) }
+            .flatMap { $0 is FASTQDatasetContainerController ? $0.children : [$0] }
+            .map { String(describing: type(of: $0)) }
         observation.mode = viewer.contentMode
         if let quickLookURL = viewer.testQuickLookURL {
             let suffix = viewer.testPlainTextPreviewString != nil ? " as text" : viewer.testHasPDFPreview ? " as PDF" : ""
