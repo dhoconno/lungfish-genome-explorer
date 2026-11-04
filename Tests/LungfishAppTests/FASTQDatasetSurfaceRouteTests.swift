@@ -217,7 +217,7 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
         XCTAssertTrue(words.hasPrefix("3 barcodes "), words)
         XCTAssertTrue(ViewerViewController.scoutProceedWords(count: 1).hasPrefix("1 barcode "))
         XCTAssertTrue(words.contains("FASTQ operations dialog"), words)
-        XCTAssertTrue(words.contains("does not read this table"), words)
+        XCTAssertTrue(words.contains("No run reads it"), words)
     }
 
     /// A person can tell that the plan is saved and that no run uses it yet. The test clicks Save's own action.
@@ -238,11 +238,11 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
         XCTAssertTrue(status.stringValue.contains("with this dataset"), status.stringValue)
         XCTAssertTrue(status.stringValue.contains("No demultiplexing run reads this plan yet"), status.stringValue)
 
-        // The label is one line and clips, so the report gives what fits at this window's width.
+        // The label is one line and clips its end, so each line has to fit the width it has at this window's width.
         viewer.view.layoutSubtreeIfNeeded()
-        print("drawer status, saved: \(status.attributedStringValue.size().width) of \(status.bounds.width)")
+        XCTAssertLessThanOrEqual(status.attributedStringValue.size().width, status.bounds.width, "the saved line clips")
         drawer.updateScoutStatus(ViewerViewController.scoutProceedWords(count: 3))
-        print("drawer status, scout: \(status.attributedStringValue.size().width) of \(status.bounds.width)")
+        XCTAssertLessThanOrEqual(status.attributedStringValue.size().width, status.bounds.width, "the scout line clips")
     }
 
     private static func labels(in view: NSView) -> [NSTextField] {
