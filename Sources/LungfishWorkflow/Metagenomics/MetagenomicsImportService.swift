@@ -193,8 +193,8 @@ public enum MetagenomicsImportService {
         var importCompleted = false
         defer { finalizeImportDirectory(resultDirectory, completed: importCompleted) }
         progress?(0.05, "Copying EsViritu files...")
-
         let copiedFiles = try copyInputPayload(from: inputURL, into: resultDirectory)
+        keepBatchMarkOnlyForABatch(in: resultDirectory)
         let copiedRegularFiles = copiedFiles.filter { isRegularFile($0) }.sorted {
             $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending
         }

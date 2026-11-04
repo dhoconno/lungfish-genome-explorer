@@ -214,9 +214,10 @@ extension MetagenomicsImportServiceTests {
         #expect(fm.fileExists(atPath: imported.resultDirectory.appendingPathComponent("S1/S1.top_report.tsv").path))
     }
 
-    /// EsViritu keeps the source's batch mark, so the TaxTriage fix does not reach it (row IMPORT-ESVIRITU-FLAT-BATCH-HIDDEN).
+    /// A flat EsViritu folder that carries a batch mark holds no batch, and the sidebar skips such a folder as an empty
+    /// batch, so the import drops the mark (row IMPORT-ESVIRITU-FLAT-BATCH-HIDDEN, `EsVirituImportedFolderSidebarTests`).
     @Test
-    func testImportEsVirituBatchKeepsItsBatchMark() throws {
+    func testImportEsVirituOfAFlatFolderDropsTheBatchMark() throws {
         let workspace = ttBatchWorkspace()
         defer { try? FileManager.default.removeItem(at: workspace) }
         let source = workspace.appendingPathComponent("esv-batch", isDirectory: true)
@@ -238,6 +239,35 @@ extension MetagenomicsImportServiceTests {
 
         let metadata = try #require(AnalysesFolder.readAnalysisMetadata(from: imported.resultDirectory))
         #expect(metadata.tool == "esviritu")
+        #expect(metadata.isBatch == false)
+    }
+
+    /// A folder that holds a batch, here a sample folder with an EsViritu result, keeps its batch mark, so the sidebar
+    /// lists it as a batch of samples as before.
+    @Test
+    func testImportEsVirituKeepsTheBatchMarkOfAFolderThatHoldsABatch() throws {
+        let workspace = ttBatchWorkspace()
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let source = workspace.appendingPathComponent("esv-batch", isDirectory: true)
+        let sampleFolder = source.appendingPathComponent("SampleA", isDirectory: true)
+        try FileManager.default.createDirectory(at: sampleFolder, withIntermediateDirectories: true)
+        try AnalysesFolder.writeAnalysisMetadata(
+            AnalysesFolder.AnalysisMetadata(tool: "esviritu", isBatch: true),
+            to: source
+        )
+        try "{}".write(to: sampleFolder.appendingPathComponent("esviritu-result.json"), atomically: true, encoding: .utf8)
+        let detection = [
+            "sample_ID\tName\tdescription\tLength\tSegment\tAccession\tAssembly\tAsm_length\tkingdom\tphylum\ttclass\torder\tfamily\tgenus\tspecies\tsubspecies\tRPKMF\tread_count\tcovered_bases\tmean_coverage\tavg_read_identity\tPi\tfiltered_reads_in_sample",
+            "SampleA\tExample virus\tExample description\t1000\t\tACCN0001\tGCF_000001\t1000\tViruses\t\t\t\tExampleviridae\tExamplevirus\tExample virus species\t\t1.5\t42\t900\t12.4\t97.2\t0.01\t10000",
+        ].joined(separator: "\n")
+        try detection.write(to: source.appendingPathComponent("SampleA.detected_virus.info.tsv"), atomically: true, encoding: .utf8)
+
+        let imported = try MetagenomicsImportService.importEsViritu(
+            inputURL: source,
+            outputDirectory: workspace.appendingPathComponent("imports", isDirectory: true)
+        )
+
+        let metadata = try #require(AnalysesFolder.readAnalysisMetadata(from: imported.resultDirectory))
         #expect(metadata.isBatch == true)
     }
 }
