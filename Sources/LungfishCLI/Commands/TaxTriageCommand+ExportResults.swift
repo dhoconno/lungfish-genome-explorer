@@ -111,6 +111,7 @@ extension TaxTriageCommand {
                 totalReadsByKey: source.totalReadsByKey,
                 uniqueReadsByKey: source.uniqueReadsByKey,
                 contaminationRiskOrganismKeys: source.contaminationRiskOrganismKeys,
+                controlsNotRecorded: source.controlsNotRecorded,
                 metadataHeaders: metadata.headers,
                 metadataValuesBySample: metadata.valuesBySample,
                 separator: format.format.separator

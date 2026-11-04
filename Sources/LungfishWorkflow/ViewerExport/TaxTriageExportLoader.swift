@@ -145,6 +145,18 @@ public struct TaxTriageExportSource {
         return Set(config.samples.filter(\.isNegativeControl).map(\.sampleId))
     }
 
+    /// True when the result does not say which samples were negative controls: it has no sidecar, or its sidecar
+    /// lists no samples. A run that lists samples and marks none is not in this state and keeps No and a blank
+    /// cell (BIO ruling BIO-IMPORT-BATCH, item 2).
+    public var controlsNotRecorded: Bool {
+        Self.controlsAreNotRecorded(in: result?.config)
+    }
+
+    /// The same rule for a config the caller holds, where nil stands for a result with no sidecar.
+    public static func controlsAreNotRecorded(in config: TaxTriageConfig?) -> Bool {
+        config?.samples.isEmpty ?? true
+    }
+
     /// The organisms the metrics name, counted case and edge-whitespace insensitively as the viewer counts them.
     public var crossSampleOrganismCount: Int {
         Set(metrics.map { $0.organism.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) }).count
@@ -327,11 +339,15 @@ extension TaxTriageResultsExport {
     ///
     /// Unique Reads holds the stored database count, normalized by ``ClassifierUniqueReads``, and is empty when the
     /// database stores none.
+    ///
+    /// Contamination Risk reads Not recorded when `controlsNotRecorded` is true, since the result does not say which
+    /// samples were negative controls (BIO ruling BIO-IMPORT-BATCH, item 3).
     public static func buildDelimitedExport(
         rows: [TaxTriageMetric],
         totalReadsByKey: [String: Int],
         uniqueReadsByKey: [String: Int],
         contaminationRiskOrganismKeys: Set<String>,
+        controlsNotRecorded: Bool = false,
         metadataHeaders: [String],
         metadataValuesBySample: [String: [String]],
         separator: String
@@ -364,7 +380,7 @@ extension TaxTriageResultsExport {
                 row.taxId.map { "\($0)" } ?? "",
                 escapeField(row.rank ?? "", separator: separator),
                 row.abundance.map { String(format: "%.6f", $0) } ?? "",
-                isContaminationRisk ? "yes" : "",
+                controlsNotRecorded ? TaxTriageBatchExporter.notRecorded : (isContaminationRisk ? "yes" : ""),
             ]
             for value in metadataValuesBySample[sample] ?? [] {
                 fields.append(escapeField(value, separator: separator))

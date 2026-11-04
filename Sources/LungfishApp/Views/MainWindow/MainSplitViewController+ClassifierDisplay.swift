@@ -531,18 +531,18 @@ extension MainSplitViewController {
             if let ttResult = try? TaxTriageResult.load(from: batchURL) {
                 let cfg = ttResult.config
 
-                // Pipeline parameters
-                taxTriageParams["Platform"] = cfg.platform.displayName
-                taxTriageParams["Classifiers"] = cfg.classifiers.joined(separator: ", ")
-                taxTriageParams["Confidence"] = String(format: "%.2f", cfg.k2Confidence)
-                taxTriageParams["Top Hits"] = "\(cfg.topHitsCount)"
-                taxTriageParams["Rank"] = cfg.rank
-                taxTriageParams["Max CPUs"] = "\(cfg.maxCpus)"
-                taxTriageParams["Max Memory"] = cfg.maxMemory
+                // Pipeline parameters, which read Not recorded for an import that lists no samples
+                taxTriageParams["Platform"] = Self.taxTriageRunValue(cfg, cfg.platform.displayName)
+                taxTriageParams["Classifiers"] = Self.taxTriageRunValue(cfg, cfg.classifiers.joined(separator: ", "))
+                taxTriageParams["Confidence"] = Self.taxTriageRunValue(cfg, String(format: "%.2f", cfg.k2Confidence))
+                taxTriageParams["Top Hits"] = Self.taxTriageRunValue(cfg, "\(cfg.topHitsCount)")
+                taxTriageParams["Rank"] = Self.taxTriageRunValue(cfg, cfg.rank)
+                taxTriageParams["Max CPUs"] = Self.taxTriageRunValue(cfg, "\(cfg.maxCpus)")
+                taxTriageParams["Max Memory"] = Self.taxTriageRunValue(cfg, cfg.maxMemory)
                 if let dbPath = cfg.kraken2DatabasePath {
                     taxTriageParams["Database Path"] = dbPath.lastPathComponent
                 }
-                let runtimeStr = formatInspectorRuntime(ttResult.runtime)
+                let runtimeStr = Self.taxTriageRunValue(cfg, formatInspectorRuntime(ttResult.runtime))
                 if !runtimeStr.isEmpty { taxTriageParams["Runtime"] = runtimeStr }
                 if ttResult.hasIgnoredFailures {
                     taxTriageParams["Warnings"] = Self.taxTriageIgnoredFailureSummary(

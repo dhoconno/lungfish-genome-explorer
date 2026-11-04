@@ -1526,10 +1526,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         organismTableView.rows = displayRows
         summaryBar.update(
             organismCount: displayRows.count,
-            runtime: taxTriageResult?.runtime ?? 0,
+            runtime: TaxTriageProvenanceRows.summaryRuntime(taxTriageResult),
             highConfidenceCount: displayRows.filter { $0.tassScore >= 0.8 }.count,
             sampleCount: selectedSampleIndex == 0
-                ? (taxTriageResult?.config.samples.count ?? 1)
+                ? TaxTriageProvenanceRows.summarySampleCount(taxTriageResult)
                 : 1
         )
     }
@@ -4421,9 +4421,9 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
 public final class TaxTriageSummaryBar: GenomicSummaryCardBar {
 
     private var organismCount: Int = 0
-    private var runtime: TimeInterval = 0
+    private var runtime: TimeInterval? = 0
     private var highConfidenceCount: Int = 0
-    private var sampleCount: Int = 0
+    private var sampleCount: Int? = 0
 
     // MARK: - Batch State
 
@@ -4434,9 +4434,9 @@ public final class TaxTriageSummaryBar: GenomicSummaryCardBar {
     /// Updates the summary bar with result data.
     public func update(
         organismCount: Int,
-        runtime: TimeInterval,
+        runtime: TimeInterval?,
         highConfidenceCount: Int,
-        sampleCount: Int
+        sampleCount: Int?
     ) {
         isBatchMode = false
         self.organismCount = organismCount
@@ -4469,18 +4469,14 @@ public final class TaxTriageSummaryBar: GenomicSummaryCardBar {
             ]
         }
 
-        let runtimeStr: String
-        if runtime >= 60 {
-            runtimeStr = String(format: "%.1fm", runtime / 60)
-        } else {
-            runtimeStr = String(format: "%.1fs", runtime)
-        }
+        let runtimeStr = runtime.map { $0 >= 60 ? String(format: "%.1fm", $0 / 60) : String(format: "%.1fs", $0) }
+            ?? TaxTriageProvenanceRows.notRecorded
 
         return [
             Card(label: "Organisms", value: "\(organismCount)"),
             Card(label: "Runtime", value: runtimeStr),
             Card(label: "High Confidence", value: "\(highConfidenceCount)"),
-            Card(label: "Samples", value: "\(sampleCount)"),
+            Card(label: "Samples", value: sampleCount.map { "\($0)" } ?? TaxTriageProvenanceRows.notRecorded),
         ]
     }
 
@@ -4509,21 +4505,11 @@ struct TaxTriageProvenanceView: View {
 
             Divider()
 
-            provenanceRow("Samples", value: "\(config.samples.count)")
-            provenanceRow("Platform", value: config.platform.displayName)
-            provenanceRow("Runtime", value: String(format: "%.1f seconds", result.runtime))
-            provenanceRow("Exit Code", value: "\(result.exitCode)")
-            provenanceRow("Reports", value: "\(result.reportFiles.count)")
-            provenanceRow("Metrics Files", value: "\(result.metricsFiles.count)")
+            ForEach(TaxTriageProvenanceRows.runRows(result: result, config: config)) { provenanceRow($0.label, value: $0.value) }
 
             Divider()
 
-            provenanceRow("Classifiers", value: config.classifiers.joined(separator: ", "))
-            provenanceRow("K2 Confidence", value: String(format: "%.2f", config.k2Confidence))
-            provenanceRow("Top Hits", value: "\(config.topHitsCount)")
-            provenanceRow("Skip Assembly", value: config.skipAssembly ? "Yes" : "No")
-            provenanceRow("Max CPUs", value: "\(config.maxCpus)")
-            provenanceRow("Max Memory", value: config.maxMemory)
+            ForEach(TaxTriageProvenanceRows.settingRows(config: config)) { provenanceRow($0.label, value: $0.value) }
 
             if let dbPath = config.kraken2DatabasePath {
                 provenanceRow("Database", value: dbPath.lastPathComponent)

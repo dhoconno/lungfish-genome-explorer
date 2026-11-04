@@ -29,11 +29,14 @@ public enum TaxTriageBatchExporter {
     ///   - metrics: All parsed metrics across all samples.
     ///   - sampleIds: Ordered sample identifiers.
     ///   - negativeControlSampleIds: Sample IDs marked as negative controls.
+    ///   - controlsNotRecorded: True when the result does not say which samples were controls, so the Contamination
+    ///     Risk column reads Not recorded instead of Yes or No.
     /// - Returns: CSV string.
     public static func generateOrganismMatrixCSV(
         metrics: [TaxTriageMetric],
         sampleIds: [String],
-        negativeControlSampleIds: Set<String> = []
+        negativeControlSampleIds: Set<String> = [],
+        controlsNotRecorded: Bool = false
     ) -> String {
         let rows = buildCrossSampleData(
             metrics: metrics,
@@ -51,7 +54,7 @@ public enum TaxTriageBatchExporter {
             csv += "\(DelimitedText.csvField(row.organism))"
             csv += ",\(String(format: "%.4f", row.meanTASS))"
             csv += ",\(row.sampleCount)/\(sampleIds.count)"
-            csv += ",\(row.isContaminationRisk ? "Yes" : "No")"
+            csv += ",\(controlsNotRecorded ? notRecorded : (row.isContaminationRisk ? "Yes" : "No"))"
             for sid in sampleIds {
                 if let score = row.perSampleTASS[sid] {
                     csv += ",\(String(format: "%.4f", score))"
@@ -85,6 +88,7 @@ public enum TaxTriageBatchExporter {
         sampleIds: [String]
     ) -> String {
         let negControlIds = Set(config.samples.filter(\.isNegativeControl).map(\.sampleId))
+        let controlsNotRecorded = TaxTriageExportSource.controlsAreNotRecorded(in: config)
         let rows = buildCrossSampleData(
             metrics: metrics,
             sampleIds: sampleIds,
@@ -98,13 +102,16 @@ public enum TaxTriageBatchExporter {
 
         Date: \(ISO8601DateFormatter().string(from: Date()))
         Samples: \(sampleIds.count)
-        Platform: \(config.platform.displayName)
-        Runtime: \(String(format: "%.1f", result.runtime)) seconds
-        Exit Code: \(result.exitCode)
+        Platform: \(controlsNotRecorded ? notRecorded : config.platform.displayName)
+        Runtime: \(controlsNotRecorded ? notRecorded : String(format: "%.1f", result.runtime) + " seconds")
+        Exit Code: \(controlsNotRecorded ? notRecorded : String(result.exitCode))
 
         """
 
-        if !negControlIds.isEmpty {
+        if controlsNotRecorded {
+            report += "Negative Controls: Not recorded. This import does not say which samples were controls, "
+                + "so contamination risk is unknown.\n"
+        } else if !negControlIds.isEmpty {
             report += "Negative Controls: \(negControlIds.sorted().joined(separator: ", "))\n"
         }
 
@@ -159,6 +166,9 @@ public enum TaxTriageBatchExporter {
     }
 
     // MARK: - Helpers
+
+    /// The word an export shows where the import did not record a value (BIO ruling BIO-IMPORT-BATCH, item 3).
+    public static let notRecorded = "Not recorded"
 
     /// Builds cross-sample organism data.
     private struct CrossSampleData {

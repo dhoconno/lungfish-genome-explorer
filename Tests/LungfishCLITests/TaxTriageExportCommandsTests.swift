@@ -161,11 +161,13 @@ final class TaxTriageExportCommandsTests: XCTestCase {
         XCTAssertTrue(inputs.allSatisfy { $0.digest != nil })
     }
 
+    /// With no sidecar the result does not say which samples were controls, so the cell reads Not recorded where it
+    /// once read a false No (BIO ruling BIO-IMPORT-BATCH, items 2 and 3).
     func testMatrixWithoutASidecarHasNoNegativeControlsAndNamesOnlyTheDatabase() throws {
         try FileManager.default.removeItem(at: resultFolder.appendingPathComponent("taxtriage-result.json"))
         let output = folder.appendingPathComponent("no-sidecar.csv")
         _ = try matrixCommand(["--output", output.path]).export()
-        XCTAssertTrue(try text(output).contains("Alpha virus,0.5550,2/2,No,0.9100,0.2000"))
+        XCTAssertTrue(try text(output).contains("Alpha virus,0.5550,2/2,Not recorded,0.9100,0.2000"))
         XCTAssertEqual(try Self.inputs(of: output).map(\.name), ["taxtriage.sqlite"])
     }
 
