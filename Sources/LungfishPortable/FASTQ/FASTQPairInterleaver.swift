@@ -28,6 +28,9 @@ public enum FASTQPairInterleaver {
             case .mateCountMismatch(let r1File, let r1Records, let r2File, let r2Records):
                 return "Paired FASTQ mates do not match: \(r1File) has \(r1Records) reads but \(r2File) has \(r2Records). Nothing was imported."
             case .mateNameMismatch(let recordNumber, let r1File, let r1Name, let r2File, let r2Name):
+                if r1File == r2File {
+                    return "\(r1File) cannot be split by position at pair \(recordNumber): '\(r1Name)' is followed by '\(r2Name)', which is not its mate. The file holds reads without a mate beside its pairs, and nothing was kept. Run it as single reads, or split it by read name with `lungfish-cli fastq deinterleave --unpaired`."
+                }
                 return "Paired FASTQ mates are out of step at record \(recordNumber): \(r1File) has '\(r1Name)' but \(r2File) has '\(r2Name)'. The two files do not list the same fragments in the same order, so nothing was written."
             case .recordCountMismatch(let expected, let actual):
                 return "Paired import integrity check failed: expected \(expected) interleaved reads (R1 + R2) but the output holds \(actual). Nothing was imported."
@@ -433,9 +436,11 @@ extension FASTQPairInterleaver {
     /// Splits a strictly interleaved FASTQ back into R1 and R2 streams.
     ///
     /// Records alternate R1, R2, R1, R2 and are copied byte for byte. An odd
-    /// record count means the file is not a whole set of pairs and throws;
-    /// nothing checks read names because the caller has already classified
-    /// the layout with `FASTQReadLayoutClassifier`.
+    /// record count, or two records that are not mates by
+    /// ``FASTQReadLayoutClassifier/areMates(_:_:)``, means the file is not a
+    /// whole set of pairs and throws, and the caller removes the partial
+    /// halves. The name check is the second guard behind the caller's scan of
+    /// the whole file.
     package static func deinterleave(
         interleaved: URL, r1 sink1: FileHandle, r2 sink2: FileHandle, launcher: any PortableChildLauncher
     ) throws -> Counts {
@@ -456,6 +461,13 @@ extension FASTQPairInterleaver {
                 )
             }
             total += 1
+            let name1 = headerText(record1[0])
+            let name2 = headerText(record2[0])
+            guard FASTQReadLayoutClassifier.areMates(name1, name2) else {
+                throw InterleaveError.mateNameMismatch(
+                    recordNumber: total / 2, r1File: file, r1Name: name1, r2File: file, r2Name: name2
+                )
+            }
             try output1.write(record1)
             try output2.write(record2)
         }
