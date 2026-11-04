@@ -10,9 +10,12 @@ final class GenotypeManualHaplotypeTransitionTests: XCTestCase {
     /// The quit and window-close paths ask to confirm first when an operation is running, and the sheet they open
     /// waits for a click, so a row an earlier test left Running keeps these tests from the code they check. A process
     /// that runs every class of the bundle (the full tier) once hung here that way. Fail at once and name the rows.
+    /// A genotype comment or review that an earlier test left saving or waiting for its workbook does the same: Quit
+    /// waits for it and then opens a sheet that waits for a click.
     override func setUp() async throws {
         try await super.setUp()
         try OperationCenter.shared.requireNoActiveOperationsForTest()
+        try requireNoPendingAnnotationEditsForTest()
     }
 
     func testEveryAbandoningTransitionCanBeCancelledWithoutMutation() async {

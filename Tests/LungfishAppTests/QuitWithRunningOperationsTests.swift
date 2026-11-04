@@ -10,8 +10,11 @@ import LungfishKitTestSupport
 /// `.terminateLater`) never received a reply and the app never quit.
 @MainActor
 final class QuitWithRunningOperationsTests: XCTestCase {
+    /// A genotype comment or review that an earlier test left saving or waiting for its workbook makes the second
+    /// Quit open a sheet that waits for a click. Fail at once instead.
     override func setUp() async throws {
         try await super.setUp()
+        try requireNoPendingAnnotationEditsForTest()
         OperationCenter.useTemporaryFailureReportsForTesting()
     }
 

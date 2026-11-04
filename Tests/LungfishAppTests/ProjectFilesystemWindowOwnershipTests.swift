@@ -10,10 +10,12 @@ final class ProjectFilesystemWindowOwnershipTests: XCTestCase {
     /// The termination tests reach the project task path only when no operation is running, since
     /// `applicationShouldTerminate` asks to confirm first otherwise and its sheet waits for a click. A process that
     /// runs every class of the bundle (the full tier) carries a row an earlier test left Running. Fail at once and
-    /// name the rows.
+    /// name the rows. A genotype comment or review that an earlier test left saving or waiting for its workbook does
+    /// the same: Quit waits for it and then opens a sheet that waits for a click.
     override func setUp() async throws {
         try await super.setUp()
         try OperationCenter.shared.requireNoActiveOperationsForTest()
+        try requireNoPendingAnnotationEditsForTest()
     }
 
     func testClosingLastProjectWindowReleasesWriterLock() async throws {

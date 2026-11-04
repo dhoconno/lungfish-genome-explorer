@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishGenotypeUI
 import LungfishKit
 
 /// An error whose words name the operations an earlier test left running.
@@ -33,4 +34,16 @@ extension OperationCenter {
         _ = complete(id: id, detail: "Test finished")
         clearItem(id: id)
     }
+}
+
+/// Fails at once when an earlier test left a genotype comment or review saving or waiting for its workbook.
+///
+/// Quit waits for such an edit up to its deadline and then opens `GenotypeEditQuitConfirmation`, whose sheet waits for
+/// a click, so a count an earlier test left up keeps a test of the quit path from the code it checks.
+@MainActor
+func requireNoPendingAnnotationEditsForTest() throws {
+    guard GenotypeResultViewController.isSavingAnnotationEdits else { return }
+    throw LeftoverOperationsError(description: "An earlier test left a genotype comment or review saving or waiting for "
+        + "its workbook. The quit path would wait 15 seconds and then open a sheet that waits for a click, so this class "
+        + "stops here. Finish the edit in the test that began it.")
 }
