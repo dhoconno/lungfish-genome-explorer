@@ -43,9 +43,9 @@ public enum MetagenomicsImportError: Error, LocalizedError, Sendable {
         case .noTaxTriageReports(let url):
             return "No TaxTriage reports were found in \(url.path). Nothing was imported. Choose the run's output folder."
         case .naoMgsBAMNotWritten(let sample, _):
-            return "Lungfish could not write the alignment file for sample \(sample), so the import stopped and kept no result. Try the import again. If it stops again, check that the results file is complete and read the log for the cause."
+            return "Lungfish could not write the alignment file for sample \(sample), so the import stopped and kept no result. Try the import again. If it stops again, check that the results file is complete."
         case .naoMgsSamtoolsMissing(let sample):
-            return "Lungfish could not write the alignment file for sample \(sample), since samtools could not be found, so the import stopped and kept no result. Install the app's tools again, then import the file again."
+            return "Lungfish could not write the alignment file for sample \(sample), since samtools could not be found, so the import stopped and kept no result. samtools is part of Lungfish's Required Setup: in the app, open the Welcome window and click Install, or run `\(CLICommandIdentity.executableName) tools update --apply --yes --required-only`, then import the file again."
         }
     }
 

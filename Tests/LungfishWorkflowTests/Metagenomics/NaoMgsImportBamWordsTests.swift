@@ -96,6 +96,7 @@ struct NaoMgsImportBamWordsTests {
         #expect(words.contains("alignment file"), "The words name the alignment file, got: \(words)")
         #expect(words.contains("kept no result"), "The words say nothing was kept, got: \(words)")
         #expect(!words.lowercased().contains("disk"), "The cause is not known, so the words do not guess at the disk")
+        #expect(!words.contains("the log"), "No log the person can open holds the cause, so the words send nobody to one")
         let bam = workspace.appendingPathComponent("staging/\(Self.sample)/bams/\(Self.sample).bam")
         #expect(!FileManager.default.fileExists(atPath: bam.path), "No short BAM stays for the merge to pick up")
     }
@@ -136,6 +137,7 @@ struct NaoMgsImportBamWordsTests {
         #expect(words.contains(Self.sample), "The words name the sample, got: \(words)")
         #expect(words.contains("alignment file"), "The words name the alignment file, got: \(words)")
         #expect(words.contains("samtools could not be found"), "The words say what is missing, got: \(words)")
+        #expect(words.contains("Required Setup"), "The words say where to install samtools, got: \(words)")
     }
 
     /// Passes at the base and after the fix. It keeps the `hitCount` test honest, since a stage that `minIdentity`
