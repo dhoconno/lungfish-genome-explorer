@@ -75,8 +75,9 @@ extension SidebarViewController {
     /// original run (`AssemblyProvenance.reassemblyInputPaths`), never on the
     /// lineage the record also keeps, and on the copy of those reads that
     /// matches the record (`AssemblyProvenance.reassemblyInputFiles`). It
-    /// refuses when the record cannot be read, when an input is gone, or when
-    /// the reads have changed since the run, since assembling other reads
+    /// refuses when the record cannot be read, when an input is gone or cannot
+    /// be read now, or when the reads have changed since the run, since
+    /// assembling other reads
     /// would not reassemble the original reads. It asks first when the record
     /// holds no checksum to check them by.
     func reassemblePlan(forBundleAt bundleURL: URL, title: String) async -> ReassemblePlan {
@@ -87,6 +88,10 @@ extension SidebarViewController {
         guard inputs.missing.isEmpty else {
             let names = inputs.missing.map { URL(fileURLWithPath: $0).lastPathComponent }.joined(separator: ", ")
             return .refuse(reason: "\(title) was assembled from inputs that can no longer be found (\(names)). Reassemble uses exactly the reads of the original assembly, so restore them or start a new assembly.")
+        }
+        guard inputs.unreadable.isEmpty else {
+            let names = inputs.unreadable.map { URL(fileURLWithPath: $0).lastPathComponent }.joined(separator: ", ")
+            return .refuse(reason: "\(title) was assembled from reads that Lungfish cannot read now (\(names)). Check that the files are there and that Lungfish may read them, or start a new assembly.")
         }
         guard inputs.changed.isEmpty else {
             let names = inputs.changed.map { URL(fileURLWithPath: $0).lastPathComponent }.joined(separator: ", ")

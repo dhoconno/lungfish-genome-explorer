@@ -386,8 +386,9 @@ extension AssemblyProvenance {
     /// for and the record names its primary file. The size comes first and the SHA-256 after it. Reads that exist
     /// only with other bytes are `changed` and never `found`. Reads that cannot be checked, since the record holds
     /// no checksum or no record, are `unverified`, and `found` holds them too so that the person can go on once
-    /// asked. `missing` holds the recorded paths found nowhere. The checks read the files, so this runs off the
-    /// main actor.
+    /// asked. Reads that exist but cannot be read now, since Lungfish may not open them, are `unreadable`, a cause
+    /// apart from a missing checksum, and `found` does not hold them. `missing` holds the recorded paths found
+    /// nowhere. The checks read the files, so this runs off the main actor.
     @concurrent
     public func reassemblyInputFiles(projectURL: URL?) async -> (
         found: [URL], missing: [String], changed: [String], unverified: [String], unreadable: [String]
@@ -396,6 +397,7 @@ extension AssemblyProvenance {
         var missing: [String] = []
         var changed: [String] = []
         var unverified: [String] = []
+        var unreadable: [String] = []
         for path in reassemblyInputPaths {
             switch resolvedReassemblyInput(path, projectURL: projectURL) {
             case .verified(let url):
@@ -403,36 +405,43 @@ extension AssemblyProvenance {
             case .unverified(let url):
                 found.append(url)
                 unverified.append(path)
+            case .unreadable:
+                unreadable.append(path)
             case .changed:
                 changed.append(path)
             case .missing:
                 missing.append(path)
             }
         }
-        return (found, missing, changed, unverified, [])
+        return (found, missing, changed, unverified, unreadable)
     }
 
     private enum ReassemblyInput {
-        case verified(URL), unverified(URL), changed, missing
+        case verified(URL), unverified(URL), unreadable, changed, missing
     }
 
+    /// `unchecked` is a record with no checksum to compare by. `unreadable` is a file that exists and cannot be
+    /// read now, which is another cause and has other words.
     private enum ReadsComparison {
-        case same, differs, unchecked
+        case same, differs, unchecked, unreadable
     }
 
     private func resolvedReassemblyInput(_ path: String, projectURL: URL?) -> ReassemblyInput {
         let records = inputs.filter { Self.record($0, isAtOrInside: path) }
         var unchecked: URL?
+        var unreadable = false
         var differs = false
         for candidate in Self.reassemblyCandidates(for: path, projectURL: projectURL)
         where FileManager.default.fileExists(atPath: candidate.path) {
             switch Self.comparison(of: candidate, standingFor: path, with: records) {
             case .same: return .verified(candidate)
             case .unchecked: unchecked = unchecked ?? candidate
+            case .unreadable: unreadable = true
             case .differs: differs = true
             }
         }
         if let unchecked { return .unverified(unchecked) }
+        if unreadable { return .unreadable }
         return differs ? .changed : .missing
     }
 
@@ -478,30 +487,32 @@ extension AssemblyProvenance {
         for record in records {
             switch comparison(of: file(of: record, in: candidate, standingFor: path), with: record) {
             case .differs: return .differs
-            case .unchecked: result = .unchecked
+            case .unreadable: result = .unreadable
+            case .unchecked: if result != .unreadable { result = .unchecked }
             case .same: break
             }
         }
         return result
     }
 
-    /// The size first, since another size settles it without reading the file, and the SHA-256 after it.
+    /// The size first, since another size settles it without reading the file, and the SHA-256 after it. A file
+    /// that exists and cannot be read is `unreadable`, and a record with no checksum is `unchecked`.
     private static func comparison(of file: URL, with record: InputFileRecord) -> ReadsComparison {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory) else { return .differs }
         let sizeIsRecorded = record.sha256 != nil || record.sizeBytes > 0
         if isDirectory.boolValue {
             // A bundle recorded as a whole, as AssemblyInputMaterialization records it.
-            guard let manifest = try? ProvenanceFileHasher.directoryManifest(for: file, role: .input) else { return .unchecked }
+            guard let manifest = try? ProvenanceFileHasher.directoryManifest(for: file, role: .input) else { return .unreadable }
             let size = Int64(clamping: manifest.files.reduce(UInt64(0)) { $0 + ($1.fileSize ?? 0) })
             if sizeIsRecorded, size != record.sizeBytes { return .differs }
             guard let recorded = record.sha256 else { return .unchecked }
             return bundleChecksum(of: manifest) == recorded ? .same : .differs
         }
-        guard let size = try? ProvenanceFileHasher.fileSize(of: file) else { return .unchecked }
+        guard let size = try? ProvenanceFileHasher.fileSize(of: file) else { return .unreadable }
         if sizeIsRecorded, Int64(clamping: size) != record.sizeBytes { return .differs }
         guard let recorded = record.sha256 else { return .unchecked }
-        guard let actual = try? ProvenanceFileHasher.sha256(of: file) else { return .unchecked }
+        guard let actual = try? ProvenanceFileHasher.sha256(of: file) else { return .unreadable }
         return actual == recorded ? .same : .differs
     }
 
