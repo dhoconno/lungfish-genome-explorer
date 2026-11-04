@@ -164,13 +164,13 @@ package enum BlastSearchWords {
     /// The number of sends in all, as the words say it.
     /// Q4, the line a person reads before `noun` leaves this Mac. `noun` is `reads`, `contigs` or `sequences`.
     package static func consentLine(noun: String, database: String) -> String {
-        "Sends the selected \(noun) to NCBI BLASTN \(database), so they leave this Mac. "
+        "Sends the selected \(noun) to NCBI BLASTN \(database), so they leave this Mac and LGE cannot call them back. "
             + "If NCBI is slow, LGE sends the same \(noun) again, at most \(sendsInAll) sends in all. The record lists every send."
     }
 
     /// Q4, the help of a BLAST leaf. `stays` says where its search waits, as `in --output`.
     package static func commandLineConsent(stays: String) -> String {
-        "The sequences go to NCBI and leave this Mac. If NCBI is slow, the same sequences are sent again, "
+        "The sequences go to NCBI and leave this Mac, and LGE cannot call them back. If NCBI is slow, the same sequences are sent again, "
             + "at most \(sendsInAll) sends in all, and the record lists every send. "
             + "A search still waiting stays \(stays), and lungfish-cli blast resume --output <folder> collects it later."
     }

@@ -759,7 +759,7 @@ public enum LungfishHelpContent {
     public static let classifierBlastVerify = HelpItem(
         id: "workflow.classifier.blastVerify",
         summary: "Send reads from the selected row to NCBI BLAST to check its classification.",
-        detail: "Uses BLASTN without taxon restriction by default. The popover names the database searched, nt or core_nt. The reads leave this Mac. If NCBI is slow, LGE sends the same reads again, at most \(BlastConsentHelp.sendsInAll) sends in all, and the record lists every send. This supports review, not diagnosis.",
+        detail: "Uses BLASTN without taxon restriction by default. The popover names the database searched, nt or core_nt. The reads leave this Mac, and LGE cannot call them back. If NCBI is slow, LGE sends the same reads again, at most \(BlastConsentHelp.sendsInAll) sends in all, and the record lists every send. This supports review, not diagnosis.",
         audience: .benchScientist
     )
 

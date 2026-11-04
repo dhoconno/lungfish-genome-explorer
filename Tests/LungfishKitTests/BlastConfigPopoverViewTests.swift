@@ -11,7 +11,7 @@ final class BlastConfigPopoverViewTests: XCTestCase {
     func testCaptionDefaultsToNt() {
         XCTAssertEqual(
             BlastConfigPopoverView.submissionCaption(database: "nt"),
-            "Sends the selected reads to NCBI BLASTN nt, so they leave this Mac. If NCBI is slow, LGE sends the same reads again, at most three sends in all. The record lists every send."
+            "Sends the selected reads to NCBI BLASTN nt, so they leave this Mac and LGE cannot call them back. If NCBI is slow, LGE sends the same reads again, at most three sends in all. The record lists every send."
         )
         XCTAssertEqual(
             BlastConfigPopoverView.submissionCaption(database: "  "),
@@ -23,8 +23,14 @@ final class BlastConfigPopoverViewTests: XCTestCase {
     func testCaptionNamesCoreNt() {
         XCTAssertEqual(
             BlastConfigPopoverView.submissionCaption(database: "core_nt"),
-            "Sends the selected reads to NCBI BLASTN core_nt, so they leave this Mac. If NCBI is slow, LGE sends the same reads again, at most three sends in all. The record lists every send."
+            "Sends the selected reads to NCBI BLASTN core_nt, so they leave this Mac and LGE cannot call them back. If NCBI is slow, LGE sends the same reads again, at most three sends in all. The record lists every send."
         )
+    }
+
+    /// UX review SF1. A person who cancels later does not take the reads back, and the help says so too.
+    func testHelpSaysASendCannotBeCalledBack() {
+        let detail = LungfishHelpContent.classifierBlastVerify.detail ?? ""
+        XCTAssertTrue(detail.contains("The reads leave this Mac, and LGE cannot call them back."), detail)
     }
 
     func testHelpTextDoesNotHardCodeADatabase() {

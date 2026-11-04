@@ -34,7 +34,7 @@ final class BlastConsentLineTests: XCTestCase {
     }
 
     private func line(noun: String, database: String) -> String {
-        "Sends the selected \(noun) to NCBI BLASTN \(database), so they leave this Mac. "
+        "Sends the selected \(noun) to NCBI BLASTN \(database), so they leave this Mac and LGE cannot call them back. "
             + "If NCBI is slow, LGE sends the same \(noun) again, at most three sends in all. The record lists every send."
     }
 

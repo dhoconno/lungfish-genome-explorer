@@ -5,10 +5,10 @@ the --output folder, beside a copy of the query. The record names the copy's
 SHA-256 and the lineage options, which say which result, sample, taxon or
 contig and which subsample the sequences came from.
 
-The sequences go to NCBI and leave this Mac. If NCBI is slow, the same
-sequences are sent again, at most three sends in all, and the record lists
-every send. A search still waiting stays in --output, and lungfish-cli blast
-resume --output <folder> collects it later.
+The sequences go to NCBI and leave this Mac, and LGE cannot call them back. If
+NCBI is slow, the same sequences are sent again, at most three sends in all,
+and the record lists every send. A search still waiting stays in --output, and
+lungfish-cli blast resume --output <folder> collects it later.
 
 NCBI gets the contact email set in LGE's Settings, or else LGE's shared
 no-reply address.

@@ -7,7 +7,7 @@ import XCTest
 
 /// Phase 3.2 lane BLASTNET N5 (UX-BLAST-WORDS Q4).
 final class BlastConsentHelpTests: XCTestCase {
-    private let sends = "The sequences go to NCBI and leave this Mac. If NCBI is slow, the same sequences are sent again, "
+    private let sends = "The sequences go to NCBI and leave this Mac, and LGE cannot call them back. If NCBI is slow, the same sequences are sent again, "
         + "at most three sends in all, and the record lists every send."
     private let resume = "and lungfish-cli blast resume --output <folder> collects it later."
 
