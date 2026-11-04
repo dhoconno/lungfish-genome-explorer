@@ -168,9 +168,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Register for system notifications
         registerNotifications()
 
-        // Bring managed tools and databases in line with the bundled dependency manifest.
-        // No-ops on the fast path when this machine already matches the shipped tool set.
+        // Bring managed tools and databases in line with the bundled manifest, a no-op when this machine matches it.
         scheduleDependencyReconciliation()
+        BlastInFlightMonitor.shared.start()
 
         // Clean up stale temp files from previous sessions, and sweep scratch whose creator is gone
         cleanUpTemporaryFiles(retentionHours: AppSettings.shared.tempFileRetentionHours, atLaunch: true)

@@ -144,12 +144,15 @@ extension BlastCommand.SubmitSubcommand {
         query: StagedQuery,
         in output: URL,
         runClock: ProvenanceRunClock,
-        argv: [String]?
+        argv: [String]?,
+        durableReplayArgv: [String]? = nil
     ) throws {
         guard let bytes = try? Data(contentsOf: query.url), BlastSearchStore.digest(of: bytes) == query.sha256 else {
             throw BlastSearchRefusal(words: BlastSearchWords.queryReplaced(folder: output.path))
         }
-        _ = try writeRecord(result: result, request: request, query: query, in: output, runClock: runClock, argv: argv)
+        _ = try writeRecord(
+            result: result, request: request, query: query, in: output, runClock: runClock, argv: argv, durableReplayArgv: durableReplayArgv
+        )
     }
 
     /// What a leaf says and does when its search comes to an ending, for `blast submit` and `blast resume` alike.
@@ -192,14 +195,16 @@ extension BlastCommand.SubmitSubcommand {
 
     /// Writes `blast-result.json` with its provenance, whose source is the query copy, so the
     /// provenance fingerprints the file the record names. `argv` is the command to record, the one this
-    /// process runs when nil. Returns the record's URL.
+    /// process runs when nil, and `durableReplayArgv` the command a replay runs, when that is another. Returns the
+    /// record's URL. The search file names every send, which the provenance keeps beside the winner's `rid`.
     func writeRecord(
         result: BlastVerificationResult,
         request: BlastVerificationRequest,
         query: StagedQuery,
         in output: URL,
         runClock: ProvenanceRunClock,
-        argv: [String]? = nil
+        argv: [String]? = nil,
+        durableReplayArgv: [String]? = nil
     ) throws -> URL {
         let recordURL = output.appendingPathComponent(BlastSubmissionRecord.recordFileName)
         let record = BlastSubmissionRecord(
@@ -212,6 +217,19 @@ extension BlastCommand.SubmitSubcommand {
         let data = try BlastSubmissionRecord.encoder.encode(record)
         var explicit = explicitOptions(query: query)
         explicit["outputPath"] = .file(recordURL)
+        var resolved: [String: ParameterValue] = [
+            "rid": .string(result.rid),
+            "supportingCount": .integer(result.supportingCount),
+            "contradictingCount": .integer(result.contradictingCount),
+            "errorCount": .integer(result.errorCount),
+            "totalReads": .integer(result.totalReads),
+        ]
+        if let search = try? BlastSearchStore(folder: output).load() {
+            let rids = search.copies.compactMap(\.rid)
+            resolved["rids"] = .array(rids.map { .string($0) })
+            resolved["winningRID"] = .string(result.rid)
+            resolved["copiesSent"] = .integer(rids.count)
+        }
         let provenance = ScientificFileExportProvenance.Request(
             workflowName: Self.workflowName,
             toolName: CLICommandIdentity.executableName,
@@ -220,14 +238,9 @@ extension BlastCommand.SubmitSubcommand {
             outputURL: recordURL,
             outputFormat: .json,
             argv: argv ?? recordedCommandLine(),
+            durableReplayArgv: durableReplayArgv,
             explicitOptions: explicit,
-            resolved: [
-                "rid": .string(result.rid),
-                "supportingCount": .integer(result.supportingCount),
-                "contradictingCount": .integer(result.contradictingCount),
-                "errorCount": .integer(result.errorCount),
-                "totalReads": .integer(result.totalReads),
-            ],
+            resolved: resolved,
             runClock: runClock
         )
         let sidecar = try ScientificFileExportProvenance.writeAtomically(provenance) { staged in

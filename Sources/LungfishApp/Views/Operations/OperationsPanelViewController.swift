@@ -872,7 +872,7 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
 
             removeButton.isHidden = item.state != .interrupted
             switch item.state {
-            case .running:
+            case .running, .waiting:
                 cancelButton.isHidden = !item.isCancellable
                 issueButton.isHidden = true
             case .cancelling:
@@ -966,8 +966,8 @@ final class OperationsPanelViewController: NSViewController, NSTableViewDataSour
 
     static func statusAppearance(for item: OperationCenter.Item) -> (color: NSColor, symbol: String) {
         switch item.state {
-        case .completed:
-            return item.hasWarnings ? (.systemOrange, "exclamationmark.triangle.fill") : (.systemGreen, "checkmark.circle.fill")
+        case .completed: return item.hasWarnings ? (.systemOrange, "exclamationmark.triangle.fill") : (.systemGreen, "checkmark.circle.fill")
+        case .waiting: return (.secondaryLabelColor, "clock")
         case .failed: return (.systemRed, "xmark.circle.fill")
         case .running: return (.systemBlue, "arrow.trianglehead.2.clockwise.rotate.90")
         case .cancelling: return (.systemOrange, "stop.circle")

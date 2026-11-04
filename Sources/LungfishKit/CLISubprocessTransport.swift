@@ -83,7 +83,19 @@ public actor CLISubprocessTransport {
         /// CLI wrote, and ``CLIEventArtifact/bundleKind`` reads a kind that names
         /// a registered bundle kind.
         public let artifacts: [CLIEventArtifact]
+        /// Set when the leaf said its work waits on someone else and exited with no result (ARCH-BLAST-RESILIENCE section 6).
+        /// Then `outputs` is empty and nothing has failed.
+        public var waiting: Waiting? = nil
+
+        /// A leaf's last `waiting` event.
+        public struct Waiting: Sendable, Equatable {
+            public let message: String
+            public let state: CLIEventWaitingState
+        }
     }
+
+    /// The exit status of a leaf that parks, which the CLI's `CLIExitCode.parked` also names.
+    public static let parkedExitStatus: Int32 = 75
 
     private let cliURLOverride: URL?
     private let cancellation = CLIRunCancellation()
@@ -165,6 +177,7 @@ public actor CLISubprocessTransport {
             var completeMessage: String?
             var artifacts: [CLIEventArtifact] = []
             var failed: (message: String, detail: String?)?
+            var waiting: Result.Waiting?
         }
 
         let state = OSAllocatedUnfairLock(initialState: StreamState())
@@ -194,6 +207,9 @@ public actor CLISubprocessTransport {
                 }
             case let .failed(message, detail):
                 state.withLock { $0.failed = (message, detail) }
+                onEvent(event)
+            case let .waiting(message, waitingState):
+                state.withLock { $0.waiting = Result.Waiting(message: message, state: waitingState) }
                 onEvent(event)
             default:
                 onEvent(event)
@@ -232,7 +248,8 @@ public actor CLISubprocessTransport {
                 outputs: current.outputs,
                 completeMessage: current.completeMessage,
                 artifacts: current.artifacts,
-                failed: current.failed
+                failed: current.failed,
+                waiting: current.waiting
             )
         }
         let finishedFirst = { (exit: CLIProcessExit) in
@@ -250,6 +267,10 @@ public actor CLISubprocessTransport {
         if let failed = snapshot.failed {
             throw RunError.failedEvent(message: failed.message, detail: failed.detail)
         }
+        // A leaf that parks, or that left a search to the process already at work on it, has failed at nothing.
+        if let waiting = snapshot.waiting, exit.succeeded || exit.status == Self.parkedExitStatus {
+            return Result(outputs: [], message: waiting.message, artifacts: [], waiting: waiting)
+        }
         if !exit.succeeded {
             if let incomplete = exit.incompleteOutput {
                 transportLogger.error("\(incomplete, privacy: .public)")
@@ -263,5 +284,37 @@ public actor CLISubprocessTransport {
         }
 
         return Result(outputs: snapshot.outputs, message: snapshot.completeMessage, artifacts: snapshot.artifacts)
+    }
+
+    /// Runs a leaf that prints one JSON document in place of events, such as `blast in-flight`, and returns what it
+    /// printed. A leaf that exits non-zero throws.
+    public func runForOutput(arguments: [String], environmentAdditions: [String: String] = [:]) async throws -> Data {
+        guard let binaryURL = cliURLOverride ?? CLIBinaryLocator.cliBinaryPath() else {
+            throw RunError.cliNotFound
+        }
+        let printed = OSAllocatedUnfairLock(initialState: [String]())
+        let spec = CLIProcessLauncher.spec(
+            executableURL: binaryURL,
+            arguments: arguments,
+            terminationGracePeriod: .zero,
+            drainGracePeriod: nil,
+            environmentAdditions: environmentAdditions,
+            workingDirectory: nil
+        )
+        let outcome = await CLIProcessLauncher.run(
+            spec,
+            cancellation: cancellation,
+            onStdoutLine: { line in printed.withLock { $0.append(line) } },
+            onStderrLine: { _ in }
+        )
+        switch outcome {
+        case .exited(let exit):
+            guard exit.succeeded else { throw RunError.nonZeroExit(status: exit.status, stderr: exit.failureDetail) }
+            return Data(printed.withLock { $0 }.joined(separator: "\n").utf8)
+        case .cancelled:
+            throw CancellationError()
+        case .launchFailed(let reason):
+            throw RunError.launchFailed(reason)
+        }
     }
 }

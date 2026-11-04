@@ -188,10 +188,10 @@ public final class OperationCenter: ObservableObject {
             case completed
             case cancelled
             case failed
-            /// An analysis run found on disk whose producer is gone: its result
-            /// directory still carries an ``AnalysisRunRecord``. Listed for
-            /// review and removal only, never created by a running operation.
+            /// An analysis run found on disk whose producer is gone, listed for review and removal only.
             case interrupted
+            /// Work that waits on someone else with no process behind it (`OperationCenter+Waiting.swift`).
+            case waiting
 
             public var isActive: Bool {
                 self == .running || self == .cancelling
@@ -203,7 +203,7 @@ public final class OperationCenter: ObservableObject {
         public var detail: String
         /// Legacy compatibility value; not evidence of measured work or remaining time.
         public var progress: Double
-        public private(set) var progressEvidence: OperationProgressEvidence?
+        public internal(set) var progressEvidence: OperationProgressEvidence?
         private var progressRate = OperationProgressRate()
 
         fileprivate mutating func setProgressEvidence(_ evidence: OperationProgressEvidence?) {
@@ -369,11 +369,12 @@ public final class OperationCenter: ObservableObject {
                 return "Failed"
             case .interrupted:
                 return "Interrupted"
+            case .waiting: return "Waiting"
             }
         }
 
         public var isCancellable: Bool {
-            state == .running && onCancel != nil
+            (state == .running || state == .waiting) && onCancel != nil
         }
 
         // MARK: - Byte-level progress tracking
@@ -428,7 +429,7 @@ public final class OperationCenter: ObservableObject {
 
     public static let shared = OperationCenter()
 
-    @Published public private(set) var items: [Item] = []
+    @Published public internal(set) var items: [Item] = []
     public let changes = PassthroughSubject<Change, Never>()
 
     /// Called when an operation completes with bundle URLs that need importing.
@@ -544,7 +545,7 @@ public final class OperationCenter: ObservableObject {
         bundleLocks = bundleLocks.filter { $0.value.operationID != id }
     }
 
-    private func postStateChangedNotification(id: UUID, state: Item.State) {
+    func postStateChangedNotification(id: UUID, state: Item.State) {
         NotificationCenter.default.post(
             name: .operationStateChanged,
             object: self,
@@ -1019,7 +1020,7 @@ public final class OperationCenter: ObservableObject {
     /// list, so Cancel All, the quit warning and the Operations menu no longer wait on it.
     public func cancel(id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }),
-              items[index].state == .running,
+              items[index].state == .running || items[index].state == .waiting,
               let onCancel = items[index].onCancel else { return }
         items[index].state = .cancelling
         items[index].detail = "Cancelling..."
@@ -1076,19 +1077,16 @@ public final class OperationCenter: ObservableObject {
     }
 
     public func clearCompleted() {
-        let removedIDs = items.filter { !$0.state.isActive }.map(\.id)
-        items.removeAll { !$0.state.isActive }
+        let removedIDs = items.filter { $0.state.hasEnded }.map(\.id)
+        items.removeAll { $0.state.hasEnded }
         notifyRemovedItems(removedIDs)
     }
 
-    /// Removes a single finished item by ID.
-    ///
-    /// Running operations cannot be cleared — cancel them first.
-    ///
+    /// Removes a single finished item by ID. Running operations cannot be cleared — cancel them first.
     /// - Parameter id: The item to remove.
     public func clearItem(id: UUID) {
-        let shouldRemove = items.contains { $0.id == id && !$0.state.isActive }
-        items.removeAll { $0.id == id && !$0.state.isActive }
+        let shouldRemove = items.contains { $0.id == id && $0.state.hasEnded }
+        items.removeAll { $0.id == id && $0.state.hasEnded }
         if shouldRemove {
             changes.send(.removed(ids: [id]))
         }
@@ -1097,9 +1095,9 @@ public final class OperationCenter: ObservableObject {
     private func trimCompletedItemsIfNeeded() -> [UUID] {
         let keepLimit = 20
         let previousIDs = Set(items.map(\.id))
-        let running = items.filter { $0.state.isActive }
+        let running = items.filter { !$0.state.hasEnded }
         let finished = items
-            .filter { !$0.state.isActive }
+            .filter { $0.state.hasEnded }
             .sorted { ($0.finishedAt ?? .distantPast) > ($1.finishedAt ?? .distantPast) }
 
         items = running + Array(finished.prefix(max(0, keepLimit - running.count)))

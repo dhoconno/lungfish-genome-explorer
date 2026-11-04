@@ -1307,9 +1307,9 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
                 statusSymbol = "xmark.circle"
                 statusAccessibility = "Failed"
                 progressText = ""
-            case .interrupted:
-                statusSymbol = "exclamationmark.octagon"
-                statusAccessibility = "Interrupted"
+            case .interrupted, .waiting:
+                statusSymbol = op.state == .waiting ? "clock" : "exclamationmark.octagon"
+                statusAccessibility = op.displayStateLabel
                 progressText = ""
             }
 

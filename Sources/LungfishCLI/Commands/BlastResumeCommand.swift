@@ -135,7 +135,9 @@ extension BlastCommand {
                 throw stop(file.ending?.words ?? "This BLAST search has ended.", exit: .failure)
             }
 
-            let replayArgv = file.submitArgv.isEmpty ? nil : file.submitArgv
+            // The record names the command that wrote it, and a replay runs the one that sent the search (section 6).
+            let writerArgv = [CLICommandIdentity.executableName] + CommandLine.arguments.dropFirst()
+            let replayArgv = file.submitArgv.isEmpty ? submit.recordedCommandLine() : file.submitArgv
             let facts = file.facts
             let clock = await BlastCommand.searchClock(environment: environment)
             let advancer = BlastSearchAdvancer(
@@ -148,7 +150,7 @@ extension BlastCommand {
                 publish: { result in
                     try submit.publishRecord(
                         result: result, request: facts.request(sequences: sequences), query: query,
-                        in: output, runClock: runClock, argv: replayArgv
+                        in: output, runClock: runClock, argv: writerArgv, durableReplayArgv: replayArgv
                     )
                 },
                 pass: once ? .once : .toAnEnding,
