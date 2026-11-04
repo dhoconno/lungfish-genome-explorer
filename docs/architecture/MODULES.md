@@ -33,7 +33,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 1577 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
-| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 80 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
+| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 81 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
 
 ## Test targets
 
@@ -3662,6 +3662,7 @@ None.
 - `LoopbackHTTPResponse` struct, `Tests/Support/LungfishTestSupport/LoopbackHTTPStandIn.swift`
 - `LoopbackHTTPStandIn` class, `Tests/Support/LungfishTestSupport/LoopbackHTTPStandIn.swift`
 - `LoopbackHTTPStandInError` struct, `Tests/Support/LungfishTestSupport/LoopbackHTTPStandIn.swift`
+- `ManagedSamtoolsGate` enum, `Tests/Support/LungfishTestSupport/ManagedSamtoolsGate.swift`
 - `ManagedSamtoolsHome` struct, `Tests/Support/LungfishTestSupport/ManagedSamtoolsHome.swift`
 - `ManagedTestStandIn` struct, `Tests/Support/LungfishTestSupport/ManagedTestStandIn.swift`
 - `ManifestRowFixtureError` enum, `Tests/Support/LungfishTestSupport/MetagenomicsDatabaseRegistry+ManifestRow.swift`
