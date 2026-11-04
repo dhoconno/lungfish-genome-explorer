@@ -124,6 +124,44 @@ final class TaxTriageImportedExportTests: XCTestCase {
         XCTAssertTrue(report.contains("NTC.1 [NTC]"), report)
     }
 
+    /// A batch whose control failed, imported from sample folders with no root report, reads Not checked and never No
+    /// in the matrix, and the batch report says the control failed. The importer carries the run's failed samples into
+    /// the sidecar, so a result made earlier says the same words (BIO review of lane TTBUILDDB, should-fix 2).
+    func testImportedBatchWithAFailedControlReadsNotChecked() async throws {
+        let source = folder.appendingPathComponent("batch", isDirectory: true)
+        try writeReport(for: "S1", rows: 3, to: source.appendingPathComponent("S1/report/S1.odr.txt"))
+        let config = TaxTriageConfig(
+            samples: [
+                TaxTriageSample(sampleId: "S1", fastq1: URL(fileURLWithPath: "/nonexistent/S1.fastq.gz")),
+                TaxTriageSample(sampleId: "NTC1", fastq1: URL(fileURLWithPath: "/nonexistent/NTC1.fastq.gz"), isNegativeControl: true),
+            ],
+            platform: .oxford,
+            outputDirectory: source
+        )
+        let failure = TaxTriageSampleFailure(
+            sampleID: "NTC1",
+            outputDirectory: source.appendingPathComponent("NTC1"),
+            errorDescription: "TaxTriage pipeline failed with exit code 1"
+        )
+        try TaxTriageResult(
+            config: config, runtime: 1234.5, exitCode: 0, outputDirectory: source, sampleFailures: [failure]
+        ).save()
+        let imported = try MetagenomicsImportService.importTaxTriage(
+            inputURL: source,
+            outputDirectory: folder.appendingPathComponent("imports", isDirectory: true)
+        )
+        let build = try BuildDbCommand.TaxTriageSubcommand.parse([imported.resultDirectory.path, "--no-cleanup", "-q"])
+        try await build.run()
+
+        let shared = try XCTUnwrap(try matrixLines(of: imported.resultDirectory).first { $0.hasPrefix("\(Self.shared),") })
+        XCTAssertTrue(shared.contains(",Not checked,"), "the matrix did not say the control was not checked: \(shared)")
+        XCTAssertFalse(shared.contains(",No,"), "the matrix read No for a control that never ran: \(shared)")
+        let report = try reportText(of: imported.resultDirectory)
+        XCTAssertTrue(report.contains("NTC1 (failed, never ran)"), report)
+        XCTAssertTrue(report.contains("Contamination risk is not checked."), report)
+        XCTAssertFalse(report.contains("No organisms detected in negative controls."), report)
+    }
+
     // MARK: - Helpers
 
     /// Imports a run folder of flat reports (`S1` holds 3 rows and each other sample 1) and builds the database.
