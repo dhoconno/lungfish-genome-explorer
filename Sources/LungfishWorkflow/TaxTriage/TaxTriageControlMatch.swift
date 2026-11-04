@@ -182,6 +182,24 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
                     + "Give each sample a name that stays different once spaces and symbols are removed, then run it again."
             )
         }
+        // Names that meet with no control among them: a batch root keeps one folder's rows (lane TTCONTROLS, BIO review).
+        for name in groups.keys.sorted() {
+            guard let group = groups[name], !name.isEmpty, group.count > 1,
+                  !(group.contains(where: \.isNegativeControl) && group.contains(where: { !$0.isNegativeControl }))
+            else { continue }
+            let held = database.filter { candidate in
+                group.contains { Self.belongs(candidate, to: $0.sampleId, sharing: sharing) }
+            }
+            let expected = group.filter { !failed.contains($0.sampleId) && !failed.contains(name) }.count
+            guard !held.isEmpty, held.count < expected else { continue }
+            let typed = group.map(\.sampleId).sorted()
+            let meet = typed.count == 2 ? "\(typed[0]) and \(typed[1]) are both" : "\(Self.listing(typed)) are all"
+            let kept = held.count == 1 ? "one sample" : "\(held.count) of them"
+            notes.append(
+                "\(meet) named \(name) in the results, and the results hold only \(kept), so the rows of the others are not in this table. "
+                    + "Give each sample a name that stays different once spaces and symbols are removed, then run it again."
+            )
+        }
 
         self.controls = controls.sorted { $0.sampleId < $1.sampleId }
         self.controlSampleIds = controlSampleIds
