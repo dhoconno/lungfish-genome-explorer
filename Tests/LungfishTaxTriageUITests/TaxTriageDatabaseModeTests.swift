@@ -212,6 +212,23 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
         XCTAssertEqual(vc.testBatchFlatTableView.selectedMetrics().map(\.organism), ["Alpha virus"])
     }
 
+    /// The pipeline removes the characters its samplesheet check does not allow from a sample name, so a run that
+    /// typed the control `sample-2!` has its rows under `sample-2`. The control keeps its flag (lane TTBUILDDB,
+    /// row TAXTRIAGE-CONTROL-NAME-PIPELINE-RENAMED).
+    func testFlatTableFlagsTheOrganismsOfAControlTheRunTypedWithASymbol() throws {
+        let fixture = try Fixture(writeSidecar: true, negativeControl: "sample-2", typedNames: ["sample-2": "sample-2!"])
+        defer { fixture.cleanUp() }
+        let vc = fixture.makeController()
+        let table = vc.testBatchFlatTableView
+
+        XCTAssertTrue(
+            waitUntilOnRunLoop(budget: .lookup) { !table.contaminationRiskOrganismKeys.isEmpty },
+            "the control typed sample-2! was not found under sample-2"
+        )
+        let alpha = try XCTUnwrap(table.displayedRows.firstIndex { $0.sample == "sample-1" && $0.organism == "Alpha virus" })
+        XCTAssertEqual(table.testCellText(row: alpha, columnID: "tt_organism").primary, "\u{26A0} Alpha virus")
+    }
+
     func testFlatTableFlagsNegativeControlOrganismsAndUsesConfidenceColumnTooltips() throws {
         let fixture = try Fixture(writeSidecar: true, negativeControl: "sample-2")
         defer { fixture.cleanUp() }
@@ -643,6 +660,7 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
             storedOutputDirectory: String? = nil,
             negativeControl: String? = nil,
             samples: [String] = ["sample-1", "sample-2"],
+            typedNames: [String: String] = [:],
             sample2AlphaAccession: String? = "NC_2002"
         ) throws {
             let fm = FileManager.default
@@ -689,7 +707,7 @@ final class TaxTriageDatabaseModeTests: XCTestCase {
                 let config = TaxTriageConfig(
                     samples: samples.map {
                         TaxTriageSample(
-                            sampleId: $0,
+                            sampleId: typedNames[$0] ?? $0,
                             fastq1: stored.appendingPathComponent("\($0).fastq.gz"),
                             isNegativeControl: $0 == negativeControl
                         )
