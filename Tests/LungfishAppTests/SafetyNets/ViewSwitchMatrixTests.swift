@@ -106,11 +106,11 @@ final class ViewSwitchMatrixTests: XCTestCase {
             }
         }
         XCTAssertLessThanOrEqual(
-            ViewSwitchDeclaredLeaks.all.count, 86,
+            ViewSwitchDeclaredLeaks.all.count, 84,
             "The declared leaks only shrink. Lower this number in the change that fixes a leak."
         )
         XCTAssertLessThanOrEqual(
-            ViewSwitchDeclaredLeaks.all.flatMap(\.to).count, 116,
+            ViewSwitchDeclaredLeaks.all.flatMap(\.to).count, 113,
             "The declared leaks only shrink. Lower this number in the change that fixes a leak."
         )
     }
