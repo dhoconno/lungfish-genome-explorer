@@ -135,7 +135,7 @@ Sources/LungfishOperations/AI/AIToolRegistry.swift 951
 Sources/LungfishOperations/AnnotationSearchIndex.swift 1603
 Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift 1563
 Sources/LungfishTaxTriageUI/TaxTriageBatchOverviewView.swift 867
-Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 4534
+Sources/LungfishTaxTriageUI/TaxTriageResultViewController.swift 4506
 Sources/LungfishTaxonomyUI/TaxaCollectionsDrawerView.swift 806
 Sources/LungfishTaxonomyUI/TaxonomySunburstView.swift 874
 Sources/LungfishTaxonomyUI/TaxonomyTableView.swift 1582
