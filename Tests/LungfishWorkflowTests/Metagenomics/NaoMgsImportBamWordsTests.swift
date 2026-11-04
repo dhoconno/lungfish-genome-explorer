@@ -119,9 +119,9 @@ struct NaoMgsImportBamWordsTests {
     }
 
     /// Passes at the base and after the fix. A working samtools still gives the stage its BAM.
-    @Test
+    @Test(ManagedSamtoolsGate.enabled)
     func testStageStillWritesTheBamWhenSamtoolsWorks() async throws {
-        guard let samtools = SamtoolsLocator.locate() else { return }
+        let samtools = try #require(SamtoolsLocator.locate())
         let workspace = try TestTempDirectory.make(prefix: "naomgs-bam-works")
         defer { TestTempDirectory.cleanup(workspace) }
 

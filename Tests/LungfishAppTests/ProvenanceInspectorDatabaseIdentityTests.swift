@@ -40,6 +40,7 @@ final class ProvenanceInspectorDatabaseIdentityTests: XCTestCase {
     }
 
     func testTabShowsDatabaseIdentityAsResolvedDefaultsForEsVirituReceiptNaoMgsAndCzIdRecords() async throws {
+        try ManagedSamtoolsGate.requireForXCTest()
         let root = try TestTempDirectory.make(prefix: "provenance-database-identity").resolvingSymlinksInPath()
         defer { TestTempDirectory.cleanup(root) }
 

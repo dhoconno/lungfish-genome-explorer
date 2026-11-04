@@ -300,7 +300,7 @@ struct MetagenomicsImportServiceTests {
         )
     }
 
-    @Test
+    @Test(ManagedSamtoolsGate.enabled)
     func naoMgsImportCreatesCanonicalBundle() async throws {
         let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-naomgs-")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -388,7 +388,7 @@ struct MetagenomicsImportServiceTests {
         }
     }
 
-    @Test
+    @Test(ManagedSamtoolsGate.enabled)
     func naoMgsImportRemovesPartialResultDirectoryOnMalformedInput() async throws {
         let workspace = makeTemporaryDirectory(prefix: "metagenomics-import-naomgs-failure-")
         defer { try? FileManager.default.removeItem(at: workspace) }

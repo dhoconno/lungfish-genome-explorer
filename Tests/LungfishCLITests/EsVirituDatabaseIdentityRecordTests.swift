@@ -286,6 +286,7 @@ extension EsVirituDatabaseIdentityRecordTests {
     /// each says `pinned` and cites a digest. NVD and CZ-ID name the versions their results state, and NAO-MGS says
     /// its result names none.
     func testEveryClassifierRecordStatesDatabaseIdentity() async throws {
+        try ManagedSamtoolsGate.requireForXCTest()
         var records: [(label: String, facts: [String: ParameterValue], expected: DatabaseIdentityStatus)] = []
 
         let kraken = try FakeClassificationCondaFixture()

@@ -103,6 +103,7 @@ final class ImportDatabaseIdentityRecordTests: XCTestCase {
     }
 
     func testNaoMgsImportRecordSaysSourceNamesNoDatabase() async throws {
+        try ManagedSamtoolsGate.requireForXCTest()
         let source = root.appendingPathComponent("virus_hits_final.tsv")
         try """
         sample\tseq_id\taligner_taxid_lca\tquery_seq\tquery_qual\tprim_align_genome_id_all\tprim_align_ref_start\tprim_align_cigar\tquery_len\tprim_align_edit_distance\tprim_align_query_rc

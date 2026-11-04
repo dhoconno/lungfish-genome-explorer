@@ -4,12 +4,13 @@
 
 import Darwin
 import Foundation
+import LungfishCore
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
 /// The results that the `import nao-mgs` and `import nvd` tests import (Phase 2.12 lane 12.05). The NAO-MGS result
 /// carries the dotted sample ids `S1.2024` and `S2.2024` and the NVD run carries the same two, so a test sees
-/// whether a name is read whole (BIO 5). No tool and no network are needed.
+/// whether a name is read whole (BIO 5). No network is needed, and the NAO-MGS import needs the host's managed samtools.
 ///
 /// A NAO-MGS import installs NCBI Taxonomy into the managed storage when names are missing. A test gives the
 /// command, or its own process, a storage root under the scratch folder that already holds a fixture taxonomy
@@ -19,8 +20,19 @@ enum NaoMgsNvdImportFixtures {
     static let nonEnglishLocale = ["LANG": "de_DE.UTF-8", "LC_ALL": "de_DE.UTF-8"]
 
     /// The environment of a command whose managed storage is `storage`. The guard turns a write outside it into a stop.
+    ///
+    /// A NAO-MGS import writes the BAM of each sample with the managed samtools and stops when there is none, so the
+    /// command gets the host's conda root as well, as the app gives its child both roots
+    /// (`ManagedStorageConfigStore.subprocessEnvironment`). Only tools are read from it, and every write stays under
+    /// `storage`. A host with no managed samtools gets no conda root, and the NAO-MGS tests skip there
+    /// (`ManagedSamtoolsGate`).
     static func storageEnvironment(_ storage: URL) -> [String: String] {
-        ["LUNGFISH_STORAGE_ROOT": storage.path, "LUNGFISH_FORBID_REAL_MANAGED_STORAGE_WRITES": "1"]
+        var environment = ["LUNGFISH_STORAGE_ROOT": storage.path, "LUNGFISH_FORBID_REAL_MANAGED_STORAGE_WRITES": "1"]
+        if ManagedSamtoolsGate.isAvailable {
+            let store = ManagedStorageConfigStore(homeDirectory: FileManager.default.homeDirectoryForCurrentUser, appIdentity: .current)
+            environment["LUNGFISH_CONDA_ROOT"] = store.currentCondaRootURL().path
+        }
+        return environment
     }
 
     private static let naoMgsHeader = [

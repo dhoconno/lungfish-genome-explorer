@@ -203,6 +203,7 @@ final class NaoMgsNvdImportCLIGUIParityReplayTests: XCTestCase {
     // MARK: - The sides
 
     private func assertParity(_ kind: MetagenomicsImportKind, file: StaticString = #filePath, line: UInt = #line) async throws {
+        if kind == .naomgs { try ManagedSamtoolsGate.requireForXCTest() }
         let result = try await harness.assertParity(
             kind.rawValue,
             declared: [],

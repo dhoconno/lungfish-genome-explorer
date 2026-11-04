@@ -6,8 +6,9 @@
 // the only ones that ran under de_DE. Each leaf runs here to the end under de_DE with `--format json`, and the test
 // reads the words, the sample names and the source digest the record holds, which must equal the English words, the
 // ids as the result spells them and a digest the test computes. The fixture totals stay below 1,000, so the comma
-// grouping of a count is not seen here, and 12.04 pins it with 2,504,263 reads. No real tool and no network are
-// needed, since the managed storage under the scratch folder holds a fixture taxonomy.
+// grouping of a count is not seen here, and 12.04 pins it with 2,504,263 reads. No network is
+// needed, since the managed storage under the scratch folder holds a fixture taxonomy. The NAO-MGS case writes its BAM
+// with the managed samtools of the host and skips without it.
 
 import CryptoKit
 import Foundation
@@ -56,6 +57,7 @@ final class NaoMgsNvdImportLocaleTests: XCTestCase {
     /// Runs `import <kind>` on the built CLI under de_DE to its end, waits for exit 0 inside 30 seconds, and reads the
     /// `complete` words and the record of the one folder it made.
     private func runImport(kind: String, input: URL, extra: [String]) throws -> Done {
+        if kind == "nao-mgs" { try ManagedSamtoolsGate.requireForXCTest() }
         let cli = try XCTUnwrap(CLISIGTERMHarness.cliBinaryURL(for: Self.self), "Inject LUNGFISH_CLI or build it beside the tests")
         let imports = root.appendingPathComponent("Project.lungfish/Imports", isDirectory: true)
         try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)

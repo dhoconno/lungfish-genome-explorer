@@ -10,8 +10,9 @@
 // written and the folder stayed.
 //
 // Each command is held at work on dotted sample ids under a non-English locale (BIO 5, X12). The record of an import
-// hashes every file of its source folder, and the folder holds a large sparse file, which takes seconds. No real tool
-// and no network are needed, since the managed storage under the scratch folder holds a fixture taxonomy.
+// hashes every file of its source folder, and the folder holds a large sparse file, which takes seconds. No network
+// is needed, since the managed storage under the scratch folder holds a fixture taxonomy. The NAO-MGS cases write their
+// BAM with the managed samtools of the host and skip without it.
 
 import Darwin
 import Foundation
@@ -173,6 +174,7 @@ final class NaoMgsNvdImportSIGTERMTests: XCTestCase {
 
     /// Starts `import <kind>` into a project's Imports folder under the scratch managed storage.
     private func launch(kind: String, arguments: [String]) throws -> (project: URL, imports: URL, run: CLISIGTERMHarness.Run) {
+        if kind == "nao-mgs" { try ManagedSamtoolsGate.requireForXCTest() }
         let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
         let imports = project.appendingPathComponent("Imports", isDirectory: true)
         try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)

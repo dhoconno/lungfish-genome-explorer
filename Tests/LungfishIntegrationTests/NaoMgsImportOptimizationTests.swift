@@ -125,7 +125,7 @@ struct NaoMgsImportOptimizationTests {
 
     // MARK: - Full Pipeline
 
-    @Test
+    @Test(ManagedSamtoolsGate.enabled)
     func importNaoMgsWithFixtureCreatesValidBundle() async throws {
         let workspace = makeTemporaryDirectory(prefix: "naomgs-pipeline-test-")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -316,7 +316,7 @@ struct NaoMgsImportOptimizationTests {
         #expect(shares == [50, 50], "Two taxa with one pair each split their sample evenly, got \(shares)")
     }
 
-    @Test
+    @Test(ManagedSamtoolsGate.enabled)
     func importNaoMgsWithIdentityFilterReducesHits() async throws {
         let workspace = makeTemporaryDirectory(prefix: "naomgs-filter-test-")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -339,7 +339,7 @@ struct NaoMgsImportOptimizationTests {
 
     // MARK: - Multi-Sample Database Tests
 
-    @Test
+    @Test(ManagedSamtoolsGate.enabled)
     func importNaoMgsWithMultipleSamplesCreatesSQLite() async throws {
         let workspace = makeTemporaryDirectory(prefix: "naomgs-multisample-")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -463,7 +463,7 @@ struct NaoMgsImportOptimizationTests {
 
     // MARK: - Accession Summaries and Virus Hits Purge
 
-    @Test
+    @Test(ManagedSamtoolsGate.enabled)
     func importPopulatesAccessionSummariesAndPurgesVirusHits() async throws {
         let workspace = makeTemporaryDirectory(prefix: "naomgs-purge-test-")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -526,7 +526,7 @@ struct NaoMgsImportOptimizationTests {
         }
     }
 
-    @Test
+    @Test(ManagedSamtoolsGate.enabled)
     func importWithFixtureCreatesAccessionSummaries() async throws {
         let workspace = makeTemporaryDirectory(prefix: "naomgs-accsummary-fixture-")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -566,7 +566,7 @@ struct NaoMgsImportOptimizationTests {
 
     // MARK: - Multi-File Import (NAO-MGS 3.2 per-lane TSVs)
 
-    @Test
+    @Test(ManagedSamtoolsGate.enabled)
     func importDirectoryOfPerLaneTSVsCreatesValidBundle() async throws {
         let workspace = makeTemporaryDirectory(prefix: "naomgs-multifile-")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -713,7 +713,7 @@ struct NaoMgsImportOptimizationTests {
 
     // MARK: - R2-Only Row Handling
 
-    @Test
+    @Test(ManagedSamtoolsGate.enabled)
     func importR2OnlyRowProducesBamRecord() async throws {
         let workspace = makeTemporaryDirectory(prefix: "naomgs-r2only-")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -776,7 +776,7 @@ struct NaoMgsImportOptimizationTests {
 
     // MARK: - Streaming Accumulator Correctness
 
-    @Test
+    @Test(ManagedSamtoolsGate.enabled)
     func streamingAccumulatorsMatchExpectedSummaryValues() async throws {
         let workspace = makeTemporaryDirectory(prefix: "naomgs-accumulator-")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -833,7 +833,7 @@ struct NaoMgsImportOptimizationTests {
 
     // MARK: - Error Handling
 
-    @Test
+    @Test(ManagedSamtoolsGate.enabled)
     func importAbortedErrorCarriesResultDirectory() async throws {
         let workspace = makeTemporaryDirectory(prefix: "naomgs-abort-test-")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -1049,7 +1049,7 @@ struct NaoMgsImportOptimizationTests {
 
     // MARK: - Staged import pipeline
 
-    @Test
+    @Test(ManagedSamtoolsGate.enabled)
     func importNaoMgsDirectoryWithSplitSampleFilesProducesSingleMergedBundle() async throws {
         let workspace = makeTemporaryDirectory(prefix: "naomgs-directory-import-")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -1085,7 +1085,7 @@ struct NaoMgsImportOptimizationTests {
 
     // MARK: - Post-merge cleanup
 
-    @Test
+    @Test(ManagedSamtoolsGate.enabled)
     func importNaoMgsRemovesStagingDirectoryOnSuccess() async throws {
         let workspace = makeTemporaryDirectory(prefix: "naomgs-cleanup-")
         defer { try? FileManager.default.removeItem(at: workspace) }
