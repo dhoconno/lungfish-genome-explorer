@@ -137,9 +137,7 @@ extension ViewerViewController {
         controller.onBlastRequested = withBlastConsent(noun: "sequences") { [weak self, weak controller] selectedSequences in
             guard let controller else { return }
             let fastaRecords = selectedSequences.map(Self.fastaRecord(for:))
-            let sourceLabel = selectedSequences.count == 1
-                ? selectedSequences[0].name
-                : "\(selectedSequences.count) FASTA sequences"
+            let sourceLabel = Self.blastSourceLabel(for: selectedSequences)
             self?.runGenericBlastVerification(
                 sourceLabel: sourceLabel,
                 fastaRecords: fastaRecords,
@@ -314,6 +312,12 @@ extension ViewerViewController {
         return "selected-sequences"
     }
 
+    /// The name a search of `sequences` takes. A restored result takes the same name, so that Re-run BLAST repeats a search
+    /// of the sequences picked under the name a send of them would give it.
+    private static func blastSourceLabel(for sequences: [LungfishCore.Sequence]) -> String {
+        sequences.count == 1 ? sequences[0].name : "\(sequences.count) FASTA sequences"
+    }
+
     private func runGenericBlastVerification(
         sourceLabel: String,
         fastaRecords: [String],
@@ -415,7 +419,8 @@ extension ViewerViewController {
         controller.savedBlastRestorer = nil
         guard run.runID == nil else { return }
         let source = fastaExportSourceURLs().first
-        let sequences = Self.blastSequences(from: picked.map(Self.fastaRecord(for:)))
+        let records = picked.map(Self.fastaRecord(for:))
+        let sequences = Self.blastSequences(from: records)
             .map { BlastSavedSearchRow.QuerySequence(id: $0.id, sequence: $0.sequence) }
         let restorer = SavedBlastSearchRestorer()
         controller.savedBlastRestorer = restorer
@@ -430,7 +435,10 @@ extension ViewerViewController {
             return pane
         }
         let row = source.flatMap { BlastSavedSearchRow.fastaSelection(sequences: sequences, sourceURL: $0) }
-        restorer.select(row) { [weak controller] result, recordURL in
+        // A result shown here is the list's Re-run request, so Re-run BLAST repeats the sequences picked and not the last send.
+        let label = Self.blastSourceLabel(for: picked)
+        restorer.select(row) { [weak controller, weak run] result, recordURL in
+            run?.lastRequest = (label, records)
             controller?.showBlastResults(result, recordURL: recordURL)
         }
     }

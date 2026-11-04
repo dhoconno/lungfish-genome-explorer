@@ -197,6 +197,71 @@ final class FASTACollectionSavedBlastTests: XCTestCase {
         XCTAssertEqual(result.rid, "RID-LATE")
     }
 
+    // MARK: - Re-run BLAST on a restored result (LASTROWS fix round, BIO B1)
+
+    /// Re-run BLAST on a result the list restored repeats the sequences picked. A list opened again has sent nothing, so it had no
+    /// request to repeat, and a list that sent other sequences last repeated those on the pane of the picked ones.
+    func testReRunOnARestoredResultRepeatsThePickedSequences() async throws {
+        let list = try makeList()
+        let folder = try saveSearch(in: list.project, source: list.url, sequences: [Self.longSequence])
+        try saveRecord(in: folder, source: list.url, sequences: [Self.longSequence], rid: "RID-SAVED")
+        var file = try BlastSearchStore(folder: folder).load()
+        file.state = .done
+        try BlastSearchStore(folder: folder).save(file)
+
+        BlastConsentSheet.presenterForTesting = { _, send in send() }
+        let rowsBefore = Set(OperationCenter.shared.items.map(\.id))
+        defer {
+            BlastConsentSheet.presenterForTesting = nil
+            for item in OperationCenter.shared.items where !rowsBefore.contains(item.id) { OperationCenter.shared.clearItem(id: item.id) }
+        }
+        var sent: [[String]] = []
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        viewer.fastaBlastVerificationRunner = { request, _ in
+            let ids = request.sequences.map { $0.id }
+            sent.append(ids)
+            let at = Date(timeIntervalSince1970: 1_800_000_100)
+            return BlastVerificationResult(
+                taxonName: "FASTA fixture", taxId: 0, totalReads: 0, verifiedCount: 0, ambiguousCount: 0,
+                unverifiedCount: 0, errorCount: 0, readResults: [], submittedAt: at.addingTimeInterval(-60),
+                completedAt: at, rid: "RID-SENT-" + ids.joined(separator: ","), blastProgram: "blastn", database: "core_nt"
+            )
+        }
+        harness.select(list.item)
+        let collection = try await shownCollection(in: viewer)
+        func shownRID() -> String? {
+            if case .results(let result, _)? = collection.testBlastDrawerTab?.displayState { return result.rid }
+            return nil
+        }
+        func pane() -> String { String(describing: collection.testBlastDrawerTab?.displayState) }
+
+        // A list opened again has sent nothing. Its pane shows the saved result of the sequences picked.
+        collection.testSelectRows([0])
+        let restored = await waitUntil(budget: .lookup) { shownRID() == "RID-SAVED" }
+        try require(restored, "the saved result never showed, the pane reads \(pane())")
+        collection.onBlastRerunRequested?()
+        let sentOnce = await waitUntil(budget: .lookup) { sent.count == 1 }
+        XCTAssertEqual(sent, [["seq_long"]], "Re-run on a restored result sent other sequences, or none")
+        if sentOnce { _ = await waitUntil(budget: .lookup) { shownRID() == "RID-SENT-seq_long" } }
+
+        // A list that sent other sequences last repeats the ones picked now, and not the last it sent.
+        collection.testSelectRows([1])
+        XCTAssertEqual(collection.selectedSequences().map(\.name), ["seq_mid"])
+        let sentBefore = sent.count
+        collection.onBlastRequested?(collection.selectedSequences())
+        let sentOther = await waitUntil(budget: .lookup) { sent.count == sentBefore + 1 && shownRID() == "RID-SENT-seq_mid" }
+        try require(sentOther, "the search of the other sequence never ended, the pane reads \(pane())")
+        collection.testSelectRows([0])
+        let restoredAgain = await waitUntil(budget: .lookup) { shownRID() == "RID-SAVED" }
+        try require(restoredAgain, "the saved result did not show again, the pane reads \(pane())")
+        collection.onBlastRerunRequested?()
+        let rerun = await waitUntil(budget: .lookup) { sent.count == sentBefore + 2 }
+        try require(rerun, "Re-run on a restored result sent nothing")
+        XCTAssertEqual(sent.last, ["seq_long"], "Re-run repeated the last send and not the sequences picked")
+    }
+
     // MARK: - Support
 
     /// Ends the test at the first wait that timed out, since the steps after it would only wait again.
