@@ -30,10 +30,11 @@ final class TaxTriageExportFallbackTests: XCTestCase {
     // MARK: - Helpers
 
     /// The keys a one-sample TaxTriage record holds among its resolved defaults when its sample has a plan. Moved by
-    /// A2 M3 (B12 ruling H1): `sample_count` is one too, because LGE counts the samplesheet rows itself.
+    /// A2 M3 (B12 ruling H1): `sample_count` is one too, because LGE counts the samplesheet rows itself. Moved by
+    /// READLAYOUT item 12: `read_layouts` is one too, because it names what each sample's scan read.
     private static let resolvedKeys: Set<String> = ["fetchedReferences", 
         "classifiers", "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes", RecordedReadSetPlan.key,
-        "sample_count",
+        "sample_count", "read_layouts",
     ]
 
     /// A Kraken 2 database folder with its three core files, which the stand-in never reads.
@@ -78,8 +79,8 @@ final class TaxTriageExportFallbackTests: XCTestCase {
 
         let saved = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: config.outputDirectory))
         let fallback = try await fallbackRecord(of: saved.id)
-        XCTAssertEqual(Set(saved.options.resolvedDefaults.keys), Self.resolvedKeys, "the saved record's homes")
-        XCTAssertEqual(Set(fallback.options.resolvedDefaults.keys), Self.resolvedKeys)
+        XCTAssertEqual(Set(saved.options.resolvedDefaults.keys), Self.resolvedKeys, "the saved record's homes, moved by READLAYOUT item 12")
+        XCTAssertEqual(Set(fallback.options.resolvedDefaults.keys), Self.resolvedKeys, "moved by READLAYOUT item 12, the fallback holds read_layouts too")
         XCTAssertEqual(Set(fallback.options.explicit.keys), Set(saved.options.explicit.keys))
         XCTAssertTrue(
             Self.resolvedKeys.isDisjoint(with: fallback.options.explicit.keys),

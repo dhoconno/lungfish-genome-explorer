@@ -276,7 +276,12 @@ final class MapReadSetStandInTests: XCTestCase {
 
         let single = try Self.recordedEnvelope(in: singleDirectory)
         XCTAssertNil(single.readSetPlan, "a sample of only single reads records nothing new")
-        XCTAssertEqual(single.options.resolvedDefaults, [:], "a run without a plan adds nothing to the resolved defaults")
+        // Moved by READLAYOUT item 12. The three reads of the single-read root, all read, none paired.
+        XCTAssertEqual(
+            single.options.resolvedDefaults,
+            ["scannedRecords": .integer(3), "scannedWholeFile": .boolean(true), "pairs": .integer(0), "unpairedReads": .integer(3)],
+            "a run without a plan adds no plan, and it records what its scan read"
+        )
         Self.assertNoSecondCopy(of: single, in: singleDirectory)
 
         // The typed record encodes the plan only when there is one, so a run

@@ -207,8 +207,8 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         let resolved = record.options.resolvedDefaults
         XCTAssertEqual(
             Set(resolved.keys),
-            ["classifiers", "sample_count", "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes", "fetchedReferences"],
-            "moved by A2 M3 (B12 ruling H1), sample_count is a resolved default"
+            ["classifiers", "sample_count", "read_layouts", "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes", "fetchedReferences"],
+            "moved by A2 M3 (B12 ruling H1), sample_count is a resolved default, and by READLAYOUT item 12, read_layouts is one too"
         )
         XCTAssertEqual(resolved["classifiers"], .array([.string("kraken2")]))
         XCTAssertEqual(resolved["sample_count"], .integer(1), "B12 ruling H1")
@@ -338,8 +338,8 @@ final class TaxTriageSampleRecordFreezeTests: XCTestCase {
         XCTAssertEqual(plans, ["mixed": try XCTUnwrap(mixed.readSetPlan?.provenanceParameters["readSetPlan"])])
         XCTAssertEqual(
             Set(record.options.resolvedDefaults.keys),
-            ["classifiers", "sample_count", "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes", "fetchedReferences"],
-            "moved by B11 M2 (R5), classifiers is a resolved default, and by A2 M3 (B12 ruling H1), sample_count"
+            ["classifiers", "sample_count", "read_layouts", "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes", "fetchedReferences"],
+            "moved by B11 M2 (R5), classifiers is a resolved default, by A2 M3 (B12 ruling H1), sample_count, and by READLAYOUT item 12, read_layouts"
         )
         XCTAssertNil(record.options.explicit["readSetPlan"])
     }
