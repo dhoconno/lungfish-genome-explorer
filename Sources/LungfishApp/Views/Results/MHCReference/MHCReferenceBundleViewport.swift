@@ -160,6 +160,11 @@ struct MHCReferenceBundleViewport: View {
             }
         }
         .frame(minWidth: 720, minHeight: 520)
+        // The viewer's own identifier, which the view switch smoke test finds (exit check 3 of Phase 3.2). The embedded
+        // viewer and the mode picker carry theirs only when the bundle embeds a reference bundle. No label or help is
+        // set, so no words a person reads change.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("mhc-reference-bundle-view")
     }
 
     private var header: some View {

@@ -181,6 +181,7 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
             ("Genotype", ReleaseSmokeFixtures.genotypeRow, any["genotype-result-view"].firstMatch),
             ("Quick Look", ReleaseSmokeFixtures.previewFile, any["viewer-plain-text-preview"].firstMatch),
             ("FASTQ", ReleaseSmokeFixtures.fastqRow, any["fastq-dataset-view"].firstMatch),
+            ("MHC reference", ReleaseSmokeFixtures.mhcRow, any["mhc-reference-bundle-view"].firstMatch),
         ]
         // A preview's status words come from the status bar under it (`Previewing: <file>`), and they stay for the
         // matrix row "Nextflow script previews as text" (RoutingSafetyNetTable+ContainerAndFileRows).
@@ -340,7 +341,28 @@ enum ReleaseSmokeFixtures {
         try addGenotypeResult(to: project)
         try addScriptPreview(to: project)
         try addFASTQBundle(to: project)
+        try addMHCReferenceBundle(to: project)
         return project
+    }
+
+    /// The name an MHC amplicon reference bundle shares as its folder and its manifest name, so the sidebar row reads it.
+    static let mhcRow = "Smoke MHC Reference"
+
+    /// An MHC amplicon reference bundle of two reference records and no haplotype definition. The unit matrix row "MHC
+    /// amplicon reference bundle" copies the manual fixture under `docs/user-manual/fixtures`, which the smoke gate does not
+    /// copy for the runner (`SMOKE_FIXTURES` in `app_smoke_gate.py`), so the files are written here. The manifest is JSON with
+    /// the keys `MHCAmpliconReferenceBundleManifest` requires, in `mhc-reference.json`.
+    static func addMHCReferenceBundle(to project: URL) throws {
+        let bundle = project.appendingPathComponent("\(mhcRow).lungfishmhcref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try ">Mamu-A1-001 smoke\nACGTACGTACGTACGTACGT\n>Mamu-A1-002 smoke\nACGTACGTACGAACGTACGT\n"
+            .write(to: bundle.appendingPathComponent("reference.fa"), atomically: true, encoding: .utf8)
+        let manifest: [String: Any] = ["schemaVersion": 1, "kind": "mhc-reference", "name": mhcRow,
+                                       "referenceFastaPath": "reference.fa", "haplotypeDefinitionPaths": [String](),
+                                       "metrics": ["referenceCount": 2, "haplotypeDefinitionCount": 0],
+                                       "createdAt": "2026-11-04T00:00:00Z"]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+            .write(to: bundle.appendingPathComponent("mhc-reference.json"))
     }
 
     /// The sidebar words of the FASTQ bundle, which its folder name carries.
