@@ -42,6 +42,18 @@ package enum BlastContactAddress {
         return accepted(text) == nil ? .notValid : .valid
     }
 
+    /// `text`, or a short stand-in when it repeats `address` in a spelling a page can use, so that nothing NCBI says can
+    /// carry the address into a log, a word or a record.
+    package static func scrubbed(_ text: String, address: String?) -> String {
+        guard let address, !address.isEmpty else { return text }
+        let plain = text.replacingOccurrences(of: "&#64;", with: "@")
+            .replacingOccurrences(of: "&#x40;", with: "@", options: .caseInsensitive)
+            .replacingOccurrences(of: "&commat;", with: "@")
+        let spellings = [text, plain, text.removingPercentEncoding ?? text, plain.removingPercentEncoding ?? plain]
+        return spellings.contains { $0.range(of: address, options: .caseInsensitive) != nil }
+            ? "NCBI's page repeated the request, so LGE did not keep it." : text
+    }
+
     /// The words of UX-BLAST-WORDS Q6, as written.
     package enum Words {
         package static let section = "NCBI BLAST"

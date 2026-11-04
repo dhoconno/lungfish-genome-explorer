@@ -441,7 +441,7 @@ package struct BlastSearchAdvancer: Sendable {
             answer = try await service.statusOnce(rid: rid)
         } catch {
             try rethrowIfCancelled(error)
-            logger.info("A BLAST status check brought no news: \(error.localizedDescription, privacy: .public)")
+            logger.info("A BLAST status check brought no news: \(error.localizedDescription, privacy: .private)")
         }
         let now = clock.now()
         copy.nextCheckAt = nextTick(after: now, in: file)
@@ -548,7 +548,7 @@ package struct BlastSearchAdvancer: Sendable {
                 copy.replyFile = try store.saveReply(reply, rid: rid)
             } catch {
                 try rethrowIfCancelled(error)
-                logger.info("A BLAST fetch brought no reply: \(error.localizedDescription, privacy: .public)")
+                logger.info("A BLAST fetch brought no reply: \(error.localizedDescription, privacy: .private)")
                 copy.failedContacts += 1
                 copy.nextCheckAt = nextTick(after: clock.now(), in: file)
                 file.copies[index] = copy

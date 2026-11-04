@@ -143,6 +143,31 @@ final class BlastContactAddressChildTests: XCTestCase {
         try assertHeldNowhere(result, spec: spec)
     }
 
+    /// NCBI's own words are the one open path (SWIFT review SF1). A page that repeats the request ends the search, and
+    /// the words it ends with, the search file, the failed record, the events and the log are all clear of the address.
+    func testNCBIRepeatingTheAddressNeverReachesWordsOrTheSearchFile() async throws {
+        try await save(sentinel)
+        let echoed = "<html><body>Bad request: CMD=Put&amp;email=\(token!)%40example.org was refused for \(sentinel).</body></html>"
+        let server = try BlastFaultStandIn.start(
+            scripts: [BlastFaultScript(put: [.noRID(page: echoed)])], timeScale: Self.fastClock
+        )
+        defer { server.stop() }
+        let spec = try child(server)
+
+        let result = try await ToolProcess.run(spec)
+
+        XCTAssertNotEqual(result.status, 0, "a page with no request ID ends the search")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: output().appendingPathComponent("blast-search.json").path),
+            "blast-search.json was written, so the look below read it"
+        )
+        XCTAssertFalse(result.stdoutText.contains(token), "the events and so the row's log")
+        XCTAssertFalse(result.stderrText.contains(token), "the words a person reads")
+        XCTAssertFalse(spec.arguments.joined(separator: " ").contains(token), "the row's cliCommand")
+        XCTAssertEqual(try filesHoldingTheToken(under: output()), [], "the search file, the failed record and the replay")
+        XCTAssertEqual(try filesHoldingTheToken(under: state), [], "the shared files and the search log")
+    }
+
     func testContactAddressWithPlusReachesNCBIIntact() async throws {
         let address = "\(token!)+tag@example.org"
         try await save(address)

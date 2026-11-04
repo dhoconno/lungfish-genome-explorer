@@ -108,12 +108,17 @@ extension BlastService {
         }
         let body = String(decoding: data, as: UTF8.self)
         guard let http = response as? HTTPURLResponse else { return .lostAfterSending("Non-HTTP response") }
+        // NCBI's page can repeat the request. The request ID is read from the page as NCBI sent it, so a search that
+        // started is never lost to the scrub, and only the text kept afterwards is cleared of the address.
         guard http.statusCode == 200 else {
+            let page = BlastContactAddress.scrubbed(body, address: address)
             return Self.busyStatusCodes.contains(http.statusCode)
-                ? .busy(status: http.statusCode, body: body)
-                : .refused(status: http.statusCode, body: body)
+                ? .busy(status: http.statusCode, body: page)
+                : .refused(status: http.statusCode, body: page)
         }
-        guard let submission = try? parseSubmissionResponse(body) else { return .noRID(page: body) }
+        guard let submission = try? parseSubmissionResponse(body) else {
+            return .noRID(page: BlastContactAddress.scrubbed(body, address: address))
+        }
         return .accepted(submission)
     }
 
@@ -125,7 +130,16 @@ extension BlastService {
             URLQueryItem(name: "FORMAT_OBJECT", value: "SearchInfo"),
         ])
         let page = String(decoding: try await getOnce(url, what: "status check"), as: UTF8.self)
-        return BlastSearchStatusAnswer(status: parseStatusResponse(page), page: page)
+        // The status is read from the page as NCBI sent it, and the page kept for words is cleared of the address.
+        return BlastSearchStatusAnswer(
+            status: parseStatusResponse(page),
+            page: BlastContactAddress.scrubbed(page, address: Self.addressSent(in: url))
+        )
+    }
+
+    /// The address a GET carries, which is the one a page from NCBI can repeat.
+    private static func addressSent(in url: URL) -> String? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "email" }?.value
     }
 
     /// One fetch of the reply, with no retry and nothing unzipped or parsed.
@@ -173,7 +187,10 @@ extension BlastService {
             throw BlastServiceError.submissionFailed(message: "The BLAST \(what) returned a non-HTTP response")
         }
         guard http.statusCode == 200 else {
-            throw BlastServiceError.httpError(statusCode: http.statusCode, body: String(decoding: data, as: UTF8.self))
+            throw BlastServiceError.httpError(
+                statusCode: http.statusCode,
+                body: BlastContactAddress.scrubbed(String(decoding: data, as: UTF8.self), address: Self.addressSent(in: url))
+            )
         }
         return data
     }
