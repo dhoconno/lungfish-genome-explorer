@@ -370,7 +370,7 @@ extension ViewerViewController {
 
                     guard OperationCenter.shared.complete(
                         id: opID,
-                        detail: "Results ready for \(result.readResults.count) sequence\(result.readResults.count == 1 ? "" : "s")"
+                        detail: "Results ready for \(result.readResults.count) sequence\(result.readResults.count == 1 ? "" : "s")" + BlastResultsDrawerTab.collectedRowWords(recordURL: recordURL)
                     ) else { return }
                     guard let blastRun, let controller, blastRun.runID == runID else { return }
                     blastRun.clear(runID: runID)
@@ -397,11 +397,11 @@ extension ViewerViewController {
         }
     }
 
-    nonisolated private static func blastPhase(forProgressMessage message: String) -> BlastJobPhase {
+    nonisolated static func blastPhase(forProgressMessage message: String) -> BlastJobPhase {
         let lowercased = message.lowercased()
-        if lowercased.contains("waiting") { return .waiting }
-        if lowercased.contains("parsing") { return .parsing }
-        return .submitting
+        if lowercased.contains("sending") || lowercased.contains("submitting") { return .submitting }
+        if lowercased.contains("parsing") || lowercased.contains("collecting") { return .parsing }
+        return .waiting
     }
 
     /// Shows a navigation bar with "Back to Collection" above the viewer content.
