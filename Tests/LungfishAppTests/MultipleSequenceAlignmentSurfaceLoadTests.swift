@@ -264,6 +264,34 @@ final class MultipleSequenceAlignmentSurfaceLoadTests: XCTestCase {
         XCTAssertNil(viewer.surfaceHost.requestedKind, "a current failure left the request in the host")
     }
 
+    /// Two displays that share one guard, as two calls of one request do. Only the host's token tells them apart.
+    func testTwoDisplaysThatShareOneGuardTheLaterOneWins() async throws {
+        let viewer = ViewerViewController()
+        viewer.view.frame = NSRect(x: 0, y: 0, width: 1400, height: 800)
+        let firstRow = try await buildAlignmentRow(root)
+        let secondRow = try await buildAlignmentRow(root)
+        let firstURL = try XCTUnwrap(firstRow.url)
+        let secondURL = try XCTUnwrap(secondRow.url)
+        let held = holdNextLoad(in: viewer)
+        defer { held.releaseLoad() }
+        let firstDisplay = Task { @MainActor in try await viewer.displayMultipleSequenceAlignmentBundle(at: firstURL) }
+        let holding = await waitUntil(budget: .lookup) { held.isHolding }
+        XCTAssertTrue(holding, "the first load never started")
+        let secondDisplay = Task { @MainActor in try await viewer.displayMultipleSequenceAlignmentBundle(at: secondURL) }
+        let installed = await waitUntil(budget: .lookup) { viewer.multipleSequenceAlignmentViewController?.bundleURL == secondURL }
+        XCTAssertTrue(installed, "the second alignment never installed")
+
+        held.releaseLoad()
+
+        let first = try await firstDisplay.value
+        let second = try await secondDisplay.value
+        XCTAssertNil(first, "the first display returned a viewer after the second took the host")
+        XCTAssertNotNil(second)
+        XCTAssertTrue(second === viewer.multipleSequenceAlignmentViewController, "the second display did not return the installed viewer")
+        XCTAssertEqual(uncutCallbacks(held.heldController), [], "the superseded viewer has callbacks to fire")
+        XCTAssertNil(held.heldController?.bundleURL, "the superseded load changed its viewer's state")
+    }
+
     // MARK: - The surface alone
 
     func testALoadOfAnotherInputSaysSo() async {
