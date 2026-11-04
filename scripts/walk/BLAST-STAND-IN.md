@@ -32,6 +32,10 @@ Use a throwaway project for these rows. A search there is marked as the stand-in
 
 Press Verify with BLAST on any result row, with the stand-in as the row says. The words in each row of `UX-BLAST-WORDS` Q1 are what a person must read on the Operations row. The pane says the same under its heading.
 
+Press Verify with BLAST on a result row of the throwaway project, any classifier result with a few reads. The verdict comes from the recorded reply, so counts such as "3 contradicting" belong to the stand-in and are not an error.
+
+Make the first send one read. Row 2 must read request ID WALK1. A request ID that does not start with WALK means the variables did not reach the app and that search went to NCBI. Quit LGE and start again at step 4 of the bring-up.
+
 | Q1 row | State | Do this | Read this |
 |---|---|---|---|
 | 1 | Sending | `control/slow-put?seconds=30`, then send. `control/clear` after | Status Running, `Sending <n> <noun> to NCBI` |
@@ -44,8 +48,8 @@ Press Verify with BLAST on any result row, with the stand-in as the row says. Th
 | 8 | NCBI expired it | `control/expire`, then send and hold on past 5 minutes | Status Failed, `NCBI no longer holds this search, request ID WALK<n>. No result. Choose Send Again` |
 | 9 | NCBI failed it | `control/fail?words=Message%20ID%2099`, then send | Status Failed, `NCBI could not finish this search, request ID WALK<n>: Message ID 99` |
 | 10 | Stopped by the person | On a waiting row, press Stop | Status Cancelled, `Stopped. LGE no longer checks this search. Choose Resume to check it again` |
-| R1 | Checks not reaching NCBI | On a row in row 5, `control/fault?on=status&kind=drop&count=99`, then Check Now three times | Row 5's words, then `LGE could not reach NCBI at the last <c> checks and keeps trying` |
-| R2 | Not sent, no connection | Stop the stand-in, then send. Start it again after | Status Failed, `Not sent. This Mac could not reach NCBI` |
+| R1 | Checks not reaching NCBI | On a row in row 5, `control/fault?on=status&kind=drop&count=99`, then Check Now, wait a minute, Check Now, wait a minute, Check Now | Row 5's words, then `LGE could not reach NCBI at the last <c> checks and keeps trying` |
+| R2 | Not sent, no connection | Stop the stand-in, then send. Start it again after | The row stays Running or Waiting and reads `Not sent yet. This Mac could not reach NCBI, so nothing went out. LGE tries again at <T>`. It never turns Failed. With the stand-in started again, the next try sends the search and row 2 follows |
 | R3 | Not sent, NCBI refused | `control/fault?on=put&kind=503&count=99`, then send. `control/clear` after | Status Failed, `Not sent. NCBI answered with error 503 <t> times` |
 | R4 | Send not confirmed | `control/fault?on=put&kind=drop&count=1`, then send | `NCBI did not confirm it got this search. LGE sends it once more at <T>` |
 | R5 | Reply unreadable | `control/fault?on=result&kind=html&count=99`, then `control/ready` and send. `control/clear` after | Status Waiting, `NCBI finished this search, but its reply could not be read` |
