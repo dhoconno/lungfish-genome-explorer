@@ -7,6 +7,7 @@ import LungfishCore
 import LungfishIO
 import LungfishOperations
 import LungfishWorkflow
+import LungfishKit
 
 // MARK: - FASTQMetadataSectionViewModel
 
@@ -115,6 +116,12 @@ public final class FASTQMetadataSectionViewModel {
 
     /// Callback to persist metadata changes.
     var onSave: ((_ bundleURL: URL, _ metadata: FASTQSampleMetadata) -> Void)?
+
+    /// Shows the words of an edit that could not be saved (METADATA-EDIT-READONLY, Phase 3.2). Production shows
+    /// them as a sheet on the main window, and a test records them, since a unit test must open no modal alert.
+    var saveFailurePresenter: @MainActor (FailureReport) -> Void = { report in
+        FailurePresenter.present(report, in: NSApp.mainWindow ?? NSApp.keyWindow)
+    }
 
     /// Runs a platform or read-type change. Production runs
     /// `lungfish-cli fastq platform` through the Operations panel, so the
