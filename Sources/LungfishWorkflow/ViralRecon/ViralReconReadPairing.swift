@@ -41,6 +41,8 @@ public struct ViralReconReadPairingDecision: Codable, Sendable, Equatable {
     /// How the run staged a row that names a bundle. Nil for a row of files,
     /// and for a bundle row before the run plans it.
     public let bundleStaging: BundleStaging?
+    /// The scan that decided ``layout``, for the record. Nil when no scan decided it.
+    public let layoutScan: FASTQReadLayoutClassification?
 
     public init(
         sampleName: String,
@@ -51,7 +53,8 @@ public struct ViralReconReadPairingDecision: Codable, Sendable, Equatable {
         pairCount: Int? = nil,
         splitR1URL: URL? = nil,
         splitR2URL: URL? = nil,
-        bundleStaging: BundleStaging? = nil
+        bundleStaging: BundleStaging? = nil,
+        layoutScan: FASTQReadLayoutClassification? = nil
     ) {
         self.sampleName = sampleName
         self.sourceFASTQURLs = sourceFASTQURLs
@@ -62,6 +65,7 @@ public struct ViralReconReadPairingDecision: Codable, Sendable, Equatable {
         self.splitR1URL = splitR1URL
         self.splitR2URL = splitR2URL
         self.bundleStaging = bundleStaging
+        self.layoutScan = layoutScan
     }
 
     /// Whether viralrecon sees this row as paired-end.
@@ -111,6 +115,8 @@ public struct ViralReconReadPairingDecision: Codable, Sendable, Equatable {
             "handling": .string(handling.rawValue),
             "readLayoutReason": .string(reason),
         ]
+        fields.merge(FASTQReadLayoutClassification.scanProvenanceParameters(of: layoutScan)) { current, _ in current }
+        // The split's own count outranks the scan's.
         if let pairCount { fields["pairs"] = .integer(pairCount) }
         if let splitR1URL { fields["splitR1"] = .file(splitR1URL) }
         if let splitR2URL { fields["splitR2"] = .file(splitR2URL) }
@@ -192,7 +198,8 @@ public enum ViralReconReadPairing {
                 sourceFASTQURLs: sample.fastqURLs,
                 layout: resolution.layout,
                 handling: handling,
-                reason: resolution.reason
+                reason: resolution.reason,
+                layoutScan: resolution.recordedScan(of: sample.fastqURLs.first)
             )
         case 2:
             let resolution = FASTQInputLayoutResolver.resolve(inputURLs: sample.fastqURLs, pairedFiles: true)
@@ -297,7 +304,8 @@ public enum ViralReconReadPairing {
                 reason: decision.reason,
                 pairCount: split.counts.r1Records,
                 splitR1URL: split.r1,
-                splitR2URL: split.r2
+                splitR2URL: split.r2,
+                layoutScan: decision.layoutScan
             ))
         }
         return ViralReconPreparedIlluminaSamples(samples: prepared, decisions: decisions)

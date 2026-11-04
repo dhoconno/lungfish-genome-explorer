@@ -232,7 +232,8 @@ public extension AssemblyRunRequest {
     /// The layout of a single short-read input once the inputs are resolved,
     /// by the rule `lungfish-cli assemble` applies, or `nil` when there is
     /// nothing to resolve (R1/R2 files, a long-read assembler, several pooled
-    /// files). An explicit layout wins, a concatenation of a bundle's files
+    /// files). An explicit layout wins unless a whole scan outranks a stated
+    /// interleaved one (``FASTQInputLayoutResolver``), a concatenation of a bundle's files
     /// keeps its `pooled` single-read layout, and otherwise
     /// ``FASTQInputLayoutResolver`` scans the execution file with the
     /// original bundle's metadata as hints, since a materialized scratch

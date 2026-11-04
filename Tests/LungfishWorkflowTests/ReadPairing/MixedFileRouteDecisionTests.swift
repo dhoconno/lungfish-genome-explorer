@@ -143,6 +143,80 @@ final class MixedFileRouteDecisionTests: XCTestCase {
 
     // MARK: - The record
 
+    /// Item 12, TaxTriage. The record names the one scan the pipeline ran on a file sample, and the plan's scan on a
+    /// planned one. A stated layout holds null.
+    func testTaxTriageRecordCarriesTheScanFields() async throws {
+        let mixed = TaxTriageSample(sampleId: "mixed", fastq1: try file([.pairs(60_000), .singles(20_000)]))
+        let stated = TaxTriageSample(sampleId: "stated", fastq1: try file([.pairs(4)]), readLayout: .singleEnd)
+        let config = TaxTriageConfig(samples: [mixed, stated], outputDirectory: root.appendingPathComponent("taxtriage-out"))
+        let prepared = try await TaxTriagePipeline.splitStrictlyInterleavedSamples(
+            in: config,
+            splitRoot: root.appendingPathComponent("split", isDirectory: true)
+        )
+        XCTAssertEqual(Array(prepared.scans.keys), ["mixed"], "a stated layout runs no scan")
+        let facts = TaxTriageRecordFacts(config: config, sampleLayoutScans: prepared.scans)
+        let layouts = try XCTUnwrap(facts.resolvedDefaults["read_layouts"]?.dictionaryValue)
+        let scanned = try XCTUnwrap(layouts["mixed"]?.dictionaryValue)
+        XCTAssertEqual(scanned["readLayout"], .string("mixed_merged_and_pairs"))
+        XCTAssertEqual(scanned["scannedRecords"], .integer(140_000))
+        XCTAssertEqual(scanned["scannedWholeFile"], .boolean(true))
+        XCTAssertEqual(scanned["pairs"], .integer(60_000))
+        XCTAssertEqual(scanned["unpairedReads"], .integer(20_000))
+        let named = try XCTUnwrap(layouts["stated"]?.dictionaryValue)
+        XCTAssertEqual(named["readLayout"], .string("single_end"))
+        XCTAssertEqual(named["scannedRecords"], .null)
+        XCTAssertEqual(named["scannedWholeFile"], .null)
+        XCTAssertEqual(named["pairs"], .null)
+        XCTAssertEqual(named["unpairedReads"], .null)
+        XCTAssertEqual(
+            TaxTriageRecordFacts.recordOptions(fromRunParameters: facts.runParameters).resolvedDefaults["read_layouts"],
+            facts.resolvedDefaults["read_layouts"],
+            "the save keeps it among the resolved defaults"
+        )
+    }
+
+    /// Item 12, a plan keeps its scan, so TaxTriage, Viral Recon and mapping record it with no second read.
+    func testAPlanKeepsTheScanThatDecidedIt() async throws {
+        let mixed = try bundle([.pairs(60_000), .singles(20_000)])
+        let plan = try await KrakenReadSetPlanner.plan(
+            bundle: mixed.bundle,
+            materializedInputs: [mixed.reads],
+            materializationDirectory: root.appendingPathComponent("inputs", isDirectory: true)
+        )
+        let scan = try XCTUnwrap(plan.layoutClassification)
+        XCTAssertEqual(scan.scannedRecords, 140_000)
+        XCTAssertEqual(scan.matePairs, 60_000)
+        XCTAssertEqual(scan.unpairedRecords, 20_000)
+        XCTAssertTrue(scan.scannedWholeFile)
+    }
+
+    /// BIO's rule. The count of a materialization outranks the scan for `pairs` and `unpairedReads`.
+    func testACountOfTheWholeFileOutranksTheScanInTheRecord() throws {
+        let scan = try XCTUnwrap(FASTQInputLayoutResolver.resolve(inputURLs: [try file([.pairs(10), .singles(2)])]).classification)
+        let fields = FASTQReadLayoutClassification.scanProvenanceParameters(of: scan.countedWhole(pairs: 5, unpaired: 3))
+        XCTAssertEqual(fields["scannedRecords"], .integer(13))
+        XCTAssertEqual(fields["scannedWholeFile"], .boolean(true))
+        XCTAssertEqual(fields["pairs"], .integer(5))
+        XCTAssertEqual(fields["unpairedReads"], .integer(3))
+    }
+
+    /// BIO's rule. A scan of a file that holds only part of its bundle says nothing about the bundle, so the record holds
+    /// null, though `scannedWholeFile` is true of the file read.
+    func testARecordNamesNoScanOfAFileThatHoldsPartOfItsBundle() throws {
+        let whole = try bundle([.pairs(10)])
+        XCTAssertNotNil(FASTQInputLayoutResolver.resolve(inputURLs: [whole.bundle]).recordedScan(of: whole.bundle))
+        XCTAssertNotNil(FASTQInputLayoutResolver.resolve(inputURLs: [try file([.pairs(10)])]).classification)
+
+        let part = try bundle([.pairs(10)])
+        try FASTQLayoutRecordFixtures.write([.pairs(10)], to: part.bundle.appendingPathComponent("more.fastq"))
+        let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [part.bundle])
+        XCTAssertNil(resolution.recordedScan(of: part.bundle))
+        XCTAssertEqual(
+            FASTQReadLayoutClassification.scanProvenanceParameters(of: resolution.recordedScan(of: part.bundle))["scannedWholeFile"],
+            .null
+        )
+    }
+
     /// BIO section "What the last continuation must add", item 7. Kraken 2 runs the whole-file scan, and its record holds
     /// what that scan read.
     func testKrakenRecordCarriesTheScanFields() throws {

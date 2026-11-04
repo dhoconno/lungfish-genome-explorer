@@ -207,6 +207,7 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
             resolvedInterleaved: isInterleaved,
             resolvedReadLayout: pairingDecision.layout.rawValue,
             resolvedReadLayoutReason: pairingDecision.resolution.reason,
+            resolvedReadLayoutScan: pairingDecision.resolution.recordedScan(of: inputURL),
             force: output.force,
             compress: output.compress,
             resolvedCompressOutput: shouldCompressOutput,
@@ -320,6 +321,7 @@ extension FastqScrubHumanSubcommand {
         resolvedInterleaved: Bool = false,
         resolvedReadLayout: String = FASTQInputLayout.singleEnd.rawValue,
         resolvedReadLayoutReason: String? = nil,
+        resolvedReadLayoutScan: FASTQReadLayoutClassification? = nil,
         force: Bool,
         compress: Bool,
         resolvedCompressOutput: Bool,
@@ -369,6 +371,7 @@ extension FastqScrubHumanSubcommand {
             "resolvedCompressOutput": .boolean(resolvedCompressOutput),
             "threads": .integer(threads)
         ]
+        effective.merge(FASTQReadLayoutClassification.scanProvenanceParameters(of: resolvedReadLayoutScan)) { current, _ in current }
         if let timeLimitMinutes {
             effective[AnalysisTimeLimit.recordKey] = .integer(timeLimitMinutes)
         }

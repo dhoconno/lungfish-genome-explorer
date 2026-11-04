@@ -27,6 +27,8 @@ struct ReadSetSource: Sendable, Equatable {
     var reason: String
     var platform: SequencingPlatform?
     var wasMaterialized: Bool
+    /// The scan that decided ``layout``. Nil when no scan decided it.
+    var layoutClassification: FASTQReadLayoutClassification? = nil
 
     var pairs: [ReadSetMatePair] {
         parts.compactMap { if case .pair(let pair) = $0 { return pair } else { return nil } }

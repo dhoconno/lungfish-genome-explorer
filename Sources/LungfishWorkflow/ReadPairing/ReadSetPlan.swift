@@ -233,6 +233,9 @@ public struct ReadSetPlan: Sendable, Equatable {
     /// Why mates are handed to the tool as single reads, or nil when they are not.
     public let singleReadReason: String?
     public let composition: ReadSetComposition
+    /// The scan that decided ``sourceLayout``, for the run record, with the counts of a materialization where one read
+    /// the whole file. Nil when no scan decided it. A plan holds it so that a record needs no second read.
+    public let layoutClassification: FASTQReadLayoutClassification?
 
     public init(
         inputURL: URL,
@@ -245,7 +248,8 @@ public struct ReadSetPlan: Sendable, Equatable {
         runs: [ReadSetRun],
         steps: [ReadSetStep],
         singleReadReason: String?,
-        composition: ReadSetComposition
+        composition: ReadSetComposition,
+        layoutClassification: FASTQReadLayoutClassification? = nil
     ) {
         self.inputURL = inputURL.standardizedFileURL
         self.capability = capability
@@ -258,6 +262,7 @@ public struct ReadSetPlan: Sendable, Equatable {
         self.steps = steps
         self.singleReadReason = singleReadReason
         self.composition = composition
+        self.layoutClassification = layoutClassification
     }
 
     public var matePairs: [ReadSetMatePair] { runs.flatMap(\.matePairs) }

@@ -242,7 +242,8 @@ public enum KrakenReadSetPlanner {
             runs: runs,
             steps: plan.steps,
             singleReadReason: plan.singleReadReason,
-            composition: ReadSetComposition(runs: runs)
+            composition: ReadSetComposition(runs: runs),
+            layoutClassification: plan.layoutClassification
         )
     }
 

@@ -191,6 +191,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
                 isInterleaved: isInterleaved,
                 readLayout: pairingDecision?.layout,
                 readLayoutReason: pairingDecision?.resolution.reason,
+                layoutResolution: pairingDecision?.resolution,
                 invocations: invocations,
                 status: .failed
             )
@@ -211,6 +212,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
             isInterleaved: isInterleaved,
             readLayout: pairingDecision?.layout,
             readLayoutReason: pairingDecision?.resolution.reason,
+            layoutResolution: pairingDecision?.resolution,
             invocations: invocations,
             status: .completed
         )
@@ -369,12 +371,13 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         isInterleaved: Bool,
         readLayout: FASTQInputLayout?,
         readLayoutReason: String?,
+        layoutResolution: FASTQInputLayoutResolution?,
         invocations: [DeaconRiboInvocationRecord],
         status: RunStatus
     ) async throws {
         let runID = await ProvenanceRecorder.shared.beginRun(
             name: "Deacon rRNA FASTQ filter",
-            parameters: [
+            parameters: ([
                 "input": .file(originalInputURLs[0]),
                 "inputs": .array(originalInputURLs.map { .file($0) }),
                 "outputDirectory": .file(outputDirectoryURL),
@@ -389,7 +392,9 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
                 "readLayout": .string((readLayout ?? .pairedFiles).rawValue),
                 "readLayoutReason": readLayoutReason.map(ParameterValue.string) ?? .null,
                 "condaEnvironment": .string("deacon"),
-            ]
+            ] as [String: ParameterValue]).merging(
+                FASTQReadLayoutClassification.scanProvenanceParameters(of: layoutResolution?.recordedScan(of: inputURLs.first))
+            ) { current, _ in current }
         )
         let reformatVersion = await NativeToolRunner.shared.getToolVersion(.reformat) ?? "unknown"
 

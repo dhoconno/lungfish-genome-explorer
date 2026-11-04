@@ -316,6 +316,9 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
             "readLayoutReason": pairingDecision.map { .string($0.resolution.reason) } ?? .null,
             "condaEnvironment": .string("ribodetector"),
         ]
+        parameters.merge(
+            FASTQReadLayoutClassification.scanProvenanceParameters(of: pairingDecision?.resolution.recordedScan(of: inputURLs.first))
+        ) { current, _ in current }
         if let splitPairs {
             parameters["splitPairs"] = .integer(splitPairs)
         }

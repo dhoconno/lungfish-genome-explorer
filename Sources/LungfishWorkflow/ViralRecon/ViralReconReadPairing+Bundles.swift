@@ -206,7 +206,8 @@ extension ViralReconReadPairing {
                     materialized: plan.wasMaterialized,
                     singleReadCount: singleReadCount,
                     singleReadReason: plan.singleReadReason
-                )
+                ),
+                layoutScan: plan.layoutClassification
             )
             let stagedSample = ViralReconSample(
                 sampleName: sample.sampleName,

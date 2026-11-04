@@ -350,7 +350,7 @@ final class TaxTriageRecordFreezeTests: XCTestCase {
         XCTAssertEqual(single.readSetPlansBySample, [:])
         XCTAssertNotNil(single.options.resolvedDefaults["fetchedReferences"], "DB-IDENTITY (3.1), the record names its fetched references")
         XCTAssertEqual(
-            single.options.resolvedDefaults.filter { $0.key != "fetchedReferences" },
+            single.options.resolvedDefaults.filter { !["fetchedReferences", "read_layouts"].contains($0.key) },
             ["readSetPlan": plans["mixed"]!, "classifiers": .array([.string("kraken2")]), "sample_count": .integer(1)],
             "flipped by B2 (T7), the plan is a resolved default, moved by B11 M2 (R5) the classifiers are one, and moved by A2 M3 (B12 ruling H1) sample_count"
         )

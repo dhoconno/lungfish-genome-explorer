@@ -445,6 +445,13 @@ extension FASTQReadLayoutClassifier {
             && holdsEveryRead(fastqURL, ofBundle: bundleURL(holding: inputURL))
     }
 
+    /// Whether a scan of `inputURL` counted every read of the input, so that its counts may stand in a run record. A
+    /// virtual bundle's preview and a chunked root's first chunk are read whole and still hold only part of the input.
+    public static func scanHoldsEveryRead(of inputURL: URL) -> Bool {
+        guard let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: inputURL) else { return false }
+        return holdsEveryRead(fastqURL, ofBundle: bundleURL(holding: inputURL))
+    }
+
     /// The most a wizard or a dialog reads of a file on its own.
     public static let cueRecordLimit = 2_000
 

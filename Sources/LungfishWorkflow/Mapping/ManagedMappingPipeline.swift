@@ -205,7 +205,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             readSetPlan: AnalysisRootRecordOptions.readSetPlanValue(of: readSetPlan)
         )
         try provenance.save(to: prepared.request.outputDirectory)
-        try provenance.saveCanonicalEnvelope(to: prepared.request.outputDirectory, runCommand: runCommand)
+        try provenance.saveCanonicalEnvelope(to: prepared.request.outputDirectory, runCommand: runCommand, layoutFacts: FASTQReadLayoutClassification.scanProvenanceParameters(of: prepared.request.inputLayoutScan))
         progress?(1.0, "Mapping complete.")
         return result
     }
@@ -472,7 +472,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 pairedFiles: request.pairedEnd
             )
             inputLayoutReason = resolution.reason
-            layoutResolvedRequest = layoutResolvedRequest.withInputLayout(resolution.layout)
+            layoutResolvedRequest = layoutResolvedRequest.withInputLayout(resolution.layout, scan: resolution.recordedScan(of: stagedInputs.inputURLs.first))
         }
         let effectiveRequest = layoutResolvedRequest
             .withSourceReferenceBundleURL(sourceReferenceBundleURL)

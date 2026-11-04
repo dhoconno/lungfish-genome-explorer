@@ -479,7 +479,7 @@ public actor TaxTriagePipeline {
             name: "TaxTriage",
             parameters: provenanceParameters(
                 for: profileAdjustedConfig,
-                interleavedSplits: layoutPrepared.splits,
+                interleavedSplits: layoutPrepared.splits, sampleLayoutScans: layoutPrepared.scans,
                 pin: pin
             )
         )

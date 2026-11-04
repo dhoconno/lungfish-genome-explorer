@@ -721,7 +721,7 @@ struct AssembleCommand: AsyncParsableCommand {
         executionInputURLs: [URL],
         layoutResolution: FASTQInputLayoutResolution?
     ) -> [String: ParameterValue] {
-        AnalysisTimeLimit.recording([
+        AnalysisTimeLimit.recording(([
             "assembler": .string(request.tool.rawValue),
             "readType": .string(request.readType.cliArgument),
             "projectName": .string(request.projectName),
@@ -740,7 +740,7 @@ struct AssembleCommand: AsyncParsableCommand {
             "extraArguments": .array(request.extraArguments.map(ParameterValue.string)),
             "originalInputs": .array(originalInputURLs.map { .file($0.standardizedFileURL) }),
             "executionInputs": .array(executionInputURLs.map { .file($0.standardizedFileURL) }),
-        ])
+        ] as [String: ParameterValue]).merging(FASTQReadLayoutClassification.scanProvenanceParameters(of: layoutResolution?.recordedScan(of: executionInputURLs.first))) { current, _ in current })
     }
 
     private static func provenanceOutputDescriptors(

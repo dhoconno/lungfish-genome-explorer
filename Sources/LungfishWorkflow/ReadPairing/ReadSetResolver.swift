@@ -385,6 +385,11 @@ public struct ReadSetResolver: Sendable {
             layout = .mixedMergedAndPairs
             layoutReason = "The whole file holds \(counts.pairs) adjacent mate pairs and \(counts.unpaired) reads without a mate, so it mixes pairs and single reads. \(resolution.reason)"
         }
+        // The record names the scan that decided, and the whole-file count of a materialization outranks it.
+        var layoutClassification = resolution.recordedScan(of: file)
+        if let counts = materializedCounts {
+            layoutClassification = layoutClassification?.countedWhole(pairs: counts.pairs, unpaired: counts.unpaired)
+        }
         // A classification in the L3 form, every role naming this file,
         // records the counts of its kinds of records.
         let ownClassification = wasMaterialized ? nil : Self.singleFileClassification(of: file)
@@ -399,7 +404,8 @@ public struct ReadSetResolver: Sendable {
                 layout: .interleavedFile,
                 reason: layoutReason,
                 platform: platform,
-                wasMaterialized: wasMaterialized
+                wasMaterialized: wasMaterialized,
+                layoutClassification: layoutClassification
             )
         case .mixedMergedAndPairs:
             return ReadSetSource(
@@ -413,7 +419,8 @@ public struct ReadSetResolver: Sendable {
                 layout: .mixedFile,
                 reason: layoutReason,
                 platform: platform,
-                wasMaterialized: wasMaterialized
+                wasMaterialized: wasMaterialized,
+                layoutClassification: layoutClassification
             ).resolvingStreamsByTheirCounts()
         case .singleEnd, .pairedFiles:
             return ReadSetSource(
@@ -425,7 +432,8 @@ public struct ReadSetResolver: Sendable {
                 layout: .singleEndFile,
                 reason: layoutReason,
                 platform: platform,
-                wasMaterialized: wasMaterialized
+                wasMaterialized: wasMaterialized,
+                layoutClassification: layoutClassification
             )
         }
     }

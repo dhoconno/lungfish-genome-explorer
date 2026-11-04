@@ -91,6 +91,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
     /// The resolved layout of `inputFASTQURLs`, or `nil` until the pipeline
     /// resolves it (``FASTQInputLayoutResolver``) after input materialization.
     public let inputLayout: FASTQInputLayout?
+    /// The whole-file scan behind ``inputLayout``, for the run record. Nil when no scan decided it.
+    public let inputLayoutScan: FASTQReadLayoutClassification?
     /// The name of the alignment track the BAM is attached as in the
     /// mapping viewer bundle (`--track-name`); `nil` means
     /// ``MappingResultLayoutService/defaultTrackName(for:)``.
@@ -122,6 +124,7 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
         advancedArguments: [String] = [],
         compatibilityReadClassOverride: MappingReadClass? = nil,
         inputLayout: FASTQInputLayout? = nil,
+        inputLayoutScan: FASTQReadLayoutClassification? = nil,
         outputTrackName: String? = nil,
         readSetLayout: MappingReadSetLayout? = nil
     ) {
@@ -145,6 +148,7 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
         self.advancedArguments = advancedArguments
         self.compatibilityReadClassOverride = compatibilityReadClassOverride
         self.inputLayout = inputLayout
+        self.inputLayoutScan = inputLayoutScan
         let trimmedTrackName = outputTrackName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.outputTrackName = trimmedTrackName.isEmpty ? nil : trimmedTrackName
         self.readSetLayout = readSetLayout
@@ -172,6 +176,7 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
             inputLayout: inputLayout,
+            inputLayoutScan: inputLayoutScan,
             outputTrackName: outputTrackName,
             readSetLayout: readSetLayout
         )
@@ -199,6 +204,7 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
             inputLayout: inputLayout,
+            inputLayoutScan: inputLayoutScan,
             outputTrackName: outputTrackName,
             readSetLayout: readSetLayout
         )
@@ -226,6 +232,7 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
             inputLayout: inputLayout,
+            inputLayoutScan: inputLayoutScan,
             outputTrackName: outputTrackName,
             readSetLayout: readSetLayout
         )
@@ -253,12 +260,13 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
             inputLayout: inputLayout,
+            inputLayoutScan: inputLayoutScan,
             outputTrackName: outputTrackName,
             readSetLayout: readSetLayout
         )
     }
 
-    public func withInputLayout(_ inputLayout: FASTQInputLayout?) -> MappingRunRequest {
+    public func withInputLayout(_ inputLayout: FASTQInputLayout?, scan: FASTQReadLayoutClassification? = nil) -> MappingRunRequest {
         MappingRunRequest(
             tool: tool,
             modeID: modeID,
@@ -280,6 +288,7 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
             inputLayout: inputLayout,
+            inputLayoutScan: scan,
             outputTrackName: outputTrackName,
             readSetLayout: readSetLayout
         )
@@ -314,6 +323,7 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
             inputLayout: inputLayout,
+            inputLayoutScan: inputLayoutScan,
             outputTrackName: outputTrackName,
             readSetLayout: readSetLayout
         )
@@ -361,6 +371,7 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             advancedArguments: advancedArguments,
             compatibilityReadClassOverride: compatibilityReadClassOverride,
             inputLayout: inputLayout,
+            inputLayoutScan: inputLayoutScan,
             outputTrackName: outputTrackName,
             readSetLayout: readSetLayout
         )

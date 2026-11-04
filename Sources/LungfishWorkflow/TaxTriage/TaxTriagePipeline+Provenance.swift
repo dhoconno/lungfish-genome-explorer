@@ -127,9 +127,10 @@ extension TaxTriagePipeline {
     nonisolated func provenanceParameters(
         for config: TaxTriageConfig,
         interleavedSplits: [InterleavedSampleSplit] = [],
+        sampleLayoutScans: [String: FASTQInputLayoutResolution] = [:],
         pin: NextflowPipelinePin? = nil
     ) -> [String: ParameterValue] {
-        TaxTriageRecordFacts(config: config, interleavedSplits: interleavedSplits, pin: pin).runParameters
+        TaxTriageRecordFacts(config: config, interleavedSplits: interleavedSplits, sampleLayoutScans: sampleLayoutScans, pin: pin).runParameters
     }
 
     /// Records the TaxTriage step. Each task failure TaxTriage ignored in a run that ended 0 adds a warning line to the
@@ -238,7 +239,7 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
     static let databaseInstallWorkflowName = "metagenomics.database.install"
     /// The run parameters a record holds among its resolved defaults rather than its explicit options.
     static let resolvedDefaultKeys: Set<String> = [
-        RecordedReadSetPlan.key, "classifiers", "sample_count", "interleaved_samples_split_to_r1_r2",
+        RecordedReadSetPlan.key, "classifiers", "sample_count", "interleaved_samples_split_to_r1_r2", "read_layouts",
         "databasePath", "databaseIdentityStatus", "databaseCoreFileSizes",
         "databaseCatalogID", "databaseCatalogVersion", "databaseSourceURL", "databaseSourcePolicy",
         "databaseDigest", "databaseIdentityNote", "fetchedReferences",
@@ -251,6 +252,7 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
     init(
         config: TaxTriageConfig,
         interleavedSplits: [TaxTriagePipeline.InterleavedSampleSplit] = [],
+        sampleLayoutScans: [String: FASTQInputLayoutResolution] = [:],
         pin: NextflowPipelinePin? = nil,
         runStart: Date = Date()
     ) {
@@ -290,6 +292,9 @@ struct TaxTriageRecordFacts: Sendable, Equatable {
         resolved["sample_count"] = .integer(config.samples.count)
         if !interleavedSplits.isEmpty {
             resolved["interleaved_samples_split_to_r1_r2"] = .array(interleavedSplits.map { .string($0.sampleId) })
+        }
+        if let layouts = TaxTriagePipeline.readLayoutRecord(for: config, scans: sampleLayoutScans) {
+            resolved["read_layouts"] = layouts
         }
         if config.samples.count == 1 {
             if let plan = config.samples[0].readSetPlan?.provenanceParameters[RecordedReadSetPlan.key] {

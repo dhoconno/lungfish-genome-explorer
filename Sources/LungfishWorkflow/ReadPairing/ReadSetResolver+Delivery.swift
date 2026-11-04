@@ -75,7 +75,8 @@ extension ReadSetResolver {
             runs: runs,
             steps: steps,
             singleReadReason: singleReadReason,
-            composition: shaped.composition
+            composition: shaped.composition,
+            layoutClassification: source.layoutClassification
         )
     }
 

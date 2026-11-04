@@ -32,6 +32,8 @@ extension TaxTriagePipeline {
     struct ReadLayoutPreparedConfig: Sendable {
         let config: TaxTriageConfig
         let splits: [InterleavedSampleSplit]
+        /// The one scan of each file sample that came with no layout, by sample ID, for the run record.
+        let scans: [String: FASTQInputLayoutResolution]
     }
 
     /// Scratch directory (inside the run's output directory) that holds the
@@ -76,9 +78,16 @@ extension TaxTriagePipeline {
         var prepared = config
         var splits: [InterleavedSampleSplit] = []
         var usedNames = Set<String>()
+        var scans: [String: FASTQInputLayoutResolution] = [:]
 
-        for (index, sample) in config.samples.enumerated() where shouldSplitInterleaved(sample) {
+        for (index, sample) in config.samples.enumerated() {
             try Task.checkCancellation()
+            // A file sample with no layout is scanned here, once, and the record names this scan.
+            let scan = sample.fastq2 == nil && sample.platform == .illumina && sample.readLayout == nil
+                ? FASTQInputLayoutResolver.resolve(inputURLs: [sample.fastq1])
+                : nil
+            if let scan { scans[sample.sampleId] = scan }
+            guard scan.map({ $0.layout == .strictlyInterleaved }) ?? shouldSplitInterleaved(sample) else { continue }
             progress?(0.05, "Splitting interleaved pairs of \(sample.sampleId) into R1/R2 for TaxTriage...")
             let directoryName = SampleFolderNaming.uniqueDirectoryName(
                 for: sample.sampleId,
@@ -110,7 +119,7 @@ extension TaxTriagePipeline {
             ))
         }
 
-        return ReadLayoutPreparedConfig(config: prepared, splits: splits)
+        return ReadLayoutPreparedConfig(config: prepared, splits: splits, scans: scans)
     }
 
     /// Run parameters that record each planned sample's read-set plan, by
@@ -128,6 +137,28 @@ extension TaxTriagePipeline {
             }
         }
         return plans.isEmpty ? [:] : ["read_set_plans": .dictionary(plans)]
+    }
+
+    /// `read_layouts` by sample ID (row READ-LAYOUT-PARTIAL-SCAN): each decided sample's layout, its reason and what was
+    /// read to decide it, null where no scan decided. Nil when no sample was decided, as for a saved configuration that
+    /// was never run. `scans` holds the pipeline's own scans, and a planned sample holds the scan of its plan, so a
+    /// record needs no second read.
+    nonisolated static func readLayoutRecord(
+        for config: TaxTriageConfig,
+        scans: [String: FASTQInputLayoutResolution]
+    ) -> ParameterValue? {
+        var samples: [String: ParameterValue] = [:]
+        for sample in config.samples {
+            let scanned = scans[sample.sampleId]
+            guard scanned != nil || sample.readSetPlan != nil || sample.readLayout != nil else { continue }
+            var fields = FASTQReadLayoutClassification.scanProvenanceParameters(
+                of: scanned?.recordedScan(of: sample.fastq1) ?? sample.readSetPlan?.layoutClassification
+            )
+            fields["readLayout"] = (scanned?.layout ?? sample.readLayout).map { .string($0.rawValue) } ?? .null
+            fields["readLayoutReason"] = (scanned?.reason ?? sample.readSetPlan?.layoutReason).map { .string($0) } ?? .null
+            samples[sample.sampleId] = .dictionary(fields)
+        }
+        return samples.isEmpty ? nil : .dictionary(samples)
     }
 
     /// Records the steps that made the files the run reads: the splits and

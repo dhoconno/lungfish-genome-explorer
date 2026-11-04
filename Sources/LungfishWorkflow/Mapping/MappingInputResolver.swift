@@ -261,7 +261,7 @@ public enum MappingInputResolver {
         var resolvedRequest = request
             .withInputFASTQURLs(resolved.executionInputURLs, pairedEnd: pairedEnd)
             .withInputLineage(resolved)
-            .withInputLayout(layoutResolution.layout)
+            .withInputLayout(layoutResolution.layout, scan: layoutResolution.recordedScan(of: resolved.executionInputURLs.first))
         if let pooledOriginals {
             // The lineage names every bundle the pool joined, not the first only.
             resolvedRequest = resolvedRequest.withOriginalInputFASTQURLs(pooledOriginals)
@@ -343,12 +343,13 @@ public enum MappingInputResolver {
         let layoutResolution = FASTQInputLayoutResolution(
             layout: layout,
             source: plan.sourceLayout == .mixedDerivative ? .bundleMetadata : .contentScan,
+            classification: plan.layoutClassification,
             reason: plan.layoutReason
         )
         let resolvedRequest = request
             .withInputFASTQURLs(executionURLs, pairedEnd: pairedEnd)
             .withInputLineage(lineage)
-            .withInputLayout(layout)
+            .withInputLayout(layout, scan: plan.layoutClassification)
             .withReadSetLayout(readSetLayout)
         return MappingResolvedInputs(
             request: resolvedRequest,

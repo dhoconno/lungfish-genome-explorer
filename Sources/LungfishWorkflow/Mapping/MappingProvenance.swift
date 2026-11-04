@@ -318,8 +318,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
     }
 
     @discardableResult
-    public func saveCanonicalEnvelope(to directory: URL, writer: ProvenanceWriter = ProvenanceWriter(), runCommand: [String]? = nil) throws -> URL {
-        try writer.write(canonicalEnvelope(sourceDirectory: directory, runCommand: runCommand), to: directory)
+    public func saveCanonicalEnvelope(to directory: URL, writer: ProvenanceWriter = ProvenanceWriter(), runCommand: [String]? = nil, layoutFacts: [String: ParameterValue] = [:]) throws -> URL {
+        try writer.write(canonicalEnvelope(sourceDirectory: directory, runCommand: runCommand, layoutFacts: layoutFacts), to: directory)
     }
 
     public static func load(from directory: URL) -> MappingProvenance? { load(fromFile: directory.appendingPathComponent(Self.filename)) }
@@ -562,7 +562,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
 
     /// `runCommand`, the run's own `lungfish-cli map` argv, names the record in `argv` and `reproducibleCommand` and clears
     /// `durableReplayArgv`, and the steps keep the mapper's (BIO's ruling D8, A46). Nil, as genotyping passes, keeps the mapper's.
-    public func canonicalEnvelope(sourceDirectory: URL, runCommand: [String]? = nil) -> ProvenanceEnvelope {
+    public func canonicalEnvelope(sourceDirectory: URL, runCommand: [String]? = nil, layoutFacts: [String: ParameterValue] = [:]) -> ProvenanceEnvelope {
         let sourceDirectory = sourceDirectory.standardizedFileURL
         let inputRecords = canonicalInputRecords(relativeTo: sourceDirectory)
         let outputRecords = canonicalOutputRecords(relativeTo: sourceDirectory)
@@ -589,7 +589,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             reproducibleCommand: runCommand.map { $0.map(shellEscape).joined(separator: " ") } ?? mapperInvocation.durableReplayCommandLine,
             options: ProvenanceOptions(
                 explicit: canonicalParameters(),
-                resolvedDefaults: readSetPlan.map { [RecordedReadSetPlan.key: $0] } ?? [:]
+                resolvedDefaults: (readSetPlan.map { [RecordedReadSetPlan.key: $0] } ?? [:]).merging(layoutFacts) { current, _ in current }
             ),
             runtimeIdentity: ProvenanceRuntimeIdentity(
                 appVersion: WorkflowRun.currentAppVersion,

@@ -9,6 +9,7 @@
 
 import XCTest
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class MappingReadLayoutTests: XCTestCase {
@@ -228,6 +229,57 @@ final class MappingReadLayoutTests: XCTestCase {
         XCTAssertEqual(reloaded.inputLayout, .mixedMergedAndPairs)
         XCTAssertEqual(reloaded.readLayoutHandling, .asPairs)
         XCTAssertEqual(reloaded.inputLayoutReason, provenance.inputLayoutReason)
+    }
+
+    /// Item 12, mapping. The canonical record holds what the scan read, in the resolved defaults. A stated layout read
+    /// nothing, so a run records null. The scan stays with the request through its copies.
+    func testTheCanonicalRecordHoldsTheScanFields() throws {
+        let mixed = output.appendingPathComponent("mixed-for-the-record.fastq")
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        try FASTQLayoutRecordFixtures.write([.pairs(60), .singles(20)], to: mixed)
+        let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [mixed], explicit: .strictlyInterleaved)
+        XCTAssertEqual(resolution.layout, .mixedMergedAndPairs)
+        let request = request(tool: .minimap2, layout: nil)
+            .withInputLayout(resolution.layout, scan: resolution.recordedScan(of: mixed))
+            .withInputFASTQURLs([mixed], pairedEnd: false)
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: request.modeID,
+            bamURL: output.appendingPathComponent("sample.sorted.bam"),
+            baiURL: output.appendingPathComponent("sample.sorted.bam.bai"),
+            totalReads: 1,
+            mappedReads: 1,
+            unmappedReads: 0,
+            wallClockSeconds: 1,
+            contigs: []
+        )
+        let provenance = MappingProvenance.build(
+            request: request,
+            result: result,
+            mapperInvocation: try MappingProvenance.mapperInvocation(for: request),
+            normalizationInvocations: [],
+            mapperVersion: "2.28",
+            samtoolsVersion: "1.24"
+        )
+        let scanned = provenance.canonicalEnvelope(
+            sourceDirectory: output,
+            layoutFacts: FASTQReadLayoutClassification.scanProvenanceParameters(of: request.inputLayoutScan)
+        ).options.resolvedDefaults
+        XCTAssertEqual(scanned["scannedRecords"], .integer(140))
+        XCTAssertEqual(scanned["scannedWholeFile"], .boolean(true))
+        XCTAssertEqual(scanned["pairs"], .integer(60))
+        XCTAssertEqual(scanned["unpairedReads"], .integer(20))
+
+        let statedRequest = request.withInputLayout(.singleEnd)
+        XCTAssertNil(statedRequest.inputLayoutScan, "a layout with no scan drops the earlier one")
+        let stated = provenance.canonicalEnvelope(
+            sourceDirectory: output,
+            layoutFacts: FASTQReadLayoutClassification.scanProvenanceParameters(of: statedRequest.inputLayoutScan)
+        ).options.resolvedDefaults
+        XCTAssertEqual(stated["scannedRecords"], .null)
+        XCTAssertEqual(stated["scannedWholeFile"], .null)
+        XCTAssertEqual(stated["pairs"], .null)
+        XCTAssertEqual(stated["unpairedReads"], .null)
     }
 
     func testProvenanceLeavesTheLayoutNilWhenTheRequestNeverResolvedIt() throws {
