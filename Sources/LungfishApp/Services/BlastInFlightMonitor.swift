@@ -185,7 +185,11 @@ final class BlastInFlightMonitor {
             await checkCopy(folder, extra: extra, rid: search.file.copies.last?.rid)
             return
         }
-        guard passes[searchID] == nil else { return }
+        guard passes[searchID] == nil else {
+            // A pass is checking now and tells the pane what it finds, so the press starts no second one and is answered.
+            BlastSearchPaneActions.say(BlastSearchWords.checkAlreadyUnderWay, about: folder)
+            return
+        }
         ended.remove(searchID)
         let line = BlastInFlightLine(
             search.file, output: folder, words: BlastSearchWords.adopted(rid: search.file.copies.last?.rid), now: now()

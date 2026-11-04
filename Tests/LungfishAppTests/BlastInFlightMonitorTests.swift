@@ -151,6 +151,49 @@ final class BlastInFlightMonitorTests: XCTestCase {
         XCTAssertEqual(pane.noteLabel.stringValue, BlastSearchWords.stopNotTaken)
     }
 
+    /// O2 (CHECK-NOW-MONITOR-PASS). A Check Now pressed while LGE's own pass is checking the search did nothing and said
+    /// nothing. The pane now says that a check is already under way, and the press starts no second check.
+    func testCheckNowDuringTheMonitorsOwnPassSaysTheCheckIsAlreadyUnderWay() async throws {
+        let folder = try TestTempDirectory.make(prefix: "blast-check-during-pass")
+        defer { TestTempDirectory.cleanup(folder) }
+        let search = try waitingSearch(in: folder)
+        let line = search.line
+        let (held, release) = AsyncStream<Void>.makeStream()
+        let asked = Asked()
+        let moment = Date().addingTimeInterval(7_200)
+        let monitor = BlastInFlightMonitor(
+            worker: BlastInFlightMonitor.Worker(
+                lines: { _ in [line] },
+                pass: { output, _, _ in
+                    asked.pass(output)
+                    for await _ in held { break }
+                    return .noNews(words: "")
+                },
+                stop: { _ in }
+            ),
+            now: { moment }
+        )
+        let pane = try pane(on: search)
+        await monitor.refresh()
+        let row = try XCTUnwrap(monitor.row(ofSearch: search.file.searchID))
+        rows.append(row)
+        let began = await waitUntil(timeout: WaitBudget.lookup.duration) { asked.passes.count == 1 }
+        XCTAssertTrue(began, "the monitor's own pass never began")
+
+        monitor.perform(.checkNow, folder: search.output)
+
+        let said = await waitUntil(timeout: WaitBudget.lookup.duration) { !pane.noteLabel.stringValue.isEmpty }
+        XCTAssertTrue(said, "a press during the monitor's own pass said nothing")
+        let words = pane.noteLabel.stringValue.lowercased()
+        XCTAssertTrue(words.contains("already checking"), "the pane reads: \(words)")
+        for banned in ["failed", "error", "timed out", "retry", "polling", "attempt"] {
+            XCTAssertFalse(words.contains(banned), banned)
+        }
+        XCTAssertEqual(asked.passes.count, 1, "the press started a second check")
+        release.yield()
+        await monitor.passesFinished()
+    }
+
     private var rows: [UUID] = []
 
     override func tearDown() async throws {

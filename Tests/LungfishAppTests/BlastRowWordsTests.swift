@@ -49,6 +49,19 @@ final class BlastRowWordsTests: XCTestCase {
         XCTAssertTrue(words.hasSuffix("of 1 fragment (2 reads)"), words)
     }
 
+    // MARK: - CHECK-NOW-MONITOR-PASS
+
+    /// Check Now pressed while LGE's own pass is checking says so, with none of the banned words and no time to come.
+    func testTheAlreadyCheckingWordsSayACheckIsUnderWayAndNameNoTimeToCome() {
+        let words = BlastSearchWords.checkAlreadyUnderWay
+        XCTAssertTrue(words.contains("already checking"), words)
+        let lowercased = words.lowercased()
+        for banned in ["failed", "error", "timed out", "retry", "polling", "attempt", "copy", "copies", "soon", "minutes"] {
+            XCTAssertFalse(lowercased.contains(banned), banned)
+        }
+        XCTAssertNil(words.rangeOfCharacter(from: .decimalDigits), "no time to come: \(words)")
+    }
+
     // MARK: - NCBI's 100 searches
 
     func testThePastOneHundredLineNamesASlowerQueueAndNoRefusal() {

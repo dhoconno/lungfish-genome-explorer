@@ -145,6 +145,10 @@ package enum BlastSearchWords {
     /// A pass that found another process at work on the search.
     package static let alreadyRunning = "Another LGE process is already working on this search, so this one left it alone."
 
+    /// Q3, Check Now pressed while LGE's own pass is checking the search (CHECK-NOW-MONITOR-PASS). The pass tells the pane
+    /// what it finds, so this names no time to come.
+    package static let checkAlreadyUnderWay = "LGE is already checking this search. What NCBI says will show here when that check ends."
+
     /// Every route, moved project.
     package static func folderMissing(path: String, rid: String?) -> String {
         let stays = rid.map { "The search stays at NCBI as request ID \($0)." } ?? "No search is known to be waiting at NCBI."
