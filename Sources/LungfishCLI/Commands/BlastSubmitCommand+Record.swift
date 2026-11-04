@@ -38,9 +38,11 @@ extension BlastCommand.SubmitSubcommand {
         guard !FileManager.default.fileExists(atPath: recordURL.path) else {
             throw SubmitRefusal(message: "\(output.path) already holds a BLAST result", exitCode: .outputError)
         }
-        guard !BlastSearchStore(folder: output).holdsALiveSearch() else {
+        let searches = BlastSearchStore(folder: output)
+        searches.recoverInterruptedSwap()
+        guard !searches.holdsALiveSearch() else {
             throw SubmitRefusal(
-                message: "\(output.path) already holds a BLAST search that has not ended. Go on with it with blast resume --output, or choose another folder.",
+                message: "\(output.path) already holds a BLAST search that has not ended or that LGE cannot read. Go on with it with blast resume --output, or choose another folder.",
                 exitCode: .outputError
             )
         }

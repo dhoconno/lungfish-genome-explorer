@@ -284,4 +284,31 @@ final class BlastSearchChildTests: XCTestCase {
         XCTAssertTrue(second.stderrText.contains("blast resume"), second.stderrText)
         XCTAssertEqual(count(.put, on: server), 1, "a search in the folder is not sent over")
     }
+
+    /// SWIFT review SF2. A search file LGE cannot read may hold a live search, so a submit leaves it alone.
+    private func assertASubmitIsRefusedAndLeaves(
+        _ bytes: Data, file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        let server = try BlastFaultStandIn.start(timeScale: Self.fastClock)
+        defer { server.stop() }
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let searchFile = output.appendingPathComponent("blast-search.json")
+        try bytes.write(to: searchFile)
+
+        let result = try await run(try submitArguments(), server: server)
+
+        XCTAssertEqual(result.status, 4, result.stderrText, file: file, line: line)
+        XCTAssertTrue(result.stderrText.contains("that LGE cannot read"), result.stderrText, file: file, line: line)
+        XCTAssertTrue(result.stderrText.contains("blast resume"), result.stderrText, file: file, line: line)
+        XCTAssertEqual(try Data(contentsOf: searchFile), bytes, "the file is left as it was", file: file, line: line)
+        XCTAssertEqual(count(.put, on: server), 0, "nothing is sent over it", file: file, line: line)
+    }
+
+    func testASubmitIntoAFolderWithAnUnreadableSearchFileIsRefusedAndLeavesIt() async throws {
+        try await assertASubmitIsRefusedAndLeaves(Data("not json".utf8))
+    }
+
+    func testASubmitIntoAFolderWithANewerSchemaSearchFileIsRefusedAndLeavesIt() async throws {
+        try await assertASubmitIsRefusedAndLeaves(Data(#"{"schemaVersion":99}"#.utf8))
+    }
 }

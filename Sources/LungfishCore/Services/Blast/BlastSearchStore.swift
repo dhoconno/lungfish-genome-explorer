@@ -69,10 +69,17 @@ package struct BlastSearchStore: Sendable {
         }
     }
 
-    /// Whether the folder holds a search that has not ended.
+    /// Whether the folder holds a search that has not ended, or a search file LGE cannot read, which may hold a live
+    /// search and so is left alone.
     package func holdsALiveSearch() -> Bool {
-        guard let file = try? load() else { return false }
-        return !file.state.isEnding
+        do {
+            return !(try load().state.isEnding)
+        } catch BlastSearchStoreError.noSearch {
+            return false
+        } catch {
+            // A file LGE cannot read may hold a live search, so it is left alone.
+            return true
+        }
     }
 
     /// Makes the search file durable.
