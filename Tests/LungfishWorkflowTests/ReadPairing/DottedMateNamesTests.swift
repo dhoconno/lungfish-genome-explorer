@@ -71,6 +71,14 @@ final class DottedMateNamesTests: XCTestCase {
         }
     }
 
+    /// The rule compares two names at a time, so reads numbered under a versioned accession pair once (READ-PAIRING.md).
+    func testReadsNumberedUnderAVersionedAccessionPairOnlyTheFirstTwo() {
+        XCTAssertTrue(FASTQReadLayoutClassifier.areMates("NC_045512.2.1", "NC_045512.2.2"))
+        XCTAssertFalse(FASTQReadLayoutClassifier.areMates("NC_045512.2.2", "NC_045512.2.3"))
+        XCTAssertFalse(FASTQReadLayoutClassifier.areMates("NC_045512.2.3", "NC_045512.2.4"))
+        XCTAssertFalse(FASTQReadLayoutClassifier.areMates("NC_045512.2.10", "NC_045512.2.11"))
+    }
+
     func testAFileOfDottedPairsIsStrict() throws {
         let input = try write(Self.dottedPairs(1...3), to: "pairs.fastq")
         let resolution = FASTQInputLayoutResolver.resolve(inputURLs: [input])
