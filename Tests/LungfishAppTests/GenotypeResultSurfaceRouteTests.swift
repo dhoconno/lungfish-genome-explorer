@@ -284,6 +284,25 @@ final class GenotypeResultSurfaceRouteTests: XCTestCase {
         try await assertTheEditIsSaved(edit, leftBy: "a second result that refused")
     }
 
+    /// The same result opened again while the first edit still waits builds a new controller through the real surface.
+    /// The first controller is kept for its edit, and its Undo goes.
+    func testASecondOpeningOfTheSameResultKeepsTheFirstEdit() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        let row = try await buildRow(of: "Genotype")
+        let edit = try await holdAnEdit(in: harness, row: row, body: "survive a second opening")
+
+        harness.select(row)
+
+        let reopened = await waitUntil(budget: .lookup) {
+            viewer.genotypeResultViewController.map { ObjectIdentifier($0) != edit.controllerID } ?? false
+        }
+        XCTAssertTrue(reopened, "the second opening never replaced the first viewer")
+        XCTAssertFalse(edit.undoManager.canUndo, "the second opening left an Undo that targets the first controller")
+        try await assertTheEditIsSaved(edit, leftBy: "a second opening of the same result")
+    }
+
     // MARK: - The words
 
     /// A surface that refuses on the file says what happened and what to try, with no internal kind id, and leaves
