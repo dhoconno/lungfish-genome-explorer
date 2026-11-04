@@ -49,6 +49,25 @@ final class TaxonomyBlastRowPaneTests: XCTestCase {
         XCTAssertEqual(vc.testBlastResultsTab?.currentResult?.rid, "RID-S2", "the pane shows what the view holds")
         XCTAssertEqual(vc.lastBlastRecordURL?.pathComponents.contains("S2"), true, "the record is the one in S2's folder")
         XCTAssertEqual(vc.lastBlastNode === display.virusesInS2, true, "Re-run BLAST targets the S2 row")
+        let summary = try XCTUnwrap(vc.testBlastResultsTab?.summaryLabel.stringValue)
+        XCTAssertTrue(summary.contains("S2"), "the summary names the sample whose search it shows: \(summary)")
+        XCTAssertFalse(summary.contains("S1"), summary)
+    }
+
+    /// A run finishes after the person moved to the same taxon in another sample (BIO, review blocker 1). The restore
+    /// for the new row never ran, since a run was in flight, so the verdict lands under S2's row. It is about S1's reads
+    /// and the summary says so.
+    func testARunsVerdictNamesItsSampleWhenAnotherSamplesRowIsSelected() async throws {
+        let display = try makeDisplay(savedIn: [])
+        let vc = display.controller
+
+        let runID = vc.beginBlastVerification(for: display.virusesInS1)
+        vc.testSunburstView.onNodeSelected?(display.virusesInS2)
+        vc.showBlastResults(Self.verification(rid: "RID-RUN"), recordURL: nil, runID: runID)
+
+        let summary = try XCTUnwrap(vc.testBlastResultsTab?.summaryLabel.stringValue)
+        XCTAssertTrue(summary.contains("S1"), "the summary names the sample the run ran on: \(summary)")
+        XCTAssertFalse(summary.contains("S2"), summary)
     }
 
     /// A row with no saved search after a row with one. The pane shows the selected row's search or nothing, so the

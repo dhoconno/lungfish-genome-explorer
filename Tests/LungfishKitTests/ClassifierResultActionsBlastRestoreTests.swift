@@ -112,6 +112,65 @@ final class ClassifierResultActionsBlastRestoreTests: XCTestCase {
         XCTAssertEqual(actions.lastBlastResult?.rid, "RID-RUN", "the run's result is row B's own")
     }
 
+    // MARK: - The summary names the sample (BIO, lane ROWPANE, review blocker 1)
+
+    /// Two samples can hold one taxon, so the taxon alone does not tell a person whose reads a verdict counts. The
+    /// summary names the sample of the row the pane shows.
+    func testPaneSummaryNamesTheSampleOfTheRowItShows() async throws {
+        await select(rowA)
+
+        let summary = actions.blastDrawer.summaryLabel.stringValue
+        XCTAssertTrue(summary.contains(try XCTUnwrap(rowA.sample)), summary)
+    }
+
+    /// A run that finishes after the person moved to another sample's row. Its verdict is about the sample it ran on.
+    func testARunsVerdictNamesTheSampleItRanOn() async throws {
+        let rowB = try rowOfSample("S2")
+        let rowC = try rowOfSample("S3")
+        await select(rowB)
+        actions.showBlastLoading(phase: .submitting, requestId: nil)
+        await select(rowC)
+        XCTAssertNil(actions.savedBlastRestoreTask, "no scan starts while a run is in flight")
+
+        actions.showBlastResults(try runResult(), recordURL: nil)
+
+        let summary = actions.blastDrawer.summaryLabel.stringValue
+        XCTAssertTrue(summary.contains("S2"), summary)
+        XCTAssertFalse(summary.contains("S3"), summary)
+    }
+
+    /// No single row is picked, so the pane keeps the verdict it shows (BIO's ruling) and the summary still says whose it is.
+    func testASavedVerdictKeepsNamingItsSampleWhenNoSingleRowIsPicked() async throws {
+        await select(rowA)
+
+        actions.showSelection(count: 2)
+        actions.showNoSelection(prompt: "")
+
+        let summary = actions.blastDrawer.summaryLabel.stringValue
+        XCTAssertEqual(actions.lastBlastResult?.rid, "RID-A")
+        XCTAssertTrue(summary.contains("S1"), summary)
+    }
+
+    /// A run that finishes while no single row is picked still names the sample it ran on.
+    func testARunsVerdictNamesItsSampleWhenNoSingleRowIsPicked() async throws {
+        let rowB = try rowOfSample("S2")
+        await select(rowB)
+        actions.showBlastLoading(phase: .submitting, requestId: nil)
+        actions.showSelection(count: 2)
+
+        actions.showBlastResults(try runResult(), recordURL: nil)
+
+        let summary = actions.blastDrawer.summaryLabel.stringValue
+        XCTAssertTrue(summary.contains("S2"), summary)
+    }
+
+    /// Row A with another sample, so two rows differ by sample alone.
+    private func rowOfSample(_ sample: String) throws -> BlastSavedSearchRow {
+        var row = try XCTUnwrap(rowA)
+        row.sample = sample
+        return row
+    }
+
     private func rowWithNoSearch(_ contig: String) throws -> BlastSavedSearchRow {
         var row = try XCTUnwrap(rowA)
         row.contig = contig

@@ -38,6 +38,15 @@ final class BlastResultsDrawerTabExportTests: XCTestCase {
         XCTAssertTrue(BlastResultsDrawerTab.verificationSummary(for: result).hasSuffix("(1 read)"))
     }
 
+    /// A pin for lane ROWPANE. With no sample named, the summary still opens with the taxon and its colon, so the
+    /// words of a result that has no sample to name do not change.
+    func testSummaryWithNoSubjectStartsWithTheTaxon() {
+        XCTAssertTrue(
+            BlastResultsDrawerTab.verificationSummary(for: makeResult()).hasPrefix("BLAST for Oxbow virus: "),
+            BlastResultsDrawerTab.verificationSummary(for: makeResult())
+        )
+    }
+
     /// Ruling BIO-BLAST-MATES Q2. Counts are fragments, and reads are the sequences sent.
     func testSummaryCountsFragmentsAndReads() {
         func fragment(_ id: String) -> BlastReadResult {
