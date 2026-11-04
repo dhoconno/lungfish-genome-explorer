@@ -59,28 +59,46 @@ final class NvdUniqueReadsFlagsLiveConformanceTests: XCTestCase {
         XCTAssertEqual(hit.uniqueReads, 5, "Unique Reads is the stored count, one for each read left after deduplication")
     }
 
+    /// Red at the base, which counts on the subject name and stores a false 0. A contig that the BAM does not hold has
+    /// no count, since samtools prints 0 for a reference it does not hold and exits 0. The import stores nothing for it.
+    func testUniqueReadsLeavesAContigTheBAMDoesNotHoldUncounted() async throws {
+        let samtools = try await ToolAvailability.require("samtools", environment: "samtools")
+        let imported = try await MetagenomicsImportService.importNvd(
+            inputURL: try Self.craftedRun(in: root, contig: "contig-absent"),
+            outputDirectory: root.appendingPathComponent("imports", isDirectory: true),
+            samtoolsPath: samtools.path
+        )
+        XCTAssertEqual(imported.uniqueReadRowsUpdated, 0, "a contig the BAM does not hold gets no count")
+        let database = try NvdDatabase(at: imported.resultDirectory.appendingPathComponent("hits.sqlite"))
+        let hit = try XCTUnwrap(try database.bestHits(forSamples: ["S1"]).first)
+        XCTAssertNil(hit.uniqueReads, "never counted, which is not 0")
+    }
+
     // MARK: - Staging
 
     private static let csv = """
     experiment,blast_task,sample_id,qseqid,qlen,sseqid,stitle,tax_rank,length,pident,evalue,bitscore,sscinames,staxids,blast_db_version,snakemake_run_id,mapped_reads,total_reads,stat_db_version,adjusted_taxid,adjustment_method,adjusted_taxid_name,adjusted_taxid_rank
-    EXP001,blastn,S1,contig-1,120,SYN0001.1,Synthetic virus,S,118,99.2,1e-20,250.5,Synthetic virus,12345,nt-2026,run-001,6,100000,stat-1,12345,unchanged,Synthetic virus,species
+    EXP001,blastn,S1,CONTIG,120,NC_000001.1,Synthetic virus,S,118,99.2,1e-20,250.5,Synthetic virus,12345,nt-2026,run-001,6,100000,stat-1,12345,unchanged,Synthetic virus,species
 
     """
 
-    /// An NVD run of the one sample S1 whose BAM is the crafted fixture, with one BLAST hit on its accession.
-    private static func craftedRun(in root: URL) throws -> URL {
+    /// An NVD run of the one sample S1 whose BAM is the crafted fixture, with one BLAST hit. As in a real NVD run, the
+    /// BAM's one reference, SYN0001.1, is the hit's contig (`qseqid`), and the BLAST subject (`sseqid`) is another
+    /// accession that the BAM does not hold (BIO review Blocker 1 of lane ESVUNIQUE).
+    private static func craftedRun(in root: URL, contig: String = "SYN0001.1") throws -> URL {
         let run = root.appendingPathComponent("nvd-run", isDirectory: true)
         let labkey = run.appendingPathComponent("05_labkey_bundling", isDirectory: true)
         let results = run.appendingPathComponent("02_human_viruses/03_human_virus_results", isDirectory: true)
         let mapped = results.appendingPathComponent("mapped_reads", isDirectory: true)
         try FileManager.default.createDirectory(at: labkey, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: mapped, withIntermediateDirectories: true)
-        try csv.write(to: labkey.appendingPathComponent("sample_blast_concatenated.csv"), atomically: true, encoding: .utf8)
+        try csv.replacingOccurrences(of: "CONTIG", with: contig)
+            .write(to: labkey.appendingPathComponent("sample_blast_concatenated.csv"), atomically: true, encoding: .utf8)
         let fixture = ConformanceFixtures.fixture("nvd/secondary-supplementary")
         for name in ["S1.filtered.bam", "S1.filtered.bam.bai"] {
             try FileManager.default.copyItem(at: fixture.appendingPathComponent(name), to: mapped.appendingPathComponent(name))
         }
-        try ">contig-1\nACGTACGT\n".write(to: results.appendingPathComponent("S1.human_virus.fasta"), atomically: true, encoding: .utf8)
+        try ">\(contig)\nACGTACGT\n".write(to: results.appendingPathComponent("S1.human_virus.fasta"), atomically: true, encoding: .utf8)
         return run
     }
 
