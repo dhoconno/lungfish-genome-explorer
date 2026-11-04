@@ -48,7 +48,7 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
     }
 
     /// A file recorded as pairs, with no merge evidence, whose whole scan found no adjacent mates may hold mates in a name
-    /// form the layout scan does not read (`SRR123.1.1`, `SRR123.1.2`). LGE's own name check reads every name. When it
+    /// form the layout scan does not read (`read_1`, `read_2`). LGE's own name check reads every name. When it
     /// holds, the file is strict and its pairs reach R1 and R2. Otherwise the layout stays.
     static func resolutionBorneOutByNames(
         _ resolution: FASTQInputLayoutResolution,

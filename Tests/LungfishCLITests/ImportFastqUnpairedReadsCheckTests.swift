@@ -10,10 +10,12 @@ import LungfishWorkflow
 
 /// `import fastq` joins a run's third file, `<run>.fastq` beside `<run>_1`
 /// and `<run>_2`, to the pair by its name alone (lane F9). A name is not
-/// enough. Mates named `SRR123.1.1` and `SRR123.1.2`, as `fastq-dump
-/// --split-3 --readids` writes them, are not mates to the rule the join
-/// checks every pair with, so the whole sample failed with a message that
-/// blamed the order of files that are in step (finding F9-S1). An
+/// enough. Mates named `SRR123.1_1` and `SRR123.1_2` are not mates to the
+/// rule the join checks every pair with, so the whole sample failed with a
+/// message that blamed the order of files that are in step (finding F9-S1).
+/// Row READ-LAYOUT-DOTTED-MATES moved these tests from `SRR123.1.1` and
+/// `SRR123.1.2`, as `fastq-dump --split-3 --readids` writes them, which the
+/// rule now reads and the third file joins. An
 /// interleaved copy of the pair named after the sample was stored beside the
 /// pair, so the bundle held every read twice (F9-N1).
 ///
@@ -40,13 +42,13 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    // MARK: - Mates named .1 and .2 (F9-S1)
+    // MARK: - Mates named _1 and _2 (F9-S1)
 
-    func testMatesNamedDotOneAndDotTwoImportAsAPairAndTheThirdFileIsLeftOutWithAWarning() async throws {
+    func testMatesNamedWithUnderscoresImportAsAPairAndTheThirdFileIsLeftOutWithAWarning() async throws {
         let folder = try writeRun("SRR123", files: [
-            "SRR123_1.fastq": Self.records([("SRR123.1.1", 1), ("SRR123.2.1", 2), ("SRR123.3.1", 3)], bases: "ACGTACGT"),
-            "SRR123_2.fastq": Self.records([("SRR123.1.2", 1), ("SRR123.2.2", 2), ("SRR123.3.2", 3)], bases: "TTGGCCAA"),
-            "SRR123.fastq": Self.records([("SRR123.4.1", 4)], bases: "GATTACAG"),
+            "SRR123_1.fastq": Self.records([("SRR123.1_1", 1), ("SRR123.2_1", 2), ("SRR123.3_1", 3)], bases: "ACGTACGT"),
+            "SRR123_2.fastq": Self.records([("SRR123.1_2", 1), ("SRR123.2_2", 2), ("SRR123.3_2", 3)], bases: "TTGGCCAA"),
+            "SRR123.fastq": Self.records([("SRR123.4_1", 4)], bases: "GATTACAG"),
         ])
 
         let run = try await runImport([folder.path])
@@ -56,7 +58,7 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         XCTAssertTrue(
             run.output.contains(
                 "SRR123.fastq was not joined to SRR123_1.fastq and SRR123_2.fastq as reads whose mate is missing, "
-                    + "because the names of their first reads, SRR123.1.1 and SRR123.1.2, do not mark the two as mates. "
+                    + "because the names of their first reads, SRR123.1_1 and SRR123.1_2, do not mark the two as mates. "
                     + "The pair imports without it, and SRR123.fastq is a separate sample named SRR123, which the "
                     + "import skips."
             ),
@@ -65,7 +67,7 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         let bundle = try importedBundle("SRR123")
         XCTAssertEqual(
             try Self.headers(in: bundle),
-            ["SRR123.1.1 1", "SRR123.1.2 1", "SRR123.2.1 2", "SRR123.2.2 2", "SRR123.3.1 3", "SRR123.3.2 3"]
+            ["SRR123.1_1 1", "SRR123.1_2 1", "SRR123.2_1 2", "SRR123.2_2 2", "SRR123.3_1 3", "SRR123.3_2 3"]
                 .map { "\($0) length=8" },
             "the pair imports by position, as it did before the third file was joined"
         )
@@ -81,9 +83,9 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
 
     func testADryRunShowsTheWarningAndListsTheThirdFileAsItsOwnSample() async throws {
         let folder = try writeRun("SRR124", files: [
-            "SRR124_1.fastq": Self.records([("SRR124.1.1", 1)], bases: "ACGTACGT"),
-            "SRR124_2.fastq": Self.records([("SRR124.1.2", 1)], bases: "TTGGCCAA"),
-            "SRR124.fastq": Self.records([("SRR124.2.1", 2)], bases: "GATTACAG"),
+            "SRR124_1.fastq": Self.records([("SRR124.1_1", 1)], bases: "ACGTACGT"),
+            "SRR124_2.fastq": Self.records([("SRR124.1_2", 1)], bases: "TTGGCCAA"),
+            "SRR124.fastq": Self.records([("SRR124.2_1", 2)], bases: "GATTACAG"),
         ])
 
         let run = try await runImport([folder.path], ["--dry-run"])
@@ -103,9 +105,9 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         // refuse the run with "found 2", so the warning described an import
         // that never ran (F11-N2).
         let folder = try writeRun("SRR126", files: [
-            "SRR126_1.fastq": Self.records([("SRR126.1.1", 1)], bases: "ACGTACGT"),
-            "SRR126_2.fastq": Self.records([("SRR126.1.2", 1)], bases: "TTGGCCAA"),
-            "SRR126.fastq": Self.records([("SRR126.2.1", 2)], bases: "GATTACAG"),
+            "SRR126_1.fastq": Self.records([("SRR126.1_1", 1)], bases: "ACGTACGT"),
+            "SRR126_2.fastq": Self.records([("SRR126.1_2", 1)], bases: "TTGGCCAA"),
+            "SRR126.fastq": Self.records([("SRR126.2_1", 2)], bases: "GATTACAG"),
         ])
 
         let run = try await runImport([folder.path], ["--name", "Patient7"])
@@ -115,7 +117,7 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         XCTAssertTrue(
             run.output.contains(
                 "Patient7: SRR126.fastq was not joined to SRR126_1.fastq and SRR126_2.fastq as reads whose mate is "
-                    + "missing, because the names of their first reads, SRR126.1.1 and SRR126.1.2, do not mark the two "
+                    + "missing, because the names of their first reads, SRR126.1_1 and SRR126.1_2, do not mark the two "
                     + "as mates. The pair imports without it, and SRR126.fastq is a separate sample named Patient7, "
                     + "which the import skips."
             ),
@@ -123,7 +125,7 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         )
         XCTAssertEqual(
             try Self.headers(in: try importedBundle("Patient7")),
-            ["SRR126.1.1 1 length=8", "SRR126.1.2 1 length=8"]
+            ["SRR126.1_1 1 length=8", "SRR126.1_2 1 length=8"]
         )
         let skips = Self.skips(in: run.output)
         XCTAssertEqual(skips.map(\.sample), ["Patient7"], run.output)
@@ -153,9 +155,9 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         // --force the third file imported second and replaced the pair's
         // bundle with a bundle of its own reads.
         let folder = try writeRun("SRR131", files: [
-            "SRR131_1.fastq": Self.records([("SRR131.1.1", 1), ("SRR131.2.1", 2)], bases: "ACGTACGT"),
-            "SRR131_2.fastq": Self.records([("SRR131.1.2", 1), ("SRR131.2.2", 2)], bases: "TTGGCCAA"),
-            "SRR131.fastq": Self.records([("SRR131.3.1", 3)], bases: "GATTACAG"),
+            "SRR131_1.fastq": Self.records([("SRR131.1_1", 1), ("SRR131.2_1", 2)], bases: "ACGTACGT"),
+            "SRR131_2.fastq": Self.records([("SRR131.1_2", 1), ("SRR131.2_2", 2)], bases: "TTGGCCAA"),
+            "SRR131.fastq": Self.records([("SRR131.3_1", 3)], bases: "GATTACAG"),
         ])
 
         let run = try await runImport([folder.path], ["--force"])
@@ -163,7 +165,7 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
         XCTAssertNil(run.error, run.output)
         XCTAssertEqual(
             try Self.headers(in: try importedBundle("SRR131")),
-            ["SRR131.1.1 1", "SRR131.1.2 1", "SRR131.2.1 2", "SRR131.2.2 2"].map { "\($0) length=8" },
+            ["SRR131.1_1 1", "SRR131.1_2 1", "SRR131.2_1 2", "SRR131.2_2 2"].map { "\($0) length=8" },
             "the pair's bundle keeps the pair"
         )
         let skips = Self.skips(in: run.output)
@@ -173,9 +175,9 @@ final class ImportFastqUnpairedReadsCheckTests: XCTestCase {
 
     func testTheWindowsJSONOutputCarriesTheWarningAsANoticeEvent() async throws {
         let folder = try writeRun("SRR125", files: [
-            "SRR125_1.fastq": Self.records([("SRR125.1.1", 1), ("SRR125.2.1", 2)], bases: "ACGTACGT"),
-            "SRR125_2.fastq": Self.records([("SRR125.1.2", 1), ("SRR125.2.2", 2)], bases: "TTGGCCAA"),
-            "SRR125.fastq": Self.records([("SRR125.3.1", 3)], bases: "GATTACAG"),
+            "SRR125_1.fastq": Self.records([("SRR125.1_1", 1), ("SRR125.2_1", 2)], bases: "ACGTACGT"),
+            "SRR125_2.fastq": Self.records([("SRR125.1_2", 1), ("SRR125.2_2", 2)], bases: "TTGGCCAA"),
+            "SRR125.fastq": Self.records([("SRR125.3_1", 3)], bases: "GATTACAG"),
         ])
         let files = ["SRR125_1.fastq", "SRR125_2.fastq", "SRR125.fastq"].map { folder.appendingPathComponent($0).path }
 

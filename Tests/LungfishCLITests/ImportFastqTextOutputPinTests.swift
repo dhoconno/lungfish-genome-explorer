@@ -20,9 +20,9 @@ final class ImportFastqTextOutputPinTests: XCTestCase {
         let scratch = try ImportStreamCapture.Scratch()
         defer { scratch.remove() }
         let files = try [
-            scratch.write("download/SRR125_1.fastq", Self.records([("SRR125.1.1", 1), ("SRR125.2.1", 2)], bases: "ACGTACGT")),
-            scratch.write("download/SRR125_2.fastq", Self.records([("SRR125.1.2", 1), ("SRR125.2.2", 2)], bases: "TTGGCCAA")),
-            scratch.write("download/SRR125.fastq", Self.records([("SRR125.3.1", 3)], bases: "GATTACAG")),
+            scratch.write("download/SRR125_1.fastq", Self.records([("SRR125.1_1", 1), ("SRR125.2_1", 2)], bases: "ACGTACGT")),
+            scratch.write("download/SRR125_2.fastq", Self.records([("SRR125.1_2", 1), ("SRR125.2_2", 2)], bases: "TTGGCCAA")),
+            scratch.write("download/SRR125.fastq", Self.records([("SRR125.3_1", 3)], bases: "GATTACAG")),
         ]
 
         let output = try await Self.run(files.map(\.path) + ["--pairing", "paired"], in: scratch)

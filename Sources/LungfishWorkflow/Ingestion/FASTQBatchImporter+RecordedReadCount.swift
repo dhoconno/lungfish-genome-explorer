@@ -36,10 +36,8 @@ extension FASTQBatchImporter {
               let size = (try? FileManager.default.attributesOfItem(atPath: fastqURL.path)[.size] as? NSNumber)?.int64Value else {
             return
         }
-        // Mates the layout scan cannot read (`SRR123.1.1`, `SRR123.1.2`) count as single reads. No count is kept, so that
-        // no stale proof outlives the scan's rule, and each run scans. A pair imported from R1 and R2 files records its
-        // count like any other file, so a wizard names its layout at once.
-        if fromMateFiles, pairing.mode == .interleaved, scan.unpairedRecords > 0, metadata.readClassification == nil { return }
+        // A pair imported from R1 and R2 files records its count like any other file, so a wizard names its layout at
+        // once. Row READ-LAYOUT-DOTTED-MATES removed the guard of BIO ruling 2 here, since the scan now reads dotted mates.
         metadata.recordedReadCount = FASTQRecordedReadCount(
             pairedR1: scan.matePairs,
             pairedR2: scan.matePairs,

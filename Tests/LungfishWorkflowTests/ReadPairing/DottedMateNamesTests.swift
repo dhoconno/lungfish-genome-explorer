@@ -125,6 +125,27 @@ final class DottedMateNamesTests: XCTestCase {
         XCTAssertEqual(try FASTQPairInterleaver.countRecords(in: paths[2]), 1)
     }
 
+    /// minimap2's short-read preset and bwa-mem2 `-p` pair only records of one name, so their stream writes each dotted
+    /// pair under a shared name. Single reads and other names keep their bytes.
+    func testTheStreamForANamePairingMapperSharesEachDottedPairsName() throws {
+        let input = try write(
+            Self.dottedPairs(1...1) + ["SRR1.2.1 2 length=8", "plain"] + Self.dottedPairs(3...3), to: "mixed.fastq"
+        )
+        let output = root.appendingPathComponent("shared.fastq")
+
+        let pairs = try MappingDottedMateStream.writeSharedMateNames(from: input, to: output)
+
+        XCTAssertEqual(pairs, 2)
+        XCTAssertEqual(
+            try String(contentsOf: output, encoding: .utf8).split(separator: "\n").enumerated().filter { $0.offset % 4 == 0 }.map { String($0.element) },
+            ["@SRR1.1/1 1 length=8", "@SRR1.1/2 1 length=8", "@SRR1.2.1 2 length=8", "@plain", "@SRR1.3/1 3 length=8", "@SRR1.3/2 3 length=8"]
+        )
+        XCTAssertTrue(FASTQReadLayoutClassifier.areMates("SRR1.1/1 1 length=8", "SRR1.1/2 1 length=8"))
+        XCTAssertFalse(FASTQReadLayoutClassifier.holdsDottedMateName("SRR1.1"))
+        XCTAssertFalse(FASTQReadLayoutClassifier.holdsDottedMateName("read7/1"))
+        XCTAssertTrue(FASTQReadLayoutClassifier.holdsDottedMateName("SRR1.7.2 7 length=8"))
+    }
+
     /// BIO ruling 7, route 3. The scan now reads true dotted pairs, so a stated interleaved file in which it finds no
     /// mates at all is a file of single reads, and no tool pairs it by position.
     func testAStatedInterleavedFileWithNoMatesIsNotPairedByPosition() throws {

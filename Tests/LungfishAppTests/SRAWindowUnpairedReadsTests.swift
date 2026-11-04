@@ -106,16 +106,16 @@ final class SRAWindowUnpairedReadsTests: XCTestCase {
         XCTAssertNil(run.parameters["stagingInputReadCounts"], "a pair's record keeps the parameters it had")
     }
 
-    /// `fastq-dump --split-3 --readids` names mates `SRR1.1.1` and
-    /// `SRR1.1.2`, which the join's rule does not take for mates, so the
+    /// Mates named `SRR1.1_1` and `SRR1.1_2` are not mates to the join's
+    /// rule, so the
     /// sample failed (finding F9-S1). The pair now imports as it did before
     /// the join, and the window logs why the third file was left out.
     func testARunWhoseMatesAreNamedDotOneAndDotTwoImportsItsPairAndTheWindowLogsWhy() async throws {
         let run = "SRR9000011"
         let served = try servedFiles(run, [
-            "\(run)_1.fastq.gz": [("\(run).1.1", 1), ("\(run).2.1", 2)],
-            "\(run)_2.fastq.gz": [("\(run).1.2", 1), ("\(run).2.2", 2)],
-            "\(run).fastq.gz": [("\(run).3.1", 3)],
+            "\(run)_1.fastq.gz": [("\(run).1_1", 1), ("\(run).2_1", 2)],
+            "\(run)_2.fastq.gz": [("\(run).1_2", 1), ("\(run).2_2", 2)],
+            "\(run).fastq.gz": [("\(run).3_1", 3)],
         ])
         let staged = try await stage(run, served: served)
         defer { staged.removeFolder() }

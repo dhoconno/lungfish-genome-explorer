@@ -186,7 +186,12 @@ public enum MappingInputResolver {
            ) {
             let resolved = await reusing.withMaterializationTimes(pooled.resolved)
             let resolvedRequest = request
-                .withInputFASTQURLs(resolved.executionInputURLs, pairedEnd: pooled.pairedEnd)
+                .withInputFASTQURLs(
+                    try MappingDottedMateStream.executionURLs(
+                        resolved.executionInputURLs, request: request, layout: pooled.layoutResolution.layout, into: directory, progress: progress
+                    ),
+                    pairedEnd: pooled.pairedEnd
+                )
                 .withInputLineage(resolved)
                 .withInputLayout(pooled.layoutResolution.layout)
                 // The lineage names every input the pool joined, not the first only.
@@ -259,7 +264,12 @@ public enum MappingInputResolver {
             )
         }
         var resolvedRequest = request
-            .withInputFASTQURLs(resolved.executionInputURLs, pairedEnd: pairedEnd)
+            .withInputFASTQURLs(
+                try MappingDottedMateStream.executionURLs(
+                    resolved.executionInputURLs, request: request, layout: layoutResolution.layout, into: directory, progress: progress
+                ),
+                pairedEnd: pairedEnd
+            )
             .withInputLineage(resolved)
             .withInputLayout(layoutResolution.layout, scan: layoutResolution.recordedScan(of: resolved.executionInputURLs.first))
         if let pooledOriginals {
@@ -290,7 +300,13 @@ public enum MappingInputResolver {
             guard plan.mixedStreams.count == 1, plan.matePairs.isEmpty, plan.singleReads.isEmpty else {
                 throw MappingInputResolverError.unsupportedReadSetPlan("a stream mapper needs one stream of pairs and single reads")
             }
-            executionURLs = [plan.mixedStreams[0].url]
+            executionURLs = try MappingDottedMateStream.executionURLs(
+                [plan.mixedStreams[0].url],
+                request: request,
+                layout: .mixedMergedAndPairs,
+                into: MappingResultLayoutService.inputMaterializationDirectory(in: request.outputDirectory),
+                progress: nil
+            )
         } else {
             var r1Files: [URL] = []
             var r2Files: [URL] = []

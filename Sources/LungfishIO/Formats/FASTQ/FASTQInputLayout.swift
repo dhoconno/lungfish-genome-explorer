@@ -183,8 +183,8 @@ public struct FASTQInputLayoutResolution: Codable, Sendable, Equatable {
 ///    it, so when it finds only pairs it outranks a merge in the lineage or
 ///    the recipe, though not a recorded count of single reads.
 ///
-/// Mates named identically, with `/1` `/2` suffixes, or with Casava
-/// descriptions are all recognised by the scan.
+/// Mates named identically, with `/1` `/2` suffixes, with Casava descriptions,
+/// or in the dotted form `SRR1.7.1` `SRR1.7.2` are all recognised by the scan.
 public enum FASTQInputLayoutResolver {
 
     /// Resolves the layout for the files a tool will read.
@@ -195,7 +195,7 @@ public enum FASTQInputLayoutResolver {
     ///     metadata; a materialized scratch file is scanned on its own.
     ///   - pairedFiles: whether the caller bound exactly two files as R1/R2.
     ///   - explicit: a layout the caller already knows; final when non-nil, except that a stated interleaved single
-    ///     file gives way to a scan of the whole file that finds pairs beside single reads.
+    ///     file gives way to a scan of the whole file that finds any single read.
     ///   - recordLimit: how many records the scan reads before deciding. The
     ///     default is the whole file, and a bounded scan never says strict.
     public static func resolve(
@@ -206,11 +206,11 @@ public enum FASTQInputLayoutResolver {
     ) -> FASTQInputLayoutResolution {
         if let explicit {
             // A stated single-end pairs nothing. A stated interleaved file pairs by position, so a whole scan that finds
-            // pairs beside single reads outranks it, as FASTQPairingModeResolver holds for a declared pairing. A scan that
-            // finds no pair at all leaves the statement, since it does not read every true name form.
+            // any single read outranks it, as FASTQPairingModeResolver holds for a declared pairing, whether or not it
+            // also finds pairs (BIO ruling 7, route 3).
             if explicit == .strictlyInterleaved, inputURLs.count == 1 {
                 let scan = resolve(inputURLs: inputURLs, pairedFiles: false, explicit: nil, recordLimit: recordLimit)
-                if let counted = scan.classification, counted.matePairs > 0, counted.unpairedRecords > 0 {
+                if let counted = scan.classification, counted.unpairedRecords > 0 {
                     return FASTQInputLayoutResolution(
                         layout: scan.layout,
                         source: .contentScan,

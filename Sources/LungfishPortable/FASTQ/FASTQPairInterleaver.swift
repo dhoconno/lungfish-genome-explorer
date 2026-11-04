@@ -261,7 +261,8 @@ extension FASTQPairInterleaver {
     /// first. The read ID suffixes `.1` `.2` and `_1` `_2` count as mate
     /// numbers here and not in a layout scan, beside `/1` `/2` and Casava
     /// comments, because a file of single reads may number its reads that way
-    /// (SRA spots `SRR1.1`, `SRR1.2`). Such a file stops at its second pair.
+    /// (SRA spots `SRR1.1`, `SRR1.2`). Such a file stops at its second pair. The
+    /// dotted form `SRR1.7.1` `SRR1.7.2` is mates by the scan's own rule.
     public static func recordedMates(_ name1: String, _ name2: String) -> RecordedMates {
         if FASTQReadLayoutClassifier.areMates(name1, name2) { return .mates }
         guard let mark1 = mateNumber(of: name1), let mark2 = mateNumber(of: name2) else { return .unmarked }

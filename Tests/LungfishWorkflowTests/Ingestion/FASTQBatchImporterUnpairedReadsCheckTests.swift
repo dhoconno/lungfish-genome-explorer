@@ -64,9 +64,9 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
 
     func testMatesNamedDotOneAndDotTwoLeaveTheThirdFileOutAsASampleOfItsOwn() throws {
         let files = try writeFiles("dots", [
-            "SRR2_1.fastq": Self.fastq(["SRR2.1.1 1 length=8", "SRR2.2.1 2 length=8"]),
-            "SRR2_2.fastq": Self.fastq(["SRR2.1.2 1 length=8", "SRR2.2.2 2 length=8"]),
-            "SRR2.fastq": Self.fastq(["SRR2.3.1 3 length=8"]),
+            "SRR2_1.fastq": Self.fastq(["SRR2.1_1 1 length=8", "SRR2.2_1 2 length=8"]),
+            "SRR2_2.fastq": Self.fastq(["SRR2.1_2 1 length=8", "SRR2.2_2 2 length=8"]),
+            "SRR2.fastq": Self.fastq(["SRR2.3_1 3 length=8"]),
         ])
 
         let check = FASTQBatchImporter.checkingUnpairedReads(FASTQBatchImporter.detectPairs(from: files))
@@ -90,7 +90,7 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
         XCTAssertEqual(
             message,
             "SRR2.fastq was not joined to SRR2_1.fastq and SRR2_2.fastq as reads whose mate is missing, because the "
-                + "names of their first reads, SRR2.1.1 and SRR2.1.2, do not mark the two as mates. The pair imports "
+                + "names of their first reads, SRR2.1_1 and SRR2.1_2, do not mark the two as mates. The pair imports "
                 + "without it, and SRR2.fastq is a separate sample named SRR2, which the import skips."
         )
     }
@@ -391,9 +391,9 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
         // paths need not exist.
         let missing = URL(fileURLWithPath: "/nonexistent-f10")
         let run = try writeFiles("sub", [
-            "SRR5_1.fastq": Self.fastq(["SRR5.1.1 1 length=8"]),
-            "SRR5_2.fastq": Self.fastq(["SRR5.1.2 1 length=8"]),
-            "SRR5.fastq": Self.fastq(["SRR5.2.1 2 length=8"]),
+            "SRR5_1.fastq": Self.fastq(["SRR5.1_1 1 length=8"]),
+            "SRR5_2.fastq": Self.fastq(["SRR5.1_2 1 length=8"]),
+            "SRR5.fastq": Self.fastq(["SRR5.2_1 2 length=8"]),
         ]).sorted { $0.lastPathComponent < $1.lastPathComponent }
         let samples = [
             SamplePair(sampleName: "A", r1: missing.appendingPathComponent("A_R1.fastq"), r2: missing.appendingPathComponent("A_R2.fastq")),
@@ -415,9 +415,9 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
         // `import fastq` runs the check first. A caller that does not gets
         // the reason, where the join said the mate files were out of step.
         let files = try writeFiles("unchecked", [
-            "SRR6_1.fastq": Self.fastq(["SRR6.1.1 1 length=8"]),
-            "SRR6_2.fastq": Self.fastq(["SRR6.1.2 1 length=8"]),
-            "SRR6.fastq": Self.fastq(["SRR6.2.1 2 length=8"]),
+            "SRR6_1.fastq": Self.fastq(["SRR6.1_1 1 length=8"]),
+            "SRR6_2.fastq": Self.fastq(["SRR6.1_2 1 length=8"]),
+            "SRR6.fastq": Self.fastq(["SRR6.2_1 2 length=8"]),
         ])
 
         let result = await FASTQBatchImporter.runBatchImport(
@@ -429,7 +429,7 @@ final class FASTQBatchImporterUnpairedReadsCheckTests: XCTestCase {
         XCTAssertEqual(
             result.errors.first?.error,
             "SRR6.fastq was not joined to SRR6_1.fastq and SRR6_2.fastq as reads whose mate is missing, because the "
-                + "names of their first reads, SRR6.1.1 and SRR6.1.2, do not mark the two as mates. Import the pair "
+                + "names of their first reads, SRR6.1_1 and SRR6.1_2, do not mark the two as mates. Import the pair "
                 + "without it."
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("Imports/SRR6.lungfishfastq").path))

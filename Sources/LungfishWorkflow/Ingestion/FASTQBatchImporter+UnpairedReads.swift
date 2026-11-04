@@ -140,8 +140,9 @@ extension FASTQBatchImporter {
     /// fragment, neither a mate of either read nor a read of the same name,
     /// and no two adjacent reads among its first ``thirdFileReadsChecked``
     /// may be mates, in either order. Mates that `fastq-dump --readids`
-    /// names `SRR1.1.1` and `SRR1.1.2` fail the first rule, which made the
-    /// join fail the whole sample (finding F9-S1). An interleaved copy of the
+    /// names `SRR1.1.1` and `SRR1.1.2` pass the first rule. Names the rule
+    /// does not read fail it, which made the join fail the whole sample
+    /// (finding F9-S1). An interleaved copy of the
     /// pair that starts at its first pair fails the second (F9-N1), and a
     /// copy that starts at any other pair (F10-N1) or with half a pair
     /// (F11-N1) fails the third, because a file of reads whose mate is
