@@ -580,6 +580,7 @@ package struct BlastSearchAdvancer: Sendable {
             file.copies[index] = copy
             try await persist(file)
             guard copy.fetchTries < BlastSearchPolicy.fetchTries else {
+                await logLine(file, at: now, ending: nil, replyBytes: reply.count)
                 return .needsAPerson(words: BlastSearchWords.replyUnreadableLastTry)
             }
             progress(0.90, BlastSearchWords.replyUnreadable(nextTry: next, now: now))

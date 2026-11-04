@@ -33,11 +33,12 @@ final class BlastSearchAdvancerTests: XCTestCase {
     private func advancer(
         _ server: BlastFaultStandIn?,
         limits: BlastRateLimitConfiguration = .ncbiDefault,
+        searchLog: BlastSearchLog? = nil,
         publish: @escaping BlastSearchAdvancer.Publish = { _ in }
     ) -> BlastSearchAdvancer {
         let environment = server.map { [BlastServiceEndpoints.standInOriginVariable: $0.baseURL.absoluteString] } ?? [:]
         return BlastSearchAdvancer(
-            service: BlastService(rateLimits: limits, environment: environment),
+            service: BlastService(rateLimits: limits, searchShared: BlastSearchShared(searchLog: searchLog), environment: environment),
             store: BlastSearchStore(folder: folder),
             request: BlastVerificationRequest(taxonName: "test", taxId: 0, sequences: reads),
             clock: hand.clock,
@@ -317,6 +318,24 @@ final class BlastSearchAdvancerTests: XCTestCase {
         guard case .done = again else { return XCTFail("\(again)") }
         XCTAssertEqual(try onDisk().state, .done)
         XCTAssertFalse(FileManager.default.fileExists(atPath: replyFile("\(rid).reply").path), "the record is durable, so the reply goes")
+    }
+
+    /// BIO review SF2. The case BLAST-CONTIG-REPLY-SIZE exists for, a reply too large to read, writes its size to the log.
+    func testAnUnreadableReplyLogsItsBytes() async throws {
+        let logFile = folder.appendingPathComponent(BlastSearchLog.fileName)
+        let server = try standIn([BlastFaultScript(body: Data("not json at all".utf8))])
+        defer { server.stop() }
+        let advancer = advancer(server, searchLog: BlastSearchLog(file: logFile))
+
+        let outcome = try await advancer.advance(try await create(advancer))
+
+        guard case .needsAPerson = outcome else { return XCTFail("\(outcome)") }
+        let lines = try String(contentsOf: logFile, encoding: .utf8).split(separator: "\n").map(String.init)
+        let last = try XCTUnwrap(lines.last)
+        let fields = last.components(separatedBy: "\t")
+        XCTAssertEqual(fields.count, 8, last)
+        XCTAssertEqual(fields[5], "", "the search has not ended")
+        XCTAssertEqual(fields[7], "15", "the body's byte count")
     }
 
     func testAResultThatDoesNotArriveHoldsFetchingAndFetchesAgain() async throws {
