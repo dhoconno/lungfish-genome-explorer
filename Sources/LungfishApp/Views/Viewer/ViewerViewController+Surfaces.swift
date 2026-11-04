@@ -32,6 +32,7 @@ extension ViewerViewController {
         registry.register(.bundle(.genotypeResult), factory: GenotypeResultSurface.factory())
         registry.register(.bundle(.phylogeneticTree), factory: PhylogeneticTreeSurface.factory())
         registry.register(.bundle(.multipleSequenceAlignment)) { MultipleSequenceAlignmentSurface() }
+        registry.register(.view(.vcfDataset)) { VCFDatasetSurface() }
         return registry
     }
 

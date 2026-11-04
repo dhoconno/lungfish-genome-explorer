@@ -33,28 +33,22 @@ extension ViewerViewController {
 
         let controller = VCFDatasetViewController()
         controller.onDownloadReferenceRequested = onDownloadReference
-        addChild(controller)
-
-        let dashView = controller.view
-        dashView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(dashView)
-
-        NSLayoutConstraint.activate([
-            dashView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            dashView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            dashView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            dashView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-
-        controller.configure(summary: summary, variants: variants)
-        vcfDatasetController = controller
-
-        // Hide normal genomic viewer components
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
+        // No route calls this display, so it says itself when the host did not show the dashboard.
+        do {
+            _ = try showSurface(
+                .view(.vcfDataset),
+                input: VCFDatasetSurface.Input(controller: controller, summary: summary, variants: variants),
+                as: VCFDatasetSurface.self
+            )
+        } catch {
+            logger.error("displayVCFDataset: \(error.localizedDescription, privacy: .public)")
+            clearViewport(statusMessage: surfaceFailureWords(
+                "Unable to open the VCF dataset.",
+                error,
+                orElse: "Open the VCF file again. If it still does not open, import it into a project."
+            ))
+            return
+        }
 
         // Post notification
         NotificationCenter.default.post(
@@ -68,14 +62,6 @@ extension ViewerViewController {
 
     /// Removes the VCF dataset dashboard and restores normal viewer components.
     public func hideVCFDatasetView() {
-        guard let controller = vcfDatasetController else { return }
-        controller.view.removeFromSuperview()
-        controller.removeFromParent()
-        vcfDatasetController = nil
-
-        // Restore normal viewer components
-        enhancedRulerView.isHidden = false
-        viewerView.isHidden = false
-        statusBar.isHidden = false
+        clearSurface(ifShowing: .view(.vcfDataset))
     }
 }

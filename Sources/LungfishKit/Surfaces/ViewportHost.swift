@@ -136,8 +136,9 @@ public final class ViewportHost {
         let view = controller.view
         view.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(view)
+        let top = viewport.pinsTopToSafeArea ? containerView.safeAreaLayoutGuide.topAnchor : containerView.topAnchor
         NSLayoutConstraint.activate([
-            view.topAnchor.constraint(equalTo: containerView.topAnchor),
+            view.topAnchor.constraint(equalTo: top),
             view.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             view.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             view.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),

@@ -171,8 +171,8 @@ public class ViewerViewController: NSViewController {
     /// FASTQ dataset dashboard (shown in place of sequence viewer for FASTQ files)
     var fastqDatasetController: FASTQDatasetViewController?
 
-    /// VCF dataset dashboard (shown in place of sequence viewer for standalone VCF files)
-    var vcfDatasetController: VCFDatasetViewController?
+    /// VCF dataset dashboard, while the surface host shows it.
+    var vcfDatasetController: VCFDatasetViewController? { installedSurface?.viewController as? VCFDatasetViewController }
 
     /// FASTA collection browser (shown in place of sequence viewer for multi-sequence FASTA files)
     private var fastaCollectionController: FASTACollectionViewController?

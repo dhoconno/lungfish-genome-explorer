@@ -91,6 +91,10 @@ public protocol ResultViewport: AnyObject {
     /// The Inspector blocks this surface shows, in order.
     var inspectorBlocks: [SurfaceInspectorBlock] { get }
 
+    /// Whether the host pins this surface's top to the container's safe area, below the window's toolbar, in place of
+    /// the container's edge. A surface whose view has no toolbar space of its own answers true.
+    var pinsTopToSafeArea: Bool { get }
+
     /// Called once before the host removes the controller, so the surface can stop
     /// work of its own. `next` is the kind the host was asked to show in its place,
     /// whose load can still fail, nil when the host is cleared, so a surface replaced
@@ -108,6 +112,9 @@ extension ResultViewport {
 
     /// A surface with no Inspector blocks of its own shows none.
     public var inspectorBlocks: [SurfaceInspectorBlock] { [] }
+
+    /// A surface pins its top to the container's edge unless it asks for the safe area.
+    public var pinsTopToSafeArea: Bool { false }
 
     /// A surface with no work of its own has nothing to stop.
     public func willDeactivate(replacedBy next: SurfaceKind?) {}
