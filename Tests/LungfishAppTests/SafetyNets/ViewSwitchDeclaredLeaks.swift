@@ -39,12 +39,13 @@ struct DeclaredViewSwitchLeak: Sendable {
 
 enum ViewSwitchDeclaredLeaks {
     /// Every declared leak of the matrix and of the fresh-window pass, in the
-    /// table files named after the kinds the switches start from, and the PDF and FASTA collection kinds'.
+    /// table files named after the kinds the switches start from, and the PDF, FASTA collection and mapping result kinds'.
     ///
     /// The walk is one fixed circuit, so a leak that outlives one switch, as
     /// the MHC viewport does, is seen on the later switches of the circuit as
     /// well, and a fix to one route can change the entries of several pairs.
     static let all: [DeclaredViewSwitchLeak] = fromResultKinds + fromOtherKinds + fromThePDFKind + fromTheFASTACollectionKind
+        + fromTheMappingResultKind
 
     static func leak(_ from: String, to: [String], _ backlog: String, _ faults: [String]) -> DeclaredViewSwitchLeak {
         DeclaredViewSwitchLeak(from: from, to: to, backlog: backlog, faults: faults)

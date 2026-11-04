@@ -82,6 +82,10 @@ enum ViewSwitchKinds {
             "FASTA collection", "FASTACollectionViewController in genomics",
             "files/FASTA file with several records", "k21-fastacollection"
         ),
+        kind(
+            "Mapping result", "ReferenceBundleViewportController (mapping result) in mapping",
+            "analyses/minimap2 mapping with a viewer bundle", "k22-mapping"
+        ),
     ]
 
     private static func kind(
@@ -96,6 +100,7 @@ enum ViewSwitchKinds {
         let shown: String
         if !observation.viewports.isEmpty {
             shown = observation.viewports.joined(separator: " + ")
+                + (observation.reference?.hasPrefix("mappingResult") == true ? " (mapping result)" : "")
         } else if let quickLook = observation.quickLook {
             shown = quickLook.hasSuffix(" as PDF") ? "PDF" : "Quick Look"
         } else if observation.document != nil {
