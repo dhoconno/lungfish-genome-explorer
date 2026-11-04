@@ -2,6 +2,8 @@
 // Copyright (c) 2025 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import LungfishCore
+import LungfishCore
 import SwiftUI
 
 /// A compact SwiftUI view shown in an NSPopover when the user selects
@@ -15,8 +17,8 @@ import SwiftUI
 /// |                                       |
 /// | Reads to submit:  [===|===] 20        |
 /// |                                       |
-/// | Submits a sample of classified reads  |
-/// | to NCBI BLAST for verification.       |
+/// | Sends the selected reads to NCBI ...  |
+/// | (see ``submissionCaption(database:)``)|
 /// |                                       |
 /// |                        [Run BLAST]    |
 /// +---------------------------------------+
@@ -59,10 +61,10 @@ public struct BlastConfigPopoverView: View {
         self.onRun = onRun
     }
 
-    /// The caption under the slider, naming the database searched.
+    /// The consent line under the slider, naming the database searched (UX-BLAST-WORDS Q4).
     public static func submissionCaption(database: String) -> String {
         let name = database.trimmingCharacters(in: .whitespacesAndNewlines)
-        return "Submits selected reads to NCBI BLASTN \(name.isEmpty ? "nt" : name) for review. Reads leave the app for NCBI."
+        return BlastSearchWords.consentLine(noun: "reads", database: name.isEmpty ? "nt" : name)
     }
 
     /// Maximum slider value, capped to available reads.
@@ -125,4 +127,9 @@ public struct BlastConfigPopoverView: View {
             readCount = min(Double(min(20, maxReads)), Double(maxReads))
         }
     }
+}
+
+/// The send count for the help text, so that `LungfishHelpContent.swift`, at its size baseline, takes no new import.
+enum BlastConsentHelp {
+    static var sendsInAll: String { BlastSearchWords.sendsInAll }
 }

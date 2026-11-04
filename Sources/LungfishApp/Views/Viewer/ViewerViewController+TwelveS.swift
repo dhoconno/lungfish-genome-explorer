@@ -62,7 +62,7 @@ extension ViewerViewController {
     /// viewer.
     func wireTwelveSUnresolvedBlast(_ controller: TwelveSAmpliconResultViewController) {
         controller.savedBlastSearchProject = { [weak self] in self?.blastSubmitProjectURL() }
-        controller.onUnresolvedBlastRequested = { [weak self, weak controller] request in
+        controller.onUnresolvedBlastRequested = withBlastConsent(noun: "sequences") { [weak self, weak controller] request in
             guard let controller else { return }
             let minimumReads = max(0, request.minimumReads)
             let exportURL = FileManager.default.temporaryDirectory

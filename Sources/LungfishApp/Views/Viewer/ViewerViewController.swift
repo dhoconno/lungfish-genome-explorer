@@ -1643,7 +1643,7 @@ public class ViewerViewController: NSViewController {
             dashView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
-        controller.onBlastRequested = { [weak self, weak controller] selectedSequences in
+        controller.onBlastRequested = withBlastConsent(noun: "sequences") { [weak self, weak controller] selectedSequences in
             guard let controller else { return }
             let fastaRecords = selectedSequences.map(Self.fastaRecord(for:))
             let sourceLabel = selectedSequences.count == 1
@@ -1658,7 +1658,7 @@ public class ViewerViewController: NSViewController {
         controller.onBlastCancelRequested = { [weak self] in
             self?.cancelActiveFASTABlast()
         }
-        controller.onBlastRerunRequested = { [weak self, weak controller] in
+        controller.onBlastRerunRequested = withBlastConsent(noun: "sequences") { [weak self, weak controller] in
             guard let self, let controller, let lastRequest = self.lastFASTABlastRequest else { return }
             self.runGenericBlastVerification(
                 sourceLabel: lastRequest.sourceLabel,

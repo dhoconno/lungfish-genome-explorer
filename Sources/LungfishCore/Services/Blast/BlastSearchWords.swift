@@ -162,7 +162,21 @@ package enum BlastSearchWords {
     // MARK: Q2 log lines
 
     /// The number of sends in all, as the words say it.
-    private static var sendsInAll: String {
+    /// Q4, the line a person reads before `noun` leaves this Mac. `noun` is `reads`, `contigs` or `sequences`.
+    package static func consentLine(noun: String, database: String) -> String {
+        "Sends the selected \(noun) to NCBI BLASTN \(database), so they leave this Mac. "
+            + "If NCBI is slow, LGE sends the same \(noun) again, at most \(sendsInAll) sends in all. The record lists every send."
+    }
+
+    /// Q4, the help of a BLAST leaf. `stays` says where its search waits, as `in --output`.
+    package static func commandLineConsent(stays: String) -> String {
+        "The sequences go to NCBI and leave this Mac. If NCBI is slow, the same sequences are sent again, "
+            + "at most \(sendsInAll) sends in all, and the record lists every send. "
+            + "A search still waiting stays \(stays), and lungfish-cli blast resume --output <folder> collects it later."
+    }
+
+    /// ``BlastSearchPolicy/maxCopies`` as a person reads it.
+    package static var sendsInAll: String {
         let names = [1: "one", 2: "two", 3: "three", 4: "four", 5: "five"]
         return names[BlastSearchPolicy.maxCopies] ?? String(BlastSearchPolicy.maxCopies)
     }

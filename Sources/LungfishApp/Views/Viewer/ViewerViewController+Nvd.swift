@@ -59,7 +59,7 @@ extension ViewerViewController {
         // Wire BLAST verification callback.
         // NVD submits a single contig sequence rather than multiple reads.
         controller.resultActions.savedBlastSearchProject = { [weak self] in self?.blastSubmitProjectURL() }
-        controller.onBlastVerification = { [weak self, weak controller] hit, sequence in
+        controller.onBlastVerification = withBlastConsent(noun: "contigs") { [weak self, weak controller] hit, sequence in
             let contigName = NvdDataConverter.displayName(for: hit.qseqid, qlen: hit.qlen)
             // Use the classification name for concordance checking, not the contig name
             let classificationName = hit.adjustedTaxidName.isEmpty ? contigName : hit.adjustedTaxidName

@@ -6,6 +6,11 @@ kreport file (for tree building), the per-read Kraken2 output (for
 read ID extraction), and the source reads (for sequence retrieval),
 given as FASTQ files or a .lungfishfastq bundle.
 
+The sequences go to NCBI and leave this Mac. If NCBI is slow, the same
+sequences are sent again, at most three sends in all, and the record lists
+every send. A search still waiting stays under --result-dir, and lungfish-cli
+blast resume --output <folder> collects it later.
+
 USAGE: lungfish-cli blast verify [<options>] --kreport <kreport> --source <source> ... --kraken-output <kraken-output> --taxid <taxid>
 
 OPTIONS:

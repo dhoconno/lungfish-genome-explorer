@@ -112,7 +112,7 @@ final class BlastConsentLineTests: XCTestCase {
         XCTAssertEqual(runs, 0, "nothing is sent while the sheet is open")
         XCTAssertEqual(held.count, 1)
 
-        held[0]()
+        try XCTUnwrap(held.first)()
         await fulfillment(of: [ran], timeout: 30)
         XCTAssertEqual(runs, 1)
     }

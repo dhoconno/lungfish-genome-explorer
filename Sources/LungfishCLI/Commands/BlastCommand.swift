@@ -77,6 +77,8 @@ extension BlastCommand {
             kreport file (for tree building), the per-read Kraken2 output (for
             read ID extraction), and the source reads (for sequence retrieval),
             given as FASTQ files or a .lungfishfastq bundle.
+
+            \(BlastSearchWords.commandLineConsent(stays: "under --result-dir"))
             """
         )
 

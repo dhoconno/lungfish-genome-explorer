@@ -24,6 +24,8 @@ extension BlastCommand {
             --output folder, beside a copy of the query. The record names the copy's SHA-256 and \
             the lineage options, which say which result, sample, taxon or contig and which \
             subsample the sequences came from.
+
+            \(BlastSearchWords.commandLineConsent(stays: "in --output"))
             """
         )
 

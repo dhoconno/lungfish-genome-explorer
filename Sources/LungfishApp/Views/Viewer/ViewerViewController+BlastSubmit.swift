@@ -63,6 +63,31 @@ extension ViewerViewController {
         return nil
     }
 
+    /// Asks before `noun` leaves this Mac, on a route with no popover. Every such route searches `core_nt`, as
+    /// `BlastSubmitPlan.make` and the FASTA runner set (UX-BLAST-WORDS Q4).
+    func askBeforeBlastSend(noun: String, send: @escaping @MainActor () -> Void) {
+        BlastConsentSheet.ask(
+            line: BlastSearchWords.consentLine(noun: noun, database: BlastDatabaseID.coreNT.rawValue),
+            window: view.window,
+            send: send
+        )
+    }
+
+    /// `send`, once the person has answered the consent line.
+    func withBlastConsent(noun: String, _ send: @escaping () -> Void) -> () -> Void {
+        { [weak self] in self?.askBeforeBlastSend(noun: noun) { send() } }
+    }
+
+    /// `send`, once the person has answered the consent line.
+    func withBlastConsent<Input>(noun: String, _ send: @escaping (Input) -> Void) -> (Input) -> Void {
+        { [weak self] input in self?.askBeforeBlastSend(noun: noun) { send(input) } }
+    }
+
+    /// `send`, once the person has answered the consent line.
+    func withBlastConsent<First, Second>(noun: String, _ send: @escaping (First, Second) -> Void) -> (First, Second) -> Void {
+        { [weak self] first, second in self?.askBeforeBlastSend(noun: noun) { send(first, second) } }
+    }
+
     /// The FASTA selection's search on `blast submit`, or nil while a test's `fastaBlastVerificationRunner`
     /// stands in for it.
     func fastaBlastSubmitPlan(sourceLabel: String, sequences: [(id: String, sequence: String)]) throws -> BlastSubmitPlan? {
