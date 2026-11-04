@@ -39,9 +39,16 @@ enum RunningOperationsWarning {
         case .closeWindow:
             lead = "Closing this window now will cancel the following operation\(plural) for this project."
         }
+        // A BLAST row left on this list has nothing saved, and no BLAST file writes the run record that the Operations
+        // Panel's Interrupted rows come from, so the Interrupted sentence is false for it (BLASTCOLLECT-UX-2).
+        let blastRows = operations.filter { $0.operationType == .blastVerification }.count
+        let verb = kind == .quit ? "quitting" : "closing"
+        let after = blastRows > 0 && blastRows == count
+            ? " LGE has not saved \(count == 1 ? "this search" : "these searches") yet, so \(verb) loses \(count == 1 ? "it" : "them"). Start \(count == 1 ? "it" : "them") again after you reopen LGE.\n\n"
+            : " Any partial output stays out of the sidebar. The next time you open the project, the Operations Panel lists it as Interrupted, with its size on disk and a Remove button."
+                + (blastRows > 0 ? " A BLAST search in this list is not listed there: LGE has not saved it yet, so \(verb) loses it." : "") + "\n\n"
         return lead
-            + " Any partial output stays out of the sidebar. The next time you open the project, "
-            + "the Operations Panel lists it as Interrupted, with its size on disk and a Remove button.\n\n"
+            + after
             + listedTitles + overflowNote
             + (kind == .quit && blastSearchesStay ? "\n\nBLAST searches stay at NCBI. LGE checks them again when you next open LGE." : "")
     }

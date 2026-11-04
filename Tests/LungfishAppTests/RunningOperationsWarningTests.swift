@@ -36,6 +36,35 @@ final class RunningOperationsWarningTests: XCTestCase {
         )
     }
 
+    /// BLASTCOLLECT-UX-2 should-fix 3. A BLAST row left on the alert has nothing saved, and no BLAST file writes an
+    /// analysis run record, so the Operations Panel lists no Interrupted row for it. The alert says the search is lost.
+    func testABlastSearchWithNothingSavedIsNotPromisedAnInterruptedRow() {
+        let center = OperationCenter()
+        let blast = center.begin(
+            title: "BLAST: Oxbow virus", detail: "Sending", operationType: .blastVerification, cliCommand: nil
+        ).rowID
+        let other = center.begin(
+            title: "EsViritu SRR12486983", detail: "Running", operationType: .download, cliCommand: nil
+        ).rowID
+        let items = center.activeItems
+        let blastOnly = items.filter { $0.id == blast }
+        let otherOnly = items.filter { $0.id == other }
+        for kind in [RunningOperationsWarning.Kind.quit, .closeWindow] {
+            let alone = RunningOperationsWarning.informativeText(kind: kind, operations: blastOnly)
+            XCTAssertTrue(alone.contains("has not saved this search yet"), alone)
+            XCTAssertFalse(alone.contains("Interrupted"), alone)
+
+            let mixed = RunningOperationsWarning.informativeText(kind: kind, operations: items)
+            XCTAssertTrue(mixed.contains("Interrupted"), mixed)
+            XCTAssertTrue(mixed.contains("not listed there"), mixed)
+
+            let plain = RunningOperationsWarning.informativeText(kind: kind, operations: otherOnly)
+            XCTAssertTrue(plain.contains("Interrupted"), plain)
+            XCTAssertFalse(plain.contains("not listed there"), plain)
+            XCTAssertFalse(plain.contains("has not saved"), plain)
+        }
+    }
+
     func testOpenWarningDropsRunsThatFinishAndSaysWhenNothingIsLeft() {
         let center = OperationCenter()
         let kraken = center.begin(
