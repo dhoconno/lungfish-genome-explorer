@@ -355,7 +355,7 @@ extension BlastTableExportCLIGUIParityReplayTests {
             lines[3],
             [
                 "read_2", BlastVerdict.unverified.rawValue, "false", "1", "", "", "", "", "", "", "", "",
-                "Escherichia coli", "inconclusive", "", "", "",
+                "Escherichia coli", "inconclusive", "", "", "", "",
             ].joined(separator: separator),
             "a read with no hit"
         )

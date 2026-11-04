@@ -246,7 +246,8 @@ extension BlastService {
 
         let context = taxonomyContext ?? BlastTaxonomyContext(
             cladeTaxIds: targetTaxIds,
-            cladeNames: acceptedTaxonNames
+            cladeNames: acceptedTaxonNames,
+            basis: targetTaxIds.isEmpty ? .names : .rowTaxId
         )
         return BlastVerificationRequest(
             taxonName: taxonName,
@@ -257,7 +258,8 @@ extension BlastService {
             acceptedTaxIds: context.cladeTaxIds,
             acceptedTaxonNames: context.cladeNames,
             relatedTaxIds: context.relatedTaxIds,
-            relatedTaxonNames: context.relatedNames
+            relatedTaxonNames: context.relatedNames,
+            judgedAt: context.basis
         )
     }
 

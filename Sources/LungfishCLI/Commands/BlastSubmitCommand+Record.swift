@@ -98,7 +98,8 @@ extension BlastCommand.SubmitSubcommand {
             acceptedTaxIds: Set(acceptedTaxIds),
             acceptedTaxonNames: acceptedNames,
             relatedTaxIds: Set(relatedTaxIds),
-            relatedTaxonNames: relatedNames
+            relatedTaxonNames: relatedNames,
+            judgedAt: judgedAt.flatMap(BlastTaxonomyContext.Basis.init(rawValue:))
         )
     }
 

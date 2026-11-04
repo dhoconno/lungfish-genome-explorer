@@ -86,6 +86,9 @@ extension BlastCommand {
         @Option(name: .customLong("related-name"), help: "Organism name whose hits count as a relative (repeatable)")
         var relatedNames: [String] = []
 
+        @Option(name: .customLong("judged-at"), help: "What the verdicts were judged at, species, rowTaxId or names (recorded, shown beside the counts)")
+        var judgedAt: String?
+
         @Option(
             name: .customLong("extra-args"),
             parsing: .unconditional,

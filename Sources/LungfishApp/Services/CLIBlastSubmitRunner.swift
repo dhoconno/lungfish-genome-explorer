@@ -26,6 +26,8 @@ struct BlastSubmitRequest: Sendable, Equatable {
     var acceptedNames: [String] = []
     var relatedTaxIds: [Int] = []
     var relatedNames: [String] = []
+    /// What the verdicts were judged at, sent as `--judged-at` only when set (BLAST-ESVIRITU-FIRST-WORD).
+    var judgedAt: String? = nil
     /// The NCBI database, sent as `--database` only when set, so a request with none searches the leaf's
     /// default `core_nt` (2.12 lane 12.10, BIO 3).
     var database: String? = nil
@@ -96,6 +98,7 @@ struct CLIBlastSubmitRunner {
         for name in request.acceptedNames { arguments += ["--accepted-name", name] }
         for taxId in request.relatedTaxIds.sorted() { arguments += ["--related-taxid", String(taxId)] }
         for name in request.relatedNames { arguments += ["--related-name", name] }
+        if let judgedAt = request.judgedAt { arguments += ["--judged-at", judgedAt] }
         if let database = request.database { arguments += ["--database", database] }
         // A viewer's run ends once every send is out and waiting. The row then parks and the monitor goes on (section 6).
         return arguments + ["--park", "--format", "json", "--no-progress"]

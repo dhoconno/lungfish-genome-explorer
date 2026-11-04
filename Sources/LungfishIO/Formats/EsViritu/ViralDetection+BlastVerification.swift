@@ -19,7 +19,7 @@ extension ViralDetection {
         }
         let genusName = Self.bareLineageName(genus)
         let relatedNames = genusName.isEmpty || cladeNames.contains(genusName) ? [] : [genusName]
-        return BlastTaxonomyContext(cladeNames: cladeNames, relatedNames: relatedNames)
+        return BlastTaxonomyContext(cladeNames: cladeNames, relatedNames: relatedNames, basis: .names)
     }
 
     /// EsViritu writes lineage names with a rank prefix, `s__Betacoronavirus 1`. No NCBI record carries it.
@@ -42,7 +42,8 @@ extension ViralDetection {
               let lineage = NCBITaxonomyLineage.blastTaxonomyContext(of: taxId, names: [name], taxonomyDirectory: taxonomyDirectory)
         else { return names }
         return BlastTaxonomyContext(
-            cladeTaxIds: lineage.cladeTaxIds, cladeNames: lineage.cladeNames, relatedNames: names.relatedNames
+            cladeTaxIds: lineage.cladeTaxIds, cladeNames: lineage.cladeNames, relatedNames: names.relatedNames,
+            basis: .species
         )
     }
 
@@ -66,7 +67,8 @@ extension ViralDetection {
             acceptedTaxIds: context.cladeTaxIds,
             acceptedTaxonNames: context.cladeNames,
             relatedTaxIds: context.relatedTaxIds,
-            relatedTaxonNames: context.relatedNames
+            relatedTaxonNames: context.relatedNames,
+            judgedAt: context.basis
         )
     }
 }

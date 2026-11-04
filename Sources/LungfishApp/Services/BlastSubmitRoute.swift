@@ -77,6 +77,7 @@ struct BlastSubmitPlan: Sendable {
         acceptedNames: [String] = [],
         relatedTaxIds: [Int] = [],
         relatedNames: [String] = [],
+        judgedAt: String? = nil,
         date: Date = Date()
     ) throws -> BlastSubmitPlan {
         guard !sequences.isEmpty else { throw BlastServiceError.noSequences }
@@ -102,7 +103,8 @@ struct BlastSubmitPlan: Sendable {
             acceptedTaxIds: acceptedTaxIds,
             acceptedNames: acceptedNames,
             relatedTaxIds: relatedTaxIds,
-            relatedNames: relatedNames
+            relatedNames: relatedNames,
+            judgedAt: judgedAt
         )
         return BlastSubmitPlan(request: request, queryData: Data((multiFASTA + "\n").utf8))
     }
@@ -127,7 +129,8 @@ struct BlastSubmitPlan: Sendable {
             taxId: BlastSavedSearchRow.lineageTaxId(ofRequestTaxId: search.taxId), contig: contig, sample: sample,
             subsampleCount: subsampleCount, subsampleSeed: subsampleSeed, entrezQuery: search.entrezQuery,
             acceptedTaxIds: search.acceptedTaxIds.sorted(), acceptedNames: search.acceptedTaxonNames,
-            relatedTaxIds: search.relatedTaxIds.sorted(), relatedNames: search.relatedTaxonNames, date: date
+            relatedTaxIds: search.relatedTaxIds.sorted(), relatedNames: search.relatedTaxonNames,
+            judgedAt: search.judgedAt?.rawValue, date: date
         )
     }
 

@@ -41,7 +41,7 @@ extension BlastVerificationTableExport {
     ///
     /// CSV/TSV columns: Read ID, Verdict, LCA Flag, Hit Rank, Accession,
     /// Organism, TaxId, Identity%, Coverage%, E-value, Bit Score, Alignment Length,
-    /// Queried Taxon, Taxon Check, tied, tied_in_taxon, tied_outside.
+    /// Queried Taxon, Taxon Check, tied, tied_in_taxon, tied_outside, Judged At.
     ///
     /// Verdict says only whether a read's alignment passed the quality thresholds, so a read that contradicts the
     /// row can read `verified`. Taxon Check says what the read means for the row: `supporting`, `contradicting` or
@@ -67,13 +67,15 @@ extension BlastVerificationTableExport {
             "Read ID", "Verdict", "LCA Flag", "Hit Rank", "Accession",
             "Organism", "TaxId", "Identity%", "Coverage%", "E-value",
             "Bit Score", "Alignment Length", "Queried Taxon", "Taxon Check",
-            "tied", "tied_in_taxon", "tied_outside",
+            "tied", "tied_in_taxon", "tied_outside", "Judged At",
         ]
         lines.append(header.joined(separator: separator))
 
         // Data rows
         let asked = asksAboutATaxon(result, taxonomy: taxonomy)
         let queriedTaxon = asked ? escapeField(result.taxonName, separator: separator) : ""
+        // What the verdicts were judged at, empty on a record from before the field (BLAST-ESVIRITU-FIRST-WORD).
+        let judgedAt = (result.judgedAt ?? taxonomy?.basis)?.rawValue ?? ""
         let rows = result.readResults.flatMap { fragment in
             ([fragment] + (fragment.otherMates ?? [])).map {
                 (readResult: $0, taxonCheck: asked ? taxonCheckWord(fragment) : "no taxon queried")
@@ -98,7 +100,7 @@ extension BlastVerificationTableExport {
                     queriedTaxon,
                     taxonCheck,
                 ]
-                lines.append((row + tieColumns(readResult)).joined(separator: separator))
+                lines.append((row + tieColumns(readResult) + [judgedAt]).joined(separator: separator))
             } else {
                 // One row per hit
                 for hit in readResult.topHits {
@@ -118,7 +120,7 @@ extension BlastVerificationTableExport {
                         queriedTaxon,
                         taxonCheck,
                     ]
-                    lines.append((row + tieColumns(readResult)).joined(separator: separator))
+                    lines.append((row + tieColumns(readResult) + [judgedAt]).joined(separator: separator))
                 }
             }
         }
