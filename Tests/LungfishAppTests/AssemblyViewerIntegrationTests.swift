@@ -43,7 +43,7 @@ final class AssemblyViewerIntegrationTests: XCTestCase {
         let viewer = ViewerViewController()
         _ = viewer.view
 
-        viewer.displayAssemblyResult(try makeAssemblyResult())
+        try viewer.displayAssemblyResult(makeAssemblyResult())
 
         XCTAssertNotNil(viewer.assemblyResultController)
         XCTAssertTrue(viewer.assemblyResultController?.view.superview === viewer.view)
@@ -64,7 +64,7 @@ final class AssemblyViewerIntegrationTests: XCTestCase {
         window.contentViewController = viewer
         defer { window.close() }
 
-        viewer.displayAssemblyResult(try makeAssemblyResult())
+        try viewer.displayAssemblyResult(makeAssemblyResult())
 
         for size in [
             NSSize(width: 960, height: 640),
@@ -97,7 +97,7 @@ final class AssemblyViewerIntegrationTests: XCTestCase {
         let viewer = ViewerViewController()
         _ = viewer.view
 
-        viewer.displayAssemblyResult(try makeEmptyAssemblyResult())
+        try viewer.displayAssemblyResult(makeEmptyAssemblyResult())
 
         await waitUntil {
             viewer.assemblyResultController?.testEmptyStateMessage == "Assembly completed, but no contigs were generated."
@@ -116,7 +116,7 @@ final class AssemblyViewerIntegrationTests: XCTestCase {
         let viewer = ViewerViewController()
         _ = viewer.view
 
-        viewer.displayAssemblyResult(try makeAssemblyResult())
+        try viewer.displayAssemblyResult(makeAssemblyResult())
         viewer.assemblyResultController?.onBlastVerification?(
             BlastRequest(taxId: nil, sequences: [], readCount: 0, sourceLabel: "selected contigs")
         )
@@ -138,7 +138,7 @@ final class AssemblyViewerIntegrationTests: XCTestCase {
         viewer.fastqMetadataDrawerView = FASTQMetadataDrawerView()
         viewer.fastqMetadataDrawerView?.isHidden = false
 
-        viewer.displayAssemblyResult(try makeAssemblyResult())
+        try viewer.displayAssemblyResult(makeAssemblyResult())
         viewer.hideAssemblyView()
 
         XCTAssertFalse(viewer.enhancedRulerView.isHidden)

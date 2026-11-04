@@ -35,7 +35,7 @@ final class ViewerWindowFrameProbeTests: XCTestCase {
         window.layoutIfNeeded()
         XCTAssertEqual(window.frame, Self.probeFrame, "the window starts at the probe frame")
 
-        viewer.displayAssemblyResult(try makeAssemblyResult())
+        try viewer.displayAssemblyResult(makeAssemblyResult())
         let configured = await waitUntil(budget: .standard) {
             viewer.assemblyResultController?.testSummaryStrip
                 .value(for: "assembly-result-summary-n50").isEmpty == false

@@ -877,16 +877,15 @@ extension MainSplitViewController {
                 provenance: provenance,
                 projectURL: projectSession.projectURL ?? sidebarController.currentProjectURL
             )
-            viewerController.displayAssemblyResult(result)
+            try viewerController.displayAssemblyResult(result)
             recordUITestEvent(
                 "assembly.display.succeeded tool=\(result.tool.rawValue) contigs=\(result.statistics.contigCount)"
             )
         } catch {
-            mainSplitLogger.error(
-                "displayAssemblyAnalysis: Failed to load result from \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
+            mainSplitLogger.error("displayAssemblyAnalysis: Failed to open \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
             recordUITestEvent("assembly.display.failed \(url.lastPathComponent) error=\(error.localizedDescription)")
-            viewerController.clearViewport(statusMessage: "Unable to load assembly result.")
+            inspectorController.clearSelection()
+            viewerController.clearViewport(statusMessage: viewerController.surfaceFailureWords("Unable to open the assembly.", error, orElse: "Select the item again. If it still does not open, check that the assembly's folder is complete or run the assembly again."))
         }
     }
 

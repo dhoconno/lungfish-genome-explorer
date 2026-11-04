@@ -5,6 +5,7 @@
 import AppKit
 import LungfishIO
 import LungfishKit
+import LungfishAssemblyUI
 import LungfishNaoMgsUI
 import LungfishEsVirituUI
 import LungfishGenotypeUI
@@ -35,6 +36,11 @@ extension ViewerViewController {
         registry.register(.view(.vcfDataset)) { VCFDatasetSurface() }
         registry.register(.view(.quickLook)) { QuickLookPreviewSurface() }
         registry.register(.bundle(.fastq)) { [weak self] in FASTQDatasetSurface(viewer: self) }
+        registry.register(.analysis(.spades), factory: AssemblyResultSurface.factory(for: .spades))
+        registry.register(.analysis(.megahit), factory: AssemblyResultSurface.factory(for: .megahit))
+        registry.register(.analysis(.skesa), factory: AssemblyResultSurface.factory(for: .skesa))
+        registry.register(.analysis(.flye), factory: AssemblyResultSurface.factory(for: .flye))
+        registry.register(.analysis(.hifiasm), factory: AssemblyResultSurface.factory(for: .hifiasm))
         return registry
     }
 

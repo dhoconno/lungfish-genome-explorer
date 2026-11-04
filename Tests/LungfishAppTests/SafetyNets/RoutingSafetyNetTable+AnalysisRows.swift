@@ -38,7 +38,7 @@ extension RoutingSafetyNetTable {
                 let result = try RoutingSafetyNetFixtures.assemblySeedAnalysis(in: context.url("Analyses", isDirectory: true))
                 return RoutingRowFixture(
                     item: try RoutingSafetyNetItems.scannedAnalysis(result),
-                    expected: nothing(status: "Unable to load assembly result.")
+                    expected: nothing(status: "Unable to open the assembly. The data couldn’t be read because it is missing. Select the item again. If it still does not open, check that the assembly's folder is complete or run the assembly again.")
                 )
             },
             RoutingRow(family: .analyses, name: "minimap2 mapping with a viewer bundle", type: .analysisResult) { context in

@@ -68,7 +68,7 @@ final class BlastConsentLineTests: XCTestCase {
         shown = []
 
         let assemblyViewer = viewer()
-        assemblyViewer.displayAssemblyResult(try makeAssemblyResult())
+        try assemblyViewer.displayAssemblyResult(makeAssemblyResult())
         assemblyViewer.assemblyResultController?.onBlastVerification?(
             BlastRequest(taxId: nil, sequences: [], readCount: 0, sourceLabel: "selected contigs")
         )

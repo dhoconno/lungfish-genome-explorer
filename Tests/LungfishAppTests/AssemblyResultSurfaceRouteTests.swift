@@ -173,7 +173,6 @@ final class AssemblyResultSurfaceRouteTests: XCTestCase {
         harness.window.contentView?.layoutSubtreeIfNeeded()
 
         let inset = viewer.view.safeAreaInsets.top
-        print("ASM-PROBE safeAreaInsets.top = \(inset)")
         XCTAssertGreaterThan(inset, 0, "the window has no toolbar inset, so this test cannot tell the two pins apart")
         let assembly = try XCTUnwrap(viewer.assemblyResultController).view
         let top = assembly.convert(assembly.bounds, to: nil).maxY

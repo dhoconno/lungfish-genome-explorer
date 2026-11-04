@@ -14,7 +14,7 @@ private let assemblyDisplayLogger = Logger(subsystem: LogSubsystem.app, category
 
 extension ViewerViewController {
     /// Displays an assembly result viewport in place of the normal sequence viewer.
-    public func displayAssemblyResult(_ result: AssemblyResult) {
+    public func displayAssemblyResult(_ result: AssemblyResult) throws {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
@@ -33,7 +33,6 @@ extension ViewerViewController {
         contentMode = .assembly
 
         let controller = AssemblyResultViewController()
-        addChild(controller)
         controller.onBlastVerification = withBlastConsent(noun: "contigs") { [weak self] request in
             guard let self else { return }
             guard let blastController = self.assemblyResultController else { return }
@@ -79,28 +78,14 @@ extension ViewerViewController {
             self?.presentFASTAOperationDialog(records: fastaRecords, suggestedName: suggestedName)
         }
 
+        _ = try showSurface(
+            AssemblyResultSurface.kind(of: result.tool),
+            input: AssemblyResultSurface.Input(controller: controller, result: result),
+            as: AssemblyResultSurface.self
+        )
+        // showSurface hides the genomics viewer. These two drawers are this kind's own lines.
         annotationDrawerView?.isHidden = true
         fastqMetadataDrawerView?.isHidden = true
-
-        let assemblyView = controller.view
-        controller.configure(result: result)
-        assemblyView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(assemblyView)
-
-        NSLayoutConstraint.activate([
-            assemblyView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            assemblyView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            assemblyView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            assemblyView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-
-        assemblyResultController = controller
-
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
 
         assemblyDisplayLogger.info(
             "displayAssemblyResult: Showing \(result.tool.displayName, privacy: .public) result"
@@ -151,20 +136,9 @@ extension ViewerViewController {
         return result
     }
 
-    /// Removes the assembly result viewport and restores the normal viewer components.
+    /// Removes the assembly result viewport, whichever tool made it, and restores the normal viewer components.
     public func hideAssemblyView() {
-        guard let controller = assemblyResultController else { return }
-        controller.view.removeFromSuperview()
-        controller.removeFromParent()
-        assemblyResultController = nil
-
-        enhancedRulerView.isHidden = false
-        viewerView.isHidden = false
-        headerView.isHidden = false
-        statusBar.isHidden = false
-        geneTabBarView.isHidden = (geneTabBarView.selectedGeneRegion == nil)
-        revealAnnotationDrawerUnlessNativeBundleInstalled()
-        fastqMetadataDrawerView?.isHidden = false
+        clearSurface(ifShowing: .analysis(.spades), .analysis(.megahit), .analysis(.skesa), .analysis(.flye), .analysis(.hifiasm))
     }
 
     nonisolated static func blastSequences(from fastaRecords: [String]) -> [(id: String, sequence: String)] {

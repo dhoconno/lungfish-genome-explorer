@@ -18,11 +18,13 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 | Contig table | Sources/LungfishAssemblyUI/AssemblyContigTableView.swift |
 | Contig materialization action | Sources/LungfishAssemblyUI/AssemblyContigMaterializationAction.swift |
 | Panel layout preference | `AssemblyPanelLayout`, Sources/LungfishAssemblyUI/AssemblyLayoutPreference.swift line 9 |
+| `AssemblyResultSurface`, one factory for each of the five tools | Sources/LungfishAssemblyUI/AssemblyResultSurface.swift |
 | App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+Assembly.swift |
 
 ## Contracts this module owns
 
 - The controller reaches app services only through its `on...` callbacks, wired by the App glue file.
+- A tool that joins `AssemblyTool` needs its `register` line in `makeSurfaceRegistry` and its kind in `hideAssemblyView`. `testEveryAssemblyToolHasARegisteredSurface` fails until it has the first.
 
 ## Tests
 

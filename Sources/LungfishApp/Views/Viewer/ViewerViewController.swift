@@ -195,7 +195,7 @@ public class ViewerViewController: NSViewController {
     var activeConsensusShareSessions: [UUID: AlignmentConsensusShareSession] = [:]
 
     /// Assembly result browser (shown in place of the sequence viewer for assembly analyses)
-    var assemblyResultController: AssemblyResultViewController?
+    var assemblyResultController: AssemblyResultViewController? { installedSurface?.viewController as? AssemblyResultViewController }
 
     /// Mapping result browser (shown in place of the sequence viewer for mapping analyses)
     var mappingResultController: MappingResultViewController?

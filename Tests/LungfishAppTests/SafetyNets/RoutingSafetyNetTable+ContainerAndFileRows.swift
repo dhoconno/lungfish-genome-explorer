@@ -173,7 +173,7 @@ extension RoutingSafetyNetTable {
                 return RoutingRowFixture(
                     item: try RoutingSafetyNetItems.scannedAnalysis(batch),
                     expected: RoutingObservation(
-                        status: "Unable to load assembly result.",
+                        status: "Unable to open the assembly. The file “assembly-result.json” couldn’t be opened because there is no such file. Select the item again. If it still does not open, check that the assembly's folder is complete or run the assembly again.",
                         provenance: "analysisResult \(path)"
                     )
                 )
