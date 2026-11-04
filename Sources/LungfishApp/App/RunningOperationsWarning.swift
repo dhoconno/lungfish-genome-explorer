@@ -104,7 +104,7 @@ final class LiveRunningOperationsAlert {
         } else {
             alert.messageText = RunningOperationsWarning.messageText(kind: kind, count: current.count)
             alert.informativeText = RunningOperationsWarning.informativeText(
-                kind: kind, operations: current, blastSearchesStay: OperationCenter.shared.hasBlastSearchThatStays
+                kind: kind, operations: current, blastSearchesStay: OperationCenter.shared.hasBlastSearchThatStays(beside: current)
             )
             switch kind {
             case .quit: confirmButton?.title = "Cancel Operations and Quit"

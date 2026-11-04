@@ -154,7 +154,7 @@ extension BlastResultsDrawerTab {
 
     /// Shows `search` in its state's words, or the empty pane once it has its record, which a restore then reads.
     package func showWaiting(_ search: BlastLiveSearch, now: Date = Date()) {
-        guard let state = BlastSearchPaneState.make(search, noun: searchNoun, now: now) else { return }
+        guard let state = BlastSearchPaneState.make(search, noun: searchNoun, now: now, home: BlastSearchPaneActions.homeFolder?(search.file.searchID)) else { return }
         showWaiting(state)
     }
 

@@ -51,8 +51,9 @@ public struct BlastSearchPaneState: Sendable, Equatable {
         )
     }
 
-    /// The state of `search`, nil once it has its record.
-    package static func make(_ search: BlastLiveSearch, noun: String, now: Date) -> BlastSearchPaneState? {
+    /// The state of `search`, nil once it has its record. `home` is the folder the search's line names, which tells a copied
+    /// project's folder from the one that sent the search (UX-BLAST-WORDS, Every route).
+    package static func make(_ search: BlastLiveSearch, noun: String, now: Date, home: String? = nil) -> BlastSearchPaneState? {
         let file = search.file
         let rids = file.copies.compactMap(\.rid)
         let rid = rids.last ?? ""
@@ -78,6 +79,10 @@ public struct BlastSearchPaneState: Sendable, Equatable {
                 folder: search.folder, heading: heading, body: body, requestIDs: rids, holdsStill: still,
                 buttons: buttons, barWord: bar, checkAgainAt: checkAgainAt
             )
+        }
+
+        if let home, home != search.folder.standardizedFileURL.path, !file.state.isEnding, FileManager.default.fileExists(atPath: home) {
+            return state("Sent from another copy of this project", BlastSearchWords.fromAnotherCopy(rid: rids.last), buttons: [check])
         }
 
         switch file.state {
@@ -165,6 +170,8 @@ public enum BlastSearchPaneActions {
     public static var perform: (@MainActor (BlastSearchPaneState.Action, URL) -> Void)?
     /// Whether a viewer's own run holds `folder`. The monitor leaves such a folder alone, so Check Now says so.
     public static var isAtWork: (@MainActor (URL) -> Bool)?
+    /// The folder the line of a search names, which tells a copied project's folder from the one that sent the search.
+    public static var homeFolder: (@MainActor (UUID) -> String?)?
     /// The name a pane hears a press's answer under, with the search's folder as its object.
     public static let saidNotification = Notification.Name("BlastSearchPaneActions.said")
     /// The key of the words in ``saidNotification``.

@@ -8,6 +8,7 @@
 
 import Darwin
 import Foundation
+import os
 import XCTest
 @testable import LungfishApp
 import LungfishCore
@@ -65,18 +66,18 @@ final class BlastHeldSearchEndToEndTests: XCTestCase {
         folder.appendingPathComponent("stand-in-state", isDirectory: true)
     }
 
-    private func environment(_ server: BlastFaultStandIn) -> [String: String] {
+    private func environment(_ origin: URL) -> [String: String] {
         [
-            BlastServiceEndpoints.standInOriginVariable: server.baseURL.absoluteString,
+            BlastServiceEndpoints.standInOriginVariable: origin.absoluteString,
             BlastStandInState.stateVariable: stateFolder.path,
             BlastStandInState.timeScaleVariable: BlastSubmitParity.fastClock,
         ]
     }
 
     /// The built CLI under the stand-in's variables, which both the viewer's run and the monitor's passes launch.
-    private func wrappedCLI(_ server: BlastFaultStandIn) throws -> URL {
+    private func wrappedCLI(_ origin: URL) throws -> URL {
         let real = try BlastSubmitParity.cli(for: Self.self)
-        let exports = environment(server).sorted { $0.key < $1.key }.map { "export \($0.key)='\($0.value)'" }.joined(separator: "\n")
+        let exports = environment(origin).sorted { $0.key < $1.key }.map { "export \($0.key)='\($0.value)'" }.joined(separator: "\n")
         let url = folder.appendingPathComponent("lungfish-cli-on-the-stand-in")
         try "#!/bin/bash\n\(exports)\nexec '\(real.path)' \"$@\"\n".write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
@@ -84,9 +85,9 @@ final class BlastHeldSearchEndToEndTests: XCTestCase {
     }
 
     /// The clock the child runs on, which the monitor must read to find what is due.
-    private func searchClock(_ server: BlastFaultStandIn) throws -> BlastSearchClock {
+    private func searchClock(_ origin: URL) throws -> BlastSearchClock {
         try FileManager.default.createDirectory(at: stateFolder, withIntermediateDirectories: true)
-        return BlastSearchClock(environment: environment(server), sharedFolder: stateFolder)
+        return BlastSearchClock(environment: environment(origin), sharedFolder: stateFolder)
     }
 
     private func makePlan() throws -> BlastSubmitPlan {
@@ -118,8 +119,8 @@ final class BlastHeldSearchEndToEndTests: XCTestCase {
             BlastFaultScript(search: .readyAtOnce, thereAreHits: true, body: try Self.reply("sars-cov-2-one-read-send-b")),
         ])
         defer { server.stop() }
-        let cli = try wrappedCLI(server)
-        let clock = try searchClock(server)
+        let cli = try wrappedCLI(server.baseURL)
+        let clock = try searchClock(server.baseURL)
         let monitor = BlastInFlightMonitor(worker: .cli(cliURLOverride: cli), now: clock.now)
         let plan = try makePlan()
         let row = OperationCenter.shared.begin(
@@ -148,6 +149,8 @@ final class BlastHeldSearchEndToEndTests: XCTestCase {
         XCTAssertEqual(saved.result.rid, BlastFaultStandIn.rid(ofPut: 2))
         XCTAssertEqual(saved.result.readResults.first?.topHitAccession, Self.sendBTop)
         XCTAssertEqual(try BlastSearchStore(folder: plan.request.outputURL).load().state, .done)
+        let recordURL = plan.request.outputURL.appendingPathComponent("blast-result.json")
+        XCTAssertTrue(BlastResultsDrawerTab.collectedRowWords(recordURL: recordURL).hasSuffix(", 2 sends"), "FASTA's row")
         let paneWords = BlastResultsDrawerTab.collectedWords(recordURL: plan.request.outputURL.appendingPathComponent("blast-result.json"))
         XCTAssertTrue(paneWords.hasSuffix("2 sends, answered by request ID \(BlastFaultStandIn.rid(ofPut: 2))."), paneWords)
 
@@ -162,8 +165,8 @@ final class BlastHeldSearchEndToEndTests: XCTestCase {
             BlastFaultScript(search: .held, thereAreHits: true, body: $0)
         })
         defer { server.stop() }
-        let cli = try wrappedCLI(server)
-        let clock = try searchClock(server)
+        let cli = try wrappedCLI(server.baseURL)
+        let clock = try searchClock(server.baseURL)
         let plan = try makePlan()
         let output = plan.request.outputURL
         let stage = plan.request.queryURL.deletingLastPathComponent()
@@ -248,11 +251,7 @@ final class BlastHeldSearchEndToEndTests: XCTestCase {
         try DurableReplace.replace(plan.queryData, named: plan.request.queryURL.lastPathComponent, in: stage)
         let run = try CLISIGTERMHarness.launchCLI(
             plan.arguments,
-            environment: [
-                BlastServiceEndpoints.standInOriginVariable: server.baseURL.absoluteString,
-                BlastStandInState.stateVariable: stateFolder.path,
-                BlastStandInState.timeScaleVariable: BlastSubmitParity.fastClock,
-            ],
+            environment: environment(server.baseURL),
             testClass: Self.self
         )
         defer { run.stop() }
@@ -271,5 +270,64 @@ final class BlastHeldSearchEndToEndTests: XCTestCase {
         XCTAssertFalse(names.contains("blast-result.json"), "\(names)")
         XCTAssertFalse(try BlastSearchStore(folder: output).load().state.isEnding, "a quit ends no search")
         XCTAssertFalse(stop.standardOutput.contains(#""event":"failed""#), "a quit reports no failure")
+    }
+
+    /// A quit with the first Put unanswered raises no alert (UX-BLAST-WORDS Q3), and LGE cannot know whether NCBI has the
+    /// search. The search file is durable before the POST, so the next launch finds it and it comes back on a row.
+    func testAQuitWhileTheFirstPutIsUnansweredComesBackAtTheNextLaunch() async throws {
+        let gate = DispatchSemaphore(value: 0)
+        let puts = OSAllocatedUnfairLock(initialState: 0)
+        let body = try Self.reply("sars-cov-2-one-read-send-a")
+        let server = try LoopbackHTTPStandIn.start { request in
+            guard request.path == "/blast/Blast.cgi" else { return .notFound }
+            if request.method == "POST" {
+                let ordinal = puts.withLock { count -> Int in
+                    count += 1
+                    return count
+                }
+                if ordinal == 1 { _ = gate.wait(timeout: .now() + .seconds(60)) }
+                return .text("<!--QBlastInfoBegin\n    RID = PUT\(ordinal)\n    RTOE = 1\nQBlastInfoEnd-->")
+            }
+            if request.queryItems.contains(URLQueryItem(name: "FORMAT_OBJECT", value: "SearchInfo")) {
+                return .text("<!--QBlastInfoBegin\n    Status=READY\nQBlastInfoEnd-->")
+            }
+            return LoopbackHTTPResponse(contentType: "application/json", body: body)
+        }
+        defer {
+            gate.signal()
+            server.stop()
+        }
+        let cli = try wrappedCLI(server.baseURL)
+        let clock = try searchClock(server.baseURL)
+        let plan = try makePlan()
+        let output = plan.request.outputURL
+        let stage = plan.request.queryURL.deletingLastPathComponent()
+        try DurableReplace.replace(plan.queryData, named: plan.request.queryURL.lastPathComponent, in: stage)
+        let run = try CLISIGTERMHarness.launchCLI(plan.arguments, environment: environment(server.baseURL), testClass: Self.self)
+        defer { run.stop() }
+        let posted = await waitUntil(budget: .lookup) { server.requests.contains { $0.method == "POST" } }
+        XCTAssertTrue(posted, "the leaf never posted")
+
+        let stop = await CLISIGTERMHarness.cancel(run)
+        gate.signal()
+
+        CLISIGTERMHarness.assertCancelledExit(stop, within: CLISIGTERMHarness.operationGrace)
+        XCTAssertTrue(stop.standardError.contains(BlastSearchWords.stoppedBeforeAnAnswer), stop.standardError)
+        let store = BlastSearchStore(folder: output)
+        let left = try store.load()
+        XCTAssertFalse(left.state.isEnding, "a quit ends no search, and the file reads \(left.state)")
+        XCTAssertNil(left.copies.first?.rid, "NCBI's answer never came")
+
+        let monitor = BlastInFlightMonitor(worker: .cli(cliURLOverride: cli), now: clock.now)
+        await monitor.refresh()
+        let row = try XCTUnwrap(monitor.row(ofSearch: left.searchID), "the next launch finds a search whose Put was never answered")
+        rows.append(row)
+        let cameBack = await waitUntil(budget: .lookup) {
+            await monitor.refresh()
+            await monitor.passesFinished()
+            return self.item(row)?.state == .completed
+        }
+        XCTAssertTrue(cameBack, "the row reads \(item(row)?.detail ?? "nothing") and the search \(String(describing: try? store.load().state))")
+        XCTAssertEqual(try record(in: output).result.verifiedCount, 1)
     }
 }

@@ -933,7 +933,7 @@ extension MainWindowController: NSWindowDelegate {
         // The list follows OperationCenter while the sheet is open.
         let projectURL = projectSession.projectURL
         let live = LiveRunningOperationsAlert(alert: alert, kind: .closeWindow) {
-            OperationCenter.shared.activeItems(forProjectURL: projectURL)
+            OperationCenter.shared.activeItems(forProjectURL: projectURL).filter { !BlastInFlightMonitor.shared.isSavedSearch(row: $0.id) }
         }
         defer { live.stop() }
         alert.applyLungfishBranding()

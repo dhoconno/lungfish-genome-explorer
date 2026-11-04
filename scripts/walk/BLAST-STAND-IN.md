@@ -26,6 +26,8 @@ The first step of the walk proves two things that no test can. The notarized app
 
 A control is one request, such as `curl -s http://127.0.0.1:18765/control/release`. `control/state` says what has come so far, and `control/clear` takes away every fault. The stand-in starts with searches held. `control/reply?name=rotavirus-three-reads` serves another recorded pair. Each send gets the next reply of the pair, so a copy names other tied records.
 
+Use a throwaway project for these rows. A search there is marked as the stand-in's, so a run with none of the variables that opens the project leaves it alone and says so.
+
 ## One row for each state
 
 Press Verify with BLAST on any result row, with the stand-in as the row says. The words in each row of `UX-BLAST-WORDS` Q1 are what a person must read on the Operations row. The pane says the same under its heading.
@@ -55,6 +57,15 @@ Press Verify with BLAST on any result row, with the stand-in as the row says. Th
 3. Run the open command again with the same three variables.
 4. The row is back with its first start time, and the search goes on with the same request IDs. `control/state` shows no new Put.
 5. `control/release`, and read row 7 on that row with no press.
+
+## A quit while a send is unanswered
+
+1. `control/slow-put?seconds=120`, then send. The row reads Sending.
+2. Quit LGE. No alert names the search.
+3. `control/clear`, then run the open command again.
+4. The row is back and the search goes out. `control/state` shows a second Put, and `control/release` brings row 7.
+
+A quit in the first moment after a press, before the search is saved in its folder, raises the alert and names the row, since that search would be lost.
 
 ## The smoke
 

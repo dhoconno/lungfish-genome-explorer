@@ -63,21 +63,67 @@ final class BlastRowWordsTests: XCTestCase {
 
     // MARK: - The quit alert (UX-BLAST-WORDS Q3)
 
-    func testARunningBlastRowStaysOutOfTheQuitListAndTheAlertSaysItStays() {
+    private func waitingFile() -> BlastSearchFile {
+        let request = BlastVerificationRequest(taxonName: "Taxon", taxId: 7, sequences: [(id: "read_1", sequence: "ACGT")], database: "core_nt")
+        var file = BlastSearchFile(
+            origin: .standIn, createdAt: Date(), submitArgv: [], facts: BlastSearchFile.Facts(request),
+            query: BlastSubmissionRecord.Query(fileName: "query.fasta", sha256: "x", sequenceCount: 1), formSHA256: "x"
+        )
+        file.state = .waiting
+        file.copies[0].rid = "RID-1"
+        file.copies[0].state = .live
+        return file
+    }
+
+    func testOnlyASavedSearchLeavesTheQuitListAndTheAlertSaysItStays() throws {
+        let folder = try TestTempDirectory.make(prefix: "blast-quit-list")
+        defer { TestTempDirectory.cleanup(folder) }
+        let monitor = BlastInFlightMonitor(worker: BlastInFlightMonitor.Worker(
+            lines: { _ in [] }, pass: { _, _, _ in .noNews(words: "") }, stop: { _ in }
+        ))
         let blast = begin(.blastVerification)
         let export = begin(.export)
-        let list = OperationCenter.shared.quitListItems.map(\.id)
+        let extracting = begin(.blastVerification)
+        monitor.viewerRunBegan(output: folder, row: blast)
 
-        XCTAssertFalse(list.contains(blast), "a quit leaves the search at NCBI, so it cancels nothing")
+        XCTAssertTrue(monitor.quitList().map(\.id).contains(blast), "with nothing saved a quit would lose the search, so the alert names it")
+        XCTAssertTrue(monitor.quitList().map(\.id).contains(extracting), "a BLAST row with no run yet has nothing to go on with")
+
+        try BlastSearchStore(folder: folder).save(waitingFile())
+
+        let list = monitor.quitList().map(\.id)
+        XCTAssertFalse(list.contains(blast), "a quit leaves the saved search at NCBI or ready to send, so it cancels nothing")
         XCTAssertTrue(list.contains(export))
+        XCTAssertTrue(monitor.isSavedSearch(row: blast))
 
         let alert = NSAlert()
-        let live = LiveRunningOperationsAlert(alert: alert, kind: .quit) { OperationCenter.shared.quitListItems }
+        let live = LiveRunningOperationsAlert(alert: alert, kind: .quit) { monitor.quitList() }
         defer { live.stop() }
         XCTAssertTrue(
             alert.informativeText.contains("BLAST searches stay at NCBI. LGE checks them again when you next open LGE."),
             alert.informativeText
         )
+    }
+
+    /// UX-BLAST-WORDS, Every route, row Copied project.
+    func testACopiedProjectsPaneSaysItWasSentFromAnotherCopy() throws {
+        let folder = try TestTempDirectory.make(prefix: "blast-copied-pane")
+        defer { TestTempDirectory.cleanup(folder) }
+        let home = folder.appendingPathComponent("home", isDirectory: true)
+        let copy = folder.appendingPathComponent("copy", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        let search = BlastLiveSearch(file: waitingFile(), folder: copy)
+
+        let words = "This search was sent from another copy of this project, request ID RID-1. Choose Check Now to collect it here."
+        let state = BlastSearchPaneState.make(search, noun: "reads", now: Date(), home: home.path)
+        XCTAssertEqual(state?.body, words)
+        XCTAssertEqual(state?.buttons.map(\.action), [.checkNow], "a copy only checks and fetches, and never sends")
+
+        let itsOwnFolder = BlastSearchPaneState.make(search, noun: "reads", now: Date(), home: copy.path)
+        XCTAssertNotEqual(itsOwnFolder?.body, words)
+        let movedAway = BlastSearchPaneState.make(search, noun: "reads", now: Date(), home: folder.appendingPathComponent("gone").path)
+        XCTAssertNotEqual(movedAway?.body, words, "a folder that has gone means this one moved, and it is no copy")
     }
 
     // MARK: - Relaunch (UX-BLAST-WORDS Q2)

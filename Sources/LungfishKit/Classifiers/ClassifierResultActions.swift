@@ -325,7 +325,7 @@ public final class ClassifierResultActions: NSObject {
     }
 
     private func showLiveSearch(_ search: BlastLiveSearch, row: BlastSavedSearchRow?) {
-        guard let state = BlastSearchPaneState.make(search, noun: blastDrawer.searchNoun, now: Date()) else { return }
+        guard let state = BlastSearchPaneState.make(search, noun: blastDrawer.searchNoun, now: Date(), home: BlastSearchPaneActions.homeFolder?(search.file.searchID)) else { return }
         showPaneState(state, row: row)
     }
 

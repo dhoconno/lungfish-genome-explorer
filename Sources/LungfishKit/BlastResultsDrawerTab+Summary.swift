@@ -35,6 +35,14 @@ extension BlastResultsDrawerTab {
         return counted.rows + (counted.sent.map { " (\($0))" } ?? "")
     }
 
+    /// What a row whose words are its own adds for a search that came back (UX-BLAST-WORDS Q1 row 7), or nothing for a record
+    /// with no search file beside it.
+    nonisolated public static func collectedRowWords(recordURL: URL?) -> String {
+        guard let folder = recordURL?.deletingLastPathComponent(), let file = try? BlastSearchStore(folder: folder).load(),
+              let line = BlastSearchWords.collected(in: file) else { return "" }
+        return ". " + line
+    }
+
     /// What the pane adds to the summary of a search that came back (UX-BLAST-WORDS Q7), or nothing for a record with no
     /// search file beside it, which is every record from before searches had one.
     nonisolated public static func collectedWords(recordURL: URL?) -> String {

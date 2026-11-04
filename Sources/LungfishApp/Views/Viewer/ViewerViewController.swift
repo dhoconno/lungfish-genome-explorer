@@ -1648,7 +1648,7 @@ public class ViewerViewController: NSViewController {
 
                     guard OperationCenter.shared.complete(
                         id: opID,
-                        detail: "Results ready for \(result.readResults.count) sequence\(result.readResults.count == 1 ? "" : "s")"
+                        detail: "Results ready for \(result.readResults.count) sequence\(result.readResults.count == 1 ? "" : "s")" + BlastResultsDrawerTab.collectedRowWords(recordURL: recordURL)
                     ) else { return }
                     guard let self, let controller,
                           self.activeFASTABlastRunID == runID else { return }

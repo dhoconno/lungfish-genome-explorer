@@ -894,7 +894,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // tasks. Ask first, unless the user already confirmed once for
         // this quit attempt (the reply below re-enters `terminate()`).
         if !hasConfirmedQuitWithRunningOperations {
-            let runningOperations = OperationCenter.shared.quitListItems
+            let runningOperations = BlastInFlightMonitor.shared.quitList()
             if !runningOperations.isEmpty {
                 if quitOperationsWarningTask != nil {
                     return .terminateLater
@@ -992,7 +992,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // The list follows OperationCenter while the sheet is open, so a run
         // that finishes meanwhile is no longer shown as running.
         let live = LiveRunningOperationsAlert(alert: alert, kind: .quit) {
-            OperationCenter.shared.quitListItems
+            BlastInFlightMonitor.shared.quitList()
         }
         defer { live.stop() }
         alert.applyLungfishBranding()

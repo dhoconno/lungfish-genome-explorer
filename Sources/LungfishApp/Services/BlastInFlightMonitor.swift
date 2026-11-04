@@ -108,6 +108,7 @@ final class BlastInFlightMonitor {
         started = true
         BlastSearchPaneActions.perform = { [weak self] action, folder in self?.perform(action, folder: folder) }
         BlastSearchPaneActions.isAtWork = { [weak self] folder in self?.viewerRuns[folder.standardizedFileURL.path] != nil }
+        BlastSearchPaneActions.homeFolder = { [weak self] searchID in self?.known[searchID]?.output }
         Task { await self.refresh(project: nil) }
     }
 
@@ -133,6 +134,22 @@ final class BlastInFlightMonitor {
         parkedRows[output.standardizedFileURL.path] = row
         guard started else { return }
         Task { await self.refresh() }
+    }
+
+    // MARK: What a quit would end
+
+    /// What a quit would end, which the quit alert lists. A viewer's run whose search is saved in its folder stays out,
+    /// since the search goes on after a quit and the next launch finds it, its Put answered or not (UX-BLAST-WORDS Q3). Any
+    /// other BLAST row stays on, since a quit would lose it and the alert is the only place that can say so.
+    func quitList() -> [OperationCenter.Item] {
+        center.activeItems.filter { !isSavedSearch(row: $0.id) }
+    }
+
+    /// Whether `row` is a viewer's run of a search that is saved in its folder.
+    func isSavedSearch(row: UUID) -> Bool {
+        viewerRuns.contains { path, id in
+            id == row && FileManager.default.fileExists(atPath: path + "/" + BlastSearchFile.fileName)
+        }
     }
 
     // MARK: What a person presses
