@@ -125,33 +125,21 @@ extension ViewerViewController {
         hideCollectionBackButton()
         contentMode = .mapping
 
-        let controller = MappingResultViewController()
-        addChild(controller)
-
         annotationDrawerView?.isHidden = true
         fastqMetadataDrawerView?.isHidden = true
 
-        let mappingView = controller.view
-        mappingView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(mappingView)
-
-        NSLayoutConstraint.activate([
-            mappingView.topAnchor.constraint(equalTo: view.topAnchor),
-            mappingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            mappingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            mappingView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
+        let controller = MappingResultViewController()
+        do {
+            _ = try showSurface(.bundle(.reference), input: controller, as: ReferenceBundleSurface.self)
+        } catch {
+            mappingDisplayLogger.error("displayMappingResult: Did not install: \(error.localizedDescription, privacy: .public)")
+            clearViewport(statusMessage: "Unable to open the mapping result. Select it again.")
+            return
+        }
 
         view.layoutSubtreeIfNeeded()
         controller.configure(result: result, resultDirectoryURL: resultDirectoryURL)
-        mappingView.layoutSubtreeIfNeeded()
-        mappingResultController = controller
-
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
+        controller.view.layoutSubtreeIfNeeded()
 
         mappingDisplayLogger.info(
             "displayMappingResult: Showing \(result.mapper.displayName, privacy: .public) result"
@@ -238,15 +226,6 @@ extension ViewerViewController {
     }
 
     public func hideMappingView() {
-        if let controller = mappingResultController {
-            controller.view.removeFromSuperview()
-            controller.removeFromParent()
-            mappingResultController = nil
-            enhancedRulerView.isHidden = false
-            viewerView.isHidden = false
-            statusBar.isHidden = false
-        }
-
         clearSurface(ifShowing: .bundle(.reference))
     }
 

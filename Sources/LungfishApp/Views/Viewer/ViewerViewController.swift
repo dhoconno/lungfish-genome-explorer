@@ -175,8 +175,8 @@ public class ViewerViewController: NSViewController {
     /// Assembly result browser (shown in place of the sequence viewer for assembly analyses)
     var assemblyResultController: AssemblyResultViewController? { installedSurface?.viewController as? AssemblyResultViewController }
 
-    /// Mapping result browser (shown in place of the sequence viewer for mapping analyses)
-    var mappingResultController: MappingResultViewController?
+    /// The mapping result browser of `displayMappingResult`, while the surface host shows it. No production route builds it.
+    var mappingResultController: MappingResultViewController? { installedSurface?.viewController as? MappingResultViewController }
 
     /// Shared viewport of a `.lungfishref` and a mapping result, while the surface host shows it.
     var referenceBundleViewportController: ReferenceBundleViewportController? { (installedSurface as? ReferenceBundleSurface)?.plainViewport }
