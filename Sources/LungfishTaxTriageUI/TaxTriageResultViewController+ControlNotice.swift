@@ -15,17 +15,21 @@ extension TaxTriageResultViewController {
     ///
     /// - A record that lists no samples names no control, so the table's No may be wrong (BIO-IMPORT-BATCH item 5).
     /// - Otherwise the words are the ones the batch report prints, from the same ``TaxTriageControlMatch``. They name a
-    ///   control that failed or cannot be found, and two sample names that the pipeline gives one name, so screen and
-    ///   file say one thing. A control that ran needs none.
+    ///   control that failed or cannot be found, two sample names that the pipeline gives one name, and a control that
+    ///   has results and a skipped step, so screen and file say one thing. A control that ran needs none. When a control
+    ///   is not checked the strip adds one sentence of its own, since a blank cell or a list with no sign has no words.
     func controlNoticeWords() -> String? {
         guard let config = taxTriageConfig, !TaxTriageExportSource.controlsAreNotRecorded(in: config) else {
             return TaxTriageNotRecordedNoticeView.words
         }
-        return TaxTriageControlMatch(
+        let match = TaxTriageControlMatch(
             samples: config.samples,
             failedSampleIDs: taxTriageResult?.sampleFailures.map(\.sampleID) ?? [],
             ignoredFailures: taxTriageResult?.ignoredFailures ?? [],
             databaseSampleIds: sampleIds
-        ).noticeWords
+        )
+        guard let words = match.noticeWords else { return nil }
+        // The cells stay blank and the list shows no sign where the files say Not checked, so say it in words.
+        return match.hasUncheckedControl ? words + " Where no warning sign shows, the risk is not checked." : words
     }
 }
