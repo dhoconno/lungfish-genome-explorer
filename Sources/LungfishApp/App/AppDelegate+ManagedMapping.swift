@@ -156,10 +156,17 @@ extension AppDelegate {
             // post-output-write error) means the batch directory is not
             // empty and must stay.
             let batchSucceeded = anySucceeded
+            let batchFailures = failures
+            let owner: AppDelegate? = self
             await MainActor.run {
                 batchOutputHold.finish(succeeded: batchSucceeded)
                 if !batchSucceeded, let batchDirectory {
                     AnalysesFolder.removeBatchDirectoryIfEffectivelyEmpty(batchDirectory)
+                }
+                // One alert for the samples that failed, on the window that started the run. Their words sit on
+                // rows of the Operations window, which this route does not open (UWORDS, Phase 3.2).
+                if let report = batchFailures.report(totalSamples: requests.count) {
+                    FailurePresenter.present(report, in: owner?.targetMainWindowController(routeContext: routeContext)?.window)
                 }
             }
         }

@@ -33,7 +33,41 @@ struct MappingBatchFailures: Sendable, Equatable {
     }
 
     /// The one alert for the batch, or nil when no sample failed. `totalSamples` is the batch's size.
+    ///
+    /// One failed sample gets the failed line's first line as the words. Several get their names, the first five and a
+    /// count of the rest, and the Operations panel holds each sample's reason and log. A reason of several lines goes
+    /// behind Show Details.
     func report(totalSamples: Int) -> FailureReport? {
-        nil
+        guard let first = entries.first else { return nil }
+        if entries.count == 1 {
+            let lines = first.words.split(whereSeparator: \.isNewline).map(String.init)
+            return FailureReport(
+                failedStep: "Run Map Reads for \(first.sample)",
+                whatHappened: Self.sentence(lines.first ?? ""),
+                nextStep: "Check the reads and the reference, then run it again. The Operations panel holds the log.",
+                underlying: lines.count > 1 ? MappingRunFailureWords(words: first.words) : nil
+            )
+        }
+        let names = entries.prefix(5).map(\.sample).joined(separator: ", ")
+        let rest = entries.count > 5 ? " and \(entries.count - 5) more" : ""
+        return FailureReport(
+            failedStep: "Run Map Reads for \(entries.count) of \(totalSamples) samples",
+            whatHappened: "Map Reads failed for \(names)\(rest).",
+            nextStep: "The Operations panel holds each sample's reason and log. Check the reads and the reference of those samples, then run them again.",
+            underlying: nil
+        )
     }
+
+    /// The words as a sentence, with the full stop the failed line may lack.
+    private static func sentence(_ words: String) -> String {
+        let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = trimmed.last else { return "Map Reads stopped, and the run gave no reason." }
+        return ".!?".contains(last) ? trimmed : trimmed + "."
+    }
+}
+
+/// A failed run's words as an error, so that a reason of several lines can sit in the alert's details area.
+private struct MappingRunFailureWords: LocalizedError {
+    let words: String
+    var errorDescription: String? { words }
 }
