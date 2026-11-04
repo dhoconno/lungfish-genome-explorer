@@ -59,7 +59,8 @@ extension BlastService {
                 sequenceMap: sequenceMap,
                 queriedTaxonName: queriedTaxonName,
                 sequenceMates: sequenceMates,
-                context: context
+                context: context,
+                hitListSize: hitListSize
             )
         }
     }
@@ -100,7 +101,8 @@ extension BlastService {
         sequenceMap: [String: String],
         queriedTaxonName: String,
         sequenceMates: [String: Int],
-        context: BlastTaxonomyContext
+        context: BlastTaxonomyContext,
+        hitListSize: Int?
     ) -> BlastReadResult {
         if let failure = result.failureMessage {
             return BlastReadResult(
@@ -160,23 +162,16 @@ extension BlastService {
             context: context
         )
         // NCBI's order among records tied at the best score is not evidence. The tax ID rule looks at the whole tie.
-        let tied = result.hits.prefix(5).filter {
-            $0.hsps.first?.bitScore == bestHSP.bitScore && $0.hsps.first?.evalue == eValue
-        }
-        let matchesQueriedTaxon = relation.map { _ in
-            tied.contains {
-                BlastTaxonMatching.relation(
-                    hitOrganism: $0.organism ?? $0.title, hitTaxId: $0.taxId,
-                    queriedTaxonName: queriedTaxonName, context: context
-                ) == .clade
-            }
-        } ?? Self.legacyNameMatchesQueriedTaxon(
+        let tie = BlastReadTie(hits: result.hits, hitListSize: hitListSize, queriedTaxonName: queriedTaxonName, context: context)
+        let matchesQueriedTaxon = tie?.holdsClade ?? Self.legacyNameMatchesQueriedTaxon(
             hitOrganism: hitOrganism, queriedTaxonName: queriedTaxonName, acceptedTaxonNames: context.cladeNames
         )
+        // A list full of ties with no clade record cannot say that none ties, so the read counts neither way.
+        let listEndedInTheTie = tie.map { $0.summary.runsPastList && !$0.holdsClade } ?? false
 
         return BlastReadResult(
             id: result.queryId,
-            verdict: verdict,
+            verdict: listEndedInTheTie ? .ambiguous : verdict,
             topHitOrganism: hitOrganism,
             topHitAccession: topHit.accession,
             percentIdentity: pctIdentity,

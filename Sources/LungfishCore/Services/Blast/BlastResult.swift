@@ -168,8 +168,8 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
     /// organisms outside it. See ``BlastTaxonMatching/hasConflictingOrganisms(hits:queriedTaxonName:context:)``.
     public let hasLCADisagreement: Bool
 
-    /// Whether the top BLAST hit, or a record tied with it among the five
-    /// returned, is inside the queried (classifier-assigned) clade.
+    /// Whether the top BLAST hit, or a record tied with it at the best bit score,
+    /// is inside the queried (classifier-assigned) clade, under any of its deflines.
     ///
     /// Judged by tax ID when the hit and the request carry them (see
     /// ``BlastTaxonMatching``). Only hits without a tax ID fall back to the

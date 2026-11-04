@@ -118,6 +118,11 @@ extension BlastService {
         // tabular output) and its scientific name without any extra request
         // parameter. Accept it as a number or a numeric string.
         let taxId = Self.jsonInt(firstDesc["taxid"])
+        // NCBI folds records with one sequence into one hit, so a later defline can file it under another organism.
+        var otherTaxIds: [Int] = []
+        for later in descriptions.dropFirst() {
+            if let other = Self.jsonInt(later["taxid"]), other != taxId, !otherTaxIds.contains(other) { otherTaxIds.append(other) }
+        }
 
         let hspsArray = hitDict["hsps"] as? [[String: Any]] ?? []
         let hsps: [BlastHSP] = hspsArray.compactMap { hspDict in
@@ -126,7 +131,7 @@ extension BlastService {
 
         guard !hsps.isEmpty else { return nil }
 
-        return BlastHit(accession: accession, title: title, organism: organism, taxId: taxId, hsps: hsps)
+        return BlastHit(accession: accession, title: title, organism: organism, taxId: taxId, otherTaxIds: otherTaxIds, hsps: hsps)
     }
 
     /// Reads an integer that NCBI may encode as a JSON number or a string.

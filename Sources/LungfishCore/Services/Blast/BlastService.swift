@@ -399,7 +399,7 @@ public actor BlastService {
                 sequenceMap: index < request.sequences.count ? [entry.queryId: request.sequences[index].sequence] : [:],
                 queriedTaxonName: request.taxonName, sequenceMates: request.sequenceMates,
                 acceptedTaxIds: request.acceptedTaxIds, acceptedTaxonNames: request.acceptedTaxonNames,
-                relatedTaxIds: request.relatedTaxIds, relatedTaxonNames: request.relatedTaxonNames
+                relatedTaxIds: request.relatedTaxIds, relatedTaxonNames: request.relatedTaxonNames, hitListSize: request.maxTargetSeqs
             )
         }
         let judgesAClaim = !request.acceptedTaxIds.isEmpty || !request.acceptedTaxonNames.isEmpty
