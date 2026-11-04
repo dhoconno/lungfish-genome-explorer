@@ -116,4 +116,20 @@ final class BlastScrubbedPageTests: XCTestCase {
         guard case .noRID(let page) = withoutRID else { return XCTFail("\(withoutRID)") }
         XCTAssertFalse(holdsTheAddress(page), "the page LGE keeps: \(page)")
     }
+
+    /// The status is read from the page as NCBI sent it, so a search that is ready is never lost to the scrub.
+    func testAStatusPageRepeatingTheAddressKeepsItsStatusAndLosesTheAddress() async throws {
+        let store = try await savedStore()
+        let server = try LoopbackHTTPStandIn.start { _ in
+            LoopbackHTTPResponse.text(
+                "<!--QBlastInfoBegin\n    Status=READY\n    ThereAreHits=yes\nQBlastInfoEnd--><p>GET ...&email=name%40example.org</p>"
+            )
+        }
+        defer { server.stop() }
+
+        let answer = try await service(on: server, store: store).statusOnce(rid: "R1")
+
+        guard case .ready = answer.status else { return XCTFail("\(answer.status)") }
+        XCTAssertFalse(holdsTheAddress(answer.page), "the page LGE keeps: \(answer.page)")
+    }
 }
