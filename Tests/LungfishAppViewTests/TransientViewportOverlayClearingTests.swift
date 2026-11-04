@@ -203,9 +203,8 @@ final class TransientViewportOverlayClearingTests: XCTestCase {
 
         let viewer: ViewerViewController = controller.viewerController
         let child = GenotypeResultViewController()
-        viewer.addChild(child)
-        viewer.view.addSubview(child.view)
-        viewer.genotypeResultViewController = child
+        viewer.surfaceHost.show(kind: .bundle(.genotypeResult), input: child)
+        XCTAssertTrue(viewer.genotypeResultViewController === child)
 
         viewer.clearViewport(statusMessage: "No sequence selected")
 
@@ -222,12 +221,6 @@ final class TransientViewportOverlayClearingTests: XCTestCase {
 
         let viewer: ViewerViewController = controller.viewerController
         _ = installTwelveSStandIn(in: viewer)
-        viewer.genotypeResultViewController = {
-            let child = GenotypeResultViewController()
-            viewer.addChild(child)
-            viewer.view.addSubview(child.view)
-            return child
-        }()
 
         viewer.clearViewport(statusMessage: "No sequence selected")
 

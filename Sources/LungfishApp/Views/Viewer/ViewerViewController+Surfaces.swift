@@ -7,6 +7,7 @@ import LungfishIO
 import LungfishKit
 import LungfishNaoMgsUI
 import LungfishEsVirituUI
+import LungfishGenotypeUI
 import LungfishNvdUI
 import LungfishTaxTriageUI
 import LungfishTaxonomyUI
@@ -27,6 +28,7 @@ extension ViewerViewController {
         registry.register(.analysis(.kraken2), factory: Kraken2Surface.factory())
         registry.register(.analysis(.czId), factory: CzIdSurface.factory())
         registry.register(.bundle(.mhcReference)) { MHCReferenceBundleSurface() }
+        registry.register(.bundle(.genotypeResult), factory: GenotypeResultSurface.factory())
         return registry
     }
 

@@ -474,7 +474,7 @@ public class MainSplitViewController: NSSplitViewController {
     var genotypeResultLoader: @Sendable (URL) async throws -> ONTGenotypeResultBundleData = { url in
         try await ONTGenotypeResultBundle.loadResultAsync(from: url)
     }
-    var retainedDeferredGenotypeResultControllers:
+    static var retainedDeferredGenotypeResultControllers:
         [ObjectIdentifier: GenotypeResultViewController] = [:]
     var windowStateScope: WindowStateScope {
         projectSession.windowStateScope

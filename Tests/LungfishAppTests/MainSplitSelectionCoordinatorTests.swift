@@ -130,7 +130,7 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         sidebar.selectionDelegate = controller
 
         let genotypeController =
-            controller.viewerController.displayGenotypeResult(
+            try controller.viewerController.displayGenotypeResult(
                 makeGenotypeResult(bundleURL: bundleURL)
             )
         genotypeController.testingSelectMatrixColumn(

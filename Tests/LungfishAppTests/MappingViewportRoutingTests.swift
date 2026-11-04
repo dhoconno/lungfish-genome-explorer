@@ -799,7 +799,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let controller = MainSplitViewController()
         _ = controller.view
         RecordingFilePreviewRenderer.install(on: controller.viewerController)
-        _ = controller.viewerController.displayGenotypeResult(makeNativeHaplotypedResult())
+        _ = try controller.viewerController.displayGenotypeResult(makeNativeHaplotypedResult())
         XCTAssertNotNil(controller.viewerController.genotypeResultViewController)
 
         await controller.displayGenotypeResultBundleAndWait(bundleURL)

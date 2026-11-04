@@ -220,8 +220,8 @@ public class ViewerViewController: NSViewController {
     /// Native phylogenetic tree bundle viewport.
     var phylogeneticTreeViewController: PhylogeneticTreeViewController?
 
-    /// Native ONT genotype result bundle viewport.
-    var genotypeResultViewController: GenotypeResultViewController?
+    /// Native ONT genotype result bundle viewport, while the surface host shows it.
+    var genotypeResultViewController: GenotypeResultViewController? { installedSurface?.viewController as? GenotypeResultViewController }
     let genotypeManualHaplotypeBandDisclosureStore =
         GenotypeManualHaplotypeBandDisclosureStore()
     var onGenotypeResultViewWillHide: ((GenotypeResultViewController) -> Void)?
@@ -238,7 +238,6 @@ public class ViewerViewController: NSViewController {
     public var isNativeBundleViewportInstalled: Bool {
         multipleSequenceAlignmentViewController != nil
             || phylogeneticTreeViewController != nil
-            || genotypeResultViewController != nil
             || installedSurface != nil
     }
 

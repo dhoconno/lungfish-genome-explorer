@@ -19,7 +19,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishCore | library | Sources/LungfishCore | 337 | LungfishPortable |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
-| LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 58 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 659 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 156 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -860,6 +860,7 @@ None.
 - `GenotypeResultPanelLayout` enum, `Sources/LungfishGenotypeUI/GenotypeResultPanelLayout.swift`
 - `GenotypeResultPresentationPolicy` struct, `Sources/LungfishGenotypeUI/GenotypeResultPresentationPolicy.swift`
 - `GenotypeResultSelectionState` struct, `Sources/LungfishGenotypeUI/GenotypeResultSelectionState.swift`
+- `GenotypeResultSurface` class, `Sources/LungfishGenotypeUI/GenotypeResultSurface.swift`
 - `GenotypeResultViewController` class, `Sources/LungfishGenotypeUI/GenotypeResultViewController.swift`
 - `GenotypeResultViewportLens` enum, `Sources/LungfishGenotypeUI/GenotypeResultViewportLens.swift`
 - `GenotypeSampleCurationWorkbenchView` class, `Sources/LungfishGenotypeUI/GenotypeSampleCurationWorkbenchView.swift`

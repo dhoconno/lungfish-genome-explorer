@@ -10,8 +10,11 @@ import os.log
 private let genotypeDisplayLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerGenotype")
 
 extension ViewerViewController {
+    /// Shows `result` through the surface host and returns its viewer for the route to wire, or throws the
+    /// reason it is not installed. Removing this viewer is work as well as chrome, and that work runs in
+    /// `GenotypeResultSurface.willDeactivate` on every removal.
     @discardableResult
-    func displayGenotypeResult(_ result: ONTGenotypeResultBundleData) -> GenotypeResultViewController {
+    func displayGenotypeResult(_ result: ONTGenotypeResultBundleData) throws -> GenotypeResultViewController {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
@@ -39,30 +42,12 @@ extension ViewerViewController {
         controller.windowStateScope = windowStateScope
         controller.manualHaplotypeBandDisclosureStore =
             genotypeManualHaplotypeBandDisclosureStore
-        addChild(controller)
 
+        let surface = try showSurface(.bundle(.genotypeResult), input: controller, as: GenotypeResultSurface.self)
+        surface.onWillDeactivate = { [weak self] in self?.onGenotypeResultViewWillHide?($0) }
         annotationDrawerView?.isHidden = true
         fastqMetadataDrawerView?.isHidden = true
-
-        let genotypeView = controller.view
-        genotypeView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(genotypeView)
-
-        NSLayoutConstraint.activate([
-            genotypeView.topAnchor.constraint(equalTo: view.topAnchor),
-            genotypeView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            genotypeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            genotypeView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-
         controller.configure(result: result)
-        genotypeResultViewController = controller
-
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
 
         genotypeDisplayLogger.info(
             "displayGenotypeResult: Showing \(result.manifest.outputName, privacy: .public)"
@@ -71,25 +56,9 @@ extension ViewerViewController {
         return controller
     }
 
+    /// Hides the genotype viewer, a shim that other display routes call until the
+    /// hide list goes in Phase 3.2.
     func hideGenotypeResultView() {
-        guard let controller = genotypeResultViewController else { return }
-        onGenotypeResultViewWillHide?(controller)
-        controller.detachHostPresentationCallbacks()
-        // The window's undo manager does not retain its targets, and the viewer
-        // releases this controller below (or keeps it only for deferred matrix
-        // saves), so Undo must never reach it again. This covers the sample
-        // status and colour Undo the controller registers.
-        controller.view.window?.undoManager?.removeAllActions(withTarget: controller)
-        controller.view.removeFromSuperview()
-        controller.removeFromParent()
-        genotypeResultViewController = nil
-
-        enhancedRulerView?.isHidden = false
-        viewerView?.isHidden = false
-        headerView?.isHidden = false
-        statusBar?.isHidden = false
-        geneTabBarView?.isHidden = (geneTabBarView?.selectedGeneRegion == nil)
-        revealAnnotationDrawerUnlessNativeBundleInstalled()
-        fastqMetadataDrawerView?.isHidden = false
+        clearSurface(ifShowing: .bundle(.genotypeResult))
     }
 }

@@ -377,7 +377,7 @@ extension MainSplitViewController {
                     viewerController.displayQuickLookPreview(url: result.artifacts.workbookURL)
                     return
                 }
-                let controller = viewerController.displayGenotypeResult(result)
+                let controller = try viewerController.displayGenotypeResult(result)
                 controller.onSelectionStateChanged = { [weak self] selection in
                     self?.inspectorController.updateGenotypeResultSelection(selection)
                 }
@@ -514,7 +514,7 @@ extension MainSplitViewController {
                 guard let workbookURL = Self.genotypeResultWorkbookURL(forBundle: url) else {
                     mainSplitLogger.warning("displayGenotypeResultBundle: Missing genotype workbook for '\(url.lastPathComponent, privacy: .public)'")
                     inspectorController.clearSelection()
-                    viewerController.showNoSequenceSelected()
+                    viewerController.clearViewport(statusMessage: viewerController.surfaceFailureWords("Unable to open the genotype result.", error))
                     return
                 }
 
@@ -524,21 +524,20 @@ extension MainSplitViewController {
         }
     }
 
+    /// Keeps a controller whose matrix edits still wait until they are saved. The store is static, since a window
+    /// close takes this split with it and the retry holds its controller weakly.
     func prepareGenotypeResultViewForRemoval(
         _ controller: GenotypeResultViewController
     ) {
         guard controller.hasDeferredMatrixAnnotationMutations else { return }
         let identifier = ObjectIdentifier(controller)
-        retainedDeferredGenotypeResultControllers[identifier] = controller
-        controller.onDeferredMatrixAnnotationMutationsDrained = {
-            [weak self, weak controller] in
-            guard let self, let controller else { return }
-            self.retainedDeferredGenotypeResultControllers.removeValue(
-                forKey: ObjectIdentifier(controller)
-            )
+        Self.retainedDeferredGenotypeResultControllers[identifier] = controller
+        controller.onDeferredMatrixAnnotationMutationsDrained = { [weak controller] in
+            guard let controller else { return }
+            Self.retainedDeferredGenotypeResultControllers.removeValue(forKey: ObjectIdentifier(controller))
         }
         if !controller.hasDeferredMatrixAnnotationMutations {
-            retainedDeferredGenotypeResultControllers.removeValue(
+            Self.retainedDeferredGenotypeResultControllers.removeValue(
                 forKey: identifier
             )
         }

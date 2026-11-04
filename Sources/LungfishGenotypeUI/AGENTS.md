@@ -19,7 +19,8 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 | Comparison matrix | Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift |
 | Annotation sidecar store | Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift, backed by Sources/LungfishIO/Bundles/GenotypeAnnotationSidecar.swift |
 | Export snapshot and service | Sources/LungfishGenotypeUI/GenotypeViewportExportSnapshot.swift, GenotypeViewportExportService.swift |
-| App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+Genotype.swift installs the controller. Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift wires `onExcelExportRequested` and `onExcelExportEvent` |
+| The surface the viewer's host installs, which adopts the App's controller and runs the removal's work in `willDeactivate` | Sources/LungfishGenotypeUI/GenotypeResultSurface.swift |
+| App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+Genotype.swift builds the controller and shows it through the host. Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift wires `onExcelExportRequested` and `onExcelExportEvent` |
 
 ## Contracts this module owns
 

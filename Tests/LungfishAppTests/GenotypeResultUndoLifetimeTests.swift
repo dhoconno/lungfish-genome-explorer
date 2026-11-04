@@ -19,7 +19,7 @@ final class GenotypeResultUndoLifetimeTests: XCTestCase {
     func testHidingTheGenotypeViewportRemovesItsUndoActions() throws {
         let host = makeHostedSplit()
         defer { host.window.close() }
-        let controller = host.split.viewerController.displayGenotypeResult(Self.makeResult())
+        let controller = try host.split.viewerController.displayGenotypeResult(Self.makeResult())
         let undoManager = try XCTUnwrap(controller.view.window?.undoManager)
         registerReviewUndo(on: undoManager, target: controller)
         XCTAssertTrue(undoManager.canUndo)
@@ -33,11 +33,11 @@ final class GenotypeResultUndoLifetimeTests: XCTestCase {
     func testShowingAnotherGenotypeResultRemovesTheFirstControllersUndoActions() throws {
         let host = makeHostedSplit()
         defer { host.window.close() }
-        let first = host.split.viewerController.displayGenotypeResult(Self.makeResult())
+        let first = try host.split.viewerController.displayGenotypeResult(Self.makeResult())
         let undoManager = try XCTUnwrap(first.view.window?.undoManager)
         registerReviewUndo(on: undoManager, target: first)
 
-        let second = host.split.viewerController.displayGenotypeResult(Self.makeResult())
+        let second = try host.split.viewerController.displayGenotypeResult(Self.makeResult())
 
         XCTAssertFalse(first === second, "the viewer builds a new controller for every result")
         XCTAssertFalse(undoManager.canUndo, "the first controller's Undo went with it")
@@ -49,7 +49,7 @@ final class GenotypeResultUndoLifetimeTests: XCTestCase {
         final class OtherUndoTarget {}
         let host = makeHostedSplit()
         defer { host.window.close() }
-        let first = host.split.viewerController.displayGenotypeResult(Self.makeResult())
+        let first = try host.split.viewerController.displayGenotypeResult(Self.makeResult())
         let undoManager = try XCTUnwrap(first.view.window?.undoManager)
         let other = OtherUndoTarget()
         var otherUndone = false
@@ -59,7 +59,7 @@ final class GenotypeResultUndoLifetimeTests: XCTestCase {
         undoManager.endUndoGrouping()
         registerReviewUndo(on: undoManager, target: first)
 
-        let second = host.split.viewerController.displayGenotypeResult(Self.makeResult())
+        let second = try host.split.viewerController.displayGenotypeResult(Self.makeResult())
         var secondUndone = false
         undoManager.beginUndoGrouping()
         undoManager.registerUndo(withTarget: second) { _ in secondUndone = true }
