@@ -69,7 +69,7 @@ public final class AssemblyResultViewController: NSViewController {
     private var catalog: (any AssemblyContigCatalogProviding)?
     private var allRecords: [AssemblyContigRecord] = []
     var selectedContigNames: [String] = [] { didSet { scheduleSavedBlastRestore(); updateBlastRerunRule() } }
-    private var loadTask: Task<Void, Never>?
+    var loadTask: Task<Void, Never>?
     private var loadGeneration = 0
     private var selectionGeneration = 0
 
