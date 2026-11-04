@@ -352,15 +352,6 @@ struct TaxTriageWizardSheet: View {
 
     // MARK: - Validation Message
 
-    @ViewBuilder
-    private var validationMessage: some View {
-        if let validationMessageText {
-            Text(validationMessageText)
-                .font(.caption)
-                .foregroundStyle(validationMessageText == "Checking prerequisites..." ? .secondary : Color.lungfishOrangeFallback)
-        }
-    }
-
     private var validationMessageText: String? {
         if samples.isEmpty {
             return "Add at least one sample"
@@ -435,6 +426,7 @@ struct TaxTriageWizardSheet: View {
             } label: { Text("Add Sample").font(.system(size: 12)) }
             .buttonStyle(.plain)
             .foregroundStyle(Color.lungfishCreamsicleFallback)
+            Self.sampleNamesNotice(samples.map(\.sampleId))
         }
     }
 

@@ -7,6 +7,7 @@
 
 import Foundation
 import LungfishWorkflow
+import SwiftUI
 
 extension TaxTriageWizardSheet {
 
@@ -14,5 +15,18 @@ extension TaxTriageWizardSheet {
     /// symbols, with what to do. The names are trimmed as the run trims them.
     static func sampleNamesValidationMessage(_ names: [String]) -> String? {
         TaxTriageSample.namesThatMeetWords(in: names.map { $0.trimmingCharacters(in: .whitespaces) })
+    }
+
+    /// The refusal under the sample list, so the Operations dialog shows it as the standalone footer does (lane
+    /// TTCONTROLS, UX review, blocker B1). The embedded form has no footer of its own and its host prints a generic
+    /// line, so these words reach a person only here. It takes no room when the names stay different.
+    @ViewBuilder
+    static func sampleNamesNotice(_ names: [String]) -> some View {
+        if let words = sampleNamesValidationMessage(names) {
+            Text(words)
+                .font(.caption)
+                .foregroundStyle(Color.lungfishOrangeFallback)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
