@@ -408,7 +408,15 @@ public enum NaoMgsBamMaterializer {
                     sqlite3_bind_text(rowStmt, 1, cStr, -1, sqliteTransientDestructor)
                 }
 
-                while sqlite3_step(rowStmt) == SQLITE_ROW {
+                while true {
+                    let stepCode = sqlite3_step(rowStmt)
+                    if stepCode == SQLITE_DONE { break }
+                    // Any other code is a read error, and a BAM that stopped there would be cut short.
+                    guard stepCode == SQLITE_ROW else {
+                        writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 8,
+                                                   userInfo: [NSLocalizedDescriptionKey: "Could not read every row of sample \(sample): \(String(cString: sqlite3_errmsg(db)))"])
+                        return
+                    }
                     // seq_id and subject_seq_id are always present (never NULL)
                     guard let seqIdPtr = sqlite3_column_text(rowStmt, 0),
                           let subjPtr = sqlite3_column_text(rowStmt, 1) else { continue }
@@ -527,7 +535,8 @@ public enum NaoMgsBamMaterializer {
         }
 
         writeGroup.wait()
-        if let err = writeError.value {
+        // Code 7 is a stage that stopped reading. It stopped on its own, and its stderr below says why.
+        if let err = writeError.value, (err as NSError).code != 7 {
             // The stream stopped early, so stop every stage rather than wait on a partial BAM.
             run.cancel()
             _ = try? run.waitBlocking()
@@ -544,8 +553,12 @@ public enum NaoMgsBamMaterializer {
         let stderr = result.stages.map { String(data: $0.stderr, encoding: .utf8) ?? "" }.joined()
         // Every stage counts, where `sh -c` reported the last stage's status alone (lane 13.09 prediction (b)).
         guard result.isSuccess else {
+            // samtools' own line says more than the broken pipe the writer saw after it stopped.
+            if let err = writeError.value, stderr.isEmpty { throw err }
             throw pipelineFailure(stderr)
         }
+        // Every stage reported success but the writer was cut off, so the BAM is short.
+        if let err = writeError.value { throw err }
 
         let step = NaoMgsBamMaterializationStep(
             sample: sample,
