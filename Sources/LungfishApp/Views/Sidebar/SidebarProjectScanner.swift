@@ -800,9 +800,7 @@ enum SidebarProjectScanner {
             return count > 0 ? "\(count) samples · \(timestamp)" : nil
 
         case "taxtriage":
-            // No batch manifest. The run's taxtriage-result.json names its samples, since a one-sample run's process folders lie flat in the root (U30 W1).
-            let count = (try? TaxTriageResult.load(from: info.url))?.config.samples.count ?? countBatchSampleSubdirectories(in: info.url, sidecarCheck: { _ in true })
-            return count > 0 ? "\(count) samples · \(timestamp)" : nil
+            return taxTriageBatchSubtitle(for: info, timestamp: timestamp)
 
         case "naomgs":
             let manifestURL = info.url.appendingPathComponent("manifest.json")

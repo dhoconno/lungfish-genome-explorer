@@ -327,27 +327,25 @@ public enum MetagenomicsImportService {
         defer { finalizeImportDirectory(resultDirectory, completed: importCompleted) }
         progress?(0.05, "Copying TaxTriage files...")
 
+        let sourceRun = try? TaxTriageResult.load(from: inputURL)
         let copiedFiles = try copyInputPayload(from: inputURL, into: resultDirectory)
+        // The copy put the source's own marks over the importer's, so the importer's win again (a run made in a project is `isBatch` true).
+        writeAnalysisMetadataIfNeeded(tool: MetagenomicsImportKind.taxtriage.toolIdentifier, to: resultDirectory)
         let copiedRegularFiles = copiedFiles.filter { isRegularFile($0) }
         let allOutputFiles = scanRegularFilesRecursively(in: resultDirectory)
 
         progress?(0.55, "Detecting report files...")
         // Same classification as a pipeline run: organism reports are
         // `<sample>.odr.txt` / `<sample>.organisms.report.txt`. Imports of partial
-        // outputs without one keep the older rule (any "report" table) so their
-        // entry count still reflects something.
+        // outputs without one fall back to `all.odr.txt`, then to the older rule.
         let categorized = TaxTriagePipeline.categorizeOutputFiles(allOutputFiles)
-        let reportFiles = categorized.reportFiles.isEmpty
-            ? allOutputFiles.filter {
-                let name = $0.lastPathComponent.lowercased()
-                let ext = $0.pathExtension.lowercased()
-                return name.contains("report") && (ext == "txt" || ext == "tsv")
-            }
-            : categorized.reportFiles
+        let reportFiles = taxTriageReportFiles(perSample: categorized.reportFiles, among: allOutputFiles)
         let metricsFiles = categorized.metricsFiles
         let kronaFiles = categorized.kronaFiles
-
-        let reportEntries = reportFiles.first.map(countDataRows(in:)) ?? 0
+        guard !(reportFiles.isEmpty && metricsFiles.isEmpty && kronaFiles.isEmpty) else {
+            throw MetagenomicsImportError.noTaxTriageReports(inputURL)
+        }
+        let reportEntries = taxTriageReportEntryCount(of: reportFiles)
         let logFile = allOutputFiles.first {
             $0.lastPathComponent.caseInsensitiveCompare("nextflow.log") == .orderedSame
         }
@@ -366,14 +364,9 @@ public enum MetagenomicsImportService {
         }
 
         progress?(0.85, "Writing sidecar...")
-        let result = TaxTriageResult(
-            config: TaxTriageConfig(
-                samples: [],
-                outputDirectory: resultDirectory
-            ),
-            runtime: 0,
-            exitCode: 0,
-            outputDirectory: resultDirectory,
+        let result = taxTriageImportedResult(
+            carrying: sourceRun,
+            in: resultDirectory,
             reportFiles: reportFiles,
             metricsFiles: metricsFiles,
             kronaFiles: kronaFiles,
@@ -398,7 +391,7 @@ public enum MetagenomicsImportService {
                     "preferredName": preferredName.map(ParameterValue.string) ?? .null,
                     "outputRoot": .file(outputDirectory),
                 ],
-                resolvedDefaults: MetagenomicsImportDatabaseIdentity.notNamedBySource(tool: "TaxTriage", adding: [
+                resolvedDefaults: taxTriageDatabaseIdentity(source: sourceRun, adding: [
                     "outputDirectory": .file(resultDirectory),
                     "importedFileCount": .integer(allOutputFiles.count),
                     "reportEntryCount": .integer(reportEntries),
@@ -2513,7 +2506,7 @@ func parseEsVirituVirusCount(detectionURL: URL) throws -> Int {
     }
 }
 
-private func countDataRows(in fileURL: URL) -> Int {
+func countDataRows(in fileURL: URL) -> Int {
     guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return 0 }
     let lines = text.split(separator: "\n")
     return max(0, lines.count - 1)

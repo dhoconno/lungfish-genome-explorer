@@ -264,7 +264,7 @@ struct NvdCommand: AsyncParsableCommand {
 private func nvdImportExitCode(for error: Error) -> CLIExitCode {
     if let importError = error as? MetagenomicsImportError {
         switch importError {
-        case .inputNotFound:
+        case .inputNotFound, .noTaxTriageReports:
             return .inputError
         case .parseFailed:
             return .formatError

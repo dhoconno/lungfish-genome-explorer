@@ -17,6 +17,8 @@ public enum MetagenomicsImportError: Error, LocalizedError, Sendable {
     case toolUnavailable(String)
     case outputAlreadyExists(URL)
     case importAborted(resultDirectory: URL, underlying: Error)
+    /// A TaxTriage folder that holds no report, metrics or Krona file, which is usually the wrong folder.
+    case noTaxTriageReports(URL)
 
     public var errorDescription: String? {
         switch self {
@@ -34,6 +36,8 @@ public enum MetagenomicsImportError: Error, LocalizedError, Sendable {
             return "Output already exists: \(url.path)"
         case .importAborted(_, let underlying):
             return "Import aborted: \(underlying.localizedDescription)"
+        case .noTaxTriageReports(let url):
+            return "No TaxTriage reports were found in \(url.path). Nothing was imported. Choose the run's output folder."
         }
     }
 }

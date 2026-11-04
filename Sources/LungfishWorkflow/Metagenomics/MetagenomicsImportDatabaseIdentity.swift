@@ -28,6 +28,34 @@ enum MetagenomicsImportDatabaseIdentity {
         resolved.merging(notNamedBySource(tool: tool)) { current, _ in current }
     }
 
+    /// `resolved`, an import's resolved defaults, with the status and the note of a source folder that holds no run
+    /// record, so the import has nothing to say of the release behind the result.
+    static func noRunRecord(adding resolved: [String: ParameterValue]) -> [String: ParameterValue] {
+        resolved.merging([
+            "databaseIdentityStatus": .string(DatabaseIdentityStatus.notNamedBySource.rawValue),
+            "databaseIdentityNote": .string(
+                "No run record was found, so this record cannot name the release that made its calls. "
+                    + "Cite it from the run that made the result."
+            ),
+        ]) { current, _ in current }
+    }
+
+    /// `resolved`, a TaxTriage import's resolved defaults, with the Kraken 2 database folder the run's record names. The
+    /// status is `namedBySource`, the folder name is kept under `kraken2DatabaseName` and the note says that no checksum
+    /// is stated. A path with no folder name names no database.
+    static func taxTriage(databasePath: URL, adding resolved: [String: ParameterValue]) -> [String: ParameterValue] {
+        let name = databasePath.lastPathComponent
+        guard !name.isEmpty, name != "/" else { return notNamedBySource(tool: "TaxTriage", adding: resolved) }
+        return resolved.merging([
+            "kraken2DatabaseName": .string(name),
+            "databaseIdentityStatus": .string(DatabaseIdentityStatus.namedBySource.rawValue),
+            "databaseIdentityNote": .string(
+                "The TaxTriage run's record names the Kraken 2 database folder \(name) and no checksum. "
+                    + "Cite the release from the run that made the result."
+            ),
+        ]) { current, _ in current }
+    }
+
     /// `resolved`, an NVD import's resolved defaults, with the BLAST and STAT database versions its rows state, `versions`
     /// holding the (BLAST, STAT) pair of each row. A version
     /// is one string when every row agrees and the sorted array of the distinct values when rows differ, so a mixed import

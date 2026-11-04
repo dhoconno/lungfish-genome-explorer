@@ -568,7 +568,7 @@ private func metagenomicsImportExitCode(for error: Error) -> CLIExitCode {
 
 private func metagenomicsImportExitCode(for error: MetagenomicsImportError) -> CLIExitCode {
     switch error {
-    case .inputNotFound:
+    case .inputNotFound, .noTaxTriageReports:
         return .inputError
     case .parseFailed:
         return .formatError
