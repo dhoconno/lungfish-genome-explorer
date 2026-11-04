@@ -26,13 +26,13 @@ extension BlastTaxonomyContext {
             case .species:
                 return nil
             case .rowTaxId:
-                return "Judged by this row's own tax ID and name, because the NCBI Taxonomy database is not installed. "
+                return "Judged by this row's own tax ID and name, because LGE could not look up its species. "
                     + "A best match filed under another name in the same species counts as contradicting. "
-                    + "Install NCBI Taxonomy in the database manager and run Verify with BLAST… again."
+                    + "If NCBI Taxonomy is not installed, install it in the Databases tab of the Plugin Manager and run Verify with BLAST… again."
             case .names:
-                return "Judged by organism names, because the NCBI Taxonomy database is not installed. "
+                return "Judged by organism names, because LGE could not look up the species of this row. "
                     + "A read can count for or against this row by a name it happens to share. "
-                    + "Install NCBI Taxonomy in the database manager and run Verify with BLAST… again."
+                    + "If NCBI Taxonomy is not installed, install it in the Databases tab of the Plugin Manager and run Verify with BLAST… again."
             }
         }
     }

@@ -116,6 +116,26 @@ final class BlastResultsDrawerTabExportTests: XCTestCase {
         XCTAssertEqual(contig.judgedAtLabel.frame.height, 0, "another presentation style shows no judged-at row")
     }
 
+    /// The cause is that LGE could not look the species up, which holds for a row with no tax ID and for a taxon missing
+    /// from a classifier's own tree, where installing NCBI Taxonomy changes nothing. The way out is conditional, and it
+    /// names the place that installs the database, the Databases tab of the Plugin Manager, since the app has no
+    /// database manager.
+    func testTheJudgedAtWordsNameALookupAsTheCauseAndTheDatabasesTabAsThePlace() {
+        for basis in [BlastTaxonomyContext.Basis.rowTaxId, .names] {
+            let words = basis.judgedAtWords ?? ""
+            XCTAssertTrue(words.contains("could not look up"), words)
+            XCTAssertFalse(
+                words.contains("because the NCBI Taxonomy database is not installed"),
+                "installing is not the cause for every row: \(words)"
+            )
+            XCTAssertTrue(
+                words.contains("If NCBI Taxonomy is not installed, install it in the Databases tab of the Plugin Manager and run Verify with BLAST… again."),
+                words
+            )
+            XCTAssertFalse(words.contains("database manager"), words)
+        }
+    }
+
     func testExportNamesTheBasisOfEachRow() {
         func lastCells(_ basis: BlastTaxonomyContext.Basis?) -> [String] {
             var result = BlastVerificationResult(
