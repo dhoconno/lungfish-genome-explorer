@@ -1060,15 +1060,21 @@ final class PipelineCancelCallbackRegressionTests: XCTestCase {
             "runManagedMapping should assign its batch task to the handle so cancel callbacks can reach it"
         )
         // Since the CLI route (0008ccfca) the helper that runs one bundle's command installs the row's cancel.
-        // `runManagedMapping` hands that helper `cancelBatch`, which the next assertion finds.
+        // `runManagedMapping` hands that helper `cancelBatch`, which points at the handle, and the helper's cancel
+        // callback calls it. The last two assertions find the two ends of that hand-off, so a row's cancel reaches
+        // the batch task through the handle and not only the one command.
         let singleMappingBody = try functionBody(named: "runSingleManagedMappingThroughCLI", in: source)
         XCTAssertTrue(
             singleMappingBody.contains("OperationCenter.shared.setCancelCallback(for: opID)"),
             "runSingleManagedMappingThroughCLI should wire OperationCenter cancellation for each per-bundle operation"
         )
         XCTAssertTrue(
-            managedMappingBody.contains("taskHandle.cancel()"),
-            "runManagedMapping's cancel callback should cancel the batch task via the handle"
+            singleMappingBody.contains("cancelBatch()"),
+            "runSingleManagedMappingThroughCLI's cancel callback should cancel the whole batch through cancelBatch"
+        )
+        XCTAssertTrue(
+            managedMappingBody.contains("cancelBatch: { taskHandle.cancel() }"),
+            "runManagedMapping should hand the helper a cancelBatch that cancels the batch task via the handle"
         )
 
         let handleSource = try functionBody(
@@ -1215,10 +1221,25 @@ private func appDelegateSource() throws -> String {
 private func functionBody(named name: String, in source: String) throws -> String {
     let signature = "func \(name)"
     let signatureRange = try XCTUnwrap(source.range(of: signature), "Missing \(signature)")
-    let openBrace = try XCTUnwrap(
-        source[signatureRange.lowerBound...].firstIndex(of: "{"),
-        "Missing opening brace for \(signature)"
-    )
+    // The body opens at the first `{` outside the parameter list. A default value such as
+    // `presentFailure: ... = { FailurePresenter.present($0, in: $1) }` holds a brace of its own, and reading from
+    // that one returned the closure for `runManagedMapping` and none of its body (UWORDS, Phase 3.2).
+    var parenthesisDepth = 0
+    var bodyStart: String.Index?
+    for candidate in source[signatureRange.upperBound...].indices {
+        switch source[candidate] {
+        case "(":
+            parenthesisDepth += 1
+        case ")":
+            parenthesisDepth -= 1
+        case "{" where parenthesisDepth == 0:
+            bodyStart = candidate
+        default:
+            break
+        }
+        if bodyStart != nil { break }
+    }
+    let openBrace = try XCTUnwrap(bodyStart, "Missing opening brace for \(signature)")
     var depth = 0
     var index = openBrace
     while index < source.endIndex {
