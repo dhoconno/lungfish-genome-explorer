@@ -364,6 +364,46 @@ final class AssemblyResultSurfaceRouteTests: XCTestCase {
         XCTAssertFalse(viewer.children.contains { $0 === assembly }, "the answer brought the old viewer back")
     }
 
+    /// The consent sheet and the read of the contigs come before the search starts, so the person can be on another
+    /// assembly when the answer is given. The search still reports to the assembly that sent it: its row, its drawer and
+    /// its answer. The assembly now showing gets no drawer and no verdict of the other's contigs.
+    func testASearchSentJustBeforeMovingToAnotherAssemblyReportsToTheAssemblyThatSentIt() async throws {
+        let leaf = try makeStandInLeaf()
+        guard useStandIn(leaf.url) else { return }
+        defer { unsetenv("LUNGFISH_CLI_PATH") }
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        harness.select(try makeResult(of: .spades).item)
+        await assertShows(.spades, in: viewer)
+        let first = try XCTUnwrap(viewer.assemblyResultController)
+
+        var held: (@MainActor () -> Void)?
+        BlastConsentSheet.presenterForTesting = { _, send in held = send }
+        first.onBlastVerification?(BlastRequest(taxId: nil, sequences: [Self.contig], readCount: 1, sourceLabel: "contig contig_1"))
+        XCTAssertNil(OperationCenter.shared.items.first { $0.title == "BLAST contig contig_1" }, "the search began before the person answered")
+        let answer = try XCTUnwrap(held, "the consent sheet was never asked")
+
+        harness.select(try makeResult(of: .megahit).item)
+        await assertShows(.megahit, in: viewer)
+        let second = try XCTUnwrap(viewer.assemblyResultController)
+        XCTAssertFalse(first === second)
+
+        answer()
+
+        let row = try XCTUnwrap(OperationCenter.shared.items.first { $0.title == "BLAST contig contig_1" }, "the search began no row")
+        defer { OperationCenter.shared.clearItem(id: row.id) }
+        XCTAssertEqual(state(of: row.id), .running)
+        XCTAssertNotNil(first.blastDrawerContainer, "the search did not open the drawer of the assembly that sent it")
+        XCTAssertTrue(first.ensureBlastDrawer().showsASearchInProgress, "the drawer of the assembly that sent it does not show the search")
+        XCTAssertNil(second.blastDrawerContainer, "the search reached the assembly now showing")
+
+        try Data().write(to: leaf.release)
+        let landed = await waitUntil(budget: .lookup) { first.ensureBlastDrawer().currentResult?.rid == "STANDIN-ASM" }
+        XCTAssertTrue(landed, "the answer did not reach the drawer of the assembly that sent it")
+        XCTAssertNil(second.blastDrawerContainer, "the answer reached the assembly now showing")
+    }
+
     /// Only NCBI's answer or the person ends a search. The person's Cancel from the Operations panel still does, with
     /// another kind showing.
     func testAPersonsCancelEndsASearchLeftRunning() async throws {

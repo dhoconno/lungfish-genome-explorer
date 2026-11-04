@@ -33,9 +33,8 @@ extension ViewerViewController {
         contentMode = .assembly
 
         let controller = AssemblyResultViewController()
-        controller.onBlastVerification = withBlastConsent(noun: "contigs") { [weak self] request in
-            guard let self else { return }
-            guard let blastController = self.assemblyResultController else { return }
+        controller.onBlastVerification = withBlastConsent(noun: "contigs") { [weak self, weak controller] request in
+            guard let self, let blastController = controller else { return }
             guard let plan = Self.blastSubmitPlan(window: self.view.window, failure: { blastController.showBlastFailure($0) }, {
                 try Self.assemblyBlastSubmitPlan(
                     sourceLabel: request.sourceLabel, taxId: request.taxId, fastaRecords: request.sequences,
