@@ -208,6 +208,47 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
         XCTAssertEqual(assignments?.map(\.sampleName), [Self.assignment.sampleName])
     }
 
+    // MARK: - The drawer's words
+
+    /// The drawer has no Run control, and no run reads its plan, so its words promise neither.
+    func testTheDrawerDoesNotTellAPersonToClickARunThatIsNotThere() {
+        let words = ViewerViewController.scoutProceedWords(count: 3)
+        XCTAssertFalse(words.contains("Click Run"), words)
+        XCTAssertTrue(words.hasPrefix("3 barcodes "), words)
+        XCTAssertTrue(ViewerViewController.scoutProceedWords(count: 1).hasPrefix("1 barcode "))
+        XCTAssertTrue(words.contains("FASTQ operations dialog"), words)
+        XCTAssertTrue(words.contains("does not read this table"), words)
+    }
+
+    /// A person can tell that the plan is saved and that no run uses it yet. The test clicks Save's own action.
+    func testASavedPlanSaysThatItIsSavedAndThatNoRunReadsItYet() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        try await showFASTQRow(in: harness)
+        viewer.openDemuxSetupDrawer()
+        let drawer = try XCTUnwrap(viewer.fastqMetadataDrawerView)
+        drawer.applySampleAssignmentsToCurrentStep([Self.assignment])
+
+        drawer.perform(NSSelectorFromString("saveClicked:"), with: NSButton())
+
+        let url = try XCTUnwrap(viewer.currentFASTQDatasetURL)
+        XCTAssertNotNil(FASTQMetadataStore.load(for: url)?.demultiplexMetadata?.demuxPlanJSON, "the plan was not saved")
+        let status = try XCTUnwrap(Self.labels(in: drawer).first { $0.stringValue.hasPrefix("Saved ") }, "the drawer did not say the plan was saved")
+        XCTAssertTrue(status.stringValue.contains("with this dataset"), status.stringValue)
+        XCTAssertTrue(status.stringValue.contains("No demultiplexing run reads this plan yet"), status.stringValue)
+
+        // The label is one line and clips, so the report gives what fits at this window's width.
+        viewer.view.layoutSubtreeIfNeeded()
+        print("drawer status, saved: \(status.attributedStringValue.size().width) of \(status.bounds.width)")
+        drawer.updateScoutStatus(ViewerViewController.scoutProceedWords(count: 3))
+        print("drawer status, scout: \(status.attributedStringValue.size().width) of \(status.bounds.width)")
+    }
+
+    private static func labels(in view: NSView) -> [NSTextField] {
+        view.subviews.flatMap { subview in (subview as? NSTextField).map { [$0] } ?? labels(in: subview) }
+    }
+
     // MARK: - The notification
 
     /// Fires once for each display, with the slot set and the sync done, as the base has it. The drawer that stands

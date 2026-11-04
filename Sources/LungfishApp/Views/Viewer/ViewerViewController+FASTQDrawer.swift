@@ -183,9 +183,15 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         syncDemuxConfigToController()
     }
 
+    /// What the drawer says after a scout. A demultiplexing run builds its request from the operations dialog's own
+    /// fields and reads no saved plan, so the words send the person there and promise no Run button.
+    static func scoutProceedWords(count: Int) -> String {
+        "\(count) barcode\(count == 1 ? "" : "s") configured in this table. Demultiplexing runs from the FASTQ operations dialog, which does not read this table, so choose the kit there too."
+    }
+
     /// Handles the user clicking "Proceed" in the BarcodeScoutSheet after reviewing scout results.
-    /// Converts accepted detections into sample assignments, updates the demux config, and
-    /// triggers the full demultiplexing run via the operations panel.
+    /// Converts accepted detections into sample assignments and updates the drawer's plan. It starts no run, since a
+    /// demultiplexing run takes its settings from the FASTQ operations dialog.
     private func handleScoutProceed(
         acceptedDetections: [BarcodeDetection],
         scoutResult: BarcodeScoutResult,
@@ -228,11 +234,10 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         if let drawer = fastqMetadataDrawerView {
             drawer.updateSampleAssignments(assignments)
             drawer.applySampleAssignmentsToCurrentStep(assignments)
-            drawer.updateScoutStatus("\(acceptedDetections.count) barcode\(acceptedDetections.count == 1 ? "" : "s") configured. Click Run to start demultiplexing.")
+            drawer.updateScoutStatus(Self.scoutProceedWords(count: acceptedDetections.count))
         }
 
-        // Sync to the operations panel but do NOT auto-trigger the run.
-        // The user should review the generated pattern before committing.
+        // Sync the dashboard's copy of the plan. No run starts here, and no run reads the plan.
         syncDemuxConfigToController()
 
         fastqDrawerLogger.info("Scout proceed: \(acceptedDetections.count) barcodes accepted, ready for manual run")

@@ -1994,7 +1994,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
 
     @objc private func saveClicked(_ sender: NSButton) {
         delegate?.fastqMetadataDrawerViewDidSave(self, fastqURL: fastqURL, metadata: currentMetadata())
-        statusLabel.stringValue = "Saved project-local FASTQ metadata."
+        statusLabel.stringValue = "Saved with this dataset. No demultiplexing run reads this plan yet, so set the kit in the FASTQ operations dialog too."
     }
 
     private func notifyDemuxPlanChanged() {
