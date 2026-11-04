@@ -128,6 +128,10 @@ final class MapReadsFailureWordsTests: XCTestCase {
         XCTAssertTrue(report.whatHappened.contains("S1") && report.whatHappened.contains("S3"), report.whatHappened)
         XCTAssertFalse(report.whatHappened.contains("S2"), "a sample that finished is not named: \(report.whatHappened)")
         XCTAssertTrue(report.nextStep.contains("Operations panel"), "each sample's reason and log are in the panel: \(report.nextStep)")
+        let details = try XCTUnwrap(report.details, "each sample's reason is behind Show Details")
+        XCTAssertTrue(details.contains("S1") && details.contains("The reads are empty."), details)
+        XCTAssertTrue(details.contains("S3") && details.contains("The reference could not be indexed"), details)
+        XCTAssertFalse(details.contains("S2"), "a sample that finished is not listed: \(details)")
     }
 
     func testLongBatchNamesTheFirstFiveAndCountsTheRest() throws {

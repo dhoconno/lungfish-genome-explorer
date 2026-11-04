@@ -35,8 +35,8 @@ struct MappingBatchFailures: Sendable, Equatable {
     /// The one alert for the batch, or nil when no sample failed. `totalSamples` is the batch's size.
     ///
     /// One failed sample gets the failed line's first line as the words. Several get their names, the first five and a
-    /// count of the rest, and the Operations panel holds each sample's reason and log. A reason of several lines goes
-    /// behind Show Details.
+    /// count of the rest, and Show Details lists every failed sample with its reason (UWORDS UX should-fix 1). The
+    /// Operations panel holds each sample's log. A single sample's reason of several lines goes behind Show Details.
     func report(totalSamples: Int) -> FailureReport? {
         guard let first = entries.first else { return nil }
         if entries.count == 1 {
@@ -53,8 +53,8 @@ struct MappingBatchFailures: Sendable, Equatable {
         return FailureReport(
             failedStep: "Run Map Reads for \(entries.count) of \(totalSamples) samples",
             whatHappened: "Map Reads failed for \(names)\(rest).",
-            nextStep: "The Operations panel holds each sample's reason and log. Check the reads and the reference of those samples, then run them again.",
-            underlying: nil
+            nextStep: "Check the reads and the reference of those samples, then run them again. Show Details gives each sample's reason, and the Operations panel holds each sample's log.",
+            itemErrors: entries.map { (name: $0.sample, error: MappingRunFailureWords(words: $0.words) as any Error) }
         )
     }
 
