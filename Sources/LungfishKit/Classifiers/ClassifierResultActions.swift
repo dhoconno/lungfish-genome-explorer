@@ -152,8 +152,10 @@ public final class ClassifierResultActions: NSObject {
     /// The row whose search the pane shows, whether it came back from disk or from a run that began on that row. Nil
     /// when no row is known. A row with no saved search empties the pane unless the pane shows that row's search.
     private var shownBlastRow: BlastSavedSearchRow?
-    /// The row that was picked when the run in flight began.
+    /// The row the run in flight is about. It is the row the viewer named, or the row picked when the run began.
     private var runBlastRow: BlastSavedSearchRow?
+    /// The row a viewer named for the run it is about to hand to the App, until that run begins.
+    private var namedBlastRunRow: BlastSavedSearchRow?
     private var isBlastRunInFlight = false
     private var blastRunOperationID: UUID?
 
@@ -289,9 +291,21 @@ public final class ClassifierResultActions: NSObject {
         blastDrawer.showResults(result, recordURL: recordURL, subject: row.sample)
     }
 
-    /// A run belongs to the row that was picked when it began, so its result can be told from another row's later.
+    /// Names the row a run is about, just before the viewer hands the run to the App. A context-menu command acts on
+    /// the clicked row when that row lies outside the selection, and leaves the selection where it is, so the picked
+    /// row is not always the row the run was sent for (UX blocker 1 of lane ROWPANE). The name is used once, by the
+    /// run that begins next, and a selection change drops it. A run still running keeps its own row, and one whose
+    /// operation has ended without a word to the pane (a Cancel) no longer counts.
+    public func noteBlastRunRow(_ row: BlastSavedSearchRow?) {
+        namedBlastRunRow = blastRunIsActive() ? nil : row
+    }
+
+    /// A run belongs to the row that was named for it, or else to the row picked when it began, so its result can be
+    /// told from another row's later.
     private func noteBlastRunStart() {
-        if !isBlastRunInFlight { runBlastRow = selectedBlastRow }
+        guard !isBlastRunInFlight else { return }
+        runBlastRow = namedBlastRunRow ?? selectedBlastRow
+        namedBlastRunRow = nil
     }
 
     private func endBlastRun(shownRecord recordURL: URL?, shownRow: BlastSavedSearchRow? = nil) {
@@ -301,6 +315,7 @@ public final class ClassifierResultActions: NSObject {
         lastBlastRecordURL = recordURL
         shownBlastRow = shownRow
         runBlastRow = nil
+        namedBlastRunRow = nil
     }
 
     /// A row with no saved search shows nothing, never the verdict of the row picked before it
@@ -333,6 +348,7 @@ public final class ClassifierResultActions: NSObject {
         savedBlastRestoreTask?.cancel()
         savedBlastRestoreTask = nil
         selectedBlastRow = row
+        namedBlastRunRow = nil
         guard let row, !blastRunIsActive(), restoredBlastRow != row else { return }
         let project = savedBlastSearchProject?()
         savedBlastRestoreTask = Task { @MainActor [weak self] in

@@ -2447,7 +2447,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             hits: hits,
             count: selection.readCount
         )
-
+        resultActions.noteBlastRunRow(bundleURL.map { row.blastSavedSearchRow(sourceResultURL: $0) })
         onBlastVerification?(summary, selection.readCount, selectedHits)
     }
 

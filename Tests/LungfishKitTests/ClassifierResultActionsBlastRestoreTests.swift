@@ -164,6 +164,67 @@ final class ClassifierResultActionsBlastRestoreTests: XCTestCase {
         XCTAssertTrue(summary.contains("S2"), summary)
     }
 
+    /// UX blocker 1 of lane ROWPANE. A context-menu command acts on the clicked row when that row lies outside the
+    /// selection, so the viewer names the row of the run it hands over. The verdict names that row's sample, and it
+    /// stays under that row, never under the picked row.
+    func testARunNamesTheRowItWasSentForNotThePickedRow() async throws {
+        let rowB = try rowOfSample("S2")
+        await select(rowA)
+        actions.noteBlastRunRow(rowB)
+        actions.showBlastLoading(phase: .submitting, requestId: nil)
+
+        actions.showBlastResults(try runResult(), recordURL: nil)
+
+        let summary = actions.blastDrawer.summaryLabel.stringValue
+        XCTAssertTrue(summary.contains("S2"), summary)
+        XCTAssertFalse(summary.contains("S1"), summary)
+        await select(rowB)
+        XCTAssertEqual(actions.lastBlastResult?.rid, "RID-RUN", "the verdict stays under the row it was sent for")
+        await select(try rowWithNoSearch("NC_OTHER"))
+        XCTAssertNil(actions.lastBlastResult, "another row with no search empties the pane")
+    }
+
+    /// A name belongs to the next run only. A hand-off that began no run, then a selection change, leaves it dropped,
+    /// and a run that began after its own name used it up names the row picked.
+    func testANamedRowNeverNamesAnotherRun() async throws {
+        let rowB = try rowOfSample("S2")
+        let rowC = try rowOfSample("S3")
+        await select(rowC)
+        actions.noteBlastRunRow(rowB)
+        await select(rowC)
+        actions.showBlastLoading(phase: .submitting, requestId: nil)
+        actions.showBlastResults(try runResult(), recordURL: nil)
+        let afterADropped = actions.blastDrawer.summaryLabel.stringValue
+        XCTAssertTrue(afterADropped.contains("S3"), afterADropped)
+        XCTAssertFalse(afterADropped.contains("S2"), afterADropped)
+
+        actions.noteBlastRunRow(rowB)
+        actions.showBlastLoading(phase: .submitting, requestId: nil)
+        actions.showBlastFailure("NCBI did not answer.")
+        actions.showBlastLoading(phase: .submitting, requestId: nil)
+        actions.showBlastResults(try runResult(), recordURL: nil)
+        let afterAUsed = actions.blastDrawer.summaryLabel.stringValue
+        XCTAssertTrue(afterAUsed.contains("S3"), afterAUsed)
+        XCTAssertFalse(afterAUsed.contains("S2"), afterAUsed)
+    }
+
+    /// A run whose operation ended without a word to the pane (a Cancel) is over. The next run is about the row
+    /// its viewer names, and the cancelled run's row does not name it.
+    func testARunAfterACancelledRunIsNamedForItsOwnRow() async throws {
+        let rowB = try rowOfSample("S2")
+        await select(rowA)
+        actions.showBlastLoading(phase: .submitting, requestId: nil)
+        actions.trackBlastRun(operationID: UUID())
+
+        actions.noteBlastRunRow(rowB)
+        actions.showBlastLoading(phase: .submitting, requestId: nil)
+        actions.showBlastResults(try runResult(), recordURL: nil)
+
+        let summary = actions.blastDrawer.summaryLabel.stringValue
+        XCTAssertTrue(summary.contains("S2"), summary)
+        XCTAssertFalse(summary.contains("S1"), summary)
+    }
+
     /// Row A with another sample, so two rows differ by sample alone.
     private func rowOfSample(_ sample: String) throws -> BlastSavedSearchRow {
         var row = try XCTUnwrap(rowA)

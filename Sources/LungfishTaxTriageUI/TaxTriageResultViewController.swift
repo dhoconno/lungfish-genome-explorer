@@ -2754,9 +2754,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     private func requestBlastVerification(for row: TaxTriageTableRow, readCount: Int) {
-        let organism = blastOrganism(for: row)
-        let rowAccessions = accessions(for: row)
-        forwardBlastVerification(organism, readCount, rowAccessions, bamURL, bamIndexURL)
+        resultActions.noteBlastRunRow(blastSavedSearchRow(for: row))
+        forwardBlastVerification(blastOrganism(for: row), readCount, accessions(for: row), bamURL, bamIndexURL)
     }
 
     /// Hands a BLAST request to the host and keeps its sample, accessions and BAM for the drawer's re-run.
@@ -2789,6 +2788,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         } else {
             metricBamIndexURL = bamIndexURL
         }
+        resultActions.noteBlastRunRow(blastSavedSearchRow(for: metric))
         forwardBlastVerification(organism, readCount, rowAccessions, metricBamURL, metricBamIndexURL)
     }
 

@@ -997,7 +997,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             self.hideMultiSelectionPlaceholder()
             self.setBatchBAMContext(forSample: detection.sampleId)
             self.updateActionBarForAssembly(name: detection.name, readCount: detection.readCount, blastRow: self.batchURL.map { detection.blastSavedSearchRow(accessions: [detection.accession], sourceResultURL: $0) })
-
             guard let assembly = self.resolveAssembly(for: detection) else {
                 logger.warning("Unable to resolve parent assembly for detection \(detection.accession, privacy: .public)")
                 self.clearCurrentAlignmentEvidence()
@@ -1012,6 +1011,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             // A batch sample with no recorded BAM gets none, never the last selected row's (ADOPT-BIO Backlog 3).
             let sampleBAMURL = self.isBatchMode ? self.batchBAMLookup[detection.sampleId] : self.bamURL
             let sampleBAMIndexURL = self.isBatchMode ? self.batchBAMIndexLookup[detection.sampleId] : self.bamIndexURL
+            self.resultActions.noteBlastRunRow(self.batchURL.map { detection.blastSavedSearchRow(accessions: [detection.accession], sourceResultURL: $0) })
             self.onBlastVerification?(detection, readCount, accessions, sampleBAMURL, sampleBAMIndexURL)
         }
 
