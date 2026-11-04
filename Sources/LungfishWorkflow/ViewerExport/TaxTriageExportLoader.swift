@@ -138,6 +138,9 @@ public struct TaxTriageExportSource {
     /// The normalized names of the organisms the negative controls hold, across all samples whatever the sample
     /// selection (BIO ruling on 12.32, F5). Empty without a sidecar or without a control.
     public let contaminationRiskOrganismKeys: Set<String>
+    /// Every row of the samples that belong to a negative control, across all samples whatever the selection, so the
+    /// matrix and the report see what a control holds even when the selection leaves it out (lane TTCONTROLS).
+    public var controlMetrics: [TaxTriageMetric] = []
 
     /// The samples the run marks as negative controls, empty without a sidecar.
     public var negativeControlSampleIds: Set<String> {
@@ -327,11 +330,13 @@ public enum TaxTriageExportLoader {
             databaseSampleIds: sampleIds
         ).controlSampleIds.sorted()
         var contaminationRiskOrganismKeys: Set<String> = []
+        var controlMetrics: [TaxTriageMetric] = []
         if !controlIds.isEmpty {
             let controlRows = (try? database.fetchRows(samples: controlIds)) ?? []
             contaminationRiskOrganismKeys = Set(
                 controlRows.map { OrganismNameNormalizer.normalizedKey($0.organism) }
             )
+            controlMetrics = controlRows.map(metric(from:))
         }
         return TaxTriageExportSource(
             databaseURL: databaseURL,
@@ -342,7 +347,8 @@ public enum TaxTriageExportLoader {
             metrics: rows.map(metric(from:)),
             totalReadsByKey: totalReadsByKey,
             uniqueReadsByKey: uniqueReadsByKey,
-            contaminationRiskOrganismKeys: contaminationRiskOrganismKeys
+            contaminationRiskOrganismKeys: contaminationRiskOrganismKeys,
+            controlMetrics: controlMetrics
         )
     }
 }

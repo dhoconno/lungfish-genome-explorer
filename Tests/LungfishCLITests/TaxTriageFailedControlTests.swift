@@ -52,9 +52,9 @@ final class TaxTriageFailedControlTests: XCTestCase {
 
         let report = try reportText(of: result)
         XCTAssertFalse(report.contains("No organisms detected in negative controls."), report)
-        XCTAssertTrue(report.contains("Negative Controls: NTC1 (failed, never ran)"), report)
+        XCTAssertTrue(report.contains("Negative Controls: NTC1 (failed, no result)"), report)
         XCTAssertTrue(report.contains("Contamination risk is not checked."), report)
-        XCTAssertTrue(report.contains("The negative control NTC1 failed, so it was never classified."), report)
+        XCTAssertTrue(report.contains("The negative control NTC1 failed, so Lungfish has no result for it."), report)
         XCTAssertTrue(report.contains("Run it again, or check it another way, before you rely on these results."), report)
     }
 
@@ -114,7 +114,7 @@ final class TaxTriageFailedControlTests: XCTestCase {
         XCTAssertTrue(others.allSatisfy { $0.contains(",Not checked,") }, "\(others)")
         let report = try reportText(of: result)
         XCTAssertTrue(report.contains("Contamination risk is only partly checked."), report)
-        XCTAssertTrue(report.contains("The negative control NTC2 failed, so it was never classified."), report)
+        XCTAssertTrue(report.contains("The negative control NTC2 failed, so Lungfish has no result for it."), report)
     }
 
     /// A control with no rows beside samples the run does not list may have its organisms under one of them.

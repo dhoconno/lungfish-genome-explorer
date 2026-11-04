@@ -77,6 +77,7 @@ extension TaxTriageCommand {
                 metrics: source.metrics,
                 sampleIds: source.sampleIds,
                 negativeControlSampleIds: source.controlMatch.controlSampleIds,
+                controlMetrics: source.controlMetrics,
                 controlsNotRecorded: source.controlsNotRecorded,
                 controlsNotChecked: source.controlsNotChecked
             )
@@ -160,7 +161,8 @@ extension TaxTriageCommand {
                 result: result,
                 config: result.config,
                 metrics: source.metrics,
-                sampleIds: source.sampleIds
+                sampleIds: source.sampleIds,
+                controlMetrics: source.controlMetrics
             )
             let reportLineCount = report.split(separator: "\n", omittingEmptySubsequences: false).count
             return try TaxTriageCommand.writeExport(

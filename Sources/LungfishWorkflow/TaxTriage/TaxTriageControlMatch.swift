@@ -65,6 +65,47 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
     /// True when a control never ran or cannot be found, so a `No` for contamination risk would not be known.
     public var hasUncheckedControl: Bool { controls.contains { $0.state == .failed || $0.state == .notFound } }
 
+    /// Every control as the results name it, for a viewer that shows its Risk column whenever the run lists a control:
+    /// the database samples that belong to a control, and the results name of each control that has none.
+    public var controlNames: Set<String> {
+        controlSampleIds.union(controls.map(\.resultsName).filter { !$0.isEmpty })
+    }
+
+    /// What a person reads when a control never ran or cannot be found, and what to do. Nil when every control ran.
+    /// The batch report and the viewer's notice say these words, so screen and file agree (lane TTCONTROLS).
+    public var uncheckedWords: String? {
+        guard hasUncheckedControl else { return nil }
+        let partly = controls.contains { $0.state == .found || $0.state == .noOrganisms }
+        var sentences = [partly ? "Contamination risk is only partly checked." : "Contamination risk is not checked."]
+        let failed = failedControls.map(\.sampleId)
+        if !failed.isEmpty {
+            let one = failed.count == 1
+            sentences.append(one
+                ? "The negative control \(failed[0]) failed, so Lungfish has no result for it."
+                : "The negative controls \(Self.listing(failed)) failed, so Lungfish has no result for them.")
+            sentences.append("Run \(one ? "it" : "them") again, or check \(one ? "it" : "them") another way, before you rely on these results.")
+        }
+        let missing = notFoundControls
+        if !missing.isEmpty {
+            let names = missing.map { $0.isRenamed ? "\($0.sampleId) (named \($0.resultsName) in the results)" : $0.sampleId }
+            sentences.append(
+                "The results hold no organisms for the negative control\(missing.count == 1 ? "" : "s") "
+                    + "\(Self.listing(names)), but they hold samples that the run does not list "
+                    + "(\(unlistedSampleIds.joined(separator: ", "))), so Lungfish cannot tell whether "
+                    + "\(missing.count == 1 ? "its" : "their") organisms are among them."
+            )
+            sentences.append("Look in the control's own results before you rely on these results.")
+        }
+        return sentences.joined(separator: " ")
+    }
+
+    /// The words the viewer shows above its table, the notes on names that meet and then the unchecked words. Nil when
+    /// there is nothing to say.
+    public var noticeWords: String? {
+        let parts = notes + [uncheckedWords].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
     /// Matches the controls of a run to the database.
     ///
     /// A sample `d` of the database belongs to a sample `s` of the run when `d` is `s.sampleId`, or the pipeline's

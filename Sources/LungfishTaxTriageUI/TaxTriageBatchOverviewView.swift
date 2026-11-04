@@ -111,7 +111,6 @@ final class TaxTriageBatchOverviewView: NSView {
     /// The double-click handler maps clicked sample columns through THIS list so
     /// the mapping stays aligned with the instantiated columns.
     private var windowedSampleIds: [String] = []
-
     private var crossSampleRows: [CrossSampleRow] = []
     /// Unsorted rows, preserved for re-sorting.
     private var unsortedRows: [CrossSampleRow] = []
@@ -385,13 +384,14 @@ final class TaxTriageBatchOverviewView: NSView {
         sampleIds: [String],
         negativeControlSampleIds: Set<String> = [],
         sampleLabels: [String: String] = [:],
-        perSampleDeduplicatedReadCounts: [String: [String: Int]] = [:]
+        perSampleDeduplicatedReadCounts: [String: [String: Int]] = [:],
+        contaminationRiskOrganismKeys: Set<String> = []
     ) {
         self.sampleIds = sampleIds
         self.negativeControlSampleIds = negativeControlSampleIds
         self.sampleLabels = sampleLabels
         self.perSampleDedup = perSampleDeduplicatedReadCounts
-        let rows = buildCrossSampleRows(from: metrics, sampleIds: sampleIds, negativeControlSampleIds: negativeControlSampleIds, perSampleDedup: perSampleDeduplicatedReadCounts)
+        let rows = buildCrossSampleRows(from: metrics, sampleIds: sampleIds, negativeControlSampleIds: negativeControlSampleIds, perSampleDedup: perSampleDeduplicatedReadCounts, contaminationRiskOrganismKeys: contaminationRiskOrganismKeys)
         self.unsortedRows = rows
         self.crossSampleRows = rows
         columnWindow.reset()
@@ -424,7 +424,7 @@ final class TaxTriageBatchOverviewView: NSView {
 
     // MARK: - Data Building
 
-    private func buildCrossSampleRows(from metrics: [TaxTriageMetric], sampleIds: [String], negativeControlSampleIds: Set<String> = [], perSampleDedup: [String: [String: Int]] = [:]) -> [CrossSampleRow] {
+    private func buildCrossSampleRows(from metrics: [TaxTriageMetric], sampleIds: [String], negativeControlSampleIds: Set<String> = [], perSampleDedup: [String: [String: Int]] = [:], contaminationRiskOrganismKeys: Set<String> = []) -> [CrossSampleRow] {
         // Build a lowercased lookup for the dedup cache, whose keys use a different
         // normalization (strips decoration characters but does NOT lowercase) than
         // the organism grouping key below (which lowercases).
@@ -466,9 +466,9 @@ final class TaxTriageBatchOverviewView: NSView {
             // Lookup per-sample unique reads from the lowercased dedup cache
             let perSampleUnique = dedupByLowercasedKey[normalizedKey] ?? [:]
 
-            // Flag contamination risk: organism detected in any negative control sample
-            let inNegativeControl = !negativeControlSampleIds.isEmpty
-                && !detectedSamples.intersection(negativeControlSampleIds).isEmpty
+            // Flag contamination risk: organism detected in any negative control sample, ticked or not (TTCONTROLS)
+            let inNegativeControl = (!negativeControlSampleIds.isEmpty && !detectedSamples.intersection(negativeControlSampleIds).isEmpty)
+                || contaminationRiskOrganismKeys.contains(OrganismNameNormalizer.normalizedKey(first.organism))
 
             rows.append(CrossSampleRow(
                 organism: first.organism,

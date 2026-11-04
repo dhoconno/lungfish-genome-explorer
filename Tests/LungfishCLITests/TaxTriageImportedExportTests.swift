@@ -157,7 +157,7 @@ final class TaxTriageImportedExportTests: XCTestCase {
         XCTAssertTrue(shared.contains(",Not checked,"), "the matrix did not say the control was not checked: \(shared)")
         XCTAssertFalse(shared.contains(",No,"), "the matrix read No for a control that never ran: \(shared)")
         let report = try reportText(of: imported.resultDirectory)
-        XCTAssertTrue(report.contains("NTC1 (failed, never ran)"), report)
+        XCTAssertTrue(report.contains("NTC1 (failed, no result)"), report)
         XCTAssertTrue(report.contains("Contamination risk is not checked."), report)
         XCTAssertFalse(report.contains("No organisms detected in negative controls."), report)
     }

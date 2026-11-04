@@ -2360,9 +2360,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Flags every organism that TaxTriage detected in a negative-control
     /// sample, across all samples and independent of the Sample Filter.
     private func loadContaminationRiskOrganisms(from db: TaxTriageDatabase) {
-        // A record that lists no samples names no control, so the table's No may be wrong (BIO-IMPORT-BATCH item 5).
-        let notRecorded = TaxTriageExportSource.controlsAreNotRecorded(in: taxTriageConfig)
-        controlsNotRecordedNotice.show(notRecorded ? TaxTriageNotRecordedNoticeView.words : nil)
+        // Words above the table when the controls are not recorded, failed, cannot be found or share a name (`controlNoticeWords`).
+        controlsNotRecordedNotice.show(controlNoticeWords())
         batchFlatTableView.contaminationRiskOrganismKeys = []
         let controls = negativeControlSampleIds().filter { sampleIds.contains($0) }
         guard !controls.isEmpty else { return }
@@ -2567,7 +2566,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             sampleIds: selectedDatabaseSampleIds,
             negativeControlSampleIds: negativeControlSampleIds(),
             sampleLabels: resolvedDisplayNames,
-            perSampleDeduplicatedReadCounts: perSampleUnique
+            perSampleDeduplicatedReadCounts: perSampleUnique,
+            contaminationRiskOrganismKeys: batchFlatTableView.contaminationRiskOrganismKeys
         )
     }
 
@@ -3010,7 +3010,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Returns the samples of the result that belong to the config's negative controls, read through the pipeline's renaming.
     private func negativeControlSampleIds() -> Set<String> {
         guard let config = taxTriageConfig else { return [] }
-        return TaxTriageControlMatch(samples: config.samples, failedSampleIDs: [], databaseSampleIds: sampleIds + metrics.compactMap(\.sample)).controlSampleIds
+        return TaxTriageControlMatch(samples: config.samples, failedSampleIDs: [], databaseSampleIds: sampleIds + metrics.compactMap(\.sample)).controlNames
     }
 
     // MARK: - NSSplitViewDelegate
