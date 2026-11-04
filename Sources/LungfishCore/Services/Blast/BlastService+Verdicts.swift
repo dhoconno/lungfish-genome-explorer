@@ -32,6 +32,7 @@ extension BlastService {
     ///   - acceptedTaxonNames: Names in the queried clade.
     ///   - relatedTaxIds: Tax IDs in the queried taxon's genus outside the clade.
     ///   - relatedTaxonNames: Names in the queried taxon's genus outside the clade.
+    ///   - hitListSize: The list size the request asked NCBI for, `nil` when the caller names none.
     /// - Returns: Array of per-read verification results
     nonisolated func assignVerdicts(
         searchResults: [BlastSearchResult],
@@ -42,7 +43,8 @@ extension BlastService {
         acceptedTaxIds: Set<Int> = [],
         acceptedTaxonNames: [String] = [],
         relatedTaxIds: Set<Int> = [],
-        relatedTaxonNames: [String] = []
+        relatedTaxonNames: [String] = [],
+        hitListSize: Int? = nil
     ) -> [BlastReadResult] {
         let context = BlastTaxonomyContext(
             cladeTaxIds: acceptedTaxIds,

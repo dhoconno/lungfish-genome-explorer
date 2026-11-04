@@ -1,0 +1,42 @@
+{
+ "hiv": {
+  "taxonName": "Human immunodeficiency virus 1",
+  "taxId": 11676,
+  "cladeNames": [
+   "Human immunodeficiency virus 1",
+   "Lentivirus humimdef1"
+  ],
+  "cladeTaxIds": [
+   11676
+  ]
+ },
+ "rota": {
+  "taxonName": "Rotavirus A",
+  "taxId": 28875,
+  "cladeNames": [
+   "Rotavirus A",
+   "Rotavirus alphagastroenteritidis"
+  ],
+  "cladeTaxIds": [
+   10927,
+   10941,
+   10967,
+   28875,
+   35333,
+   73034,
+   1046565,
+   1074900,
+   1146934,
+   1349389,
+   1882337,
+   1882338,
+   1954144,
+   1954145,
+   1973201,
+   1973204,
+   1973205,
+   2051936,
+   3432193
+  ]
+ }
+}

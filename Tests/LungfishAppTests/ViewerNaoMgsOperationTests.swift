@@ -376,7 +376,10 @@ final class ViewerNaoMgsOperationTests: XCTestCase {
         XCTAssertEqual(walk.supportingCount, 5)
         XCTAssertEqual(walk.contradictingCount, 2)
         XCTAssertEqual(walk.confidence, .mixed)
-        XCTAssertEqual(walk.readResults.filter(\.hasLCADisagreement).count, 5, "the banner's 5 with conflicting organisms")
+        XCTAssertEqual(
+            walk.readResults.filter(\.hasLCADisagreement).count, 3,
+            "reads 2129 and 1214 hold no clade record in their tie, so they contradict and are not shared"
+        )
 
         let plan = try ViewerViewController.naoMgsBlastSubmitPlan(
             taxonName: "Human rotavirus A", taxId: 10941, readCount: 7, reads: [Self.hit(id: "read_1", sample: "S1")],

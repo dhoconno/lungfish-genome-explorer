@@ -195,6 +195,10 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
     /// decide together. `nil` for a single read, and then the JSON has no such key.
     public let otherMates: [BlastReadResult]?
 
+    /// What this read's tie at NCBI's best bit score held, on a request with clade tax IDs. `nil` on the name
+    /// rule and on a result saved before this was recorded, and then the JSON has no such key.
+    public let tieSummary: BlastTieSummary?
+
     /// Creates a new per-read BLAST result.
     ///
     /// - Parameters:
@@ -228,7 +232,8 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
         submittedMate: Int? = nil,
         topHitRelation: BlastHitRelation? = nil,
         errorMessage: String? = nil,
-        otherMates: [BlastReadResult]? = nil
+        otherMates: [BlastReadResult]? = nil,
+        tieSummary: BlastTieSummary? = nil
     ) {
         self.id = id
         self.verdict = verdict
@@ -247,6 +252,7 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
         self.topHitRelation = topHitRelation
         self.errorMessage = errorMessage
         self.otherMates = otherMates
+        self.tieSummary = tieSummary
     }
 
     /// A copy of this row that stands for its whole fragment, with the four
@@ -274,7 +280,8 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
             submittedMate: submittedMate,
             topHitRelation: topHitRelation,
             errorMessage: errorMessage,
-            otherMates: otherMates
+            otherMates: otherMates,
+            tieSummary: tieSummary
         )
     }
 }
@@ -347,6 +354,9 @@ public struct BlastVerificationResult: Sendable, Codable {
 
     /// The BLAST database searched (e.g., "nt").
     public let database: String
+
+    /// How many sequences the database held on this run, from the reply's `stat.db_num`. `nil` on an older record.
+    public let databaseSequenceCount: Int?
 
     /// The fraction of reads that were verified (0.0-1.0).
     ///
@@ -472,7 +482,8 @@ public struct BlastVerificationResult: Sendable, Codable {
         completedAt: Date?,
         rid: String,
         blastProgram: String,
-        database: String
+        database: String,
+        databaseSequenceCount: Int? = nil
     ) {
         self.taxonName = taxonName
         self.taxId = taxId
@@ -487,6 +498,7 @@ public struct BlastVerificationResult: Sendable, Codable {
         self.rid = rid
         self.blastProgram = blastProgram
         self.database = database
+        self.databaseSequenceCount = databaseSequenceCount
     }
 
     /// Creates a verification result from an array of read results.
@@ -511,7 +523,8 @@ public struct BlastVerificationResult: Sendable, Codable {
         completedAt: Date?,
         rid: String,
         blastProgram: String,
-        database: String
+        database: String,
+        databaseSequenceCount: Int? = nil
     ) {
         self.taxonName = taxonName
         self.taxId = taxId
@@ -526,6 +539,7 @@ public struct BlastVerificationResult: Sendable, Codable {
         self.rid = rid
         self.blastProgram = blastProgram
         self.database = database
+        self.databaseSequenceCount = databaseSequenceCount
     }
 }
 
@@ -550,12 +564,18 @@ public struct BlastSearchResult: Sendable, Codable {
     /// parsed. The read then gets an `.error` verdict.
     public let failureMessage: String?
 
+    /// How many sequences the database held, from this entry's `stat.db_num`, when NCBI gave it.
+    public let databaseSequenceCount: Int?
+
     /// Creates a BLAST search result.
-    public init(queryId: String, queryLength: Int, hits: [BlastHit], failureMessage: String? = nil) {
+    public init(
+        queryId: String, queryLength: Int, hits: [BlastHit], failureMessage: String? = nil, databaseSequenceCount: Int? = nil
+    ) {
         self.queryId = queryId
         self.queryLength = queryLength
         self.hits = hits
         self.failureMessage = failureMessage
+        self.databaseSequenceCount = databaseSequenceCount
     }
 }
 
@@ -577,6 +597,10 @@ public struct BlastHit: Sendable, Codable {
     /// The NCBI taxonomy ID from the hit description, if available.
     public let taxId: Int?
 
+    /// The tax IDs of this record's later deflines. NCBI folds records with one sequence into one hit, so a hit
+    /// can be filed under more than one organism.
+    public let otherTaxIds: [Int]
+
     /// High-scoring segment pairs for this hit.
     public let hsps: [BlastHSP]
 
@@ -588,11 +612,14 @@ public struct BlastHit: Sendable, Codable {
     ///   - organism: Organism name
     ///   - taxId: NCBI taxonomy ID (default: nil)
     ///   - hsps: High-scoring segment pairs
-    public init(accession: String, title: String, organism: String?, taxId: Int? = nil, hsps: [BlastHSP]) {
+    public init(
+        accession: String, title: String, organism: String?, taxId: Int? = nil, otherTaxIds: [Int] = [], hsps: [BlastHSP]
+    ) {
         self.accession = accession
         self.title = title
         self.organism = organism
         self.taxId = taxId
+        self.otherTaxIds = otherTaxIds
         self.hsps = hsps
     }
 }
