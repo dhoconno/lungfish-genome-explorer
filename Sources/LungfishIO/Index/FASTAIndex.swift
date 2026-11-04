@@ -63,7 +63,8 @@ public struct FASTAIndex: Sendable, Equatable {
     /// Creates an index by loading from a .fai file.
     ///
     /// - Parameter url: The .fai file URL
-    /// - Throws: `FASTAError.indexNotFound` or `FASTAError.invalidIndex`
+    /// - Throws: `FASTAError.indexNotFound`, or `FASTAError.invalidIndex` for a malformed line and for a record
+    ///   with bases and 0 or fewer bases per line, since a read could not find its bases
     public init(url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw FASTAError.indexNotFound(url)
@@ -145,8 +146,18 @@ public struct FASTAIndex: Sendable, Equatable {
                 throw FASTAError.invalidIndex("Line \(lineNumber): invalid numeric values")
             }
 
+            let name = String(decoding: UnsafeBufferPointer(rebasing: bytes[fields[0]]), as: UTF8.self)
+            // byteOffset(for:in:) divides by lineBases, so a record with bases and no line length would trap on a read.
+            guard length <= 0 || lineBases > 0 else {
+                throw FASTAError.invalidIndex(
+                    "Line \(lineNumber): sequence '\(name)' has \(length) bases but \(lineBases) bases per line, "
+                        + "so Lungfish cannot tell where its bases are. "
+                        + "Build the index again with samtools faidx, or import the original FASTA again."
+                )
+            }
+
             entries.append(Entry(
-                name: String(decoding: UnsafeBufferPointer(rebasing: bytes[fields[0]]), as: UTF8.self),
+                name: name,
                 length: length,
                 offset: offset,
                 lineBases: lineBases,
@@ -187,6 +198,8 @@ public struct FASTAIndex: Sendable, Equatable {
     ///   - position: 0-based position in the sequence
     ///   - entry: The index entry for the sequence
     /// - Returns: Byte offset in the file
+    /// - Precondition: `entry.lineBases` is above 0. The parse refuses a record with bases and no line length,
+    ///   and the reads return before this call for a record of length 0.
     public func byteOffset(for position: Int, in entry: Entry) -> Int {
         let lineNumber = position / entry.lineBases
         let lineOffset = position % entry.lineBases
@@ -268,6 +281,9 @@ public final class IndexedFASTAReader: Sendable {
             throw FASTAError.regionOutOfBounds(region, sequenceLength: entry.length)
         }
 
+        // A record of length 0 has no bases, and its index line may hold 0 bases per line, which byteOffset divides by.
+        if entry.length == 0 { return "" }
+
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
@@ -326,6 +342,9 @@ public final class IndexedFASTAReader: Sendable {
         guard region.start >= 0 && region.end <= entry.length else {
             throw FASTAError.regionOutOfBounds(region, sequenceLength: entry.length)
         }
+
+        // A record of length 0 has no bases, and its index line may hold 0 bases per line, which byteOffset divides by.
+        if entry.length == 0 { return "" }
 
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }

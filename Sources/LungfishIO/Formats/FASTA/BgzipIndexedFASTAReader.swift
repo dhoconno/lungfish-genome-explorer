@@ -304,6 +304,9 @@ public actor BgzipIndexedFASTAReader {
         guard region.start >= 0 && region.end <= entry.length else {
             throw BgzipError.regionOutOfBounds(region, entry.length)
         }
+
+        // A record of length 0 has no bases, and its index line may hold 0 bases per line, which byteOffset divides by.
+        if entry.length == 0 { return "" }
         
         // Calculate byte range in uncompressed FASTA
         let startByteOffset = fastaIndex.byteOffset(for: region.start, in: entry)
@@ -574,6 +577,9 @@ public final class SyncBgzipFASTAReader: Sendable {
             bgzipLogger.log(level: FASTAOutOfBoundsLog.level(start: region.start, end: region.end, length: entry.length), "fetchSync: Region out of bounds: \(region.description) > \(entry.length)")
             throw BgzipError.regionOutOfBounds(region, entry.length)
         }
+
+        // A record of length 0 has no bases, and its index line may hold 0 bases per line, which byteOffset divides by.
+        if entry.length == 0 { return "" }
 
         // Calculate byte range in uncompressed FASTA
         let startByteOffset = fastaIndex.byteOffset(for: region.start, in: entry)
