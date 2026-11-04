@@ -450,11 +450,20 @@ public struct BlastVerificationResult: Sendable, Codable {
         }
         let rate = supportRate
         if rate >= 0.8 {
-            return .supported
+            return everySupportingRowIsShared ? .notSpecific : .supported
         } else if rate >= 0.4 {
             return .mixed
         } else {
             return .unsupported
+        }
+    }
+
+    /// Whether every supporting row, counting its mates, also ties with a record outside the clade. A fragment is
+    /// specific when any supporting mate has no such record. A saved record has no tie summary, so it is never shared.
+    private var everySupportingRowIsShared: Bool {
+        let isSupporting: (BlastReadResult) -> Bool = { $0.verdict == .verified && $0.matchesQueriedTaxon }
+        return readResults.filter(isSupporting).allSatisfy { row in
+            ([row] + (row.otherMates ?? [])).filter(isSupporting).allSatisfy { ($0.tieSummary?.outside ?? 0) > 0 }
         }
     }
 

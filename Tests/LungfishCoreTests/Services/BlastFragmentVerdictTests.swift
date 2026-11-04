@@ -125,14 +125,14 @@ final class BlastFragmentVerdictTests: XCTestCase {
     func testVectorTiedFirstCountsAsSupportingInAnyOrder() {
         let xmlOrder = judgedSecondMateAlone(walkHits)
         XCTAssertEqual(xmlOrder.supportingCount, 1, "in the reply's order")
-        XCTAssertEqual(xmlOrder.confidence, .supported, "in the reply's order")
+        XCTAssertEqual(xmlOrder.confidence, .notSpecific, "in the reply's order")
         XCTAssertEqual(xmlOrder.readResults.first?.topHitRelation, .clade, "a shared tie shows its first clade record first")
 
         var hits = walkHits
         hits.swapAt(0, 1)
         let hivFirst = judgedSecondMateAlone(hits)
         XCTAssertEqual(hivFirst.supportingCount, 1, "with OQ751369 first")
-        XCTAssertEqual(hivFirst.confidence, .supported, "with OQ751369 first")
+        XCTAssertEqual(hivFirst.confidence, .notSpecific, "with OQ751369 first")
     }
 
     /// A vector that beats the clade outright still contradicts. The tie rule must not reach past the best score.
@@ -252,7 +252,7 @@ final class BlastFragmentVerdictTests: XCTestCase {
         )
         XCTAssertEqual(result.supportingCount, 1)
         XCTAssertEqual(result.contradictingCount, 0)
-        XCTAssertEqual(result.confidence, .supported)
+        XCTAssertEqual(result.confidence, .notSpecific)
         XCTAssertEqual(result.totalReads, 1)
         XCTAssertEqual(result.judgedSequenceCount, 2)
         let row = try XCTUnwrap(result.readResults.first)
