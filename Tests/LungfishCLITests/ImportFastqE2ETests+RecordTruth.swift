@@ -387,6 +387,15 @@ extension ImportFastqE2ETests {
         XCTAssertEqual(envelope.options.resolvedDefaults["recipeFormatVersion"], .integer(1))
         XCTAssertEqual(metadata?.ingestion?.recipeApplied?.recipeSHA256, expected, "the sidecar must name it too")
         XCTAssertEqual(metadata?.ingestion?.recipeApplied?.recipeFormatVersion, 1)
+
+        // The merge step's record holds the pairs fastp's report says did not merge, which the import's notice names
+        // (row AMPLICON-MERGE-DROP-WORDS). Read by key, so the sidecar's shape is what is pinned.
+        let merge = try XCTUnwrap(metadata?.ingestion?.recipeApplied?.stepResults.first { $0.tool == "fastp" })
+        let mergeKeys = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(merge)) as? [String: Any])
+        let dropped = try XCTUnwrap(mergeKeys["droppedUnmergedPairs"] as? Int,
+                                    "the merge step must record its unmerged pairs: \(mergeKeys.keys.sorted())")
+        XCTAssertLessThanOrEqual((merge.outputReadCount ?? .max) + dropped, merge.inputReadCount ?? 0,
+                                 "merged reads and unmerged pairs both come out of the input pairs")
     }
 
     // MARK: - M2, database identity
