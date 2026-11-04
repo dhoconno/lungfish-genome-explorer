@@ -117,7 +117,7 @@ Sources/LungfishIO/Formats/FASTQ/ONTBarcodeData.swift 831
 Sources/LungfishIO/Formats/FASTQ/PacBioBarcodeData.swift 1011
 Sources/LungfishIO/Formats/GenBank/GenBankReader.swift 1469
 Sources/LungfishIO/Formats/Kraken/Kraken2Database.swift 951
-Sources/LungfishIO/Formats/NaoMgs/NaoMgsDatabase+Create.swift 999
+Sources/LungfishIO/Formats/NaoMgs/NaoMgsDatabase+Create.swift 998
 Sources/LungfishIO/Formats/Nvd/NvdDatabase.swift 906
 Sources/LungfishIO/Formats/TaxTriage/TaxTriageDatabase.swift 839
 Sources/LungfishIO/Search/ProjectUniversalSearchIndex+Indexers.swift 1243
@@ -160,7 +160,7 @@ Sources/LungfishWorkflow/Mapping/MappingProvenance.swift 910
 Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationService.swift 1740
 Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2479
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift 2034
-Sources/LungfishWorkflow/Metagenomics/MetagenomicsImportService.swift 2638
+Sources/LungfishWorkflow/Metagenomics/MetagenomicsImportService.swift 2539
 Sources/LungfishWorkflow/Native/NativeBundleBuilder.swift 1781
 Sources/LungfishWorkflow/Native/NativeToolRunner.swift 881
 Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingPatchValidator.swift 1247
