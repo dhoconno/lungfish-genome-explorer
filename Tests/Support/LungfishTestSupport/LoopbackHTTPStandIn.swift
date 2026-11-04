@@ -43,6 +43,8 @@ public struct LoopbackHTTPResponse: Sendable {
     public var body: Data
     /// Close the connection with no answer at all, after the whole request was read.
     public var dropsConnection = false
+    /// More header lines to answer with, without their line ends, as a test of what a client keeps from them.
+    public var headerLines: [String] = []
 
     public init(status: Int = 200, contentType: String = "application/octet-stream", body: Data = Data()) {
         self.status = status
@@ -211,6 +213,7 @@ public final class LoopbackHTTPStandIn: Sendable {
         var head = "HTTP/1.1 \(response.status) \(Self.reasonPhrase(response.status))\r\n"
         head += "Content-Type: \(response.contentType)\r\n"
         head += "Content-Length: \(response.body.count)\r\n"
+        for line in response.headerLines { head += "\(line)\r\n" }
         head += "Connection: close\r\n\r\n"
         var bytes = Data(head.utf8)
         if request.method != "HEAD" { bytes.append(response.body) }

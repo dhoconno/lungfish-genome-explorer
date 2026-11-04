@@ -15,11 +15,19 @@ package struct BlastSearchShared: Sendable {
     package let copyGuard: BlastCopyGuard
     /// Takes a line for each search. With none, as a test's service, nothing is written.
     package let searchLog: BlastSearchLog?
+    /// Holds the address a person gave NCBI. With none, as a test's service, NCBI gets LGE's no-reply address.
+    package let contactAddress: BlastContactAddressStore?
 
-    package init(contactGate: BlastContactGate? = nil, copyGuard: BlastCopyGuard = BlastCopyGuard(), searchLog: BlastSearchLog? = nil) {
+    package init(
+        contactGate: BlastContactGate? = nil,
+        copyGuard: BlastCopyGuard = BlastCopyGuard(),
+        searchLog: BlastSearchLog? = nil,
+        contactAddress: BlastContactAddressStore? = nil
+    ) {
         self.contactGate = contactGate
         self.copyGuard = copyGuard
         self.searchLog = searchLog
+        self.contactAddress = contactAddress
     }
 
     /// The files under the active managed storage root, or in a debug stand-in run's own state folder.

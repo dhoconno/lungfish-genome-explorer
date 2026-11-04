@@ -36,6 +36,7 @@ enum SettingsAccessibilityID {
     static let aiErrorMessage = "settings-ai-error-message"
     static let experimentalFeaturesToggle = "settings-advanced-experimental-features-toggle"
     static let analystIdentityField = "settings-general-analyst-identity-field"
+    static let blastContactEmailField = "settings-general-blast-contact-email-field"
     static let contentTextSizePicker = "settings-appearance-content-text-size-picker"
 
     static func tab(_ tab: SettingsNavigationTab) -> String {
