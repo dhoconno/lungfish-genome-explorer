@@ -130,8 +130,11 @@ public enum TaxTriageBatchExporter {
         if controlsNotRecorded {
             report += "Negative Controls: Not recorded. This import does not say which samples were controls, "
                 + "so contamination risk is unknown.\n"
-        } else if !match.controls.isEmpty {
-            report += "Negative Controls: \(match.controls.map(controlLabel).joined(separator: ", "))\n"
+        } else {
+            if !match.controls.isEmpty {
+                report += "Negative Controls: \(match.controls.map(controlLabel).joined(separator: ", "))\n"
+            }
+            // Names that meet leave a sample's rows out of a run with no control as well (lane TTCONTROLS, BIO closing read).
             for note in match.notes {
                 report += "\(note)\n"
             }

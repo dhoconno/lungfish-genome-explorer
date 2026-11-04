@@ -117,4 +117,40 @@ final class TaxTriageBatchExporterTests: XCTestCase {
         XCTAssertTrue(report.contains("High-Confidence Organisms"))
         XCTAssertTrue(report.contains("E. coli"))
     }
+
+    /// Two sample names that the pipeline turns into one name leave a sample's rows out of a run with no control as well,
+    /// so the report says it as the viewer's strip does (lane TTCONTROLS, BIO closing read, fix A).
+    func testReportSaysWhenSampleNamesMeetAndTheRunListsNoControl() {
+        let config = TaxTriageConfig(
+            samples: [
+                TaxTriageSample(sampleId: "sample-1", fastq1: URL(fileURLWithPath: "/data/R1.fq")),
+                TaxTriageSample(sampleId: "A (1)", fastq1: URL(fileURLWithPath: "/data/R2.fq")),
+                TaxTriageSample(sampleId: "A_1", fastq1: URL(fileURLWithPath: "/data/R3.fq")),
+            ],
+            outputDirectory: URL(fileURLWithPath: "/tmp/output")
+        )
+        let result = TaxTriageResult(
+            config: config,
+            runtime: 120.5,
+            exitCode: 0,
+            outputDirectory: URL(fileURLWithPath: "/tmp/output")
+        )
+        let metrics = [
+            makeMetric(organism: "E. coli", sample: "sample-1", tassScore: 0.9),
+            makeMetric(organism: "E. coli", sample: "A_1", tassScore: 0.85),
+        ]
+
+        let report = TaxTriageBatchExporter.generateSummaryReport(
+            result: result,
+            config: config,
+            metrics: metrics,
+            sampleIds: ["sample-1", "A_1"]
+        )
+
+        XCTAssertTrue(
+            report.contains("A (1) and A_1 are both named A_1 in the results, and the results hold only one sample"),
+            "the run lists no control, but the report said nothing of the names that meet: \(report)"
+        )
+        XCTAssertFalse(report.contains("Negative Controls:"), report)
+    }
 }

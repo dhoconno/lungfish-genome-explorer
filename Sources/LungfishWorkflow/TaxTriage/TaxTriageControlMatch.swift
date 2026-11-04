@@ -202,7 +202,7 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
             let meet = typed.count == 2 ? "\(typed[0]) and \(typed[1]) are both" : "\(Self.listing(typed)) are all"
             let kept = held.count == 1 ? "one sample" : "\(held.count) of them"
             notes.append(
-                "\(meet) named \(name) in the results, and the results hold only \(kept), so the rows of the others are not in this table. "
+                "\(meet) named \(name) in the results, and the results hold only \(kept), so the rows of the others are missing. "
                     + "Give each sample a name that stays different once spaces and symbols are removed, then run it again."
             )
         }
