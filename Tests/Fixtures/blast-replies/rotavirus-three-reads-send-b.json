@@ -1,0 +1,610 @@
+{
+"BlastOutput2": [
+{
+    "report": {
+      "program": "blastn",
+      "version": "BLASTN 2.17.0+",
+      "reference": "Zheng Zhang, Scott Schwartz, Lukas Wagner, and Webb Miller (2000), \"A greedy algorithm for aligning DNA sequences\", J Comput Biol 2000; 7(1-2):203-14.",
+      "search_target": {
+        "db": "core_nt"
+      },
+      "params": {
+        "expect": 1e-10,
+        "sc_match": 1,
+        "sc_mismatch": -2,
+        "gap_open": 0,
+        "gap_extend": 0,
+        "filter": "L;m;"
+      },
+      "results": {
+        "search": {
+          "query_id": "Query_1410705",
+          "query_title": "LH00642:161:23KFJ7LT4:1:2213:5538:25956",
+          "query_len": 151,
+          "hits": [
+            {
+              "num": 1,
+              "description": [
+                {
+                  "id": "gi|3090540264|gb|PX465035.1|",
+                  "accession": "PX465035",
+                  "title": "Rotavirus A isolate SARN49 RNA-dependent RNA polymerase (VP1) gene, partial cds",
+                  "taxid": 28875,
+                  "sciname": "Rotavirus A"
+                }
+              ],
+              "len": 650,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 279.964,
+                  "score": 151,
+                  "evalue": 6.65771e-71,
+                  "identity": 151,
+                  "query_from": 1,
+                  "query_to": 151,
+                  "query_strand": "Plus",
+                  "hit_from": 12,
+                  "hit_to": 162,
+                  "hit_strand": "Plus",
+                  "align_len": 151,
+                  "gaps": 0,
+                  "qseq": "TAATCTAATCTTGTCAGAATATTTATCATTTATATATAATTCACAATCTGCAGTTCAAATTCCAATTTATTATTCTTCCAATAGTGAACTAGAAAGTAGATGTATAGAATTTCATTCCAAATGTTTAGAGAATTCGAAGAATGGTCTATCA",
+                  "hseq": "TAATCTAATCTTGTCAGAATATTTATCATTTATATATAATTCACAATCTGCAGTTCAAATTCCAATTTATTATTCTTCCAATAGTGAACTAGAAAGTAGATGTATAGAATTTCATTCCAAATGTTTAGAGAATTCGAAGAATGGTCTATCA",
+                  "midline": "|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            },
+            {
+              "num": 2,
+              "description": [
+                {
+                  "id": "gi|3031303652|gb|PV989836.1|",
+                  "accession": "PV989836",
+                  "title": "Rotavirus A isolate RVA/Human-wt/CHN/SC13-467/2025/G2P[4] VP1 gene, complete cds",
+                  "taxid": 28875,
+                  "sciname": "Rotavirus A"
+                }
+              ],
+              "len": 3302,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 279.964,
+                  "score": 151,
+                  "evalue": 6.65771e-71,
+                  "identity": 151,
+                  "query_from": 1,
+                  "query_to": 151,
+                  "query_strand": "Plus",
+                  "hit_from": 30,
+                  "hit_to": 180,
+                  "hit_strand": "Plus",
+                  "align_len": 151,
+                  "gaps": 0,
+                  "qseq": "TAATCTAATCTTGTCAGAATATTTATCATTTATATATAATTCACAATCTGCAGTTCAAATTCCAATTTATTATTCTTCCAATAGTGAACTAGAAAGTAGATGTATAGAATTTCATTCCAAATGTTTAGAGAATTCGAAGAATGGTCTATCA",
+                  "hseq": "TAATCTAATCTTGTCAGAATATTTATCATTTATATATAATTCACAATCTGCAGTTCAAATTCCAATTTATTATTCTTCCAATAGTGAACTAGAAAGTAGATGTATAGAATTTCATTCCAAATGTTTAGAGAATTCGAAGAATGGTCTATCA",
+                  "midline": "|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            },
+            {
+              "num": 3,
+              "description": [
+                {
+                  "id": "gi|3031303630|gb|PV989825.1|",
+                  "accession": "PV989825",
+                  "title": "Rotavirus A isolate RVA/Human-wt/CHN/HEN28-526re/2025/G3P[8] VP1 gene, complete cds",
+                  "taxid": 28875,
+                  "sciname": "Rotavirus A"
+                }
+              ],
+              "len": 3302,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 279.964,
+                  "score": 151,
+                  "evalue": 6.65771e-71,
+                  "identity": 151,
+                  "query_from": 1,
+                  "query_to": 151,
+                  "query_strand": "Plus",
+                  "hit_from": 30,
+                  "hit_to": 180,
+                  "hit_strand": "Plus",
+                  "align_len": 151,
+                  "gaps": 0,
+                  "qseq": "TAATCTAATCTTGTCAGAATATTTATCATTTATATATAATTCACAATCTGCAGTTCAAATTCCAATTTATTATTCTTCCAATAGTGAACTAGAAAGTAGATGTATAGAATTTCATTCCAAATGTTTAGAGAATTCGAAGAATGGTCTATCA",
+                  "hseq": "TAATCTAATCTTGTCAGAATATTTATCATTTATATATAATTCACAATCTGCAGTTCAAATTCCAATTTATTATTCTTCCAATAGTGAACTAGAAAGTAGATGTATAGAATTTCATTCCAAATGTTTAGAGAATTCGAAGAATGGTCTATCA",
+                  "midline": "|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            },
+            {
+              "num": 4,
+              "description": [
+                {
+                  "id": "gi|3031303620|gb|PV989820.1|",
+                  "accession": "PV989820",
+                  "title": "Rotavirus A isolate RVA/Human-wt/CHN/HUN22-604re/2025/G3P[8] VP1 gene, complete cds",
+                  "taxid": 28875,
+                  "sciname": "Rotavirus A"
+                }
+              ],
+              "len": 3302,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 279.964,
+                  "score": 151,
+                  "evalue": 6.65771e-71,
+                  "identity": 151,
+                  "query_from": 1,
+                  "query_to": 151,
+                  "query_strand": "Plus",
+                  "hit_from": 30,
+                  "hit_to": 180,
+                  "hit_strand": "Plus",
+                  "align_len": 151,
+                  "gaps": 0,
+                  "qseq": "TAATCTAATCTTGTCAGAATATTTATCATTTATATATAATTCACAATCTGCAGTTCAAATTCCAATTTATTATTCTTCCAATAGTGAACTAGAAAGTAGATGTATAGAATTTCATTCCAAATGTTTAGAGAATTCGAAGAATGGTCTATCA",
+                  "hseq": "TAATCTAATCTTGTCAGAATATTTATCATTTATATATAATTCACAATCTGCAGTTCAAATTCCAATTTATTATTCTTCCAATAGTGAACTAGAAAGTAGATGTATAGAATTTCATTCCAAATGTTTAGAGAATTCGAAGAATGGTCTATCA",
+                  "midline": "|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            },
+            {
+              "num": 5,
+              "description": [
+                {
+                  "id": "gi|3404031500|gb|PZ019160.1|",
+                  "accession": "PZ019160",
+                  "title": "Rotavirus alphagastroenteritidis strain RVA/Human-wt/MWI/BTY293/2018/G9P[6] VP1 gene, complete cds",
+                  "taxid": 3432193,
+                  "sciname": "Rotavirus alphagastroenteritidis"
+                }
+              ],
+              "len": 3302,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 279.964,
+                  "score": 151,
+                  "evalue": 6.65771e-71,
+                  "identity": 151,
+                  "query_from": 1,
+                  "query_to": 151,
+                  "query_strand": "Plus",
+                  "hit_from": 30,
+                  "hit_to": 180,
+                  "hit_strand": "Plus",
+                  "align_len": 151,
+                  "gaps": 0,
+                  "qseq": "TAATCTAATCTTGTCAGAATATTTATCATTTATATATAATTCACAATCTGCAGTTCAAATTCCAATTTATTATTCTTCCAATAGTGAACTAGAAAGTAGATGTATAGAATTTCATTCCAAATGTTTAGAGAATTCGAAGAATGGTCTATCA",
+                  "hseq": "TAATCTAATCTTGTCAGAATATTTATCATTTATATATAATTCACAATCTGCAGTTCAAATTCCAATTTATTATTCTTCCAATAGTGAACTAGAAAGTAGATGTATAGAATTTCATTCCAAATGTTTAGAGAATTCGAAGAATGGTCTATCA",
+                  "midline": "|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            }
+          ],
+          "stat": {
+            "db_num": 132357636,
+            "db_len": 1505072462,
+            "hsp_len": 0,
+            "eff_space": 0,
+            "kappa": 0.46,
+            "lambda": 1.28,
+            "entropy": 0.85
+          }
+        }
+      }
+    }
+  }
+,
+{
+    "report": {
+      "program": "blastn",
+      "version": "BLASTN 2.17.0+",
+      "reference": "Zheng Zhang, Scott Schwartz, Lukas Wagner, and Webb Miller (2000), \"A greedy algorithm for aligning DNA sequences\", J Comput Biol 2000; 7(1-2):203-14.",
+      "search_target": {
+        "db": "core_nt"
+      },
+      "params": {
+        "expect": 1e-10,
+        "sc_match": 1,
+        "sc_mismatch": -2,
+        "gap_open": 0,
+        "gap_extend": 0,
+        "filter": "L;m;"
+      },
+      "results": {
+        "search": {
+          "query_id": "Query_1410706",
+          "query_title": "LH00642:161:23KFJ7LT4:1:2129:11905:11145",
+          "query_len": 141,
+          "hits": [
+            {
+              "num": 1,
+              "description": [
+                {
+                  "id": "gi|3404031500|gb|PZ019160.1|",
+                  "accession": "PZ019160",
+                  "title": "Rotavirus alphagastroenteritidis strain RVA/Human-wt/MWI/BTY293/2018/G9P[6] VP1 gene, complete cds",
+                  "taxid": 3432193,
+                  "sciname": "Rotavirus alphagastroenteritidis"
+                }
+              ],
+              "len": 3302,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 255.958,
+                  "score": 138,
+                  "evalue": 1.02526e-63,
+                  "identity": 140,
+                  "query_from": 1,
+                  "query_to": 141,
+                  "query_strand": "Plus",
+                  "hit_from": 2950,
+                  "hit_to": 3090,
+                  "hit_strand": "Plus",
+                  "align_len": 141,
+                  "gaps": 0,
+                  "qseq": "TCAAAGATTTACTCTCAAGATAAATACAAGATATTGGAATCGTATGTGTATAACCTGTTATCCATCAATTATGGATGCTATCAATTATTCGACTTTAATTCACCGGACTTGGAAAAATTAATTAGAATACCATTTAAAGGG",
+                  "hseq": "TCAAAGATTTACTCTCAAGATAAATACAGGATATTGGAATCGTATGTGTATAACCTGTTATCCATCAATTATGGATGCTATCAATTATTCGACTTTAATTCACCGGACTTGGAAAAATTAATTAGAATACCATTTAAAGGG",
+                  "midline": "|||||||||||||||||||||||||||| ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            },
+            {
+              "num": 2,
+              "description": [
+                {
+                  "id": "gi|3101871029|gb|PX211188.1|",
+                  "accession": "PX211188",
+                  "title": "Rotavirus alphagastroenteritidis isolate 19IRL51864 VP1 gene, complete cds",
+                  "taxid": 3432193,
+                  "sciname": "Rotavirus alphagastroenteritidis"
+                }
+              ],
+              "len": 3302,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 255.958,
+                  "score": 138,
+                  "evalue": 1.02526e-63,
+                  "identity": 140,
+                  "query_from": 1,
+                  "query_to": 141,
+                  "query_strand": "Plus",
+                  "hit_from": 2950,
+                  "hit_to": 3090,
+                  "hit_strand": "Plus",
+                  "align_len": 141,
+                  "gaps": 0,
+                  "qseq": "TCAAAGATTTACTCTCAAGATAAATACAAGATATTGGAATCGTATGTGTATAACCTGTTATCCATCAATTATGGATGCTATCAATTATTCGACTTTAATTCACCGGACTTGGAAAAATTAATTAGAATACCATTTAAAGGG",
+                  "hseq": "TCAAAGATTTACTCTCAAGATAAATACAGGATATTGGAATCGTATGTGTATAACCTGTTATCCATCAATTATGGATGCTATCAATTATTCGACTTTAATTCACCGGACTTGGAAAAATTAATTAGAATACCATTTAAAGGG",
+                  "midline": "|||||||||||||||||||||||||||| ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            },
+            {
+              "num": 3,
+              "description": [
+                {
+                  "id": "gi|2950158673|gb|PV288582.1|",
+                  "accession": "PV288582",
+                  "title": "Rotavirus A strain RVA/Human-wt/BEL/F15080G3equine/2023/G3P[8] VP1 (VP1) gene, complete cds",
+                  "taxid": 28875,
+                  "sciname": "Rotavirus A"
+                }
+              ],
+              "len": 3267,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 255.958,
+                  "score": 138,
+                  "evalue": 1.02526e-63,
+                  "identity": 140,
+                  "query_from": 1,
+                  "query_to": 141,
+                  "query_strand": "Plus",
+                  "hit_from": 2932,
+                  "hit_to": 3072,
+                  "hit_strand": "Plus",
+                  "align_len": 141,
+                  "gaps": 0,
+                  "qseq": "TCAAAGATTTACTCTCAAGATAAATACAAGATATTGGAATCGTATGTGTATAACCTGTTATCCATCAATTATGGATGCTATCAATTATTCGACTTTAATTCACCGGACTTGGAAAAATTAATTAGAATACCATTTAAAGGG",
+                  "hseq": "TCAAAGATTTACTCTCAAGATAAATACAGGATATTGGAATCGTATGTGTATAACCTGTTATCCATCAATTATGGATGCTATCAATTATTCGACTTTAATTCACCGGACTTGGAAAAATTAATTAGAATACCATTTAAAGGG",
+                  "midline": "|||||||||||||||||||||||||||| ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            },
+            {
+              "num": 4,
+              "description": [
+                {
+                  "id": "gi|2950158661|gb|PV288576.1|",
+                  "accession": "PV288576",
+                  "title": "Rotavirus A strain RVA/Human-wt/BEL/F14353G3equine/2022/G3P[8] VP1 (VP1) gene, complete cds",
+                  "taxid": 28875,
+                  "sciname": "Rotavirus A"
+                }
+              ],
+              "len": 3267,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 255.958,
+                  "score": 138,
+                  "evalue": 1.02526e-63,
+                  "identity": 140,
+                  "query_from": 1,
+                  "query_to": 141,
+                  "query_strand": "Plus",
+                  "hit_from": 2932,
+                  "hit_to": 3072,
+                  "hit_strand": "Plus",
+                  "align_len": 141,
+                  "gaps": 0,
+                  "qseq": "TCAAAGATTTACTCTCAAGATAAATACAAGATATTGGAATCGTATGTGTATAACCTGTTATCCATCAATTATGGATGCTATCAATTATTCGACTTTAATTCACCGGACTTGGAAAAATTAATTAGAATACCATTTAAAGGG",
+                  "hseq": "TCAAAGATTTACTCTCAAGATAAATACAGGATATTGGAATCGTATGTGTATAACCTGTTATCCATCAATTATGGATGCTATCAATTATTCGACTTTAATTCACCGGACTTGGAAAAATTAATTAGAATACCATTTAAAGGG",
+                  "midline": "|||||||||||||||||||||||||||| ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            },
+            {
+              "num": 5,
+              "description": [
+                {
+                  "id": "gi|2845588171|gb|PP313631.1|",
+                  "accession": "PP313631",
+                  "title": "Rotavirus A strain RVA/Human-wt/MOZ/MAN-1686316.3/2018/G9P[6] VP1 gene, complete cds",
+                  "taxid": 28875,
+                  "sciname": "Rotavirus A"
+                }
+              ],
+              "len": 3267,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 255.958,
+                  "score": 138,
+                  "evalue": 1.02526e-63,
+                  "identity": 140,
+                  "query_from": 1,
+                  "query_to": 141,
+                  "query_strand": "Plus",
+                  "hit_from": 2932,
+                  "hit_to": 3072,
+                  "hit_strand": "Plus",
+                  "align_len": 141,
+                  "gaps": 0,
+                  "qseq": "TCAAAGATTTACTCTCAAGATAAATACAAGATATTGGAATCGTATGTGTATAACCTGTTATCCATCAATTATGGATGCTATCAATTATTCGACTTTAATTCACCGGACTTGGAAAAATTAATTAGAATACCATTTAAAGGG",
+                  "hseq": "TCAAAGATTTACTCTCAAGATAAATACAGGATATTGGAATCGTATGTGTATAACCTGTTATCCATCAATTATGGATGCTATCAATTATTCGACTTTAATTCACCGGACTTGGAAAAATTAATTAGAATACCATTTAAAGGG",
+                  "midline": "|||||||||||||||||||||||||||| ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            }
+          ],
+          "stat": {
+            "db_num": 132357636,
+            "db_len": 1505072462,
+            "hsp_len": 0,
+            "eff_space": 0,
+            "kappa": 0.46,
+            "lambda": 1.28,
+            "entropy": 0.85
+          }
+        }
+      }
+    }
+  }
+,
+{
+    "report": {
+      "program": "blastn",
+      "version": "BLASTN 2.17.0+",
+      "reference": "Zheng Zhang, Scott Schwartz, Lukas Wagner, and Webb Miller (2000), \"A greedy algorithm for aligning DNA sequences\", J Comput Biol 2000; 7(1-2):203-14.",
+      "search_target": {
+        "db": "core_nt"
+      },
+      "params": {
+        "expect": 1e-10,
+        "sc_match": 1,
+        "sc_mismatch": -2,
+        "gap_open": 0,
+        "gap_extend": 0,
+        "filter": "L;m;"
+      },
+      "results": {
+        "search": {
+          "query_id": "Query_1410707",
+          "query_title": "LH00642:161:23KFJ7LT4:1:1366:29671:15208",
+          "query_len": 141,
+          "hits": [
+            {
+              "num": 1,
+              "description": [
+                {
+                  "id": "gi|3370624623|dbj|LC912218.1|",
+                  "accession": "LC912218",
+                  "title": "Human rotavirus A RVA/Human-wt/JPN/MU25-3/2025/G3P[8] VP3 gene for VP3 protein, complete cds, segment 3",
+                  "taxid": 10941,
+                  "sciname": "Human rotavirus A"
+                }
+              ],
+              "len": 2571,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 261.498,
+                  "score": 141,
+                  "evalue": 2.20365e-65,
+                  "identity": 141,
+                  "query_from": 1,
+                  "query_to": 141,
+                  "query_strand": "Plus",
+                  "hit_from": 155,
+                  "hit_to": 295,
+                  "hit_strand": "Plus",
+                  "align_len": 141,
+                  "gaps": 0,
+                  "qseq": "CACTACACATAATATATTGTATTTAAACTATAGTGTTAAAACGCTGCAAATATTAAATAAGTCTGGTATAGCTGCAATAGAAATACAGAAGATGGACGAACTATTCACGCTAATTAGGTGTAATTTTACATATGATTACAT",
+                  "hseq": "CACTACACATAATATATTGTATTTAAACTATAGTGTTAAAACGCTGCAAATATTAAATAAGTCTGGTATAGCTGCAATAGAAATACAGAAGATGGACGAACTATTCACGCTAATTAGGTGTAATTTTACATATGATTACAT",
+                  "midline": "|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            },
+            {
+              "num": 2,
+              "description": [
+                {
+                  "id": "gi|3370624601|dbj|LC912207.1|",
+                  "accession": "LC912207",
+                  "title": "Human rotavirus A RVA/Human-wt/JPN/Ho25-20/2025/G3P[8] VP3 gene for VP3 protein, complete cds, segment 3",
+                  "taxid": 10941,
+                  "sciname": "Human rotavirus A"
+                }
+              ],
+              "len": 2565,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 261.498,
+                  "score": 141,
+                  "evalue": 2.20365e-65,
+                  "identity": 141,
+                  "query_from": 1,
+                  "query_to": 141,
+                  "query_strand": "Plus",
+                  "hit_from": 158,
+                  "hit_to": 298,
+                  "hit_strand": "Plus",
+                  "align_len": 141,
+                  "gaps": 0,
+                  "qseq": "CACTACACATAATATATTGTATTTAAACTATAGTGTTAAAACGCTGCAAATATTAAATAAGTCTGGTATAGCTGCAATAGAAATACAGAAGATGGACGAACTATTCACGCTAATTAGGTGTAATTTTACATATGATTACAT",
+                  "hseq": "CACTACACATAATATATTGTATTTAAACTATAGTGTTAAAACGCTGCAAATATTAAATAAGTCTGGTATAGCTGCAATAGAAATACAGAAGATGGACGAACTATTCACGCTAATTAGGTGTAATTTTACATATGATTACAT",
+                  "midline": "|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            },
+            {
+              "num": 3,
+              "description": [
+                {
+                  "id": "gi|3101873899|gb|PX212625.1|",
+                  "accession": "PX212625",
+                  "title": "Rotavirus alphagastroenteritidis isolate 19IRL29193 VP3 gene, complete cds",
+                  "taxid": 3432193,
+                  "sciname": "Rotavirus alphagastroenteritidis"
+                }
+              ],
+              "len": 2577,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 261.498,
+                  "score": 141,
+                  "evalue": 2.20365e-65,
+                  "identity": 141,
+                  "query_from": 1,
+                  "query_to": 141,
+                  "query_strand": "Plus",
+                  "hit_from": 163,
+                  "hit_to": 303,
+                  "hit_strand": "Plus",
+                  "align_len": 141,
+                  "gaps": 0,
+                  "qseq": "CACTACACATAATATATTGTATTTAAACTATAGTGTTAAAACGCTGCAAATATTAAATAAGTCTGGTATAGCTGCAATAGAAATACAGAAGATGGACGAACTATTCACGCTAATTAGGTGTAATTTTACATATGATTACAT",
+                  "hseq": "CACTACACATAATATATTGTATTTAAACTATAGTGTTAAAACGCTGCAAATATTAAATAAGTCTGGTATAGCTGCAATAGAAATACAGAAGATGGACGAACTATTCACGCTAATTAGGTGTAATTTTACATATGATTACAT",
+                  "midline": "|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            },
+            {
+              "num": 4,
+              "description": [
+                {
+                  "id": "gi|3093226008|gb|PX464528.1|",
+                  "accession": "PX464528",
+                  "title": "Rotavirus A strain RVA/Human-wt/MYS/SARK14/2023/G9P[4] RNA capping enzyme (VP3) gene, partial cds",
+                  "taxid": 28875,
+                  "sciname": "Rotavirus A"
+                }
+              ],
+              "len": 673,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 261.498,
+                  "score": 141,
+                  "evalue": 2.20365e-65,
+                  "identity": 141,
+                  "query_from": 1,
+                  "query_to": 141,
+                  "query_strand": "Plus",
+                  "hit_from": 149,
+                  "hit_to": 289,
+                  "hit_strand": "Plus",
+                  "align_len": 141,
+                  "gaps": 0,
+                  "qseq": "CACTACACATAATATATTGTATTTAAACTATAGTGTTAAAACGCTGCAAATATTAAATAAGTCTGGTATAGCTGCAATAGAAATACAGAAGATGGACGAACTATTCACGCTAATTAGGTGTAATTTTACATATGATTACAT",
+                  "hseq": "CACTACACATAATATATTGTATTTAAACTATAGTGTTAAAACGCTGCAAATATTAAATAAGTCTGGTATAGCTGCAATAGAAATACAGAAGATGGACGAACTATTCACGCTAATTAGGTGTAATTTTACATATGATTACAT",
+                  "midline": "|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            },
+            {
+              "num": 5,
+              "description": [
+                {
+                  "id": "gi|3093226032|gb|PX464540.1|",
+                  "accession": "PX464540",
+                  "title": "Rotavirus A strain RVA/Human-wt/MYS/SARN34/2024/G3P[8] RNA capping enzyme (VP3) gene, partial cds",
+                  "taxid": 28875,
+                  "sciname": "Rotavirus A"
+                }
+              ],
+              "len": 673,
+              "hsps": [
+                {
+                  "num": 1,
+                  "bit_score": 261.498,
+                  "score": 141,
+                  "evalue": 2.20365e-65,
+                  "identity": 141,
+                  "query_from": 1,
+                  "query_to": 141,
+                  "query_strand": "Plus",
+                  "hit_from": 149,
+                  "hit_to": 289,
+                  "hit_strand": "Plus",
+                  "align_len": 141,
+                  "gaps": 0,
+                  "qseq": "CACTACACATAATATATTGTATTTAAACTATAGTGTTAAAACGCTGCAAATATTAAATAAGTCTGGTATAGCTGCAATAGAAATACAGAAGATGGACGAACTATTCACGCTAATTAGGTGTAATTTTACATATGATTACAT",
+                  "hseq": "CACTACACATAATATATTGTATTTAAACTATAGTGTTAAAACGCTGCAAATATTAAATAAGTCTGGTATAGCTGCAATAGAAATACAGAAGATGGACGAACTATTCACGCTAATTAGGTGTAATTTTACATATGATTACAT",
+                  "midline": "|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"
+                }
+              ]
+            }
+          ],
+          "stat": {
+            "db_num": 132357636,
+            "db_len": 1505072462,
+            "hsp_len": 0,
+            "eff_space": 0,
+            "kappa": 0.46,
+            "lambda": 1.28,
+            "entropy": 0.85
+          }
+        }
+      }
+    }
+  }
+]
+}
+
