@@ -41,8 +41,8 @@ Press Verify with BLAST on any result row, with the stand-in as the row says. Th
 | 5 | Every send waiting | Hold on from row 2 past 9 minutes | Status Waiting, `Waiting at NCBI since <T>, 3 sends`, no spinner, and Quit raises no alert for it |
 | 6 | Guard holds later sends | Let two held searches reach row 5, then send a third and hold on past 9 minutes | `LGE sends nothing again before <T>` |
 | 7 | Back with a result | On a waiting row, `control/release` | Status Completed with no press, the counts, then `Collected <dur> after the first send, <k> sends`, and the pane on that row shows the results |
-| 8 | NCBI: expired | `control/expire`, then send and hold on past 5 minutes | Status Failed, `NCBI no longer holds this search, request ID WALK<n>. No result. Choose Send Again` |
-| 9 | NCBI: failed | `control/fail?words=Message%20ID%2099`, then send | Status Failed, `NCBI could not finish this search, request ID WALK<n>: Message ID 99` |
+| 8 | NCBI expired it | `control/expire`, then send and hold on past 5 minutes | Status Failed, `NCBI no longer holds this search, request ID WALK<n>. No result. Choose Send Again` |
+| 9 | NCBI failed it | `control/fail?words=Message%20ID%2099`, then send | Status Failed, `NCBI could not finish this search, request ID WALK<n>: Message ID 99` |
 | 10 | Stopped by the person | On a waiting row, press Stop | Status Cancelled, `Stopped. LGE no longer checks this search. Choose Resume to check it again` |
 | R1 | Checks not reaching NCBI | On a row in row 5, `control/fault?on=status&kind=drop&count=99`, then Check Now three times | Row 5's words, then `LGE could not reach NCBI at the last <c> checks and keeps trying` |
 | R2 | Not sent, no connection | Stop the stand-in, then send. Start it again after | Status Failed, `Not sent. This Mac could not reach NCBI` |
