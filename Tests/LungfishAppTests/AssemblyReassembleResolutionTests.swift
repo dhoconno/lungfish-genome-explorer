@@ -140,7 +140,9 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
         let stated = try await inProcessRun([shapes.single], pairedEnd: false, inputLayout: .strictlyInterleaved)
         let statedRecorded = try await recordedCommandRun(stated.recordedCommand)
         XCTAssertTrue(stated.recordedCommand.contains("--read-layout interleaved"), stated.recordedCommand)
-        XCTAssertEqual(statedRecorded.pairing, .interleaved)
+        // Row READ-LAYOUT-DOTTED-MATES (BIO ruling 7, route 3) moved this from `.interleaved`. A whole scan that finds
+        // single reads outranks the statement, and the command still records what was stated.
+        XCTAssertEqual(statedRecorded.pairing, .single)
         XCTAssertEqual(stated.pairing, statedRecorded.pairing)
 
         let pooled = try await inProcessRun([shapes.multiFile], pairedEnd: false)
@@ -219,8 +221,11 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
                         }
                         resolvedCount += 1
                         // BIO's B4. Only the mixed bundle's joined file holds pairs beside single reads.
-                        let scanOutranks = explicit == .strictlyInterleaved && shape.bundle == shapes.mixed
-                        XCTAssertEqual(answer?.layout, scanOutranks ? .mixedMergedAndPairs : explicit ?? unstatedAnswer.layout, label)
+                        // Row READ-LAYOUT-DOTTED-MATES (BIO ruling 7, route 3) added the two files of single reads.
+                        let scanOutranks = explicit == .strictlyInterleaved
+                            && [shapes.mixed, shapes.single, shapes.oriented].contains(shape.bundle)
+                        let outranked: FASTQInputLayout = shape.bundle == shapes.mixed ? .mixedMergedAndPairs : .singleEnd
+                        XCTAssertEqual(answer?.layout, scanOutranks ? outranked : explicit ?? unstatedAnswer.layout, label)
                         XCTAssertEqual(
                             answer?.source,
                             scanOutranks ? .contentScan : (explicit == nil ? unstatedAnswer.source : .explicit),

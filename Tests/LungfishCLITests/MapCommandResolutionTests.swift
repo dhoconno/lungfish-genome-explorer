@@ -92,7 +92,10 @@ final class MapCommandResolutionTests: XCTestCase {
         XCTAssertEqual(resolved.layoutResolution.layout, .singleEnd)
         XCTAssertEqual(resolved.layoutResolution.source, .pooledFiles)
         let explicit = try await resolve([bundle], explicitLayout: .strictlyInterleaved)
-        XCTAssertEqual(explicit.layoutResolution.layout, .strictlyInterleaved, "an explicit --read-layout still wins")
+        XCTAssertEqual(
+            explicit.layoutResolution.layout, .singleEnd,
+            "a whole scan that finds single reads outranks a stated interleaved layout (row READ-LAYOUT-DOTTED-MATES, BIO ruling 7, route 3)"
+        )
     }
 
     func testPairedFlagStillBindsTwoLooseFiles() async throws {
