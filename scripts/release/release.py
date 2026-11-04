@@ -743,9 +743,131 @@ def run_package(root: Path, channel: str) -> int:
     return 0
 
 
-def run_publish(root: Path, channel: str, profile_path: Path | None) -> int:
+EVIDENCE_READ_MAX_BYTES = 1_000_000
+EVIDENCE_READ_HEAD_LINES = 20
+EVIDENCE_READ_HOW = (
+    "The QA expert writes the file as SCR/reviews/CANDIDATE-<commit>-QA.md after reading the candidate's evidence, "
+    "and docs/contracts/VERIFICATION-ORDER.md (row Evidence read) says how to get one."
+)
+EVIDENCE_READ_ARGUMENT_WORDS = (
+    "publish needs --evidence-read PATH, the QA expert's PASS file for this exact candidate. "
+    "One of its first 20 lines must read EVIDENCE-READ: PASS <channel> <full 40-character commit>. " + EVIDENCE_READ_HOW
+)
+
+
+def _evidence_read_mismatch(number: int, words: list[str], channel: str, commit: str) -> str:
+    """What is wrong with a PASS line that is not the exact line this publish needs."""
+    problems = []
+    if len(words) == 4:
+        if words[2] != channel:
+            problems.append(f"names channel {words[2]} when this publish is {channel}")
+        if words[3] != commit:
+            if re.fullmatch(r"[0-9a-f]{4,39}", words[3]):
+                problems.append(f"names the short commit {words[3]}, and the full 40-character commit {commit} is needed")
+            else:
+                problems.append(f"names commit {words[3]} when this publish is commit {commit}")
+    if not problems:
+        return f"Line {number} is not in the form of the expected line."
+    return f"Line {number} " + " and ".join(problems) + "."
+
+
+def verify_evidence_read(path: Path, channel: str, commit: str) -> None:
+    """Refuse a publish that has no PASS from a QA expert's read of this exact candidate (row QA-READ-GATE).
+
+    The file passes when one of its first 20 lines reads exactly
+    ``EVIDENCE-READ: PASS <channel> <full commit>`` for this publish. It touches no credential
+    and no network, so a refusal costs nothing."""
+    if HEX_COMMIT.fullmatch(commit) is None:
+        raise ReleaseError("the evidence read cannot be checked because HEAD is not a full 40-character commit")
+    expected = f"EVIDENCE-READ: PASS {channel} {commit}"
+    shown = str(path)
+    not_regular = (
+        f"evidence read {shown} is not a regular file. Pass the QA expert's CANDIDATE-<commit>-QA.md file, "
+        "not a folder or a device."
+    )
+    try:
+        status = os.lstat(path)
+    except FileNotFoundError:
+        raise ReleaseError(
+            f"evidence read file {shown} does not exist. publish needs the QA expert's PASS file for {channel} commit {commit}, "
+            f"which holds the line {expected}. Ask the QA expert for it and run publish again with --evidence-read set to "
+            f"that file. {EVIDENCE_READ_HOW}"
+        ) from None
+    except OSError as error:
+        raise ReleaseError(
+            f"evidence read file {shown} cannot be examined ({error.strerror}). Check the path and run publish again."
+        ) from error
+    if stat.S_ISLNK(status.st_mode):
+        raise ReleaseError(
+            f"evidence read file {shown} is a symlink. publish reads only a plain file, so that no link can stand in for "
+            "the QA expert's file. Copy the file to a plain path and run publish again with that path."
+        )
+    if not stat.S_ISREG(status.st_mode):
+        raise ReleaseError(not_regular)
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as error:
+        raise ReleaseError(
+            f"evidence read file {shown} cannot be opened ({error.strerror}). Check the path and its permissions, "
+            "then run publish again."
+        ) from error
+    with os.fdopen(descriptor, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise ReleaseError(not_regular)
+        data = handle.read(EVIDENCE_READ_MAX_BYTES + 1)
+    if len(data) > EVIDENCE_READ_MAX_BYTES:
+        raise ReleaseError(
+            f"evidence read file {shown} is larger than 1 MB, which no QA read is. Pass the QA expert's CANDIDATE-<commit>-QA.md file."
+        )
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ReleaseError(
+            f"evidence read file {shown} is not UTF-8 text, so it cannot be read. Ask the QA expert to save it as UTF-8 text."
+        ) from None
+    exact: list[int] = []
+    passes: list[int] = []
+    fails: list[int] = []
+    mismatches: list[str] = []
+    for number, raw in enumerate(text.split("\n", EVIDENCE_READ_HEAD_LINES)[:EVIDENCE_READ_HEAD_LINES], start=1):
+        line = raw.rstrip("\r")
+        words = line.split(" ")
+        if words[0] != "EVIDENCE-READ:" or len(words) < 2:
+            continue
+        if words[1] == "FAIL":
+            fails.append(number)
+        elif words[1] == "PASS":
+            passes.append(number)
+            if line == expected:
+                exact.append(number)
+            else:
+                mismatches.append(_evidence_read_mismatch(number, words, channel, commit))
+    if fails and passes:
+        raise ReleaseError(
+            f"evidence read file {shown} holds both a PASS line (line {passes[0]}) and a FAIL line (line {fails[0]}), "
+            f"so it passes nothing. Ask the QA expert for one file with one verdict on {channel} commit {commit}. "
+            f"{EVIDENCE_READ_HOW}"
+        )
+    if fails:
+        raise ReleaseError(
+            f"evidence read file {shown} holds a FAIL line (line {fails[0]}), so the QA expert did not pass this candidate. "
+            "Fix what its findings name, package the candidate again and ask for a new read."
+        )
+    if not exact:
+        raise ReleaseError(
+            f"evidence read file {shown} does not pass {channel} commit {commit}. {' '.join(mismatches)} "
+            f"A line that reads exactly {expected} must be in its first {EVIDENCE_READ_HEAD_LINES} lines. "
+            f"Ask the QA expert to read this candidate and write that line. {EVIDENCE_READ_HOW}"
+        )
+    print(f"Evidence read passed: {shown} says PASS for {channel} commit {commit}.")
+
+
+def run_publish(root: Path, channel: str, profile_path: Path | None, evidence_read_path: Path) -> int:
     credentialless_environment = sanitized_package_environment(os.environ.copy())
     commit = _head_commit(root, credentialless_environment)
+    # Row QA-READ-GATE. The check needs only HEAD, so a refusal comes before the repository check,
+    # any credential, any network contact and the candidate preflight.
+    verify_evidence_read(evidence_read_path, channel, commit)
     try:
         repository = resolve_repository_identity(root, "origin")
     except RepositoryIdentityError as error:
@@ -2695,8 +2817,18 @@ class LocalReleaseOperations:
             )
 
 
+class _ReleaseArgumentParser(argparse.ArgumentParser):
+    """argparse alone names a missing --evidence-read and nothing more, so its usage error
+    gains the words that say what the file is and where the contract says how to get one."""
+
+    def error(self, message: str):
+        if "--evidence-read" in message:
+            message = f"{message}\n{EVIDENCE_READ_ARGUMENT_WORDS}"
+        super().error(message)
+
+
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = _ReleaseArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
 
     debug = commands.add_parser("debug", help="build a Debug app with cheap headless artifact checks")
@@ -2721,6 +2853,12 @@ def _parser() -> argparse.ArgumentParser:
     publish.add_argument("channel", choices=("preview", "stable"))
     publish.add_argument("--profile", type=Path)
     publish.add_argument("--repo", type=Path, default=PROJECT_ROOT)
+    publish.add_argument(
+        "--evidence-read", type=Path, required=True, metavar="PATH",
+        help="the QA expert's PASS file for this exact candidate, SCR/reviews/CANDIDATE-<commit>-QA.md, "
+             "whose first 20 lines hold EVIDENCE-READ: PASS <channel> <full commit> "
+             "(docs/contracts/VERIFICATION-ORDER.md, row Evidence read)",
+    )
 
     doctor = commands.add_parser(
         "doctor", help="report package and optional publish readiness"
@@ -2798,7 +2936,7 @@ def main(argv: list[str] | None = None) -> int:
             result_status = run_package(root, args.channel)
             return result_status
         if args.command == "publish":
-            result_status = run_publish(root, args.channel, args.profile)
+            result_status = run_publish(root, args.channel, args.profile, args.evidence_read)
             return result_status
         if args.command == "doctor":
             result_status = run_doctor(root, args.profile)

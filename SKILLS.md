@@ -19,7 +19,9 @@ python3 scripts/release/release.py package preview|stable
 python3 scripts/release/release.py publish preview|stable [--profile PATH]
 ```
 
-Re-run `publish` for receipt-bound recovery without rebuilding. Low-level
+`publish` also takes the required `--evidence-read PATH`, the QA expert's PASS file for the
+exact candidate, and refuses a candidate without it (`docs/contracts/VERIFICATION-ORDER.md`,
+row Evidence read). Re-run `publish` for receipt-bound recovery without rebuilding. Low-level
 builders are internal. The full machine, channel, cache, verification, and
 side-by-side caveats live in `.codex/skills/releasing-lungfish/SKILL.md` and
 `docs/release/sparkle-updates.md`.
