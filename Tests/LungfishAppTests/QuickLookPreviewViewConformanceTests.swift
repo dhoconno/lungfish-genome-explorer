@@ -11,6 +11,16 @@ import Quartz
 import XCTest
 @testable import LungfishApp
 
+/// A real Quick Look view that counts the calls to `close`, so a test can tell that the app closed it. It still draws.
+private final class CountingQuickLookView: QLPreviewView {
+    var closeCalls = 0
+
+    override func close() {
+        closeCalls += 1
+        super.close()
+    }
+}
+
 @MainActor
 final class QuickLookPreviewViewConformanceTests: XCTestCase {
     private var root: URL!
@@ -56,28 +66,36 @@ final class QuickLookPreviewViewConformanceTests: XCTestCase {
         XCTAssertNil(before?.view?.superview, "a clear left the view in the window")
     }
 
-    /// A view that leaves the window must also be closed, since that is what stops a movie or a sound. The header says
-    /// `close` releases the current preview item, so a view that left with no item was closed and a view that still holds
-    /// its item was only taken out. The test keeps each view alive to read it. No movie fixture is needed for this, and
-    /// hearing the sound stop is a walk row.
+    /// A view that leaves the window must also be closed, since that is what stops a movie or a sound. The views here are
+    /// real and draw for real, and only count the calls to `close`. The header says `close` releases the current preview
+    /// item, so a view that left holding no item let go of its file. The count shows that the app made the call, because
+    /// this Mac's view also lets go of its item when it only leaves the window, so the item alone cannot tell the two
+    /// apart. No movie fixture is needed for this, and hearing the sound stop is a walk row.
     func testTheRealQuickLookViewReleasesItsItemWhenItGoes() async throws {
         let harness = try ViewSwitchWindowHarness()
         defer { harness.close() }
         let viewer = harness.split.viewerController!
-        viewer.embeddedFilePreviewRenderer = { viewer, url in viewer.renderEmbeddedFilePreview(url: url) }
+        viewer.embeddedFilePreviewRenderer = { viewer, url in
+            viewer.renderEmbeddedFilePreview(url: url, makeView: { CountingQuickLookView(frame: $0, style: .normal) })
+        }
         let image = try RoutingSafetyNetFixtures.pngImage(named: "coverage.png", in: root)
         let page = root.appendingPathComponent("report.html")
         try "<html><body>report</body></html>\n".write(to: page, atomically: true, encoding: .utf8)
         let table = root.appendingPathComponent("table.csv")
         try "sample,reads\nHG002,1200\n".write(to: table, atomically: true, encoding: .utf8)
 
-        var held: [QLPreviewView] = []
+        var held: [CountingQuickLookView] = []
         for file in [image, page, table] {
             XCTAssertTrue(viewer.displayQuickLookPreview(url: file), "\(file.lastPathComponent) did not open")
-            let view = try XCTUnwrap(viewer.quickLookPreviewController?.quickLookView, "\(file.lastPathComponent) has no Quick Look view")
+            let view = try XCTUnwrap(
+                viewer.quickLookPreviewController?.quickLookView as? CountingQuickLookView,
+                "\(file.lastPathComponent) has no Quick Look view"
+            )
             XCTAssertNotNil(view.previewItem, "the live view holds no item while it shows")
             XCTAssertTrue(view.shouldCloseWithWindow, "a window close would leave the view open")
+            XCTAssertEqual(view.closeCalls, 0, "the view was closed as it opened")
             for gone in held {
+                XCTAssertEqual(gone.closeCalls, 1, "the app never closed the view that left the window, after \(file.lastPathComponent)")
                 XCTAssertNil(gone.previewItem, "the view left the window but was never closed, after \(file.lastPathComponent)")
             }
             held.append(view)
@@ -87,6 +105,7 @@ final class QuickLookPreviewViewConformanceTests: XCTestCase {
 
         XCTAssertEqual(held.count, 3, "the live view was not drawn for every file")
         for gone in held {
+            XCTAssertEqual(gone.closeCalls, 1, "the app never closed the view that left the window, after a clear")
             XCTAssertNil(gone.previewItem, "the view left the window but was never closed, after a clear")
         }
     }
