@@ -347,6 +347,7 @@ struct TaxTriageWizardSheet: View {
 
             // Advanced settings
             advancedSettings
+            Self.advancedArgumentsNotice(extraArgumentsText)
         }
     }
 
@@ -580,6 +581,7 @@ struct TaxTriageWizardSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            Self.taxidsNotice(removeTaxidsText)
         }
     }
 
