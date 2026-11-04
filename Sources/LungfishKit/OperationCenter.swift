@@ -1000,7 +1000,24 @@ public final class OperationCenter: ObservableObject {
         return state == requestedState
     }
 
-
+    /// Requests cancellation. Callback return never releases the worker's bundle lock. Running operations without a
+    /// cancel callback are left unchanged because the center has no mechanism to stop their underlying work.
+    ///
+    /// `onCancel` only *signals* the worker (e.g. `task.cancel()`, killing a subprocess tree); it does not, by itself,
+    /// guarantee the worker's `Task` ever returns to call a terminal
+    /// method (`complete`/`fail`/`acknowledgeCancellation`). A worker blocked in an uninterruptible pre-tool stage --
+    /// a synchronous filesystem call stuck waiting on something outside the process, for example -- never observes
+    /// `Task.isCancelled` and never returns, so without a fallback the operation stays `.cancelling` (shown as active,
+    /// bundle still locked) forever, exactly as it was found live: tool processes gone, but the row never left the
+    /// active list. After ``cancelGracePeriod``, if the operation is still `.cancelling`, this forces it to a terminal
+    /// `.cancelled` state and releases its bundle lock itself. `finishWorker`'s own guard (`state.isActive`) then
+    /// makes a late-returning worker's own terminal call a safe no-op -- it cannot resurrect or double-complete an
+    /// operation this already closed out.
+    ///
+    /// The forced path does NOT release the bundle lock: the worker may still be running (a tool ignoring SIGTERM, a
+    /// large copy finishing) and could write into a bundle another operation has just locked. The lock stays held,
+    /// through ``abandonedWorkers``, until the worker itself calls a terminal method. The operation leaves the active
+    /// list, so Cancel All, the quit warning and the Operations menu no longer wait on it.
     public func cancel(id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }),
               items[index].state == .running || items[index].state == .waiting,
