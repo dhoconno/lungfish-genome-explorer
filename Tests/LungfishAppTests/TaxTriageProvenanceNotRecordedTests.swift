@@ -9,6 +9,7 @@
 import SwiftUI
 import ViewInspector
 import XCTest
+@testable import LungfishApp
 @testable import LungfishTaxTriageUI
 @testable import LungfishWorkflow
 
@@ -46,6 +47,19 @@ final class TaxTriageProvenanceNotRecordedTests: XCTestCase {
         XCTAssertEqual(value(of: "Platform", in: texts), "Oxford Nanopore")
         XCTAssertEqual(value(of: "Runtime", in: texts), "12.5 seconds")
         XCTAssertEqual(value(of: "Exit Code", in: texts), "0")
+    }
+
+    /// The Inspector shows a run setting as Not recorded when the config lists no samples, and as the run's own
+    /// value when it lists samples (UX review should-fix 1, BIO review should-fix 3).
+    func testInspectorSettingsReadNotRecordedWithNoSamples() {
+        let none = TaxTriageConfig(samples: [], outputDirectory: folder)
+        XCTAssertEqual(MainSplitViewController.taxTriageRunValue(none, "Illumina"), "Not recorded")
+
+        let sample = TaxTriageSample(
+            sampleId: "S1", fastq1: URL(fileURLWithPath: "/nonexistent/S1.fastq.gz"), isNegativeControl: false
+        )
+        let some = TaxTriageConfig(samples: [sample], platform: .oxford, outputDirectory: folder)
+        XCTAssertEqual(MainSplitViewController.taxTriageRunValue(some, "Oxford Nanopore"), "Oxford Nanopore")
     }
 
     private func shownTexts(result: TaxTriageResult, config: TaxTriageConfig) throws -> [String] {
