@@ -115,6 +115,12 @@ final class BlastCopiesChildTests: XCTestCase {
         try XCTUnwrap(file["copies"] as? [[String: Any]])
     }
 
+    /// The guard file, or nil while no process has written one, which is no failure in itself.
+    private func guardContents() -> [String: Any]? {
+        guard let data = try? Data(contentsOf: guardFile) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
     /// Writes the guard file as a process that struck it would have.
     private func writeGuard(pausedUntil: Date) throws {
         let row: [String: Any] = [
@@ -221,7 +227,7 @@ final class BlastCopiesChildTests: XCTestCase {
         defer { second.stop() }
 
         let paused = await waitUntil(budget: .lookup, pollInterval: .milliseconds(50)) {
-            ((try? json(guardFile))?["pausedUntil"]) != nil
+            ((guardContents())?["pausedUntil"]) != nil
         }
         first.stop()
         second.stop()
@@ -295,7 +301,7 @@ final class BlastCopiesChildTests: XCTestCase {
         let spent = await server.waitForRequest(count: Self.checksPastEveryCopy, of: .status)
         first.stop()
         XCTAssertTrue(spent, "the leaf stopped checking")
-        let struck = try? json(guardFile)
+        let struck = guardContents()
         XCTAssertEqual(struck?["spentInARow"] as? Int, 1, "the spent search strikes the guard")
 
         let checked = checks(on: server)
@@ -308,7 +314,7 @@ final class BlastCopiesChildTests: XCTestCase {
         XCTAssertTrue(goesOn, "the resume stopped checking")
         XCTAssertEqual(result.status, 0, said(by: result))
         XCTAssertEqual(puts(on: server).count, 3, "a resume sends nothing past the three")
-        let after = try? json(guardFile)
+        let after = guardContents()
         XCTAssertEqual(after?["spentInARow"] as? Int, 1, "the resume does not strike again")
         XCTAssertNil(after?["pausedUntil"], "one search is not two in a row")
     }

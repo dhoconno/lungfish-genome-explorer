@@ -81,8 +81,11 @@ public enum BlastSubmissionBudget {
     /// Length of the rolling window, one hour.
     public static let window: TimeInterval = 3600
 
-    /// Drops events older than the window, checks that `count` more reads
-    /// fit under `limit`, and records them at `now`. A first send counts only
+    /// How long the ledger keeps an event, so that it can also count the POSTs of a rolling 24 hours.
+    public static let dayWindow: TimeInterval = 86400
+
+    /// Drops events older than a day, checks that `count` more reads fit under
+    /// `limit` in the window, and records them at `now`. A first send counts only
     /// first sends, so a copy never refuses one, and a copy counts every POST.
     ///
     /// - Throws: ``BlastServiceError/rateLimitExceeded(_:)`` with when the
@@ -96,8 +99,9 @@ public enum BlastSubmissionBudget {
         limit: Int,
         window: TimeInterval = window
     ) throws {
-        events = prune(events, now: now, window: window)
-        let counted = kind == .first ? events.filter { $0.kind == .first } : events
+        events = prune(events, now: now, window: max(window, dayWindow))
+        let inWindow = prune(events, now: now, window: window)
+        let counted = kind == .first ? inWindow.filter { $0.kind == .first } : inWindow
         let used = counted.reduce(0) { $0 + $1.count }
         guard used + count <= limit else {
             throw BlastServiceError.rateLimitExceeded(BlastLimitRefusal(
@@ -149,6 +153,9 @@ public protocol BlastSubmissionLedger: Sendable {
 
     /// The events still inside the window at `now`.
     func events(at now: Date) async -> [BlastSubmissionLedgerEvent]
+
+    /// The POSTs of the 24 hours before `now`, each one event whatever reads it carried.
+    func postsInTheLastDay(at now: Date) async -> Int
 }
 
 // MARK: - In-Memory Ledger
@@ -167,8 +174,11 @@ public actor InMemoryBlastSubmissionLedger: BlastSubmissionLedger {
     }
 
     public func events(at now: Date) async -> [BlastSubmissionLedgerEvent] {
-        stored = BlastSubmissionBudget.prune(stored, now: now)
-        return stored
+        BlastSubmissionBudget.prune(stored, now: now)
+    }
+
+    public func postsInTheLastDay(at now: Date) async -> Int {
+        BlastSubmissionBudget.prune(stored, now: now, window: BlastSubmissionBudget.dayWindow).count
     }
 }
 
@@ -244,6 +254,11 @@ public actor FileBlastSubmissionLedger: BlastSubmissionLedger {
         }
         let events = Self.read(url) ?? memoryFallback
         return BlastSubmissionBudget.prune(events, now: now)
+    }
+
+    public func postsInTheLastDay(at now: Date) async -> Int {
+        let events = await fileURL().flatMap { Self.read($0) } ?? memoryFallback
+        return BlastSubmissionBudget.prune(events, now: now, window: BlastSubmissionBudget.dayWindow).count
     }
 
     // MARK: - File access

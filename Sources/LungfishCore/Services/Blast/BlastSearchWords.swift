@@ -122,6 +122,99 @@ package enum BlastSearchWords {
         return "\(limit), and \(gone). \(fits)\(free > 0 ? ", or send \(free) or fewer reads now" : "")."
     }
 
+    // MARK: Q1 rows of a search sent again
+
+    /// A duration of what has happened, as `4 min 12 s` or `5 h 3 min`.
+    package static func duration(_ seconds: TimeInterval) -> String {
+        let whole = max(0, Int(seconds.rounded()))
+        switch whole {
+        case ..<60:
+            return "\(whole) s"
+        case ..<3600:
+            return whole % 60 == 0 ? "\(whole / 60) min" : "\(whole / 60) min \(whole % 60) s"
+        default:
+            let minutes = whole / 60 % 60
+            return minutes == 0 ? "\(whole / 3600) h" : "\(whole / 3600) h \(minutes) min"
+        }
+    }
+
+    /// Row 4.
+    package static func sentAgain(sends: Int, lastChecked: Date?, now: Date) -> String {
+        let row = "Waiting for NCBI, \(sends) sends so far"
+        return lastChecked.map { "\(row). Last checked \(time($0, now: now))" } ?? row
+    }
+
+    /// Row 5.
+    package static func everySendWaiting(since: Date, sends: Int, lastChecked: Date?, nextCheck: Date?, now: Date) -> String {
+        let row = "Waiting at NCBI since \(time(since, now: now)), \(counted(sends, "sends"))"
+        let checked = lastChecked.map { "Last checked \(time($0, now: now))" }
+        let next = nextCheck.map { "next check about \(time($0, now: now))" }
+        let rest = [checked, next].compactMap { $0 }.joined(separator: ", ")
+        return rest.isEmpty ? row : "\(row). \(rest.prefix(1).uppercased())\(rest.dropFirst())"
+    }
+
+    /// Row 6.
+    package static func guardHoldsLaterSends(since: Date, sends: Int, until: Date, nextCheck: Date?, now: Date) -> String {
+        let row = "Waiting at NCBI since \(time(since, now: now)), \(counted(sends, "sends")). LGE sends nothing again before \(time(until, now: now))"
+        return nextCheck.map { "\(row). Next check about \(time($0, now: now))" } ?? row
+    }
+
+    // MARK: Q2 log lines
+
+    /// The number of sends in all, as the words say it.
+    private static var sendsInAll: String {
+        let names = [1: "one", 2: "two", 3: "three", 4: "four", 5: "five"]
+        return names[BlastSearchPolicy.maxCopies] ?? String(BlastSearchPolicy.maxCopies)
+    }
+
+    package static func firstSendLine(count: Int, noun: String, rid: String) -> String {
+        "Sent \(counted(count, noun)) to NCBI, request ID \(rid). LGE may send \(count == 1 ? "it" : "them") again, at most \(sendsInAll) sends in all."
+    }
+
+    package static func laterSendLine(after seconds: TimeInterval, noun: String, rid: String, send: Int) -> String {
+        "NCBI has not answered after \(duration(seconds)), so LGE sent the same \(noun) again, request ID \(rid), "
+            + "send \(send) of \(BlastSearchPolicy.maxCopies). The first answer counts."
+    }
+
+    package static func allWaitingLine(sends: Int, after seconds: TimeInterval, nextCheck: Date?, now: Date) -> String {
+        let waiting = sends == 1
+            ? "The send still out is waiting at NCBI after \(duration(seconds))"
+            : "All \(sends) sends are still waiting at NCBI after \(duration(seconds))"
+        let next = nextCheck.map { " Next check about \(time($0, now: now))." } ?? ""
+        return "\(waiting). LGE keeps checking.\(next)"
+    }
+
+    package static func heldByTheGuardLine(until: Date, now: Date) -> String {
+        "LGE did not send this search again, because the last \(BlastSearchPolicy.spentInARowThatPause) searches got stuck at NCBI. "
+            + "It sends nothing again before \(time(until, now: now))."
+    }
+
+    package static func heldByTheLimitLine(until: Date, now: Date) -> String {
+        "LGE did not send this search again, because LGE's hourly limit is full. It can send again at \(time(until, now: now)). NCBI was not contacted."
+    }
+
+    package static let heldByTheDayCountLine =
+        "LGE did not send this search again, because this Mac is past NCBI's \(BlastSearchPolicy.postsADayBeforeNoCopies) searches in 24 hours."
+
+    package static func winLine(rid: String, after seconds: TimeInterval, send: Int, sends: Int) -> String {
+        "Request ID \(rid) came back, \(duration(seconds)) after the first send, on send \(send) of \(sends). LGE no longer checks the others."
+    }
+
+    /// A later send NCBI did not take, while another send is still waiting, so the row stays as it is.
+    package static func laterSendNotTakenLine(send: Int) -> String {
+        "NCBI did not take send \(send) of \(BlastSearchPolicy.maxCopies), so LGE goes on with the sends it has. The search is unchanged."
+    }
+
+    /// A send NCBI no longer holds, while another send is still waiting.
+    package static func sendExpiredLine(rid: String, send: Int) -> String {
+        "NCBI no longer holds send \(send), request ID \(rid). LGE goes on with the sends it has."
+    }
+
+    /// A send NCBI could not finish, while another send is still waiting. LGE sends nothing more on its own.
+    package static func sendEndedLine(rid: String, send: Int, words: String) -> String {
+        "NCBI could not finish send \(send), request ID \(rid): \(words). LGE goes on with the sends it has and sends no more on its own."
+    }
+
     /// The text of an NCBI page without its info blocks and markup, cut to what a file keeps.
     package static func plainWords(ofPage page: String) -> String {
         var text = page.replacingOccurrences(of: "<!--[\\s\\S]*?-->", with: " ", options: .regularExpression)

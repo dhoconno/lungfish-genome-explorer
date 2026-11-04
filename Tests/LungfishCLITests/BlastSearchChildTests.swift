@@ -13,6 +13,8 @@ import XCTest
 /// and no real wait grows. A test holds a search by not releasing it, and nothing here reaches NCBI.
 final class BlastSearchChildTests: XCTestCase {
     private static let fastClock = 600.0
+    /// A copy goes at 3 s of ours, so a test that stops a child at its first check stops it before any copy.
+    private static let beforeAnyCopyClock = 60.0
     private var scratch: URL!
 
     override func setUpWithError() throws {
@@ -107,13 +109,14 @@ final class BlastSearchChildTests: XCTestCase {
     }
 
     func testWaitingPastTenMinutesStaysWaiting() async throws {
-        let server = try BlastFaultStandIn.start(scripts: [BlastFaultScript(search: .held)], timeScale: Self.fastClock)
+        let scripts = Array(repeating: BlastFaultScript(search: .held), count: 3)
+        let server = try BlastFaultStandIn.start(scripts: scripts, timeScale: Self.fastClock)
         defer { server.stop() }
         let spec = try child(try submitArguments(), server: server)
         async let finished = ToolProcess.run(spec)
 
-        // Ten checks reach ten minutes at one a minute, and two more can come only from past that age.
-        let pastTheOldLimit = await server.waitForRequest(count: 12, of: .status)
+        // Three sends make at most 24 checks by ten minutes, at one a minute each, so more can come only from past that age.
+        let pastTheOldLimit = await server.waitForRequest(count: 30, of: .status)
         let arrivals = server.arrivals
         server.release(rid: BlastFaultStandIn.rid(ofPut: 1))
         let result = try await finished
@@ -128,8 +131,9 @@ final class BlastSearchChildTests: XCTestCase {
     // MARK: A failed contact is no news
 
     func testStatus503FiveTimesThenReadyGivesAResult() async throws {
+        // Every send meets the 503s, so the result can come only through them, whichever send wins.
         let server = try BlastFaultStandIn.start(
-            scripts: [BlastFaultScript(status: Array(repeating: .http(status: 503), count: 5))],
+            scripts: Array(repeating: BlastFaultScript(status: Array(repeating: .http(status: 503), count: 5)), count: 3),
             timeScale: Self.fastClock
         )
         defer { server.stop() }
@@ -137,13 +141,14 @@ final class BlastSearchChildTests: XCTestCase {
         let result = try await run(try submitArguments(), server: server)
 
         try assertSavedResult(result)
-        XCTAssertEqual(count(.status, on: server), 6)
-        XCTAssertEqual(count(.put, on: server), 1)
+        XCTAssertGreaterThanOrEqual(count(.status, on: server), 6)
+        XCTAssertLessThanOrEqual(count(.put, on: server), 3)
     }
 
     func testStatusConnectionLostThenReadyGivesAResult() async throws {
+        // Every send meets the lost connections, so the result can come only through them, whichever send wins.
         let server = try BlastFaultStandIn.start(
-            scripts: [BlastFaultScript(status: Array(repeating: .dropped, count: 12))],
+            scripts: Array(repeating: BlastFaultScript(status: Array(repeating: .dropped, count: 12)), count: 3),
             timeScale: Self.fastClock
         )
         defer { server.stop() }
@@ -151,7 +156,7 @@ final class BlastSearchChildTests: XCTestCase {
         let result = try await run(try submitArguments(), server: server)
 
         try assertSavedResult(result)
-        XCTAssertEqual(count(.put, on: server), 1)
+        XCTAssertLessThanOrEqual(count(.put, on: server), 3)
     }
 
     func testResultHTMLThenJSONGivesAResult() async throws {
@@ -185,8 +190,9 @@ final class BlastSearchChildTests: XCTestCase {
     }
 
     func testStatusUnknownAfterGraceIsExpiredWithRid() async throws {
+        // NCBI lets go of every send, since the search is expired only when no send is still alive.
         let server = try BlastFaultStandIn.start(
-            scripts: [BlastFaultScript(search: .unknown(after: 400))],
+            scripts: Array(repeating: BlastFaultScript(search: .unknown(after: 400)), count: 3),
             timeScale: Self.fastClock
         )
         defer { server.stop() }
@@ -223,10 +229,10 @@ final class BlastSearchChildTests: XCTestCase {
     // MARK: A resume
 
     func testResumeAfterAnInterruptedSwapFindsTheSearchOnExFAT() async throws {
-        let server = try BlastFaultStandIn.start(scripts: [BlastFaultScript(search: .held)], timeScale: Self.fastClock)
+        let server = try BlastFaultStandIn.start(scripts: [BlastFaultScript(search: .held)], timeScale: Self.beforeAnyCopyClock)
         defer { server.stop() }
         let child = try CLISIGTERMHarness.launchCLI(
-            try submitArguments(), environment: environment(server, scale: Self.fastClock), testClass: Self.self
+            try submitArguments(), environment: environment(server, scale: Self.beforeAnyCopyClock), testClass: Self.self
         )
         defer { child.stop() }
         let checked = await server.waitForRequest(count: 1, of: .status)
@@ -241,7 +247,7 @@ final class BlastSearchChildTests: XCTestCase {
         try Data().write(to: name)
         server.release(rid: BlastFaultStandIn.rid(ofPut: 1))
 
-        let result = try await run(["blast", "resume", "--output", output.path, "--format", "json"], server: server)
+        let result = try await run(["blast", "resume", "--output", output.path, "--format", "json"], server: server, scale: Self.beforeAnyCopyClock)
 
         try assertSavedResult(result)
         XCTAssertEqual(count(.put, on: server), 1, "a resume sends nothing again")
@@ -261,11 +267,11 @@ final class BlastSearchChildTests: XCTestCase {
     }
 
     func testASecondSubmitIntoALiveSearchIsRefused() async throws {
-        let server = try BlastFaultStandIn.start(scripts: [BlastFaultScript(search: .held)], timeScale: Self.fastClock)
+        let server = try BlastFaultStandIn.start(scripts: [BlastFaultScript(search: .held)], timeScale: Self.beforeAnyCopyClock)
         defer { server.stop() }
         let arguments = try submitArguments()
         let first = try CLISIGTERMHarness.launchCLI(
-            arguments, environment: environment(server, scale: Self.fastClock), testClass: Self.self
+            arguments, environment: environment(server, scale: Self.beforeAnyCopyClock), testClass: Self.self
         )
         defer { first.stop() }
         let checked = await server.waitForRequest(count: 1, of: .status)

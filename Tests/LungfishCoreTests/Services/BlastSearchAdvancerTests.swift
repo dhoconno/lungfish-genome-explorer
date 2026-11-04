@@ -260,14 +260,15 @@ final class BlastSearchAdvancerTests: XCTestCase {
     }
 
     func testASearchOfHoursGoesOnUntilNCBIAnswers() async throws {
-        let server = try standIn([BlastFaultScript(search: .ready(after: 26 * 3600))])
+        let server = try standIn(Array(repeating: BlastFaultScript(search: .ready(after: 26 * 3600)), count: 3))
         defer { server.stop() }
         let advancer = advancer(server)
 
         let outcome = try await advancer.advance(try await create(advancer))
 
         guard case .done = outcome else { return XCTFail("\(outcome)") }
-        XCTAssertEqual(hand.sleeps.last, 1800, "past 6 hours the checks are 30 minutes apart")
+        let checks = server.arrivals.filter { $0.contact == .status && $0.rid == BlastFaultStandIn.rid(ofPut: 1) }.map(\.at)
+        XCTAssertEqual(try XCTUnwrap(checks.last).timeIntervalSince(checks[checks.count - 2]), 1800, accuracy: 0.01, "past 6 hours the checks are 30 minutes apart")
     }
 
     func testAResumePastItsDueTimeChecksAtOnce() async throws {

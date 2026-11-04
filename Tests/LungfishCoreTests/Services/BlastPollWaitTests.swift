@@ -53,8 +53,8 @@ final class BlastPollWaitTests: XCTestCase {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("blast-poll-wait-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: folder) }
-        let client = BlastScriptedStatusClient(rtoe: rtoe, answers: answers, last: Self.failed)
         let hand = BlastHandClock(advancesBySleeping: true)
+        let client = BlastScriptedStatusClient(rtoe: rtoe, answers: answers, last: Self.failed, waiting: Self.waiting, now: { hand.now })
         let request = BlastVerificationRequest(taxonName: "wait", taxId: 0, sequences: [(id: "read_1", sequence: "ACGT")])
         do {
             _ = try await BlastService(httpClient: client).verify(
@@ -64,31 +64,49 @@ final class BlastPollWaitTests: XCTestCase {
         } catch let error as BlastServiceError {
             guard case .searchEnded = error else { throw error }
         }
-        let checks = await client.checks
-        return (hand.sleeps, checks)
+        return (await client.waitsOfTheFirstSend, await client.checksOfTheFirstSend.count)
     }
 }
 
-/// Accepts the Put, answers each status check with the next of `answers`, then with `last`, and counts the checks.
+/// Accepts each Put with its own RID and follows the first send's checks by `answers`, then `last`, which every send
+/// then reads, so the search ends. Until then a later send only waits, so the first send's schedule reads as it would alone.
 private actor BlastScriptedStatusClient: HTTPClient {
     private let rtoe: Int
     private var answers: [String]
     private let last: String
-    private(set) var checks = 0
+    private let waiting: String
+    private let now: @Sendable () -> Date
+    private var posts = 0
+    private var firstPostAt: Date?
+    private(set) var checksOfTheFirstSend: [Date] = []
 
-    init(rtoe: Int, answers: [String], last: String) {
+    init(rtoe: Int, answers: [String], last: String, waiting: String, now: @escaping @Sendable () -> Date) {
         self.rtoe = rtoe
         self.answers = answers
         self.last = last
+        self.waiting = waiting
+        self.now = now
+    }
+
+    /// The seconds before each of the first send's checks, from its Put on.
+    var waitsOfTheFirstSend: [TimeInterval] {
+        guard let firstPostAt else { return [] }
+        return zip([firstPostAt] + checksOfTheFirstSend, checksOfTheFirstSend).map { (($1.timeIntervalSince($0)) * 1000).rounded() / 1000 }
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         let url = try XCTUnwrap(request.url)
         let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil))
         if request.httpMethod == "POST" {
-            return (Data("<!--QBlastInfoBegin\n    RID = POLL1\n    RTOE = \(rtoe)\nQBlastInfoEnd-->".utf8), response)
+            posts += 1
+            if posts == 1 { firstPostAt = now() }
+            return (Data("<!--QBlastInfoBegin\n    RID = POLL\(posts)\n    RTOE = \(rtoe)\nQBlastInfoEnd-->".utf8), response)
         }
-        checks += 1
-        return (Data((answers.isEmpty ? last : answers.removeFirst()).utf8), response)
+        guard url.query?.contains("RID=POLL1") == true else {
+            return (Data((answers.isEmpty ? last : waiting).utf8), response)
+        }
+        guard !answers.isEmpty else { return (Data(last.utf8), response) }
+        checksOfTheFirstSend.append(now())
+        return (Data(answers.removeFirst().utf8), response)
     }
 }

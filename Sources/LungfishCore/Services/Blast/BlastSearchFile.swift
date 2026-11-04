@@ -121,11 +121,21 @@ package struct BlastSearchFile: Codable, Sendable, Equatable {
 
         package enum State: String, Codable, Sendable {
             case sending
+            /// A Put was lost after it went out, so nobody knows whether NCBI has it. One more Put settles that.
+            case sendUnknown
             case live
             case ready
             case expired
             case failed
             case notSent
+
+            /// Whether this send can still bring an answer.
+            package var isAlive: Bool {
+                switch self {
+                case .sending, .sendUnknown, .live: true
+                case .ready, .expired, .failed, .notSent: false
+                }
+            }
         }
 
         package var ordinal: Int
@@ -184,6 +194,23 @@ package struct BlastSearchFile: Codable, Sendable, Equatable {
         package var words: String
     }
 
+    /// Why LGE's next own send is held back and until when. It stays due and never ends the search (item 7).
+    package struct CopyHold: Codable, Sendable, Equatable {
+        package enum Reason: String, Codable, Sendable {
+            /// Two spent searches in a row paused every copy.
+            case guardPause
+            /// The hour's copies are all out.
+            case copyCap
+            /// LGE's limit on POSTed reads an hour is full.
+            case hourlyLimit
+            /// This Mac is past NCBI's searches in 24 hours.
+            case dayCount
+        }
+
+        package var reason: Reason
+        package var until: Date
+    }
+
     package var schemaVersion: Int
     package var searchID: UUID
     package var route: Route
@@ -201,6 +228,8 @@ package struct BlastSearchFile: Codable, Sendable, Equatable {
     package var spentAt: Date?
     package var guardStruck: Bool
     package var ending: Ending?
+    /// Why the next copy is held, nil when none is. Words say so once for each change of reason.
+    package var copyHold: CopyHold?
 
     package init(
         searchID: UUID = UUID(),
@@ -237,6 +266,19 @@ package enum BlastSearchPolicy {
     package static let resendInterval: TimeInterval = 180
     /// Three sends in all, the first and two more.
     package static let maxCopies = 3
+    /// A search READY younger than this says NCBI is answering, so the guard's count starts again. It is the age at
+    /// which a search with all its sends out on time is spent.
+    package static let cameBackInTimeAge: TimeInterval = resendInterval * Double(maxCopies)
+    /// Spent searches in a row that pause every copy.
+    package static let spentInARowThatPause = 2
+    /// How long that pause lasts.
+    package static let guardPause: TimeInterval = 3600
+    /// The most copies in ``copyWindow`` across every process on this Mac.
+    package static let maxCopiesAnHour = 4
+    package static let copyWindow: TimeInterval = 3600
+    /// Past this many POSTs in 24 hours LGE makes no automatic copy, and it never refuses a first send on this count.
+    /// NCBI's page names the figure, and LGE's count may differ from NCBI's.
+    package static let postsADayBeforeNoCopies = 100
     /// The shortest wait before the first check of a send, whatever RTOE NCBI gave.
     package static let firstCheckFloor: TimeInterval = 10
     /// A `Status=UNKNOWN` inside this many seconds of a send's Put is no news.

@@ -57,6 +57,12 @@ extension BlastService {
 
     // MARK: One contact
 
+    /// The POSTs this Mac has sent in the last 24 hours, by LGE's own count, which NCBI's may differ from. Past
+    /// ``BlastSearchPolicy/postsADayBeforeNoCopies`` LGE makes no automatic copy, and a person may be told.
+    package func postsInTheLastDay(at date: Date) async -> Int {
+        await submissionLedger.postsInTheLastDay(at: date)
+    }
+
     /// The Put body `request` makes.
     package func putForm(for request: BlastVerificationRequest) throws -> Data {
         let extraParameters = try BlastVerificationRequest.parseBlastURLAPIExtraParameters(request.extraArgs)
@@ -81,7 +87,7 @@ extension BlastService {
 
     /// One POST of `form`, with no retry. The caller decides what its answer means.
     func putOnce(_ form: Data) async throws -> BlastPutAnswer {
-        try await contactGate?.takeSlot()
+        try await searchShared.contactGate?.takeSlot()
         var request = URLRequest(url: blastBaseURL, timeoutInterval: BlastSearchPolicy.putTimeout)
         request.httpMethod = "POST"
         request.httpBody = form
@@ -139,7 +145,7 @@ extension BlastService {
     }
 
     private func getOnce(_ url: URL, what: String) async throws -> Data {
-        try await contactGate?.takeSlot()
+        try await searchShared.contactGate?.takeSlot()
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         let data: Data

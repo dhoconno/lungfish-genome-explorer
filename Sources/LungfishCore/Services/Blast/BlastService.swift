@@ -53,7 +53,7 @@ public actor BlastService {
         let environment = ProcessInfo.processInfo.environment
         return BlastService(
             submissionLedger: FileBlastSubmissionLedger.managedStorageDefault(environment: environment),
-            contactGate: BlastContactGate.managedStorageDefault(environment: environment),
+            searchShared: BlastSearchShared.managedStorageDefault(environment: environment),
             environment: environment
         )
     }()
@@ -83,14 +83,14 @@ public actor BlastService {
     /// Local NCBI BLAST etiquette limits.
     private let rateLimits: BlastRateLimitConfiguration
 
-    /// Gives each contact its slot. A service with none, as a test's, keeps no spacing.
-    let contactGate: BlastContactGate?
+    /// What a search shares across processes. A test's service keeps no spacing and writes no file.
+    package let searchShared: BlastSearchShared
 
     /// Number of currently active NCBI BLAST submission requests.
     var activeSubmissionCount = 0
 
     /// Rolling one-hour record of reads sent to NCBI.
-    private let submissionLedger: any BlastSubmissionLedger
+    let submissionLedger: any BlastSubmissionLedger
 
     /// The clock used for rate limiting and result timestamps.
     private let now: @Sendable () -> Date
@@ -114,17 +114,17 @@ public actor BlastService {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         self.init(
-            httpClient: httpClient, rateLimits: rateLimits, submissionLedger: submissionLedger, contactGate: nil,
+            httpClient: httpClient, rateLimits: rateLimits, submissionLedger: submissionLedger, searchShared: BlastSearchShared(),
             now: now, environment: environment
         )
     }
 
-    /// A service whose every contact takes a slot from `contactGate`.
+    /// A service that shares `searchShared` with the other processes on this Mac.
     package init(
         httpClient: HTTPClient = URLSessionHTTPClient(),
         rateLimits: BlastRateLimitConfiguration = .ncbiDefault,
         submissionLedger: any BlastSubmissionLedger = InMemoryBlastSubmissionLedger(),
-        contactGate: BlastContactGate?,
+        searchShared: BlastSearchShared,
         now: @escaping @Sendable () -> Date = { Date() },
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
@@ -132,7 +132,7 @@ public actor BlastService {
         self.httpClient = httpClient
         self.rateLimits = rateLimits
         self.submissionLedger = submissionLedger
-        self.contactGate = contactGate
+        self.searchShared = searchShared
         self.now = now
     }
 

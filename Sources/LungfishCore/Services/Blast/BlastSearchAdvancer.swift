@@ -29,7 +29,8 @@ package struct BlastSearchRefusal: Error {
 /// Moves a BLAST search on from where its file says it stands, through the first send, its checks and its fetch.
 ///
 /// A failed contact is no news. Only NCBI's answer or the person ends a search, and no limit of LGE's stays
-/// (ARCH-BLAST-RESILIENCE section 5). Every due time is wall clock in the file, so a sleep, a quit and a restart all
+/// (ARCH-BLAST-RESILIENCE section 5). A search NCBI holds is sent again as ``BlastSearchPolicy`` sets, and the first
+/// READY wins. Every due time is wall clock in the file, so a sleep, a quit and a restart all
 /// read as contact now once it has passed. Each state change is durable before the next event or contact, and a
 /// reply is durable before anything unzips or parses it.
 package struct BlastSearchAdvancer: Sendable {
@@ -98,7 +99,7 @@ package struct BlastSearchAdvancer: Sendable {
         var file = start
         // A pass that starts on an unreadable reply reads it once more and gets fresh tries, which is Try Again.
         if file.state == .fetching {
-            let index = winnerIndex(in: file)
+            let index = file.winnerIndex
             file.copies[index].replyUnreadable = false
             if file.copies[index].fetchTries >= BlastSearchPolicy.fetchTries { file.copies[index].fetchTries = 0 }
         }
@@ -108,25 +109,25 @@ package struct BlastSearchAdvancer: Sendable {
             if file.state.isEnding {
                 return .ended(file.state, words: file.ending?.words ?? "")
             }
-            let index = file.state == .fetching ? winnerIndex(in: file) : 0
-            let wait = (file.copies[index].nextCheckAt ?? clock.now()).timeIntervalSince(clock.now())
+            let next = file.nextStep(now: clock.now())
+            let wait = next.due.timeIntervalSince(clock.now())
             if wait > 0 { try await clock.sleep(wait) }
             try Task.checkCancellation()
-            switch file.state {
-            case .sending, .sendUnknown:
-                try await sendThePut(&file)
-            case .waiting:
-                try await checkTheStatus(&file)
-            case .fetching:
+            switch next.step {
+            case .put(let index):
+                try await sendThePut(&file, at: index)
+            case .check(let index):
+                try await checkTheStatus(&file, at: index)
+            case .fetch:
                 if let outcome = try await fetchTheReply(&file) { return outcome }
-            case .done, .expired, .ncbiFailed, .notSent, .stopped:
-                break
+            case .newCopy:
+                try await sendACopy(&file)
+            case .spend:
+                try await markSpent(&file)
+            case .noneLive:
+                try await endWithNoneLive(&file)
             }
         }
-    }
-
-    private func winnerIndex(in file: BlastSearchFile) -> Int {
-        file.copies.firstIndex { $0.ordinal == file.winnerOrdinal } ?? 0
     }
 
     private func sayWhereItStands(_ file: BlastSearchFile) {
@@ -135,7 +136,8 @@ package struct BlastSearchAdvancer: Sendable {
             progress(0.15, BlastSearchWords.sending(request.sequences.count, noun: noun))
         case .waiting:
             guard let rid = file.copies[0].rid else { return }
-            progress(waitingFraction(of: file), BlastSearchWords.waiting(rid: rid))
+            let words = file.copies.count > 1 ? waitingWords(file, now: clock.now()) : BlastSearchWords.waiting(rid: rid)
+            progress(waitingFraction(of: file), words)
         case .fetching, .done, .expired, .ncbiFailed, .notSent, .stopped:
             break
         }
@@ -165,25 +167,161 @@ package struct BlastSearchAdvancer: Sendable {
         }
     }
 
-    private func end(_ file: inout BlastSearchFile, as state: BlastSearchFile.State, words: String) async throws {
+    private func end(_ file: inout BlastSearchFile, as state: BlastSearchFile.State, words: String, replyBytes: Int? = nil) async throws {
+        let now = clock.now()
         file.state = state
-        file.ending = BlastSearchFile.Ending(state: state, at: clock.now(), words: words)
+        file.ending = BlastSearchFile.Ending(state: state, at: now, words: words)
         try await persist(file)
+        await logLine(file, at: now, ending: state.rawValue, replyBytes: replyBytes)
+    }
+
+    private func logLine(_ file: BlastSearchFile, at now: Date, ending: String?, replyBytes: Int? = nil) async {
+        await service.searchShared.searchLog?.append(BlastSearchLog.line(for: file, at: now, ending: ending, replyBytes: replyBytes))
     }
 
     private func rethrowIfCancelled(_ error: any Error) throws {
         if error is CancellationError || Task.isCancelled { throw CancellationError() }
     }
 
+    // MARK: A send's ending
+
+    /// A log line for a change the row does not show, with the row's own words after it, so the row reads as before.
+    private func say(_ line: String, about file: BlastSearchFile, now: Date) {
+        progress(waitingFraction(of: file), line)
+        progress(waitingFraction(of: file), waitingWords(file, now: now))
+    }
+
+    /// One send came to NCBI's ending. Beside another send still alive the search goes on and the log says so, and
+    /// with none alive this ending is the search's (UX-BLAST-WORDS Q1).
+    private func sendEnded(
+        _ file: inout BlastSearchFile,
+        as state: BlastSearchFile.State,
+        words: String,
+        line: String
+    ) async throws {
+        guard file.hasAliveCopy else {
+            try await end(&file, as: state, words: words)
+            return
+        }
+        try await persist(file)
+        say(line, about: file, now: clock.now())
+    }
+
+    /// NCBI took nothing from this Put. For the first send that ends the search, and for a later one only that send.
+    private func sendNotTaken(_ file: inout BlastSearchFile, at index: Int, words: String) async throws {
+        file.copies[index].state = .notSent
+        let copy = file.copies[index]
+        if copy.kind == .first {
+            try await end(&file, as: .notSent, words: words)
+        } else if file.hasAliveCopy {
+            try await persist(file)
+            say(BlastSearchWords.laterSendNotTakenLine(send: copy.ordinal), about: file, now: clock.now())
+        } else {
+            try await endWithNoneLive(&file)
+        }
+    }
+
+    /// No send is alive, so the last one NCBI answered names the ending.
+    private func endWithNoneLive(_ file: inout BlastSearchFile) async throws {
+        let answered = file.copies.last { $0.state == .failed || $0.state == .expired }
+        guard let answered, let rid = answered.rid else {
+            try await end(&file, as: .notSent, words: BlastSearchWords.stillNotConfirmed)
+            return
+        }
+        if answered.state == .failed {
+            try await end(&file, as: .ncbiFailed, words: BlastSearchWords.failed(rid: rid, words: answered.words ?? ""))
+        } else {
+            try await end(&file, as: .expired, words: BlastSearchWords.expired(rid: rid))
+        }
+    }
+
+    // MARK: A copy
+
+    /// Makes LGE's next own send, or holds it, as the day's count, the guard or the hour's limit says. The guard takes
+    /// the copy first and the ledger counts it after, and the guard gets it back on a refusal, so no two locks are ever
+    /// held at once. A copy held stays due and never ends the search (ARCH-BLAST-RESILIENCE items 6 and 7).
+    private func sendACopy(_ file: inout BlastSearchFile) async throws {
+        let now = clock.now()
+        if await service.postsInTheLastDay(at: now) > BlastSearchPolicy.postsADayBeforeNoCopies {
+            try await holdTheCopy(&file, .dayCount, until: nextTick(after: now, in: file), now: now)
+            return
+        }
+        let copyGuard = service.searchShared.copyGuard
+        switch await copyGuard.takeCopy(at: now) {
+        case .paused(let until):
+            try await holdTheCopy(&file, .guardPause, until: until, now: now)
+            return
+        case .capFull(let until):
+            try await holdTheCopy(&file, .copyCap, until: until, now: now)
+            return
+        case .granted:
+            break
+        }
+        do {
+            try await service.reservePost(sequenceCount: request.sequences.count, kind: .copy, at: now)
+        } catch BlastServiceError.rateLimitExceeded(let refusal) {
+            await copyGuard.giveBack(takenAt: now)
+            try await holdTheCopy(&file, .hourlyLimit, until: refusal.fitsAt ?? nextTick(after: now, in: file), now: now)
+            return
+        }
+        var copy = BlastSearchFile.Copy(ordinal: file.copies.count + 1, kind: .copy, nextCheckAt: now)
+        copy.postReserved = true
+        file.copies.append(copy)
+        file.copyHold = nil
+        try await persist(file)
+        try await sendThePut(&file, at: file.copies.count - 1)
+    }
+
+    /// Words say a hold once for each change of reason, so a hold of hours adds one line and the row stays as it is,
+    /// but for the guard's, which has its own row.
+    private func holdTheCopy(
+        _ file: inout BlastSearchFile,
+        _ reason: BlastSearchFile.CopyHold.Reason,
+        until: Date,
+        now: Date
+    ) async throws {
+        let isNews = file.copyHold?.reason != reason
+        file.copyHold = BlastSearchFile.CopyHold(reason: reason, until: until)
+        try await persist(file)
+        guard isNews else { return }
+        switch reason {
+        case .guardPause:
+            say(BlastSearchWords.heldByTheGuardLine(until: until, now: now), about: file, now: now)
+        case .copyCap, .hourlyLimit:
+            say(BlastSearchWords.heldByTheLimitLine(until: until, now: now), about: file, now: now)
+        case .dayCount:
+            say(BlastSearchWords.heldByTheDayCountLine, about: file, now: now)
+        }
+    }
+
+    /// Every send LGE makes on its own has been out long enough. The search goes on, and it says so once. The file says
+    /// it struck before the guard hears, so a crash loses a strike and a resume can never strike twice.
+    private func markSpent(_ file: inout BlastSearchFile) async throws {
+        let now = clock.now()
+        let strikes = file.strikesTheGuard
+        file.spentAt = now
+        if strikes { file.guardStruck = true }
+        try await persist(file)
+        if strikes { await service.searchShared.copyGuard.searchWasSpent(at: now) }
+        let live = file.copies.filter { $0.state == .live }
+        say(
+            BlastSearchWords.allWaitingLine(
+                sends: live.count, after: now.timeIntervalSince(file.createdAt),
+                nextCheck: live.compactMap(\.nextCheckAt).min(), now: now
+            ),
+            about: file, now: now
+        )
+    }
+
     // MARK: The Put
 
-    private func sendThePut(_ file: inout BlastSearchFile) async throws {
-        let isTheLastTry = file.state == .sendUnknown
-        let form = try await savedForm()
-        guard try await countThisPost(&file) else { return }
+    private func sendThePut(_ file: inout BlastSearchFile, at index: Int) async throws {
+        let isTheLastTry = file.copies[index].state == .sendUnknown
+        let form = try await savedForm(of: file)
+        guard try await countThisPost(&file, at: index) else { return }
         let answer = try await service.sendPut(form, maxConcurrentSubmissions: request.maxConcurrentSubmissions)
         let now = clock.now()
-        var copy = file.copies[0]
+        var copy = file.copies[index]
         if case .accepted(let submission) = answer {
             copy.rid = submission.rid
             copy.rtoe = submission.rtoe
@@ -191,19 +329,27 @@ package struct BlastSearchAdvancer: Sendable {
             copy.state = .live
             copy.failedInARow = 0
             copy.nextCheckAt = now.addingTimeInterval(max(Double(submission.rtoe), BlastSearchPolicy.firstCheckFloor))
-            file.copies[0] = copy
+            file.copies[index] = copy
             file.state = .waiting
             try await persist(file)
             logger.info("BLAST search accepted, RID=\(submission.rid, privacy: .public) RTOE=\(submission.rtoe, privacy: .public)s")
-            progress(0.20, BlastSearchWords.sent(rid: submission.rid))
-            progress(0.20, BlastSearchWords.waiting(rid: submission.rid))
+            if copy.kind == .first {
+                await logLine(file, at: now, ending: nil)
+                progress(0.20, BlastSearchWords.firstSendLine(count: request.sequences.count, noun: noun, rid: submission.rid))
+                progress(0.20, BlastSearchWords.sent(rid: submission.rid))
+                progress(0.20, BlastSearchWords.waiting(rid: submission.rid))
+            } else {
+                say(
+                    BlastSearchWords.laterSendLine(after: now.timeIntervalSince(file.createdAt), noun: noun, rid: submission.rid, send: copy.ordinal),
+                    about: file, now: now
+                )
+            }
             return
         }
         copy.failedContacts += 1
+        file.copies[index] = copy
         if isTheLastTry {
-            copy.state = .notSent
-            file.copies[0] = copy
-            try await end(&file, as: .notSent, words: BlastSearchWords.stillNotConfirmed)
+            try await sendNotTaken(&file, at: index, words: BlastSearchWords.stillNotConfirmed)
             return
         }
         switch answer {
@@ -215,80 +361,79 @@ package struct BlastSearchAdvancer: Sendable {
             copy.failedInARow += 1
             let next = nextTick(after: now, in: file)
             copy.nextCheckAt = next
-            file.copies[0] = copy
+            file.copies[index] = copy
             try await persist(file)
-            progress(0.15, BlastSearchWords.noConnection(nextTry: next, now: now))
+            if copy.kind == .first { progress(0.15, BlastSearchWords.noConnection(nextTry: next, now: now)) }
         case .busy(let status, _):
             copy.busyAnswers += 1
+            file.copies[index] = copy
             guard copy.busyAnswers <= BlastSearchPolicy.busyPutWaits.count else {
-                copy.state = .notSent
-                file.copies[0] = copy
-                try await end(&file, as: .notSent, words: BlastSearchWords.refused(code: status, times: copy.busyAnswers))
+                try await sendNotTaken(&file, at: index, words: BlastSearchWords.refused(code: status, times: copy.busyAnswers))
                 return
             }
-            copy.nextCheckAt = now.addingTimeInterval(BlastSearchPolicy.busyPutWaits[copy.busyAnswers - 1])
-            file.copies[0] = copy
+            file.copies[index].nextCheckAt = now.addingTimeInterval(BlastSearchPolicy.busyPutWaits[copy.busyAnswers - 1])
             try await persist(file)
             logger.info("NCBI answered a BLAST Put with \(status, privacy: .public), try \(copy.busyAnswers, privacy: .public)")
         case .refused(let status, _):
-            copy.state = .notSent
-            file.copies[0] = copy
-            try await end(&file, as: .notSent, words: BlastSearchWords.refused(code: status, times: 1))
+            try await sendNotTaken(&file, at: index, words: BlastSearchWords.refused(code: status, times: 1))
         case .noRID(let page):
-            copy.state = .notSent
-            copy.words = String(decoding: Data(page.utf8).prefix(BlastSearchPolicy.wordsLimit), as: UTF8.self)
-            file.copies[0] = copy
-            try await end(&file, as: .notSent, words: BlastSearchWords.noRequestID(page: BlastSearchWords.plainWords(ofPage: page)))
+            file.copies[index].words = String(decoding: Data(page.utf8).prefix(BlastSearchPolicy.wordsLimit), as: UTF8.self)
+            try await sendNotTaken(&file, at: index, words: BlastSearchWords.noRequestID(page: BlastSearchWords.plainWords(ofPage: page)))
         case .lostAfterSending(let reason):
             logger.info("The reply to a BLAST Put was lost: \(reason, privacy: .public)")
             let next = now.addingTimeInterval(BlastSearchPolicy.lostPutWait)
+            copy.state = .sendUnknown
             copy.nextCheckAt = next
-            file.copies[0] = copy
-            file.state = .sendUnknown
+            file.copies[index] = copy
+            if copy.kind == .first { file.state = .sendUnknown }
             try await persist(file)
-            progress(0.15, BlastSearchWords.notConfirmed(nextTry: next, now: now))
+            if copy.kind == .first { progress(0.15, BlastSearchWords.notConfirmed(nextTry: next, now: now)) }
         }
     }
 
     /// Counts this POST against LGE's own limit, as what it repeats. It returns false when the limit holds the POST,
     /// which stays due and never ends the search. The count is spent on disk before the POST goes, so a crash here makes
     /// the next POST count again and never leaves one uncounted.
-    private func countThisPost(_ file: inout BlastSearchFile) async throws -> Bool {
-        var copy = file.copies[0]
+    private func countThisPost(_ file: inout BlastSearchFile, at index: Int) async throws -> Bool {
+        var copy = file.copies[index]
         if !copy.postReserved {
             do {
                 try await service.reservePost(sequenceCount: request.sequences.count, kind: copy.kind, at: clock.now())
             } catch BlastServiceError.rateLimitExceeded(let refusal) {
-                let due = refusal.fitsAt ?? nextTick(after: clock.now(), in: file)
+                let now = clock.now()
+                let due = refusal.fitsAt ?? nextTick(after: now, in: file)
                 copy.nextCheckAt = due
-                file.copies[0] = copy
+                file.copies[index] = copy
                 try await persist(file)
                 logger.info("LGE's own limit holds a BLAST send until \(due, privacy: .public)")
+                if copy.kind == .copy { say(BlastSearchWords.heldByTheLimitLine(until: due, now: now), about: file, now: now) }
                 return false
             }
         }
         copy.postReserved = false
-        file.copies[0] = copy
+        file.copies[index] = copy
         try await persist(file)
         return true
     }
 
-    /// The Put body as first saved. A file that has gone is built again from the same query and options.
-    private func savedForm() async throws -> Data {
-        if let saved = try? store.loadForm() { return saved }
+    /// The Put body as first saved, which every send repeats byte for byte. A file that has gone or changed is built
+    /// again from the same query and options.
+    private func savedForm(of file: BlastSearchFile) async throws -> Data {
+        if let saved = try? store.loadForm(), BlastSearchStore.digest(of: saved) == file.formSHA256 { return saved }
+        logger.warning("The saved BLAST form has gone or changed, so LGE builds it again from the query")
         return try await service.putForm(for: request)
     }
 
     // MARK: The check
 
-    private func checkTheStatus(_ file: inout BlastSearchFile) async throws {
-        var copy = file.copies[0]
+    private func checkTheStatus(_ file: inout BlastSearchFile, at index: Int) async throws {
+        var copy = file.copies[index]
         guard let rid = copy.rid else {
-            // A file that says waiting and names no RID holds nothing to check, so the search goes back to its send.
+            // A file that says waiting and names no RID holds nothing to check, so that send goes back to its Put.
             copy.state = .sending
             copy.nextCheckAt = clock.now()
-            file.copies[0] = copy
-            file.state = .sending
+            file.copies[index] = copy
+            if copy.kind == .first { file.state = .sending }
             return
         }
         var answer: BlastSearchStatusAnswer?
@@ -317,8 +462,11 @@ package struct BlastSearchAdvancer: Sendable {
                 copy.unknownInARow += 1
                 if copy.unknownInARow >= BlastSearchPolicy.unknownReadsThatEndASend {
                     copy.state = .expired
-                    file.copies[0] = copy
-                    try await end(&file, as: .expired, words: BlastSearchWords.expired(rid: rid))
+                    file.copies[index] = copy
+                    try await sendEnded(
+                        &file, as: .expired, words: BlastSearchWords.expired(rid: rid),
+                        line: BlastSearchWords.sendExpiredLine(rid: rid, send: copy.ordinal)
+                    )
                     return
                 }
             }
@@ -328,8 +476,11 @@ package struct BlastSearchAdvancer: Sendable {
             copy.state = .failed
             copy.lastCheckAt = now
             copy.words = words
-            file.copies[0] = copy
-            try await end(&file, as: .ncbiFailed, words: BlastSearchWords.failed(rid: rid, words: words))
+            file.copies[index] = copy
+            try await sendEnded(
+                &file, as: .ncbiFailed, words: BlastSearchWords.failed(rid: rid, words: words),
+                line: BlastSearchWords.sendEndedLine(rid: rid, send: copy.ordinal, words: words)
+            )
             return
         case .ready(let thereAreHits):
             copy.state = .ready
@@ -337,22 +488,45 @@ package struct BlastSearchAdvancer: Sendable {
             copy.readyAt = now
             copy.thereAreHits = thereAreHits
             copy.nextCheckAt = now
-            file.copies[0] = copy
+            file.copies[index] = copy
             file.winnerOrdinal = copy.ordinal
             file.state = .fetching
             try await persist(file)
+            let age = now.timeIntervalSince(file.createdAt)
+            if age < BlastSearchPolicy.cameBackInTimeAge { await service.searchShared.copyGuard.searchCameBackInTime() }
+            let sends = file.copies.filter { $0.rid != nil }.count
+            if sends > 1 {
+                progress(waitingFraction(of: file), BlastSearchWords.winLine(rid: rid, after: age, send: copy.ordinal, sends: sends))
+            }
             return
         }
-        file.copies[0] = copy
+        file.copies[index] = copy
         try await persist(file)
-        progress(waitingFraction(of: file), waitingWords(copy, rid: rid, now: now))
+        progress(waitingFraction(of: file), waitingWords(file, now: now))
     }
 
-    private func waitingWords(_ copy: BlastSearchFile.Copy, rid: String, now: Date) -> String {
-        if copy.failedInARow >= BlastSearchPolicy.failedChecksThatAreSaid, let next = copy.nextCheckAt {
-            return BlastSearchWords.notReached(rid: rid, failedInARow: copy.failedInARow, nextCheck: next, now: now)
+    /// The row's words while NCBI holds the search, the Q1 row its sends and hold make it.
+    private func waitingWords(_ file: BlastSearchFile, now: Date) -> String {
+        let sends = file.copies.filter { $0.rid != nil }
+        let live = file.copies.filter { $0.state == .live }
+        let nextCheck = live.compactMap(\.nextCheckAt).min()
+        let lastChecked = sends.compactMap(\.lastCheckAt).max()
+        let since = sends.first?.postAt ?? file.createdAt
+        if let failing = live.first(where: { $0.failedInARow >= BlastSearchPolicy.failedChecksThatAreSaid }),
+           let rid = failing.rid, let nextCheck {
+            return BlastSearchWords.notReached(rid: rid, failedInARow: failing.failedInARow, nextCheck: nextCheck, now: now)
         }
-        guard let lastChecked = copy.lastCheckAt else { return BlastSearchWords.waiting(rid: rid) }
+        if let hold = file.copyHold, hold.reason == .guardPause, hold.until > now {
+            return BlastSearchWords.guardHoldsLaterSends(since: since, sends: sends.count, until: hold.until, nextCheck: nextCheck, now: now)
+        }
+        if file.spentAt != nil {
+            return BlastSearchWords.everySendWaiting(since: since, sends: sends.count, lastChecked: lastChecked, nextCheck: nextCheck, now: now)
+        }
+        if sends.count > 1 {
+            return BlastSearchWords.sentAgain(sends: sends.count, lastChecked: lastChecked, now: now)
+        }
+        guard let rid = sends.first?.rid else { return BlastSearchWords.sending(request.sequences.count, noun: noun) }
+        guard let lastChecked else { return BlastSearchWords.waiting(rid: rid) }
         return BlastSearchWords.waiting(rid: rid, lastChecked: lastChecked, now: now)
     }
 
@@ -361,7 +535,7 @@ package struct BlastSearchAdvancer: Sendable {
     /// Moves a READY search on by one contact, or by none when its reply is already on disk. Returns an outcome when
     /// this pass is over and nil when the next tick goes on.
     private func fetchTheReply(_ file: inout BlastSearchFile) async throws -> BlastSearchOutcome? {
-        let index = winnerIndex(in: file)
+        let index = file.winnerIndex
         var copy = file.copies[index]
         let rid = copy.rid ?? ""
         let reply: Data
@@ -431,7 +605,7 @@ package struct BlastSearchAdvancer: Sendable {
         }
 
         file.copies[index] = copy
-        try await end(&file, as: .done, words: "The result is saved.")
+        try await end(&file, as: .done, words: "The result is saved.", replyBytes: reply.count)
         store.removeReplies()
         progress(1.0, "BLAST verification complete")
         return .done(result)
