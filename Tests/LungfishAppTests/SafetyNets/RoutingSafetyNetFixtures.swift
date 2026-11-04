@@ -27,6 +27,19 @@ enum RoutingSafetyNetFixtures {
     /// The SARS-CoV-2 (MT192765.1) fixture set described in Tests/Fixtures/README.md.
     static var sarsCoV2: URL { SafetyNetPaths.fixture("sarscov2") }
 
+    /// Writes a PDF of one page, since no PDF is committed under Tests/Fixtures.
+    static func onePagePDF(named name: String, in directory: URL) throws -> URL {
+        _ = try SafetyNetFiles.makeDirectory(directory)
+        let url = directory.appendingPathComponent(name)
+        var mediaBox = CGRect(x: 0, y: 0, width: 200, height: 200)
+        let context = try unwrapped(CGContext(url as CFURL, mediaBox: &mediaBox, nil))
+        context.beginPDFPage(nil)
+        context.fill(CGRect(x: 40, y: 40, width: 120, height: 120))
+        context.endPDFPage()
+        context.closePDF()
+        return url
+    }
+
     /// Writes a 2 by 2 pixel PNG, since no image is committed under Tests/Fixtures.
     static func pngImage(named name: String, in directory: URL) throws -> URL {
         let bitmap = try unwrapped(

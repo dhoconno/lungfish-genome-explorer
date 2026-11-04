@@ -399,8 +399,7 @@ extension RoutingSafetyNetTable {
                 // macOS has no preview for main.nf, so the viewer draws it as
                 // text itself and the recording renderer is never reached. The
                 // view-switch matrix uses this row for its Quick Look kind,
-                // because a recorded preview leaves no view for the next
-                // route to remove.
+                // because the view is drawn and removed as in the app.
                 let script = try SafetyNetFiles.write(
                     "nextflow.enable.dsl = 2\n\nworkflow {\n    println 'HG002'\n}\n",
                     to: context.url("Inputs/main.nf")
@@ -408,6 +407,17 @@ extension RoutingSafetyNetTable {
                 return RoutingRowFixture(
                     item: RoutingSafetyNetItems.scanned(script),
                     expected: RoutingObservation(status: "Previewing: main.nf", quickLook: "Inputs/main.nf as text")
+                )
+            },
+            RoutingRow(family: .files, name: "PDF figure", type: .document) { context in
+                // PDFKit runs in the test process, so a PDF is drawn for real.
+                let figure = try RoutingSafetyNetFixtures.onePagePDF(
+                    named: "figure.pdf",
+                    in: context.url("Inputs", isDirectory: true)
+                )
+                return RoutingRowFixture(
+                    item: RoutingSafetyNetItems.scanned(figure),
+                    expected: RoutingObservation(status: "figure.pdf (1 page)", quickLook: "Inputs/figure.pdf as PDF")
                 )
             },
             RoutingRow(family: .files, name: "Lungfish package with no viewer", type: .document) { context in

@@ -101,7 +101,7 @@ struct RoutingObservation: Equatable, Sendable, CustomStringConvertible {
     var mode: ViewportContentMode = .empty
     /// The status text, recorded only when no viewport and no document is shown.
     var status: String?
-    /// The Quick Look target, with " as text" when the plain-text preview is used.
+    /// The Quick Look target, with " as text" or " as PDF" when the viewer draws it itself.
     var quickLook: String?
     /// The URL of the document the genomics viewer shows.
     var document: String?
@@ -179,10 +179,11 @@ enum RoutingObserver {
     ) -> RoutingObservation {
         let viewer: ViewerViewController = split.viewerController
         var observation = RoutingObservation()
-        observation.viewports = viewer.children.map { String(describing: type(of: $0)) }
+        // A preview's wrapper is how the host holds it, and the file below names the kind.
+        observation.viewports = viewer.children.filter { !($0 is QuickLookPreviewController) }.map { String(describing: type(of: $0)) }
         observation.mode = viewer.contentMode
         if let quickLookURL = viewer.testQuickLookURL {
-            let suffix = viewer.testPlainTextPreviewString == nil ? "" : " as text"
+            let suffix = viewer.testPlainTextPreviewString != nil ? " as text" : viewer.testHasPDFPreview ? " as PDF" : ""
             observation.quickLook = (paths.render(quickLookURL) ?? "-") + suffix
         }
         observation.document = paths.render(viewer.currentDocument?.url)

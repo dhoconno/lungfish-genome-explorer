@@ -73,10 +73,11 @@ enum ViewSwitchKinds {
             windowProvenance: "primerAnalysisBundle Analyses/primer-order-2026-01-15T18-00-00"
         ),
         kind("FASTA document", "document in genomics", "files/FASTA file", "k17-fasta"),
-        // A recorded preview draws no view, so the next route never clears its
-        // URL. The text preview is drawn for real and removed as in the app.
+        // The text preview is drawn for real and removed as in the app, where a
+        // recorded Quick Look preview draws nothing.
         kind("Quick Look", "Quick Look in empty", "files/Nextflow script previews as text", "k18-quicklook"),
         kind("Status only", "status in empty", "bundles/primer scheme, metadata only", "k19-status"),
+        kind("PDF", "PDF in empty", "files/PDF figure", "k20-pdf"),
     ]
 
     private static func kind(
@@ -91,8 +92,8 @@ enum ViewSwitchKinds {
         let shown: String
         if !observation.viewports.isEmpty {
             shown = observation.viewports.joined(separator: " + ")
-        } else if observation.quickLook != nil {
-            shown = "Quick Look"
+        } else if let quickLook = observation.quickLook {
+            shown = quickLook.hasSuffix(" as PDF") ? "PDF" : "Quick Look"
         } else if observation.document != nil {
             shown = "document"
         } else {
@@ -117,11 +118,27 @@ enum ViewSwitchKinds {
         RoutingSafetyNetTable.rows.first { label(of: $0) == kind.row }
     }
 
+    /// The number of kinds the first circuit was laid out for.
+    private static let firstCircuitKinds = 19
+
     /// A walk of kind indices that starts at 0 and takes every ordered pair of
-    /// two different kinds exactly once, an Euler circuit of the complete
-    /// directed graph (Hierholzer's algorithm). Each kind has as many ways in
-    /// as out, so the circuit exists, and it holds n(n-1) switches.
+    /// two different kinds exactly once, and it holds n(n-1) switches. A kind past
+    /// the first 19 appends its own pairs and leaves the walk before it alone,
+    /// since a leak that outlives one switch reads on the pairs after it, and a
+    /// reshaped walk would move every declared line for no change in the app.
     static func eulerCircuit(count: Int) -> [Int] {
+        guard count > firstCircuitKinds else { return firstCircuit(count: count) }
+        let newKind = count - 1
+        var walk = eulerCircuit(count: newKind)
+        for next in 1...newKind {
+            walk += [newKind, next % newKind]
+        }
+        return walk
+    }
+
+    /// An Euler circuit of the complete directed graph (Hierholzer's algorithm).
+    /// Each kind has as many ways in as out, so the circuit exists.
+    private static func firstCircuit(count: Int) -> [Int] {
         guard count > 1 else { return Array(0..<count) }
         var used = Array(repeating: 0, count: count)
         var stack = [0]

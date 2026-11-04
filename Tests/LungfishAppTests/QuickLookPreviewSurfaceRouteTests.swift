@@ -10,6 +10,7 @@
 import AppKit
 import CoreGraphics
 import LungfishTestSupport
+import Quartz
 import XCTest
 @testable import LungfishApp
 @testable import LungfishKit
@@ -28,6 +29,22 @@ private final class RefusingPreviewSurface: ResultViewport {
 
     func load(input: Any, token: AsyncRequestToken<SurfaceRequest>) async throws {
         throw UnreadablePreviewFile()
+    }
+}
+
+/// A Quick Look view that starts no helper and says when it is closed, which is what stops a movie or a sound.
+private final class ClosingQuickLookView: QLPreviewView {
+    var onClose: (() -> Void)?
+
+    override var previewItem: (any QLPreviewItem)! {
+        get { nil }
+        set {}
+    }
+
+    override func refreshPreviewItem() {}
+
+    override func close() {
+        onClose?()
     }
 }
 
@@ -252,13 +269,24 @@ final class QuickLookPreviewSurfaceRouteTests: XCTestCase {
 
     // MARK: - What a preview leaves
 
-    /// Each kind of the matrix takes a text preview and a PDF away, with no view, no child and no open file left.
+    /// Each kind of the matrix takes a PDF, a text preview and a Quick Look view away, with no view, no child and no
+    /// open file left, and closes the Quick Look view, which is what stops a movie or a sound.
     func testEveryKindOfTheMatrixTakesThePreviewAway() async throws {
         let harness = try ViewSwitchWindowHarness()
         defer { harness.close() }
         let viewer = harness.split.viewerController!
-        let files = try makePreviewFiles().filter { !$0.recorded }
+        let files = try makePreviewFiles().filter { !$0.recorded || $0.url.pathExtension == "csv" }
         let rest = try await buildRow(of: "Status only")
+        var opened = 0
+        var closed = 0
+        viewer.embeddedFilePreviewRenderer = { viewer, _ in
+            try? viewer.quickLookPreviewController?.showQuickLookView { frame in
+                opened += 1
+                let view = ClosingQuickLookView(frame: frame, style: .normal)
+                view?.onClose = { closed += 1 }
+                return view
+            }
+        }
 
         for kind in ViewSwitchKinds.all where kind.name != "Status only" && !kind.outcome.hasPrefix("Quick Look") && !kind.outcome.hasPrefix("PDF") {
             let row = try await buildRow(of: kind.name)
@@ -280,6 +308,7 @@ final class QuickLookPreviewSurfaceRouteTests: XCTestCase {
                 let gone = await waitUntil(budget: .lookup) { content == nil }
                 XCTAssertTrue(gone, "\(kind.name) left the view of \(file.url.lastPathComponent) alive")
                 XCTAssertNil(viewer.testPreviewContentView, "\(kind.name) left a preview view")
+                XCTAssertEqual(closed, opened, "\(kind.name) left a Quick Look view open, so a movie would keep playing")
                 XCTAssertEqual(openDescriptors(of: file.url), 0, "\(kind.name) left \(file.url.lastPathComponent) open")
             }
         }
@@ -324,6 +353,49 @@ final class QuickLookPreviewSurfaceRouteTests: XCTestCase {
         XCTAssertEqual(viewer.testPreviewStatusText, "figure.pdf (2 pages)")
         XCTAssertEqual(viewer.testPreviewSelectionText, "", "the first preview's words stayed")
         XCTAssertEqual(viewer.testQuickLookURL, figure)
+    }
+
+    /// A second Quick Look view closes the first, and a clear closes the second.
+    func testAQuickLookViewIsClosedOnEveryRemoval() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        var closed = 0
+        viewer.embeddedFilePreviewRenderer = { viewer, _ in
+            try? viewer.quickLookPreviewController?.showQuickLookView { frame in
+                let view = ClosingQuickLookView(frame: frame, style: .normal)
+                view?.onClose = { closed += 1 }
+                return view
+            }
+        }
+        let table = root.appendingPathComponent("table.csv")
+        try "sample,reads\n".write(to: table, atomically: true, encoding: .utf8)
+
+        viewer.displayQuickLookPreview(url: table)
+        XCTAssertTrue(viewer.testHasQuickLookView)
+        XCTAssertEqual(closed, 0, "the view closed as it opened")
+
+        viewer.displayQuickLookPreview(url: table)
+        XCTAssertEqual(closed, 1, "a second preview left the first view open")
+        XCTAssertTrue(viewer.testHasQuickLookView)
+
+        viewer.clearViewport()
+        XCTAssertEqual(closed, 2, "a clear left the view open")
+        XCTAssertFalse(viewer.testHasQuickLookView)
+    }
+
+    /// Quick Look gives no view, and the person reads that, with no preview left.
+    func testAQuickLookViewThatCannotDrawSaysWhatToTry() async throws {
+        let viewer = ViewerViewController()
+        viewer.loadViewIfNeeded()
+        viewer.embeddedFilePreviewRenderer = { viewer, url in viewer.renderEmbeddedFilePreview(url: url, makeView: { _ in nil }) }
+        let table = root.appendingPathComponent("table.csv")
+        try "sample,reads\n".write(to: table, atomically: true, encoding: .utf8)
+
+        let opened = viewer.displayQuickLookPreview(url: table)
+
+        XCTAssertFalse(opened)
+        try assertRefusal(in: viewer, naming: "table.csv")
     }
 
     func testAProjectSwitchTakesThePreviewAway() async throws {

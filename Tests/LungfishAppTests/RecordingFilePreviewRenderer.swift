@@ -7,8 +7,8 @@ import Foundation
 
 /// Stands in for `ViewerViewController.embeddedFilePreviewRenderer`.
 ///
-/// Routing tests install it so a file the viewer sends to PDFKit or Quick Look
-/// is recorded instead of drawn. It writes the status line a finished Quick
+/// Routing tests install it so a file the viewer sends to Quick Look is
+/// recorded instead of drawn. It writes the status line a finished Quick
 /// Look preview writes, so tests that read the status bar see what the app
 /// shows after a successful preview.
 @MainActor

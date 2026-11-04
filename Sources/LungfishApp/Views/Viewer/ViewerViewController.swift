@@ -15,8 +15,6 @@ import LungfishGenotypeUI
 import LungfishPhylogeneticsUI
 import LungfishWorkflow
 import UniformTypeIdentifiers
-import Quartz  // For QLPreviewView
-import PDFKit  // For PDF rendering (more reliable than QLPreviewView for PDFs)
 import os.log
 import LungfishKit
 import LungfishTaxonomyUI
@@ -148,22 +146,13 @@ public class ViewerViewController: NSViewController {
     /// Leading constraints for ruler, viewer, and overlay — animated by chromosome drawer
     var contentLeadingConstraints: [NSLayoutConstraint] = []
     
-    /// QuickLook preview view for non-genomics files (images, text, etc.)
-    var quickLookView: QLPreviewView?
-    
-    /// PDF view for displaying PDF files (more reliable than QLPreviewView)
-    var pdfView: PDFView?
-    
-    /// Read-only text view for workflow and script files Quick Look cannot preview
-    var plainTextPreviewScrollView: NSScrollView?
+    /// The preview of a file, while the surface host shows it.
+    var quickLookPreviewController: QuickLookPreviewController? { installedSurface?.viewController as? QuickLookPreviewController }
 
-    /// URL currently being previewed with QuickLook or PDFKit
-    var quickLookURL: URL?
-
-    /// Draws the embedded PDFKit or Quick Look preview once
-    /// `displayQuickLookPreview(url:)` has routed a file to it. Production
-    /// keeps this default. Unit tests install a recorder instead, so they check
-    /// the routing without starting Quick Look in the test process.
+    /// Draws a file's Quick Look preview once `displayQuickLookPreview(url:)` has
+    /// routed the file to it. Text and PDFs are drawn in process and never reach it.
+    /// Production keeps this default. Unit tests install a recorder instead, so they
+    /// check the routing without starting Quick Look in the test process.
     var embeddedFilePreviewRenderer: @MainActor (ViewerViewController, URL) -> Void = { viewer, fileURL in
         viewer.renderEmbeddedFilePreview(url: fileURL)
     }
@@ -3498,20 +3487,20 @@ extension ViewerViewController {
     }
 
     var testQuickLookURL: URL? {
-        quickLookURL
+        quickLookPreviewController?.url
     }
 
     var testHasQuickLookView: Bool {
-        quickLookView != nil
+        quickLookPreviewController?.quickLookView != nil
     }
 
     /// Text shown by the plain-text fallback preview, or nil when it is not active.
     var testPlainTextPreviewString: String? {
-        (plainTextPreviewScrollView?.documentView as? NSTextView)?.string
+        (quickLookPreviewController?.plainTextScrollView?.documentView as? NSTextView)?.string
     }
 
     var testPlainTextPreviewAccessibilityLabel: String? {
-        plainTextPreviewScrollView?.accessibilityLabel()
+        quickLookPreviewController?.plainTextScrollView?.accessibilityLabel()
     }
 
     var testPreviewStatusText: String {
@@ -3523,12 +3512,13 @@ extension ViewerViewController {
     }
 
     var testHasPDFPreview: Bool {
-        pdfView != nil
+        quickLookPreviewController?.pdfView != nil
     }
 
     /// The view that draws the file, whichever way it is previewed.
     var testPreviewContentView: NSView? {
-        pdfView ?? plainTextPreviewScrollView ?? quickLookView
+        guard let preview = quickLookPreviewController else { return nil }
+        return preview.pdfView ?? preview.plainTextScrollView ?? preview.quickLookView
     }
 
     func testTapBundleBackNavigation() {

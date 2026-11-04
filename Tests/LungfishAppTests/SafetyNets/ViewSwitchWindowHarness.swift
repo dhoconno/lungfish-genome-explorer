@@ -10,7 +10,7 @@
 // the toolbar and the window frame after each switch.
 //
 // The window keeps no frame and no toolbar layout in the test runner's
-// defaults. A file the viewer previews is recorded rather than drawn, as in
+// defaults. A file Quick Look would draw is recorded rather than drawn, as in
 // the routing table, and no project is open, so a route that would ask for a
 // name stops where the routing table row says it does.
 

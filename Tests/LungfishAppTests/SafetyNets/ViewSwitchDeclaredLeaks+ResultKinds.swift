@@ -15,7 +15,7 @@ extension ViewSwitchDeclaredLeaks {
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("fresh window", to: ["Quick Look", "Status only"], "NET-TOOLBAR-MODE", [
+        leak("fresh window", to: ["Quick Look", "PDF", "Status only"], "NET-TOOLBAR-MODE", [
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
