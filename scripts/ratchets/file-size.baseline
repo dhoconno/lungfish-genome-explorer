@@ -23,7 +23,7 @@ Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 988
 Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1312
 Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift 1885
 Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift 2788
-Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1583
+Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift 1582
 Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 807
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1332
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 1044
@@ -60,7 +60,7 @@ Sources/LungfishApp/Views/Viewer/SequenceViewerView+Interaction.swift 2095
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+MultiSequence.swift 1066
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift 1231
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Tooltips.swift 939
-Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift 2843
+Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift 2842
 Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 878
 Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift 870
 Sources/LungfishApp/Views/Viewer/ViewerViewController.swift 4040
@@ -85,7 +85,7 @@ Sources/LungfishCore/Services/NCBI/NCBIService.swift 1921
 Sources/LungfishCore/Storage/PortablePath.swift 1013
 Sources/LungfishCore/Storage/ProjectStore.swift 1568
 Sources/LungfishEsVirituUI/EsVirituResultViewController.swift 1807
-Sources/LungfishEsVirituUI/ViralDetectionTableView.swift 2101
+Sources/LungfishEsVirituUI/ViralDetectionTableView.swift 2075
 Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift 2413
 Sources/LungfishGenotypeUI/GenotypeCallEvidenceView.swift 1605
 Sources/LungfishGenotypeUI/GenotypeCandidateAlleleDetailView.swift 1142
