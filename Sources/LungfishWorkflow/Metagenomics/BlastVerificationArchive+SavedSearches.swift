@@ -41,10 +41,8 @@ extension BlastVerificationArchive {
             if let live, live.file.state != .done, let lineage = live.file.lineage {
                 let searchURL = folder.appendingPathComponent(BlastSearchFile.fileName)
                 guard matches(lineage, searchURL) else { continue }
-                guard sourceHolds(live.file, lineage: lineage, at: searchURL) else {
-                    replaced = folder
-                    continue
-                }
+                // A search still at NCBI has not come back, so it says nothing on the new rows, and its own row goes on.
+                guard sourceHolds(live.file, lineage: lineage, at: searchURL) else { continue }
                 offer(live.file.createdAt, .live(live))
                 continue
             }
@@ -59,17 +57,45 @@ extension BlastVerificationArchive {
         return newest?.search ?? replaced.map { .sourceReplaced(folder: $0) }
     }
 
-    /// The digest of the root record of a source result, nil for a source with none, which cannot tell one run from another.
+    /// What tells one run of a source result from another, which `blast submit` keeps in the search file. A root record's ID
+    /// names its run and stays through a later write to that record, such as a database build's. A record with no ID gives
+    /// its digest. A folder from before root records gives the digest of the document its viewer loads, so its guard is not
+    /// empty. Nil for a source with none of these: a plain FASTA, whose route looks up no row, and a folder no viewer opens.
     package static func sourceStamp(ofResult resultURL: URL) -> String? {
         let record = resultURL.appendingPathComponent(BundleKindDescriptor.SidecarNaming.rootRecordFileName)
-        guard let data = try? Data(contentsOf: record) else { return nil }
-        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        guard let data = try? Data(contentsOf: record) else { return documentStamp(ofResult: resultURL) }
+        let fields = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        if let run = fields?["id"] as? String { return "run:" + run }
+        return "record:" + digest(of: data)
     }
 
-    /// Whether a search's source is still the one it was sent from. A side with no stamp cannot tell, so it holds.
+    /// The document each route's viewer loads: Kraken2, EsViritu, TaxTriage, and NVD and NAO-MGS.
+    private static let sourceDocumentNames = ["classification-result.json", "esviritu-result.json", "taxtriage-result.json", "manifest.json"]
+    private static let documentStampPrefix = "document:"
+
+    private static func documentStamp(ofResult resultURL: URL) -> String? {
+        for name in sourceDocumentNames {
+            if let data = try? Data(contentsOf: resultURL.appendingPathComponent(name)) {
+                return documentStampPrefix + digest(of: data)
+            }
+        }
+        return nil
+    }
+
+    private static func digest(of data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Whether a search's source is still the one it was sent from. A search with no stamp cannot tell, so it holds. A search
+    /// folder inside its own source travels with it, and a copy of the source writes a new root record there, so it holds.
+    /// A root record written later into an older folder is no new run, so a document's stamp compares with the document.
     private static func sourceHolds(_ file: BlastSearchFile, lineage: BlastSubmissionRecord.Lineage, at url: URL) -> Bool {
-        guard let sent = file.sourceStamp, let source = lineage.sourceResultURL(recordAt: url),
-              let now = sourceStamp(ofResult: source) else { return true }
+        guard let sent = file.sourceStamp, let source = lineage.sourceResultURL(recordAt: url) else { return true }
+        let inside = url.resolvingSymlinksInPath().standardizedFileURL.path
+            .hasPrefix(source.resolvingSymlinksInPath().standardizedFileURL.path + "/")
+        if inside { return true }
+        let now = sent.hasPrefix(documentStampPrefix) ? documentStamp(ofResult: source) : sourceStamp(ofResult: source)
+        guard let now else { return sourceStamp(ofResult: source) == nil }
         return sent == now
     }
 
