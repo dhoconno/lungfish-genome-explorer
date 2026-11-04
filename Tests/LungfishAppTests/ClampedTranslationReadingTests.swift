@@ -154,6 +154,18 @@ final class ClampedTranslationReadingTests: XCTestCase {
         XCTAssertTrue(notice.contains("20 of its 30 coding bases"), notice)
     }
 
+    /// A clip has two ordinary causes, a contig that really ends inside the gene and an annotation from another
+    /// assembly of the reference. The notice ends with the step for the cause that a person can fix.
+    func testTheInspectorNoticeSaysWhatToTryWhenTheSequenceEndClipsTheCDS() async throws {
+        let model = SelectionSectionViewModel()
+        model.referenceBundle = try await makeBundle()
+
+        XCTAssertEqual(model.computeTranslation(for: clipped), "WHEFPD")
+
+        let notice = try XCTUnwrap(model.translationNotice)
+        XCTAssertTrue(notice.contains("same assembly"), notice)
+    }
+
     func testTheInspectorShowsNoNoticeForACDSThatWasReadWhole() async throws {
         let model = SelectionSectionViewModel()
         model.referenceBundle = try await makeBundle()
