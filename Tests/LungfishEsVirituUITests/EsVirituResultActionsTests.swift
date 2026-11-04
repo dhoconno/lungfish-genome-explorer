@@ -67,6 +67,18 @@ final class EsVirituResultActionsTests: XCTestCase {
         XCTAssertEqual(drawer.blastResultsTab.emptyStateDetailText, "NCBI BLAST did not return a result.")
     }
 
+    /// NVD-RUN-AGAIN-STALE-CONTIG (lane ROWPANE). EsViritu gives its pane no Re-run action, so the pane offers no Re-run
+    /// button. At the base the button showed and did nothing.
+    func testPaneOffersNoDeadRerun() throws {
+        let vc = EsVirituResultViewController()
+        isolateLayouts(vc)
+        _ = vc.view
+        vc.showBlastFailure("NCBI BLAST did not return a result.")
+        let drawer = try XCTUnwrap(vc.testBlastDrawerContainer)
+
+        XCTAssertTrue(drawer.blastResultsTab.rerunBlastButton.isHidden)
+    }
+
     // MARK: - Fixture
 
     private static func blastResultsButton(in bar: ClassifierActionBar) throws -> NSButton {

@@ -98,6 +98,40 @@ final class TaxonomyBlastRowPaneTests: XCTestCase {
         XCTAssertNil(vc.testBlastResultsTab?.currentResult)
     }
 
+    /// A pin, not a red test (review should-fix 1 of BIO). The pane stores the sample it took its search for, because a
+    /// node that has left the outline resolves to the batch's sample, and that can equal the next node's sample. Reading
+    /// the sample off the old node would keep S1's verdict under S2's row once the display changes to S2 alone.
+    func testAVerdictDoesNotStayAfterTheDisplayedSampleChanges() async throws {
+        let display = try makeDisplay(savedIn: ["S1"])
+        let vc = display.controller
+        vc.testSunburstView.onNodeSelected?(display.virusesInS1)
+        await vc.scheduleSavedBlastVerificationRestore(for: display.virusesInS1)?.value
+        XCTAssertEqual(vc.lastBlastResult?.rid, "RID-S1")
+
+        let rowsOfS2 = [
+            Kraken2ClassificationRow(sample: "S2", taxonName: "root", taxId: 1, rank: "R", rankDisplayName: "Root", readsDirect: 0, readsClade: 90, percentage: 100.0, parentTaxId: nil, depth: 0, fractionDirect: 0),
+            Kraken2ClassificationRow(sample: "S2", taxonName: "Viruses", taxId: 10239, rank: "D", rankDisplayName: "Domain", readsDirect: 0, readsClade: 40, percentage: 44.4, parentTaxId: 1, depth: 1, fractionDirect: 0),
+        ]
+        let alone = try Kraken2Database.create(
+            at: scratch.appendingPathComponent("kraken2-s2-only.sqlite"),
+            rows: rowsOfS2,
+            metadata: ["total_reads_S2": "90", "classified_reads_S2": "90", "unclassified_reads_S2": "0"]
+        )
+        vc.configureFromDatabase(alone)
+        vc.testTableView.expandAll()
+        vc.testTableView.outlineView.layoutSubtreeIfNeeded()
+        XCTAssertEqual(vc.currentBatchSampleId, "S2", "the controller now shows S2 alone")
+        XCTAssertEqual(vc.lastBlastResult?.rid, "RID-S1", "changing the display alone does not clear the pane")
+        let viruses = try XCTUnwrap(Self.find(10239, in: try XCTUnwrap(vc.testTableView.tree).root))
+        XCTAssertEqual(vc.owningSampleId(for: viruses), "S2")
+
+        vc.testSunburstView.onNodeSelected?(viruses)
+        await vc.scheduleSavedBlastVerificationRestore(for: viruses)?.value
+
+        XCTAssertNil(vc.lastBlastResult, "S2 has no saved search, so S1's verdict does not stay under S2's row")
+        XCTAssertNil(vc.testBlastResultsTab?.currentResult)
+    }
+
     // MARK: - Fixtures
 
     private struct Display {

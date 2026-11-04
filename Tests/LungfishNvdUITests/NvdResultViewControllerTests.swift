@@ -356,6 +356,46 @@ final class NvdResultViewControllerTests: XCTestCase {
         XCTAssertEqual(blastRequestCount, 1)
     }
 
+    /// NVD-RUN-AGAIN-STALE-CONTIG (lane ROWPANE). The pane's Re-run BLAST sends the picked contig again, so it greys with
+    /// the bar's reason whenever a single contig is not picked. At the base it stayed enabled and did nothing.
+    func testRerunGreysWithItsReasonWithoutASingleContig() throws {
+        let fixture = try NvdMenuFixture()
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: fixture.rootURL)
+        }
+        let vc = NvdResultViewController()
+        _ = vc.view
+        vc.configure(database: fixture.database, manifest: fixture.manifest, bundleURL: fixture.bundleURL)
+        vc.showBlastFailure("Opens the pane so the test can read its button.")
+        let rerun = try XCTUnwrap(vc.testBlastDrawerContainer).blastResultsTab.rerunBlastButton
+
+        XCTAssertFalse(rerun.isEnabled, "no contig is picked")
+        XCTAssertEqual(rerun.toolTip, ClassifierActionWords.selectRowToVerify)
+
+        vc.testSelectOutlineRow(0)
+        XCTAssertTrue(rerun.isEnabled, "one contig is picked")
+        XCTAssertNil(rerun.toolTip)
+
+        vc.testingShowMultiSelectionPlaceholder(count: 2)
+        XCTAssertFalse(rerun.isEnabled, "several contigs are picked")
+        XCTAssertEqual(rerun.toolTip, ClassifierActionWords.selectOneRowToVerify)
+    }
+
+    /// BLAST-ENABLED-WITH-NO-DATABASE (lane ROWPANE). A result whose database did not open cannot send a contig, and the
+    /// click says why. At the base it returned without a word.
+    func testVerifyWithNoDatabaseSaysWhy() throws {
+        let vc = NvdResultViewController()
+        _ = vc.view
+        vc.showBlastFailure("Opens the pane so the test can read its words.")
+        let drawer = try XCTUnwrap(vc.testBlastDrawerContainer)
+
+        try XCTUnwrap(drawer.blastResultsTab.onRerunBlast, "the pane offers Re-run")()
+
+        let words = drawer.blastResultsTab.emptyStateDetailText
+        XCTAssertTrue(words.hasPrefix("Verify with BLAST needs this result's database"), words)
+        XCTAssertTrue(words.contains("did not open"), words)
+    }
+
     /// Capture on 9.64: BLAST Verify on the NVD demo results did nothing,
     /// because the run folder has no contig FASTA and the controller only
     /// logged a warning. The drawer must say why nothing was submitted.

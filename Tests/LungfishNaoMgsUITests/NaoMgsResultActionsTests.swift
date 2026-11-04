@@ -203,6 +203,38 @@ final class NaoMgsResultActionsTests: XCTestCase {
         }
     }
 
+    /// NVD-RUN-AGAIN-STALE-CONTIG (lane ROWPANE). NAO-MGS gives its pane no Re-run action, so the pane offers no Re-run
+    /// button. At the base the button showed and did nothing.
+    func testPaneOffersNoDeadRerun() throws {
+        let vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
+        _ = vc.view
+        vc.resultActions.showBlastFailure("Opens the pane so the test can read its button.")
+        let drawer = try XCTUnwrap(vc.testBlastDrawerContainer)
+
+        XCTAssertTrue(drawer.blastResultsTab.rerunBlastButton.isHidden)
+    }
+
+    /// BLAST-ENABLED-WITH-NO-DATABASE (lane ROWPANE). A result whose database did not open cannot read a taxon's
+    /// reads, and Verify with BLAST says why. At the base it returned without a word.
+    func testVerifyWithNoDatabaseSaysWhy() throws {
+        let vc = NaoMgsResultViewController()
+        isolateLayouts(vc)
+        _ = vc.view
+        let row = NaoMgsTaxonSummaryRow(
+            sample: "sample-A", taxId: 1_000, name: "Taxon 0", hitCount: 2, uniqueReadCount: 2, avgIdentity: 99,
+            avgBitScore: 200, avgEditDistance: 1, pcrDuplicateCount: 0, accessionCount: 1,
+            topAccessions: ["NC_000001.1"], bamPath: nil, bamIndexPath: nil
+        )
+
+        vc.executeBlastVerification(NaoMgsResultViewController.BlastMenuSelection(row: row, readCount: 5))
+
+        let drawer = try XCTUnwrap(vc.testBlastDrawerContainer, "the BLAST results open to say why")
+        let words = drawer.blastResultsTab.emptyStateDetailText
+        XCTAssertTrue(words.hasPrefix("Verify with BLAST needs this result's database"), words)
+        XCTAssertTrue(words.contains("did not open"), words)
+    }
+
     private static func hit(read: Int) -> NaoMgsVirusHit {
         NaoMgsVirusHit(
             sample: "sample-A", seqId: "read-\(read)", taxId: 1_000,

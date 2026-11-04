@@ -1012,6 +1012,19 @@ final class BlastResultsDrawerTests: XCTestCase {
         XCTAssertTrue(rerunCalled, "Re-run callback should have been called")
     }
 
+    /// NVD-RUN-AGAIN-STALE-CONTIG (lane ROWPANE). A pane with no Re-run action offers no Re-run button, and one that
+    /// is given an action shows it.
+    func testRerunButtonIsHiddenWhenThePaneHasNoAction() throws {
+        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        XCTAssertTrue(tab.rerunBlastButton.isHidden, "a pane with no Re-run action offers no Re-run button")
+
+        tab.onRerunBlast = {}
+        XCTAssertFalse(tab.rerunBlastButton.isHidden)
+
+        tab.onRerunBlast = nil
+        XCTAssertTrue(tab.rerunBlastButton.isHidden)
+    }
+
     // MARK: - LCA Disagreement Count
 
     func testLCADisagreementCount() throws {
