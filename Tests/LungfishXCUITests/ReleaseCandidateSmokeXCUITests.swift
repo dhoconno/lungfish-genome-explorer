@@ -153,10 +153,11 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
     /// and the viewer and the Inspector change with the kind: each kind's viewer shows and the one before it goes, and
     /// the NAO-MGS Inspector block shows for the NAO-MGS result only. The kinds come from `ViewSwitchKinds.all`
     /// (Tests/LungfishAppTests/SafetyNets). A kind joins the list when its fixture needs no managed tool and its viewer
-    /// carries an accessibility identifier, and a preview kind also shows its status words. Assembly, Genotype and the
-    /// text preview of Quick Look joined in 3.2. Left out: NVD, CZ ID, 12S, both primer kinds and FASTA document, which
-    /// have no fixture the smoke can open without managed tools, as 3.1 found. FASTQ, MHC reference and the PDF and
-    /// image previews have a fixture but no viewer identifier yet. Status only draws no viewer to wait for.
+    /// carries an accessibility identifier, and a preview kind also shows its status words. Assembly, Genotype, FASTQ,
+    /// MHC reference and the text, PDF and image previews of Quick Look joined in 3.2, each with a fixture the test
+    /// writes or copies from `Tests/Fixtures/analyses`, which the smoke gate stages. Left out: NVD, CZ ID, 12S, both
+    /// primer kinds and FASTA document, which have no fixture the smoke can open without managed tools, as 3.1 found.
+    /// Status only draws no viewer to wait for.
     @MainActor
     func testReleaseCandidateViewSwitchPerKind() throws {
         let robot = try ReleaseAppSmokeRobot()
@@ -182,10 +183,14 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
             ("Quick Look", ReleaseSmokeFixtures.previewFile, any["viewer-plain-text-preview"].firstMatch),
             ("FASTQ", ReleaseSmokeFixtures.fastqRow, any["fastq-dataset-view"].firstMatch),
             ("MHC reference", ReleaseSmokeFixtures.mhcRow, any["mhc-reference-bundle-view"].firstMatch),
+            ("PDF", ReleaseSmokeFixtures.pdfFile, any["viewer-pdf-preview"].firstMatch),
+            ("Image preview", ReleaseSmokeFixtures.imageFile, any["viewer-quick-look-preview"].firstMatch),
         ]
-        // A preview's status words come from the status bar under it (`Previewing: <file>`), and they stay for the
-        // matrix row "Nextflow script previews as text" (RoutingSafetyNetTable+ContainerAndFileRows).
-        let statusWords = ["Quick Look": "Previewing: \(ReleaseSmokeFixtures.previewFile)"]
+        // A preview's status words come from the status bar under it, as the matrix rows "Nextflow script previews as
+        // text", "PDF figure" and "PNG image" say them (RoutingSafetyNetTable+ContainerAndFileRows).
+        let statusWords = ["Quick Look": "Previewing: \(ReleaseSmokeFixtures.previewFile)",
+                           "PDF": "\(ReleaseSmokeFixtures.pdfFile) (1 page)",
+                           "Image preview": "Previewing: \(ReleaseSmokeFixtures.imageFile)"]
         var previous: (name: String, row: String, viewer: XCUIElement)?
         for kind in kinds + [kinds[0]] {
             ReleaseSmokeFixtures.openSidebarItem(containing: kind.row, in: robot.app)
@@ -342,7 +347,40 @@ enum ReleaseSmokeFixtures {
         try addScriptPreview(to: project)
         try addFASTQBundle(to: project)
         try addMHCReferenceBundle(to: project)
+        try addPDFPreview(to: project)
+        try addImagePreview(to: project)
         return project
+    }
+
+    /// The PDF the PDF preview shows, a figure of one page as the matrix row "PDF figure" writes it. PDFKit draws it in
+    /// the app, and the status bar says `figure.pdf (1 page)`.
+    static let pdfFile = "figure.pdf"
+
+    static func addPDFPreview(to project: URL) throws {
+        let url = project.appendingPathComponent(pdfFile)
+        var mediaBox = CGRect(x: 0, y: 0, width: 200, height: 200)
+        guard let context = CGContext(url as CFURL, mediaBox: &mediaBox, nil) else {
+            throw NSError(domain: "ReleaseSmokeFixtures", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "No PDF context for \(url.path)"])
+        }
+        context.beginPDFPage(nil)
+        context.fill(CGRect(x: 40, y: 40, width: 120, height: 120))
+        context.endPDFPage()
+        context.closePDF()
+    }
+
+    /// The image the image preview shows, a 2 by 2 pixel PNG as the matrix row "PNG image" writes it. Quick Look draws it
+    /// in the app, and the status bar says `Previewing: coverage.png`.
+    static let imageFile = "coverage.png"
+
+    static func addImagePreview(to project: URL) throws {
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8,
+                                            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                            bytesPerRow: 0, bitsPerPixel: 0),
+              let png = bitmap.representation(using: .png, properties: [:]) else {
+            throw NSError(domain: "ReleaseSmokeFixtures", code: 2, userInfo: [NSLocalizedDescriptionKey: "No PNG for \(imageFile)"])
+        }
+        try png.write(to: project.appendingPathComponent(imageFile))
     }
 
     /// The name an MHC amplicon reference bundle shares as its folder and its manifest name, so the sidebar row reads it.

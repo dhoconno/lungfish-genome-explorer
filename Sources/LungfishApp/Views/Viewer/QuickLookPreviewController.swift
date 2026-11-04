@@ -147,6 +147,7 @@ final class QuickLookPreviewController: NSViewController {
         pdfDisplayView.document = document
 
         fillContentArea(with: pdfDisplayView)
+        identifyContent(as: "viewer-pdf-preview")
         layOutInViewer()
 
         if pdfDisplayView.bounds.width > 0 && pdfDisplayView.bounds.height > 0 {
@@ -169,6 +170,7 @@ final class QuickLookPreviewController: NSViewController {
         let name = url.lastPathComponent
         guard let preview = makeView(contentArea.bounds) else { throw QuickLookPreviewError.notDrawable(name) }
         fillContentArea(with: preview)
+        identifyContent(as: "viewer-quick-look-preview")
         layOutInViewer()
         guard !preview.bounds.isEmpty else {
             preview.close()
@@ -178,6 +180,15 @@ final class QuickLookPreviewController: NSViewController {
         preview.previewItem = QuickLookItem(url: url)
         preview.refreshPreviewItem()
         quickLookView = preview
+    }
+
+    /// Names the preview for the accessibility tree, so the view switch smoke test can tell which preview is on screen
+    /// (exit check 3 of Phase 3.2). The content area is a plain NSView, which AppKit leaves out of the tree, identifier or
+    /// not, so it becomes a group, as the Kraken2 surface's view does. No label or help is set, so no words change.
+    private func identifyContent(as identifier: String) {
+        contentArea.setAccessibilityIdentifier(identifier)
+        contentArea.setAccessibilityElement(true)
+        contentArea.setAccessibilityRole(.group)
     }
 
     /// Closes what shows the file, so a movie or a sound stops and nothing keeps the file open. The host calls this
