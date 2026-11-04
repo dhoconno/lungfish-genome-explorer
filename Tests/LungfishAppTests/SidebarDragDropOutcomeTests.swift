@@ -60,4 +60,25 @@ final class SidebarDragDropOutcomeTests: XCTestCase {
         copyOutcome.recordSkip(title: "x", reason: .missingURL)
         XCTAssertTrue(copyOutcome.alertTitle.localizedCaseInsensitiveContains("copied"), copyOutcome.alertTitle)
     }
+
+    /// A refusal that begins with the item's name reads as its own line, and any other reason keeps the name before its
+    /// brackets (COPYFOLDER-UX should-fix 1b).
+    func testARefusalThatNamesItsItemIsNotRepeatedInTheAlert() {
+        let words = "taxtriage-cornea was not copied. a.bam does not match the checksum in the provenance record of taxtriage-cornea."
+        var refused = SidebarDragDropOutcome(kind: .copy)
+        refused.recordSkip(title: "taxtriage-cornea", reason: .fileSystemError(words))
+        XCTAssertEqual(
+            refused.alertInformativeText(totalSelected: 1),
+            "0 of 1 selected item(s) were copied. The rest were skipped:\n\(words)"
+        )
+
+        var mixed = SidebarDragDropOutcome(kind: .copy)
+        mixed.recordSkip(title: "taxtriage-cornea", reason: .fileSystemError(words))
+        mixed.recordSkip(title: "b.fa", reason: .missingURL)
+        mixed.recordSkip(title: "locked.bam", reason: .fileSystemError("Permission denied"))
+        let text = mixed.alertInformativeText(totalSelected: 3)
+        XCTAssertTrue(text.contains("\n\(words)\n"), text)
+        XCTAssertTrue(text.contains("b.fa (\(SidebarDragDropSkipReason.missingURL.reasonText))"), text)
+        XCTAssertTrue(text.contains("locked.bam (Permission denied)"), text)
+    }
 }

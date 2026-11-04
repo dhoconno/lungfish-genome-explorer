@@ -607,7 +607,7 @@ final class CrossProjectFolderResultCopyTests: XCTestCase {
 
     func stages() -> [String] {
         let temp = ProjectTempDirectory.tempRoot(for: targetProject)
-        return ((try? fm.contentsOfDirectory(atPath: temp.path)) ?? []).filter { $0.hasPrefix("project-copy-") }
+        return (try? fm.contentsOfDirectory(atPath: temp.path)) ?? []
     }
 
     func sidebarTitles(in project: URL) -> [String] {

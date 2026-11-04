@@ -78,7 +78,11 @@ struct SidebarDragDropOutcome {
     }
 
     func alertInformativeText(totalSelected: Int) -> String {
-        let details = skipped.map { "\($0.title) (\($0.reason.reasonText))" }.joined(separator: "\n")
+        let details = skipped.map { skip -> String in
+            let reason = skip.reason.reasonText
+            // A refusal that already begins with the item's name reads as its own line.
+            return reason.hasPrefix("\(skip.title) ") ? reason : "\(skip.title) (\(reason))"
+        }.joined(separator: "\n")
         return "\(succeededCount) of \(totalSelected) selected item(s) were \(kind.verb). The rest were skipped:\n\(details)"
     }
 }

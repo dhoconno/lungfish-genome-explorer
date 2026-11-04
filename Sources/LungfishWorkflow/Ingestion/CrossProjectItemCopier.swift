@@ -176,17 +176,25 @@ package enum CrossProjectItemCopier {
                     "Otherwise run the analysis or import again in the project you want it in."
                 ].joined(separator: " ")
             case .copyDiffers(let item, let file):
-                return "\(item) was not copied. \(file) in the copy does not match the original. Nothing in the original was "
-                    + "changed, and the partial copy was removed. Check that the disk of the target project has room and is "
-                    + "working, then copy it again."
+                return [
+                    "\(item) was not copied.",
+                    "\(file) in the copy does not match the original, so the partial copy was removed.",
+                    "This copy changed nothing in the original.",
+                    "Check that the project you are copying into has room on its disk and that nothing is writing to \(item), "
+                        + "then copy it again."
+                ].joined(separator: " ")
             case .notAProjectItem(let url):
                 return "\(url.lastPathComponent) is not a Lungfish bundle or analysis result."
             case .destinationInsideSource(let url):
                 return "\(url.lastPathComponent) cannot be copied into itself."
             case .recordUnreadable(let item):
-                return "\(item) was not copied. Its provenance record, the file .lungfish-provenance.json inside it, is missing "
-                    + "or cannot be read, so the copy could not carry its record. Nothing in the original was changed. "
-                    + "Restore \(item) from a backup of its project, then copy it again."
+                return [
+                    "\(item) was not copied.",
+                    "Its provenance record, the file .lungfish-provenance.json inside it, is missing or cannot be read, so the "
+                        + "copy could not carry its record.",
+                    "This copy changed nothing in the original.",
+                    "Restore \(item) from a backup of its project or run the analysis or import again, then copy it again."
+                ].joined(separator: " ")
             case .recordDoesNotMatch(let item, let file):
                 // The cause is BIO's. The record cannot say who changed the file, and an earlier version of Lungfish marked
                 // the BAM of a TaxTriage run in place without noting it at the run level.
@@ -201,13 +209,19 @@ package enum CrossProjectItemCopier {
                     "Otherwise run the analysis or import again in the project you want it in."
                 ].joined(separator: " ")
             case .recordLacksChecksum(let item, let file):
-                return "\(item) was not copied. Its provenance record lists \(file) without a checksum, so the copy cannot be "
-                    + "checked against the record. Nothing in the original was changed. Run the analysis again to write a "
-                    + "complete record, then copy it again."
+                return [
+                    "\(item) was not copied.",
+                    "Its provenance record lists \(file) without a checksum, so the copy cannot be checked against the record.",
+                    "This copy changed nothing in the original.",
+                    "Run the analysis or import again to write a complete record, then copy it again."
+                ].joined(separator: " ")
             case .recordListsNoFile(let item):
-                return "\(item) was not copied. Its provenance record lists no file that lies inside it, so the copy cannot be "
-                    + "checked against the record. Nothing in the original was changed. Run the analysis again to write a "
-                    + "new record, then copy it again."
+                return [
+                    "\(item) was not copied.",
+                    "Its provenance record lists no file that lies inside it, so the copy cannot be checked against the record.",
+                    "This copy changed nothing in the original.",
+                    "Run the analysis or import again to write a new record, then copy it again."
+                ].joined(separator: " ")
             }
         }
     }
