@@ -170,7 +170,9 @@ struct NaoMgsBamWriterReadErrorTests {
         let samtools = try #require(SamtoolsLocator.locate())
         let workspace = try TestTempDirectory.make(prefix: "naomgs-bam-mate-cigar")
         defer { TestTempDirectory.cleanup(workspace) }
-        let (database, stageDir) = try await Self.buildDatabase(in: workspace, lines: [Self.row(0, lengthRev: "120")])
+        // The importer sizes the reference from `query_len_rev`, so the first pair alone ends it at 520 and samtools
+        // would clip the 150 base mate to 120M30S. An ordinary second pair reaches base 551 and leaves the mate whole.
+        let (database, stageDir) = try await Self.buildDatabase(in: workspace, lines: [Self.row(0, lengthRev: "120"), Self.row(1)])
 
         let result = try NaoMgsBamMaterializer.materializeAllWithProvenance(
             dbPath: database.path, resultURL: stageDir, samtoolsPath: samtools, lungfishVersion: "test"
@@ -178,7 +180,7 @@ struct NaoMgsBamWriterReadErrorTests {
         #expect(result.failures[Self.sample] == nil, "No CIGAR is refused, got: \(result.failures[Self.sample] ?? "")")
         let bam = try #require(result.bamURLs.first, "The sample has its BAM")
         let records = try Self.records(of: bam, samtools: samtools)
-        #expect(records.count == 2, "Both mates are in the BAM, got \(records.count)")
+        #expect(records.count == 4, "Both mates of both pairs are in the BAM, got \(records.count)")
         let mate2 = try #require(records.first { Self.mateName($0) == "read_0/2" }, "The second mate is in the BAM")
         #expect(mate2[5] == "150M", "The CIGAR of the second mate is the length of its sequence, got: \(mate2[5])")
     }

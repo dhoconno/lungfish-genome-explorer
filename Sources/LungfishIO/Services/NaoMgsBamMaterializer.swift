@@ -435,17 +435,18 @@ public enum NaoMgsBamMaterializer {
                     // Skip rows where neither R1 nor R2 has valid data
                     if !hasR1 && !hasR2 { continue }
 
-                    /// The text of column `index`, empty when the mate is absent or the column is NULL.
-                    func columnText(_ index: Int32, _ present: Bool) -> String {
-                        guard present, let ptr = sqlite3_column_text(rowStmt, index) else { return "" }
-                        return String(cString: ptr)
+                    /// The text of column `index`, empty when the mate is absent. A NULL or empty value reads as `absent`, and so does `NA` when `absent` is set.
+                    func columnText(_ index: Int32, _ present: Bool, absent: String = "") -> String {
+                        guard present else { return "" }
+                        let text = sqlite3_column_text(rowStmt, index).map { String(cString: $0) } ?? ""
+                        return text.isEmpty || (text == "NA" && !absent.isEmpty) ? absent : text
                     }
 
-                    // Extract R1 fields (only when hasR1)
+                    // Extract R1 fields (only when hasR1). A mate with no quality reads `*`, SAM's own mark, and keeps its record.
                     let refStart = hasR1 ? Int(sqlite3_column_int64(rowStmt, 2)) : 0
                     let cigar = columnText(3, hasR1)
                     let seq = columnText(4, hasR1)
-                    let qual = columnText(5, hasR1)
+                    let qual = columnText(5, hasR1, absent: "*")
                     let isReverse = hasR1 ? sqlite3_column_int(rowStmt, 6) != 0 : false
 
                     // Validate R1 data: if flagged as present but CIGAR empty and seq invalid, downgrade
@@ -454,10 +455,9 @@ public enum NaoMgsBamMaterializer {
                     // Extract R2 fields (only when hasR2)
                     let refStartRev = hasR2 ? Int(sqlite3_column_int64(rowStmt, 7)) : 0
                     let seqRev = columnText(8, hasR2)
-                    let qualRev = columnText(9, hasR2)
-                    let queryLengthRev = hasR2 ? Int(sqlite3_column_int(rowStmt, 11)) : 0
+                    let qualRev = columnText(9, hasR2, absent: "*")
                     let isReverseRev = hasR2 ? sqlite3_column_int(rowStmt, 12) != 0 : false
-                    let validR2 = hasR2 && !seqRev.isEmpty && seqRev != "NA" && !qualRev.isEmpty
+                    let validR2 = hasR2 && !seqRev.isEmpty && seqRev != "NA"
 
                     // Skip if neither mate produced valid data after extraction
                     if !validR1 && !validR2 { continue }
@@ -470,7 +470,7 @@ public enum NaoMgsBamMaterializer {
                     if validR1 && validR2 {
                         // Case 1: Both R1 + R2 -- emit paired SAM records
                         let mate1Span = referenceSpan(start: refStart, cigar: cigar, sequence: seq, fallbackLength: seq.count)
-                        let mate2Cigar = "\(max(1, queryLengthRev > 0 ? queryLengthRev : seqRev.count))M"
+                        let mate2Cigar = "\(max(1, seqRev.count))M"
                         let mate2Span = referenceSpan(start: refStartRev, cigar: mate2Cigar, sequence: seqRev, fallbackLength: seqRev.count)
                         let leftmostStart = min(refStart, refStartRev)
                         let rightmostEnd = max(refStart + mate1Span, refStartRev + mate2Span)
@@ -517,7 +517,7 @@ public enum NaoMgsBamMaterializer {
                         let flag = isReverseRev ? 16 : 0
                         let (onlySeq, onlyQual) = referenceOriented(sequence: seqRev, quality: qualRev, reverse: isReverseRev)
                         let pos = refStartRev + 1
-                        let r2Cigar = "\(max(1, queryLengthRev > 0 ? queryLengthRev : seqRev.count))M"
+                        let r2Cigar = "\(max(1, seqRev.count))M"
                         let line = "\(qname)\t\(flag)\t\(rname)\t\(pos)\t60\t\(r2Cigar)\t*\t0\t0\t\(onlySeq)\t\(onlyQual)\n"
                         guard writeSAMLine(line) else {
                             writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
