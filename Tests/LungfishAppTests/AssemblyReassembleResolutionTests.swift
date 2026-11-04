@@ -173,12 +173,15 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
 
     /// `lungfish-cli assemble` and the in-process run resolve the layout of
     /// one file with one function, `AssemblyRunRequest.resolveInputLayout`,
-    /// since lane 1q-2 deleted the CLI's own copy. Over the six bundle shapes,
-    /// every assembler, read type and stated layout, it gives the 75 answers
-    /// that copy gave. Only a short-read assembler reading Illumina reads from
-    /// one file, not one of a mate pair, resolves a layout, and a stated
-    /// layout wins over the one the bundle's reads show.
-    func testTheSharedLayoutRuleAnswersAsTheCLIsOwnCopyDid() async throws {
+    /// since lane 1q-2 deleted the CLI's own copy, so no second rule is left to
+    /// differ from it. Over the six bundle shapes, every assembler, read type
+    /// and stated layout, it gives these 75 answers. Only a short-read assembler
+    /// reading Illumina reads from one file, not one of a mate pair, resolves a
+    /// layout, and a stated layout wins over the one the bundle's reads show. The
+    /// one exception is BIO's B4. A stated interleaved layout on a file whose
+    /// whole scan finds pairs beside single reads answers mixed from that scan,
+    /// since an assembler would otherwise pair that file by position.
+    func testTheSharedLayoutRuleLetsAStatementStandUnlessAWholeScanOutranksIt() async throws {
         let unstated: [(bundle: URL, answer: (layout: FASTQInputLayout, source: FASTQInputLayoutResolution.Source)?)] = [
             (shapes.single, (.singleEnd, .contentScan)),
             (shapes.multiFile, (.singleEnd, .pooledFiles)),
@@ -215,8 +218,14 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
                             continue
                         }
                         resolvedCount += 1
-                        XCTAssertEqual(answer?.layout, explicit ?? unstatedAnswer.layout, label)
-                        XCTAssertEqual(answer?.source, explicit == nil ? unstatedAnswer.source : .explicit, label)
+                        // BIO's B4. Only the mixed bundle's joined file holds pairs beside single reads.
+                        let scanOutranks = explicit == .strictlyInterleaved && shape.bundle == shapes.mixed
+                        XCTAssertEqual(answer?.layout, scanOutranks ? .mixedMergedAndPairs : explicit ?? unstatedAnswer.layout, label)
+                        XCTAssertEqual(
+                            answer?.source,
+                            scanOutranks ? .contentScan : (explicit == nil ? unstatedAnswer.source : .explicit),
+                            label
+                        )
                     }
                 }
             }

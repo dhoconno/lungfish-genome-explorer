@@ -140,4 +140,53 @@ final class MixedFileRouteDecisionTests: XCTestCase {
         XCTAssertEqual(single.layout, .singleEnd)
         XCTAssertEqual(single.source, .explicit)
     }
+
+    // MARK: - The record
+
+    /// BIO section "What the last continuation must add", item 7. Kraken 2 runs the whole-file scan, and its record holds
+    /// what that scan read.
+    func testKrakenRecordCarriesTheScanFields() throws {
+        let mixed = try file([.pairs(60_000), .singles(20_000)])
+        let requested = ClassificationConfig(
+            inputFiles: [mixed],
+            isPairedEnd: false,
+            interleavedInput: true,
+            databaseName: "Viral",
+            databasePath: URL(fileURLWithPath: "/opt/lungfish/db/Viral"),
+            outputDirectory: root.appendingPathComponent("kraken-out", isDirectory: true)
+        )
+        let reconciled = ClassificationPipeline.reconcileInterleavedRequest(requested)
+        let parameters = try XCTUnwrap(reconciled.config.inputLayout?.provenanceParameters)
+        XCTAssertFalse(reconciled.config.interleavedInput, "a mixed file does not split by position")
+        XCTAssertEqual(parameters["scannedRecords"], .integer(140_000))
+        XCTAssertEqual(parameters["scannedWholeFile"], .boolean(true))
+        XCTAssertEqual(parameters["pairs"], .integer(60_000))
+        XCTAssertEqual(parameters["unpairedReads"], .integer(20_000))
+    }
+
+    /// Item 12, Viral Recon. A row of one file records what its scan read. A row of two files read nothing, so it records
+    /// null and not 0.
+    func testViralReconRecordCarriesTheScanFields() throws {
+        let mixed = try file([.pairs(60_000), .singles(20_000)])
+        let scanned = ViralReconReadPairing.decision(for: ViralReconSample(
+            sampleName: "mixed", sourceBundleURL: mixed, fastqURLs: [mixed], barcode: nil, sequencingSummaryURL: nil
+        ))
+        guard case .dictionary(let fields) = scanned.provenanceValue else { return XCTFail("expected a dictionary") }
+        XCTAssertEqual(fields["readLayout"], .string("mixed_merged_and_pairs"))
+        XCTAssertEqual(fields["scannedRecords"], .integer(140_000))
+        XCTAssertEqual(fields["scannedWholeFile"], .boolean(true))
+        XCTAssertEqual(fields["pairs"], .integer(60_000))
+        XCTAssertEqual(fields["unpairedReads"], .integer(20_000))
+
+        let r1 = try file([.singles(3)])
+        let r2 = try file([.singles(3)])
+        let pair = ViralReconReadPairing.decision(for: ViralReconSample(
+            sampleName: "pair", sourceBundleURL: r1, fastqURLs: [r1, r2], barcode: nil, sequencingSummaryURL: nil
+        ))
+        guard case .dictionary(let pairFields) = pair.provenanceValue else { return XCTFail("expected a dictionary") }
+        XCTAssertEqual(pairFields["scannedRecords"], .null)
+        XCTAssertEqual(pairFields["scannedWholeFile"], .null)
+        XCTAssertEqual(pairFields["pairs"], .null)
+        XCTAssertEqual(pairFields["unpairedReads"], .null)
+    }
 }

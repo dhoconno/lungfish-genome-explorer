@@ -84,6 +84,51 @@ final class AssembleReadLayoutTests: XCTestCase {
         }
     }
 
+    /// Item 12, assembly. A stated interleaved layout that a whole scan outranked records that scan and a word for the
+    /// person. A stated layout that stands read nothing, so its record holds null and not 0.
+    func testAssemblyRecordCarriesTheScanFields() throws {
+        let mixed = tempDir.appendingPathComponent("mixed-for-the-record.fastq")
+        try FASTQLayoutRecordFixtures.write([.pairs(60_000), .singles(20_000)], to: mixed)
+        func request(_ layout: FASTQInputLayout) -> AssemblyRunRequest {
+            AssemblyRunRequest(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                inputURLs: [mixed],
+                projectName: "mixed",
+                outputDirectory: tempDir.appendingPathComponent("out"),
+                threads: 2,
+                inputLayout: layout
+            )
+        }
+        let scanned = try XCTUnwrap(AssemblyRunRequest.resolveInputLayout(
+            tool: .spades,
+            readType: .illuminaShortReads,
+            pairedEnd: false,
+            explicit: .strictlyInterleaved,
+            originalInputURLs: [mixed],
+            executionInputURLs: [mixed]
+        ))
+        XCTAssertNotNil(AssembleCommand.readLayoutWarning(for: request(scanned.layout), resolution: scanned))
+        let options = AssembleCommand.assemblyResolvedOptions(
+            for: request(scanned.layout), originalInputURLs: [mixed], executionInputURLs: [mixed], layoutResolution: scanned
+        )
+        XCTAssertEqual(options["readLayout"], .string("mixed_merged_and_pairs"))
+        XCTAssertEqual(options["readLayoutSource"], .string("content_scan"))
+        XCTAssertEqual(options["scannedRecords"], .integer(140_000))
+        XCTAssertEqual(options["scannedWholeFile"], .boolean(true))
+        XCTAssertEqual(options["pairs"], .integer(60_000))
+        XCTAssertEqual(options["unpairedReads"], .integer(20_000))
+
+        let stated = FASTQInputLayoutResolver.resolve(inputURLs: [mixed], explicit: .singleEnd)
+        let statedOptions = AssembleCommand.assemblyResolvedOptions(
+            for: request(.singleEnd), originalInputURLs: [mixed], executionInputURLs: [mixed], layoutResolution: stated
+        )
+        XCTAssertEqual(statedOptions["scannedRecords"], .null)
+        XCTAssertEqual(statedOptions["scannedWholeFile"], .null)
+        XCTAssertEqual(statedOptions["pairs"], .null)
+        XCTAssertEqual(statedOptions["unpairedReads"], .null)
+    }
+
     func testMixedBundleResolvesToSingleReadsWithAWarning() throws {
         let bundle = try InterleavedFASTQFixture.writeMixedBundle(
             named: "vsp2", in: tempDir, pairCount: 5, mergedCount: 3, naming: .identical

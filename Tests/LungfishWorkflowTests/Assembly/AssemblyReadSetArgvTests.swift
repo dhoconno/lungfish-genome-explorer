@@ -139,6 +139,51 @@ final class AssemblyReadSetArgvTests: XCTestCase {
         ])
     }
 
+    /// The manager's ruling on BIO's B4. A stated interleaved layout on a file of pairs beside single reads resolves mixed,
+    /// so each assembler takes the file as single reads, and no flag forms a pair by position.
+    func testAStatedInterleavedMixedFileReachesEachAssemblerAsSingleReads() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stated-mixed-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mixed = directory.appendingPathComponent("mixed.fastq")
+        try FASTQLayoutRecordFixtures.write([.pairs(60), .singles(20)], to: mixed)
+        let expected: [AssemblyTool: [String]] = [
+            .spades: ["-s", mixed.path],
+            .megahit: ["-r", mixed.path],
+            .skesa: ["--reads", mixed.path],
+        ]
+        for tool in [AssemblyTool.spades, .megahit, .skesa] {
+            let resolution = try XCTUnwrap(AssemblyRunRequest.resolveInputLayout(
+                tool: tool,
+                readType: .illuminaShortReads,
+                pairedEnd: false,
+                explicit: .strictlyInterleaved,
+                originalInputURLs: [mixed],
+                executionInputURLs: [mixed]
+            ))
+            XCTAssertEqual(resolution.layout, .mixedMergedAndPairs, tool.rawValue)
+            XCTAssertEqual(resolution.source, .contentScan, tool.rawValue)
+            let request = AssemblyRunRequest(
+                tool: tool,
+                readType: .illuminaShortReads,
+                inputURLs: [mixed],
+                projectName: "mixed",
+                outputDirectory: directory.appendingPathComponent("out-\(tool.rawValue)", isDirectory: true),
+                threads: 2,
+                inputLayout: resolution.layout
+            )
+            XCTAssertEqual(request.readPairing, .single, tool.rawValue)
+            let arguments = try ManagedAssemblyPipeline.buildCommand(for: request, host: host).arguments
+            let flagged = try XCTUnwrap(expected[tool])
+            let flagIndex = try XCTUnwrap(arguments.firstIndex(of: flagged[0]), "\(tool.rawValue): \(arguments)")
+            XCTAssertEqual(arguments[flagIndex + 1], mixed.path, tool.rawValue)
+            for pairing in ["--12", "-1", "-2", "--use_paired_ends"] {
+                XCTAssertFalse(arguments.contains(pairing), "\(tool.rawValue) was given \(pairing): \(arguments)")
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private let host = AssemblyExecutionHost(operatingSystem: .other, architecture: "x86_64")
