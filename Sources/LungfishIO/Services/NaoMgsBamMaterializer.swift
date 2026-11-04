@@ -393,22 +393,11 @@ public enum NaoMgsBamMaterializer {
                 let db = database.value
                 let hasPairedColumns = virusHitsHasPairedColumns(db: db)
                 var rowStmt: OpaquePointer?
-                let rowSQL: String
-                if hasPairedColumns {
-                    rowSQL = """
-                    SELECT seq_id, subject_seq_id, ref_start, cigar, read_sequence, read_quality, is_reverse_complement,
-                           ref_start_rev, read_sequence_rev, read_quality_rev, edit_distance_rev, query_length_rev,
-                           is_reverse_complement_rev
-                    FROM virus_hits
-                    WHERE sample = ?
-                    """
-                } else {
-                    rowSQL = """
-                    SELECT seq_id, subject_seq_id, ref_start, cigar, read_sequence, read_quality, is_reverse_complement
-                    FROM virus_hits
-                    WHERE sample = ?
-                    """
-                }
+                // Columns 7 to 12 are the mate's, and only a paired database has them.
+                let pairedColumns = hasPairedColumns
+                    ? ", ref_start_rev, read_sequence_rev, read_quality_rev, edit_distance_rev, query_length_rev, is_reverse_complement_rev" : ""
+                let rowSQL = "SELECT seq_id, subject_seq_id, ref_start, cigar, read_sequence, read_quality, is_reverse_complement"
+                    + "\(pairedColumns) FROM virus_hits WHERE sample = ?"
                 guard sqlite3_prepare_v2(db, rowSQL, -1, &rowStmt, nil) == SQLITE_OK else {
                     writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 4,
                                                userInfo: [NSLocalizedDescriptionKey: "Could not prepare row query"])
@@ -438,21 +427,17 @@ public enum NaoMgsBamMaterializer {
                     // Skip rows where neither R1 nor R2 has valid data
                     if !hasR1 && !hasR2 { continue }
 
+                    /// The text of column `index`, empty when the mate is absent or the column is NULL.
+                    func columnText(_ index: Int32, _ present: Bool) -> String {
+                        guard present, let ptr = sqlite3_column_text(rowStmt, index) else { return "" }
+                        return String(cString: ptr)
+                    }
+
                     // Extract R1 fields (only when hasR1)
                     let refStart = hasR1 ? Int(sqlite3_column_int64(rowStmt, 2)) : 0
-                    let cigar: String = {
-                        guard hasR1, let ptr = sqlite3_column_text(rowStmt, 3) else { return "" }
-                        let s = String(cString: ptr)
-                        return s.isEmpty ? "" : s
-                    }()
-                    let seq: String = {
-                        guard hasR1, let ptr = sqlite3_column_text(rowStmt, 4) else { return "" }
-                        return String(cString: ptr)
-                    }()
-                    let qual: String = {
-                        guard hasR1, let ptr = sqlite3_column_text(rowStmt, 5) else { return "" }
-                        return String(cString: ptr)
-                    }()
+                    let cigar = columnText(3, hasR1)
+                    let seq = columnText(4, hasR1)
+                    let qual = columnText(5, hasR1)
                     let isReverse = hasR1 ? sqlite3_column_int(rowStmt, 6) != 0 : false
 
                     // Validate R1 data: if flagged as present but CIGAR empty and seq invalid, downgrade
@@ -460,14 +445,8 @@ public enum NaoMgsBamMaterializer {
 
                     // Extract R2 fields (only when hasR2)
                     let refStartRev = hasR2 ? Int(sqlite3_column_int64(rowStmt, 7)) : 0
-                    let seqRev: String = {
-                        guard hasR2, let ptr = sqlite3_column_text(rowStmt, 8) else { return "" }
-                        return String(cString: ptr)
-                    }()
-                    let qualRev: String = {
-                        guard hasR2, let ptr = sqlite3_column_text(rowStmt, 9) else { return "" }
-                        return String(cString: ptr)
-                    }()
+                    let seqRev = columnText(8, hasR2)
+                    let qualRev = columnText(9, hasR2)
                     let queryLengthRev = hasR2 ? Int(sqlite3_column_int(rowStmt, 11)) : 0
                     let isReverseRev = hasR2 ? sqlite3_column_int(rowStmt, 12) != 0 : false
                     let validR2 = hasR2 && !seqRev.isEmpty && seqRev != "NA" && !qualRev.isEmpty
