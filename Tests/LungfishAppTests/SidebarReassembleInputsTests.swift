@@ -215,6 +215,50 @@ final class SidebarReassembleInputsTests: XCTestCase {
         XCTAssertEqual(paths(inputFiles), paths(shapes.looseFiles))
     }
 
+    /// The gate behind the question. Declined, the wizard stays closed. Agreed, it opens on the same reads. This one
+    /// test holds the assertions of both reviews (BIO's ask-first test and UX SF2 are the same test).
+    func testDecliningTheQuestionKeepsTheWizardClosedAndAgreeingOpensIt() async throws {
+        let original = try await assembleInProcess(shapes.looseFiles, name: "gated-assembly")
+        let recordURL = original.bundle.appendingPathComponent("assembly/provenance.json")
+        let withoutChecksums = try String(contentsOf: recordURL, encoding: .utf8)
+            .replacingOccurrences(of: #"\n\s*"sha256" : "[0-9a-f]+","#, with: "", options: .regularExpression)
+        try withoutChecksums.write(to: recordURL, atomically: true, encoding: .utf8)
+
+        sidebar.openProject(at: project)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        window.isReleasedWhenClosed = false
+        window.contentViewController = sidebar
+        defer {
+            window.contentViewController = nil
+            window.close()
+        }
+        XCTAssertTrue(sidebar.selectItem(forURL: original.bundle))
+
+        var questions: [String] = []
+        var presented: [[URL]] = []
+        await sidebar.reassembleSelectedSidebarBundle(
+            presentWizard: { _, inputFiles, _, _ in presented.append(inputFiles) },
+            askAboutUncheckedReads: { question in questions.append(question); return false }
+        )
+        XCTAssertEqual(questions.count, 1, "the press asks once")
+        XCTAssertTrue(questions.first?.contains("holds no checksum for") == true, "\(questions)")
+        XCTAssertTrue(presented.isEmpty, "declined, the wizard stays closed")
+
+        await sidebar.reassembleSelectedSidebarBundle(
+            presentWizard: { _, inputFiles, _, _ in presented.append(inputFiles) },
+            askAboutUncheckedReads: { question in questions.append(question); return true }
+        )
+        XCTAssertEqual(questions.count, 2, "the second press asks once more")
+        XCTAssertTrue(questions.allSatisfy { $0.contains("holds no checksum for") }, "\(questions)")
+        XCTAssertEqual(presented.count, 1, "agreed, the wizard opens")
+        XCTAssertEqual(paths(try XCTUnwrap(presented.first)), paths(shapes.looseFiles))
+    }
+
     // MARK: - Helpers
 
     private struct InProcessAssembly {
