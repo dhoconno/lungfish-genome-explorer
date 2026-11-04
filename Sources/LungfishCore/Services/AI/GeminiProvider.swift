@@ -58,9 +58,21 @@ public actor GeminiProvider: AIProvider {
         switch httpResponse.statusCode {
         case 200...299:
             return try parseResponse(data)
-        case 401, 403:
+        case 401:
             throw AIProviderError.missingAPIKey
+        case 403:
+            // Gemini answers 403 for a key without access or a project with restricted
+            // access or billing. That is not a missing key, so the provider's words go through.
+            throw AIProviderError.httpError(
+                statusCode: 403,
+                message: parseErrorMessage(data) ?? "Permission denied"
+            )
         case 429:
+            if isGeminiQuotaError(data) {
+                throw AIProviderError.quotaExceeded(
+                    parseErrorMessage(data) ?? "Gemini reported that the quota is used up."
+                )
+            }
             throw AIProviderError.rateLimited(retryAfter: nil)
         case 400:
             let errorMessage = parseErrorMessage(data) ?? "Bad request"

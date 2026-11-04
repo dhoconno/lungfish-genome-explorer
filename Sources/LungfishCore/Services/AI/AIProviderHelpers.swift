@@ -191,3 +191,15 @@ func isAnthropicSpendLimitError(_ data: Data) -> Bool {
     guard let details = parseErrorObject(data)?["details"] as? [String: Any] else { return false }
     return (details["error_code"] as? String) == "enforced_spend_limit_reached"
 }
+
+/// Returns whether a Gemini 429 response body reports the daily quota, which is a
+/// string `error.code` of `quota_exceeded`.
+///
+/// `rate_limit_exceeded` (per minute or per second) and `too_many_requests` (a short
+/// burst) are rate limits. Older replies carry a numeric `code` and a string `status`,
+/// and those keep being read as a rate limit.
+///
+/// - Parameter data: The raw HTTP response body.
+func isGeminiQuotaError(_ data: Data) -> Bool {
+    (parseErrorObject(data)?["code"] as? String) == "quota_exceeded"
+}
