@@ -5,7 +5,7 @@ import LungfishWorkflow
 extension AppDelegate {
   @objc func showPCRPrimerDesign(_ sender: Any?) {
     guard let controller = activeMainWindowController(sender: sender), let window = controller.window else {
-      NSSound.beep()
+      NoProjectPresenterSeam.presenter.present(title: "No Project Open", message: "Open a project before designing primers.", on: nil)
       return
     }
     guard let projectURL = controller.projectSession.projectURL

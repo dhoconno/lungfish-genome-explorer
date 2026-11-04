@@ -216,7 +216,7 @@ final class MetadataExportSheet: NSViewController {
 
     @objc private func exportCSV(_ sender: Any?) {
         guard !selectedIndices.isEmpty else {
-            NSSound.beep()
+            countLabel.stringValue = ViewerRefusalReports.metadataNothingToExport
             return
         }
 
@@ -584,7 +584,7 @@ final class MetadataImportSheet: NSViewController {
     @objc private func performImport(_ sender: Any?) {
         let updatable = matchResults.filter { $0.existingKey != nil }
         guard !updatable.isEmpty else {
-            NSSound.beep()
+            summaryLabel.stringValue = ViewerRefusalReports.metadataNothingToImport
             return
         }
         guard canWriteFolderMetadata(workflowName: "Project metadata import") else { return }
