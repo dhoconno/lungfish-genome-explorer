@@ -84,6 +84,49 @@ final class TaxTriageControlNoticeTests: XCTestCase {
         XCTAssertTrue(words.contains("Give each sample a name that stays different"), words)
     }
 
+    /// BIO review, blocker 2. The app's own index build keeps the rows of one of two folders whose names meet and only
+    /// logs it (`LungfishCLIRunner.buildClassifierDatabase`), so the strip is where a person can read that a sample's
+    /// rows are not in the table. The database holds the one name build-db keeps, `A_1`.
+    func testViewerSaysWhenTwoOrdinarySamplesMeetAndTheResultsHoldOne() throws {
+        let fixture = try Fixture(
+            listed: [("sample-1", false), ("A (1)", false), ("A_1", false)],
+            databaseSamples: ["sample-1", "A_1"]
+        )
+        defer { fixture.cleanUp() }
+        let vc = fixture.makeController()
+
+        let words = try XCTUnwrap(vc.testControlsNotRecordedNoticeWords, "the viewer said nothing about a sample whose rows are left out")
+        XCTAssertTrue(words.contains("A (1) and A_1 are both named A_1 in the results"), words)
+        XCTAssertTrue(words.contains("the results hold only one sample"), words)
+        XCTAssertTrue(words.contains("Give each sample a name that stays different"), words)
+    }
+
+    /// Two controls that meet: the dropped one's organisms are gone and the other reads clean for them.
+    func testViewerSaysWhenTwoControlsMeetAndTheResultsHoldOne() throws {
+        let fixture = try Fixture(
+            listed: [("sample-1", false), ("NTC 1", true), ("NTC_1", true)],
+            databaseSamples: ["sample-1", "NTC_1"]
+        )
+        defer { fixture.cleanUp() }
+        let vc = fixture.makeController()
+
+        let words = try XCTUnwrap(vc.testControlsNotRecordedNoticeWords, "the viewer said nothing about two controls that meet")
+        XCTAssertTrue(words.contains("NTC 1 and NTC_1 are both named NTC_1 in the results"), words)
+        XCTAssertTrue(words.contains("the results hold only one sample"), words)
+    }
+
+    /// Both samples are in the results under the numbered names the pipeline gives them, so nothing is left out.
+    func testViewerSaysNothingWhenTwoSampleNamesMeetAndTheResultsHoldBoth() throws {
+        let fixture = try Fixture(
+            listed: [("sample-1", false), ("A (1)", false), ("A_1", false)],
+            databaseSamples: ["sample-1", "A_1_T1", "A_1_T2"]
+        )
+        defer { fixture.cleanUp() }
+        let vc = fixture.makeController()
+
+        XCTAssertNil(vc.testControlsNotRecordedNoticeWords)
+    }
+
     /// A control that ran and found nothing needs no notice.
     func testViewerSaysNothingWhenEveryControlRan() throws {
         let fixture = try Fixture(

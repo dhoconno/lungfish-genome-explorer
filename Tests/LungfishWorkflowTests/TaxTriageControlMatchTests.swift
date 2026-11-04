@@ -73,20 +73,40 @@ final class TaxTriageControlMatchTests: XCTestCase {
         )
     }
 
-    func testNoNoteWhenTheSamplesThatMeetAreAllControlsOrNoneIs() {
+    func testNotesTellWhenTheSamplesThatMeetAreAllControlsOrNoneIsAndTheResultsHoldFewer() {
+        let words = "A b and A_b are both named A_b in the results, and the results hold only one sample"
         let controls = TaxTriageControlMatch(
             samples: [sample("A b", control: true), sample("A_b", control: true)],
             failedSampleIDs: [],
             databaseSampleIds: ["A_b"]
         )
-        XCTAssertTrue(controls.notes.isEmpty)
+        XCTAssertEqual(controls.notes.count, 1, "\(controls.notes)")
+        XCTAssertTrue(controls.notes.joined().contains(words), "\(controls.notes)")
         let samples = TaxTriageControlMatch(
             samples: [sample("A b"), sample("A_b"), sample("NTC1", control: true)],
             failedSampleIDs: [],
             databaseSampleIds: ["A_b", "NTC1"]
         )
-        XCTAssertTrue(samples.notes.isEmpty)
+        XCTAssertEqual(samples.notes.count, 1, "\(samples.notes)")
+        XCTAssertTrue(samples.notes.joined().contains(words), "\(samples.notes)")
         XCTAssertEqual(samples.controlSampleIds, ["NTC1"])
+    }
+
+    /// Nothing is left out when the results hold every sample that meets, under the numbered names the pipeline gives
+    /// them, or when the sample that is missing is one the run lists as failed.
+    func testNoNoteWhenTheResultsHoldEverySampleThatMeetsOrTheMissingOneFailed() {
+        let both = TaxTriageControlMatch(
+            samples: [sample("A b"), sample("A_b"), sample("NTC1", control: true)],
+            failedSampleIDs: [],
+            databaseSampleIds: ["A_b_T1", "A_b_T2", "NTC1"]
+        )
+        XCTAssertTrue(both.notes.isEmpty, "\(both.notes)")
+        let failedOne = TaxTriageControlMatch(
+            samples: [sample("A b"), sample("A_b")],
+            failedSampleIDs: ["A b"],
+            databaseSampleIds: ["A_b"]
+        )
+        XCTAssertTrue(failedOne.notes.isEmpty, "\(failedOne.notes)")
     }
 
     /// A number the pipeline would not have written is not a claim on the sample.
