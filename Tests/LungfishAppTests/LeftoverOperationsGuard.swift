@@ -34,6 +34,17 @@ extension OperationCenter {
         _ = complete(id: id, detail: "Test finished")
         clearItem(id: id)
     }
+
+    /// Stops a row that a test began, then ends and removes it. `cancel(id:)` alone leaves a row Cancelling until its
+    /// worker settles it, which is after the test's case has ended, and does nothing to a row with no Cancel
+    /// callback. `clearItem` removes only a row that has ended, so both left the row for the observer to name
+    /// (BLASTCOLLECT, `BlastRowWordsTests` and `BlastSubmitParkedRouteTests`). A waiting row takes the Cancel, whose
+    /// callback runs the stand-in's stop, and `complete` then settles the Cancelling row at once as Cancelled.
+    @MainActor
+    func cancelFinishAndClearForTest(id: UUID) {
+        cancel(id: id)
+        finishAndClearForTest(id: id)
+    }
 }
 
 /// Fails at once when an earlier test left a genotype comment or review saving or waiting for its workbook.

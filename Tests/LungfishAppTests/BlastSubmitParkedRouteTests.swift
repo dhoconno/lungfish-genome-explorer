@@ -128,8 +128,7 @@ final class BlastSubmitParkedRouteTests: XCTestCase {
         XCTAssertEqual(spy.results, 0)
         XCTAssertEqual(spy.searches.last?.file.copies.first?.rid, "RID-PARKED")
         XCTAssertFalse(OperationCenter.shared.activeItems.contains { $0.id == id }, "a waiting row raises no quit alert")
-        OperationCenter.shared.cancel(id: id)
-        OperationCenter.shared.clearItem(id: id)
+        OperationCenter.shared.cancelFinishAndClearForTest(id: id)
     }
 
     /// One case a viewer: the pane each route's drawer fills reads waiting, with no failure words.
@@ -280,17 +279,14 @@ final class BlastSubmitParkedRouteTests: XCTestCase {
         OperationCenter.shared.cancel(id: id)
         let stopped = await waitUntil(timeout: .seconds(30)) { calls.all.contains("stop") }
         XCTAssertTrue(stopped)
-        OperationCenter.shared.clearItem(id: id)
+        OperationCenter.shared.finishAndClearForTest(id: id)
     }
 
     func testCheckNowAndSendAgainEachRunOnePassWithTheirOption() async throws {
         let (monitor, line, output, calls) = try monitorFixture()
         await monitor.refresh()
         let row = try XCTUnwrap(monitor.row(ofSearch: line.searchID))
-        defer {
-            OperationCenter.shared.cancel(id: row)
-            OperationCenter.shared.clearItem(id: row)
-        }
+        defer { OperationCenter.shared.cancelFinishAndClearForTest(id: row) }
 
         monitor.perform(.checkNow, folder: output)
         let checked = await waitUntil(timeout: .seconds(30)) { calls.all.contains("--check-now") }

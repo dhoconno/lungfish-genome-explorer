@@ -17,10 +17,7 @@ final class BlastRowWordsTests: XCTestCase {
     private var rows: [UUID] = []
 
     override func tearDown() async throws {
-        for row in rows {
-            OperationCenter.shared.cancel(id: row)
-            OperationCenter.shared.clearItem(id: row)
-        }
+        for row in rows { OperationCenter.shared.cancelFinishAndClearForTest(id: row) }
         rows = []
         try await super.tearDown()
     }
