@@ -964,9 +964,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         }
                     )
                 }
-                if allowed {
-                    await self.cancelAndAwaitProjectTasksForTermination()
-                }
+                if allowed { allowed = await self.cancelAndAwaitProjectTasksForTermination() }
                 self.manualHaplotypeTerminationTask = nil
                 if allowed {
                     self.isReenteringManualHaplotypeTermination = true
@@ -1015,11 +1013,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// A project task can retain its store across an await. Cancellation alone
     /// does not end that ownership, so termination waits for the cancelled tasks
     /// before allowing AppKit to run the synchronous writer-lease cleanup hook.
-    private func cancelAndAwaitProjectTasksForTermination() async {
+    /// It returns `false` when a genotype edit is still unsaved and the person chose not to quit.
+    private func cancelAndAwaitProjectTasksForTermination() async -> Bool {
         for controller in mainWindowControllers {
             controller.mainSplitViewController?.invalidateDisplayRequest()
         }
         await ProjectTaskTerminationRegistry.cancelAndWait()
+        return await GenotypeEditQuitConfirmation.mayQuit(presentingOn: mainWindowController?.window)
     }
 
     private func prepareForManualHaplotypeTermination(
