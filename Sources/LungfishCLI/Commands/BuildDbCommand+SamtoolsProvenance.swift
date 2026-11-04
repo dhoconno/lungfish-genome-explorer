@@ -228,7 +228,9 @@ final class BuildDbSamtoolsProvenanceTracker {
             inputs: [descriptor(url: bamURL, format: .bam, role: .input)],
             outputs: []
         )
-        guard invocation.result.isSuccess else {
+        // samtools exits 0 and prints 0 for an accession the BAM lacks, and says so on stderr. That is no count, so the
+        // row keeps the count it was parsed with (ESVUNIQUE-BIO-2 Backlog 1).
+        guard invocation.result.isSuccess, !invocation.result.stderr.contains("unknown reference") else {
             throw MarkdupError.pipelineFailed(stage: "count", stderr: invocation.result.stderr)
         }
         // Output that is not a count is a failed count, never 0 (BIO's Q-A3 item 6).
