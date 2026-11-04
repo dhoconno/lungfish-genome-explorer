@@ -3532,6 +3532,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Returns the summary bar for testing.
     public var testSummaryBar: TaxTriageSummaryBar { summaryBar }
 
+    /// The words the not-recorded notice shows above the table, nil while it is hidden.
+    var testControlsNotRecordedNoticeWords: String? { nil }
+
     /// Returns the organism table view for testing.
     var testOrganismTableView: TaxTriageOrganismTableView { organismTableView }
 
