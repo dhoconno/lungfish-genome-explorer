@@ -2076,10 +2076,10 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     }
 
     private func scheduleDeferredMatrixAnnotationRetry() {
-        guard deferredMatrixAnnotationMutationCount > 0,
-              deferredMatrixAnnotationRetryTask == nil else { return }
-        deferredMatrixAnnotationRetryTask = matrixAnnotationRetryScheduler.schedule {
-            [weak self] in
+        guard deferredMatrixAnnotationMutationCount > 0, deferredMatrixAnnotationRetryTask == nil else { return }
+        let hold = GenotypeWaitingRetryHold()  // a waiting retry counts as saving, so Quit waits for it (QUITEDIT)
+        deferredMatrixAnnotationRetryTask = matrixAnnotationRetryScheduler.schedule { [weak self] in
+            defer { hold.release() }
             guard let self else { return }
             self.deferredMatrixAnnotationRetryTask = nil
             GenotypeAnnotationPublicationChain.startEdit { await self.retryDeferredMatrixAnnotationMutations() }

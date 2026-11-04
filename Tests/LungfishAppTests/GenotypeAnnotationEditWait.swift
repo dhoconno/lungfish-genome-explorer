@@ -8,12 +8,13 @@ import XCTest
 /// bundle the edit writes to. An edit left running past its test fails once the bundle is gone,
 /// and its alert would then run modal with no window and hold every later test. The wait gives
 /// up after 60 seconds and fails the test, so an edit that never ends cannot hang the unit tier
-/// (2.11 S35 review fix 8).
+/// (2.11 S35 review fix 8). A retry that waits for the workbook publication lock is not running, so this does
+/// not wait for it. A test that holds the lock frees it and fires the retry itself (QUITEDIT).
 @MainActor
 func waitForAnnotationEdits(file: StaticString = #filePath, line: UInt = #line) async {
-    await GenotypeResultViewController.waitForAnnotationEditsToSave(timeout: .seconds(60))
+    await GenotypeResultViewController.waitForAnnotationEditsToSave(timeout: .seconds(60), includingWaitingRetries: false)
     XCTAssertFalse(
-        GenotypeResultViewController.isSavingAnnotationEdits,
+        GenotypeAnnotationPublicationChain.hasEditsInFlightEverywhere,
         "an annotation edit did not end within 60 s",
         file: file,
         line: line
