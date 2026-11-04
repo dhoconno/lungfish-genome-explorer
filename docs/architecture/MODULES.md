@@ -13,7 +13,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | Lungfish | executable | Sources/Lungfish | 0 | LungfishApp, LungfishCore |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishApp | library | Sources/LungfishApp | 159 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI, LungfishWorkflow |
-| LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 2 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 0 | LungfishCLI |
 | LungfishCore | library | Sources/LungfishCore | 343 | LungfishPortable |
@@ -351,6 +351,7 @@ None.
 ### Public types
 
 - `AssemblyPanelLayout` enum, `Sources/LungfishAssemblyUI/AssemblyLayoutPreference.swift`
+- `AssemblyResultSurface` class, `Sources/LungfishAssemblyUI/AssemblyResultSurface.swift`
 - `AssemblyResultViewController` class, `Sources/LungfishAssemblyUI/AssemblyResultViewController.swift`
 
 ## LungfishCLI
