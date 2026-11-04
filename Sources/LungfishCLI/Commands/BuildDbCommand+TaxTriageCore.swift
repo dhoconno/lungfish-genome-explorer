@@ -138,6 +138,7 @@ extension BuildDbCommand {
                 let accessionMap = resolvedInput.accessionMap
 
                 events.text("Parsed \(rows.count) taxonomy rows, \(accessionMap.count) accession entries from \(resolvedInput.sourceDescription)")
+                for line in resolvedInput.lines { events.text(line) }
 
                 // 3. Build database
                 let metadata: [String: String] = [
@@ -539,36 +540,68 @@ extension BuildDbCommand {
             case topReport = "top_report"
         }
 
+        /// Reads the taxonomy rows of a result folder, its own report first and then the sample folders of a batch
+        /// root, in byte order of their names (lane TTBUILDDB, BIO ruling 3 of TTIMPORT). A folder reused for a later
+        /// batch holds both. `report/` is the folder's own report folder, so it is never read as a sample folder.
+        /// When a sample name was already read from an earlier source, the later rows with that name are left out,
+        /// and `lines` names each such clash and the folders read beside the root report.
         private func resolveTaxonomyRows(
             resultURL: URL
         ) throws -> (
             rows: [TaxTriageTaxonomyRow],
             accessionMap: [TaxTriageAccessionEntry],
             sourceDescription: String,
-            sources: [TaxonomySource]
+            sources: [TaxonomySource],
+            lines: [String]
         ) {
-            if let parsed = try parseSingleTaxTriageResult(resultURL: resultURL) {
-                return (parsed.rows, parsed.accessionMap, parsed.sourceDescription, [parsed.source])
+            let root = try parseSingleTaxTriageResult(resultURL: resultURL)
+            var rows = root?.rows ?? []
+            var accessionMap = root?.accessionMap ?? []
+            var sources = root.map { [$0.source] } ?? []
+            var seenSamples = Set(rows.map(\.sample))
+            var foldersRead: [String] = []
+            var clashes: [String] = []
+
+            for sampleResultURL in serialTaxTriageResultDirectories(in: resultURL)
+            where sampleResultURL.lastPathComponent != "report" {
+                try Task.checkCancellation()
+                guard let parsed = try parseSingleTaxTriageResult(resultURL: sampleResultURL) else { continue }
+                let directoryName = sampleResultURL.lastPathComponent
+                let names = Set(parsed.rows.map(\.sample))
+                let clashing = names.intersection(seenSamples)
+                clashes.append(contentsOf: clashing.sorted().map { "\($0) (folder \(directoryName))" })
+                seenSamples.formUnion(names)
+                rows.append(contentsOf: parsed.rows
+                    .filter { !clashing.contains($0.sample) }
+                    .map { prefixBAMPaths(in: $0, with: directoryName) })
+                accessionMap.append(contentsOf: parsed.accessionMap.filter { !clashing.contains($0.sample) })
+                if !sources.contains(parsed.source) { sources.append(parsed.source) }
+                foldersRead.append(directoryName)
             }
 
-            let serialResults = serialTaxTriageResultDirectories(in: resultURL)
-            if !serialResults.isEmpty {
-                var rows: [TaxTriageTaxonomyRow] = []
-                var accessionMap: [TaxTriageAccessionEntry] = []
-                var sources: [TaxonomySource] = []
-
-                for sampleResultURL in serialResults {
-                    try Task.checkCancellation()
-                    guard let parsed = try parseSingleTaxTriageResult(resultURL: sampleResultURL) else { continue }
-                    let directoryName = sampleResultURL.lastPathComponent
-                    rows.append(contentsOf: parsed.rows.map { prefixBAMPaths(in: $0, with: directoryName) })
-                    accessionMap.append(contentsOf: parsed.accessionMap)
-                    if !sources.contains(parsed.source) { sources.append(parsed.source) }
+            if let root {
+                var lines: [String] = []
+                if !foldersRead.isEmpty {
+                    lines.append(
+                        "Also read \(foldersRead.count) sample folder\(foldersRead.count == 1 ? "" : "s") beside the "
+                            + "root report (\(foldersRead.joined(separator: ", ")))."
+                    )
                 }
-
-                if !rows.isEmpty {
-                    return (rows, accessionMap, "serial sample result directories", sources)
+                if !clashes.isEmpty {
+                    lines.append(
+                        "Left out the rows of \(clashes.joined(separator: ", ")), sample names already read from an earlier report."
+                    )
                 }
+                let description = foldersRead.isEmpty
+                    ? root.sourceDescription
+                    : "\(root.sourceDescription) and serial sample result directories"
+                return (rows, accessionMap, description, sources, lines)
+            }
+            if !rows.isEmpty {
+                let lines = clashes.isEmpty ? [] : [
+                    "Left out the rows of \(clashes.joined(separator: ", ")), sample names already read from an earlier report."
+                ]
+                return (rows, accessionMap, "serial sample result directories", sources, lines)
             }
 
             throw ValidationError(
