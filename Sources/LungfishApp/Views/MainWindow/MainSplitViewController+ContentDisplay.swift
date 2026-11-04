@@ -884,7 +884,7 @@ extension MainSplitViewController {
         } catch {
             mainSplitLogger.error("displayAssemblyAnalysis: Failed to open \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
             recordUITestEvent("assembly.display.failed \(url.lastPathComponent) error=\(error.localizedDescription)")
-            inspectorController.clearSelection()
+            inspectorController.viewModel.documentSectionViewModel.updateAssemblyDocument(nil)
             viewerController.clearViewport(statusMessage: viewerController.surfaceFailureWords("Unable to open the assembly.", error, orElse: "Select the item again. If it still does not open, check that the assembly's folder is complete or run the assembly again."))
         }
     }
