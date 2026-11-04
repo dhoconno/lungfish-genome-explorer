@@ -2261,7 +2261,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     /// Shows the BLAST configuration popover anchored to `anchorRect` of `view`.
     private func showBlastConfigPopover(for row: NaoMgsTaxonSummaryRow, anchorRect: NSRect, in view: NSView) {
-        guard database != nil, onBlastVerification != nil else { return }
+        guard database != nil, onBlastVerification != nil else { if database == nil { resultActions.showBlastFailure(ClassifierActionWords.verifyDatabaseDidNotOpen) }; return }
         let uniqueCount = row.uniqueReadCount
         guard uniqueCount > 0 else { return }
 
@@ -2300,7 +2300,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// the table is empty (merged/batch databases), falls back to extracting
     /// reads from the sample's BAM file via `samtools view`.
     func executeBlastVerification(_ selection: BlastMenuSelection) {
-        guard let database else { return }
+        guard let database else { return resultActions.showBlastFailure(ClassifierActionWords.verifyDatabaseDidNotOpen) }
 
         let row = selection.row
         let sample = row.sample

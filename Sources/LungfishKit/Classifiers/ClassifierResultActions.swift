@@ -67,6 +67,9 @@ public enum ClassifierActionWords {
     /// R6, BLAST when the result's database is missing.
     public static let verifyNeedsTheDatabase =
         "Verify with BLAST needs this result's database, which is missing. Import the result again to use BLAST."
+    /// R6, BLAST when the result's database did not open (BLAST-ENABLED-WITH-NO-DATABASE).
+    public static let verifyDatabaseDidNotOpen =
+        "Verify with BLAST needs this result's database, which did not open. Close the result and open it again."
     /// R7, the fallback when a copied Kraken2 result cannot reach its reads and the copy receipt gives no reason.
     public static let sourceReadsMissing =
         "LGE can't find the reads this result came from, so they can't be extracted or checked with BLAST."
@@ -159,6 +162,11 @@ public final class ClassifierResultActions: NSObject {
     /// The viewer opens or closes the pane's space.
     public var onBlastDrawerOpenChanged: (@MainActor (Bool) -> Void)?
 
+    /// True when the pane's Re-run BLAST sends the picked row again (NVD's), so the button greys with the bar's Verify
+    /// with BLAST and says why. A pane whose Re-run repeats the search it shows (TaxTriage's) stays enabled, and a pane
+    /// with no Re-run action hides the button itself.
+    private let rerunFollowsSelection: Bool
+
     public override convenience init() {
         self.init(blastDrawer: BlastResultsDrawerTab())
     }
@@ -166,9 +174,10 @@ public final class ClassifierResultActions: NSObject {
     /// Fills `blastDrawer` instead of a pane of its own. A viewer whose BLAST results sit in a resizable
     /// `BlastResultsDrawerContainerView` hands over that container's pane, so the pane the component fills is the
     /// one the viewer shows (lane ADOPT, for NAO-MGS, EsViritu and NVD).
-    public init(blastDrawer: BlastResultsDrawerTab) {
+    public init(blastDrawer: BlastResultsDrawerTab, rerunFollowsSelection: Bool = false) {
         bar = ClassifierActionBar()
         self.blastDrawer = blastDrawer
+        self.rerunFollowsSelection = rerunFollowsSelection
         blastResultsButton = Self.makeBlastResultsButton()
         super.init()
         blastResultsButton.target = self
@@ -183,7 +192,7 @@ public final class ClassifierResultActions: NSObject {
     public func showNoSelection(prompt: String) {
         scheduleSavedBlastRestore(for: nil)
         bar.updateInfoText(prompt)
-        bar.setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
+        setBlastEnabled(false, reason: ClassifierActionWords.selectRowToVerify)
         bar.setExtractEnabled(false, reason: ClassifierActionWords.selectRowsToExtract)
     }
 
@@ -201,9 +210,9 @@ public final class ClassifierResultActions: NSObject {
         scheduleSavedBlastRestore(for: count == 1 ? blastRow : nil)
         bar.updateInfoText(info ?? ClassifierActionWords.rowsSelected(count))
         if count == 1 {
-            bar.setBlastEnabled(true)
+            setBlastEnabled(true)
         } else {
-            bar.setBlastEnabled(false, reason: ClassifierActionWords.selectOneRowToVerify)
+            setBlastEnabled(false, reason: ClassifierActionWords.selectOneRowToVerify)
         }
         bar.setExtractEnabled(extractable, reason: extractable ? nil : extractReason)
     }
@@ -212,8 +221,18 @@ public final class ClassifierResultActions: NSObject {
     public func showSeveralSamples(info: String) {
         scheduleSavedBlastRestore(for: nil)
         bar.updateInfoText(info)
-        bar.setBlastEnabled(false, reason: ClassifierActionWords.chooseOneSampleToVerify)
+        setBlastEnabled(false, reason: ClassifierActionWords.chooseOneSampleToVerify)
         bar.setExtractEnabled(false)
+    }
+
+    /// The bar's BLAST button and, for a pane whose Re-run sends the picked row again, the pane's Re-run BLAST button
+    /// follow one rule and one reason, so a button that cannot act says why (NVD-RUN-AGAIN-STALE-CONTIG).
+    private func setBlastEnabled(_ enabled: Bool, reason: String? = nil) {
+        bar.setBlastEnabled(enabled, reason: reason)
+        guard rerunFollowsSelection else { return }
+        blastDrawer.rerunBlastButton.isEnabled = enabled
+        blastDrawer.rerunBlastButton.toolTip = enabled ? nil : reason
+        blastDrawer.rerunBlastButton.setAccessibilityHelp(enabled ? nil : reason)
     }
 
     // MARK: - Extraction

@@ -312,7 +312,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
     public var onOpenInBrowser: ((URL) -> Void)?
 
     /// Called when the user clicks "Re-run BLAST".
-    public var onRerunBlast: (() -> Void)?
+    public var onRerunBlast: (() -> Void)? { didSet { rerunBlastButton.isHidden = onRerunBlast == nil } }
 
     /// Called when the user clicks "Cancel" during loading.
     public var onCancelBlast: (() -> Void)?
@@ -1108,7 +1108,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         rerunBlastButton.font = .systemFont(ofSize: 11)
         rerunBlastButton.target = self
         rerunBlastButton.action = #selector(rerunBlastClicked(_:))
-        rerunBlastButton.setAccessibilityLabel("Re-run BLAST verification")
+        rerunBlastButton.isHidden = onRerunBlast == nil
         actionBar.addSubview(rerunBlastButton)
 
         NSLayoutConstraint.activate([

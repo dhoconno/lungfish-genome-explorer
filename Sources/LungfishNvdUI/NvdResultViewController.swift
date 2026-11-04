@@ -338,7 +338,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private let detailContentView = FlippedNvdContentView()
     /// The shared bar, BLAST Results button and BLAST results pane (lane ADOPT, plan exit check 4).
     public private(set) lazy var resultActions = ClassifierResultActions(
-        blastDrawer: blastDrawerContainer.blastResultsTab
+        blastDrawer: blastDrawerContainer.blastResultsTab, rerunFollowsSelection: true
     )
     var actionBar: ClassifierActionBar { resultActions.bar }
     private let groupingSegment = NSSegmentedControl(labels: ["By Sample", "By Taxon"], trackingMode: .selectOne, target: nil, action: nil)
@@ -1822,8 +1822,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - BLAST Verification
 
     private func blastVerifySelectedContig() {
+        guard let bundleURL, let database else { showBlastFailure(ClassifierActionWords.verifyDatabaseDidNotOpen); return }
         guard let hit = singleIdentityBackedSelectedHit() else { return }
-        guard let bundleURL, let database else { return }
 
         // Extract contig FASTA sequence. Every way this can fail is reported in
         // the BLAST drawer; logging alone made the button look inert.

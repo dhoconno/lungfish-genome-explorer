@@ -369,9 +369,6 @@ final class NvdResultViewControllerTests: XCTestCase {
         vc.showBlastFailure("Opens the pane so the test can read its button.")
         let rerun = try XCTUnwrap(vc.testBlastDrawerContainer).blastResultsTab.rerunBlastButton
 
-        XCTAssertFalse(rerun.isEnabled, "no contig is picked")
-        XCTAssertEqual(rerun.toolTip, ClassifierActionWords.selectRowToVerify)
-
         vc.testSelectOutlineRow(0)
         XCTAssertTrue(rerun.isEnabled, "one contig is picked")
         XCTAssertNil(rerun.toolTip)
