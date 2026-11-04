@@ -80,6 +80,13 @@ final class EsVirituExportCLIGUIParityReplayTests: XCTestCase {
         XCTAssertEqual(lines.count, 3)
         XCTAssertTrue(lines.count == 3 && lines[1].hasPrefix("sample-A\t") && lines[1].hasSuffix("\tcase"), "\(lines)")
         XCTAssertTrue(lines.count == 3 && lines[2].hasPrefix("sample-B\t") && lines[2].hasSuffix("\tcontrol"), "\(lines)")
+        // ESVIRITU-EXPORT-NO-UNIQUE-READS (O142). Both sides write the Unique Reads column right after Read Count,
+        // sample-A with its stored count and sample-B, whose count was never computed, with an empty cell.
+        let header = (lines.first ?? "").components(separatedBy: "\t")
+        let unique = try XCTUnwrap(header.firstIndex(of: "Unique Reads"), "the export header holds Unique Reads: \(header)")
+        XCTAssertEqual(header.firstIndex(of: "Read Count").map { $0 + 1 }, unique, "Unique Reads sits right after Read Count")
+        let cells = lines.dropFirst().map { $0.components(separatedBy: "\t") }
+        XCTAssertEqual(cells.map { $0.count > unique ? $0[unique] : "<no field>" }, ["31", ""], "an uncounted contig is empty, not 0")
         let resolved = try Self.envelope(in: runs.c.root).options.resolvedDefaults
         XCTAssertEqual(resolved["selectedSamples"]?.arrayValue?.compactMap(\.stringValue), ["sample-A", "sample-B"])
         XCTAssertEqual(resolved["rowCount"]?.integerValue, 2)
@@ -165,7 +172,10 @@ extension EsVirituExportCLIGUIParityReplayTests {
         try FileManager.default.createDirectory(at: metadata, withIntermediateDirectories: true)
         try EsVirituDatabase.create(
             at: result.appendingPathComponent(EsVirituDetectionExport.databaseFileName),
-            rows: [row(sample: "sample-A", accession: "NC_A", reads: 40), row(sample: "sample-B", accession: "NC_B", reads: 20)],
+            rows: [
+                row(sample: "sample-A", accession: "NC_A", reads: 40, uniqueReads: 31),
+                row(sample: "sample-B", accession: "NC_B", reads: 20, uniqueReads: nil),
+            ],
             metadata: ["tool": "test"]
         )
         try Data("Sample\tGroup\nsample-A\tcase\nsample-B\tcontrol\n".utf8)
@@ -173,12 +183,12 @@ extension EsVirituExportCLIGUIParityReplayTests {
         try Data("{}".utf8).write(to: result.appendingPathComponent(EsVirituBatchAggregatedManifest.filename))
     }
 
-    private static func row(sample: String, accession: String, reads: Int) -> EsVirituDetectionRow {
+    private static func row(sample: String, accession: String, reads: Int, uniqueReads: Int?) -> EsVirituDetectionRow {
         EsVirituDetectionRow(
             sample: sample, virusName: "Virus \(accession)", description: nil, contigLength: 100, segment: nil,
             accession: accession, assembly: "GCF_\(accession)", assemblyLength: 100, kingdom: "Viruses",
             phylum: nil, tclass: nil, torder: nil, family: "Testviridae", genus: nil, species: nil, subspecies: nil,
-            rpkmf: 1, readCount: reads, uniqueReads: reads, coveredBases: 90, meanCoverage: 2,
+            rpkmf: 1, readCount: reads, uniqueReads: uniqueReads, coveredBases: 90, meanCoverage: 2,
             avgReadIdentity: 99, pi: 0, filteredReadsInSample: 1_000, bamPath: nil, bamIndexPath: nil
         )
     }

@@ -77,6 +77,45 @@ final class EsVirituExportDetectionsCommandTests: XCTestCase {
         XCTAssertTrue(lines[2].hasSuffix("\tcontrol"))
     }
 
+    private static func uncountedRow(sample: String, accession: String, reads: Int) -> EsVirituDetectionRow {
+        EsVirituDetectionRow(
+            sample: sample, virusName: "Virus \(accession)", description: nil, contigLength: 100, segment: nil,
+            accession: accession, assembly: "GCF_\(accession)", assemblyLength: 100, kingdom: "Viruses",
+            phylum: nil, tclass: nil, torder: nil, family: "Testviridae", genus: nil, species: nil, subspecies: nil,
+            rpkmf: 1, readCount: reads, uniqueReads: nil, coveredBases: 90, meanCoverage: 2,
+            avgReadIdentity: 99, pi: 0, filteredReadsInSample: 1_000, bamPath: nil, bamIndexPath: nil
+        )
+    }
+
+    /// ESVIRITU-EXPORT-NO-UNIQUE-READS (O142). The leaf writes Unique Reads right after Read Count with the count the
+    /// database stores for each contig, and an empty cell for a contig whose count was never computed, never 0.
+    func testLeafWritesUniqueReadsBesideReadCountAndLeavesAnUncountedCellEmpty() throws {
+        let database = resultFolder.appendingPathComponent("esviritu.sqlite")
+        try FileManager.default.removeItem(at: database)
+        try EsVirituDatabase.create(
+            at: database,
+            rows: [
+                Self.row(sample: "sample-A", accession: "NC_A", reads: 40),
+                Self.uncountedRow(sample: "sample-B", accession: "NC_B", reads: 20),
+            ],
+            metadata: ["tool": "test"]
+        )
+        let output = folder.appendingPathComponent("unique.tsv")
+        _ = try command(leafArguments(output: output)).export()
+        let lines = try String(contentsOf: output, encoding: .utf8).split(separator: "\n")
+            .map { $0.components(separatedBy: "\t") }
+        XCTAssertEqual(lines.count, 3)
+        let header = lines.first ?? []
+        let readCount = try XCTUnwrap(header.firstIndex(of: "Read Count"), "the leaf's header holds Read Count")
+        let unique = try XCTUnwrap(header.firstIndex(of: "Unique Reads"), "the leaf's header holds Unique Reads: \(header)")
+        XCTAssertEqual(unique, readCount + 1, "Unique Reads sits right after Read Count")
+        XCTAssertEqual(lines.dropFirst().map { $0.count > unique ? $0[readCount] : "<no field>" }, ["40", "20"])
+        XCTAssertEqual(
+            lines.dropFirst().map { $0.count > unique ? $0[unique] : "<no field>" }, ["40", ""],
+            "sample-A writes its stored count and sample-B, never counted, writes an empty cell"
+        )
+    }
+
     func testSampleOptionCutsTheRows() throws {
         let output = folder.appendingPathComponent("one.tsv")
         _ = try command(leafArguments(output: output, extra: ["--sample", "sample-A"])).export()
