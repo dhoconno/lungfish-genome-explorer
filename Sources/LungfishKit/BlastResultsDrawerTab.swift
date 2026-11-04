@@ -346,6 +346,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
     private let summaryBar = NSView()
     private let summaryIcon = NSImageView()
     public let summaryLabel = NSTextField(labelWithString: "")
+    public lazy var judgedAtLabel = BlastJudgedAtLabel.installed(below: summaryBar, in: resultsContainer)
     public let lcaWarningLabel = NSTextField(labelWithString: "")
     public let confidenceLabel = NSTextField(labelWithString: "")
     public let confidenceDots = NSTextField(labelWithString: "")
@@ -442,12 +443,11 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         displayState = .results(result, recordURL: recordURL)
         shownSubject = subject
         let total = result.totalReads
+        judgedAtLabel.show(presentationStyle == .verification ? result.judgedAt?.judgedAtWords : nil)
 
         switch presentationStyle {
         case .verification:
-            let badgeWords = BlastTieWords.notSpecificSummary(for: result)
-            summaryLabel.stringValue = Self.verificationSummary(for: result, subject: subject) + (badgeWords.map { ". " + $0 } ?? "") + Self.collectedWords(recordURL: recordURL) + (result.judgedAt?.judgedAtWords.map { ". " + $0 } ?? "")
-            [summaryLabel, confidenceLabel].forEach { $0.toolTip = badgeWords; $0.setAccessibilityHelp(badgeWords) }
+            applyVerificationSummary(result: result, subject: subject, recordURL: recordURL)
 
             let confidence = result.confidence
             confidenceLabel.stringValue = confidence.displayLabel
@@ -742,7 +742,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             summaryBar.heightAnchor.constraint(equalToConstant: 36),
 
             // Results outline view (fills middle)
-            resultsScrollView.topAnchor.constraint(equalTo: summaryBar.bottomAnchor),
+            resultsScrollView.topAnchor.constraint(equalTo: judgedAtLabel.bottomAnchor),
             resultsScrollView.leadingAnchor.constraint(equalTo: resultsContainer.leadingAnchor),
             resultsScrollView.trailingAnchor.constraint(equalTo: resultsContainer.trailingAnchor),
             resultsScrollView.bottomAnchor.constraint(equalTo: actionBar.topAnchor),

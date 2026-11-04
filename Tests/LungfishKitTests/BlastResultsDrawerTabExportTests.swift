@@ -63,30 +63,57 @@ final class BlastResultsDrawerTabExportTests: XCTestCase {
 
     // MARK: - BLAST-ESVIRITU-FIRST-WORD (BIO): the pane and the table say what a row was judged at
 
-    private func summary(judgedAt basis: BlastTaxonomyContext.Basis?) -> String {
+    /// A pane that shows a result judged at `basis`, laid out 600 pt wide.
+    private func tab(judgedAt basis: BlastTaxonomyContext.Basis?) -> BlastResultsDrawerTab {
         var result = makeResult()
         result.judgedAt = basis
-        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
         tab.presentationStyle = .verification
         tab.showResults(result, recordURL: nil)
-        return tab.summaryLabel.stringValue
+        tab.layoutSubtreeIfNeeded()
+        return tab
     }
 
     func testRowJudgedByNamesSaysSoBesideItsCounts() {
-        let words = summary(judgedAt: .names)
+        let words = tab(judgedAt: .names).judgedAtLabel.stringValue
         XCTAssertTrue(words.contains("Judged by organism names"), words)
         XCTAssertTrue(words.contains("NCBI Taxonomy"), words)
     }
 
     func testRowJudgedByItsOwnTaxIdSaysSoBesideItsCounts() {
-        let words = summary(judgedAt: .rowTaxId)
+        let words = tab(judgedAt: .rowTaxId).judgedAtLabel.stringValue
         XCTAssertTrue(words.contains("Judged by this row's own tax ID and name"), words)
         XCTAssertTrue(words.contains("NCBI Taxonomy"), words)
     }
 
     func testASpeciesLevelRowAndAnOlderRecordShowNoJudgedLine() {
-        XCTAssertFalse(summary(judgedAt: .species).contains("Judged by"))
-        XCTAssertFalse(summary(judgedAt: nil).contains("Judged by"), "a record from before the field shows no line")
+        XCTAssertEqual(tab(judgedAt: .species).judgedAtLabel.stringValue, "")
+        XCTAssertEqual(tab(judgedAt: nil).judgedAtLabel.stringValue, "", "a record from before the field shows no line")
+    }
+
+    /// BLASTCOLLECT-UX-2 blocker 1. The words shared the one-line summary label, which cuts its tail, so a person at an
+    /// ordinary width never read them. They have a row of their own under the summary, and no row when there is nothing
+    /// to say. At the lane head `judgedAtLabel` did not exist, so this test did not build.
+    func testJudgedAtLineIsItsOwnLabelUnderTheSummary() {
+        for basis in [BlastTaxonomyContext.Basis.rowTaxId, .names] {
+            let pane = tab(judgedAt: basis)
+            XCTAssertEqual(pane.judgedAtLabel.stringValue, basis.judgedAtWords)
+            XCTAssertGreaterThan(pane.judgedAtLabel.frame.height, 0, "the line has a row of its own at 600 pt")
+            XCTAssertEqual(pane.judgedAtLabel.maximumNumberOfLines, 0, "the line wraps and is never cut")
+            XCTAssertFalse(pane.summaryLabel.stringValue.contains("Judged by"), "the summary label cuts its tail")
+        }
+        for basis in [BlastTaxonomyContext.Basis.species, nil] {
+            XCTAssertEqual(tab(judgedAt: basis).judgedAtLabel.frame.height, 0, "no words, no row")
+        }
+        var judged = makeResult()
+        judged.judgedAt = .names
+        let contig = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
+        contig.showResults(judged, recordURL: nil)
+        contig.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(contig.judgedAtLabel.frame.height, 0, "the verification style shows the row")
+        contig.presentationStyle = .contigBlast
+        contig.layoutSubtreeIfNeeded()
+        XCTAssertEqual(contig.judgedAtLabel.frame.height, 0, "another presentation style shows no judged-at row")
     }
 
     func testExportNamesTheBasisOfEachRow() {

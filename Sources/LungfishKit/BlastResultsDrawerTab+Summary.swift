@@ -22,6 +22,15 @@ extension BlastResultsDrawerTab {
         return text + " (\(counted.rows)\(counted.sent.map { ", " + $0 } ?? ""))"
     }
 
+    /// Sets the one-line summary, its tooltip and its help for a taxon verification. How the row was judged is not part of
+    /// it, since the label cuts its tail and that caveat must not go (BLASTCOLLECT-UX-2). It has ``judgedAtLabel``.
+    func applyVerificationSummary(result: BlastVerificationResult, subject: String?, recordURL: URL?) {
+        let badgeWords = BlastTieWords.notSpecificSummary(for: result)
+        summaryLabel.stringValue = Self.verificationSummary(for: result, subject: subject)
+            + (badgeWords.map { ". " + $0 } ?? "") + Self.collectedWords(recordURL: recordURL)
+        [summaryLabel, confidenceLabel].forEach { $0.toolTip = badgeWords; $0.setAccessibilityHelp(badgeWords) }
+    }
+
     /// What a verdict's counts are of, and what went out when that differs, one reading for the pane and the Operations row.
     nonisolated static func countedRows(of result: BlastVerificationResult) -> (rows: String, sent: String?) {
         let (rows, sent) = (result.totalReads, result.judgedSequenceCount)
@@ -55,5 +64,41 @@ extension BlastResultsDrawerTab {
     static func subjectWords(_ sample: String?) -> String {
         guard let sample, !sample.isEmpty else { return "" }
         return " (sample \(sample))"
+    }
+}
+
+/// The line under the summary bar that says how a verdict was judged (BLAST-ESVIRITU-FIRST-WORD). It has a row of its
+/// own because the one-line summary label cuts its tail, and this caveat is the part a person must not miss. With no
+/// words the row has no height, since a hidden view still holds its space in Auto Layout.
+@MainActor
+public final class BlastJudgedAtLabel: NSTextField {
+    private var collapsedHeight: NSLayoutConstraint?
+
+    /// A label hung from the bottom of `bar` inside `container`, collapsed until it has words.
+    public static func installed(below bar: NSView, in container: NSView) -> BlastJudgedAtLabel {
+        let label = BlastJudgedAtLabel(wrappingLabelWithString: "")
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = .systemFont(ofSize: 11)
+        label.textColor = .secondaryLabelColor
+        label.maximumNumberOfLines = 0
+        label.setAccessibilityLabel("How this row was judged")
+        label.isHidden = true
+        container.addSubview(label)
+        let collapsed = label.heightAnchor.constraint(equalToConstant: 0)
+        label.collapsedHeight = collapsed
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: bar.bottomAnchor),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            collapsed,
+        ])
+        return label
+    }
+
+    /// Shows `words`, or gives the row no height when there are none.
+    public func show(_ words: String?) {
+        stringValue = words ?? ""
+        collapsedHeight?.isActive = (words == nil)
+        isHidden = (words == nil)
     }
 }
