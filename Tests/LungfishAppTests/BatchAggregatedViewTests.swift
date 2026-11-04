@@ -2307,7 +2307,7 @@ final class EsVirituBatchAggregatedManifestTests: XCTestCase {
                 family: row.family,
                 assembly: row.assembly,
                 readCount: row.readCount,
-                uniqueReads: row.uniqueReads,
+                uniqueReads: row.uniqueReads ?? 0,
                 rpkmf: row.rpkmf,
                 coverageBreadth: row.coverageBreadth,
                 coverageDepth: row.coverageDepth

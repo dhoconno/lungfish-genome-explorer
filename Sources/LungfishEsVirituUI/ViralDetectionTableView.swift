@@ -855,12 +855,13 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             }
         case ColumnID.uniqueReads:
             items.sort { a, b in
+                // A count never computed sorts below every counted row.
                 let aVal = uniqueReadCountsBySampleAssembly[assemblyKey(for: a.assembly)]
                     ?? uniqueReadCountsByAssembly[a.assembly.assembly]
-                    ?? 0
+                    ?? -1
                 let bVal = uniqueReadCountsBySampleAssembly[assemblyKey(for: b.assembly)]
                     ?? uniqueReadCountsByAssembly[b.assembly.assembly]
-                    ?? 0
+                    ?? -1
                 return currentSortAscending ? aVal < bVal : aVal > bVal
             }
         case ColumnID.rpkmf:
@@ -1347,9 +1348,12 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         case ColumnID.reads:
             return filter.matchesNumeric(Double(assembly.totalReads))
         case ColumnID.uniqueReads:
-            let unique = uniqueReadCountsByAssembly[assembly.assembly]
+            guard let unique = uniqueReadCountsByAssembly[assembly.assembly]
                 ?? uniqueReadCountsBySampleAssembly["\(assembly.contigs.first?.sampleId ?? "")\t\(assembly.assembly)"]
-                ?? 0
+            else {
+                // A count never computed is no number, so it fails a filter that is on.
+                return !filter.isActive
+            }
             return filter.matchesNumeric(Double(unique))
         case ColumnID.rpkmf:
             return filter.matchesNumeric(assembly.rpkmf)
@@ -1616,7 +1620,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             {
                 return makeNumberCell(value: unique)
             }
-            return makeTextCell(text: "\u{2026}", alignment: .right)  // ellipsis while computing
+            return makeTextCell(text: "\u{2014}", alignment: .right)  // never counted
         case ColumnID.rpkmf:
             return makeDecimalCell(value: assembly.rpkmf, format: "%.1f")
         case ColumnID.coverage:
@@ -1668,7 +1672,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             {
                 return makeNumberCell(value: unique)
             }
-            return makeTextCell(text: "\u{2026}", alignment: .right)
+            return makeTextCell(text: "\u{2014}", alignment: .right)  // never counted
         case ColumnID.rpkmf:
             return makeDecimalCell(value: detection.rpkmf, format: "%.1f")
         case ColumnID.coverage:

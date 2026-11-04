@@ -78,7 +78,7 @@ final class MetagenomicsColumnResizeRegressionTests: XCTestCase {
     }
 
     func testReportedEsVirituRowsNeverNormalizeUniqueReadsToZero() {
-        XCTAssertEqual(BatchEsVirituRow.normalizedUniqueReads(stored: nil, readCount: 4), 1)
+        XCTAssertNil(BatchEsVirituRow.normalizedUniqueReads(stored: nil, readCount: 4), "a count never computed is no number")
         XCTAssertEqual(BatchEsVirituRow.normalizedUniqueReads(stored: 0, readCount: 4), 1)
         XCTAssertEqual(BatchEsVirituRow.normalizedUniqueReads(stored: 7, readCount: 4), 7)
         XCTAssertEqual(BatchEsVirituRow.normalizedUniqueReads(stored: 0, readCount: 0), 0)

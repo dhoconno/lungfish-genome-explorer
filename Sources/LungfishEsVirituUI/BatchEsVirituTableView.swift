@@ -73,7 +73,7 @@ final class BatchEsVirituTableView: BatchTableView<BatchEsVirituRow> {
         case .esv_reads:
             return (formatReadCount(row.readCount), .right, nil)
         case .esv_uniqueReads:
-            return (formatReadCount(row.uniqueReads), .right, nil)
+            return (row.uniqueReads.map { formatReadCount($0) } ?? "\u{2014}", .right, nil)
         case .esv_rpkmf:
             return (String(format: "%.1f", row.rpkmf), .right, nil)
         case .esv_coverage:
@@ -108,7 +108,7 @@ final class BatchEsVirituTableView: BatchTableView<BatchEsVirituRow> {
         case "reads":
             result = lhs.readCount < rhs.readCount
         case "uniqueReads":
-            result = lhs.uniqueReads < rhs.uniqueReads
+            result = (lhs.uniqueReads ?? -1) < (rhs.uniqueReads ?? -1)
         case "rpkmf":
             result = lhs.rpkmf < rhs.rpkmf
         case "coverage":

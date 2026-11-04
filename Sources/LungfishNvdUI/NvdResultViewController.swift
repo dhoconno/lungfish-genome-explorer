@@ -2611,11 +2611,10 @@ extension NvdResultViewController {
             )
             textField?.alignment = .right
         case "uniqueReads":
-            let unique = ClassifierUniqueReads.normalizedOrFloor(
-                stored: hit.uniqueReads,
-                readCount: hit.mappedReads
-            )
-            textField?.stringValue = nvdFormatCount(unique)
+            // A count never computed shows a dash, as the export writes an empty cell.
+            textField?.stringValue = ClassifierUniqueReads
+                .normalized(stored: hit.uniqueReads, readCount: hit.mappedReads)
+                .map { nvdFormatCount($0) } ?? "\u{2014}"
             textField?.font = resolvedContentFont(size: 11, digitsOnly: true)
             textField?.alignment = .right
         case "readsPerBillion":
