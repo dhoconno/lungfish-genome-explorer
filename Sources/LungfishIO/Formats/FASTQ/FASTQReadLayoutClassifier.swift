@@ -258,7 +258,12 @@ extension FASTQReadLayoutClassifier {
                 defer { lineIndex += 1 }
                 guard lineIndex % 4 == 0 else { return }
                 if line.isEmpty { return }
-                guard line.hasPrefix("@") else { throw StopScan() }
+                guard line.hasPrefix("@") else {
+                    // A file that stops being FASTQ was not read whole. A first line that is not a header keeps its
+                    // own words.
+                    if !headers.isEmpty { reachedLimit = true }
+                    throw StopScan()
+                }
                 if headers.count >= limit {
                     reachedLimit = true
                     throw StopScan()
@@ -289,7 +294,12 @@ extension FASTQReadLayoutClassifier {
                 defer { lineIndex += 1 }
                 guard lineIndex % 4 == 0 else { return }
                 if line.isEmpty { return }
-                guard line.hasPrefix("@") else { throw StopScan() }
+                guard line.hasPrefix("@") else {
+                    // A file that stops being FASTQ was not read whole. A first line that is not a header keeps its
+                    // own words.
+                    if scanned > 0 { reachedLimit = true }
+                    throw StopScan()
+                }
                 if scanned >= limit {
                     reachedLimit = true
                     throw StopScan()

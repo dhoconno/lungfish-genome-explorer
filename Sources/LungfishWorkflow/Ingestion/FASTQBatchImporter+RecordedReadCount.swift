@@ -31,7 +31,7 @@ extension FASTQBatchImporter {
         } catch {
             return
         }
-        guard scan.scannedRecords > 0,
+        guard scan.scannedRecords > 0, scan.scannedWholeFile,
               let size = (try? FileManager.default.attributesOfItem(atPath: fastqURL.path)[.size] as? NSNumber)?.int64Value else {
             return
         }
