@@ -149,6 +149,24 @@ final class AssemblyProvenanceReassemblyInputsTests: XCTestCase {
         XCTAssertTrue(inputs.missing.isEmpty && inputs.changed.isEmpty && inputs.unverified.isEmpty, "\(inputs)")
     }
 
+    /// The route that gave a 5,445 bp contig for 3,945 bp. The copy holds the recorded reads, the original's were
+    /// replaced at the recorded path since, and the copy's own reads are the ones taken.
+    func testCopyKeepsItsOwnReadsWhenTheOriginalsWereReplaced() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let recorded = root.appendingPathComponent("Mito.lungfish/Imports/reads.fastq")
+        let own = root.appendingPathComponent("Mito.lungfish copy/Imports/reads.fastq")
+        try write(reads("a"), to: recorded)
+        try write(reads("a"), to: own)
+        let record = try checksummed(recorded)
+        try write(reads("b"), to: recorded)
+
+        let inputs = await provenance(inputs: [record], requested: [recorded.path])
+            .reassemblyInputFiles(projectURL: root.appendingPathComponent("Mito.lungfish copy"))
+        XCTAssertEqual(inputs.found.map(\.path), [own.path])
+        XCTAssertTrue(inputs.missing.isEmpty && inputs.changed.isEmpty && inputs.unverified.isEmpty, "\(inputs)")
+    }
+
     /// The original is gone and the copy's Imports holds the reads, so nothing is missing.
     func testCopyFindsItsOwnImportsWithTheOriginalGone() async throws {
         let root = try makeRoot()
