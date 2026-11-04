@@ -613,6 +613,50 @@ final class FASTACollectionSurfaceRouteTests: XCTestCase {
         XCTAssertTrue(cancelled, "the row reads \(String(describing: item(row)?.state))")
     }
 
+    /// A second Verify from one list is a new search and not the end of the first. Each answer lands on its own row.
+    func testASecondSearchFromOneListLeavesTheFirstRunning() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let held = HeldSearch()
+        let collection = try await collectionHolding(held, in: harness)
+        let first = try send(from: collection)
+        let second = try send(from: collection, row: 1)
+        defer { clear(first); clear(second) }
+
+        XCTAssertEqual(item(first)?.state, .running, "a second Verify from the same list ended the first search")
+        let paneMoved = await waitUntil(budget: .lookup) { self.shownRID(on: collection) == "RID-seq_mid" }
+        XCTAssertTrue(paneMoved, "the pane reads \(String(describing: collection.testBlastDrawerTab?.displayState))")
+        held.release()
+        let firstDone = await waitUntil(budget: .lookup) { self.item(first)?.state == .completed }
+        XCTAssertTrue(firstDone, "the first search reads \(String(describing: item(first)?.state))")
+        XCTAssertEqual(shownRID(on: collection), "RID-seq_mid", "the older answer took the pane")
+    }
+
+    /// Another row, a sort or a filter is not a Cancel. The search keeps its pane and runs on, and its answer lands there.
+    func testSelectingSortingOrFilteringLeavesASearchRunning() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let held = HeldSearch()
+        let collection = try await collectionHolding(held, in: harness)
+        let row = try send(from: collection)
+        defer { clear(row) }
+
+        let changes: [(String, () -> Void)] = [
+            ("selecting another row", { collection.testSelectRows([1]) }),
+            ("filtering", { collection.testFilter("m") }),
+            ("sorting", { collection.testSort(column: "length", ascending: true) }),
+        ]
+        for (name, change) in changes {
+            change()
+            XCTAssertEqual(item(row)?.state, .running, "\(name) ended the search")
+            XCTAssertTrue(collection.testBlastDrawerIsOpen, "\(name) closed the search's pane")
+        }
+        held.release()
+        let done = await waitUntil(budget: .lookup) { self.item(row)?.state == .completed }
+        XCTAssertTrue(done, "the search reads \(String(describing: item(row)?.state))")
+        XCTAssertEqual(shownRID(on: collection), "RID-seq_long", "the answer never reached the pane")
+    }
+
     // MARK: - Support
 
     private static let records = ">seq_long first\nACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\n>seq_mid second\nAATTGGCCAATTGGCCAATT\n>seq_short third\nGGCCGGCC\n"
@@ -675,12 +719,28 @@ final class FASTACollectionSurfaceRouteTests: XCTestCase {
         collection.open(row: row)
     }
 
-    /// Sends the list's first row, past the consent sheet, and returns the search's row.
-    private func send(from collection: FASTACollectionViewController) throws -> UUID {
+    /// Sends one row of the list (the first unless told), past the consent sheet, and returns the search's row.
+    private func send(from collection: FASTACollectionViewController, row index: Int = 0) throws -> UUID {
         let before = Set(OperationCenter.shared.items.map(\.id))
-        let sequence = try LungfishCore.Sequence(name: names(in: collection)[0], alphabet: .dna, bases: "ACGTACGTACGTACGTACGT")
+        let sequence = try LungfishCore.Sequence(name: names(in: collection)[index], alphabet: .dna, bases: "ACGTACGTACGTACGTACGT")
         collection.onBlastRequested?([sequence])
         return try XCTUnwrap(OperationCenter.shared.items.first { !before.contains($0.id) }?.id, "the search made no row")
+    }
+
+    /// A collection whose search for `seq_long` waits for `held`, and whose other searches answer at once with their own name.
+    private func collectionHolding(_ held: HeldSearch, in harness: ViewSwitchWindowHarness) async throws -> FASTACollectionViewController {
+        let viewer = harness.split.viewerController!
+        viewer.fastaBlastVerificationRunner = { request, _ in
+            if request.taxonName == "seq_long" { try await held.wait() }
+            return self.blastResult(rid: "RID-\(request.taxonName)")
+        }
+        harness.select(try makeCollectionRow().item)
+        return try await shownCollection(in: viewer)
+    }
+
+    private func shownRID(on collection: FASTACollectionViewController) -> String? {
+        guard case .results(let shown, _)? = collection.testBlastDrawerTab?.displayState else { return nil }
+        return shown.rid
     }
 
     private func item(_ id: UUID) -> OperationCenter.Item? {
