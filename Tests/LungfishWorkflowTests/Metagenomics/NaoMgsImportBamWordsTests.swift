@@ -37,10 +37,26 @@ struct NaoMgsImportBamWordsTests {
 
     /// A samtools that stops at once with status 1, as one does when it cannot write its output.
     private static func failingSamtools(in directory: URL) throws -> String {
-        let script = directory.appendingPathComponent("samtools")
-        try "#!/bin/sh\nexit 1\n".write(to: script, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
-        return script.path
+        try writeSamtools("#!/bin/sh\nexit 1\n", in: directory)
+    }
+
+    /// A samtools whose `view` stage reads its input and fails while its `sort` stage succeeds and leaves a file where
+    /// the BAM goes (`sort -m 256M -o <bam>` makes `$5` the BAM path).
+    private static func samtoolsWhoseViewFails(in directory: URL) throws -> String {
+        try writeSamtools("""
+        #!/bin/sh
+        case "$1" in
+        view) cat > /dev/null; exit 1 ;;
+        sort) cat > /dev/null; echo bam > "$5"; exit 0 ;;
+        esac
+        """, in: directory)
+    }
+
+    private static func writeSamtools(_ script: String, in directory: URL) throws -> String {
+        let file = directory.appendingPathComponent("samtools")
+        try script.write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        return file.path
     }
 
     private static func runStage(
@@ -82,6 +98,28 @@ struct NaoMgsImportBamWordsTests {
         #expect(!words.lowercased().contains("disk"), "The cause is not known, so the words do not guess at the disk")
         let bam = workspace.appendingPathComponent("staging/\(Self.sample)/bams/\(Self.sample).bam")
         #expect(!FileManager.default.fileExists(atPath: bam.path), "No short BAM stays for the merge to pick up")
+    }
+
+    /// Passes at the base, so it is a pin and not a red test. Lane 13.09 made every stage of the pipeline count, and
+    /// this keeps it so. The `view` stage fails while `sort` succeeds and leaves a file at the BAM path, and the sample
+    /// still stops the import with its words and no BAM. The shell form of the pipeline reported the last stage alone.
+    @Test
+    func testStageStopsWhenViewFailsAndSortSucceeds() async throws {
+        let workspace = try TestTempDirectory.make(prefix: "naomgs-bam-view-fails")
+        defer { TestTempDirectory.cleanup(workspace) }
+        let samtools = try Self.samtoolsWhoseViewFails(in: workspace)
+
+        let outcome = try await Self.runStage(in: workspace, samtoolsPath: samtools)
+        guard case .failure(let error) = outcome else {
+            Issue.record("The stage returned although the view stage failed for \(Self.sample)")
+            return
+        }
+        let words = Self.wordsAPersonReads(error, workspace: workspace)
+        #expect(words.contains(Self.sample), "The words name the sample, got: \(words)")
+        #expect(words.contains("alignment file"), "The words name the alignment file, got: \(words)")
+        #expect(words.contains("kept no result"), "The words say nothing was kept, got: \(words)")
+        let bam = workspace.appendingPathComponent("staging/\(Self.sample)/bams/\(Self.sample).bam")
+        #expect(!FileManager.default.fileExists(atPath: bam.path), "The file the sort stage left is not kept as the BAM")
     }
 
     @Test
