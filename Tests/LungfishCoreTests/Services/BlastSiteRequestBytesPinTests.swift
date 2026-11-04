@@ -13,9 +13,10 @@ import XCTest
 /// the sites still call the service in process.
 ///
 /// Each row builds the request with the parameters its site passes today. No site restricts the search
-/// with an Entrez filter, since NAO-MGS searches all of core_nt too (3.1 BLAST-SCOPE), so every row
-/// sends the same bytes. The sites differ in the label, the taxon id and the clade, which reach the
-/// record and not the request. Every request goes to a recording client, so no test reaches NCBI.
+/// with an Entrez filter, since NAO-MGS searches all of core_nt too (3.1 BLAST-SCOPE). A site whose claim holds
+/// tax IDs asks NCBI for 500 records and the others for 5 (BIO-BLAST-TIES), and apart from that every row sends the
+/// same bytes. The label, the taxon id and the clade reach the record and not the request. Every request goes to a
+/// recording client, so no test reaches NCBI.
 final class BlastSiteRequestBytesPinTests: XCTestCase {
     /// Two reads in a fixed order, the query every row sends.
     static let reads: [(id: String, sequence: String)] = [
@@ -77,12 +78,15 @@ final class BlastSiteRequestBytesPinTests: XCTestCase {
         ]
     }
 
+    /// The sites whose claim holds tax IDs. They ask NCBI for 500 records, and the other four for 5.
+    static let sitesThatAskFor500: Set<String> = ["blast-nao-mgs", "blast-taxtriage", "blast-nvd"]
+
     /// The `CMD=Put` body every site sends, in the service's parameter order, with the site's Entrez
     /// filter after them when it has one and the address last.
-    static func expectedPutBody(encodedEntrezQuery: String?) -> String {
+    static func expectedPutBody(listSize: Int, encodedEntrezQuery: String?) -> String {
         var body = "CMD=Put&PROGRAM=blastn&DATABASE=core_nt"
             + "&QUERY=%3Eread_1%0AACGTACGTAC%0A%3Eread_2%0AGGCCTTAAGG"
-            + "&EXPECT=1e-10&HITLIST_SIZE=5&MAX_NUM_SEQ=5&FORMAT_TYPE=JSON2&WORD_SIZE=28"
+            + "&EXPECT=1e-10&HITLIST_SIZE=\(listSize)&MAX_NUM_SEQ=\(listSize)&FORMAT_TYPE=JSON2&WORD_SIZE=28"
             + "&tool=lungfish&MEGABLAST=on"
         if let encodedEntrezQuery { body += "&ENTREZ_QUERY=\(encodedEntrezQuery)" }
         return body + "&email=lungfish-app%40users.noreply.github.com"
@@ -96,7 +100,11 @@ final class BlastSiteRequestBytesPinTests: XCTestCase {
             XCTAssertEqual(sent.url, "https://blast.ncbi.nlm.nih.gov/blast/Blast.cgi", site.gapID)
             XCTAssertEqual(sent.contentType, "application/x-www-form-urlencoded", site.gapID)
             XCTAssertEqual(
-                sent.body, Self.expectedPutBody(encodedEntrezQuery: site.encodedEntrezQuery),
+                sent.body,
+                Self.expectedPutBody(
+                    listSize: Self.sitesThatAskFor500.contains(site.gapID) ? 500 : 5,
+                    encodedEntrezQuery: site.encodedEntrezQuery
+                ),
                 "\(site.gapID) sends other bytes than it did at the base"
             )
         }

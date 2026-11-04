@@ -20,7 +20,6 @@ import Foundation
 ///     sequences: [("read_1", "ATGCGATCGA...")],
 ///     program: "blastn",
 ///     database: "nt",
-///     maxTargetSeqs: 5,
 ///     eValueThreshold: 1e-10
 /// )
 /// ```
@@ -104,7 +103,8 @@ public struct BlastVerificationRequest: Sendable {
     ///   - program: BLAST program (default: "blastn")
     ///   - database: BLAST database (default: "nt")
     ///   - entrezQuery: Optional Entrez query filter (default: nil, no filter applied)
-    ///   - maxTargetSeqs: Max target sequences per query (default: 5)
+    ///   - maxTargetSeqs: Max target sequences per query. `nil` asks for 500 when `acceptedTaxIds` can judge a tie
+    ///     at the best score, and for 5 otherwise (BIO-BLAST-TIES).
     ///   - eValueThreshold: E-value threshold (default: 1e-10)
     ///   - extraArgs: Additional BLAST URL API parameters for provenance and pass-through.
     ///   - maxConcurrentSubmissions: Maximum in-flight BLAST submissions (default: 1).
@@ -115,7 +115,7 @@ public struct BlastVerificationRequest: Sendable {
         program: String = "blastn",
         database: String = "nt",
         entrezQuery: String? = nil,
-        maxTargetSeqs: Int = 5,
+        maxTargetSeqs: Int? = nil,
         eValueThreshold: Double = 1e-10,
         extraArgs: String = "",
         maxConcurrentSubmissions: Int = 1,
@@ -131,7 +131,7 @@ public struct BlastVerificationRequest: Sendable {
         self.program = program
         self.database = database
         self.entrezQuery = entrezQuery
-        self.maxTargetSeqs = maxTargetSeqs
+        self.maxTargetSeqs = maxTargetSeqs ?? (acceptedTaxIds.isEmpty ? 5 : 500)
         self.eValueThreshold = eValueThreshold
         self.extraArgs = extraArgs
         self.maxConcurrentSubmissions = max(1, maxConcurrentSubmissions)
