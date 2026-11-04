@@ -298,14 +298,18 @@ public enum BlastJobStatus: Sendable, Equatable {
     /// The job is still running. Poll again later.
     case waiting(queuePosition: Int?)
 
-    /// The job has completed and results are ready for retrieval.
-    case ready
+    /// The job has completed and results are ready for retrieval. `thereAreHits` is what NCBI's `ThereAreHits` line
+    /// says, and nil when the reply held no such line.
+    case ready(thereAreHits: Bool?)
 
     /// The job encountered an error on the server.
     case error(message: String)
 
-    /// The job was not found (invalid or expired RID).
+    /// NCBI answered `Status=UNKNOWN`: it does not know this RID, which is invalid, expired or not yet known there.
     case unknown
+
+    /// The reply held no `Status` line, or nothing at all. It says nothing about the search, so it is no news.
+    case noStatusLine
 }
 
 // MARK: - BLAST Rate Limits

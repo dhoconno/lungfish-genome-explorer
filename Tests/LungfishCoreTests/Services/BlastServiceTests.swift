@@ -764,7 +764,7 @@ final class BlastServiceTests: XCTestCase {
         """
 
         let status = await service.parseStatusResponse(body)
-        XCTAssertEqual(status, .ready)
+        XCTAssertEqual(status, .ready(thereAreHits: nil))
     }
 
     func testStatusParsingWaiting() async {
@@ -805,8 +805,19 @@ final class BlastServiceTests: XCTestCase {
         }
     }
 
-    func testStatusParsingUnknown() async {
+    func testStatusParsingNoStatusLine() async {
         let body = "Some random HTML without QBlastInfo"
+        let status = await service.parseStatusResponse(body)
+        XCTAssertEqual(status, .noStatusLine)
+    }
+
+    func testStatusParsingUnknown() async {
+        let body = """
+        <!--QBlastInfoBegin
+            Status=UNKNOWN
+        QBlastInfoEnd-->
+        """
+
         let status = await service.parseStatusResponse(body)
         XCTAssertEqual(status, .unknown)
     }
@@ -1438,9 +1449,12 @@ final class BlastServiceTests: XCTestCase {
         XCTAssertEqual(BlastJobStatus.waiting(queuePosition: nil), BlastJobStatus.waiting(queuePosition: nil))
         XCTAssertEqual(BlastJobStatus.waiting(queuePosition: 3), BlastJobStatus.waiting(queuePosition: 3))
         XCTAssertNotEqual(BlastJobStatus.waiting(queuePosition: 3), BlastJobStatus.waiting(queuePosition: 4))
-        XCTAssertEqual(BlastJobStatus.ready, BlastJobStatus.ready)
+        XCTAssertEqual(BlastJobStatus.ready(thereAreHits: true), BlastJobStatus.ready(thereAreHits: true))
+        XCTAssertNotEqual(BlastJobStatus.ready(thereAreHits: true), BlastJobStatus.ready(thereAreHits: false))
+        XCTAssertNotEqual(BlastJobStatus.ready(thereAreHits: false), BlastJobStatus.ready(thereAreHits: nil))
         XCTAssertEqual(BlastJobStatus.unknown, BlastJobStatus.unknown)
-        XCTAssertNotEqual(BlastJobStatus.waiting(queuePosition: nil), BlastJobStatus.ready)
+        XCTAssertNotEqual(BlastJobStatus.unknown, BlastJobStatus.noStatusLine)
+        XCTAssertNotEqual(BlastJobStatus.waiting(queuePosition: nil), BlastJobStatus.ready(thereAreHits: nil))
         XCTAssertEqual(BlastJobStatus.error(message: "x"), BlastJobStatus.error(message: "x"))
         XCTAssertNotEqual(BlastJobStatus.error(message: "x"), BlastJobStatus.error(message: "y"))
     }

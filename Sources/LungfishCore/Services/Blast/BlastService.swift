@@ -904,8 +904,10 @@ public actor BlastService {
                 throw BlastServiceError.jobFailed(rid: rid, message: message)
 
             case .unknown:
-                // RID may not be recognized yet; retry
-                logger.warning("BLAST status unknown for RID=\(rid, privacy: .public), retrying...")
+                throw BlastServiceError.jobFailed(rid: rid, message: "BLAST status: UNKNOWN")
+
+            case .noStatusLine:
+                logger.warning("BLAST status page held no Status line for RID=\(rid, privacy: .public), retrying...")
                 try await wait(secondsBetweenChecks)
             }
         }
@@ -937,25 +939,24 @@ public actor BlastService {
         return BlastJobSubmission(rid: rid, rtoe: rtoe)
     }
 
-    /// Parses the BLAST status response.
-    ///
-    /// The status response contains a QBlastInfo block with a Status field:
-    /// - `Status=WAITING` - job is still running
-    /// - `Status=READY` - results are available
-    /// - `Status=FAILED` - job encountered an error
+    /// Parses the BLAST status response. Its QBlastInfo blocks hold `Status` and, on READY, `ThereAreHits`.
+    /// Each ``BlastJobStatus`` case says what its answer means. A page with no `Status` line is no news,
+    /// and `Status=UNKNOWN` is NCBI's own answer.
     ///
     /// - Parameter body: The response body text
     /// - Returns: The parsed job status
     func parseStatusResponse(_ body: String) -> BlastJobStatus {
         guard let status = extractQBlastValue(from: body, key: "Status") else {
-            return .unknown
+            return .noStatusLine
         }
 
         switch status.uppercased() {
         case "READY":
-            return .ready
+            return .ready(thereAreHits: extractQBlastValue(from: body, key: "ThereAreHits").flatMap { ["YES": true, "NO": false][$0.uppercased()] })
         case "WAITING":
             return .waiting(queuePosition: extractQBlastValue(from: body, key: "ThereAre").flatMap(Int.init))
+        case "UNKNOWN":
+            return .unknown
         default:
             return .error(message: "BLAST status: \(status)")
         }
