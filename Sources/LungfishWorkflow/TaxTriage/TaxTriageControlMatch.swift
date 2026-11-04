@@ -56,8 +56,11 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
     public let controlSampleIds: Set<String>
     /// The samples of the database that no sample of the run accounts for, in order.
     public let unlistedSampleIds: [String]
-    /// Words for a person, one for each set of samples that the pipeline's rule gives one name when that set
-    /// holds a control and a sample that is not one and the database holds the name.
+    /// Words for a person on names that meet and on a control with a skipped step. One for each set of samples that
+    /// the pipeline's rule gives one name when that set holds a control and a sample that is not one and the database
+    /// holds the name. One for each other set whose name the database holds for fewer samples than the run lists, since
+    /// the rows of the others are missing. One for each control that has results and a step the pipeline skipped after
+    /// an error (lane TTCONTROLS).
     public let notes: [String]
 
     /// The controls that never ran.
@@ -201,6 +204,24 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
             notes.append(
                 "\(meet) named \(name) in the results, and the results hold only \(kept), so the rows of the others are not in this table. "
                     + "Give each sample a name that stays different once spaces and symbols are removed, then run it again."
+            )
+        }
+        // A control that has rows and a step the pipeline skipped after an error is read from the rows it has, so its
+        // organisms stay Yes but a No for one it does not list is not certain (lane TTCONTROLS, BIO review).
+        for control in controls.sorted(by: { $0.sampleId < $1.sampleId }) where control.state == .found {
+            let names = Set([control.sampleId, control.resultsName].filter { !$0.isEmpty })
+            let steps = Set(
+                ignoredTags.filter { entry in
+                    names.contains(entry.taskLabel) || (entry.sampleID.map { names.contains($0) } ?? false)
+                }.map(\.processName)
+            ).sorted()
+            guard !steps.isEmpty else { continue }
+            let one = steps.count == 1
+            notes.append(
+                "\(one ? "A step" : "Steps") of the negative control \(control.sampleId) (\(Self.listing(steps))) "
+                    + "\(one ? "stopped with an error that the pipeline skipped" : "stopped with errors that the pipeline skipped"), "
+                    + "so its results may be incomplete and a No for an organism it does not list is not certain. "
+                    + "Run it again, or check it another way, before you rely on these results."
             )
         }
 
