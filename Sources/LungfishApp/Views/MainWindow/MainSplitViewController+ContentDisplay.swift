@@ -520,6 +520,7 @@ extension MainSplitViewController {
 
                 inspectorController.clearSelection()
                 viewerController.displayQuickLookPreview(url: workbookURL)
+                viewerController.statusBar.positionLabel.stringValue = viewerController.surfaceFailureWords("Unable to open the genotype result. Showing its workbook instead.", error)
             }
         }
     }

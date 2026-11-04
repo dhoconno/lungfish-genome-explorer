@@ -276,6 +276,9 @@ final class GenotypeResultSurfaceRouteTests: XCTestCase {
 
         let fellBack = await waitUntil(budget: .lookup) { viewer.testQuickLookURL != nil }
         XCTAssertTrue(fellBack, "the workbook preview never opened")
+        let words = viewer.statusBar.positionLabel.stringValue
+        XCTAssertTrue(words.contains("Unable to open the genotype result."), "the workbook replaced the viewer with no words: \(words)")
+        XCTAssertTrue(words.contains("genotype-result.json could not be read."), words)
         XCTAssertNil(viewer.genotypeResultViewController)
         XCTAssertFalse(edit.undoManager.canUndo)
         try await assertTheEditIsSaved(edit, leftBy: "a second result that refused")
