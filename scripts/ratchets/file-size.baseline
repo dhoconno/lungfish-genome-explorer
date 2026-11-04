@@ -130,7 +130,7 @@ Sources/LungfishKit/MiniPileupView.swift 861
 Sources/LungfishKit/OperationCenter.swift 1381
 Sources/LungfishNaoMgsUI/NaoMgsResultViewController.swift 3096
 Sources/LungfishNvdUI/NvdResultViewController.swift 3116
-Sources/LungfishOperations/AI/AIAssistantService.swift 901
+Sources/LungfishOperations/AI/AIAssistantService.swift 893
 Sources/LungfishOperations/AI/AIToolRegistry.swift 951
 Sources/LungfishOperations/AnnotationSearchIndex.swift 1603
 Sources/LungfishPhylogeneticsUI/PhylogeneticTreeViewController.swift 1563
