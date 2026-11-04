@@ -120,11 +120,11 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
                 let stem = Self.sequenceStem(for: inputURLs[0])
                 let inputR1 = scratchDirectory.appendingPathComponent("\(stem).input.R1.fastq")
                 let inputR2 = scratchDirectory.appendingPathComponent("\(stem).input.R2.fastq")
-                let record = try await Self.reformatPairs(
-                    arguments: BBToolsPairArguments.deinterleave(
-                        input: inputURLs[0].path, out1: inputR1.path, out2: inputR2.path),
-                    outputs: [inputR1, inputR2]
-                )
+                let record = try await BBToolsPairArguments.runDeinterleave(
+                    input: inputURLs[0].path, out1: inputR1.path, out2: inputR2.path,
+                    run: { try await Self.reformatPairs(arguments: $0, outputs: [inputR1, inputR2]) },
+                    failureWords: { $0.exitCode == 0 ? nil : $0.stderr }
+                ).outcome
                 invocations.append(record)
                 guard record.exitCode == 0 else {
                     throw CLIError.conversionFailed(reason: "reformat.sh deinterleave failed: \(record.stderr)")

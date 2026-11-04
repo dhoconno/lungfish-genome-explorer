@@ -131,6 +131,24 @@ extension FASTQPairInterleaver {
     }
 }
 
+extension BBToolsPairArguments {
+    /// ``runDeinterleave(input:out1:out2:launcher:isolation:run:failureWords:)`` with the launcher that starts
+    /// `gzip -dc` through ``ToolProcess``.
+    package static func runDeinterleave<Outcome>(
+        input: String,
+        out1: String,
+        out2: String,
+        isolation: isolated (any Actor)? = #isolation,
+        run: ([String]) async throws -> Outcome,
+        failureWords: (Outcome) -> String?
+    ) async throws -> (outcome: Outcome, arguments: [String]) {
+        try await runDeinterleave(
+            input: input, out1: out1, out2: out2, launcher: ToolProcessChildLauncher(),
+            isolation: isolation, run: run, failureWords: failureWords
+        )
+    }
+}
+
 extension FASTQPairInterleaver.BufferedSink {
     /// A sink into the stage file of a ``DurableReplace`` publication,
     /// which reports a failed write as a thrown error.

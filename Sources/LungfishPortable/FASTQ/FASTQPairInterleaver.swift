@@ -254,12 +254,14 @@ extension FASTQPairInterleaver {
         )
     }
 
-    /// Whether `name1` and `name2`, the records at one position of the R1
-    /// and R2 files of one recorded pair, are mates.
-    /// ``FASTQReadLayoutClassifier/areMates(_:_:)`` decides first. The read
-    /// ID suffixes `.1` `.2` and `_1` `_2` count as mate numbers here only,
-    /// beside `/1` `/2` and Casava comments, because a file of single reads
-    /// may number its reads that way (SRA spots `SRR1.1`, `SRR1.2`).
+    /// Whether `name1` and `name2`, two records a caller already holds as one
+    /// pair, are mates. They are the records at one position of the R1 and R2
+    /// files of a recorded pair, or two adjacent records of a file it splits
+    /// as interleaved. ``FASTQReadLayoutClassifier/areMates(_:_:)`` decides
+    /// first. The read ID suffixes `.1` `.2` and `_1` `_2` count as mate
+    /// numbers here and not in a layout scan, beside `/1` `/2` and Casava
+    /// comments, because a file of single reads may number its reads that way
+    /// (SRA spots `SRR1.1`, `SRR1.2`). Such a file stops at its second pair.
     public static func recordedMates(_ name1: String, _ name2: String) -> RecordedMates {
         if FASTQReadLayoutClassifier.areMates(name1, name2) { return .mates }
         guard let mark1 = mateNumber(of: name1), let mark2 = mateNumber(of: name2) else { return .unmarked }
@@ -437,10 +439,11 @@ extension FASTQPairInterleaver {
     ///
     /// Records alternate R1, R2, R1, R2 and are copied byte for byte. An odd
     /// record count, or two records that are not mates by
-    /// ``FASTQReadLayoutClassifier/areMates(_:_:)``, means the file is not a
-    /// whole set of pairs and throws, and the caller removes the partial
-    /// halves. The name check is the second guard behind the caller's scan of
-    /// the whole file.
+    /// ``recordedMates(_:_:)``, means the file is not a whole set of pairs and
+    /// throws, and the caller removes the partial halves. The name check is
+    /// the second guard behind the caller's scan of the whole file. It takes
+    /// every common name form of a true pair, `SRR123.1.1` and `SRR123.1.2`
+    /// included.
     package static func deinterleave(
         interleaved: URL, r1 sink1: FileHandle, r2 sink2: FileHandle, launcher: any PortableChildLauncher
     ) throws -> Counts {
@@ -463,7 +466,7 @@ extension FASTQPairInterleaver {
             total += 1
             let name1 = headerText(record1[0])
             let name2 = headerText(record2[0])
-            guard FASTQReadLayoutClassifier.areMates(name1, name2) else {
+            guard recordedMates(name1, name2) == .mates else {
                 throw InterleaveError.mateNameMismatch(
                     recordNumber: total / 2, r1File: file, r1Name: name1, r2File: file, r2Name: name2
                 )
@@ -479,6 +482,22 @@ extension FASTQPairInterleaver {
             throw InterleaveError.recordCountMismatch(expected: total, actual: written)
         }
         return Counts(r1Records: output1.recordsWritten, r2Records: output2.recordsWritten, writtenRecords: written)
+    }
+
+    /// Reads every name of a file a caller holds as interleaved, and throws
+    /// what ``deinterleave(interleaved:r1:r2:launcher:)`` throws, with nothing
+    /// kept. LGE's own name check, which decides when `reformat.sh` refuses a
+    /// file on its names.
+    package static func verifyMates(interleaved: URL, launcher: any PortableChildLauncher) throws {
+        guard let sink1 = FileHandle(forWritingAtPath: "/dev/null"),
+              let sink2 = FileHandle(forWritingAtPath: "/dev/null") else {
+            throw InterleaveError.unreadableInput(file: interleaved.lastPathComponent, reason: "/dev/null cannot be opened")
+        }
+        defer {
+            try? sink1.close()
+            try? sink2.close()
+        }
+        _ = try deinterleave(interleaved: interleaved, r1: sink1, r2: sink2, launcher: launcher)
     }
 
     /// Record counts of a by-name partition of a mixed file.

@@ -91,6 +91,12 @@ final class MateNameFormTests: XCTestCase {
         }
     }
 
+    /// The argv pin of item 10, in a suite the unit tier runs.
+    func testTheSplitArgvStatesItsNameCheck() {
+        XCTAssertTrue(BBToolsPairArguments.deinterleave(input: "i", out1: "a", out2: "b").contains("vint=t"))
+        XCTAssertFalse(BBToolsPairArguments.deinterleave(input: "i", out1: "a", out2: "b", verifyNames: false).contains("vint=t"))
+    }
+
     /// `resolvePairing`'s default reads past the old window of 100,000 records (the first report's Open question).
     func testResolvePairingReadsPastTheOldWindow() throws {
         let input = root.appendingPathComponent("mix.fastq")

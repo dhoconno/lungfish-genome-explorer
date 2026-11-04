@@ -393,15 +393,12 @@ private extension FastqScrubHumanSubcommand {
         runner: NativeToolRunner
     ) async throws -> ScrubHumanInvocationRecord {
         let env = await bbToolsEnvironment(runner: runner)
-        let arguments = BBToolsPairArguments.deinterleave(
-            input: inputFASTQ.path, out1: outputR1.path, out2: outputR2.path)
         let stepClock = ProvenanceRunClock()
-        let result = try await runner.run(
-            .reformat,
-            arguments: arguments,
-            environment: env,
-            timeout: AnalysisTimeLimit.launchTimeout
-        )
+        let result = try await BBToolsPairArguments.runDeinterleave(
+            input: inputFASTQ.path, out1: outputR1.path, out2: outputR2.path,
+            run: { try await runner.run(.reformat, arguments: $0, environment: env, timeout: AnalysisTimeLimit.launchTimeout) },
+            failureWords: { $0.isSuccess ? nil : $0.stderr }
+        ).outcome
         let record = invocationRecord(
             tool: .reformat,
             result: result,

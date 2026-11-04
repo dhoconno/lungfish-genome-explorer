@@ -65,13 +65,19 @@ extension FASTQDerivativeService {
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws {
         let env = await bbToolsEnvironment()
-        let result = try await runNativeTool(
-            .reformat,
-            arguments: BBToolsPairArguments.deinterleave(input: source.path, out1: outputR1.path, out2: outputR2.path),
-            environment: env,
-            timeout: AnalysisTimeLimit.launchTimeout,
-            provenanceCollector: provenanceCollector
-        )
+        let result = try await BBToolsPairArguments.runDeinterleave(
+            input: source.path, out1: outputR1.path, out2: outputR2.path,
+            run: {
+                try await self.runNativeTool(
+                    .reformat,
+                    arguments: $0,
+                    environment: env,
+                    timeout: AnalysisTimeLimit.launchTimeout,
+                    provenanceCollector: provenanceCollector
+                )
+            },
+            failureWords: { $0.isSuccess ? nil : $0.stderr }
+        ).outcome
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("reformat.sh deinterleave failed: \(result.stderr)")
         }

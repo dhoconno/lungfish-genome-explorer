@@ -67,15 +67,22 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
             "unpaired": unpairedURL.map(ParameterValue.file) ?? .null,
             "readLayout": .string(resolution.layout.rawValue),
             "readLayoutReason": .string(resolution.reason),
+            "scannedRecords": resolution.scannedRecordsProvenanceValue,
+            "scannedWholeFile": resolution.scannedWholeFileProvenanceValue,
+            "pairs": resolution.pairsProvenanceValue,
+            "unpairedReads": resolution.unpairedReadsProvenanceValue,
         ]
 
         switch resolution.layout {
         case .strictlyInterleaved:
             let runner = NativeToolRunner.shared
-            let args = BBToolsPairArguments.deinterleave(input: inputURL.path, out1: out1, out2: out2)
             let env = await bbToolsEnvironment(runner: runner)
             let runClock = ProvenanceRunClock()
-            let result = try await runner.run(.reformat, arguments: args, environment: env, timeout: AnalysisTimeLimit.launchTimeout)
+            let (result, args) = try await BBToolsPairArguments.runDeinterleave(
+                input: inputURL.path, out1: out1, out2: out2,
+                run: { try await runner.run(.reformat, arguments: $0, environment: env, timeout: AnalysisTimeLimit.launchTimeout) },
+                failureWords: { $0.isSuccess ? nil : $0.stderr }
+            )
             guard result.isSuccess else {
                 throw CLIError.conversionFailed(reason: "reformat.sh deinterleave failed: \(result.stderr)")
             }
