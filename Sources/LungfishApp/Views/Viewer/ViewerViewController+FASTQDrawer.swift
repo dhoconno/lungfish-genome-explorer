@@ -186,7 +186,7 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
     /// What the drawer says after a scout. A demultiplexing run builds its request from the operations dialog's own
     /// fields and reads no saved plan, so the words send the person there and promise no Run button.
     static func scoutProceedWords(count: Int) -> String {
-        "\(count) barcode\(count == 1 ? "" : "s") configured in this table. Demultiplexing runs from the FASTQ operations dialog, which does not read this table, so choose the kit there too."
+        "\(count) barcode\(count == 1 ? "" : "s") added to the plan. No run reads it: set the kit and options in the FASTQ operations dialog."
     }
 
     /// Handles the user clicking "Proceed" in the BarcodeScoutSheet after reviewing scout results.
