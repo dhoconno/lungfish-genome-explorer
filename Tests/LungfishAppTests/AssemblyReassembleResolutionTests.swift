@@ -221,9 +221,9 @@ final class AssemblyReassembleResolutionTests: XCTestCase {
                         }
                         resolvedCount += 1
                         // BIO's B4. Only the mixed bundle's joined file holds pairs beside single reads.
-                        // Row READ-LAYOUT-DOTTED-MATES (BIO ruling 7, route 3) added the two files of single reads.
+                        // Row READ-LAYOUT-DOTTED-MATES (BIO ruling 7, route 3) added the three bundles of single reads.
                         let scanOutranks = explicit == .strictlyInterleaved
-                            && [shapes.mixed, shapes.single, shapes.oriented].contains(shape.bundle)
+                            && [shapes.mixed, shapes.single, shapes.oriented, shapes.multiFile].contains(shape.bundle)
                         let outranked: FASTQInputLayout = shape.bundle == shapes.mixed ? .mixedMergedAndPairs : .singleEnd
                         XCTAssertEqual(answer?.layout, scanOutranks ? outranked : explicit ?? unstatedAnswer.layout, label)
                         XCTAssertEqual(
