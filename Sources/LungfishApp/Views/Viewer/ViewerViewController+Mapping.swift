@@ -180,9 +180,7 @@ extension ViewerViewController {
                 do {
                     try existing.configure(input: input)
                 } catch {
-                    existing.view.removeFromSuperview()
-                    existing.removeFromParent()
-                    referenceBundleViewportController = nil
+                    clearSurface(ifShowing: .bundle(.reference))
                     throw error
                 }
                 existing.finishOpenLoading()
@@ -190,16 +188,14 @@ extension ViewerViewController {
             }
         }
 
-        let controller = installReferenceBundleViewportController()
+        // `configure` opens the viewer on the first row and reads the window, so it runs after the install and never in `load`.
+        let controller = try installReferenceBundleViewportController()
         do {
             try controller.configure(input: input)
         } catch {
-            controller.view.removeFromSuperview()
-            controller.removeFromParent()
+            clearSurface(ifShowing: .bundle(.reference))
             throw error
         }
-        referenceBundleViewportController = controller
-        hideGenomicsChromeForReferenceViewport()
 
         mappingDisplayLogger.info(
             "displayReferenceBundleViewport: Showing \(input.documentTitle, privacy: .public)"
@@ -209,14 +205,12 @@ extension ViewerViewController {
     /// Shows the reference viewport before its rows are read, while an open
     /// decodes its files off the main actor. The list and the summary bar
     /// name the work, and `displayReferenceBundleViewport` fills it in place.
-    func displayReferenceBundleViewportLoading(title: String, documentURL: URL) {
-        let controller = installReferenceBundleViewportController()
+    func displayReferenceBundleViewportLoading(title: String, documentURL: URL) throws {
+        let controller = try installReferenceBundleViewportController()
         controller.showOpenLoading(title: title, documentURL: documentURL)
-        referenceBundleViewportController = controller
-        hideGenomicsChromeForReferenceViewport()
     }
 
-    private func installReferenceBundleViewportController() -> ReferenceBundleViewportController {
+    private func installReferenceBundleViewportController() throws -> ReferenceBundleViewportController {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
@@ -235,31 +229,12 @@ extension ViewerViewController {
         hideCollectionBackButton()
         contentMode = .mapping
 
-        let controller = ViewerDisplayRouteFactory.makeReferenceBundleViewportController()
-        addChild(controller)
-
         annotationDrawerView?.isHidden = true
         fastqMetadataDrawerView?.isHidden = true
 
-        let referenceView = controller.view
-        referenceView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(referenceView)
-
-        NSLayoutConstraint.activate([
-            referenceView.topAnchor.constraint(equalTo: view.topAnchor),
-            referenceView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            referenceView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            referenceView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
+        let controller = ViewerDisplayRouteFactory.makeReferenceBundleViewportController()
+        _ = try showSurface(.bundle(.reference), input: controller, as: ReferenceBundleSurface.self)
         return controller
-    }
-
-    private func hideGenomicsChromeForReferenceViewport() {
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
     }
 
     public func hideMappingView() {
@@ -267,17 +242,12 @@ extension ViewerViewController {
             controller.view.removeFromSuperview()
             controller.removeFromParent()
             mappingResultController = nil
+            enhancedRulerView.isHidden = false
+            viewerView.isHidden = false
+            statusBar.isHidden = false
         }
 
-        if let controller = referenceBundleViewportController {
-            controller.view.removeFromSuperview()
-            controller.removeFromParent()
-            referenceBundleViewportController = nil
-        }
-
-        enhancedRulerView.isHidden = false
-        viewerView.isHidden = false
-        statusBar.isHidden = false
+        clearSurface(ifShowing: .bundle(.reference))
     }
 
     func mappingZoomRegion(for annotation: SequenceAnnotation) -> GenomicRegion? {

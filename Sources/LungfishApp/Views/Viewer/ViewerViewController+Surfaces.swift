@@ -42,6 +42,7 @@ extension ViewerViewController {
         registry.register(.analysis(.flye), factory: AssemblyResultSurface.factory(for: .flye))
         registry.register(.analysis(.hifiasm), factory: AssemblyResultSurface.factory(for: .hifiasm))
         registry.register(.view(.fastaCollection)) { FASTACollectionSurface() }
+        registry.register(.bundle(.reference)) { ReferenceBundleSurface() }
         return registry
     }
 

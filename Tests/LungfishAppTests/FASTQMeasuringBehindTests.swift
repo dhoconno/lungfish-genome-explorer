@@ -159,7 +159,7 @@ final class FASTQMeasuringBehindTests: XCTestCase {
     func testUncountedDerivedBundleAfterAReferenceViewportShowsTheOverlayOnTop() throws {
         defer { endRequests() }
         let viewer = split.viewerController!
-        viewer.displayReferenceBundleViewportLoading(
+        try viewer.displayReferenceBundleViewportLoading(
             title: "Reference", documentURL: root.appendingPathComponent("Reference.lungfishref", isDirectory: true)
         )
         XCTAssertNotNil(viewer.referenceBundleViewportController, "the reference viewport is up before the selection")

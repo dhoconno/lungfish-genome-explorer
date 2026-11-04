@@ -99,6 +99,24 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         try await super.tearDown()
     }
 
+    // MARK: - The surface
+
+    func testTheSurfaceAdoptsTheControllerAndConfiguresNothing() throws {
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        let controller = ReferenceBundleViewportController()
+
+        let surface = try viewer.showSurface(.bundle(.reference), input: controller, as: ReferenceBundleSurface.self)
+
+        XCTAssertEqual(surface.surfaceKind, .bundle(.reference))
+        XCTAssertTrue(surface.viewController === controller)
+        XCTAssertTrue(viewer.referenceBundleViewportController === controller)
+        XCTAssertTrue(controller.parent === viewer)
+        XCTAssertTrue(controller.view.superview === viewer.view)
+        XCTAssertNil(controller.currentInput, "the load configured the viewport before the install ended")
+        XCTAssertThrowsError(try viewer.showSurface(.bundle(.reference), input: "not a viewport", as: ReferenceBundleSurface.self))
+    }
+
     // MARK: - One document at a time
 
     /// The landing that would be an S1: a stale track or another bundle's reads on the screen of the second result.
@@ -297,6 +315,9 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         defer { harness.close() }
         let viewer = harness.split.viewerController!
         let mapping = try makeMapping("A", contig: "chrA", readsOnContig: 9)
+        // The drag handle saves the height a person chose, so the test puts back what it found.
+        let savedHeight = UserDefaults.standard.object(forKey: "annotationDrawerHeight")
+        defer { UserDefaults.standard.set(savedHeight, forKey: "annotationDrawerHeight") }
 
         harness.split.displayMappingAnalysisFromSidebar(at: mapping.result)
         try await assertShows(mapping, in: viewer)
@@ -366,7 +387,7 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         let harness = try ViewSwitchWindowHarness()
         defer { harness.close() }
         let viewer = harness.split.viewerController!
-        let mapping = try makeMapping("A", contig: "chrA", readsOnContig: 9)
+        let mapping = try makeMapping("A", contig: "chrA", readsOnContig: 9, secondTrack: true)
         let fastq = try await buildRow(of: "FASTQ", under: root)
         let builds = SummaryBuilderLog()
         defer { builds.release() }
@@ -376,14 +397,16 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         )
 
         harness.split.displayMappingAnalysisFromSidebar(at: mapping.result)
+        try await assertShows(mapping, in: viewer)
         let viewport = try XCTUnwrap(viewer.referenceBundleViewportController)
+        // An open refreshes more than once, and each refresh cancels the one before it, so this one starts after the open
+        // ended, and only the removal can cancel it.
         viewport.setAlignmentTrackSummaryBuilderForTesting { _, _, _ in
             await builds.hold()
             return [late]
         }
-        let holding = await waitUntil(budget: .lookup) {
-            builds.calls == 1 && viewport.testEmbeddedViewerController.currentReferenceBundle != nil
-        }
+        viewport.applyEmbeddedReadDisplaySettings([NotificationUserInfoKey.visibleAlignmentTrackID: "second-track"])
+        let holding = await waitUntil(budget: .lookup) { builds.calls == 1 }
         XCTAssertTrue(holding, "the refresh never reached its summary build")
         let refresh = viewport.mappingRowsRefreshTask
 

@@ -113,12 +113,19 @@ extension MainSplitViewController {
     func showBundleOpenLoading(at url: URL, kind: ReferenceBundleViewportInput.Kind) {
         let target = url.standardizedFileURL
         guard !viewerShowsDocument(at: target, kind: kind) else { return }
-        viewerController.displayReferenceBundleViewportLoading(
-            title: kind == .directBundle
-                ? target.deletingPathExtension().lastPathComponent
-                : target.lastPathComponent,
-            documentURL: target
-        )
+        do {
+            try viewerController.displayReferenceBundleViewportLoading(
+                title: kind == .directBundle
+                    ? target.deletingPathExtension().lastPathComponent
+                    : target.lastPathComponent,
+                documentURL: target
+            )
+        } catch {
+            // With no placeholder `viewerAwaitsBundleOpen` drops the decoded open, so these are the only words a person gets.
+            mainSplitLogger.error("showBundleOpenLoading: \(target.lastPathComponent, privacy: .public) did not install: \(error.localizedDescription, privacy: .public)")
+            inspectorController.updateMappingDocument(nil)
+            viewerController.clearViewport(statusMessage: "Unable to open the \(kind == .directBundle ? "reference bundle" : "mapping result"). Select it again.")
+        }
     }
 
     /// Whether the decoded files of the open of `url` may reach the panes: the

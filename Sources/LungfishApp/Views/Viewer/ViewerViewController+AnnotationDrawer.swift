@@ -59,9 +59,6 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
     public func toggleAnnotationDrawer() {
         if let viewport = installedSurface { return viewport.toggleDrawer() }
 
-        // A reference viewport shows its bundle in an embedded viewer, which owns the drawer a person sees.
-        if let viewport = drawerOwningReferenceViewport { return viewport.toggleEmbeddedAnnotationDrawer() }
-
         if annotationDrawerView == nil {
             configureAnnotationDrawer()
         }

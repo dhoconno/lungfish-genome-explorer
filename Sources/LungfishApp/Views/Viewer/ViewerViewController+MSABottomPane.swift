@@ -8,8 +8,8 @@ import LungfishIO
 extension ViewerViewController {
     /// The reference viewport that covers this viewer, when it is a child on screen. The viewport draws its bundle
     /// in an embedded viewer that owns the drawer a person sees, and this viewer holds no bundle or index while the
-    /// viewport covers it, so the drawer actions below go to the viewport instead of making an empty drawer here
-    /// (lane DRAWER-ROUTE, WF-6).
+    /// viewport covers it, so Make Drawer Taller and Shorter go to the viewport instead of making an empty drawer here
+    /// (lane DRAWER-ROUTE, WF-6). The surface answers Show Drawer, and `ResultViewport` has no height member.
     var drawerOwningReferenceViewport: ReferenceBundleViewportController? {
         guard let viewport = referenceBundleViewportController, viewport.parent === self else { return nil }
         return viewport
@@ -20,7 +20,6 @@ extension ViewerViewController {
     /// for the menu title and the button state.
     var isActiveDrawerOpen: Bool {
         if let viewport = installedSurface { return viewport.isDrawerOpen }
-        if let viewport = drawerOwningReferenceViewport { return viewport.isEmbeddedAnnotationDrawerOpen }
         return isAnnotationDrawerOpen
     }
 

@@ -49,7 +49,20 @@ final class ReferenceBundleNumbersConformanceTests: XCTestCase {
             return viewport.mappingRowsRefreshTask == nil && !viewport.testContigTableView.displayedRows.isEmpty
         }
         let viewport = try XCTUnwrap(viewer.referenceBundleViewportController)
-        print("REFMAP-MEASURE real settled=\(settled) summary=\(viewport.testSummaryText) rows=\(viewport.testContigTableView.displayedRows)")
+        XCTAssertTrue(settled, "the viewport never measured its row")
+        XCTAssertEqual(viewport.testSummaryText, "minimap2 Mapping — 200 / 200 reads mapped (100.0%)")
+        XCTAssertEqual(viewport.testContigTableView.displayedRows.count, 1)
+        let row = try XCTUnwrap(viewport.testContigTableView.displayedRows.first)
+        XCTAssertEqual(row.sampleID, "sample")
+        XCTAssertEqual(row.alignmentTrackID, "sample-alignment")
+        XCTAssertEqual(row.contigName, "MT192765.1")
+        XCTAssertEqual(row.contigLength, 29_829)
+        XCTAssertEqual(row.mappedReads, 197)
+        XCTAssertEqual(row.mappedReadPercent, 98.5, accuracy: 0.0001)
+        XCTAssertEqual(row.meanDepth, 0.918603, accuracy: 0.000001)
+        XCTAssertEqual(row.coverageBreadth, 0.430822, accuracy: 0.000001)
+        XCTAssertEqual(row.medianMAPQ, 60, accuracy: 0.0001)
+        XCTAssertEqual(row.meanIdentity, 0.9948906974198022, accuracy: 0.000000001)
     }
 
     /// What the viewport shows when the BAM its record names is gone. A valid legacy result has no viewer bundle, so `load`
@@ -68,6 +81,13 @@ final class ReferenceBundleNumbersConformanceTests: XCTestCase {
             viewer.referenceBundleViewportController?.mappingRowsRefreshTask == nil
         }
         let viewport = try XCTUnwrap(viewer.referenceBundleViewportController)
-        print("REFMAP-MEASURE gone settled=\(settled) summary=\(viewport.testSummaryText) warning=\(String(describing: viewport.alignmentTrackSummaryWarning)) rows=\(viewport.testContigTableView.displayedRows) placeholder=\(viewport.testDetailPlaceholderMessage) status=\(viewer.statusBar.positionLabel.stringValue) mode=\(viewer.contentMode)")
+        XCTAssertTrue(settled, "the refresh of a gone BAM never ended")
+        XCTAssertEqual(viewer.contentMode, .mapping)
+        XCTAssertEqual(viewport.testContigTableView.displayedRows, [], "a gone BAM showed rows")
+        XCTAssertTrue(
+            viewport.testSummaryText.hasPrefix("minimap2 Mapping — 200 / 200 reads mapped (100.0%) — Warning: Could not measure the alignment statistics for sample alignment. Open the mapping again to try once more, or run the mapping again if it keeps failing."),
+            viewport.testSummaryText
+        )
+        XCTAssertEqual(viewport.testDetailPlaceholderMessage, "Select a mapped contig to inspect mapped reads.")
     }
 }

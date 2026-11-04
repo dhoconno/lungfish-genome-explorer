@@ -60,7 +60,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
     var alignmentTrackSummaryWarning: String? { didSet { alignmentTrackSummaryProgress = nil } }
     var alignmentTrackSummaryProgress: String?
-    private var alignmentTrackSummaryRefreshID = UUID()
+    var alignmentTrackSummaryRefreshID = UUID()
     private var visibleAlignmentSummaryOverride: VisibleAlignmentSummary?
     /// Row identity restoration emits the normal table selection callback.
     /// Suppress it while asynchronous mapping rows are being replaced so the
@@ -1588,7 +1588,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
 
-    private func clearAlignmentActionContext() {
+    func clearAlignmentActionContext() {
         alignmentActionContextGeneration += 1
         alignmentActionContextTask?.cancel()
         alignmentActionContextTask = nil

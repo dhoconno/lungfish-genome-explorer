@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class ActiveAlignmentViewerRoutingTests: XCTestCase {
-    func testActiveFullSequenceViewerResolvesDetachedThenEmbeddedThenRoot() {
+    func testActiveFullSequenceViewerResolvesDetachedThenEmbeddedThenRoot() throws {
         let split = MainSplitViewController()
         _ = split.view
         let root = split.viewerController!
@@ -13,7 +13,7 @@ final class ActiveAlignmentViewerRoutingTests: XCTestCase {
         let embedded = ReferenceBundleViewportController()
         _ = embedded.view
         embedded.activeSequenceViewerController.referenceFrame = frame(start: 20, end: 30)
-        root.referenceBundleViewportController = embedded
+        _ = try root.showSurface(.bundle(.reference), input: embedded, as: ReferenceBundleSurface.self)
 
         XCTAssertTrue(split.activeFullSequenceViewerController === embedded.activeSequenceViewerController)
 
@@ -29,7 +29,7 @@ final class ActiveAlignmentViewerRoutingTests: XCTestCase {
 
         XCTAssertTrue(split.activeFullSequenceViewerController === embedded.activeSequenceViewerController)
 
-        root.referenceBundleViewportController = nil
+        root.clearSurface(ifShowing: .bundle(.reference))
 
         XCTAssertTrue(split.activeFullSequenceViewerController === root)
     }
@@ -77,7 +77,7 @@ final class ActiveAlignmentViewerRoutingTests: XCTestCase {
         _ = embedded.view
         let target = embedded.activeSequenceViewerController
         target.referenceFrame = frame(start: 2_000, end: 6_000)
-        root.referenceBundleViewportController = embedded
+        _ = try root.showSurface(.bundle(.reference), input: embedded, as: ReferenceBundleSurface.self)
 
         let delegate = AppDelegate()
         delegate.mainWindowController = windowController
@@ -141,7 +141,7 @@ final class ActiveAlignmentViewerRoutingTests: XCTestCase {
         let embedded = ReferenceBundleViewportController()
         _ = embedded.view
         embedded.activeSequenceViewerController.referenceFrame = frame(start: 200, end: 400)
-        root.referenceBundleViewportController = embedded
+        _ = try root.showSurface(.bundle(.reference), input: embedded, as: ReferenceBundleSurface.self)
 
         let detached = ClassifierAlignmentEvidenceViewportController()
         _ = detached.viewController.view

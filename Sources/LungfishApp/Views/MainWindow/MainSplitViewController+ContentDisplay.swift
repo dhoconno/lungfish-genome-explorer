@@ -822,7 +822,7 @@ extension MainSplitViewController {
                 mainSplitLogger.info("displayReferenceBundleViewport: Bundle displayed successfully")
             } catch {
                 mainSplitLogger.error("displayReferenceBundleViewport: Failed - \(error.localizedDescription, privacy: .public)")
-                self.viewerController.clearViewport(statusMessage: "Unable to load reference bundle.")
+                self.viewerController.clearViewport(statusMessage: self.viewerController.surfaceFailureWords("Unable to open the reference bundle.", error, orElse: "Select the item again. If it still does not open, check that the bundle's folder is complete or import it again."))
             }
         }
     }
@@ -834,8 +834,8 @@ extension MainSplitViewController {
             self.inspectorController.updateReferenceBundleTrackSections(
                 from: bundle,
                 hiddenVariantTrackIDs: controller.embeddedHiddenVariantTrackIDs,
-                applySettings: { payload in
-                    controller.applyEmbeddedReadDisplaySettings(payload)
+                applySettings: { [weak controller] payload in
+                    controller?.applyEmbeddedReadDisplaySettings(payload)
                 }
             )
         }
@@ -853,8 +853,8 @@ extension MainSplitViewController {
             self.inspectorController.updateMappingAlignmentSection(
                 from: bundle,
                 hiddenVariantTrackIDs: controller.embeddedHiddenVariantTrackIDs,
-                applySettings: { payload in
-                    controller.applyEmbeddedReadDisplaySettings(payload)
+                applySettings: { [weak controller] payload in
+                    controller?.applyEmbeddedReadDisplaySettings(payload)
                 }
             )
         }
@@ -949,11 +949,10 @@ extension MainSplitViewController {
                 wireMappingReferenceViewportInspectorUpdates()
                 recordUITestEvent("mapping.display.succeeded tool=\(result.mapper.rawValue) contigs=\(result.contigs.count)")
             } catch {
-                mainSplitLogger.error(
-                    "displayMappingAnalysis: Failed to load result from \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                )
+                mainSplitLogger.error("displayMappingAnalysis: Failed to load result from \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 recordUITestEvent("mapping.display.failed \(url.lastPathComponent) error=\(error.localizedDescription)")
-                viewerController.clearViewport(statusMessage: "Unable to load mapping result.")
+                inspectorController.updateMappingDocument(nil)
+                viewerController.clearViewport(statusMessage: viewerController.surfaceFailureWords("Unable to open the mapping result.", error, orElse: "Select the item again. If it still does not open, check that the result's folder is complete or run the mapping again."))
             }
         }
     }

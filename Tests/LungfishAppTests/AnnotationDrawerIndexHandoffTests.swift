@@ -317,7 +317,7 @@ final class AnnotationDrawerIndexHandoffTests: XCTestCase {
     func testShowDrawerBeforeTheViewportFinishesOpeningEndsWithTheDrawerShownAndFilled() throws {
         let bundle = try makeBundle(named: "Early Press Fixture", annotationRows: 3, writesAnnotationDatabase: true)
         let host = makeHost()
-        host.displayReferenceBundleViewportLoading(title: "Early Press Fixture", documentURL: bundle)
+        try host.displayReferenceBundleViewportLoading(title: "Early Press Fixture", documentURL: bundle)
 
         // View > Show Drawer pressed while the open still decodes.
         host.toggleAnnotationDrawer()

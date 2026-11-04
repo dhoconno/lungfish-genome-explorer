@@ -178,8 +178,8 @@ public class ViewerViewController: NSViewController {
     /// Mapping result browser (shown in place of the sequence viewer for mapping analyses)
     var mappingResultController: MappingResultViewController?
 
-    /// Shared reference bundle viewport (shown for direct `.lungfishref` bundle opens)
-    var referenceBundleViewportController: ReferenceBundleViewportController?
+    /// Shared viewport of a `.lungfishref` and a mapping result, while the surface host shows it.
+    var referenceBundleViewportController: ReferenceBundleViewportController? { (installedSurface as? ReferenceBundleSurface)?.plainViewport }
 
     /// Native MHC amplicon reference bundle viewport, while the surface host shows it.
     var mhcReferenceBundleViewController: MHCReferenceBundleSurface.Controller? { installedSurface?.viewController as? MHCReferenceBundleSurface.Controller }

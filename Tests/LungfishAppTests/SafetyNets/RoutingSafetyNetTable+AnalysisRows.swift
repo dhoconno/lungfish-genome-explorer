@@ -83,7 +83,7 @@ extension RoutingSafetyNetTable {
                 let result = try RoutingSafetyNetFixtures.mappingSeedAnalysis(in: context.url("Analyses", isDirectory: true))
                 return RoutingRowFixture(
                     item: try RoutingSafetyNetItems.scannedAnalysis(result),
-                    expected: nothing(status: "Unable to load mapping result.")
+                    expected: nothing(status: "Unable to open the mapping result. The data couldn’t be read because it is missing. Select the item again. If it still does not open, check that the result's folder is complete or run the mapping again.")
                 )
             },
             RoutingRow(family: .analyses, name: "Viral Recon run binds its .lungfishref, never a loose BAM", type: .analysisResult) { context in
