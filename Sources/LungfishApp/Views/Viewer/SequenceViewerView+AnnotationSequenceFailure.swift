@@ -34,9 +34,6 @@ extension SequenceViewerView {
         }
     }
 
-    /// A test sets this to read the report in place of the alert, which would wait for a click in the test run.
-    nonisolated(unsafe) static var failureReportObserver: ((FailureReport) -> Void)?
-
     /// The words for an annotation whose sequence could not be read from the open reference. One failed interval
     /// fails the whole read (`fetchAnnotationBasesAsync`), so a copy never holds some exons and lacks others.
     static func annotationSequenceFailureReport(name: String, step: AnnotationSequenceStep) -> FailureReport {
@@ -49,12 +46,8 @@ extension SequenceViewerView {
     }
 
     /// Shows why an annotation's sequence was not copied or translated, in place of the beep a failed read used to give.
+    /// The words go through `ViewerRefusalSeam`, so a test binds a recording presenter to read them and no alert opens.
     func presentAnnotationSequenceFailure(_ annotation: SequenceAnnotation, step: AnnotationSequenceStep) {
-        let report = Self.annotationSequenceFailureReport(name: annotation.name, step: step)
-        if let observer = Self.failureReportObserver {
-            observer(report)
-            return
-        }
-        FailurePresenter.present(report, in: window)
+        ViewerRefusalSeam.present(Self.annotationSequenceFailureReport(name: annotation.name, step: step), in: window)
     }
 }

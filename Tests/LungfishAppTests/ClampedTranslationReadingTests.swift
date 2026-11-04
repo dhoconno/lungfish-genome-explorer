@@ -198,15 +198,17 @@ final class ClampedTranslationReadingTests: XCTestCase {
     }
 
     func testTheViewerSaysSoWhenTheBasesCouldNotBeRead() async throws {
-        var reports: [FailureReport] = []
-        SequenceViewerView.failureReportObserver = { reports.append($0) }
-        defer { SequenceViewerView.failureReportObserver = nil }
         let viewer = makeViewer(with: try await makeBundle(removingSequenceFile: true))
+        // The words go through `ViewerRefusalSeam`, so the recorder reads them and no alert opens in the tier.
+        let recorder = ViewerRefusalWordsTests.Recorder()
 
-        viewer.showCDSTranslation(for: clipped)
+        ViewerRefusalSeam.$presenter.withValue(recorder) {
+            viewer.showCDSTranslation(for: clipped)
+        }
 
         XCTAssertNil(viewer.activeTranslationResult)
-        let report = try XCTUnwrap(reports.first)
+        XCTAssertEqual(recorder.reports.count, 1, "one set of words, shown once")
+        let report = try XCTUnwrap(recorder.reports.first)
         XCTAssertEqual(report.title, "Could not show the translation")
         XCTAssertTrue(report.whatHappened.contains("\"clipped\""), report.whatHappened)
     }
