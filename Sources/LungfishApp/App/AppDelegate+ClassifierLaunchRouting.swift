@@ -75,11 +75,16 @@ extension AppDelegate {
     /// What `showFASTQOperationsDialog` does when it finds no main window to open the dialog on,
     /// as with no project window open (decision A4). A classifier item has a reason to give,
     /// since its launch needs a project, so it shows the refusal app-modal and names the tool, or
-    /// says "a classifier" when the item is the generic one, which has no tool. Any other item only beeps.
+    /// says "a classifier" when the item is the generic one, which has no tool. Any other item shows the same sheet with
+    /// a general sentence, since a beep is no answer on a remote session (Phase 3.2, BEEPS).
     func answerToolsMenuItemWithNoMainWindow(category: FASTQOperationCategoryID, toolID: FASTQOperationToolID?) {
         debugLog("showFASTQOperationsDialog: No main window available")
         guard category == .classification else {
-            NSSound.beep()
+            NoProjectPresenterSeam.presenter.present(
+                title: "No Project Open",
+                message: "Open or create a project before running \(toolID?.title ?? category.displayName), then choose it from the Tools menu again.",
+                on: nil
+            )
             return
         }
         refuseClassifierLaunchWithoutProject(tool: toolID?.title ?? "a classifier", window: nil)

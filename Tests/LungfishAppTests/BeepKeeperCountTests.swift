@@ -23,9 +23,6 @@ final class BeepKeeperCountTests: XCTestCase {
         "Views/Inspector/InspectorViewController+MetadataImport.swift": 1,
         // Build Tree with no alignment: the menu item is disabled then, with a tooltip.
         "App/AppDelegate+TreeInference.swift": 1,
-        // Phase 2.10 decision A4, documented in Sources/LungfishApp/AGENTS.md: a Tools item that is not a classifier,
-        // chosen with no main window.
-        "App/AppDelegate+ClassifierLaunchRouting.swift": 1,
         // Copy Selection as FASTA and Extract Selection: both menu items are disabled with no sequence viewer.
         "App/AppDelegate+SequenceMenu.swift": 2,
     ]
@@ -56,7 +53,7 @@ final class BeepKeeperCountTests: XCTestCase {
         )
     }
 
-    func testTheKeeperTableCountsEleven() {
-        XCTAssertEqual(Self.keepers.values.reduce(0, +), 11, "34 beeps stood at the base of lane BEEPS and 11 are kept")
+    func testTheKeeperTableCountsTen() {
+        XCTAssertEqual(Self.keepers.values.reduce(0, +), 10, "34 beeps stood at the base of lane BEEPS and 10 are kept")
     }
 }

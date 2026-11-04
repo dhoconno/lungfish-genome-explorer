@@ -10,7 +10,8 @@
 // Phase 2.10 lane A35 (panel decision A4). A classifier item chosen with no main window used to
 // beep, so the refusal never ran. It now shows the same refusal app-modal through the presenter
 // seam (NoProjectAlertPresenter.swift), and these tests bind a recording presenter, since no test
-// can click an application-modal alert away. An item of any other category still only beeps.
+// can click an application-modal alert away. An item of any other category shows the same sheet with a
+// general sentence (Phase 3.2, BEEPS).
 
 import AppKit
 import XCTest
@@ -144,22 +145,33 @@ final class ClassifierNoProjectRefusalTests: XCTestCase {
         }
     }
 
-    /// An item of any other category keeps its beep. It presents nothing, starts nothing and writes
-    /// nothing with no main window (panel decision A4).
-    func testAnEntryOfAnotherCategoryWithNoMainWindowPresentsNothingAndStartsNothing() throws {
+    /// An item of any other category shows the same `No Project Open` sheet with a general sentence that names the
+    /// category, or the tool when the item is a tool's. It is app-modal, starts nothing and writes nothing with no
+    /// main window (panel decision A4, widened in Phase 3.2 because the owner hears no audio).
+    func testAnEntryOfAnotherCategoryWithNoMainWindowShowsNoProjectOpenAndStartsNothing() throws {
         let input = try readsInputs(count: 1)[0]
         for category in FASTQOperationCategoryID.allCases where category != .classification {
             let outcome = try startWithNoMainWindow {
                 $0.showFASTQOperationsDialog(nil, initialCategory: category, preferredInputURLs: [input])
             }
-            XCTAssertEqual(outcome.presentations.count, 0, "\(category.displayName): the beep is all it does")
+            XCTAssertEqual(outcome.presentations.map(\.title), ["No Project Open"], "\(category.displayName): one refusal")
+            XCTAssertEqual(outcome.presentations.map { $0.window == nil }, [true], "\(category.displayName): no window, so app-modal")
+            XCTAssertTrue(
+                outcome.presentations.first?.message.contains(category.displayName) == true,
+                "\(category.displayName): the sentence names the category"
+            )
             XCTAssertEqual(outcome.startedRows, [], "\(category.displayName): starts no row")
             XCTAssertTrue(outcome.readsUnchanged, "\(category.displayName): writes nothing beside the reads")
         }
         let otherTools: [FASTQOperationToolID] = [.spades, .minimap2, .fastpTrim]
         for toolID in otherTools {
             let outcome = try startWithNoMainWindow { $0.launchFASTQOperationToolFromMenu(Self.menuItem(for: toolID)) }
-            XCTAssertEqual(outcome.presentations.count, 0, "\(toolID.title): the beep is all it does")
+            XCTAssertEqual(outcome.presentations.map(\.title), ["No Project Open"], "\(toolID.title): one refusal")
+            XCTAssertEqual(outcome.presentations.map { $0.window == nil }, [true], "\(toolID.title): no window, so app-modal")
+            XCTAssertTrue(
+                outcome.presentations.first?.message.contains(toolID.title) == true,
+                "\(toolID.title): the sentence names the tool"
+            )
             XCTAssertEqual(outcome.startedRows, [], "\(toolID.title): starts no row")
             XCTAssertTrue(outcome.readsUnchanged, "\(toolID.title): writes nothing beside the reads")
         }
