@@ -179,6 +179,9 @@ final class TaxTriagePipelineCancelReplayTests: XCTestCase {
         XCTAssertEqual(report.exitCode, 125, "a cancel ends the run with exit 125")
         XCTAssertEqual(record?.status, .cancelled, "the cancel wins over the completed first sample")
         XCTAssertEqual(steps.map(\.exitStatus), [0, 125], "the completed sample, then the cancelled one")
+        // Landing 8, Finding A. The cancelled sample keeps its step, and no tool starts for it: the layout loop lets it
+        // through and its engine stops at the cancel before the spawn (E10).
+        XCTAssertEqual(try engine.launches().count, 1, "no engine starts for the sample whose cancel landed first")
         XCTAssertFalse(FileManager.default.fileExists(atPath: batchResult.path), "a cancelled batch writes no aggregate result")
     }
 

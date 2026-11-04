@@ -81,13 +81,18 @@ extension TaxTriagePipeline {
         var scans: [String: FASTQInputLayoutResolution] = [:]
 
         for (index, sample) in config.samples.enumerated() {
-            try Task.checkCancellation()
-            // A file sample with no layout is scanned here, once, and the record names this scan.
+            // A file sample with no layout is scanned here, once, and the record names this scan. A cancel that lands
+            // in a scan makes it answer mixed with the cancel in its words (never a whole scan, never a split), so
+            // the loop goes on and the run stops at its engine's cancel check.
             let scan = sample.fastq2 == nil && sample.platform == .illumina && sample.readLayout == nil
                 ? FASTQInputLayoutResolver.resolve(inputURLs: [sample.fastq1])
                 : nil
             if let scan { scans[sample.sampleId] = scan }
             guard scan.map({ $0.layout == .strictlyInterleaved }) ?? shouldSplitInterleaved(sample) else { continue }
+            // Only a sample that splits stops here, as before the scan moved into this loop. A sample that does not
+            // split reaches the run, which records its step with exit 125 when the cancel landed before it launched
+            // (TaxTriagePipelineCancelReplayTests).
+            try Task.checkCancellation()
             progress?(0.05, "Splitting interleaved pairs of \(sample.sampleId) into R1/R2 for TaxTriage...")
             let directoryName = SampleFolderNaming.uniqueDirectoryName(
                 for: sample.sampleId,

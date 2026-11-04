@@ -130,6 +130,82 @@ final class TaxTriageReadLayoutAndErrorTests: XCTestCase {
         XCTAssertEqual(entries.map(\.isPairedEnd), [false, false, false, false, true])
     }
 
+    // MARK: - A cancel meets the layout loop (landing 8, Finding A)
+
+    /// A scan polls for a cancel every 16,384 records, so this file is longer than that. Uncancelled it is strictly
+    /// interleaved and splits. A cancel in its scan makes the scan answer mixed with the cancel in its words, so the
+    /// file does not split, no tool starts, and the record never reads a whole scan or a finished layout. The loop does
+    /// not throw, since the run then records the sample's step with exit 125 when its engine sees the cancel
+    /// (`TaxTriagePipelineCancelReplayTests`).
+    func testACancelInTheScanSplitsNothingAndReadsAsNoWholeScan() async throws {
+        let big = try writeFASTQ("big.fastq", (1...9_000).flatMap { index in
+            [record("read\(index)/1", "AAAAAAAAAA"), record("read\(index)/2", "CCCCCCCCCC")]
+        })
+        let original = config(samples: [TaxTriageSample(sampleId: "big", fastq1: big)])
+
+        let control = try await TaxTriagePipeline.splitStrictlyInterleavedSamples(
+            in: original,
+            splitRoot: tempDirectory.appendingPathComponent("control-split")
+        )
+        XCTAssertEqual(control.splits.map(\.sampleId), ["big"], "uncancelled, the file is strictly interleaved and splits")
+        XCTAssertEqual(control.scans["big"]?.classification?.scannedWholeFile, true)
+
+        let splitRoot = tempDirectory.appendingPathComponent("cancelled-split")
+        let outcome = await Task.detached { () -> Result<TaxTriagePipeline.ReadLayoutPreparedConfig, any Error> in
+            withUnsafeCurrentTask { $0?.cancel() }
+            do {
+                return .success(try await TaxTriagePipeline.splitStrictlyInterleavedSamples(in: original, splitRoot: splitRoot))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+
+        let prepared = try XCTUnwrap(
+            try? outcome.get(),
+            "a cancel in a scan must not stop the loop, or a sample that does not split loses its cancelled step"
+        )
+        XCTAssertTrue(prepared.splits.isEmpty, "a cancelled scan splits nothing, so no tool starts after the cancel")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: splitRoot.path), "no split folder is made")
+        XCTAssertEqual(prepared.config.samples, original.samples, "the sample still names the durable file")
+        let scan = try XCTUnwrap(prepared.scans["big"])
+        XCTAssertEqual(scan.layout, .mixedMergedAndPairs, scan.reason)
+        XCTAssertEqual(scan.classification?.scannedWholeFile, false, "a cancelled scan is never a whole scan")
+        XCTAssertTrue(scan.reason.contains("cancelled"), scan.reason)
+
+        guard case .dictionary(let samples)? = TaxTriagePipeline.readLayoutRecord(for: prepared.config, scans: prepared.scans),
+              case .dictionary(let fields)? = samples["big"] else {
+            return XCTFail("the record holds no read_layouts entry for the sample")
+        }
+        XCTAssertEqual(fields["scannedWholeFile"], .boolean(false), "the record never says a cancelled scan read the whole file")
+        XCTAssertEqual(fields["scannedRecords"], .integer(0))
+        XCTAssertEqual(fields["readLayout"], .string(FASTQInputLayout.mixedMergedAndPairs.rawValue))
+        guard case .string(let reason)? = fields["readLayoutReason"] else { return XCTFail("the record names no reason") }
+        XCTAssertTrue(reason.contains("cancelled"), reason)
+    }
+
+    /// A layout the caller knows is not scanned, so a cancel meets the check below the guard, which stops the sample
+    /// before its split starts. No tool runs after the cancel.
+    func testACancelBeforeTheSplitOfAKnownLayoutStopsBeforeTheSplit() async throws {
+        let interleaved = try interleavedFASTQ()
+        let original = config(samples: [
+            TaxTriageSample(sampleId: "patient", fastq1: interleaved, readLayout: .strictlyInterleaved),
+        ])
+        let splitRoot = tempDirectory.appendingPathComponent("known-split")
+
+        let failure = await Task.detached { () -> (any Error)? in
+            withUnsafeCurrentTask { $0?.cancel() }
+            do {
+                _ = try await TaxTriagePipeline.splitStrictlyInterleavedSamples(in: original, splitRoot: splitRoot)
+                return nil
+            } catch {
+                return error
+            }
+        }.value
+
+        XCTAssertTrue(failure is CancellationError, "\(String(describing: failure))")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: splitRoot.path), "no split starts once the cancel is seen")
+    }
+
     // MARK: - Errored processes (Task B1)
 
     func testTraceFailuresWithExhaustedRetriesAreDetected() {
