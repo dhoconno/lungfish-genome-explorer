@@ -117,6 +117,23 @@ final class ViewerRefusalWordsTests: XCTestCase {
         }
     }
 
+    // MARK: - The live presenter
+
+    /// With no window and no key window, `FailurePresenter` would run an application-modal alert, which a unit test never
+    /// answers, so a test that forgot `recordRefusals` would hang the tier. The live presenter shows nothing then. The
+    /// choice is a pure function, so this test opens no alert (the pattern of
+    /// `ClassifierNoProjectRefusalTests.testTheLivePresenterChoosesASheetOnlyForAGivenWindow`).
+    func testTheLivePresenterShowsNothingWhenThereIsNoWindow() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        XCTAssertFalse(
+            LiveViewerRefusalPresenter.canShow(in: nil, keyWindow: nil),
+            "no window and no key window would run an application-modal alert"
+        )
+        XCTAssertTrue(LiveViewerRefusalPresenter.canShow(in: window, keyWindow: nil), "a given window holds the sheet")
+        XCTAssertTrue(LiveViewerRefusalPresenter.canShow(in: nil, keyWindow: window), "the key window holds the sheet when none is given")
+    }
+
     // MARK: - The drawer, through its real call sites
 
     func testSavingAnEditWithAnEmptyNameNamesTheBox() throws {

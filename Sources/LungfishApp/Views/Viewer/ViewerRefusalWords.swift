@@ -4,7 +4,10 @@
 
 import AppKit
 import Foundation
+import os
 import LungfishKit
+
+private let viewerRefusalLogger = Logger(subsystem: "com.lungfish.app", category: "ViewerRefusal")
 
 /// Where the words of a refused viewer command reach the screen (row BEEP-SWEEP, Phase 3.2).
 ///
@@ -18,7 +21,20 @@ protocol ViewerRefusalPresenting: Sendable {
 /// The presenter the app runs with.
 struct LiveViewerRefusalPresenter: ViewerRefusalPresenting {
     @MainActor func present(_ report: FailureReport, in window: NSWindow?) {
+        // With no window and no key window `FailurePresenter` would run an application-modal alert, which a test never
+        // answers. A viewer command has a window in the app, so only a test that did not bind `ViewerRefusalSeam`
+        // gets here. It logs the words and returns.
+        guard Self.canShow(in: window, keyWindow: NSApp.keyWindow) else {
+            viewerRefusalLogger.warning("A refusal had no window to show: \(report.title, privacy: .public). \(report.whatHappened, privacy: .public)")
+            return
+        }
         FailurePresenter.present(report, in: window)
+    }
+
+    /// Whether there is a window to put the sheet on, the given one or else the key window. `FailurePresenter` runs an
+    /// application-modal alert when there is neither.
+    @MainActor static func canShow(in window: NSWindow?, keyWindow: NSWindow?) -> Bool {
+        window != nil || keyWindow != nil
     }
 }
 
