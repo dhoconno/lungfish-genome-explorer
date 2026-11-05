@@ -28,7 +28,7 @@ final class BarcodeDetectionFailureWordsTests: XCTestCase {
         XCTAssertTrue(report.whatHappened.contains(kit), "the body names the kit: \(report.whatHappened)")
         XCTAssertTrue(report.whatHappened.contains("No search was run"), "the body says nothing ran: \(report.whatHappened)")
         XCTAssertFalse(report.nextStep.contains("FASTQ file is complete"), "the file is not the cause: \(report.nextStep)")
-        XCTAssertTrue(report.nextStep.contains("different kit"), "the next step offers another kit: \(report.nextStep)")
+        XCTAssertTrue(report.nextStep.contains("If you used a different kit"), "the next step covers a wrong kit: \(report.nextStep)")
         XCTAssertTrue(report.nextStep.contains("Custom Definition"), "the next step offers the way out: \(report.nextStep)")
         XCTAssertTrue(
             report.details?.contains("No barcode sequences could be built") ?? false,

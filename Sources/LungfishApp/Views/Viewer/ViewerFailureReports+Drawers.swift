@@ -50,7 +50,7 @@ extension ViewerFailureReports {
 
     /// What to try when the kit gave the scout nothing to search for. The FASTQ file is not the cause, and the details
     /// hold the kit's own message.
-    private static let kitWayOut = "Choose a different kit for this step, or run Demultiplex Barcodes from the FASTQ operations dialog with a Custom Definition of the barcode sequences from your index sheet. Show Details has the full message."
+    private static let kitWayOut = "If you used a different kit, choose it and detect the barcodes again. Otherwise run Demultiplex Barcodes from the FASTQ operations dialog with a Custom Definition of the barcode sequences from your index sheet. Show Details has the full message."
 
     /// The command that deletes the annotation rows failed. Its Operations row is failed just before this
     /// alert, so the panel holds the command's message.
