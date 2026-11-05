@@ -20,7 +20,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishIO | library | Sources/LungfishIO | 659 | LungfishCore |
+| LungfishIO | library | Sources/LungfishIO | 660 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 161 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -1513,6 +1513,7 @@ None.
 - `TaxTriageMetricsParser` enum, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageMetricsParser.swift`
 - `TaxTriageMetricsParserError` enum, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageMetricsParser.swift`
 - `TaxTriageOrganism` struct, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageReportParser.swift`
+- `TaxTriageOrganismReference` struct, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageDatabase+OrganismReferences.swift`
 - `TaxTriageOrganismReport` enum, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageOrganismReport.swift`
 - `TaxTriageOutputArtifactPolicy` enum, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageOutputArtifactPolicy.swift`
 - `TaxTriageReportParser` enum, `Sources/LungfishIO/Formats/TaxTriage/TaxTriageReportParser.swift`
