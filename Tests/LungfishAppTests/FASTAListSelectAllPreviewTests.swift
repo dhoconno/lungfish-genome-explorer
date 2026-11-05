@@ -57,6 +57,27 @@ final class FASTAListSelectAllPreviewTests: XCTestCase {
         XCTAssertFalse(Self.labels(in: detail).contains { !$0.isEmpty }, "A whole single record shows a note.")
     }
 
+    /// UX SF1: the longest line of the note (one record past the base bound) wraps inside a narrow pane. It does not run
+    /// past the pane's edge, and it takes more than one line.
+    func testTheNoteWrapsAtANarrowWidth() throws {
+        _ = NSApplication.shared
+        let detail = FASTASelectionDetailView(frame: NSRect(x: 0, y: 0, width: 320, height: 300))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 300),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = detail
+        windows.append(window)
+        detail.setSequences([try FASTAListGCPassTests.record("long", String(repeating: "ACGTTGCAAC", count: 150_000))])
+
+        detail.layoutSubtreeIfNeeded()
+
+        let label = try XCTUnwrap(detail.subviews.first { $0.accessibilityIdentifier() == "fasta-selection-note" })
+        XCTAssertLessThanOrEqual(label.frame.maxX, detail.bounds.width, "The note runs past the pane: \(label.frame).")
+        XCTAssertGreaterThan(label.frame.height, 2 * NSFont.smallSystemFontSize, "The note sits on one line: \(label.frame).")
+    }
+
     // MARK: - Helpers
 
     private func makeList() -> FASTACollectionViewController {
