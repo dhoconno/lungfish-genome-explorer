@@ -61,6 +61,61 @@ final class TaxTriageOrganismReferencesTests: XCTestCase {
         }
     }
 
+    /// Review SF1. Two rows of one sample whose primary accessions sit in one gcfmap organism group each store the same
+    /// references, and Extract Reads appended both lists to the sample's request, so it sent every reference twice,
+    /// which samtools can answer by writing a read twice. NTC_1's second row takes the Influenza row's eight segments
+    /// here. Red at the base, which sends sixteen entries for the eight segments.
+    func testTwoRowsOfOneSampleThatShareReferencesSendEachReferenceOnce() throws {
+        let root = try TestTempDirectory.make(prefix: "TaxTriageOrganismReferences")
+        defer { TestTempDirectory.cleanup(root) }
+        let result = try Self.offMain { try await Self.buildFixture(in: root, standIn: true) }
+        let databaseURL = result.appendingPathComponent("taxtriage.sqlite")
+        let (rows, existing) = try {
+            let database = try TaxTriageDatabase(at: databaseURL)
+            let rows = try database.fetchRows(samples: ["NTC_1", "patient"])
+            return (rows, try database.fetchOrganismReferences(of: rows))
+        }()
+        let influenza = try XCTUnwrap(rows.first { $0.sample == "NTC_1" && $0.taxId == Self.influenzaTaxID })
+        let second = try XCTUnwrap(rows.first {
+            $0.sample == "NTC_1" && $0.taxId != Self.influenzaTaxID && $0.primaryAccession != nil
+        })
+        var references = existing.values.flatMap { $0 }
+        let shared = references.filter { $0.sample == "NTC_1" && $0.primaryAccession == influenza.primaryAccession }
+        XCTAssertEqual(Set(shared.map(\.accession)), Self.h3n2Segments, "the Influenza row stores its eight segments")
+        references.removeAll { $0.sample == "NTC_1" && $0.primaryAccession == second.primaryAccession }
+        references += shared.map {
+            TaxTriageOrganismReference(
+                sample: "NTC_1", primaryAccession: second.primaryAccession ?? "", accession: $0.accession,
+                length: $0.length, mappedReads: $0.mappedReads
+            )
+        }
+        try TaxTriageDatabase.storeOrganismReferences(references, at: databaseURL)
+
+        let pane = RecordingAlignmentPane()
+        let vc = try Self.openViewer(
+            on: result, pane: pane, defaults: makeTestDefaultsSuite(prefix: "TaxTriageOrganismReferences").defaults
+        )
+        var extracted: [ClassifierRowSelector]?
+        vc.resultActions.onExtractionRequested = { extracted = $0.selectors }
+        let displayed = vc.testBatchFlatTableView.displayedRows
+        let both = IndexSet(displayed.indices.filter {
+            displayed[$0].sample == "NTC_1" && [influenza.taxId, second.taxId].contains(displayed[$0].taxId)
+        })
+        XCTAssertEqual(both.count, 2, "NTC_1's Influenza row and its second row are shown")
+        vc.testBatchFlatTableView.testTableView.selectRowIndexes(both, byExtendingSelection: false)
+        XCTAssertTrue(
+            waitUntilOnRunLoop(budget: .lookup) { vc.testActionBar.extractButton.isEnabled }, "Extract Reads is enabled"
+        )
+        vc.testActionBar.extractButton.performClick(nil)
+
+        let selectors = try XCTUnwrap(extracted, "Extract Reads made a request")
+        XCTAssertEqual(selectors.map(\.sampleId), ["NTC_1"], "both rows are one request of their sample")
+        let regions = selectors.flatMap(\.accessions)
+        XCTAssertEqual(regions.count, Set(regions).count, "each reference is sent once, sent \(regions)")
+        XCTAssertEqual(Set(regions), Self.h3n2Segments, "the request still names the eight segments, sent \(regions)")
+        XCTAssertEqual(regions.count, 8, "eight entries for the eight segments, sent \(regions)")
+    }
+
     // MARK: - Shared with the live form
 
     /// Runs `work` off the main thread and spins the main run loop until it ends, so the viewer's row pages, which
