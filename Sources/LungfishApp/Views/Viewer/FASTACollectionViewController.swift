@@ -45,8 +45,10 @@ public final class FASTACollectionViewController: NSViewController,
     /// Whether the view is showing sequences from multiple source documents.
     private var isMultiSource: Bool { !sourceNames.isEmpty }
 
-    /// Cached GC percentages keyed by sequence ID to avoid recomputation.
+    /// GC percentages keyed by sequence ID, empty until the pass delivers them, so a cell reads blank meanwhile.
     private var gcCache: [UUID: Double] = [:]
+    /// Counts GC off the main thread (W-34).
+    private let gcPass = FASTACollectionGCPass()
 
     // MARK: - Sort State
 
@@ -192,18 +194,15 @@ public final class FASTACollectionViewController: NSViewController,
         }
         self.annotationsBySequence = grouped
 
-        // Precompute GC percentages
-        gcCache.removeAll(keepingCapacity: true)
-        for seq in sequences {
-            gcCache[seq.id] = computeGCPercent(for: seq)
-        }
+        // GC is counted off the main thread, and cells and the bar read blank until the pass delivers (W-34).
+        gcCache = [:]
+        gcPass.start(sequences) { [weak self] result in self?.showGC(result) }
 
         let totalAnnotations = annotations.count
         let sourceCount = isMultiSource ? Set(sourceNames.values).count : 0
         summaryBar.update(
             sequences: sequences,
             annotationCount: totalAnnotations,
-            gcCache: gcCache,
             sourceFileCount: sourceCount
         )
 
@@ -733,60 +732,20 @@ public final class FASTACollectionViewController: NSViewController,
         }
     }
 
-    // MARK: - GC Content Calculation
+    // MARK: - GC Content
 
-    /// Computes GC percentage for a sequence by sampling up to 10,000 bases.
-    ///
-    /// For sequences longer than 10,000 bp, samples evenly-spaced windows
-    /// to keep computation bounded.
-    private func computeGCPercent(for seq: LungfishCore.Sequence) -> Double {
-        let length = seq.length
-        guard length > 0 else { return 0 }
-
-        let sampleSize = min(length, 10_000)
-        var gcCount = 0
-        var totalCount = 0
-
-        if length <= sampleSize {
-            // Sample entire sequence
-            let bases = seq[0..<length]
-            for base in bases {
-                switch base {
-                case "G", "g", "C", "c":
-                    gcCount += 1
-                    totalCount += 1
-                case "A", "a", "T", "t":
-                    totalCount += 1
-                default:
-                    break // Skip N and ambiguous bases
-                }
-            }
-        } else {
-            // Sample evenly-spaced windows
-            let windowSize = 100
-            let windowCount = sampleSize / windowSize
-            let step = length / windowCount
-
-            for i in 0..<windowCount {
-                let start = i * step
-                let end = min(start + windowSize, length)
-                let bases = seq[start..<end]
-                for base in bases {
-                    switch base {
-                    case "G", "g", "C", "c":
-                        gcCount += 1
-                        totalCount += 1
-                    case "A", "a", "T", "t":
-                        totalCount += 1
-                    default:
-                        break
-                    }
-                }
-            }
+    /// Takes the pass's values. A sort by GC asked for while it counted is applied again now that the values are known.
+    private func showGC(_ result: FASTACollectionGC.Result) {
+        gcCache = result.percents
+        summaryBar.showGC(result.listPercent)
+        if sortKey == "gc" {
+            let selectedIDs = Set(selectedSequences().map(\.id))
+            applySortOrder()
+            tableView.reloadData()
+            restoreSelection(for: selectedIDs)
+        } else if let column = tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == "gc" }) {
+            tableView.reloadData(forRowIndexes: IndexSet(integersIn: 0..<tableView.numberOfRows), columnIndexes: [column])
         }
-
-        guard totalCount > 0 else { return 0 }
-        return Double(gcCount) / Double(totalCount) * 100.0
     }
 
     // MARK: - Selection Detail
@@ -1061,8 +1020,8 @@ public final class FASTACollectionViewController: NSViewController,
             if count == 0 { textField.textColor = .tertiaryLabelColor }
 
         case "gc":
-            let gc = gcCache[seq.id] ?? 0
-            textField.stringValue = String(format: "%.1f%%", gc)
+            // Blank until the pass delivers, never 0.0.
+            textField.stringValue = gcCache[seq.id].map { String(format: "%.1f%%", $0) } ?? ""
             textField.alignment = .right
 
         default:

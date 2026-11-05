@@ -104,6 +104,8 @@ final class FASTACollectionSurfaceRouteTests: XCTestCase {
         let collection = try await shownCollection(in: harness.split.viewerController)
         XCTAssertEqual(collection.testTableView.numberOfRows, 3)
         XCTAssertEqual(cells("length", in: collection), ["40 bp", "20 bp", "8 bp"])
+        // GC is counted off the main thread since FASTALIST2 (W-34), so its cells read blank until the pass delivers.
+        _ = await waitUntil(budget: .lookup) { !cells("gc", in: collection).contains("") }
         XCTAssertEqual(cells("gc", in: collection), ["50.0%", "40.0%", "100.0%"])
     }
 

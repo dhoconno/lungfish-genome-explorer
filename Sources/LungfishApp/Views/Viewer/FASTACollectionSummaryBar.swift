@@ -21,7 +21,8 @@ final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
     private var sequenceCount: Int = 0
     private var totalLength: Int64 = 0
     private var annotationCount: Int = 0
-    private var meanGCPercent: Double = 0
+    /// Nil until the list's GC pass delivers, so the card reads blank and never 0.0 while it counts.
+    private var gcPercent: Double?
     private var shortestLength: Int = 0
     private var longestLength: Int = 0
     private var sourceFileCount: Int = 0
@@ -33,43 +34,46 @@ final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
     /// - Parameters:
     ///   - sequences: All sequences in the collection.
     ///   - annotationCount: Total number of annotations across all sequences.
-    ///   - gcCache: Pre-computed GC percentages keyed by sequence ID.
     ///   - sourceFileCount: Number of distinct source files (0 for single-document).
+    ///
+    /// The GC card reads blank until ``showGC(_:)`` gives it the pass's value.
     func update(
         sequences: [LungfishCore.Sequence],
         annotationCount: Int,
-        gcCache: [UUID: Double],
         sourceFileCount: Int = 0
     ) {
         self.sequenceCount = sequences.count
         self.annotationCount = annotationCount
         self.sourceFileCount = sourceFileCount
+        gcPercent = nil
 
         if sequences.isEmpty {
             totalLength = 0
-            meanGCPercent = 0
             shortestLength = 0
             longestLength = 0
         } else {
             var total: Int64 = 0
             var shortest = Int.max
             var longest = 0
-            var gcSum = 0.0
 
             for seq in sequences {
                 let len = seq.length
                 total += Int64(len)
                 if len < shortest { shortest = len }
                 if len > longest { longest = len }
-                gcSum += gcCache[seq.id] ?? 0
             }
 
             totalLength = total
             shortestLength = shortest
             longestLength = longest
-            meanGCPercent = gcSum / Double(sequences.count)
         }
 
+        cardsDidChange()
+    }
+
+    /// Shows the list's GC once the pass has counted it. Nil keeps the card blank.
+    func showGC(_ percent: Double?) {
+        gcPercent = percent
         cardsDidChange()
     }
 
@@ -90,7 +94,7 @@ final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
         result.append(contentsOf: [
             Card(label: "Total Length", value: GenomicSummaryCardBar.formatBases(totalLength)),
             Card(label: "Annotations", value: GenomicSummaryCardBar.formatCount(annotationCount)),
-            Card(label: "GC Content", value: String(format: "%.1f%%", meanGCPercent)),
+            Card(label: "GC Content", value: gcPercent.map { String(format: "%.1f%%", $0) } ?? ""),
             Card(label: "Shortest", value: GenomicSummaryCardBar.formatBases(shortestLength)),
             Card(label: "Longest", value: GenomicSummaryCardBar.formatBases(longestLength)),
         ])
