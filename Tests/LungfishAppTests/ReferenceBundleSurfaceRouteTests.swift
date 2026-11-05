@@ -70,7 +70,7 @@ private final class SummaryBuilderLog: @unchecked Sendable {
 }
 
 /// A mapping result with a folder, a viewer bundle, a contig and numbers of its own.
-private struct MappingFixture {
+struct MappingFixture {
     let result: URL
     let bundle: URL
     let bam: URL
@@ -80,7 +80,7 @@ private struct MappingFixture {
 
 @MainActor
 final class ReferenceBundleSurfaceRouteTests: XCTestCase {
-    private var root: URL!
+    var root: URL!
     private var hostDefaults: HostDefaultsRestorer!
 
     override func setUpWithError() throws {
@@ -315,17 +315,16 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         defer { harness.close() }
         let viewer = harness.split.viewerController!
         let mapping = try makeMapping("A", contig: "chrA", readsOnContig: 9)
-        // The drag handle saves the height a person chose, so the test puts back what it found.
-        let savedHeight = UserDefaults.standard.object(forKey: "annotationDrawerHeight")
-        defer { UserDefaults.standard.set(savedHeight, forKey: "annotationDrawerHeight") }
 
         harness.split.displayMappingAnalysisFromSidebar(at: mapping.result)
         try await assertShows(mapping, in: viewer)
         let embedded = try XCTUnwrap(viewer.referenceBundleViewportController).activeSequenceViewerController
+        // The drag handle saves the height a person chose, so it saves in a suite of the test's, as `AnnotationDrawerSizingTests` does.
+        embedded.annotationDrawerDefaults = makeTestDefaultsSuite(prefix: "ReferenceBundleSurfaceRouteTests").defaults
         viewer.toggleAnnotationDrawer()
         let before = try XCTUnwrap(embedded.annotationDrawerHeightConstraint?.constant, "the drawer did not open in the embedded viewer")
 
-        viewer.adjustAnnotationDrawerHeight(by: 40)
+        harness.controller.makeDrawerTaller(nil)
 
         let after = try XCTUnwrap(embedded.annotationDrawerHeightConstraint?.constant)
         XCTAssertGreaterThan(after, before, "Make Drawer Taller did not reach the embedded drawer")
@@ -638,7 +637,7 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
 
     /// A mapping result saved by its own writer, in a folder of its own. The track names the result's own BAM, so All
     /// Alignments shows the record's values.
-    private func makeMapping(
+    func makeMapping(
         _ name: String, contig: String, readsOnContig: Int, secondTrack: Bool = false
     ) throws -> MappingFixture {
         let folder = root.appendingPathComponent(name, isDirectory: true)
@@ -674,7 +673,7 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         )
     }
 
-    private func makeReference(_ name: String, chromosomes: [String] = ["chr1"]) throws -> URL {
+    func makeReference(_ name: String, chromosomes: [String] = ["chr1"]) throws -> URL {
         let folder = root.appendingPathComponent("reference-\(name)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return try MappingRoutingFixture.makeReferenceBundle(
@@ -683,7 +682,7 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
     }
 
     /// Waits for the open to settle, then reads whose BAM, rows and bundle each reader of the viewer sees.
-    private func assertShows(
+    func assertShows(
         _ mapping: MappingFixture, in viewer: ViewerViewController, file: StaticString = #filePath, line: UInt = #line
     ) async throws {
         let settled = await waitUntil(budget: .lookup) {
@@ -707,7 +706,7 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         XCTAssertEqual(viewer.drawnReferenceBundle?.url.standardizedFileURL, mapping.bundle.standardizedFileURL, "File > Export would read another bundle", file: file, line: line)
     }
 
-    private func assertShowsReference(
+    func assertShowsReference(
         _ reference: URL, in viewer: ViewerViewController, sequences: [String] = ["chr1"],
         file: StaticString = #filePath, line: UInt = #line
     ) async {
