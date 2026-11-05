@@ -487,6 +487,7 @@ public final class AssemblyResultViewController: NSViewController {
         guard generation == loadGeneration else { return }
         currentResult = result
         heldContigsStamp = nil
+        summaryStrip.isHidden = false
         summaryStrip.configure(result: result, pasteboard: scalarPasteboard)
         contigTableView.scalarPasteboard = scalarPasteboard
         detailPane.configureQuickCopy(pasteboard: scalarPasteboard)
@@ -506,6 +507,10 @@ public final class AssemblyResultViewController: NSViewController {
         let records = try await catalog.records()
         guard !Task.isCancelled, generation == loadGeneration else {
             return
+        }
+        // A file with bytes and no contig reads as an empty list without an error, so it is refused like one that did not open (W-30).
+        if records.isEmpty, let bytes = stamp.first.flatMap({ Int($0) }), bytes > 0 {
+            throw AssemblyContigsFileHoldsNoContig(fileName: result.contigsPath.lastPathComponent, byteCount: bytes)
         }
 
         self.catalog = catalog
@@ -680,6 +685,7 @@ extension AssemblyResultViewController {
             } catch {
                 // A load that a later configure replaced or cancelled is not a failure. One that failed leaves the table empty.
                 guard let self, !Task.isCancelled, generation == self.loadGeneration else { return }
+                self.summaryStrip.isHidden = true // no stored Contigs, Total bp or N50 over a table that did not load (W-30)
                 self.presentFailure(AssemblyFailureReports.contigsNotOpened(error))
             }
         }

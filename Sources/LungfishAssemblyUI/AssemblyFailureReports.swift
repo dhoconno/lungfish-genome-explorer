@@ -55,3 +55,16 @@ enum AssemblyFailureReports {
         )
     }
 }
+
+/// The cause shown in the details when a contigs file holds bytes and no contig (W-30, ASM-7 case b). The catalog reads such a
+/// file as an empty list and throws nothing, so the viewer raises this error to refuse it like a file that cannot be opened.
+/// An empty file is not this error, since an assembler that found nothing writes one.
+struct AssemblyContigsFileHoldsNoContig: LocalizedError {
+    let fileName: String
+    let byteCount: Int
+
+    var errorDescription: String? {
+        let size = byteCount == 1 ? "1 byte" : "\(byteCount) bytes"
+        return "The contigs file \"\(fileName)\" holds \(size) but no contig. A contig starts with a line that begins with > and gives its name."
+    }
+}
