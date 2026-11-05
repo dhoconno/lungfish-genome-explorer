@@ -150,7 +150,7 @@ extension ViewSwitchDeclaredLeaks {
             "+ mode: metagenomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
-            // BACKLOG INSPECTOR-CLEAR-MODE (S4): after a classifier result, a cleared Inspector keeps its result mode's empty blocks beside a preview.
+            // BACKLOG INSPECTOR-CLEAR-MODE (S3): a cleared Inspector keeps its result mode's empty blocks beside a preview, and its Panel Layout picker stays live (InspectorView.swift:536-556).
             "+ inspectorBlocks: selectAResult, panelLayout",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
