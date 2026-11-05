@@ -140,6 +140,18 @@ extension BuildDbCommand {
                 events.text("Parsed \(rows.count) taxonomy rows, \(accessionMap.count) accession entries from \(resolvedInput.sourceDescription)")
                 for line in resolvedInput.lines { events.text(line) }
 
+                // A rebuild never leaves fewer samples than the database it replaces. A sample whose rows came from `top/` has
+                // none once an earlier build's cleanup removed that folder, and its control would then read as clean (3.2 TTREADS).
+                let earlier = Set((try? TaxTriageDatabase(at: dbURL).fetchSamples().map(\.sample)) ?? [])
+                if Set(rows.map(\.sample)).count < earlier.count {
+                    let missing = earlier.subtracting(rows.map(\.sample)).sorted().joined(separator: ", ")
+                    throw ValidationError(
+                        "Rebuilding \(dbURL.lastPathComponent) would drop its samples \(missing), whose reports this folder no longer holds "
+                            + "(an earlier build removed their top/ folder). The database is unchanged. To drop them on purpose, delete "
+                            + "\(dbURL.path) and run lungfish-cli build-db taxtriage again."
+                    )
+                }
+
                 // 3. Build database
                 let metadata: [String: String] = [
                     "tool": "taxtriage",

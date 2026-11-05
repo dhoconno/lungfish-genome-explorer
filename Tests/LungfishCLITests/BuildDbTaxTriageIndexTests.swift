@@ -135,8 +135,9 @@ final class BuildDbTaxTriageIndexTests: XCTestCase {
     // MARK: - Row 258, the legacy route
 
     /// Today's cleanup removes `top/`, so a `--force` rebuild of a result whose only rows came from there throws and
-    /// keeps its database, and a batch loses that sample's rows. The legacy route keeps this until it goes (T5).
-    func testAForceRebuildAfterTheLegacyCleanupLosesRowsThatCameOnlyFromTop() async throws {
+    /// keeps its database. A batch used to lose that sample's rows. Its rebuild now throws too and keeps its database,
+    /// since a rebuild never leaves fewer samples than the database it replaces (3.2 TTREADS, ARCH should-fix 3).
+    func testAForceRebuildAfterTheLegacyCleanupRefusesToLoseRowsThatCameOnlyFromTop() async throws {
         let single = root.appendingPathComponent("taxtriage", isDirectory: true)
         try makeMini(at: single, topOnly: true)
         try await buildDb(single, ["--force", "-q"])
@@ -153,8 +154,11 @@ final class BuildDbTaxTriageIndexTests: XCTestCase {
         try makeMini(at: batch.appendingPathComponent("B", isDirectory: true), topOnly: true)
         try await buildDb(batch, ["--force", "-q"])
         XCTAssertEqual(try rowSamples(in: batch), ["SRR12486983", "SRR35517702"])
-        try await buildDb(batch, ["--force", "-q"])
-        XCTAssertEqual(try rowSamples(in: batch), ["SRR12486983"], "the rows of B came only from top/")
+        do {
+            try await buildDb(batch, ["--force", "-q"])
+            XCTFail("a rebuild that would leave fewer samples throws")
+        } catch {}
+        XCTAssertEqual(try rowSamples(in: batch), ["SRR12486983", "SRR35517702"], "B keeps the rows that came only from top/")
     }
 
     // MARK: - T5, the executor path
