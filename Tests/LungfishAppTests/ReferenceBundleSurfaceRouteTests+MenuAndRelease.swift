@@ -37,6 +37,36 @@ extension ReferenceBundleSurfaceRouteTests {
         assertResizingIsOffered(false, on: "a FASTQ dashboard", in: harness)
     }
 
+    /// The direct route wires its own closure, which no mapping result's test reaches. A stale filter on a reference starts
+    /// no summary build, so the release is what tells a strong closure from a weak one.
+    func testARemovedReferenceViewportIsReleasedAndItsStaleFilterStartsNoWork() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        let reference = try makeReference("Tracked")
+        try MappingRoutingFixture.addSingleSampleAlignment(to: reference, sampleID: "S1", includeReadGroup: false, includeChromosomeStats: true)
+        let fastq = try await buildRow(of: "FASTQ", under: root)
+
+        harness.split.displayReferenceBundleViewportFromSidebar(at: reference)
+        await assertShowsReference(reference, in: viewer)
+        weak var removed = viewer.referenceBundleViewportController
+        XCTAssertNotNil(removed)
+        let readStyle = harness.split.inspectorController.viewModel.readStyleSectionViewModel
+        let wired = await waitUntil(budget: .lookup) { readStyle.onSettingsChanged != nil }
+        XCTAssertTrue(wired, "a reference with one alignment track wired no read filter")
+        let staleFilter = try XCTUnwrap(readStyle.onSettingsChanged)
+
+        harness.select(fastq)
+        let left = await waitUntil(budget: .lookup) { viewer.contentMode == .fastq }
+        XCTAssertTrue(left, "the FASTQ dashboard never replaced the viewport")
+        let released = await waitUntil(budget: .lookup) { removed == nil }
+        XCTAssertTrue(released, "the Inspector's read filter kept the removed viewport alive")
+
+        staleFilter()
+        let stillReleased = await waitUntil(budget: .lookup) { removed == nil }
+        XCTAssertTrue(stillReleased, "the stale read filter brought the removed viewport back")
+    }
+
     private func assertResizingIsOffered(
         _ offered: Bool, on name: String, in harness: ViewSwitchWindowHarness, file: StaticString = #filePath, line: UInt = #line
     ) {
