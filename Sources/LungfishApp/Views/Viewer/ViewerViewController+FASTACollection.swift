@@ -136,6 +136,10 @@ extension ViewerViewController {
 
         controller.onBlastRequested = withBlastConsent(noun: "sequences") { [weak self, weak controller] selectedSequences in
             guard let controller else { return }
+            guard selectedSequences.count <= Self.blastSequenceLimit else {
+                controller.showBlastFailure("Select \(Self.blastSequenceLimit) or fewer sequences to verify with BLAST.")
+                return
+            }
             let fastaRecords = selectedSequences.map(Self.fastaRecord(for:))
             let sourceLabel = Self.blastSourceLabel(for: selectedSequences)
             self?.runGenericBlastVerification(
