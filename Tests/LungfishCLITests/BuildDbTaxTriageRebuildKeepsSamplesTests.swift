@@ -11,6 +11,7 @@ import XCTest
 import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 final class BuildDbTaxTriageRebuildKeepsSamplesTests: XCTestCase {
     private var root: URL!
@@ -50,6 +51,15 @@ final class BuildDbTaxTriageRebuildKeepsSamplesTests: XCTestCase {
             XCTAssertTrue(words.contains(databaseURL.path), words)
             XCTAssertTrue(words.contains("lungfish-cli build-db taxtriage \"\(batch.path)\""), words)
         }
+
+        // The failure record states the reason in the refusal's own words, not the system's generic text for a
+        // ValidationError (TTREADS-FIX5-ARCH fix 2), and the database keeps the record of the build it came from.
+        let folderRecord = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batch), "the refused build leaves a record in the folder")
+        let failed = try XCTUnwrap(folderRecord.steps.last)
+        XCTAssertEqual(failed.exitStatus, 1)
+        XCTAssertTrue(failed.stderr?.contains("these samples: B.") == true, "\(String(describing: failed.stderr))")
+        let sidecar = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: databaseURL)))
+        XCTAssertFalse(sidecar.steps.contains { ($0.exitStatus ?? 0) != 0 }, "the database keeps the record of the build it came from")
 
         let samples = try TaxTriageDatabase(at: databaseURL).fetchSamples().map(\.sample).sorted()
         XCTAssertEqual(samples, firstSamples, "the forced rebuild kept every sample of the database it replaced")

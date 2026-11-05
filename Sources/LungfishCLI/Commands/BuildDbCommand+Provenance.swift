@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import ArgumentParser
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -269,7 +270,7 @@ extension BuildDbCommand {
                 runClock: runClock,
                 inputRecords: inputRecords,
                 exitStatus: 1,
-                stderr: error.localizedDescription,
+                stderr: (error as? ValidationError)?.message ?? error.localizedDescription,
                 sampleDirectories: sampleDirectories,
                 additionalSteps: additionalSteps,
                 includeOutputRecords: includeOutputRecords,
