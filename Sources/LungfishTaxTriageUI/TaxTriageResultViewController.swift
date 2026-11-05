@@ -22,6 +22,7 @@ private struct TaxTriageDatabasePageSnapshot: Sendable {
     let organismToAccessionsBySample: [String: [String: [String]]]
     let taxIDToAccessionsBySample: [String: [Int: [String]]]
     let accessionLengths: [String: Int]
+    let accessionReadCountsBySample: [String: [String: Int]]
     let totalMatchingRows: Int
 }
 
@@ -35,6 +36,7 @@ private enum TaxTriageDatabasePageLoadResult: Sendable {
 
 private func makeTaxTriageDatabasePageSnapshot(
     rows dbRows: [TaxTriageTaxonomyRow],
+    references: [String: [TaxTriageOrganismReference]],
     resultURL: URL?,
     totalMatchingRows: Int
 ) -> TaxTriageDatabasePageSnapshot {
@@ -44,9 +46,7 @@ private func makeTaxTriageDatabasePageSnapshot(
     var bamsBySample: [String: URL] = [:]
     var indexesBySample: [String: URL] = [:]
     var referencesBySample: [String: URL] = [:]
-    var organismAccessionsBySample: [String: [String: [String]]] = [:]
-    var taxIDAccessionsBySample: [String: [Int: [String]]] = [:]
-    var accessionLengths: [String: Int] = [:]
+    var referenceMaps = TaxTriageRowReferenceMaps(stored: references)
 
     metrics.reserveCapacity(dbRows.count)
 
@@ -96,16 +96,7 @@ private func makeTaxTriageDatabasePageSnapshot(
             }
         }
 
-        if let accession = row.primaryAccession, !accession.isEmpty {
-            let normalized = OrganismNameNormalizer.normalizedKey(row.organism)
-            organismAccessionsBySample[row.sample, default: [:]][normalized, default: []].append(accession)
-            if let taxID = row.taxId {
-                taxIDAccessionsBySample[row.sample, default: [:]][taxID, default: []].append(accession)
-            }
-            if let length = row.accessionLength, length > 0 {
-                accessionLengths[accession] = length
-            }
-        }
+        referenceMaps.add(row)
     }
 
     return TaxTriageDatabasePageSnapshot(
@@ -115,9 +106,10 @@ private func makeTaxTriageDatabasePageSnapshot(
         bamFilesBySample: bamsBySample,
         bamIndexesBySample: indexesBySample,
         retainedReferencesBySample: referencesBySample,
-        organismToAccessionsBySample: organismAccessionsBySample,
-        taxIDToAccessionsBySample: taxIDAccessionsBySample,
-        accessionLengths: accessionLengths,
+        organismToAccessionsBySample: referenceMaps.organismToAccessionsBySample,
+        taxIDToAccessionsBySample: referenceMaps.taxIDToAccessionsBySample,
+        accessionLengths: referenceMaps.accessionLengths,
+        accessionReadCountsBySample: referenceMaps.readCountsBySample,
         totalMatchingRows: totalMatchingRows
     )
 }
@@ -246,6 +238,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Maps accessions → mapped read count from `samtools idxstats`.
     private var accessionMappedReadCounts: [String: Int] = [:]
+
+    /// Mapped reads of each stored reference by sample, from its BAM at build time, which ranking prefers (TTACCESSIONS).
+    private var storedReadCountsBySample: [String: [String: Int]] = [:]
 
     /// Cached normalized organism name → deduplicated read count.
     private var deduplicatedReadCounts: [String: Int] = [:]
@@ -1666,13 +1661,15 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         OrganismNameNormalizer.normalizedKey(value)
     }
 
-    private func rankAccessionsByReadSupport(_ accessions: [String]) -> [String] {
-        TaxTriageAccessionLookup.rankedByReadSupport(accessions, readCounts: accessionMappedReadCounts)
+    private func rankAccessionsByReadSupport(_ accessions: [String], sample: String? = nil) -> [String] {
+        TaxTriageAccessionLookup.rankedByReadSupport(accessions, readCounts: readCounts(of: sample))
     }
 
-    private func lookupAccessions(for normalizedOrganismName: String, in mapping: OrganismAccessionMap) -> [String]? {
-        TaxTriageAccessionLookup.accessions(for: normalizedOrganismName, in: mapping, readCounts: accessionMappedReadCounts)
+    private func lookupAccessions(for normalizedOrganismName: String, in mapping: OrganismAccessionMap, sample: String? = nil) -> [String]? {
+        TaxTriageAccessionLookup.accessions(for: normalizedOrganismName, in: mapping, readCounts: readCounts(of: sample))
     }
+
+    private func readCounts(of sample: String?) -> [String: Int] { sample.flatMap { storedReadCountsBySample[$0] } ?? accessionMappedReadCounts }
 
     func accessions(for row: TaxTriageTableRow, sampleId: String? = nil) -> [String]? {
         if let taxID = row.taxId,
@@ -1680,7 +1677,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
            let sampleTaxMap = taxIDToAccessionsBySample[sampleId],
            let bySampleTaxID = sampleTaxMap[taxID],
            !bySampleTaxID.isEmpty {
-            return rankAccessionsByReadSupport(bySampleTaxID)
+            return rankAccessionsByReadSupport(bySampleTaxID, sample: sampleId)
         }
 
         if let taxID = row.taxId, let byTaxID = taxIDToAccessions[taxID], !byTaxID.isEmpty {
@@ -1694,10 +1691,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         // sample hold the other samples' accessions, which this sample's BAM and stored lengths do not describe.
         if let sampleId = metric.sample {
             if let taxID = metric.taxId, let own = taxIDToAccessionsBySample[sampleId]?[taxID], !own.isEmpty {
-                return rankAccessionsByReadSupport(own)
+                return rankAccessionsByReadSupport(own, sample: sampleId)
             }
             let sampleMap = organismToAccessionsBySample[sampleId] ?? [:]
-            return lookupAccessions(for: normalizedOrganismName(metric.organism), in: sampleMap)
+            return lookupAccessions(for: normalizedOrganismName(metric.organism), in: sampleMap, sample: sampleId)
         }
         if let taxID = metric.taxId, let byTaxID = taxIDToAccessions[taxID], !byTaxID.isEmpty {
             return rankAccessionsByReadSupport(byTaxID)
@@ -1709,7 +1706,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         let normalized = normalizedOrganismName(organismName)
         if let sampleId,
            let sampleMapping = organismToAccessionsBySample[sampleId],
-           let sampleResolved = lookupAccessions(for: normalized, in: sampleMapping) {
+           let sampleResolved = lookupAccessions(for: normalized, in: sampleMapping, sample: sampleId) {
             return sampleResolved
         }
         return lookupAccessions(for: normalized, in: organismToAccessions)
@@ -2125,6 +2122,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         organismToAccessions = [:]
         taxIDToAccessions = [:]
         accessionLengths = [:]
+        storedReadCountsBySample = [:]
     }
 
     private func reloadDatabaseRowsForCurrentFilter() {
@@ -2155,6 +2153,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         organismToAccessions = [:]
         taxIDToAccessions = [:]
         accessionLengths = [:]
+        storedReadCountsBySample = [:]
         summaryBar.updateBatch(sampleCount: sampleEntries.count, totalOrganisms: 0)
 
         guard !selectedSamples.isEmpty else { return }
@@ -2174,6 +2173,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                         )
                         let snapshot = makeTaxTriageDatabasePageSnapshot(
                             rows: page.rows,
+                            references: try db.fetchOrganismReferences(of: page.rows),
                             resultURL: resultURL,
                             totalMatchingRows: page.totalMatchingRows
                         )
@@ -2221,7 +2221,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         bamIndexesBySample.merge(snapshot.bamIndexesBySample) { _, new in new }
         retainedReferencesBySample.merge(snapshot.retainedReferencesBySample) { _, new in new }
         accessionLengths.merge(snapshot.accessionLengths) { _, new in new }
-
+        snapshot.accessionReadCountsBySample.forEach { storedReadCountsBySample[$0.key, default: [:]].merge($0.value) { _, new in new } }
         mergeOrganismAccessions(snapshot.organismToAccessionsBySample)
         mergeTaxIDAccessions(snapshot.taxIDToAccessionsBySample)
         organismToAccessions = mergedOrganismToAccessions

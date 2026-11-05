@@ -9,11 +9,13 @@ extension TaxTriageDatabase {
     /// Metadata key naming what `lungfish build-db taxtriage` counted for each row's Reads.
     public static let readCountMetadataKey = "read_count"
     /// Reads keep the report's # Reads Aligned, and Unique Reads count the BAM over every reference of the organism
-    /// (3.2 lane TTREADS, BIO ruling F1).
-    public static let currentReadCount = "odr_reads_aligned"
+    /// (3.2 lane TTREADS, BIO ruling F1). The database also holds every reference of each row's organism with its own
+    /// length and read support, which the viewer's row actions read (3.2 lane TTACCESSIONS).
+    public static let currentReadCount = "odr_reads_aligned+organism_references"
 
     /// True for the metadata of a build whose Reads were BAM counts, on the first reference alone before 3.2, so a
-    /// segmented virus could read 0.
+    /// segmented virus could read 0, and of a build that stored only each row's first reference (`odr_reads_aligned`,
+    /// 3.2 lane TTREADS), whose row actions reached that reference alone.
     static func readCountIsStale(_ metadata: [String: String]) -> Bool {
         metadata[readCountMetadataKey] != currentReadCount
     }

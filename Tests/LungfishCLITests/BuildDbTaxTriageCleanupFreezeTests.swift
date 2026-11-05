@@ -180,7 +180,10 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
 
         let metadata = try database.fetchMetadata()
         XCTAssertEqual(metadata.keys.sorted(), ["created_at", "read_count", "source_dir", "tass_scale", "taxonomy_source", "tool"])
-        XCTAssertEqual(metadata[TaxTriageDatabase.readCountMetadataKey], "odr_reads_aligned", "Reads keep the report's # Reads Aligned")
+        XCTAssertEqual(
+            metadata[TaxTriageDatabase.readCountMetadataKey], "odr_reads_aligned+organism_references",
+            "Reads keep the report's # Reads Aligned, and every reference of each row's organism is stored"
+        )
         XCTAssertEqual(metadata["tool"], "taxtriage")
         XCTAssertEqual(metadata["source_dir"], result.path, "the absolute path of the folder it was built from")
         let createdAt = try XCTUnwrap(metadata["created_at"].flatMap { ISO8601DateFormatter().date(from: $0) })

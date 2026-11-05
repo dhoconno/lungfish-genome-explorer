@@ -175,6 +175,7 @@ extension BuildDbCommand {
 
                 // 4. Count Unique Reads on the BAMs, each row on every reference of its organism, as Reads keep the report's
                 let organismAccessions = Self.organismAccessions(in: accessionMap)
+                var idxstatsByBAM: [String: String] = [:]
                 try await updateUniqueReadsInDB(
                     dbPath: dbURL.path,
                     table: "taxonomy_rows",
@@ -190,10 +191,14 @@ extension BuildDbCommand {
                     organismAccessions: organismAccessions,
                     keepsParsedReadCount: true,
                     updateAccessionLength: true,
+                    onIdxstats: { idxstatsByBAM[$0] = $1 },
                     events: events,
                     provenance: samtoolsProvenance
                 )
                 try events.checkCancellation()
+                try Self.storeOrganismReferences(
+                    rows: rows, organismAccessions: organismAccessions, idxstatsByBAM: idxstatsByBAM, resultURL: resultURL, dbURL: dbURL
+                )
                 // The mark vouches for the counts above, so a build that ends before here leaves none (3.2 TTREADS, ARCH).
                 try TaxTriageDatabase.markReadsCounted(at: dbURL)
 

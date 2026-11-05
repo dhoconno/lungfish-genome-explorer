@@ -69,6 +69,7 @@ private enum BuildDbUniqueReadsError: LocalizedError {
 ///   - bamPathResolver: Closure that resolves (resultURL, sample, bamRelPath) to an absolute path.
 ///   - organismAccessions: The references a row counts on, from (sample, row accession), the row's own by default.
 ///   - keepsParsedReadCount: True for TaxTriage, whose Reads are the report's # Reads Aligned, so the pass writes only Unique Reads.
+///   - onIdxstats: Takes each BAM's full path and its `samtools idxstats` output, read when `updateAccessionLength`.
 ///   - events: Where the lines that report the pass go, with its warnings on `textWarning`.
 func updateUniqueReadsInDB(
     dbPath: String,
@@ -82,6 +83,7 @@ func updateUniqueReadsInDB(
     organismAccessions: (String, String) -> [String] = { [$1] },
     keepsParsedReadCount: Bool = false,
     updateAccessionLength: Bool,
+    onIdxstats: (String, String) -> Void = { _, _ in },
     events: BuildDbEventSink,
     provenance: BuildDbSamtoolsProvenanceCollector
 ) async throws {
@@ -170,6 +172,7 @@ func updateUniqueReadsInDB(
             guard FileManager.default.fileExists(atPath: bamFullPath) else { continue }
             let bamURL = URL(fileURLWithPath: bamFullPath)
             guard let output = try await samtoolsProvenance.idxstats(bamURL: bamURL) else { continue }
+            onIdxstats(bamFullPath, output)
             for line in output.split(separator: "\n") {
                 let cols = line.split(separator: "\t")
                 guard cols.count >= 2 else { continue }

@@ -28,7 +28,7 @@ private func ttBindText(_ stmt: OpaquePointer?, _ index: Int32, _ text: String) 
 /// `SQLITE_OPEN_FULLMUTEX` (serialized mode).
 public final class TaxTriageDatabase: @unchecked Sendable {
 
-    private var db: OpaquePointer?
+    var db: OpaquePointer?
     private let url: URL
     private static let requiredTables = [
         "taxonomy_rows",

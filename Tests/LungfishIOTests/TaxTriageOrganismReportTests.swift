@@ -249,7 +249,7 @@ final class TaxTriageOrganismReportTests: XCTestCase {
         let everyReference = try TaxTriageDatabase.create(
             at: batch.appendingPathComponent("every-reference.sqlite"),
             rows: [row],
-            metadata: built.merging(["read_count": "odr_reads_aligned"]) { _, new in new }
+            metadata: built.merging(["read_count": TaxTriageDatabase.currentReadCount]) { _, new in new }
         )
         XCTAssertFalse(everyReference.isStale(forResultDirectory: batch), "Reads keep the report's # Reads Aligned")
     }
