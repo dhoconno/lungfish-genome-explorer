@@ -254,6 +254,25 @@ final class TaxTriageOrganismReportTests: XCTestCase {
         XCTAssertFalse(everyReference.isStale(forResultDirectory: batch), "Reads keep the report's # Reads Aligned")
     }
 
+    /// 3.2 lane TTACCESSIONS. A build of lane TTREADS stored only the first reference of each row's organism, so the
+    /// viewer's Extract Reads, BLAST Verify and alignment pane of an Influenza A row reached segment 4 alone, which held
+    /// none of its reads. Its mark, `odr_reads_aligned`, now reads as stale, so the app rebuilds such a database once.
+    /// Red at the base, where that mark was current.
+    func testDatabaseThatStoredOnlyEachRowsFirstReferenceIsStaleWhenODRExists() throws {
+        let batch = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: batch) }
+        try FileManager.default.copyItem(at: try fixtureSampleDir(), to: batch.appendingPathComponent("SRR12486983"))
+        let row = TaxTriageOrganismReport.parse(tsv: try String(contentsOf: try fixtureODR(), encoding: .utf8))[0]
+        let built = ["tool": "taxtriage", "taxonomy_source": "organism_report", "tass_scale": "0-1"]
+
+        let firstReferenceOnly = try TaxTriageDatabase.create(
+            at: batch.appendingPathComponent("first-reference-only.sqlite"),
+            rows: [row],
+            metadata: built.merging(["read_count": "odr_reads_aligned"]) { _, new in new }
+        )
+        XCTAssertTrue(firstReferenceOnly.isStale(forResultDirectory: batch), "a row's actions reached its first reference alone")
+    }
+
     /// ARCH should-fix 1. A database that the build published before its count pass ended carries no `read_count`, so
     /// it is stale. `markReadsCounted(at:)` records the mark once the pass has ended.
     func testMarkReadsCountedMakesAFirstReferenceDatabaseCurrent() throws {
