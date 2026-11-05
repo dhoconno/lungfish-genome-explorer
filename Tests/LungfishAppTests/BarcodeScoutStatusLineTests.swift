@@ -42,7 +42,7 @@ final class BarcodeScoutStatusLineTests: XCTestCase {
         await waitUntil(budget: .lookup) { harness.window.attachedSheet != nil }
         let sheet = try XCTUnwrap(harness.window.attachedSheet, "the failed search raised its alert")
         harness.window.endSheet(sheet)
-        await waitUntil(budget: .standard) { harness.window.attachedSheet == nil }
+        await waitUntil(budget: .lookup) { harness.window.attachedSheet == nil }
 
         let progress = Self.labels(in: drawer).map(\.stringValue).filter {
             $0.hasPrefix("Scouting barcodes") || $0.hasPrefix("Preparing barcode") || $0.hasPrefix("Extracting first")
