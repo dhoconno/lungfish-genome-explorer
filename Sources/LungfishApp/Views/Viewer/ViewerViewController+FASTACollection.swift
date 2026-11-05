@@ -351,7 +351,7 @@ extension ViewerViewController {
             let runID = UUID()
             blastRun.runID = runID
             controller.savedBlastRestorer = nil
-            controller.showBlastLoading(phase: .submitting, requestId: nil)
+            controller.showBlastLoading(phase: .submitting, requestId: nil, subject: "Search of \(sourceLabel)")
             blastRun.operationID = opID
 
             let request = BlastVerificationRequest(
@@ -367,8 +367,9 @@ extension ViewerViewController {
                 ) else { return }
                 guard let blastRun, let controller, blastRun.runID == runID else { return }
                 controller.showBlastLoading(
-                    phase: Self.blastPhase(forProgressMessage: message),
-                    requestId: nil
+                    phase: Self.blastPhase(forFraction: fraction, message: message),
+                    requestId: nil,
+                    subject: "Search of \(sourceLabel)"
                 )
             }
 
@@ -454,6 +455,17 @@ extension ViewerViewController {
         if lowercased.contains("sending") || lowercased.contains("submitting") { return .submitting }
         if lowercased.contains("parsing") || lowercased.contains("collecting") { return .parsing }
         return .waiting
+    }
+
+    /// The advancer reports this much or more once NCBI has taken the first send, and less until then.
+    nonisolated static let blastFirstSendTakenFraction = 0.20
+
+    /// The phase the pane shows for a progress report, from the (fraction, message) the Operations row reads. Words that
+    /// say sending or parsing decide as before, and any other report is waiting only once a send has gone out. Until then
+    /// the search is still submitting, so the pane never says Waiting or Phase 2 for a search that nothing waits on (W-20).
+    nonisolated static func blastPhase(forFraction fraction: Double, message: String) -> BlastJobPhase {
+        let byWords = blastPhase(forProgressMessage: message)
+        return byWords == .waiting && fraction < blastFirstSendTakenFraction ? .submitting : byWords
     }
 
     /// Shows a navigation bar with "Back to Collection" above the viewer content.

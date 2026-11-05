@@ -325,10 +325,10 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
 
     // MARK: - Subviews: Empty State
 
-    private let emptyStateContainer = NSView()
+    let emptyStateContainer = NSView()
     private let emptyStateIcon = NSImageView()
     private let emptyStateTitleLabel = NSTextField(labelWithString: "")
-    private let emptyStateDetailLabel = NSTextField(wrappingLabelWithString: "")
+    let emptyStateDetailLabel = NSTextField(wrappingLabelWithString: "")
 
     // MARK: - Subviews: Loading State
 
@@ -343,9 +343,9 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
     // MARK: - Subviews: Results State
 
     private let resultsContainer = NSView()
-    private let summaryBar = NSView()
+    let summaryBar = NSView()
     private let summaryIcon = NSImageView()
-    public let summaryLabel = NSTextField(labelWithString: "")
+    public let summaryLabel = NSTextField(wrappingLabelWithString: "")
     public lazy var judgedAtLabel = BlastJudgedAtLabel.installed(below: summaryBar, in: resultsContainer)
     public let lcaWarningLabel = NSTextField(labelWithString: "")
     public let confidenceLabel = NSTextField(labelWithString: "")
@@ -413,13 +413,13 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
     }
 
     /// Shows the loading state with the given phase and optional NCBI request ID.
-    public func showLoading(phase: BlastJobPhase, requestId: String?) {
+    public func showLoading(phase: BlastJobPhase, requestId: String?, subject: String? = nil) {
         displayState = .loading(phase: phase, requestId: requestId)
-
+        shownSubject = subject
         loadingPhaseLabel.stringValue = phase.label(for: presentationStyle)
         loadingPhaseNumberLabel.stringValue = "Phase \(phase.rawValue) of \(BlastJobPhase.totalPhases)"
 
-        loadingDetailLabel.stringValue = requestId.map { "Request ID: \($0)" } ?? ""
+        loadingDetailLabel.stringValue = Self.loadingDetail(requestId: requestId, subject: subject)
 
         // Phase 2 (waiting) uses indeterminate progress
         loadingProgressBar.isIndeterminate = (phase == .waiting)
@@ -577,8 +577,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         emptyStateDetailLabel.font = .systemFont(ofSize: 12)
         emptyStateDetailLabel.textColor = .tertiaryLabelColor
         emptyStateDetailLabel.alignment = .center
-        emptyStateDetailLabel.maximumNumberOfLines = 3
-        emptyStateDetailLabel.preferredMaxLayoutWidth = 400
+        emptyStateDetailLabel.maximumNumberOfLines = 0
         emptyStateContainer.addSubview(emptyStateDetailLabel)
 
         configureEmptyStateAsDefault()
@@ -726,6 +725,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         addSubview(resultsContainer)
 
         setupSummaryBar()
+        installWrappingLabels()
         setupResultsOutlineView()
         setupActionBar()
 
@@ -739,7 +739,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             summaryBar.topAnchor.constraint(equalTo: resultsContainer.topAnchor),
             summaryBar.leadingAnchor.constraint(equalTo: resultsContainer.leadingAnchor),
             summaryBar.trailingAnchor.constraint(equalTo: resultsContainer.trailingAnchor),
-            summaryBar.heightAnchor.constraint(equalToConstant: 36),
+            summaryBar.heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
 
             // Results outline view (fills middle)
             resultsScrollView.topAnchor.constraint(equalTo: judgedAtLabel.bottomAnchor),
@@ -769,7 +769,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         summaryLabel.translatesAutoresizingMaskIntoConstraints = false
         summaryLabel.font = .systemFont(ofSize: 12, weight: .medium)
         summaryLabel.textColor = .labelColor
-        summaryLabel.lineBreakMode = .byTruncatingTail
+        summaryLabel.lineBreakMode = .byWordWrapping
         summaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         summaryBar.addSubview(summaryLabel)
 
@@ -1386,7 +1386,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             configureEmptyStateAsDefault()
             showState(.empty)
         case .loading(let phase, let requestId):
-            showLoading(phase: phase, requestId: requestId)
+            showLoading(phase: phase, requestId: requestId, subject: shownSubject)
         case .results(let result, let recordURL):
             showResults(result, recordURL: recordURL, subject: shownSubject)
         case .waiting(let state):

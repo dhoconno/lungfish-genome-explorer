@@ -9,6 +9,8 @@ import LungfishCore
 @MainActor
 public final class BlastWaitingPaneView: NSView {
     public let headingLabel = NSTextField(labelWithString: "")
+    /// The sample the search is about, under the heading, when the row it is shown for has one.
+    public let subjectLabel = NSTextField(wrappingLabelWithString: "")
     public let bodyLabel = NSTextField(wrappingLabelWithString: "")
     /// Each request ID, as selectable text.
     public let requestIDsLabel = NSTextField(wrappingLabelWithString: "")
@@ -25,6 +27,10 @@ public final class BlastWaitingPaneView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         headingLabel.font = .systemFont(ofSize: 13, weight: .medium)
         headingLabel.alignment = .center
+        subjectLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        subjectLabel.textColor = .secondaryLabelColor
+        subjectLabel.alignment = .center
+        subjectLabel.isHidden = true
         bodyLabel.font = .systemFont(ofSize: 11)
         bodyLabel.textColor = .secondaryLabelColor
         bodyLabel.alignment = .center
@@ -44,7 +50,7 @@ public final class BlastWaitingPaneView: NSView {
         noteLabel.isHidden = true
         NotificationCenter.default.addObserver(self, selector: #selector(heardWords(_:)), name: BlastSearchPaneActions.saidNotification, object: nil)
 
-        let stack = NSStackView(views: [clockIcon, movingBar, headingLabel, bodyLabel, requestIDsLabel, buttonRow, noteLabel])
+        let stack = NSStackView(views: [clockIcon, movingBar, headingLabel, subjectLabel, bodyLabel, requestIDsLabel, buttonRow, noteLabel])
         stack.orientation = .vertical
         stack.spacing = 8
         stack.alignment = .centerX
@@ -54,6 +60,7 @@ public final class BlastWaitingPaneView: NSView {
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
+            subjectLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
             bodyLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
             requestIDsLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
             noteLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
@@ -69,6 +76,8 @@ public final class BlastWaitingPaneView: NSView {
         if state != self.state { setNote("") }
         self.state = state
         headingLabel.stringValue = state.heading
+        subjectLabel.stringValue = state.subjectLine ?? ""
+        subjectLabel.isHidden = state.subjectLine == nil
         bodyLabel.stringValue = state.body
         requestIDsLabel.stringValue = state.requestIDs.joined(separator: "  ")
         clockIcon.isHidden = !state.holdsStill
@@ -153,8 +162,9 @@ extension BlastResultsDrawerTab {
     }
 
     /// Shows `search` in its state's words, or the empty pane once it has its record, which a restore then reads.
-    package func showWaiting(_ search: BlastLiveSearch, now: Date = Date()) {
-        guard let state = BlastSearchPaneState.make(search, noun: searchNoun, now: now, home: BlastSearchPaneActions.homeFolder?(search.file.searchID)) else { return }
+    package func showWaiting(_ search: BlastLiveSearch, now: Date = Date(), subjectLine: String? = nil) {
+        guard var state = BlastSearchPaneState.make(search, noun: searchNoun, now: now, home: BlastSearchPaneActions.homeFolder?(search.file.searchID)) else { return }
+        state.subjectLine = subjectLine
         showWaiting(state)
     }
 

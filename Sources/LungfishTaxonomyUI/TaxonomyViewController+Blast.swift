@@ -93,7 +93,7 @@ extension TaxonomyViewController {
                 self.lastBlastRecordURL = nil
                 self.lastBlastNode = node
                 self.lastBlastSampleId = sample
-                self.taxaCollectionsDrawerView?.blastResultsTab.showWaiting(live)
+                self.taxaCollectionsDrawerView?.blastResultsTab.showWaiting(live, subjectLine: BlastSearchPaneState.sampleLine(sample))
                 return
             }
             guard saved?.recordURL != self.lastBlastRecordURL || saved == nil else { return }
@@ -122,7 +122,7 @@ extension TaxonomyViewController {
     package func showBlastWaiting(_ search: BlastLiveSearch, runID: UUID? = nil) {
         guard isCurrentBlastRun(runID), lastBlastResult == nil else { return }
         ensureDrawerOpenOnBlastTab()
-        taxaCollectionsDrawerView?.blastResultsTab.showWaiting(search)
+        taxaCollectionsDrawerView?.blastResultsTab.showWaiting(search, subjectLine: BlastSearchPaneState.sampleLine(lastBlastSampleId))
     }
 
     /// A search changed on disk, wherever it began, so the row picked is looked up again.
@@ -250,7 +250,9 @@ extension TaxonomyViewController {
             return
         }
         ensureDrawerOpenOnBlastTab()
-        taxaCollectionsDrawerView?.blastResultsTab.showLoading(phase: phase, requestId: requestId)
+        taxaCollectionsDrawerView?.blastResultsTab.showLoading(
+            phase: phase, requestId: requestId, subject: BlastSearchPaneState.sampleLine(lastBlastSampleId)
+        )
     }
 
     /// Shows BLAST failure state in the drawer.

@@ -849,10 +849,10 @@ public final class FASTACollectionViewController: NSViewController,
 
     // MARK: - Shared BLAST Drawer
 
-    public func showBlastLoading(phase: BlastJobPhase, requestId: String?) {
+    public func showBlastLoading(phase: BlastJobPhase, requestId: String?, subject: String? = nil) {
         collapseSelectionDetail()
         let drawer = ensureBlastDrawer()
-        drawer.showLoading(phase: phase, requestId: requestId)
+        drawer.showLoading(phase: phase, requestId: requestId, subject: subject)
         openBlastDrawerIfNeeded()
     }
 

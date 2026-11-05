@@ -11,8 +11,8 @@ extension BlastResultsDrawerTab {
     /// Reads that NCBI returned no usable result for are counted on their own, so
     /// they are not mistaken for reads that found no hit. When read pairs were
     /// sent the counts are fragments, and the end says how many reads were sent.
-    /// `subject` names the sample the verdict is about, right after the taxon, since the label cuts its tail and the
-    /// counts must not be the part that goes (lane ROWPANE). Nil names no sample.
+    /// `subject` names the sample the verdict is about, right after the taxon, so the summary says whose verdict it is
+    /// (lane ROWPANE). The label wraps, so no part of it is cut (lane BLASTWORDS). Nil names no sample.
     public static func verificationSummary(for result: BlastVerificationResult, subject: String? = nil) -> String {
         var text = "BLAST for \(result.taxonName)\(subjectWords(subject)): \(result.supportingCount) supporting, \(result.contradictingCount) contradicting"
         if result.errorCount > 0 {
@@ -22,8 +22,8 @@ extension BlastResultsDrawerTab {
         return text + " (\(counted.rows)\(counted.sent.map { ", " + $0 } ?? ""))"
     }
 
-    /// Sets the one-line summary, its tooltip and its help for a taxon verification. How the row was judged is not part of
-    /// it, since the label cuts its tail and that caveat must not go. It has ``judgedAtLabel``.
+    /// Sets the summary, its tooltip and its help for a taxon verification. How the row was judged is not part of it,
+    /// since that caveat is long and has a row of its own. It has ``judgedAtLabel``.
     func applyVerificationSummary(result: BlastVerificationResult, subject: String?, recordURL: URL?) {
         let badgeWords = BlastTieWords.notSpecificSummary(for: result)
         summaryLabel.stringValue = Self.verificationSummary(for: result, subject: subject)
@@ -68,8 +68,8 @@ extension BlastResultsDrawerTab {
 }
 
 /// The line under the summary bar that says how a verdict was judged (BLAST-ESVIRITU-FIRST-WORD). It has a row of its
-/// own because the one-line summary label cuts its tail, and this caveat is the part a person must not miss. With no
-/// words the row has no height, since a hidden view still holds its space in Auto Layout.
+/// own because this caveat is long and is the part a person must not miss. With no words the row has no height, since a
+/// hidden view still holds its space in Auto Layout.
 @MainActor
 public final class BlastJudgedAtLabel: NSTextField {
     private var collapsedHeight: NSLayoutConstraint?

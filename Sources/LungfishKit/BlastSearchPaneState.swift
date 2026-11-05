@@ -36,6 +36,14 @@ public struct BlastSearchPaneState: Sendable, Equatable {
     public var barWord: String
     /// When a grey Check Now can be pressed again.
     public var checkAgainAt: Date?
+    /// The line that names the sample the search is about, when the row it is shown for has one (W-21).
+    public var subjectLine: String?
+
+    /// `Sample SRR1`, the line that names a sample, or nil when there is no sample to name.
+    public static func sampleLine(_ sample: String?) -> String? {
+        guard let sample, !sample.isEmpty else { return nil }
+        return "Sample \(sample)"
+    }
 
     /// A result that came back for a source since replaced, which stays off the rows.
     package static func sourceReplaced(folder: URL) -> BlastSearchPaneState {

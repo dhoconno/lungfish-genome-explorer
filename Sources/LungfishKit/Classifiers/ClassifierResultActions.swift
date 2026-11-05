@@ -290,7 +290,7 @@ public final class ClassifierResultActions: NSObject {
         lastBlastRecordURL = nil
         setBlastBarWord(nil)
         blastFailureShownAt = nil
-        blastDrawer.showLoading(phase: phase, requestId: requestId)
+        blastDrawer.showLoading(phase: phase, requestId: requestId, subject: BlastSearchPaneState.sampleLine(paneRow?.sample))
         setBlastDrawerOpen(true)
     }
 
@@ -325,7 +325,8 @@ public final class ClassifierResultActions: NSObject {
     }
 
     private func showLiveSearch(_ search: BlastLiveSearch, row: BlastSavedSearchRow?) {
-        guard let state = BlastSearchPaneState.make(search, noun: blastDrawer.searchNoun, now: Date(), home: BlastSearchPaneActions.homeFolder?(search.file.searchID)) else { return }
+        guard var state = BlastSearchPaneState.make(search, noun: blastDrawer.searchNoun, now: Date(), home: BlastSearchPaneActions.homeFolder?(search.file.searchID)) else { return }
+        state.subjectLine = BlastSearchPaneState.sampleLine(row?.sample)
         showPaneState(state, row: row)
     }
 
@@ -452,7 +453,9 @@ public final class ClassifierResultActions: NSObject {
         namedBlastRunRow = nil
         guard let row else { return }
         if activeBlastRuns().contains(where: { $0.row == row }) {
-            if !blastDrawer.showsASearchInProgress { blastDrawer.showLoading(phase: .waiting, requestId: nil) }
+            if !blastDrawer.showsASearchInProgress {
+                blastDrawer.showLoading(phase: .waiting, requestId: nil, subject: BlastSearchPaneState.sampleLine(row.sample))
+            }
             return
         }
         startSavedBlastScan(of: row, force: false)
