@@ -25,7 +25,6 @@ extension ViewSwitchDeclaredLeaks {
         leak("FASTA collection", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: genomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ provenance: sequence ../k21-fastacollection/Inputs/clusters.fasta",
             "+ inspectorTab: genomics document of [document, selection, view, derive, provenance]",
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
@@ -38,7 +37,6 @@ extension ViewSwitchDeclaredLeaks {
         ]),
         leak("FASTA collection", to: ["PDF"], "NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: genomics",
-            "+ provenance: sequence ../k21-fastacollection/Inputs/clusters.fasta",
             "+ inspectorTab: genomics document of [document, selection, view, derive, provenance]",
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",

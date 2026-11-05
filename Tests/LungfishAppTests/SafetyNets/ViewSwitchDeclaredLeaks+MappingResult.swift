@@ -41,16 +41,11 @@ extension ViewSwitchDeclaredLeaks {
         leak("Mapping result", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-ALIGNMENT-SECTION-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: mapping",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspector: bundle=../k22-mapping/Analyses/minimap2-2026-01-15T16-00-00/MT192765.1.lungfishref",
-            "+ inspector: mapping",
-            "+ provenance: analysisResult ../k22-mapping/Analyses/minimap2-2026-01-15T16-00-00",
             "+ inspectorTab: mapping document of [document, selection, view, derive, provenance]",
-            "+ inspectorBlocks: document, alignmentBundle",
             "+ toolbar: ToggleSidebar, TranslateTool, Operations, ToggleInspector",
             "- mode: empty",
             "- status: Previewing: main.nf",
             "- inspectorTab: empty document of [document, selection]",
-            "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
         leak("Quick Look", to: ["Mapping result"], "NET-DOCUMENT-STAYS", [
@@ -58,15 +53,10 @@ extension ViewSwitchDeclaredLeaks {
         ]),
         leak("Mapping result", to: ["PDF"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: mapping",
-            "+ inspector: bundle=../k22-mapping/Analyses/minimap2-2026-01-15T16-00-00/MT192765.1.lungfishref",
-            "+ inspector: mapping",
-            "+ provenance: analysisResult ../k22-mapping/Analyses/minimap2-2026-01-15T16-00-00",
             "+ inspectorTab: mapping document of [document, selection, view, derive, provenance]",
-            "+ inspectorBlocks: document, alignmentBundle",
             "+ toolbar: ToggleSidebar, TranslateTool, Operations, ToggleInspector",
             "- mode: empty",
             "- inspectorTab: empty document of [document, selection]",
-            "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
     ]

@@ -10,7 +10,6 @@ extension ViewSwitchDeclaredLeaks {
         leak("FASTA document", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: genomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ provenance: sequence ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ inspectorTab: genomics document of [document, selection, view, derive, provenance]",
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
@@ -50,7 +49,6 @@ extension ViewSwitchDeclaredLeaks {
         leak("Tree", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: genomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ provenance: phylogeneticTreeBundle ../k14-tree/Phylogenetic Trees/known-sarcopterygian.lungfishtree",
             "+ inspectorTab: genomics selection of [document, selection, view, derive, provenance]",
             "+ inspectorBlocks: selection, variant",
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
@@ -72,7 +70,6 @@ extension ViewSwitchDeclaredLeaks {
         leak("MSA", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: genomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ provenance: multipleSequenceAlignmentBundle ../k13-msa/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa",
             "+ inspectorTab: genomics document of [document, selection, view, derive, provenance]",
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
@@ -96,8 +93,6 @@ extension ViewSwitchDeclaredLeaks {
         ]),
         leak("MHC reference", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: genomics",
-            "+ inspector: mhcReference=../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref",
-            "+ provenance: mhcReferenceBundle ../k12-mhc/Reference allele databases/SIMULATED-MHC-MCM-teaching.lungfishmhcref",
             "+ inspectorTab: genomics document of [document, selection, view, derive, provenance]",
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
@@ -106,25 +101,17 @@ extension ViewSwitchDeclaredLeaks {
         ]),
         leak("Genotype", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: genotype",
-            "+ inspector: genotype=../k11-genotype/Genotyping/DW472-mhc.lungfishgenotype",
-            "+ provenance: genotypeResultBundle ../k11-genotype/Genotyping/DW472-mhc.lungfishgenotype",
             "+ inspectorTab: genotype document of [document, selection, annotations, view, provenance]",
             "+ toolbar: ToggleSidebar, Operations, ToggleInspector",
             "- mode: empty",
             "- inspectorTab: empty document of [document, selection]",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("Quick Look", to: ["CZ ID"], "NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: genotype=../k11-genotype/Genotyping/DW472-mhc.lungfishgenotype",
-            "+ inspectorBlocks: seeTheViewer, panelLayout",
-            "- inspectorBlocks: selectAResult, panelLayout",
-        ]),
         leak("Tree", to: ["TaxTriage"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
         leak("FASTQ", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: fastq",
-            "+ provenance: esvirituResult ../k02-esviritu/Analyses/esviritu-2026-01-15T10-00-00",
             "+ inspectorTab: fastq document of [document, provenance]",
             "+ inspectorBlocks: document, fastqMetadata, fastqPBAAArtifacts",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
@@ -140,8 +127,6 @@ extension ViewSwitchDeclaredLeaks {
         ]),
         leak("Assembly", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: assembly",
-            "+ inspector: assembly",
-            "+ provenance: analysisResult ../k09-assembly/Analyses/spades-2026-01-15T13-30-00",
             "+ inspectorTab: assembly document of [document, view, provenance]",
             "+ toolbar: ToggleSidebar, Operations, ToggleInspector",
             "- mode: empty",
@@ -166,15 +151,11 @@ extension ViewSwitchDeclaredLeaks {
         leak("Reference", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-ALIGNMENT-SECTION-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: mapping",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspector: bundle=../k08-reference/Reference Sequences/MT192765.1.lungfishref",
-            "+ provenance: referenceBundle ../k08-reference/Reference Sequences/MT192765.1.lungfishref",
             "+ inspectorTab: mapping document of [document, selection, view, derive, provenance]",
-            "+ inspectorBlocks: document, alignmentBundle",
             "+ toolbar: ToggleSidebar, TranslateTool, Operations, ToggleInspector",
             "- mode: empty",
             "- status: Previewing: main.nf",
             "- inspectorTab: empty document of [document, selection]",
-            "- inspectorBlocks: document",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
         leak("FASTQ", to: ["Kraken2"], "NET-INSPECTOR-DOCUMENT-STAYS", [
@@ -293,9 +274,6 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspector: bundle=../k08-reference/Reference Sequences/MT192765.1.lungfishref",
             "+ inspectorBlocks: organism, seeTheViewer, panelLayout",
             "- inspectorBlocks: selectAResult, panelLayout",
-        ]),
-        leak("Status only", to: ["Quick Look"], "NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: primerScheme=QIASeqDIRECT-SARS2",
         ]),
     ]
 }

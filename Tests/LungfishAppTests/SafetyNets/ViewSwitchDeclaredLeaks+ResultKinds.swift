@@ -71,7 +71,6 @@ extension ViewSwitchDeclaredLeaks {
         // smaller after NAOMGS's reset (manager ruling 00:4x)
         leak("12S", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
-            "+ provenance: twelveSAmpliconResultBundle ../k07-twelves/12S/primate-12s.lungfish12s",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
             "+ inspectorBlocks: selectAResult, panelLayout",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
@@ -83,7 +82,6 @@ extension ViewSwitchDeclaredLeaks {
         leak("CZ ID", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ provenance: czIdResult ../k06-czid/Imports/cornea-czid.lungfishtax",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
             "+ inspectorBlocks: selectAResult, panelLayout",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
@@ -97,7 +95,6 @@ extension ViewSwitchDeclaredLeaks {
         leak("NVD", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ provenance: nvdResult ../k05-nvd/Imports/nvd-demo",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
             "+ inspectorBlocks: selectAResult, panelLayout",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
@@ -110,7 +107,6 @@ extension ViewSwitchDeclaredLeaks {
         // smaller after NAOMGS's reset (manager ruling 00:4x)
         leak("NAO-MGS", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
-            "+ provenance: naoMgsResult ../k04-naomgs/Imports/naomgs-wastewater",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
             "+ inspectorBlocks: selectAResult, panelLayout",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
@@ -131,7 +127,6 @@ extension ViewSwitchDeclaredLeaks {
         // smaller after TT's reset (manager ruling 16:45)
         leak("TaxTriage", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
-            "+ provenance: taxTriageResult ../k03-taxtriage/Analyses/taxtriage-2026-01-15T12-30-00",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
             "+ inspectorBlocks: selectAResult, panelLayout",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
@@ -154,10 +149,9 @@ extension ViewSwitchDeclaredLeaks {
         leak("EsViritu", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspector: bundle=../k08-reference/Reference Sequences/MT192765.1.lungfishref",
-            "+ provenance: esvirituResult ../k02-esviritu/Analyses/esviritu-2026-01-15T10-00-00",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
-            "+ inspectorBlocks: organism, seeTheViewer, panelLayout",
+            // BACKLOG INSPECTOR-CLEAR-MODE (S4): after a classifier result, a cleared Inspector keeps its result mode's empty blocks beside a preview.
+            "+ inspectorBlocks: selectAResult, panelLayout",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- mode: empty",
             "- status: Previewing: main.nf",
@@ -173,7 +167,6 @@ extension ViewSwitchDeclaredLeaks {
         // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
         leak("Kraken2", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: metagenomics",
-            "+ provenance: classificationResult ../k01-kraken2/Analyses/kraken2-2026-01-15T11-00-00",
             "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
             "+ inspectorBlocks: selectAResult, panelLayout",
             "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
