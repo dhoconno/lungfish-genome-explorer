@@ -224,7 +224,10 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         viewport.testSelectSequence(named: "chr2")
         viewport.testEnterFocusedDetailMode()
         viewer.toggleAnnotationDrawer()
+        // A person's zoom. A reset could write these fields in place, so they compare by value, not by object.
         let region = try XCTUnwrap(viewport.activeSequenceViewerController.referenceFrame)
+        region.start = 20
+        region.end = 60
 
         harness.split.displayReferenceBundleViewportFromSidebar(at: reference)
         await harness.split.bundleOpenTask?.value
@@ -232,7 +235,9 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         XCTAssertTrue(viewer.referenceBundleViewportController === viewport, "the same input rebuilt the viewport")
         XCTAssertEqual(viewport.testSelectedSequenceName, "chr2", "the row was lost")
         XCTAssertTrue(viewport.testIsFocusedDetailMode, "focus mode was lost")
-        XCTAssertTrue(viewport.activeSequenceViewerController.referenceFrame === region, "the region was lost")
+        let shown = try XCTUnwrap(viewport.activeSequenceViewerController.referenceFrame)
+        XCTAssertEqual(shown.start, 20, "the zoom was lost")
+        XCTAssertEqual(shown.end, 60, "the zoom was lost")
         XCTAssertTrue(viewer.isActiveDrawerOpen, "the drawer closed")
     }
 
@@ -240,19 +245,29 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         let harness = try ViewSwitchWindowHarness()
         defer { harness.close() }
         let viewer = harness.split.viewerController!
-        let mapping = try makeMapping("A", contig: "chrA", readsOnContig: 9)
+        let mapping = try makeMapping("A", contig: "chrA", readsOnContig: 9, otherContigs: ["chrB"])
 
         harness.split.displayMappingAnalysisFromSidebar(at: mapping.result)
         try await assertShows(mapping, in: viewer)
         let viewport = try XCTUnwrap(viewer.referenceBundleViewportController)
+        // The second row, since a reset lands on the first.
+        viewport.testSelectContig(named: "chrB")
+        await viewport.testAwaitAlignmentActionContext()
+        XCTAssertEqual(viewport.testSelectedContigName, "chrB", "the second row never took the selection")
         viewport.testEnterFocusedDetailMode()
         viewer.toggleAnnotationDrawer()
+        let region = try XCTUnwrap(viewport.activeSequenceViewerController.referenceFrame)
+        region.start = 20
+        region.end = 60
 
         harness.split.displayMappingAnalysisFromSidebar(at: mapping.result)
         await harness.split.bundleOpenTask?.value
 
         XCTAssertTrue(viewer.referenceBundleViewportController === viewport, "the same input rebuilt the viewport")
-        XCTAssertEqual(viewport.testSelectedContigName, "chrA", "the row was lost")
+        XCTAssertEqual(viewport.testSelectedContigName, "chrB", "the row was lost")
+        let shown = try XCTUnwrap(viewport.activeSequenceViewerController.referenceFrame)
+        XCTAssertEqual(shown.start, 20, "the zoom was lost")
+        XCTAssertEqual(shown.end, 60, "the zoom was lost")
         XCTAssertTrue(viewport.testIsFocusedDetailMode, "focus mode was lost")
         XCTAssertTrue(viewer.isActiveDrawerOpen, "the drawer closed")
     }
@@ -638,12 +653,12 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
     /// A mapping result saved by its own writer, in a folder of its own. The track names the result's own BAM, so All
     /// Alignments shows the record's values.
     func makeMapping(
-        _ name: String, contig: String, readsOnContig: Int, secondTrack: Bool = false
+        _ name: String, contig: String, readsOnContig: Int, secondTrack: Bool = false, otherContigs: [String] = []
     ) throws -> MappingFixture {
         let folder = root.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let bundle = try MappingRoutingFixture.makeReferenceBundle(
-            name: "Viewer \(name)", chromosomes: [.init(name: contig, length: 100)], in: folder
+            name: "Viewer \(name)", chromosomes: ([contig] + otherContigs).map { .init(name: $0, length: 100) }, in: folder
         )
         try MappingRoutingFixture.addSingleSampleAlignment(
             to: bundle, sampleID: "S1", includeReadGroup: false, includeChromosomeStats: true,
@@ -656,20 +671,24 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         }
         let result = folder.appendingPathComponent("mapping-result", isDirectory: true)
         try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
-        let summary = MappingContigSummary(
-            contigName: contig, contigLength: 100, mappedReads: readsOnContig, mappedReadPercent: Double(readsOnContig) * 10,
-            meanDepth: 3.5, coverageBreadth: 0.8, medianMAPQ: 60, meanIdentity: 0.99
-        )
-        let saved = MappingRoutingFixture.makeMappingResult(resultDirectory: result, viewerBundleURL: bundle, contigs: [summary])
+        let summaries = ([contig] + otherContigs).map {
+            MappingContigSummary(
+                contigName: $0, contigLength: 100, mappedReads: readsOnContig, mappedReadPercent: Double(readsOnContig) * 10,
+                meanDepth: 3.5, coverageBreadth: 0.8, medianMAPQ: 60, meanIdentity: 0.99
+            )
+        }
+        let saved = MappingRoutingFixture.makeMappingResult(resultDirectory: result, viewerBundleURL: bundle, contigs: summaries)
         try saved.save(to: result)
-        let labelled = MappingContigSummary(
-            sampleID: "S1", alignmentTrackID: "reads-track", readGroupIDs: [],
-            contigName: contig, contigLength: 100, mappedReads: readsOnContig, mappedReadPercent: Double(readsOnContig) * 10,
-            meanDepth: 3.5, coverageBreadth: 0.8, medianMAPQ: 60, meanIdentity: 0.99
-        )
+        let labelled = ([contig] + otherContigs).map {
+            MappingContigSummary(
+                sampleID: "S1", alignmentTrackID: "reads-track", readGroupIDs: [],
+                contigName: $0, contigLength: 100, mappedReads: readsOnContig, mappedReadPercent: Double(readsOnContig) * 10,
+                meanDepth: 3.5, coverageBreadth: 0.8, medianMAPQ: 60, meanIdentity: 0.99
+            )
+        }
         return MappingFixture(
             result: result, bundle: bundle, bam: saved.bamURL,
-            trackBAM: bundle.appendingPathComponent("alignments/reads-track.bam"), rows: [labelled]
+            trackBAM: bundle.appendingPathComponent("alignments/reads-track.bam"), rows: labelled
         )
     }
 
@@ -688,7 +707,7 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         let settled = await waitUntil(budget: .lookup) {
             guard let viewport = viewer.referenceBundleViewportController else { return false }
             return viewport.currentInput?.mappingResultDirectoryURL == mapping.result.standardizedFileURL
-                && viewport.testContigTableView.displayedRows == mapping.rows
+                && viewport.testContigTableView.displayedRows.sorted(by: { $0.contigName < $1.contigName }) == mapping.rows
                 && viewport.mappingRowsRefreshTask == nil
                 && viewport.testEmbeddedViewerController.currentReferenceBundle != nil
         }
@@ -700,7 +719,7 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         XCTAssertTrue(snapshot, "the selected row made no evidence snapshot", file: file, line: line)
         await viewport.testAwaitAlignmentActionContext()
         XCTAssertEqual(viewport.currentResult?.bamURL.standardizedFileURL, mapping.bam.standardizedFileURL, "another result's BAM", file: file, line: line)
-        XCTAssertEqual(viewport.testContigTableView.displayedRows, mapping.rows, "another result's rows", file: file, line: line)
+        XCTAssertEqual(viewport.testContigTableView.displayedRows.sorted(by: { $0.contigName < $1.contigName }), mapping.rows, "another result's rows", file: file, line: line)
         XCTAssertEqual(viewport.testAlignmentActionContext?.alignmentURL.standardizedFileURL, mapping.trackBAM.standardizedFileURL, "the evidence snapshot names another BAM", file: file, line: line)
         XCTAssertEqual(viewport.testEmbeddedViewerController.viewerView.currentReferenceBundle?.url.standardizedFileURL, mapping.bundle.standardizedFileURL, "the embedded viewer draws another bundle", file: file, line: line)
         XCTAssertEqual(viewer.drawnReferenceBundle?.url.standardizedFileURL, mapping.bundle.standardizedFileURL, "File > Export would read another bundle", file: file, line: line)
