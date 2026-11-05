@@ -162,6 +162,10 @@
         "type" : "integer",
         "value" : 55
       },
+      "inputReadLayoutScannedWholeFile" : {
+        "type" : "boolean",
+        "value" : true
+      },
       "inputReadLayoutUnpairedRecords" : {
         "type" : "integer",
         "value" : 55

@@ -129,7 +129,18 @@
       }
     },
     "resolvedDefaults" : {
-
+      "pairs" : {
+        "type" : "null"
+      },
+      "scannedRecords" : {
+        "type" : "null"
+      },
+      "scannedWholeFile" : {
+        "type" : "null"
+      },
+      "unpairedReads" : {
+        "type" : "null"
+      }
     }
   },
   "output" : {
