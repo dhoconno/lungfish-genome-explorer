@@ -380,19 +380,19 @@ public actor ClassifierReadResolver {
 
         case .taxtriage:
             // The database row's bam_path comes first (C4), read only from inside the result root. A batch keeps
-            // {sampleId}/minimap2/ and the viewer's result path is its database. Then the nf-core layout in minimap2/
-            // beside the result, with names that vary by pipeline version:
-            //   Current: minimap2/{sampleId}.{sampleId}.dwnld.references.bam
-            //   Legacy:  minimap2/{sampleId}.bam
-            // We try the exact legacy name first, then scan minimap2/ for any BAM whose filename starts with the sampleId.
+            // {sampleId}/minimap2/ and the viewer's result path is its database. A sample whose BAM the database
+            // records has that file or the missing-BAM refusal, never a sibling's BAM. Otherwise the nf-core layout:
+            //   minimap2/{sampleId}.{sampleId}.dwnld.references.bam (current), minimap2/{sampleId}.bam (legacy), then
+            // a scan of minimap2/ for any BAM whose filename starts with the sampleId.
             guard let sampleId else {
                 candidates = []
                 break
             }
-            var urls = Self.taxTriageRecordedBAMCandidates(sampleId: sampleId, resultDir: resultDir)
+            let recorded = Self.taxTriageRecordedBAMCandidates(sampleId: sampleId, resultDir: resultDir)
+            var urls = recorded
             urls.append(resultDir.appendingPathComponent("minimap2/\(sampleId).bam"))
             let minimap2Dir = resultDir.appendingPathComponent("minimap2")
-            if fm.fileExists(atPath: minimap2Dir.path) {
+            if recorded.isEmpty, fm.fileExists(atPath: minimap2Dir.path) {
                 for file in Self.listedFiles(in: minimap2Dir, within: resultDir)
                 where file.lastPathComponent.hasPrefix(sampleId)
                     && file.lastPathComponent.hasSuffix(".bam")

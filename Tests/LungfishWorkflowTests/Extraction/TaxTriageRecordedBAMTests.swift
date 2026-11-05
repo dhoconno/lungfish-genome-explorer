@@ -114,6 +114,31 @@ final class TaxTriageRecordedBAMTests: XCTestCase {
         }
     }
 
+    /// A recorded BAM that is gone is the missing-BAM refusal, even when another sample's BAM, whose name starts with
+    /// this sample's id, sits in the same `minimap2/`. Red at the head, whose prefix scan returns NTC_10's file.
+    func testARecordedBAMThatIsGoneIsNotReplacedByASiblingSamplesBAM() async throws {
+        let root = try TestTempDirectory.make(prefix: "TaxTriageRecordedBAM")
+        defer { TestTempDirectory.cleanup(root) }
+        let ntc10 = "minimap2/NTC_10.NTC_10.dwnld.references.bam"
+        let bam10 = try placeBAM(ntc10, in: root)
+        let database = try makeResult(
+            recording: ["NTC_1": "minimap2/NTC_1.NTC_1.dwnld.references.bam", "NTC_10": ntc10], in: root
+        )
+        let own = try await ClassifierReadResolver().testingResolveBAMURL(
+            tool: .taxtriage, sampleId: "NTC_10", resultPath: database
+        )
+        XCTAssertEqual(own.resolvingSymlinksInPath().path, bam10.resolvingSymlinksInPath().path, "NTC_10 keeps its own BAM")
+        do {
+            _ = try await ClassifierReadResolver().testingResolveBAMURL(
+                tool: .taxtriage, sampleId: "NTC_1", resultPath: database
+            )
+            XCTFail("NTC_1's BAM is gone, so NTC_10's BAM is not read for it")
+        } catch let error as ClassifierExtractionError {
+            guard case .bamNotFound(let named) = error else { return XCTFail("\(error)") }
+            XCTAssertEqual(named, "NTC_1")
+        }
+    }
+
     // MARK: - Helpers
 
     /// Writes a placeholder BAM at `relative` under `root`, with the BGZF magic the other layout tests write.
