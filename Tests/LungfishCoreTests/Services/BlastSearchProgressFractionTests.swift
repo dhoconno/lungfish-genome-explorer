@@ -124,4 +124,34 @@ final class BlastSearchProgressFractionTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(report.fraction, Self.firstSendTaken, "a report after the send: \(report.message)")
         }
     }
+
+    /// While NCBI answers the first send with 503 (busy), the advancer retries and says nothing at the fraction. A later
+    /// report in that branch would bring Waiting back before any send. This pins the numbers, and may pass at the base.
+    func testEveryReportReadsUnderTheFirstSendFractionWhileNCBIAnswersBusy() async throws {
+        let hand = hand
+        let busy = BlastFaultScript(put: [.http(status: 503), .http(status: 503)])
+        let server = try BlastFaultStandIn.start(scripts: [busy], now: { hand.now })
+        defer { server.stop() }
+        let log = ProgressLog()
+        let advancer = BlastSearchAdvancer(
+            service: BlastService(
+                rateLimits: .ncbiDefault, searchShared: BlastSearchShared(searchLog: nil),
+                environment: [BlastServiceEndpoints.standInOriginVariable: server.baseURL.absoluteString]
+            ),
+            store: BlastSearchStore(folder: folder),
+            request: BlastVerificationRequest(taxonName: "test", taxId: 0, sequences: reads),
+            clock: hand.clock,
+            noun: "sequences",
+            progress: { log.add($0, $1) },
+            publish: { _ in }
+        )
+
+        _ = try await advancer.advance(try await create(advancer))
+
+        let reports = log.reports
+        let taken = try XCTUnwrap(reports.firstIndex { $0.fraction >= Self.firstSendTaken }, "no report said NCBI has the search")
+        for report in reports[..<taken] {
+            XCTAssertLessThan(report.fraction, Self.firstSendTaken, "a report while NCBI answered busy: \(report.message)")
+        }
+    }
 }
