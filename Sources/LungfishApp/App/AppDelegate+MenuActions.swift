@@ -892,7 +892,7 @@ extension AppDelegate {
         OperationCenter.shared.clearCompleted()
     }
 
-    @objc func cancelOperation(_ sender: Any?) {
+    @objc func cancelRunningOperationFromMenu(_ sender: Any?) {
         guard let menuItem = sender as? NSMenuItem,
               let operationID = menuItem.representedObject as? UUID else { return }
 

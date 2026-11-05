@@ -1242,7 +1242,7 @@ public final class MainMenu {
     func showOperationsPanel(_ sender: Any?)
     func cancelAllOperations(_ sender: Any?)
     func clearCompletedOperations(_ sender: Any?)
-    func cancelOperation(_ sender: Any?)
+    func cancelRunningOperationFromMenu(_ sender: Any?) // Not NSResponder's cancelOperation(_:), which a first responder takes (W-13)
 }
 
 /// Delegate that dynamically rebuilds the Operations menu before it opens.
@@ -1317,7 +1317,7 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
             let title = canCancel ? "Cancel \(op.title)\u{2026}\(progressText)" : "\(op.title)\(progressText)"
             let menuItem = NSMenuItem(
                 title: title,
-                action: canCancel ? #selector(OperationsMenuActions.cancelOperation(_:)) : nil,
+                action: canCancel ? #selector(OperationsMenuActions.cancelRunningOperationFromMenu(_:)) : nil,
                 keyEquivalent: ""
             )
             menuItem.image = NSImage(systemSymbolName: statusSymbol, accessibilityDescription: statusAccessibility)

@@ -806,7 +806,7 @@ final class OperationsPanelTests: XCTestCase {
 
         let statusItem = try XCTUnwrap(operationsMenu.items.first)
         XCTAssertEqual(statusItem.title, "Cancel Reference download… (Running)")
-        XCTAssertEqual(statusItem.action, #selector(OperationsMenuActions.cancelOperation(_:)))
+        XCTAssertEqual(statusItem.action, #selector(OperationsMenuActions.cancelRunningOperationFromMenu(_:)))
         XCTAssertTrue(statusItem.isEnabled)
         XCTAssertEqual(statusItem.representedObject as? UUID, operationID)
         let cancelAllItem = try XCTUnwrap(
