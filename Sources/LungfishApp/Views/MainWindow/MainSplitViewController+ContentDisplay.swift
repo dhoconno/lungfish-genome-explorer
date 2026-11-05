@@ -61,19 +61,19 @@ extension MainSplitViewController {
         }
 
         // When switching away from a bundle to a non-bundle item, clean up the navigator
-        if item.type != .referenceBundle {
-            viewerController.clearBundleDisplay()
-        }
+        if item.type != .referenceBundle { viewerController.clearBundleDisplay() }
 
         // Always clear FASTA collection view when switching sidebar items
         viewerController.hideFASTACollectionView()
         viewerController.hideCollectionBackButton()
 
-        // QuickLook preview for document, image, unknown types, with no other dataset left in the Inspector (W-10)
+        // QuickLook preview for document, image, unknown types. No other dataset stays in the Inspector, and it keeps this row (W-10)
         if item.type.usesQuickLook, let url = item.url {
             mainSplitLogger.info("displayContent: Using QuickLook preview for '\(item.title, privacy: .public)'")
             inspectorController.clearSelection()
+            inspectorController.activeContentSelectionIdentity = activeContentSelectionIdentity
             viewerController.displayQuickLookPreview(url: url)
+            inspectorController.updateProvenanceTarget(url: url, sidebarType: item.type, displayName: item.title)
             return
         }
         // Reference genome bundles (.lungfishref)

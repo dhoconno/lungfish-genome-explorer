@@ -75,6 +75,7 @@ extension MainSplitViewController {
            !existingDocument.sequences.isEmpty || !existingDocument.annotations.isEmpty {
             mainSplitLogger.info("displayGenomicsFile: Document cached, displaying directly")
             inspectorController.clearSelection()
+            inspectorController.activeContentSelectionIdentity = activeContentSelectionIdentity
             viewerController.displayDocument(existingDocument)
             inspectorController.updateProvenanceTarget(
                 url: url, sidebarType: SidebarProjectScanner.detectFileType(url: url).0, displayName: existingDocument.name)
@@ -82,7 +83,6 @@ extension MainSplitViewController {
             DocumentManager.shared.setActiveDocument(existingDocument)
             return
         }
-
         // Not cached - load via DocumentManager using GCD wrapper
         loadGenomicsFileInBackground(url: url)
     }
