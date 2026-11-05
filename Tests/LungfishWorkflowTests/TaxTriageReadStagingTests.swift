@@ -74,7 +74,9 @@ final class TaxTriageReadStagingTests: XCTestCase {
     func testASampleNamedWaterBlankStagesItsReadsUnderASafeFileName() throws {
         let reads = try makeReads("Water (blank).fastq.gz", content: "water-blank-reads")
 
-        let prepared = try prepare([TaxTriageSample(sampleId: "Water (blank)", fastq1: reads, platform: .illumina)])
+        let prepared = try prepare([
+            TaxTriageSample(sampleId: "Water (blank)", fastq1: reads, platform: .illumina, isNegativeControl: true)
+        ])
 
         let staged = prepared.effectiveConfig.samples[0]
         XCTAssertTrue(
@@ -84,6 +86,8 @@ final class TaxTriageReadStagingTests: XCTestCase {
         XCTAssertTrue(staged.fastq1.lastPathComponent.hasSuffix(".fastq.gz"), "The file keeps its extension")
         XCTAssertEqual(try content(of: staged.fastq1), "water-blank-reads", "The staged name reads the same file")
         XCTAssertEqual(staged.sampleId, "Water (blank)", "The sample keeps the name the person gave it")
+        XCTAssertTrue(staged.isNegativeControl, "A control stays a control after its reads are staged")
+        XCTAssertTrue(staged.isAnyNegativeControl)
     }
 
     func testTheSamplesheetKeepsTheSampleNameAndNamesASafeFile() throws {
