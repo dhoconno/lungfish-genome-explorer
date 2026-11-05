@@ -74,6 +74,10 @@ final class FASTACollectionSurface: ResultViewport {
         let request = try expectInput(input, as: Input.self)
         if let contents = request.contents {
             try Self.checkFiles(contents.sourceFiles)
+            // The host loads the list's view only when it installs it, after this load. The table must sit in its scroll
+            // view before it learns its rows, since a table in none takes its whole height as visible and builds a row
+            // view and five cells for every record, which Auto Layout never finished solving on a large file (W-34).
+            request.controller.loadViewIfNeeded()
             request.controller.configure(sequences: contents.sequences, annotations: contents.annotations, sourceNames: contents.sourceNames)
         }
         controller = request.controller
