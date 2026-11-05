@@ -100,9 +100,17 @@ public enum FailurePresenter {
     }
 
     /// The one presentation path both presenters share.
+    ///
+    /// A completion that opens a sheet of its own, such as the extraction dialog after the left-out alert, runs with
+    /// the alert's sheet gone. AppKit calls the end handler while the alert is still the window's attached sheet, and
+    /// a dialog opened then is refused (W-32). So the alert is ordered out before the completion runs.
     static func show(_ alert: NSAlert, in window: NSWindow?, completion: (() -> Void)?) {
         if let window = window ?? NSApp.keyWindow {
-            alert.beginSheetModal(for: window) { _ in completion?() }
+            alert.beginSheetModal(for: window) { [weak alert] _ in
+                guard let completion else { return }
+                alert?.window.orderOut(nil)
+                completion()
+            }
         } else {
             _ = alert.runModal()
             completion?()
