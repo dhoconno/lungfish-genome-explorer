@@ -23,8 +23,8 @@ final class BuildDbTaxTriageRebuildKeepsSamplesTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    /// Red at 10c4e49e4 if the second build drops B. Either B is still in the database, or the second build throws
-    /// and the first database is back.
+    /// Red at 10c4e49e4 if the second build drops B. The second build throws, in words that name B, the database and the
+    /// folder (TTREADS-FIX5-ARCH fix 1), and the first database is back.
     func testForceRebuildAfterLegacyCleanupKeepsAKrakenOnlySample() async throws {
         let batch = try makeBatch()
         let databaseURL = batch.appendingPathComponent("taxtriage.sqlite")
@@ -43,8 +43,12 @@ final class BuildDbTaxTriageRebuildKeepsSamplesTests: XCTestCase {
         again.force = true
         do {
             _ = try await BuildDbCommand.TaxTriageSubcommand.buildDatabase(in: batch, options: again, events: events)
+            XCTFail("the rebuild would lose B, so it throws")
         } catch {
-            // A refusal is right if it leaves the first database whole.
+            let words = String(describing: error)
+            XCTAssertTrue(words.contains("these samples: B."), words)
+            XCTAssertTrue(words.contains(databaseURL.path), words)
+            XCTAssertTrue(words.contains("lungfish-cli build-db taxtriage \"\(batch.path)\""), words)
         }
 
         let samples = try TaxTriageDatabase(at: databaseURL).fetchSamples().map(\.sample).sorted()

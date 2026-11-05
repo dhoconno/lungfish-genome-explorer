@@ -146,9 +146,12 @@ extension BuildDbCommand {
                 if Set(rows.map(\.sample)).count < earlier.count {
                     let missing = earlier.subtracting(rows.map(\.sample)).sorted().joined(separator: ", ")
                     throw ValidationError(
-                        "Rebuilding \(dbURL.lastPathComponent) would drop its samples \(missing), whose reports this folder no longer holds "
-                            + "(an earlier build removed their top/ folder). The database is unchanged. To drop them on purpose, delete "
-                            + "\(dbURL.path) and run lungfish-cli build-db taxtriage again."
+                        "Lungfish did not rebuild \(dbURL.lastPathComponent) because that would lose these samples: \(missing). "
+                            + "Only the old database still holds their rows, since this folder has no report for them that Lungfish can read "
+                            + "(usually an earlier build removed their top/ folder). The old database is unchanged and its read counts are not "
+                            + "recounted. To keep them, import the original TaxTriage run folder again, if you still have it. To rebuild without "
+                            + "them, delete \(dbURL.path), then select the result again in Lungfish or run "
+                            + "lungfish-cli build-db taxtriage \"\(resultURL.path)\"."
                     )
                 }
 
