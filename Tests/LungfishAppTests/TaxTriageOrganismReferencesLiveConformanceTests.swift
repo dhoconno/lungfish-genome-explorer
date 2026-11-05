@@ -51,11 +51,10 @@ final class TaxTriageOrganismReferencesLiveConformanceTests: XCTestCase {
             XCTAssertEqual(row.uniqueReads, written, "\(sample): the row's Unique Reads")
 
             let output = root.appendingPathComponent("\(sample)-influenza.fastq")
-            // The app sends the batch's database as the result path, and the resolver looks for `minimap2/` beside it,
-            // where a batch has none (a finding of this lane, outside its files). The sample's own folder holds the
-            // layout the resolver reads, so the regions are checked there.
+            // The app sends the batch's database as the result path, and the resolver reads the BAM that the database
+            // records for the row's sample, in the sample's own folder (3.2 TTEXTRACT, finding F1 of this lane).
             XCTAssertEqual(sent.resultPath.lastPathComponent, "taxtriage.sqlite", sample)
-            let (resultPath, selectors) = (result.appendingPathComponent(sample, isDirectory: true), sent.selectors)
+            let (resultPath, selectors) = (sent.resultPath, sent.selectors)
             let readCount = try support.offMain {
                 try await ClassifierReadResolver().resolveAndExtract(
                     tool: .taxtriage,
