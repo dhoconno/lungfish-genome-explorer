@@ -8,24 +8,49 @@ import LungfishWorkflow
 
 extension ViewerFailureReports {
     /// The barcode scout of the FASTQ drawer stopped (ALERT-C4). The scout starts no Operations row. It throws
-    /// `DemultiplexError.inputFileNotFound` when the FASTQ file is gone, and otherwise the search tool's failure,
-    /// whose text goes to the details.
+    /// `DemultiplexError.inputFileNotFound` when the FASTQ file is gone, `emptyAdapterSequences` or
+    /// `ambiguousAdapterSequences` from its adapter check before any search tool starts (W-18, so the body says no search
+    /// ran and gives the kit's cause), and otherwise the search tool's failure, whose text goes to the details.
     static func detectBarcodes(_ error: any Error) -> FailureReport {
-        if let demultiplexError = error as? DemultiplexError, case .inputFileNotFound = demultiplexError {
-            return FailureReport(
-                failedStep: "Detect the barcodes in the FASTQ file",
-                whatHappened: "Lungfish could not find the FASTQ file, so no barcodes were detected.",
-                nextStep: "Select the FASTQ bundle in the sidebar again, then detect the barcodes again.",
-                underlying: error
-            )
+        let failedStep = "Detect the barcodes in the FASTQ file"
+        if let demultiplexError = error as? DemultiplexError {
+            switch demultiplexError {
+            case .inputFileNotFound:
+                return FailureReport(
+                    failedStep: failedStep,
+                    whatHappened: "Lungfish could not find the FASTQ file, so no barcodes were detected.",
+                    nextStep: "Select the FASTQ bundle in the sidebar again, then detect the barcodes again.",
+                    underlying: error
+                )
+            case .emptyAdapterSequences(let kitName):
+                return FailureReport(
+                    failedStep: failedStep,
+                    whatHappened: "No search was run, because Lungfish could not build any barcode sequences to search for from the kit \"\(kitName)\". No barcodes were detected and no files changed.",
+                    nextStep: kitWayOut,
+                    underlying: error
+                )
+            case .ambiguousAdapterSequences(let kitName):
+                return FailureReport(
+                    failedStep: failedStep,
+                    whatHappened: "No search was run, because two barcodes of the kit \"\(kitName)\" give the same search sequence, so their reads could not be told apart. No barcodes were detected and no files changed.",
+                    nextStep: kitWayOut,
+                    underlying: error
+                )
+            default:
+                break
+            }
         }
         return FailureReport(
-            failedStep: "Detect the barcodes in the FASTQ file",
+            failedStep: failedStep,
             whatHappened: "The barcode search stopped before it finished, so no barcodes were detected.",
             nextStep: "Check that the FASTQ file is complete and can be read, then detect the barcodes again.",
             underlying: error
         )
     }
+
+    /// What to try when the kit gave the scout nothing to search for. The FASTQ file is not the cause, and the details
+    /// hold the kit's own message.
+    private static let kitWayOut = "Choose a different kit for this step, or run Demultiplex Barcodes from the FASTQ operations dialog with a Custom Definition of the barcode sequences from your index sheet. Show Details has the full message."
 
     /// The command that deletes the annotation rows failed. Its Operations row is failed just before this
     /// alert, so the panel holds the command's message.
