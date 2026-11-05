@@ -49,6 +49,10 @@ public struct SunburstSegment {
     /// Whether this is an "Other" aggregation segment for small taxa.
     public let isOther: Bool
 
+    /// For an aggregate wedge, the real node whose small children it sums. A percent for the wedge belongs to that
+    /// node's sample, since the wedge itself is never linked into the tree. Nil for every other segment.
+    public var owner: TaxonNode? = nil
+
     /// The angular span of this segment in radians.
     public var angularSpan: CGFloat {
         endAngle - startAngle
@@ -380,7 +384,8 @@ public struct SunburstLayout {
                 startAngle: currentAngle,
                 endAngle: currentAngle + otherAngle,
                 color: Self.aggregateColor(under: parent),
-                isOther: true
+                isOther: true,
+                owner: parent
             )
             segments.append(otherSegment)
         }
