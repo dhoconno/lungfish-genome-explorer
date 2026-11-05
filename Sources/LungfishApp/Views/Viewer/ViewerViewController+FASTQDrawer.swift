@@ -167,6 +167,8 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
                     MainActor.assumeIsolated {
                         guard self != nil else { return }
                         fastqDrawerLogger.error("Barcode scout failed: \(error)")
+                        // The search ended, so its last progress line must not outlast the alert (W-18).
+                        self?.fastqMetadataDrawerView?.updateScoutStatus("")
                         if let window = self?.view.window {
                             FailurePresenter.present(ViewerFailureReports.detectBarcodes(error), in: window)
                         }
