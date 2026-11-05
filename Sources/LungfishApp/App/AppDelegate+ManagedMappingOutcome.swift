@@ -67,7 +67,12 @@ struct MappingBatchFailures: Sendable, Equatable {
 }
 
 /// A failed run's words as an error, so that a reason of several lines can sit in the alert's details area.
-private struct MappingRunFailureWords: LocalizedError {
+///
+/// The type is private to this file, and a private Swift type bridges to a domain such as
+/// "LungfishApp.(unknown context at $105401cd8).MappingRunFailureWords", which Show Details printed (W-31). So the
+/// error names its own domain, "Mapping".
+private struct MappingRunFailureWords: LocalizedError, CustomNSError {
     let words: String
     var errorDescription: String? { words }
+    static var errorDomain: String { "Mapping" }
 }

@@ -47,9 +47,13 @@ public struct FailureReport: Sendable, Equatable {
     }
 
     /// The details area text for an error, its description and then its
-    /// domain and code.
+    /// domain and code. A Swift error type that is private to its file bridges
+    /// to a domain such as "Module.(unknown context at $105401cd8).Type", a
+    /// debug line of no use to a person, so that error keeps its description
+    /// alone (W-31).
     public static func detailsText(for error: any Error) -> String {
         let bridged = error as NSError
+        if bridged.domain.contains("(unknown context at") { return error.localizedDescription }
         return "\(error.localizedDescription)\n\nError domain \(bridged.domain), code \(bridged.code)"
     }
 
