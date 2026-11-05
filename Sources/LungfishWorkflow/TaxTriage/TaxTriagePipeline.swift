@@ -146,6 +146,9 @@ public actor TaxTriagePipeline {
     struct PreparedExecutionConfig {
         let effectiveConfig: TaxTriageConfig
         let redirectDirectory: URL?
+        /// The folder of staged read links when only the read names needed staging, so the results stay where the run
+        /// was asked to write them. The run removes it when it ends. A redirected run keeps its links in `redirectDirectory`.
+        var stagingDirectory: URL?
 
         var needsRedirect: Bool {
             redirectDirectory != nil
@@ -364,6 +367,9 @@ public actor TaxTriagePipeline {
         let effectiveConfig = preparedExecution.effectiveConfig
         let tempRedirectDir = preparedExecution.redirectDirectory
         let needsRedirect = preparedExecution.needsRedirect
+        defer {
+            if let staging = preparedExecution.stagingDirectory { try? fm.removeItem(at: staging) }
+        }
 
         // The samplesheet through A16's builder, today's bytes, one keyed row per sample (T7).
         do {
@@ -769,11 +775,8 @@ public actor TaxTriagePipeline {
     }
 
     nonisolated func prepareExecutionConfig(for config: TaxTriageConfig) throws -> PreparedExecutionConfig {
-        let needsRedirect = config.outputDirectory.path.contains(" ")
-            || config.samples.contains(where: {
-                $0.fastq1.path.contains(" ") || ($0.fastq2?.path.contains(" ") ?? false)
-            })
-        guard needsRedirect else {
+        let redirectsOutput = config.outputDirectory.path.contains(" ")
+        guard redirectsOutput || TaxTriageReadStaging.needsStaging(config.samples) else {
             return PreparedExecutionConfig(
                 effectiveConfig: config,
                 redirectDirectory: nil
@@ -794,57 +797,22 @@ public actor TaxTriagePipeline {
             )
         }
 
-        // Keep the samplesheet and symlinked FASTQs under the same space-free root
-        // because the pipeline schema rejects input CSV paths that contain spaces.
-        let safeSamples = try config.samples.map { sample -> TaxTriageSample in
-            let safeFastq1: URL
-            if sample.fastq1.path.contains(" ") {
-                let linkName = sample.fastq1.lastPathComponent.replacingOccurrences(of: " ", with: "_")
-                let linkURL = safeDir.appendingPathComponent(linkName)
-                try? fm.removeItem(at: linkURL)
-                try fm.createSymbolicLink(at: linkURL, withDestinationURL: sample.fastq1)
-                safeFastq1 = linkURL
-            } else {
-                safeFastq1 = sample.fastq1
-            }
-
-            let safeFastq2: URL?
-            if let fq2 = sample.fastq2, fq2.path.contains(" ") {
-                let linkName = fq2.lastPathComponent.replacingOccurrences(of: " ", with: "_")
-                let linkURL = safeDir.appendingPathComponent(linkName)
-                try? fm.removeItem(at: linkURL)
-                try fm.createSymbolicLink(at: linkURL, withDestinationURL: fq2)
-                safeFastq2 = linkURL
-            } else {
-                safeFastq2 = sample.fastq2
-            }
-
-            return TaxTriageSample(
-                sampleId: sample.sampleId,
-                fastq1: safeFastq1,
-                fastq2: safeFastq2,
-                platform: sample.platform,
-                readLayout: sample.readLayout
-            )
+        // Keep the samplesheet and the linked FASTQs under the same space-free root because the pipeline schema rejects
+        // input CSV paths that contain spaces, and name each link with letters, digits, `_`, `-` and `.` only, since
+        // Nextflow escapes any other character in the task script and the pipeline's COUNT_READS step then looks for
+        // a file with backslashes in its name (W-1). The sample keeps the name the person gave it.
+        var effectiveConfig = config
+        do {
+            effectiveConfig.samples = try TaxTriageReadStaging.stage(config.samples, in: safeDir)
+        } catch {
+            try? fm.removeItem(at: safeDir)
+            throw error
         }
-
-        let effectiveConfig = TaxTriageConfig(
-            samples: safeSamples,
-            platform: config.platform,
-            outputDirectory: safeDir.appendingPathComponent("output"),
-            kraken2DatabasePath: config.kraken2DatabasePath,
-            topHitsCount: config.topHitsCount,
-            k2Confidence: config.k2Confidence,
-            rank: config.rank,
-            skipAssembly: config.skipAssembly,
-            skipKrona: config.skipKrona,
-            maxMemory: config.maxMemory,
-            maxCpus: config.maxCpus,
-            profile: config.profile,
-            revision: config.revision,
-            extraArguments: config.extraArguments,
-            removeTaxids: config.removeTaxids
-        )
+        guard redirectsOutput else {
+            // Only the read names needed staging, so the results are written where the run was asked to put them.
+            return PreparedExecutionConfig(effectiveConfig: effectiveConfig, redirectDirectory: nil, stagingDirectory: safeDir)
+        }
+        effectiveConfig.outputDirectory = safeDir.appendingPathComponent("output")
 
         try fm.createDirectory(at: effectiveConfig.outputDirectory, withIntermediateDirectories: true)
         logger.info("Redirected TaxTriage to space-free path: \(safeDir.path)")

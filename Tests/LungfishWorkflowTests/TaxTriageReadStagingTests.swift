@@ -152,7 +152,9 @@ final class TaxTriageReadStagingTests: XCTestCase {
     }
 
     func testNamesThatBecomeTheSameSafeNameStageAsDifferentFiles() throws {
-        let names = ["A (1).fastq.gz", "A [1].fastq.gz", "a_1_.fastq.gz"]
+        // The first two become A_1_.fastq.gz, and the third becomes a_1_.fastq.gz, the same name on a volume that
+        // ignores case.
+        let names = ["A (1).fastq.gz", "A [1].fastq.gz", "a (1].fastq.gz"]
         var samples: [TaxTriageSample] = []
         for name in names {
             let reads = try makeReads(name, content: "reads of \(name)")
@@ -202,6 +204,28 @@ final class TaxTriageReadStagingTests: XCTestCase {
             "Results are written where the person asked, never in a temporary folder"
         )
         XCTAssertNil(prepared.redirectDirectory)
-        XCTAssertTrue(isSafe(prepared.effectiveConfig.samples[0].fastq1.lastPathComponent))
+        let staged = prepared.effectiveConfig.samples[0].fastq1
+        XCTAssertTrue(isSafe(staged.lastPathComponent))
+        XCTAssertEqual(
+            prepared.stagingDirectory, staged.deletingLastPathComponent(),
+            "The run removes the folder of links when it ends"
+        )
+    }
+
+    func testSafeFileNameTurnsEachRunOfOtherCharactersIntoOneUnderscore() {
+        XCTAssertEqual(TaxTriageReadStaging.safeFileName(for: "Water (blank).fastq.gz"), "Water_blank_.fastq.gz")
+        XCTAssertEqual(TaxTriageReadStaging.safeFileName(for: "plain-1_R1.fastq.gz"), "plain-1_R1.fastq.gz")
+        XCTAssertEqual(TaxTriageReadStaging.safeFileName(for: "-reads.fq.gz"), "_reads.fq.gz")
+        XCTAssertEqual(TaxTriageReadStaging.safeFileName(for: ".hidden.fq"), "_hidden.fq")
+        XCTAssertEqual(TaxTriageReadStaging.safeFileName(for: "()"), "_")
+    }
+
+    func testUniqueFileNameAddsACounterBeforeTheExtensionAndIgnoresCase() {
+        var taken = Set<String>()
+        XCTAssertEqual(TaxTriageReadStaging.uniqueFileName("A.fastq.gz", taken: &taken), "A.fastq.gz")
+        XCTAssertEqual(TaxTriageReadStaging.uniqueFileName("a.fastq.gz", taken: &taken), "a_2.fastq.gz")
+        XCTAssertEqual(TaxTriageReadStaging.uniqueFileName("A.fastq.gz", taken: &taken), "A_3.fastq.gz")
+        XCTAssertEqual(TaxTriageReadStaging.uniqueFileName("noextension", taken: &taken), "noextension")
+        XCTAssertEqual(TaxTriageReadStaging.uniqueFileName("noextension", taken: &taken), "noextension_2")
     }
 }
