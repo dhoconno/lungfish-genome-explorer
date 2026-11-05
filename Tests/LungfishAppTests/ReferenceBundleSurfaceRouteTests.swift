@@ -723,6 +723,9 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         XCTAssertEqual(viewport.testAlignmentActionContext?.alignmentURL.standardizedFileURL, mapping.trackBAM.standardizedFileURL, "the evidence snapshot names another BAM", file: file, line: line)
         XCTAssertEqual(viewport.testEmbeddedViewerController.viewerView.currentReferenceBundle?.url.standardizedFileURL, mapping.bundle.standardizedFileURL, "the embedded viewer draws another bundle", file: file, line: line)
         XCTAssertEqual(viewer.drawnReferenceBundle?.url.standardizedFileURL, mapping.bundle.standardizedFileURL, "File > Export would read another bundle", file: file, line: line)
+        // The Inspector's metadata import writes through this context, so it must name this result.
+        let split = try XCTUnwrap(sequence(first: viewer as NSViewController, next: { $0.parent }).compactMap { $0 as? MainSplitViewController }.first, file: file, line: line)
+        XCTAssertEqual(split.bamMetadataPresentationContext?.finalResultURL.standardizedFileURL, mapping.result.standardizedFileURL, "the Inspector's metadata context reads another result", file: file, line: line)
     }
 
     func assertShowsReference(
