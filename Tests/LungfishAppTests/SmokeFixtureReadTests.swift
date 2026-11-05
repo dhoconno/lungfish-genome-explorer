@@ -95,7 +95,9 @@ enum SmokeFixtureBytes {
     static let assemblyFolder = "spades-2026-01-15T13-00-00"
 
     /// `ReleaseSmokeFixtures.addAssemblyResult`. It copies the SPAdes result of `Tests/Fixtures/analyses` into Analyses, with
-    /// the `analysis-metadata.json` that files the folder under SPAdes, and returns the copy.
+    /// the `analysis-metadata.json` that files the folder under SPAdes, and writes the schema 3 `assembly-result.json` that
+    /// `AssemblyResult.save(to:)` writes over the copy's schema 1 sidecar, which `AssemblyResult.load(from:)` cannot decode.
+    /// The statistics are those of the copy's `contigs.fasta`, two contigs of 122 and 61 bases with 92 of 183 bases G or C.
     @discardableResult
     static func assemblyResult(in project: URL) throws -> URL {
         let destination = project.appendingPathComponent("Analyses/\(assemblyFolder)", isDirectory: true)
@@ -104,6 +106,14 @@ enum SmokeFixtureBytes {
         let metadata: [String: Any] = ["created": ISO8601DateFormatter().string(from: Date()), "isBatch": false, "tool": "spades"]
         try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys])
             .write(to: destination.appendingPathComponent("analysis-metadata.json"))
+        let statistics: [String: Any] = ["contigCount": 2, "totalLengthBP": 183, "largestContigBP": 122, "smallestContigBP": 61,
+                                         "n50": 122, "l50": 1, "n90": 61, "gcFraction": 92.0 / 183.0, "meanLengthBP": 91.5]
+        let sidecar: [String: Any] = ["schemaVersion": 3, "tool": "spades", "readType": "illuminaShortReads", "outcome": "completed",
+                                      "contigsPath": "contigs.fasta", "logPath": "spades.log", "assemblerVersion": "3.15.5",
+                                      "commandLine": "spades.py --isolate -1 HG002_R1.fastq.gz -2 HG002_R2.fastq.gz -o spades",
+                                      "outputDirectory": destination.path, "statistics": statistics, "wallTimeSeconds": 123.4]
+        try JSONSerialization.data(withJSONObject: sidecar, options: [.prettyPrinted, .sortedKeys])
+            .write(to: destination.appendingPathComponent("assembly-result.json"))
         return destination
     }
 }

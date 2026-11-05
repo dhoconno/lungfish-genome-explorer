@@ -432,13 +432,25 @@ enum ReleaseSmokeFixtures {
     /// The sidebar words of the SPAdes result of `Tests/Fixtures/analyses`, whose folder starts `spades-`.
     static let assemblyRow = "spades"
 
-    /// Copies the SPAdes result into Analyses as `makeAnalysesProject` does. Its sidecar names `contigs.fasta` by a path
-    /// inside the folder, and the viewer reads the contigs itself, so the copy opens with no managed tool.
+    /// Copies the SPAdes result into Analyses as `makeAnalysesProject` does, then writes the sidecar over the copy. The
+    /// committed sidecar is schema 1 and lacks the keys `AssemblyResult.load(from:)` needs, so the app logged "Failed to open
+    /// spades-2026-01-15T13-00-00" and the Assembly row found no viewer. The new one is the schema 3 JSON that
+    /// `AssemblyResult.save(to:)` writes, around the copy's own `contigs.fasta` (two contigs of 122 and 61 bases, 92 of 183
+    /// bases G or C) with the statistics the app's calculator gives, which `SmokeFixtureReadTests` checks. The viewer reads
+    /// the contigs itself, so the copy opens with no managed tool.
     static func addAssemblyResult(to project: URL) throws {
         let folder = "spades-2026-01-15T13-00-00"
         let destination = project.appendingPathComponent("Analyses/\(folder)", isDirectory: true)
         try FileManager.default.copyItem(at: LungfishFixtureCatalog.analyses.appendingPathComponent(folder), to: destination)
         try writeAnalysisMetadata(tool: "spades", in: destination)
+        let statistics: [String: Any] = ["contigCount": 2, "totalLengthBP": 183, "largestContigBP": 122, "smallestContigBP": 61,
+                                         "n50": 122, "l50": 1, "n90": 61, "gcFraction": 92.0 / 183.0, "meanLengthBP": 91.5]
+        let sidecar: [String: Any] = ["schemaVersion": 3, "tool": "spades", "readType": "illuminaShortReads", "outcome": "completed",
+                                      "contigsPath": "contigs.fasta", "logPath": "spades.log", "assemblerVersion": "3.15.5",
+                                      "commandLine": "spades.py --isolate -1 HG002_R1.fastq.gz -2 HG002_R2.fastq.gz -o spades",
+                                      "outputDirectory": destination.path, "statistics": statistics, "wallTimeSeconds": 123.4]
+        try JSONSerialization.data(withJSONObject: sidecar, options: [.prettyPrinted, .sortedKeys])
+            .write(to: destination.appendingPathComponent("assembly-result.json"))
     }
 
     /// The name a genotype result shares as its folder, its output name and its analysis name, so the sidebar row reads it.
