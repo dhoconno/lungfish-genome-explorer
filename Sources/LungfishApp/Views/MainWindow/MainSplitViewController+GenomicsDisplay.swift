@@ -70,17 +70,17 @@ extension MainSplitViewController {
             return
         }
 
-        // Check if already loaded
-        if let existingDocument = DocumentManager.shared.documents.first(where: { $0.url == url }) {
-            let isFullyLoaded = !existingDocument.sequences.isEmpty || !existingDocument.annotations.isEmpty
-
-            if isFullyLoaded {
-                mainSplitLogger.info("displayGenomicsFile: Document cached, displaying directly")
-                viewerController.displayDocument(existingDocument)
-                projectSession.setActiveDocument(existingDocument)
-                DocumentManager.shared.setActiveDocument(existingDocument)
-                return
-            }
+        // A cached document clears the Inspector and points Provenance at it, as the load route does (W-10).
+        if let existingDocument = DocumentManager.shared.documents.first(where: { $0.url == url }),
+           !existingDocument.sequences.isEmpty || !existingDocument.annotations.isEmpty {
+            mainSplitLogger.info("displayGenomicsFile: Document cached, displaying directly")
+            inspectorController.clearSelection()
+            viewerController.displayDocument(existingDocument)
+            inspectorController.updateProvenanceTarget(
+                url: url, sidebarType: SidebarProjectScanner.detectFileType(url: url).0, displayName: existingDocument.name)
+            projectSession.setActiveDocument(existingDocument)
+            DocumentManager.shared.setActiveDocument(existingDocument)
+            return
         }
 
         // Not cached - load via DocumentManager using GCD wrapper

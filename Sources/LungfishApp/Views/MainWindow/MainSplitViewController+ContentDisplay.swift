@@ -69,13 +69,13 @@ extension MainSplitViewController {
         viewerController.hideFASTACollectionView()
         viewerController.hideCollectionBackButton()
 
-        // QuickLook preview for document, image, unknown types
+        // QuickLook preview for document, image, unknown types, with no other dataset left in the Inspector (W-10)
         if item.type.usesQuickLook, let url = item.url {
             mainSplitLogger.info("displayContent: Using QuickLook preview for '\(item.title, privacy: .public)'")
+            inspectorController.clearSelection()
             viewerController.displayQuickLookPreview(url: url)
             return
         }
-
         // Reference genome bundles (.lungfishref)
         if item.type == .referenceBundle, let url = item.url {
             displayReferenceBundleViewportFromSidebar(at: url, identity: displayIdentity, token: displayToken)
