@@ -226,4 +226,27 @@ final class TaxTriageOrganismReportTests: XCTestCase {
         XCTAssertFalse(legacy.isStale(forResultDirectory: emptyDir),
                        "a legacy database without any organism report stays as it is")
     }
+
+    /// 3.2 lane TTREADS. A build before Reads counted every reference of an organism counted a row on its first
+    /// reference alone, so Influenza A, whose reads sat on other segments, read 0 in the NTC-P batch. Such a database
+    /// is stale, so the app rebuilds it when it shows the result. Red at the base, which read `taxonomy_source` alone.
+    func testDatabaseThatCountedReadsOnTheFirstReferenceIsStaleWhenODRExists() throws {
+        let batch = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: batch) }
+        try FileManager.default.copyItem(at: try fixtureSampleDir(), to: batch.appendingPathComponent("SRR12486983"))
+        let row = TaxTriageOrganismReport.parse(tsv: try String(contentsOf: try fixtureODR(), encoding: .utf8))[0]
+        let built = ["tool": "taxtriage", "taxonomy_source": "organism_report", "tass_scale": "0-1"]
+
+        let firstReference = try TaxTriageDatabase.create(
+            at: batch.appendingPathComponent("first-reference.sqlite"), rows: [row], metadata: built
+        )
+        XCTAssertTrue(firstReference.isStale(forResultDirectory: batch), "Reads counted on the first reference alone")
+
+        let everyReference = try TaxTriageDatabase.create(
+            at: batch.appendingPathComponent("every-reference.sqlite"),
+            rows: [row],
+            metadata: built.merging(["read_count": "organism_references"]) { _, new in new }
+        )
+        XCTAssertFalse(everyReference.isStale(forResultDirectory: batch), "Reads counted on every reference of the organism")
+    }
 }
