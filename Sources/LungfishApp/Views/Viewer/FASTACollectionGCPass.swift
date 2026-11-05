@@ -46,79 +46,66 @@ final class FASTACollectionGCPass {
 }
 
 /// The list's GC counts. Free of any actor, so the pass runs them off the main thread.
+///
+/// Every base of every record counts (W-8). A record keeps its G+C and its A+C+G+T, in either case, and N or any other
+/// code counts in neither. The bar's GC Content is the sum of G+C over the sum of A+C+G+T, so a long record weighs by
+/// its length, as a GC content of the whole file does.
 enum FASTACollectionGC {
+    /// A record's base counts.
+    struct Composition: Sendable, Equatable {
+        var gc = 0
+        var acgt = 0
+
+        /// The GC percent, or nil for a record with no A, C, G or T.
+        var percent: Double? {
+            acgt > 0 ? Double(gc) / Double(acgt) * 100 : nil
+        }
+    }
+
     /// What a finished pass delivers.
     struct Result: Sendable {
-        /// Each record's GC percent, keyed by sequence ID.
-        let percents: [UUID: Double]
-        /// The bar's GC Content.
+        /// Each record's counts, keyed by sequence ID.
+        let compositions: [UUID: Composition]
+        /// The bar's GC Content, nil when no record has an A, C, G or T.
         let listPercent: Double?
     }
 
+    /// Bases read at a time, so a long record never builds one huge string and a cancel ends it within a chunk.
+    static let chunkLength = 1 << 20
+
     /// Counts every record, or answers nil when the task is cancelled first.
     static func count(_ sequences: [LungfishCore.Sequence]) -> Result? {
-        var percents = [UUID: Double](minimumCapacity: sequences.count)
-        var sum = 0.0
+        var compositions = [UUID: Composition](minimumCapacity: sequences.count)
+        var total = Composition()
         for sequence in sequences {
-            if Task.isCancelled { return nil }
-            let percent = percent(of: sequence)
-            percents[sequence.id] = percent
-            sum += percent
+            guard let composition = composition(of: sequence) else { return nil }
+            compositions[sequence.id] = composition
+            total.gc += composition.gc
+            total.acgt += composition.acgt
         }
-        return Result(percents: percents, listPercent: sequences.isEmpty ? nil : sum / Double(sequences.count))
+        return Result(compositions: compositions, listPercent: total.percent)
     }
 
-    /// Computes GC percentage for a sequence by sampling up to 10,000 bases.
-    ///
-    /// For sequences longer than 10,000 bp, samples evenly-spaced windows
-    /// to keep computation bounded.
-    static func percent(of seq: LungfishCore.Sequence) -> Double {
-        let length = seq.length
-        guard length > 0 else { return 0 }
-
-        let sampleSize = min(length, 10_000)
-        var gcCount = 0
-        var totalCount = 0
-
-        if length <= sampleSize {
-            // Sample entire sequence
-            let bases = seq[0..<length]
-            for base in bases {
-                switch base {
-                case "G", "g", "C", "c":
-                    gcCount += 1
-                    totalCount += 1
-                case "A", "a", "T", "t":
-                    totalCount += 1
+    /// Counts every base of one record, or answers nil when the task is cancelled first.
+    static func composition(of sequence: LungfishCore.Sequence) -> Composition? {
+        var counts = Composition()
+        var start = 0
+        repeat {
+            if Task.isCancelled { return nil }
+            let end = min(start + chunkLength, sequence.length)
+            for byte in sequence[start..<end].utf8 {
+                switch byte {
+                case UInt8(ascii: "G"), UInt8(ascii: "g"), UInt8(ascii: "C"), UInt8(ascii: "c"):
+                    counts.gc += 1
+                    counts.acgt += 1
+                case UInt8(ascii: "A"), UInt8(ascii: "a"), UInt8(ascii: "T"), UInt8(ascii: "t"):
+                    counts.acgt += 1
                 default:
-                    break // Skip N and ambiguous bases
+                    break
                 }
             }
-        } else {
-            // Sample evenly-spaced windows
-            let windowSize = 100
-            let windowCount = sampleSize / windowSize
-            let step = length / windowCount
-
-            for i in 0..<windowCount {
-                let start = i * step
-                let end = min(start + windowSize, length)
-                let bases = seq[start..<end]
-                for base in bases {
-                    switch base {
-                    case "G", "g", "C", "c":
-                        gcCount += 1
-                        totalCount += 1
-                    case "A", "a", "T", "t":
-                        totalCount += 1
-                    default:
-                        break
-                    }
-                }
-            }
-        }
-
-        guard totalCount > 0 else { return 0 }
-        return Double(gcCount) / Double(totalCount) * 100.0
+            start = end
+        } while start < sequence.length
+        return counts
     }
 }

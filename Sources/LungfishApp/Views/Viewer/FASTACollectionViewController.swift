@@ -45,8 +45,9 @@ public final class FASTACollectionViewController: NSViewController,
     /// Whether the view is showing sequences from multiple source documents.
     private var isMultiSource: Bool { !sourceNames.isEmpty }
 
-    /// GC percentages keyed by sequence ID, empty until the pass delivers them, so a cell reads blank meanwhile.
-    private var gcCache: [UUID: Double] = [:]
+    /// Each record's whole-record base counts keyed by sequence ID, empty until the pass delivers them, so a cell reads
+    /// blank meanwhile.
+    private var gcCache: [UUID: FASTACollectionGC.Composition] = [:]
     /// Counts GC off the main thread (W-34).
     private let gcPass = FASTACollectionGCPass()
 
@@ -718,8 +719,9 @@ public final class FASTACollectionViewController: NSViewController,
                 let countB = annotationsBySequence[b.name]?.count ?? 0
                 result = countA < countB
             case "gc":
-                let gcA = gcCache[a.id] ?? 0
-                let gcB = gcCache[b.id] ?? 0
+                // A record with no A, C, G or T sorts below every counted one.
+                let gcA = gcCache[a.id]?.percent ?? -1
+                let gcB = gcCache[b.id]?.percent ?? -1
                 result = gcA < gcB
             case "source":
                 let srcA = sourceNames[a.id] ?? ""
@@ -736,7 +738,7 @@ public final class FASTACollectionViewController: NSViewController,
 
     /// Takes the pass's values. A sort by GC asked for while it counted is applied again now that the values are known.
     private func showGC(_ result: FASTACollectionGC.Result) {
-        gcCache = result.percents
+        gcCache = result.compositions
         summaryBar.showGC(result.listPercent)
         if sortKey == "gc" {
             let selectedIDs = Set(selectedSequences().map(\.id))
@@ -1020,8 +1022,10 @@ public final class FASTACollectionViewController: NSViewController,
             if count == 0 { textField.textColor = .tertiaryLabelColor }
 
         case "gc":
-            // Blank until the pass delivers, never 0.0.
-            textField.stringValue = gcCache[seq.id].map { String(format: "%.1f%%", $0) } ?? ""
+            // Blank until the pass delivers, never 0.0, and a dash for a record with no A, C, G or T (W-8).
+            let counts = gcCache[seq.id]
+            textField.stringValue = counts.map { $0.percent.map { String(format: "%.1f%%", $0) } ?? "\u{2014}" } ?? ""
+            textField.toolTip = counts != nil && counts?.percent == nil ? "This record has no A, C, G or T to count." : nil
             textField.alignment = .right
 
         default:

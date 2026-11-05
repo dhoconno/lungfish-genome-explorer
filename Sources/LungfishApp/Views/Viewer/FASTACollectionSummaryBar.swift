@@ -21,7 +21,9 @@ final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
     private var sequenceCount: Int = 0
     private var totalLength: Int64 = 0
     private var annotationCount: Int = 0
-    /// Nil until the list's GC pass delivers, so the card reads blank and never 0.0 while it counts.
+    /// False until the list's GC pass delivers, so the card reads blank and never 0.0 while it counts.
+    private var gcCounted = false
+    /// Every record's G+C over every record's A+C+G+T (W-8), nil when no record has an A, C, G or T.
     private var gcPercent: Double?
     private var shortestLength: Int = 0
     private var longestLength: Int = 0
@@ -45,6 +47,7 @@ final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
         self.sequenceCount = sequences.count
         self.annotationCount = annotationCount
         self.sourceFileCount = sourceFileCount
+        gcCounted = false
         gcPercent = nil
 
         if sequences.isEmpty {
@@ -71,10 +74,16 @@ final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
         cardsDidChange()
     }
 
-    /// Shows the list's GC once the pass has counted it. Nil keeps the card blank.
+    /// Shows the list's pooled GC once the pass has counted it. Nil, when no record has an A, C, G or T, reads a dash.
     func showGC(_ percent: Double?) {
+        gcCounted = true
         gcPercent = percent
         cardsDidChange()
+    }
+
+    private var gcText: String {
+        guard gcCounted else { return "" }
+        return gcPercent.map { String(format: "%.1f%%", $0) } ?? "\u{2014}"
     }
 
     // MARK: - Cards
@@ -94,7 +103,7 @@ final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
         result.append(contentsOf: [
             Card(label: "Total Length", value: GenomicSummaryCardBar.formatBases(totalLength)),
             Card(label: "Annotations", value: GenomicSummaryCardBar.formatCount(annotationCount)),
-            Card(label: "GC Content", value: gcPercent.map { String(format: "%.1f%%", $0) } ?? ""),
+            Card(label: "GC Content", value: gcText),
             Card(label: "Shortest", value: GenomicSummaryCardBar.formatBases(shortestLength)),
             Card(label: "Longest", value: GenomicSummaryCardBar.formatBases(longestLength)),
         ])
