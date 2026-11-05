@@ -99,12 +99,13 @@ final class BuildDbEsVirituReadCountFlagsLiveConformanceTests: XCTestCase {
         XCTAssertEqual(rows.count, 16, "14 rows of SRR35517703 and 2 rows of SRR35517705")
     }
 
-    /// The real-data pin of the ruled meaning on TaxTriage rows (BIO's review of lane ESV, SF1). Two of the three
-    /// `taxtriage-mini` BAMs hold supplementary records of split reads whose primary record sits on the same contig, so
-    /// three rows count one read less than they did while the count passed alignment records. Before the change those
-    /// rows read 31, 17 and 993 Reads and 23, 11 and 277 Unique Reads. SRR35517703 holds no supplementary record, so its
-    /// row keeps 9 reads, the count that TaxTriage's own report holds for it. `updateUniqueReadsInDB` is one function for
-    /// both tools, so this is the number-level guard of the TaxTriage Reads and Unique Reads columns.
+    /// The real-data pin of the ruled meaning on TaxTriage rows. BIO's review of lane TTREADS (ruling 1) supersedes the
+    /// ESV ruling for Reads: a TaxTriage row keeps its report's `# Reads Aligned`, 31, 16 and 993 on the three rows below
+    /// (the ruling wrote 17 for the middle one, the all-records count of the 3.0 base, but the report holds 16), though
+    /// two of the three `taxtriage-mini` BAMs hold supplementary records of split reads. Unique Reads still count
+    /// the BAM's primary records that markdup did not mark, so a supplementary record is not counted there (22, 10 and
+    /// 267, as the ESV ruling has it). SRR35517703 holds no supplementary record, so its row keeps 9 reads. A Unique
+    /// Reads count never exceeds the row's Reads, or the row shows a dash.
     func testTaxTriageMiniCountsASplitReadOnceAtItsPrimaryAlignment() async throws {
         _ = try await ToolAvailability.require("samtools", environment: "samtools")
         let fixture = BuildDbStreamCapture.fixturesFolder.appendingPathComponent("taxtriage-mini", isDirectory: true)
@@ -122,13 +123,13 @@ final class BuildDbEsVirituReadCountFlagsLiveConformanceTests: XCTestCase {
         }
 
         let split702 = try row("SRR35517702", "NC_045512.2")
-        XCTAssertEqual(split702.readsAligned, 30, "SRR35517702 NC_045512.2 holds 31 records, one of them the supplementary of read 4096958")
+        XCTAssertEqual(split702.readsAligned, 31, "SRR35517702 NC_045512.2 keeps its report's 31, though its BAM holds 30 primary records")
         XCTAssertEqual(split702.uniqueReads, 22, "the supplementary record is not a duplicate, so Unique Reads drops with Reads")
         let shortSplit705 = try row("SRR35517705", "NC_045512.2")
-        XCTAssertEqual(shortSplit705.readsAligned, 16, "SRR35517705 NC_045512.2 holds 17 records, one of them the supplementary of read 2920")
+        XCTAssertEqual(shortSplit705.readsAligned, 16, "SRR35517705 NC_045512.2 keeps its report's 16, which is also the count of its BAM's primary records")
         XCTAssertEqual(shortSplit705.uniqueReads, 10, "the supplementary record is not a duplicate, so Unique Reads drops with Reads")
         let longSplit705 = try row("SRR35517705", "NC_074583.1")
-        XCTAssertEqual(longSplit705.readsAligned, 983, "SRR35517705 NC_074583.1 holds 993 records, ten of them supplementary")
+        XCTAssertEqual(longSplit705.readsAligned, 993, "SRR35517705 NC_074583.1 keeps its report's 993, though ten of its BAM's records are supplementary")
         XCTAssertEqual(longSplit705.uniqueReads, 267, "the ten supplementary records are not duplicates, so Unique Reads drops with Reads")
         let whole703 = try row("SRR35517703", "NC_045512.2")
         XCTAssertEqual(whole703.readsAligned, 9, "SRR35517703 holds no supplementary record, so its count stays as TaxTriage's own report has it")

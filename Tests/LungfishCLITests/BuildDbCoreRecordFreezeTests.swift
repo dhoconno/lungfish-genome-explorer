@@ -82,7 +82,7 @@ final class BuildDbCoreRecordFreezeTests: XCTestCase {
             ["probe-launch"]
                 // The header probe and two counts of each of three BAMs, an idxstats of each, then two counts
                 // for each of the fourteen BAM and accession pairs.
-                + Array(repeating: "samtools", count: 40)
+                + Array(repeating: "samtools", count: 26)  // 14 fewer than before 3.2 TTREADS, which counted `view -c -F 0x904` for each row too
                 + ["lungfish build-db taxtriage", "Lungfish TaxTriage Intermediate Removal"]
         )
     }

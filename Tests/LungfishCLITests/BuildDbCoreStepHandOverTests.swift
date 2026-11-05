@@ -176,7 +176,8 @@ final class BuildDbCoreStepHandOverTests: XCTestCase {
         try run.assertCancelledKeepingTheHandedOverSteps()
         XCTAssertEqual(
             try run.stepNames(),
-            [BuildDbIndexRun.launchToolName] + Array(repeating: "samtools", count: 40) + ["lungfish build-db taxtriage"]
+            // 26 steps, 14 fewer than before 3.2 TTREADS, which ran no `view -c -F 0x904` for a TaxTriage row once Reads kept the report's count.
+            [BuildDbIndexRun.launchToolName] + Array(repeating: "samtools", count: 26) + ["lungfish build-db taxtriage"]
         )
         try run.assertEachBuildOutputIsOnDisk()
         try run.assertEachGoneFileHasARemovalStep()

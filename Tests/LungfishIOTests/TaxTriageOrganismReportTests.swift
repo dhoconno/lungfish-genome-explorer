@@ -249,8 +249,28 @@ final class TaxTriageOrganismReportTests: XCTestCase {
         let everyReference = try TaxTriageDatabase.create(
             at: batch.appendingPathComponent("every-reference.sqlite"),
             rows: [row],
-            metadata: built.merging(["read_count": "organism_references"]) { _, new in new }
+            metadata: built.merging(["read_count": "odr_reads_aligned"]) { _, new in new }
         )
-        XCTAssertFalse(everyReference.isStale(forResultDirectory: batch), "Reads counted on every reference of the organism")
+        XCTAssertFalse(everyReference.isStale(forResultDirectory: batch), "Reads keep the report's # Reads Aligned")
+    }
+
+    /// ARCH should-fix 1. A database that the build published before its count pass ended carries no `read_count`, so
+    /// it is stale. `markReadsCounted(at:)` records the mark once the pass has ended.
+    func testMarkReadsCountedMakesAFirstReferenceDatabaseCurrent() throws {
+        let batch = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: batch) }
+        try FileManager.default.copyItem(at: try fixtureSampleDir(), to: batch.appendingPathComponent("SRR12486983"))
+        let row = TaxTriageOrganismReport.parse(tsv: try String(contentsOf: try fixtureODR(), encoding: .utf8))[0]
+        let url = batch.appendingPathComponent("marked.sqlite")
+        let created = try TaxTriageDatabase.create(
+            at: url, rows: [row], metadata: ["tool": "taxtriage", "taxonomy_source": "organism_report"]
+        )
+        XCTAssertTrue(created.isStale(forResultDirectory: batch), "no read_count yet")
+
+        try TaxTriageDatabase.markReadsCounted(at: url)
+
+        let reopened = try TaxTriageDatabase(at: url)
+        XCTAssertFalse(reopened.isStale(forResultDirectory: batch), "marked as counted")
+        XCTAssertEqual(try reopened.fetchMetadata()[TaxTriageDatabase.readCountMetadataKey], TaxTriageDatabase.currentReadCount)
     }
 }

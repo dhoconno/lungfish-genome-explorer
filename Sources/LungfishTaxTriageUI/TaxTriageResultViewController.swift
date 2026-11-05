@@ -3939,18 +3939,18 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         scoreCol.headerToolTip = TaxTriageConfidenceBand.headerToolTip
         tableView.addTableColumn(scoreCol)
 
-        // Reads column
         let readsCol = NSTableColumn(identifier: ColumnID.reads)
         readsCol.title = "Reads"
+        readsCol.headerToolTip = TaxTriageReadColumnToolTips.reads
         readsCol.width = 70
         readsCol.minWidth = 50
         readsCol.maxWidth = 120
         readsCol.sortDescriptorPrototype = NSSortDescriptor(key: "reads", ascending: false)
         tableView.addTableColumn(readsCol)
 
-        // Deduplicated reads column
         let uniqueReadsCol = NSTableColumn(identifier: ColumnID.uniqueReads)
         uniqueReadsCol.title = "Unique Reads"
+        uniqueReadsCol.headerToolTip = TaxTriageReadColumnToolTips.uniqueReads
         uniqueReadsCol.width = 90
         uniqueReadsCol.minWidth = 70
         uniqueReadsCol.maxWidth = 140

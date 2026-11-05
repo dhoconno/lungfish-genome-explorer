@@ -68,6 +68,7 @@ private enum BuildDbUniqueReadsError: LocalizedError {
 ///   - resultURL: Base URL for resolving relative BAM paths.
 ///   - bamPathResolver: Closure that resolves (resultURL, sample, bamRelPath) to an absolute path.
 ///   - organismAccessions: The references a row counts on, from (sample, row accession), the row's own by default.
+///   - keepsParsedReadCount: True for TaxTriage, whose Reads are the report's # Reads Aligned, so the pass writes only Unique Reads.
 ///   - events: Where the lines that report the pass go, with its warnings on `textWarning`.
 func updateUniqueReadsInDB(
     dbPath: String,
@@ -79,6 +80,7 @@ func updateUniqueReadsInDB(
     resultURL: URL,
     bamPathResolver: (URL, String, String) -> String,
     organismAccessions: (String, String) -> [String] = { [$1] },
+    keepsParsedReadCount: Bool = false,
     updateAccessionLength: Bool,
     events: BuildDbEventSink,
     provenance: BuildDbSamtoolsProvenanceCollector
@@ -91,7 +93,7 @@ func updateUniqueReadsInDB(
     defer { sqlite3_close(db) }
 
     // Query rows that have BAM + accession
-    let selectSQL = "SELECT rowid, \(sampleCol), \(accessionCol), \(bamPathCol) FROM \(table) WHERE \(bamPathCol) IS NOT NULL AND \(accessionCol) IS NOT NULL AND \(accessionCol) != ''"
+    let selectSQL = "SELECT rowid, \(sampleCol), \(accessionCol), \(bamPathCol), \(totalReadsCol) FROM \(table) WHERE \(bamPathCol) IS NOT NULL AND \(accessionCol) IS NOT NULL AND \(accessionCol) != ''"
     var selectStmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
         events.textWarning("Warning: failed to prepare SELECT for unique reads")
@@ -104,6 +106,7 @@ func updateUniqueReadsInDB(
         let sample: String
         let accession: String
         let bamRelPath: String
+        let parsedReads: Int
     }
     var rowsToProcess: [RowToProcess] = []
     while sqlite3_step(selectStmt) == SQLITE_ROW {
@@ -115,7 +118,8 @@ func updateUniqueReadsInDB(
             rowid: rowid,
             sample: String(cString: sPtr),
             accession: String(cString: aPtr),
-            bamRelPath: String(cString: bPtr)
+            bamRelPath: String(cString: bPtr),
+            parsedReads: Int(sqlite3_column_int64(selectStmt, 4))
         ))
     }
 
@@ -200,13 +204,14 @@ func updateUniqueReadsInDB(
         }
     }
 
-    // Update reads_aligned (total mapped) and unique_reads (non-duplicate mapped) from the BAM,
-    // replacing the pipeline TSV values.
-    // reads_aligned/read_count and unique_reads come from the BAM's primary records only (samtools view -c -F 0x904,
-    // and -F 0xD04 after markdup), so each read counts once, as EsViritu's own read_count does.
-    // A TaxTriage row counts on every reference of its organism, all eight segments of Influenza A among them, since its
-    // reads can miss the first one (3.2 TTREADS). A reported accession with mapped reads must have at least one unique read.
-    let updateSQL = "UPDATE \(table) SET \(totalReadsCol) = ?, unique_reads = ? WHERE rowid = ?"
+    // EsViritu's read_count and unique_reads come from the BAM's primary records (samtools view -c -F 0x904, and -F 0xD04
+    // after markdup), so each read counts once, as EsViritu's own read_count does. A TaxTriage row keeps its report's
+    // # Reads Aligned, TaxTriage's count after its MAPQ and conflict filters summed over the organism's references. Only its
+    // unique_reads comes from the BAM, over every reference of the organism, and stays NULL when it exceeds that count
+    // (3.2 TTREADS, BIO ruling F1). A reported accession with mapped reads must have at least one unique read.
+    let updateSQL = keepsParsedReadCount
+        ? "UPDATE \(table) SET unique_reads = ? WHERE rowid = ?"
+        : "UPDATE \(table) SET \(totalReadsCol) = ?, unique_reads = ? WHERE rowid = ?"
     var updateStmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else {
         events.textWarning("Warning: failed to prepare UPDATE for read counts")
@@ -245,7 +250,9 @@ func updateUniqueReadsInDB(
         }
 
         let total: Int
-        if let cached = totalCache[cacheKey] {
+        if keepsParsedReadCount {
+            total = row.parsedReads
+        } else if let cached = totalCache[cacheKey] {
             total = cached
         } else {
             do {
@@ -263,9 +270,15 @@ func updateUniqueReadsInDB(
         sqlite3_reset(updateStmt)
         let normalizedUnique = total > 0 ? max(unique, 1) : 0
 
-        sqlite3_bind_int64(updateStmt, 1, Int64(total))
-        sqlite3_bind_int64(updateStmt, 2, Int64(normalizedUnique))
-        sqlite3_bind_int64(updateStmt, 3, row.rowid)
+        if keepsParsedReadCount {
+            // The BAM holds more unique reads than the row has Reads, so the count does not apply to the row and reads a dash.
+            if unique > total { sqlite3_bind_null(updateStmt, 1) } else { sqlite3_bind_int64(updateStmt, 1, Int64(normalizedUnique)) }
+            sqlite3_bind_int64(updateStmt, 2, row.rowid)
+        } else {
+            sqlite3_bind_int64(updateStmt, 1, Int64(total))
+            sqlite3_bind_int64(updateStmt, 2, Int64(normalizedUnique))
+            sqlite3_bind_int64(updateStmt, 3, row.rowid)
+        }
         sqlite3_step(updateStmt)
         updated += 1
 

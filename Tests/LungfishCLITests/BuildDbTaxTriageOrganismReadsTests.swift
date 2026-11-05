@@ -43,6 +43,57 @@ final class BuildDbTaxTriageOrganismReadsTests: XCTestCase {
         try TaxTriageNTCPFixture.assertRowsReadTheirReports(in: result)
     }
 
+    /// BIO ruling 1, option (a). Reads are TaxTriage's own `# Reads Aligned`, counted after its mapping-quality and
+    /// conflict filters, and Unique Reads count the BAM over every reference of the organism. Here the patient's BAM
+    /// holds 40 primary records on the SARS-CoV-2 reference, 38 of them not duplicates, where the report kept 33. Reads
+    /// stay 33 and Unique Reads reads a dash (nil), since the BAM holds more unique reads than the row has Reads. Red at
+    /// 0ea86b0a9, which wrote the BAM's 40 and 38.
+    func testTaxTriageReadsKeepTheReportCountWhenTheBAMHoldsMore() async throws {
+        let script = Self.standIn(patientSARSTotal: 40, patientSARSUnique: 38)
+        let home = try ManagedSamtoolsHome.makeStub(rootURL: root, namePrefix: "TTReadsHome", script: script)
+        let result = try TaxTriageNTCPFixture.stage(in: root)
+
+        try await Self.withHomeDirectory(home.homeURL) {
+            try await BuildDbCommand.TaxTriageSubcommand.parse([result.path, "-q"]).run()
+        }
+
+        let database = try TaxTriageDatabase(at: result.appendingPathComponent("taxtriage.sqlite"))
+        let rows = try database.fetchRows(samples: try database.fetchSamples().map(\.sample))
+        func row(_ sample: String, _ matches: (TaxTriageTaxonomyRow) -> Bool) throws -> TaxTriageTaxonomyRow {
+            try XCTUnwrap(rows.first { $0.sample == sample && matches($0) }, "a row of \(sample)")
+        }
+        let patientCoV = try row("patient") { $0.primaryAccession == "NC_045512.2" }
+        XCTAssertEqual(patientCoV.readsAligned, 33, "patient SARS-CoV-2 keeps its report's # Reads Aligned, though its BAM holds 40")
+        XCTAssertNil(patientCoV.uniqueReads, "the BAM holds 38 unique reads where the row has 33 Reads, so the count does not apply")
+        let patientFlu = try row("patient") { $0.taxId == 335341 }
+        XCTAssertEqual(patientFlu.readsAligned, 3, "patient Influenza A keeps its report's 3")
+        XCTAssertEqual(patientFlu.uniqueReads, 2, "its unique count is the BAM's over the references of the organism")
+        let controlCoV = try row("NTC_1") { $0.primaryAccession == "NC_045512.2" }
+        XCTAssertEqual(controlCoV.readsAligned, 20)
+        XCTAssertEqual(controlCoV.uniqueReads, 6)
+    }
+
+    /// ARCH should-fix 1. The `read_count` mark vouches for the counts that the BAM pass writes, so the database does not
+    /// hold it while the pass runs. A kill in that window would otherwise leave a database that reads as current with the
+    /// report's parsed counts. Red at 0ea86b0a9, whose `create` wrote the mark.
+    func testReadCountKeyIsAbsentUntilTheCountPassEnds() async throws {
+        let home = try ManagedSamtoolsHome.makeStub(rootURL: root, namePrefix: "TTReadsHome", script: Self.standInSamtools)
+        let result = try TaxTriageNTCPFixture.stage(in: root)
+        let databaseURL = result.appendingPathComponent("taxtriage.sqlite")
+        let tap = BuiltDatabaseTap(databaseURL: databaseURL)
+
+        try await Self.withHomeDirectory(home.homeURL) {
+            _ = try await BuildDbCommand.TaxTriageSubcommand.buildDatabase(
+                in: result, options: BuildDbRunOptions(globalOptions: try GlobalOptions.parse([])), events: tap.sink
+            )
+        }
+
+        XCTAssertTrue(tap.sawSummary, "the build reported that it built the database")
+        XCTAssertNil(tap.readCountAtSummary, "no read_count while the count pass has not run")
+        let finished = try TaxTriageDatabase(at: databaseURL).fetchMetadata()
+        XCTAssertEqual(finished[TaxTriageDatabase.readCountMetadataKey], TaxTriageDatabase.currentReadCount, "marked once the pass ends")
+    }
+
     private static func withHomeDirectory(_ home: URL, perform block: () async throws -> Void) async throws {
         let originalHome = ProcessInfo.processInfo.environment["HOME"]
         setenv("HOME", home.path, 1)
@@ -54,7 +105,12 @@ final class BuildDbTaxTriageOrganismReadsTests: XCTestCase {
 
     /// Answers the calls of the build's count pass on the fixture's BAMs. The header names `samtools markdup`, so the
     /// pass keeps the BAMs, and each count sums the named references for the sample of the BAM's file name.
-    private static let standInSamtools = #"""
+    private static let standInSamtools = standIn(patientSARSTotal: 33, patientSARSUnique: 6)
+
+    /// The stand-in, with the patient's BAM holding `patientSARSTotal` primary records on the SARS-CoV-2 reference and
+    /// `patientSARSUnique` of them not marked as duplicates.
+    private static func standIn(patientSARSTotal: Int, patientSARSUnique: Int) -> String {
+        #"""
     #!/bin/sh
     cmd="${1:-}"
     [ $# -gt 0 ] && shift
@@ -86,8 +142,8 @@ final class BuildDbTaxTriageOrganismReadsTests: XCTestCase {
         sum=0
         for accession in $accessions; do
           case "$sample:$accession:$kind" in
-            patient:NC_045512.2:total) n=33 ;;
-            patient:NC_045512.2:unique) n=6 ;;
+            patient:NC_045512.2:total) n=\#(patientSARSTotal) ;;
+            patient:NC_045512.2:unique) n=\#(patientSARSUnique) ;;
             patient:NC_007369.1:total) n=2 ;;
             patient:NC_007369.1:unique) n=1 ;;
             patient:NC_007372.1:*) n=1 ;;
@@ -108,6 +164,7 @@ final class BuildDbTaxTriageOrganismReadsTests: XCTestCase {
       *) exit 1 ;;
     esac
     """#
+    }
 }
 
 /// The `taxtriage-ntc-p` fixture, the patient and NTC_1 folders of the walk's NTC-P batch, and what its reports say.
@@ -160,5 +217,40 @@ enum TaxTriageNTCPFixture {
                 "\(row.sample) \(row.organism) holds \(unique) unique of \(row.readsAligned) reads", file: file, line: line
             )
         }
+    }
+}
+
+/// Reads the `read_count` mark of the database at the moment the build reports that it built it.
+private final class BuiltDatabaseTap: @unchecked Sendable {
+    private let databaseURL: URL
+    private let lock = NSLock()
+    private var summarySeen = false
+    private var readCount: String?
+
+    init(databaseURL: URL) { self.databaseURL = databaseURL }
+
+    var sawSummary: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return summarySeen
+    }
+
+    var readCountAtSummary: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return readCount
+    }
+
+    var sink: BuildDbEventSink {
+        BuildDbEventSink(progress: { _, _ in }, text: { self.take($0) }, textWarning: { _ in }, warning: { _ in })
+    }
+
+    private func take(_ line: String) {
+        guard line.hasPrefix("Built taxtriage.sqlite") else { return }
+        let mark = (try? TaxTriageDatabase(at: databaseURL).fetchMetadata())?[TaxTriageDatabase.readCountMetadataKey]
+        lock.lock()
+        defer { lock.unlock() }
+        summarySeen = true
+        readCount = mark
     }
 }

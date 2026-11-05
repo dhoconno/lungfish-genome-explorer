@@ -149,7 +149,6 @@ extension BuildDbCommand {
                         .map(\.rawValue)
                         .joined(separator: ","),
                     TaxTriageDatabase.tassScaleMetadataKey: TaxTriageDatabase.currentTASSScale,
-                    TaxTriageDatabase.readCountMetadataKey: TaxTriageDatabase.currentReadCount,
                 ]
 
                 try events.checkCancellation()
@@ -159,7 +158,7 @@ extension BuildDbCommand {
 
                 events.text(BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: nil).summary)
 
-                // 4. Count Reads and Unique Reads on the BAMs, each row on every reference of its organism
+                // 4. Count Unique Reads on the BAMs, each row on every reference of its organism, as Reads keep the report's
                 let organismAccessions = Self.organismAccessions(in: accessionMap)
                 try await updateUniqueReadsInDB(
                     dbPath: dbURL.path,
@@ -174,11 +173,14 @@ extension BuildDbCommand {
                         resultURL.appendingPathComponent(bamRelPath).path
                     },
                     organismAccessions: organismAccessions,
+                    keepsParsedReadCount: true,
                     updateAccessionLength: true,
                     events: events,
                     provenance: samtoolsProvenance
                 )
                 try events.checkCancellation()
+                // The mark vouches for the counts above, so a build that ends before here leaves none (3.2 TTREADS, ARCH).
+                try TaxTriageDatabase.markReadsCounted(at: dbURL)
 
                 if !options.noCleanup, cleanup == .legacy {
                     try core.performCleanup(resultURL: resultURL, events: events)
