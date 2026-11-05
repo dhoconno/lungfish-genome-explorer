@@ -149,6 +149,7 @@ extension BuildDbCommand {
                         .map(\.rawValue)
                         .joined(separator: ","),
                     TaxTriageDatabase.tassScaleMetadataKey: TaxTriageDatabase.currentTASSScale,
+                    TaxTriageDatabase.readCountMetadataKey: TaxTriageDatabase.currentReadCount,
                 ]
 
                 try events.checkCancellation()
@@ -158,7 +159,8 @@ extension BuildDbCommand {
 
                 events.text(BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: nil).summary)
 
-                // 4. Compute unique reads from BAMs and update DB
+                // 4. Count Reads and Unique Reads on the BAMs, each row on every reference of its organism
+                let organismAccessions = Self.organismAccessions(in: accessionMap)
                 try await updateUniqueReadsInDB(
                     dbPath: dbURL.path,
                     table: "taxonomy_rows",
@@ -171,6 +173,7 @@ extension BuildDbCommand {
                         // TaxTriage BAM paths are relative to resultURL directly
                         resultURL.appendingPathComponent(bamRelPath).path
                     },
+                    organismAccessions: organismAccessions,
                     updateAccessionLength: true,
                     events: events,
                     provenance: samtoolsProvenance
@@ -237,6 +240,23 @@ extension BuildDbCommand {
                 resultURL: resultURL, recorded: recorded, dependsOn: built.record?.steps.map(\.id) ?? [], events: events
             )
             return Build(result: built, removal: removal)
+        }
+
+        /// The references of the organism that names `accession` in `sample`'s gcfmap, in its order, each once. A row's
+        /// accession is the first of them, and its reads can sit on the others, as Influenza A's sat on segments 2 and 5
+        /// and not on segment 4 in the NTC-P batch (3.2 TTREADS). An accession the map lacks stands alone.
+        static func organismAccessions(in accessionMap: [TaxTriageAccessionEntry]) -> (String, String) -> [String] {
+            var organismOf: [String: String] = [:]
+            var accessionsOf: [String: [String]] = [:]
+            for entry in accessionMap {
+                let organism = "\(entry.sample)\t\(entry.organism)"
+                let reference = "\(entry.sample)\t\(entry.accession)"
+                if organismOf[reference] == nil { organismOf[reference] = organism }
+                if accessionsOf[organism]?.contains(entry.accession) != true { accessionsOf[organism, default: []].append(entry.accession) }
+            }
+            return { [organismOf, accessionsOf] sample, accession in
+                organismOf["\(sample)\t\(accession)"].flatMap { accessionsOf[$0] } ?? [accession]
+            }
         }
 
         // MARK: - A result of taxtriage run (2.10 X7)

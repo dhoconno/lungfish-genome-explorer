@@ -217,7 +217,11 @@ final class TaxTriageOrganismReportTests: XCTestCase {
         let current = try TaxTriageDatabase.create(
             at: currentURL,
             rows: [row],
-            metadata: ["tool": "taxtriage", TaxTriageDatabase.taxonomySourceMetadataKey: "organism_report"]
+            metadata: [
+                "tool": "taxtriage",
+                TaxTriageDatabase.taxonomySourceMetadataKey: "organism_report",
+                TaxTriageDatabase.readCountMetadataKey: TaxTriageDatabase.currentReadCount,
+            ]
         )
         XCTAssertFalse(current.isStale(forResultDirectory: batch))
 

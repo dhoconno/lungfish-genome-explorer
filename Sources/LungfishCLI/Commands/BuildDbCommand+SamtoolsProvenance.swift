@@ -111,8 +111,8 @@ final class BuildDbSamtoolsProvenanceTracker {
 
         if !force, await isAlreadyMarkduped(bamURL: bamURL) {
             try await ensureFreshIndex(bamURL: bamURL)
-            let total = (try? await countReads(bamURL: bamURL, accession: nil, flagFilter: 0x004)) ?? 0
-            let nonDuplicate = (try? await countReads(bamURL: bamURL, accession: nil, flagFilter: 0x404)) ?? 0
+            let total = (try? await countReads(bamURL: bamURL, accessions: [],flagFilter: 0x004)) ?? 0
+            let nonDuplicate = (try? await countReads(bamURL: bamURL, accessions: [],flagFilter: 0x404)) ?? 0
             return MarkdupResult(
                 bamURL: bamURL,
                 wasAlreadyMarkduped: true,
@@ -183,8 +183,8 @@ final class BuildDbSamtoolsProvenanceTracker {
                 collector.record(removal)
             }
 
-            let total = try await countReads(bamURL: bamURL, accession: nil, flagFilter: 0x004)
-            let nonDuplicate = try await countReads(bamURL: bamURL, accession: nil, flagFilter: 0x404)
+            let total = try await countReads(bamURL: bamURL, accessions: [],flagFilter: 0x004)
+            let nonDuplicate = try await countReads(bamURL: bamURL, accessions: [],flagFilter: 0x404)
 
             return MarkdupResult(
                 bamURL: bamURL,
@@ -213,15 +213,16 @@ final class BuildDbSamtoolsProvenanceTracker {
         return invocation.result.stdout
     }
 
+    /// Counts the records of `bamURL` that pass `flagFilter`, on the references `accessions` names, or on the whole BAM
+    /// when it names none. Each reference is named once and is a contig of its own, so a record counts once.
     func countReads(
         bamURL: URL,
-        accession: String?,
+        accessions: [String],
         flagFilter: Int
     ) async throws -> Int {
-        var arguments = ["view", "-c", "-F", String(flagFilter), bamURL.path]
-        if let accession, !accession.isEmpty {
-            arguments.append(accession)
-        }
+        var named: Set<String> = []
+        let regions = accessions.filter { !$0.isEmpty && named.insert($0).inserted }
+        let arguments = ["view", "-c", "-F", String(flagFilter), bamURL.path] + regions
         let invocation = try await executeSamtools(arguments: arguments)
         try appendStep(
             invocation,

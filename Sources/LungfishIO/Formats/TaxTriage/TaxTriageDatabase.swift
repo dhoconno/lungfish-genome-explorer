@@ -54,14 +54,14 @@ public final class TaxTriageDatabase: @unchecked Sendable {
     /// `tass_score` is stored on a 0-1 scale, as the viewport expects.
     public static let currentTASSScale = "0-1"
 
-    /// True when this database was built before organism-report parsing existed
-    /// (no `taxonomy_source` metadata) while the result folder holds a TaxTriage
-    /// organism report. Such databases were filled from the Kraken-only top report
-    /// and show TASS 0 for every row, so they should be rebuilt with
-    /// `lungfish build-db taxtriage <result-dir> --force`.
+    /// True when the result folder holds a TaxTriage organism report and this database was built before
+    /// organism-report parsing existed (no `taxonomy_source`, TASS 0 from the Kraken-only top report) or before
+    /// Reads counted every reference of an organism (no current `read_count`, so a segmented virus could read 0,
+    /// 3.2 TTREADS). The app rebuilds such a database once a session when it shows the result, as
+    /// `lungfish build-db taxtriage <result-dir> --force` does.
     public func isStale(forResultDirectory resultURL: URL) -> Bool {
         let metadata = (try? fetchMetadata()) ?? [:]
-        guard metadata[Self.taxonomySourceMetadataKey] == nil else { return false }
+        guard metadata[Self.taxonomySourceMetadataKey] == nil || Self.countedReadsOnFirstReference(metadata) else { return false }
         return TaxTriageOrganismReport.containsReportFiles(inResultOrBatchDirectory: resultURL)
     }
 

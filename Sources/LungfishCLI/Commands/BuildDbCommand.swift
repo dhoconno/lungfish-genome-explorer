@@ -67,6 +67,7 @@ private enum BuildDbUniqueReadsError: LocalizedError {
 ///   - bamPathCol: Column name for the relative BAM path.
 ///   - resultURL: Base URL for resolving relative BAM paths.
 ///   - bamPathResolver: Closure that resolves (resultURL, sample, bamRelPath) to an absolute path.
+///   - organismAccessions: The references a row counts on, from (sample, row accession), the row's own by default.
 ///   - events: Where the lines that report the pass go, with its warnings on `textWarning`.
 func updateUniqueReadsInDB(
     dbPath: String,
@@ -77,6 +78,7 @@ func updateUniqueReadsInDB(
     totalReadsCol: String,
     resultURL: URL,
     bamPathResolver: (URL, String, String) -> String,
+    organismAccessions: (String, String) -> [String] = { [$1] },
     updateAccessionLength: Bool,
     events: BuildDbEventSink,
     provenance: BuildDbSamtoolsProvenanceCollector
@@ -202,7 +204,8 @@ func updateUniqueReadsInDB(
     // replacing the pipeline TSV values.
     // reads_aligned/read_count and unique_reads come from the BAM's primary records only (samtools view -c -F 0x904,
     // and -F 0xD04 after markdup), so each read counts once, as EsViritu's own read_count does.
-    // A reported accession with mapped reads must have at least one unique read.
+    // A TaxTriage row counts on every reference of its organism, all eight segments of Influenza A among them, since its
+    // reads can miss the first one (3.2 TTREADS). A reported accession with mapped reads must have at least one unique read.
     let updateSQL = "UPDATE \(table) SET \(totalReadsCol) = ?, unique_reads = ? WHERE rowid = ?"
     var updateStmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else {
@@ -220,8 +223,9 @@ func updateUniqueReadsInDB(
         // A row keeps the counts it was parsed with when a count fails, and so does each row of a BAM whose
         // markdup failed, whose 0xD04 count would call every mapped read unique (BIO's Q-A3 item 6).
         guard FileManager.default.fileExists(atPath: bamFullPath), !unmarked.contains(bamFullPath) else { continue }
-
-        let cacheKey = "\(bamFullPath)\t\(row.accession)"
+        // A BAM that lacks one of the references makes samtools say so, and the row keeps the counts it was parsed with.
+        let accessions = organismAccessions(row.sample, row.accession)
+        let cacheKey = "\(bamFullPath)\t\(accessions.joined(separator: " "))"
         let bamURL = URL(fileURLWithPath: bamFullPath)
 
         let unique: Int
@@ -231,7 +235,7 @@ func updateUniqueReadsInDB(
             do {
                 unique = try await samtoolsProvenance.countReads(
                     bamURL: bamURL,
-                    accession: row.accession,
+                    accessions: accessions,
                     flagFilter: 0xD04  // unmapped + secondary + duplicate + supplementary
                 )
                 uniqueCache[cacheKey] = unique
@@ -247,7 +251,7 @@ func updateUniqueReadsInDB(
             do {
                 total = try await samtoolsProvenance.countReads(
                     bamURL: bamURL,
-                    accession: row.accession,
+                    accessions: accessions,
                     flagFilter: 0x904  // unmapped + secondary + supplementary, duplicates kept
                 )
                 totalCache[cacheKey] = total

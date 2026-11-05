@@ -179,7 +179,8 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
         XCTAssertTrue(rows.allSatisfy { $0.bamPath == nil && $0.uniqueReads == nil }, "no BAM in the copy, so no row names one and no read count is recomputed")
 
         let metadata = try database.fetchMetadata()
-        XCTAssertEqual(metadata.keys.sorted(), ["created_at", "source_dir", "tass_scale", "taxonomy_source", "tool"])
+        XCTAssertEqual(metadata.keys.sorted(), ["created_at", "read_count", "source_dir", "tass_scale", "taxonomy_source", "tool"])
+        XCTAssertEqual(metadata[TaxTriageDatabase.readCountMetadataKey], "organism_references", "each row counts every reference of its organism")
         XCTAssertEqual(metadata["tool"], "taxtriage")
         XCTAssertEqual(metadata["source_dir"], result.path, "the absolute path of the folder it was built from")
         let createdAt = try XCTUnwrap(metadata["created_at"].flatMap { ISO8601DateFormatter().date(from: $0) })
