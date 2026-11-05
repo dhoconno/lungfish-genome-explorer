@@ -100,14 +100,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         return bar
     }()
 
-    let summaryLabel: NSTextField = {
-        let label = NSTextField(labelWithString: "Reference Bundle")
-        label.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
-        label.textColor = .secondaryLabelColor
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.setAccessibilityIdentifier("reference-bundle-summary-label")
-        return label
-    }()
+    /// Cut in the middle, yielding to the window, with the whole line as its tooltip (WALKFIX, W-26).
+    let summaryLabel: NSTextField = ReferenceBundleSummaryLabel.make()
     /// How many reference sequences have alignments, when a result left some out (UX ruling Q-B2).
     let referenceCountLabel = MappingReferenceCountText.makeLabel()
 
@@ -505,7 +499,6 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             if let recordStoreWarning {
                 summaryLabel.stringValue = "\(title) — Warning: \(recordStoreWarning)"
                 summaryLabel.textColor = .systemOrange
-                summaryLabel.toolTip = recordStoreWarning
             } else {
                 summaryLabel.stringValue = title
             }
