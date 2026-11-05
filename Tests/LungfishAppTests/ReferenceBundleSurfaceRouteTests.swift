@@ -717,6 +717,10 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
                 && viewport.testEmbeddedViewerController.currentReferenceBundle != nil
         }
         XCTAssertTrue(settled, "the reference never showed its own sequences", file: file, line: line)
+        if let viewport = viewer.referenceBundleViewportController {
+            XCTAssertEqual(viewport.testEmbeddedViewerController.viewerView.currentReferenceBundle?.url.standardizedFileURL, reference.standardizedFileURL, "the embedded viewer draws another bundle", file: file, line: line)
+            XCTAssertEqual(viewer.drawnReferenceBundle?.url.standardizedFileURL, reference.standardizedFileURL, "File > Export would read another bundle", file: file, line: line)
+        }
     }
 
     private func assertTheDrawerIsTheViewports(
