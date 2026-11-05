@@ -205,6 +205,7 @@ public enum TaxTriageExportLoader {
         case unreadableDatabase(path: String, detail: String)
         case unknownSamples(names: [String], databasePath: String)
         case unreadableSidecar(path: String, detail: String)
+        case staleDatabase(path: String, resultPath: String)
 
         public var errorDescription: String? {
             switch self {
@@ -215,6 +216,8 @@ public enum TaxTriageExportLoader {
                     + "Pass --sample with an id the result records."
             case .unreadableSidecar(let path, let detail):
                 return "The run's sidecar at \(path) cannot be read. \(detail)"
+            case .staleDatabase(let path, let resultPath):
+                return "The TaxTriage database at \(path) was built by an older Lungfish, and its Reads can read 0 or too few for organisms with several references, such as the segments of Influenza A. Rebuild it with lungfish-cli build-db taxtriage \"\(resultPath)\" --force, or open the result in Lungfish, then export again."
             }
         }
     }
@@ -271,6 +274,9 @@ public enum TaxTriageExportLoader {
             sampleIds = try database.fetchSamples().map(\.sample).sorted()
         } catch {
             throw LoadError.unreadableDatabase(path: databaseURL.path, detail: "\(error)")
+        }
+        guard !database.isStale(forResultDirectory: resultURL) else {
+            throw LoadError.staleDatabase(path: databaseURL.path, resultPath: resultURL.path)
         }
         let unknown = samples.filter { !sampleIds.contains($0) }
         guard unknown.isEmpty else {
