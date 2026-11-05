@@ -15,9 +15,17 @@ final class FASTASelectionDetailView: NSView {
         weight: .regular
     )
     private var contentTypographyObservation: ContentTypographyViewObservation?
+    /// The line that names how many records are selected and what of them shows (W-34).
+    private let noteLabel = NSTextField(wrappingLabelWithString: "")
+    private var scrollTopToNote: NSLayoutConstraint?
+    private var scrollTopToSelf: NSLayoutConstraint?
 
     var text: String {
         textView.string
+    }
+
+    var note: String {
+        noteLabel.isHidden ? "" : noteLabel.stringValue
     }
 
     override init(frame frameRect: NSRect) {
@@ -30,8 +38,15 @@ final class FASTASelectionDetailView: NSView {
         configureView()
     }
 
+    /// Shows a bounded preview of the selection with a line naming how many records it holds. The selection itself stays
+    /// whole, so every action from it acts on all of its records.
     func setSequences(_ sequences: [Sequence]) {
-        let newText = FASTASelectionDetailFormatter.text(for: sequences)
+        let preview = FASTASelectionPreview.make(for: sequences)
+        noteLabel.stringValue = preview.note ?? ""
+        noteLabel.isHidden = preview.note == nil
+        scrollTopToSelf?.isActive = preview.note == nil
+        scrollTopToNote?.isActive = preview.note != nil
+        let newText = preview.text
         guard textView.string != newText else { return }
         textView.string = newText
         textView.setSelectedRange(NSRange(location: 0, length: 0))
@@ -78,8 +93,20 @@ final class FASTASelectionDetailView: NSView {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scrollView)
 
+        noteLabel.translatesAutoresizingMaskIntoConstraints = false
+        noteLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        noteLabel.textColor = .secondaryLabelColor
+        noteLabel.isHidden = true
+        noteLabel.setAccessibilityIdentifier("fasta-selection-note")
+        addSubview(noteLabel)
+        scrollTopToSelf = scrollView.topAnchor.constraint(equalTo: topAnchor)
+        scrollTopToNote = scrollView.topAnchor.constraint(equalTo: noteLabel.bottomAnchor, constant: 4)
+
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            noteLabel.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            noteLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            noteLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+            scrollTopToSelf!,
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),

@@ -9,10 +9,11 @@ enum FASTASelectionDetailFormatter {
     static let lineWidth = 80
 
     static func text(for sequences: [Sequence]) -> String {
-        sequences.map(record(for:)).joined(separator: "\n")
+        sequences.map { record(for: $0) }.joined(separator: "\n")
     }
 
-    static func record(for sequence: Sequence) -> String {
+    /// One record as FASTA. `baseLimit` keeps only its first bases, for the bounded preview under the list.
+    static func record(for sequence: Sequence, baseLimit: Int? = nil) -> String {
         let description = sequence.description?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let header: String
@@ -22,7 +23,7 @@ enum FASTASelectionDetailFormatter {
             header = sequence.name
         }
 
-        let bases = sequence.asString()
+        let bases = baseLimit.map { sequence[0..<min(max(0, $0), sequence.length)] } ?? sequence.asString()
         var lines = [String]()
         lines.reserveCapacity((bases.count + lineWidth - 1) / lineWidth)
         var start = bases.startIndex
