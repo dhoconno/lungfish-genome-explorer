@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import ArgumentParser
 import Foundation
 import LungfishIO
 import LungfishWorkflow
@@ -43,19 +44,32 @@ struct TaxTriageResultIndexer: AnalysisResultIndexing {
             step: { request.recordStep($0) },
             cancelRequested: cancelRequested
         )
-        let built = try await BuildDbCommand.TaxTriageSubcommand.buildDatabase(
-            in: request.resultDirectory,
-            options: options,
-            cleanup: .recordedRemoval,
-            recordedFiles: request.recordedFiles,
-            events: events
-        )
-        let steps = (built.result.record?.steps ?? []) + (built.removal.map { [$0] } ?? [])
-        return AnalysisResultIndex(
-            outputs: [AnalysisRunOutput(url: built.result.databaseURL, role: .index)],
-            steps: steps
-        )
+        do {
+            let built = try await BuildDbCommand.TaxTriageSubcommand.buildDatabase(
+                in: request.resultDirectory,
+                options: options,
+                cleanup: .recordedRemoval,
+                recordedFiles: request.recordedFiles,
+                events: events
+            )
+            let steps = (built.result.record?.steps ?? []) + (built.removal.map { [$0] } ?? [])
+            return AnalysisResultIndex(
+                outputs: [AnalysisRunOutput(url: built.result.databaseURL, role: .index)],
+                steps: steps
+            )
+        } catch let refusal as ValidationError {
+            // The core refuses a result it cannot read with ArgumentParser's ValidationError, which Foundation
+            // describes as the name of that Swift type. The warning a person reads gets the core's own message (W-36).
+            throw TaxTriageIndexRefusal(message: refusal.message)
+        }
     }
+}
+
+/// The core's refusal to index a result, with its message as the error's description.
+struct TaxTriageIndexRefusal: LocalizedError, Equatable {
+    let message: String
+
+    var errorDescription: String? { message }
 }
 
 extension TaxTriageCommand.RunSubcommand {
