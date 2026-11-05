@@ -23,6 +23,9 @@ final class DatabaseBuildPlaceholderView: NSView {
     /// Called when the user taps Retry. Set this before calling ``showError(_:)``.
     var onRetry: (() -> Void)?
 
+    /// The words under the title while it builds, in place of the default when set.
+    var buildingSubtitle: String?
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupViews()
@@ -60,7 +63,7 @@ final class DatabaseBuildPlaceholderView: NSView {
         subtitleLabel.isSelectable = false
         subtitleLabel.isBordered = false
         subtitleLabel.drawsBackground = false
-        subtitleLabel.maximumNumberOfLines = 3
+        subtitleLabel.maximumNumberOfLines = 4
         subtitleLabel.lineBreakMode = .byWordWrapping
 
         // Spinner — visible during the "building" state
@@ -115,7 +118,7 @@ final class DatabaseBuildPlaceholderView: NSView {
     /// - Parameter tool: Human-readable tool name (e.g. "TaxTriage").
     func showBuilding(tool: String) {
         titleLabel.stringValue = "Building \(tool) database\u{2026}"
-        subtitleLabel.stringValue = "This may take a moment. The view will load automatically when complete."
+        subtitleLabel.stringValue = buildingSubtitle ?? "This may take a moment. The view will load automatically when complete."
         retryButton.isHidden = true
         spinner.startAnimation(nil)
     }

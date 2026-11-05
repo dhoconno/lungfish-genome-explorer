@@ -488,14 +488,14 @@ extension MainSplitViewController {
             // Check for SQLite database first — faster than parsing per-sample files.
             let dbURL = batchURL.appendingPathComponent("taxtriage.sqlite")
             let existingDB = FileManager.default.fileExists(atPath: dbURL.path) ? try? TaxTriageDatabase(at: dbURL) : nil
-            // Databases built before organism-report (.odr.txt) parsing hold only
-            // Kraken counts and TASS 0. Rebuild those once per session; if the
-            // rebuild does not clear the flag, fall through and show what exists.
-            if let existingDB,
-               existingDB.isStale(forResultDirectory: batchURL),
-               TaxTriageStaleDatabaseRebuilds.shouldAttempt(for: dbURL) {
+            // Rebuilt once a session when the project can be written, else not shown: its Reads can read 0 for an organism with reads.
+            if let existingDB, existingDB.isStale(forResultDirectory: batchURL) {
+                guard TaxTriageStaleDatabaseRebuilds.shouldRebuild(readOnly: projectSession.isReadOnlyRecommended, databaseURL: dbURL) else {
+                    viewerController.clearViewport(statusMessage: TaxTriageStaleDatabaseRebuilds.notShownMessage(resultURL: batchURL))
+                    return
+                }
                 mainSplitLogger.info("displayBatchGroup: Rebuilding stale TaxTriage database for '\(dirName, privacy: .public)'")
-                showDatabaseBuildPlaceholder(tool: .taxtriage, resultURL: batchURL)
+                showDatabaseBuildPlaceholder(tool: .taxtriage, resultURL: batchURL, subtitle: TaxTriageStaleDatabaseRebuilds.recountSubtitle)
                 return
             }
             if let db = existingDB {
@@ -619,13 +619,13 @@ extension MainSplitViewController {
     /// - Parameters:
     ///   - tool: The classifier, whose registry descriptor names the build.
     ///   - resultURL: The batch result directory URL.
-    func showDatabaseBuildPlaceholder(tool: AnalysisToolID, resultURL: URL) {
+    ///   - subtitle: The words under the title while it builds, the placeholder's own when nil.
+    func showDatabaseBuildPlaceholder(tool: AnalysisToolID, resultURL: URL, subtitle: String? = nil) {
         let databaseBuildRequest = beginDatabaseBuildRequest(tool: tool.rawValue, resultURL: resultURL)
-
-        // Clear any existing viewport content so the placeholder is the only thing shown.
-        viewerController.clearViewport(statusMessage: "")
+        viewerController.clearViewport(statusMessage: "")  // The placeholder is the only thing shown.
 
         let placeholder = DatabaseBuildPlaceholderView()
+        placeholder.buildingSubtitle = subtitle
         installDatabaseBuildPlaceholder(placeholder)
 
         let dirName = resultURL.lastPathComponent
