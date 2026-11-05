@@ -689,10 +689,11 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         viewerView.codingFeatureText(chromosome: result.chromosome, position: result.start, referenceLength: result.ref?.count ?? 1)
     }
 
-    /// Whether View > Make Drawer Taller / Shorter apply: the annotation drawer or the MSA bottom pane.
+    /// Whether View > Make Drawer Taller / Shorter apply: the annotation drawer, the MSA bottom pane or the embedded drawer of a reference viewport.
     var offersResizableAnnotationDrawer: Bool {
-        multipleSequenceAlignmentViewController != nil || (!isDisplayingFASTQDataset && taxonomyViewController == nil
-            && taxTriageViewController == nil && !isNativeBundleViewportInstalled)
+        multipleSequenceAlignmentViewController != nil || drawerOwningReferenceViewport != nil
+            || (!isDisplayingFASTQDataset && taxonomyViewController == nil
+                && taxTriageViewController == nil && !isNativeBundleViewportInstalled)
     }
 
     /// Makes the drawer taller or shorter by one keyboard step, opening it first
