@@ -149,6 +149,13 @@ extension ViewSwitchDeclaredLeaks {
             "- inspectorTab: empty document of [document, selection]",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
+        // The same harness step as Quick Look to FASTQ. In the app the sidebar sets the Inspector's identity first.
+        // The packaged walk checks PDF then FASTQ.
+        leak("PDF", to: ["FASTQ"], "INSPECTOR-STALE, NET-PROVENANCE-STAYS", [
+            "+ provenance: document ../k20-pdf/Inputs/figure.pdf",
+            "- inspector: fastqStatistics",
+            "- provenance: fastqBundle Reads/illumina-reads.lungfishfastq",
+        ]),
         leak("PDF", to: ["Quick Look"], "NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
             "+ mode: genomics",
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",

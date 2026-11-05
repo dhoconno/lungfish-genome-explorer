@@ -163,12 +163,6 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
-        // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
-        leak("FASTQ", to: ["EsViritu"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS", [
-            "+ inspector: fastqStatistics",
-            "+ inspectorBlocks: seeTheViewer, panelLayout, sampleFilter=1",
-            "- inspectorBlocks: panelLayout, sampleFilter=1",
-        ]),
         leak("Genotype", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: genotype=../k11-genotype/Genotyping/DW472-mhc.lungfishgenotype",
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
@@ -194,6 +188,14 @@ extension ViewSwitchDeclaredLeaks {
         leak("FASTA document", to: ["FASTQ"], "INSPECTOR-STALE, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ provenance: sequence ../k17-fasta/Inputs/MT192765.1.fasta",
+            "- inspector: fastqStatistics",
+            "- provenance: fastqBundle Reads/illumina-reads.lungfishfastq",
+        ]),
+        // The matrix skips the sidebar's selection step, which sets the Inspector's identity before a row shows, and SF1
+        // keeps that identity on the preview. In the app the sidebar sets it first, so the FASTQ shows its own blocks.
+        // The packaged walk checks Quick Look then FASTQ.
+        leak("Quick Look", to: ["FASTQ"], "INSPECTOR-STALE, NET-PROVENANCE-STAYS", [
+            "+ provenance: unknown ../k18-quicklook/Inputs/main.nf",
             "- inspector: fastqStatistics",
             "- provenance: fastqBundle Reads/illumina-reads.lungfishfastq",
         ]),

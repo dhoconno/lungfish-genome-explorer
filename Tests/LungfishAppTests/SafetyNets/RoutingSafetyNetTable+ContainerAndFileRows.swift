@@ -387,7 +387,11 @@ extension RoutingSafetyNetTable {
                 )
                 return RoutingRowFixture(
                     item: RoutingSafetyNetItems.scanned(notes),
-                    expected: RoutingObservation(status: "Previewing: notes.md", quickLook: "Inputs/notes.md")
+                    expected: RoutingObservation(
+                        status: "Previewing: notes.md",
+                        quickLook: "Inputs/notes.md",
+                        provenance: "document Inputs/notes.md"
+                    )
                 )
             },
             RoutingRow(family: .files, name: "PNG image", type: .image) { context in
@@ -397,7 +401,11 @@ extension RoutingSafetyNetTable {
                 )
                 return RoutingRowFixture(
                     item: RoutingSafetyNetItems.scanned(image),
-                    expected: RoutingObservation(status: "Previewing: coverage.png", quickLook: "Inputs/coverage.png")
+                    expected: RoutingObservation(
+                        status: "Previewing: coverage.png",
+                        quickLook: "Inputs/coverage.png",
+                        provenance: "image Inputs/coverage.png"
+                    )
                 )
             },
             RoutingRow(family: .files, name: "file of unknown type", type: .unknown) { context in
@@ -407,7 +415,11 @@ extension RoutingSafetyNetTable {
                 )
                 return RoutingRowFixture(
                     item: RoutingSafetyNetItems.scanned(log),
-                    expected: RoutingObservation(status: "Previewing: spades.log", quickLook: "Inputs/spades.log")
+                    expected: RoutingObservation(
+                        status: "Previewing: spades.log",
+                        quickLook: "Inputs/spades.log",
+                        provenance: "unknown Inputs/spades.log"
+                    )
                 )
             },
             RoutingRow(family: .files, name: "Nextflow script previews as text", type: .unknown) { context in
@@ -421,7 +433,11 @@ extension RoutingSafetyNetTable {
                 )
                 return RoutingRowFixture(
                     item: RoutingSafetyNetItems.scanned(script),
-                    expected: RoutingObservation(status: "Previewing: main.nf", quickLook: "Inputs/main.nf as text")
+                    expected: RoutingObservation(
+                        status: "Previewing: main.nf",
+                        quickLook: "Inputs/main.nf as text",
+                        provenance: "unknown Inputs/main.nf"
+                    )
                 )
             },
             RoutingRow(family: .files, name: "PDF figure", type: .document) { context in
@@ -432,7 +448,11 @@ extension RoutingSafetyNetTable {
                 )
                 return RoutingRowFixture(
                     item: RoutingSafetyNetItems.scanned(figure),
-                    expected: RoutingObservation(status: "figure.pdf (1 page)", quickLook: "Inputs/figure.pdf as PDF")
+                    expected: RoutingObservation(
+                        status: "figure.pdf (1 page)",
+                        quickLook: "Inputs/figure.pdf as PDF",
+                        provenance: "document Inputs/figure.pdf"
+                    )
                 )
             },
             RoutingRow(family: .files, name: "Lungfish package with no viewer", type: .document) { context in
@@ -446,7 +466,8 @@ extension RoutingSafetyNetTable {
                     item: RoutingSafetyNetItems.scanned(package),
                     expected: RoutingObservation(
                         status: "Previewing: legacy-import.lungfishtax",
-                        quickLook: "Inputs/legacy-import.lungfishtax"
+                        quickLook: "Inputs/legacy-import.lungfishtax",
+                        provenance: "document Inputs/legacy-import.lungfishtax"
                     )
                 )
             },
