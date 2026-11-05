@@ -12,6 +12,7 @@ import Foundation
 import XCTest
 import LungfishIO
 import LungfishTestSupport
+import LungfishWorkflow
 @testable import LungfishApp
 
 /// The bytes of the smoke's hand written fixtures, as `ReleaseSmokeFixtures` (Tests/LungfishXCUITests) writes them.
@@ -89,6 +90,21 @@ enum SmokeFixtureBytes {
         let file = project.appendingPathComponent(scriptFile)
         try "nextflow.enable.dsl = 2\n\nworkflow {\n    println 'HG002'\n}\n".write(to: file, atomically: true, encoding: .utf8)
         return file
+    }
+
+    static let assemblyFolder = "spades-2026-01-15T13-00-00"
+
+    /// `ReleaseSmokeFixtures.addAssemblyResult`. It copies the SPAdes result of `Tests/Fixtures/analyses` into Analyses, with
+    /// the `analysis-metadata.json` that files the folder under SPAdes, and returns the copy.
+    @discardableResult
+    static func assemblyResult(in project: URL) throws -> URL {
+        let destination = project.appendingPathComponent("Analyses/\(assemblyFolder)", isDirectory: true)
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: SafetyNetPaths.fixture("analyses/\(assemblyFolder)"), to: destination)
+        let metadata: [String: Any] = ["created": ISO8601DateFormatter().string(from: Date()), "isBatch": false, "tool": "spades"]
+        try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys])
+            .write(to: destination.appendingPathComponent("analysis-metadata.json"))
+        return destination
     }
 }
 
@@ -172,5 +188,35 @@ final class SmokeFixtureReadTests: XCTestCase {
         XCTAssertEqual(node(containing: SmokeFixtureBytes.genotypeRow)?.type, .genotypeResultBundle, "Rows: \(listed)")
         XCTAssertEqual(node(containing: "clusters")?.type, .sequence, "Rows: \(listed)")
         XCTAssertNotNil(node(containing: SmokeFixtureBytes.scriptFile), "Rows: \(listed)")
+    }
+
+    /// The assembly opens from `displayAssemblyAnalysisFromSidebar`, which loads the sidecar with `AssemblyResult.load(from:)`
+    /// and hands the result to the viewer, and the viewer reads the contigs the sidecar names. The committed seed's sidecar is
+    /// schema 1 and lacks the keys the loader needs, so a plain copy of it logged "Failed to open spades-2026-01-15T13-00-00"
+    /// and the smoke's Assembly row found no viewer. The smoke writes the sidecar that `AssemblyResult.save` writes over the copy.
+    func testTheAssemblyResultLoadsWithItsContigs() async throws {
+        let folder = try SmokeFixtureBytes.assemblyResult(in: project)
+        let result = try AssemblyResult.load(from: folder)
+        XCTAssertEqual(result.tool, .spades)
+        XCTAssertEqual(result.readType, .illuminaShortReads)
+        XCTAssertEqual(result.outcome, .completed, "The viewer draws the contigs, not the words for an assembly with none")
+        XCTAssertEqual(result.contigsPath.lastPathComponent, "contigs.fasta")
+        XCTAssertTrue(FileManager.default.isReadableFile(atPath: result.contigsPath.path), "The sidecar names a contigs file in the folder")
+        // The numbers written by hand are the app's own count of the contigs file, which needs no managed tool.
+        let counted = try AssemblyStatisticsCalculator.compute(from: result.contigsPath)
+        XCTAssertEqual(result.statistics.contigCount, 2)
+        XCTAssertEqual(result.statistics.contigCount, counted.contigCount)
+        XCTAssertEqual(result.statistics.totalLengthBP, counted.totalLengthBP)
+        XCTAssertEqual(result.statistics.largestContigBP, counted.largestContigBP)
+        XCTAssertEqual(result.statistics.smallestContigBP, counted.smallestContigBP)
+        XCTAssertEqual(result.statistics.n50, counted.n50)
+        XCTAssertEqual(result.statistics.l50, counted.l50)
+        XCTAssertEqual(result.statistics.n90, counted.n90)
+        XCTAssertEqual(result.statistics.gcFraction, counted.gcFraction, accuracy: 0.0001)
+        XCTAssertEqual(result.statistics.meanLengthBP, counted.meanLengthBP, accuracy: 0.0001)
+        // The contig table is the catalog's records, which the viewer reads from the same file.
+        let records = try await AssemblyContigCatalog(result: result).records()
+        XCTAssertEqual(records.map(\.name), ["NODE_1_length_500_cov_25.4", "NODE_2_length_300_cov_15.1"])
+        XCTAssertEqual(records.map(\.lengthBP), [122, 61])
     }
 }
