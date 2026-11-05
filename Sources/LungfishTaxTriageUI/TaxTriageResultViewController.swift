@@ -2881,7 +2881,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 let sampleId = metric.sample ?? sampleIds.first ?? "unknown"
                 let metricAccessions = self.accessions(for: metric) ?? []
                 if metricAccessions.isEmpty { rowsLeftOut.append((metric.organism, metric.sample)) }
-                bySample[sampleId, default: []].append(contentsOf: metricAccessions)
+                bySample[sampleId, default: []] = TaxTriageAccessionLookup.uniquePreservingOrder(bySample[sampleId, default: []] + metricAccessions)
             }
             let selectors: [ClassifierRowSelector] = bySample.compactMap { (sampleId, accessions) in
                 guard !accessions.isEmpty else { return nil }
@@ -2903,7 +2903,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         for row in selectedRows {
             let rowAccessions = self.accessions(for: row) ?? []
             if rowAccessions.isEmpty { rowsLeftOut.append((row.organism, nil)) }
-            accessions.append(contentsOf: rowAccessions)
+            accessions = TaxTriageAccessionLookup.uniquePreservingOrder(accessions + rowAccessions)
         }
         guard !accessions.isEmpty else {
             return ExtractReadsPlan(selectedRowCount: selectedRows.count, rowsLeftOut: rowsLeftOut)
