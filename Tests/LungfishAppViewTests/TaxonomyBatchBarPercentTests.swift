@@ -295,4 +295,55 @@ final class TaxonomyBatchBarPercentTests: XCTestCase {
         )
         XCTAssertEqual(TaxonomyBarWords.selection(for: virus, base: nil), "Viruses \u{2014} 893,706 reads")
     }
+
+    // MARK: - The tooltip
+
+    /// Review B1. The tooltip of the wedge that sums small taxa asked the tree about a node that is never linked into
+    /// it, found no sample and divided by the reads of both samples: 10 reads of the first sample read as a share of
+    /// 10,260,129 where the sample holds 4,819,760. The wedge's segment now names the node whose small taxa it sums.
+    func testTooltipOfAnAggregateWedgeInAMergedTreeDividesByTheOwnersSample() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let db = try makeBatchDatabase(in: dir, samples: [Self.first, Self.second])
+        let firstTree = try db.fetchTree(sample: Self.first)
+        let secondTree = try db.fetchTree(sample: Self.second)
+        // One taxon in each sample is far below the drawing threshold, so the layout sums it into a wedge.
+        for (tree, reads) in [(firstTree, 10), (secondTree, 20)] {
+            try XCTUnwrap(tree.node(taxId: 10239)).addChild(TaxonNode(
+                taxId: 900_000 + reads, name: "Small virus \(reads)", rank: TaxonomicRank(code: "S"), depth: 2,
+                readsDirect: reads, readsClade: reads, fractionClade: 0, fractionDirect: 0, parentTaxId: 10239
+            ))
+        }
+        let merged = Kraken2TaxonomyTableExport.mergedTree(for: [
+            (sampleId: Self.first, tree: firstTree),
+            (sampleId: Self.second, tree: secondTree),
+        ])
+        let bounds = CGRect(x: 0, y: 0, width: 600, height: 600)
+        let segments = SunburstLayout(tree: merged, bounds: bounds).computeSegments()
+        let wedges = segments.filter(\.isOther)
+        XCTAssertEqual(wedges.count, 2, "Each sample sums its one small taxon into a wedge")
+
+        let firstWedge = try XCTUnwrap(wedges.first { $0.node.readsClade == 10 })
+        let firstBase = TaxonomySunburstView.tooltipReadBase(for: firstWedge.node, segments: segments, tree: merged)
+        XCTAssertEqual(firstBase.totalReads, 4_819_760, "The wedge belongs to the first sample, not to both samples' 10,260,129")
+        XCTAssertEqual(firstBase.sampleName, Self.first)
+        XCTAssertFalse(firstBase.spansSamples)
+
+        let secondWedge = try XCTUnwrap(wedges.first { $0.node.readsClade == 20 })
+        let secondBase = TaxonomySunburstView.tooltipReadBase(for: secondWedge.node, segments: segments, tree: merged)
+        XCTAssertEqual(secondBase.totalReads, 5_440_369, "The wedge belongs to the second sample")
+        XCTAssertEqual(secondBase.sampleName, Self.second)
+
+        let species = try node(in: merged.root, underSample: Self.first, taxId: 2697049)
+        let speciesBase = TaxonomySunburstView.tooltipReadBase(for: species, segments: segments, tree: merged)
+        XCTAssertEqual(speciesBase.totalReads, 4_819_760, "A drawn taxon still asks the tree")
+        XCTAssertEqual(speciesBase.sampleName, Self.first)
+
+        let singleSegments = SunburstLayout(tree: firstTree, bounds: bounds).computeSegments()
+        let singleWedge = try XCTUnwrap(singleSegments.first { $0.isOther })
+        let singleBase = TaxonomySunburstView.tooltipReadBase(for: singleWedge.node, segments: singleSegments, tree: firstTree)
+        XCTAssertEqual(singleBase.totalReads, 4_819_760, "A tree of one sample gives the wedge its own counts")
+        XCTAssertNil(singleBase.sampleName)
+        XCTAssertFalse(singleBase.spansSamples)
+    }
 }

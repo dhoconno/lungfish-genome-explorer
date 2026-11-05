@@ -812,7 +812,7 @@ public class TaxonomySunburstView: NSView {
             tooltipView = tooltip
         }
 
-        let base = tree?.readBase(for: node)
+        let base = tree.map { Self.tooltipReadBase(for: node, segments: cachedSegments, tree: $0) }
         tooltip.update(with: node, totalReads: base?.totalReads ?? 0, classifiedReads: base?.classifiedReads ?? 0)
 
         // Position tooltip near the mouse
