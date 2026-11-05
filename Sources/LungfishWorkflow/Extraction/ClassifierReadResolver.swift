@@ -379,17 +379,17 @@ public actor ClassifierReadResolver {
             candidates = urls
 
         case .taxtriage:
-            // TaxTriage nf-core layout stores BAMs in minimap2/ with naming
-            // patterns that vary by pipeline version:
+            // The database row's bam_path comes first (C4), read only from inside the result root. A batch keeps
+            // {sampleId}/minimap2/ and the viewer's result path is its database. Then the nf-core layout in minimap2/
+            // beside the result, with names that vary by pipeline version:
             //   Current: minimap2/{sampleId}.{sampleId}.dwnld.references.bam
             //   Legacy:  minimap2/{sampleId}.bam
-            // We try the exact legacy name first, then scan minimap2/ for any
-            // BAM whose filename starts with the sampleId.
+            // We try the exact legacy name first, then scan minimap2/ for any BAM whose filename starts with the sampleId.
             guard let sampleId else {
                 candidates = []
                 break
             }
-            var urls: [URL] = []
+            var urls = Self.taxTriageRecordedBAMCandidates(sampleId: sampleId, resultDir: resultDir)
             urls.append(resultDir.appendingPathComponent("minimap2/\(sampleId).bam"))
             let minimap2Dir = resultDir.appendingPathComponent("minimap2")
             if fm.fileExists(atPath: minimap2Dir.path) {

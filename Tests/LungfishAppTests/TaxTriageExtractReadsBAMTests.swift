@@ -35,10 +35,11 @@ final class TaxTriageExtractReadsBAMTests: XCTestCase {
         vc.resultActions.onExtractionRequested = { request = $0 }
 
         for sample in ["NTC_1", "patient"] {
+            // One selection serves both routes, since selecting the row again changes nothing and opens nothing.
+            _ = try support.selectInfluenzaRow(of: sample, in: vc, pane: pane)
             for byButton in [true, false] {
                 let label = "\(sample) by \(byButton ? "the Extract button" : "the batch table's Extract Reads command")"
                 request = nil
-                _ = try support.selectInfluenzaRow(of: sample, in: vc, pane: pane)
                 if byButton {
                     vc.testActionBar.extractButton.performClick(nil)
                 } else {

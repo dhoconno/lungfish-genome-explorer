@@ -26,12 +26,32 @@ extension ClassifierReadResolver {
         guard FileManager.default.fileExists(atPath: databaseURL.path),
               let database = try? EsVirituDatabase(at: databaseURL),
               let rows = try? database.fetchRows(samples: [sampleId]) else { return [] }
+        return joinedRecordedPaths(rows.compactMap(\.bamPath), resultDir: resultDir)
+    }
+
+    /// The BAM paths that the TaxTriage database of a result records for `sampleId`, as the first candidates of
+    /// `locateBAMURL` (3.2 TTEXTRACT, finding F1 of TTACCESSIONS).
+    ///
+    /// The viewer sends the result's database as the result path, so `resultDir` is the folder that holds
+    /// `taxtriage.sqlite`. A batch the app makes records `<sample>/minimap2/<sample>.<sample>.dwnld.references.bam`
+    /// and a one-sample result records `minimap2/<sample>.<sample>.dwnld.references.bam`, both relative to
+    /// `resultDir`, and the paths are handed on unchecked for ``firstContainedBAM(among:within:sample:)``. The list
+    /// is empty when there is no readable database or no row of the sample records a BAM, and the `minimap2/` lookup
+    /// beside the result then finds the BAM of an older layout.
+    static func taxTriageRecordedBAMCandidates(sampleId: String, resultDir: URL) -> [URL] {
+        let databaseURL = resultDir.appendingPathComponent("taxtriage.sqlite")
+        guard FileManager.default.fileExists(atPath: databaseURL.path),
+              let database = try? TaxTriageDatabase(at: databaseURL),
+              let rows = try? database.fetchRows(samples: [sampleId]) else { return [] }
+        return joinedRecordedPaths(rows.compactMap(\.bamPath), resultDir: resultDir)
+    }
+
+    /// Each distinct recorded path that is not empty, joined to `resultDir`, and an absolute path as it is.
+    private static func joinedRecordedPaths(_ recorded: [String], resultDir: URL) -> [URL] {
         var tried = Set<String>()
         var candidates: [URL] = []
-        for recorded in rows.compactMap(\.bamPath) where !recorded.isEmpty && tried.insert(recorded).inserted {
-            candidates.append(recorded.hasPrefix("/")
-                ? URL(fileURLWithPath: recorded)
-                : resultDir.appendingPathComponent(recorded))
+        for path in recorded where !path.isEmpty && tried.insert(path).inserted {
+            candidates.append(path.hasPrefix("/") ? URL(fileURLWithPath: path) : resultDir.appendingPathComponent(path))
         }
         return candidates
     }
