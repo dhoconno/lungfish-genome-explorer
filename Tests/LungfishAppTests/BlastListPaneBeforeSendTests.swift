@@ -87,6 +87,7 @@ final class BlastListPaneBeforeSendTests: XCTestCase {
         XCTAssertNotEqual(shown.phase, .waiting, "the pane waits for results that were never asked for: \(shown.words)")
         XCTAssertFalse(shown.words.contains("Waiting for NCBI"), shown.words)
         XCTAssertFalse(shown.words.contains("Phase 2"), shown.words)
+        XCTAssertTrue(shown.words.contains("Search of seq1"), "the list pane names no search: \(shown.words)")
     }
 
     /// The same before the send is taken, when NCBI did not confirm it got the search.
@@ -105,5 +106,6 @@ final class BlastListPaneBeforeSendTests: XCTestCase {
 
         XCTAssertEqual(shown.phase, .waiting, shown.words)
         XCTAssertTrue(shown.words.contains("Phase 2 of 3"), shown.words)
+        XCTAssertTrue(shown.words.contains("Search of seq1"), "the list pane names no search: \(shown.words)")
     }
 }
