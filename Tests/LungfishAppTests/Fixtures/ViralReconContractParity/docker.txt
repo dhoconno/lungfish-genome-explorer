@@ -306,6 +306,9 @@ records:
                 "type" : "string",
                 "value" : "as_pairs"
               },
+              "pairs" : {
+                "type" : "null"
+              },
               "readLayout" : {
                 "type" : "string",
                 "value" : "paired_files"
@@ -317,6 +320,12 @@ records:
               "sample" : {
                 "type" : "string",
                 "value" : "S1"
+              },
+              "scannedRecords" : {
+                "type" : "null"
+              },
+              "scannedWholeFile" : {
+                "type" : "null"
               },
               "sources" : {
                 "type" : "array",
@@ -330,6 +339,9 @@ records:
                     "value" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz"
                   }
                 ]
+              },
+              "unpairedReads" : {
+                "type" : "null"
               }
             }
           }
@@ -726,6 +738,9 @@ records:
                 "type" : "string",
                 "value" : "as_pairs"
               },
+              "pairs" : {
+                "type" : "null"
+              },
               "readLayout" : {
                 "type" : "string",
                 "value" : "paired_files"
@@ -737,6 +752,12 @@ records:
               "sample" : {
                 "type" : "string",
                 "value" : "S1"
+              },
+              "scannedRecords" : {
+                "type" : "null"
+              },
+              "scannedWholeFile" : {
+                "type" : "null"
               },
               "sources" : {
                 "type" : "array",
@@ -750,6 +771,9 @@ records:
                     "value" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz"
                   }
                 ]
+              },
+              "unpairedReads" : {
+                "type" : "null"
               }
             }
           }
@@ -1224,6 +1248,9 @@ records:
                 "type" : "string",
                 "value" : "as_pairs"
               },
+              "pairs" : {
+                "type" : "null"
+              },
               "readLayout" : {
                 "type" : "string",
                 "value" : "paired_files"
@@ -1235,6 +1262,12 @@ records:
               "sample" : {
                 "type" : "string",
                 "value" : "S1"
+              },
+              "scannedRecords" : {
+                "type" : "null"
+              },
+              "scannedWholeFile" : {
+                "type" : "null"
               },
               "sources" : {
                 "type" : "array",
@@ -1248,6 +1281,9 @@ records:
                     "value" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz"
                   }
                 ]
+              },
+              "unpairedReads" : {
+                "type" : "null"
               }
             }
           }
@@ -1615,6 +1651,9 @@ records:
                 "type" : "string",
                 "value" : "as_pairs"
               },
+              "pairs" : {
+                "type" : "null"
+              },
               "readLayout" : {
                 "type" : "string",
                 "value" : "paired_files"
@@ -1626,6 +1665,12 @@ records:
               "sample" : {
                 "type" : "string",
                 "value" : "S1"
+              },
+              "scannedRecords" : {
+                "type" : "null"
+              },
+              "scannedWholeFile" : {
+                "type" : "null"
               },
               "sources" : {
                 "type" : "array",
@@ -1639,6 +1684,9 @@ records:
                     "value" : "<repository>/Tests/Fixtures/sarscov2/test_2.fastq.gz"
                   }
                 ]
+              },
+              "unpairedReads" : {
+                "type" : "null"
               }
             }
           }
