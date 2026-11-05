@@ -308,6 +308,10 @@ extension Kraken2TaxonomyTableExport {
 
     /// Builds a synthetic multi-sample taxonomy tree where each selected sample appears
     /// as its own top-level node containing that sample's taxonomy hierarchy.
+    ///
+    /// The tree's own `totalReads` is the reads of every selected sample together. The tree also carries each
+    /// sample's own totals, so a percent for a row divides by its sample's reads through
+    /// ``TaxonTree/readBase(for:)`` and never by the whole selection's.
     public static func mergedTree(for sampleTrees: [(sampleId: String, tree: TaxonTree)]) -> TaxonTree {
         let totalReads = sampleTrees.reduce(0) { $0 + $1.tree.totalReads }
         let root = TaxonNode(
@@ -323,6 +327,7 @@ extension Kraken2TaxonomyTableExport {
         )
 
         var syntheticSampleTaxId = -1
+        var sampleTotals: [TaxonTree.SampleReadTotals] = []
         for (sampleId, sampleTree) in sampleTrees {
             // A sample's node reads as that sample alone (Phase 2.13 lane 13.35, BIO-R1 item 5). It counts the reads
             // Kraken2 assigned to the sample's root, and its fractions divide by the sample's own reads with the
@@ -347,9 +352,12 @@ extension Kraken2TaxonomyTableExport {
                 sampleNode.addChild(cloneTaxonSubtree(child))
             }
             root.addChild(sampleNode)
+            sampleTotals.append(
+                TaxonTree.SampleReadTotals(node: sampleNode, totalReads: ownReads, classifiedReads: sampleReads)
+            )
         }
 
-        return TaxonTree(root: root, unclassifiedNode: nil, totalReads: totalReads)
+        return TaxonTree(root: root, unclassifiedNode: nil, totalReads: totalReads, sampleTotals: sampleTotals)
     }
 
     private static func cloneTaxonSubtree(_ node: TaxonNode) -> TaxonNode {

@@ -265,6 +265,40 @@ public struct TaxonTree: Sendable {
     /// Precomputed index of taxonomy ID to node for O(1) lookup.
     private let taxIdIndex: [Int: TaxonNode]
 
+    /// The read counts of each sample in a merged multi-sample tree, keyed by the identity of the node that stands
+    /// for the sample. Empty for the tree of one sample.
+    private let sampleTotals: [ObjectIdentifier: SampleReadTotals]
+
+    // MARK: - Sample Read Counts
+
+    /// The reads of one sample in a merged multi-sample tree.
+    public struct SampleReadTotals: Sendable {
+        /// The node that stands for the sample, a child of the merged root.
+        public let node: TaxonNode
+        /// Every read of the sample, unclassified reads included.
+        public let totalReads: Int
+        /// The reads Kraken 2 assigned to a taxon in the sample.
+        public let classifiedReads: Int
+
+        public init(node: TaxonNode, totalReads: Int, classifiedReads: Int) {
+            self.node = node
+            self.totalReads = totalReads
+            self.classifiedReads = classifiedReads
+        }
+    }
+
+    /// The read counts a percent for one node divides by.
+    public struct ReadBase: Sendable, Equatable {
+        /// Every read of the sample the node belongs to, unclassified reads included.
+        public let totalReads: Int
+        /// The reads Kraken 2 assigned to a taxon in that sample.
+        public let classifiedReads: Int
+        /// The sample the counts belong to, or nil when they are the tree's own.
+        public let sampleName: String?
+        /// True when the tree merges samples and the node sits under none of them, so the counts are the selection's.
+        public let spansSamples: Bool
+    }
+
     // MARK: - Initialization
 
     /// Creates a taxonomy tree from a parsed root node and optional unclassified node.
@@ -275,10 +309,20 @@ public struct TaxonTree: Sendable {
     ///   - root: The root node of the taxonomy tree.
     ///   - unclassifiedNode: The unclassified node, if present.
     ///   - totalReads: Total number of reads processed.
-    public init(root: TaxonNode, unclassifiedNode: TaxonNode?, totalReads: Int) {
+    ///   - sampleTotals: The reads of each sample, given when the tree merges several samples.
+    public init(
+        root: TaxonNode,
+        unclassifiedNode: TaxonNode?,
+        totalReads: Int,
+        sampleTotals: [SampleReadTotals] = []
+    ) {
         self.root = root
         self.unclassifiedNode = unclassifiedNode
         self.totalReads = totalReads
+        self.sampleTotals = Dictionary(
+            sampleTotals.map { (ObjectIdentifier($0.node), $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
         self.classifiedReads = root.readsClade
         self.unclassifiedReads = unclassifiedNode?.readsClade ?? (totalReads - root.readsClade)
 
@@ -291,6 +335,31 @@ public struct TaxonTree: Sendable {
             index[unclassified.taxId] = unclassified
         }
         self.taxIdIndex = index
+    }
+
+    // MARK: - Read Base
+
+    /// The read counts a percent for `node` divides by.
+    ///
+    /// In the tree of one sample these are the tree's own counts. In a merged multi-sample tree a row belongs to the
+    /// sample it sits under, and its percent divides by that sample's own reads, the count the table's `%` column
+    /// uses. A node that sits under no sample (the wedge that sums small taxa is never linked into the tree) gets
+    /// the selection's counts with `spansSamples` set, so a caller can say so in words.
+    public func readBase(for node: TaxonNode) -> ReadBase {
+        guard !sampleTotals.isEmpty else {
+            return ReadBase(totalReads: totalReads, classifiedReads: classifiedReads, sampleName: nil, spansSamples: false)
+        }
+        var current: TaxonNode? = node
+        while let candidate = current {
+            if let own = sampleTotals[ObjectIdentifier(candidate)] {
+                return ReadBase(
+                    totalReads: own.totalReads, classifiedReads: own.classifiedReads,
+                    sampleName: candidate.name, spansSamples: false
+                )
+            }
+            current = candidate.parent
+        }
+        return ReadBase(totalReads: totalReads, classifiedReads: classifiedReads, sampleName: nil, spansSamples: true)
     }
 
     // MARK: - Lookup

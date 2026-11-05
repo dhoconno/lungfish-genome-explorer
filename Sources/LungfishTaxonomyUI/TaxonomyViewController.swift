@@ -258,9 +258,6 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// The currently selected taxon node (for info text updates).
     private(set) var selectedTaxonNode: TaxonNode?
 
-    /// Total reads for percentage display in the action bar.
-    private var totalReadsForActionBar: Int = 0
-
     // MARK: - Split View State
 
     /// Whether the initial divider position has been applied.
@@ -444,7 +441,6 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             self.showBlastConfigPopover(for: node, relativeTo: self.sunburstView)
         }
 
-        totalReadsForActionBar = result.tree.totalReads
         updateActionBarSelection(nil)
         breadcrumbBar.update(zoomNode: nil)
 
@@ -630,7 +626,6 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             splitView.isHidden = false
             batchTableView.isHidden = true
             breadcrumbBar.update(zoomNode: nil)
-            totalReadsForActionBar = displayTree.totalReads
             updateActionBarSelection(nil)
             actionBar.setExtractEnabled(readLevelActionsAvailable, reason: readLevelActionsDisabledReason)
         } catch {
@@ -1171,17 +1166,8 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         selectedTaxonNode = isActionableTaxonNode(node) ? node : nil
 
         if let node = selectedTaxonNode {
-            let formatter = NumberFormatter()
-            formatter.numberStyle = .decimal
-            formatter.groupingSeparator = ","
-            let readStr = formatter.string(from: NSNumber(value: node.readsClade)) ?? "\(node.readsClade)"
-
-            let fraction = totalReadsForActionBar > 0
-                ? Double(node.readsClade) / Double(totalReadsForActionBar)
-                : 0
-            let pctStr = TaxonomyPercentFormat.string(fraction: fraction)
-
-            showBarSelection(count: 1, info: "\(node.name) \u{2014} \(readStr) reads (\(pctStr) of all reads)")
+            // The percent divides by the reads of the row's own sample, as the table's % column does.
+            showBarSelection(count: 1, info: TaxonomyBarWords.selection(for: node, base: tree?.readBase(for: node)))
         } else {
             showBarSelection(count: 0)
         }

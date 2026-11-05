@@ -495,8 +495,8 @@ public class TaxonomySunburstView: NSView {
     /// bar's Classified card shows.
     static func centerPercentText(for root: TaxonNode, isZoomed: Bool, tree: TaxonTree) -> String {
         if isZoomed {
-            let fraction = tree.classifiedReads > 0
-                ? Double(root.readsClade) / Double(tree.classifiedReads) : 0
+            let classified = tree.readBase(for: root).classifiedReads
+            let fraction = classified > 0 ? Double(root.readsClade) / Double(classified) : 0
             return "\(TaxonomyPercentFormat.string(fraction: fraction)) of classified"
         }
         let fraction = tree.totalReads > 0
@@ -812,11 +812,8 @@ public class TaxonomySunburstView: NSView {
             tooltipView = tooltip
         }
 
-        tooltip.update(
-            with: node,
-            totalReads: tree?.totalReads ?? 0,
-            classifiedReads: tree?.classifiedReads ?? 0
-        )
+        let base = tree?.readBase(for: node)
+        tooltip.update(with: node, totalReads: base?.totalReads ?? 0, classifiedReads: base?.classifiedReads ?? 0)
 
         // Position tooltip near the mouse
         guard let window else { return }

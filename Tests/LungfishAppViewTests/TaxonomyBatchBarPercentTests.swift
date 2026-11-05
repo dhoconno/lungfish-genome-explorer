@@ -227,4 +227,72 @@ final class TaxonomyBatchBarPercentTests: XCTestCase {
             "680,046 of the second sample's 1,360,092 classified reads"
         )
     }
+
+    // MARK: - The read base
+
+    /// Every node of a merged tree divides by its own sample's counts, and the tree's own counts stay the batch's.
+    func testReadBaseGivesEachSampleItsOwnCounts() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let db = try makeBatchDatabase(in: dir, samples: [Self.first, Self.second])
+        let firstTree = try db.fetchTree(sample: Self.first)
+        let merged = Kraken2TaxonomyTableExport.mergedTree(for: [
+            (sampleId: Self.first, tree: firstTree),
+            (sampleId: Self.second, tree: try db.fetchTree(sample: Self.second)),
+        ])
+
+        let species = merged.readBase(for: try node(in: merged.root, underSample: Self.first, taxId: 2697049))
+        XCTAssertEqual(species.totalReads, 4_819_760)
+        XCTAssertEqual(species.classifiedReads, 893_706)
+        XCTAssertEqual(species.sampleName, Self.first)
+        XCTAssertFalse(species.spansSamples)
+
+        let flu = merged.readBase(for: try node(in: merged.root, underSample: Self.second, taxId: 11320))
+        XCTAssertEqual(flu.totalReads, 5_440_369)
+        XCTAssertEqual(flu.classifiedReads, 1_360_092)
+        XCTAssertEqual(flu.sampleName, Self.second)
+
+        let sampleNode = try XCTUnwrap(merged.root.children.first { $0.name == Self.second })
+        XCTAssertEqual(merged.readBase(for: sampleNode).totalReads, 5_440_369, "A sample's own node divides by its reads")
+
+        let whole = merged.readBase(for: merged.root)
+        XCTAssertEqual(whole.totalReads, 10_260_129, "The merged root is the whole selection")
+        XCTAssertNil(whole.sampleName)
+        XCTAssertTrue(whole.spansSamples)
+
+        let single = firstTree.readBase(for: try XCTUnwrap(firstTree.node(taxId: 10239)))
+        XCTAssertEqual(single.totalReads, 4_819_760, "A tree of one sample uses its own counts")
+        XCTAssertNil(single.sampleName)
+        XCTAssertFalse(single.spansSamples)
+    }
+
+    /// The wedge that sums small taxa is never linked into the tree, so it names the selection, not a sample.
+    func testBarWordsSayWhichReadsAnUnlinkedWedgeDividesBy() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let db = try makeBatchDatabase(in: dir, samples: [Self.first, Self.second])
+        let merged = Kraken2TaxonomyTableExport.mergedTree(for: [
+            (sampleId: Self.first, tree: try db.fetchTree(sample: Self.first)),
+            (sampleId: Self.second, tree: try db.fetchTree(sample: Self.second)),
+        ])
+        let wedge = TaxonNode(
+            taxId: 10239, name: "3 smaller taxa under Viruses", rank: TaxonomicRank(code: "Aggregated"), depth: 3,
+            readsDirect: 0, readsClade: 1_000_000, fractionClade: 0, fractionDirect: 0, parentTaxId: 10239
+        )
+
+        let words = TaxonomyBarWords.selection(for: wedge, base: merged.readBase(for: wedge))
+        XCTAssertEqual(
+            words,
+            "3 smaller taxa under Viruses \u{2014} 1,000,000 reads (9.7% of all reads in the selected samples)"
+        )
+    }
+
+    /// With no known total the bar gives the reads and no percent, never a percent of nothing.
+    func testBarWordsOmitThePercentWhenTheSampleTotalIsUnknown() throws {
+        let virus = TaxonNode(
+            taxId: 10239, name: "Viruses", rank: TaxonomicRank(code: "D"), depth: 1,
+            readsDirect: 0, readsClade: 893_706, fractionClade: 0, fractionDirect: 0, parentTaxId: 1
+        )
+        XCTAssertEqual(TaxonomyBarWords.selection(for: virus, base: nil), "Viruses \u{2014} 893,706 reads")
+    }
 }
