@@ -115,4 +115,28 @@ final class SidebarKindRegistryTests: XCTestCase {
         XCTAssertEqual(SidebarKindRegistry.bundleKind(ofFolder: url)?.id, kind.id)
         XCTAssertEqual(SidebarKindRegistry.descriptor(id: kind.id), kind)
     }
+
+    /// SIDEBAR review, ARCH SF1. A kind that joined by registration can ask for the viewer's own Inspector tab, and the
+    /// tab an import selects reads it, as ADDING-AN-ANALYSIS-SURFACE.md says. A built-in bundle folder keeps Document.
+    func testARegisteredBundleKindKeepsItsViewerTabAfterAnImport() throws {
+        let bundle = BundleKindDescriptor(
+            id: BundleKindID(rawValue: "registry-tab"), role: .bundle, folderExtensions: ["lungfishregistrytab"],
+            manifestFileName: nil, recognition: .extensionOnly, utTypeIdentifier: nil, sidebarSymbolName: "star",
+            presentation: .atomicPackage, deletion: .init(isOpaqueProjectObject: true), copy: .refused,
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: [])
+        let kind = SidebarKindDescriptor(
+            id: "bundle:registry-tab", recognition: .bundle(bundle, manifestRequired: false),
+            rowType: .registeredBundle, sidebarSymbolName: "star", displayName: "Tab test", viewport: nil,
+            inspectorTab: .setByViewer)
+        SidebarKindRegistry.register(kind)
+        defer { SidebarKindRegistry.unregister(id: kind.id) }
+
+        let registered = root.appendingPathComponent("a.lungfishregistrytab", isDirectory: true)
+        try FileManager.default.createDirectory(at: registered, withIntermediateDirectories: true)
+        XCTAssertEqual(SidebarKindRegistry.inspectorTab(afterImportOf: registered), .setByViewer)
+
+        let builtIn = root.appendingPathComponent("a.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: builtIn, withIntermediateDirectories: true)
+        XCTAssertNotEqual(SidebarKindRegistry.inspectorTab(afterImportOf: builtIn), .setByViewer)
+    }
 }

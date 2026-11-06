@@ -263,10 +263,12 @@ public enum SidebarKindRegistry {
 
     /// The Inspector tab of a result folder an import has just selected. The folder's kind decides, read as
     /// ``analysisKind(ofFolder:fileManager:)`` reads it, then its legacy name prefix alone while the import has not
-    /// written its marker yet. `nil` for a folder no kind claims, which opens on the Document tab.
+    /// written its marker yet, or the bundle kind of a registered bundle folder. `nil` for a folder no kind claims,
+    /// which opens on the Document tab.
     public static func inspectorTab(afterImportOf url: URL, fileManager: FileManager = .default) -> SidebarInspectorTab? {
         let kind = analysisKind(ofFolder: url, fileManager: fileManager)
             ?? legacyAnalysisKinds(forFolderNamed: url.lastPathComponent).first
+            ?? bundleKind(ofFolder: url, fileManager: fileManager)
         return kind?.inspectorTab
     }
 }
