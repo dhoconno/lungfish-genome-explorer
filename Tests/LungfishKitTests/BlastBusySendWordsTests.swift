@@ -111,6 +111,12 @@ final class BlastBusySendWordsTests: XCTestCase {
     private func assertSaysNCBIIsRefusing(_ held: Held, file: StaticString = #filePath, line: UInt = #line) throws {
         let sendsAt = BlastSearchWords.time(held.nextSend, now: hand.now)
         let row = try XCTUnwrap(held.reports.last, "the advancer said nothing", file: file, line: line).message
+        // The Operations row draws its detail on one line and cuts the end when it is long (about 55 characters at the window's
+        // 700 pt minimum, about 90 at 900 pt), so the words stay short enough that the time of the next send is not what is cut.
+        XCTAssertLessThanOrEqual(
+            row.count, 80, "the Operations row's one line is \(row.count) characters and clips the time of the next send: \(row)",
+            file: file, line: line
+        )
         for (place, words) in [("the Operations row", row), ("the in-flight line", held.parked), ("the pane", held.pane.body)] {
             XCTAssertTrue(words.contains("not taking new searches"), "\(place) does not say that NCBI is refusing: \(words)", file: file, line: line)
             XCTAssertTrue(words.contains(sendsAt), "\(place) does not say when LGE sends again (\(sendsAt)): \(words)", file: file, line: line)
