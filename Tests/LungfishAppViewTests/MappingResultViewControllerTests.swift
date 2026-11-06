@@ -1495,7 +1495,6 @@ final class MappingResultViewControllerTests: XCTestCase {
         window.layoutIfNeeded()
         host.view.layoutSubtreeIfNeeded()
 
-        // The class and the install of the sidebar's mapping route, filled from the result in place.
         try host.displayReferenceBundleViewportLoading(title: "Mapping", documentURL: tempDir)
         let controller = try XCTUnwrap(host.referenceBundleViewportController)
         host.view.layoutSubtreeIfNeeded()
