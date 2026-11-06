@@ -75,7 +75,7 @@ enum FASTACollectionGC {
             guard percent == nil else { return nil }
             return isNucleotide
                 ? "This record has no A, C, G or T to count."
-                : "This is a protein record, so it has no GC percent."
+                : "This record has letters that are not nucleotide codes, so it is treated as a protein record and has no GC percent."
         }
     }
 
