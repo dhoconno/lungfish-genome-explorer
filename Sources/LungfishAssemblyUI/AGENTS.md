@@ -24,7 +24,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 ## Contracts this module owns
 
 - The controller reaches app services only through its `on...` callbacks, wired by the App glue file.
-- A tool that joins `AssemblyTool` needs its `register` line in `makeSurfaceRegistry` and its kind in `hideAssemblyView`. `testEveryAssemblyToolHasARegisteredSurface` fails until it has the first.
+- A tool that joins `AssemblyTool` needs its `register` line in `makeSurfaceRegistry`. `testEveryAssemblyToolHasARegisteredSurface` fails until it has it. No hide list names it, since `clearSurfaceForNewContent()` removes any kind.
 
 ## Tests
 

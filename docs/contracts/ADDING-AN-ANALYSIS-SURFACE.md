@@ -4,7 +4,7 @@ This contract binds all new result surfaces in Lungfish Genome Explorer (LGE). P
 
 An analysis surface is everything a user sees for one kind of result. It has a result type on disk, a viewport that shows it, Inspector sections, a sidebar entry, row commands, and the operations that produce it. Each operation follows `docs/contracts/ADDING-AN-OPERATION.md`. This document covers the rest.
 
-New surface code lives in a leaf UI module that exports a surface factory, and the App registers it with one line. The hand edits that remain in LungfishApp until Phase 3.2 are listed with their files under "Touch points that exist today". The last section walks the whole recipe for RNA-seq. The copyable per-surface checklist is `docs/contracts/analysis-surface-checklist.md`.
+New surface code lives in a leaf UI module that exports a surface factory, and the App registers it with one line. The hand edits that remain in LungfishApp are listed with their files under "Touch points that exist today". The last section walks the whole recipe for RNA-seq. The copyable per-surface checklist is `docs/contracts/analysis-surface-checklist.md`.
 
 ## The leaf-module recipe
 

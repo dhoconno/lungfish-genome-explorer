@@ -36,5 +36,4 @@ Target LungfishNvdUITests in Tests/LungfishNvdUITests. Run only it with `swift t
 | Trap | Evidence |
 |---|---|
 | Private copies of the extraction dialog and BLAST display that drift from the other classifiers | `presentUnifiedExtractionDialog` at NvdResultViewController.swift line 1627, `showBlastResults` at line 1858 (R14) |
-| The App hides this view in 22 places, more than any other viewport | REVIEW.md R1 (`hideNvdView`) |
 | Inspector routing picks the tab from the `nvd-` folder prefix | Sources/LungfishApp/App/AppDelegate.swift lines 301 to 305 (R1) |

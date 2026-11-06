@@ -52,7 +52,7 @@ Tick each one or write "retired" once its program task has landed.
 
 - [ ] `SidebarItemType` case and the switches in `Sources/LungfishApp/Views/Sidebar/SidebarItem.swift`.
 - [ ] `displayContent(for:)` branch in `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift`.
-- [ ] One `register` line in `makeSurfaceRegistry()` in `Sources/LungfishApp/Views/Viewer/ViewerViewController+Surfaces.swift`, a display method that ends in `showSurface(_:input:as:)` and a one-line hide method over `clearSurface(ifShowing:)` that the `contentMode` observer calls, as step 3 of `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md` says. No viewport slot and no `isNativeBundleViewportInstalled` arm.
+- [ ] One `register` line in `makeSurfaceRegistry()` in `Sources/LungfishApp/Views/Viewer/ViewerViewController+Surfaces.swift`, and a display method that starts with `clearSurfaceForNewContent()` and ends in `showSurface(_:input:as:)`, as step 3 of `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md` says. No hide method, no viewport slot and no `isNativeBundleViewportInstalled` arm.
 - [ ] Retired in 3.1, the drawer arm. A surface with its own drawer answers `isDrawerOpen` and `toggleDrawer()`, which View > Show Drawer reads first.
 - [ ] Inspector update method in `Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift`.
 
