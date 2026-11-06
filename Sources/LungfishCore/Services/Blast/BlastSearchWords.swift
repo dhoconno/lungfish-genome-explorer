@@ -65,8 +65,9 @@ package enum BlastSearchWords {
 
     /// Row R3's wait (W-5). NCBI answered a send with 503, which is busy, and LGE sends it again at its own time. The file keeps the
     /// count of busy answers and not the status, so these words carry no code, and the last answer's ``refused(code:times:)`` names it.
+    /// The Operations row draws them on one line that clips, so they stay short enough that the time of the next send shows whole.
     package static func busyAnswer(nextTry: Date, now: Date) -> String {
-        "NCBI is not taking new searches right now, so it has not taken this one yet. LGE sends it again at \(time(nextTry, now: now))"
+        "NCBI is not taking new searches right now. LGE sends this one again at \(time(nextTry, now: now))"
     }
 
     /// The words of a first send that NCBI has refused and LGE sends again, or nil for a send NCBI has not refused. The row, the
