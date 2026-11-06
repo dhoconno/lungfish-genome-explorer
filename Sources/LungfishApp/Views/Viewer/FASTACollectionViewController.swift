@@ -1024,6 +1024,7 @@ public final class FASTACollectionViewController: NSViewController,
             let counts = gcCache[seq.id]
             textField.stringValue = counts.map { $0.percent.map { String(format: "%.1f%%", $0) } ?? "\u{2014}" } ?? ""
             textField.toolTip = counts?.dashToolTip
+            textField.setAccessibilityValue(counts?.dashSpokenValue)
             textField.alignment = .right
 
         default:

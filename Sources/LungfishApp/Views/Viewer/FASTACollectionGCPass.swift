@@ -77,6 +77,12 @@ enum FASTACollectionGC {
                 ? "This record has no A, C, G or T to count."
                 : "This record has letters that are not nucleotide codes, so it is treated as a protein record and has no GC percent."
         }
+
+        /// What a screen reader says for a GC cell that reads a dash, or nil when the cell holds a number.
+        var dashSpokenValue: String? {
+            guard percent == nil else { return nil }
+            return isNucleotide ? "No GC percent, no A, C, G or T" : "No GC percent, protein record"
+        }
     }
 
     /// What a finished pass delivers.
