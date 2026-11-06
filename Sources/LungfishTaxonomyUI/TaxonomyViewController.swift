@@ -1390,6 +1390,23 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         showBlastConfigPopover(for: node, relativeTo: sender)
     }
 
+    /// The read-count view of the Kraken 2 BLAST popover. It names the database the run searches in its consent line, so a
+    /// test reads the database from here (BLAST-KRAKEN2-NT).
+    func makeBlastConfigView(
+        taxonName: String,
+        readsClade: Int,
+        onRun: @escaping (Int) -> Void
+    ) -> BlastConfigPopoverView {
+        BlastConfigPopoverView(
+            taxonName: taxonName,
+            readsClade: readsClade,
+            // The Kraken 2 viewport's BlastVerificationRequest keeps the
+            // default database, nt.
+            database: "nt",
+            onRun: onRun
+        )
+    }
+
     /// Shows a popover with BLAST configuration (read count slider and Run button).
     ///
     /// - Parameters:
@@ -1400,12 +1417,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         popover.behavior = .transient
         popover.contentSize = NSSize(width: 280, height: 160)
 
-        let configView = BlastConfigPopoverView(
+        let configView = makeBlastConfigView(
             taxonName: node.name,
-            readsClade: node.readsClade,
-            // The Kraken 2 viewport's BlastVerificationRequest keeps the
-            // default database, nt.
-            database: "nt"
+            readsClade: node.readsClade
         ) { [weak self, weak popover] readCount in
             popover?.performClose(nil)
             guard let self else { return }

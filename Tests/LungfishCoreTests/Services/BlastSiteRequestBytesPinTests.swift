@@ -110,6 +110,22 @@ final class BlastSiteRequestBytesPinTests: XCTestCase {
         }
     }
 
+    /// Phase 3.2 lane KRAKENCORE, BIO R3 (BIO-BLAST-DATABASES item 6). No Verify route sends `nt` unless a person names it on
+    /// the command line. The seven rows above hold requests made here, so this builds the Kraken 2 request with the builders the
+    /// app's route reads and holds it to the same `DATABASE=core_nt` bytes. `BlastVerifyDatabaseTests` holds the CLI's
+    /// `blast verify` to the same value.
+    func testEveryVerifyRouteSendsCoreNT() async throws {
+        let built = try await Kraken2CoreNTTests.requests()
+        XCTAssertFalse(built.isEmpty)
+        for request in built {
+            let sent = try await Self.firstRequest(sentBy: request)
+            XCTAssertTrue(
+                sent.body.hasPrefix("CMD=Put&PROGRAM=blastn&DATABASE=core_nt&"),
+                "Kraken 2 sends \(sent.body.prefix(48)) and not DATABASE=core_nt"
+            )
+        }
+    }
+
     func testStatusAndResultRequestsCarryTheRIDOnly() async throws {
         let client = BlastRecordingClient()
         let service = BlastService(httpClient: client)
