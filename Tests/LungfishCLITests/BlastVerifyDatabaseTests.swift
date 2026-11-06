@@ -25,4 +25,20 @@ final class BlastVerifyDatabaseTests: XCTestCase {
 
         XCTAssertEqual(request.database, BlastDatabaseID.coreNT.rawValue)
     }
+
+    /// The request `run()` submits is the one `submittedRequest(from:)` builds, so it asks for core_nt whatever the drawn
+    /// request carries. The test seam above builds a third request that `run()` never calls, so it cannot hold this site
+    /// (BIO review of lane KRAKENCORE, SF1).
+    func testBlastVerifySubmitsCoreNTWhateverTheDrawnRequestCarries() throws {
+        let command = try BlastCommand.VerifySubcommand.parse([
+            "--kreport", "classification.kreport",
+            "--source", "reads.fastq",
+            "--kraken-output", "classification.kraken",
+            "--taxid", "562",
+        ])
+        // A drawn request that names no database carries the shared default, `nt`.
+        let drawn = BlastVerificationRequest(taxonName: "Escherichia coli", taxId: 562, sequences: [("read1", "ACGT")])
+
+        XCTAssertEqual(command.submittedRequest(from: drawn).database, BlastDatabaseID.coreNT.rawValue)
+    }
 }

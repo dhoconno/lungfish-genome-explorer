@@ -192,6 +192,17 @@ extension BlastCommand {
             )
         }
 
+        /// The request `run()` submits: the drawn reads and clade of `built`, this command's extra arguments and concurrency,
+        /// and core_nt. `blast verify` has no `--database` option, so nothing names another one (BIO-BLAST-DATABASES item 3).
+        func submittedRequest(from built: BlastVerificationRequest) -> BlastVerificationRequest {
+            BlastVerificationRequest(
+                taxonName: built.taxonName, taxId: built.taxId, sequences: built.sequences,
+                database: BlastDatabaseID.coreNT.rawValue, extraArgs: extraArgs, maxConcurrentSubmissions: maxConcurrent,
+                sequenceMates: built.sequenceMates, acceptedTaxIds: built.acceptedTaxIds, acceptedTaxonNames: built.acceptedTaxonNames,
+                relatedTaxIds: built.relatedTaxIds, relatedTaxonNames: built.relatedTaxonNames, judgedAt: built.judgedAt
+            )
+        }
+
         // MARK: - Execution
 
         func run() async throws {
@@ -303,20 +314,7 @@ extension BlastCommand {
                 print("")
             }
 
-            let request = BlastVerificationRequest(
-                taxonName: built.taxonName,
-                taxId: built.taxId,
-                sequences: built.sequences,
-                database: BlastDatabaseID.coreNT.rawValue,
-                extraArgs: extraArgs,
-                maxConcurrentSubmissions: maxConcurrent,
-                sequenceMates: built.sequenceMates,
-                acceptedTaxIds: built.acceptedTaxIds,
-                acceptedTaxonNames: built.acceptedTaxonNames,
-                relatedTaxIds: built.relatedTaxIds,
-                relatedTaxonNames: built.relatedTaxonNames,
-                judgedAt: built.judgedAt
-            )
+            let request = submittedRequest(from: built)
             _ = request.blastURLAPIExtraParameters
 
             // With a result folder the search is a file under it, so `blast resume` can go on with it after a crash.
