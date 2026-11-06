@@ -13,7 +13,7 @@ import LungfishKit
 /// Displays: Sequences, Total Length, Annotations, GC%, Shortest, Longest.
 /// When showing sequences from multiple source files, also displays a "Sources"
 /// card with the file count. When the list holds protein records, which have no GC
-/// percent, a "Protein records" card says how many the GC Content left out.
+/// percent, a "Protein records, not in GC Content" card says how many it left out.
 @MainActor
 final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
 
@@ -112,10 +112,11 @@ final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
             Card(label: "GC Content", value: gcText),
         ])
 
-        // A protein record has no GC percent, so the card says how many the GC Content left out.
+        // A protein record has no GC percent, so the card says how many the GC Content left out. The words sit in the label,
+        // which wraps by word, and the value stays a short count, since a long value breaks inside a word or is cut.
         if gcCounted, proteinRecordCount > 0 {
             let count = GenomicSummaryCardBar.formatCount(proteinRecordCount)
-            result.append(Card(label: "Protein records", value: "\(count) (left out of GC Content)"))
+            result.append(Card(label: "Protein records, not in GC Content", value: count))
         }
 
         result.append(contentsOf: [
