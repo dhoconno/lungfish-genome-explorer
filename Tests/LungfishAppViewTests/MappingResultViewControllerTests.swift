@@ -1495,11 +1495,12 @@ final class MappingResultViewControllerTests: XCTestCase {
         window.layoutIfNeeded()
         host.view.layoutSubtreeIfNeeded()
 
-        host.displayMappingResult(
-            makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase())
-        )
-
-        let controller = try XCTUnwrap(host.mappingResultController)
+        // The class and the install of the sidebar's mapping route, filled from the result in place.
+        try host.displayReferenceBundleViewportLoading(title: "Mapping", documentURL: tempDir)
+        let controller = try XCTUnwrap(host.referenceBundleViewportController)
+        host.view.layoutSubtreeIfNeeded()
+        controller.configure(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+        controller.view.layoutSubtreeIfNeeded()
         XCTAssertGreaterThan(controller.testDetailContainer.frame.width, CGFloat(300))
         XCTAssertGreaterThan(controller.testListContainer.frame.width, CGFloat(300))
         XCTAssertFalse(controller.testDetailContainer.isHidden)

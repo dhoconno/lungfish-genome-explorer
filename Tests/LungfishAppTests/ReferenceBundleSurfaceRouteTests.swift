@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: MIT
 //
 // A mapping result and a `.lungfishref` share one display, one class and one loading state, and a person's mapping result
-// reaches the viewer through `displayMappingAnalysisFromSidebar`, never through `displayMappingResult`, which has no
-// production caller. So every test of what a person sees goes through the sidebar's routes. These tests read what a slip
+// reaches the viewer through `displayMappingAnalysisFromSidebar`, the one mapping route since 3.2 deleted
+// `displayMappingResult`. So every test of what a person sees goes through the sidebar's routes. These tests read what a slip
 // would change: whose BAM, rows and bundle are on screen, the numbers, and what a removed viewport may still do.
 
 import AppKit
@@ -159,19 +159,6 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
     /// every reader of the reference slot would see the dead route's class. The live route must never build that class.
     func testTheMappingClassDoesNotAnswerTheReferenceSlot() async throws {
         let mapping = try makeMapping("A", contig: "chrA", readsOnContig: 9)
-        let result = try MappingResult.load(from: mapping.result)
-        let lone = ViewerViewController()
-        lone.view.frame = NSRect(x: 0, y: 0, width: 1400, height: 800)
-
-        lone.displayMappingResult(result, resultDirectoryURL: mapping.result)
-
-        XCTAssertNotNil(lone.mappingResultController)
-        XCTAssertNil(lone.referenceBundleViewportController, "the reference slot answered for the mapping class")
-        XCTAssertTrue(lone.activeMappingViewportController === lone.mappingResultController)
-        lone.clearSurface(ifShowing: .bundle(.reference))
-        XCTAssertNil(lone.mappingResultController)
-        XCTAssertNil(lone.activeMappingViewportController)
-
         let harness = try ViewSwitchWindowHarness()
         defer { harness.close() }
         let viewer = harness.split.viewerController!

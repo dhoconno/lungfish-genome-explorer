@@ -50,8 +50,8 @@ final class ViewerGraphicsExportRouteReachTests: XCTestCase {
     }
 
     /// A mapping result opened by the sidebar's mapping route, whose viewer bundle is the mapping's own copy of its
-    /// reference with the read track (Q-A24). BIO: the image shows the reads against that reference. The same result
-    /// shown by `displayMappingResult`, the viewer's other mapping route, draws through `mappingResultController`.
+    /// reference with the read track (Q-A24). BIO: the image shows the reads against that reference. It is the one
+    /// route that shows a mapping result since 3.2 deleted `displayMappingResult`.
     func testMappingResultOpenedFromSidebarExportsThroughBundleExportGraphic() async throws {
         let mapping = try makeMappingResult()
         let (delegate, controller, split) = try makeWindow()
@@ -60,12 +60,6 @@ final class ViewerGraphicsExportRouteReachTests: XCTestCase {
         let drawing = try await waitForDrawnBundle(in: split.viewerController) { $0.referenceBundleViewportController }
         try await assertExportReachesTheLeaf(
             delegate: delegate, drawing: drawing, drawn: mapping.viewerBundle, drawsReads: true, kind: "mapping-result"
-        )
-
-        split.viewerController.displayMappingResult(mapping.result, resultDirectoryURL: mapping.folder)
-        let shown = try await waitForDrawnBundle(in: split.viewerController) { $0.mappingResultController }
-        try await assertExportReachesTheLeaf(
-            delegate: delegate, drawing: shown, drawn: mapping.viewerBundle, drawsReads: true, kind: "mapping-result-view"
         )
     }
 

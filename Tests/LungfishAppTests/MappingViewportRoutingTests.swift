@@ -144,35 +144,6 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertEqual(presented, 1)
     }
 
-    func testViewerDisplaysLegacyMappingResultInMappingMode() throws {
-        let resultDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mapping-legacy-route-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
-        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
-            name: "Legacy Mapping Reference",
-            chromosomes: [
-                .init(name: "chr1", length: 100),
-            ]
-        )
-        let result = MappingRoutingFixture.makeMappingResult(
-            resultDirectory: resultDirectory,
-            viewerBundleURL: bundleURL
-        )
-        let vc = ViewerViewController()
-        vc.view.frame = NSRect(x: 0, y: 0, width: 1400, height: 800)
-
-        vc.displayMappingResult(result, resultDirectoryURL: resultDirectory)
-
-        let controller = try XCTUnwrap(vc.mappingResultController)
-        XCTAssertEqual(vc.contentMode, .mapping)
-        XCTAssertEqual(controller.currentInput?.mappingResultDirectoryURL, resultDirectory.standardizedFileURL)
-        XCTAssertNil(vc.referenceBundleViewportController)
-
-        vc.clearSurface(ifShowing: .bundle(.reference))
-
-        XCTAssertNil(vc.mappingResultController)
-    }
-
     func testLegacyMappingSelectionInstallsAlignmentActionContext() throws {
         let resultDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("mapping-action-context-\(UUID().uuidString)", isDirectory: true)

@@ -102,36 +102,6 @@ extension ViewerViewController {
         try activeMappingViewportController?.reloadViewerBundleForInspectorChanges()
     }
 
-    public func displayMappingResult(_ result: MappingResult) {
-        displayMappingResult(result, resultDirectoryURL: nil)
-    }
-
-    public func displayMappingResult(_ result: MappingResult, resultDirectoryURL: URL?) {
-        clearSurfaceForNewContent()
-        clearBundleDisplay()
-        hideCollectionBackButton()
-        contentMode = .mapping
-
-        annotationDrawerView?.isHidden = true
-
-        let controller = MappingResultViewController()
-        do {
-            _ = try showSurface(.bundle(.reference), input: controller, as: ReferenceBundleSurface.self)
-        } catch {
-            mappingDisplayLogger.error("displayMappingResult: Did not install: \(error.localizedDescription, privacy: .public)")
-            clearViewport(statusMessage: "Unable to open the mapping result. Select it again.")
-            return
-        }
-
-        view.layoutSubtreeIfNeeded()
-        controller.configure(result: result, resultDirectoryURL: resultDirectoryURL)
-        controller.view.layoutSubtreeIfNeeded()
-
-        mappingDisplayLogger.info(
-            "displayMappingResult: Showing \(result.mapper.displayName, privacy: .public) result"
-        )
-    }
-
     func displayReferenceBundleViewport(_ input: ReferenceBundleViewportInput) throws {
         // The same document can be announced again without the user choosing
         // anything new (a sidebar refresh, a repeated selection event, a

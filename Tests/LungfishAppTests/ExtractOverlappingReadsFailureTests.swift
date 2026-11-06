@@ -72,7 +72,7 @@ final class ExtractOverlappingReadsFailureTests: XCTestCase {
     /// `alerts`. A failure never presents a live `NSAlert`: a real `beginSheetModal` or
     /// `presentError` blocks indefinitely under an attached WindowServer (an interactive
     /// session), which hangs the test.
-    private func makeViewer(alerts: AlertRecorder) -> ViewerViewController {
+    private func makeViewer(alerts: AlertRecorder) throws -> ViewerViewController {
         let result = MappingResult(
             mapper: .minimap2,
             modeID: MappingMode.defaultShortRead.id,
@@ -88,7 +88,9 @@ final class ExtractOverlappingReadsFailureTests: XCTestCase {
         )
         let vc = ViewerViewController()
         vc.view.frame = NSRect(x: 0, y: 0, width: 1400, height: 800)
-        vc.displayMappingResult(result, resultDirectoryURL: resultDirectory)
+        // The class and the install of the sidebar's mapping route, filled from the result in place.
+        try vc.displayReferenceBundleViewportLoading(title: "Mapping", documentURL: resultDirectory)
+        try XCTUnwrap(vc.referenceBundleViewportController).configure(result: result, resultDirectoryURL: resultDirectory)
         vc.extractionFailureAlertPresenter = { title, message in
             alerts.record(title: title, message: message)
         }
@@ -143,7 +145,7 @@ final class ExtractOverlappingReadsFailureTests: XCTestCase {
             #"{"error":"stub samtools failure: region not found","event":"failed","schemaVersion":2}"#,
         ], status: 1)
         let alertRecorder = AlertRecorder()
-        let vc = makeViewer(alerts: alertRecorder)
+        let vc = try makeViewer(alerts: alertRecorder)
         let before = Set(OperationCenter.shared.items.map(\.id))
 
         vc.extractOverlappingReads(from: makeAnnotation())
@@ -171,7 +173,7 @@ final class ExtractOverlappingReadsFailureTests: XCTestCase {
             #"{"event":"complete","message":"Extracted 42 reads","outputs":["\#(outputFASTQ.path)"],"progress":1,"schemaVersion":2}"#,
         ], status: 0)
         let alertRecorder = AlertRecorder()
-        let vc = makeViewer(alerts: alertRecorder)
+        let vc = try makeViewer(alerts: alertRecorder)
         let before = Set(OperationCenter.shared.items.map(\.id))
 
         vc.extractOverlappingReads(from: makeAnnotation())
