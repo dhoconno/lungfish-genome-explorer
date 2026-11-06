@@ -289,9 +289,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             _ = sidebarController.selectItem(forURL: url)
 
             // A result whose viewer sets its own Inspector tab through its content mode keeps it (the registry's tab).
-            let tab = SidebarKindRegistry.analysisKind(ofFolder: url)?.inspectorTab
-                ?? SidebarKindRegistry.legacyAnalysisKinds(forFolderNamed: url.lastPathComponent).first?.inspectorTab
-            if tab != .setByViewer {
+            if SidebarKindRegistry.inspectorTab(afterImportOf: url) != .setByViewer {
                 self.requestInspectorDocumentModeAfterDownload(in: controller)
             }
         }

@@ -44,6 +44,21 @@ final class SidebarKindRegistryTests: XCTestCase {
         XCTAssertEqual(deletion, ["analysis:naomgs", "analysis:nvd"])
     }
 
+    /// Manager ruling, 3.2 session 2. An imported Kraken 2 `classification-` folder keeps the classifier's Inspector tab
+    /// after the import selects it, as the retired `kraken2-` row of the Inspector table meant, before and after its
+    /// result file is written. A folder no kind claims opens on the Document tab.
+    func testAnImportedClassificationFolderKeepsTheClassifierInspectorTab() throws {
+        let folder = root.appendingPathComponent("classification-2026-11-06T10-00-00", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        XCTAssertEqual(SidebarKindRegistry.inspectorTab(afterImportOf: folder), .setByViewer)
+        try Data("{}".utf8).write(to: folder.appendingPathComponent("classification-result.json"))
+        XCTAssertEqual(SidebarKindRegistry.inspectorTab(afterImportOf: folder), .setByViewer)
+
+        let other = root.appendingPathComponent("spades-2026-11-06T10-00-00", isDirectory: true)
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        XCTAssertNotEqual(SidebarKindRegistry.inspectorTab(afterImportOf: other), .setByViewer)
+    }
+
     func testEveryKindHasAUniqueID() {
         let ids = SidebarKindRegistry.all.map(\.id)
         XCTAssertEqual(ids.count, Set(ids).count)
