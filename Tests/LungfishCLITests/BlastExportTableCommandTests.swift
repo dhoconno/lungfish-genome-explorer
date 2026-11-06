@@ -339,6 +339,26 @@ final class BlastExportTableCommandTests: XCTestCase {
         return table.dropFirst().map { Dictionary(uniqueKeysWithValues: zip(header, $0)) }
     }
 
+    /// Lane KRAKENCORE, BIO-BLAST-DATABASES item 7. A saved search that NCBI ran on another database than the one it asked for
+    /// names both in the export's record, with the program version. A result that reported neither adds no key, as above.
+    func testTheExportRecordNamesTheDatabaseAndVersionNCBIReported() throws {
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(Self.verification)) as? [String: Any])
+        object["database"] = "nt"
+        object["reportedDatabase"] = "core_nt"
+        object["blastVersion"] = "BLASTN 2.17.0+"
+        let reported = try JSONDecoder().decode(BlastVerificationResult.self, from: JSONSerialization.data(withJSONObject: object))
+        let request = BlastVerificationRequest(
+            taxonName: "Escherichia coli", taxId: 562, sequences: [(id: "read,1", sequence: "ACGTACGTAC")], database: "nt"
+        )
+        let record = try writeSubmitRecord(request: request, result: reported)
+        let output = try newFolder().appendingPathComponent("reported.tsv")
+        _ = try command(leafArguments(record, output: output)).export()
+        let resolved = try Self.envelope(of: output).options.resolvedDefaults
+        XCTAssertEqual(resolved["database"]?.stringValue, "nt", "the database the search asked for")
+        XCTAssertEqual(resolved["reportedDatabase"]?.stringValue, "core_nt", "the database NCBI says it searched")
+        XCTAssertEqual(resolved["blastVersion"]?.stringValue, "BLASTN 2.17.0+")
+    }
+
     func testBlastTableLeafRefusesAnOptionItDoesNotTake() {
         let output = folder.appendingPathComponent("refuse.tsv")
         XCTAssertThrowsError(try command(leafArguments(submitRecord, output: output, extra: ["--separator", "tsv"])))

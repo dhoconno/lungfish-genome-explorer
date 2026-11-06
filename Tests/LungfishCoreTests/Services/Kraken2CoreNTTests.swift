@@ -66,5 +66,8 @@ final class Kraken2CoreNTTests: XCTestCase {
         XCTAssertEqual(read.confidence, saved.confidence)
         XCTAssertEqual(read.confidence, .supported)
         XCTAssertEqual(read.databaseSequenceCount, 132_357_636)
+        let reread = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(read)) as? [String: Any])
+        XCTAssertNil(reread["reportedDatabase"], "a record from before the fields names no reported database")
+        XCTAssertNil(reread["blastVersion"], "and no program version")
     }
 }
