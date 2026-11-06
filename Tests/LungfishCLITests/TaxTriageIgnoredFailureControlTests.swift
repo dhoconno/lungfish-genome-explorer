@@ -101,9 +101,12 @@ final class TaxTriageIgnoredFailureControlTests: XCTestCase {
         XCTAssertTrue(shared.contains(",No,"), shared)
     }
 
-    /// A control that has rows keeps reading from them, and an organism it does not hold still reads No, since a cell
-    /// cannot say more (BIO ruling 3, the Known limit). The report says in words that a step of the control was skipped
-    /// and its results may be incomplete (BIO review, should-fix 2).
+    // MARK: - A control with rows and a skipped step (red at the base, 3.2 TTNOTCHECKED)
+
+    /// A control that has rows keeps reading from them, so an organism it holds reads Yes. A step of it was skipped, so a No
+    /// for an organism it does not hold is not known and the matrix reads Not checked there (3.2 TTNOTCHECKED, rows
+    /// TAXTRIAGE-CONTROL-PARTIAL-RESULT, which retires the Known limit of BIO ruling 3). The report says in words that a
+    /// step of the control was skipped and its results may be incomplete (BIO review, should-fix 2).
     func testAnEntryNamingAControlThatHasRowsKeepsReadingItsRows() async throws {
         let result = try await importedRun(
             reports: [("patient", [0, 1]), ("NTC1", [0])], ignored: [Self.ignored("MINIMAP2_ALIGN", "NTC1")]
@@ -113,12 +116,31 @@ final class TaxTriageIgnoredFailureControlTests: XCTestCase {
         let shared = try XCTUnwrap(lines.first { $0.hasPrefix("\(Self.shared),") })
         let other = try XCTUnwrap(lines.first { $0.hasPrefix("\(Self.other),") })
         XCTAssertTrue(shared.contains(",Yes,"), shared)
-        XCTAssertTrue(other.contains(",No,"), other)
+        XCTAssertTrue(other.contains(",Not checked,"), "a step of the control was skipped, but the matrix said: \(other)")
+        XCTAssertFalse(other.contains(",No,"), other)
         let report = try reportText(of: result)
+        XCTAssertTrue(report.contains("Contamination risk is only partly checked."), report)
         XCTAssertTrue(report.contains("may be incomplete"), "a step of the control was skipped, but the report said: \(report)")
         XCTAssertTrue(report.contains("(MINIMAP2_ALIGN)"), report)
         XCTAssertFalse(report.contains("(failed, no result)"), "the control has rows, so it did not fail: \(report)")
     }
+
+    /// The results table the CLI writes holds Not checked where it held a blank, and yes for what the control holds.
+    func testResultsExportReadsNotCheckedForAnOrganismAControlWithASkippedStepDoesNotHold() async throws {
+        let result = try await importedRun(
+            reports: [("patient", [0, 1]), ("NTC1", [0])], ignored: [Self.ignored("MINIMAP2_ALIGN", "NTC1")]
+        )
+
+        let rows = try resultsLines(of: result)
+        let otherRows = rows.filter { $0.contains(",\(Self.other),") }
+        XCTAssertEqual(otherRows.count, 1, "\(rows)")
+        XCTAssertTrue(otherRows.allSatisfy { $0.hasSuffix(",Not checked") }, "the cell was blank for a No that is not known: \(otherRows)")
+        let sharedRows = rows.filter { $0.contains(",\(Self.shared),") }
+        XCTAssertEqual(sharedRows.count, 2, "\(rows)")
+        XCTAssertTrue(sharedRows.allSatisfy { $0.hasSuffix(",yes") }, "\(sharedRows)")
+    }
+
+    // MARK: - More guards, true at the base and after
 
     /// FASTQC, NANOPLOT and MULTIQC only draw quality plots (`onlyAffectsQualityPlots`), so a control whose plot failed
     /// and that found nothing is still a clean control.

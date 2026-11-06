@@ -77,7 +77,10 @@ final class TaxTriageControlNoticeTests: XCTestCase {
         )
         XCTAssertTrue(words.contains("may be incomplete"), words)
         XCTAssertFalse(words.contains("failed"), words)
-        XCTAssertFalse(words.contains("Where no warning sign shows"), words)
+        // 3.2 TTNOTCHECKED: the files now say Not checked for what this control does not list, so the strip says where no
+        // sign shows the risk is not checked (it said nothing here before).
+        XCTAssertTrue(words.contains("Contamination risk is only partly checked."), words)
+        XCTAssertTrue(words.hasSuffix("Where no warning sign shows, the risk is not checked."), words)
     }
 
     func testViewerNamesAControlItCannotFindInTheResults() throws {
@@ -106,7 +109,9 @@ final class TaxTriageControlNoticeTests: XCTestCase {
         let words = try XCTUnwrap(vc.testControlsNotRecordedNoticeWords, "the viewer said nothing about two names that meet")
         XCTAssertTrue(words.contains("NTC 1 and NTC_1 are both named NTC_1 in the results"), words)
         XCTAssertTrue(words.contains("Give each sample a name that stays different"), words)
-        XCTAssertFalse(words.contains("Where no warning sign shows"), "no control is unchecked, so the sentence does not apply: \(words)")
+        // 3.2 TTNOTCHECKED: the control NTC 1 met a sample and the results hold one of the two, so the rows that were kept may
+        // be the sample's and the control's No is not known. The files say Not checked and the strip says so.
+        XCTAssertTrue(words.hasSuffix("Where no warning sign shows, the risk is not checked."), words)
     }
 
     /// BIO review, blocker 2. The app's own index build keeps the rows of one of two folders whose names meet and only

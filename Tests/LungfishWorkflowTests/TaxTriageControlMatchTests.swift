@@ -180,6 +180,114 @@ final class TaxTriageControlMatchTests: XCTestCase {
         XCTAssertEqual(match.controls.map(\.sampleId), ["NTC1", "NTC2"])
     }
 
+    // MARK: - A control that was not fully checked (3.2 TTNOTCHECKED)
+
+    /// The entry the parser writes: the whole tag is the task label and the sample is the tag cut at its first dot.
+    private func ignored(_ process: String, tag: String) -> TaxTriageIgnoredFailure {
+        TaxTriageIgnoredFailure(
+            processPath: "NFCORE_TAXTRIAGE:TAXTRIAGE:\(process)",
+            processName: process,
+            taskLabel: tag,
+            sampleID: tag.split(separator: ".").first.map(String.init),
+            exitCode: 137
+        )
+    }
+
+    /// A control with rows and a step the pipeline skipped keeps what it lists, but a No for an organism it does not list
+    /// is not known, so the match counts it as not fully checked. The note names the cause once.
+    func testControlWithRowsAndASkippedStepIsNotChecked() {
+        let match = TaxTriageControlMatch(
+            samples: [sample("S1"), sample("NTC1", control: true)],
+            failedSampleIDs: [],
+            ignoredFailures: [ignored("MINIMAP2_ALIGN", tag: "NTC1")],
+            databaseSampleIds: ["NTC1", "S1"]
+        )
+        XCTAssertEqual(match.controls.map(\.state), [.found])
+        XCTAssertEqual(match.controlSampleIds, ["NTC1"], "what the control holds stays a Yes")
+        XCTAssertTrue(match.hasUncheckedControl, "a control with a skipped step was counted as fully checked")
+        XCTAssertEqual(match.uncheckedWords, "Contamination risk is only partly checked.")
+        XCTAssertEqual(match.notes.count, 1, "\(match.notes)")
+        XCTAssertTrue(match.notes[0].contains("(MINIMAP2_ALIGN)"), match.notes[0])
+    }
+
+    /// The same for a control whose name has a dot, which the parser cuts at its first dot.
+    func testControlWithADottedNameAndASkippedStepIsNotChecked() {
+        let match = TaxTriageControlMatch(
+            samples: [sample("S1"), sample("NTC.1", control: true)],
+            failedSampleIDs: [],
+            ignoredFailures: [ignored("MINIMAP2_ALIGN", tag: "NTC.1")],
+            databaseSampleIds: ["NTC.1", "S1"]
+        )
+        XCTAssertEqual(match.controls.map(\.state), [.found])
+        XCTAssertTrue(match.hasUncheckedControl)
+    }
+
+    /// Two typed names that the pipeline makes one name, where the results hold fewer samples than the run lists, leave a
+    /// control whose rows may be the ones that were dropped. A control that meets a sample is the same.
+    func testControlsWhoseNamesMetAndLostRowsAreNotChecked() {
+        let controls = TaxTriageControlMatch(
+            samples: [sample("S1"), sample("NTC 1", control: true), sample("NTC_1", control: true)],
+            failedSampleIDs: [],
+            databaseSampleIds: ["NTC_1", "S1"]
+        )
+        XCTAssertEqual(controls.controls.map(\.state), [.found, .found])
+        XCTAssertEqual(controls.controlSampleIds, ["NTC_1"], "what the kept control holds stays a Yes")
+        XCTAssertTrue(controls.hasUncheckedControl, "two controls became one and the results hold one")
+        XCTAssertEqual(controls.uncheckedWords, "Contamination risk is only partly checked.")
+        let mixed = TaxTriageControlMatch(
+            samples: [sample("S1"), sample("NTC 1", control: true), sample("NTC_1")],
+            failedSampleIDs: [],
+            databaseSampleIds: ["NTC_1", "S1"]
+        )
+        XCTAssertTrue(mixed.hasUncheckedControl, "a control met a sample and the results hold one of the two")
+    }
+
+    // MARK: - Guards, true at the base and after
+
+    /// FASTQC, MULTIQC and NANOPLOT only draw quality plots, so a control that has rows and lost a plot is checked.
+    func testQualityPlotStepOfAControlLeavesItChecked() {
+        for process in ["FASTQC", "MULTIQC", "NANOPLOT"] {
+            let match = TaxTriageControlMatch(
+                samples: [sample("S1"), sample("NTC1", control: true)],
+                failedSampleIDs: [],
+                ignoredFailures: [ignored(process, tag: "NTC1")],
+                databaseSampleIds: ["NTC1", "S1"]
+            )
+            XCTAssertFalse(match.hasUncheckedControl, process)
+            XCTAssertNil(match.uncheckedWords, process)
+            XCTAssertTrue(match.notes.isEmpty, "\(process): \(match.notes)")
+        }
+    }
+
+    /// A skipped step of another sample says nothing about the control.
+    func testSkippedStepOfAnotherSampleLeavesAFoundControlChecked() {
+        let match = TaxTriageControlMatch(
+            samples: [sample("S1"), sample("NTC1", control: true)],
+            failedSampleIDs: [],
+            ignoredFailures: [ignored("MINIMAP2_ALIGN", tag: "S1")],
+            databaseSampleIds: ["NTC1", "S1"]
+        )
+        XCTAssertFalse(match.hasUncheckedControl)
+    }
+
+    /// Names that meet leave nothing out when the results hold every sample that meets, or when the sets that meet hold no
+    /// control, so a control with rows stays checked.
+    func testNamesThatMeetLeaveAControlCheckedWhenNoRowIsLeftOutOrNoControlIsAmongThem() {
+        let allHeld = TaxTriageControlMatch(
+            samples: [sample("S1"), sample("NTC 1", control: true), sample("NTC_1")],
+            failedSampleIDs: [],
+            databaseSampleIds: ["S1", "NTC_1_T1", "NTC_1_T2"]
+        )
+        XCTAssertFalse(allHeld.hasUncheckedControl, "both names are held under their numbers")
+        let samplesOnly = TaxTriageControlMatch(
+            samples: [sample("A b"), sample("A_b"), sample("NTC1", control: true)],
+            failedSampleIDs: [],
+            databaseSampleIds: ["A_b", "NTC1"]
+        )
+        XCTAssertEqual(samplesOnly.notes.count, 1, "\(samplesOnly.notes)")
+        XCTAssertFalse(samplesOnly.hasUncheckedControl, "the control is not among the names that meet")
+    }
+
     func testListing() {
         XCTAssertEqual(TaxTriageControlMatch.listing([]), "")
         XCTAssertEqual(TaxTriageControlMatch.listing(["A"]), "A")
