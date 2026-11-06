@@ -704,6 +704,26 @@ github_cli_upload_asset() {
         gh --repo "$GH_REPO" release upload "$release_tag" "$@"
 }
 
+# Steps after signing read the release folder (under ~/Documents in a worktree) or the network. The publish of Preview
+# 2026.11.1 waited 18,003 seconds there, and the wait ended when a click answered a macOS Documents privacy prompt that
+# a remote or scripted click cannot answer. So each such step has a limit, and a timeout names the step and what to do
+# (RELEASE-SMOKE-DOCUMENTS-PROMPT). Arguments: phase, seconds, then the command.
+bounded_local() {
+    local phase="$1"
+    local seconds="$2"
+    shift 2
+    "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/bounded_process.py" \
+        --timeout "$seconds" --phase "$phase" --local-files --public-stdout -- "$@"
+}
+
+bounded_network() {
+    local phase="$1"
+    local seconds="$2"
+    shift 2
+    "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/bounded_process.py" \
+        --timeout "$seconds" --phase "$phase" --public-stdout -- "$@"
+}
+
 verify_versioned_release_identity() {
     if [ -z "$GITHUB_RELEASE_TAG" ] || [ "$DEFER_REMOTE_PUBLISH" -eq 1 ]; then
         return
@@ -717,7 +737,7 @@ verify_versioned_release_identity() {
     local peeled_count
     local release_exists=0
     head_commit=$(git rev-parse HEAD)
-    remote_lines=$(git ls-remote --tags "$GIT_REMOTE" \
+    remote_lines=$(bounded_network git-ls-remote 180 git ls-remote --tags "$GIT_REMOTE" \
         "refs/tags/${GITHUB_RELEASE_TAG}" \
         "refs/tags/${GITHUB_RELEASE_TAG}^{}")
     direct_count=$(printf '%s\n' "$remote_lines" \
@@ -1006,7 +1026,7 @@ publish_github_release_dmg() {
         existing_digest=$(github_cli release view "$GITHUB_RELEASE_TAG" --json assets \
             --jq ".assets[] | select(.name == \"$(basename "$DMG_PATH")\") | .digest")
         if [ -n "$existing_digest" ]; then
-            local_digest="sha256:$(/usr/bin/shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
+            local_digest="sha256:$(bounded_local sha256 300 /usr/bin/shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
             if [ "$existing_digest" != "$local_digest" ]; then
                 echo "existing release DMG digest differs; refusing recovery overwrite: $GITHUB_RELEASE_TAG" >&2
                 exit 64
@@ -1060,7 +1080,7 @@ verify_uploaded_asset_digest() {
     asset_name=$(basename "$local_path")
     remote_digest=$(github_cli release view "$release_tag" --json assets \
         --jq ".assets[] | select(.name == \"${asset_name}\") | .digest")
-    local_digest="sha256:$(/usr/bin/shasum -a 256 "$local_path" | awk '{print $1}')"
+    local_digest="sha256:$(bounded_local sha256 300 /usr/bin/shasum -a 256 "$local_path" | awk '{print $1}')"
     if [ "$remote_digest" != "$local_digest" ]; then
         echo "uploaded asset digest mismatch for $asset_name on $release_tag (expected $local_digest, got $remote_digest)" >&2
         exit 64
@@ -1116,7 +1136,7 @@ publish_mutable_asset_if_changed() {
     local expected_size
     local remote_record
     asset_name=$(basename "$local_path")
-    expected_digest="sha256:$(/usr/bin/shasum -a 256 "$local_path" | awk '{print $1}')"
+    expected_digest="sha256:$(bounded_local sha256 300 /usr/bin/shasum -a 256 "$local_path" | awk '{print $1}')"
     expected_size=$(/usr/bin/stat -f %z "$local_path")
     remote_record=$(github_cli release view "$release_tag" --json assets \
         --jq ".assets[] | select(.name == \"${asset_name}\") | [.digest,.size] | @tsv")
@@ -1156,10 +1176,10 @@ generate_sparkle_appcast() {
     fi
 
     mkdir -p "$SPARKLE_APPCAST_DIR"
-    /bin/cp -p "$DMG_PATH" "$appcast_dmg"
+    bounded_local dmg-copy 300 /bin/cp -p "$DMG_PATH" "$appcast_dmg"
 
     if [ -f "$notes_source" ]; then
-        /usr/bin/install -m 644 "$notes_source" "$notes_dest"
+        bounded_local notes-copy 60 /usr/bin/install -m 644 "$notes_source" "$notes_dest"
     fi
 
     SPARKLE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/${SPARKLE_APPCAST_FILENAME}"
@@ -1202,7 +1222,7 @@ generate_sparkle_appcast() {
 
     if [ -n "$SPARKLE_BRIDGE_PUBLISH_RELEASE" ] && [ "$DEFER_REMOTE_PUBLISH" -eq 0 ]; then
         local bridge_appcast_path="${SPARKLE_APPCAST_DIR}/${SPARKLE_BRIDGE_APPCAST_FILENAME}"
-        /bin/cp -p "$SPARKLE_APPCAST_PATH" "$bridge_appcast_path"
+        bounded_local appcast-copy 60 /bin/cp -p "$SPARKLE_APPCAST_PATH" "$bridge_appcast_path"
 
         ensure_mutable_release \
             "$SPARKLE_BRIDGE_PUBLISH_RELEASE" \
@@ -1696,7 +1716,7 @@ verify_file_matches_remote_asset() {
         echo "$label remote digest or size is malformed" >&2
         exit 64
     fi
-    actual_digest="sha256:$(/usr/bin/shasum -a 256 "$path" | awk '{print $1}')"
+    actual_digest="sha256:$(bounded_local sha256 300 /usr/bin/shasum -a 256 "$path" | awk '{print $1}')"
     actual_size=$(/usr/bin/stat -f %z "$path")
     if [ "$actual_digest" != "$expected_digest" ] || [ "$actual_size" != "$expected_size" ]; then
         echo "$label does not match the immutable GitHub release asset" >&2
@@ -1787,7 +1807,7 @@ if [ "$RECOVER_EXISTING_RELEASE" -eq 1 ]; then
     # Recovery must never rebuild, re-sign, re-notarize, replace, or upload it.
     recover_immutable_release_artifacts
     APP_PATH="$SIGNED_APP_PATH"
-    VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${APP_PATH}/Contents/Info.plist")
+    VERSION=$(bounded_local plist-read 60 /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${APP_PATH}/Contents/Info.plist")
 else
     run_live_sparkle_build_gates "$VERIFIED_SPARKLE_BUILD_NUMBER"
     prepare_signed_output_parent
@@ -1813,7 +1833,7 @@ else
     [ -z "$NOTARY_KEYCHAIN" ] || signing_args+=(--notary-keychain "$NOTARY_KEYCHAIN")
     "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/signing_pipeline.py" "${signing_args[@]}"
     APP_PATH="$SIGNED_APP_PATH"
-    VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${APP_PATH}/Contents/Info.plist")
+    VERSION=$(bounded_local plist-read 60 /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${APP_PATH}/Contents/Info.plist")
     if [ "$VERSION" != "$SOURCE_VERSION" ] || [ "$DMG_PATH" != "${RELEASE_DIR}/Lungfish-${VERSION}-arm64.dmg" ]; then
         echo "retained signed artifact version does not match source" >&2
         exit 65
@@ -1830,7 +1850,7 @@ run_live_sparkle_build_gates "$VERIFIED_SPARKLE_BUILD_NUMBER"
 generate_sparkle_appcast
 prune_github_prereleases
 
-DMG_SHA=$(/usr/bin/shasum -a 256 "$DMG_PATH" | awk '{print $1}')
+DMG_SHA=$(bounded_local sha256 300 /usr/bin/shasum -a 256 "$DMG_PATH" | awk '{print $1}')
 COMMIT_SHA=$(git rev-parse HEAD)
 SPARKLE_APPCAST_SHA=""
 SPARKLE_APPCAST_SIZE=""
@@ -1838,13 +1858,13 @@ SPARKLE_BRIDGE_APPCAST_PATH=""
 SPARKLE_BRIDGE_APPCAST_SHA=""
 SPARKLE_BRIDGE_APPCAST_SIZE=""
 if [ -n "${SPARKLE_APPCAST_PATH:-}" ] && [ -f "$SPARKLE_APPCAST_PATH" ]; then
-    SPARKLE_APPCAST_SHA=$(/usr/bin/shasum -a 256 "$SPARKLE_APPCAST_PATH" | awk '{print $1}')
+    SPARKLE_APPCAST_SHA=$(bounded_local sha256 300 /usr/bin/shasum -a 256 "$SPARKLE_APPCAST_PATH" | awk '{print $1}')
     SPARKLE_APPCAST_SIZE=$(/usr/bin/stat -f %z "$SPARKLE_APPCAST_PATH")
 fi
 if [ -n "$SPARKLE_BRIDGE_APPCAST_FILENAME" ]; then
     SPARKLE_BRIDGE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/${SPARKLE_BRIDGE_APPCAST_FILENAME}"
     if [ -f "$SPARKLE_BRIDGE_APPCAST_PATH" ]; then
-        SPARKLE_BRIDGE_APPCAST_SHA=$(/usr/bin/shasum -a 256 "$SPARKLE_BRIDGE_APPCAST_PATH" | awk '{print $1}')
+        SPARKLE_BRIDGE_APPCAST_SHA=$(bounded_local sha256 300 /usr/bin/shasum -a 256 "$SPARKLE_BRIDGE_APPCAST_PATH" | awk '{print $1}')
         SPARKLE_BRIDGE_APPCAST_SIZE=$(/usr/bin/stat -f %z "$SPARKLE_BRIDGE_APPCAST_PATH")
     else
         SPARKLE_BRIDGE_APPCAST_PATH=""

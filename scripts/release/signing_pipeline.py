@@ -66,6 +66,16 @@ def _dmg_capacity_mib(source):
     return (total + 1024 * 1024 - 1) // (1024 * 1024)
 
 
+def failure_message(phase, result):
+    """The one message of a stage that failed or ran out of time. The signed-app smoke says which check ran out of time and why
+    (a macOS privacy prompt that a remote click cannot answer), so its last lines reach the console (F2 of RELPROMPT)."""
+    message = phase + ' failed or exceeded its budget; retained stages preserved'
+    if phase == 'signed-app-tool-smoke':
+        lines = [' '.join(line.split()) for line in (getattr(result, 'stderr', '') or '').splitlines() if line.strip()]
+        if lines: message += '. Last output of the smoke: ' + ' | '.join(lines[-8:])[-1500:]
+    return message
+
+
 def sign_and_notarize(source_app, receipt, signed_app, dmg, transaction_dir, profile, *,
                       entitlements, volume_name, public_key, run=run_bounded, notary=notarize,
                       command_timeout=180, poll_budget=600, env=None, smoke_script=None, scratch_path=None):
@@ -122,7 +132,7 @@ def sign_and_notarize(source_app, receipt, signed_app, dmg, transaction_dir, pro
             try: result = run(argv, timeout=command_timeout, env=env)
             except OSError as error: raise SigningError(phase + ' tool is unavailable') from error
             state['commands'].append(safe_record(result, phase=phase)); save()
-            if result.returncode != 0: raise SigningError(phase + ' failed or exceeded its budget; retained stages preserved')
+            if result.returncode != 0: raise SigningError(failure_message(phase, result))
             return result
         def clear_unfinished(path):
             # Only an already-owned transaction with no completed record may restart a local stage.

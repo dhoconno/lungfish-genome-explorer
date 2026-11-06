@@ -45,11 +45,24 @@ def safe_record(result, *, phase):
     return dict(phase=phase, executable=Path(result.args[0]).name, exitStatus=result.returncode, timedOut=getattr(result, 'timed_out', False), wallTimeSeconds=getattr(result, 'wall_seconds', None))
 
 
+PRIVACY_PROMPT_WORDS = (
+    "macOS may be showing a privacy prompt (for example 'would like to access files in your Documents folder') "
+    'that a remote or scripted click cannot answer. To go on, run the publish at the Mac, or answer the prompt in '
+    'System Settings, Privacy and Security, Files and Folders.')
+
+
+def timeout_words(phase, seconds, *, local_files=False):
+    """Words for a step that ran out of time. A step that reads local files may be waiting on a macOS privacy prompt."""
+    words = f'FAIL {phase} timed out after {seconds:g} seconds.'
+    return f'{words} {PRIVACY_PROMPT_WORDS}' if local_files else words
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--timeout', type=float, required=True)
     parser.add_argument('--phase', required=True)
     parser.add_argument('--public-stdout', action='store_true', help='Forward successful public protocol output; never use for secret-bearing commands')
+    parser.add_argument('--local-files', action='store_true', help='The step reads local files, so a timeout names the macOS privacy prompt')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
@@ -59,6 +72,7 @@ def main():
         print(json.dumps(dict(phase=args.phase, exitStatus=127, error='tool unavailable')))
         return 127
     print(json.dumps(safe_record(result, phase=args.phase)), file=sys.stderr if args.public_stdout else sys.stdout)
+    if result.timed_out: print(timeout_words(args.phase, args.timeout, local_files=args.local_files), file=sys.stderr)
     if args.public_stdout and result.returncode == 0:
         sys.stdout.write(result.stdout)
     return result.returncode
