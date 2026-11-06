@@ -13,12 +13,19 @@
 // defaults. A file Quick Look would draw is recorded rather than drawn, as in
 // the routing table, and no project is open, so a route that would ask for a
 // name stops where the routing table row says it does.
+//
+// A 12S viewer the window shows saves its column layouts to a suite of the
+// window's own, and `close()` takes its tables' identity away, so a viewer that
+// outlives the window saves nothing in the runner's defaults on a later test's
+// text-size change (FULL1-12S-LEAK).
 
 import AppKit
 import XCTest
 @testable import LungfishApp
 import LungfishCore
+@testable import LungfishKit
 import LungfishTestSupport
+@testable import LungfishTwelveSUI
 
 @MainActor
 final class ViewSwitchWindowHarness {
@@ -26,6 +33,10 @@ final class ViewSwitchWindowHarness {
     let window: NSWindow
     let split: MainSplitViewController
     let recorder = LoadedDocumentRecorder()
+    /// Where the 12S viewers this window shows save their column layouts, never the runner's defaults.
+    private let twelveSLayouts = TestDefaultsSuite(prefix: "ViewSwitchWindowHarness")
+    /// The 12S viewers this window showed, whose tables `close()` takes the identity from.
+    private var twelveSViewers: [TwelveSAmpliconResultViewController] = []
 
     init() throws {
         controller = MainWindowController()
@@ -36,6 +47,19 @@ final class ViewSwitchWindowHarness {
         window.toolbar?.autosavesConfiguration = false
         window.isReleasedWhenClosed = false
         split = try XCTUnwrap(controller.mainSplitViewController)
+        // The App's 12S factory with its BLAST wiring, plus the suite, given
+        // before `configure(result:)` keys the tables' layouts by the result.
+        let viewer: ViewerViewController = split.viewerController
+        let layouts = twelveSLayouts
+        viewer.surfaceHost.registry.register(
+            .bundle(.twelveSResult),
+            factory: TwelveSSurface.factory { [weak self, weak viewer] shown in
+                viewer?.wireTwelveSUnresolvedBlast(shown)
+                shown.targetTable.metadataColumns.userDefaults = layouts.defaults
+                shown.unresolvedTable.metadataColumns.userDefaults = layouts.defaults
+                self?.twelveSViewers.append(shown)
+            }
+        )
         let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first, "the view-switch tests need a screen")
         let visible = screen.visibleFrame
         let size = NSSize(width: min(1280, visible.width - 40), height: min(820, visible.height - 40))
@@ -88,6 +112,24 @@ final class ViewSwitchWindowHarness {
         split.viewerController.clearViewport()
         split.inspectorController.clearSelection()
         controller.close()
+        releaseTwelveSLayouts()
+    }
+
+    /// A test that drops the window without `close()` still leaves no 12S layout behind.
+    isolated deinit {
+        releaseTwelveSLayouts()
+    }
+
+    /// Takes the identity from each 12S table this window showed, so a viewer
+    /// that outlives the window saves nothing, then removes the suite. It may
+    /// run twice.
+    private func releaseTwelveSLayouts() {
+        for shown in twelveSViewers {
+            shown.targetTable.resultIdentity = nil
+            shown.unresolvedTable.resultIdentity = nil
+        }
+        twelveSViewers = []
+        twelveSLayouts.tearDown()
     }
 }
 
