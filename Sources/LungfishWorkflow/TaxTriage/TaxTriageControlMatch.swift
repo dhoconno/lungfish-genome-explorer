@@ -67,8 +67,17 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
     public var failedControls: [Control] { controls.filter { $0.state == .failed } }
     /// The controls that ran and that the result does not show, while the database holds samples the run does not list.
     public var notFoundControls: [Control] { controls.filter { $0.state == .notFound } }
-    /// True when a control never ran or cannot be found, so a `No` for contamination risk would not be known.
-    public var hasUncheckedControl: Bool { controls.contains { $0.state == .failed || $0.state == .notFound } }
+    /// True when a control has rows that may be incomplete, so a `No` for an organism it does not list is not known
+    /// (lane TTNOTCHECKED, rows TAXTRIAGE-CONTROL-PARTIAL-RESULT and TAXTRIAGE-SAMPLE-NAMES-OLD-RESULT). Two cases set it.
+    /// A found control has a step the pipeline skipped after an error that is not a quality plot. A set of typed names that
+    /// the pipeline gives one name holds a control, and the database holds fewer of them than the run lists, so the rows
+    /// of the others, the control's among them, are missing. The organisms such a control lists stay Yes.
+    public let hasIncompleteControl: Bool
+    /// True when a control never ran, cannot be found or is incomplete, so a `No` for contamination risk would not be
+    /// known. The matrix, the results table, the batch report and the viewer's closing sentence read this one flag.
+    public var hasUncheckedControl: Bool {
+        hasIncompleteControl || controls.contains { $0.state == .failed || $0.state == .notFound }
+    }
 
     /// Every control as the results name it, for a viewer that shows its Risk column whenever the run lists a control:
     /// the database samples that belong to a control, and the results name of each control that has none.
@@ -76,7 +85,9 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
         controlSampleIds.union(controls.map(\.resultsName).filter { !$0.isEmpty })
     }
 
-    /// What a person reads when a control never ran or cannot be found, and what to do. Nil when every control ran.
+    /// What a person reads when a control never ran, cannot be found or may be incomplete, and what to do. Nil when every
+    /// control ran and none is incomplete. A control that is only incomplete adds the first sentence alone, since the notes
+    /// already say what was skipped or left out.
     /// The batch report and the viewer's notice say these words, so screen and file agree (lane TTCONTROLS).
     public var uncheckedWords: String? {
         guard hasUncheckedControl else { return nil }
@@ -169,6 +180,7 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
         }
 
         var notes: [String] = []
+        var incomplete = false
         let groups = Dictionary(grouping: samples, by: { TaxTriageSample.pipelineName(of: $0.sampleId) })
         for name in groups.keys.sorted() {
             guard let group = groups[name], !name.isEmpty, group.count > 1,
@@ -178,6 +190,11 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
                 group.contains { Self.belongs(candidate, to: $0.sampleId, sharing: sharing) }
             }
             guard !held.isEmpty else { continue }
+            // The results hold fewer samples than the run lists under this name, so the rows that were kept may not be the
+            // control's. The next loop counts the sets that hold no sample but controls the same way (lane TTNOTCHECKED).
+            if held.count < group.filter({ !failed.contains($0.sampleId) && !failed.contains(name) }).count {
+                incomplete = true
+            }
             let typed = group.map(\.sampleId).sorted()
             let meet = typed.count == 2
                 ? "\(typed[0]) and \(typed[1]) are both"
@@ -198,6 +215,9 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
             }
             let expected = group.filter { !failed.contains($0.sampleId) && !failed.contains(name) }.count
             guard !held.isEmpty, held.count < expected else { continue }
+            // Controls whose rows were left out are controls that were not fully checked. Other samples are not (lane
+            // TTNOTCHECKED).
+            if group.contains(where: \.isNegativeControl) { incomplete = true }
             let typed = group.map(\.sampleId).sorted()
             let meet = typed.count == 2 ? "\(typed[0]) and \(typed[1]) are both" : "\(Self.listing(typed)) are all"
             let kept = held.count == 1 ? "one sample" : "\(held.count) of them"
@@ -216,6 +236,7 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
                 }.map(\.processName)
             ).sorted()
             guard !steps.isEmpty else { continue }
+            incomplete = true
             let one = steps.count == 1
             notes.append(
                 "\(one ? "A step" : "Steps") of the negative control \(control.sampleId) (\(Self.listing(steps))) "
@@ -229,6 +250,7 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
         self.controlSampleIds = controlSampleIds
         self.unlistedSampleIds = unlisted
         self.notes = notes
+        self.hasIncompleteControl = incomplete
     }
 
     /// True when the database sample `databaseName` belongs to the run's sample `sampleId`.

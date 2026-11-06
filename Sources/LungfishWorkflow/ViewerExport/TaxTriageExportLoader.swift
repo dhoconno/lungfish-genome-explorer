@@ -160,8 +160,8 @@ public struct TaxTriageExportSource {
         )
     }
 
-    /// True when a control never ran or cannot be found, so Contamination Risk reads Not checked where it would read
-    /// No.
+    /// True when a control never ran, cannot be found or may be incomplete (a step the pipeline skipped, or a name that met
+    /// another), so Contamination Risk reads Not checked where it would read No. What the control lists stays Yes.
     public var controlsNotChecked: Bool { controlMatch.hasUncheckedControl }
 
     /// True when the result does not say which samples were negative controls: it has no sidecar, or its sidecar
