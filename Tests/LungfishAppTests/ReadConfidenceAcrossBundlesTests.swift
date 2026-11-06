@@ -8,9 +8,10 @@
 // the only production writer of the viewport's filter, as `ReferenceBundleReadFilterSameRowTests` does. No store keeps the
 // value per bundle (`rg minMapQ Sources` finds the block, the notification and the viewer), so the row is a reset.
 //
-// Open decision (see the lane report). Selecting the SAME row again goes through `clearSelection()`, so with the reset in
-// `clear()` the confidence returns to the default there as well, while the read groups stay (REFMAP). This file does not pin
-// that outcome.
+// The manager ruled on the first agent's open question (option b, 2026-11-06). The confidence resets only when a different bundle
+// opens, and selecting the same reference row again keeps the value the person set, as REFMAP's rule keeps a read group filter
+// (`ReferenceBundleReadFilterSameRowTests`). `testAConfidenceStaysWhenTheSameRowIsSelectedAgain` pins that case. A reset inside
+// `ReadStyleSectionViewModel.clear()` fails it, because the Inspector clears the block on every selection, the same row included.
 
 import AppKit
 import LungfishTestSupport
@@ -117,5 +118,32 @@ final class ReadConfidenceAcrossBundlesTests: XCTestCase {
         XCTAssertTrue(viewer.referenceBundleViewportController === viewport, "a later push rebuilt the viewport")
         XCTAssertEqual(viewportConfidence(viewer), 30, "a later push took the confidence away")
         XCTAssertEqual(readStyle.minMapQ, 30, "the Inspector no longer shows the confidence the reads are under")
+    }
+
+    /// REFMAP's rule for the confidence: a value set in the Inspector stays when the same reference row is selected again.
+    func testAConfidenceStaysWhenTheSameRowIsSelectedAgain() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        let rows = try await twoReferenceRows()
+        let readStyle = harness.split.inspectorController.viewModel.readStyleSectionViewModel
+
+        harness.select(rows.first.item)
+        let opened = await waitUntil(budget: .lookup) {
+            self.openedBundleURL(viewer) != nil && readStyle.onSettingsChanged != nil
+        }
+        XCTAssertTrue(opened, "the reference never opened and wired its read filter")
+        let viewport = try XCTUnwrap(viewer.referenceBundleViewportController)
+
+        readStyle.minMapQ = 30
+        readStyle.onSettingsChanged?()
+        XCTAssertEqual(viewportConfidence(viewer), 30, "the Inspector's confidence never reached the viewport")
+
+        harness.select(rows.first.item)
+        await harness.split.bundleOpenTask?.value
+
+        XCTAssertTrue(viewer.referenceBundleViewportController === viewport, "the same input rebuilt the viewport")
+        XCTAssertEqual(readStyle.minMapQ, 30, "the same row took the confidence away from the Inspector")
+        XCTAssertEqual(viewportConfidence(viewer), 30, "the same row took the confidence away from the reads and depth")
     }
 }
