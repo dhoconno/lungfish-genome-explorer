@@ -110,7 +110,6 @@ extension ViewerViewController {
     ) -> Bool {
         hideQuickLookPreview()
         hideFASTQDatasetView()
-        hideVCFDatasetView()
         hideFASTACollectionView()
         hideTaxonomyView()
         hideEsVirituView()

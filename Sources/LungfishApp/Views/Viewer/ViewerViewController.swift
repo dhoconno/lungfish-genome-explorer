@@ -145,9 +145,6 @@ public class ViewerViewController: NSViewController {
     /// The small controller that holds the dashboard on the host, and the dashboard's bottom constraint.
     var fastqDatasetContainer: FASTQDatasetContainerController? { installedSurface?.viewController as? FASTQDatasetContainerController }
 
-    /// VCF dataset dashboard, while the surface host shows it.
-    var vcfDatasetController: VCFDatasetViewController? { installedSurface?.viewController as? VCFDatasetViewController }
-
     /// FASTA collection browser (shown in place of sequence viewer for multi-sequence FASTA files)
     var fastaCollectionController: FASTACollectionViewController? { installedSurface?.viewController as? FASTACollectionViewController }
 
@@ -2037,7 +2034,6 @@ public class ViewerViewController: NSViewController {
         // Hide all overlay views that may be showing non-genomics content
         hideQuickLookPreview()
         hideFASTQDatasetView()
-        hideVCFDatasetView()
         hideFASTACollectionView()
         hideTaxonomyView()
         hideEsVirituView()
@@ -2111,7 +2107,6 @@ public class ViewerViewController: NSViewController {
         // Hide any non-document views when showing a genomics document
         hideQuickLookPreview()
         hideFASTQDatasetView()
-        hideVCFDatasetView()
         hideFASTACollectionView()
         hideTaxonomyView()
         hideEsVirituView()

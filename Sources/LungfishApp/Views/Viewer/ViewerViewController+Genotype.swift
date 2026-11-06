@@ -17,7 +17,6 @@ extension ViewerViewController {
     func displayGenotypeResult(_ result: ONTGenotypeResultBundleData) throws -> GenotypeResultViewController {
         hideQuickLookPreview()
         hideFASTQDatasetView()
-        hideVCFDatasetView()
         hideFASTACollectionView()
         hideTaxonomyView()
         hideEsVirituView()

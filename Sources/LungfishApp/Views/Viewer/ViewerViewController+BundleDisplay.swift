@@ -194,7 +194,6 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
     private func hideNonBundleViews() {
         hideQuickLookPreview()
         hideFASTQDatasetView()
-        hideVCFDatasetView()
         hideFASTACollectionView()
         hideTaxonomyView()
         hideEsVirituView()

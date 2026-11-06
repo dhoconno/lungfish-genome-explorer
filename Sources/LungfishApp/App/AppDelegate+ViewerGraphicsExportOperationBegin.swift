@@ -89,9 +89,7 @@ extension AppDelegate {
             bundleURL: drawn?.url,
             contentMode: drawing.contentMode,
             sequenceViewShown: !drawing.viewerView.isHidden,
-            documentDashboardShown: viewer.children.contains {
-                $0 is VCFDatasetViewController || $0 is FASTACollectionViewController
-            },
+            documentDashboardShown: viewer.children.contains { $0 is FASTACollectionViewController },
             hasDocument: viewer.currentDocument != nil
         )
     }

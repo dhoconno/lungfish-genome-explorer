@@ -33,7 +33,6 @@ extension ViewerViewController {
         registry.register(.bundle(.genotypeResult), factory: GenotypeResultSurface.factory())
         registry.register(.bundle(.phylogeneticTree), factory: PhylogeneticTreeSurface.factory())
         registry.register(.bundle(.multipleSequenceAlignment)) { MultipleSequenceAlignmentSurface() }
-        registry.register(.view(.vcfDataset)) { VCFDatasetSurface() }
         registry.register(.view(.quickLook)) { QuickLookPreviewSurface() }
         registry.register(.bundle(.fastq)) { [weak self] in FASTQDatasetSurface(viewer: self) }
         registry.register(.analysis(.spades), factory: AssemblyResultSurface.factory(for: .spades))

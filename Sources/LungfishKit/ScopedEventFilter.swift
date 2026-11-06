@@ -81,7 +81,6 @@ public enum ScopedEventFilter {
         .operationStateChanged: .application,
         .analysisRunOutputsCompleted: .application,
         .fastqDatasetLoaded: .window,
-        .vcfDatasetLoaded: .window,
         .databaseStorageLocationChanged: .application,
         .managedResourcesDidChange: .application,
 

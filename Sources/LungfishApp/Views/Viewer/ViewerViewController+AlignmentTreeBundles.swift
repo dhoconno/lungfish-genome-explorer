@@ -187,7 +187,6 @@ extension ViewerViewController {
     private func hideForNativeAlignmentTreeBundle() {
         hideQuickLookPreview()
         hideFASTQDatasetView()
-        hideVCFDatasetView()
         hideFASTACollectionView()
         hideTaxonomyView()
         hideEsVirituView()

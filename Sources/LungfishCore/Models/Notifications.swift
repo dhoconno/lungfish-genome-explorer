@@ -284,12 +284,6 @@ extension Notification.Name {
     /// - `"statistics"`: The `FASTQDatasetStatistics` object.
     public static let fastqDatasetLoaded = Notification.Name("fastqDatasetLoaded")
 
-    /// Posted when a standalone VCF dataset has been loaded and its dashboard is displayed.
-    ///
-    /// The `userInfo` dictionary contains:
-    /// - `"summary"`: The `VCFSummary` object.
-    public static let vcfDatasetLoaded = Notification.Name("vcfDatasetLoaded")
-
     /// Posted when the user changes the database storage location in Settings
     /// or the Plugin Manager.
     ///

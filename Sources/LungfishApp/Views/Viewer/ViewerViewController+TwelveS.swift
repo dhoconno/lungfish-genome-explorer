@@ -25,7 +25,6 @@ extension ViewerViewController {
         defer { surfaceKindBeingDisplayed = nil }
         hideQuickLookPreview()
         hideFASTQDatasetView()
-        hideVCFDatasetView()
         hideFASTACollectionView()
         hideTaxonomyView()
         hideEsVirituView()

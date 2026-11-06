@@ -109,7 +109,6 @@ extension ViewerViewController {
     public func displayMappingResult(_ result: MappingResult, resultDirectoryURL: URL?) {
         hideQuickLookPreview()
         hideFASTQDatasetView()
-        hideVCFDatasetView()
         hideFASTACollectionView()
         hideTaxonomyView()
         hideEsVirituView()
@@ -201,7 +200,6 @@ extension ViewerViewController {
     private func installReferenceBundleViewportController() throws -> ReferenceBundleViewportController {
         hideQuickLookPreview()
         hideFASTQDatasetView()
-        hideVCFDatasetView()
         hideFASTACollectionView()
         hideTaxonomyView()
         hideEsVirituView()

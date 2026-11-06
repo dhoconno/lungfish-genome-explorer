@@ -28,7 +28,6 @@ extension ViewerViewController {
 
         // Hide any dataset-specific views that may be covering the viewer
         hideFASTQDatasetView()
-        hideVCFDatasetView()
         hideFASTACollectionView()
         hideTaxonomyView()
         hideEsVirituView()

@@ -174,8 +174,8 @@ public enum DocumentLoader {
             logger.info("loadFile: BED loaded \(annotations.count) annotations")
 
         case .vcf:
-            // VCF files are handled by the streaming dashboard
-            // (MainSplitViewController.loadVCFDatasetInBackground).
+            // A VCF file is imported into a .lungfishref bundle
+            // (MainSplitViewController.loadVCFFilesInBackground).
             // Return a lightweight marker document so the sidebar shows the file.
             logger.info("loadFile: VCF file detected — dashboard will handle display")
 

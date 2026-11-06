@@ -22,8 +22,7 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "FASTACollect
 /// in the sidebar), a "Source" column appears showing which file each sequence
 /// originated from.
 ///
-/// Follows the same child-VC pattern as ``FASTQDatasetViewController`` and
-/// ``VCFDatasetViewController``.
+/// Follows the same child-VC pattern as ``FASTQDatasetViewController``.
 @MainActor
 public final class FASTACollectionViewController: NSViewController,
     NSTableViewDataSource, NSTableViewDelegate, NSSplitViewDelegate, NSMenuDelegate,

@@ -38,7 +38,6 @@ extension ViewerViewController {
     public func displayTaxonomyResult(_ result: ClassificationResult, onWillDeactivate: (@MainActor () -> Void)? = nil) {
         hideQuickLookPreview()
         hideFASTQDatasetView()
-        hideVCFDatasetView()
         hideFASTACollectionView()
         hideTaxonomyView()
         hideEsVirituView()
@@ -136,7 +135,6 @@ extension ViewerViewController {
     ) throws {
         hideQuickLookPreview()
         hideFASTQDatasetView()
-        hideVCFDatasetView()
         hideFASTACollectionView()
         hideTaxonomyView()
         hideEsVirituView()

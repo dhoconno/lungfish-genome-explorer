@@ -17,7 +17,6 @@ extension ViewerViewController {
     public func displayAssemblyResult(_ result: AssemblyResult) throws {
         hideQuickLookPreview()
         hideFASTQDatasetView()
-        hideVCFDatasetView()
         hideFASTACollectionView()
         hideTaxonomyView()
         hideEsVirituView()

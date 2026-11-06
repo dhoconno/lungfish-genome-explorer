@@ -148,7 +148,6 @@ final class WindowAppearanceTests: XCTestCase {
             "Sources/LungfishWorkflow/ViewerExport/Graphics/ReadTrackRenderer+Packed.swift",
             "Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift",
             "Sources/LungfishApp/Views/Viewer/TranslationTrackRenderer.swift",
-            "Sources/LungfishApp/Views/Viewer/VCFDatasetViewController.swift",
             "Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift",
             "Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift",
         ]
