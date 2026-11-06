@@ -94,6 +94,7 @@ public final class ReadStyleSectionViewModel {
 
     /// Minimum mapping quality filter (reads below this are hidden).
     public var minMapQ: Double = 0
+    @ObservationIgnored var confidenceBundleURL: URL? // The bundle `minMapQ` was last loaded for (ReadStyleSection+BundleConfidence.swift).
 
     /// Whether to show duplicate reads (SAM flag 0x400).
     public var showDuplicates: Bool = false
@@ -416,13 +417,12 @@ public final class ReadStyleSectionViewModel {
         consensusScope = .wholeContig
         consensusExtractionAvailabilityMessage = nil
         onConsensusScopeChanged = nil
-        minMapQ = 0 // W-27: a confidence belongs to the bundle it was set on, so the next bundle starts at the default.
     }
 
-    /// Configures the existing read controls for a single, detached classifier
-    /// BAM.  Classifier evidence is deliberately not a source for output workflows.
+    /// Configures the existing read controls for a single, detached classifier BAM. Classifier evidence is deliberately not a source for output workflows.
     func configureClassifierEvidence(_ capabilities: ClassifierAlignmentInspectorCapabilities) {
         clear()
+        resetConfidenceForClassifierEvidence()
         hasAlignmentTracks = true
         hasVariantCallableAlignmentTracks = false
         trackNames = [capabilities.selectedTrack.name]
@@ -444,8 +444,7 @@ public final class ReadStyleSectionViewModel {
         onPrimerTrimRequested = nil
         onCallVariantsRequested = nil
         onExtractConsensusRequested = nil
-        // A validated reference may render consensus evidence, but detached
-        // classifier evidence has no output-producing consensus export target.
+        // A validated reference may render consensus evidence, but detached classifier evidence has no output-producing consensus export target.
         supportsConsensusExtraction = false
         classifierEvidenceCapabilities = capabilities
     }
@@ -465,6 +464,7 @@ public final class ReadStyleSectionViewModel {
 
     /// Loads alignment statistics from bundle's metadata databases.
     public func loadStatistics(from bundle: ReferenceBundle) {
+        resetConfidenceUnlessSameBundle(at: bundle.url)
         let trackIds = bundle.alignmentTrackIds
         guard !trackIds.isEmpty else {
             clear()

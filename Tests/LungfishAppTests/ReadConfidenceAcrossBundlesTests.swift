@@ -146,4 +146,35 @@ final class ReadConfidenceAcrossBundlesTests: XCTestCase {
         XCTAssertEqual(readStyle.minMapQ, 30, "the same row took the confidence away from the Inspector")
         XCTAssertEqual(viewportConfidence(viewer), 30, "the same row took the confidence away from the reads and depth")
     }
+
+    /// The block's own rule, without a window. The same bundle keeps the value across the clear that every selection makes. A
+    /// different bundle starts at the default, and so does a return to the first bundle after a second one. Classifier evidence
+    /// starts at the default and leaves no bundle behind.
+    func testTheBlockResetsOnlyWhenADifferentBundleLoads() {
+        let viewModel = ReadStyleSectionViewModel()
+        let first = root.appendingPathComponent("first.lungfishref", isDirectory: true)
+        let second = root.appendingPathComponent("second.lungfishref", isDirectory: true)
+
+        viewModel.resetConfidenceUnlessSameBundle(at: first)
+        viewModel.minMapQ = 30
+        viewModel.clear()
+        viewModel.resetConfidenceUnlessSameBundle(at: first)
+        XCTAssertEqual(viewModel.minMapQ, 30, "the same bundle lost its confidence")
+
+        viewModel.clear()
+        viewModel.resetConfidenceUnlessSameBundle(at: second)
+        XCTAssertEqual(viewModel.minMapQ, 0, "a different bundle kept the confidence")
+
+        viewModel.minMapQ = 20
+        viewModel.clear()
+        viewModel.resetConfidenceUnlessSameBundle(at: first)
+        XCTAssertEqual(viewModel.minMapQ, 0, "a return to the first bundle kept the second bundle's confidence")
+
+        viewModel.minMapQ = 10
+        viewModel.resetConfidenceForClassifierEvidence()
+        XCTAssertEqual(viewModel.minMapQ, 0, "classifier evidence kept a bundle's confidence")
+        viewModel.minMapQ = 5
+        viewModel.resetConfidenceUnlessSameBundle(at: first)
+        XCTAssertEqual(viewModel.minMapQ, 0, "a bundle kept the confidence set on classifier evidence")
+    }
 }
