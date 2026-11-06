@@ -74,6 +74,7 @@ def main():
         return 127
     print(json.dumps(safe_record(result, phase=args.phase)), file=sys.stderr if args.public_stdout else sys.stdout)
     if result.timed_out: print(timeout_words(args.phase, args.timeout, local_files=args.local_files), file=sys.stderr)
+    if args.local_files and result.returncode != 0 and not result.timed_out and result.stderr: sys.stderr.write(result.stderr)
     if args.public_stdout and result.returncode == 0:
         sys.stdout.write(result.stdout)
     return result.returncode
