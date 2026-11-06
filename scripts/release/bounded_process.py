@@ -35,7 +35,8 @@ def run_bounded(argv, *, timeout, env=None, cwd=None, terminate_grace=1.0):
         if terminate_grace: time.sleep(min(terminate_grace, .05))
         try: os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError: pass
-        stdout, stderr = process.communicate(timeout=max(1, terminate_grace))
+        try: stdout, stderr = process.communicate(timeout=max(1, terminate_grace))
+        except subprocess.TimeoutExpired: stdout, stderr = '', ''
         if not timed_out: raise
     return BoundedResult(argv, 124 if timed_out else process.returncode, stdout, stderr, timed_out, time.monotonic() - start)
 
