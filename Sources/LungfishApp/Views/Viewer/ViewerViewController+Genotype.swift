@@ -15,21 +15,7 @@ extension ViewerViewController {
     /// `GenotypeResultSurface.willDeactivate` on every removal.
     @discardableResult
     func displayGenotypeResult(_ result: ONTGenotypeResultBundleData) throws -> GenotypeResultViewController {
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideMHCReferenceBundleView()
-        hideGenotypeResultView()
-        hideAlignmentTreeBundleViews()
-        hideTwelveSAmpliconResultView()
+        clearSurfaceForNewContent()
         clearBundleDisplay()
         hideCollectionBackButton()
         hideBundleBackNavigationButton()
@@ -53,11 +39,5 @@ extension ViewerViewController {
         )
 
         return controller
-    }
-
-    /// Hides the genotype viewer, a shim that other display routes call until the
-    /// hide list goes in Phase 3.2.
-    func hideGenotypeResultView() {
-        clearSurface(ifShowing: .bundle(.genotypeResult))
     }
 }

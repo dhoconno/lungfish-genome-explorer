@@ -196,12 +196,12 @@ public class ViewerViewController: NSViewController {
     /// The one result surface slot, with factories from ViewerViewController+Surfaces.swift.
     lazy var surfaceHost = ViewportHost(registry: makeSurfaceRegistry(), containerView: view, parentController: self)
 
+    /// The kind whose display method is running, so the clear it runs first leaves that kind to the host's show.
+    var surfaceKindBeingDisplayed: SurfaceKind?
+
     /// True while a native bundle viewport owns the viewer area. Those
     /// viewports fill the whole view and carry their own drawers, so the
     /// parent annotation drawer must stay hidden underneath them.
-    /// The kind whose display method is running, so its own hide list leaves that kind to the host's show.
-    var surfaceKindBeingDisplayed: SurfaceKind?
-
     public var isNativeBundleViewportInstalled: Bool {
         installedSurface != nil
     }
@@ -252,7 +252,7 @@ public class ViewerViewController: NSViewController {
     public var contentMode: ViewportContentMode = .empty {
         didSet {
             // Every content installation, including the same mode, dismisses saved analysis results.
-            hidePrimerAnalysisView()
+            clearSurface(ifShowing: .bundle(.primerAnalysis), .analysis(.primerOrder))
             guard contentMode != oldValue else { return }
             guard publishesGlobalViewportNotifications else { return }
             NotificationCenter.default.post(
@@ -2019,9 +2019,8 @@ public class ViewerViewController: NSViewController {
     /// Unified viewport clearing that removes ALL overlay views and resets to empty state.
     ///
     /// This method is the single point of cleanup when the viewport needs to show nothing.
-    /// It hides every overlay (QuickLook, FASTQ, VCF, FASTA collection, taxonomy, EsViritu,
-    /// TaxTriage), clears bundle display state, cancels deferred redraws, and resets the
-    /// genomics viewer to a blank state.
+    /// It removes any result surface, clears bundle display state, cancels deferred redraws,
+    /// and resets the genomics viewer to a blank state.
     ///
     /// - Parameter statusMessage: The message to show in the status bar (e.g. "No sequence loaded")
     public func clearViewport(statusMessage: String = "No sequence loaded") {
@@ -2031,25 +2030,8 @@ public class ViewerViewController: NSViewController {
         // Hide progress overlay
         hideProgress()
 
-        // Hide all overlay views that may be showing non-genomics content
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideAlignmentTreeBundleViews()
-        // Bundle-hosted child viewports: without these a debounced selection
-        // change (or the displayed bundle being deleted) left the previous
-        // bundle rendered in the viewport instead of clearing it.
-        hideTwelveSAmpliconResultView()
-        hideGenotypeResultView()
-        hideMHCReferenceBundleView()
+        // Remove any result surface that may be showing non-genomics content
+        clearSurfaceForNewContent()
 
         // Clear bundle display state (chromosome navigator, data provider)
         clearBundleDisplay()
@@ -2105,18 +2087,7 @@ public class ViewerViewController: NSViewController {
         contentMode = .genomics
 
         // Hide any non-document views when showing a genomics document
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideAlignmentTreeBundleViews()
+        clearSurfaceForNewContent()
 
         // Clear any stale reference bundle state so the viewer uses
         // the document's sequences instead of trying to fetch from a bundle
@@ -2293,7 +2264,7 @@ public class ViewerViewController: NSViewController {
         logger.info("displayReferenceBundle: Starting to display bundle '\(bundle.name, privacy: .public)'")
 
         // Hide any QuickLook preview
-        hideQuickLookPreview()
+        clearSurface(ifShowing: .view(.quickLook))
 
         // Store bundle reference for later use
         currentReferenceBundle = bundle

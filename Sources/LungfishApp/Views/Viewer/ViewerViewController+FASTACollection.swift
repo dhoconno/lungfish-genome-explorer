@@ -108,18 +108,7 @@ extension ViewerViewController {
         durableSourceURLs: [URL] = [],
         sourceFiles: [URL] = []
     ) -> Bool {
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideAlignmentTreeBundleViews()
+        clearSurfaceForNewContent()
         contentMode = .genomics
 
         let capturedSourceURLs = normalizedExistingURLs(
@@ -216,7 +205,7 @@ extension ViewerViewController {
             guard let self, let controller else { return }
             // The clear removes the list, and the lines below put the genomics chrome on for one sequence. The back
             // state keeps the list, so Back finds it as the person left it, and any search it has running goes on.
-            self.hideFASTACollectionView()
+            self.clearSurface(ifShowing: .view(.fastaCollection))
             self.clearBundleDisplay()
             self.contentMode = .genomics
 
@@ -289,12 +278,6 @@ extension ViewerViewController {
             let name = unread.count > 1 ? "\(first.name) and \(unread.count - 1) more" : first.name
             FailurePresenter.present(MainWindowFailureReports.openFile(named: name, first.error), in: window)
         }
-    }
-
-    /// Removes the FASTA collection browser and restores normal viewer components. A search the list has running goes
-    /// on, since only NCBI's answer or the person ends one, so the surface has nothing to stop on its way out.
-    public func hideFASTACollectionView() {
-        clearSurface(ifShowing: .view(.fastaCollection))
     }
 
     private static func fastaRecord(for sequence: LungfishCore.Sequence) -> String {

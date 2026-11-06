@@ -15,18 +15,7 @@ private let assemblyDisplayLogger = Logger(subsystem: LogSubsystem.app, category
 extension ViewerViewController {
     /// Displays an assembly result viewport in place of the normal sequence viewer.
     public func displayAssemblyResult(_ result: AssemblyResult) throws {
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideAlignmentTreeBundleViews()
+        clearSurfaceForNewContent()
         clearBundleDisplay()
         hideCollectionBackButton()
         contentMode = .assembly
@@ -132,11 +121,6 @@ extension ViewerViewController {
             break // The panel already shows the refused row. Nothing was launched.
         }
         return result
-    }
-
-    /// Removes the assembly result viewport, whichever tool made it, and restores the normal viewer components.
-    public func hideAssemblyView() {
-        clearSurface(ifShowing: .analysis(.spades), .analysis(.megahit), .analysis(.skesa), .analysis(.flye), .analysis(.hifiasm))
     }
 
     nonisolated static func blastSequences(from fastaRecords: [String]) -> [(id: String, sequence: String)] {

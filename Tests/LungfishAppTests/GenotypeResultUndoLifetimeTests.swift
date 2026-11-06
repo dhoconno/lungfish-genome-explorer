@@ -24,7 +24,7 @@ final class GenotypeResultUndoLifetimeTests: XCTestCase {
         registerReviewUndo(on: undoManager, target: controller)
         XCTAssertTrue(undoManager.canUndo)
 
-        host.split.viewerController.hideGenotypeResultView()
+        host.split.viewerController.clearSurface(ifShowing: .bundle(.genotypeResult))
 
         XCTAssertNil(host.split.viewerController.genotypeResultViewController)
         XCTAssertFalse(undoManager.canUndo, "no Undo may target a controller the viewer dropped")

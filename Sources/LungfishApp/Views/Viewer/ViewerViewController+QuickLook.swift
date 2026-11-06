@@ -24,23 +24,8 @@ extension ViewerViewController {
         // Ensure we have a proper file URL
         let fileURL = url.isFileURL ? url : URL(fileURLWithPath: url.path)
 
-        hidePrimerAnalysisView()
-
-        // Hide any dataset-specific views that may be covering the viewer
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideMHCReferenceBundleView()
-        hideGenotypeResultView()
-        hideTwelveSAmpliconResultView()
-        hideAlignmentTreeBundleViews()
+        // Remove any result surface that may be covering the viewer
+        clearSurfaceForNewContent()
 
         // Hide the progress overlay first - it may be covering the view area
         hideProgress()
@@ -95,11 +80,6 @@ extension ViewerViewController {
             logger.error("renderEmbeddedFilePreview: '\(fileURL.lastPathComponent, privacy: .public)' did not draw: \(error.localizedDescription, privacy: .public)")
             clearViewport(statusMessage: surfaceFailureWords("Unable to open the preview.", error))
         }
-    }
-
-    /// Hides the preview, a shim that other display routes call until the hide list goes in Phase 3.2.
-    public func hideQuickLookPreview() {
-        clearSurface(ifShowing: .view(.quickLook))
     }
 
     /// Shows the genomics viewer components

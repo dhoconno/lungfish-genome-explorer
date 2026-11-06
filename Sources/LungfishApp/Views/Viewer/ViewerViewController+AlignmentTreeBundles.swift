@@ -34,7 +34,7 @@ extension ViewerViewController {
         canCommit: @escaping @MainActor () -> Bool = { true },
         onWillDeactivate: (@MainActor () -> Void)? = nil
     ) async throws -> MultipleSequenceAlignmentViewController? {
-        hideForNativeAlignmentTreeBundle()
+        clearForNativeAlignmentTreeBundle()
         let controller = MultipleSequenceAlignmentViewController()
         controller.gutterWidthDefaults = Self.multipleSequenceAlignmentDefaults
         let input = MultipleSequenceAlignmentSurface.Input(controller: controller, url: url, canCommit: canCommit)
@@ -129,11 +129,6 @@ extension ViewerViewController {
         }
     }
 
-    /// Hides the alignment viewer, a shim that other display routes call until the hide list goes in Phase 3.2.
-    func hideMultipleSequenceAlignmentBundleView() {
-        clearSurface(ifShowing: .bundle(.multipleSequenceAlignment))
-    }
-
     /// Shows the tree bundle at `url` through the surface host and returns its viewer for the route to wire, or throws
     /// the reason it is not installed. The surface's load reads the bundle, so a file that does not read reaches the
     /// route as that file's own error. Removing the viewer cuts its callbacks in `PhylogeneticTreeSurface.willDeactivate`
@@ -144,7 +139,7 @@ extension ViewerViewController {
         at url: URL,
         onWillDeactivate: (@MainActor () -> Void)? = nil
     ) throws -> PhylogeneticTreeViewController {
-        hideForNativeAlignmentTreeBundle()
+        clearForNativeAlignmentTreeBundle()
         let surface = try showSurface(.bundle(.phylogeneticTree), input: url, as: PhylogeneticTreeSurface.self)
         guard let controller = surface.controller else { throw SurfaceError.notInstalled(.bundle(.phylogeneticTree)) }
         surface.onWillDeactivate = onWillDeactivate
@@ -170,33 +165,10 @@ extension ViewerViewController {
         }
     }
 
-    /// Hides the tree viewer, a shim that other display routes call until the hide list goes in Phase 3.2.
-    func hidePhylogeneticTreeBundleView() {
-        clearSurface(ifShowing: .bundle(.phylogeneticTree))
-    }
-
-    func hideAlignmentTreeBundleViews() {
-        hideMultipleSequenceAlignmentBundleView()
-        hidePhylogeneticTreeBundleView()
-        hideGenotypeResultView()
-        hideTwelveSAmpliconResultView()
-        hideMHCReferenceBundleView()
-        showGenomicsStackAfterNativeBundle()
-    }
-
-    private func hideForNativeAlignmentTreeBundle() {
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideAlignmentTreeBundleViews()
+    /// What the alignment and tree displays run before their show, so no other surface, bundle, back button or
+    /// annotation drawer stays under them.
+    private func clearForNativeAlignmentTreeBundle() {
+        clearSurfaceForNewContent()
         clearBundleDisplay()
         hideCollectionBackButton()
         annotationDrawerView?.isHidden = true
@@ -218,14 +190,6 @@ extension ViewerViewController {
         headerView.isHidden = true
         statusBar.isHidden = true
         geneTabBarView.isHidden = true
-    }
-
-    private func showGenomicsStackAfterNativeBundle() {
-        enhancedRulerView?.isHidden = false
-        viewerView?.isHidden = false
-        headerView?.isHidden = false
-        statusBar?.isHidden = false
-        geneTabBarView?.isHidden = true
     }
 
     private func hideGenomicsStackForNativeBundle() {

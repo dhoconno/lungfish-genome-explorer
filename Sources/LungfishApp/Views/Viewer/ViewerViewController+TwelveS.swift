@@ -19,24 +19,11 @@ extension ViewerViewController {
         _ result: TwelveSAmpliconResultBundleData,
         onWillDeactivate: (@MainActor () -> Void)? = nil
     ) throws -> TwelveSAmpliconResultViewController {
-        // The hide list below reaches hideTwelveSAmpliconResultView, which must leave
-        // an installed 12S viewer for the host's show to replace (HOST-ARCH R4).
+        // The clear below must leave an installed 12S viewer for the host's show
+        // to replace (HOST-ARCH R4).
         surfaceKindBeingDisplayed = .bundle(.twelveSResult)
         defer { surfaceKindBeingDisplayed = nil }
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideMHCReferenceBundleView()
-        hideGenotypeResultView()
-        hideAlignmentTreeBundleViews()
+        clearSurfaceForNewContent()
         clearBundleDisplay()
         hideCollectionBackButton()
         hideBundleBackNavigationButton()
@@ -48,12 +35,6 @@ extension ViewerViewController {
         let surface = try showSurface(.bundle(.twelveSResult), input: result, as: TwelveSSurface.self)
         surface.onWillDeactivate = onWillDeactivate
         return surface.controller
-    }
-
-    /// Hides the 12S result viewer, a shim that other display routes call until the
-    /// hide list goes in Phase 3.2.
-    func hideTwelveSAmpliconResultView() {
-        clearSurface(ifShowing: .bundle(.twelveSResult))
     }
 
     /// Sends the unresolved sequences the 12S viewer asks to verify to BLAST. The

@@ -101,14 +101,14 @@ final class NvdSurfaceRouteTests: XCTestCase {
     /// such as Operation Details, stays (NAOMGS-ARCH item 2).
     func testTheNvdViewerTakesOnlyItsOwnBlockWhenItLeaves() {
         openNvdAndWaitForItsBlock()
-        controller.viewerController.hideNvdView()
+        controller.viewerController.clearSurface(ifShowing: .analysis(.nvd))
         XCTAssertNil(summary.nvdManifest, "the NVD block must leave with the NVD viewer")
 
         openNvdAndWaitForItsBlock()
         controller.inspectorController.updateBatchOperationDetails(
             tool: "Kraken2", parameters: [:], timestamp: nil, sourceSamples: []
         )
-        controller.viewerController.hideNvdView()
+        controller.viewerController.clearSurface(ifShowing: .analysis(.nvd))
         XCTAssertEqual(summary.batchOperationTool, "Kraken2", "the leaving NVD viewer wiped the next result's block")
         XCTAssertNil(installedNvdViewer, "the NVD viewer stayed after its hide")
     }

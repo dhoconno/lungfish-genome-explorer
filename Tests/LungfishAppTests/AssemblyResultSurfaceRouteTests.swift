@@ -140,7 +140,7 @@ final class AssemblyResultSurfaceRouteTests: XCTestCase {
         for tool in AssemblyTool.allCases {
             try viewer.displayAssemblyResult(try makeResult(of: tool).result)
             XCTAssertEqual(viewer.installedSurface?.surfaceKind, .analysis(AnalysisToolID(rawValue: tool.rawValue)))
-            viewer.hideAssemblyView()
+            viewer.clearSurface(ifShowing: .analysis(.spades), .analysis(.megahit), .analysis(.skesa), .analysis(.flye), .analysis(.hifiasm))
             XCTAssertNil(viewer.assemblyResultController, "\(tool.displayName) stayed after its hide")
             XCTAssertEqual(AlignmentChrome(viewer), chromeVisible, "\(tool.displayName) left the chrome hidden")
         }
@@ -308,7 +308,7 @@ final class AssemblyResultSurfaceRouteTests: XCTestCase {
             throw DamagedContigsFile()
         }
 
-        viewer.hideAssemblyView()
+        viewer.clearSurface(ifShowing: .analysis(.spades), .analysis(.megahit), .analysis(.skesa), .analysis(.flye), .analysis(.hifiasm))
         release.yield()
         await assembly.loadTask?.value
 

@@ -36,18 +36,7 @@ extension ViewerViewController {
     ///   - result: The classification result to display.
     ///   - onWillDeactivate: Runs whenever the host later removes this viewer.
     public func displayTaxonomyResult(_ result: ClassificationResult, onWillDeactivate: (@MainActor () -> Void)? = nil) {
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideAlignmentTreeBundleViews()
+        clearSurfaceForNewContent()
         contentMode = .metagenomics
 
         let controller = TaxonomyViewController()
@@ -133,18 +122,7 @@ extension ViewerViewController {
         resultURL: URL,
         onWillDeactivate: (@MainActor () -> Void)? = nil
     ) throws {
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideAlignmentTreeBundleViews()
+        clearSurfaceForNewContent()
         contentMode = .metagenomics
 
         let controller = TaxonomyViewController()
@@ -333,12 +311,6 @@ extension ViewerViewController {
             break // The panel already shows the refused row. Nothing was launched.
         }
         return result
-    }
-
-    /// Hides the Kraken2 taxonomy browser, a shim that other display routes call until the
-    /// hide list goes in Phase 3.2.
-    public func hideTaxonomyView() {
-        clearSurface(ifShowing: .analysis(.kraken2))
     }
 }
 

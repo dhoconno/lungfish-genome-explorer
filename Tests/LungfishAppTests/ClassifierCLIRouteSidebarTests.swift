@@ -324,7 +324,7 @@ final class ClassifierCLIRouteSidebarTests: XCTestCase {
         let summary = run.rig.controller.mainSplitViewController.inspectorController.viewModel.documentSectionViewModel
         XCTAssertNotNil(run.rig.viewer.taxonomyViewController, "the run's viewer shows the Kraken2 result")
         XCTAssertEqual(summary.batchOperationTool, "Kraken2", "the run gave the Summary its Kraken2 block")
-        run.rig.viewer.hideTaxonomyView()
+        run.rig.viewer.clearSurface(ifShowing: .analysis(.kraken2))
         XCTAssertNil(summary.batchOperationTool, "the Kraken2 block must leave with the viewer the run showed it in")
     }
 

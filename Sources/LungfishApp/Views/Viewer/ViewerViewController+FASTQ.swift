@@ -31,18 +31,7 @@ extension ViewerViewController {
         fastqSourceURL: URL? = nil,
         fastqDerivativeManifest: FASTQDerivedBundleManifest? = nil
     ) -> Bool {
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideMHCReferenceBundleView()
-        hideAlignmentTreeBundleViews()
+        clearSurfaceForNewContent()
         contentMode = .fastq
 
         let controller = FASTQDatasetViewController()
@@ -144,11 +133,6 @@ extension ViewerViewController {
 
         logger.info("displayFASTQDataset: Showing dashboard with \(statistics.readCount) reads")
         return true
-    }
-
-    /// Removes the FASTQ dataset dashboard and restores normal viewer components.
-    public func hideFASTQDatasetView() {
-        clearSurface(ifShowing: .bundle(.fastq))
     }
 
     /// What the dashboard leaves on the viewer goes with it. The surface calls this on every removal.

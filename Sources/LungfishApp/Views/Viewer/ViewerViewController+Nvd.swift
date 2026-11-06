@@ -34,18 +34,7 @@ extension ViewerViewController {
         _ controller: NvdResultViewController,
         onWillDeactivate: (@MainActor () -> Void)? = nil
     ) throws {
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideAlignmentTreeBundleViews()
+        clearSurfaceForNewContent()
         contentMode = .metagenomics
 
         controller.classifierAlignmentViewerFactory = { [weak self] in
@@ -178,11 +167,5 @@ extension ViewerViewController {
             break // The panel already shows the refused row. Nothing was launched.
         }
         return result
-    }
-
-    /// Hides the NVD result viewer, a shim that other display routes call until the
-    /// hide list goes in Phase 3.2.
-    public func hideNvdView() {
-        clearSurface(ifShowing: .analysis(.nvd))
     }
 }

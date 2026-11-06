@@ -19,28 +19,12 @@ extension ViewerViewController {
         controller.onExtractionRequested = { [weak controller] request in
             controller?.presentClassifierExtractionDialog(request)
         }
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideAlignmentTreeBundleViews()
+        clearSurfaceForNewContent()
         contentMode = .metagenomics
 
         _ = try showSurface(.analysis(.czId), input: controller, as: CzIdSurface.self)
         // showSurface hides the genomics viewer. These two drawers are this kind's own lines.
         annotationDrawerView?.isHidden = true
         fastqMetadataDrawerView?.isHidden = true
-    }
-
-    /// Hides the CZ-ID result viewer, a shim that other display routes call until the hide list goes in Phase 3.2.
-    public func hideCzIdView() {
-        clearSurface(ifShowing: .analysis(.czId))
     }
 }

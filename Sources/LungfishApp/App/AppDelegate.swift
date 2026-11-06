@@ -2095,7 +2095,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             controller.window === closedWindow
         }
         for controller in closedControllers {
-            controller.mainSplitViewController?.viewerController?.hideGenotypeResultView()
+            controller.mainSplitViewController?.viewerController?.clearSurface(ifShowing: .bundle(.genotypeResult))
             invalidateProjectStorage(for: controller)
         }
         projectStorageBindingGenerations.removeValue(

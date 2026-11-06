@@ -168,7 +168,7 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         XCTAssertNotNil(lone.mappingResultController)
         XCTAssertNil(lone.referenceBundleViewportController, "the reference slot answered for the mapping class")
         XCTAssertTrue(lone.activeMappingViewportController === lone.mappingResultController)
-        lone.hideMappingView()
+        lone.clearSurface(ifShowing: .bundle(.reference))
         XCTAssertNil(lone.mappingResultController)
         XCTAssertNil(lone.activeMappingViewportController)
 

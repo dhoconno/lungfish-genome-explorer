@@ -139,7 +139,7 @@ final class AssemblyViewerIntegrationTests: XCTestCase {
         viewer.fastqMetadataDrawerView?.isHidden = false
 
         try viewer.displayAssemblyResult(makeAssemblyResult())
-        viewer.hideAssemblyView()
+        viewer.clearSurface(ifShowing: .analysis(.spades), .analysis(.megahit), .analysis(.skesa), .analysis(.flye), .analysis(.hifiasm))
 
         XCTAssertFalse(viewer.enhancedRulerView.isHidden)
         XCTAssertFalse(viewer.viewerView.isHidden)

@@ -231,7 +231,7 @@ final class CzIdSurfaceRouteTests: XCTestCase {
         let viewer = controller.viewerController!
         XCTAssertTrue(viewer.viewerView.isHidden)
 
-        viewer.hideCzIdView()
+        viewer.clearSurface(ifShowing: .analysis(.czId))
 
         XCTAssertFalse(viewer.children.contains { $0 is CzIdResultViewController })
         XCTAssertNil(viewer.installedSurface)

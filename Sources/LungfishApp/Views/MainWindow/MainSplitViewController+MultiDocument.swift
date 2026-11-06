@@ -145,7 +145,7 @@ extension MainSplitViewController {
             // state. Explicitly clear to "No sequence selected" instead.
             cancelFASTQLoadIfNeeded(hideProgress: true, reason: "multi-select with no displayable items")
             viewerController.clearBundleDisplay()
-            viewerController.hideFASTACollectionView()
+            viewerController.clearSurface(ifShowing: .view(.fastaCollection))
             viewerController.hideCollectionBackButton()
             viewerController.showNoSequenceSelected()
             inspectorController.clearSelection()
@@ -160,7 +160,7 @@ extension MainSplitViewController {
 
         // Clear bundle display so collection view is unobstructed
         viewerController.clearBundleDisplay()
-        viewerController.hideFASTACollectionView()
+        viewerController.clearSurface(ifShowing: .view(.fastaCollection))
         viewerController.hideCollectionBackButton()
 
         // Categorize documents: fully loaded, placeholders (need lazy load), or unregistered

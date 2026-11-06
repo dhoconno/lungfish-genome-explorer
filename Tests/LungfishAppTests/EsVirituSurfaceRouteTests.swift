@@ -134,14 +134,14 @@ final class EsVirituSurfaceRouteTests: XCTestCase {
     /// Kraken2's Operation Details, stays (NAOMGS-ARCH item 2, match the shared block by its content).
     func testTheEsVirituViewerTakesOnlyItsOwnBlockWhenItLeaves() {
         openEsVirituWithItsBlock()
-        controller.viewerController.hideEsVirituView()
+        controller.viewerController.clearSurface(ifShowing: .analysis(.esviritu))
         XCTAssertNil(summary.batchOperationTool, "the EsViritu block must leave with the EsViritu viewer")
 
         openEsVirituWithItsBlock()
         controller.inspectorController.updateBatchOperationDetails(
             tool: "Kraken2", parameters: [:], timestamp: nil, sourceSamples: []
         )
-        controller.viewerController.hideEsVirituView()
+        controller.viewerController.clearSurface(ifShowing: .analysis(.esviritu))
         XCTAssertEqual(summary.batchOperationTool, "Kraken2", "the leaving EsViritu viewer wiped another tool's block")
         XCTAssertFalse(controller.viewerController.children.contains { $0 is EsVirituResultViewController })
         XCTAssertNil(controller.viewerController.esVirituViewController)

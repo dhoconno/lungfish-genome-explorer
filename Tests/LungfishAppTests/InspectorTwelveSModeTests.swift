@@ -215,7 +215,7 @@ final class InspectorTwelveSModeTests: XCTestCase {
         _ = try viewer.displayTwelveSAmpliconResult(makeResult()) { inspector.clearTwelveSDetail() }
         XCTAssertEqual(closed, 0, "the replaced viewer must not reset the tab the route just enabled")
         XCTAssertTrue(inspector.twelveSDetailSectionViewModel.isAvailable)
-        viewer.hideTwelveSAmpliconResultView()
+        viewer.clearSurface(ifShowing: .bundle(.twelveSResult))
         XCTAssertFalse(inspector.twelveSDetailSectionViewModel.isAvailable)
     }
 

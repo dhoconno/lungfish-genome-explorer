@@ -64,7 +64,7 @@ extension MainSplitViewController {
         if item.type != .referenceBundle { viewerController.clearBundleDisplay() }
 
         // Always clear FASTA collection view when switching sidebar items
-        viewerController.hideFASTACollectionView()
+        viewerController.clearSurface(ifShowing: .view(.fastaCollection))
         viewerController.hideCollectionBackButton()
 
         // QuickLook preview for document, image, unknown types. No other dataset stays in the Inspector, and it keeps this row (W-10)

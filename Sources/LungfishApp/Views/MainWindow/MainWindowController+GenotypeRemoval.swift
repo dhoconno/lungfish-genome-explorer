@@ -10,6 +10,6 @@ extension MainWindowController {
     /// and a matrix edit still waiting on the workbook goes on to be saved after the window has gone. The app's close
     /// handler runs the same removal first, since it drops this controller and no order of the two is promised.
     @objc public func windowWillClose(_ notification: Notification) {
-        mainSplitViewController?.viewerController?.hideGenotypeResultView()
+        mainSplitViewController?.viewerController?.clearSurface(ifShowing: .bundle(.genotypeResult))
     }
 }

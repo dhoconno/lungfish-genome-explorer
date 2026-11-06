@@ -111,14 +111,14 @@ final class Kraken2SurfaceRouteTests: XCTestCase {
     /// TaxTriage's Operation Details, stays (NAOMGS-ARCH item 2, match the shared block by its content).
     func testTheKraken2ViewerTakesOnlyItsOwnBlockWhenItLeaves() {
         openKraken2WithItsBlock()
-        controller.viewerController.hideTaxonomyView()
+        controller.viewerController.clearSurface(ifShowing: .analysis(.kraken2))
         XCTAssertNil(summary.batchOperationTool, "the Kraken2 block must leave with the Kraken2 viewer")
 
         openKraken2WithItsBlock()
         controller.inspectorController.updateBatchOperationDetails(
             tool: "TaxTriage", parameters: [:], timestamp: nil, sourceSamples: []
         )
-        controller.viewerController.hideTaxonomyView()
+        controller.viewerController.clearSurface(ifShowing: .analysis(.kraken2))
         XCTAssertEqual(summary.batchOperationTool, "TaxTriage", "the leaving Kraken2 viewer wiped another tool's block")
         XCTAssertFalse(controller.viewerController.children.contains { $0 is TaxonomyViewController })
         XCTAssertNil(controller.viewerController.taxonomyViewController)

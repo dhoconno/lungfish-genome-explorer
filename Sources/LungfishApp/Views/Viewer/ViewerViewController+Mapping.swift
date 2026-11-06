@@ -107,19 +107,7 @@ extension ViewerViewController {
     }
 
     public func displayMappingResult(_ result: MappingResult, resultDirectoryURL: URL?) {
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideMHCReferenceBundleView()
-        hideAlignmentTreeBundleViews()
+        clearSurfaceForNewContent()
         clearBundleDisplay()
         hideCollectionBackButton()
         contentMode = .mapping
@@ -198,19 +186,7 @@ extension ViewerViewController {
     }
 
     private func installReferenceBundleViewportController() throws -> ReferenceBundleViewportController {
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideMHCReferenceBundleView()
-        hideAlignmentTreeBundleViews()
+        clearSurfaceForNewContent()
         clearBundleDisplay()
         hideCollectionBackButton()
         contentMode = .mapping
@@ -221,10 +197,6 @@ extension ViewerViewController {
         let controller = ViewerDisplayRouteFactory.makeReferenceBundleViewportController()
         _ = try showSurface(.bundle(.reference), input: controller, as: ReferenceBundleSurface.self)
         return controller
-    }
-
-    public func hideMappingView() {
-        clearSurface(ifShowing: .bundle(.reference))
     }
 
     func mappingZoomRegion(for annotation: SequenceAnnotation) -> GenomicRegion? {

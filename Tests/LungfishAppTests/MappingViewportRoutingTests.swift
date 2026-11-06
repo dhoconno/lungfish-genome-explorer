@@ -82,7 +82,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         controller.viewportExportRunner = { _, _ in exports += 1 }
         action()
         XCTAssertEqual(panels, 1)
-        split.viewerController.hideGenotypeResultView()
+        split.viewerController.clearSurface(ifShowing: .bundle(.genotypeResult))
         action()
         try XCTUnwrap(save)(root.appendingPathComponent("stale.xlsx"))
         await Task.yield()
@@ -115,7 +115,7 @@ final class MappingViewportRoutingTests: XCTestCase {
             controller.onExcelExportRequested?()
             let started = await eventually { gate.count == 1 }
             XCTAssertTrue(started)
-            split.viewerController.hideGenotypeResultView()
+            split.viewerController.clearSurface(ifShowing: .bundle(.genotypeResult))
             split.inspectorController.clearSelection()
             XCTAssertNil(split.inspectorController.genotypeExcelExportSession.presentation)
             gate.release()
@@ -168,7 +168,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertEqual(controller.currentInput?.mappingResultDirectoryURL, resultDirectory.standardizedFileURL)
         XCTAssertNil(vc.referenceBundleViewportController)
 
-        vc.hideMappingView()
+        vc.clearSurface(ifShowing: .bundle(.reference))
 
         XCTAssertNil(vc.mappingResultController)
     }
@@ -941,7 +941,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         splitController.inspectorController.clearSelection()
         XCTAssertNil(viewModel.onMatrixReviewRequested)
         XCTAssertNil(viewModel.onMatrixCommentRequested)
-        splitController.viewerController.hideGenotypeResultView()
+        splitController.viewerController.clearSurface(ifShowing: .bundle(.genotypeResult))
         XCTAssertNil(resultController.onMatrixReviewCapabilityChanged)
     }
 

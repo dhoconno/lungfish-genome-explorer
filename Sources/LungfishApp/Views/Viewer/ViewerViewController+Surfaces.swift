@@ -63,11 +63,7 @@ extension ViewerViewController {
         // The show has replaced the old surface, so a failure below clears as usual.
         surfaceKindBeingDisplayed = nil
         if let surface = surfaceHost.activeViewport as? Surface {
-            enhancedRulerView.isHidden = true
-            viewerView.isHidden = true
-            headerView.isHidden = true
-            statusBar.isHidden = true
-            geneTabBarView.isHidden = true
+            setGenomicsChrome(hidden: true)
             return surface
         }
         let error: any Error
@@ -93,11 +89,7 @@ extension ViewerViewController {
         as type: Surface.Type,
         canCommit: @MainActor () -> Bool = { true }
     ) async throws -> Surface? {
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
+        setGenomicsChrome(hidden: true)
         let show = surfaceHost.show(kind: kind, input: input)
         surfaceKindBeingDisplayed = nil
         let outcome = await show.value
@@ -111,20 +103,37 @@ extension ViewerViewController {
 
     /// Removes the surface of one of `kinds`, when it is the one the host shows or
     /// loads, and brings back the genomics chrome and drawers that a surface hides.
-    /// The `hideX()` shim of each migrated kind calls this. It never makes the host,
-    /// since a viewer whose view has not loaded shows no surface.
+    /// A route that takes one kind away calls this. It never makes the host, since a
+    /// viewer whose view has not loaded shows no surface.
     func clearSurface(ifShowing kinds: SurfaceKind...) {
         guard isViewLoaded, let kind = surfaceHost.requestedKind, kinds.contains(kind),
               kind != surfaceKindBeingDisplayed else { return }
         surfaceHost.clear()
 
-        enhancedRulerView?.isHidden = false
-        viewerView?.isHidden = false
-        headerView?.isHidden = false
-        statusBar?.isHidden = false
+        setGenomicsChrome(hidden: false)
         geneTabBarView?.isHidden = (geneTabBarView?.selectedGeneRegion == nil)
         revealAnnotationDrawerUnlessNativeBundleInstalled()
         fastqMetadataDrawerView?.isHidden = false
+    }
+
+    /// Removes the surface the host shows or loads, of whatever kind, and shows the genomics chrome with the gene tab
+    /// bar hidden. Every display calls this before it installs its own content. A display that sets
+    /// `surfaceKindBeingDisplayed` keeps a surface of that kind for its own show to replace.
+    func clearSurfaceForNewContent() {
+        if isViewLoaded, let kind = surfaceHost.requestedKind {
+            clearSurface(ifShowing: kind)
+        }
+        setGenomicsChrome(hidden: false)
+    }
+
+    /// Hides the genomics viewer's chrome (ruler, viewer, track header, status bar) under a surface, or shows it
+    /// again. The gene tab bar stays hidden either way, since only a gene list shows it.
+    func setGenomicsChrome(hidden: Bool) {
+        enhancedRulerView?.isHidden = hidden
+        viewerView?.isHidden = hidden
+        headerView?.isHidden = hidden
+        statusBar?.isHidden = hidden
+        geneTabBarView?.isHidden = true
     }
 
     /// The words a person reads when a surface did not open. They say what happened and

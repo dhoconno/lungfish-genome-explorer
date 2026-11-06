@@ -1257,7 +1257,7 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
         XCTAssertTrue(viewerVC.viewerView.isHidden)
 
         // After hiding, it should be nil and viewer components restored
-        viewerVC.hideTaxonomyView()
+        viewerVC.clearSurface(ifShowing: .analysis(.kraken2))
         XCTAssertNil(viewerVC.taxonomyViewController)
         XCTAssertFalse(viewerVC.enhancedRulerView.isHidden)
         XCTAssertFalse(viewerVC.viewerView.isHidden)

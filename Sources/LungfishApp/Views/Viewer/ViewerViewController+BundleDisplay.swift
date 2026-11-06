@@ -191,28 +191,13 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         return chromosomes
     }
 
-    private func hideNonBundleViews() {
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideAlignmentTreeBundleViews()
-    }
-
     private func displayBundleSequence(
         preferredSequenceName: String?,
         context: BundleDisplayContext,
         installChromosomeNavigator: Bool,
         restoreViewState: Bool
     ) throws {
-        hideNonBundleViews()
+        clearSurfaceForNewContent()
         hideCollectionBackButton()
         revealAnnotationDrawerUnlessNativeBundleInstalled()
         fastqMetadataDrawerView?.isHidden = false

@@ -24,18 +24,7 @@ extension ViewerViewController {
         _ controller: NaoMgsResultViewController,
         onWillDeactivate: (@MainActor () -> Void)? = nil
     ) throws {
-        hideQuickLookPreview()
-        hideFASTQDatasetView()
-        hideFASTACollectionView()
-        hideTaxonomyView()
-        hideEsVirituView()
-        hideTaxTriageView()
-        hideNaoMgsView()
-        hideNvdView()
-        hideCzIdView()
-        hideAssemblyView()
-        hideMappingView()
-        hideAlignmentTreeBundleViews()
+        clearSurfaceForNewContent()
         contentMode = .metagenomics
 
         // Wire BLAST verification callback.
@@ -179,11 +168,5 @@ extension ViewerViewController {
             break // The panel already shows the refused row. Nothing was launched.
         }
         return result
-    }
-
-    /// Hides the NAO-MGS result viewer, a shim that other display routes call until the
-    /// hide list goes in Phase 3.2.
-    public func hideNaoMgsView() {
-        clearSurface(ifShowing: .analysis(.naomgs))
     }
 }

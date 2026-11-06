@@ -61,10 +61,4 @@ extension ViewerViewController {
         let input = PrimerSurfaceInput(installationID: installationID, rootView: rootView, onDismiss: onDismiss)
         _ = try showSurface(.analysis(.primerOrder), input: input, as: PrimerOrderSurface.self)
     }
-
-    /// Hides the primer analysis or primer order viewer, a shim that other display
-    /// routes and every content mode change call until the hide list goes in Phase 3.2.
-    func hidePrimerAnalysisView() {
-        clearSurface(ifShowing: .bundle(.primerAnalysis), .analysis(.primerOrder))
-    }
 }

@@ -99,14 +99,14 @@ final class NaoMgsSurfaceRouteTests: XCTestCase {
     /// first, such as Operation Details, stays (HOST-ARCH-2 item 6).
     func testTheNaoMgsViewerTakesOnlyItsOwnBlockWhenItLeaves() {
         openNaoMgsAndWaitForItsBlock()
-        controller.viewerController.hideNaoMgsView()
+        controller.viewerController.clearSurface(ifShowing: .analysis(.naomgs))
         XCTAssertNil(summary.naoMgsManifest, "the NAO-MGS block must leave with the NAO-MGS viewer")
 
         openNaoMgsAndWaitForItsBlock()
         controller.inspectorController.updateBatchOperationDetails(
             tool: "Kraken2", parameters: [:], timestamp: nil, sourceSamples: []
         )
-        controller.viewerController.hideNaoMgsView()
+        controller.viewerController.clearSurface(ifShowing: .analysis(.naomgs))
         XCTAssertEqual(summary.batchOperationTool, "Kraken2", "the leaving NAO-MGS viewer wiped the next result's block")
         XCTAssertFalse(controller.viewerController.children.contains { $0 is NaoMgsResultViewController })
     }

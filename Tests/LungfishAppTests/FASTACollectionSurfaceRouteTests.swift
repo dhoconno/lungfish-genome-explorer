@@ -504,7 +504,7 @@ final class FASTACollectionSurfaceRouteTests: XCTestCase {
     /// Each way out leaves the row running: the shim itself, one sequence opened from the list, a project switch and a close.
     func testEveryWayOutLeavesARunningSearch() async throws {
         let ways: [(String, (ViewSwitchWindowHarness, FASTACollectionViewController) -> Void)] = [
-            ("the shim", { harness, _ in harness.split.viewerController.hideFASTACollectionView() }),
+            ("the shim", { harness, _ in harness.split.viewerController.clearSurface(ifShowing: .view(.fastaCollection)) }),
             ("one sequence", { [self] _, collection in open(row: 0, in: collection) }),
             ("a project switch", { harness, _ in harness.split.resetWindowForProjectChange() }),
             ("a window close", { harness, _ in harness.controller.close() }),

@@ -1162,10 +1162,10 @@ final class ViewerBundleRoutingTests: XCTestCase {
 
         // A stale teardown from another viewport must not unhide the drawer
         // underneath the alignment. This is the actual reported defect.
-        vc.hideTaxonomyView()
+        vc.clearSurface(ifShowing: .analysis(.kraken2))
         vc.revealAnnotationDrawerUnlessNativeBundleInstalled()
-        vc.hideAssemblyView()
-        vc.hideFASTACollectionView()
+        vc.clearSurface(ifShowing: .analysis(.spades), .analysis(.megahit), .analysis(.skesa), .analysis(.flye), .analysis(.hifiasm))
+        vc.clearSurface(ifShowing: .view(.fastaCollection))
 
         XCTAssertEqual(
             vc.annotationDrawerView?.isHidden, true,
@@ -1180,7 +1180,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
         vc.toggleAnnotationDrawer()
         try await vc.displayMultipleSequenceAlignmentBundle(at: bundleURL)
 
-        vc.hideAlignmentTreeBundleViews()
+        vc.clearSurfaceForNewContent()
         XCTAssertFalse(vc.isNativeBundleViewportInstalled)
 
         // Every teardown reveals the drawer through this call. hideNaoMgsView no

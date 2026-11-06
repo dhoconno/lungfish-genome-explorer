@@ -5,7 +5,7 @@
 // The MHC amplicon reference viewer was the one native viewer that three kinds of route never removed: the
 // alignment, tree, classifier and assembly displays all clear their predecessors through
 // `hideAlignmentTreeBundleViews()`, which had no MHC line (NET-MHC-HOST-STAYS). The viewer now opens through the
-// surface host, and that hide list removes it.
+// surface host, and the one clear every display runs, `clearSurfaceForNewContent()`, removes it.
 //
 // Each test opens an MHC bundle as the sidebar does (`displayContent(for:)`). The route reads the bundle off the
 // main actor, so the tests wait by turning the main run loop.
@@ -77,11 +77,11 @@ final class MHCReferenceBundleSurfaceRouteTests: XCTestCase {
         XCTAssertEqual(viewer.children.filter { $0 is NSHostingController<MHCReferenceBundleViewport> }.count, 1)
     }
 
-    /// The hide list that the alignment, tree, classifier and assembly displays share removes the MHC viewer.
-    func testTheAlignmentAndTreeHideListRemovesTheMHCViewer() {
+    /// The clear that every display runs before its own content removes the MHC viewer.
+    func testTheClearEveryDisplayRunsRemovesTheMHCViewer() {
         openMHCAndWaitForItsViewer(mhcBundle)
 
-        viewer.hideAlignmentTreeBundleViews()
+        viewer.clearSurfaceForNewContent()
 
         XCTAssertNil(viewer.mhcReferenceBundleViewController, "the MHC viewer stayed under the next result")
         XCTAssertTrue(viewer.children.filter { $0 is NSHostingController<MHCReferenceBundleViewport> }.isEmpty)
