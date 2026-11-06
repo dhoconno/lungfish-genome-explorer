@@ -78,7 +78,9 @@ enum FASTACollectionGC {
                 : "This record has letters that are not nucleotide codes, so it is treated as a protein record and has no GC percent."
         }
 
-        /// What a screen reader says for a GC cell that reads a dash, or nil when the cell holds a number.
+        /// What a screen reader says for a GC cell that reads a dash, or nil when the cell holds a number. The list sets it on
+        /// the text field's cell, since a text field asks its cell for its accessibility value and ignores its own setter. A
+        /// nil value there leaves the cell with no value at all, so the list gives a cell that holds a number its own text.
         var dashSpokenValue: String? {
             guard percent == nil else { return nil }
             return isNucleotide ? "No GC percent, no A, C, G or T" : "No GC percent, protein record"
