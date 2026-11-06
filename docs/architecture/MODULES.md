@@ -20,7 +20,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishIO | library | Sources/LungfishIO | 660 | LungfishCore |
+| LungfishIO | library | Sources/LungfishIO | 665 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 161 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -1490,6 +1490,11 @@ None.
 - `SequenceRecord` protocol, `Sources/LungfishIO/Formats/Common/SequenceRecord.swift`
 - `SequencingPlatform` enum, `Sources/LungfishIO/Formats/FASTQ/SequencingPlatform.swift`
 - `SequencingReadImportSource` enum, `Sources/LungfishIO/Formats/FASTQ/SequencingReadImportSource.swift`
+- `SidebarInspectorTab` enum, `Sources/LungfishIO/Bundles/SidebarKindRegistry.swift`
+- `SidebarKindDescriptor` struct, `Sources/LungfishIO/Bundles/SidebarKindRegistry.swift`
+- `SidebarKindRegistry` enum, `Sources/LungfishIO/Bundles/SidebarKindRegistry.swift`
+- `SidebarRowType` enum, `Sources/LungfishIO/Bundles/SidebarKindRegistry.swift`
+- `SidebarViewportKind` enum, `Sources/LungfishIO/Bundles/SidebarKindRegistry.swift`
 - `SimpleFASTARecord` struct, `Sources/LungfishIO/Formats/Common/SequenceRecord.swift`
 - `SmartCohortPredicate` enum, `Sources/LungfishIO/Bundles/GenotypeCohortSmartFilter.swift`
 - `SQLitePublicationHandle` class, `Sources/LungfishIO/Bundles/VariantDatabase+Publication.swift`
