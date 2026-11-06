@@ -280,4 +280,48 @@ final class ReadConfidenceAcrossBundlesTests: XCTestCase {
         XCTAssertEqual(secondView.excludeFlagsSetting, fresh.computedExcludeFlags, "the second bundle's reads are filtered by the first bundle's flags")
         XCTAssertTrue(secondView.selectedReadGroupsSetting.isEmpty, "the second bundle's reads are filtered by the first bundle's read groups")
     }
+
+    /// The reset reaches the viewport while the Inspector is hidden. The slider's change handler lives in the Inspector's own view,
+    /// so if that view were what carried the reset, a hidden Inspector would read 0 when it returned while the reads stayed at 30.
+    func testTheResetReachesTheViewportWhileTheInspectorIsHidden() async throws {
+        // Collapsing the window's Inspector saves its state to the runner's defaults, so these keys go back as they were.
+        let panelDefaults = HostDefaultsRestorer(keys: [
+            MainSplitViewController.sidebarCollapsedDefaultsKey, MainSplitViewController.inspectorCollapsedDefaultsKey,
+            MainSplitViewController.sidebarWidthDefaultsKey, MainSplitViewController.inspectorWidthDefaultsKey,
+        ])
+        defer { panelDefaults.restore() }
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        let rows = try await twoReferenceRows()
+        let readStyle = harness.split.inspectorController.viewModel.readStyleSectionViewModel
+
+        harness.select(rows.first.item)
+        let firstOpened = await waitUntil(budget: .lookup) {
+            self.openedBundleURL(viewer) != nil && readStyle.onSettingsChanged != nil
+        }
+        XCTAssertTrue(firstOpened, "the first reference never opened and wired its read filter")
+        let firstURL = try XCTUnwrap(openedBundleURL(viewer))
+
+        readStyle.minMapQ = 30
+        readStyle.onSettingsChanged?()
+        XCTAssertEqual(viewportConfidence(viewer), 30, "the Inspector's confidence never reached the first bundle's viewport")
+
+        harness.split.setInspectorVisible(false, animated: false, source: "ReadConfidenceAcrossBundlesTests")
+        XCTAssertFalse(harness.split.isInspectorVisible, "the window's Inspector did not collapse")
+
+        harness.select(rows.second.item)
+        await harness.split.bundleOpenTask?.value
+        let secondOpened = await waitUntil(budget: .lookup) {
+            if let url = self.openedBundleURL(viewer), url != firstURL { return readStyle.onSettingsChanged != nil }
+            return false
+        }
+        XCTAssertTrue(secondOpened, "the second reference never opened")
+
+        XCTAssertEqual(readStyle.minMapQ, 0, "the Inspector keeps the first bundle's confidence on the second bundle")
+        XCTAssertEqual(
+            viewportConfidence(viewer), 0,
+            "the second bundle's reads and depth stay under the first bundle's confidence while the Inspector is hidden"
+        )
+    }
 }
