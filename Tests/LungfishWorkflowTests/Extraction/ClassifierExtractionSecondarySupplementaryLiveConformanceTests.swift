@@ -54,7 +54,9 @@ final class ClassifierExtractionSecondarySupplementaryLiveConformanceTests: XCTe
         XCTAssertEqual(hit.uniqueReads, 5, "the table's Unique Reads is the stored count, one for each read after deduplication")
 
         let resolver = ClassifierReadResolver()
-        let selections = [ClassifierRowSelector(sampleId: "S1", accessions: [hit.sseqid])]
+        // The selector names the hit's contig (`qseqid`), the BAM's reference, as the NVD viewer builds it
+        // (`NvdResultViewController.buildNvdSelectors`). The subject (`sseqid`) is another accession.
+        let selections = [ClassifierRowSelector(sampleId: "S1", accessions: [hit.qseqid])]
         let options = ExtractionOptions(format: .fastq, includeUnmappedMates: false)
         let estimate = try await resolver.estimateReadCount(
             tool: .nvd, resultPath: imported.resultDirectory, selections: selections, options: options
@@ -81,12 +83,15 @@ final class ClassifierExtractionSecondarySupplementaryLiveConformanceTests: XCTe
 
     private static let csv = """
     experiment,blast_task,sample_id,qseqid,qlen,sseqid,stitle,tax_rank,length,pident,evalue,bitscore,sscinames,staxids,blast_db_version,snakemake_run_id,mapped_reads,total_reads,stat_db_version,adjusted_taxid,adjustment_method,adjusted_taxid_name,adjusted_taxid_rank
-    EXP001,blastn,S1,contig-1,120,SYN0001.1,Synthetic virus,S,118,99.2,1e-20,250.5,Synthetic virus,12345,nt-2026,run-001,6,100000,stat-1,12345,unchanged,Synthetic virus,species
+    EXP001,blastn,S1,SYN0001.1,120,NC_000001.1,Synthetic virus,S,118,99.2,1e-20,250.5,Synthetic virus,12345,nt-2026,run-001,6,100000,stat-1,12345,unchanged,Synthetic virus,species
 
     """
 
-    /// An NVD run of the one sample S1 whose BAM is the crafted fixture, with one BLAST hit on its accession, staged as
-    /// lane NVD's `NvdUniqueReadsFlagsLiveConformanceTests` stages it.
+    /// An NVD run of the one sample S1 whose BAM is the crafted fixture, with one BLAST hit, staged as lane NVD's
+    /// `NvdUniqueReadsFlagsLiveConformanceTests` stages it. As in a real NVD run, the BAM's one reference, SYN0001.1,
+    /// is the hit's contig (`qseqid`), and the BLAST subject (`sseqid`) is another accession that the BAM does not hold.
+    /// Unique Reads counts on the contig since `a77920a1e`, so a contig that the BAM lacks would store no count
+    /// (FULL1-NVD-EXTRACT-STAGE).
     private static func craftedRun(in root: URL) throws -> URL {
         let run = root.appendingPathComponent("nvd-run", isDirectory: true)
         let labkey = run.appendingPathComponent("05_labkey_bundling", isDirectory: true)
@@ -99,7 +104,7 @@ final class ClassifierExtractionSecondarySupplementaryLiveConformanceTests: XCTe
         for name in ["S1.filtered.bam", "S1.filtered.bam.bai"] {
             try FileManager.default.copyItem(at: fixture.appendingPathComponent(name), to: mapped.appendingPathComponent(name))
         }
-        try ">contig-1\nACGTACGT\n".write(to: results.appendingPathComponent("S1.human_virus.fasta"), atomically: true, encoding: .utf8)
+        try ">SYN0001.1\nACGTACGT\n".write(to: results.appendingPathComponent("S1.human_virus.fasta"), atomically: true, encoding: .utf8)
         return run
     }
 
