@@ -416,6 +416,7 @@ public final class ReadStyleSectionViewModel {
         consensusScope = .wholeContig
         consensusExtractionAvailabilityMessage = nil
         onConsensusScopeChanged = nil
+        minMapQ = 0 // W-27: a confidence belongs to the bundle it was set on, so the next bundle starts at the default.
     }
 
     /// Configures the existing read controls for a single, detached classifier
@@ -435,7 +436,6 @@ public final class ReadStyleSectionViewModel {
         showDuplicates = false
         showSecondary = false
         showSupplementary = false
-        minMapQ = 0
         selectedReadGroups = []
         onMarkDuplicatesRequested = nil
         onCreateDeduplicatedBundleRequested = nil
