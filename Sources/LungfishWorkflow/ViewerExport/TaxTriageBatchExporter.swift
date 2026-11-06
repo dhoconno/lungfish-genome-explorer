@@ -33,8 +33,8 @@ public enum TaxTriageBatchExporter {
     ///     a control holds is a contamination risk even when the selection leaves the control out (lane TTCONTROLS).
     ///   - controlsNotRecorded: True when the result does not say which samples were controls, so the Contamination
     ///     Risk column reads Not recorded instead of Yes or No.
-    ///   - controlsNotChecked: True when a control never ran or cannot be found, so an organism that no control
-    ///     that ran holds reads Not checked instead of No.
+    ///   - controlsNotChecked: True when a control never ran, cannot be found or may be incomplete, so an organism that no
+    ///     control holds reads Not checked instead of No.
     /// - Returns: CSV string.
     public static func generateOrganismMatrixCSV(
         metrics: [TaxTriageMetric],
@@ -207,8 +207,8 @@ public enum TaxTriageBatchExporter {
     /// The word an export shows where the import did not record a value (BIO ruling BIO-IMPORT-BATCH, item 3).
     public static let notRecorded = "Not recorded"
 
-    /// The word an export shows for Contamination Risk where a negative control never ran or cannot be found, so
-    /// the organism may be in it (lane TTBUILDDB, row TAXTRIAGE-FAILED-CONTROL-READS-CLEAN).
+    /// The word an export shows for Contamination Risk where a negative control never ran, cannot be found or may be
+    /// incomplete, so the organism may be in it (lanes TTBUILDDB and TTNOTCHECKED, row TAXTRIAGE-FAILED-CONTROL-READS-CLEAN).
     public static let notChecked = "Not checked"
 
     /// A control as the `Negative Controls:` line names it, with what the result says about it.

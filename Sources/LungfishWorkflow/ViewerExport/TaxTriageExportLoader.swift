@@ -372,7 +372,7 @@ extension TaxTriageResultsExport {
     ///
     /// Contamination Risk reads Not recorded when `controlsNotRecorded` is true, since the result does not say which
     /// samples were negative controls (BIO ruling BIO-IMPORT-BATCH, item 3). Where the cell would be blank it reads
-    /// Not checked when `controlsNotChecked` is true, since a control never ran or cannot be found.
+    /// Not checked when `controlsNotChecked` is true, since a control never ran, cannot be found or may be incomplete.
     public static func buildDelimitedExport(
         rows: [TaxTriageMetric],
         totalReadsByKey: [String: Int],
