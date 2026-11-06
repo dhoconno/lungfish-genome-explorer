@@ -227,7 +227,7 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
             )
         }
         // A control that has rows and a step the pipeline skipped after an error is read from the rows it has, so its
-        // organisms stay Yes but a No for one it does not list is not certain (lane TTCONTROLS, BIO review).
+        // organisms stay Yes but an organism it does not list may still be in it (lane TTCONTROLS, BIO review).
         for control in controls.sorted(by: { $0.sampleId < $1.sampleId }) where control.state == .found {
             let names = Set([control.sampleId, control.resultsName].filter { !$0.isEmpty })
             let steps = Set(
@@ -241,7 +241,7 @@ public struct TaxTriageControlMatch: Sendable, Equatable {
             notes.append(
                 "\(one ? "A step" : "Steps") of the negative control \(control.sampleId) (\(Self.listing(steps))) "
                     + "\(one ? "stopped with an error that the pipeline skipped" : "stopped with errors that the pipeline skipped"), "
-                    + "so its results may be incomplete and a No for an organism it does not list is not certain. "
+                    + "so its results may be incomplete and an organism it does not list may still be in the control. "
                     + "Run it again, or check it another way, before you rely on these results."
             )
         }
