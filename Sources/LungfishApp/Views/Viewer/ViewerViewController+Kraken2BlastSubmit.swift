@@ -126,8 +126,8 @@ extension ViewerViewController {
     /// sample when the display has one, the taxon and the count and seed of the draw. The search's folder sits under
     /// the result's `blast-verifications/`, where `blast verify --result-dir` and the in-process row kept theirs and
     /// where a reopened result finds it (``TaxonomyViewController/newestSavedBlastVerification(forTaxId:in:)``).
-    /// It searches the request's database, `nt` as the in-process row and the BLAST popover have it, so the
-    /// command carries `--database nt` and the record's argv names it (BIO 3, BIO 4).
+    /// It searches the request's database, `core_nt` as the in-process row and the BLAST popover have it, so the
+    /// command carries `--database core_nt` and the record's argv names it (BIO 3, BIO 4).
     nonisolated static func kraken2BlastSubmitPlan(
         request: BlastVerificationRequest,
         projectURL: URL?,
