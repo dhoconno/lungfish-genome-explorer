@@ -12,6 +12,10 @@
 // opens, and selecting the same reference row again keeps the value the person set, as REFMAP's rule keeps a read group filter
 // (`ReferenceBundleReadFilterSameRowTests`). `testAConfidenceStaysWhenTheSameRowIsSelectedAgain` pins that case. A reset inside
 // `ReadStyleSectionViewModel.clear()` fails it, because the Inspector clears the block on every selection, the same row included.
+//
+// The fix round (BIO SF2, 2026-11-06) widens the same rule to every filter that reaches depth and read counts. The consensus
+// quality limits, the duplicate, secondary and supplementary toggles and the read group filter start at their defaults when a
+// different bundle opens, and the same bundle keeps them. `testTheOtherDepthFiltersReadTheDefaultOnTheNextBundleThatOpens` pins it.
 
 import AppKit
 import LungfishTestSupport
@@ -149,7 +153,8 @@ final class ReadConfidenceAcrossBundlesTests: XCTestCase {
 
     /// The block's own rule, without a window. The same bundle keeps the value across the clear that every selection makes. A
     /// different bundle starts at the default, and so does a return to the first bundle after a second one. Classifier evidence
-    /// starts at the default and leaves no bundle behind.
+    /// starts at the default and leaves no bundle behind. The consensus confidence and the read group filter follow the same rule
+    /// (BIO SF2), and the same bundle keeps them as REFMAP's rule keeps a read group filter.
     func testTheBlockResetsOnlyWhenADifferentBundleLoads() {
         let viewModel = ReadStyleSectionViewModel()
         let first = root.appendingPathComponent("first.lungfishref", isDirectory: true)
@@ -157,13 +162,19 @@ final class ReadConfidenceAcrossBundlesTests: XCTestCase {
 
         viewModel.resetConfidenceUnlessSameBundle(at: first)
         viewModel.minMapQ = 30
+        viewModel.consensusMinMapQ = 30
+        viewModel.selectedReadGroups = ["S1-rg"]
         viewModel.clear()
         viewModel.resetConfidenceUnlessSameBundle(at: first)
         XCTAssertEqual(viewModel.minMapQ, 30, "the same bundle lost its confidence")
+        XCTAssertEqual(viewModel.consensusMinMapQ, 30, "the same bundle lost its consensus confidence")
+        XCTAssertEqual(viewModel.selectedReadGroups, ["S1-rg"], "the same bundle lost its read group filter")
 
         viewModel.clear()
         viewModel.resetConfidenceUnlessSameBundle(at: second)
         XCTAssertEqual(viewModel.minMapQ, 0, "a different bundle kept the confidence")
+        XCTAssertEqual(viewModel.consensusMinMapQ, 0, "a different bundle kept the consensus confidence")
+        XCTAssertTrue(viewModel.selectedReadGroups.isEmpty, "a different bundle kept the read group filter")
 
         viewModel.minMapQ = 20
         viewModel.clear()
@@ -171,8 +182,10 @@ final class ReadConfidenceAcrossBundlesTests: XCTestCase {
         XCTAssertEqual(viewModel.minMapQ, 0, "a return to the first bundle kept the second bundle's confidence")
 
         viewModel.minMapQ = 10
+        viewModel.consensusMinBaseQ = 20
         viewModel.resetConfidenceForClassifierEvidence()
         XCTAssertEqual(viewModel.minMapQ, 0, "classifier evidence kept a bundle's confidence")
+        XCTAssertEqual(viewModel.consensusMinBaseQ, 0, "classifier evidence kept a bundle's consensus base quality")
         viewModel.minMapQ = 5
         viewModel.resetConfidenceUnlessSameBundle(at: first)
         XCTAssertEqual(viewModel.minMapQ, 0, "a bundle kept the confidence set on classifier evidence")
@@ -216,5 +229,55 @@ final class ReadConfidenceAcrossBundlesTests: XCTestCase {
             viewportConfidence(viewer), 30,
             "the reopened bundle's reads and depth are not under the confidence the Inspector shows"
         )
+    }
+
+    /// The other filters that reach depth and read counts go back to their defaults with the confidence when a different bundle
+    /// opens, in the Inspector and in the viewport that depth and the reads come from.
+    func testTheOtherDepthFiltersReadTheDefaultOnTheNextBundleThatOpens() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        let rows = try await twoReferenceRows()
+        let readStyle = harness.split.inspectorController.viewModel.readStyleSectionViewModel
+
+        harness.select(rows.first.item)
+        let firstOpened = await waitUntil(budget: .lookup) {
+            self.openedBundleURL(viewer) != nil && readStyle.onSettingsChanged != nil
+        }
+        XCTAssertTrue(firstOpened, "the first reference never opened and wired its read filter")
+        let firstURL = try XCTUnwrap(openedBundleURL(viewer))
+
+        readStyle.consensusMinMapQ = 30
+        readStyle.consensusMinBaseQ = 20
+        readStyle.showDuplicates = true
+        readStyle.showSecondary = true
+        readStyle.showSupplementary = true
+        readStyle.selectedReadGroups = ["S1-rg"]
+        readStyle.onSettingsChanged?()
+        let firstView = try XCTUnwrap(viewer.referenceBundleViewportController?.testEmbeddedViewerController.viewerView)
+        XCTAssertEqual(firstView.consensusMinMapQSetting, 30, "the Inspector's consensus confidence never reached the first viewport")
+        XCTAssertEqual(firstView.selectedReadGroupsSetting, ["S1-rg"], "the Inspector's read group filter never reached the first viewport")
+
+        harness.select(rows.second.item)
+        await harness.split.bundleOpenTask?.value
+        let secondOpened = await waitUntil(budget: .lookup) {
+            if let url = self.openedBundleURL(viewer), url != firstURL { return readStyle.onSettingsChanged != nil }
+            return false
+        }
+        XCTAssertTrue(secondOpened, "the second reference never opened")
+
+        let fresh = ReadStyleSectionViewModel()
+        XCTAssertEqual(readStyle.consensusMinMapQ, fresh.consensusMinMapQ, "the Inspector shows the first bundle's consensus confidence")
+        XCTAssertEqual(readStyle.consensusMinBaseQ, fresh.consensusMinBaseQ, "the Inspector shows the first bundle's consensus base quality")
+        XCTAssertEqual(readStyle.showDuplicates, fresh.showDuplicates, "the Inspector includes duplicates on the second bundle")
+        XCTAssertEqual(readStyle.showSecondary, fresh.showSecondary, "the Inspector includes secondary alignments on the second bundle")
+        XCTAssertEqual(readStyle.showSupplementary, fresh.showSupplementary, "the Inspector includes supplementary alignments on the second bundle")
+        XCTAssertEqual(readStyle.selectedReadGroups, fresh.selectedReadGroups, "the Inspector keeps the first bundle's read group filter")
+
+        let secondView = try XCTUnwrap(viewer.referenceBundleViewportController?.testEmbeddedViewerController.viewerView)
+        XCTAssertEqual(secondView.consensusMinMapQSetting, 0, "the second bundle's depth is filtered by the first bundle's consensus confidence")
+        XCTAssertEqual(secondView.consensusMinBaseQSetting, 0, "the second bundle's depth is filtered by the first bundle's base quality")
+        XCTAssertEqual(secondView.excludeFlagsSetting, fresh.computedExcludeFlags, "the second bundle's reads are filtered by the first bundle's flags")
+        XCTAssertTrue(secondView.selectedReadGroupsSetting.isEmpty, "the second bundle's reads are filtered by the first bundle's read groups")
     }
 }
