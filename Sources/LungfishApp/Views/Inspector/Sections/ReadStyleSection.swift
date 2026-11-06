@@ -94,7 +94,7 @@ public final class ReadStyleSectionViewModel {
 
     /// Minimum mapping quality filter (reads below this are hidden).
     public var minMapQ: Double = 0
-    @ObservationIgnored var confidenceBundleURL: URL? // The bundle `minMapQ` was last loaded for (ReadStyleSection+BundleConfidence.swift).
+    @ObservationIgnored var confidenceBundleURL: URL? // The bundle the depth filters were last loaded for (ReadStyleSection+BundleConfidence.swift).
 
     /// Whether to show duplicate reads (SAM flag 0x400).
     public var showDuplicates: Bool = false
