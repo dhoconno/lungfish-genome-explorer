@@ -452,8 +452,8 @@ package final class ProjectDeletionPlanner {
         }
 
         let isAnalysisLikeManifestDirectory = url.pathComponents.contains("Analyses")
-            || url.lastPathComponent.hasPrefix("naomgs-")
-            || url.lastPathComponent.hasPrefix("nvd-")
+            || SidebarKindRegistry.legacyAnalysisKinds(forFolderNamed: url.lastPathComponent)
+                .contains(where: \.deletionTreatsLegacyFolderAsAnalysis)
         if fileManager.fileExists(atPath: url.appendingPathComponent("manifest.json").path),
            isAnalysisLikeManifestDirectory {
             return true

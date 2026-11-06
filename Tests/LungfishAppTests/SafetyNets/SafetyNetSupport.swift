@@ -120,7 +120,7 @@ enum SidebarItemTypeCatalog {
         .multipleSequenceAlignmentBundle, .phylogeneticTreeBundle, .fastqBundle,
         .primerAnalysisBundle, .primerSchemeBundle, .genotypeResultBundle,
         .twelveSAmpliconResultBundle, .batchGroup, .classificationResult, .esvirituResult,
-        .taxTriageResult, .naoMgsResult, .nvdResult, .czIdResult, .analysisResult,
+        .taxTriageResult, .naoMgsResult, .nvdResult, .czIdResult, .analysisResult, .registeredBundle,
     ]
 
     static func caseName(_ type: SidebarItemType) -> String {
@@ -152,6 +152,7 @@ enum SidebarItemTypeCatalog {
         case .nvdResult: return "nvdResult"
         case .czIdResult: return "czIdResult"
         case .analysisResult: return "analysisResult"
+        case .registeredBundle: return "registeredBundle"
         }
     }
 

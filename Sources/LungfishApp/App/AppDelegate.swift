@@ -288,14 +288,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             guard let self, let sidebarController else { return }
             _ = sidebarController.selectItem(forURL: url)
 
-            // Metagenomics results set their own inspector tab via contentMode
-            // notification; forcing "document" tab would override it.
-            let isMetagenomicsResult = url.lastPathComponent.hasPrefix("naomgs-")
-                || url.lastPathComponent.hasPrefix("kraken2-")
-                || url.lastPathComponent.hasPrefix("esviritu-")
-                || url.lastPathComponent.hasPrefix("taxtriage-")
-                || url.lastPathComponent.hasPrefix("nvd-")
-            if !isMetagenomicsResult {
+            // A result whose viewer sets its own Inspector tab through its content mode keeps it (the registry's tab).
+            let tab = SidebarKindRegistry.analysisKind(ofFolder: url)?.inspectorTab
+                ?? SidebarKindRegistry.legacyAnalysisKinds(forFolderNamed: url.lastPathComponent).first?.inspectorTab
+            if tab != .setByViewer {
                 self.requestInspectorDocumentModeAfterDownload(in: controller)
             }
         }

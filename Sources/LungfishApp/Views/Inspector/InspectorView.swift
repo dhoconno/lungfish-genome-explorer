@@ -814,10 +814,10 @@ extension SidebarItemType: CustomStringConvertible {
         case .nvdResult: return "NVD Classification Result"
         case .czIdResult: return "CZ-ID Classification Result"
         case .analysisResult: return "Analysis Result"
+        case .registeredBundle: return "Bundle"
         }
     }
 }
-
 // MARK: - Preview
 
 #if DEBUG

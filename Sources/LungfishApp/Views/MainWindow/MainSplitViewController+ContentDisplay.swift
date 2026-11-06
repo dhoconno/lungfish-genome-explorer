@@ -76,83 +76,8 @@ extension MainSplitViewController {
             inspectorController.updateProvenanceTarget(url: url, sidebarType: item.type, displayName: item.title)
             return
         }
-        // Reference genome bundles (.lungfishref)
-        if item.type == .referenceBundle, let url = item.url {
-            displayReferenceBundleViewportFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            return
-        }
-
-        if item.type == .primerAnalysisBundle, let url = item.url {
-            displayPrimerAnalysisBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            return
-        }
-
-        if item.type == .genotypeResultBundle, let url = item.url {
-            displayGenotypeResultBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            return
-        }
-
-        if item.type == .twelveSAmpliconResultBundle, let url = item.url {
-            displayTwelveSAmpliconResultBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            return
-        }
-
-        if item.type == .multipleSequenceAlignmentBundle, let url = item.url {
-            displayMultipleSequenceAlignmentBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            return
-        }
-
-        if item.type == .mhcReferenceBundle, let url = item.url {
-            displayMHCReferenceBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            return
-        }
-
-        if item.type == .phylogeneticTreeBundle, let url = item.url {
-            displayPhylogeneticTreeBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            return
-        }
-
-        // Primer scheme bundles (.lungfishprimers) are metadata only. They are
-        // not documents, so they must never reach the genomics-file loader,
-        // which rejects them as an unsupported format.
-        if item.type == .primerSchemeBundle, let url = item.url {
-            displayPrimerSchemeBundleFromSidebar(at: url)
-            return
-        }
-
-        // Classification results (Kraken2 kreport/kraken output)
-        if item.type == .classificationResult, let url = item.url {
-            routeClassifierDisplay(url: url)
-            return
-        }
-
-        // EsViritu viral detection results
-        if item.type == .esvirituResult, let url = item.url {
-            routeClassifierDisplay(url: url)
-            return
-        }
-
-        // TaxTriage results all go through the DB-backed classifier router.
-        if item.type == .taxTriageResult, let url = item.url {
-            routeClassifierDisplay(url: url)
-            return
-        }
-
-        // NAO-MGS surveillance result bundles
-        if item.type == .naoMgsResult, let url = item.url {
-            displayNaoMgsResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            return
-        }
-
-        // NVD result bundles
-        if item.type == .nvdResult, let url = item.url {
-            displayNvdResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            return
-        }
-
-        // CZ-ID imported taxonomy result bundles
-        if item.type == .czIdResult, let url = item.url {
-            displayCzIdResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
+        // Every bundle and result kind of SidebarKindRegistry, a registered kind included.
+        if let url = item.url, displaySidebarKind(item, at: url, identity: displayIdentity, token: displayToken) {
             return
         }
 

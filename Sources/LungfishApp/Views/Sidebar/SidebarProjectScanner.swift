@@ -169,18 +169,7 @@ enum SidebarProjectScanner {
         }
 
         // Bundles display without their directory extension.
-        let displayName = (itemType == .referenceBundle
-            || itemType == .mhcReferenceBundle
-            || itemType == .multipleSequenceAlignmentBundle
-            || itemType == .phylogeneticTreeBundle
-            || itemType == .fastqBundle
-            || itemType == .primerAnalysisBundle
-            || itemType == .primerSchemeBundle
-            || itemType == .genotypeResultBundle
-            || itemType == .twelveSAmpliconResultBundle
-            || itemType == .czIdResult)
-            ? url.deletingPathExtension().lastPathComponent
-            : filename
+        let displayName = itemType.isBundle ? url.deletingPathExtension().lastPathComponent : filename
 
         // Composition subtitle for FASTQ bundles with mixed read types,
         // materialization state badge for virtual derivatives, and processing state.
@@ -210,6 +199,9 @@ enum SidebarProjectScanner {
             url: url,
             subtitle: subtitle
         )
+        if itemType == .registeredBundle, let kind = SidebarKindRegistry.bundleKind(ofFolder: url, fileManager: fileManager) {
+            node.userInfo[SidebarItemType.registeredKindKey] = kind.id
+        }
 
         // For FASTQ bundles, scan for demultiplexed child bundles inside every
         // demultiplex run directory (demux/, demux-2/, ...).
@@ -321,42 +313,18 @@ enum SidebarProjectScanner {
         for url: URL,
         fileManager: FileManager = .default
     ) -> (type: SidebarItemType, icon: String)? {
-        switch url.pathExtension.lowercased() {
-        case FASTQBundle.directoryExtension:
-            return (.fastqBundle, "doc.text")
-        case "lungfishref":
-            return (.referenceBundle, "cylinder.split.1x2")
-        case MHCAmpliconReferenceBundle.directoryExtension:
-            return (.mhcReferenceBundle, "cylinder.split.1x2")
-        case MultipleSequenceAlignmentBundle.directoryExtension:
-            return (.multipleSequenceAlignmentBundle, "rectangle.grid.1x2")
-        case "lungfishtree":
-            return (.phylogeneticTreeBundle, "point.3.connected.trianglepath.dotted")
-        case "lungfishprimeranalysis":
-            return (.primerAnalysisBundle, "list.bullet.rectangle")
-        case "lungfishprimers":
-            return (.primerSchemeBundle, "line.horizontal.3.decrease.circle")
-        case ONTGenotypeResultBundle.directoryExtension:
-            return (.genotypeResultBundle, "tablecells.badge.ellipsis")
-        case TwelveSAmpliconResultBundle.directoryExtension:
-            return (.twelveSAmpliconResultBundle, "tablecells")
-        case "lungfishtax":
-            let manifestURL = url.appendingPathComponent("cz-id-manifest.json")
-            if fileManager.fileExists(atPath: manifestURL.path) {
-                return (.czIdResult, "c.circle")
-            }
-            return (.document, "shippingbox")
-        default:
-            if FASTQBundle.isBundleURL(url) {
-                return (.fastqBundle, "doc.text")
-            }
-            // Native packages without a dedicated viewport remain atomic and use
-            // the existing document preview, never a tree of their private files.
-            if url.pathExtension.lowercased().hasPrefix("lungfish") {
-                return (.document, "shippingbox")
-            }
-            return nil
+        if let kind = SidebarKindRegistry.bundleKind(ofFolder: url, fileManager: fileManager) {
+            return (SidebarItemType(kind.rowType), kind.sidebarSymbolName)
         }
+        if FASTQBundle.isBundleURL(url) {
+            return (.fastqBundle, "doc.text")
+        }
+        // Native packages without a dedicated viewport remain atomic and use
+        // the existing document preview, never a tree of their private files.
+        if url.pathExtension.lowercased().hasPrefix("lungfish") {
+            return (.document, "shippingbox")
+        }
+        return nil
     }
 
     static func shouldIncludeEntry(
@@ -496,54 +464,18 @@ enum SidebarProjectScanner {
     /// directory scanner because dedicated batch-group or result nodes already
     /// represent them.
     ///
-    /// Prefix checks run first for speed, then a sidecar-content fallback so
-    /// user-renamed directories are still recognised.
+    /// The metadata sidecar decides first. A folder without one goes to the registry's read-only fallback, its legacy
+    /// name prefix and marker, and then to a sidecar-content check so user-renamed directories are still recognised.
     static func isMetagenomicsResultDirectory(_ url: URL) -> Bool {
-        let name = url.lastPathComponent
         let fm = FileManager.default
-
-        // TaxTriage result directories (taxtriage-XXXXXXXX)
-        if name.hasPrefix(MetagenomicsImportKind.taxtriage.directoryPrefix) {
-            let sidecar = url.appendingPathComponent("taxtriage-result.json")
-            if fm.fileExists(atPath: sidecar.path) { return true }
-            let hasKraken = fm.fileExists(atPath: url.appendingPathComponent("kraken2").path)
-            if hasKraken { return true }
-        }
-
-        // Classification result directories
-        if name.hasPrefix(MetagenomicsImportKind.kraken2.directoryPrefix) {
-            let sidecar = url.appendingPathComponent("classification-result.json")
-            if fm.fileExists(atPath: sidecar.path) { return true }
-        }
-
-        // EsViritu result directories
-        if name.hasPrefix(MetagenomicsImportKind.esviritu.directoryPrefix) {
-            let sidecar = url.appendingPathComponent("esviritu-result.json")
-            if fm.fileExists(atPath: sidecar.path) { return true }
-        }
-
-        // NAO-MGS result bundles
-        if name.hasPrefix(MetagenomicsImportKind.naomgs.directoryPrefix) {
-            let sidecar = url.appendingPathComponent("manifest.json")
-            if fm.fileExists(atPath: sidecar.path) { return true }
-        }
-
-        // NVD result bundles
-        if name.hasPrefix(MetagenomicsImportKind.nvd.directoryPrefix) {
-            let sidecar = url.appendingPathComponent("manifest.json")
-            if fm.fileExists(atPath: sidecar.path) { return true }
-        }
-
-        // CZ-ID imported result bundles
-        if name.hasPrefix(AnalysisToolID.czId.rawValue + "-"), url.pathExtension.lowercased() != "lungfishtax" {
-            let sidecar = url.appendingPathComponent("cz-id-manifest.json")
-            if fm.fileExists(atPath: sidecar.path) { return true }
-        }
 
         // Authoritative metadata sidecar, written at creation and kept through renames. Only a folder
         // inside Analyses/ has a dedicated row, so a folder with metadata elsewhere lists as a plain folder.
         if fm.fileExists(atPath: url.appendingPathComponent(AnalysesFolder.metadataFilename).path),
            AnalysesFolder.isInsideAnalysesFolder(url) { return true }
+
+        // A result folder older than the sidecar, such as an imported naomgs-<sample> or classification-<run>.
+        if SidebarKindRegistry.legacyAnalysisKind(ofFolder: url, fileManager: fm) != nil { return true }
 
         // Content-based fallback: detect renamed analysis directories by their
         // signature files (e.g. manifest.json + hits.sqlite for NAO-MGS).
@@ -901,7 +833,7 @@ enum SidebarProjectScanner {
     }
 
     static func analysisIcon(for tool: String) -> String {
-        AnalysisToolRegistry.descriptor(forRawID: tool)?.sidebarSymbolName ?? "circle"
+        SidebarKindRegistry.analysisKind(forTool: tool)?.sidebarSymbolName ?? "circle"
     }
 
     static func analysisDisplayTitle(for info: AnalysesFolder.AnalysisDirectoryInfo) -> String {
@@ -913,22 +845,10 @@ enum SidebarProjectScanner {
 
     /// Maps an analysis tool name to the correct `SidebarItemType` so the selection
     /// handler in `MainSplitViewController` dispatches to the right display method.
+    /// Viral Recon publishes its alignment and variants into a reference bundle inside the analysis directory, so its
+    /// row is an analysis result like the mapping tools' rows. An unknown tool's row is one too.
     static func analysisItemType(for tool: String) -> SidebarItemType {
-        switch tool {
-        case "esviritu": return .esvirituResult
-        case "kraken2": return .classificationResult
-        case "taxtriage": return .taxTriageResult
-        case "mafft": return .multipleSequenceAlignmentBundle
-        case "naomgs": return .naoMgsResult
-        case "nvd": return .nvdResult
-        case "cz-id": return .czIdResult
-        case "ont-genotyping": return .genotypeResultBundle
-        // Viral Recon publishes its alignment and variants into a reference
-        // bundle inside the analysis directory, so it routes through the
-        // generic analysis-result path like the mapping tools do.
-        case "viralrecon": return .analysisResult
-        default: return .analysisResult
-        }
+        SidebarKindRegistry.analysisKind(forTool: tool).map { SidebarItemType($0.rowType) } ?? .analysisResult
     }
 
     // MARK: - Result titles
@@ -969,6 +889,14 @@ enum SidebarProjectScanner {
 
     // MARK: - Standalone result bundles
 
+    /// True when the folder's metadata sidecar names `tool`, or, with no sidecar, when the registry's read-only
+    /// fallback finds the kind's legacy name prefix. The caller still requires the result's `manifest.json`.
+    static func isStandaloneResult(_ url: URL, of tool: AnalysisToolID) -> Bool {
+        if let recorded = AnalysesFolder.readAnalysisMetadata(from: url)?.tool, recorded == tool.rawValue { return true }
+        let kind = SidebarKindRegistry.analysisKind(forTool: tool.rawValue)
+        return kind?.legacyFolder?.matchesName(url.lastPathComponent) ?? false
+    }
+
     /// Collects NAO-MGS result bundles from inside a directory.
     ///
     /// Matches `naomgs-*` directories (or ones whose `analysis-metadata.json`
@@ -988,9 +916,7 @@ enum SidebarProjectScanner {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: childURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
 
-            let hasPrefix = childURL.lastPathComponent.hasPrefix("naomgs-")
-            let hasMetadata = AnalysesFolder.readAnalysisMetadata(from: childURL)?.tool == "naomgs"
-            guard hasPrefix || hasMetadata else { continue }
+            guard isStandaloneResult(childURL, of: .naomgs) else { continue }
 
             let manifestURL = childURL.appendingPathComponent("manifest.json")
             guard fm.fileExists(atPath: manifestURL.path) else { continue }
@@ -1042,9 +968,7 @@ enum SidebarProjectScanner {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: childURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
 
-            let hasPrefix = childURL.lastPathComponent.hasPrefix("nvd-")
-            let hasMetadata = AnalysesFolder.readAnalysisMetadata(from: childURL)?.tool == "nvd"
-            guard hasPrefix || hasMetadata else { continue }
+            guard isStandaloneResult(childURL, of: .nvd) else { continue }
 
             let manifestURL = childURL.appendingPathComponent("manifest.json")
             guard fm.fileExists(atPath: manifestURL.path) else { continue }

@@ -147,7 +147,7 @@ struct ProvenanceCoverageMonitor {
              .naoMgsResult,
              .nvdResult,
              .czIdResult,
-             .analysisResult:
+             .analysisResult, .registeredBundle:
             return true
         case .group,
              .folder,

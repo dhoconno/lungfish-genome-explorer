@@ -65,6 +65,35 @@ public enum SidebarItemType: Sendable {
     case nvdResult             // NVD (Novel Virus Diagnostics) result bundle
     case czIdResult            // CZ-ID imported taxonomy result bundle
     case analysisResult        // Analysis result in Analyses/ folder
+    /// A bundle kind that joined `SidebarKindRegistry` by registration alone. Its row's `userInfo` names the kind
+    /// under `SidebarItemType.registeredKindKey`, and it opens in the viewport its descriptor names.
+    case registeredBundle
+
+    /// The `userInfo` key of a `.registeredBundle` row that holds its `SidebarKindDescriptor` id.
+    static let registeredKindKey = "sidebarKind"
+
+    /// The row type of a kind in `SidebarKindRegistry`.
+    init(_ row: SidebarRowType) {
+        switch row {
+        case .referenceBundle: self = .referenceBundle
+        case .mhcReferenceBundle: self = .mhcReferenceBundle
+        case .multipleSequenceAlignmentBundle: self = .multipleSequenceAlignmentBundle
+        case .phylogeneticTreeBundle: self = .phylogeneticTreeBundle
+        case .fastqBundle: self = .fastqBundle
+        case .primerAnalysisBundle: self = .primerAnalysisBundle
+        case .primerSchemeBundle: self = .primerSchemeBundle
+        case .genotypeResultBundle: self = .genotypeResultBundle
+        case .twelveSAmpliconResultBundle: self = .twelveSAmpliconResultBundle
+        case .czIdResult: self = .czIdResult
+        case .classificationResult: self = .classificationResult
+        case .esvirituResult: self = .esvirituResult
+        case .taxTriageResult: self = .taxTriageResult
+        case .naoMgsResult: self = .naoMgsResult
+        case .nvdResult: self = .nvdResult
+        case .analysisResult: self = .analysisResult
+        case .registeredBundle: self = .registeredBundle
+        }
+    }
 
     var tintColor: NSColor {
         switch self {
@@ -94,6 +123,7 @@ public enum SidebarItemType: Sendable {
         case .nvdResult: return .lungfishOrange
         case .czIdResult: return .lungfishOrange
         case .analysisResult: return .lungfishOrange
+        case .registeredBundle: return .systemGray
         }
     }
 
@@ -111,7 +141,8 @@ public enum SidebarItemType: Sendable {
     var isBundle: Bool {
         switch self {
         case .referenceBundle, .mhcReferenceBundle, .multipleSequenceAlignmentBundle, .phylogeneticTreeBundle,
-             .fastqBundle, .primerAnalysisBundle, .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult:
+             .fastqBundle, .primerAnalysisBundle, .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult,
+             .registeredBundle:
             return true
         default:
             return false
@@ -188,7 +219,7 @@ public enum SidebarItemType: Sendable {
                 canShowInInspector: false, canExportSequences: false
             )
         case .mhcReferenceBundle, .fastqBundle, .phylogeneticTreeBundle,
-             .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult:
+             .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult, .registeredBundle:
             // .mhcReferenceBundle gets the baseline actions here, NOT
             // canExportSequences: exportSequences()'s sequence-loading path
             // (AppDelegate+ImportCenter.loadSequencesForExport) only knows
@@ -290,7 +321,7 @@ extension SidebarItemType {
         [
             .referenceBundle, .mhcReferenceBundle, .multipleSequenceAlignmentBundle,
             .phylogeneticTreeBundle, .fastqBundle, .primerAnalysisBundle, .primerSchemeBundle,
-            .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult,
+            .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult, .registeredBundle,
         ]
     }
 }

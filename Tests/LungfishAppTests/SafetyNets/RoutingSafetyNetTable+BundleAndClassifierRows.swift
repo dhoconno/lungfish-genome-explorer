@@ -203,6 +203,20 @@ extension RoutingSafetyNetTable {
                     )
                 )
             },
+            RoutingRow(family: .bundles, name: "Registered kind with no registration", type: .registeredBundle) { context in
+                // A row whose kind no registration names says so where the viewer was. SidebarKindRegistryRouteTests
+                // opens a registered stub kind.
+                let folder = try SafetyNetFiles.makeDirectory(context.url("Inputs/Gone.lungfishgone", isDirectory: true))
+                let item = SidebarItem(title: "Gone", type: .registeredBundle, url: folder)
+                item.userInfo[SidebarItemType.registeredKindKey] = "bundle:not-registered"
+                return RoutingRowFixture(
+                    item: item,
+                    expected: RoutingObservation(
+                        status: "Lungfish has no viewer for Gone. Check for a newer version of Lungfish.",
+                        provenance: "registeredBundle \(context.render(folder))"
+                    )
+                )
+            },
         ]
     }
 
