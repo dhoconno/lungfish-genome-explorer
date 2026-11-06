@@ -170,6 +170,19 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         XCTAssertTrue(viewer.activeMappingViewportController === viewport)
     }
 
+    /// Call Variants and the VCF import find a mapping result's reference copy through the reference viewport the
+    /// sidebar's route installs, so they need no slot of the dead route's class.
+    func testTheReferenceResolverFindsTheMappingResultThroughTheReferenceViewport() async throws {
+        let mapping = try makeMapping("A", contig: "chrA", readsOnContig: 9)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        harness.split.displayMappingAnalysisFromSidebar(at: mapping.result)
+        try await assertShows(mapping, in: viewer)
+        let resolved = AppDelegate().currentReferenceBundleURL(for: viewer)
+        XCTAssertEqual(resolved?.standardizedFileURL, mapping.bundle.standardizedFileURL, "Call Variants would act on another bundle")
+    }
+
     // MARK: - The numbers
 
     /// The summary bar and each contig row of a result the viewport does not measure, as literals read at the base. A real
