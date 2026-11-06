@@ -556,10 +556,38 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertFalse(UserDefaults.standard.bool(forKey: MainSplitViewController.inspectorCollapsedDefaultsKey))
     }
 
-    private func makeController() async -> (MainSplitViewController, NSWindow) {
+    /// W-12. The app opened narrow with its sidebar hidden, the window was zoomed, then View > Show Sidebar. The sidebar
+    /// must come back at a width a person can read, never a sliver that only a drag of the divider widens.
+    func testShowSidebarAfterANarrowHiddenStartAndZoomOpensItReadable() async {
+        UserDefaults.standard.set(true, forKey: MainSplitViewController.sidebarCollapsedDefaultsKey)
+        let (controller, window) = await makeController(width: 900)
+        XCTAssertFalse(controller.isSidebarVisible, "the window did not open with its sidebar hidden")
+
+        window.setFrame(NSRect(x: 0, y: 0, width: 1400, height: 900), display: false)
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+        controller.testingProcessShellResize()
+        await waitForShellToSettle(controller)
+
+        // View > Show Sidebar goes to the first responder, a view in the viewer here, and up the responder chain.
+        let sent = controller.viewerController.view.tryToPerform(#selector(ViewMenuActions.toggleSidebar(_:)), with: nil)
+        XCTAssertTrue(sent, "nothing in the responder chain took View > Show Sidebar")
+        await waitUntil(timeout: Self.loadedMachineTimeout) { controller.isSidebarVisible }
+        await waitForShellToSettle(controller)
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(controller.isSidebarVisible)
+        XCTAssertGreaterThanOrEqual(
+            controller.testingSidebarWidth, controller.sidebarMinWidth - 1,
+            "Show Sidebar opened the sidebar \(controller.testingSidebarWidth) points wide"
+        )
+    }
+
+    private func makeController(width: CGFloat = 1500) async -> (MainSplitViewController, NSWindow) {
         let controller = MainSplitViewController()
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1500, height: 900),
+            contentRect: NSRect(x: 0, y: 0, width: width, height: 900),
             styleMask: [.titled, .resizable, .closable],
             backing: .buffered,
             defer: false
