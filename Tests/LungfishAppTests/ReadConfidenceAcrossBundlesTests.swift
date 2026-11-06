@@ -177,4 +177,44 @@ final class ReadConfidenceAcrossBundlesTests: XCTestCase {
         viewModel.resetConfidenceUnlessSameBundle(at: first)
         XCTAssertEqual(viewModel.minMapQ, 0, "a bundle kept the confidence set on classifier evidence")
     }
+
+    /// A confidence kept across a detour to an item that opens no reference bundle must reach the viewport that reopens the bundle.
+    /// The bundle is still the last one the block loaded, so the Inspector keeps the value, and the reads and depth must be under it.
+    func testAConfidenceSurvivesADetourToAnotherItemAndTheViewportAgrees() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        let rows = try await twoReferenceRows()
+        let readStyle = harness.split.inspectorController.viewModel.readStyleSectionViewModel
+
+        harness.select(rows.first.item)
+        let opened = await waitUntil(budget: .lookup) {
+            self.openedBundleURL(viewer) != nil && readStyle.onSettingsChanged != nil
+        }
+        XCTAssertTrue(opened, "the reference never opened and wired its read filter")
+        let firstURL = try XCTUnwrap(openedBundleURL(viewer))
+
+        readStyle.minMapQ = 30
+        readStyle.onSettingsChanged?()
+        XCTAssertEqual(viewportConfidence(viewer), 30, "the Inspector's confidence never reached the viewport")
+
+        let kind = try XCTUnwrap(ViewSwitchKinds.all.first { $0.name == "Quick Look" })
+        let detourRow = try XCTUnwrap(ViewSwitchKinds.row(of: kind))
+        let detourRoot = try SafetyNetFiles.makeDirectory(root.appendingPathComponent("detour", isDirectory: true))
+        let detour = try await detourRow.build(RoutingRowContext(root: detourRoot, paths: SafetyNetPathRenderer(root: detourRoot)))
+        harness.select(detour.item)
+        await harness.split.bundleOpenTask?.value
+        harness.select(rows.first.item)
+        await harness.split.bundleOpenTask?.value
+        let reopened = await waitUntil(budget: .lookup) {
+            self.openedBundleURL(viewer) == firstURL && readStyle.onSettingsChanged != nil
+        }
+        XCTAssertTrue(reopened, "the first reference never reopened after the detour")
+
+        XCTAssertEqual(readStyle.minMapQ, 30, "the detour took the confidence away from the Inspector")
+        XCTAssertEqual(
+            viewportConfidence(viewer), 30,
+            "the reopened bundle's reads and depth are not under the confidence the Inspector shows"
+        )
+    }
 }
