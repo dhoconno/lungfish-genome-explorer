@@ -307,6 +307,7 @@ extension BlastCommand {
                 taxonName: built.taxonName,
                 taxId: built.taxId,
                 sequences: built.sequences,
+                database: BlastDatabaseID.coreNT.rawValue,
                 extraArgs: extraArgs,
                 maxConcurrentSubmissions: maxConcurrent,
                 sequenceMates: built.sequenceMates,
@@ -456,6 +457,7 @@ extension BlastCommand {
                 taxonName: taxonName,
                 taxId: taxId,
                 sequences: sequences,
+                database: BlastDatabaseID.coreNT.rawValue,
                 extraArgs: extraArgs,
                 maxConcurrentSubmissions: maxConcurrent
             )

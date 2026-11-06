@@ -30,8 +30,8 @@ import SwiftUI
 ///
 /// The caption names the NCBI database the caller's BLAST run searches.
 /// Pass the same value the caller puts in its ``BlastVerificationRequest``:
-/// the Kraken 2 taxonomy viewport and the CLI search `nt` (the default), while
-/// the EsViritu, TaxTriage, NAO-MGS, NVD and 12S viewports search `core_nt`.
+/// all six viewports (Kraken 2, EsViritu, TaxTriage, NAO-MGS, NVD and 12S) and
+/// `lungfish-cli blast verify` search `core_nt`, which is also this view's default.
 public struct BlastConfigPopoverView: View {
 
     /// The taxon name for the title label.
@@ -52,7 +52,7 @@ public struct BlastConfigPopoverView: View {
     public init(
         taxonName: String,
         readsClade: Int,
-        database: String = "nt",
+        database: String = BlastDatabaseID.coreNT.rawValue,
         onRun: @escaping (Int) -> Void
     ) {
         self.taxonName = taxonName
@@ -64,7 +64,7 @@ public struct BlastConfigPopoverView: View {
     /// The consent line under the slider, naming the database searched (UX-BLAST-WORDS Q4).
     public static func submissionCaption(database: String) -> String {
         let name = database.trimmingCharacters(in: .whitespacesAndNewlines)
-        return BlastSearchWords.consentLine(noun: "reads", database: name.isEmpty ? "nt" : name)
+        return BlastSearchWords.consentLine(noun: "reads", database: name.isEmpty ? BlastDatabaseID.coreNT.rawValue : name)
     }
 
     /// Maximum slider value, capped to available reads.

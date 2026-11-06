@@ -1400,9 +1400,8 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         BlastConfigPopoverView(
             taxonName: taxonName,
             readsClade: readsClade,
-            // The Kraken 2 viewport's BlastVerificationRequest keeps the
-            // default database, nt.
-            database: "nt",
+            // The Kraken 2 viewport searches core_nt, as every other route does.
+            database: BlastDatabaseID.coreNT.rawValue,
             onRun: onRun
         )
     }

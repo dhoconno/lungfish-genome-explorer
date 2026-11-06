@@ -8,15 +8,17 @@ import XCTest
 @MainActor
 final class BlastConfigPopoverViewTests: XCTestCase {
 
-    func testCaptionDefaultsToNt() {
+    /// BIO note, BIO-BLAST-DATABASES: the caption names the database it is given, and a blank name falls back to core_nt, the
+    /// database every route asks for. The blank fallback was nt, which NCBI answered with core_nt.
+    func testCaptionDefaultsToCoreNt() {
         XCTAssertEqual(
             BlastConfigPopoverView.submissionCaption(database: "nt"),
             "Sends the selected reads to NCBI BLASTN nt, so they leave this Mac and LGE cannot call them back. If NCBI is slow, LGE sends the same reads again, at most three sends in all. The record lists every send."
         )
         XCTAssertEqual(
             BlastConfigPopoverView.submissionCaption(database: "  "),
-            BlastConfigPopoverView.submissionCaption(database: "nt"),
-            "a blank database name falls back to nt"
+            BlastConfigPopoverView.submissionCaption(database: "core_nt"),
+            "a blank database name falls back to core_nt"
         )
     }
 

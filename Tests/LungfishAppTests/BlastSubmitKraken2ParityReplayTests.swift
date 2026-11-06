@@ -135,7 +135,9 @@ final class BlastSubmitKraken2ParityReplayTests: XCTestCase {
         guard let record = try? BlastSubmissionRecord.load(recordURL) else {
             return XCTFail("side C left no readable \(recordURL.lastPathComponent)")
         }
-        XCTAssertEqual(record.search.database, "nt", "the search keeps the in-process row's database")
+        // BIO note, BIO-BLAST-DATABASES: Kraken 2's Verify with BLAST now asks NCBI for core_nt, as every other route does, and the
+        // record and the leaf's argv name it (BLAST-KRAKEN2-NT). A record saved before keeps nt.
+        XCTAssertEqual(record.search.database, "core_nt", "the search keeps the in-process row's database, which is core_nt")
         XCTAssertEqual(record.lineage.taxId, 562)
         XCTAssertEqual(record.lineage.sourceResult, "@/Analyses/kraken2-run")
         XCTAssertEqual(record.lineage.subsampleCount, 2)
@@ -143,7 +145,7 @@ final class BlastSubmitKraken2ParityReplayTests: XCTestCase {
         XCTAssertEqual(record.query.sequenceCount, 2)
         let argv = (try? ProvenanceEnvelopeReader.load(fromSidecar: sidecar))?.argv ?? []
         let flag = argv.firstIndex(of: "--database")
-        XCTAssertEqual(flag.flatMap { argv.indices.contains($0 + 1) ? argv[$0 + 1] : nil }, "nt", "the recorded argv names the database")
+        XCTAssertEqual(flag.flatMap { argv.indices.contains($0 + 1) ? argv[$0 + 1] : nil }, "core_nt", "the recorded argv names the database")
     }
 
     private static func begin(_ command: String, _ reporter: RecordingOperationReporter) {

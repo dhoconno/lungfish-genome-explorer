@@ -253,6 +253,9 @@ extension BlastService {
             taxonName: taxonName,
             taxId: taxId,
             sequences: sequences,
+            // Every route searches core_nt. NCBI answers a request for nt with core_nt, so naming nt put a database in the
+            // record and the caption that was not searched (BLAST-KRAKEN2-NT).
+            database: BlastDatabaseID.coreNT.rawValue,
             entrezQuery: nil,
             sequenceMates: sequenceMates,
             acceptedTaxIds: context.cladeTaxIds,
