@@ -61,8 +61,7 @@ extension MainSplitViewController {
         identity: ContentSelectionIdentity,
         token: AsyncRequestToken<ContentSelectionIdentity>
     ) {
-        inspectorController.clearSelection()
-        inspectorController.activeContentSelectionIdentity = identity
+        clearInspectorKeepingRowIdentity()
         inspectorController.updateProvenanceTarget(url: url, sidebarType: item.type, displayName: item.title)
         guard let kindID = item.userInfo[SidebarItemType.registeredKindKey],
               let kind = SidebarKindRegistry.descriptor(id: kindID),

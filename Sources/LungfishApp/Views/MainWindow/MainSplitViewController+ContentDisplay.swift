@@ -70,8 +70,7 @@ extension MainSplitViewController {
         // QuickLook preview for document, image, unknown types. No other dataset stays in the Inspector, and it keeps this row (W-10)
         if item.type.usesQuickLook, let url = item.url {
             mainSplitLogger.info("displayContent: Using QuickLook preview for '\(item.title, privacy: .public)'")
-            inspectorController.clearSelection()
-            inspectorController.activeContentSelectionIdentity = activeContentSelectionIdentity
+            clearInspectorKeepingRowIdentity()
             viewerController.displayQuickLookPreview(url: url)
             inspectorController.updateProvenanceTarget(url: url, sidebarType: item.type, displayName: item.title)
             return
@@ -118,7 +117,7 @@ extension MainSplitViewController {
                 displayGenomicsFile(url: url)
             case .unknown:
                 mainSplitLogger.warning("displayContent: Unknown analysis type for '\(dirName, privacy: .public)'")
-                inspectorController.clearSelection()
+                clearInspectorKeepingRowIdentity()
                 inspectorController.updateProvenanceTarget(url: url, sidebarType: .analysisResult, displayName: item.title)
                 viewerController.clearViewport(statusMessage: "Unsupported analysis: \(toolId). Inspect or reveal \(dirName) from the sidebar.")
             }
@@ -137,7 +136,7 @@ extension MainSplitViewController {
                 projectSession.setActiveDocument(document)
                 DocumentManager.shared.refreshMirror(ifOwnedBy: projectSession)
             } else {
-                inspectorController.clearSelection()
+                clearInspectorKeepingRowIdentity()
                 viewerController.clearViewport(statusMessage: "This document is no longer available in this window.")
             }
         }

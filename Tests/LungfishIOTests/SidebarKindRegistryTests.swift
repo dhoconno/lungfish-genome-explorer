@@ -28,7 +28,7 @@ final class SidebarKindRegistryTests: XCTestCase {
         })
         XCTAssertEqual(prefixes, [
             "analysis:esviritu": ["esviritu-"],
-            "analysis:kraken2": ["classification-", "kraken2-"],
+            "analysis:kraken2": ["classification-"],
             "analysis:taxtriage": ["taxtriage-"],
             "analysis:naomgs": ["naomgs-"],
             "analysis:nvd": ["nvd-"],

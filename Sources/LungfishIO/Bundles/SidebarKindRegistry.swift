@@ -147,13 +147,13 @@ public enum SidebarKindRegistry {
         .init(namePrefixes: prefixes, markerNames: markers)
     }
 
-    /// Kraken2 imports keep the `classification-` name the first releases gave them, and a run names its folder
-    /// `kraken2-`, so the fallback knows both.
+    /// Kraken2 imports keep the `classification-` name the first releases gave them. A `kraken2-` run folder carries
+    /// its metadata sidecar, so the fallback needs no `kraken2-` prefix, and the scanner never hid one by name.
     private static let analysisFacts: [AnalysisToolID: AnalysisFacts] = [
         .esviritu: .init(row: .esvirituResult, viewport: .analysis(.esviritu), tab: .setByViewer,
                          legacy: legacy(["esviritu-"], ["esviritu-result.json"])),
         .kraken2: .init(row: .classificationResult, viewport: .analysis(.kraken2), tab: .setByViewer,
-                        legacy: legacy(["classification-", "kraken2-"], ["classification-result.json"])),
+                        legacy: legacy(["classification-"], ["classification-result.json"])),
         .taxtriage: .init(row: .taxTriageResult, viewport: .analysis(.taxtriage), tab: .setByViewer,
                           legacy: legacy(["taxtriage-"], ["taxtriage-result.json", "kraken2"])),
         .naomgs: .init(row: .naoMgsResult, viewport: .analysis(.naomgs), tab: .setByViewer, deletion: true,

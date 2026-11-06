@@ -74,8 +74,7 @@ extension MainSplitViewController {
         if let existingDocument = DocumentManager.shared.documents.first(where: { $0.url == url }),
            !existingDocument.sequences.isEmpty || !existingDocument.annotations.isEmpty {
             mainSplitLogger.info("displayGenomicsFile: Document cached, displaying directly")
-            inspectorController.clearSelection()
-            inspectorController.activeContentSelectionIdentity = activeContentSelectionIdentity
+            clearInspectorKeepingRowIdentity()
             viewerController.displayDocument(existingDocument)
             inspectorController.updateProvenanceTarget(
                 url: url, sidebarType: SidebarProjectScanner.detectFileType(url: url).0, displayName: existingDocument.name)
