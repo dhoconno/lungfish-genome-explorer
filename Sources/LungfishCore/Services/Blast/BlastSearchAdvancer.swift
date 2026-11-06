@@ -177,7 +177,7 @@ package struct BlastSearchAdvancer: Sendable {
     private func sayWhereItStands(_ file: BlastSearchFile) {
         switch file.state {
         case .sending, .sendUnknown:
-            progress(0.15, BlastSearchWords.sending(request.sequences.count, noun: noun))
+            progress(0.15, BlastSearchWords.busySend(of: file, now: clock.now()) ?? BlastSearchWords.sending(request.sequences.count, noun: noun))
         case .waiting:
             guard let rid = file.copies[0].rid else { return }
             let words = file.copies.count > 1 ? waitingWords(file, now: clock.now()) : BlastSearchWords.waiting(rid: rid)
@@ -231,7 +231,8 @@ package struct BlastSearchAdvancer: Sendable {
         if !mayPost { return BlastSearchWords.fromAnotherCopy(rid: rid) }
         switch file.state {
         case .fetching: return BlastSearchWords.collecting(rid: file.winner.rid)
-        case .sending, .sendUnknown: return BlastSearchWords.sending(request.sequences.count, noun: noun)
+        case .sending, .sendUnknown:
+            return BlastSearchWords.busySend(of: file, now: now) ?? BlastSearchWords.sending(request.sequences.count, noun: noun)
         case .waiting, .done, .expired, .ncbiFailed, .notSent, .stopped: return waitingWords(file, now: now)
         }
     }
@@ -466,6 +467,7 @@ package struct BlastSearchAdvancer: Sendable {
             file.copies[index].nextCheckAt = now.addingTimeInterval(BlastSearchPolicy.busyPutWaits[copy.busyAnswers - 1])
             try await persist(file)
             logger.info("NCBI answered a BLAST Put with \(status, privacy: .public), try \(copy.busyAnswers, privacy: .public)")
+            if copy.kind == .first, let words = BlastSearchWords.busySend(of: file, now: now) { progress(0.15, words) }
         case .refused(let status, _):
             try await sendNotTaken(&file, at: index, words: BlastSearchWords.refused(code: status, times: 1))
         case .noRID(let page):

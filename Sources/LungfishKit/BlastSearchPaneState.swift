@@ -97,7 +97,8 @@ public struct BlastSearchPaneState: Sendable, Equatable {
         case .done:
             return nil
         case .sending:
-            return state("Sending \(noun) to NCBI", "You can keep working.", buttons: [stop], bar: "BLAST Results")
+            let body = BlastSearchWords.busySend(of: file, now: now).map { "\($0). You can keep working." } ?? "You can keep working."
+            return state("Sending \(noun) to NCBI", body, buttons: [stop], bar: "BLAST Results")
         case .sendUnknown:
             let body = nextCheck.map { BlastSearchWords.notConfirmed(nextTry: $0, now: now) } ?? "You can keep working."
             return state("Sending \(noun) to NCBI", body, buttons: [stop])

@@ -63,6 +63,19 @@ package enum BlastSearchWords {
             + "Look at this Mac's network if this goes on."
     }
 
+    /// Row R3's wait (W-5). NCBI answered a send with 503, which is busy, and LGE sends it again at its own time. The file keeps the
+    /// count of busy answers and not the status, so these words carry no code, and the last answer's ``refused(code:times:)`` names it.
+    package static func busyAnswer(nextTry: Date, now: Date) -> String {
+        "NCBI is not taking new searches right now, so it has not taken this one yet. LGE sends it again at \(time(nextTry, now: now))"
+    }
+
+    /// The words of a first send that NCBI has refused and LGE sends again, or nil for a send NCBI has not refused. The row, the
+    /// in-flight line and the pane all read this one rule.
+    package static func busySend(of file: BlastSearchFile, now: Date) -> String? {
+        guard file.state == .sending, let first = file.copies.first, first.busyAnswers > 0, let nextTry = first.nextCheckAt else { return nil }
+        return busyAnswer(nextTry: nextTry, now: now)
+    }
+
     /// Row R3.
     package static func refused(code: Int, times: Int) -> String {
         "Not sent. NCBI answered with error \(code) \(times) \(times == 1 ? "time" : "times"), so LGE stopped trying. "
