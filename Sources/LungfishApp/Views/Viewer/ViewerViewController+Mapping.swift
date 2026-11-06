@@ -113,7 +113,6 @@ extension ViewerViewController {
         contentMode = .mapping
 
         annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
 
         let controller = MappingResultViewController()
         do {
@@ -192,7 +191,6 @@ extension ViewerViewController {
         contentMode = .mapping
 
         annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
 
         let controller = ViewerDisplayRouteFactory.makeReferenceBundleViewportController()
         _ = try showSurface(.bundle(.reference), input: controller, as: ReferenceBundleSurface.self)

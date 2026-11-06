@@ -30,7 +30,6 @@ extension ViewerViewController {
         hideProgress()
         contentMode = .metagenomics
         annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
 
         let surface = try showSurface(.bundle(.twelveSResult), input: result, as: TwelveSSurface.self)
         surface.onWillDeactivate = onWillDeactivate

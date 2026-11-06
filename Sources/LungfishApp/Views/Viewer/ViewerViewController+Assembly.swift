@@ -70,9 +70,8 @@ extension ViewerViewController {
             input: AssemblyResultSurface.Input(controller: controller, result: result),
             as: AssemblyResultSurface.self
         )
-        // showSurface hides the genomics viewer. These two drawers are this kind's own lines.
+        // showSurface hides the genomics viewer. The annotation drawer is this kind's own line.
         annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
 
         assemblyDisplayLogger.info(
             "displayAssemblyResult: Showing \(result.tool.displayName, privacy: .public) result"

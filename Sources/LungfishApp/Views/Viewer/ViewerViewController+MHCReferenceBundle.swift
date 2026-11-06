@@ -23,8 +23,7 @@ extension ViewerViewController {
             )
         )
         _ = try showSurface(.bundle(.mhcReference), input: controller, as: MHCReferenceBundleSurface.self)
-        // showSurface hides the genomics viewer. These two drawers are this kind's own lines.
+        // showSurface hides the genomics viewer. The annotation drawer is this kind's own line.
         annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
     }
 }

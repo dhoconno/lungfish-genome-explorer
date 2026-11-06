@@ -69,9 +69,8 @@ extension ViewerViewController {
 
         let surface = try showSurface(.analysis(.naomgs), input: controller, as: NaoMgsSurface.self)
         surface.onWillDeactivate = onWillDeactivate
-        // showSurface hides the genomics viewer. These two drawers are this kind's own lines.
+        // showSurface hides the genomics viewer. The annotation drawer is this kind's own line.
         annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
     }
 
     /// The NAO-MGS taxon's search on `blast submit` (2.11 A65 M2). It draws the

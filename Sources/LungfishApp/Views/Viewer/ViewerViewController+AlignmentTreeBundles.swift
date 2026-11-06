@@ -172,31 +172,5 @@ extension ViewerViewController {
         clearBundleDisplay()
         hideCollectionBackButton()
         annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
-    }
-
-    private func installNativeBundleSubview(_ nativeView: NSView) {
-        nativeView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(nativeView)
-        NSLayoutConstraint.activate([
-            nativeView.topAnchor.constraint(equalTo: view.topAnchor),
-            nativeView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            nativeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            nativeView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
-    }
-
-    private func hideGenomicsStackForNativeBundle() {
-        enhancedRulerView.isHidden = true
-        viewerView.isHidden = true
-        headerView.isHidden = true
-        statusBar.isHidden = true
-        geneTabBarView.isHidden = true
     }
 }

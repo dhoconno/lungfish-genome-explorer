@@ -84,9 +84,8 @@ extension ViewerViewController {
 
         let surface = try showSurface(.analysis(.taxtriage), input: controller, as: TaxTriageSurface.self)
         surface.onWillDeactivate = onWillDeactivate
-        // showSurface hides the genomics viewer. These two drawers are this kind's own lines.
+        // showSurface hides the genomics viewer. The annotation drawer is this kind's own line.
         annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
 
         taxTriageLogger.info("displayTaxTriageFromDatabase: Showing DB-backed browser for '\(resultURL.lastPathComponent, privacy: .public)'")
     }

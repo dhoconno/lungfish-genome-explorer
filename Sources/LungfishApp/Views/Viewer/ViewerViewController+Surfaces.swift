@@ -113,7 +113,6 @@ extension ViewerViewController {
         setGenomicsChrome(hidden: false)
         geneTabBarView?.isHidden = (geneTabBarView?.selectedGeneRegion == nil)
         revealAnnotationDrawerUnlessNativeBundleInstalled()
-        fastqMetadataDrawerView?.isHidden = false
     }
 
     /// Removes the surface the host shows or loads, of whatever kind, and shows the genomics chrome with the gene tab

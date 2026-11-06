@@ -31,7 +31,6 @@ extension ViewerViewController {
         let surface = try showSurface(.bundle(.genotypeResult), input: controller, as: GenotypeResultSurface.self)
         surface.onWillDeactivate = { [weak self] in self?.onGenotypeResultViewWillHide?($0) }
         annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
         controller.configure(result: result)
 
         genotypeDisplayLogger.info(

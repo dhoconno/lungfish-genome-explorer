@@ -101,7 +101,6 @@ extension ViewerViewController {
         let surface = try showSurface(.analysis(.kraken2), input: controller, as: Kraken2Surface.self)
         surface.onWillDeactivate = onWillDeactivate
         annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
     }
 
     /// Shows the taxonomy classification browser backed by a pre-built SQLite database through

@@ -109,9 +109,8 @@ extension ViewerViewController {
 
         let surface = try showSurface(.analysis(.nvd), input: controller, as: NvdSurface.self)
         surface.onWillDeactivate = onWillDeactivate
-        // showSurface hides the genomics viewer. These two drawers are this kind's own lines.
+        // showSurface hides the genomics viewer. The annotation drawer is this kind's own line.
         annotationDrawerView?.isHidden = true
-        fastqMetadataDrawerView?.isHidden = true
     }
 
     /// The NVD contig's search on `blast submit` (2.12 lane 12.08). It sends the one contig, trimmed, and

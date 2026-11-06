@@ -200,7 +200,6 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         clearSurfaceForNewContent()
         hideCollectionBackButton()
         revealAnnotationDrawerUnlessNativeBundleInstalled()
-        fastqMetadataDrawerView?.isHidden = false
 
         if installChromosomeNavigator, context.chromosomes.count > 1 {
             configureChromosomeNavigator(with: context.chromosomes)
