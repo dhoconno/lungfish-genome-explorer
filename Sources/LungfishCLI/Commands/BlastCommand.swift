@@ -375,7 +375,7 @@ extension BlastCommand {
             print("")
             print(formatter.header("Verification Results"))
             print("")
-            print(formatter.keyValueTable([
+            var tableRows: [(String, String)] = [
                 ("Taxon", "\(result.taxonName) (txid\(result.taxId))"),
                 ("Supporting", "\(result.supportingCount)/\(result.totalReads) (top hit matches taxon)"),
                 ("Contradicting", "\(result.contradictingCount)/\(result.totalReads) (top hit differs)"),
@@ -387,7 +387,9 @@ extension BlastCommand {
                 ("BLAST RID", result.rid),
                 ("Program", result.blastProgram),
                 ("Database", result.database),
-            ]))
+            ]
+            if let databaseWords = result.reportedDatabaseWords { tableRows.append(("Note", databaseWords)) }
+            print(formatter.keyValueTable(tableRows))
             print("")
 
             // Per-read details

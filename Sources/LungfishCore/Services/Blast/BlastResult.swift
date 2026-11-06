@@ -360,6 +360,24 @@ public struct BlastVerificationResult: Sendable, Codable {
     /// How many sequences the database held on this run, from the reply's `stat.db_num`. `nil` on an older record.
     public let databaseSequenceCount: Int?
 
+    /// The database NCBI says it searched, from the reply's `report.search_target.db`. `nil` on an older record and when the
+    /// reply named none. NCBI answers a search for `nt` with `core_nt`, so it can differ from ``database``, which is the one
+    /// the search asked for.
+    public let reportedDatabase: String?
+
+    /// The BLAST program version NCBI reports, from the reply's `report.version`, as in `BLASTN 2.17.0+`. `nil` on an older
+    /// record and when the reply named none.
+    public let blastVersion: String?
+
+    /// What a person reads when NCBI searched another database than the one this search asked for, or `nil` when the reply
+    /// named none or the same one (BIO-BLAST-DATABASES item 7). The results pane, the `blast verify` table and the export
+    /// read this one sentence.
+    public var reportedDatabaseWords: String? {
+        guard let reported = reportedDatabase?.trimmingCharacters(in: .whitespacesAndNewlines), !reported.isEmpty,
+              reported.caseInsensitiveCompare(database) != .orderedSame else { return nil }
+        return "NCBI searched \(reported), not the \(database) this search asked for."
+    }
+
     /// What the verdicts were judged at. Nil on a record from before the field, which shows no line
     /// (BLAST-ESVIRITU-FIRST-WORD).
     public var judgedAt: BlastTaxonomyContext.Basis?
@@ -501,7 +519,9 @@ public struct BlastVerificationResult: Sendable, Codable {
         rid: String,
         blastProgram: String,
         database: String,
-        databaseSequenceCount: Int? = nil
+        databaseSequenceCount: Int? = nil,
+        reportedDatabase: String? = nil,
+        blastVersion: String? = nil
     ) {
         self.taxonName = taxonName
         self.taxId = taxId
@@ -517,6 +537,8 @@ public struct BlastVerificationResult: Sendable, Codable {
         self.blastProgram = blastProgram
         self.database = database
         self.databaseSequenceCount = databaseSequenceCount
+        self.reportedDatabase = reportedDatabase
+        self.blastVersion = blastVersion
     }
 
     /// Creates a verification result from an array of read results.
@@ -542,7 +564,9 @@ public struct BlastVerificationResult: Sendable, Codable {
         rid: String,
         blastProgram: String,
         database: String,
-        databaseSequenceCount: Int? = nil
+        databaseSequenceCount: Int? = nil,
+        reportedDatabase: String? = nil,
+        blastVersion: String? = nil
     ) {
         self.taxonName = taxonName
         self.taxId = taxId
@@ -558,6 +582,8 @@ public struct BlastVerificationResult: Sendable, Codable {
         self.blastProgram = blastProgram
         self.database = database
         self.databaseSequenceCount = databaseSequenceCount
+        self.reportedDatabase = reportedDatabase
+        self.blastVersion = blastVersion
     }
 }
 
@@ -585,15 +611,24 @@ public struct BlastSearchResult: Sendable, Codable {
     /// How many sequences the database held, from this entry's `stat.db_num`, when NCBI gave it.
     public let databaseSequenceCount: Int?
 
+    /// The database NCBI says it searched, from this entry's `report.search_target.db`, when it gave one.
+    public let reportedDatabase: String?
+
+    /// The BLAST program version, from this entry's `report.version`, when NCBI gave it.
+    public let blastVersion: String?
+
     /// Creates a BLAST search result.
     public init(
-        queryId: String, queryLength: Int, hits: [BlastHit], failureMessage: String? = nil, databaseSequenceCount: Int? = nil
+        queryId: String, queryLength: Int, hits: [BlastHit], failureMessage: String? = nil, databaseSequenceCount: Int? = nil,
+        reportedDatabase: String? = nil, blastVersion: String? = nil
     ) {
         self.queryId = queryId
         self.queryLength = queryLength
         self.hits = hits
         self.failureMessage = failureMessage
         self.databaseSequenceCount = databaseSequenceCount
+        self.reportedDatabase = reportedDatabase
+        self.blastVersion = blastVersion
     }
 }
 

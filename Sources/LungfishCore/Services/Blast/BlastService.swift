@@ -411,14 +411,14 @@ public actor BlastService {
             )
         }
         return BlastVerificationResult(
-            taxonName: request.taxonName,
-            taxId: request.taxId,
+            taxonName: request.taxonName, taxId: request.taxId,
             readResults: readResults,
-            submittedAt: submittedAt,
-            completedAt: completedAt,
+            submittedAt: submittedAt, completedAt: completedAt,
             rid: rid,
             blastProgram: request.program, database: request.database,
-            databaseSequenceCount: searchResults.lazy.compactMap(\.databaseSequenceCount).first
+            databaseSequenceCount: searchResults.lazy.compactMap(\.databaseSequenceCount).first,
+            reportedDatabase: searchResults.lazy.compactMap(\.reportedDatabase).first,
+            blastVersion: searchResults.lazy.compactMap(\.blastVersion).first
         ).judged(at: request.judgedAt)
     }
 

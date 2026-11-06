@@ -82,6 +82,18 @@ extension BlastCommand {
             if invocation.force {
                 explicitOptions["force"] = .boolean(true)
             }
+            var resolved: [String: ParameterValue] = [
+                "database": .string(result.database),
+                "inputKind": .string(loaded.kind),
+                "outputByteCount": .integer(content.utf8.count),
+                "program": .string(result.blastProgram),
+                "rid": .string(result.rid),
+                "taxId": .integer(result.taxId),
+                "taxonName": .string(result.taxonName),
+                "totalReads": .integer(result.totalReads),
+            ]
+            if let reported = result.reportedDatabase { resolved["reportedDatabase"] = .string(reported) }
+            if let version = result.blastVersion { resolved["blastVersion"] = .string(version) }
             try Task.checkCancellation()
             try ScientificFileExportProvenance.writeAtomically(.cliLeaf(
                 workflowName: BlastVerificationTableExport.workflowName,
@@ -90,16 +102,7 @@ extension BlastCommand {
                 outputFormat: .text,
                 argv: invocation.canonicalArgv(),
                 explicitOptions: explicitOptions,
-                resolved: [
-                    "database": .string(result.database),
-                    "inputKind": .string(loaded.kind),
-                    "outputByteCount": .integer(content.utf8.count),
-                    "program": .string(result.blastProgram),
-                    "rid": .string(result.rid),
-                    "taxId": .integer(result.taxId),
-                    "taxonName": .string(result.taxonName),
-                    "totalReads": .integer(result.totalReads),
-                ],
+                resolved: resolved,
                 runClock: runClock
             )) { stagedURL in
                 try content.write(to: stagedURL, atomically: true, encoding: .utf8)

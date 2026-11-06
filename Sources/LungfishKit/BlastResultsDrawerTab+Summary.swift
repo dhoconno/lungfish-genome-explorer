@@ -26,9 +26,20 @@ extension BlastResultsDrawerTab {
     /// since that caveat is long and has a row of its own. It has ``judgedAtLabel``.
     func applyVerificationSummary(result: BlastVerificationResult, subject: String?, recordURL: URL?) {
         let badgeWords = BlastTieWords.notSpecificSummary(for: result)
-        summaryLabel.stringValue = Self.verificationSummary(for: result, subject: subject)
-            + (badgeWords.map { ". " + $0 } ?? "") + Self.collectedWords(recordURL: recordURL)
+        summaryLabel.stringValue = Self.sentencesJoined(
+            Self.verificationSummary(for: result, subject: subject),
+            [badgeWords, result.reportedDatabaseWords, Self.collectedSentence(recordURL: recordURL)].compactMap { $0 }
+        )
         [summaryLabel, confidenceLabel].forEach { $0.toolTip = badgeWords; $0.setAccessibilityHelp(badgeWords) }
+    }
+
+    /// The summary and the sentences after it, with one period between two sentences. A sentence that ends in a period and has
+    /// another after it gives that period up, so none are doubled (BLAST-DOUBLE-PERIOD). The last keeps its own.
+    nonisolated static func sentencesJoined(_ summary: String, _ sentences: [String]) -> String {
+        let joined = sentences.enumerated().map { index, sentence in
+            index < sentences.count - 1 && sentence.hasSuffix(".") ? String(sentence.dropLast()) : sentence
+        }
+        return ([summary] + joined).joined(separator: ". ")
     }
 
     /// What a verdict's counts are of, and what went out when that differs, one reading for the pane and the Operations row.
@@ -55,9 +66,13 @@ extension BlastResultsDrawerTab {
     /// What the pane adds to the summary of a search that came back (UX-BLAST-WORDS Q7), or nothing for a record with no
     /// search file beside it, which is every record from before searches had one.
     nonisolated public static func collectedWords(recordURL: URL?) -> String {
-        guard let folder = recordURL?.deletingLastPathComponent(), let file = try? BlastSearchStore(folder: folder).load(),
-              let line = BlastSearchWords.collectedOnThePane(in: file) else { return "" }
-        return ". " + line
+        collectedSentence(recordURL: recordURL).map { ". " + $0 } ?? ""
+    }
+
+    /// The sentence ``collectedWords(recordURL:)`` puts after a period, or `nil` when the record has no search file.
+    nonisolated static func collectedSentence(recordURL: URL?) -> String? {
+        guard let folder = recordURL?.deletingLastPathComponent(), let file = try? BlastSearchStore(folder: folder).load() else { return nil }
+        return BlastSearchWords.collectedOnThePane(in: file)
     }
 
     /// The words that name the sample a verdict is about, or nothing when no sample is known.

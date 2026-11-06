@@ -75,4 +75,26 @@ final class BlastReportedDatabaseTests: XCTestCase {
         XCTAssertNil(facts["blastVersion"])
         XCTAssertEqual(facts["database"] as? String, "core_nt")
     }
+
+    /// The words name the database NCBI searched only when it is not the one the search asked for. UX reads them at review.
+    func testTheWordsNameTheDatabaseNCBISearchedOnlyWhenItDiffers() throws {
+        let differs = try result(asking: "nt", reply: Self.reply(database: "core_nt", version: "BLASTN 2.17.0+"))
+        XCTAssertEqual(differs.database, "nt")
+        XCTAssertEqual(differs.reportedDatabase, "core_nt")
+        XCTAssertEqual(differs.blastVersion, "BLASTN 2.17.0+")
+        XCTAssertEqual(differs.reportedDatabaseWords, "NCBI searched core_nt, not the nt this search asked for.")
+
+        let same = try result(asking: "core_nt", reply: Self.reply(database: "core_nt", version: "BLASTN 2.17.0+"))
+        XCTAssertEqual(same.reportedDatabase, "core_nt")
+        XCTAssertNil(same.reportedDatabaseWords, "the common case adds no words")
+
+        let silent = try result(asking: "nt", reply: Self.reply(database: nil, version: nil))
+        XCTAssertNil(silent.reportedDatabase)
+        XCTAssertNil(silent.blastVersion)
+        XCTAssertNil(silent.reportedDatabaseWords, "a reply that names no database adds none")
+
+        let blank = try result(asking: "nt", reply: Self.reply(database: "  ", version: ""))
+        XCTAssertNil(blank.reportedDatabase, "a blank name is no name")
+        XCTAssertNil(blank.blastVersion)
+    }
 }

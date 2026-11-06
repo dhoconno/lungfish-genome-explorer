@@ -69,5 +69,8 @@ final class Kraken2CoreNTTests: XCTestCase {
         let reread = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(read)) as? [String: Any])
         XCTAssertNil(reread["reportedDatabase"], "a record from before the fields names no reported database")
         XCTAssertNil(reread["blastVersion"], "and no program version")
+        XCTAssertNil(read.reportedDatabase)
+        XCTAssertNil(read.blastVersion)
+        XCTAssertNil(read.reportedDatabaseWords, "an old record adds no words")
     }
 }

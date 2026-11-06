@@ -111,7 +111,7 @@ final class ClassifierExtractionDialogTests: XCTestCase {
         )
 
         XCTAssertFalse(source.localizedCaseInsensitiveContains("independent verification"))
-                XCTAssertTrue(source.contains("database: String = \"nt\""))
+        XCTAssertTrue(source.contains("database: String = BlastDatabaseID.coreNT.rawValue"))
         XCTAssertTrue(source.contains("LungfishHelpContent.classifierBlastReadCount"))
         XCTAssertTrue(BlastConfigPopoverView.submissionCaption(database: "nt").contains("so they leave this Mac"))
     }

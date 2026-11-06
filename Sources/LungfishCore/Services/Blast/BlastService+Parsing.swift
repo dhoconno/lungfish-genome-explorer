@@ -68,6 +68,12 @@ extension BlastService {
         }
     }
 
+    /// A text field of the reply's `report`, trimmed, or `nil` when it is missing, not text or blank.
+    nonisolated static func reportText(_ value: Any?) -> String? {
+        guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        return text
+    }
+
     /// Parses a single BlastOutput2 entry.
     ///
     /// An entry without the `report.results.search` structure, or with a
@@ -105,7 +111,9 @@ extension BlastService {
 
         return BlastSearchResult(
             queryId: queryTitle, queryLength: queryLen, hits: hits,
-            databaseSequenceCount: Self.jsonInt((search["stat"] as? [String: Any])?["db_num"])
+            databaseSequenceCount: Self.jsonInt((search["stat"] as? [String: Any])?["db_num"]),
+            reportedDatabase: Self.reportText((report?["search_target"] as? [String: Any])?["db"]),
+            blastVersion: Self.reportText(report?["version"])
         )
     }
 
