@@ -34,7 +34,6 @@ final class AppDelegateReferenceBundleResolutionTests: XCTestCase {
     func testDisplayedBundleWinsInDisplayRouteOrder() {
         let sequenceRoute = URL(fileURLWithPath: "/p/seq.lungfishref", isDirectory: true)
         let browseRoute = URL(fileURLWithPath: "/p/browse.lungfishref", isDirectory: true)
-        let mappingCopy = URL(fileURLWithPath: "/p/Analyses/run/ref.lungfishref", isDirectory: true)
         let selected = URL(fileURLWithPath: "/p/selected.lungfishref", isDirectory: true)
 
         XCTAssertEqual(
@@ -42,7 +41,6 @@ final class AppDelegateReferenceBundleResolutionTests: XCTestCase {
                 currentReferenceBundleURL: sequenceRoute,
                 currentBundleURL: sequenceRoute,
                 referenceViewportRenderedBundleURL: browseRoute,
-                mappingResultRenderedBundleURL: mappingCopy,
                 selectedBundleURLs: [selected]
             ),
             sequenceRoute
@@ -53,21 +51,9 @@ final class AppDelegateReferenceBundleResolutionTests: XCTestCase {
                 currentReferenceBundleURL: nil,
                 currentBundleURL: nil,
                 referenceViewportRenderedBundleURL: browseRoute,
-                mappingResultRenderedBundleURL: nil,
                 selectedBundleURLs: [selected]
             ),
             browseRoute
-        )
-        // A displayed mapping result resolves to its reference copy.
-        XCTAssertEqual(
-            AppDelegate.resolveReferenceBundleURL(
-                currentReferenceBundleURL: nil,
-                currentBundleURL: nil,
-                referenceViewportRenderedBundleURL: nil,
-                mappingResultRenderedBundleURL: mappingCopy,
-                selectedBundleURLs: [selected]
-            ),
-            mappingCopy
         )
     }
 
@@ -81,7 +67,6 @@ final class AppDelegateReferenceBundleResolutionTests: XCTestCase {
                 currentReferenceBundleURL: nil,
                 currentBundleURL: nil,
                 referenceViewportRenderedBundleURL: nil,
-                mappingResultRenderedBundleURL: nil,
                 selectedBundleURLs: [a, a]
             ),
             a.standardizedFileURL
@@ -91,7 +76,6 @@ final class AppDelegateReferenceBundleResolutionTests: XCTestCase {
                 currentReferenceBundleURL: nil,
                 currentBundleURL: nil,
                 referenceViewportRenderedBundleURL: nil,
-                mappingResultRenderedBundleURL: nil,
                 selectedBundleURLs: [a, b]
             ),
             "two selected bundles are ambiguous"
@@ -100,8 +84,7 @@ final class AppDelegateReferenceBundleResolutionTests: XCTestCase {
             AppDelegate.resolveReferenceBundleURL(
                 currentReferenceBundleURL: nil,
                 currentBundleURL: nil,
-                referenceViewportRenderedBundleURL: nil,
-                mappingResultRenderedBundleURL: nil
+                referenceViewportRenderedBundleURL: nil
             )
         )
         // A displayed non-reference bundle (a FASTQ package) is not a reference bundle.
@@ -109,8 +92,7 @@ final class AppDelegateReferenceBundleResolutionTests: XCTestCase {
             AppDelegate.resolveReferenceBundleURL(
                 currentReferenceBundleURL: nil,
                 currentBundleURL: URL(fileURLWithPath: "/p/reads.lungfishfastq", isDirectory: true),
-                referenceViewportRenderedBundleURL: nil,
-                mappingResultRenderedBundleURL: nil
+                referenceViewportRenderedBundleURL: nil
             )
         )
     }

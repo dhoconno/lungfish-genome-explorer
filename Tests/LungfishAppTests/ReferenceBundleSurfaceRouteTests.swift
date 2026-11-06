@@ -164,7 +164,6 @@ final class ReferenceBundleSurfaceRouteTests: XCTestCase {
         let viewer = harness.split.viewerController!
         harness.split.displayMappingAnalysisFromSidebar(at: mapping.result)
         try await assertShows(mapping, in: viewer)
-        XCTAssertNil(viewer.mappingResultController, "the sidebar's route built the dead route's class")
         let viewport = try XCTUnwrap(viewer.referenceBundleViewportController)
         XCTAssertTrue(type(of: viewport) == ReferenceBundleViewportController.self, "the sidebar's route built \(type(of: viewport))")
         XCTAssertTrue(viewer.activeMappingViewportController === viewport)

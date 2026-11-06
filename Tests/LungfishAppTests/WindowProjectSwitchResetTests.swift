@@ -67,7 +67,6 @@ final class WindowProjectSwitchResetTests: XCTestCase {
         let viewer = split.viewerController!
         XCTAssertNil(viewer.referenceBundleViewportController,
             "The previous project's reference bundle viewport must be torn down", file: file, line: line)
-        XCTAssertNil(viewer.mappingResultController, file: file, line: line)
         XCTAssertEqual(viewer.contentMode, .empty, file: file, line: line)
         XCTAssertNil(viewer.currentBundleURL, file: file, line: line)
         XCTAssertNil(viewer.currentDocument, file: file, line: line)

@@ -9,20 +9,19 @@ import LungfishWorkflow
 
 extension AppDelegate {
     /// Order of preference: what the viewer actually displays (either display
-    /// route, then a mapping result's reference copy), then a single sidebar
+    /// route, then the reference viewport's bundle, which is a mapping result's
+    /// reference copy while it shows one), then a single sidebar
     /// candidate. Several sidebar candidates are ambiguous and resolve to `nil`.
     /// The candidates are read only when the viewer displays no bundle.
     static func resolveReferenceBundleURL(
         currentReferenceBundleURL: URL?,
         currentBundleURL: URL?,
         referenceViewportRenderedBundleURL: URL?,
-        mappingResultRenderedBundleURL: URL?,
         selectedBundleURLs: @autoclosure () -> [URL] = []
     ) -> URL? {
         let displayed = currentReferenceBundleURL
             ?? currentBundleURL
             ?? referenceViewportRenderedBundleURL
-            ?? mappingResultRenderedBundleURL
         if let displayed, displayed.pathExtension.lowercased() == "lungfishref" {
             return displayed
         }
@@ -54,7 +53,6 @@ extension AppDelegate {
         let held = [
             viewer.currentReferenceBundle,
             viewer.referenceBundleViewportController?.activeSequenceViewerController.currentReferenceBundle,
-            viewer.mappingResultController?.activeSequenceViewerController.currentReferenceBundle,
         ]
         return held.lazy.compactMap { $0 }.first { $0.url.standardizedFileURL == bundleURL }
     }

@@ -102,10 +102,8 @@ extension AppDelegate {
             viewerController?.multipleSequenceAlignmentViewController?.bundleURL,
             viewerController?.phylogeneticTreeViewController?.bundleURL,
             viewerController?.referenceBundleViewportController?.currentInput?.mappingResultDirectoryURL,
-            viewerController?.mappingResultController?.currentInput?.mappingResultDirectoryURL,
             viewerController?.currentBundleURL,
             viewerController?.referenceBundleViewportController?.currentInput?.renderedBundleURL,
-            viewerController?.mappingResultController?.currentInput?.renderedBundleURL,
             viewerController?.currentDocument?.url,
         ]
         var shape: ProvenanceEnvelopeReader.RecordShape?

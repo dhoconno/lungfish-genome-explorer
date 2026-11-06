@@ -1555,8 +1555,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             currentBundleURL: viewerController.currentBundleURL,
             referenceViewportRenderedBundleURL:
                 viewerController.referenceBundleViewportController?.currentInput?.renderedBundleURL,
-            mappingResultRenderedBundleURL:
-                viewerController.mappingResultController?.currentInput?.renderedBundleURL,
             selectedBundleURLs: Self.referenceBundleCandidates(inSidebarSelection: sidebarSelection)
         )
     }

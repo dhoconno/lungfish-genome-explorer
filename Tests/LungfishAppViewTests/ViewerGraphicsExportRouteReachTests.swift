@@ -159,7 +159,6 @@ final class ViewerGraphicsExportRouteReachTests: XCTestCase {
         func shown(_ viewer: ViewerViewController) -> String { viewer.viewerView.isHidden ? "hidden" : "shown" }
         func name(_ url: URL?) -> String { url?.lastPathComponent ?? "nil" }
         let viewport: ReferenceBundleViewportController? = viewer.referenceBundleViewportController
-            ?? viewer.mappingResultController
         var viewportText = "nil"
         if let viewport {
             let input = viewport.currentInput.map { "\($0.kind)" } ?? "no input"
