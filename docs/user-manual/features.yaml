@@ -58,12 +58,12 @@ features:
   viewport.variant-browser:
     title: Variant browser viewport
     entry_points:
-      - "Open a VCF dataset from the sidebar"
+      - "Open a VCF file from the sidebar, which imports it into a .lungfishref bundle in the active project and opens the bundle in the genomics viewer"
     inputs: [variant-browser-dataset]
     outputs: []
     viewport_class: variant
     sources:
-      - Sources/LungfishApp/Views/Viewer/VCFDatasetViewController.swift
+      - Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift
       - Sources/LungfishWorkflow/ViewerExport/Graphics/VariantTrackRenderer.swift
       - Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift
       - Sources/LungfishCore/Models/VariantTrack.swift
