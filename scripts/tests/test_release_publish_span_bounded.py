@@ -7,6 +7,8 @@ name the process that was blocked, so every step after signing that reads the re
 and a step that runs out of time says what to do. All tests are offline and run on fakes.
 """
 import importlib
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -50,6 +52,9 @@ class BuilderSpanIsBoundedTests(unittest.TestCase):
         self.assertEqual([], offenders, 'these steps run with no time limit, so a privacy prompt or a stuck network '
                          'call can hold the publish for hours')
         self.assertIn('--local-files', text, 'bounded_local must ask for the words about the privacy prompt')
+        names = re.findall(r'bounded_(?:local|network) ([a-z0-9-]+) ', text)
+        repeated = sorted({name for name in names if names.count(name) > 1})
+        self.assertEqual(len(names), len(set(names)), f'every bounded step has its own name, so a timeout says which step it was (repeated: {repeated})')
 
 
 class BoundedProcessWordsTests(unittest.TestCase):
@@ -76,6 +81,26 @@ class BoundedProcessWordsTests(unittest.TestCase):
         self.assertEqual(124, result.returncode, result.stderr)
         self.assertIn('git-ls-remote timed out after 2 seconds', result.stderr)
         self.assertNotIn('privacy prompt', result.stderr)
+
+    def test_a_step_whose_pipes_outlive_the_kill_still_fails_in_the_words(self):
+        # A descendant that left the process group keeps the pipes open after the kill, as a process stuck on a prompt would.
+        holder = shlex.quote(sys.executable) + ' -I -c "import os,time; os.setsid(); time.sleep(10)" & sleep 10'
+        result, seconds = self.run_bounded('--timeout', '2', '--phase', 'plist-read', '--local-files', '--', '/bin/sh', '-c', holder)
+        self.assertLess(seconds, 30, 'the step must be stopped at its limit')
+        self.assertEqual(124, result.returncode, result.stderr)
+        self.assertNotIn('Traceback', result.stderr)
+        for words in ('plist-read timed out after 2 seconds',) + PROMPT_WORDS:
+            self.assertIn(words, result.stderr)
+
+    def test_a_local_step_that_fails_shows_its_own_error(self):
+        arguments = ('--timeout', '20', '--phase', 'dmg-copy', '--public-stdout')
+        command = ('--', '/bin/sh', '-c', 'echo no space left on device >&2; exit 1')
+        result, _ = self.run_bounded(*arguments, '--local-files', *command)
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn('no space left on device', result.stderr, 'a failing local step keeps the error it printed')
+        result, _ = self.run_bounded(*arguments, *command)
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertNotIn('no space left on device', result.stderr, 'a step that may carry a credential forwards nothing')
 
 
 class SmokeWordsReachTheConsoleTests(unittest.TestCase):
