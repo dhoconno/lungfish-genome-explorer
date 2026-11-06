@@ -12,7 +12,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | CLungfishExecutor | library | Sources/CLungfishExecutor | 0 | none |
 | Lungfish | executable | Sources/Lungfish | 0 | LungfishApp, LungfishCore |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 159 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI, LungfishWorkflow |
+| LungfishApp | library | Sources/LungfishApp | 158 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI, LungfishWorkflow |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 0 | LungfishCLI |
@@ -331,7 +331,6 @@ None.
 - `VariantSelectionEntry` struct, `Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift`
 - `VariantTrackVisibilityItem` struct, `Sources/LungfishApp/Views/Inspector/Sections/AnnotationSection.swift`
 - `VCFAutoIngestor` enum, `Sources/LungfishApp/App/VCFAutoIngestor.swift`
-- `VCFDatasetViewController` class, `Sources/LungfishApp/Views/Viewer/VCFDatasetViewController.swift`
 - `ViewerStatusBar` class, `Sources/LungfishApp/Views/Viewer/ViewerStatusBar.swift`
 - `ViewerViewController` class, `Sources/LungfishApp/Views/Viewer/ViewerViewController.swift`
 - `VirusCompletenessFilter` enum, `Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift`
