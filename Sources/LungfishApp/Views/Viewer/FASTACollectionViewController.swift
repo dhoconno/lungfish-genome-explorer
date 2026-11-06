@@ -719,10 +719,8 @@ public final class FASTACollectionViewController: NSViewController,
                 let countB = annotationsBySequence[b.name]?.count ?? 0
                 result = countA < countB
             case "gc":
-                // A record with no A, C, G or T sorts below every counted one.
-                let gcA = gcCache[a.id]?.percent ?? -1
-                let gcB = gcCache[b.id]?.percent ?? -1
-                result = gcA < gcB
+                // A record with no value, a protein record or one with no A, C, G or T, sorts last either way the column runs.
+                return FASTACollectionGC.sorts(gcCache[a.id]?.percent, before: gcCache[b.id]?.percent, ascending: sortAscending)
             case "source":
                 let srcA = sourceNames[a.id] ?? ""
                 let srcB = sourceNames[b.id] ?? ""
@@ -739,7 +737,7 @@ public final class FASTACollectionViewController: NSViewController,
     /// Takes the pass's values. A sort by GC asked for while it counted is applied again now that the values are known.
     private func showGC(_ result: FASTACollectionGC.Result) {
         gcCache = result.compositions
-        summaryBar.showGC(result.listPercent)
+        summaryBar.showGC(result.listPercent, proteinRecords: result.proteinRecordCount)
         if sortKey == "gc" {
             let selectedIDs = Set(selectedSequences().map(\.id))
             applySortOrder()
@@ -1022,10 +1020,10 @@ public final class FASTACollectionViewController: NSViewController,
             if count == 0 { textField.textColor = .tertiaryLabelColor }
 
         case "gc":
-            // Blank until the pass delivers, never 0.0, and a dash for a record with no A, C, G or T (W-8).
+            // Blank until the pass delivers, never 0.0, and a dash for a protein record or a record with no A, C, G or T (W-8).
             let counts = gcCache[seq.id]
             textField.stringValue = counts.map { $0.percent.map { String(format: "%.1f%%", $0) } ?? "\u{2014}" } ?? ""
-            textField.toolTip = counts != nil && counts?.percent == nil ? "This record has no A, C, G or T to count." : nil
+            textField.toolTip = counts?.dashToolTip
             textField.alignment = .right
 
         default:

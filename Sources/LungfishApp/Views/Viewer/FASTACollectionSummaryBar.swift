@@ -12,7 +12,8 @@ import LungfishKit
 ///
 /// Displays: Sequences, Total Length, Annotations, GC%, Shortest, Longest.
 /// When showing sequences from multiple source files, also displays a "Sources"
-/// card with the file count.
+/// card with the file count. When the list holds protein records, which have no GC
+/// percent, a "Protein records" card says how many the GC Content left out.
 @MainActor
 final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
 
@@ -23,8 +24,10 @@ final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
     private var annotationCount: Int = 0
     /// False until the list's GC pass delivers, so the card reads blank and never 0.0 while it counts.
     private var gcCounted = false
-    /// Every record's G+C over every record's A+C+G+T (W-8), nil when no record has an A, C, G or T.
+    /// Every nucleotide record's G+C over every nucleotide record's A+C+G+T (W-8), nil when none has an A, C, G or T.
     private var gcPercent: Double?
+    /// How many protein records the GC Content left out (FASTA-PROTEIN-GC).
+    private var proteinRecordCount = 0
     private var shortestLength: Int = 0
     private var longestLength: Int = 0
     private var sourceFileCount: Int = 0
@@ -38,7 +41,7 @@ final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
     ///   - annotationCount: Total number of annotations across all sequences.
     ///   - sourceFileCount: Number of distinct source files (0 for single-document).
     ///
-    /// The GC card reads blank until ``showGC(_:)`` gives it the pass's value.
+    /// The GC card reads blank until ``showGC(_:proteinRecords:)`` gives it the pass's value.
     func update(
         sequences: [LungfishCore.Sequence],
         annotationCount: Int,
@@ -49,6 +52,7 @@ final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
         self.sourceFileCount = sourceFileCount
         gcCounted = false
         gcPercent = nil
+        proteinRecordCount = 0
 
         if sequences.isEmpty {
             totalLength = 0
@@ -74,10 +78,12 @@ final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
         cardsDidChange()
     }
 
-    /// Shows the list's pooled GC once the pass has counted it. Nil, when no record has an A, C, G or T, reads a dash.
-    func showGC(_ percent: Double?) {
+    /// Shows the list's pooled GC once the pass has counted it. Nil, when no nucleotide record has an A, C, G or T,
+    /// reads a dash. `proteinRecords` protein records are left out of it, and a card says how many.
+    func showGC(_ percent: Double?, proteinRecords: Int = 0) {
         gcCounted = true
         gcPercent = percent
+        proteinRecordCount = proteinRecords
         cardsDidChange()
     }
 
@@ -104,6 +110,15 @@ final class FASTACollectionSummaryBar: GenomicSummaryCardBar {
             Card(label: "Total Length", value: GenomicSummaryCardBar.formatBases(totalLength)),
             Card(label: "Annotations", value: GenomicSummaryCardBar.formatCount(annotationCount)),
             Card(label: "GC Content", value: gcText),
+        ])
+
+        // A protein record has no GC percent, so the card says how many the GC Content left out.
+        if gcCounted, proteinRecordCount > 0 {
+            let count = GenomicSummaryCardBar.formatCount(proteinRecordCount)
+            result.append(Card(label: "Protein records", value: "\(count) (left out of GC Content)"))
+        }
+
+        result.append(contentsOf: [
             Card(label: "Shortest", value: GenomicSummaryCardBar.formatBases(shortestLength)),
             Card(label: "Longest", value: GenomicSummaryCardBar.formatBases(longestLength)),
         ])
