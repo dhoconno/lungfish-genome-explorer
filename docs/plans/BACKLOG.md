@@ -1,5 +1,7 @@
 # Backlog
 
+Rows found from Phase 3.2 on are in BACKLOG-3.2.md.
+
 Status: active. The one list of open rows for Lungfish Genome Explorer (LGE) phases, as
 `docs/contracts/SCOPE-AND-DELIVERY.md` sets. Each row states its effect on results or users. The owner ranks the list
 once a phase, and a row left unscheduled for two phases closes unless it changes results, loses data or crashes. A row
