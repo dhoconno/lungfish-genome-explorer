@@ -131,7 +131,8 @@ final class TaxTriageControlNoticeTests: XCTestCase {
         XCTAssertTrue(words.contains("Give each sample a name that stays different"), words)
     }
 
-    /// Two controls that meet: the dropped one's organisms are gone and the other reads clean for them.
+    /// Two controls that meet: the dropped one's organisms are gone, so the strip says the risk is only partly checked
+    /// and how to read a blank (lane TTNOTCHECKED, UX review SF-1).
     func testViewerSaysWhenTwoControlsMeetAndTheResultsHoldOne() throws {
         let fixture = try Fixture(
             listed: [("sample-1", false), ("NTC 1", true), ("NTC_1", true)],
@@ -143,6 +144,9 @@ final class TaxTriageControlNoticeTests: XCTestCase {
         let words = try XCTUnwrap(vc.testControlsNotRecordedNoticeWords, "the viewer said nothing about two controls that meet")
         XCTAssertTrue(words.contains("NTC 1 and NTC_1 are both named NTC_1 in the results"), words)
         XCTAssertTrue(words.contains("the results hold only one sample"), words)
+        XCTAssertTrue(words.contains("Contamination risk is only partly checked."), words)
+        XCTAssertFalse(words.contains("Contamination risk is not checked."), "an incomplete control is only partly checked: \(words)")
+        XCTAssertTrue(words.hasSuffix("Where no warning sign shows, the risk is not checked."), words)
     }
 
     /// Both samples are in the results under the numbered names the pipeline gives them, so nothing is left out.
