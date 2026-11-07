@@ -1111,7 +1111,7 @@ class FullTierSwiftTestingTests(unittest.TestCase):
         self.assertIn("run the whole full tier again", evidence["errors"][0])
 
     def test_a_hang_after_events_gets_no_rerun(self):
-        status, evidence, printed, files = self.run_hang_rerun("swift_testing_test_hang", bound=2)[1:]
+        status, evidence, printed, files = self.run_hang_rerun("swift_testing_test_hang")[1:]
         self.assertEqual(status, 1)
         self.assertEqual([a["role"] for a in evidence["attempts"]], ["authoritative"] * 3)
         self.assertIsNone(files["runner-hangs.txt"])
