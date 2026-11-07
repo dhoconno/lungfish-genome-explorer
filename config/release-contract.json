@@ -89,7 +89,7 @@
     ],
     "appSmokeAccount": null,
     "dependencyPolicy": "manifest",
-    "appSmokeRequired": false,
+    "appSmokeRequired": true,
     "releaseNeutralPaths": [
       "docs/release-notes/**",
       "docs/plans/**",

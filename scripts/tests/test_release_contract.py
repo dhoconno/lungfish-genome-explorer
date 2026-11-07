@@ -72,9 +72,9 @@ EXPECTED_GATES = {
     "appSmokeAccount": None,
     "appSmokeTests": ['LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateLaunchAndChannelIdentity', 'LungfishXCUITests/MainWindowNavigationXCUITests/testReleaseCandidateImportFailureStatus', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateNativeOpenSaveCloseReopen', 'LungfishXCUITests/ProjectLifecycleXCUITests/testReleaseCandidateTwoWindowOwnership', 'LungfishXCUITests/BundleBrowserXCUITests/testReleaseCandidateNativeBundleBrowser', 'LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateTreeWindowStaysOnScreen', 'LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateInspectorShowsOnlyTheCurrentResult', 'LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateDroppedZipLandsItsBundle', 'LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateRefusedZipShowsWords', 'LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateExtractFromARenamedResultUsesTheLoadedFolder', 'LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateViewSwitchPerKind'],
     "dependencyPolicy": "manifest",
-    # False until the XCUI smoke of appSmokeTests runs unattended on the release Mac, which needs
-    # Automation Mode without authentication there (lane UIP report, phase 3.0).
-    "appSmokeRequired": False,
+    # True since the galah smoke run of Phase 3.3 passed every task of appSmokeTests on package 1 of 0c8771af3
+    # (11 of 11 tests, evidence folder /private/var/tmp/lungfish-smoke-evidence-20261107-1116).
+    "appSmokeRequired": True,
     # Documentation no test reads: unit-tier evidence carries across changes to these paths
     # (docs/contracts/VERIFICATION-ORDER.md). Grow it only with proof that nothing reads the path.
     "releaseNeutralPaths": [
