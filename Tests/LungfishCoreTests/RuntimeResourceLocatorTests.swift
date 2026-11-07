@@ -520,6 +520,13 @@ struct RuntimeResourceLocatorTests {
         try Data("#!/bin/sh\n".utf8).write(to: binary)
         try "{}".write(to: lock, atomically: true, encoding: .utf8)
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: binary)
+        // A chain as an installer makes one: a link on PATH whose relative target is a link to the binary.
+        let hopFolder = tempRoot.appendingPathComponent("opt-lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: hopFolder, withIntermediateDirectories: true)
+        let hop = hopFolder.appendingPathComponent("lungfish")
+        try FileManager.default.createSymbolicLink(at: hop, withDestinationURL: binary)
+        let chained = linkFolder.appendingPathComponent("lg")
+        try FileManager.default.createSymbolicLink(atPath: chained.path, withDestinationPath: "../opt-lungfish/lungfish")
 
         // What Bundle.main reports. Run directly, it names the app's own folders. Run through the link, it names the link
         // and the link's folder (checked on this Mac with a probe tool built into an app folder and linked from another).
@@ -538,6 +545,8 @@ struct RuntimeResourceLocatorTests {
         #expect(direct?.resolvingSymlinksInPath().path == expected, "the binary itself finds the lock")
         let linked = lookup(executable: link, resources: linkFolder)
         #expect(linked?.resolvingSymlinksInPath().path == expected, "a link to the binary finds the lock beside the binary")
+        let viaChain = lookup(executable: chained, resources: linkFolder)
+        #expect(viaChain?.resolvingSymlinksInPath().path == expected, "a relative link to a link to the binary finds the lock beside the binary")
     }
 
     /// Resolving the link must not widen the search. A link to a binary that sits in no app has no lock beside it to find,
