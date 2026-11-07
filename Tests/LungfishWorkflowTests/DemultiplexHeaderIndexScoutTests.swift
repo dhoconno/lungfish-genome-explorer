@@ -257,7 +257,7 @@ final class DemultiplexHeaderIndexScoutConformanceTests: XCTestCase {
     }
 
     /// A GBS key as a custom definition, on reads whose names all carry one library index: the names hold none of its
-    /// barcodes, so Detect still searches the read bases, as the run's route owner does (green at the base and after).
+    /// barcodes, so Detect still searches the read bases, as the run's route owner does.
     func testCustomDefinitionOnNamesWithOneLibraryIndexStillSearchesTheBases() async throws {
         guard await NativeToolRunner.shared.isToolAvailable(.cutadapt),
               await NativeToolRunner.shared.isToolAvailable(.seqkit) else {
@@ -274,10 +274,10 @@ final class DemultiplexHeaderIndexScoutConformanceTests: XCTestCase {
         )
         let result = try await DemultiplexingPipeline().scout(inputURL: input, kit: kit, errorRate: 0.15, progress: { _, _ in })
 
-        // The search of the bases finds both barcodes, as at the base (52 and 47 of the 500 reads each, a count this
-        // lane does not change), and the names' one library index is no barcode of the key.
+        // The search of the bases counts every read that starts with its barcode, as the run splits them
+        // (BIO-DETECT-BASES-UNDERCOUNT), and the names' one library index is no barcode of the key.
         XCTAssertEqual(Set(result.acceptedDetections.map(\.barcodeID)), ["G1", "G2"])
-        XCTAssertTrue(result.detections.allSatisfy { $0.hitCount < 500 }, "\(result.detections.map(\.hitCount))")
+        XCTAssertEqual(counts(result), ["G1": 500, "G2": 500])
     }
 
     /// BIO-DETECT-BASES-UNDERCOUNT: a custom definition with one inline barcode a sample (a GBS or ddRAD key) is counted in

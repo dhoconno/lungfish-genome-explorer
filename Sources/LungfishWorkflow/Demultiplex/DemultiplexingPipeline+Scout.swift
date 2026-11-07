@@ -128,11 +128,20 @@ extension DemultiplexingPipeline {
                 }
             }
         } else {
-            // Symmetric/single-end kits: use 5'-only specs with --revcomp for orientation.
+            // Single-end and symmetric kits. A long-read kit searches its 5' construct with --revcomp. A short-read kit
+            // searches as its run does, the barcode anchored at the read's 5' end (`writeSingleEndAdapterFASTA`, `.bothEnds`
+            // at distance 0), so Detect counts the reads the run splits (BIO-DETECT-BASES-UNDERCOUNT). A context with no 5'
+            // side (MGI, Ultima) and a long-read kit with reverse complements off keep the linked spec, as their runs do.
             for barcode in kit.barcodes {
-                let spec = useRevcomp
-                    ? ctx.fivePrimeSpec(barcodeSequence: barcode.i7Sequence)
-                    : ctx.linkedSpec(barcodeSequence: barcode.i7Sequence)
+                let fivePrime = ctx.fivePrimeSpec(barcodeSequence: barcode.i7Sequence)
+                let spec: String
+                if useRevcomp {
+                    spec = fivePrime
+                } else if !kit.platform.readsCanBeReverseComplemented, !fivePrime.isEmpty {
+                    spec = "^" + fivePrime
+                } else {
+                    spec = ctx.linkedSpec(barcodeSequence: barcode.i7Sequence)
+                }
                 lines.append(">\(barcode.id)")
                 lines.append(spec)
             }
