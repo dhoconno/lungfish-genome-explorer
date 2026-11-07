@@ -242,6 +242,8 @@ extension DemultiplexingPipeline {
         unassignedReadsURL: URL?
     ) async throws -> DemultiplexChanceFloor.Outcome? {
         guard config.demuxAdapterContext is BareAdapterContext else { return nil }
+        // A run that searched no reads has no barcode with reads to name, so the floor has nothing to judge.
+        guard readsSearched > 0 else { return nil }
         var patterns: [String: [String]] = [:]
         var name = ""
         for line in try String(contentsOf: adapterFASTA, encoding: .utf8).split(separator: "\n") where !line.isEmpty {

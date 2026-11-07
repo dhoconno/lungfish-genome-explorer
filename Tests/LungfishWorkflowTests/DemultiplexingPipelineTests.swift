@@ -347,6 +347,8 @@ final class DemultiplexingPipelineTests: XCTestCase {
         try writeFASTQ(
             sequences: [
                 "ACGTAAAAAA",
+                "ACGTCCCCCC",
+                "ACGTGGGGGG",
                 "GGGGGGGGGG",
             ],
             to: fastqURL
@@ -906,6 +908,8 @@ final class DemultiplexingPipelineTests: XCTestCase {
         try writeFASTQ(
             sequences: [
                 "GTATCGTCGTGATTACA",
+                "GTATCGTCGTGATTACC",
+                "GTATCGTCGTGATTACG",
                 "AAAAAAAAAAGATTACA",
             ],
             to: inputFASTQ
@@ -940,7 +944,7 @@ final class DemultiplexingPipelineTests: XCTestCase {
 
         XCTAssertEqual(result.manifest.parameters.tool, "cutadapt")
         XCTAssertNotNil(result.nativeCommand)
-        XCTAssertEqual(result.manifest.barcodes.first(where: { $0.barcodeID == "FLD0001" })?.readCount, 1)
+        XCTAssertEqual(result.manifest.barcodes.first(where: { $0.barcodeID == "FLD0001" })?.readCount, 3)
     }
 
     func testCutadaptFullOutputModeDoesNotBuildVirtualReadIDSidecars() async throws {
@@ -950,6 +954,8 @@ final class DemultiplexingPipelineTests: XCTestCase {
         try writeFASTQ(
             sequences: [
                 "GTATCGTCGTGATTACA",
+                "GTATCGTCGTGATTACC",
+                "GTATCGTCGTGATTACG",
                 "AAAAAAAAAAGATTACA",
             ],
             to: fastqURL
@@ -985,8 +991,8 @@ final class DemultiplexingPipelineTests: XCTestCase {
         let barcodeResult = try XCTUnwrap(
             result.manifest.barcodes.first(where: { $0.barcodeID == "FLD0001" })
         )
-        XCTAssertEqual(barcodeResult.readCount, 1)
-        XCTAssertEqual(barcodeResult.baseCount, 7)
+        XCTAssertEqual(barcodeResult.readCount, 3)
+        XCTAssertEqual(barcodeResult.baseCount, 21)
         XCTAssertTrue(
             FileManager.default.fileExists(
                 atPath: outputBundleURL.appendingPathComponent("FLD0001.fastq.gz").path
