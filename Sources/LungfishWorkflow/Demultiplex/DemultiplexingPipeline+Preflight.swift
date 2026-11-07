@@ -18,8 +18,9 @@ extension DemultiplexingPipeline {
     /// that gives cutadapt no adapter (a combinatorial kit without sample
     /// assignments, a dual kit without second barcodes, a line with no base on
     /// one side, or two barcodes that share one line), the IDT UD kit while
-    /// its built-in sequences are being checked, and a dual Illumina-family kit
-    /// at 5' End or 3' End, which leaves one of its two indexes free.
+    /// its built-in sequences are being checked, and a search of the read bases
+    /// with a dual Illumina-family kit at 5' End or 3' End, which leaves one of
+    /// its two indexes free.
     /// It runs no tool and writes only a scratch adapter file it removes, and returns the route the run takes.
     @discardableResult
     public func preflight(config: DemultiplexConfig) async throws -> DemultiplexSearchRoute {
@@ -31,13 +32,6 @@ extension DemultiplexingPipeline {
         // Adapter Sequences document (ruling UX-DEMUX-ILLUMINA, item 5).
         if config.barcodeKit.id == BarcodeKitRegistry.idtUDIndexes.id {
             throw DemultiplexError.kitSequencesUnderCheck(kitName: config.barcodeKit.displayName)
-        }
-        // A dual Illumina-family kit has its first index at the start of the read and its second at the end. Only
-        // Both Ends anchors both, so 5' End or 3' End leaves one index free and counts chance matches as pairs.
-        if config.barcodeKit.platform.indexesInSeparateReads,
-           config.barcodeKit.pairingMode == .fixedDual,
-           config.barcodeLocation != .bothEnds {
-            throw DemultiplexError.dualKitNeedsBothEnds(kitName: config.barcodeKit.displayName)
         }
         let inputFASTQ = resolveInputFASTQ(config.inputURL)
         guard FileManager.default.fileExists(atPath: inputFASTQ.path) else {
@@ -53,6 +47,14 @@ extension DemultiplexingPipeline {
             return route
         case .refuse(let words): throw DemultiplexError.searchRouteRefused(words)
         case .inline: break
+        }
+        // A search of the bases with a dual Illumina-family kit finds its first index at the start of the read and its
+        // second at the end. Only Both Ends anchors both, so 5' End or 3' End leaves one index free and counts chance
+        // matches as pairs. The split by the read names above searches no base, so the location does not bind it.
+        if config.barcodeKit.platform.indexesInSeparateReads,
+           config.barcodeKit.pairingMode == .fixedDual,
+           config.barcodeLocation != .bothEnds {
+            throw DemultiplexError.dualKitNeedsBothEnds(kitName: config.barcodeKit.displayName)
         }
         if config.symmetryMode == .asymmetric && !config.sampleAssignments.isEmpty {
             let resolvesABarcodePair = config.sampleAssignments.contains { assignment in
