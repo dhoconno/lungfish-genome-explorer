@@ -376,7 +376,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
         }
 
         guard !rowIndexes.isEmpty else { return }
-        outlineView.selectRowIndexes(rowIndexes, byExtendingSelection: false)
+        outlineView.selectRowIndexes(rowIndexes, byExtendingSelection: false, explicit: true)
         sidebarLogger.info("selectAllSiblings: Selected \(rowIndexes.count) sibling(s)")
     }
 

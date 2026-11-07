@@ -82,8 +82,6 @@ final class SidebarRescanSelectionTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
-        // A failed screen check waits the whole lookup budget, so the first one ends the test.
-        continueAfterFailure = false
         root = try TestTempDirectory.make(prefix: "sidebar-rescan-selection")
         hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
         project = root.appendingPathComponent("Rescan.lungfish", isDirectory: true)
@@ -226,7 +224,14 @@ final class SidebarRescanSelectionTests: XCTestCase {
         waitForApply(try startRescan())
         XCTAssertTrue(window.makeFirstResponder(nil))
         let outline = controller.sidebarController.outlineView!
+        // The notice also points the Inspector's provenance and project-copy record at the row, so none may go out.
+        let posted = Done()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sidebarSelectionChanged, object: controller.sidebarController, queue: nil
+        ) { _ in MainActor.assumeIsolated { posted.value = true } }
+        defer { NotificationCenter.default.removeObserver(observer) }
         outline.selectRowIndexes(IndexSet(integer: try row(of: resultB)), byExtendingSelection: false)
+        XCTAssertFalse(posted.value, "a refused selection posted the sidebar's selection notice: \(describeScreen())")
         let viewerURL = controller.viewerController.taxTriageViewController?.batchGroupURL?.standardizedFileURL
         let inspectorPath = controller.inspectorController.activeContentSelectionIdentity?.standardizedURLPath
         XCTAssertEqual(viewerURL?.path, inspectorPath,
@@ -267,6 +272,18 @@ final class SidebarRescanSelectionTests: XCTestCase {
         assertShows(resultB, "after a run")
         waitForApply(try startRescan())
         assertShows(resultB, "after a run, after a rescan")
+    }
+
+    /// Pin for Select Siblings (Cmd-Shift-A) while the shown result's table has the focus: a person asked for it, so
+    /// both results stay selected. A selection of more than one row never met the focus rule, so it is green at the
+    /// base too, and the explicit mark keeps it so if the rule ever covers more rows.
+    func testSelectSiblingsWithAChildViewerShownSelectsEveryResult() throws {
+        click(resultA)
+        assertShows(resultA, "Select Siblings, before")
+        try focusTheShownResultsTable()
+        controller.sidebarController.selectAllSiblings()
+        let selected = Set(controller.sidebarController.selectedItems().compactMap { $0.url?.standardizedFileURL })
+        XCTAssertEqual(selected, [resultA.url, resultB.url], "Select Siblings went back: \(describeScreen())")
     }
 
     // MARK: - Helpers

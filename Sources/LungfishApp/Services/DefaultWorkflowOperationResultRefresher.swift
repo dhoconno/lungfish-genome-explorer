@@ -21,8 +21,9 @@ struct DefaultWorkflowOperationResultRefresher: WorkflowOperationResultRefreshin
         // The recursive project scan runs off the main actor; only the cheap
         // apply and the selection happen back on it once the scan returns.
         await splitViewController.sidebarController.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
+        // A run's result is a selection a person asked for, so the focus rule of a shown child viewer takes it.
         _ = splitViewController.sidebarController.selectItem(
-            forURL: preferredSelectionURL.standardizedFileURL
+            forURL: preferredSelectionURL.standardizedFileURL, explicit: true
         )
     }
 }

@@ -15,8 +15,10 @@ final class SidebarRescanSelectionXCUITests: XCTestCase {
     private static let taxTriageRow = "taxtriage-2026-01-15T12-00-00"
     private static let esVirituRow = "esviritu-2026-01-15T10-00-00"
 
-    override func setUp() async throws {
-        try await super.setUp()
+    /// Synchronous, because an XCTest interrupt of a test whose class has async set-up or tear-down hung for 11 minutes
+    /// in `_interruptTest` (lane RESCANFIX, `frame-hang-sample.txt`).
+    override func setUpWithError() throws {
+        try super.setUpWithError()
         continueAfterFailure = false
     }
 
