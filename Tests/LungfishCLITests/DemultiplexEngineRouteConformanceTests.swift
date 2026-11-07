@@ -91,5 +91,10 @@ final class DemultiplexEngineRouteConformanceTests: XCTestCase {
         }
         let items = ((try? FileManager.default.contentsOfDirectory(atPath: output.path)) ?? []).filter { !$0.hasPrefix(".") }
         XCTAssertEqual(items, [], "no output is published")
+        // The staging folder and the provenance sidecar start with a dot, so the filter above cannot see them.
+        let leftovers = ((try? FileManager.default.contentsOfDirectory(atPath: output.path)) ?? [])
+            .filter { $0.hasPrefix(".lungfish-demux-incomplete-") || $0.hasSuffix("lungfish-provenance.json") }
+        XCTAssertEqual(leftovers, [], "a refused run leaves no staging folder and no record")
+        XCTAssertNil(try ProvenanceEnvelopeReader.loadCanonical(from: output))
     }
 }

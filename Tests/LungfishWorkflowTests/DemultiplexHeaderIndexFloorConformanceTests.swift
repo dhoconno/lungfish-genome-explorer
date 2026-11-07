@@ -124,6 +124,10 @@ final class DemultiplexHeaderIndexFloorConformanceTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains(words), error.localizedDescription, file: file, line: line)
         }
         XCTAssertEqual(visibleItems(in: output), [], "no output is published", file: file, line: line)
+        // The staging folder and the provenance sidecar start with a dot, so `visibleItems` cannot see them.
+        let leftovers = ((try? FileManager.default.contentsOfDirectory(atPath: output.path)) ?? [])
+            .filter { $0.hasPrefix(".lungfish-demux-incomplete-") || $0.hasSuffix("lungfish-provenance.json") }
+        XCTAssertEqual(leftovers, [], "a refused run leaves no staging folder and no record", file: file, line: line)
         return assigned
     }
 
