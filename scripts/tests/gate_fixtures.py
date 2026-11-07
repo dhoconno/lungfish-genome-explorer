@@ -236,6 +236,8 @@ def make_app_smoke_fixture(directory, source, app, contract_path, trailer="** TE
     from gate_evidence import analyze_attempt
     directory.mkdir(parents=True)
     identifiers = json.loads(contract_path.read_text())["gates"]["appSmokeTests"]
+    # Schema 2 (lane RELSMOKE). The runner launched an invented copy under the release cache, which the gate removed.
+    launched = Path("/private/var/tmp/lungfish-release-cache/lungfish-app-smoke.fixture/app") / Path(app).name
     for name in ("xcode-version", "sdk-version", "build-ui-runner"):
         (directory / (name + ".log")).write_text("fixture completed\n")
     (directory / "sdk-version.log").write_text("26.5\n")
@@ -245,9 +247,9 @@ def make_app_smoke_fixture(directory, source, app, contract_path, trailer="** TE
     (directory / "run.xcresult/fixture.txt").write_text("invented result bundle\n")
     runfile = directory / "candidate.xctestrun"
     runfile.write_bytes(plistlib.dumps({"TestConfigurations": [{"TestTargets": [{
-        "BlueprintName": "LungfishXCUITests", "UITargetAppPath": str(app),
+        "BlueprintName": "LungfishXCUITests", "UITargetAppPath": str(launched),
         "OnlyTestIdentifiers": [i.split("/", 1)[1] for i in identifiers], "SkipTestIdentifiers": [],
-        "EnvironmentVariables": {"LUNGFISH_RELEASE_SMOKE_APP": str(app), "LUNGFISH_RELEASE_SMOKE_CHANNEL": "stable",
+        "EnvironmentVariables": {"LUNGFISH_RELEASE_SMOKE_APP": str(launched), "LUNGFISH_RELEASE_SMOKE_CHANNEL": "stable",
                                  "LUNGFISH_RELEASE_SMOKE_HOME": "/Users/fixture-owner/evidence.home"}}]}]}))
     account = json.loads(contract_path.read_text())["gates"]["appSmokeAccount"] or "fixture-owner"
     commands = [{"argv": argv, "exitStatus": 0, "files": [record(directory / (name + ".log"), directory)]}
@@ -256,8 +258,11 @@ def make_app_smoke_fixture(directory, source, app, contract_path, trailer="** TE
                                    ("build-ui-runner", ["xcodebuild", "build-for-testing"]),
                                    ("real-app-tests", ["xcodebuild", "test-without-building", "-xctestrun", str(runfile)] + ["-only-testing:" + i for i in identifiers]))]
     analyze_attempt(directory, commands[-1], {"xctest": [i.replace("/", ".", 1) for i in identifiers], "swift-testing": []}, False, True)
-    result = {"schemaVersion": 1, "kind": "xcode-real-app", "source": source, "channel": "stable",
-              "appPath": str(app), "appPayloadSHA256": receipt_authority(Path(__file__).resolve().parents[2])._payload_digest(app),
+    payload = receipt_authority(Path(__file__).resolve().parents[2])._payload_digest(app)
+    result = {"schemaVersion": 2, "kind": "xcode-real-app", "source": source, "channel": "stable",
+              "appPath": str(launched), "candidateAppPath": str(app), "appPayloadSHA256": payload,
+              "appCopy": {"path": str(launched), "method": "ditto", "payloadSHA256Before": payload,
+                          "payloadSHA256After": payload, "originalCDHash": None, "copyCDHash": None, "removed": True},
               "sdkVersion": "26.5", "runnerIdentity": [
                   {"path": "Release/LungfishXCUITests-Runner.app/Contents/MacOS/LungfishXCUITests-Runner", "sha256": "a" * 64, "sizeBytes": 1},
                   {"path": "Release/LungfishXCUITests-Runner.app/Contents/PlugIns/LungfishXCUITests.xctest/Contents/MacOS/LungfishXCUITests", "sha256": "b" * 64, "sizeBytes": 1}],

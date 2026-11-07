@@ -32,6 +32,12 @@ Safety rules:
     while --apply runs.
   * Removal is shutil.rmtree on the exact validated namespace path, never on a
     parent. Repository key directories and v1 are never removed.
+  * The app smoke gate copies the candidate into <cache-root>/lungfish-app-smoke.*/
+    with a .lungfish-app-smoke-copy.json marker and holds that folder's
+    .build.lock while it runs. The gate removes the folder when it ends, so a
+    marked folder whose lock nobody holds was left by a gate that was killed.
+    It is always listed as REMOVE, whatever --keep says, and a held lock
+    refuses the run as a build's lock does.
 
 Exit status: 0 success (including nothing to do), 64 usage error or unsafe
 layout, 75 a build lock is held, 1 a removal failed.
@@ -50,7 +56,8 @@ import sys
 import time
 from typing import Mapping, NoReturn, Sequence
 
-from release_cache_fingerprint import CACHE_LOCK, CACHE_MARKER, HEX_SHA256
+from release_cache_fingerprint import (CACHE_LOCK, CACHE_MARKER, HEX_SHA256, SMOKE_COPY_MARKER,
+                                       SMOKE_COPY_PREFIX)
 
 
 DEFAULT_CACHE_ROOT = Path("/private/var/tmp/lungfish-release-cache")
@@ -87,6 +94,8 @@ class CacheNamespace:
 @dataclass
 class Scan:
     namespaces: list[CacheNamespace] = field(default_factory=list)
+    # Copies of a candidate an app smoke gate left in the cache root. Their repository_key is "".
+    smoke_copies: list[CacheNamespace] = field(default_factory=list)
     ignored: list[str] = field(default_factory=list)
     unsafe: list[str] = field(default_factory=list)
 
@@ -195,36 +204,49 @@ def scan_namespace(repository: Path, name: str, uid: int, scan: Scan) -> None:
     if HEX_SHA256.fullmatch(name) is None:
         scan.ignored.append(f"{label} (not a fingerprint)")
         return
-    path = repository / name
+    found = marked_directory(repository / name, label, CACHE_MARKER, uid, scan)
+    if found is not None:
+        scan.namespaces.append(found(repository.name, name))
+
+
+def marked_directory(path: Path, label: str, marker_name: str, uid: int, scan: Scan):
+    """For a real directory owned by uid that holds a regular-file marker and
+    a safe lock, a function of (repository key, name) that makes its
+    CacheNamespace. Otherwise None, after recording why in `scan`."""
     status = inspect_directory(path, uid, label, scan)
     if status is None:
-        return
-    marker = lstat(path / CACHE_MARKER)
+        return None
+    marker = lstat(path / marker_name)
     if marker is None or not (
         stat.S_ISREG(marker.st_mode) or stat.S_ISLNK(marker.st_mode)
     ):
-        scan.ignored.append(f"{label} (no regular-file {CACHE_MARKER})")
-        return
+        scan.ignored.append(f"{label} (no regular-file {marker_name})")
+        return None
     lock = lstat(path / CACHE_LOCK)
-    for entry_name, entry in ((CACHE_MARKER, marker), (CACHE_LOCK, lock)):
+    for entry_name, entry in ((marker_name, marker), (CACHE_LOCK, lock)):
         problem = None if entry is None else file_problem(entry, uid)
         if problem is not None:
             scan.unsafe.append(f"{label}/{entry_name} {problem}")
-            return
+            return None
     last_used = max(
         status.st_mtime_ns,
         marker.st_mtime_ns,
         0 if lock is None else lock.st_mtime_ns,
     )
-    scan.namespaces.append(
-        CacheNamespace(
-            repository_key=repository.name,
-            fingerprint=name,
-            path=path,
-            identity=(status.st_dev, status.st_ino),
-            last_used_ns=last_used,
-        )
+    return lambda repository_key, name: CacheNamespace(
+        repository_key=repository_key,
+        fingerprint=name,
+        path=path,
+        identity=(status.st_dev, status.st_ino),
+        last_used_ns=last_used,
     )
+
+
+def scan_smoke_copy(root: Path, name: str, uid: int, scan: Scan) -> None:
+    """A folder an app smoke gate made for its copy of a candidate."""
+    found = marked_directory(root / name, shown(name), SMOKE_COPY_MARKER, uid, scan)
+    if found is not None:
+        scan.smoke_copies.append(found("", name))
 
 
 def scan_repository(version_root: Path, name: str, uid: int, scan: Scan) -> None:
@@ -248,16 +270,20 @@ def scan_cache(root: Path, uid: int) -> Scan:
     if not require_directory(root, uid, f"cache root {shown(root)}"):
         return scan
     for name in list_names(root):
-        if name != LAYOUT_VERSION:
+        if name.startswith(SMOKE_COPY_PREFIX):
+            try:
+                scan_smoke_copy(root, name, uid, scan)
+            except LayoutError as error:
+                scan.unsafe.extend(error.problems)
+        elif name != LAYOUT_VERSION:
             scan.ignored.append(f"{shown(name)} (outside the {LAYOUT_VERSION} layout)")
     version_root = root / LAYOUT_VERSION
-    if not require_directory(version_root, uid, shown(version_root)):
-        return scan
-    for name in list_names(version_root):
-        try:
-            scan_repository(version_root, name, uid, scan)
-        except LayoutError as error:
-            scan.unsafe.extend(error.problems)
+    if require_directory(version_root, uid, shown(version_root)):
+        for name in list_names(version_root):
+            try:
+                scan_repository(version_root, name, uid, scan)
+            except LayoutError as error:
+                scan.unsafe.extend(error.problems)
     if scan.unsafe:
         raise LayoutError(*scan.unsafe)
     return scan
@@ -374,10 +400,18 @@ def remove_namespace(namespace: CacheNamespace, uid: int) -> None:
         os.close(descriptor)
 
 
-def listing_row(namespace: CacheNamespace, size_bytes: int, action: str) -> str:
+def row_label(namespace: CacheNamespace) -> str:
+    if not namespace.repository_key:
+        return f"app smoke copy  {shown(namespace.fingerprint)}"
     return (
         f"{namespace.repository_key[:PREFIX_LENGTH]}  "
-        f"{namespace.fingerprint[:PREFIX_LENGTH]}  "
+        f"{namespace.fingerprint[:PREFIX_LENGTH]}"
+    )
+
+
+def listing_row(namespace: CacheNamespace, size_bytes: int, action: str) -> str:
+    return (
+        f"{row_label(namespace)}  "
         f"{gib(size_bytes):>6} GiB  {last_used_text(namespace.last_used_ns)}  {action}"
     )
 
@@ -390,6 +424,9 @@ def print_listing(scan: Scan, removals: Sequence[CacheNamespace]) -> dict[Path, 
         sizes[namespace.path] = tree_size_bytes(namespace.path)
         action = "REMOVE" if namespace.path in removing else "KEEP"
         print(listing_row(namespace, sizes[namespace.path], action), flush=True)
+    for leftover in scan.smoke_copies:
+        sizes[leftover.path] = tree_size_bytes(leftover.path)
+        print(listing_row(leftover, sizes[leftover.path], "REMOVE"), flush=True)
     for entry in scan.ignored:
         print(f"ignored  {entry}")
     return sizes
@@ -425,8 +462,7 @@ def apply_removals(
         removed += 1
         reclaimed += sizes[namespace.path]
         print(
-            f"removed  {namespace.repository_key[:PREFIX_LENGTH]}  "
-            f"{namespace.fingerprint[:PREFIX_LENGTH]}  {gib(sizes[namespace.path])} GiB",
+            f"removed  {row_label(namespace)}  {gib(sizes[namespace.path])} GiB",
             flush=True,
         )
     print(f"Reclaimed {gib(reclaimed)} GiB from {plural(removed, 'namespace')}.")
@@ -446,7 +482,7 @@ def refuse(reason: str, details: Sequence[str], status: int) -> int:
 def prune(root: Path, keep: int, *, apply: bool, uid: int) -> int:
     try:
         scan = scan_cache(root, uid)
-        busy = probe_locks(scan.namespaces, uid)
+        busy = probe_locks([*scan.namespaces, *scan.smoke_copies], uid)
     except LayoutError as error:
         return refuse("the cache layout is unsafe", error.problems, EXIT_USAGE)
     if busy:
@@ -455,7 +491,7 @@ def prune(root: Path, keep: int, *, apply: bool, uid: int) -> int:
             [f"busy: {shown(namespace.path)}" for namespace in busy],
             EXIT_BUSY,
         )
-    if not scan.namespaces:
+    if not scan.namespaces and not scan.smoke_copies:
         for entry in scan.ignored:
             print(f"ignored  {entry}")
         print(f"No release cache namespaces under {shown(root)}; nothing to do.")
@@ -469,6 +505,7 @@ def prune(root: Path, keep: int, *, apply: bool, uid: int) -> int:
         sizes = print_listing(scan, removals)
     except LayoutError as error:
         return refuse("the cache layout is unsafe", error.problems, EXIT_USAGE)
+    removals = [*removals, *scan.smoke_copies]
     if not removals:
         print("Nothing to remove.")
         return 0

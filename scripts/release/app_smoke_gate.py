@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import fcntl
 import hashlib
 import importlib.util
 import json
@@ -23,6 +24,7 @@ import time
 from gate_evidence import (EvidenceError, analyze_attempt, command_record,
                            file_record, now, read_json, runtime_identity, same_source,
                            source_identity, write_json)
+from release_cache_fingerprint import CACHE_LOCK, SMOKE_COPY_MARKER, SMOKE_COPY_PREFIX
 from release_contract import load_contract
 
 
@@ -36,11 +38,14 @@ def verify_result(path, digest, source, channel, payload_digest, contract):
     if file_record(path, root)["sha256"] != digest:
         raise EvidenceError("app smoke result digest changed")
     result = read_json(path)
-    if (result.get("schemaVersion") != 1 or result.get("kind") != "xcode-real-app"
+    if result.get("schemaVersion") == 1:
+        raise EvidenceError("app smoke evidence predates the copy outside Documents. Run the smoke again.")
+    if (result.get("schemaVersion") != 2 or result.get("kind") != "xcode-real-app"
             or result.get("channel") != channel or not same_source(result.get("source", {}), source)
             or result.get("appPayloadSHA256") != payload_digest
             or result.get("selectedTests") != selected_tests(contract)):
         raise EvidenceError("app smoke identity or selection does not match candidate")
+    verify_candidate_copy(result, payload_digest)
     if result.get("authorized") is not True or result.get("errors"):
         raise EvidenceError("app smoke is failed, missing graphical access, or incomplete")
     session = result.get("graphicalSession", {})
@@ -110,6 +115,33 @@ def verify_result(path, digest, source, channel, payload_digest, contract):
     if not xcode_harness_finished((root / test["files"][0]["path"]).read_text()):
         raise EvidenceError("app smoke Xcode harness did not finish")
     return result
+
+
+def verify_candidate_copy(result, payload_digest):
+    """Schema 2 (lane RELSMOKE, ruling ARCH-RELEASE-SMOKE-GATE item 8). The runner launched the `ditto` copy named in
+    appPath, outside the account's Documents, Desktop and Downloads. The copy held the candidate's bytes before and
+    after the run, carried its code directory hash, and the gate removed it. Each refusal names the field."""
+    launched, original, record = result.get("appPath"), result.get("candidateAppPath"), result.get("appCopy")
+    home = result.get("graphicalSession", {}).get("accountHome")
+    if not isinstance(launched, str) or not Path(launched).is_absolute() or not isinstance(home, str):
+        raise EvidenceError("app smoke appPath is not the absolute path of the app the runner launched")
+    folder = protected_folder(launched, home)
+    if folder is not None:
+        raise EvidenceError("app smoke appPath %s is inside %s, so the runner launched the candidate there and not a "
+                            "copy outside it" % (launched, folder))
+    if not isinstance(original, str) or not Path(original).is_absolute() or Path(original) == Path(launched):
+        raise EvidenceError("app smoke candidateAppPath is not the absolute path of an original apart from appPath")
+    if not isinstance(record, dict) or record.get("path") != launched:
+        raise EvidenceError("app smoke appCopy.path does not name the app the runner launched (appPath)")
+    if record.get("method") != "ditto":
+        raise EvidenceError("app smoke appCopy.method is not ditto")
+    for field in ("payloadSHA256Before", "payloadSHA256After"):
+        if record.get(field) != payload_digest:
+            raise EvidenceError("app smoke appCopy.%s does not equal the candidate's payload digest" % field)
+    if record.get("copyCDHash") != record.get("originalCDHash"):
+        raise EvidenceError("app smoke appCopy.copyCDHash differs from appCopy.originalCDHash")
+    if record.get("removed") is not True:
+        raise EvidenceError("app smoke appCopy.removed is not true, so the copy may still be on disk")
 
 
 # `xcodebuild test` ends a run with `** TEST SUCCEEDED **` or `** TEST FAILED **`. `xcodebuild test-without-building`, the
@@ -580,24 +612,158 @@ def account_home():
     return Path(pwd.getpwuid(os.getuid()).pw_dir)
 
 
-def refuse_protected_derived_data(derived_data, home):
-    """Refuses derived data inside the account's Documents, Desktop or Downloads folder. `run` calls it first, before
-    the gate builds anything or calls `defaults`. Both paths are resolved, and their names compare without regard to
-    case, as the account's volume does."""
-    target, base = Path(derived_data).resolve(), Path(home).resolve()
+def protected_folder(path, home):
+    """The account's Documents, Desktop or Downloads folder that holds `path`, or None. Both paths are resolved, and
+    their names compare without regard to case, as the account's volume does."""
+    target, base = Path(path).resolve(), Path(home).resolve()
     names = [part.casefold() for part in target.parts]
     prefix = [part.casefold() for part in base.parts]
     for folder in PRIVACY_PROTECTED_FOLDERS:
         if names[:len(prefix) + 1] == prefix + [folder.casefold()]:
-            raise EvidenceError(
-                "--derived-data %s is inside %s. The runner's xctestrun points the app's DYLD_FRAMEWORK_PATH at that "
-                "folder, and macOS holds an app without access to that folder at launch, so every task would fail "
-                "before it ran. Give --derived-data a folder outside Documents, Desktop and Downloads, for example %s."
-                % (target, base / folder, DERIVED_DATA_EXAMPLE))
+            return base / folder
+    return None
+
+
+def refuse_protected_derived_data(derived_data, home):
+    """Refuses derived data inside the account's Documents, Desktop or Downloads folder. `run` calls it first, before
+    the gate builds anything or calls `defaults`."""
+    folder = protected_folder(derived_data, home)
+    if folder is not None:
+        raise EvidenceError(
+            "--derived-data %s is inside %s. The runner's xctestrun points the app's DYLD_FRAMEWORK_PATH at that "
+            "folder, and macOS holds an app without access to that folder at launch, so every task would fail "
+            "before it ran. Give --derived-data a folder outside Documents, Desktop and Downloads, for example %s."
+            % (Path(derived_data).resolve(), folder, DERIVED_DATA_EXAMPLE))
+
+
+# SMOKE-COPY (lane RELSMOKE, rulings QA-RELEASE-SMOKE-GATE items 3 and 4, ARCH-RELEASE-SMOKE-GATE items 4 to 9). The
+# release folder often sits in a checkout under ~/Documents, and macOS can hold an app it launches from there. The gate
+# copies the candidate with ditto into <release cache>/lungfish-app-smoke.XXXXXX/app/, launches the copy only when its
+# payload digest and code directory hash equal the candidate's, and removes the folder in run's finally, which a pass,
+# a failure, SIGTERM and SIGHUP all reach. The folder holds the marker and the build lock that prune-release-cache.py
+# reads, and the gate holds that lock while it runs, so the pruner removes a folder that a SIGKILL left and refuses
+# one in use. A SIGKILL between the folder's creation and its marker leaves a folder the pruner lists as ignored.
+RELEASE_CACHE_ROOT = Path("/private/var/tmp/lungfish-release-cache")
+RELEASE_CACHE_VARIABLE = "LUNGFISH_RELEASE_CACHE_ROOT"
+COPY_LIMIT_SECONDS = 600
+# RELSMOKE item D (ruling QA-RELEASE-SMOKE-GATE item 5). Chain 9 built the runner in 830 s and ran the 11 tasks in 883 s.
+STEP_LIMIT_SECONDS = {"build-ui-runner": 2700, "real-app-tests": 2700}
+
+
+def release_cache_root():
+    return Path(os.environ.get(RELEASE_CACHE_VARIABLE) or RELEASE_CACHE_ROOT)
+
+
+def refuse_protected_cache(cache_root, home):
+    """Refuses a release cache inside the account's Documents, Desktop or Downloads folder, before anything runs."""
+    folder = protected_folder(cache_root, home)
+    if folder is not None:
+        raise EvidenceError(
+            "The release cache %s is inside %s. The gate copies the candidate there and launches the copy, and macOS "
+            "can hold an app it launches from that folder on a privacy prompt, so the gate launched nothing. Set %s to "
+            "a folder outside Documents, Desktop and Downloads, or unset it to use %s."
+            % (Path(cache_root).resolve(), folder, RELEASE_CACHE_VARIABLE, RELEASE_CACHE_ROOT))
+
+
+def copy_app(source, destination):
+    """Copies the candidate with `ditto`, the tool the signed-app checks copy it with (smoke-test-release-tools.sh)."""
+    try:
+        completed = subprocess.run(["/usr/bin/ditto", str(source), str(destination)], capture_output=True, text=True,
+                                   timeout=COPY_LIMIT_SECONDS)
+    except subprocess.TimeoutExpired as error:
+        raise EvidenceError("ditto did not finish the copy of the candidate in %d seconds, so the gate launched "
+                            "nothing. Check the disk under the release cache and run the smoke again."
+                            % COPY_LIMIT_SECONDS) from error
+    if completed.returncode:
+        raise EvidenceError("ditto could not copy the candidate %s to %s (%s), so the gate launched nothing. Check the "
+                            "free space under the release cache and run the smoke again."
+                            % (source, destination, (completed.stderr or completed.stdout).strip()))
+
+
+def code_directory_hash(app):
+    """The CDHash `codesign` reports for `app`, or None for an unsigned app."""
+    try:
+        completed = subprocess.run(["/usr/bin/codesign", "--display", "--verbose=3", str(app)], capture_output=True,
+                                   text=True, timeout=120)
+    except subprocess.TimeoutExpired as error:
+        raise EvidenceError("codesign did not report the code directory hash of %s in 120 seconds, so the gate "
+                            "launched nothing. Run the smoke again." % app) from error
+    match = re.search(r"^CDHash=([0-9a-f]+)$", completed.stdout + completed.stderr, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+class CandidateCopy:
+    """The candidate's copy under the release cache for one run. `make` copies and checks it, `remove` takes it away,
+    records that it did and never raises, since `run` calls it in a finally. `evidence` is the result's appCopy."""
+
+    def __init__(self, candidate, cache_root):
+        self.candidate, self.cache_root = Path(candidate), Path(cache_root)
+        self.folder = self.lock = None
+        self.evidence = {"path": None, "method": "ditto", "payloadSHA256Before": None, "payloadSHA256After": None,
+                         "originalCDHash": None, "copyCDHash": None, "removed": False}
+
+    def make(self, digest, payload):
+        """Returns the copy's path. Refuses in words, before any launch, a copy whose payload digest (by `digest`) is
+        not `payload` or whose code directory hash is not the candidate's."""
+        self.cache_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.folder = Path(tempfile.mkdtemp(prefix=SMOKE_COPY_PREFIX, dir=str(self.cache_root.resolve())))
+        self.lock = os.open(self.folder / CACHE_LOCK, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+        fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        write_json(self.folder / SMOKE_COPY_MARKER, {"schemaVersion": 1, "kind": "lungfish-app-smoke-copy",
+                                                     "candidate": str(self.candidate), "pid": os.getpid(),
+                                                     "createdAt": now()})
+        copied = self.folder / "app" / self.candidate.name
+        copied.parent.mkdir()
+        self.evidence["path"] = str(copied)
+        copy_app(self.candidate, copied)
+        self.evidence["payloadSHA256Before"] = digest(copied)
+        if self.evidence["payloadSHA256Before"] != payload:
+            raise EvidenceError("The copy of the candidate in %s does not hold the same bytes as %s (payload SHA-256 %s, "
+                                "the candidate's is %s), so the gate launched nothing. Check the free space under the "
+                                "release cache and run the smoke again."
+                                % (copied, self.candidate, self.evidence["payloadSHA256Before"], payload))
+        self.evidence["originalCDHash"] = code_directory_hash(self.candidate)
+        self.evidence["copyCDHash"] = code_directory_hash(copied)
+        if self.evidence["originalCDHash"] != self.evidence["copyCDHash"]:
+            raise EvidenceError("The copy of the candidate in %s has another code directory hash than %s (%s and %s), "
+                                "so the gate launched nothing. Run the smoke again."
+                                % (copied, self.candidate, self.evidence["copyCDHash"], self.evidence["originalCDHash"]))
+        return copied
+
+    def remove(self):
+        """Removes the copy's folder and releases its lock. Returns the words of a failed removal, else None."""
+        if self.folder is None:
+            return None
+        try:
+            shutil.rmtree(self.folder)
+        except OSError as error:
+            return ("The gate could not remove its copy of the candidate in %s (%s). Remove that folder, or run "
+                    "scripts/release/prune-release-cache.py --apply, which removes it." % (self.folder, error))
+        finally:
+            if self.lock is not None:
+                os.close(self.lock)
+                self.lock = None
+        self.evidence["removed"] = not self.folder.exists()
+        return None
+
+
+def limit_words(step):
+    return ("The real-app smoke step %s ran past its limit of %d seconds, so the gate stopped it. macOS may be showing a "
+            "privacy prompt (for example 'would like to access files in your Documents folder') or another dialog "
+            "that the XCUI runner cannot answer. Look at the Mac's screen, answer the prompt or allow the folder in "
+            "System Settings, Privacy and Security, Files and Folders, quit every copy of Lungfish and run the smoke "
+            "again." % (step, STEP_LIMIT_SECONDS[step]))
+
+
+def refuse_timeout(record, step):
+    if record.get("intervention") == "timeout":
+        raise EvidenceError(limit_words(step))
 
 
 def run(args):
-    refuse_protected_derived_data(args.derived_data, account_home())
+    home = account_home()
+    refuse_protected_derived_data(args.derived_data, home)
+    refuse_protected_cache(release_cache_root(), home)
     root, app, directory = args.root.resolve(), args.app.resolve(), args.output.resolve()
     directory.mkdir(parents=True, exist_ok=False)
     # Outside the evidence, since the candidate's preferences may flush after the run, and in the
@@ -609,8 +775,11 @@ def run(args):
     payload = receipt_authority(root)._payload_digest(app)
     identifiers = selected_tests(contract)
     candidate_home, fixtures = prepare_candidate_workspace(root, workspace, identifiers)
-    result = {"schemaVersion": 1, "kind": "xcode-real-app", "source": source,
-              "channel": args.channel, "appPath": str(app), "appPayloadSHA256": payload,
+    candidate = CandidateCopy(app, release_cache_root())
+    # appPath names the copy the runner launches, once it exists, and candidateAppPath the original (schema 2).
+    result = {"schemaVersion": 2, "kind": "xcode-real-app", "source": source,
+              "channel": args.channel, "appPath": None, "candidateAppPath": str(app), "appCopy": candidate.evidence,
+              "appPayloadSHA256": payload,
               "selectedTests": identifiers, "startedAt": now(), "runtime": runtime_identity(),
               "commands": [], "files": [], "errors": [], "authorized": False}
     try:
@@ -618,7 +787,9 @@ def run(args):
         if not session["active"]:
             raise EvidenceError("real-app smoke requires the active logged-in graphical user with the screen unlocked")
         validate_isolated_session(session, contract)
-        bundle = candidate_bundle_identifier(app)
+        launched = candidate.make(receipt_authority(root)._payload_digest, payload)
+        result["appPath"] = str(launched)
+        bundle = candidate_bundle_identifier(launched)
         result["accountState"] = {"bundleIdentifier": bundle}
         if not source["clean"]:
             raise EvidenceError("real-app smoke requires a clean candidate source checkout")
@@ -636,15 +807,17 @@ def run(args):
                  "-derivedDataPath", str(args.derived_data.resolve()), "CODE_SIGN_IDENTITY=-", "CODE_SIGNING_ALLOWED=YES", "ARCHS=arm64", "ONLY_ACTIVE_ARCH=YES",
                  "LUNGFISH_SKIP_EMBED_LUNGFISH_CLI=1", "LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS=1"]
         build += ["-only-testing:" + name for name in identifiers]
-        compiled = command_record(build, root, directory, "build-ui-runner")
+        compiled = command_record(build, root, directory, "build-ui-runner",
+                                  timeout_seconds=STEP_LIMIT_SECONDS["build-ui-runner"])
         result["commands"].append(compiled)
+        refuse_timeout(compiled, "build-ui-runner")
         if version["exitStatus"] or compiled["exitStatus"]:
             raise EvidenceError("app smoke runner build or Xcode identity failed")
         products = args.derived_data.resolve() / "Build/Products"
         compiled_configuration = select_xctestrun(products, result["sdkVersion"])
         result["runnerIdentity"] = runner_identity(products)
         runfile = directory / "candidate.xctestrun"
-        configure_xctestrun(compiled_configuration, runfile, app, identifiers, args.channel,
+        configure_xctestrun(compiled_configuration, runfile, launched, identifiers, args.channel,
                             home=candidate_home, fixtures=fixtures)
         command = ["xcodebuild", "test-without-building", "-xctestrun", str(runfile),
                    "-destination", "platform=macOS,arch=arm64", "-parallel-testing-enabled", "NO",
@@ -653,13 +826,21 @@ def run(args):
         # The guard wraps every candidate launch, from the first to the exit of the last copy. Its before and
         # after records hold the account's Lungfish domains and files, equal only after an exact restore.
         guard = account_preferences_guard(session["accountHome"], [bundle, *ACCOUNT_DOMAINS])
+        executed = None
         try:
             with guard:
-                executed = command_record(command, root, directory, "real-app-tests")
+                executed = command_record(command, root, directory, "real-app-tests",
+                                          timeout_seconds=STEP_LIMIT_SECONDS["real-app-tests"])
+        except EvidenceError as error:
+            # A guard that cannot restore after a stopped run keeps its own words, after the words of the limit.
+            if executed is not None and executed.get("intervention") == "timeout":
+                raise EvidenceError(limit_words("real-app-tests") + " " + str(error)) from error
+            raise
         finally:
             result["accountState"].update(guard.evidence)
         selection = {"xctest": [name.replace("/", ".", 1) for name in identifiers], "swift-testing": []}
         result["commands"].append(analyze_attempt(directory, executed, selection, False, True))
+        refuse_timeout(executed, "real-app-tests")
         ending = screen_state()
         session["lockedAtEnd"] = ending is None or ending.get("locked") is not False
         result["candidateStateAfter"] = sorted(p for child in candidate_home.iterdir() for p in profile_paths(child))
@@ -671,9 +852,18 @@ def run(args):
             raise EvidenceError("compiled runner changed during graphical smoke")
         if source_identity(root) != source or receipt_authority(root)._payload_digest(app) != payload:
             raise EvidenceError("source or app payload changed during graphical smoke")
+        candidate.evidence["payloadSHA256After"] = receipt_authority(root)._payload_digest(launched)
+        if candidate.evidence["payloadSHA256After"] != payload:
+            raise EvidenceError("the copy of the candidate in %s changed during graphical smoke" % launched)
         result["authorized"] = True
     except (EvidenceError, OSError, ValueError) as error:
         result["errors"].append(str(error))
+    finally:
+        # After the guard has seen the last candidate quit. A KeyboardInterrupt from SIGTERM or SIGHUP passes the
+        # except above and still reaches this line.
+        failure = candidate.remove()
+        if failure:
+            result["errors"].append(failure)
     result["endedAt"] = now()
     result["files"] = [file_record(p, directory) for p in sorted(directory.rglob("*")) if p.is_file()]
     path = directory / "app-smoke.result.json"
@@ -688,7 +878,9 @@ def run(args):
 def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--app", type=Path, required=True)
+    parser.add_argument("--app", type=Path, required=True,
+                        help="the candidate app. The gate launches a ditto copy of it under $%s (default %s) and "
+                             "removes the copy after the run" % (RELEASE_CACHE_VARIABLE, RELEASE_CACHE_ROOT))
     # The package route passes stable. preview smokes an installed Preview, such as a pre-fix app for a red run.
     parser.add_argument("--channel", choices=["stable", "preview"], required=True)
     parser.add_argument("--output", type=Path, required=True,

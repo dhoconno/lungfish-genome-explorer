@@ -58,6 +58,11 @@ RECIPE_PATHS = (
 LINUX_EXECUTOR_PRODUCT = "swiftpm:lungfish-executor:x86_64-swift-linux-musl"
 CACHE_MARKER = ".lungfish-release-cache.json"
 CACHE_LOCK = ".build.lock"
+# The app smoke gate's copy of a candidate (app_smoke_gate.CandidateCopy) is a folder of the cache root named with
+# this prefix, holding this marker and a CACHE_LOCK the gate holds while it runs. prune-release-cache.py removes a copy
+# whose lock no gate holds, which only a gate that was killed leaves behind.
+SMOKE_COPY_PREFIX = "lungfish-app-smoke."
+SMOKE_COPY_MARKER = ".lungfish-app-smoke-copy.json"
 
 
 class CacheFingerprintError(ValueError):
