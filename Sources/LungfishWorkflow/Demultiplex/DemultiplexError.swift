@@ -33,7 +33,7 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .noBarcodeAboveChance(let kitName):
-            return "No barcode of \(kitName) matched more reads than chance alone gives, so Demultiplex Barcodes made no sample files. The index in the read names may match no barcode of this kit, the index may sit in index reads that are not in this file, or the reads may already be split into one file per sample. Choose the kit the library was made with, check the barcode sequences and the end of the read you chose for a Custom Definition, or import this file as one sample."
+            return "No barcode of \(kitName) matched more reads than chance alone gives, so Demultiplex Barcodes made no sample files. The index in the read names may match no barcode of this kit, the index may sit in index reads that are not in this file, the reads may already be split into one file per sample, or a barcode may be on too few reads to stand above chance. Choose the kit the library was made with, check the barcode sequences and the end of the read you chose for a Custom Definition, or import this file as one sample."
         case .readNameIndexNotSplitYet:
             return "These reads carry their index in the read names. Demultiplex Barcodes searches the read sequences and cannot split them by that index yet, so it did not start and wrote no files. Get one FASTQ file per sample, as bcl2fastq or BCL Convert writes them from the run's sample sheet, and import those."
         case .searchRouteRefused(let words):

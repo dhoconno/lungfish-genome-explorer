@@ -18,12 +18,13 @@ extension FastqDemultiplexSubcommand {
         let measuredOn: String
         switch null {
         case .startComposition:
-            measuredOn = "measured on the first bases of this file's own reads that carry none"
+            measuredOn = "The chance is measured on the first bases of the Unassigned reads."
         case .randomBases:
-            measuredOn = "measured on random bases because the run left too few reads without a barcode to measure its own"
+            measuredOn = "The chance is worked out as if A, C, G and T were equally likely, because the Unassigned reads "
+                + "could not measure it."
         }
         return "Could be chance matches: \(named). Reads that carry no barcode match a barcode by chance at this error "
-            + "rate, \(measuredOn), and each of these holds no more reads than that gives. Their files were kept, so "
+            + "rate, and each of these holds no more reads than chance gives. \(measuredOn) Their files were kept, so "
             + "check them against the samples you expect."
     }
 }

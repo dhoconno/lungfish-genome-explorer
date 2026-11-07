@@ -240,7 +240,7 @@ final class DemultiplexChanceFloorTests: XCTestCase {
 
     /// The first ruling's case, re-ruled: 50 reads of D701 among 10,000 random reads still beat the floor. BIO measured 100 of
     /// 100 seeds with 500 decoys. With the 1,200 decoys of a 12-barcode kit (item 4) the largest decoy ratio is the largest of
-    /// more draws, so about 1 file in 100 asks more than 50 reads of the lone sample (seed 1,039 here, at 58 reads with its
+    /// more draws, so about 3 files in 1,000 ask more than 50 reads of the lone sample (BIO check: 0.29% at 1,200 decoys, 0.11% at 500) (seed 1,039 here, at 58 reads with its
     /// chance matches). The test allows 3 misses of 100 and names them.
     func testFiftyRealReadsInTenThousandRandomReadsStillBeatTheFloor() {
         var missed: [Int] = []

@@ -19,7 +19,8 @@ extension DemultiplexChanceFloor {
     public enum Null: String, Sendable, Equatable {
         /// The first bases of the run's own unassigned reads, with a margin measured on decoy barcodes in those reads.
         case startComposition = "start-composition"
-        /// Uniform random bases, when the run left too few reads without a barcode to measure its own.
+        /// Uniform random bases, when the run cannot measure its own: too few reads without a barcode, a kit whose barcodes
+        /// are too short or too crowded for decoys, a side with three or more errors, or no unassigned reads to read (item 6).
         case randomBases = "random-bases"
     }
 
