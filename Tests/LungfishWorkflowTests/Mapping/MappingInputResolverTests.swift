@@ -220,6 +220,18 @@ final class MappingInputResolverTests: XCTestCase {
         }
     }
 
+    func testCollapsedInputsMessageNamesTheBundleAndTheCount() throws {
+        let chunked = try BundleCountedOnceFixtures.chunkedRoot(named: "chunked", in: root, chunks: 3, readsPerChunk: 4)
+        XCTAssertEqual(
+            MappingInputResolver.collapsedInputsMessage(chosen: chunked.chunks, samples: [chunked.root], setsAsidePaired: false),
+            "Several inputs lie in the same bundle, so each bundle is read once, as the bundle: chunked.lungfishfastq (3 inputs)."
+        )
+        XCTAssertTrue(
+            MappingInputResolver.collapsedInputsMessage(chosen: chunked.chunks, samples: [chunked.root], setsAsidePaired: true)
+                .hasSuffix(" --paired was set aside, because a bundle pairs its own R1 and R2 files.")
+        )
+    }
+
     // MARK: - Helpers
 
     private func resolveInputs(_ inputs: [URL], pairedEnd: Bool = false) async throws -> MappingResolvedInputs {

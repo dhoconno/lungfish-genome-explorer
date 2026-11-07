@@ -141,6 +141,18 @@ public enum MappingInputResolver {
         materializer: any CLISequenceInputMaterializing & Sendable,
         progress: (@Sendable (String) -> Void)? = nil
     ) async throws -> MappingResolvedInputs {
+        // Inputs that lie in one bundle are that bundle, once (BIO-BUNDLE-COUNTED-TWICE).
+        // A file inside a bundle is read as the whole bundle, so three chunk paths
+        // of one root mapped every read three times.
+        let samples = AssemblyInputSamples.sampleURLs(request.inputFASTQURLs)
+        var request = request
+        if samples.count < request.inputFASTQURLs.count {
+            let setsAsidePaired = request.pairedEnd && samples.count == 1 && FASTQBundle.isBundleURL(samples[0])
+            progress?(Self.collapsedInputsMessage(chosen: request.inputFASTQURLs, samples: samples, setsAsidePaired: setsAsidePaired))
+            request = request
+                .withInputFASTQURLs(samples, pairedEnd: setsAsidePaired ? false : request.pairedEnd)
+                .withOriginalInputFASTQURLs(samples)
+        }
         let inputURLs = request.inputFASTQURLs
         // A loose file that is not a readable sequence file and a
         // container-only demultiplex group are refused before anything is written.
@@ -282,6 +294,17 @@ public enum MappingInputResolver {
             sequenceInputs: resolved,
             readSetPlan: nil
         )
+    }
+
+    /// The line a run logs when several inputs lie in one bundle.
+    static func collapsedInputsMessage(chosen: [URL], samples: [URL], setsAsidePaired: Bool) -> String {
+        let names: [String] = samples.compactMap { sample in
+            let count = chosen.filter { AssemblyInputSamples.sampleURL(for: $0).path == sample.path }.count
+            return count > 1 ? "\(sample.lastPathComponent) (\(count) inputs)" : nil
+        }
+        var text = "Several inputs lie in the same bundle, so each bundle is read once, as the bundle: \(names.joined(separator: ", "))."
+        if setsAsidePaired { text += " --paired was set aside, because a bundle pairs its own R1 and R2 files." }
+        return text
     }
 
     /// The request for a sample of pairs and single reads, from its plan.
