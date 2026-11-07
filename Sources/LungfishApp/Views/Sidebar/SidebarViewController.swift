@@ -910,7 +910,7 @@ public class SidebarViewController: NSViewController {
     @objc private func handleNavigateToSidebarItem(_ notification: Notification) {
         guard ScopedEventFilter.accept(notification, for: windowStateScope) else { return }
         guard let url = notification.userInfo?["url"] as? URL else { return }
-        let found = selectItem(forURL: url)
+        let found = selectItem(forURL: url, explicit: true)
         if !found {
             sidebarLogger.debug("handleNavigateToSidebarItem: No sidebar item found for \(url.lastPathComponent, privacy: .public)")
         }

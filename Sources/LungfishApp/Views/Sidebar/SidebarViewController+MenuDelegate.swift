@@ -22,7 +22,7 @@ extension SidebarViewController: NSMenuDelegate {
 
         // If clicked on a row that's not selected, select it first
         if clickedRow >= 0 && !outlineView.selectedRowIndexes.contains(clickedRow) {
-            outlineView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
+            outlineView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false, explicit: true)
         }
 
         let items = selectedItems()
@@ -269,7 +269,7 @@ extension SidebarViewController: NSMenuDelegate {
                     }
 
                     await self.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: false)?.value
-                    _ = self.selectItem(forURL: mergedURL)
+                    _ = self.selectItem(forURL: mergedURL, explicit: true)
                 } catch is CancellationError {
                     // The row shows the cancel and the command published nothing.
                 } catch {

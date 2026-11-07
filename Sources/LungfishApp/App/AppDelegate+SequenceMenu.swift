@@ -543,7 +543,7 @@ extension AppDelegate {
                 let targetViewerController = targetController?.mainSplitViewController?.viewerController ?? viewerController
                 if let sidebarController = targetController?.mainSplitViewController?.sidebarController {
                     await sidebarController.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
-                    _ = sidebarController.selectItem(forURL: bundleURL)
+                    _ = sidebarController.selectItem(forURL: bundleURL, explicit: true)
                 }
 
                 if let referenceViewport = targetViewerController.referenceBundleViewportController,
@@ -784,7 +784,7 @@ extension AppDelegate {
             // (AppDelegate is @MainActor), so the task inherits that isolation.
             Task { [weak sidebarController] in
                 await sidebarController?.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
-                _ = sidebarController?.selectItem(forURL: bundleURL)
+                _ = sidebarController?.selectItem(forURL: bundleURL, explicit: true)
             }
         }
 

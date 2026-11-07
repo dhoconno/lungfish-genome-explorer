@@ -324,7 +324,7 @@ extension AppDelegate {
 
                         // Select the first downloaded file in the sidebar to highlight what's being viewed
                         if result.error == nil {
-                            sidebarController?.selectItem(forURL: result.url)
+                            sidebarController?.selectItem(forURL: result.url, explicit: true)
                             self.requestInspectorDocumentModeAfterDownload(in: targetController)
                         }
 

@@ -286,7 +286,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         Task { [weak self, weak sidebarController, weak controller] in
             await sidebarController?.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
             guard let self, let sidebarController else { return }
-            _ = sidebarController.selectItem(forURL: url)
+            _ = sidebarController.selectItem(forURL: url, explicit: true)
 
             // A result whose viewer sets its own Inspector tab through its content mode keeps it (the registry's tab).
             if SidebarKindRegistry.inspectorTab(afterImportOf: url) != .setByViewer {

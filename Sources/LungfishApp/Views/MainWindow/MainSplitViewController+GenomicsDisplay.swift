@@ -1058,21 +1058,14 @@ extension MainSplitViewController {
     }
 
     private func finishRefreshSidebarAndSelectDerivedURL(_ standardizedURL: URL, didSelect: (@MainActor () -> Void)?) {
-        let selected = sidebarController.selectItem(forURL: standardizedURL)
+        // A run's output is a selection a person asked for, so the focus rule of the viewer shown takes it.
+        let selected = sidebarController.selectItem(forURL: standardizedURL, explicit: true)
         if !selected {
             mainSplitLogger.warning("refreshSidebarAndSelectDerivedURL: Could not select derived output '\(standardizedURL.path, privacy: .public)' after reload")
             recordUITestEvent("sidebar.selection.failed \(standardizedURL.lastPathComponent)")
             return
         }
         recordUITestEvent("sidebar.selection.succeeded \(standardizedURL.lastPathComponent)")
-
-        // Programmatic post-run selections happen while the FASTQ viewport still owns
-        // focus, so the normal sidebar selection callback can be intentionally ignored.
-        if hasActiveSidebarChildViewport,
-           let selectedItem = sidebarController.selectedItems().first,
-           selectedItem.url?.standardizedFileURL == standardizedURL {
-            displayContent(for: selectedItem)
-        }
         didSelect?()
     }
 

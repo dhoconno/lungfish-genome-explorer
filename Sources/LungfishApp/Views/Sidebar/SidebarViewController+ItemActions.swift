@@ -278,7 +278,7 @@ extension SidebarViewController {
     func performSidebarItemAction(_ action: SidebarItemAction, on item: SidebarItem) {
         let row = outlineView.row(forItem: item)
         guard row >= 0 else { return }
-        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false, explicit: true)
         switch action {
         case .manageProjectStorage:
             contextMenuManageProjectStorage(nil)

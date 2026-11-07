@@ -60,7 +60,7 @@ enum OperationResultNavigation {
         }
 
         await sidebar.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
-        guard sidebar.selectItem(forURL: resultURL) else { return false }
+        guard sidebar.selectItem(forURL: resultURL, explicit: true) else { return false }
 
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
