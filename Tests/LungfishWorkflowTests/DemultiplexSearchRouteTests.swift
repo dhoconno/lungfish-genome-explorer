@@ -232,6 +232,30 @@ final class DemultiplexSearchRouteTests: XCTestCase {
         XCTAssertEqual(label(route), "headerIndex")
     }
 
+    /// DEMUXFLOOR-BIO SF1 (ruling R1): a first-cycle N in a name's index is a no-call, so it agrees with the barcode in
+    /// the commonest-index check, while a called base that differs is a rival and an index of only N is no index.
+    func testFirstCycleNoCallsInTheNamesCountAsTheBarcode() {
+        let kit = BarcodeKitRegistry.truseqSingleA
+        func route(_ kit: BarcodeKitDefinition, _ comments: [String]) -> String {
+            label(DemultiplexSearchRouteOwner.route(for: config(kit), names: names(comments)))
+        }
+        func named(_ index: String, _ count: Int) -> [String] { Array(repeating: "1:N:0:\(index)", count: count) }
+        XCTAssertEqual(route(kit, named("NTTACTCG", 600) + named("NCCGGAGA", 400)), "headerIndex")
+        XCTAssertEqual(route(kit, named("NTTACTCG", 450) + named("ATTACTCG", 100) + named("TCCGGAGA", 450)), "headerIndex")
+        XCTAssertEqual(route(kit, named("AGTACTCG", 1_000)), "inline")
+        XCTAssertEqual(route(kit, named("NNNNNNNN", 1_000)), "inline")
+        // The first 1,000 names of DEMUXRUN-2's MiSeq file (b): NCTCGCTA 332 with no ACTCGCTA, NGATCAGT 190 against
+        // CGATCAGT 144 (BIO's bio_check.py E1), with the run's three i7 indexes as the definition.
+        let miseq = BarcodeKitDefinition(
+            id: "miseq", displayName: "MiSeq sheet", vendor: "custom", platform: .illumina,
+            barcodes: [("N716", "ACTCGCTA"), ("N727", "CGATCAGT"), ("N723", "TAGCGCTC")].map {
+                BarcodeEntry(id: $0.0, i7Sequence: $0.1)
+            }
+        )
+        let lane = named("NCTCGCTA", 332) + named("NGATCAGT", 190) + named("CGATCAGT", 144) + named("TAGCGCTC", 334)
+        XCTAssertEqual(route(miseq, lane), "headerIndex")
+    }
+
     func testChanceCeilingIsTheOneSidedBinomialBound() {
         XCTAssertEqual(DemultiplexChanceFloor.chanceCeiling(trials: 10_000, probability: 0, tail: 1e-6), 0)
         XCTAssertEqual(DemultiplexChanceFloor.chanceCeiling(trials: 10, probability: 1, tail: 1e-6), 10)
