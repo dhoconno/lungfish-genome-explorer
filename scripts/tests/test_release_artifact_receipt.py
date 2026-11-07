@@ -507,6 +507,21 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
                 "Stable must not authorize a candidate without real graphical app checks")
             self.assertFalse(fixture["receipt"].exists())
 
+    def test_a_policy_that_does_not_require_smoke_binds_none_and_refuses_evidence(self):
+        """RELSMOKE review (ARCH should-fix 1). With gates.appSmokeRequired false a candidate binds no smoke, and evidence it
+        is handed is refused, so stale evidence cannot bind after the flag flips back."""
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._make_fixture(Path(temporary), app_smoke_required=False)
+            created = self._create(fixture, include_app_smoke=False)
+            self.assertEqual(created.returncode, 0, created.stderr)
+            self.assertIsNone(json.loads(fixture["receipt"].read_text())["appSmoke"])
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = self._make_fixture(Path(temporary), app_smoke_required=False)
+            given = self._create(fixture, include_app_smoke=True)
+            self.assertNotEqual(given.returncode, 0)
+            self.assertIn("app smoke evidence is not required by the selected release policy", given.stdout + given.stderr)
+            self.assertFalse(fixture["receipt"].exists())
+
     def test_candidate_retains_and_verifies_exact_gate_logs_and_manifest(self):
         for changed in ("manifest.json", "0/runner.log", "0/gate.result.json", "dependency-manifest.json"):
             with self.subTest(changed=changed), tempfile.TemporaryDirectory() as temporary:
@@ -1046,7 +1061,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
             self.assertIn("outside the app", result.stderr)
             self.assertFalse(fixture["receipt"].exists())
 
-    def _make_fixture(self, root: Path, include_symlink: bool = False):
+    def _make_fixture(self, root: Path, include_symlink: bool = False, app_smoke_required: bool = True):
         root = root.resolve()
         repo = root / "repo"
         release = root / "release"
@@ -1100,7 +1115,7 @@ class ReleaseCandidateReceiptTests(unittest.TestCase):
         shutil.copy2(ROOT / "config" / "release-contract.json", contract)
         # Retain explicit legacy native-smoke policy boundary coverage with fake evidence.
         fixture_contract = json.loads(contract.read_text())
-        fixture_contract["gates"]["appSmokeRequired"] = True
+        fixture_contract["gates"]["appSmokeRequired"] = app_smoke_required
         contract.write_text(json.dumps(fixture_contract))
         selected_contract = load_contract(contract)
         cli_identity_path = prepare_identity_plist(repo, selected_contract, "stable")

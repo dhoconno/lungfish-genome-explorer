@@ -7,6 +7,8 @@ name the process that was blocked, so every step after signing that reads the re
 and a step that runs out of time says what to do. All tests are offline and run on fakes.
 """
 import importlib
+import json
+import os
 import re
 import shlex
 import shutil
@@ -101,6 +103,57 @@ class BoundedProcessWordsTests(unittest.TestCase):
         result, _ = self.run_bounded(*arguments, *command)
         self.assertEqual(1, result.returncode, result.stderr)
         self.assertNotIn('no space left on device', result.stderr, 'a step that may carry a credential forwards nothing')
+
+
+class NetworkStepWordsTests(unittest.TestCase):
+    """RELEASE-NETWORK-STEP-WORDS (lane RELBOUND). A network step that runs out of time names the step and what to try next."""
+
+    NEXT_STEP_WORDS = ('check the network', 'gh auth status', 'publish again')
+
+    def run_builder_function(self, name, call, *, tool, extra_env=None, replace=None):
+        """Run one function copied out of the builder, with a fake tool first on PATH that prints and then sleeps 600 s."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'bin').mkdir()
+            fake = root / 'bin' / tool
+            fake.write_text("#!/bin/sh\necho CHILD-STDOUT-SECRET\necho CHILD-STDERR-SECRET >&2\nexec sleep 600\n")
+            fake.chmod(0o755)
+            body = function_body(BUILDER.read_text(), name)
+            if replace:
+                body = body.replace(*replace)
+            script = root / 'step.sh'
+            script.write_text('source "$PROJECT_ROOT/scripts/release/upload-timeout.sh"\n' + body + '\n}\n' + call + '\n')
+            environment = dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}', PROJECT_ROOT=str(ROOT),
+                               RELEASE_PYTHON=sys.executable, GH_REPO='github.com/example/product', **(extra_env or {}))
+            start = time.monotonic()
+            result = subprocess.run(['/bin/bash', str(script)], env=environment, capture_output=True, text=True, timeout=60)
+            return result, time.monotonic() - start
+
+    def assert_next_step_words(self, result, seconds, phase):
+        self.assertEqual(124, result.returncode, result.stderr)
+        self.assertIn(f'FAIL {phase} timed out after {seconds} seconds.', result.stderr)
+        for words in self.NEXT_STEP_WORDS:
+            self.assertIn(words, result.stderr)
+        self.assertNotIn('privacy prompt', result.stderr, 'a network step does not blame the privacy prompt')
+        self.assertNotIn('CHILD-', result.stdout + result.stderr, 'the child output may carry a credential and stays out')
+
+    def test_a_network_step_timeout_says_what_to_try_next(self):
+        result, seconds = self.run_builder_function(
+            'bounded_network', 'bounded_network git-ls-remote 1 git ls-remote --tags origin refs/tags/v1', tool='git')
+        self.assert_next_step_words(result, 1, 'git-ls-remote')
+        self.assertLess(seconds, 30, 'the step must be stopped at its limit')
+        record = json.loads(next(line for line in result.stderr.splitlines() if line.startswith('{')))
+        self.assertEqual({'phase', 'executable', 'exitStatus', 'timedOut', 'wallTimeSeconds'}, set(record))
+        self.assertTrue(record['timedOut'])
+
+    def test_every_gh_call_of_the_builder_says_the_same_when_it_runs_out_of_time(self):
+        result, _ = self.run_builder_function('github_cli', 'github_cli release view v1', tool='gh',
+                                              replace=('--timeout 180', '--timeout 1'))
+        self.assert_next_step_words(result, 1, 'github')
+        result, _ = self.run_builder_function(
+            'github_cli_upload_asset', 'github_cli_upload_asset v1 /tmp/example.dmg', tool='gh',
+            extra_env={'LUNGFISH_RELEASE_UPLOAD_TIMEOUT_SECONDS': '1'})
+        self.assert_next_step_words(result, 1, 'github-upload')
 
 
 class SmokeWordsReachTheConsoleTests(unittest.TestCase):

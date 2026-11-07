@@ -1,6 +1,7 @@
 """Local invented evidence validates the gate, never app usability."""
 import contextlib
 import copy
+import fcntl
 import hashlib
 import json
 import os
@@ -761,9 +762,10 @@ class CandidateCopyTests(unittest.TestCase):
                 self.assertIsNotNone(held[0][1].poll(), "the gate ended caffeinate after the run")
 
     def test_the_gate_launches_a_copy_outside_documents_and_names_both_paths(self):
-        from app_smoke_gate import ui_target
+        from app_smoke_gate import ui_target, verify_candidate_copy
         self.run_gate(self.command())
         result = self.evidence()
+        verify_candidate_copy(result, self.digest)  # what run writes passes what verify_result demands (QA should-fix 2)
         target = ui_target(plistlib.loads((self.base / "evidence/candidate.xctestrun").read_bytes()))
         launched = target["UITargetAppPath"]
         self.assertEqual(target["EnvironmentVariables"]["LUNGFISH_RELEASE_SMOKE_APP"], launched)
@@ -807,6 +809,51 @@ class CandidateCopyTests(unittest.TestCase):
                 self.assertIs(result["appCopy"]["removed"], True)
                 self.assertEqual(list(self.cache.iterdir()), [])
                 self.assertEqual(self.authority._payload_digest(self.app), self.digest)
+
+    def test_a_copy_that_cannot_be_removed_keeps_its_marker_and_frees_its_lock(self):
+        """RELSMOKE review (ARCH should-fix 2, fact-check Fix 1). The words of a failed removal send the reader to the pruner,
+        which lists a folder only by its marker. shutil.rmtree unlinks the files of a folder before it enters a subfolder,
+        so a removal that failed inside the copy had already deleted the marker, and the pruner skipped the folder."""
+        import app_smoke_gate
+        stuck = []
+        real_remove = app_smoke_gate.CandidateCopy.remove
+
+        def remove_with_a_stuck_folder(candidate):
+            # A folder without write permission inside the copy, as an immutable file would be, stops rmtree partway.
+            inner = candidate.folder / "app" / self.app.name / "Contents/Stuck"
+            inner.mkdir()
+            (inner / "file").write_bytes(b"stuck")
+            inner.chmod(0o500)
+            stuck.append(inner)
+            return real_remove(candidate)
+        self.addCleanup(lambda: [path.chmod(0o700) for path in stuck])
+        with patch.object(app_smoke_gate.CandidateCopy, "remove", remove_with_a_stuck_folder), \
+                self.assertRaises(EvidenceError) as raised:
+            self.run_gate(self.command(), output="evidence-stuck")
+        words = str(raised.exception)
+        for expected in ("could not remove its copy of the candidate", "prune-release-cache.py --apply"):
+            self.assertIn(expected, words)
+        self.assertIs(self.evidence("evidence-stuck")["appCopy"]["removed"], False)
+        leftover = next(self.cache.glob("lungfish-app-smoke.*"))
+        self.assertTrue((leftover / app_smoke_gate.SMOKE_COPY_MARKER).is_file(), "the pruner lists a folder by its marker")
+        descriptor = os.open(leftover / app_smoke_gate.CACHE_LOCK, os.O_RDONLY)
+        self.addCleanup(os.close, descriptor)
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)  # BlockingIOError if the gate still holds its lock
+
+    def test_a_release_cache_inside_documents_is_refused_before_anything_runs(self):
+        """RELSMOKE review (QA should-fix 1, ruling QA-RELEASE-SMOKE-GATE item 3)."""
+        for folder in ("Documents", "Desktop", "Downloads"):
+            with self.subTest(folder=folder):
+                self.cache = self.home / folder / "release-cache"
+                output = "evidence-" + folder
+                with self.assertRaises(EvidenceError) as raised:
+                    self.run_gate(self.command(), output=output)
+                words = str(raised.exception)
+                for expected in ("release cache", folder, "LUNGFISH_RELEASE_CACHE_ROOT"):
+                    self.assertIn(expected, words)
+                self.assertEqual(self.calls, [], "no tool ran")
+                self.assertFalse(self.cache.exists(), "the refused folder was not created")
+                self.assertFalse((self.base / output).exists(), "refused before the evidence folder was made")
 
     def test_the_copy_is_gone_after_a_pass_a_failure_and_sigterm(self):
         import app_smoke_gate
