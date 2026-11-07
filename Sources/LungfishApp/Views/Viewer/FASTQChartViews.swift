@@ -44,8 +44,9 @@ final class FASTQSummaryBar: GenomicSummaryCardBar {
     private func updateAccessibility(_ stats: FASTQDatasetStatistics) {
         setAccessibilityRole(.group)
         setAccessibilityLabel("FASTQ Summary Statistics")
-        let desc = "\(stats.readCount) reads, mean length \(Int(stats.meanReadLength)) bp, mean quality \(FASTQStatisticsDisplayRules.meanQualityText(stats)), GC \(String(format: "%.1f%%", stats.gcContent * 100))"
+        let desc = "\(stats.readCount) reads, mean length \(Int(stats.meanReadLength)) bp, \(FASTQStatisticsDisplayRules.meanQualityLabel) \(FASTQStatisticsDisplayRules.meanQualityText(stats)), GC \(String(format: "%.1f%%", stats.gcContent * 100))"
         setAccessibilityValue(desc)
+        setAccessibilityHelp(FASTQStatisticsDisplayRules.meanQualityHelp)
     }
 }
 
@@ -402,7 +403,7 @@ final class FASTQQualityBoxplotView: NSView {
             return
         }
         let meanQ = summaries.reduce(0.0) { $0 + $1.mean } / Double(summaries.count)
-        let desc = "\(summaries.count) positions, overall mean quality \(String(format: "%.1f", meanQ))"
+        let desc = "\(summaries.count) positions, mean of per-position Phred means \(String(format: "%.1f", meanQ))"
         setAccessibilityValue(desc)
     }
 

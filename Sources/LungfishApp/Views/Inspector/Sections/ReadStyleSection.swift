@@ -1672,7 +1672,7 @@ public struct ReadSelectionSection: View {
                 Text("Base Quality")
                     .font(LungfishInspectorStyle.controlFont)
                     .foregroundStyle(.secondary)
-                statRow("Mean Q", value: String(format: "%.1f", meanQ))
+                statRow("Mean Phred score", value: String(format: "%.1f", meanQ))
                 statRow("Range", value: "Q\(minQ)-Q\(maxQ)")
                 let q20Count = read.qualities.filter { $0 >= 20 }.count
                 let q20Pct = Double(q20Count) / Double(read.qualities.count) * 100

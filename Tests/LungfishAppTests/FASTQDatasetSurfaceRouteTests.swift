@@ -504,7 +504,7 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
     private static let fixtureBaseCount: Int64 = 16
     private static let fixtureSummaryCards = [
         "Reads: 1", "Bases: 16 bp", "Mean Length: 16 bp", "Median Length: 16 bp", "N50: 16 bp",
-        "Mean Q: 37.0", "Q20: 100.0%", "Q30: 100.0%", "GC: 50.0%",
+        "\(FASTQStatisticsDisplayRules.meanQualityLabel): 37.0", "Q20: 100.0%", "Q30: 100.0%", "GC: 50.0%",
     ]
 
     private static let assignment = FASTQSampleBarcodeAssignment(

@@ -12,10 +12,12 @@ enum FASTQStatisticsDisplayRules {
     static let noQualityScores = "No quality scores"
 
     /// The label of the dataset mean quality on every surface that shows it (Phase 3.3 lane MEANQ, BIO-MEANQ).
-    static let meanQualityLabel = "Mean Q"
+    /// The figure is the Phred value of the mean error probability over all bases, which seqkit calls AvgQual, and
+    /// not the mean of the Phred scores that FastQC shows, so the words say so.
+    static let meanQualityLabel = "Mean Q (error rate)"
 
-    /// The help text that says which mean the dataset mean quality is.
-    static let meanQualityHelp = ""
+    /// The help text on the Inspector row and the statistics card. It says which mean the figure is.
+    static let meanQualityHelp = "Phred value of the average error probability of all bases, the figure seqkit reports as AvgQual. A few very low bases pull it far down, so read it with Q20 and Q30. The average of the Phred scores is higher."
 
     /// `statistics` when a view can show them as stored, or nil when it measures the reads instead.
     ///

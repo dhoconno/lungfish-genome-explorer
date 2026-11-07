@@ -334,6 +334,16 @@ public enum FASTQStatisticsService {
             return weightedTotal / Double(sumLen)
         }
 
+        // Each file's AvgQual is the Phred value of the mean error probability over its own bases, so the files pool as
+        // the sum of bases times error probability over all bases. A base-weighted average of the Phred values is
+        // neither mean: 10 bases at Q40 beside 10 at Q2 pool to 5.01 and not 21.0 (BIO-MEANQ item 7, MEANQ-JOIN).
+        func pooledAverageQuality() -> Double {
+            let errorProbabilitySum = summaries.reduce(0.0) { partial, summary in
+                partial + Double(summary.sumLen) * pow(10.0, -summary.averageQuality / 10.0)
+            }
+            return QualityScore.phredMean(errorProbabilitySum: errorProbabilitySum, baseCount: Int(sumLen))
+        }
+
         return SeqkitSummary(
             numSeqs: numSeqs,
             sumLen: sumLen,
@@ -342,7 +352,7 @@ public enum FASTQStatisticsService {
             maxLen: maxLen,
             q20Percentage: weightedByBases(\.q20Percentage),
             q30Percentage: weightedByBases(\.q30Percentage),
-            averageQuality: weightedByBases(\.averageQuality),
+            averageQuality: pooledAverageQuality(),
             gcPercentage: weightedByBases(\.gcPercentage)
         )
     }
