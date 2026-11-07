@@ -140,29 +140,39 @@ struct ProvenanceCommand: AsyncParsableCommand {
         }
 
         /// What the command says about a record with no signature file beside it, one line each. It says that there is
-        /// nothing to verify, names the record, says when Lungfish signs a record and what to do, and names the bundle
+        /// nothing to verify, names the record and the signature file it looked for, says when Lungfish signs a record and
+        /// what to do, and names the bundle
         /// whose signed record states the folder of an unsigned copy, such as the copy a Viral Recon run keeps in its
         /// results folder on purpose.
         static func unsignedRecordWords(for provenanceURL: URL) -> [String] {
             var lines = [
                 "This record carries no signature, so there is nothing to verify.",
                 "Record \(provenanceURL.path)",
+                "Looked for the signature file "
+                    + "\(ProvenanceSigningConfiguration.signatureURL(for: provenanceURL).path) and did not find it.",
                 "Lungfish signs a record only when LUNGFISH_PROVENANCE_SIGNING_KEY or LUNGFISH_PROVENANCE_SIGNING_KEY_FILE "
-                    + "is set as the record is written. To get a signed record, set one of them and run the analysis again.",
+                    + "is set as the record is written. The first holds the key and the second holds the path of a file "
+                    + "that holds the key. To get a signed record, set one of them and run the analysis again. Some records, "
+                    + "such as a database install receipt, are never signed.",
             ]
             let workflowName = ((try? ProvenanceEnvelopeReader.read(fromSidecar: provenanceURL)) ?? nil)?.envelope.workflowName
-            let isViralRecon = workflowName?.lowercased().filter(\.isLetter).contains("viralrecon") ?? false
+            // The run bundle's own record comes from the same run, so it matches by name too, and it is not the copy.
+            let inRunBundle = provenanceURL.deletingLastPathComponent().pathExtension == NFCoreRunBundleStore.directoryExtension
+            let isViralRecon = !inRunBundle
+                && (workflowName?.lowercased().filter(\.isLetter).contains("viralrecon") ?? false)
             let bundle = signedRecordFolder(statingTheFolderOf: provenanceURL)
             if isViralRecon {
-                lines.append("A Viral Recon run keeps this unsigned copy in its results folder on purpose, and the record "
-                    + "in its run bundle states the digest of this folder.")
+                lines.append("A Viral Recon run keeps an unsigned copy of its record in its results folder on purpose, and "
+                    + "the record in its run bundle states the digest of this folder.")
             }
             if let bundle {
-                lines.append("The signed record is in the bundle \(bundle.path). Run lungfish-cli provenance verify "
-                    + "\(bundle.path) to check the run.")
+                // Quoted for a shell, so a bundle in `My Project.lungfish` pastes as one word.
+                let quoted = "'" + bundle.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+                lines.append("The signed record is in the bundle \(bundle.path). To check its signature, run this command.")
+                lines.append("  lungfish-cli provenance verify \(quoted)")
             } else if isViralRecon {
-                lines.append("When the run had a signing key, its run bundle holds the signed record. Run "
-                    + "lungfish-cli provenance verify on that bundle to check the run.")
+                lines.append("When the run had a signing key, its run bundle holds the signed record. To check its "
+                    + "signature, run lungfish-cli provenance verify on that bundle.")
             }
             return lines
         }
