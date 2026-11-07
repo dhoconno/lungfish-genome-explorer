@@ -643,7 +643,9 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             guard kitOverride == nil else {
                 throw FASTQOperationExecutionError.unsupportedDemultiplex("kitOverride is not encodable")
             }
-            if engine == .exactBareBarcode {
+            // A picked Exact Bare Barcode or Read Names engine searches no base with cutadapt, so it takes none of
+            // cutadapt's options, and its engine is written so the run takes the route the person chose.
+            if engine != .cutadapt {
                 return [
                     "demultiplex", inputURL.path,
                     "--kit", customCSVPath ?? kitID,
@@ -661,7 +663,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 "--error-rate", String(format: "%.2f", errorRate),
             ]
             // The dialog's default engine writes no --engine, so the run asks the route owner, which reads the read
-            // names before it searches the bases (L4 of the 3.3 tally). Exact Bare Barcode, picked, is written above.
+            // names before it searches the bases (L4 of the 3.3 tally). A picked other engine is written above.
             if !trimBarcodes { arguments.append("--no-trim") }
             return arguments
         case .orient(let referenceURL, let wordLength, let dbMask, let saveUnoriented, let extraArguments):
