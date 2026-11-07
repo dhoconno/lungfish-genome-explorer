@@ -255,7 +255,8 @@ extension DemultiplexingPipeline {
             }
         }
         let tallies = try await unassignedStartTallies(
-            readsURL: unassignedReadsURL, patterns: patterns, errorRate: config.effectiveErrorRate, paired: paired
+            readsURL: unassignedReadsURL, patterns: patterns, errorRate: config.effectiveErrorRate,
+            allowsIndels: !config.useNoIndels, paired: paired
         )
         let outcome = DemultiplexChanceFloor.evaluate(
             patterns: patterns,
@@ -273,17 +274,16 @@ extension DemultiplexingPipeline {
         return outcome
     }
 
-    /// The first bases of the first unassigned reads, one tally a mate. The run passes the FASTQ that holds every unassigned
-    /// read, cutadapt's output in virtual mode, whose bundle keeps a 1,000-read preview, and read before a discarded bundle is
-    /// removed (DEMUXNULL-SWIFT B1). No tally is returned when there is no such file, and the floor then keeps to random bases.
+    /// The start composition of the first unassigned reads and the decoy counts of every one, one tally a mate
+    /// (DEMUX-FLOOR-DECOY-SCALE). The run passes the FASTQ that holds every unassigned read, cutadapt's output in virtual
+    /// mode, whose bundle keeps a 1,000-read preview, and read before a discarded bundle is removed (DEMUXNULL-SWIFT B1). No
+    /// tally is returned when there is no such file, and the floor then keeps to random bases.
     private func unassignedStartTallies(
-        readsURL: URL?, patterns: [String: [String]], errorRate: Double, paired: Bool
+        readsURL: URL?, patterns: [String: [String]], errorRate: Double, allowsIndels: Bool, paired: Bool
     ) async throws -> [DemultiplexChanceFloor.StartTally] {
         guard let readsURL, let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: readsURL) else { return [] }
         return try await DemultiplexChanceFloor.unassignedStartTallies(
-            fastqURL: fastqURL,
-            windowLength: DemultiplexChanceFloor.startWindowLength(patterns: patterns, errorRate: errorRate),
-            paired: paired
+            fastqURL: fastqURL, patterns: patterns, errorRate: errorRate, allowsIndels: allowsIndels, paired: paired
         )
     }
 }

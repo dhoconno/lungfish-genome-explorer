@@ -83,7 +83,8 @@ extension DemultiplexChanceFloor {
 
     /// The null the tallies measure, or nil when the run keeps to the floor of uniform random bases (item 6): fewer than
     /// 1,000 windows a mate, a window too short or too long to use, a kit whose uniform share is 0.5 or more, a side with
-    /// more than `maximumDecoyErrors` errors, or fewer than 100 decoys at a barcode length.
+    /// more than `maximumDecoyErrors` errors, fewer than 100 decoys at a barcode length, or a tally that counted the decoys
+    /// of another kit.
     static func measuredNull(
         patterns: [String: [String]], errorRate: Double, allowsIndels: Bool, unit: Int, tallies: [StartTally]
     ) -> MeasuredNull? {
@@ -97,68 +98,86 @@ extension DemultiplexChanceFloor {
             return total + (1 - pow(1 - read, Double(unit)))
         }
         guard uniformKitShare < saturatedKitShare else { return nil }
-        var byLength: [Int: Set<[UInt8]>] = [:]
-        for lines in patterns.values {
-            for pattern in startPatterns(of: lines) where !pattern.isEmpty { byLength[pattern.count, default: []].insert(pattern) }
-        }
-        guard !byLength.isEmpty else { return nil }
-        guard byLength.keys.allSatisfy({ allowedErrors(length: $0, errorRate: errorRate) <= maximumDecoyErrors }) else { return nil }
+        guard let index = decoyIndex(patterns: patterns, errorRate: errorRate, allowsIndels: allowsIndels),
+              used.allSatisfy({ $0.decoys?.kit == index.kit }) else { return nil }
         var margin = minimumMargin
         var compositions: [[[Double]]] = []
         for tally in used {
-            guard let composition = tally.composition, let ratio = largestDecoyRatio(
-                byLength: byLength, barcodeCount: patterns.count, errorRate: errorRate, allowsIndels: allowsIndels,
-                tally: tally, composition: composition
-            ) else { return nil }
-            margin = max(margin, ratio)
+            guard let composition = tally.composition else { return nil }
+            margin = max(margin, largestDecoyRatio(tally: tally, composition: composition))
             compositions.append(composition)
         }
         return MeasuredNull(compositions: compositions, margin: margin, windows: used.reduce(0) { $0 + $1.windows })
     }
 
     /// The largest ratio of observed to expected reads over the decoys whose reads chance at twice their share gives with a
-    /// tail under 0.01 over the decoys, nil when a length has fewer than 100 decoys. When the tally stopped at the read limit,
-    /// the barcodes are counted on more reads than the decoys, so every decoy counts. A decoy sits at edit distance `2e + 1`
-    /// or more from every barcode of its length, so a read it matches matches no barcode and is always among the unassigned
-    /// reads. Observed is the tallied windows whose start matches the decoy at the anchored rule. Expected is the windows
-    /// tallied times the decoy's chance under the composition.
-    static func largestDecoyRatio(
-        byLength: [Int: Set<[UInt8]>], barcodeCount: Int, errorRate: Double, allowsIndels: Bool,
-        tally: StartTally, composition: [[Double]]
-    ) -> Double? {
-        let lengths = byLength.keys.sorted()
-        let spans = lengths.map { length -> ClosedRange<Int> in
-            let errors = allowedErrors(length: length, errorRate: errorRate)
-            return allowsIndels ? max(1, length - errors)...(length + errors) : length...length
-        }
-        guard let lowest = spans.map(\.lowerBound).min(), let highest = spans.map(\.upperBound).max() else { return nil }
-        let windowCounts = tally.prefixCounts(lengths: lowest...highest)
+    /// tail under 0.01 over the decoys, and 0 when no decoy qualifies. Every decoy is counted over every unassigned read in
+    /// one streaming pass, the reads the barcodes are counted on, so the rule holds at every size of run
+    /// (DEMUX-FLOOR-DECOY-SCALE, BIO-DEMUX-SPARSE-MARGIN item 9). A decoy sits at edit distance `2e + 1` or more from every
+    /// barcode of its length, so a read it matches matches no barcode and is always among the unassigned reads. Observed is
+    /// the windows of every unassigned read whose start matches the decoy at the anchored rule. Expected is those windows
+    /// times the decoy's chance under the composition of the first reads.
+    static func largestDecoyRatio(tally: StartTally, composition: [[Double]]) -> Double {
+        guard let index = tally.decoys else { return 0 }
         var measured: [(ratio: Double, observed: Int, share: Double)] = []
-        for length in lengths {
-            let errors = allowedErrors(length: length, errorRate: errorRate)
-            let decoys = decoyBank(
-                length: length, errors: errors, allowsIndels: allowsIndels,
-                barcodes: Array(byLength[length] ?? []), target: max(1_000, 100 * barcodeCount)
-            )
-            guard decoys.count >= minimumDecoys else { return nil }
-            for decoy in decoys {
-                var observed = 0
-                var share = 0.0
-                for key in decoy.keys {
-                    observed += windowCounts[key] ?? 0
-                    share += weight(of: key, in: composition)
-                }
-                if share > 0 { measured.append((Double(observed) / (share * Double(tally.windows)), observed, share)) }
-            }
+        for (decoy, observed) in zip(index.decoys, tally.decoyCounts()) {
+            var share = 0.0
+            for key in decoy.keys { share += weight(of: key, in: composition) }
+            if share > 0 { measured.append((Double(observed) / (share * Double(tally.countedWindows)), observed, share)) }
         }
-        guard tally.coversEveryRead else { return measured.map(\.ratio).max() ?? 0 }
         let tail = decoyTail / Double(max(1, measured.count))
         for entry in measured.sorted(by: { $0.ratio > $1.ratio }) where entry.ratio > minimumMargin {
-            if upperTail(trials: tally.windows, probability: min(1, minimumMargin * entry.share), from: entry.observed) < tail {
+            let probability = min(1, minimumMargin * entry.share)
+            if upperTail(trials: tally.countedWindows, probability: probability, from: entry.observed) < tail {
                 return entry.ratio
             }
         }
         return 0
+    }
+
+    private static let decoyIndexCache = Mutex<[String: DecoyIndex]>([:])
+
+    /// The decoys of the kit of `patterns`, built once a kit and kept, or nil when the kit cannot measure a margin (item 6):
+    /// no `^`-anchored side, a side with more than `maximumDecoyErrors` errors, a kit whose uniform share reaches 0.5, a read
+    /// start too long to pack, or fewer than 100 decoys at a barcode length. Each length has `max(1_000, 100 x barcodes)`
+    /// decoys at most (item 4).
+    static func decoyIndex(patterns: [String: [String]], errorRate: Double, allowsIndels: Bool) -> DecoyIndex? {
+        var byLength: [Int: Set<[UInt8]>] = [:]
+        for lines in patterns.values {
+            for pattern in startPatterns(of: lines) where !pattern.isEmpty { byLength[pattern.count, default: []].insert(pattern) }
+        }
+        let lengths = byLength.keys.sorted()
+        guard !lengths.isEmpty,
+              lengths.allSatisfy({ allowedErrors(length: $0, errorRate: errorRate) <= maximumDecoyErrors }) else { return nil }
+        let readShare = patterns.values.reduce(0.0) { total, lines in
+            total + chanceProbability(ofLines: lines, errorRate: errorRate, allowsIndels: allowsIndels)
+        }
+        guard readShare < saturatedKitShare else { return nil }
+        let target = max(1_000, 100 * patterns.count)
+        let kit = "\(errorRate)|\(allowsIndels)|\(target)|" + lengths.map { length in
+            (byLength[length] ?? []).map { $0.map(String.init).joined() }.sorted().joined(separator: ",")
+        }.joined(separator: ";")
+        if let cached = decoyIndexCache.withLock({ $0[kit] }) { return cached }
+        var decoys: [AnchoredNeighbours] = []
+        var lowest = Int.max
+        var highest = 0
+        for length in lengths {
+            let errors = allowedErrors(length: length, errorRate: errorRate)
+            let bank = decoyBank(
+                length: length, errors: errors, allowsIndels: allowsIndels, barcodes: Array(byLength[length] ?? []), target: target
+            )
+            guard bank.count >= minimumDecoys else { return nil }
+            decoys += bank
+            lowest = min(lowest, allowsIndels ? max(1, length - errors) : length)
+            highest = max(highest, allowsIndels ? length + errors : length)
+        }
+        guard highest <= maximumPackedBases else { return nil }
+        let built = DecoyIndex(decoys: decoys, prefixLengths: lowest...highest, kit: kit)
+        return decoyIndexCache.withLock { cache in
+            if let existing = cache[kit] { return existing }
+            cache[kit] = built
+            return built
+        }
     }
 
     /// The chance a read begins with the prefix packed in `key`, as the product of the composition's shares.

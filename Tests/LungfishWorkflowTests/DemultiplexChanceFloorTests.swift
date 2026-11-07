@@ -146,9 +146,7 @@ final class DemultiplexChanceFloorTests: XCTestCase {
             return (barcode.id, .init(pattern: bases, errors: errors, allowsIndels: true))
         }
         var counts: [String: Int] = [:]
-        var tally = DemultiplexChanceFloor.StartTally(
-            windowLength: DemultiplexChanceFloor.startWindowLength(patterns: defaultKitPatterns, errorRate: errorRate)
-        )
+        var tally = DemultiplexChanceFloor.StartTally(patterns: defaultKitPatterns, errorRate: errorRate, allowsIndels: true)
         var unassigned = 0
         for start in starts {
             let codes = DemultiplexChanceFloor.baseCodes(start)
@@ -271,16 +269,24 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("unassigned-\(UUID().uuidString).fastq")
         try text.write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
-        let window = DemultiplexChanceFloor.startWindowLength(patterns: defaultKitPatterns, errorRate: errorRate)
 
-        let paired = try await DemultiplexChanceFloor.unassignedStartTallies(fastqURL: url, windowLength: window, paired: true)
+        let paired = try await tallies(of: url, paired: true)
         XCTAssertEqual(paired.map(\.windows), [20, 20], "the single read belongs to neither mate")
         XCTAssertEqual(paired[0].composition?.first, [0, 0, 1, 0], "mate 1 starts with G")
         XCTAssertEqual(paired[1].composition?.first, [0, 0, 0, 1], "mate 2 starts with T")
 
-        let single = try await DemultiplexChanceFloor.unassignedStartTallies(fastqURL: url, windowLength: window, paired: false)
+        let single = try await tallies(of: url, paired: false)
         XCTAssertEqual(single.map(\.windows), [41], "a run of single reads tallies every record")
-        XCTAssertEqual(single.map(\.coversEveryRead), [true])
+    }
+
+    /// One pass of the default kit over an unassigned file.
+    private func tallies(
+        of url: URL, paired: Bool, compositionLimit: Int = DemultiplexChanceFloor.compositionReadLimit
+    ) async throws -> [DemultiplexChanceFloor.StartTally] {
+        try await DemultiplexChanceFloor.unassignedStartTallies(
+            fastqURL: url, patterns: defaultKitPatterns, errorRate: errorRate, allowsIndels: true, paired: paired,
+            compositionLimit: compositionLimit
+        )
     }
 
     // MARK: - Review fixes (DEMUXNULL-BIO SF2, DEMUXNULL-SWIFT SF1 and SF2)
@@ -294,7 +300,8 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         let window = DemultiplexChanceFloor.startWindowLength(patterns: patterns, errorRate: 0.15)
         XCTAssertEqual(window, 24, "20 bases, 3 errors and one more base")
         var generator = DemuxFloorSeededGenerator(seed: 7)
-        var tally = DemultiplexChanceFloor.StartTally(windowLength: window)
+        var tally = DemultiplexChanceFloor.StartTally(patterns: patterns, errorRate: 0.15, allowsIndels: true)
+        XCTAssertNil(tally.decoys, "the tally never builds the decoy bank of a side with three errors")
         for _ in 0..<2_000 { tally.add(DemuxFloorFixtures.randomBases(window, using: &generator)) }
         XCTAssertEqual(tally.windows, 2_000)
         XCTAssertEqual(DemultiplexChanceFloor.allowedErrors(length: 20, errorRate: 0.15), 3, "the kit must need three errors a side")
@@ -306,8 +313,9 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         ))
     }
 
-    /// The tally reads at most the first 200,000 records of a plain or a gzipped file and closes what it opens (SWIFT SF2).
-    func testTheTallyStopsAtTheCompositionLimitInPlainAndGzippedFiles() async throws {
+    /// The composition takes the first 200,000 records of a plain or a gzipped file, the decoys are counted on every record,
+    /// and the pass closes what it opens (SWIFT SF2, DEMUX-FLOOR-DECOY-SCALE).
+    func testTheCompositionStopsAtTheLimitAndTheDecoysCountEveryReadInPlainAndGzippedFiles() async throws {
         let limit = DemultiplexChanceFloor.compositionReadLimit
         var text = ""
         text.reserveCapacity((limit + 500) * 48)
@@ -320,19 +328,16 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         let data = Data(text.utf8)
         try data.write(to: plain)
         try GzipPin.gzip(["-c"], stdin: data).write(to: gzipped)
-        let window = DemultiplexChanceFloor.startWindowLength(patterns: defaultKitPatterns, errorRate: errorRate)
 
         for url in [plain, gzipped] {
-            let tallies = try await DemultiplexChanceFloor.unassignedStartTallies(fastqURL: url, windowLength: window, paired: false)
-            XCTAssertEqual(tallies.map(\.reads), [limit], url.lastPathComponent)
-            XCTAssertEqual(tallies.map(\.windows), [limit], url.lastPathComponent)
-            XCTAssertEqual(tallies.map(\.coversEveryRead), [false], url.lastPathComponent)
+            let tallied = try await tallies(of: url, paired: false)
+            XCTAssertEqual(tallied.map(\.reads), [limit + 500], url.lastPathComponent)
+            XCTAssertEqual(tallied.map(\.windows), [limit], url.lastPathComponent)
+            XCTAssertEqual(tallied.map(\.countedWindows), [limit + 500], url.lastPathComponent)
         }
         let open = try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count
         for round in 0..<20 {
-            _ = try await DemultiplexChanceFloor.unassignedStartTallies(
-                fastqURL: round.isMultiple(of: 2) ? gzipped : plain, windowLength: window, paired: false
-            )
+            _ = try await tallies(of: round.isMultiple(of: 2) ? gzipped : plain, paired: false)
         }
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count, open, "the tally left files open")
     }
@@ -344,9 +349,7 @@ final class DemultiplexChanceFloorTests: XCTestCase {
     /// 1,500 random reads tallied for a 10-base exact barcode. Each of its 1,000 decoys expects about 0.0014 reads.
     private func sparseTally(seed: UInt64) -> DemultiplexChanceFloor.StartTally {
         var generator = DemuxFloorSeededGenerator(seed: seed)
-        var tally = DemultiplexChanceFloor.StartTally(
-            windowLength: DemultiplexChanceFloor.startWindowLength(patterns: sparsePatterns, errorRate: 0)
-        )
+        var tally = DemultiplexChanceFloor.StartTally(patterns: sparsePatterns, errorRate: 0, allowsIndels: true)
         for _ in 0..<1_500 { tally.add(DemuxFloorFixtures.randomBases(40, using: &generator)) }
         return tally
     }
@@ -378,12 +381,92 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(beating, 18, "seeds where 5 reads beat the floor: \(beating) of 20")
     }
 
-    /// A tally cut at the read limit counted its decoys on fewer reads than the barcodes, so there every decoy sets the margin
-    /// as before. Seed 2,000 holds a decoy read, and its margin is 566 under that rule.
-    func testATallyCutAtTheReadLimitKeepsEveryDecoy() {
-        var tally = sparseTally(seed: 2_000)
-        tally.coversEveryRead = false
-        XCTAssertGreaterThan(sparseOutcome(tally).margin, 100, "a tally cut at the read limit keeps the largest decoy ratio")
+    /// A run past the read limit keeps the sparse rule (DEMUX-FLOOR-DECOY-SCALE). Seed 2,000 holds one chance read on one decoy,
+    /// whose ratio of 566 set the margin under the rule a cut tally kept. Here the composition stops at read 1,000, a chance
+    /// read on another decoy comes after it, every decoy is counted on all 1,501 reads, chance at twice its share explains
+    /// each, and the margin stays 2, so 5 reads of the 10-base barcode beat the floor.
+    func testARunPastTheReadLimitKeepsTheSparseRule() async throws {
+        var generator = DemuxFloorSeededGenerator(seed: 2_000)
+        var starts = (0..<1_500).map { _ in DemuxFloorFixtures.randomBases(40, using: &generator) }
+        let index = try XCTUnwrap(sparseTally(seed: 2_000).decoys)
+        let before = sparseTally(seed: 2_000).decoyCounts()
+        let empty = try XCTUnwrap(before.firstIndex(of: 0))
+        let decoy = String(index.decoys[empty].pattern.map { Character(["A", "C", "G", "T"][Int($0)]) })
+        starts.append(decoy + DemuxFloorFixtures.randomBases(30, using: &generator))
+        let url = try writeFASTQ(starts.map { [$0] })
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let tallied = try await DemultiplexChanceFloor.unassignedStartTallies(
+            fastqURL: url, patterns: sparsePatterns, errorRate: 0, allowsIndels: true, paired: false, compositionLimit: 1_000
+        )
+        XCTAssertEqual(tallied.map(\.windows), [1_000], "the composition stops at the limit")
+        XCTAssertEqual(tallied.map(\.countedWindows), [1_501], "the decoys count every read")
+        XCTAssertEqual(tallied.first?.decoyCounts()[empty], 1, "the read past the limit is counted for its decoy")
+        let outcome = DemultiplexChanceFloor.evaluate(
+            patterns: sparsePatterns, counts: ["FLD0001": 5], readsSearched: 1_506, unassigned: 1_501, errorRate: 0,
+            allowsIndels: true, pairedFragments: false, unassignedStarts: tallied
+        )
+        XCTAssertEqual(outcome.margin, 2, "a run past the read limit keeps the sparse rule")
+        XCTAssertEqual(outcome.barcodes.first?.beatsTheFloor, true, "5 reads of a 10-base exact barcode beat the floor")
+    }
+
+    /// A FASTQ of `records`, each one or two reads, a pair named `/1` and `/2` by the mate rule.
+    private func writeFASTQ(_ records: [[String]]) throws -> URL {
+        var text = ""
+        for (index, reads) in records.enumerated() {
+            for (mate, bases) in reads.enumerated() {
+                let name = reads.count == 2 ? "p\(index)/\(mate + 1)" : "s\(index)"
+                text += "@\(name)\n\(bases)\n+\n\(String(repeating: "I", count: bases.count))\n"
+            }
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("decoys-\(UUID().uuidString).fastq")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    /// For each decoy of the default kit, the reads among `reads` whose window matches it under the floor's dynamic program.
+    /// A read shorter than the window or with an `N` in it makes no window.
+    private func bruteForceDecoyCounts(_ reads: [String], index: DemultiplexChanceFloor.DecoyIndex) -> [Int] {
+        let window = DemultiplexChanceFloor.startWindowLength(patterns: defaultKitPatterns, errorRate: errorRate)
+        let codes = reads.map { DemultiplexChanceFloor.baseCodes($0) }
+            .filter { $0.count >= window && !$0.prefix(window).contains(where: { $0 > 3 }) }
+        return index.decoys.map { decoy in
+            codes.filter {
+                DemultiplexChanceFloor.anchoredMatch(read: $0, pattern: decoy.pattern, errors: decoy.errors, allowsIndels: true)
+            }.count
+        }
+    }
+
+    /// The decoy counts of one pass equal a brute-force count over every unassigned read with the floor's dynamic program, in a
+    /// plain, a gzipped and a paired file, past the composition limit (DEMUX-FLOOR-DECOY-SCALE).
+    func testTheDecoyCountsOfOnePassEqualABruteForceCountOverEveryRead() async throws {
+        var generator = DemuxFloorSeededGenerator(seed: 31)
+        var pairs = (0..<400).map { _ in (0..<2).map { _ in DemuxFloorFixtures.randomBases(20, using: &generator) } }
+        pairs[5][0] = "ACGTN" + DemuxFloorFixtures.randomBases(15, using: &generator)
+        pairs[7][1] = "ACGTACG"
+        let lone = DemuxFloorFixtures.randomBases(20, using: &generator)
+        let index = try XCTUnwrap(DemultiplexChanceFloor.StartTally(
+            patterns: defaultKitPatterns, errorRate: errorRate, allowsIndels: true
+        ).decoys)
+        let mate1 = bruteForceDecoyCounts(pairs.map { $0[0] }, index: index)
+        let mate2 = bruteForceDecoyCounts(pairs.map { $0[1] }, index: index)
+        let every = zip(zip(mate1, mate2), bruteForceDecoyCounts([lone], index: index)).map { $0.0 + $0.1 + $1 }
+        XCTAssertGreaterThan(every.reduce(0, +), 300, "the random reads hit many decoys")
+
+        let pairedURL = try writeFASTQ(Array(pairs.prefix(200)) + [[lone]] + Array(pairs.suffix(200)))
+        defer { try? FileManager.default.removeItem(at: pairedURL) }
+        let paired = try await tallies(of: pairedURL, paired: true, compositionLimit: 300)
+        XCTAssertEqual(paired.map { $0.decoyCounts() }, [mate1, mate2], "each mate by the mate rule, the lone read in neither")
+        XCTAssertEqual(paired.map(\.windows), [149, 149], "the composition stops at record 300, less the N and the short read")
+
+        let gzipped = pairedURL.appendingPathExtension("gz")
+        try GzipPin.gzip(["-c"], stdin: Data(contentsOf: pairedURL)).write(to: gzipped)
+        defer { try? FileManager.default.removeItem(at: gzipped) }
+        for url in [pairedURL, gzipped] {
+            let single = try await tallies(of: url, paired: false, compositionLimit: 300)
+            XCTAssertEqual(single.first?.decoyCounts(), every, url.lastPathComponent)
+            XCTAssertEqual(single.map(\.countedWindows), [799], "801 records, one with an N and one too short")
+        }
     }
 
     // MARK: - Every decoy over every unassigned read (DEMUX-FLOOR-DECOY-SCALE)
