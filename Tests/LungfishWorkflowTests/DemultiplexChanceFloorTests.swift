@@ -109,6 +109,8 @@ final class DemultiplexChanceFloorTests: XCTestCase {
             "No barcode of K matched more reads than chance alone gives, so Demultiplex Barcodes made no sample files."
         ), words)
         XCTAssertTrue(words.contains("already be split into one file per sample"), words)
+        // DEMUXNULL-UX SF3: the measured floor adds a fourth cause, a real barcode on too small a share of the reads.
+        XCTAssertTrue(words.contains("too few reads to stand above chance"), words)
         XCTAssertTrue(words.hasSuffix(
             "Choose the kit the library was made with, check the barcode sequences and the end of the read you chose "
                 + "for a Custom Definition, or import this file as one sample."
@@ -278,5 +280,53 @@ final class DemultiplexChanceFloorTests: XCTestCase {
 
         let single = try await DemultiplexChanceFloor.unassignedStartTallies(fastqURL: url, windowLength: window, paired: false)
         XCTAssertEqual(single.map(\.windows), [41], "a run of single reads tallies every record")
+    }
+
+    // MARK: - Review fixes (DEMUXNULL-BIO SF2, DEMUXNULL-SWIFT SF1 and SF2)
+
+    /// A side with three errors holds hundreds of thousands of matching read starts a decoy, so a kit of 20-base barcodes
+    /// at -e 0.15 keeps the floor of random bases and never builds that decoy bank (BIO SF2). At the base the call built
+    /// 1,000 decoys of about 224,535 keys each and did not return in a test's time.
+    func testAKitWithThreeErrorsASideKeepsTheFloorOfRandomBases() {
+        let patterns = ["LONG": ["^ACGTACGTACGTACGTACGT"]]
+        let window = DemultiplexChanceFloor.startWindowLength(patterns: patterns, errorRate: 0.15)
+        XCTAssertEqual(window, 24, "20 bases, 3 errors and one more base")
+        var generator = DemuxFloorSeededGenerator(seed: 7)
+        var tally = DemultiplexChanceFloor.StartTally(windowLength: window)
+        for _ in 0..<2_000 { tally.add(DemuxFloorFixtures.randomBases(window, using: &generator)) }
+        XCTAssertEqual(tally.windows, 2_000)
+        XCTAssertNil(DemultiplexChanceFloor.measuredNull(
+            patterns: patterns, errorRate: 0.15, allowsIndels: true, unit: 1, tallies: [tally]
+        ))
+    }
+
+    /// The tally reads at most the first 200,000 records of a plain or a gzipped file and closes what it opens (SWIFT SF2).
+    func testTheTallyStopsAtTheCompositionLimitInPlainAndGzippedFiles() async throws {
+        let limit = DemultiplexChanceFloor.compositionReadLimit
+        var text = ""
+        text.reserveCapacity((limit + 500) * 48)
+        for index in 0..<(limit + 500) { text += "@r\(index)\nACGTACGTACGTACGT\n+\nIIIIIIIIIIIIIIII\n" }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("tally-limit-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let plain = folder.appendingPathComponent("unassigned.fastq")
+        let gzipped = folder.appendingPathComponent("unassigned.fastq.gz")
+        let data = Data(text.utf8)
+        try data.write(to: plain)
+        try GzipPin.gzip(["-c"], stdin: data).write(to: gzipped)
+        let window = DemultiplexChanceFloor.startWindowLength(patterns: defaultKitPatterns, errorRate: errorRate)
+
+        for url in [plain, gzipped] {
+            let tallies = try await DemultiplexChanceFloor.unassignedStartTallies(fastqURL: url, windowLength: window, paired: false)
+            XCTAssertEqual(tallies.map(\.reads), [limit], url.lastPathComponent)
+            XCTAssertEqual(tallies.map(\.windows), [limit], url.lastPathComponent)
+        }
+        let open = try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count
+        for round in 0..<20 {
+            _ = try await DemultiplexChanceFloor.unassignedStartTallies(
+                fastqURL: round.isMultiple(of: 2) ? gzipped : plain, windowLength: window, paired: false
+            )
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count, open, "the tally left files open")
     }
 }
