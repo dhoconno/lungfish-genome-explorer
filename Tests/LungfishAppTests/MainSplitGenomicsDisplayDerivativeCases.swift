@@ -224,7 +224,7 @@ enum GenomicsDisplayDerivativeCases {
                 XCTAssertEqual(command.output, "<derived>")
                 XCTAssertEqual(command.location, "bothends")
                 XCTAssertEqual(command.errorRate, 0.15)
-                XCTAssertEqual(command.engine, DemultiplexEngine.cutadapt.rawValue)
+                XCTAssertNil(command.engine, "the Cutadapt pick asks the route owner")
                 XCTAssertFalse(command.noTrim)
             },
             GenomicsDisplayDerivativeCase(
