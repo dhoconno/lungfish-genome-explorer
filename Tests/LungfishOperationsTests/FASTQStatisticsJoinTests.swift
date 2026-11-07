@@ -50,4 +50,13 @@ final class FASTQStatisticsJoinTests: XCTestCase {
         XCTAssertEqual(joined.averageQuality, -10.0 * log10(errorSum / Double(bases)), accuracy: 1e-9)
         XCTAssertEqual(joined.sumLen, bases)
     }
+
+    func testOneFileKeepsItsAverageQuality() {
+        // A lone summary never joins (`fetchSeqkitSummary` takes `summaries[0]`), and the pooled formula hands back the
+        // same figure if one does reach it.
+        for quality in [0.0, 2.0, 27.35, 40.0] {
+            let one = FASTQStatisticsService.aggregateSeqkitSummaries([summary(sumLen: 4_321, averageQuality: quality)])
+            XCTAssertEqual(one.averageQuality, quality, accuracy: 1e-9, "AvgQual \(quality)")
+        }
+    }
 }

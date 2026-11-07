@@ -38,6 +38,11 @@ final class FASTQStatisticsServiceTests: XCTestCase {
         XCTAssertEqual(result.statistics.n50ReadLength, 6)
         XCTAssertEqual(result.statistics.readLengthHistogram, [2: 1, 4: 1, 6: 1])
         XCTAssertEqual(result.scannedReadCount, 3)
+
+        // The fake seqkit below prints AvgQual 40.000000 for each file, so two files pool to 40 and one file keeps 40.
+        XCTAssertEqual(result.statistics.meanQuality, 40.0, accuracy: 1e-6)
+        let single = try await FASTQStatisticsService.compute(for: chunkA, runner: fixture.runner)
+        XCTAssertEqual(single.statistics.meanQuality, 40.0, accuracy: 1e-6)
     }
 }
 
