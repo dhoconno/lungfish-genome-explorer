@@ -30,7 +30,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from release_identity import prepare_identity_plist, identity_plist, fork_contract, PublicIdentity
-from bounded_process import run_bounded
+from bounded_process import run_bounded, timeout_words
 from release_profiles import (ReleaseProfile, ProfileError, CERTIFICATE_POLICIES, default_profile_path,
                               load_release_profile as _load_profile, write_release_profile)
 from developer_id import SigningIdentityError, select_from_keychain  # noqa: E402
@@ -1130,6 +1130,24 @@ def run_setup(root: Path, profile_path: Path | None) -> int:
     return 0
 
 
+# Limits of the independent verify, in seconds (RELEASE-SMOKE-NO-WHOLE-CALL-TIMEOUT). The three Apple tools take the 180 seconds
+# that signing_pipeline.py (command_timeout) and the builder (bounded_credential_command) give the same tools. The tool smoke
+# bounds its own steps (five staging steps at 120 seconds and four checks at 60 seconds, 840 seconds together), so its whole call
+# takes that sum and a margin of 60 seconds, and the smoke's own words come out before this limit ends it.
+VERIFY_TOOL_TIMEOUT_SECONDS = 180
+VERIFY_SMOKE_TIMEOUT_SECONDS = 900
+
+
+def _step_name(command: list[str]) -> str:
+    """The command and the words after it up to the first path, as the name of the step in the words of a timeout."""
+    words = [Path(command[0]).name]
+    for argument in command[1:]:
+        if argument.startswith("/"):
+            break
+        words.append(argument)
+    return " ".join(words)
+
+
 class SubprocessRunner:
     def __init__(self, root: Path, environment: dict[str, str] | None = None):
         self.root = root
@@ -1159,6 +1177,7 @@ class SubprocessRunner:
         capture: bool = False,
         env: dict[str, str] | None = None,
         check: bool = True,
+        timeout: float | None = None,
     ) -> subprocess.CompletedProcess[str]:
         effective_command = command
         if command and command[0] == "gh" and self.github_repository:
@@ -1172,8 +1191,8 @@ class SubprocessRunner:
         if env:
             command_environment.update(env)
         started = time.monotonic()
-        if command and command[0] in {"git", "gh"}:
-            result = run_bounded(effective_command, cwd=self.root, env=command_environment, timeout=180)
+        if (command and command[0] in {"git", "gh"}) or timeout is not None:
+            result = run_bounded(effective_command, cwd=self.root, env=command_environment, timeout=timeout or 180)
             if not capture:
                 sys.stdout.write(result.stdout or "")
                 sys.stderr.write(result.stderr or "")
@@ -1190,6 +1209,10 @@ class SubprocessRunner:
                 phase = Path(argument).name
                 break
         _record_timing(phase, time.monotonic() - started, result.returncode)
+        if timeout is not None and getattr(result, "timed_out", False):
+            # A command that never returns ends here with the step named and the privacy prompt as the likely cause, since
+            # these commands read the release folder (RELEASE-SMOKE-NO-WHOLE-CALL-TIMEOUT).
+            raise ReleaseError(timeout_words(_step_name(command), timeout, local_files=True))
         if capture and len((result.stdout or "").encode()) > MAX_JSON_BYTES:
             raise ReleaseError(f"command output exceeded bound: {command[0]}")
         if check and result.returncode != 0:
@@ -2740,10 +2763,17 @@ class LocalReleaseOperations:
         if HEX_SHA256.fullmatch(digest) is None or metadata.get("dmg_sha256") != digest:
             raise ReleaseError("independent DMG checksum verification failed")
         self.runner.run(
-            ["/usr/bin/codesign", "--verify", "--deep", "--strict", str(signed_app)]
+            ["/usr/bin/codesign", "--verify", "--deep", "--strict", str(signed_app)],
+            timeout=VERIFY_TOOL_TIMEOUT_SECONDS,
         )
-        self.runner.run(["/usr/bin/xcrun", "stapler", "validate", str(signed_app)])
-        self.runner.run(["/usr/bin/xcrun", "stapler", "validate", str(dmg)])
+        self.runner.run(
+            ["/usr/bin/xcrun", "stapler", "validate", str(signed_app)],
+            timeout=VERIFY_TOOL_TIMEOUT_SECONDS,
+        )
+        self.runner.run(
+            ["/usr/bin/xcrun", "stapler", "validate", str(dmg)],
+            timeout=VERIFY_TOOL_TIMEOUT_SECONDS,
+        )
         self.runner.run(
             [
                 "/usr/sbin/spctl",
@@ -2754,10 +2784,12 @@ class LocalReleaseOperations:
                 "--context",
                 "context:primary-signature",
                 str(dmg),
-            ]
+            ],
+            timeout=VERIFY_TOOL_TIMEOUT_SECONDS,
         )
         self.runner.run(
-            [str(self.root / "scripts/smoke-test-release-tools.sh"), str(signed_app)]
+            [str(self.root / "scripts/smoke-test-release-tools.sh"), str(signed_app)],
+            timeout=VERIFY_SMOKE_TIMEOUT_SECONDS,
         )
 
         release = self.runner.json(
