@@ -6,15 +6,17 @@ import Foundation
 
 /// The text of a batch's `README.txt`, the lab's commands for both launchers: `run.dag` on an HTCondor pool and
 /// `run-local.sh` on one Linux machine, the steps for a held job in UX's words (C5 D14), and the one copy step and the
-/// whole-batch adopt in the BADOPT ruling's order. It names no site (O41) but one transfer host, flagged untested (O57), and every path and number in it is the batch's
-/// own: the staging folder, the batch's name, the image and the most jobs at once (C5 D13).
+/// whole-batch adopt in the BADOPT ruling's order. It names no site (O41) but one transfer host, flagged untested (O57).
+/// Every path and number in it is the batch's own (C5 D13), the staging folder, the batch's name, the image and the most
+/// jobs at once, except the measured examples of R3 and R4, which the text says are examples.
 package enum ExecutorPlanBatchReadme {
     package static let fileName = "README.txt"
 
     /// `stagedReads` says that reads of the batch are in the staging folder already (C6 ruling STAGED), which changes
-    /// two passages, `listed` and `dataFolders`, and adds the nine points of rows P3-R1 to P3-R9 (Phase 3.3 lane
-    /// P3WORDS), whose two figures, 34.6 GB and 4.96 GB in 1 min 54 s, are measured examples. A batch with no staged
-    /// read keeps the text of ruling X6 (ARCH 7).
+    /// two passages, `listed` and `dataFolders`, and adds R1, R2 and R3 of rows P3-R1 to P3-R9 and the sentence of R8 on
+    /// removing the staged reads (Phase 3.3 lane P3WORDS). Both READMEs share R4 to R9, since the way home and the local
+    /// route are the same for both (ruling ARCH-P3WORDS). The figures 34.6 GB (R3) and 4.96 GB in 1 min 54 s (R4) are
+    /// measured examples of one batch, and the text says so.
     package static func text(layout: ExecutorPlanStagingLayout, image: ExecutorPlanImageFile, maxJobs: Int,
                              stagedReads: Bool) -> String {
         let batch = layout.batch
@@ -27,16 +29,20 @@ package enum ExecutorPlanBatchReadme {
             : "staging-files.json lists the files the jobs read, each with its size and its SHA-256. Each file\n"
                 + "other than the image also has a source, the file on the Mac to copy or link. The image is staged\n"
                 + "already."
+        let localData = [
+            "   On a machine that reaches the staging folder, \(staging) can be the data folder.",
+            "   Then this step copies nothing. A file in shared/ that has another size than the one listed is not the",
+            "   listed file, so copy it again.",
+        ].joined(separator: "\n")
+        let localReads = [
+            "   A local run takes the reads of a staged batch from the staging folder, since they have no source on",
+            "   the Mac to copy from. In one measured example the reads of a batch were 34.6 GB, and your batch has",
+            "   its own size, the total of the sizes that staging-files.json lists for its reads.",
+        ].joined(separator: "\n")
         let dataFolders = stagedReads
             ? "   the folders that hold the reads, and images/ for Apptainer. A Docker run reads no images/ folder.\n"
-                + "   On a machine that reaches the staging folder, \(staging) can be the data folder, and then this step\n"
-                + "   copies nothing. A file in shared/ that has another size than the one listed is not the listed file, so\n"
-                + "   copy it again.\n\n"
-                + "   A local run takes the reads of a staged batch from the staging folder, since they have no source on\n"
-                + "   the Mac to copy from. In one measured example the reads of a batch were 34.6 GB, and your batch has\n"
-                + "   its own size, the total of the sizes that staging-files.json lists for its reads."
-            : "   batches/\(batch)/, and images/ for Apptainer. A Docker run reads no images/ folder. On a machine\n"
-                + "   that reaches the staging folder, \(staging) can be the data folder."
+                + localData + "\n\n" + localReads
+            : "   batches/\(batch)/, and images/ for Apptainer. A Docker run reads no images/ folder.\n" + localData
         let returned = "\(layout.batchFolder)/<sample>/\(HTCondorSubmitTemplate.resultFolderName)/"
         let script = LinuxRunScript.fileName
         let jobs = LinuxRunScript.jobsFileName
@@ -44,9 +50,11 @@ package enum ExecutorPlanBatchReadme {
         let result = HTCondorSubmitTemplate.resultFolderName
         let record = HTCondorSubmitTemplate.runRecordName
         let dag = HTCondorDAG.fileName
-        // The nine points of rows P3-R1 to P3-R9 (Phase 3.3 lane P3WORDS). Each passage is empty for a batch of reads on
-        // the Mac, whose README stays as ruling X6 left it (ARCH 7).
-        func staged(_ lines: [String]) -> String { stagedReads ? "\n\n" + lines.joined(separator: "\n") : "" }
+        // The nine points of rows P3-R1 to P3-R9 (Phase 3.3 lane P3WORDS). R4 to R9 are in both READMEs, since the way home
+        // and the local route are the same for both (ruling ARCH-P3WORDS). R1, R2, R3 and the sentence of R8 on removing
+        // the staged reads depend on reads that have no source on the Mac, so only the README of a staged batch has them.
+        func passage(_ lines: [String]) -> String { "\n\n" + lines.joined(separator: "\n") }
+        func staged(_ lines: [String]) -> String { stagedReads ? passage(lines) : "" }
         let checkReads = staged([
             "   Before you submit, check that each read of the batch is at its stagingPath with the size that",
             "   staging-files.json lists. Leave the reads there until every job has run. A read missing from the",
@@ -56,31 +64,33 @@ package enum ExecutorPlanBatchReadme {
             "With --staged-reads, r1 and r2 are absolute paths of files in the staging folder, and not paths on the Mac.",
             "Each of those files has a row in the list that --staged-reads reads, with the columns file, bytes and sha256.",
         ])
-        let copyHome = staged([
-            "   A host that needs ssh -F <config file> or other ssh options needs them in rsync too. Put",
-            "   RSYNC_RSH='ssh -F <config file>' before the command, or use rsync -e 'ssh -F <config file>'.",
-            "   The copy brings the payloads of every sample home. As a measured example, the payloads of one batch",
-            "   were 4.96 GB and took 1 min 54 s to copy, and your batch has its own size and time. For a larger",
-            "   batch, copy through a transfer host. At CHTC that is transfer.chtc.wisc.edu, which needs a NetID and",
-            "   Duo. That host is untested.",
+        let copyHome = passage([
+            "   A host that needs ssh -F <config file> or other ssh options needs them in rsync too. Run",
+            "   export RSYNC_RSH='ssh -F <config file>' on its own line before the command, or change rsync -a",
+            "   in the command to rsync -e 'ssh -F <config file>' -a. The copy brings the payloads of every sample",
+            "   home. As a measured example, the payloads of one batch were 4.96 GB and took 1 min 54 s to copy, and",
+            "   your batch has its own size and time. For a larger batch, copy through a transfer host. At CHTC that",
+            "   is transfer.chtc.wisc.edu, which needs a NetID and Duo. That host is untested.",
         ])
-        let adoptNotes = staged([
+        let adoptNotes = passage([
             "   When no project is at <project>, the adopt makes one there. The adopt copies each payload into its",
-            "   bundle and leaves the returned copy where it is, so the Mac needs the space for the payloads twice.",
-            "   After the adopt the folder <sample>/out/ may be deleted.",
+            "   bundle and leaves the returned copy where it is, so the Mac needs the space for the payloads twice,",
+            "   unless the batch folder and the project are on one APFS volume, where the second copy shares the",
+            "   space of the first. After the adopt the folder <sample>/out/ may be deleted.",
         ])
-        let cleanUp = staged([
+        let removeReads = stagedReads
+            ? "\n   The staged reads may be removed too, once every job has run and you will not run the batch again."
+            : ""
+        let cleanUp = passage([
             "6. Clean up the staging folder last. When the adopt has finished and no sample was refused, the folders",
-            "   \(returned) in the staging folder may be removed. The staged reads may be removed too, once every job",
-            "   has run and you will not run the batch again.",
-        ])
-        let adoptStep3: String = stagedReads
-            ? ["3. Do not copy a logs/ folder, since the adopt reads no log. A run of \(script) leaves <sample>/\(logs)/",
-               "   beside <sample>/\(result)/, so copy the \(result)/ folder and not the whole sample folder. An HTCondor",
-               "   \(result)/ holds no \(logs)/. Do not copy a plan.json back from the Linux side, since the adopt must read",
-               "   the one the Mac wrote."].joined(separator: "\n")
-            : "3. Do not copy \(logs)/, since the adopt reads no log. Do not copy a plan.json back from the Linux\n"
-                + "   side, since the adopt must read the one the Mac wrote."
+            "   \(returned) in the staging folder may be removed.",
+        ]) + removeReads
+        let adoptStep3 = [
+            "3. Do not copy \(logs)/, since the adopt reads no log. Do not copy a plan.json back from the Linux",
+            "   side, since the adopt must read the one the Mac wrote. A run of \(script) leaves <sample>/\(logs)/ beside",
+            "   <sample>/\(result)/, so copy the files inside \(result)/ and not the whole sample folder. An HTCondor",
+            "   \(result)/ holds no \(logs)/, so there is nothing to leave out of it.",
+        ].joined(separator: "\n")
         return """
         \(fileName) - how to run the batch \(batch) and bring its results back to the Mac. Written by Lungfish.
 
