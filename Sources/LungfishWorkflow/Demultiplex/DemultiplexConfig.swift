@@ -80,8 +80,9 @@ public struct DemultiplexConfig: Sendable {
     /// custom adapter constructs.
     public let adapterContext: (any PlatformAdapterContext)?
 
-    /// Backend engine used for demultiplexing.
-    public let engine: DemultiplexEngine
+    /// Backend engine used for demultiplexing, or nil to let ``DemultiplexSearchRouteOwner`` choose from the kit
+    /// and the read names. An engine named here always searches the read bases, as recorded commands ran.
+    public let engine: DemultiplexEngine?
 
     /// Optional explicit asymmetric sample assignments.
     ///
@@ -184,7 +185,7 @@ public struct DemultiplexConfig: Sendable {
         polyGTrimQuality: Int? = nil,
         threads: Int = 4,
         adapterContext: (any PlatformAdapterContext)? = nil,
-        engine: DemultiplexEngine = .cutadapt,
+        engine: DemultiplexEngine? = nil,
         sampleAssignments: [FASTQSampleBarcodeAssignment] = [],
         sourcePlatform: LungfishIO.SequencingPlatform? = nil,
         rootBundleURL: URL? = nil,

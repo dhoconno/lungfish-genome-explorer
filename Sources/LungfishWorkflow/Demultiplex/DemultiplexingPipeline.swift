@@ -2338,31 +2338,12 @@ extension DemultiplexingPipeline {
         return entries
     }
 
-    /// Detects mate number from a read name.
-    /// Returns (baseReadID, mate) where mate is 0 (single), 1 (R1), or 2 (R2).
-    /// Handles both /1 /2 suffix format and Illumina " 1:N:0" " 2:N:0" format.
+    /// Detects mate number from a read name through the one read-name parser, ``FASTQReadNameIndex``.
+    /// Returns (baseReadID, mate) where mate is 0 (single), 1 (R1), or 2 (R2), from a /1 /2 suffix or an
+    /// Illumina " 1:N:0" " 2:N:0" comment.
     func detectMate(rawReadName: String) -> (readID: String, mate: Int) {
-        let parts = rawReadName.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
-        let identifier = parts.first.map(String.init) ?? rawReadName
-
-        // Check for /1 or /2 suffix
-        if identifier.hasSuffix("/1") {
-            return (String(identifier.dropLast(2)), 1)
-        }
-        if identifier.hasSuffix("/2") {
-            return (String(identifier.dropLast(2)), 2)
-        }
-        // Check for Illumina format: "READID 1:N:0:BARCODE" or "READID 2:N:0:BARCODE"
-        if parts.count > 1 {
-            let description = String(parts[1])
-            if description.hasPrefix("1:") {
-                return (identifier, 1)
-            }
-            if description.hasPrefix("2:") {
-                return (identifier, 2)
-            }
-        }
-        return (identifier, 0)
+        let name = FASTQReadNameIndex(rawName: rawReadName)
+        return (name.readID, name.mate)
     }
 
     func canonicalAdapterName(_ adapterName: String) -> String {
