@@ -5,7 +5,7 @@
 // Phase 3.3 lane DEMUXNULL, BIO-DEMUX-NULL. The floor of the first ruling computed chance for uniform random bases, and
 // real read starts are not uniform, so it published chance matches as samples on 61 of 87 cuts of 16 public runs. The chance
 // share of a barcode now comes from the start composition of the run's own unassigned reads (item 3), times a margin that
-// is the largest ratio of observed to expected reads over decoy barcodes in those same reads (item 4), and never falls
+// is the largest ratio of observed to expected reads over the decoys that chance does not explain (item 4, BIO-DEMUX-SPARSE-MARGIN), and never falls
 // below the uniform share (item 5). A run that cannot measure its own falls back to the uniform floor (item 6).
 
 import Foundation
