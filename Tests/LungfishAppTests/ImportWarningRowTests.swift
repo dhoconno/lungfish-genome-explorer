@@ -30,18 +30,20 @@ final class ImportWarningRowTests: XCTestCase {
         return try XCTUnwrap(center.items.first { $0.id == id })
     }
 
-    /// The row reads Completed with Warnings, and its detail line, the subtitle under the title, holds the Log's cause with
-    /// its counts. Red at the base, where the detail reads only `Imported S2_S2_L001.lungfishfastq`.
+    /// The row reads Completed with Warnings, and its detail line, the subtitle under the title, leads with the Log's cause
+    /// and its counts. The line is one label that cuts at the edge (88 characters at the width of the walk's panel), so the
+    /// count of dropped pairs must end inside the first 88 characters. Red at the picked tree, where `Imported X with a
+    /// warning.` leads and the count ends 126 characters in (76 once the cause leads).
     func testImportWithDroppedPairsNamesTheWarningInItsRow() throws {
         let item = try finishedImport(logging: [
             (.info, "Platform: Unknown"), (.warning, merge), (.info, "Statistics computed"),
         ])
 
         XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
-        XCTAssertTrue(item.detail.hasPrefix("Imported S2_S2_L001.lungfishfastq"), item.detail)
-        XCTAssertTrue(
-            item.detail.contains("kept 500 merged reads and dropped 1,500 pairs that did not merge"),
-            "the row names the Log's cause and its counts: \(item.detail)"
+        let count = try XCTUnwrap(item.detail.range(of: "1,500"), item.detail)
+        XCTAssertLessThan(
+            item.detail.distance(from: item.detail.startIndex, to: count.upperBound), 88,
+            "the count is in view: \(item.detail)"
         )
     }
 
@@ -51,7 +53,7 @@ final class ImportWarningRowTests: XCTestCase {
         let item = try finishedImport(logging: [(.warning, merge), (.warning, mates), (.warning, merge)])
 
         XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
-        XCTAssertTrue(item.detail.contains("with 2 warnings"), item.detail)
+        XCTAssertTrue(item.detail.hasPrefix("2 warnings. "), item.detail)
         XCTAssertTrue(item.detail.contains("dropped 1,500 pairs that did not merge"), item.detail)
         XCTAssertFalse(item.detail.contains("whose mate is missing"), "only the first cause is named: \(item.detail)")
         XCTAssertTrue(item.detail.hasSuffix("The Log names the other warning."), item.detail)
