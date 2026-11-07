@@ -940,7 +940,6 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         try Self.requireNoUnmanifestedFileSet(config: config)
         let fm = FileManager.default
         try fm.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
-
         // Build sample barcode pairs from assignments
         var sampleBarcodes: [ExactBarcodeDemuxConfig.SampleBarcodePair] = []
         for assignment in config.sampleAssignments {
