@@ -28,7 +28,7 @@ Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 807
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1332
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 967
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 992
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1110
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1103
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 827
 Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1119
 Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift 1024
@@ -50,7 +50,7 @@ Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+TableView.swift 1090
 Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift 5619
 Sources/LungfishApp/Views/Viewer/EnhancedCoordinateRulerView.swift 1159
 Sources/LungfishApp/Views/Viewer/FASTACollectionViewController.swift 1157
-Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 2315
+Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 2004
 Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift 2194
 Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift 4218
 Sources/LungfishApp/Views/Viewer/OperationPreviewView.swift 1766
@@ -146,7 +146,7 @@ Sources/LungfishWorkflow/Conda/CondaManager.swift 1413
 Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift 1214
 Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift 1552
 Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift 1592
-Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2499
+Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2488
 Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift 925
 Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 836
 Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1145
