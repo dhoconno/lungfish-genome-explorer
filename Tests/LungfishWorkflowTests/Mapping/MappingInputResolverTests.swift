@@ -166,7 +166,68 @@ final class MappingInputResolverTests: XCTestCase {
         XCTAssertNotNil(resolved.request.inputMaterializationStartedAt)
     }
 
+    // MARK: - Inputs that lie in one bundle are that bundle, once (BIO-BUNDLE-COUNTED-TWICE)
+
+    /// The FASTQ operations dialog sends every chunk path of an Oxford Nanopore import or a merged bundle.
+    /// Each path used to be read as the whole root, so three chunks of 12 reads were mapped as 36 reads and
+    /// the log named no repeat.
+    func testEveryChunkPathOfOneRootResolvesToTheRootOnce() async throws {
+        let chunked = try BundleCountedOnceFixtures.chunkedRoot(named: "chunked", in: root, chunks: 3, readsPerChunk: 4)
+        let resolved = try await resolveInputs(chunked.chunks)
+        XCTAssertEqual(resolved.request.inputFASTQURLs.count, 1)
+        let execution = try XCTUnwrap(resolved.request.inputFASTQURLs.first)
+        XCTAssertEqual(try FASTQPairInterleaver.countRecords(in: execution), 12)
+        XCTAssertEqual(resolved.request.originalInputFASTQURLs, [chunked.root])
+    }
+
+    /// `--paired` binds two files as R1 and R2. Two chunk paths of one root are one sample of single reads,
+    /// so `--paired` is set aside and the 8 reads are mapped once, not twice as 16.
+    func testTwoChunkPathsWithPairedResolveToTheRootAsSingleReads() async throws {
+        let chunked = try BundleCountedOnceFixtures.chunkedRoot(named: "chunked", in: root, chunks: 2, readsPerChunk: 4)
+        let resolved = try await resolveInputs(chunked.chunks, pairedEnd: true)
+        XCTAssertFalse(resolved.request.pairedEnd)
+        XCTAssertEqual(resolved.request.inputFASTQURLs.count, 1)
+        let execution = try XCTUnwrap(resolved.request.inputFASTQURLs.first)
+        XCTAssertEqual(try FASTQPairInterleaver.countRecords(in: execution), 8)
+        XCTAssertEqual(resolved.layoutResolution.layout, .singleEnd)
+    }
+
+    /// A bundle and one of its own files are the bundle, once: its pair maps as a pair, not as two pooled copies.
+    func testABundleAndItsOwnFileResolveToTheBundleOnce() async throws {
+        let paired = try BundleCountedOnceFixtures.pairedRoot(named: "pairroot", in: root, pairs: 4)
+        let resolved = try await resolveInputs([paired.root, paired.r1])
+        XCTAssertTrue(resolved.request.pairedEnd)
+        XCTAssertEqual(resolved.request.inputFASTQURLs, [paired.r1, paired.r2])
+    }
+
+    /// Both files of a root of R1 and R2 files, with `--paired` (the FASTQ operations dialog's argv), are the pair.
+    func testBothFilesOfAPairedRootWithPairedResolveToThePair() async throws {
+        let paired = try BundleCountedOnceFixtures.pairedRoot(named: "pairroot", in: root, pairs: 4)
+        let resolved = try await resolveInputs([paired.r1, paired.r2], pairedEnd: true)
+        XCTAssertTrue(resolved.request.pairedEnd)
+        XCTAssertEqual(resolved.request.inputFASTQURLs, [paired.r1, paired.r2])
+    }
+
+    /// The four files of two paired roots are two samples of pairs, and each pair is pooled once.
+    func testFilesOfTwoPairedRootsPoolEachPairOnce() async throws {
+        let first = try BundleCountedOnceFixtures.pairedRoot(named: "a", in: root, pairs: 4)
+        let second = try BundleCountedOnceFixtures.pairedRoot(named: "b", in: root, pairs: 4)
+        let resolved = try await resolveInputs([first.r1, first.r2, second.r1, second.r2])
+        XCTAssertTrue(resolved.request.pairedEnd)
+        XCTAssertEqual(resolved.request.inputFASTQURLs.count, 2)
+        for file in resolved.request.inputFASTQURLs {
+            XCTAssertEqual(try FASTQPairInterleaver.countRecords(in: file), 8, file.lastPathComponent)
+        }
+    }
+
     // MARK: - Helpers
+
+    private func resolveInputs(_ inputs: [URL], pairedEnd: Bool = false) async throws -> MappingResolvedInputs {
+        try await MappingInputResolver.resolve(
+            request: request(inputs, tool: .minimap2, modeID: MappingMode.defaultShortRead.id, pairedEnd: pairedEnd),
+            materializer: fixtures.materializer
+        )
+    }
 
     private func resolve(_ input: URL, tool: MappingTool, modeID: String? = nil) async throws -> MappingResolvedInputs {
         let mode = modeID ?? (tool == .bbmap ? MappingMode.bbmapStandard.id : MappingMode.defaultShortRead.id)
@@ -176,7 +237,7 @@ final class MappingInputResolverTests: XCTestCase {
         )
     }
 
-    private func request(_ inputs: [URL], tool: MappingTool, modeID: String) -> MappingRunRequest {
+    private func request(_ inputs: [URL], tool: MappingTool, modeID: String, pairedEnd: Bool = false) -> MappingRunRequest {
         MappingRunRequest(
             tool: tool,
             modeID: modeID,
@@ -184,6 +245,7 @@ final class MappingInputResolverTests: XCTestCase {
             referenceFASTAURL: root.appendingPathComponent("reference.fa"),
             outputDirectory: root.appendingPathComponent("out-\(UUID().uuidString)", isDirectory: true),
             sampleName: "sample",
+            pairedEnd: pairedEnd,
             threads: 1
         )
     }

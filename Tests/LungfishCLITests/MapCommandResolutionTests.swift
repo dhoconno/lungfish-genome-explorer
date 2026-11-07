@@ -183,6 +183,42 @@ final class MapCommandResolutionTests: XCTestCase {
         }
     }
 
+    /// BIO-BUNDLE-COUNTED-TWICE. The FASTQ operations dialog sends every chunk path of an Oxford Nanopore
+    /// import or a merged bundle, and each path used to be read as the whole root, so 12 reads were mapped as
+    /// 36 with no word. This runs the managed minimap2 and samtools in process.
+    func testMapOfEveryChunkPathMapsEachReadOnce() async throws {
+        let conda = CondaManager.shared.rootPrefix
+        for tool in ["minimap2", "samtools"]
+        where !FileManager.default.isExecutableFile(atPath: conda.appendingPathComponent("envs/\(tool)/bin/\(tool)").path) {
+            try ToolAvailability.skipOrFail("The managed \(tool) is not installed.")
+        }
+        let chunked = try BundleCountedOnceFixtures.chunkedRoot(
+            named: "chunked", in: root.appendingPathComponent("chunked-input", isDirectory: true), chunks: 3, readsPerChunk: 4
+        )
+        let reference = root.appendingPathComponent("ref.fa")
+        try ">ref\n\(BundleCountedOnceFixtures.reference())\n".write(to: reference, atomically: true, encoding: .utf8)
+        let command = try MapCommand.parse(
+            chunked.chunks.map(\.path) + [
+                "--reference", reference.path, "--format", "json",
+                "--output-dir", root.appendingPathComponent("mapped", isDirectory: true).path,
+            ]
+        )
+        let scratch = try ImportStreamCapture.Scratch()
+        defer { scratch.remove() }
+        let output = try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
+
+        XCTAssertNil(output.thrown, "\(String(describing: output.thrown)) \(output.standardError.joined(separator: "\n"))")
+        let events = output.standardOutput.compactMap { line in
+            (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+        }
+        let complete = events.first { $0["event"] as? String == "complete" }
+        XCTAssertEqual(complete?["message"] as? String, "Mapping complete: 12/12 reads mapped")
+        XCTAssertTrue(
+            events.contains { ($0["message"] as? String)?.contains("each bundle is read once, as the bundle") == true },
+            "the log names the repeat: \(output.standardOutput)"
+        )
+    }
+
     // MARK: - Helpers
 
     /// Resolves through the call `lungfish-cli map` and the Map Reads window make.
