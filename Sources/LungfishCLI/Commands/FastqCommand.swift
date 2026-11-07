@@ -510,6 +510,16 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             ])
         }
 
+        // Barcodes at or below BIO's chance floor keep their outputs and are named with their counts (L5).
+        if let floor = result.chanceFloor {
+            provenanceParameters["chanceFloor"] = .dictionary([
+                "kitTail": .number(DemultiplexChanceFloor.kitTail),
+                "barcodesWithinChance": .dictionary(Dictionary(
+                    floor.barcodesWithinChance.map { ($0.barcodeID, ParameterValue.integer($0.readCount)) },
+                    uniquingKeysWith: { first, _ in first }
+                )),
+            ])
+        }
         let demultiplexEnvelope = try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish fastq demultiplex",
             parameters: provenanceParameters,
@@ -562,6 +572,12 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             ).utf8))
         }
         FileHandle.standardError.write(Data("Barcodes with reads: \(result.manifest.barcodes.filter { $0.readCount > 0 }.count)\n".utf8))
+        if let within = result.chanceFloor?.barcodesWithinChance, !within.isEmpty {
+            FileHandle.standardError.write(Data((
+                "Within chance (no more reads than chance matches give at this error rate): "
+                + within.map { "\($0.barcodeID) \($0.readCount)" }.joined(separator: ", ") + "\n"
+            ).utf8))
+        }
         FileHandle.standardError.write(Data("Output: \(output)\n".utf8))
         FileHandle.standardError.write(Data("Time: \(String(format: "%.1f", result.wallClockSeconds))s\n".utf8))
 

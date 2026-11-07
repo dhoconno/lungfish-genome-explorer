@@ -25,4 +25,8 @@ public struct DemultiplexResult: Sendable {
     /// Exact native argv used for the primary demultiplexing tool, when the run
     /// uses an external native tool.
     public let nativeCommand: [String]?
+
+    /// BIO's chance floor of a search of the bare bases, with the barcodes at or below it (L5), or nil when the
+    /// run's search does not take the floor.
+    public var chanceFloor: DemultiplexChanceFloor.Outcome? = nil
 }
