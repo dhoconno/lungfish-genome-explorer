@@ -103,6 +103,7 @@ An action names the agents by id, the evidence, and the exact text the manager s
 | `get_usage` called with a session id from a subagent answers that the session is not found | Call it with no argument, and it reports the manager's context |
 | Subagents write 5-minute cache entries, the main session 1-hour entries | A subagent wait over 5 minutes rebuilds its cache |
 | A session runs past midnight | A helper given an `HH:MM` start earlier than the session's first entry reads it as the next day, and one later than it as the first day. Give day-two windows in hours past 24 (36:20 is 12:20 on day two) |
+| A session continued in a new window leaves the old session's transcript growing | Slice the old id from the last ledger's end with `s2_slice.py` in `SCR/llm/` |
 | Claude Code 2.1.295 wrote most subagent messages with stop_reason None and the usage of message_start, and the build of 2026-10-15 left 0 to 2 such messages a run | The ledger charges such a message the output estimated from its content, and a check of its totals needs `cost-state` entries |
 
 ## The end run's commits
