@@ -971,11 +971,11 @@ def chapter_operation(pid: str, project: pathlib.Path, outputs: pathlib.Path, ru
                 counted[track["name"]] = int(rows) if rows.isdigit() else None
         for name, rows in expected_rows.items():
             check(f"variant track {name!r} has {rows:,} rows", counted.get(name) == rows, f"rows={counted.get(name)}")
-        # 01-foundations/08: the unsigned bundle stops provenance verify with a named reason.
+        # 01-foundations/08: provenance verify on the unsigned bundle says that its record carries no signature, with exit 3.
         ref = project / "Reference Sequences/GRCh38.chr20.10.0-10.5Mb.lungfishref"
         r = runner.run(["provenance", "verify", ref], "provenance-verify", check=False)
-        check("01-foundations/08 provenance verify names the missing signature",
-              r.returncode != 0 and "Signature artifact is missing" in (r.stdout + r.stderr), (r.stdout + r.stderr).strip()[-200:])
+        check("01-foundations/08 provenance verify says the record carries no signature",
+              r.returncode == 3 and "carries no signature" in (r.stdout + r.stderr), (r.stdout + r.stderr).strip()[-200:])
         # 08-workflows/02: the mapping result exports as a Nextflow pipeline.
         export = outputs / f"{analysis.name}-provenance-nextflow"
         r = runner.run(["provenance", "export", analysis, "--format", "nextflow", "--output", export], "provenance-export", check=False)
