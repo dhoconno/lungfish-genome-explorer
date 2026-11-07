@@ -159,6 +159,11 @@ final class ProvenanceVerifyCommandTests: XCTestCase {
         XCTAssertTrue(run.stderr.contains(provenanceURL.path), run.stderr)
         XCTAssertFalse(run.stderr.contains("Workflow execution failed"), run.stderr)
         XCTAssertFalse(run.stderr.contains("Signature artifact is missing"), run.stderr)
+        // UX SF3 (c): a person sent a record alone needs the path of the signature file that was not found.
+        XCTAssertTrue(run.stderr.contains(provenanceURL.lastPathComponent + ".signature.json"), run.stderr)
+        // UX SF3 (a): the words say what each variable holds. Fact W3: some records are never signed.
+        XCTAssertTrue(words.contains("holds the path of a file"), run.stderr)
+        XCTAssertTrue(words.contains("never signed"), run.stderr)
         XCTAssertEqual(Self.exitStatus(of: run.error), CLIExitCode.inputError.rawValue, "the exit status of an unsigned record")
     }
 
@@ -189,7 +194,32 @@ final class ProvenanceVerifyCommandTests: XCTestCase {
         XCTAssertTrue(words.contains("on purpose"), run.stderr)
         XCTAssertTrue(run.stderr.contains(bundle.lastPathComponent), "the words name the run bundle\n\(run.stderr)")
         XCTAssertTrue(run.stderr.contains("lungfish-cli provenance verify"), run.stderr)
+        // UX SF3 (b): the path in the command is quoted, so a bundle in `My Project.lungfish` pastes as one word.
+        XCTAssertTrue(run.stderr.contains(bundle.lastPathComponent + "'"), run.stderr)
         XCTAssertEqual(Self.exitStatus(of: run.error), CLIExitCode.inputError.rawValue, "the exit status of the copy")
+    }
+
+    /// The run bundle's own record matches a Viral Recon run by name, but it is not the copy in the results folder, so it
+    /// gets the words for an unsigned record and none about a copy kept on purpose (fact check W4).
+    func testVerifyOfAnUnsignedRunBundleRecordDoesNotCallItTheViralReconCopy() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let bundle = directory.appendingPathComponent(
+            "nf-core-viralrecon.\(NFCoreRunBundleStore.directoryExtension)", isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let envelope = ProvenanceEnvelope.fixture(workflowName: "nf-core/viralrecon", toolName: "nextflow")
+        let recordURL = bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try ProvenanceJSON.encoder.encode(envelope).write(to: recordURL, options: .atomic)
+
+        let command = try ProvenanceCommand.VerifySubcommand.parse([recordURL.path])
+        let run = await captureStandardError { try await command.run() }
+
+        let words = run.stderr.lowercased()
+        XCTAssertTrue(words.contains("carries no signature"), run.stderr)
+        XCTAssertFalse(words.contains("viral recon"), run.stderr)
+        XCTAssertFalse(words.contains("on purpose"), run.stderr)
+        XCTAssertEqual(Self.exitStatus(of: run.error), CLIExitCode.inputError.rawValue, "the exit status of the bundle's own record")
     }
 
     /// A signature file the person names with `--signature` that is not there is a different case from a record that
