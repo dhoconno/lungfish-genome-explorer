@@ -98,7 +98,9 @@ BUILD_FOR_TESTING_CMD=(
   -project "$PROJECT_PATH" \
   -scheme "$SCHEME_NAME" \
   -destination "$DESTINATION" \
-  -derivedDataPath "$DERIVED_DATA_PATH"
+  -derivedDataPath "$DERIVED_DATA_PATH" \
+  CODE_SIGN_IDENTITY=- \
+  CODE_SIGNING_ALLOWED=YES
 )
 if [ "${#ONLY_TESTING_ARGS[@]}" -gt 0 ]; then
   BUILD_FOR_TESTING_CMD+=("${ONLY_TESTING_ARGS[@]}")
