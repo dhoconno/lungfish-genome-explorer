@@ -28,9 +28,12 @@ OPTIONS:
   --read-limit <read-limit>
                           Maximum reads to scan (default: 10000)
   --accept-threshold <accept-threshold>
-                          Minimum hits to auto-accept a barcode (default: 10)
+                          Minimum hits to auto-accept a barcode found in the
+                          read bases (a count from the read-name index is
+                          accepted above its chance bound) (default: 10)
   --reject-threshold <reject-threshold>
-                          Maximum hits to auto-reject a barcode (default: 3)
+                          Maximum hits to auto-reject a barcode found in the
+                          read bases (default: 3)
   --error-rate <error-rate>
                           Override barcode matching error rate
   --overlap <overlap>     Override minimum barcode overlap
