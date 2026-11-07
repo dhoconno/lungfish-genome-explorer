@@ -10,7 +10,7 @@ import Synchronization
 ///
 /// `runBlocking`, both `waitBlocking` calls, `read(upTo:)` and `writeBlocking` call ``check(_:)`` first. A release
 /// build compiles every check to nothing (Phase 2.13 lane 13.05, SWIFT ruling on M3, vote V2-3).
-package enum ToolProcessMainThreadGuard {
+public enum ToolProcessMainThreadGuard {
     private struct State {
         var armed = false
         var recorder: (@Sendable (String) -> Void)?
@@ -18,7 +18,7 @@ package enum ToolProcessMainThreadGuard {
     private static let state = Mutex(State())
 
     /// Called once by the debug app before its delegate and run loop start.
-    package static func arm() {
+    public static func arm() {
         #if DEBUG
         state.withLock { $0.armed = true }
         #endif
