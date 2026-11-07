@@ -34,7 +34,7 @@ extension DemultiplexChanceFloor {
             } else {
                 pending = record
             }
-            if seen >= compositionReadLimit { break }
+            if seen >= compositionReadLimit { for index in tallies.indices { tallies[index].coversEveryRead = false }; break }
         }
         return tallies
     }

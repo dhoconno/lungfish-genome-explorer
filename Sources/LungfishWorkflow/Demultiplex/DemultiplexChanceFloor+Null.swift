@@ -21,6 +21,8 @@ extension DemultiplexChanceFloor {
     public static let saturatedKitShare = 0.5
     /// The margin never falls below this (item 4).
     public static let minimumMargin = 2.0
+    /// A decoy sets the margin only when chance at twice its composition share gives its reads with less than this tail over the run's decoys (BIO-DEMUX-SPARSE-MARGIN).
+    public static let decoyTail = 0.01
     /// A side with more errors than this holds hundreds of thousands of matching read starts a decoy, so its kit keeps the
     /// floor of random bases (item 6, DEMUXNULL-BIO SF2). The walk grows about 70-fold per allowed error.
     public static let maximumDecoyErrors = 2
@@ -114,10 +116,12 @@ extension DemultiplexChanceFloor {
         return MeasuredNull(compositions: compositions, margin: margin, windows: used.reduce(0) { $0 + $1.windows })
     }
 
-    /// The largest ratio of observed to expected reads over the decoys of every barcode length, nil when a length has
-    /// fewer than 100 decoys. A decoy sits at edit distance `2e + 1` or more from every barcode of its length, so a read it
-    /// matches matches no barcode and is always among the unassigned reads. Observed is the tallied windows whose start
-    /// matches the decoy at the anchored rule. Expected is the windows tallied times the decoy's chance under the composition.
+    /// The largest ratio of observed to expected reads over the decoys whose reads chance at twice their share gives with a
+    /// tail under 0.01 over the decoys, nil when a length has fewer than 100 decoys. When the tally stopped at the read limit,
+    /// the barcodes are counted on more reads than the decoys, so every decoy counts. A decoy sits at edit distance `2e + 1`
+    /// or more from every barcode of its length, so a read it matches matches no barcode and is always among the unassigned
+    /// reads. Observed is the tallied windows whose start matches the decoy at the anchored rule. Expected is the windows
+    /// tallied times the decoy's chance under the composition.
     static func largestDecoyRatio(
         byLength: [Int: Set<[UInt8]>], barcodeCount: Int, errorRate: Double, allowsIndels: Bool,
         tally: StartTally, composition: [[Double]]
@@ -129,7 +133,7 @@ extension DemultiplexChanceFloor {
         }
         guard let lowest = spans.map(\.lowerBound).min(), let highest = spans.map(\.upperBound).max() else { return nil }
         let windowCounts = tally.prefixCounts(lengths: lowest...highest)
-        var largest = 0.0
+        var measured: [(ratio: Double, observed: Int, share: Double)] = []
         for length in lengths {
             let errors = allowedErrors(length: length, errorRate: errorRate)
             let decoys = decoyBank(
@@ -139,16 +143,22 @@ extension DemultiplexChanceFloor {
             guard decoys.count >= minimumDecoys else { return nil }
             for decoy in decoys {
                 var observed = 0
-                var expected = 0.0
+                var share = 0.0
                 for key in decoy.keys {
                     observed += windowCounts[key] ?? 0
-                    expected += weight(of: key, in: composition)
+                    share += weight(of: key, in: composition)
                 }
-                expected *= Double(tally.windows)
-                if expected > 0 { largest = max(largest, Double(observed) / expected) }
+                if share > 0 { measured.append((Double(observed) / (share * Double(tally.windows)), observed, share)) }
             }
         }
-        return largest
+        guard tally.coversEveryRead else { return measured.map(\.ratio).max() ?? 0 }
+        let tail = decoyTail / Double(max(1, measured.count))
+        for entry in measured.sorted(by: { $0.ratio > $1.ratio }) where entry.ratio > minimumMargin {
+            if upperTail(trials: tally.windows, probability: min(1, minimumMargin * entry.share), from: entry.observed) < tail {
+                return entry.ratio
+            }
+        }
+        return 0
     }
 
     /// The chance a read begins with the prefix packed in `key`, as the product of the composition's shares.
