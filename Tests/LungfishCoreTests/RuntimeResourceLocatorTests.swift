@@ -498,6 +498,81 @@ struct RuntimeResourceLocatorTests {
         #expect(resolved == nil)
     }
 
+    /// Phase 3.3 lane CLISYM, row CLI-SYMLINK-LOCK (walk W-35). A command-line tool run through a symlink, which is how a
+    /// person installs one on PATH, reports the link as its executable and the link's folder as its resources, so the app
+    /// that holds the binary was never found and `taxtriage run` refused with exit 126 and "the tool lock has no pinned
+    /// version". The lookup starts from the binary the link names.
+    @Test("A tool lock lookup through a symlink finds the lock beside the binary")
+    func testToolLockLookupThroughASymlinkFindsTheLockBesideTheBinary() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("runtime-resource-cli-symlink-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        let appContents = tempRoot.appendingPathComponent("Lungfish.app/Contents", isDirectory: true)
+        let binary = appContents.appendingPathComponent("MacOS/lungfish-cli")
+        let lock = appContents
+            .appendingPathComponent("Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle")
+            .appendingPathComponent("Contents/Resources/ManagedTools/third-party-tools-lock.json")
+        let linkFolder = tempRoot.appendingPathComponent("usr-local-bin", isDirectory: true)
+        let link = linkFolder.appendingPathComponent("lungfish-cli")
+        for folder in [binary.deletingLastPathComponent(), lock.deletingLastPathComponent(), linkFolder] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        try Data("#!/bin/sh\n".utf8).write(to: binary)
+        try "{}".write(to: lock, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: binary)
+
+        // What Bundle.main reports. Run directly, it names the app's own folders. Run through the link, it names the link
+        // and the link's folder (checked on this Mac with a probe tool built into an app folder and linked from another).
+        func lookup(executable: URL, resources: URL) -> URL? {
+            RuntimeResourceLocator.path(
+                "ManagedTools/third-party-tools-lock.json",
+                in: .workflow,
+                mainResourceURL: resources,
+                executableURL: executable,
+                currentWorkingDirectoryURL: nil,
+                fileManager: .default
+            )
+        }
+        let expected = lock.resolvingSymlinksInPath().path
+        let direct = lookup(executable: binary, resources: appContents.appendingPathComponent("Resources", isDirectory: true))
+        #expect(direct?.resolvingSymlinksInPath().path == expected, "the binary itself finds the lock")
+        let linked = lookup(executable: link, resources: linkFolder)
+        #expect(linked?.resolvingSymlinksInPath().path == expected, "a link to the binary finds the lock beside the binary")
+    }
+
+    /// Resolving the link must not widen the search. A link to a binary that sits in no app has no lock beside it to find,
+    /// as a binary that sits there with no link has none (`standaloneCLIHasNoImplicitAdjacentSwiftPMBundleFallback`).
+    @Test("A symlink to a binary that sits in no app finds no lock")
+    func linkToABinaryOutsideAnyAppFindsNoLock() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("runtime-resource-cli-stray-link-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        let strayFolder = tempRoot.appendingPathComponent("stray", isDirectory: true)
+        let stray = strayFolder.appendingPathComponent("lungfish-cli")
+        let beside = strayFolder
+            .appendingPathComponent("LungfishGenomeBrowser_LungfishWorkflow.bundle")
+            .appendingPathComponent("ManagedTools/third-party-tools-lock.json")
+        let linkFolder = tempRoot.appendingPathComponent("usr-local-bin", isDirectory: true)
+        let link = linkFolder.appendingPathComponent("lungfish-cli")
+        for folder in [beside.deletingLastPathComponent(), linkFolder] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        try Data("#!/bin/sh\n".utf8).write(to: stray)
+        try "{}".write(to: beside, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: stray)
+
+        let found = RuntimeResourceLocator.path(
+            "ManagedTools/third-party-tools-lock.json",
+            in: .workflow,
+            mainResourceURL: linkFolder,
+            executableURL: link,
+            currentWorkingDirectoryURL: nil,
+            fileManager: .default
+        )
+
+        #expect(found == nil, "a lock beside a binary that sits in no app is not a lock")
+    }
+
     @Test
     func resolvesAppResourcesFromMainBundleRoot() throws {
         let tempRoot = FileManager.default.temporaryDirectory
