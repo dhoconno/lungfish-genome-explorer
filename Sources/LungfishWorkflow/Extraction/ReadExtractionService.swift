@@ -136,9 +136,9 @@ public actor ReadExtractionService {
         }
 
         progress?(0.8, "Counting extracted reads...")
-
-        // Count reads in the first output file
-        let readCount = try await countReads(in: outputURLs[0])
+        // Count the reads of every output file, since a paired-end extraction writes one file per mate (PAIREDROOT).
+        var readCount = 0
+        for outputURL in outputURLs { readCount += try await countReads(in: outputURL) }
 
         guard readCount > 0 else {
             throw ExtractionError.emptyExtraction

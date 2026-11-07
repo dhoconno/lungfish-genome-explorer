@@ -410,7 +410,7 @@ public struct ExtractionResult: Sendable {
     /// paired-end extractions.
     public let fastqURLs: [URL]
 
-    /// The number of reads extracted (or read pairs for paired-end data).
+    /// The number of reads extracted, counted over every output file. Four pairs written as two files are 8 reads.
     public let readCount: Int
 
     /// Whether the extracted data is paired-end.
@@ -425,7 +425,7 @@ public struct ExtractionResult: Sendable {
     ///
     /// - Parameters:
     ///   - fastqURLs: Output FASTQ file URL(s).
-    ///   - readCount: Number of reads (or pairs) extracted.
+    ///   - readCount: Number of reads extracted, over every output file.
     ///   - pairedEnd: Whether the output is paired-end.
     ///   - pairingMode: The pairing to record; derived from `pairedEnd` when nil.
     public init(
