@@ -310,4 +310,22 @@ final class DemultiplexSearchRouteTests: XCTestCase {
         XCTAssertTrue(words.hasPrefix("refuse: Barcodes S1 and S2 differ at 4 bases"), words)
         XCTAssertTrue(words.contains("Correct the definition, or remove one of the two barcodes."), words)
     }
+
+    /// ARCH C1 (ruling ARCH-DEMUX-PLAN-CONTROL): a definition whose `# kit:` line names a built-in kit is probed with
+    /// that kit's barcodes, so a plan of one sample, or one whose second sample has no reads in the first names, routes
+    /// as the kit's own run on the same file does. The split still holds only the definition's rows.
+    func testDefinitionOfOneSampleIsProbedWithItsKitsBarcodes() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("probe-kit-\(UUID().uuidString).csv")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try "# kit: truseq-single-a\nid,sequence,sample_name\nS1,ATTACTCG,Sample 1\n"
+            .write(to: url, atomically: true, encoding: .utf8)
+        let definition = try BarcodeKitRegistry.loadCustomKit(from: url, name: "plan")
+        let two = Array(repeating: "1:N:0:ATTACTCG", count: 900) + Array(repeating: "1:N:0:TCCGGAGA", count: 100)
+        XCTAssertEqual(label(DemultiplexSearchRouteOwner.route(for: config(BarcodeKitRegistry.truseqSingleA), names: names(two))), "headerIndex")
+        XCTAssertEqual(
+            label(DemultiplexSearchRouteOwner.route(for: config(definition), names: names(two))), "headerIndex",
+            "the definition of one sample was probed with its own row, not its kit's barcodes"
+        )
+        XCTAssertEqual(definition.barcodes.map(\.id), ["S1"])
+    }
 }

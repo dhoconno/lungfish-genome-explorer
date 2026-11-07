@@ -36,12 +36,14 @@ final class DemultiplexDrawerPlanRunTests: XCTestCase {
     private static let d702 = "TCCGGAGA"
 
     /// 1,000 names carry D701, 100 D702 and 10 an index of N, on bases that hold no barcode of the kit.
-    private func writeHeaderIndexedReads() throws -> URL {
+    private func writeHeaderIndexedReads(inFolder folder: String? = nil) throws -> URL {
         let indexes = Array(repeating: Self.d701, count: 1_000) + Array(repeating: Self.d702, count: 100)
             + Array(repeating: "NNNNNNNN", count: 10)
         let sequence = String(repeating: "GATTACA", count: 21)
         let quality = String(repeating: "I", count: sequence.count)
-        let input = project.appendingPathComponent("mixed.fastq")
+        let directory = folder.map { project.appendingPathComponent($0, isDirectory: true) } ?? project
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let input = directory.appendingPathComponent("mixed.fastq")
         try indexes.enumerated().map { "@r\($0.offset) 1:N:0:\($0.element)\n\(sequence)\n+\n\(quality)\n" }.joined()
             .write(to: input, atomically: true, encoding: .utf8)
         return input
@@ -70,15 +72,17 @@ final class DemultiplexDrawerPlanRunTests: XCTestCase {
         )
     }
 
-    /// The dialog as Demultiplex… opens it, after the person presses Run.
+    /// The dialog as Demultiplex… opens it, after the person presses Run. The state comes from the presenter's own
+    /// builder, so the test drives the presenter's order of `selectTool` and `configure` (ruling ARCH-DEMUX-PLAN-CONTROL
+    /// item 2).
     private func dialogRequest(_ launch: FASTQDemultiplexPlanLaunch) throws -> FASTQOperationLaunchRequest {
-        let state = FASTQOperationDialogState(
-            initialCategory: FASTQOperationToolID.demultiplexBarcodes.categoryID,
+        let state = FASTQOperationsDialogPresenter.makeState(
             selectedInputURLs: launch.inputURLs,
-            projectURL: project
+            initialCategory: FASTQOperationToolID.demultiplexBarcodes.categoryID,
+            initialToolID: .demultiplexBarcodes,
+            projectURL: project,
+            configure: launch.configure
         )
-        state.selectTool(.demultiplexBarcodes)
-        launch.configure(state)
         state.prepareForRun()
         return try XCTUnwrap(state.pendingLaunchRequest, "the dialog made no request from the plan")
     }
@@ -253,5 +257,70 @@ final class DemultiplexDrawerPlanRunTests: XCTestCase {
         let column = try XCTUnwrap(table.tableColumn(withIdentifier: .init("outputName")), "the table shows no output name")
         XCTAssertEqual(drawer.tableView(table, objectValueFor: column, row: 0) as? String, "NTC_1")
         XCTAssertEqual(drawer.tableView(table, objectValueFor: column, row: 1) as? String, "plate_A1")
+    }
+
+    // MARK: - Ruling ARCH-DEMUX-PLAN-CONTROL, C1 to C4
+
+    /// C1, route parity: a plan of one sample of the default Illumina kit splits by the read names, as the kit's own
+    /// run on the same file does, and the reads of the kit's other barcodes go to Unassigned.
+    func testDrawerPlanOfOneSampleRoutesAsItsKitDoes() async throws {
+        let input = try writeHeaderIndexedReads()
+        let output = project.appendingPathComponent("Analyses/one", isDirectory: true)
+        let argv = try await runDialog(try launch(plan(["S1"]), input: input), into: output)
+
+        XCTAssertNil(value(after: "--engine", in: argv), "the dialog chose the route for the route owner: \(argv)")
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: output))
+        XCTAssertEqual(value(after: "--engine", in: envelope.argv), "header-index", "\(envelope.argv)")
+        XCTAssertEqual(try counts(output), ["S1": 1_000])
+        XCTAssertEqual(try XCTUnwrap(DemultiplexManifest.load(from: output)).unassigned.readCount, 110)
+    }
+
+    /// C2: a definition is never rewritten. Two datasets with one file name get two definitions, and a second
+    /// Demultiplex… of the same plan reuses the first file.
+    func testPlansOfTwoDatasetsWithOneNameNeverShareADefinition() throws {
+        let a = try writeHeaderIndexedReads(inFolder: "a")
+        let b = try writeHeaderIndexedReads(inFolder: "b")
+        let first = try launch(plan(["S1", "S2"]), input: a)
+        let second = try launch(plan(["T1", "T2"]), input: b)
+
+        XCTAssertNotEqual(canonical(first.definitionURL.path), canonical(second.definitionURL.path),
+                          "two datasets with one name share one definition")
+        XCTAssertTrue(try String(contentsOf: first.definitionURL, encoding: .utf8).contains("S1"),
+                      "the second plan rewrote the first plan's definition")
+        let again = try launch(plan(["S1", "S2"]), input: a)
+        XCTAssertEqual(canonical(again.definitionURL.path), canonical(first.definitionURL.path))
+        let folder = project.appendingPathComponent("Barcode Definitions")
+        let files = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { !$0.hasPrefix(".") }
+        XCTAssertEqual(files.count, 2, "\(files)")
+    }
+
+    /// C3: Demultiplex… runs a plan of one step. A plan of two steps, or one that names samples across steps, refuses
+    /// in words that name the count, before any file is written.
+    func testDrawerPlanOfTwoStepsRefusesInWords() throws {
+        let input = try writeHeaderIndexedReads()
+        var twoSteps = plan(["S1", "S2"])
+        twoSteps.steps.append(DemultiplexStep(
+            label: "Inner", barcodeKitID: "truseq-single-a", sampleAssignments: twoSteps.steps[0].sampleAssignments,
+            ordinal: 1
+        ))
+        XCTAssertThrowsError(try launch(twoSteps, input: input)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("2 steps"), error.localizedDescription)
+        }
+        var composite = plan(["S1", "S2"])
+        composite.compositeSampleNames = ["D701/D702": "Patient 42"]
+        XCTAssertThrowsError(try launch(composite, input: input))
+        let definitions = project.appendingPathComponent("Barcode Definitions")
+        let written = (try? FileManager.default.contentsOfDirectory(atPath: definitions.path)) ?? []
+        XCTAssertEqual(written, [], "a refused plan wrote a definition")
+    }
+
+    /// C4: output names collide over every row. A typed name equal to another row's barcode ID, which names that row's
+    /// output, refuses in words that name it, and a name cleared to spaces counts as no name.
+    func testDrawerPlanRefusesATypedNameThatIsAnotherRowsBarcode() throws {
+        let input = try writeHeaderIndexedReads()
+        XCTAssertThrowsError(try launch(plan(["D702", nil]), input: input)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("D702"), error.localizedDescription)
+        }
+        XCTAssertEqual(DemultiplexPlanDefinition.outputName(for: assignment("D701", Self.d701, name: "  ")), "D701")
     }
 }
