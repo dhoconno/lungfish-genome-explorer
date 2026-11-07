@@ -51,6 +51,10 @@ final class DemultiplexHeaderIndexSplitTests: XCTestCase {
                 .appendingPathComponent("read-ids.txt")
             ids[barcode.barcodeID] = Set(try String(contentsOf: list, encoding: .utf8).split(separator: "\n").map(String.init))
         }
+        if let path = result.manifest.unassigned.bundleRelativePath {
+            let list = output.appendingPathComponent(path, isDirectory: true).appendingPathComponent("read-ids.txt")
+            ids["unassigned"] = Set(try String(contentsOf: list, encoding: .utf8).split(separator: "\n").map(String.init))
+        }
         return ids
     }
 

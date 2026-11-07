@@ -7,12 +7,18 @@ import LungfishIO
 
 /// Where a demultiplexing run looks for each read's barcode.
 public enum DemultiplexSearchRoute: Sendable {
-    /// The read names carry the kit's indexes, so the run must split by the index in the read names.
+    /// The read names carry the kit's indexes, so the run splits the reads by the index in their names.
     case headerIndex
     /// The run searches the read bases with this context.
     case inline(any PlatformAdapterContext)
     /// The run cannot start, for the reason the words give.
     case refuse(String)
+
+    /// Whether the run splits the reads by the index in their names.
+    public var isHeaderIndex: Bool {
+        if case .headerIndex = self { return true }
+        return false
+    }
 }
 
 /// The one owner of the search route (ARCH pin 1 of the 3.3 meeting). The run and the CLI ask it, and no other
@@ -24,9 +30,9 @@ public enum DemultiplexSearchRoute: Sendable {
 /// route only when two or more kit barcodes are present in them (ruling BIO-DEMUX-FLOOR item 1, see
 /// ``presentBarcodes(of:in:)``). Otherwise the run searches the bases, so a GBS or ddRAD lane whose names carry its
 /// one library index keeps its inline split, and one sample's file ends in the chance floor's words. A custom
-/// definition is searched as a bare index, as an Illumina kit is, so its run reads the names too. An
-/// explicit engine, a context override or sample assignments always search the bases, as recorded commands of
-/// earlier versions ran.
+/// definition is searched as a bare index, as an Illumina kit is, so its run reads the names too. An explicit
+/// `cutadapt` or `exact-bare` engine, a context override or sample assignments always search the bases, as recorded
+/// commands of earlier versions ran, and an explicit `header-index` engine takes the header route without the probe.
 public enum DemultiplexSearchRouteOwner {
     /// Read names the probe reads from the start of the input (BIO, `S33-R1-BIO.md` D1c).
     public static let probedReadCount = 1_000
@@ -42,6 +48,7 @@ public enum DemultiplexSearchRouteOwner {
     /// The route of `config`, reading the first read names of `input` when the route depends on them. It runs off
     /// the main actor, and a file it cannot read as FASTQ gives no names, so the run searches its bases.
     public static func route(for config: DemultiplexConfig, input: URL) async -> DemultiplexSearchRoute {
+        if config.engine == .headerIndex { return route(for: config, names: []) }
         guard readsNames(config) else { return .inline(config.demuxAdapterContext) }
         var names: [FASTQReadNameIndex] = []
         do {
@@ -60,6 +67,8 @@ public enum DemultiplexSearchRouteOwner {
 
     /// The route of `config` for read names already read.
     public static func route(for config: DemultiplexConfig, names: [FASTQReadNameIndex]) -> DemultiplexSearchRoute {
+        // A person who named the header route gets it without the probe, unless two barcodes collide (L4).
+        if config.engine == .headerIndex { return collisionWords(for: config.barcodeKit).map { .refuse($0) } ?? .headerIndex }
         guard readsNames(config) else { return .inline(config.demuxAdapterContext) }
         let kit = config.barcodeKit
         var present = presentBarcodes(of: kit, in: Array(names.prefix(probedReadCount)))

@@ -24,25 +24,30 @@ extension DemultiplexingPipeline {
         )
     }
 
+    /// The exact bare-barcode pass, or with `byReadNames` the split by the index in the read names, which calls
+    /// each record by its name in place of a search of its bases (``DemultiplexHeaderIndexCaller``).
     func runExactBareBarcodeDemux(
         config: DemultiplexConfig,
         inputFASTQ: URL,
         runClock: ProvenanceRunClock,
+        byReadNames: Bool = false,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> DemultiplexResult {
         try Self.requireNoUnmanifestedFileSet(config: config)
         let fm = FileManager.default
         try fm.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
 
-        guard let matcher = ExactBareBarcodeMatcher(
+        let matcher = byReadNames ? nil : ExactBareBarcodeMatcher(
             barcodes: config.barcodeKit.barcodes,
             barcodeLocation: config.barcodeLocation,
             maxDistanceFrom5Prime: config.maxDistanceFrom5Prime,
             maxDistanceFrom3Prime: config.maxDistanceFrom3Prime,
             includeReverseComplements: shouldSearchBareBarcodeReverseComplements(config)
-        ) else {
+        )
+        guard byReadNames || matcher != nil else {
             throw DemultiplexError.noBarcodes
         }
+        let toolName = byReadNames ? "header-index-demux" : "exact-bare-barcode-demux"
         // A derived bundle's own FASTQ is only its preview, so only a physical bundle is listed; a derived one is read as the materialized input.
         let inputURLs: [URL]
         if let bundleURL = config.sourceBundleURL ?? (FASTQBundle.isBundleURL(config.inputURL) ? config.inputURL : nil), !FASTQBundle.isDerivedBundle(bundleURL),
@@ -50,6 +55,11 @@ extension DemultiplexingPipeline {
             inputURLs = allURLs
         } else {
             inputURLs = [inputFASTQ]
+        }
+        // Each file chooses its own i5 orientation from its first names before the pass reads it.
+        let nameCallers = try await byReadNames ? DemultiplexHeaderIndexCaller.reading(inputURLs, kit: config.barcodeKit) : []
+        func call(_ record: FASTQRawRecord, file: Int) -> Int? {
+            byReadNames ? nameCallers[file].call(header: record.header) : matcher?.assignment(for: record.sequence)?.barcodeIndex
         }
 
         let isVirtualMode = config.rootBundleURL != nil && !config.captureTrimsForChaining
@@ -216,7 +226,7 @@ extension DemultiplexingPipeline {
                 lineBuffer.removeAll(keepingCapacity: true)
                 shardTotalReads += 1
 
-                for fragment in pairer.add(record, call: matcher.assignment(for: record.sequence)?.barcodeIndex) {
+                for fragment in pairer.add(record, call: call(record, file: shardIndex)) {
                     try place(fragment)
                 }
             }
@@ -268,8 +278,10 @@ extension DemultiplexingPipeline {
         }
 
         let workerCount = max(1, min(config.threads, inputURLs.count))
-        if inputURLs.count > 1 && workerCount > 1 {
-            progress(0.0, "Starting exact bare-barcode demultiplexing with \(workerCount) workers...")
+        let runWords = byReadNames ? "the split by the index in the read names" : "exact bare-barcode demultiplexing"
+        // The split reads each file of a multi-file input as its own shard, since each file has its own i5 orientation.
+        if inputURLs.count > 1 && (workerCount > 1 || byReadNames) {
+            progress(0.0, "Starting \(runWords) with \(workerCount) workers...")
             let shardRoot: URL? = isVirtualMode ? nil : config.outputDirectory.appendingPathComponent(
                 ".exact-bare-shards-\(UUID().uuidString)",
                 isDirectory: true
@@ -331,7 +343,7 @@ extension DemultiplexingPipeline {
                 }
             }
         } else {
-            progress(0.0, "Starting exact bare-barcode demultiplexing...")
+            progress(0.0, "Starting \(runWords)...")
 
             func place(_ fragment: ExactBareMatePairer.Fragment) throws {
                 for record in fragment.records {
@@ -394,7 +406,7 @@ extension DemultiplexingPipeline {
                     progress(estimatedFraction, "Processed \(totalReads) reads, \(assignedReads) assigned...")
                 }
 
-                for fragment in pairer.add(record, call: matcher.assignment(for: record.sequence)?.barcodeIndex) {
+                for fragment in pairer.add(record, call: call(record, file: 0)) {
                     try place(fragment)
                 }
             }
@@ -446,7 +458,7 @@ extension DemultiplexingPipeline {
                 } ?? rootRelativePath
                 let demuxOp = FASTQDerivativeOperation(
                     kind: .demultiplex,
-                    toolUsed: "exact-bare-barcode-demux",
+                    toolUsed: toolName,
                     toolVersion: nil
                 )
                 let derivedManifest = FASTQDerivedBundleManifest(
@@ -533,22 +545,24 @@ extension DemultiplexingPipeline {
             name: config.barcodeKit.displayName,
             vendor: config.barcodeKit.vendor,
             barcodeCount: config.barcodeKit.barcodes.count,
-            isDualIndexed: false,
+            isDualIndexed: byReadNames && config.barcodeKit.isDualIndexed,
             barcodeType: barcodeType
         )
-        let commandLine = ([
-            "exact-bare-barcode-demux",
-            "--search", "whole-read",
-            shouldSearchBareBarcodeReverseComplements(config) ? "--search-rc" : nil
-        ].compactMap { $0 }
-            + (config.threads > 1 ? ["--threads", String(config.threads)] : []))
-            .joined(separator: " ")
+        let commandLine = byReadNames
+            ? DemultiplexHeaderIndexCaller.commandLine(nameCallers, kit: config.barcodeKit, threads: config.threads)
+            : ([
+                "exact-bare-barcode-demux",
+                "--search", "whole-read",
+                shouldSearchBareBarcodeReverseComplements(config) ? "--search-rc" : nil
+            ].compactMap { $0 }
+                + (config.threads > 1 ? ["--threads", String(config.threads)] : []))
+                .joined(separator: " ")
         let manifest = DemultiplexManifest(
             barcodeKit: kitForManifest,
             parameters: DemultiplexParameters(
-                tool: "exact-bare-barcode-demux",
+                tool: toolName,
                 toolVersion: nil,
-                maxMismatches: 0,
+                maxMismatches: byReadNames ? DemultiplexHeaderIndexCaller.indexMismatches : 0,
                 requireBothEnds: false,
                 trimBarcodes: false,
                 commandLine: commandLine,
@@ -580,7 +594,8 @@ extension DemultiplexingPipeline {
             outputBundleURLs: outputBundleURLs,
             unassignedBundleURL: unassignedBundleURL,
             wallClockSeconds: elapsed,
-            nativeCommand: nil
+            nativeCommand: nil,
+            engine: byReadNames ? .headerIndex : .exactBareBarcode
         )
     }
 }

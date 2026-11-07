@@ -39,6 +39,10 @@ indels.
   exact-bare  Swift-native exact matching for bare A/C/G/T barcodes; scans
 whole reads,
               searches reverse complements, and preserves reads.
+  header-index  Splits reads by the index bcl2fastq or BCL Convert wrote in
+their names,
+              at most one mismatch in each index; runs no tool and preserves
+reads.
 
 Examples:
   lungfish-cli fastq demultiplex reads.fastq.gz --kit truseq-single-a -o
@@ -81,9 +85,10 @@ OPTIONS:
                           Cutadapt maximum error rate for barcode matching
                           (default: 0.15)
   --overlap <overlap>     Cutadapt minimum overlap length (default: 3)
-  --engine <engine>       Demultiplexing engine: cutadapt or exact-bare.
-                          Without it, reads whose names carry the kit's index
-                          stop with words, and other reads are searched with
+  --engine <engine>       Demultiplexing engine: cutadapt, exact-bare or
+                          header-index. Without it, reads whose names carry two
+                          or more of the kit's indexes are split by those names
+                          (header-index), and other reads are searched with
                           cutadapt
   --no-trim               Cutadapt only: keep barcode sequences in output reads
                           (exact-bare always preserves reads)

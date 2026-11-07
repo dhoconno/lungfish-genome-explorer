@@ -20,8 +20,9 @@ extension DemultiplexingPipeline {
     /// one side, or two barcodes that share one line), the IDT UD kit while
     /// its built-in sequences are being checked, and a dual Illumina-family kit
     /// at 5' End or 3' End, which leaves one of its two indexes free.
-    /// It runs no tool and writes only a scratch adapter file it removes.
-    public func preflight(config: DemultiplexConfig) async throws {
+    /// It runs no tool and writes only a scratch adapter file it removes, and returns the route the run takes.
+    @discardableResult
+    public func preflight(config: DemultiplexConfig) async throws -> DemultiplexSearchRoute {
         guard !config.barcodeKit.barcodes.isEmpty else {
             throw DemultiplexError.noBarcodes
         }
@@ -42,10 +43,14 @@ extension DemultiplexingPipeline {
         guard FileManager.default.fileExists(atPath: inputFASTQ.path) else {
             throw DemultiplexError.inputFileNotFound(inputFASTQ)
         }
-        // With no engine named, the route owner reads the first read names (L1 of the 3.3 tally). Until the split
-        // by the read-name index lands, reads whose names carry the kit's index stop here, before any tool starts.
-        switch await DemultiplexSearchRouteOwner.route(for: config, input: inputFASTQ) {
-        case .headerIndex: throw DemultiplexError.readNameIndexNotSplitYet
+        // With no engine named, the route owner reads the first read names (L1 of the 3.3 tally). Reads whose names
+        // carry the kit's indexes are split by them, which needs no adapter and no project. A root of R1 and R2
+        // files with no source-files.json refuses here, since a call on each file alone could part a pair's mates.
+        let route = await DemultiplexSearchRouteOwner.route(for: config, input: inputFASTQ)
+        switch route {
+        case .headerIndex:
+            try Self.requireNoUnmanifestedFileSet(config: config)
+            return route
         case .refuse(let words): throw DemultiplexError.searchRouteRefused(words)
         case .inline: break
         }
@@ -64,13 +69,13 @@ extension DemultiplexingPipeline {
             guard resolvesABarcodePair else {
                 throw DemultiplexError.combinatorialRequiresSampleAssignments
             }
-            return
+            return route
         }
         if config.engine == .exactBareBarcode {
             guard supportsExactBareBarcodeDemux(config) else {
                 throw DemultiplexError.exactBareBarcodeUnsupported
             }
-            return
+            return route
         }
         guard ProjectTempDirectory.findProjectRoot(config.outputDirectory) != nil else {
             throw ProjectTempError.projectContextRequired(contextURL: config.outputDirectory)
@@ -81,6 +86,7 @@ extension DemultiplexingPipeline {
         defer { try? FileManager.default.removeItem(at: scratch) }
         let adapters = try await createAdapterConfiguration(for: config, workDirectory: scratch)
         try requireAdapterSequences(in: adapters.adapterFASTA, kitName: config.barcodeKit.displayName)
+        return route
     }
 
     /// Refuses an adapter FASTA that cutadapt cannot use or that cannot tell its barcodes apart, and names the kit.

@@ -80,7 +80,8 @@ struct DemultiplexStagingArea {
             unassignedBundleURL: result.unassignedBundleURL.map(publishedURL(of:)),
             wallClockSeconds: result.wallClockSeconds,
             nativeCommand: result.nativeCommand,
-            chanceFloor: result.chanceFloor
+            chanceFloor: result.chanceFloor,
+            engine: result.engine
         )
     }
 

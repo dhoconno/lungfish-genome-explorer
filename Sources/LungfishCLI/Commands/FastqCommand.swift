@@ -190,6 +190,8 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
               cutadapt    Established fuzzy adapter matcher; supports error rate and indels.
               exact-bare  Swift-native exact matching for bare A/C/G/T barcodes; scans whole reads,
                           searches reverse complements, and preserves reads.
+              header-index  Splits reads by the index bcl2fastq or BCL Convert wrote in their names,
+                          at most one mismatch in each index; runs no tool and preserves reads.
 
             Examples:
               lungfish-cli fastq demultiplex reads.fastq.gz --kit truseq-single-a -o demux-out/
@@ -230,7 +232,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
     var overlap: Int = 3
 
     @Option(name: .customLong("engine"),
-            help: "Demultiplexing engine: cutadapt or exact-bare. Without it, reads whose names carry the kit's index stop with words, and other reads are searched with cutadapt")
+            help: "Demultiplexing engine: cutadapt, exact-bare or header-index. Without it, reads whose names carry two or more of the kit's indexes are split by those names (header-index), and other reads are searched with cutadapt")
     var engine: String?
 
     @Flag(name: .customLong("no-trim"),
@@ -303,9 +305,8 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             throw ValidationError("Invalid barcode location '\(location)'. Use: 5prime, 3prime, bothends")
         }
 
-        // With no --engine the route owner reads the first read names in the preflight below (L4 of the 3.3 tally).
-        // Its one route that runs until the split by the read-name index lands is cutadapt's search of the read
-        // sequences, which the recorded command and the record then name.
+        // With no --engine the route owner reads the first read names in the preflight below (L4 of the 3.3 tally),
+        // and the recorded command and the record name the engine that ran.
         let requestedEngine: DemultiplexEngine?
         switch engine?.lowercased() {
         case nil:
@@ -314,8 +315,10 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             requestedEngine = .cutadapt
         case "exact-bare", "exact-bare-barcode", "exactbare", "bare":
             requestedEngine = .exactBareBarcode
+        case "header-index", "headerindex":
+            requestedEngine = .headerIndex
         default:
-            throw ValidationError("Invalid demultiplexing engine '\(engine ?? "")'. Use: cutadapt or exact-bare")
+            throw ValidationError("Invalid demultiplexing engine '\(engine ?? "")'. Use: cutadapt, exact-bare or header-index")
         }
         let demultiplexEngine = requestedEngine ?? .cutadapt
         let effectiveTrimBarcodes = demultiplexEngine == .exactBareBarcode ? false : !noTrim
@@ -394,14 +397,11 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             throw error
         }
         earlierOutput?.discard()
-        var cliArguments = ["demultiplex", resolvedInput.originalURL.path, "--kit", kit, "--output", output]
-        if demultiplexEngine == .exactBareBarcode {
-            cliArguments += ["--engine", demultiplexEngine.rawValue]
-            if threads != 4 {
-                cliArguments += ["--threads", String(threads)]
-            }
-        } else {
-            cliArguments += ["--engine", demultiplexEngine.rawValue]
+        // The engine that ran, which the route owner chose when --engine was left out. Only cutadapt takes its options.
+        let ranEngine = result.engine ?? demultiplexEngine
+        var cliArguments = ["demultiplex", resolvedInput.originalURL.path, "--kit", kit, "--output", output,
+                            "--engine", ranEngine.rawValue]
+        if ranEngine == .cutadapt {
             if location != "bothends" {
                 cliArguments += ["--location", location]
             }
@@ -420,9 +420,9 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             if noTrim {
                 cliArguments.append("--no-trim")
             }
-            if threads != 4 {
-                cliArguments += ["--threads", String(threads)]
-            }
+        }
+        if threads != 4 {
+            cliArguments += ["--threads", String(threads)]
         }
         if discardUnassigned {
             cliArguments.append("--discard-unassigned")
@@ -458,8 +458,8 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             "resolvedKit": .string(barcodeKit.id),
             "customBarcodeKit": customKitURL.map(ParameterValue.file) ?? .null,
             "output": .file(outputURL),
-            "engine": .string(demultiplexEngine.rawValue),
-            "indexSource": .string("read-sequences"),
+            "engine": .string(ranEngine.rawValue),
+            "indexSource": .string(ranEngine == .headerIndex ? "read-names" : "read-sequences"),
             "inputFormat": .string((inputSequenceFormat ?? .fastq).rawValue),
             "outputFormat": .string((inputSequenceFormat ?? .fastq).rawValue),
             "discardUnassigned": .boolean(discardUnassigned),
@@ -471,7 +471,11 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             "discardUnassigned": .boolean(false),
             "customBarcodeKit": .null,
         ]
-        if demultiplexEngine == .exactBareBarcode {
+        if ranEngine == .headerIndex {
+            provenanceParameters["indexMismatches"] = .integer(DemultiplexSearchRouteOwner.indexMismatches)
+            provenanceParameters["threads"] = .integer(threads)
+            provenanceDefaults["threads"] = .integer(4)
+        } else if ranEngine == .exactBareBarcode {
             provenanceParameters["searchMode"] = .string("whole-read")
             provenanceParameters["searchReverseComplement"] = .boolean(true)
             provenanceParameters["trimBarcodes"] = .boolean(false)
@@ -566,7 +570,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
 
         // Summary output
         FileHandle.standardError.write(Data("\n--- Demultiplexing Summary ---\n".utf8))
-        FileHandle.standardError.write(Data("Kit: \(barcodeKit.displayName)\n".utf8))
+        FileHandle.standardError.write(Data("Kit: \(barcodeKit.displayName)\n\(Self.routeSummary(ranEngine))\n".utf8))
         FileHandle.standardError.write(Data("Input reads: \(result.manifest.inputReadCount)\n".utf8))
         FileHandle.standardError.write(Data("Assigned: \(result.manifest.assignedReadCount) (\(String(format: "%.1f%%", result.manifest.assignmentRate * 100)))\n".utf8))
         FileHandle.standardError.write(Data("Unassigned: \(result.manifest.unassigned.readCount)\n".utf8))

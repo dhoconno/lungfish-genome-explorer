@@ -81,7 +81,8 @@ public struct DemultiplexConfig: Sendable {
     public let adapterContext: (any PlatformAdapterContext)?
 
     /// Backend engine used for demultiplexing, or nil to let ``DemultiplexSearchRouteOwner`` choose from the kit
-    /// and the read names. An engine named here always searches the read bases, as recorded commands ran.
+    /// and the read names. `cutadapt` or `exact-bare` named here always searches the read bases, as recorded commands
+    /// ran, and `header-index` splits by the index in the read names without reading them first.
     public let engine: DemultiplexEngine?
 
     /// Optional explicit asymmetric sample assignments.

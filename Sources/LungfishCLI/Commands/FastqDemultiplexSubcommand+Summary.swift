@@ -6,6 +6,19 @@ import Foundation
 import LungfishWorkflow
 
 extension FastqDemultiplexSubcommand {
+    /// The summary line that says where the run looked for each read's barcode, which the route owner chose when
+    /// --engine was left out (L4 of the 3.3 tally).
+    static func routeSummary(_ engine: DemultiplexEngine) -> String {
+        switch engine {
+        case .headerIndex:
+            return "Barcodes read from: the index in each read name, at most one mismatch in each index (header-index)"
+        case .cutadapt:
+            return "Barcodes read from: a search of the read sequences (cutadapt)"
+        case .exactBareBarcode:
+            return "Barcodes read from: an exact search of the read sequences (exact-bare)"
+        }
+    }
+
     /// The summary line for barcodes at or below BIO's chance floor, or nil when there are none (DEMUXFLOOR-UX SF1).
     /// Their count is measured against the reads that carry no barcode (ruling BIO-DEMUX-FLOOR item 10), and their
     /// files are kept. `null` says what the chance count was measured on (ruling BIO-DEMUX-NULL item 9).

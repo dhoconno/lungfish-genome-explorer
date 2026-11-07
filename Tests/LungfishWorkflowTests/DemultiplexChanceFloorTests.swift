@@ -117,16 +117,6 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         ), words)
     }
 
-    /// DEMUXFLOOR-UX SF3: the header refusal keeps UX's words of `S33-R2-UX.md:41` whole.
-    func testReadNameIndexRefusalSaysWhatHappenedAndTheNextStep() {
-        XCTAssertEqual(
-            DemultiplexError.readNameIndexNotSplitYet.errorDescription,
-            "These reads carry their index in the read names. Demultiplex Barcodes searches the read sequences and "
-                + "cannot split them by that index yet, so it did not start and wrote no files. Get one FASTQ file per "
-                + "sample, as bcl2fastq or BCL Convert writes them from the run's sample sheet, and import those."
-        )
-    }
-
     // MARK: - The null measured on the file's own read starts (BIO-DEMUX-NULL item 8)
 
     private let errorRate = 0.15

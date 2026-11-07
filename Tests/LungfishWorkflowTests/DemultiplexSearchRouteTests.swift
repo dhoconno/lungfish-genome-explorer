@@ -191,8 +191,8 @@ final class DemultiplexSearchRouteTests: XCTestCase {
     }
 
     /// DEMUXFLOOR-SWIFT SF1: a bundle whose payload is `reads.fastq.gz`, the input the app sends, is probed through
-    /// `resolveInputFASTQ` and refuses in the header words before the project and tool checks.
-    func testBundleWithGzipPayloadRefusesInTheHeaderWords() async throws {
+    /// `resolveInputFASTQ` and takes the header route before the project and tool checks, which it does not need.
+    func testBundleWithGzipPayloadTakesTheHeaderRouteBeforeTheProjectCheck() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("demux-route-\(UUID().uuidString)")
         let bundle = folder.appendingPathComponent("Reads.\(FASTQBundle.directoryExtension)", isDirectory: true)
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
@@ -200,16 +200,11 @@ final class DemultiplexSearchRouteTests: XCTestCase {
         let plain = folder.appendingPathComponent("reads.fastq")
         try writeRecords(twoSamples, to: plain)
         try await SystemToolProbe.gzip(plain, to: bundle.appendingPathComponent("reads.fastq.gz"))
-        do {
-            try await DemultiplexingPipeline().preflight(config: DemultiplexConfig(
-                inputURL: bundle, barcodeKit: BarcodeKitRegistry.truseqSingleA,
-                outputDirectory: folder.appendingPathComponent("out", isDirectory: true)
-            ))
-            XCTFail("the bundle's reads were not probed")
-        } catch {
-            XCTAssertTrue(error.localizedDescription.hasPrefix("These reads carry their index in the read names"),
-                          error.localizedDescription)
-        }
+        let route = try await DemultiplexingPipeline().preflight(config: DemultiplexConfig(
+            inputURL: bundle, barcodeKit: BarcodeKitRegistry.truseqSingleA,
+            outputDirectory: folder.appendingPathComponent("out", isDirectory: true)
+        ))
+        XCTAssertEqual(label(route), "headerIndex", "the bundle's reads were probed")
     }
 
     /// DEMUXFLOOR-SWIFT SF2: no built-in kit of a platform whose indexes sit in separate reads holds a colliding pair,

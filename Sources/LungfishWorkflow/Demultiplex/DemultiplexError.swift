@@ -23,8 +23,6 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     case binCountExceeded(count: Int, limit: Int)
     case exactBareBarcodeUnsupported
     case fileSetNeedsInterleaving(bundleName: String, fileNames: [String])
-    /// The read names carry the kit's index, which no run splits by yet (the floor of L1, 3.3 tally).
-    case readNameIndexNotSplitYet
     /// ``DemultiplexSearchRouteOwner`` refused the run, for the reason the words give.
     case searchRouteRefused(String)
     /// No barcode of a search of the read bases beat BIO's chance floor (L5, 3.3 tally).
@@ -34,8 +32,6 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
         switch self {
         case .noBarcodeAboveChance(let kitName):
             return "No barcode of \(kitName) matched more reads than chance alone gives, so Demultiplex Barcodes made no sample files. The index in the read names may match no barcode of this kit, the index may sit in index reads that are not in this file, the reads may already be split into one file per sample, or a barcode may be on too few reads to stand above chance. Choose the kit the library was made with, check the barcode sequences and the end of the read you chose for a Custom Definition, or import this file as one sample."
-        case .readNameIndexNotSplitYet:
-            return "These reads carry their index in the read names. Demultiplex Barcodes searches the read sequences and cannot split them by that index yet, so it did not start and wrote no files. Get one FASTQ file per sample, as bcl2fastq or BCL Convert writes them from the run's sample sheet, and import those."
         case .searchRouteRefused(let words):
             return words
         case .inputFileNotFound(let url):

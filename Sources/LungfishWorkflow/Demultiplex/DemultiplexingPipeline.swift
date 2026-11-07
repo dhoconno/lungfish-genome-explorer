@@ -73,12 +73,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> DemultiplexResult {
         // Every refusal comes before the run writes anything (L5 item 0).
-        try await preflight(config: config)
+        let route = try await preflight(config: config)
         // The bundles are published only once every one is finished, and a
         // failed run leaves none (L5 item 4).
         let staging = try DemultiplexStagingArea(publishedDirectory: config.outputDirectory)
         do {
-            let result = try await runEngine(config: staging.stagedConfig(config), progress: progress)
+            let result = try await runEngine(config: staging.stagedConfig(config), route: route, progress: progress)
             return try staging.publish(result)
         } catch {
             staging.discard()
@@ -86,9 +86,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         }
     }
 
-    /// Runs the engine `config` selects, writing into its staging folder.
+    /// Runs the engine `config` and its preflight's `route` select, writing into its staging folder.
     private func runEngine(
         config: DemultiplexConfig,
+        route: DemultiplexSearchRoute,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> DemultiplexResult {
         let runClock = ProvenanceRunClock()
@@ -108,11 +109,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             )
         }
 
-        if config.engine == .exactBareBarcode {
+        // The split by the read-name index goes through the exact-bare pass and its bundle writer (ARCH pin 4).
+        if config.engine == .exactBareBarcode || route.isHeaderIndex {
             return try await runExactBareBarcodeDemux(
                 config: config,
                 inputFASTQ: inputFASTQ,
                 runClock: runClock,
+                byReadNames: route.isHeaderIndex,
                 progress: progress
             )
         }
@@ -927,7 +930,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             unassignedBundleURL: unassignedBundleURL,
             wallClockSeconds: elapsed,
             nativeCommand: result.arguments,
-            chanceFloor: chanceFloor
+            chanceFloor: chanceFloor,
+            engine: .cutadapt
         )
     }
 

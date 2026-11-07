@@ -29,4 +29,7 @@ public struct DemultiplexResult: Sendable {
     /// BIO's chance floor of a search of the bare bases, with the barcodes at or below it (L5), or nil when the
     /// run's search does not take the floor.
     public var chanceFloor: DemultiplexChanceFloor.Outcome? = nil
+
+    /// The engine that ran, which the route owner chose when the run named none, or nil for the asymmetric search.
+    public var engine: DemultiplexEngine? = nil
 }

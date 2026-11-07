@@ -1036,15 +1036,15 @@ private extension DemultiplexEngine {
         switch self {
         case .cutadapt: return "Cutadapt"
         case .exactBareBarcode: return "Exact Bare Barcode"
+        case .headerIndex: return "Read Names"
         }
     }
 
     var explanation: String {
         switch self {
-        case .cutadapt:
-            return "Cutadapt searches the read sequences for the barcodes, uses the error rate below and can allow insertions and deletions. For Illumina and Element kits and Custom Definitions it first reads the read names, and it stops with an explanation if they already carry the kit's index."
-        case .exactBareBarcode:
-            return "Exact bare barcode scans whole reads for exact A/C/G/T barcode and reverse-complement matches, then preserves reads."
+        case .cutadapt: return "Cutadapt searches the read sequences for the barcodes, uses the error rate below and can allow insertions and deletions. For Illumina and Element kits and Custom Definitions it first reads the read names, and if they carry two or more of the kit's indexes it splits the reads by those names instead."
+        case .exactBareBarcode: return "Exact bare barcode scans whole reads for exact A/C/G/T barcode and reverse-complement matches, then preserves reads."
+        case .headerIndex: return "Read Names splits the reads by the index bcl2fastq or BCL Convert wrote in each read name, at most one mismatch in each index, and keeps the reads whole."
         }
     }
 }
