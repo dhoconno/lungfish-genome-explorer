@@ -88,6 +88,8 @@ final class InspectorMappingModeTests: XCTestCase {
         XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.maxReadRows] as? Int, 123)
         XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.limitReadRows] as? Bool, true)
         XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.verticalCompressContig] as? Bool, false)
+        XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.consensusMinDepth] as? Int, 8)
+        XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.consensusMaskingMinDepth] as? Int, 8)
 
         // The consensus limits belong to the bundle they are set on (ALIGN-CONSENSUS-SETTINGS-CARRY), so a block that loads its
         // first bundle starts them at the defaults. A change made after the load reaches the viewport in the next payload.
