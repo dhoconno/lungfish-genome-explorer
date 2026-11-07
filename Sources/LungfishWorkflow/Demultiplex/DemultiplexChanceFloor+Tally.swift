@@ -14,16 +14,34 @@ extension DemultiplexChanceFloor {
     /// The most reads the floor tallies for a file's start composition (BIO-DEMUX-NULL item 3).
     public static let compositionReadLimit = 200_000
 
-    /// The first bases of the first reads of an unassigned FASTQ, one tally a mate for a paired run (item 7).
+    /// The first bases of the first reads of an unassigned FASTQ, one tally a mate for a paired run (item 7). The mates are the
+    /// adjacent records the mate pass wrote the file by (`FASTQReadLayoutClassifier.areMates`): the first of a pair goes to the
+    /// first tally and the second to the second. A read with no mate beside it, such as a single read in a mixed file,
+    /// belongs to neither tally, so it never moves the mates that follow it.
     static func unassignedStartTallies(fastqURL: URL, windowLength: Int, paired: Bool) async throws -> [StartTally] {
         var tallies = Array(repeating: StartTally(windowLength: windowLength), count: paired ? 2 : 1)
         var seen = 0
+        var pending: FASTQRecord?
         for try await record in FASTQReader(validateSequence: false).records(from: fastqURL) {
-            tallies[paired ? seen % 2 : 0].add(record.sequence)
             seen += 1
+            if !paired {
+                tallies[0].add(record.sequence)
+            } else if let first = pending,
+                      FASTQReadLayoutClassifier.areMates(headerText(of: first), headerText(of: record)) {
+                tallies[0].add(first.sequence)
+                tallies[1].add(record.sequence)
+                pending = nil
+            } else {
+                pending = record
+            }
             if seen >= compositionReadLimit { break }
         }
         return tallies
+    }
+
+    /// The header line of a record, the text the mate rule reads.
+    private static func headerText(of record: FASTQRecord) -> String {
+        record.description.map { "\(record.identifier) \($0)" } ?? record.identifier
     }
 
     /// A window packs two bits a base into 58 bits, and the top bits of a key hold the length of the prefix.
