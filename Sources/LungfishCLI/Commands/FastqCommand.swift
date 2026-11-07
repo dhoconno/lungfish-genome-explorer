@@ -607,9 +607,13 @@ struct FastqScoutSubcommand: AsyncParsableCommand {
         commandName: "scout",
         abstract: "Scout barcode assignments before FASTQ demultiplexing",
         discussion: """
-            Scans a subset of reads against a barcode kit and writes a
+            Counts the barcodes of a kit in the first reads of a file and writes a
             scout-result.json file with per-barcode hit counts and suggested
-            accept/reject dispositions.
+            accept/reject dispositions. For Illumina and Element kits it reads the
+            index that bcl2fastq or BCL Convert wrote in each read name and accepts
+            a barcode only above its chance bound. Other kits are searched in the
+            read bases. Ultima and MGI kits, and a file whose read names hold no
+            index, are refused with words that say so.
             """
     )
 
@@ -631,16 +635,16 @@ struct FastqScoutSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("reject-threshold"), help: "Maximum hits to auto-reject a barcode found in the read bases")
     var rejectThreshold: Int = 3
 
-    @Option(name: .customLong("error-rate"), help: "Override barcode matching error rate")
+    @Option(name: .customLong("error-rate"), help: "Override barcode matching error rate (read-base search only)")
     var errorRate: Double?
 
-    @Option(name: .customLong("overlap"), help: "Override minimum barcode overlap")
+    @Option(name: .customLong("overlap"), help: "Override minimum barcode overlap (read-base search only)")
     var overlap: Int?
 
     @Option(name: .customLong("source-platform"), help: "Source platform: illumina, ont, pacbio, element, ultima, mgi")
     var sourcePlatform: String?
 
-    @Flag(name: .customLong("no-indels"), help: "Disallow indels in barcode matching")
+    @Flag(name: .customLong("no-indels"), help: "Disallow indels in barcode matching (read-base search only)")
     var useNoIndels: Bool = false
 
     @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
