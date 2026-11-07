@@ -14,7 +14,7 @@ extension BarcodeKitRegistry {
     /// ran keeps the bytes it read. The bytes must be UTF-8 text.
     public static func loadCustomKit(data: Data, name: String) throws -> BarcodeKitDefinition {
         guard let text = String(data: data, encoding: .utf8) else {
-            throw CocoaError(.fileReadInapplicableStringEncoding)
+            throw BarcodeKitLoadError.notUTF8(name: name)
         }
         return try loadCustomKit(text: text, name: name)
     }

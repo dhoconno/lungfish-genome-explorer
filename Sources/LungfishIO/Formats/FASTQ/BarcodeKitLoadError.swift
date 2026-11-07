@@ -15,9 +15,13 @@ public enum BarcodeKitLoadError: LocalizedError, Sendable, Equatable {
     case conflictingKitLines(first: String, second: String)
     /// A row's index count differs from the barcodes of the kit the `# kit:` line names.
     case kitIndexMismatch(kit: String, id: String, kitHasSecondary: Bool)
+    /// The definition's bytes are not UTF-8 text, such as a CSV that a spreadsheet saved as Windows-1252.
+    case notUTF8(name: String)
 
     public var errorDescription: String? {
         switch self {
+        case .notUTF8(let name):
+            return "The barcode definition \(name) is not UTF-8 text, so Lungfish cannot read its names. Open it in a spreadsheet or text editor, save it as CSV UTF-8, then run again."
         case .noBarcodeRows:
             return "Barcode definition contains no barcode rows. Use CSV or TSV with at least two columns: id,sequence; for example: FLD0001,GTATCGTCGT or FLD0001<TAB>GTATCGTCGT."
         case .invalidSequence(let row, let id, let value):

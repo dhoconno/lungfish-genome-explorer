@@ -245,6 +245,29 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
         XCTAssertLessThanOrEqual(status.attributedStringValue.size().width, status.bounds.width, "the scout line clips")
     }
 
+    /// Review DEMUXPLAN-SWIFT, should-fix 1: the Demux tab's own Demultiplex… control, the viewer's closure and the status
+    /// line, crossed in one test. Every refusal an empty plan can meet ends "press Demultiplex… again", whether or not the
+    /// dataset sits in a project. Without the closure's wiring the press does nothing and says nothing.
+    func testDemultiplexButtonOnTheDemuxTabShowsTheRefusalOfAnEmptyPlan() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        try await showFASTQRow(in: harness)
+        viewer.openDemuxSetupDrawer()
+        let drawer = try XCTUnwrap(viewer.fastqMetadataDrawerView)
+        let button = try XCTUnwrap(Self.button(labeled: "Demultiplex with this plan", in: drawer), "the Demux tab has no Demultiplex\u{2026} control")
+
+        button.performClick(nil)
+
+        let words = Self.labels(in: drawer).map(\.stringValue)
+        XCTAssertTrue(words.contains { $0.contains("press Demultiplex\u{2026} again") }, "\(words)")
+    }
+
+    private static func button(labeled label: String, in view: NSView) -> NSButton? {
+        if let button = view as? NSButton, button.accessibilityLabel() == label { return button }
+        return view.subviews.lazy.compactMap { button(labeled: label, in: $0) }.first
+    }
+
     private static func labels(in view: NSView) -> [NSTextField] {
         view.subviews.flatMap { subview in (subview as? NSTextField).map { [$0] } ?? labels(in: subview) }
     }

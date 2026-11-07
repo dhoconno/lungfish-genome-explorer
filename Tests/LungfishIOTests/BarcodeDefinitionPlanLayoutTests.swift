@@ -115,4 +115,14 @@ final class BarcodeDefinitionPlanLayoutTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("S1"), error.localizedDescription)
         }
     }
+
+    /// Review DEMUXPLAN-SWIFT, should-fix 2: a definition that is not UTF-8 text (a CSV that Excel saved as Windows-1252,
+    /// with an é in a sample name) refuses in words that name the definition and say how to save it.
+    func testDefinitionThatIsNotUTF8RefusesInWordsThatNameIt() {
+        XCTAssertThrowsError(try BarcodeKitRegistry.loadCustomKit(data: Data([0x53, 0x31, 0x2C, 0xE9]), name: "plan")) { error in
+            XCTAssertEqual(error as? BarcodeKitLoadError, .notUTF8(name: "plan"))
+            XCTAssertTrue(error.localizedDescription.contains("plan"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("UTF-8"), error.localizedDescription)
+        }
+    }
 }
