@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import ArgumentParser
 import Darwin
 import Foundation
 import XCTest
@@ -133,6 +134,105 @@ final class ProvenanceVerifyCommandTests: XCTestCase {
         } catch {
             XCTAssertTrue(error.localizedDescription.contains("digest mismatch"), error.localizedDescription)
         }
+    }
+
+    // MARK: A record with no signature (Phase 3.3 lane P3WORDS, row P3-PV)
+
+    /// A record with no signature file is not a failed workflow. The command says that the record carries no signature, so
+    /// there is nothing to verify, when Lungfish signs a record and what to do, and it exits with the input error code of
+    /// the CLI exit-code contract (3), the code of a request the command cannot do with the file it was given.
+    func testVerifyOfAnUnsignedRecordSaysItCarriesNoSignature() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provenanceURL = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try Data(#"{"name":"unsigned"}"#.utf8).write(to: provenanceURL, options: .atomic)
+
+        let command = try ProvenanceCommand.VerifySubcommand.parse([provenanceURL.path])
+        let run = await captureStandardError { try await command.run() }
+
+        let words = run.stderr.lowercased()
+        XCTAssertTrue(words.contains("carries no signature"), run.stderr)
+        XCTAssertTrue(words.contains("nothing to verify"), run.stderr)
+        XCTAssertTrue(run.stderr.contains("LUNGFISH_PROVENANCE_SIGNING_KEY_FILE"), run.stderr)
+        XCTAssertTrue(run.stderr.contains("LUNGFISH_PROVENANCE_SIGNING_KEY "), run.stderr)
+        XCTAssertTrue(words.contains("as the record is written"), run.stderr)
+        XCTAssertTrue(run.stderr.contains(provenanceURL.path), run.stderr)
+        XCTAssertFalse(run.stderr.contains("Workflow execution failed"), run.stderr)
+        XCTAssertFalse(run.stderr.contains("Signature artifact is missing"), run.stderr)
+        XCTAssertEqual(Self.exitStatus(of: run.error), CLIExitCode.inputError.rawValue, "the exit status of an unsigned record")
+    }
+
+    /// The unsigned copy a Viral Recon run keeps in its results folder on purpose names the bundle whose signed record
+    /// states that folder, so a person knows where to verify.
+    func testVerifyOfTheUnsignedViralReconCopyNamesTheBundleThatHoldsTheSignedRecord() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let results = directory.appendingPathComponent("results", isDirectory: true)
+        let bundle = directory.appendingPathComponent("viralrecon-run-bundle", isDirectory: true)
+        try FileManager.default.createDirectory(at: results, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let envelope = ProvenanceEnvelope.fixture(
+            workflowName: "nf-core/viralrecon", toolName: "nextflow", outputPath: results.path
+        )
+        let copyURL = results.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let bundleRecordURL = bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try ProvenanceJSON.encoder.encode(envelope).write(to: copyURL, options: .atomic)
+        try ProvenanceJSON.encoder.encode(envelope).write(to: bundleRecordURL, options: .atomic)
+        _ = try LocalProvenanceSigningProvider(privateKey: "run-key").sign(provenanceURL: bundleRecordURL)
+
+        let command = try ProvenanceCommand.VerifySubcommand.parse([results.path])
+        let run = await captureStandardError { try await command.run() }
+
+        let words = run.stderr.lowercased()
+        XCTAssertTrue(words.contains("carries no signature"), run.stderr)
+        XCTAssertTrue(words.contains("viral recon"), run.stderr)
+        XCTAssertTrue(words.contains("on purpose"), run.stderr)
+        XCTAssertTrue(run.stderr.contains(bundle.lastPathComponent), "the words name the run bundle\n\(run.stderr)")
+        XCTAssertTrue(run.stderr.contains("lungfish-cli provenance verify"), run.stderr)
+        XCTAssertEqual(Self.exitStatus(of: run.error), CLIExitCode.inputError.rawValue, "the exit status of the copy")
+    }
+
+    /// A signature file the person names with `--signature` that is not there is a different case from a record that
+    /// carries no signature, so it keeps the words of the missing artifact.
+    func testVerifyNamingAMissingSignatureFileKeepsTheArtifactWords() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provenanceURL = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try Data(#"{"name":"unsigned"}"#.utf8).write(to: provenanceURL, options: .atomic)
+        let named = directory.appendingPathComponent("named.signature.json")
+
+        let command = try ProvenanceCommand.VerifySubcommand.parse([provenanceURL.path, "--signature", named.path])
+        let run = await captureStandardError { try await command.run() }
+
+        XCTAssertTrue(run.error?.localizedDescription.contains("Signature artifact is missing") == true,
+                      "\(String(describing: run.error)) \(run.stderr)")
+        XCTAssertFalse(run.stderr.lowercased().contains("carries no signature"), run.stderr)
+    }
+
+    /// The exit status a command ends with: the code of a thrown `ExitCode`, or of a `CLIError` as the CLI's main maps it.
+    private static func exitStatus(of error: Error?) -> Int32? {
+        if let exit = error as? ExitCode { return exit.rawValue }
+        if let cli = error as? CLIError { return cli.exitCode.rawValue }
+        return nil
+    }
+
+    private func captureStandardError(_ operation: () async throws -> Void) async -> (stderr: String, error: Error?) {
+        let pipe = Pipe()
+        fflush(stderr)
+        let originalStderr = dup(STDERR_FILENO)
+        dup2(pipe.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
+        var thrown: Error?
+        do {
+            try await operation()
+        } catch {
+            thrown = error
+        }
+        fflush(stderr)
+        dup2(originalStderr, STDERR_FILENO)
+        close(originalStderr)
+        pipe.fileHandleForWriting.closeFile()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return (String(data: data, encoding: .utf8) ?? "", thrown)
     }
 
     private func makeTempDirectory() throws -> URL {
