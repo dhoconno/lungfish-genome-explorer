@@ -469,6 +469,9 @@ else
             [ -f "$EVIDENCE_DIR/class-timeouts.txt" ] && cat "$EVIDENCE_DIR/class-timeouts.txt"
             # And a bundle of the full tier that ran out of its bound or never started.
             [ -f "$EVIDENCE_DIR/bundle-timeouts.txt" ] && cat "$EVIDENCE_DIR/bundle-timeouts.txt"
+            # And the test state leaks of the run. gate_evidence.py prints them to the output this branch discards, so a
+            # tier red only on a leak read as its timeout line alone (FULLFIX, ruling 1 of the FULL2 review).
+            [ -f "$EVIDENCE_DIR/leaks.txt" ] && cat "$EVIDENCE_DIR/leaks.txt"
         fi
         # A listed load flake that failed in the tier is named whatever the verdict, on a pass and on a fail.
         [ -f "$EVIDENCE_DIR/load-flakes.txt" ] && cat "$EVIDENCE_DIR/load-flakes.txt"

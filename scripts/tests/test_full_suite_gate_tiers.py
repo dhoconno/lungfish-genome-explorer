@@ -1184,6 +1184,20 @@ class FullTierScriptTests(unittest.TestCase):
         self.assertEqual([a["bundle"] for a in evidence["attempts"]], [*TWO_BUNDLES, "swift-testing"])
         self.assertEqual(evidence["options"]["bundleOrder"], TWO_BUNDLES)
 
+    def test_a_quiet_full_tier_red_on_a_test_state_leak_prints_the_leak_after_the_fail_line(self):
+        # FULLFIX, ruling 1 of the FULL2 review: the quiet gate sent the Python output, which holds the leak line, to
+        # /dev/null, so a tier red only on a leak read as its timeout line alone.
+        with mock.patch.dict(os.environ):
+            os.environ.pop("LUNGFISH_STORAGE_ROOT", None)
+            result, evidence = self.run_gate("bundles", "--tier", "full", "--quiet", full_tier_bundles=TWO_BUNDLES,
+                                             env={"STUB_LEDGER_LEAK": "1"})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        leak = "test state leak: LungfishAppTests.FirstTests/testOne left 1 xctest defaults key InspectorCollapsed=0"
+        self.assertEqual(evidence["attempts"][0]["testStateLeaks"], [leak])
+        lines = result.stdout.splitlines()
+        self.assertTrue(lines[0].startswith("GATE FAIL"), result.stdout)
+        self.assertIn(leak, lines[1:], "the leak is named after the fail line")
+
     def test_the_full_tier_refuses_an_exported_storage_root(self):
         result, evidence = self.run_gate("bundles", "--tier", "full", full_tier_bundles=TWO_BUNDLES,
                                          env={"LUNGFISH_STORAGE_ROOT": "/tmp/lungfish-fixture-storage"})
@@ -1291,6 +1305,11 @@ if args[:1] == ["xctest"]:
     chosen = [t for t in BUNDLED if t.startswith(bundle + ".")]
     failed = []
     print("Test Suite 'All tests' started at 2026-10-28", flush=True)
+    if os.environ.get("STUB_LEDGER_LEAK") and bundle == "LungfishAppTests":
+        # The test-state observer's line for a test that left a defaults key behind (FULLFIX, row InspectorCollapsed).
+        with open(os.environ["LUNGFISH_TEST_LEAK_LEDGER"], "a") as ledger:
+            ledger.write(json.dumps({"test": "LungfishAppTests.FirstTests/testOne",
+                                     "message": "left 1 xctest defaults key InspectorCollapsed=0"}) + "\n")
     for test in chosen:
         suite, name = test.split("/")
         print("Test Case '-[" + suite + " " + name + "]' started.", flush=True)

@@ -276,6 +276,7 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
     }
 
     func testShowInspectorRequestDropsUnscopedNotificationAndAcceptsItsOwnScope() {
+        restoreHostDefaultsAfterTest(keys: ["InspectorCollapsed"])
         let controller = MainSplitViewController()
         _ = controller.view
         controller.setInspectorVisible(false, animated: false, source: "test.hide")
