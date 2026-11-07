@@ -18,8 +18,9 @@ as in the other release scripts.
 
 Safety rules:
   * Only v1/<64 lowercase hex>/<64 lowercase hex>/ directories holding a
-    regular-file .lungfish-release-cache.json marker are considered. Anything
-    else is listed as "ignored" and never touched.
+    regular-file .lungfish-release-cache.json marker, and the app smoke copies
+    described below, are considered. Anything else is listed as "ignored" and
+    never touched.
   * Nothing is followed through a symlink (lstat at every level). A symlink, or
     an entry owned by another user, where the cache root, v1, a repository key,
     a namespace, its marker or its lock belongs refuses the whole run.
@@ -34,10 +35,13 @@ Safety rules:
     parent. Repository key directories and v1 are never removed.
   * The app smoke gate copies the candidate into <cache-root>/lungfish-app-smoke.*/
     with a .lungfish-app-smoke-copy.json marker and holds that folder's
-    .build.lock while it runs. The gate removes the folder when it ends, so a
-    marked folder whose lock nobody holds was left by a gate that was killed.
-    It is always listed as REMOVE, whatever --keep says, and a held lock
-    refuses the run as a build's lock does.
+    .build.lock while it runs. The gate removes the folder when it ends and
+    takes the marker away last, so a marked folder whose lock nobody holds was
+    left by a gate that was killed or whose removal failed. A folder that a kill
+    caught before the gate wrote its marker is listed as "ignored" and stays
+    until someone removes it by hand. A marked folder is always listed as
+    REMOVE, whatever --keep says, and a held lock refuses the run as a build's
+    lock does.
 
 Exit status: 0 success (including nothing to do), 64 usage error or unsafe
 layout, 75 a build lock is held, 1 a removal failed.

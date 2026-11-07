@@ -735,14 +735,26 @@ class CandidateCopy:
         return copied
 
     def remove(self):
-        """Removes the copy's folder and releases its lock. Returns the words of a failed removal, else None."""
+        """Removes the copy's folder and releases its lock. The marker goes last, since shutil.rmtree unlinks the files of a
+        folder before it enters a subfolder, and a removal that failed inside the copy would take the marker first and
+        leave a folder that prune-release-cache.py skips. Returns the words of a failed removal, else None."""
         if self.folder is None:
             return None
         try:
-            shutil.rmtree(self.folder)
+            for entry in sorted(self.folder.iterdir()):
+                if entry.name in (CACHE_LOCK, SMOKE_COPY_MARKER):
+                    continue
+                if entry.is_dir() and not entry.is_symlink():
+                    shutil.rmtree(entry)
+                else:
+                    entry.unlink()
+            (self.folder / CACHE_LOCK).unlink(missing_ok=True)
+            (self.folder / SMOKE_COPY_MARKER).unlink(missing_ok=True)
+            self.folder.rmdir()
         except OSError as error:
-            return ("The gate could not remove its copy of the candidate in %s (%s). Remove that folder, or run "
-                    "scripts/release/prune-release-cache.py --apply, which removes it." % (self.folder, error))
+            return ("The gate could not remove its copy of the candidate in %s (%s). Remove that folder by hand, or run "
+                    "scripts/release/prune-release-cache.py --apply, which removes it and any compiler cache beyond "
+                    "--keep." % (self.folder, error))
         finally:
             if self.lock is not None:
                 os.close(self.lock)
