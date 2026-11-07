@@ -16,7 +16,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 1 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 0 | LungfishCLI |
-| LungfishCore | library | Sources/LungfishCore | 343 | LungfishPortable |
+| LungfishCore | library | Sources/LungfishCore | 344 | LungfishPortable |
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -722,6 +722,7 @@ None.
 - `ToolProcessEvent` enum, `Sources/LungfishCore/Process/ToolProcessResult.swift`
 - `ToolProcessInput` enum, `Sources/LungfishCore/Process/ToolProcessSpec.swift`
 - `ToolProcessInputStream` class, `Sources/LungfishCore/Process/ToolProcessInputStream.swift`
+- `ToolProcessMainThreadGuard` enum, `Sources/LungfishCore/Process/ToolProcessMainThreadGuard.swift`
 - `ToolProcessObservation` enum, `Sources/LungfishCore/Process/ToolProcessObservation.swift`
 - `ToolProcessObserver` struct, `Sources/LungfishCore/Process/ToolProcessObservation.swift`
 - `ToolProcessOutput` enum, `Sources/LungfishCore/Process/ToolProcessSpec.swift`
