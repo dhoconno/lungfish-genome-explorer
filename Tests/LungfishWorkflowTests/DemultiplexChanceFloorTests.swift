@@ -467,15 +467,19 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         return url
     }
 
-    /// For each decoy of the default kit, the reads among `reads` whose window matches it under the floor's dynamic program.
-    /// A read shorter than the window or with an `N` in it makes no window.
-    private func bruteForceDecoyCounts(_ reads: [String], index: DemultiplexChanceFloor.DecoyIndex) -> [Int] {
+    /// For each decoy of the default kit, the reads among `reads` whose window matches it under the floor's dynamic program,
+    /// with indels unless `allowsIndels` is false. A read shorter than the window or with an `N` in it makes no window.
+    private func bruteForceDecoyCounts(
+        _ reads: [String], index: DemultiplexChanceFloor.DecoyIndex, allowsIndels: Bool = true
+    ) -> [Int] {
         let window = DemultiplexChanceFloor.startWindowLength(patterns: defaultKitPatterns, errorRate: errorRate)
         let codes = reads.map { DemultiplexChanceFloor.baseCodes($0) }
             .filter { $0.count >= window && !$0.prefix(window).contains(where: { $0 > 3 }) }
         return index.decoys.map { decoy in
             codes.filter {
-                DemultiplexChanceFloor.anchoredMatch(read: $0, pattern: decoy.pattern, errors: decoy.errors, allowsIndels: true)
+                DemultiplexChanceFloor.anchoredMatch(
+                    read: $0, pattern: decoy.pattern, errors: decoy.errors, allowsIndels: allowsIndels
+                )
             }.count
         }
     }
@@ -510,6 +514,19 @@ final class DemultiplexChanceFloorTests: XCTestCase {
             XCTAssertEqual(single.first?.decoyCounts(), every, url.lastPathComponent)
             XCTAssertEqual(single.map(\.countedWindows), [799], "801 records, one with an N and one too short")
         }
+    }
+
+    /// A run with `--no-indels` builds substitution-only keys, so its decoy counts equal a brute-force count that allows no
+    /// indel (BIO SF2, DEMUX-FLOOR-DECOY-SCALE). A pin: the path sets a margin and no other test counted it.
+    func testTheDecoyCountsWithoutIndelsEqualABruteForceCount() throws {
+        var generator = DemuxFloorSeededGenerator(seed: 32)
+        let reads = (0..<400).map { _ in DemuxFloorFixtures.randomBases(20, using: &generator) }
+        var tally = DemultiplexChanceFloor.StartTally(patterns: defaultKitPatterns, errorRate: errorRate, allowsIndels: false)
+        for read in reads { tally.add(read) }
+        let index = try XCTUnwrap(tally.decoys)
+        let expected = bruteForceDecoyCounts(reads, index: index, allowsIndels: false)
+        XCTAssertGreaterThan(expected.reduce(0, +), 50, "the random reads hit many decoys")
+        XCTAssertEqual(tally.decoyCounts(), expected)
     }
 
     // MARK: - Every decoy over every unassigned read (DEMUX-FLOOR-DECOY-SCALE)
