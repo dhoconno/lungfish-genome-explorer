@@ -167,7 +167,7 @@ public enum FASTQBundle {
         if let manifestURLs = resolveSourceManifestFASTQURLs(for: bundleURL) {
             return manifestURLs
         }
-        if isBundleURL(bundleURL), !isDerivedBundle(bundleURL) {
+        if isBundleURL(bundleURL), !isMultiFileBundle(bundleURL), !isDerivedBundle(bundleURL) {
             let physicalURLs = findPhysicalFASTQFiles(in: bundleURL, recursive: false)
             if physicalURLs.count > 1 { return physicalURLs }
         }

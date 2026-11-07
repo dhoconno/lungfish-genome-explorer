@@ -106,6 +106,19 @@ final class FASTQPairedRootTests: XCTestCase {
         XCTAssertEqual(FASTQBundle.resolveAllFASTQURLs(for: file), [file], "a FASTQ file is its own answer")
     }
 
+    /// A `source-files.json` that cannot be read still marks the root as a manifest root, so the root keeps the primary
+    /// answer it had and does not list its top-level files as a pair (PAIREDROOT-SWIFT SF2).
+    func testRootWithAnUnreadableSourceManifestKeepsItsPrimaryAnswer() throws {
+        let bundle = try makeRoot(named: "damaged-manifest", files: [
+            ("a_R1.fastq", reads("a_", sequence: "ACGT", quality: "I")),
+            ("b_R2.fastq", reads("b_", sequence: "GGCC", quality: "+")),
+            ("source-files.json", "{"),
+        ])
+
+        XCTAssertTrue(FASTQBundle.isMultiFileBundle(bundle))
+        XCTAssertEqual(FASTQBundle.resolveAllFASTQURLs(for: bundle)?.map(\.lastPathComponent), ["a_R1.fastq"])
+    }
+
     func testExportOfPairedRootWritesBothMates() async throws {
         let bundle = try makePairedRoot()
 
