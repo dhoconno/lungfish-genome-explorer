@@ -2,30 +2,45 @@ import AppKit
 import XCTest
 
 /// Owner row 35 (RESCAN-RESULT-LEFT-ON-SCREEN), the real-click twin of `SidebarRescanSelectionTests` in
-/// LungfishAppTests (3.3 lane RESCAN35). The test process copies a result folder into the project, so the sidebar's
-/// watcher starts a rescan, and at once clicks another result's row with real input. Each viewer is found by its own
-/// identifier, so a result left on screen reads as the old viewer still there. If the app test passes and this one
-/// fails, the fault is in the click route and not in the rescan. It needs the console session and an unlocked screen,
-/// and it is not in `gates.appSmokeTests`.
+/// LungfishAppTests (3.3 lanes RESCAN35 and RESCANFIX). The test process copies a result folder into the project, so
+/// the sidebar's watcher starts a rescan, and at once clicks another result's row with real input. Each viewer is
+/// found by its own identifier, so a result left on screen reads as the old viewer still there. If the app test passes
+/// and this one fails, the fault is in the click route and not in the rescan.
+///
+/// It runs on the Debug app with its launch hooks (`ProjectLifecycleRobot`), the app `scripts/testing/run-macos-xcui.sh`
+/// builds, so it needs the console session and an unlocked screen but no packaged candidate. It is not in
+/// `gates.appSmokeTests`. The click cannot force an order against the watcher (the app test forces all three), so a
+/// green run shows that a real click works in whichever order it hit.
 final class SidebarRescanSelectionXCUITests: XCTestCase {
     private static let taxTriageRow = "taxtriage-2026-01-15T12-00-00"
     private static let esVirituRow = "esviritu-2026-01-15T10-00-00"
 
+    override func setUp() async throws {
+        try await super.setUp()
+        continueAfterFailure = false
+    }
+
     @MainActor
     func testClickingAnotherResultRightAfterARescanShowsTheClickedResult() throws {
-        let robot = try ReleaseAppSmokeRobot()
-        let project = try ReleaseSmokeFixtures.makeClassifierResultsProject(named: "ReleaseRescan-\(UUID().uuidString)")
-        defer { robot.app.terminate(); try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
+        let project = try ReleaseSmokeFixtures.makeClassifierResultsProject(named: "Rescan-\(UUID().uuidString)")
+        let robot = ProjectLifecycleRobot()
+        defer {
+            robot.app.terminate()
+            try? FileManager.default.removeItem(at: project.deletingLastPathComponent())
+        }
         let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
-        try robot.launch()
-        robot.openProject(project)
+        robot.launch(openingProject: project)
+        guard robot.projectWindow(for: project).waitForExistence(timeout: 15) else {
+            XCTFail("The Debug app opened no window for \(project.lastPathComponent)")
+            return
+        }
         let any = robot.app.descendants(matching: .any)
         let taxTriage = (row: Self.taxTriageRow, viewer: any["taxtriage-result-view"].firstMatch)
         let esViritu = (row: Self.esVirituRow, viewer: any["esviritu-result-view"].firstMatch)
 
         ReleaseSmokeFixtures.openSidebarItem(containing: taxTriage.row, in: robot.app)
         guard taxTriage.viewer.waitForExistence(timeout: 15) else {
-            robot.failShowingScreen("The TaxTriage result shows no viewer before the first rescan")
+            XCTFail("The TaxTriage result shows no viewer before the first rescan")
             return
         }
         var shown = taxTriage
@@ -39,7 +54,7 @@ final class SidebarRescanSelectionXCUITests: XCTestCase {
             // At once, before the rescan reports, as the walk clicked right after the new folder arrived.
             ReleaseSmokeFixtures.openSidebarItem(containing: next.row, in: robot.app)
             guard next.viewer.waitForExistence(timeout: 15) else {
-                robot.failShowingScreen("Round \(round): the clicked \(next.row) shows no viewer after the rescan")
+                XCTFail("Round \(round): the clicked \(next.row) shows no viewer after the rescan")
                 return
             }
             XCTAssertTrue(shown.viewer.waitForNonExistence(timeout: 5),
@@ -49,7 +64,7 @@ final class SidebarRescanSelectionXCUITests: XCTestCase {
             XCTAssertTrue(next.viewer.exists, "Round \(round): the rescan took \(next.row) off the screen")
             XCTAssertTrue(selectedRow(named: next.row, in: robot.app).isSelected,
                           "Round \(round): the sidebar does not select the clicked \(next.row)")
-            XCTAssertTrue(ReleaseSmokeFixtures.showInspectorSummary(robot),
+            XCTAssertTrue(showInspectorSummary(in: robot.app),
                           "Round \(round): the Inspector shows no Summary for \(next.row)")
             shown = next
         }
@@ -59,5 +74,18 @@ final class SidebarRescanSelectionXCUITests: XCTestCase {
     private func selectedRow(named text: String, in app: XCUIApplication) -> XCUIElement {
         let matching = NSPredicate(format: "label CONTAINS[c] %@ OR value CONTAINS[c] %@", text, text)
         return app.outlines["sidebar-outline"].firstMatch.outlineRows.containing(matching).firstMatch
+    }
+
+    /// `ReleaseSmokeFixtures.showInspectorSummary` on the Debug app: the Inspector toggle is pressed only when no
+    /// Summary shows, so a visible Inspector is never hidden.
+    @MainActor
+    private func showInspectorSummary(in app: XCUIApplication) -> Bool {
+        let summary = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Summary")).firstMatch
+        if !summary.waitForExistence(timeout: 5) {
+            app.buttons["main-window-toggle-inspector"].firstMatch.click()
+        }
+        guard summary.waitForExistence(timeout: 10) else { return false }
+        if summary.elementType == .button, summary.isHittable { summary.click() }
+        return true
     }
 }
