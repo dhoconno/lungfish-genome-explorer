@@ -559,6 +559,10 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
         var opened: FASTQDemultiplexPlanLaunch?
         viewer.openDemultiplexDialog(for: drawer.currentDemuxPlan(), projectURL: root) { opened = $0 }
         XCTAssertNil(opened, "Demultiplex\u{2026} opened a plan with no samples", file: file, line: line)
+        XCTAssertTrue(
+            Self.labels(in: drawer).contains { $0.stringValue.hasPrefix("The plan has no samples.") },
+            "the refusal did not reach the drawer's status line", file: file, line: line
+        )
 
         drawer.applySampleAssignmentsToCurrentStep([Self.assignment])
         viewer.openDemultiplexDialog(for: drawer.currentDemuxPlan(), projectURL: root) { opened = $0 }

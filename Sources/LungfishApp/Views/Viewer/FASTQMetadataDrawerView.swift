@@ -151,7 +151,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     // Shared content area
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
-    private let statusLabel = NSTextField(labelWithString: "")
+    private let statusLabel = FASTQDrawerStatusLabel(wrappingLabelWithString: "")
     private let drawerDivider = FASTQDrawerDividerView()
 
     // Inline kit reference split
@@ -512,9 +512,9 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         addSubview(dedupContainer)
         setupDedupPanel()
 
-        // Status bar
         statusLabel.font = .systemFont(ofSize: 11)
         statusLabel.textColor = .secondaryLabelColor
+        statusLabel.maximumNumberOfLines = 3
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(statusLabel)
 

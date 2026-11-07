@@ -57,4 +57,24 @@ final class DemultiplexDrawerWordsTests: XCTestCase {
         XCTAssertFalse(words.contains("No run reads it"), words)
         XCTAssertTrue(words.contains("Demultiplex\u{2026}"), words)
     }
+
+    private func fields(in view: NSView) -> [NSTextField] {
+        ((view as? NSTextField).map { [$0] } ?? []) + view.subviews.flatMap { fields(in: $0) }
+    }
+
+    /// Review DEMUXPLAN, UX should-fix 2: a refusal runs to 170 characters and ends with the next step, so the status
+    /// line wraps, and its tooltip holds the whole message.
+    func testALongRefusalWrapsInTheStatusLine() throws {
+        let drawer = FASTQMetadataDrawerView()
+        drawer.selectDemuxTab()
+        let message = String(repeating: "word ", count: 60)
+        drawer.updateScoutStatus(message)
+        let label = try XCTUnwrap(fields(in: drawer).first { $0.stringValue == message }, "the status line does not show the message")
+        XCTAssertGreaterThan(label.maximumNumberOfLines, 1, "a long refusal runs on one line and cuts off its next step")
+        XCTAssertEqual(label.cell?.wraps, true)
+        XCTAssertEqual(label.toolTip, message)
+        // The tooltip follows every message the drawer writes, so it never holds the refusal that came before.
+        drawer.applySampleAssignmentsToCurrentStep([])
+        XCTAssertEqual(label.toolTip, label.stringValue, "the tooltip kept an earlier message")
+    }
 }
