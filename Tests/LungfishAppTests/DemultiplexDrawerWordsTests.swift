@@ -36,7 +36,8 @@ final class DemultiplexDrawerWordsTests: XCTestCase {
         let words = texts(in: drawer)
         XCTAssertFalse(words.contains { $0.contains("Outputs will be created") }, "\(words)")
         XCTAssertTrue(
-            words.contains("Demultiplex\u{2026} opens Demultiplex Barcodes with this plan. It makes one output for each sample in the table."),
+            // A sample with no reads makes no output, so the sentence says so (review DEMUXPLAN-BIO, should-fix 1).
+            words.contains("Demultiplex\u{2026} opens Demultiplex Barcodes with this plan. It makes one output for each sample in the table that has reads."),
             "\(words)"
         )
         XCTAssertNotNil(button(titled: "Demultiplex\u{2026}", in: drawer), "the Demux tab has no Demultiplex\u{2026} control")

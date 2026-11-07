@@ -187,7 +187,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     private var patternLabelTopToCutadapt: NSLayoutConstraint!
     private var patternLabelTopToInsert: NSLayoutConstraint!
     private let demuxAdvancedDisclosure = NSButton(checkboxWithTitle: "Advanced", target: nil, action: nil)
-    private let demuxSimpleSummaryLabel = NSTextField(labelWithString: "Demultiplex\u{2026} opens Demultiplex Barcodes with this plan. It makes one output for each sample in the table.")
+    private let demuxSimpleSummaryLabel = NSTextField(labelWithString: "Demultiplex\u{2026} opens Demultiplex Barcodes with this plan. It makes one output for each sample in the table that has reads.")
     private let demuxPatternLabel = NSTextField(labelWithString: "Pattern:")
 
     // Primer Trim tab
@@ -1385,7 +1385,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         }
         demuxSimpleSummaryLabel.isHidden = isDemuxAdvancedEnabled
         demuxSimpleSummaryLabel.stringValue = step.symmetryMode == .symmetric
-            ? "Demultiplex\u{2026} opens Demultiplex Barcodes with this plan. It makes one output for each sample in the table." : "Enable Advanced to edit barcode mappings and demux parameters."
+            ? "Demultiplex\u{2026} opens Demultiplex Barcodes with this plan. It makes one output for each sample in the table that has reads." : "Enable Advanced to edit barcode mappings and demux parameters."
         refreshSelectedKitReference()
     }
 
