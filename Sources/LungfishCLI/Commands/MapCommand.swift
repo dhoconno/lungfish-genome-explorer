@@ -387,12 +387,17 @@ struct MapCommand: AsyncParsableCommand {
                     workflowName: "lungfish.map.input-materialization",
                     workflowVersion: LungfishCLI.configuration.version,
                     parentArgv: CommandLine.arguments,
-                    parentDurableReplayArgv: CLISequenceInputMaterialization.durableReplayArgv(
-                        argv: CommandLine.arguments,
-                        originalInputArguments: originalInputArguments,
-                        originalInputURLs: originalInputURLs,
-                        executionInputURLs: executionInputURLs
-                    ),
+                    // Arguments that outnumber the samples (three chunk paths of one root) have no one-to-one
+                    // durable form: swapping one path for the joined file would map the other chunks again.
+                    // The recorded command reads them as one bundle again when it is run (BIO-BUNDLE-COUNTED-TWICE).
+                    parentDurableReplayArgv: resolvedInputs.inputs.count == fastqFiles.count
+                        ? CLISequenceInputMaterialization.durableReplayArgv(
+                            argv: CommandLine.arguments,
+                            originalInputArguments: originalInputArguments,
+                            originalInputURLs: originalInputURLs,
+                            executionInputURLs: executionInputURLs
+                        )
+                        : nil,
                     originalInputURLs: originalInputURLs,
                     executionInputURLs: executionInputURLs,
                     outputDirectory: outputDirectory,
