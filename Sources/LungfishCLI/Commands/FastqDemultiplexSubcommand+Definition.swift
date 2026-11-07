@@ -11,6 +11,7 @@ import ArgumentParser
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 /// The bytes of the custom barcode definition a demultiplexing run read.
 struct DemultiplexDefinitionCopy {
@@ -27,7 +28,7 @@ struct DemultiplexDefinitionCopy {
         let copy = Self(sourceURL: sourceURL, data: data)
         let name = copy.fileName
         if name.hasPrefix(".") || name == DemultiplexManifest.filename
-            || name.hasSuffix(".\(FASTQBundle.directoryExtension)") || name.hasSuffix("provenance.json") {
+            || name.hasSuffix(".\(FASTQBundle.directoryExtension)") || name.hasSuffix(ProvenanceRecorder.provenanceFilename) {
             throw ValidationError(
                 "The barcode definition \(sourceURL.path) is named \(name), a name the run writes in its result "
                     + "folder. Rename the definition and run again."
