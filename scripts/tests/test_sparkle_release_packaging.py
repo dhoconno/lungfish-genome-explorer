@@ -374,7 +374,10 @@ class SparkleReleasePackagingTests(unittest.TestCase):
                 self.assertEqual(described["dmgVolumeName"], expected["dmgVolumeName"])
 
     def test_release_script_creates_github_release_tags_at_current_commit(self):
-        self.assertIn('target_commit="$(git rev-parse HEAD)"', self.release_script)
+        # The head is read by read_head_commit, which runs `git rev-parse HEAD` under the limit of a local read
+        # (RELEASE-UNBOUNDED-LOCAL-READS), so a read held by a macOS privacy prompt ends with words.
+        self.assertIn('target_commit="$(read_head_commit publish)"', self.release_script)
+        self.assertIn('bounded_local "git-rev-parse-$1" "$LOCAL_READ_SECONDS" git rev-parse HEAD', self.release_script)
         self.assertIn('--target "$target_commit"', self.release_script)
 
     def test_release_script_sets_incrementing_bundle_version_for_sparkle(self):
