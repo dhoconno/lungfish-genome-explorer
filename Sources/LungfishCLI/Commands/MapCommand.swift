@@ -374,11 +374,6 @@ struct MapCommand: AsyncParsableCommand {
         let resolvedInputs = resolution.sequenceInputs
         let executionInputURLs = resolvedInputs.executionInputURLs
         let originalInputURLs = resolvedInputs.originalInputURLs
-        // One raw argument per execution file, so the replay command can
-        // swap each bundle argument for the file that was made from it.
-        let originalInputArguments = resolvedInputs.inputs.enumerated().flatMap { index, input in
-            input.executionURLs.map { _ in fastqFiles[index] }
-        }
         if resolvedInputs.didMaterialize {
             let materializationStartedAt = resolvedInputs.materializationStartedAt ?? Date()
             let materializationEndedAt = resolvedInputs.materializationEndedAt ?? materializationStartedAt
@@ -387,17 +382,9 @@ struct MapCommand: AsyncParsableCommand {
                     workflowName: "lungfish.map.input-materialization",
                     workflowVersion: LungfishCLI.configuration.version,
                     parentArgv: CommandLine.arguments,
-                    // Arguments that outnumber the samples (three chunk paths of one root) have no one-to-one
-                    // durable form: swapping one path for the joined file would map the other chunks again.
-                    // The recorded command reads them as one bundle again when it is run (BIO-BUNDLE-COUNTED-TWICE).
-                    parentDurableReplayArgv: resolvedInputs.inputs.count == fastqFiles.count
-                        ? CLISequenceInputMaterialization.durableReplayArgv(
-                            argv: CommandLine.arguments,
-                            originalInputArguments: originalInputArguments,
-                            originalInputURLs: originalInputURLs,
-                            executionInputURLs: executionInputURLs
-                        )
-                        : nil,
+                    parentDurableReplayArgv: Self.parentDurableReplayArgv(
+                        argv: CommandLine.arguments, typedInputs: fastqFiles, resolved: resolvedInputs
+                    ),
                     originalInputURLs: originalInputURLs,
                     executionInputURLs: executionInputURLs,
                     outputDirectory: outputDirectory,
@@ -685,6 +672,20 @@ struct MapCommand: AsyncParsableCommand {
 
     static func parseExtraArgs(_ extraArgs: String, deprecatedAdvancedOptions: String) throws -> [String] {
         try AdvancedCommandLineOptions.parse(extraArgs) + AdvancedCommandLineOptions.parse(deprecatedAdvancedOptions)
+    }
+
+    /// The typed command with each bundle argument swapped for the file made from it, or nil when the typed inputs
+    /// do not name the resolved inputs one to one. Three chunk paths of one root resolve to one input, and a swap
+    /// of the first path alone would map the other chunks again (BIO-BUNDLE-COUNTED-TWICE). A pool of inputs also
+    /// resolves to one input (`MappingPooledInputs.join`), and its old replay had the same fault.
+    static func parentDurableReplayArgv(argv: [String], typedInputs: [String], resolved: ResolvedSequenceInputs) -> [String]? {
+        guard resolved.inputs.count == typedInputs.count else { return nil }
+        return CLISequenceInputMaterialization.durableReplayArgv(
+            argv: argv,
+            originalInputArguments: resolved.argumentsPerExecutionFile(typedInputs),
+            originalInputURLs: resolved.originalInputURLs,
+            executionInputURLs: resolved.executionInputURLs
+        )
     }
 
     private func warnIfDeprecatedAdvancedOptionsUsed() {

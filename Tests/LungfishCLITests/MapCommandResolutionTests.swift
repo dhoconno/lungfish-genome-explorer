@@ -219,6 +219,51 @@ final class MapCommandResolutionTests: XCTestCase {
         )
     }
 
+    /// BIO-BUNDLE-COUNTED-TWICE (review of LAND-40, 3.2). The typed command's durable replay swaps each bundle
+    /// argument for the file made from it, so it is recorded only when the typed inputs name the resolved inputs one
+    /// to one. Three chunk paths of one root, or a root with one of its own chunks, resolve to one input, and a swap
+    /// of the root alone would map the other chunk again. A single root keeps its replay.
+    func testThreeChunkPathsRecordNoPartialDurableReplay() async throws {
+        let chunked = try BundleCountedOnceFixtures.chunkedRoot(
+            named: "chunked", in: root.appendingPathComponent("chunked-input", isDirectory: true), chunks: 3, readsPerChunk: 4
+        )
+        let reference = ["--reference", "ref.fa"]
+
+        let chunkPaths = chunked.chunks.map(\.path)
+        let threeChunks = try await resolve(chunked.chunks)
+        XCTAssertNil(
+            MapCommand.parentDurableReplayArgv(
+                argv: ["lungfish-cli", "map"] + chunkPaths + reference,
+                typedInputs: chunkPaths,
+                resolved: threeChunks.sequenceInputs
+            ),
+            "three chunk paths of one root are one input"
+        )
+
+        let rootAndChunk = [chunked.root.path, chunkPaths[0]]
+        let rootAndOwnChunk = try await resolve([chunked.root, chunked.chunks[0]])
+        XCTAssertNil(
+            MapCommand.parentDurableReplayArgv(
+                argv: ["lungfish-cli", "map"] + rootAndChunk + reference,
+                typedInputs: rootAndChunk,
+                resolved: rootAndOwnChunk.sequenceInputs
+            ),
+            "a root and one of its own chunks are one input"
+        )
+
+        let one = try await resolve([chunked.root])
+        let replay = try XCTUnwrap(
+            MapCommand.parentDurableReplayArgv(
+                argv: ["lungfish-cli", "map", chunked.root.path] + reference,
+                typedInputs: [chunked.root.path],
+                resolved: one.sequenceInputs
+            ),
+            "one root keeps its replay"
+        )
+        XCTAssertFalse(replay.contains(chunked.root.path), "\(replay)")
+        XCTAssertTrue(replay.contains(one.sequenceInputs.executionInputURLs[0].standardizedFileURL.path), "\(replay)")
+    }
+
     // MARK: - Helpers
 
     /// Resolves through the call `lungfish-cli map` and the Map Reads window make.
