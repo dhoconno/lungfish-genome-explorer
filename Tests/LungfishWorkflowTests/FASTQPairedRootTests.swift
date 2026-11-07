@@ -148,6 +148,63 @@ final class FASTQPairedRootTests: XCTestCase {
         XCTAssertEqual(lines[19], "++++", "R2 keeps its Q10 line")
     }
 
+    // MARK: - A one-file operation refuses a root of R1 and R2 files (BIO-PAIRED-ROOT-DERIVATIVES items 4, 5 and 10)
+
+    /// Every one-file operation, in the app and in `lungfish-cli fastq`, resolves its input through the materializer. A
+    /// root of R1 and R2 files with no `source-files.json` would read R1 alone and leave R2 out with no word, so the
+    /// materializer stops with words before it writes a file.
+    func testMaterializerRefusesARootOfR1AndR2WithWords() async throws {
+        let bundle = try makePairedRoot()
+        let scratch = root.appendingPathComponent("materialized", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+
+        do {
+            let url = try await FASTQCLIMaterializer(runner: .shared).materialize(bundleURL: bundle, tempDirectory: scratch)
+            XCTFail("a root of R1 and R2 files materialized to \(url.lastPathComponent)")
+        } catch {
+            let words = error.localizedDescription
+            XCTAssertTrue(words.contains("s_R1.fastq"), "the words name R1: \(words)")
+            XCTAssertTrue(words.contains("s_R2.fastq"), "the words name R2: \(words)")
+            XCTAssertTrue(words.contains("nothing was run"), "the words say nothing was run: \(words)")
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: scratch.path), [], "nothing was written")
+    }
+
+    /// A root with a `source-files.json` is still joined in manifest order, and a one-file root is still read in place.
+    func testMaterializerStillJoinsAManifestRootAndReadsAOneFileRoot() async throws {
+        let scratch = root.appendingPathComponent("materialized", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let materializer = FASTQCLIMaterializer(runner: .shared)
+
+        let joined = try await materializer.materialize(bundleURL: try makeChunkedRoot(), tempDirectory: scratch)
+        let lines = try String(contentsOf: joined, encoding: .utf8).split(separator: "\n").map(String.init)
+        let headers = stride(from: 0, to: lines.count, by: 4).map { lines[$0] }
+        XCTAssertEqual(
+            headers, ["@c1_1", "@c1_2", "@c1_3", "@c1_4", "@c2_1", "@c2_2", "@c2_3", "@c2_4"],
+            "both chunks, in manifest order, in one file"
+        )
+
+        let single = try makeRoot(named: "single-file", files: [("reads.fastq", reads("r_", sequence: "ACGT", quality: "I"))])
+        let inPlace = try await materializer.materialize(bundleURL: single, tempDirectory: scratch)
+        XCTAssertEqual(inPlace.standardizedFileURL, single.appendingPathComponent("reads.fastq").standardizedFileURL)
+    }
+
+    /// Classify, map, assemble and the other tools that resolve through `ResolvedSequenceInputs` read the two files of
+    /// such a root as one mate pair, and keep doing so.
+    func testSharedResolverStillReadsAPairedRootAsOneMatePair() async throws {
+        let bundle = try makePairedRoot()
+
+        let resolved = try await ResolvedSequenceInputs.resolve(
+            inputURLs: [bundle],
+            materializationDirectory: root.appendingPathComponent("resolved", isDirectory: true),
+            materializer: FASTQCLIMaterializer(runner: .shared)
+        )
+
+        XCTAssertEqual(resolved.inputs.count, 1, "one sample")
+        XCTAssertTrue(resolved.inputs[0].isMatePair)
+        XCTAssertEqual(resolved.inputs[0].executionURLs.map(\.lastPathComponent), ["s_R1.fastq", "s_R2.fastq"])
+    }
+
     // MARK: - The exact-barcode engines refuse a root of R1 and R2 files (PAIREDROOT-BIO B1)
 
     /// The exact bare-barcode engine over the whole of `bundle`, as the app and `fastq demultiplex --engine exact-bare` build it.

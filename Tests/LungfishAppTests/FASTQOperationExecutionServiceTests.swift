@@ -30,6 +30,37 @@ private final class ProgressRecorder: @unchecked Sendable {
 }
 
 final class FASTQOperationExecutionServiceTests: XCTestCase {
+    /// A root of R1 and R2 files with no `source-files.json` is the pair of one sample. A one-file operation would read
+    /// R1 alone and leave R2 out with no word (BIO-PAIRED-ROOT-DERIVATIVES), so the run stops with words before the CLI runs.
+    func testDerivativeOfPairedRootFailsWithWordsBeforeTheCLIRuns() async throws {
+        let directory = try FASTQOperationTestHelper.makeTempDir(prefix: "PairedRootDerivative")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let bundle = directory.appendingPathComponent("pair-extract.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try "@a\nACGT\n+\nIIII\n".write(to: bundle.appendingPathComponent("s_R1.fastq"), atomically: true, encoding: .utf8)
+        try "@a\nGGCC\n+\n++++\n".write(to: bundle.appendingPathComponent("s_R2.fastq"), atomically: true, encoding: .utf8)
+        let runner = SpyCommandRunner()
+        let service = FASTQOperationExecutionService(commandRunner: runner)
+
+        do {
+            _ = try await service.execute(
+                request: .derivative(
+                    request: .qualityTrim(threshold: 20, windowSize: 4, mode: .cutRight, extraArguments: []),
+                    inputURLs: [bundle],
+                    outputMode: .perInput
+                ),
+                workingDirectory: directory.appendingPathComponent("work")
+            )
+            XCTFail("a trim of a root of R1 and R2 files ran")
+        } catch {
+            let words = error.localizedDescription
+            XCTAssertTrue(words.contains("s_R1.fastq"), "the words name R1: \(words)")
+            XCTAssertTrue(words.contains("s_R2.fastq"), "the words name R2: \(words)")
+            XCTAssertTrue(words.contains("nothing was run"), "the words say nothing was run: \(words)")
+        }
+        XCTAssertTrue(runner.invocations.isEmpty, "the CLI never ran")
+    }
+
     func testSequenceProcessingRestoresEachOriginalInputFormatBeforeImport() async throws {
         let directory = try FASTQOperationTestHelper.makeTempDir(prefix: "FormatRestoration")
         defer { try? FileManager.default.removeItem(at: directory) }

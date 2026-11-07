@@ -64,6 +64,15 @@ public final class FASTQCLIMaterializer: Sendable {
                 progress?("Joined \(concatenation.memberURLs.count) files of \(bundleURL.lastPathComponent)")
                 return concatenation.outputURL
             }
+            // A root of several FASTQ files and no `source-files.json` is the R1 and R2 of one sample. This is the one-file
+            // resolution, so it would read R1 alone and leave R2 out with no word: stop with words before anything is
+            // written (BIO-PAIRED-ROOT-DERIVATIVES). Classify, map and assemble read the pair through the shared resolver.
+            if !FASTQBundle.isMultiFileBundle(bundleURL),
+               let files = FASTQBundle.resolveAllFASTQURLs(for: bundleURL), files.count > 1 {
+                throw FASTQCLIMaterializerError.unmanifestedFileSet(
+                    bundleName: bundleURL.lastPathComponent, fileNames: files.map(\.lastPathComponent)
+                )
+            }
             // Single-file bundles: return their primary sequence directly (no copy needed)
             if let physicalURL = FASTQBundle.resolvePrimarySequenceURL(for: bundleURL) {
                 return physicalURL
@@ -723,6 +732,7 @@ public enum FASTQCLIMaterializerError: Error, LocalizedError {
     case unsupportedPayload(String)
     case unsupportedTrimFormat(String)
     case roleFileMissing(String)
+    case unmanifestedFileSet(bundleName: String, fileNames: [String])
 
     public var errorDescription: String? {
         switch self {
@@ -744,6 +754,8 @@ public enum FASTQCLIMaterializerError: Error, LocalizedError {
             return "Unsupported trim file format: \(reason)"
         case .roleFileMissing(let detail):
             return "The mixed bundle cannot be read whole: \(detail)"
+        case .unmanifestedFileSet(let bundleName, let fileNames):
+            return "The bundle \"\(bundleName)\" holds \(fileNames.count) FASTQ files (\(fileNames.joined(separator: ", "))) and no source-files.json, so they are the R1 and R2 of one sample. This operation reads one file, so it would read R1 alone, and nothing was run. Run it on one file of the bundle by name, or make one interleaved FASTQ file of the pair and run it on that."
         }
     }
 }
