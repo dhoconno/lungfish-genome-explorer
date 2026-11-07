@@ -87,9 +87,12 @@ extension Kraken2AnalysisRunTool {
                 ))
                 // A planned read set names its own files, so only a run of the files as resolved
                 // replays through the kept materialization.
-                if planned == nil, let replay = CLISequenceInputMaterialization.durableReplayArgv(
+                // Typed inputs that outnumber the resolved ones have no one-to-one durable form: swapping the bundle
+                // alone would classify the bundle again through its own file (BIO-BUNDLE-COUNTED-TWICE).
+                let typedArguments = resolved.argumentsPerExecutionFile(sample.inputArguments)
+                if planned == nil, !typedArguments.isEmpty, let replay = CLISequenceInputMaterialization.durableReplayArgv(
                     argv: value.commandLine,
-                    originalInputArguments: resolved.argumentsPerExecutionFile(sample.inputArguments),
+                    originalInputArguments: typedArguments,
                     originalInputURLs: resolved.originalInputURLs,
                     executionInputURLs: resolved.executionInputURLs
                 ) {

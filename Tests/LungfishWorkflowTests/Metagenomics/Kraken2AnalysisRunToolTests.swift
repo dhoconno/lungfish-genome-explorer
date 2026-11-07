@@ -109,6 +109,33 @@ final class Kraken2AnalysisRunToolTests: XCTestCase {
         XCTAssertTrue(traced, "the kept file kraken2 read traces to the bundle: \(kraken2Step.inputs.map(\.path))")
     }
 
+    /// BIO-BUNDLE-COUNTED-TWICE (review of LAND-40, 3.3). `classify <bundle> <bundle>/file` is one input, so a
+    /// replay that swapped the bundle argument alone for the kept file would classify the bundle again through
+    /// its own file. The typed inputs outnumber the resolved ones and have no one-to-one durable form, so the
+    /// record keeps the typed command, which reads the bundle once.
+    func testASubsetAndItsOwnFileRecordNoPartialReplay() async throws {
+        let output = root.appendingPathComponent("virtual-and-file-out", isDirectory: true)
+        let subset = fixtures.subsetOfSingle.standardizedFileURL
+        let ownFile = subset.appendingPathComponent("preview.fastq")
+        let materializer = ReadSetFixtures.StubMaterializer(readsByBundlePath: [subset.path: ReadSetFixtures.fastq(["r1", "r2"])])
+        let inputs = [subset.path, ownFile.path]
+        let argv = command(inputs + ["--output-dir", output.path])
+
+        let run = await execute(request(inputs), .directory(output), argv: argv, materializer: materializer)
+
+        XCTAssertEqual(run.report.status, .completed, run.report.message)
+        let kept = try FileManager.default.contentsOfDirectory(
+            atPath: output.appendingPathComponent(KrakenReadSetPlanner.inputsDirectoryName, isDirectory: true).path
+        ).filter { $0.hasSuffix(".fastq") }
+        XCTAssertEqual(kept.count, 1, "the bundle and its own file are one input, materialized once")
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: XCTUnwrap(run.report.recordURL)))
+        XCTAssertEqual(record.argv, argv)
+        XCTAssertEqual(
+            record.durableReplayArgv ?? record.argv, record.argv,
+            "the replay holds the kept file and the bundle's own file again: \(String(describing: record.durableReplayArgv))"
+        )
+    }
+
     /// A10 review fix 5 (UX D5, D14). The lines a virtual input's materialization reports are
     /// progress at the start of its unit, so the app's row shows each as its detail and in the
     /// viewer's overlay, and none is a log line. Text mode prints them through the presentation, as
