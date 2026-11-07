@@ -472,6 +472,8 @@ else
         fi
         # A listed load flake that failed in the tier is named whatever the verdict, on a pass and on a fail.
         [ -f "$EVIDENCE_DIR/load-flakes.txt" ] && cat "$EVIDENCE_DIR/load-flakes.txt"
+        # So is a Swift Testing step that hung with no event and ran again alone, cleared or not (FULLFIX).
+        [ -f "$EVIDENCE_DIR/runner-hangs.txt" ] && cat "$EVIDENCE_DIR/runner-hangs.txt"
         exit $status
     else
         run_gate

@@ -143,6 +143,44 @@ def _kill_descendant_tree(root_pid, sig):
             pass
 
 
+def _pid_exists(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _surviving_pids(pids, wait_seconds=5):
+    """Those of `pids` that still exist after waiting up to wait_seconds for them to exit. A hung tree that the kill did
+    not remove shows here (a process in uninterruptible I/O ignores SIGKILL until its call returns)."""
+    deadline = time.monotonic() + wait_seconds
+    alive = [pid for pid in pids if _pid_exists(pid)]
+    while alive and time.monotonic() < deadline:
+        time.sleep(0.1)
+        alive = [pid for pid in alive if _pid_exists(pid)]
+    return alive
+
+
+def _hang_snapshot(root_pid, descendants):
+    """What a person needs to explain a hang, taken before anything is signaled: the load of the Mac and a `ps` listing
+    of the hung process and its descendants (QA ruling 2 on FULL2, Backlog 4)."""
+    try:
+        load = " ".join(f"{value:.2f}" for value in os.getloadavg())
+    except OSError:
+        load = "unavailable"
+    try:
+        listing = subprocess.run(
+            ["ps", "-o", "pid=,ppid=,state=,etime=,pcpu=,rss=,command=", "-p", ",".join(str(p) for p in [root_pid, *descendants])],
+            capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        listing = "unavailable\n"
+    return ("load average: " + load + "\n"
+            "pid ppid state etime pcpu rss(KB) command, of the hung process and its descendants before the kill\n" + listing)
+
+
 def command_record(argv, root, directory, name, *, split=False, timeout_seconds=None, env=None):
     """Retain the actual exit, including a watchdog termination; never promote it.
 
@@ -165,7 +203,7 @@ def command_record(argv, root, directory, name, *, split=False, timeout_seconds=
     to replace).
     """
     started, tick = now(), time.monotonic()
-    intervention = None
+    intervention, survivors = None, []
     log = directory / (name + ".log")
     stderr = directory / (name + ".stderr.log") if split else None
     with log.open("xb") as output:
@@ -188,6 +226,7 @@ def command_record(argv, root, directory, name, *, split=False, timeout_seconds=
                     # even if some have already exited by then (ESRCH is
                     # swallowed).
                     descendants = _descendant_pids(process.pid)
+                    snapshot = _hang_snapshot(process.pid, descendants)
                     try:
                         os.killpg(process.pid, signal.SIGTERM)
                     except ProcessLookupError:
@@ -220,6 +259,15 @@ def command_record(argv, root, directory, name, *, split=False, timeout_seconds=
                         process.wait(timeout=5)
                     except subprocess.TimeoutExpired:
                         pass
+                    # A hang is unexplained once its tree is gone, so keep the snapshot beside the log, and keep the
+                    # pids that outlived the kill, since the full tier reruns a hung step only when none did.
+                    survivors = _surviving_pids(descendants)
+                    try:
+                        (directory / "hang-snapshot.txt").write_text(snapshot + (
+                            "still alive after the kill: " + ", ".join(str(pid) for pid in survivors) + "\n"
+                            if survivors else "every process of the hung tree was gone after the kill\n"))
+                    except OSError:
+                        pass
                     break
                 # Xcode occasionally fails to reap an XCTest child. Terminate
                 # the stuck parent and preserve intervention even if it traps TERM to exit zero.
@@ -247,9 +295,12 @@ def command_record(argv, root, directory, name, *, split=False, timeout_seconds=
         finally:
             if error:
                 error.close()
-    return {"argv": argv, "cwd": str(root), "startedAt": started, "endedAt": now(),
-            "wallTimeSeconds": time.monotonic() - tick, "exitStatus": status, "intervention": intervention,
-            "files": [file_record(p, directory) for p in (log, stderr) if p is not None]}
+    record = {"argv": argv, "cwd": str(root), "startedAt": started, "endedAt": now(),
+              "wallTimeSeconds": time.monotonic() - tick, "exitStatus": status, "intervention": intervention,
+              "files": [file_record(p, directory) for p in (log, stderr) if p is not None]}
+    if intervention == "timeout":
+        record["survivors"] = survivors
+    return record
 
 
 def events(path):
@@ -817,6 +868,25 @@ def swift_testing_event_count(path):
     return count
 
 
+RUNNER_HANG_RERUN_ROLE = "runner-hang-rerun"
+
+
+def runner_hang_rerun_blocker(step, finished, hung, left, limit_seconds):
+    """Why a Swift Testing step that hung with no event does not run again, or None when it does (FULLFIX, ruling 2 of the
+    FULL2 review). Only the whole Swift Testing step runs again, only when every other attempt of the tier passed with no
+    leak, only when no process of the hung tree outlived the kill, and only when the run's remaining budget (`left`,
+    None for a run with no budget) holds the step's bound."""
+    if step["bundle"] != SWIFT_TESTING_BUNDLE:
+        return "only the whole Swift Testing step of a tier runs again"
+    if any(attempt.get("passed") is not True for attempt in finished):
+        return "another bundle of the tier did not pass"
+    if hung.get("survivors"):
+        return "a process of the hung tree is still alive after the kill"
+    if left is not None and left < limit_seconds:
+        return f"the run's budget leaves {max(left, 0):.0f} s, less than the step's {limit_seconds:.0f} s bound"
+    return None
+
+
 def run_bundle_attempts(attempt, bound, selection, directory):
     """Run each step of a full-tier plan (plan_full_tier) as its own authoritative attempt under its own bound
     (FULL_TIER_BUNDLE_TIMEOUT_SECONDS) within the run's budget, recording each bundle that ran out or never started in
@@ -826,6 +896,7 @@ def run_bundle_attempts(attempt, bound, selection, directory):
     bound having written no event is named a runner hang (GATE RUNNER HANG), since no test started, and a discovery
     that lists no Swift Testing function plans no such step and says so (FULL2-SWIFT-TESTING-HANG)."""
     budget, started, notes, errors = bound["budgetSeconds"], time.monotonic(), [], []
+    finished, hang_lines = [], []
     # Unbuffered stdio, as in run_class_attempts, so the start line of the case a hung bundle is in reaches the log.
     environment = {**os.environ, "NSUnbufferedIO": "YES"}
     for index, step in enumerate(bound["plan"]):
@@ -863,22 +934,70 @@ def run_bundle_attempts(attempt, bound, selection, directory):
                 limit = f"its {timeout:.0f} s bound"
             else:
                 limit = f"the run's {budget} s budget, which left it {timeout:.0f} s"
+            blocker = None
             if step["harness"] == "swift-testing" and not swift_testing_event_count(directory / name / "swift-testing.jsonl"):
                 # Not one event came, so no test started and the swift test runner itself hung. The full tier on
                 # b475214ea read this as a case the log does not name, as if a test had failed.
                 count = len(chosen["swift-testing"])
+                plural = "" if count == 1 else "s"
                 result["runnerHang"] = True
+                blocker = runner_hang_rerun_blocker(
+                    step, finished, result, None if budget is None else budget - (time.monotonic() - started),
+                    limit_seconds)
                 message = (f"{bundle} hung in the runner and wrote no Swift Testing event in {limit}, so none of its "
-                           f"{count} discovered function{'' if count == 1 else 's'} started. The swift test runner "
-                           "stopped before it ran any test, so this is a runner fault and not a failed test. It was "
-                           "killed with its process tree. The tier stays red, and a run with a hung bundle cannot be "
-                           "the base of --rerun-of, so run the whole full tier again.")
+                           f"{count} discovered function{plural} started. The swift test runner never reached its first "
+                           "test, so this is a runner fault and not a failed test. It was killed with its process tree.")
+                if blocker is None:
+                    message += " It runs once more, alone, as the last step of the tier."
+                else:
+                    message += (f" It does not run again, because {blocker}. The tier stays red, and a run with a hung "
+                                "bundle cannot be the base of --rerun-of, so run the whole full tier again.")
                 notes.append("GATE RUNNER HANG: " + message)
             else:
                 message = f"{bundle} ran out of {limit} in {where} and was killed with its process tree"
                 notes.append("GATE BUNDLE TIMEOUT: " + message)
             errors.append("bundle " + message)
             print(notes[-1], flush=True)
+            if result.get("runnerHang") and blocker is None:
+                # Once, alone, as the next step (FULLFIX, ruling 2 of the FULL2 review). The hung attempt stays in the
+                # record as authoritative and red, and validate_runner_hang_rerun re-derives the clearance from it.
+                again = attempt(name + "-rerun", step["filter"], "", False, RUNNER_HANG_RERUN_ROLE, chosen, limit_seconds,
+                                environment, extra=["--disable-xctest"])
+                again.update({"bundle": bundle, "harness": step["harness"], "timeoutSeconds": limit_seconds})
+                if again.get("passed") is True and again.get("intervention") is None:
+                    outcome = "cleared"
+                    line = (f"GATE RUNNER HANG CLEARED: {bundle} hung in the runner with no Swift Testing event in {limit}, "
+                            f"so no test of it ran, and its {count} function{plural} passed when it ran again alone. "
+                            "File one backlog row for this hang.")
+                    errors.remove("bundle " + message)
+                    notes.remove("GATE RUNNER HANG: " + message)
+                    bound["timedOut"].remove(bundle)
+                elif again.get("intervention") == "timeout" and not swift_testing_event_count(
+                        directory / (name + "-rerun") / "swift-testing.jsonl"):
+                    outcome, again["runnerHang"] = "hung-again", True
+                    line = (f"GATE RUNNER HANG AGAIN: {bundle} hung in the runner a second time with no Swift Testing "
+                            "event, so the tier is red. Both attempts are kept. Read hang-snapshot.txt in each attempt "
+                            "folder and check the load of the Mac before another full tier.")
+                else:
+                    outcome = "rerun-failed"
+                    failed = sorted({t for h in again.get("harnesses", {}).values() for t in h.get("failedTests", [])
+                                     if t != "<run>"})
+                    if again.get("intervention") == "timeout":
+                        again["unfinishedTests"] = unfinished_tests(
+                            (directory / again["files"][0]["path"]).read_text(errors="replace"))
+                        why = ("it ran out of its bound in "
+                               + (", ".join(again["unfinishedTests"]) or "a case the log does not name"))
+                    else:
+                        why = ("these tests did not pass: " + ", ".join(failed[:5])) if failed else (
+                            "it ended with " + "; ".join(again.get("errors", []) or ["no result"]))
+                    line = (f"GATE RUNNER HANG RERUN FAILED: {bundle} hung in the runner with no Swift Testing event in "
+                            f"{limit}, and when it ran again alone it did not pass ({why}), so the tier is red. Both "
+                            "attempts are kept. Read the runner.log in each attempt folder and hang-snapshot.txt in the "
+                            "first, and check the load of the Mac before another full tier.")
+                bound["runnerHangs"] = [{"bundle": bundle, "functions": count, "outcome": outcome}]
+                hang_lines.append(line)
+                print(line, flush=True)
+        finished.append(result)
     if not selection["swift-testing"]:
         # plan_full_tier adds no Swift Testing step when discovery lists no function. Discovery reads the function names
         # from discover-swift-testing.log, and the event file beside it stays empty for every swift test list, so an
@@ -888,6 +1007,9 @@ def run_bundle_attempts(attempt, bound, selection, directory):
         print(line, flush=True)
     if notes:
         (directory / "bundle-timeouts.txt").write_text("".join(note + "\n" for note in notes))
+    if hang_lines:
+        # Printed by the quiet gate whatever the verdict, beside load-flakes.txt.
+        (directory / "runner-hangs.txt").write_text("".join(line + "\n" for line in hang_lines))
     return errors
 
 
@@ -1121,7 +1243,10 @@ def run_swift_gate(args):
     if leak_lines:
         (directory / "leaks.txt").write_text("".join(line + "\n" for line in leak_lines))
         print(f"GATE TEST STATE LEAKS: {len(leak_lines)}, listed in {directory / 'leaks.txt'}", flush=True)
-    result["authorized"] = (bool(authoritative) and (all(a["passed"] for a in authoritative) or cleared)
+    # A Swift Testing step that hung with no event and then passed alone is cleared by its rerun (run_bundle_attempts).
+    hang_cleared = bundle_bound is not None and [h["outcome"] for h in bundle_bound.get("runnerHangs", [])] == ["cleared"]
+    result["authorized"] = (bool(authoritative) and (
+        all(a["passed"] or (hang_cleared and a.get("runnerHang") is True) for a in authoritative) or cleared)
                             and not errors)
     if profile:
         result["options"].update(profile=profile, workers=args.workers)
@@ -1239,6 +1364,51 @@ def validate_bundle_split(result, authoritative, swiftpm_options):
             raise EvidenceError("full-tier attempt ran another bundle's tests or a list of tests")
 
 
+def _command_shape(attempt):
+    """An attempt's command without the paths of its own output files, so a rerun compares with the run it repeats."""
+    argv = attempt.get("argv")
+    if not isinstance(argv, list):
+        return None
+    return [argument for index, argument in enumerate(argv)
+            if not (index and argv[index - 1] in ("--xunit-output", "--event-stream-output-path"))]
+
+
+def validate_runner_hang_rerun(result, attempts):
+    """Check a full-tier run that claims a runner hang clearance (FULLFIX, ruling 2 of the FULL2 review) and return the
+    authoritative attempt its rerun clears. Nothing here trusts a flag of the record. The Swift Testing step is the last
+    authoritative attempt, was killed at its bound and ran no test (executed 0, no event file with content). Every other
+    authoritative attempt passed with no error, and exactly one attempt follows, of role runner-hang-rerun, that ran
+    the same command, selected the same tests, and passed with exit 0 and no intervention. The record of the hang must
+    equal what these attempts show. Any other shape cannot authorize a candidate."""
+    bound = result.get("bundleBound")
+    count = next((index for index, attempt in enumerate(attempts) if attempt.get("role") != "authoritative"),
+                 len(attempts))
+    authoritative, reruns = attempts[:count], attempts[count:]
+    if (not isinstance(bound, dict) or len(authoritative) < 2 or len(reruns) != 1
+            or reruns[0].get("role") != RUNNER_HANG_RERUN_ROLE):
+        raise EvidenceError("retried gate cannot authorize candidate")
+    *others, hung = authoritative
+    rerun = reruns[0]
+    chosen = hung.get("harnesses", {}).get("swift-testing", {}) if isinstance(hung.get("harnesses"), dict) else {}
+    again = rerun.get("harnesses", {}).get("swift-testing", {}) if isinstance(rerun.get("harnesses"), dict) else {}
+    tests = chosen.get("selectedTests")
+    streams = [record for record in hung.get("files", []) if isinstance(record, dict)
+               and str(record.get("path", "")).endswith("/swift-testing.jsonl")]
+    if (hung.get("bundle") != SWIFT_TESTING_BUNDLE or hung.get("harness") != "swift-testing"
+            or hung.get("intervention") != "timeout" or chosen.get("executed") != 0
+            or any(record.get("sizeBytes") for record in streams)
+            or not isinstance(tests, list) or not tests
+            or any(other.get("passed") is not True or other.get("exitStatus") != 0 or other.get("errors")
+                   or other.get("intervention") is not None or other.get("testStateLeaks") for other in others)
+            or again.get("selectedTests") != tests or _command_shape(rerun) is None
+            or _command_shape(rerun) != _command_shape(hung)
+            or rerun.get("passed") is not True or rerun.get("exitStatus") != 0 or rerun.get("intervention") is not None):
+        raise EvidenceError("runner hang rerun does not clear the hung step")
+    if bound.get("runnerHangs") != [{"bundle": SWIFT_TESTING_BUNDLE, "functions": len(tests), "outcome": "cleared"}]:
+        raise EvidenceError("runner hang record differs from the retained attempts")
+    return [hung]
+
+
 def validate_result(result, source):
     if result.get("schemaVersion") != 1 or result.get("authorized") is not True or not same_source(result.get("source", {}), source) or result.get("errors"):
         raise EvidenceError("gate result failed or source differs from candidate")
@@ -1265,6 +1435,11 @@ def validate_result(result, source):
             "--triple", "--arch", "--destination", "-Xlinker", "-Xcc",
         }
         forbidden_equals = (*forbidden_overrides, "--build-system", "-Xswiftc")
+        attempts = result.get("attempts", [])
+        # A run whose Swift Testing step hung with no event and passed on its rerun holds the one attempt that may keep
+        # a watchdog intervention. validate_runner_hang_rerun names it and refuses any other shape of that rerun.
+        hung = (validate_runner_hang_rerun(result, attempts) if "bundleBound" in result and any(
+            isinstance(attempt, dict) and attempt.get("role") == RUNNER_HANG_RERUN_ROLE for attempt in attempts) else [])
         # A full-tier bundle attempt runs its .xctest directly, and validate_bundle_split checks its command.
         direct = [attempt for attempt in result.get("attempts", [])
                   if isinstance(attempt, dict) and isinstance(attempt.get("argv"), list) and attempt["argv"][:1] == ["xcrun"]]
@@ -1290,7 +1465,9 @@ def validate_result(result, source):
         commands = [result.get("identityCommand", {}), sdk, *swiftpm_commands, *direct]
         if "binPathCommand" in result:
             commands.append(result["binPathCommand"])
-        if any(not isinstance(command, dict) or command.get("intervention") is not None for command in commands):
+        if any(not isinstance(command, dict)
+               or (command.get("intervention") is not None and not any(command is clear for clear in hung))
+               for command in commands):
             raise EvidenceError("gate required watchdog intervention")
         attempts = result.get("attempts", [])
         cleared = []
@@ -1300,7 +1477,7 @@ def validate_result(result, source):
             authoritative = [attempt for attempt in attempts if attempt.get("role") == "authoritative"]
             validate_bundle_split(result, authoritative, expected_options)
             if len(authoritative) != len(attempts):
-                cleared = validate_load_flake_reruns(result, attempts)
+                cleared = hung or validate_load_flake_reruns(result, attempts)
         elif direct:
             raise EvidenceError("gate ran a test bundle directly outside a full-tier plan")
         elif len(attempts) != 1 or attempts[0].get("role") != "authoritative":
