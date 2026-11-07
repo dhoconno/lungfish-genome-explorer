@@ -1134,6 +1134,27 @@ class FullTierSwiftTestingTests(unittest.TestCase):
         self.assertIsNone(files["runner-hangs.txt"])
         self.assertIn("a process of the hung tree is still alive", evidence["errors"][0])
 
+    def test_a_timed_out_command_checks_its_own_pid_for_survivors(self):
+        # QA review of FULLFIX, should-fix 1: the root process of a hung step can outlive SIGKILL (uninterruptible I/O) and is
+        # not one of its own descendants, so the survivor check has to name it or the rerun starts beside it.
+        real_popen, started, checked = subprocess.Popen, [], []
+
+        def spy_popen(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            started.append(process.pid)
+            return process
+
+        def record_pids(pids, wait_seconds=5):
+            checked.append(list(pids))
+            return []
+
+        with tempfile.TemporaryDirectory(prefix="lungfish-gate-test-") as temp, \
+                mock.patch.object(subprocess, "Popen", spy_popen), \
+                mock.patch.object(GATE, "_surviving_pids", record_pids):
+            GATE.command_record(["/bin/sh", "-c", "sleep 30 & sleep 30"], Path(temp), Path(temp), "x", timeout_seconds=1)
+        self.assertEqual(len(checked), 1, "a command that ran out of its bound checks once for survivors")
+        self.assertIn(started[0], checked[0], "the root process is checked for survivors with its descendants")
+
     def test_validate_result_refuses_a_forged_runner_hang_clearance(self):
         evidence = self.run_hang_rerun("swift_testing_hang_once")[2]
         GATE.validate_result(*_clean_copy(evidence))

@@ -260,8 +260,9 @@ def command_record(argv, root, directory, name, *, split=False, timeout_seconds=
                     except subprocess.TimeoutExpired:
                         pass
                     # A hang is unexplained once its tree is gone, so keep the snapshot beside the log, and keep the
-                    # pids that outlived the kill, since the full tier reruns a hung step only when none did.
-                    survivors = _surviving_pids(descendants)
+                    # pids that outlived the kill, since the full tier reruns a hung step only when none did. The root
+                    # is checked too: it is not its own descendant, and one stuck in uninterruptible I/O outlives SIGKILL.
+                    survivors = _surviving_pids([process.pid, *descendants])
                     try:
                         (directory / "hang-snapshot.txt").write_text(snapshot + (
                             "still alive after the kill: " + ", ".join(str(pid) for pid in survivors) + "\n"
