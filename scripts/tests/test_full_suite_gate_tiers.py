@@ -261,6 +261,14 @@ def run_gate_in_process(scenario, tier, selection_filter, **options):
 def run_gate_in_process_with_output(scenario, tier, selection_filter, **options):
     """run_gate_in_process with a fourth value, what the gate printed and the text of the bundle-timeouts.txt it wrote
     (None when it wrote none), which the quiet gate prints after its fail line."""
+    calls, status, evidence, printed, files = run_gate_in_process_with_files(
+        scenario, tier, selection_filter, ("bundle-timeouts.txt",), **options)
+    return calls, status, evidence, (printed, files["bundle-timeouts.txt"])
+
+
+def run_gate_in_process_with_files(scenario, tier, selection_filter, names, **options):
+    """The same run, returning what the gate printed and a dict of the text of each file in `names`, a path relative to
+    the evidence folder (None for a file the gate did not write), since the folder goes when the run ends."""
     calls = []
     real = GATE.command_record
 
@@ -284,9 +292,8 @@ def run_gate_in_process_with_output(scenario, tier, selection_filter, **options)
                 mock.patch.dict(os.environ, environment), contextlib.redirect_stdout(printed):
             status = GATE.run_swift_gate(args)
         evidence = json.loads((output / "gate.result.json").read_text())
-        timeouts = output / "bundle-timeouts.txt"
-        timeout_text = timeouts.read_text() if timeouts.is_file() else None
-    return calls, status, evidence, (printed.getvalue(), timeout_text)
+        files = {name: (output / name).read_text() if (output / name).is_file() else None for name in names}
+    return calls, status, evidence, printed.getvalue(), files
 
 
 class GateBehaviorTests(unittest.TestCase):
@@ -987,12 +994,12 @@ class FullTierSwiftTestingTests(unittest.TestCase):
         self.assertIn("swift-testing hung in the runner and wrote no Swift Testing event in its 2 s bound, "
                       "so none of its 1 discovered function started.", error)
         self.assertIn("runner fault and not a failed test", error)
-        self.assertIn("run the whole full tier again", error)
         self.assertNotIn("in a case the log does not name", error)
         self.assertEqual(len(evidence["errors"]), 1)
         self.assertEqual(status, 1)
         self.assertFalse(evidence["authorized"])
-        self.assertEqual([(a["bundle"], a["passed"]) for a in evidence["attempts"]],
+        # The scenario hangs on every run, so the one rerun of the step (FULLFIX) hangs too and follows these three.
+        self.assertEqual([(a["bundle"], a["passed"]) for a in evidence["attempts"]][:3],
                          [("LungfishAppTests", True), ("LungfishCLITests", True), ("swift-testing", False)])
         hung = evidence["attempts"][2]
         self.assertEqual((hung["intervention"], hung["timeoutSeconds"], hung["runnerHang"]), ("timeout", 2, True))
@@ -1019,6 +1026,140 @@ class FullTierSwiftTestingTests(unittest.TestCase):
             started = json.dumps({"version": 0, "kind": "event", "payload": {"kind": "runStarted"}})
             path.write_text(started + "\n" + started[:20])
             self.assertEqual(GATE.swift_testing_event_count(path), 1, "a process killed mid-line left one whole event")
+
+    # FULLFIX, ruling 2 of the FULL2 review (SCR/reviews/FULL2-QA.md): a Swift Testing step killed at its bound with no
+    # event is a runner fault, and the full tier runs it once more, alone, as its next step, when nothing else failed.
+    HANG_FILES = ("bundle-timeouts.txt", "runner-hangs.txt", "bundle-02/hang-snapshot.txt",
+                  "bundle-02-rerun/hang-snapshot.txt")
+    CLEARED = ("GATE RUNNER HANG CLEARED: swift-testing hung in the runner with no Swift Testing event in its 5 s bound, "
+               "so no test of it ran, and its 1 function passed when it ran again alone. File one backlog row for this hang.")
+    AGAIN = ("GATE RUNNER HANG AGAIN: swift-testing hung in the runner a second time with no Swift Testing event, so the "
+             "tier is red. Both attempts are kept. Read hang-snapshot.txt in each attempt folder and check the load of "
+             "the Mac before another full tier.")
+
+    def run_hang_rerun(self, scenario, bound=5, **options):
+        """The run of a hang scenario under a Swift Testing bound of `bound` s, with the files the gate wrote about it."""
+        with mock.patch.dict(GATE.FULL_TIER_BUNDLE_TIMEOUT_SECONDS, {"swift-testing": bound}):
+            return run_gate_in_process_with_files(scenario, "full", "", self.HANG_FILES,
+                                                  full_tier_bundle=TWO_BUNDLES, **options)
+
+    @staticmethod
+    def shapes(evidence):
+        return [(a["bundle"], a["role"], a["passed"]) for a in evidence["attempts"]]
+
+    def test_a_runner_hang_that_passes_on_its_rerun_leaves_the_tier_green_and_named(self):
+        calls, status, evidence, printed, files = self.run_hang_rerun("swift_testing_hang_once")
+        self.assertEqual(status, 0, evidence["errors"])
+        self.assertTrue(evidence["authorized"])
+        self.assertEqual(evidence["errors"], [])
+        self.assertEqual(self.shapes(evidence), [
+            ("LungfishAppTests", "authoritative", True), ("LungfishCLITests", "authoritative", True),
+            ("swift-testing", "authoritative", False), ("swift-testing", "runner-hang-rerun", True)])
+        self.assertEqual((evidence["attempts"][2]["intervention"], evidence["attempts"][2]["runnerHang"]), ("timeout", True))
+        self.assertIn(self.CLEARED, printed.splitlines())
+        self.assertEqual(files["runner-hangs.txt"], self.CLEARED + "\n")
+        self.assertEqual(evidence["bundleBound"]["runnerHangs"],
+                         [{"bundle": "swift-testing", "functions": 1, "outcome": "cleared"}])
+        self.assertEqual(evidence["bundleBound"]["timedOut"], [])
+        runners = [call for call in calls if call["name"] == "runner"]
+        self.assertEqual(len(runners), 4)
+        self.assertIn("--disable-xctest", runners[-1]["argv"])
+        self.assertNotIn("--filter", runners[-1]["argv"], "the rerun is the whole step, alone")
+        self.assertEqual(runners[-1]["timeout"], 5)
+        self.assertIn("load average", files["bundle-02/hang-snapshot.txt"])
+        GATE.validate_result(*_clean_copy(evidence))
+
+    def test_a_runner_hang_that_hangs_again_keeps_the_tier_red_and_names_both(self):
+        calls, status, evidence, printed, files = self.run_hang_rerun("swift_testing_hang")
+        self.assertEqual(status, 1)
+        self.assertFalse(evidence["authorized"])
+        swift = [a for a in evidence["attempts"] if a["bundle"] == "swift-testing"]
+        self.assertEqual([(a["role"], a["passed"], a["runnerHang"]) for a in swift],
+                         [("authoritative", False, True), ("runner-hang-rerun", False, True)])
+        self.assertIn(self.AGAIN, printed.splitlines())
+        self.assertEqual(files["runner-hangs.txt"], self.AGAIN + "\n")
+        self.assertEqual(evidence["bundleBound"]["timedOut"], ["swift-testing"])
+        self.assertEqual(evidence["bundleBound"]["runnerHangs"],
+                         [{"bundle": "swift-testing", "functions": 1, "outcome": "hung-again"}])
+        self.assertEqual(len([call for call in calls if call["name"] == "runner"]), 4, "the step runs once more, once")
+        self.assertIn("load average", files["bundle-02/hang-snapshot.txt"])
+        self.assertIn("load average", files["bundle-02-rerun/hang-snapshot.txt"])
+        self.assertNotIn("CLEARED", printed)
+
+    def test_a_runner_hang_whose_rerun_fails_keeps_the_tier_red_and_names_both(self):
+        status, evidence, printed, files = self.run_hang_rerun("swift_testing_hang_then_fail")[1:]
+        self.assertEqual(status, 1)
+        self.assertEqual(self.shapes(evidence)[2:], [("swift-testing", "authoritative", False),
+                                                     ("swift-testing", "runner-hang-rerun", False)])
+        line = (files["runner-hangs.txt"] or "").strip()
+        self.assertTrue(line.startswith("GATE RUNNER HANG RERUN FAILED: swift-testing hung in the runner with no Swift "
+                                        "Testing event in its 5 s bound"), line)
+        self.assertIn("Both attempts are kept", line)
+        self.assertIn(line, printed.splitlines())
+        self.assertEqual(evidence["bundleBound"]["runnerHangs"],
+                         [{"bundle": "swift-testing", "functions": 1, "outcome": "rerun-failed"}])
+
+    def test_a_runner_hang_beside_a_red_bundle_gets_no_rerun(self):
+        status, evidence, printed, files = self.run_hang_rerun("bundle_fail_and_swift_testing_hang", bound=2)[1:]
+        self.assertEqual(status, 1)
+        self.assertEqual(self.shapes(evidence), [("LungfishAppTests", "authoritative", False),
+                                                 ("LungfishCLITests", "authoritative", True),
+                                                 ("swift-testing", "authoritative", False)])
+        self.assertTrue(evidence["attempts"][2]["runnerHang"])
+        self.assertIsNone(files["runner-hangs.txt"])
+        self.assertIn("does not run again, because another bundle of the tier did not pass", evidence["errors"][0])
+        self.assertIn("run the whole full tier again", evidence["errors"][0])
+
+    def test_a_hang_after_events_gets_no_rerun(self):
+        status, evidence, printed, files = self.run_hang_rerun("swift_testing_test_hang", bound=2)[1:]
+        self.assertEqual(status, 1)
+        self.assertEqual([a["role"] for a in evidence["attempts"]], ["authoritative"] * 3)
+        self.assertIsNone(files["runner-hangs.txt"])
+        self.assertNotIn("RUNNER HANG", printed)
+
+    def test_a_runner_hang_gets_no_rerun_when_the_run_budget_does_not_hold_the_bound(self):
+        # A 3 s budget cannot hold a 5 s bound twice, so the scenario that passes on its second run stays red.
+        status, evidence, printed, files = self.run_hang_rerun("swift_testing_hang_once", timeout_seconds=3)[1:]
+        self.assertEqual(status, 1)
+        self.assertNotIn("runner-hang-rerun", [a["role"] for a in evidence["attempts"]])
+        self.assertIsNone(files["runner-hangs.txt"])
+        self.assertIn("budget", evidence["errors"][0])
+
+    def test_a_runner_hang_gets_no_rerun_while_a_process_of_the_hung_tree_is_alive(self):
+        # create=True keeps the test running at the base, which has no such function, so it fails on its assertions.
+        with mock.patch.object(GATE, "_surviving_pids", create=True, return_value=[4242]):
+            status, evidence, printed, files = self.run_hang_rerun("swift_testing_hang_once", bound=2)[1:]
+        self.assertEqual(status, 1)
+        self.assertEqual([a["role"] for a in evidence["attempts"]], ["authoritative"] * 3)
+        self.assertIsNone(files["runner-hangs.txt"])
+        self.assertIn("a process of the hung tree is still alive", evidence["errors"][0])
+
+    def test_validate_result_refuses_a_forged_runner_hang_clearance(self):
+        evidence = self.run_hang_rerun("swift_testing_hang_once")[2]
+        GATE.validate_result(*_clean_copy(evidence))
+
+        def drop_the_rerun(forged):
+            del forged["attempts"][3]
+
+        def claim_the_hung_step_ran_a_test(forged):
+            forged["attempts"][2]["harnesses"]["swift-testing"]["executed"] = 1
+
+        def change_what_the_rerun_selected(forged):
+            forged["attempts"][3]["harnesses"]["swift-testing"]["selectedTests"] = []
+
+        def fail_another_bundle(forged):
+            forged["attempts"][0]["errors"] = ["forged"]
+
+        def strip_the_hang_record(forged):
+            del forged["bundleBound"]["runnerHangs"]
+
+        for forge in (drop_the_rerun, claim_the_hung_step_ran_a_test, change_what_the_rerun_selected,
+                      fail_another_bundle, strip_the_hang_record):
+            with self.subTest(forge=forge.__name__):
+                forged, source = _clean_copy(evidence)
+                forge(forged)
+                with self.assertRaises(GATE.EvidenceError):
+                    GATE.validate_result(forged, source)
 
 
 class FullTierScriptTests(unittest.TestCase):
@@ -1101,9 +1242,13 @@ def event(kind, **kw):
 # bundle_hang hangs in the first bundle's case and bundle_fail fails it when the bundle runs whole.
 # bundles_no_swift lists no Swift Testing function. swift_testing_hang hangs the Swift Testing step before it writes
 # one event, as the full tier of b475214ea did, and swift_testing_test_hang hangs it in a function after the run began.
+# swift_testing_hang_once hangs only the first run of that step and passes the second, swift_testing_hang_then_fail
+# fails the second after one started function, and bundle_fail_and_swift_testing_hang fails the first bundle beside
+# the hang (FULLFIX, ruling 2 of the FULL2 review).
 BUNDLED = ["LungfishAppTests.FirstTests/testOne", "LungfishCLITests.SecondTests/testTwo"]
 bundle_scenario = scenario in ("bundles", "bundle_hang", "bundle_fail", "bundles_no_swift", "swift_testing_hang",
-                               "swift_testing_test_hang")
+                               "swift_testing_test_hang", "swift_testing_hang_once", "swift_testing_hang_then_fail",
+                               "bundle_fail_and_swift_testing_hang")
 # STUB_SWIFT_MODULE moves the swift-testing function out of the integration tier, so that a unit tier run selects it.
 test_id = os.environ.get("STUB_SWIFT_MODULE", "LungfishCLITests" if bundle_scenario else "LungfishIntegrationTests") + ".MixedTests/testB()/Fixture.swift:1:1"
 metadata = {"kind": "test", "payload": {"id": test_id, "kind": "function", "name": "testB()"}}
@@ -1152,7 +1297,7 @@ if args[:1] == ["xctest"]:
         if scenario == "bundle_hang" and bundle == "LungfishAppTests":
             time.sleep(120)
             sys.exit(3)
-        if scenario == "bundle_fail" and bundle == "LungfishAppTests":
+        if scenario in ("bundle_fail", "bundle_fail_and_swift_testing_hang") and bundle == "LungfishAppTests":
             failed.append(test)
         print("Test Case '-[" + suite + " " + name + "]' " + ("failed" if test in failed else "passed") + " (0.1 seconds).")
     print("Test Suite 'All tests' " + ("failed" if failed else "passed") + " at 2026-10-28")
@@ -1162,9 +1307,20 @@ if bundle_scenario:
     # swift test --skip-build: the Swift Testing harness with --disable-xctest, or a load flake rerun of one case.
     include = option("--filter")
     records = [event("runStarted")]
-    if "--disable-xctest" in args and scenario == "swift_testing_hang":
+    swift_run = 0
+    if "--disable-xctest" in args:
+        # The runs of the Swift Testing step so far, counted in a file of the project, for the scenarios whose first run
+        # differs from the second.
+        counter = pathlib.Path.cwd() / ".build" / "fake-swift-testing-runs"
+        swift_run = (int(counter.read_text()) if counter.exists() else 0) + 1
+        counter.write_text(str(swift_run))
+    if "--disable-xctest" in args and (scenario in ("swift_testing_hang", "bundle_fail_and_swift_testing_hang") or (
+            scenario in ("swift_testing_hang_once", "swift_testing_hang_then_fail") and swift_run == 1)):
         time.sleep(120)
         sys.exit(3)
+    if "--disable-xctest" in args and scenario == "swift_testing_hang_then_fail":
+        events(records + [metadata, event("testStarted", testID=test_id)])
+        sys.exit(1)
     if "--disable-xctest" in args and scenario == "swift_testing_test_hang":
         events(records + [metadata, event("testStarted", testID=test_id)])
         time.sleep(120)
