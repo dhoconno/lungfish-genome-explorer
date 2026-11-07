@@ -202,16 +202,25 @@ final class DemultiplexHeaderIndexFloorConformanceTests: XCTestCase {
         }
         try await requireTools()
         var published = 0
+        var refusedByFloor = 0
         for seed in 1...seeds {
             let project = try project("Measure\(seed)")
             let input = project.appendingPathComponent("no-index.fastq")
             try DemuxFloorFixtures.write(names: (1...10_000).map { "SRR000001.\($0) \($0) length=150" }, seed: UInt64(1_000 + seed), to: input)
             let output = project.appendingPathComponent("out")
-            if (try? await run(input, output: output)) != nil || !visibleItems(in: output).isEmpty { published += 1 }
+            // Only the floor's own refusal counts: a tool failure or any other error is no pass (DEMUXFLOOR-QA SF2).
+            do {
+                _ = try await run(input, output: output)
+                published += 1
+            } catch let error as DemultiplexError {
+                if case .noBarcodeAboveChance = error { refusedByFloor += 1 }
+            } catch {}
+            if !visibleItems(in: output).isEmpty { published += 1 }
             try? FileManager.default.removeItem(at: project)
         }
-        print("DEMUXRUN measure: \(published) of \(seeds) seeds published a bundle")
+        print("DEMUXRUN measure: \(published) of \(seeds) seeds published a bundle, \(refusedByFloor) refused by the floor")
         XCTAssertEqual(published, 0)
+        XCTAssertEqual(refusedByFloor, seeds)
     }
 
     func testInlineKitOnReadsWhoseNamesCarryOneLibraryIndexKeepsTheInlineSplit() async throws {
