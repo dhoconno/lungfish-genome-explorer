@@ -171,7 +171,118 @@ final class SidebarRescanSelectionTests: XCTestCase {
         }
     }
 
+    // MARK: - A selection made while the shown result's table has the focus (BIO-FOCUS-DROP, lane FOCUSDROP)
+
+    /// An accessibility select (VoiceOver, Voice Control, the Accessibility Inspector, walk 3's AX click) leaves the
+    /// focus in the shown result's table. A person asked for it, so the result it selects is shown.
+    func testAnAccessibilitySelectionWithoutSidebarFocusShowsTheSelectedResult() throws {
+        try assertAnAccessibilitySelectShowsResultB("AX selected rows of the outline") { outline, element in
+            outline.accessibilitySetValue([element], forAttribute: .selectedRows)
+        }
+    }
+
+    /// The outline's accessibility rows are AppKit's own elements (`NSOutlineRow`), not its row views, and not every
+    /// one conforms to `NSAccessibilityRow`. They are read and set by attribute, the way an AX client's request
+    /// reaches them. (Setting `AXSelected` on the row element selects nothing in a unit test's window, so that route
+    /// is left to the packaged walk.)
+    private func assertAnAccessibilitySelectShowsResultB(
+        _ route: String,
+        _ select: (NSOutlineView, NSObject) -> Void
+    ) throws {
+        click(resultA)
+        assertShows(resultA, "\(route), before")
+        try focusTheShownResultsTable()
+        let outline = controller.sidebarController.outlineView!
+        let row = try row(of: resultB)
+        let elements = outline.accessibilityAttributeValue(.rows) as? [NSObject] ?? []
+        let element = try XCTUnwrap(elements.first { ($0.accessibilityAttributeValue(.index) as? Int) == row },
+                                    "the outline lists no accessibility row for \(resultB.url.lastPathComponent)")
+        select(outline, element)
+        XCTAssertEqual(outline.selectedRow, row, "\(route) selected another row")
+        XCTAssertFalse(controller.sidebarController.outlineViewIsFirstResponder(window.firstResponder),
+                       "\(route) moved the focus into the sidebar")
+        assertShows(resultB, route)
+        waitForApply(try startRescan())
+        assertShows(resultB, "\(route), after a rescan")
+    }
+
+    /// A selection nobody asked for (no focus in the sidebar, no click, no accessibility select) while a result is shown
+    /// goes back to the shown result's row and posts no notice. The viewer, the Inspector and the sidebar keep naming the
+    /// result on screen, and a click on the other row then shows it. RESCAN35's probe, as written.
+    func testAnUnexplainedSelectionWithoutSidebarFocusLeavesEverySurfaceOnTheShownResult() throws {
+        click(resultA)
+        assertShows(resultA, "unexplained selection, before")
+        waitForApply(try startRescan())
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        let outline = controller.sidebarController.outlineView!
+        outline.selectRowIndexes(IndexSet(integer: try row(of: resultB)), byExtendingSelection: false)
+        let viewerURL = controller.viewerController.taxTriageViewController?.batchGroupURL?.standardizedFileURL
+        let inspectorPath = controller.inspectorController.activeContentSelectionIdentity?.standardizedURLPath
+        XCTAssertEqual(viewerURL?.path, inspectorPath,
+                       "the Inspector names another result than the viewer: \(describeScreen())")
+        assertShows(resultA, "unexplained selection")
+        waitForApply(try startRescan())
+        assertShows(resultA, "unexplained selection, after a second rescan")
+        click(resultB)
+        assertShows(resultB, "a click on the other row after the unexplained selection")
+    }
+
+    /// The Inspector's source link selects the result it names while the shown result's table has the focus. A person
+    /// asked for it, so its result is shown. This stands in for the Operations panel's Results button, whose
+    /// `OperationResultNavigation.navigate(to:)` finds its window only through `AppDelegate.shared`, which a unit test
+    /// has not, and both take the same explicit `selectItem(forURL:explicit:)`.
+    func testAnExplicitSelectionWithAChildViewerShownShowsTheResult() throws {
+        click(resultA)
+        assertShows(resultA, "Inspector link, before")
+        try focusTheShownResultsTable()
+        let scope = try XCTUnwrap(controller.sidebarController.windowStateScope, "the sidebar has no window scope")
+        NotificationCenter.default.post(name: .navigateToSidebarItem, object: nil,
+                                        userInfo: ["url": resultB.url, NotificationUserInfoKey.windowStateScope: scope])
+        assertShows(resultB, "Inspector link")
+        waitForApply(try startRescan())
+        assertShows(resultB, "Inspector link, after a rescan")
+    }
+
+    /// Pin for the route after a run (FASTQ trim, split and demux, primer design, mapping): the run's result is selected
+    /// while the shown result's table has the focus, and it is shown. Green at the base too, where a patch after the
+    /// select in `finishRefreshSidebarAndSelectDerivedURL` showed what the focus rule had refused.
+    func testADerivedResultSelectedAfterARunWithAChildViewerShownShowsTheResult() throws {
+        click(resultA)
+        assertShows(resultA, "after a run, before")
+        try focusTheShownResultsTable()
+        let selected = Done()
+        controller.refreshSidebarAndSelectDerivedURL(resultB.url) { selected.value = true }
+        XCTAssertTrue(waitUntilOnRunLoop(budget: .lookup) { selected.value }, "the run's result was never selected")
+        assertShows(resultB, "after a run")
+        waitForApply(try startRescan())
+        assertShows(resultB, "after a run, after a rescan")
+    }
+
     // MARK: - Helpers
+
+    /// Puts the focus in the shown TaxTriage result's table, as a click in its rows does.
+    private func focusTheShownResultsTable(file: StaticString = #filePath, line: UInt = #line) throws {
+        let view = try XCTUnwrap(controller.viewerController.taxTriageViewController?.view, "no TaxTriage result is shown",
+                                 file: file, line: line)
+        let table = try XCTUnwrap(firstTable(in: view), "the TaxTriage result shows no table", file: file, line: line)
+        XCTAssertTrue(window.makeFirstResponder(table), "the TaxTriage table refused the focus", file: file, line: line)
+        XCTAssertFalse(controller.sidebarController.outlineViewIsFirstResponder(window.firstResponder),
+                       "the sidebar kept the focus", file: file, line: line)
+    }
+
+    private func firstTable(in view: NSView) -> NSTableView? {
+        if let table = view as? NSTableView, !table.isHiddenOrHasHiddenAncestor { return table }
+        return view.subviews.lazy.compactMap { self.firstTable(in: $0) }.first
+    }
+
+    private func row(of result: Result) throws -> Int {
+        let sidebar = controller.sidebarController!
+        let item = try XCTUnwrap(item(at: result.url, in: sidebar.rootItems),
+                                 "the sidebar lists no row for \(result.url.lastPathComponent)")
+        let row = sidebar.outlineView.row(forItem: item)
+        XCTAssertGreaterThanOrEqual(row, 0, "the row for \(item.title) is not visible")
+        return row
+    }
 
     /// Selects the result's row as a click does: the outline takes the focus and its row is selected.
     private func click(_ result: Result, file: StaticString = #filePath, line: UInt = #line) {
