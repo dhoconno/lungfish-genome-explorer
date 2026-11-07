@@ -49,26 +49,13 @@ public enum BarcodeKitRegistry {
     /// FLD0001    GTATCGTCGT
     /// A02,CGATGT,,Sample-42
     /// ```
+    /// A field may be quoted as in RFC 4180, and a `# kit: <id>` line names the built-in kit the definition keeps
+    /// (``loadCustomKit(text:name:)``, `docs/formats/barcode-definition.md`).
     public static func loadCustomKit(
         from url: URL,
         name: String
     ) throws -> BarcodeKitDefinition {
-        let content = try String(contentsOf: url, encoding: .utf8)
-        let barcodes = try parseDelimitedBarcodeRecords(content)
-        let isDualIndexed = barcodes.contains { $0.i5Sequence != nil }
-
-        let sanitizedID = name.lowercased()
-            .replacingOccurrences(of: " ", with: "-")
-            .filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
-
-        return BarcodeKitDefinition(
-            id: "custom-\(sanitizedID)",
-            displayName: name,
-            vendor: "custom",
-            isDualIndexed: isDualIndexed,
-            pairingMode: isDualIndexed ? .fixedDual : .singleEnd,
-            barcodes: barcodes
-        )
+        try loadCustomKit(text: try String(contentsOf: url, encoding: .utf8), name: name)
     }
 
     /// Generates cutadapt-compatible adapter FASTA for demultiplexing.
@@ -218,7 +205,7 @@ public enum BarcodeKitRegistry {
         return layout
     }
 
-    private static func parseDelimitedBarcodeRecords(_ content: String) throws -> [BarcodeEntry] {
+    static func parseDelimitedBarcodeRecords(_ content: String) throws -> [BarcodeEntry] {
         let lines = content.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && !$0.hasPrefix("#") }
@@ -271,6 +258,9 @@ public enum BarcodeKitRegistry {
     }
 
     private static func splitBarcodeDefinitionLine(_ line: String) -> [String] {
+        if line.contains("\"") {
+            return splitQuotedDefinitionLine(line)
+        }
         if line.contains(",") {
             return line.split(separator: ",", omittingEmptySubsequences: false)
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

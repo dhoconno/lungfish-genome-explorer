@@ -30,6 +30,10 @@ public struct BarcodeKitDefinition: Codable, Sendable, Equatable, Identifiable {
     /// Individual barcode entries.
     public let barcodes: [BarcodeEntry]
 
+    /// The built-in kit a custom definition's `# kit:` line names, whose barcodes the route owner counts in the read
+    /// names (ruling ARCH-DEMUX-PLAN-CONTROL C1). Nil for a built-in kit and for a definition without the line.
+    public var sourceKitID: String?
+
     public init(
         id: String,
         displayName: String,
@@ -38,8 +42,10 @@ public struct BarcodeKitDefinition: Codable, Sendable, Equatable, Identifiable {
         kitType: BarcodeKitType = .custom,
         isDualIndexed: Bool = false,
         pairingMode: BarcodePairingMode? = nil,
-        barcodes: [BarcodeEntry]
+        barcodes: [BarcodeEntry],
+        sourceKitID: String? = nil
     ) {
+        self.sourceKitID = sourceKitID
         self.id = id
         self.displayName = displayName
         self.vendor = vendor
@@ -59,6 +65,7 @@ public struct BarcodeKitDefinition: Codable, Sendable, Equatable, Identifiable {
         case isDualIndexed
         case pairingMode
         case barcodes
+        case sourceKitID
     }
 
     public init(from decoder: Decoder) throws {
@@ -73,6 +80,7 @@ public struct BarcodeKitDefinition: Codable, Sendable, Equatable, Identifiable {
         pairingMode = try container.decodeIfPresent(BarcodePairingMode.self, forKey: .pairingMode)
             ?? (isDualIndexed ? .fixedDual : .singleEnd)
         barcodes = try container.decode([BarcodeEntry].self, forKey: .barcodes)
+        sourceKitID = try container.decodeIfPresent(String.self, forKey: .sourceKitID)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -85,6 +93,7 @@ public struct BarcodeKitDefinition: Codable, Sendable, Equatable, Identifiable {
         try container.encode(isDualIndexed, forKey: .isDualIndexed)
         try container.encode(pairingMode, forKey: .pairingMode)
         try container.encode(barcodes, forKey: .barcodes)
+        try container.encodeIfPresent(sourceKitID, forKey: .sourceKitID)
     }
 
     /// True for long-read kits whose cutadapt search uses the platform's full

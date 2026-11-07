@@ -56,7 +56,7 @@ public enum DemultiplexSearchRouteOwner {
                 let raw = record.description.map { "\(record.identifier) \($0)" } ?? record.identifier
                 names.append(FASTQReadNameIndex(rawName: raw))
                 // One barcode present in the first names reads on before the owner chooses (BIO-DEMUX-FLOOR item 2).
-                if names.count == probedReadCount, presentBarcodes(of: config.barcodeKit, in: names) != 1 { break }
+                if names.count == probedReadCount, presentBarcodes(of: probeKit(config.barcodeKit), in: names) != 1 { break }
                 if names.count >= readOnCount { break }
             }
         } catch {
@@ -71,13 +71,21 @@ public enum DemultiplexSearchRouteOwner {
         if config.engine == .headerIndex { return collisionWords(for: config.barcodeKit).map { .refuse($0) } ?? .headerIndex }
         guard readsNames(config) else { return .inline(config.demuxAdapterContext) }
         let kit = config.barcodeKit
-        var present = presentBarcodes(of: kit, in: Array(names.prefix(probedReadCount)))
+        var present = presentBarcodes(of: probeKit(kit), in: Array(names.prefix(probedReadCount)))
         if present == 1, names.count > probedReadCount {
-            present = presentBarcodes(of: kit, in: Array(names.prefix(readOnCount)))
+            present = presentBarcodes(of: probeKit(kit), in: Array(names.prefix(readOnCount)))
         }
         guard present >= 2 else { return .inline(config.demuxAdapterContext) }
         if let words = collisionWords(for: kit) { return .refuse(words) }
         return .headerIndex
+    }
+
+    /// The kit whose barcodes the probe counts in the read names. A definition whose `# kit:` line names a built-in
+    /// kit is probed with that kit's barcodes, so a plan of one sample, or one whose second sample has no reads in the
+    /// first names, routes as the kit's own run on the same file does (ruling ARCH-DEMUX-PLAN-CONTROL C1). The
+    /// collision words and the split keep the definition's own rows.
+    static func probeKit(_ kit: BarcodeKitDefinition) -> BarcodeKitDefinition {
+        kit.sourceKitID.flatMap { BarcodeKitRegistry.kit(byID: $0) } ?? kit
     }
 
     /// Whether the route of `config` depends on its read names.
