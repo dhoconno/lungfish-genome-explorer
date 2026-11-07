@@ -86,10 +86,12 @@ OPTIONS:
                           (default: 0.15)
   --overlap <overlap>     Cutadapt minimum overlap length (default: 3)
   --engine <engine>       Demultiplexing engine: cutadapt, exact-bare or
-                          header-index. Without it, reads whose names carry two
-                          or more of the kit's indexes are split by those names
-                          (header-index), and other reads are searched with
-                          cutadapt
+                          header-index. Without it, a file whose read names
+                          carry the indexes of two or more of the kit's
+                          barcodes is split by those names (header-index) and
+                          any other file is searched with cutadapt. Naming
+                          cutadapt or exact-bare always searches the read
+                          sequences
   --no-trim               Cutadapt only: keep barcode sequences in output reads
                           (exact-bare always preserves reads)
   --discard-unassigned    Discard reads that do not match any barcode
