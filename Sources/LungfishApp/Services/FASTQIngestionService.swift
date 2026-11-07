@@ -345,11 +345,7 @@ public enum FASTQIngestionService {
                 switch result {
                 case .success(let bundleURL):
                     logger.info("runIngestAndBundle: completing operation for \(bundleURL.lastPathComponent)")
-                    guard OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "Imported \(bundleURL.lastPathComponent)",
-                        bundleURLs: [bundleURL]
-                    ) else {
+                    guard completeImportRow(opID, bundleURL: bundleURL) else {
                         completion(.failure(CancellationError()))
                         return
                     }
