@@ -21,6 +21,9 @@ extension DemultiplexChanceFloor {
     public static let saturatedKitShare = 0.5
     /// The margin never falls below this (item 4).
     public static let minimumMargin = 2.0
+    /// A side with more errors than this holds hundreds of thousands of matching read starts a decoy, so its kit keeps the
+    /// floor of random bases (item 6, DEMUXNULL-BIO SF2). The walk grows about 70-fold per allowed error.
+    public static let maximumDecoyErrors = 2
 
     /// The floor with an explicit start composition and margin, the form of the reviewer's test of real read starts.
     public static func evaluate(
@@ -97,6 +100,7 @@ extension DemultiplexChanceFloor {
             for pattern in startPatterns(of: lines) where !pattern.isEmpty { byLength[pattern.count, default: []].insert(pattern) }
         }
         guard !byLength.isEmpty else { return nil }
+        guard byLength.keys.allSatisfy({ allowedErrors(length: $0, errorRate: errorRate) <= maximumDecoyErrors }) else { return nil }
         var margin = minimumMargin
         var compositions: [[[Double]]] = []
         for tally in used {
