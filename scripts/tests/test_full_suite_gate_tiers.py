@@ -254,6 +254,13 @@ def _make_gate_project(root, full_tier_bundles=None):
 def run_gate_in_process(scenario, tier, selection_filter, **options):
     """Run gate_evidence.run_swift_gate in this process against the fake swift and record the name
     and the timeout of every command it starts. `options` override the parsed arguments."""
+    calls, status, evidence, _ = run_gate_in_process_with_output(scenario, tier, selection_filter, **options)
+    return calls, status, evidence
+
+
+def run_gate_in_process_with_output(scenario, tier, selection_filter, **options):
+    """run_gate_in_process with a fourth value, what the gate printed and the text of the bundle-timeouts.txt it wrote
+    (None when it wrote none), which the quiet gate prints after its fail line."""
     calls = []
     real = GATE.command_record
 
@@ -272,11 +279,14 @@ def run_gate_in_process(scenario, tier, selection_filter, **options):
             "skip": "", "parallel": False, "require_tools": False, "timeout_seconds": None,
             "profile": None, "workers": None, "gate_argv": [], **options})
         environment = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "GATE_SCENARIO": scenario}
+        printed = io.StringIO()
         with mock.patch.object(GATE, "command_record", recording), \
-                mock.patch.dict(os.environ, environment), contextlib.redirect_stdout(io.StringIO()):
+                mock.patch.dict(os.environ, environment), contextlib.redirect_stdout(printed):
             status = GATE.run_swift_gate(args)
         evidence = json.loads((output / "gate.result.json").read_text())
-    return calls, status, evidence
+        timeouts = output / "bundle-timeouts.txt"
+        timeout_text = timeouts.read_text() if timeouts.is_file() else None
+    return calls, status, evidence, (printed.getvalue(), timeout_text)
 
 
 class GateBehaviorTests(unittest.TestCase):
@@ -938,6 +948,79 @@ class FullTierBundleTests(unittest.TestCase):
                                         bundles=["LungfishCLITests"], rerun_of=str(path))
 
 
+class FullTierSwiftTestingTests(unittest.TestCase):
+    """FULL2-SWIFT-TESTING-HANG. The full tier on b475214ea read GATE FAIL because its Swift Testing step wrote no event
+    and was killed at its bound. Discovery had listed 1128 functions in discover-swift-testing.log (the event file it
+    also names stays empty for every `swift test list`), so the step was planned rightly. The words called the hang a
+    case the log does not name, as if a test had failed."""
+    NO_TEST_LINE = "Swift Testing: no test discovered, not run"
+
+    def run_swift_testing_hang(self, scenario):
+        with mock.patch.dict(GATE.FULL_TIER_BUNDLE_TIMEOUT_SECONDS, {"swift-testing": 2}):
+            return run_gate_in_process_with_output(scenario, "full", "", full_tier_bundle=TWO_BUNDLES)
+
+    def test_a_discovery_that_finds_no_swift_testing_function_plans_no_step_for_it_and_says_so(self):
+        _, status, evidence, (printed, _) = run_gate_in_process_with_output(
+            "bundles_no_swift", "full", "", full_tier_bundle=TWO_BUNDLES)
+        self.assertEqual(status, 0, evidence["errors"])
+        self.assertTrue(evidence["authorized"])
+        self.assertEqual([(a["bundle"], a["harness"], a["passed"]) for a in evidence["attempts"]],
+                         [("LungfishAppTests", "xctest", True), ("LungfishCLITests", "xctest", True)])
+        self.assertEqual([step["harness"] for step in evidence["bundleBound"]["plan"]], ["xctest", "xctest"])
+        self.assertIn(self.NO_TEST_LINE, printed.splitlines())
+        self.assertEqual(evidence["bundleBound"]["swiftTesting"], {"selected": 0, "executed": 0, "note": self.NO_TEST_LINE})
+        GATE.validate_result(*_clean_copy(evidence))
+
+    def test_one_discovered_swift_testing_function_keeps_its_step_and_the_summary_says_nothing_of_it(self):
+        _, status, evidence, (printed, _) = run_gate_in_process_with_output(
+            "bundles", "full", "", full_tier_bundle=TWO_BUNDLES)
+        self.assertEqual(status, 0, evidence["errors"])
+        last = evidence["attempts"][-1]
+        self.assertEqual((last["bundle"], last["harness"]), ("swift-testing", "swift-testing"))
+        self.assertEqual(last["harnesses"]["swift-testing"]["selectedTests"], [BUNDLED_SWIFT])
+        self.assertNotIn(self.NO_TEST_LINE, printed)
+        self.assertNotIn("swiftTesting", evidence["bundleBound"])
+
+    def test_a_swift_testing_step_that_writes_no_event_is_named_a_runner_hang_and_the_tier_stays_red(self):
+        status, evidence, (printed, timeouts) = self.run_swift_testing_hang("swift_testing_hang")[1:]
+        error = evidence["errors"][0]
+        self.assertIn("swift-testing hung in the runner and wrote no Swift Testing event in its 2 s bound, "
+                      "so none of its 1 discovered function started.", error)
+        self.assertIn("runner fault and not a failed test", error)
+        self.assertIn("run the whole full tier again", error)
+        self.assertNotIn("in a case the log does not name", error)
+        self.assertEqual(len(evidence["errors"]), 1)
+        self.assertEqual(status, 1)
+        self.assertFalse(evidence["authorized"])
+        self.assertEqual([(a["bundle"], a["passed"]) for a in evidence["attempts"]],
+                         [("LungfishAppTests", True), ("LungfishCLITests", True), ("swift-testing", False)])
+        hung = evidence["attempts"][2]
+        self.assertEqual((hung["intervention"], hung["timeoutSeconds"], hung["runnerHang"]), ("timeout", 2, True))
+        self.assertEqual(evidence["bundleBound"]["timedOut"], ["swift-testing"])
+        line = "GATE RUNNER HANG: " + error[len("bundle "):]
+        self.assertIn(line, printed.splitlines())
+        self.assertEqual(timeouts, line + "\n")
+        self.assertNotIn("GATE BUNDLE TIMEOUT", printed)
+
+    def test_a_swift_testing_step_that_hangs_after_it_wrote_events_keeps_the_bundle_timeout_words(self):
+        status, evidence, (printed, timeouts) = self.run_swift_testing_hang("swift_testing_test_hang")[1:]
+        self.assertEqual(status, 1)
+        self.assertIn("bundle swift-testing ran out of its 2 s bound in a case the log does not name", evidence["errors"][0])
+        self.assertNotIn("runnerHang", evidence["attempts"][2])
+        self.assertNotIn("RUNNER HANG", printed)
+        self.assertTrue(timeouts.startswith("GATE BUNDLE TIMEOUT: swift-testing ran out of its 2 s bound"), timeouts)
+
+    def test_a_partial_last_line_of_the_event_stream_does_not_hide_the_events_before_it(self):
+        with tempfile.TemporaryDirectory(prefix="lungfish-gate-test-") as temp:
+            path = Path(temp) / "swift-testing.jsonl"
+            self.assertEqual(GATE.swift_testing_event_count(path), 0, "an absent file holds no event")
+            path.write_text("")
+            self.assertEqual(GATE.swift_testing_event_count(path), 0, "an empty file holds no event")
+            started = json.dumps({"version": 0, "kind": "event", "payload": {"kind": "runStarted"}})
+            path.write_text(started + "\n" + started[:20])
+            self.assertEqual(GATE.swift_testing_event_count(path), 1, "a process killed mid-line left one whole event")
+
+
 class FullTierScriptTests(unittest.TestCase):
     run_gate = GateBehaviorTests.run_gate
 
@@ -1016,8 +1099,11 @@ def event(kind, **kw):
 # The bundle scenarios hold one XCTest case in each of two bundles and one Swift Testing function in the second
 # (BUNDLED_TESTS and BUNDLED_SWIFT in the test module), for the full tier, which runs each bundle's .xctest directly.
 # bundle_hang hangs in the first bundle's case and bundle_fail fails it when the bundle runs whole.
+# bundles_no_swift lists no Swift Testing function. swift_testing_hang hangs the Swift Testing step before it writes
+# one event, as the full tier of b475214ea did, and swift_testing_test_hang hangs it in a function after the run began.
 BUNDLED = ["LungfishAppTests.FirstTests/testOne", "LungfishCLITests.SecondTests/testTwo"]
-bundle_scenario = scenario in ("bundles", "bundle_hang", "bundle_fail")
+bundle_scenario = scenario in ("bundles", "bundle_hang", "bundle_fail", "bundles_no_swift", "swift_testing_hang",
+                               "swift_testing_test_hang")
 # STUB_SWIFT_MODULE moves the swift-testing function out of the integration tier, so that a unit tier run selects it.
 test_id = os.environ.get("STUB_SWIFT_MODULE", "LungfishCLITests" if bundle_scenario else "LungfishIntegrationTests") + ".MixedTests/testB()/Fixture.swift:1:1"
 metadata = {"kind": "test", "payload": {"id": test_id, "kind": "function", "name": "testB()"}}
@@ -1043,7 +1129,8 @@ if "list" in args:
         if scenario == "missing_case":
             print("LungfishCoreTests.ExampleTests/testMissing")
     else:
-        swift_listed = scenario in ("mixed", "swift_partial", "swift_assertion_retry") or bundle_scenario
+        swift_listed = (scenario in ("mixed", "swift_partial", "swift_assertion_retry") or bundle_scenario) \
+            and scenario != "bundles_no_swift"
         if swift_listed:
             print(test_id.rsplit("/", 1)[0])
         events([metadata] if swift_listed else [])
@@ -1075,6 +1162,13 @@ if bundle_scenario:
     # swift test --skip-build: the Swift Testing harness with --disable-xctest, or a load flake rerun of one case.
     include = option("--filter")
     records = [event("runStarted")]
+    if "--disable-xctest" in args and scenario == "swift_testing_hang":
+        time.sleep(120)
+        sys.exit(3)
+    if "--disable-xctest" in args and scenario == "swift_testing_test_hang":
+        events(records + [metadata, event("testStarted", testID=test_id)])
+        time.sleep(120)
+        sys.exit(3)
     if "--disable-xctest" in args:
         if not include or re.search(include, test_id):
             records += [metadata, event("testStarted", testID=test_id), event("testEnded", testID=test_id)]
