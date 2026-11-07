@@ -46,7 +46,9 @@ final class DemultiplexEngineRouteConformanceTests: XCTestCase {
                 state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
                 sequence.append(bases[Int((state >> 33) % 4)])
             }
-            text += "@r\(index) 1:N:0:ATTACTCG\n\(sequence)\n+\n\(String(repeating: "I", count: sequence.count))\n"
+            // Two samples' indexes, since one sample's names take the bases search (BIO-DEMUX-FLOOR item 1).
+            let nameIndex = index.isMultiple(of: 2) ? "ATTACTCG" : "TCCGGAGA"
+            text += "@r\(index) 1:N:0:\(nameIndex)\n\(sequence)\n+\n\(String(repeating: "I", count: sequence.count))\n"
         }
         try text.write(to: input, atomically: true, encoding: .utf8)
         return input

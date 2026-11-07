@@ -167,6 +167,17 @@ final class DemultiplexHeaderIndexFloorConformanceTests: XCTestCase {
         print("DEMUXRUN empty-index fixture seed 7: \(assigned) of 10000 reads given a barcode")
     }
 
+    /// BIO-DEMUX-FLOOR item 9: one sample's names (D701 in every name, random bases) take the bases search, and the
+    /// floor ends the run in its own words, which name a file already split into one file per sample.
+    func testOneSampleNamesTakeTheBasesSearchAndTheFloorSpeaks() async throws {
+        try await requireTools()
+        let project = try project("OneSample")
+        let input = project.appendingPathComponent("one-sample.fastq")
+        try DemuxFloorFixtures.write(names: (0..<10_000).map { "r\($0) 1:N:0:ATTACTCG" }, seed: 9, to: input)
+        let assigned = try await assertRefuses(input, output: project.appendingPathComponent("out"), words: Self.chanceWords)
+        print("DEMUXRUN one-sample names seed 9: \(assigned) of 10000 reads given a barcode")
+    }
+
     func testTruSeqRunOnReadsWithNoIndexAnywhereAssignsNoRead() async throws {
         try await requireTools()
         var countsBySeed: [UInt64: Int] = [:]
@@ -222,5 +233,7 @@ final class DemultiplexHeaderIndexFloorConformanceTests: XCTestCase {
         XCTAssertTrue(Set((0..<80).map { "r\($0)" }).isSubset(of: routedIDs["D701"] ?? []))
         XCTAssertTrue(Set((80..<160).map { "r\($0)" }).isSubset(of: routedIDs["D702"] ?? []))
         XCTAssertEqual(routedResult.manifest.unassigned.readCount, explicitResult.manifest.unassigned.readCount)
+        // The published result keeps the floor, so the CLI's summary and record can name barcodes within chance.
+        XCTAssertNotNil(routedResult.chanceFloor, "the staging area dropped the chance floor")
     }
 }

@@ -34,14 +34,16 @@ final class DemultiplexChanceFloorTests: XCTestCase {
     func testChanceOnlyCountsBeatNoFloorAndARealSampleDoes() {
         let chance = Dictionary(uniqueKeysWithValues: kit.barcodes.map { ($0.id, 12) })
         let none = DemultiplexChanceFloor.evaluate(
-            patterns: defaultKitPatterns, counts: chance, readsSearched: 10_000, errorRate: 0.15, allowsIndels: true,
+            patterns: defaultKitPatterns, counts: chance, readsSearched: 10_000,
+            unassigned: 10_000 - chance.values.reduce(0, +), errorRate: 0.15, allowsIndels: true,
             pairedFragments: false
         )
         XCTAssertFalse(none.anyBarcodeBeatsTheFloor, "\(none.barcodes)")
         var real = chance
         real["D701"] = 80
         let one = DemultiplexChanceFloor.evaluate(
-            patterns: defaultKitPatterns, counts: real, readsSearched: 10_000, errorRate: 0.15, allowsIndels: true,
+            patterns: defaultKitPatterns, counts: real, readsSearched: 10_000,
+            unassigned: 10_000 - chance.values.reduce(0, +), errorRate: 0.15, allowsIndels: true,
             pairedFragments: false
         )
         XCTAssertTrue(one.anyBarcodeBeatsTheFloor)
@@ -51,7 +53,9 @@ final class DemultiplexChanceFloorTests: XCTestCase {
     /// QA's case (L5): an even 384-sample inline pool with 4-base barcodes keeps every real sample. 384 distinct
     /// barcodes cannot all be 4 bases (there are 256), so the pool takes 192 of 4 bases and 192 of 5, prefix free,
     /// as a GBS key mixes lengths, at 100 reads a sample.
-    func testEven384SampleInlinePoolWithFourBaseBarcodesKeepsEverySample() {
+    /// BIO-DEMUX-FLOOR item 6: chance matches come only from reads with no barcode, so with none unassigned no sample
+    /// is named within chance, and 1,920 random reads added (about 120 left unassigned) name none either.
+    func testEven384SampleInlinePoolWithFourAndFiveBaseBarcodesKeepsEverySample() {
         let letters = Array("ACGT")
         let fours = (0..<256).map { value in String((0..<4).map { letters[(value >> (2 * (3 - $0))) & 3] }) }
         let shortBarcodes = Array(fours.prefix(192))
@@ -61,11 +65,35 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         let patterns = Dictionary(uniqueKeysWithValues: barcodes.map { ($0, ["^\($0)"]) })
         let counts = Dictionary(uniqueKeysWithValues: barcodes.map { ($0, 100) })
         let outcome = DemultiplexChanceFloor.evaluate(
-            patterns: patterns, counts: counts, readsSearched: 38_400, errorRate: 0.15, allowsIndels: true,
+            patterns: patterns, counts: counts, readsSearched: 38_400, unassigned: 0, errorRate: 0.15, allowsIndels: true,
             pairedFragments: false
         )
         XCTAssertTrue(outcome.anyBarcodeBeatsTheFloor, "the run publishes, so every sample keeps its output")
         XCTAssertEqual(outcome.barcodes.count, 384)
-        print("DEMUXRUN 384 pool: \(outcome.barcodesWithinChance.count) of 384 samples named within chance")
+        XCTAssertEqual(outcome.chanceTrials, 0)
+        XCTAssertEqual(outcome.barcodesWithinChance, [], "no read was left to be a chance match")
+
+        // Each random read takes the barcode its first bases spell, since -e 0.15 allows no error on 4 or 5 bases.
+        var generator = DemuxFloorSeededGenerator(seed: 7)
+        var mixedCounts = counts
+        var unassigned = 0
+        let barcodeSet = Set(barcodes)
+        for _ in 0..<1_920 {
+            let read = DemuxFloorFixtures.randomBases(5, using: &generator)
+            if barcodeSet.contains(String(read.prefix(4))) {
+                mixedCounts[String(read.prefix(4)), default: 0] += 1
+            } else if barcodeSet.contains(read) {
+                mixedCounts[read, default: 0] += 1
+            } else {
+                unassigned += 1
+            }
+        }
+        let mixed = DemultiplexChanceFloor.evaluate(
+            patterns: patterns, counts: mixedCounts, readsSearched: 38_400 + 1_920, unassigned: unassigned,
+            errorRate: 0.15, allowsIndels: true, pairedFragments: false
+        )
+        XCTAssertTrue(mixed.anyBarcodeBeatsTheFloor)
+        XCTAssertEqual(mixed.barcodesWithinChance, [], "trials \(mixed.chanceTrials) from \(unassigned) unassigned")
+        print("DEMUXRUN 384 pool plus 1,920 random reads: \(unassigned) unassigned, \(mixed.chanceTrials) chance trials")
     }
 }
