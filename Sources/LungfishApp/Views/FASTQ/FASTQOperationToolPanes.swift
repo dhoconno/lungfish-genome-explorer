@@ -1042,7 +1042,7 @@ private extension DemultiplexEngine {
     var explanation: String {
         switch self {
         case .cutadapt:
-            return "Cutadapt is the default fuzzy adapter matcher; it uses the error rate and can allow indels."
+            return "Cutadapt searches the read sequences for the barcodes, uses the error rate below and can allow insertions and deletions. For Illumina and Element kits and Custom Definitions it first reads the read names, and it stops with an explanation if they already carry the kit's index."
         case .exactBareBarcode:
             return "Exact bare barcode scans whole reads for exact A/C/G/T barcode and reverse-complement matches, then preserves reads."
         }
