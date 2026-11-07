@@ -331,4 +331,49 @@ final class DemultiplexDrawerPlanRunTests: XCTestCase {
         }
         XCTAssertEqual(DemultiplexPlanDefinition.outputName(for: assignment("D701", Self.d701, name: "  ")), "D701")
     }
+
+    // MARK: - Review DEMUXPLAN-UX, should-fix 3: the refusals of the launch
+
+    /// A row that pairs two barcodes refuses in words that name both, and do not send the person to run the plan from
+    /// Demultiplex Barcodes, which cannot read the plan's table.
+    func testDrawerPlanOfAPairedRowRefusesNamingBothBarcodes() throws {
+        let input = try writeHeaderIndexedReads()
+        let paired = FASTQSampleBarcodeAssignment(
+            sampleID: "P1", sampleName: "Pair 1",
+            forwardBarcodeID: "D701", forwardSequence: Self.d701,
+            reverseBarcodeID: "D702", reverseSequence: Self.d702
+        )
+        let pairedPlan = DemultiplexPlan(steps: [DemultiplexStep(
+            label: "Plan", barcodeKitID: "truseq-single-a", sampleAssignments: [paired]
+        )])
+        XCTAssertThrowsError(try launch(pairedPlan, input: input)) { error in
+            let words = error.localizedDescription
+            for part in ["D701", "D702"] { XCTAssertTrue(words.contains(part), words) }
+            XCTAssertFalse(words.contains("run this plan from"), words)
+        }
+        let definitions = project.appendingPathComponent("Barcode Definitions")
+        let written = (try? FileManager.default.contentsOfDirectory(atPath: definitions.path)) ?? []
+        XCTAssertEqual(written, [], "a refused plan wrote a definition")
+    }
+
+    /// A dataset outside a project has no folder to keep the definition in. The words name the project, and nothing is
+    /// written.
+    func testDrawerPlanOutsideAProjectRefusesAndWritesNothing() throws {
+        let input = try writeHeaderIndexedReads()
+        XCTAssertThrowsError(try FASTQDemultiplexPlanLaunch.make(
+            plan: plan(["S1", "S2"]), kits: BarcodeKitRegistry.builtinKits(), datasetURL: input, projectURL: nil
+        )) { error in
+            XCTAssertTrue(error.localizedDescription.contains("project"), error.localizedDescription)
+        }
+        let definitions = project.appendingPathComponent("Barcode Definitions")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: definitions.path), "a refused plan made the definitions folder")
+    }
+
+    /// A name with a line break cannot be a field of a line-based file, and the words say to type it on one line.
+    func testDrawerPlanWithALineBreakInANameRefuses() throws {
+        let input = try writeHeaderIndexedReads()
+        XCTAssertThrowsError(try launch(plan(["two\nlines", "S2"]), input: input)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("line break"), error.localizedDescription)
+        }
+    }
 }

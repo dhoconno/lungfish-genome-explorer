@@ -50,7 +50,7 @@ struct DemultiplexPlanDefinition {
                 throw DemultiplexPlanRefusal(words: "The sample name \(typed.replacingOccurrences(of: "\n", with: " ")) holds a line break. Type the name on one line.")
             }
             if let forward = row.forwardBarcodeID, let reverse = row.reverseBarcodeID, forward != reverse {
-                throw DemultiplexPlanRefusal(words: "\(label) pairs barcode \(forward) with \(reverse). Demultiplex\u{2026} runs a plan whose samples each carry one barcode, so run this plan from Demultiplex Barcodes.")
+                throw DemultiplexPlanRefusal(words: "\(label) pairs barcode \(forward) with \(reverse). Demultiplex\u{2026} runs samples that each carry one barcode. Give each sample one barcode, or run the kit from Demultiplex Barcodes, which names its outputs by barcode and not by the names in this table.")
             }
             let output = Self.outputName(for: row)
             if output.lowercased() == "unassigned" {
@@ -99,10 +99,10 @@ struct FASTQDemultiplexPlanLaunch {
     ) throws -> Self {
         let steps = plan.steps.sorted { $0.ordinal < $1.ordinal }
         guard steps.count <= 1 else {
-            throw DemultiplexPlanRefusal(words: "This plan has \(steps.count) steps. Demultiplex\u{2026} runs a plan of one step. Run each step from Demultiplex Barcodes, or remove the extra steps.")
+            throw DemultiplexPlanRefusal(words: "This dataset's saved plan holds \(steps.count) steps, and the Demux tab shows only the first. Demultiplex\u{2026} runs a plan of one step, so run each step from Demultiplex Barcodes with its own kit.")
         }
         guard plan.compositeSampleNames.isEmpty else {
-            throw DemultiplexPlanRefusal(words: "This plan names samples across steps. Demultiplex\u{2026} runs a plan of one step. Run each step from Demultiplex Barcodes, or remove the extra steps.")
+            throw DemultiplexPlanRefusal(words: "This dataset's saved plan names samples across steps, which the Demux tab cannot show. Demultiplex\u{2026} runs a plan of one step, so run each step from Demultiplex Barcodes with its own kit.")
         }
         guard let step = steps.first, let datasetURL else {
             throw DemultiplexPlanRefusal(words: "There is no plan or dataset to demultiplex. Open a FASTQ dataset, set its plan in the Demux tab, then press Demultiplex\u{2026} again.")
