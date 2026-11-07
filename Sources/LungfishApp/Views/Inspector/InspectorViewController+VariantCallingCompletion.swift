@@ -15,6 +15,6 @@ extension InspectorViewController {
         result: CLIVariantCallingResult,
         center: OperationCenter = .shared
     ) -> Bool {
-        center.complete(id: id, detail: variantCallingCompletionDetail(for: result))
+        center.complete(id: id, detail: variantCallingCompletionDetail(for: result), outputURLs: [bundleURL])
     }
 }

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishKit
 
 /// Selects a completed operation's persisted result in the originating project window.
@@ -19,7 +20,9 @@ enum OperationResultNavigation {
         fileManager: FileManager = .default
     ) -> URL? {
         guard item.state == .completed else { return nil }
-        let nativeOutputBundles = item.outputURLs.filter(SidebarProjectScanner.isNativePackage)
+        let nativeOutputBundles = item.outputURLs.filter { url in
+            SidebarProjectScanner.isNativePackage(url) || isBlastResultFolder(url, fileManager: fileManager)
+        }
         return (item.bundleURLs + nativeOutputBundles).lazy
             .map(\.standardizedFileURL)
             .first { url in
@@ -66,6 +69,12 @@ enum OperationResultNavigation {
         controller.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         return true
+    }
+
+    /// The folder of a BLAST search that collected its record (`blast submit` writes `blast-result.json` last). A BLAST
+    /// row completes with this folder, the result the viewer's own BLAST Results button reads (OPS-RESULTS-BUTTON).
+    private static func isBlastResultFolder(_ url: URL, fileManager: FileManager) -> Bool {
+        fileManager.fileExists(atPath: url.appendingPathComponent(BlastSubmissionRecord.recordFileName).path)
     }
 
     private static func isURL(_ url: URL, inside directory: URL) -> Bool {
