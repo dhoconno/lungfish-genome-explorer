@@ -625,10 +625,10 @@ struct FastqScoutSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("read-limit"), help: "Maximum reads to scan")
     var readLimit: Int = 10_000
 
-    @Option(name: .customLong("accept-threshold"), help: "Minimum hits to auto-accept a barcode")
+    @Option(name: .customLong("accept-threshold"), help: "Minimum hits to auto-accept a barcode found in the read bases (a count from the read-name index is accepted above its chance bound)")
     var acceptThreshold: Int = 10
 
-    @Option(name: .customLong("reject-threshold"), help: "Maximum hits to auto-reject a barcode")
+    @Option(name: .customLong("reject-threshold"), help: "Maximum hits to auto-reject a barcode found in the read bases")
     var rejectThreshold: Int = 3
 
     @Option(name: .customLong("error-rate"), help: "Override barcode matching error rate")

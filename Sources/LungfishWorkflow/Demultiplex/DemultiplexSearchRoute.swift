@@ -109,6 +109,12 @@ public enum DemultiplexSearchRouteOwner {
     /// split over the kit's barcodes, and their commonest index is the barcode itself. So a library index one
     /// mismatch from a barcode, or another kit's index near one, is not that barcode.
     static func presentBarcodes(of kit: BarcodeKitDefinition, in names: [FASTQReadNameIndex]) -> Int {
+        presentBarcodeOffsets(of: kit, in: names).count
+    }
+
+    /// The offsets in `kit` of the barcodes present in `names`, by the rule of ``presentBarcodes(of:in:)``. Detect
+    /// accepts a barcode counted from the read names only when it is present by this rule (L9, L5).
+    static func presentBarcodeOffsets(of kit: BarcodeKitDefinition, in names: [FASTQReadNameIndex]) -> [Int] {
         struct IndexValue: Hashable { let i7: String?, i5: String? }
         var tally: [IndexValue: (name: FASTQReadNameIndex, count: Int)] = [:]
         var shapes: [[Int]: Int] = [:]
@@ -120,11 +126,11 @@ public enum DemultiplexSearchRouteOwner {
         // Equal counts take the later shape in lexicographic order, so a tie routes the same way in every process.
         guard indexed > 0, let shape = shapes.max(by: {
             $0.value != $1.value ? $0.value < $1.value : $0.key.lexicographicallyPrecedes($1.key)
-        })?.key else { return 0 }
+        })?.key else { return [] }
         func withinOne(_ length: Int) -> Double { (1 + 3 * Double(length)) / pow(4, Double(length)) }
         let tail = chanceTail / Double(max(1, kit.barcodes.count))
-        var present = 0
-        for barcode in kit.barcodes where barcode.i7Sequence.count == shape[0] {
+        var present: [Int] = []
+        for (offset, barcode) in kit.barcodes.enumerated() where barcode.i7Sequence.count == shape[0] {
             var share = withinOne(shape[0])
             if let i5 = barcode.i5Sequence, shape[1] > 0 {
                 share *= i5.count == shape[1] ? min(1, 2 * withinOne(shape[1])) : 0
@@ -136,7 +142,7 @@ public enum DemultiplexSearchRouteOwner {
             // barcode, and a rival is the commonest index that differs at a base the name called.
             let own = near.filter { isExact($0.name, barcode) }.reduce(0) { $0 + $1.count }
             let rival = near.filter { !isExact($0.name, barcode) }.map(\.count).max() ?? 0
-            if own > 0, own >= rival { present += 1 }
+            if own > 0, own >= rival { present.append(offset) }
         }
         return present
     }

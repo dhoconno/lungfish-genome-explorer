@@ -29,9 +29,13 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     case noBarcodeAboveChance(kitName: String)
     /// The split by the read names read reads and found an index of the kit in none of their names (UX SF3).
     case noReadNameIndex(kitName: String)
+    /// Detect Barcodes read the first read names of a file for an Illumina or Element kit and found no index (L9).
+    case readNamesCarryNoIndex(kitName: String, namesRead: Int)
 
     public var errorDescription: String? {
         switch self {
+        case .readNamesCarryNoIndex(let kitName, let namesRead):
+            return "Detect Barcodes read the first \(namesRead) read names and found no index in them, so it counted no barcode of \(kitName). It counts Illumina and Element kits from the index that bcl2fastq or BCL Convert writes in each read name, and names such as those SRA gives by default carry none. For barcodes inside the reads, run Demultiplex Barcodes with a Custom Definition of their sequences (on the command line, fastq demultiplex --kit with your barcode file)."
         case .noReadNameIndex(let kitName):
             return "No read name carried an index of \(kitName), so Demultiplex Barcodes made no sample files. The reads may carry no index in their names, the index may belong to another kit, or the reads may already be split into one file per sample. Choose the kit the library was made with, search the read sequences with Cutadapt, or import this file as one sample."
         case .noBarcodeAboveChance(let kitName):

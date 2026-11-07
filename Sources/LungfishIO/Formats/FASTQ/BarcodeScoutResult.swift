@@ -25,18 +25,39 @@ public struct BarcodeScoutResult: Codable, Sendable {
     /// Wall clock time for the scout run in seconds.
     public let elapsedSeconds: Double
 
+    /// Where the counts came from, nil in a result written before 3.3, which searched the read bases.
+    public let countSource: BarcodeCountSource?
+
+    /// The reads whose names carry an index, when the counts came from the read names.
+    public let indexedReadCount: Int?
+
     public init(
         readsScanned: Int,
         detections: [BarcodeDetection],
         unassignedCount: Int,
         scoutedKitIDs: [String],
-        elapsedSeconds: Double
+        elapsedSeconds: Double,
+        countSource: BarcodeCountSource? = nil,
+        indexedReadCount: Int? = nil
     ) {
         self.readsScanned = readsScanned
         self.detections = detections
         self.unassignedCount = unassignedCount
         self.scoutedKitIDs = scoutedKitIDs
         self.elapsedSeconds = elapsedSeconds
+        self.countSource = countSource
+        self.indexedReadCount = indexedReadCount
+    }
+
+    /// The share of the names read, in percent, at or above which one index makes a file one sample and not a plex
+    /// (BIO's line, L9 of the 3.3 tally).
+    public static let oneSamplePercent = 99
+
+    /// The barcode whose index 99% or more of the names read carry, when the counts came from the read names. Such a
+    /// file holds one sample, so the scout accepts no barcode of it as a plex.
+    public var oneSampleDetection: BarcodeDetection? {
+        guard countSource == .readNameIndex, readsScanned > 0 else { return nil }
+        return detections.first { $0.hitCount * 100 >= Self.oneSamplePercent * readsScanned }
     }
 
     /// Percentage of reads that were assigned to any barcode.
@@ -77,6 +98,14 @@ public struct BarcodeScoutResult: Codable, Sendable {
             }
         }
     }
+}
+
+/// Where a barcode scout's counts came from (L9 of the 3.3 tally).
+public enum BarcodeCountSource: String, Codable, Sendable {
+    /// A search of the read bases with cutadapt.
+    case readBases = "read-bases"
+    /// The index that bcl2fastq or BCL Convert wrote in each read name, read with the run's own parser and caller.
+    case readNameIndex = "read-name-index"
 }
 
 /// Detection result for a single barcode during scouting.

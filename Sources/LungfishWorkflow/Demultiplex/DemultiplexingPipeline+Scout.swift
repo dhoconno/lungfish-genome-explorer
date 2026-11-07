@@ -46,6 +46,12 @@ extension DemultiplexingPipeline {
         guard FileManager.default.fileExists(atPath: inputFASTQ.path) else {
             throw DemultiplexError.inputFileNotFound(inputFASTQ)
         }
+        // Illumina and Element kits, and a custom definition whose names carry its barcodes, are counted from the index
+        // in the read names before any adapter file is written, and their thresholds are the chance bound (L9).
+        if let counted = try await scoutReadNameIndex(
+            inputFASTQ: inputFASTQ, kit: kit, adapterContext: adapterContext, readLimit: readLimit,
+            runClock: runClock, progress: progress
+        ) { return counted }
 
         let fm = FileManager.default
         let workDir = try ProjectTempDirectory.create(
