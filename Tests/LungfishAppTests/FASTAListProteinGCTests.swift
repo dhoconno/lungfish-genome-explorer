@@ -143,13 +143,14 @@ final class FASTAListProteinGCTests: XCTestCase {
     // MARK: - What stays the same
 
     /// A DNA record, an RNA record written with U (the reader stores it with T), an IUPAC record with N, R and Y, and the same
-    /// in lower case keep the numbers they had, and the list names no protein record.
+    /// in lower case keep the numbers they had, and the list names no protein record. The IUPAC record is 83% A, C, G, T, U or N
+    /// letters, above the 70% line of `FASTAReader.minimumNucleotideShare`. As `GGCCAANNRRYY` (67%) it reads as protein.
     func testNucleotideRNAAndIUPACRecordsKeepTheirNumbers() async throws {
         let harness = try ViewSwitchWindowHarness()
         defer { harness.close() }
 
         let list = try await openList(
-            ">dna\nGGCCAAAATT\n>rna\nGGCCAAAAUU\n>iupac\nGGCCAANNRRYY\n>masked\nggccaannrryy\n", in: harness
+            ">dna\nGGCCAAAATT\n>rna\nGGCCAAAAUU\n>iupac\nGGCCAANNNNRY\n>masked\nggccaannnnry\n", in: harness
         )
 
         XCTAssertEqual(gcColumn(list), ["40.0%", "40.0%", "66.7%", "66.7%"])
