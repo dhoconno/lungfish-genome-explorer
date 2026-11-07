@@ -158,7 +158,8 @@ cleanliness, retained work, and unresolved blockers.
 
 ### Optional graphical diagnostics
 
-Routine Preview and Stable packaging are headless: `gates.appSmokeRequired` is false.
+Routine Preview packaging is headless. Stable packaging runs the real-app smoke as a
+release gate, since `gates.appSmokeRequired` is true as of Phase 3.3.
 UI, extended and external-tool conformance profiles are explicit diagnostics, selected
 with `python3 scripts/test.py list --profile ui`, `--profile extended` or
 `--profile tool-conformance`; inspect the declared command and prerequisites before
@@ -171,12 +172,15 @@ and a name there binds the run to that account. The gate refuses a locked screen
 start or the end, a session that is not on the console and a uid of zero. It makes a
 fresh launch home for each test and a copy of the fixtures the tests read. A fresh home
 alone does not isolate the account. Once a project opens, the candidate writes its
-preferences into the account's `~/Library/Preferences`, and the gate reports that change
-and fails the run. It keeps the exact selection and completion, the source and app
-identities, the logs and the xcresult hashes. Until backlog row SMOKE-ISOLATION lands,
-the smoke is a diagnostic and not a release gate, and `gates.appSmokeRequired` stays
-false. If the committed contract requires graphical evidence, a missing, skipped or
-incomplete result blocks that policy.
+preferences into the account's own domains, so the gate moves the account's Lungfish
+preference domains aside before the first launch and fails the run unless it restores
+them exactly. It keeps the exact selection and completion, the source and app
+identities, the logs and the xcresult hashes. Since Phase 3.3 `package stable` runs the
+gate near the end of the build, so a Stable package must run as the console user in an
+unlocked session with no Lungfish running. Its preflight checks both before the app
+build starts and refuses with the gate's own words, and the Stable receipt does not
+bind without the gate's retained evidence. A Preview package neither runs the gate nor
+binds its evidence. A missing, skipped or incomplete result blocks a Stable package.
 
 
 ## Durable signing recovery
