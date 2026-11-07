@@ -16,6 +16,12 @@
 // The fix round (BIO SF2, 2026-11-06) widens the same rule to every filter that reaches depth and read counts. The consensus
 // quality limits, the duplicate, secondary and supplementary toggles and the read group filter start at their defaults when a
 // different bundle opens, and the same bundle keeps them. `testTheOtherDepthFiltersReadTheDefaultOnTheNextBundleThatOpens` pins it.
+//
+// ALIGNCARRY (Phase 3.3, ALIGN-CONSENSUS-SETTINGS-CARRY). The six consensus settings, which are the masking switch, the gap threshold,
+// the minimum depth, the masking depth, the caller mode and the IUPAC switch, ride in the same payload and carried to the next bundle,
+// so the consensus track and an export made from it used another bundle's values. They follow the rule of the depth filters.
+// `testConsensusSettingsResetOnADifferentBundle` goes through the window and the viewport the track and the export read.
+// `testTheSixConsensusSettingsFollowTheBundleRuleOfTheDepthFilters` pins the block's rule, the same bundle and classifier evidence included.
 
 import AppKit
 import LungfishTestSupport
@@ -324,4 +330,133 @@ final class ReadConfidenceAcrossBundlesTests: XCTestCase {
             "the second bundle's reads and depth stay under the first bundle's confidence while the Inspector is hidden"
         )
     }
+
+    private func consensusSix(of block: ReadStyleSectionViewModel) -> ConsensusSix {
+        ConsensusSix(
+            masking: block.consensusMaskingEnabled, gapPercent: Int(block.consensusGapThresholdPercent),
+            minDepth: Int(block.consensusMinDepth), maskingMinDepth: Int(block.consensusMaskingMinDepth),
+            mode: block.consensusMode, ambiguity: block.consensusUseAmbiguity
+        )
+    }
+
+    private func consensusSix(of view: SequenceViewerView) -> ConsensusSix {
+        ConsensusSix(
+            masking: view.consensusMaskingEnabledSetting, gapPercent: view.consensusGapThresholdPercentSetting,
+            minDepth: view.consensusMinDepthSetting, maskingMinDepth: view.consensusMaskingMinDepthSetting,
+            mode: view.consensusModeSetting, ambiguity: view.consensusUseAmbiguitySetting
+        )
+    }
+
+    private func write(_ six: ConsensusSix, to block: ReadStyleSectionViewModel) {
+        block.consensusMaskingEnabled = six.masking
+        block.consensusGapThresholdPercent = Double(six.gapPercent)
+        block.consensusMinDepth = Double(six.minDepth)
+        block.consensusMaskingMinDepth = Double(six.maskingMinDepth)
+        block.consensusMode = six.mode
+        block.consensusUseAmbiguity = six.ambiguity
+    }
+
+    /// The six consensus settings belong to the bundle they were set on. A different bundle opens with the declared defaults in the
+    /// Inspector and in the viewport that draws the consensus track and builds an export. Reselecting the first bundle after a
+    /// second one is a different bundle again (the W-27 rule), so the first bundle's old values do not come back and the second
+    /// bundle's values do not follow.
+    func testConsensusSettingsResetOnADifferentBundle() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        let rows = try await twoReferenceRows()
+        let readStyle = harness.split.inspectorController.viewModel.readStyleSectionViewModel
+        let declared = consensusSix(of: ReadStyleSectionViewModel())
+        XCTAssertNotEqual(ConsensusSix.setOnFirstBundle, declared, "the values the test sets on the first bundle are the defaults")
+        XCTAssertNotEqual(ConsensusSix.setOnSecondBundle, declared, "the values the test sets on the second bundle are the defaults")
+
+        harness.select(rows.first.item)
+        let firstOpened = await waitUntil(budget: .lookup) {
+            self.openedBundleURL(viewer) != nil && readStyle.onSettingsChanged != nil
+        }
+        XCTAssertTrue(firstOpened, "the first reference never opened and wired its read filter")
+        let firstURL = try XCTUnwrap(openedBundleURL(viewer))
+
+        write(.setOnFirstBundle, to: readStyle)
+        readStyle.onSettingsChanged?()
+        let firstView = try XCTUnwrap(viewer.referenceBundleViewportController?.testEmbeddedViewerController.viewerView)
+        XCTAssertEqual(consensusSix(of: firstView), .setOnFirstBundle, "the Inspector's consensus settings never reached the first viewport")
+
+        harness.select(rows.second.item)
+        await harness.split.bundleOpenTask?.value
+        let secondOpened = await waitUntil(budget: .lookup) {
+            if let url = self.openedBundleURL(viewer), url != firstURL { return readStyle.onSettingsChanged != nil }
+            return false
+        }
+        XCTAssertTrue(secondOpened, "the second reference never opened")
+        XCTAssertEqual(consensusSix(of: readStyle), declared, "the Inspector shows the first bundle's consensus settings on the second bundle")
+        let secondView = try XCTUnwrap(viewer.referenceBundleViewportController?.testEmbeddedViewerController.viewerView)
+        XCTAssertEqual(
+            consensusSix(of: secondView), declared,
+            "the second bundle's consensus track and export use the settings of the first bundle"
+        )
+
+        write(.setOnSecondBundle, to: readStyle)
+        readStyle.onSettingsChanged?()
+        XCTAssertEqual(consensusSix(of: secondView), .setOnSecondBundle, "the Inspector's consensus settings never reached the second viewport")
+
+        harness.select(rows.first.item)
+        await harness.split.bundleOpenTask?.value
+        let reopened = await waitUntil(budget: .lookup) {
+            self.openedBundleURL(viewer) == firstURL && readStyle.onSettingsChanged != nil
+        }
+        XCTAssertTrue(reopened, "the first reference never reopened")
+        XCTAssertEqual(consensusSix(of: readStyle), declared, "a return to the first bundle kept the settings of the second bundle")
+        let returnedView = try XCTUnwrap(viewer.referenceBundleViewportController?.testEmbeddedViewerController.viewerView)
+        XCTAssertEqual(
+            consensusSix(of: returnedView), declared,
+            "the first bundle's consensus track and export use the settings of the second bundle after a return"
+        )
+    }
+
+    /// The block's own rule for the six, without a window. The same bundle keeps them across the clear that every selection makes.
+    /// A different bundle starts at the declared defaults, and so does a return to the first bundle after a second one. Classifier
+    /// evidence starts at the defaults and leaves no bundle behind, as it does for the depth filters.
+    func testTheSixConsensusSettingsFollowTheBundleRuleOfTheDepthFilters() {
+        let viewModel = ReadStyleSectionViewModel()
+        let declared = consensusSix(of: ReadStyleSectionViewModel())
+        let first = root.appendingPathComponent("first.lungfishref", isDirectory: true)
+        let second = root.appendingPathComponent("second.lungfishref", isDirectory: true)
+
+        viewModel.resetConfidenceUnlessSameBundle(at: first)
+        write(.setOnFirstBundle, to: viewModel)
+        viewModel.clear()
+        viewModel.resetConfidenceUnlessSameBundle(at: first)
+        XCTAssertEqual(consensusSix(of: viewModel), .setOnFirstBundle, "the same bundle lost its consensus settings")
+
+        viewModel.clear()
+        viewModel.resetConfidenceUnlessSameBundle(at: second)
+        XCTAssertEqual(consensusSix(of: viewModel), declared, "a different bundle kept the consensus settings")
+
+        write(.setOnSecondBundle, to: viewModel)
+        viewModel.clear()
+        viewModel.resetConfidenceUnlessSameBundle(at: first)
+        XCTAssertEqual(consensusSix(of: viewModel), declared, "a return to the first bundle kept the second bundle's consensus settings")
+
+        write(.setOnFirstBundle, to: viewModel)
+        viewModel.resetConfidenceForClassifierEvidence()
+        XCTAssertEqual(consensusSix(of: viewModel), declared, "classifier evidence kept a bundle's consensus settings")
+        write(.setOnSecondBundle, to: viewModel)
+        viewModel.resetConfidenceUnlessSameBundle(at: first)
+        XCTAssertEqual(consensusSix(of: viewModel), declared, "a bundle kept the consensus settings set on classifier evidence")
+    }
+}
+
+/// The six consensus settings as one value, so a test reads and compares them as the block and the viewport hold them.
+private struct ConsensusSix: Equatable {
+    var masking: Bool
+    var gapPercent: Int
+    var minDepth: Int
+    var maskingMinDepth: Int
+    var mode: AlignmentConsensusMode
+    var ambiguity: Bool
+
+    /// Every field differs from its declared default, and every value lies inside the range the viewport clamps to.
+    static let setOnFirstBundle = ConsensusSix(masking: true, gapPercent: 70, minDepth: 20, maskingMinDepth: 15, mode: .simple, ambiguity: true)
+    static let setOnSecondBundle = ConsensusSix(masking: true, gapPercent: 60, minDepth: 30, maskingMinDepth: 12, mode: .simple, ambiguity: true)
 }
