@@ -70,7 +70,6 @@ public final class FASTQDatasetViewController: NSViewController {
         case sequencePresenceFilter
         case errorCorrection
         case orient
-        case demultiplex
         case assembleReads
         case mapReads
         case classifyReads
@@ -96,7 +95,6 @@ public final class FASTQDatasetViewController: NSViewController {
             case .sequencePresenceFilter: return .sequencePresenceFilter
             case .errorCorrection: return .errorCorrection
             case .orient: return .orient
-            case .demultiplex: return .demultiplex
             case .assembleReads: return .assembleReads
             case .mapReads: return .mapReads
             case .classifyReads: return .classifyReads
@@ -126,20 +124,8 @@ public final class FASTQDatasetViewController: NSViewController {
     var onLaunchFASTQOperationCategory: ((FASTQOperationCategoryID) -> Void)?
     var onLaunchFASTQOperationTool: ((FASTQOperationToolID) -> Void)?
 
-    /// Callback to open/focus the Demux tab in the metadata drawer.
-    public var onOpenDemuxDrawer: (() -> Void)?
     public var onOpenPrimerTrimDrawer: (() -> Void)?
     public var onOpenDedupDrawer: (() -> Void)?
-
-    /// Current demux configuration from the metadata drawer. Set by the drawer view.
-    /// When present, the demultiplex operation uses this configuration.
-    public var currentDemuxConfig: DemultiplexStep? {
-        didSet {
-            if selectedOperation == .demultiplex {
-                updateParameterBar()
-            }
-        }
-    }
 
     public var currentPrimerTrimConfiguration: FASTQPrimerTrimConfiguration? {
         didSet {
@@ -1014,36 +1000,6 @@ public final class FASTQDatasetViewController: NSViewController {
             parameterBar.addArrangedSubview(orientMaskPopup)
             parameterBar.addArrangedSubview(orientSaveUnorientedCheckbox)
 
-        case .demultiplex:
-            if let drawerConfig = currentDemuxConfig {
-                // Show read-only summary of the drawer configuration
-                let kitName = BarcodeKitRegistry.kit(byID: drawerConfig.barcodeKitID)?.displayName ?? drawerConfig.barcodeKitID
-                let locationDesc: String
-                switch drawerConfig.barcodeLocation {
-                case .fivePrime: locationDesc = "5'"
-                case .threePrime: locationDesc = "3'"
-                case .bothEnds: locationDesc = "Both"
-                }
-                let summaryText = "\(kitName) | \(locationDesc) | e=\(String(format: "%.2f", drawerConfig.errorRate)) | \(drawerConfig.trimBarcodes ? "Trim" : "Keep")"
-                let summaryLabel = NSTextField(labelWithString: summaryText)
-                summaryLabel.font = .systemFont(ofSize: 11)
-                summaryLabel.textColor = .secondaryLabelColor
-                summaryLabel.lineBreakMode = .byTruncatingTail
-                parameterBar.addArrangedSubview(summaryLabel)
-            } else {
-                let placeholder = NSTextField(labelWithString: "Configure demultiplexing in the Demux drawer")
-                placeholder.font = .systemFont(ofSize: 11)
-                placeholder.textColor = .secondaryLabelColor
-                parameterBar.addArrangedSubview(placeholder)
-            }
-
-            // Always show a button to open/focus the drawer for either state
-            let configureButton = NSButton(title: "Configure in Drawer\u{2026}", target: self, action: #selector(openDemuxDrawerClicked(_:)))
-            configureButton.bezelStyle = .rounded
-            configureButton.font = .systemFont(ofSize: 11)
-            configureButton.translatesAutoresizingMaskIntoConstraints = false
-            parameterBar.addArrangedSubview(configureButton)
-
         case .assembleReads:
             let label = NSTextField(labelWithString: "Assemble reads de novo into contigs and scaffolds using SPAdes.")
             label.font = .systemFont(ofSize: 11)
@@ -1518,10 +1474,6 @@ public final class FASTQDatasetViewController: NSViewController {
         // Every other FASTQ operation runs from the FASTQ operations dialog.
     }
 
-    @objc private func openDemuxDrawerClicked(_ sender: Any) {
-        onOpenDemuxDrawer?()
-    }
-
     @objc private func openPrimerTrimDrawer(_ sender: Any) {
         onOpenPrimerTrimDrawer?()
     }
@@ -1700,263 +1652,10 @@ public final class FASTQDatasetViewController: NSViewController {
         return symbolForOperationCategory(category)
     }
 
-    // MARK: - Request Building
-
-    private func buildOperationRequest() -> FASTQDerivativeRequest? {
-        guard let kind = selectedOperation else {
-            setStatus("No operation selected.", isError: true)
-            return nil
-        }
-
-        switch kind {
-        case .classifyReads:
-            // Classify & Profile Reads is dispatched via ToolsMenuActions; not a derivative operation
-            return nil
-
-        case .detectViruses:
-            // EsViritu is dispatched via the unified metagenomics wizard; not a derivative operation
-            return nil
-
-        case .comprehensiveTriage:
-            // TaxTriage is dispatched via the unified metagenomics wizard; not a derivative operation
-            return nil
-
-        case .humanReadScrub:
-            return .humanReadScrub(databaseID: DeaconPanhumanDatabaseInstaller.databaseID, removeReads: true)
-
-        case .subsampleProportion:
-            guard let value = Double(fieldOneInput.stringValue), value > 0, value <= 1 else {
-                setStatus("Invalid proportion. Enter a value in (0, 1].", isError: true)
-                return nil
-            }
-            return .subsampleProportion(value)
-
-        case .subsampleCount:
-            guard let value = Int(fieldOneInput.stringValue), value > 0 else {
-                setStatus("Invalid read count. Enter an integer > 0.", isError: true)
-                return nil
-            }
-            return .subsampleCount(value)
-
-        case .lengthFilter:
-            let minValue = Int(fieldOneInput.stringValue.trimmingCharacters(in: .whitespaces))
-            let maxValue = Int(fieldTwoInput.stringValue.trimmingCharacters(in: .whitespaces))
-            if minValue == nil, maxValue == nil {
-                setStatus("Provide min, max, or both for length filter.", isError: true)
-                return nil
-            }
-            if let minValue, let maxValue, minValue > maxValue {
-                setStatus("Min length cannot be greater than max length.", isError: true)
-                return nil
-            }
-            return .lengthFilter(min: minValue, max: maxValue)
-
-        case .searchText:
-            let query = fieldOneInput.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !query.isEmpty else {
-                setStatus("Search pattern cannot be empty.", isError: true)
-                return nil
-            }
-            let field: FASTQSearchField = searchFieldPopup.indexOfSelectedItem == 1 ? .description : .id
-            return .searchText(query: query, field: field, regex: regexCheckbox.state == .on)
-
-        case .searchMotif:
-            let pattern = fieldOneInput.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !pattern.isEmpty else {
-                setStatus("Motif pattern cannot be empty.", isError: true)
-                return nil
-            }
-            return .searchMotif(pattern: pattern, regex: regexCheckbox.state == .on)
-
-        case .deduplicate:
-            return .deduplicate(
-                preset: dedupPreset,
-                substitutions: dedupSubstitutions,
-                optical: dedupOptical,
-                opticalDistance: dedupOpticalDistance
-            )
-
-        case .qualityTrim:
-            let threshold = Int(fieldOneInput.stringValue) ?? 20
-            let windowSize = Int(fieldTwoInput.stringValue) ?? 4
-            guard threshold > 0, windowSize > 0 else {
-                setStatus("Quality threshold and window size must be > 0.", isError: true)
-                return nil
-            }
-            let trimMode: FASTQQualityTrimMode
-            switch qualityTrimModePopup.indexOfSelectedItem {
-            case 1: trimMode = .cutFront
-            case 2: trimMode = .cutTail
-            case 3: trimMode = .cutBoth
-            default: trimMode = .cutRight
-            }
-            return .qualityTrim(threshold: threshold, windowSize: windowSize, mode: trimMode)
-
-        case .adapterTrim:
-            let adapterMode: FASTQAdapterMode
-            let sequence: String?
-            if adapterModePopup.indexOfSelectedItem == 1 {
-                adapterMode = .specified
-                let seq = fieldOneInput.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !seq.isEmpty else {
-                    setStatus("Specify an adapter sequence or use Auto-Detect.", isError: true)
-                    return nil
-                }
-                sequence = seq
-            } else {
-                adapterMode = .autoDetect
-                sequence = nil
-            }
-            return .adapterTrim(mode: adapterMode, sequence: sequence, sequenceR2: nil, fastaFilename: nil)
-
-        case .fixedTrim:
-            let from5 = Int(fieldOneInput.stringValue) ?? 0
-            let from3 = Int(fieldTwoInput.stringValue) ?? 0
-            guard from5 >= 0, from3 >= 0 else {
-                setStatus("Trim values must be >= 0.", isError: true)
-                return nil
-            }
-            guard from5 > 0 || from3 > 0 else {
-                setStatus("At least one trim value must be > 0.", isError: true)
-                return nil
-            }
-            return .fixedTrim(from5Prime: from5, from3Prime: from3)
-
-        case .contaminantFilter:
-            let kmerSize = Int(fieldOneInput.stringValue) ?? 31
-            let hammingDist = Int(fieldTwoInput.stringValue) ?? 1
-            guard kmerSize > 0, kmerSize <= 63 else {
-                setStatus("Kmer size must be between 1 and 63.", isError: true)
-                return nil
-            }
-            guard hammingDist >= 0, hammingDist <= 3 else {
-                setStatus("Mismatch tolerance must be 0-3.", isError: true)
-                return nil
-            }
-            let mode: FASTQContaminantFilterMode = contaminantModePopup.indexOfSelectedItem == 1 ? .custom : .phix
-            let referencePath: String?
-            if mode == .custom {
-                guard let contaminantReferenceURL else {
-                    setStatus("Select a contaminant reference FASTA before running custom contaminant filtering.", isError: true)
-                    return nil
-                }
-                referencePath = contaminantReferenceURL.path
-            } else {
-                referencePath = nil
-            }
-            return .contaminantFilter(
-                mode: mode,
-                referenceFasta: referencePath,
-                kmerSize: kmerSize,
-                hammingDistance: hammingDist
-            )
-
-        case .pairedEndMerge:
-            let minOverlap = Int(fieldOneInput.stringValue) ?? 12
-            guard minOverlap > 0 else {
-                setStatus("Minimum overlap must be > 0.", isError: true)
-                return nil
-            }
-            let strictness: FASTQMergeStrictness = mergeStrictnessPopup.indexOfSelectedItem == 1 ? .strict : .normal
-            return .pairedEndMerge(strictness: strictness, minOverlap: minOverlap)
-
-        case .pairedEndRepair:
-            return .pairedEndRepair
-
-        case .primerRemoval:
-            guard let configuration = currentPrimerTrimConfiguration else {
-                setStatus("Configure PCR primer trimming in the Primer Trim drawer first.", isError: true)
-                return nil
-            }
-            return .primerRemoval(configuration: configuration)
-
-        case .sequencePresenceFilter:
-            let seqInput = fieldOneInput.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !seqInput.isEmpty else {
-                setStatus("Enter a sequence or path to a FASTA file.", isError: true)
-                return nil
-            }
-            let minOverlap = Int(fieldTwoInput.stringValue) ?? 16
-            guard minOverlap > 0 else {
-                setStatus("Minimum overlap must be > 0.", isError: true)
-                return nil
-            }
-            // Determine if input is a file path or literal sequence
-            let isFilePath = seqInput.contains("/") || seqInput.hasSuffix(".fasta") || seqInput.hasSuffix(".fa")
-            let searchEndPopup = parameterBar.subviews.first(where: { ($0 as? NSPopUpButton)?.tag == 902 }) as? NSPopUpButton
-            let keepDiscardPopup = parameterBar.subviews.first(where: { ($0 as? NSPopUpButton)?.tag == 901 }) as? NSPopUpButton
-            let rcCheckbox = parameterBar.subviews.first(where: { ($0 as? NSButton)?.tag == 903 }) as? NSButton
-            let searchEnd: FASTQAdapterSearchEnd = searchEndPopup?.indexOfSelectedItem == 1 ? .threePrime : .fivePrime
-            let keepMatched = keepDiscardPopup?.indexOfSelectedItem == 0
-            let searchRC = rcCheckbox?.state == .on
-            return .sequencePresenceFilter(
-                sequence: isFilePath ? nil : seqInput,
-                fastaPath: isFilePath ? seqInput : nil,
-                searchEnd: searchEnd,
-                minOverlap: minOverlap,
-                errorRate: 0.15,
-                keepMatched: keepMatched,
-                searchReverseComplement: searchRC
-            )
-
-        case .errorCorrection:
-            let kmerSize = Int(fieldOneInput.stringValue) ?? 50
-            guard kmerSize > 0, kmerSize <= 62 else {
-                setStatus("K-mer size must be between 1 and 62 (tadpole limit).", isError: true)
-                return nil
-            }
-            return .errorCorrection(kmerSize: kmerSize)
-
-        case .orient:
-            guard let refURL = orientReferenceURL else {
-                setStatus("Select a reference FASTA before running orient.", isError: true)
-                return nil
-            }
-            let wordLength = Int(fieldOneInput.stringValue) ?? 12
-            let dbMask = orientMaskPopup.titleOfSelectedItem ?? "dust"
-            let saveUnoriented = orientSaveUnorientedCheckbox.state == .on
-            return .orient(referenceURL: refURL, wordLength: wordLength, dbMask: dbMask, saveUnoriented: saveUnoriented)
-
-        case .assembleReads:
-            // Assembly is dispatched via AssemblySheetPresenter; not a derivative operation
-            return nil
-
-        case .mapReads:
-            // Map Reads is dispatched via the shared MappingWizardSheet; not a derivative operation
-            return nil
-
-        case .demultiplex:
-            guard let step = currentDemuxConfig else {
-                setStatus("Configure demultiplexing in the Demux drawer first.", isError: true)
-                return nil
-            }
-            let location: String
-            switch step.barcodeLocation {
-            case .fivePrime: location = "fivePrime"
-            case .threePrime: location = "threePrime"
-            case .bothEnds: location = "bothEnds"
-            }
-            return .demultiplex(
-                kitID: step.barcodeKitID,
-                customCSVPath: nil,
-                location: location,
-                symmetryMode: step.symmetryMode,
-                maxDistanceFrom5Prime: step.maxSearchDistance5Prime,
-                maxDistanceFrom3Prime: step.maxSearchDistance3Prime,
-                errorRate: step.errorRate,
-                engine: .cutadapt,
-                trimBarcodes: step.trimBarcodes,
-                sampleAssignments: step.sampleAssignments,
-                kitOverride: nil
-            )
-        }
-    }
-
     // MARK: - Run Button State
 
     /// Centralizes Run button enable/disable logic based on the selected operation
-    /// and current configuration state. Called at the end of updateParameterBar()
-    /// and whenever currentDemuxConfig changes.
+    /// and current configuration state. Called at the end of updateParameterBar().
     private func updateRunButtonState() {
         guard let kind = selectedOperation else {
             runButton.isEnabled = false
@@ -1981,9 +1680,6 @@ public final class FASTQDatasetViewController: NSViewController {
             runButton.title = "Run"
         case .orient:
             runButton.isEnabled = orientReferenceURL != nil
-            runButton.title = "Run"
-        case .demultiplex:
-            runButton.isEnabled = currentDemuxConfig != nil
             runButton.title = "Run"
         case .primerRemoval:
             runButton.isEnabled = currentPrimerTrimConfiguration != nil
@@ -2239,7 +1935,7 @@ extension FASTQDatasetViewController {
     func testingSelectContaminantFilter(
         mode: FASTQContaminantFilterMode,
         referenceURL: URL? = nil
-    ) -> (request: FASTQDerivativeRequest?, isRunEnabled: Bool) {
+    ) -> Bool {
         _ = view
         selectedOperation = .contaminantFilter
         updateParameterBar()
@@ -2248,14 +1944,7 @@ extension FASTQDatasetViewController {
         updateContaminantReferenceControls()
         updateRunButtonState()
 
-        return (buildOperationRequest(), runButton.isEnabled)
-    }
-
-    /// The request a demultiplex makes from the drawer's plan, the far end of what the drawer feeds.
-    func testingDemultiplexRequest() -> FASTQDerivativeRequest? {
-        _ = view
-        selectedOperation = .demultiplex
-        return buildOperationRequest()
+        return runButton.isEnabled
     }
 
     /// Lets a test outside this file name a selection without exporting `LegacyOperationKind`.

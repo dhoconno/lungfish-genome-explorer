@@ -1798,11 +1798,7 @@ extension DemultiplexingPipeline {
     }
 
     private func sanitizedSampleIdentifier(_ sampleID: String) -> String {
-        let trimmed = sampleID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sanitized = trimmed
-            .replacingOccurrences(of: "[^A-Za-z0-9._-]+", with: "_", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "._-"))
-        return sanitized.isEmpty ? "sample" : sanitized
+        ONTPacBioBarcodeSampleNameResolver.sanitizedSampleIdentifier(sampleID)
     }
 
     private func canonicalSampleID(_ value: String) -> String {

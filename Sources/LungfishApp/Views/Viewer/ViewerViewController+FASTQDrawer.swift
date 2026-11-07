@@ -73,6 +73,7 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
             )
         }
 
+        drawer.onDemultiplex = { [weak self] plan, kits in self?.openDemultiplexDialog(for: plan, kits: kits) }
         fastqDatasetContainer?.endDashboard(at: drawer.topAnchor)
 
         refreshFASTQMetadataDrawerContent()
@@ -239,18 +240,43 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
             drawer.updateScoutStatus(Self.scoutProceedWords(count: acceptedDetections.count))
         }
 
-        // Sync the dashboard's copy of the plan. No run starts here, and no run reads the plan.
+        // Sync the dashboard's primer trim settings. No run starts here, since Demultiplex… opens the run.
         syncDemuxConfigToController()
 
         fastqDrawerLogger.info("Scout proceed: \(acceptedDetections.count) barcodes accepted, ready for manual run")
     }
 
-    /// Syncs the drawer's first demux step to the operations panel as the current config.
+    /// Syncs the drawer's primer trim configuration to the dashboard. The demux plan reaches a run only through
+    /// Demultiplex…, below.
     func syncDemuxConfigToController() {
         guard let drawer = fastqMetadataDrawerView else { return }
-        let firstStep = drawer.currentDemuxPlan().steps.sorted(by: { $0.ordinal < $1.ordinal }).first
-        fastqDatasetController?.currentDemuxConfig = firstStep
         fastqDatasetController?.currentPrimerTrimConfiguration = drawer.currentPrimerTrimConfiguration()
+    }
+
+    /// Demultiplex… in the Demux tab: writes the plan's definition into the project and opens Demultiplex Barcodes on
+    /// it, where the person presses Run (ruling ARCH-DEMUX-PLAN-CONTROL). A refusal's words go to the drawer's status
+    /// line. `projectURL` and `present` are for tests, which name the project and capture the launch.
+    func openDemultiplexDialog(
+        for plan: DemultiplexPlan,
+        kits: [BarcodeKitDefinition] = BarcodeKitRegistry.builtinKits(),
+        projectURL: URL? = nil,
+        present: @MainActor (FASTQDemultiplexPlanLaunch) -> Void = { launch in
+            AppDelegate.shared?.showFASTQOperationsDialog(
+                nil, initialCategory: FASTQOperationToolID.demultiplexBarcodes.categoryID,
+                initialToolID: .demultiplexBarcodes, preferredInputURLs: launch.inputURLs, configureState: launch.configure
+            )
+        }
+    ) {
+        let datasetURL = currentFASTQDatasetURL
+        do {
+            let launch = try FASTQDemultiplexPlanLaunch.make(
+                plan: plan, kits: kits, datasetURL: datasetURL,
+                projectURL: projectURL ?? datasetURL.flatMap { ProjectTempDirectory.findProjectRoot($0) }
+            )
+            present(launch)
+        } catch {
+            fastqMetadataDrawerView?.updateScoutStatus(error.localizedDescription)
+        }
     }
 
     /// Opens the metadata drawer and selects the Demux tab.

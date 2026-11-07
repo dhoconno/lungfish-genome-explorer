@@ -181,6 +181,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     private let stepMinInsertLabel = NSTextField(labelWithString: "Min Insert:")
     private let stepMinInsertField = NSTextField(string: "2000")
     private let stepScoutButton = NSButton(title: "Detect", target: nil, action: nil)
+    private lazy var stepDemultiplexButton = NSButton(title: "Demultiplex\u{2026}", target: self, action: #selector(stepDemultiplexClicked(_:)))
     private let stepImportKitButton = NSButton(title: "Import Project Kit CSV", target: nil, action: nil)
     private let stepRemoveKitButton = NSButton(title: "Remove Custom Kit", target: nil, action: nil)
     private var patternLabelTopToCutadapt: NSLayoutConstraint!
@@ -238,6 +239,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
 
     /// Callback invoked when dedup configuration changes.
     public var onDedupConfigChanged: ((FASTQDeduplicatePreset, Int, Bool, Int) -> Void)?
+    public var onDemultiplex: ((DemultiplexPlan, [BarcodeKitDefinition]) -> Void)?
 
     // Constraint groups toggled per-tab
     private var samplesConstraints: [NSLayoutConstraint] = []
@@ -633,7 +635,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         stepScoutButton.action = #selector(stepScoutClicked(_:))
         stepDetailContainer.addSubview(stepScoutButton)
 
-        for button in [stepImportKitButton, stepRemoveKitButton] {
+        for button in [stepImportKitButton, stepRemoveKitButton, stepDemultiplexButton] {
             button.bezelStyle = .rounded
             button.controlSize = .small
             button.translatesAutoresizingMaskIntoConstraints = false
@@ -666,6 +668,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         stepDistance5Field.setAccessibilityLabel("Maximum search distance from 5-prime end")
         stepDistance3Field.setAccessibilityLabel("Maximum search distance from 3-prime end")
         stepScoutButton.setAccessibilityLabel("Detect barcode matches")
+        stepDemultiplexButton.setAccessibilityLabel("Demultiplex with this plan")
         stepImportKitButton.setAccessibilityLabel("Import custom barcode kit CSV")
         stepRemoveKitButton.setAccessibilityLabel("Remove selected custom barcode kit")
         demuxAdvancedDisclosure.setAccessibilityLabel("Show advanced demultiplexing options")
@@ -735,7 +738,9 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             stepTrimCheckbox.leadingAnchor.constraint(equalTo: stepIndelsCheckbox.trailingAnchor, constant: 16),
 
             stepScoutButton.centerYAnchor.constraint(equalTo: stepIndelsCheckbox.centerYAnchor),
-            stepScoutButton.trailingAnchor.constraint(equalTo: stepDetailContainer.trailingAnchor, constant: -8),
+            stepScoutButton.trailingAnchor.constraint(equalTo: stepDemultiplexButton.leadingAnchor, constant: -8),
+            stepDemultiplexButton.centerYAnchor.constraint(equalTo: stepIndelsCheckbox.centerYAnchor),
+            stepDemultiplexButton.trailingAnchor.constraint(equalTo: stepDetailContainer.trailingAnchor, constant: -8),
 
             // Row 6: 5' Window + 3' Window
             stepDistance5Label.topAnchor.constraint(equalTo: stepIndelsCheckbox.bottomAnchor, constant: 8),
@@ -762,9 +767,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             demuxPatternLabel.bottomAnchor.constraint(equalTo: stepDetailContainer.bottomAnchor, constant: -6),
         ])
 
-        // Switchable top anchor for demuxPatternLabel:
-        // - cutadapt mode: anchored below 5' Window row
-        // - asymmetric mode: anchored below Min Insert row
+        // demuxPatternLabel's top sits below the 5' Window row (cutadapt) or the Min Insert row (asymmetric).
         patternLabelTopToCutadapt = demuxPatternLabel.topAnchor.constraint(equalTo: stepDistance5Label.bottomAnchor, constant: 10)
         patternLabelTopToInsert = demuxPatternLabel.topAnchor.constraint(equalTo: stepMinInsertLabel.bottomAnchor, constant: 10)
         patternLabelTopToCutadapt.isActive = true
@@ -922,7 +925,6 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         ])
     }
 
-    // Orient tab removed — orient is now a standalone operation in the FASTQ operations sidebar.
 
     private func setupConstraints() {
         // Common/fixed constraints
@@ -1121,6 +1123,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             let isAsymmetric = demuxSteps[0].symmetryMode == .asymmetric
             addColumn(to: tableView, id: "sampleID", title: "Sample", width: 140, editable: true)
             addColumn(to: tableView, id: "sampleName", title: "Name", width: 140, editable: true)
+            addColumn(to: tableView, id: "outputName", title: "Output Name", width: 140, editable: false)
             if isAsymmetric {
                 // Asymmetric mode: just barcode IDs (no 5'/3' — all orientations are searched)
                 addColumn(to: tableView, id: "forwardBarcodeID", title: "Barcode 1", width: 120, editable: true)
@@ -1224,6 +1227,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             switch column {
             case "sampleID": return a.sampleID
             case "sampleName": return a.sampleName ?? ""
+            case "outputName": return DemultiplexPlanDefinition.outputName(for: a)
             case "forwardBarcodeID": return a.forwardBarcodeID ?? ""
             case "forwardSequence": return a.forwardSequence ?? ""
             case "reverseBarcodeID": return a.reverseBarcodeID ?? ""
@@ -1380,11 +1384,8 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             view.isHidden = !isDemuxAdvancedEnabled
         }
         demuxSimpleSummaryLabel.isHidden = isDemuxAdvancedEnabled
-        if step.symmetryMode == .symmetric {
-            demuxSimpleSummaryLabel.stringValue = "Outputs will be created per detected barcode ID from the selected kit."
-        } else {
-            demuxSimpleSummaryLabel.stringValue = "Enable Advanced to edit barcode mappings and demux parameters."
-        }
+        demuxSimpleSummaryLabel.stringValue = step.symmetryMode == .symmetric
+            ? "Outputs will be created per detected barcode ID from the selected kit." : "Enable Advanced to edit barcode mappings and demux parameters."
         refreshSelectedKitReference()
     }
 
@@ -1438,8 +1439,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         primerPairFilterPopup.isHidden = !isPaired
         primerRevcompCheckbox.isHidden = isPaired
 
-        // Show/hide tool-specific controls
-        // cutadapt-specific: mode, overlap, error, anchored, indels, read mode, pair filter, revcomp
+        // Show each tool's own controls. cutadapt: mode, overlap, error, anchored, indels, read mode, pair filter, revcomp
         primerReadModeLabel.isHidden = isBBDuk
         primerReadModePopup.isHidden = isBBDuk
         primerModeLabel.isHidden = isBBDuk
@@ -1754,8 +1754,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         }
         demuxSteps[0].symmetryMode = symmetry
 
-        // Rebuild columns when switching to/from asymmetric mode
-        // (asymmetric shows simplified Barcode 1/2 columns instead of 5'/3' + sequence)
+        // Rebuild columns on a switch to or from asymmetric mode, which shows Barcode 1/2 in place of 5'/3' columns
         let symmetryClassChanged = (previousSymmetry == .asymmetric) != (symmetry == .asymmetric)
         if symmetryClassChanged {
             rebuildColumns()
@@ -1992,6 +1991,8 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         notifyDemuxPlanChanged()
     }
 
+    @objc private func stepDemultiplexClicked(_ sender: NSButton) { onDemultiplex?(currentDemuxPlan(), allKits) }
+
     @objc private func saveClicked(_ sender: NSButton) {
         delegate?.fastqMetadataDrawerViewDidSave(self, fastqURL: fastqURL, metadata: currentMetadata())
         statusLabel.stringValue = "Saved with this dataset. No demultiplexing run reads this plan yet, so set the kit in the FASTQ operations dialog too."
@@ -2026,7 +2027,6 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         return try? decoder.decode(FASTQPrimerTrimConfiguration.self, from: data)
     }
 
-    // Orient tab removed — orient is now dispatched from the FASTQ operations sidebar.
 
     // MARK: - Barcode Detail Copy Support
 

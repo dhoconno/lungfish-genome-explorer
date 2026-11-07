@@ -52,9 +52,6 @@ extension ViewerViewController {
                 preferredInputURLs: preferredInputURLs
             )
         }
-        controller.onOpenDemuxDrawer = { [weak self] in
-            self?.openDemuxSetupDrawer()
-        }
         controller.onOpenPrimerTrimDrawer = { [weak self] in
             self?.openPrimerTrimDrawer()
         }

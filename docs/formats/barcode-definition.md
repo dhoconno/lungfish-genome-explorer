@@ -34,6 +34,12 @@ The kit line names the built-in kit the definition was made on. The definition t
 
 The load refuses in words when the kit line names a kit this version does not know, when two kit lines name different kits, or when a row has a secondary sequence and the kit's barcodes have none, or the other way round. Without a kit line the definition is a kit of its own, single or dual indexed as its rows are, and its run searches the bare sequences.
 
+## The Demux tab's definition
+
+The Demux tab's Demultiplex… writes its plan's one step as a definition in the project's `Barcode Definitions` folder and opens Demultiplex Barcodes on it, where the person presses Run. The file is named `<dataset> demux plan <first 12 hex digits of its SHA-256>.csv`, so a definition is never rewritten. The same plan reuses its file, and two datasets with one name get two files. A built-in kit's plan starts with its kit line.
+
+Each row's ID is its output name, the typed sample name passed through the one sample-name sanitizer, so `NTC, 1` becomes `NTC_1`, and the sample name column keeps the name as typed. A row with no typed name, or a name of spaces, is named by its barcode ID. Demultiplex… refuses in words, before it writes anything, a plan of more than one step, two rows whose output names are equal ignoring case, a name that becomes `unassigned`, a name with a line break, and a row that pairs two different barcodes.
+
 ## The copy in the result folder
 
 A demultiplexing run on a custom definition reads the file once and keeps those bytes in its result folder under the same file name. The recorded command and the `kit` and `customBarcodeKit` parameters name the copy, and the record lists the copy with its SHA-256 digest. A replay of the recorded command reads the copy, so it searches with the definition the run read even after the project's file changes. A definition whose file name is one the run writes in its result folder, such as a name that starts with a dot or ends in `.lungfishfastq`, refuses before the run starts.

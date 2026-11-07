@@ -558,35 +558,19 @@ final class FASTQDashboardTests: XCTestCase {
         XCTAssertFalse(controllerSource.contains("not yet implemented"))
         XCTAssertTrue(controllerSource.contains("contaminantReferenceBrowseClicked"))
         XCTAssertTrue(controllerSource.contains("fastqContaminantReferencePanel"))
-        XCTAssertTrue(controllerSource.contains("referenceFasta: referencePath"))
-        XCTAssertTrue(controllerSource.contains("contaminantReferenceURL.path"))
+        // The request lines this pinned went with the dashboard's request builder (lane DEMUXPLAN, ruling
+        // ARCH-DEMUX-PLAN-CONTROL item 4). Run's state still reads the reference, tested below.
         XCTAssertTrue(panelFactorySource.contains("Select a contaminant reference FASTA for filtering"))
     }
 
     @MainActor
     func testFASTQDatasetCustomContaminantModeRequiresAndUsesReference() {
         let controller = FASTQDatasetViewController()
-        let missingReference = controller.testingSelectContaminantFilter(mode: .custom)
-
-        XCTAssertFalse(missingReference.isRunEnabled)
-        XCTAssertNil(missingReference.request)
-
+        // Run waits for a custom reference. The request went with the dashboard's request builder (lane
+        // DEMUXPLAN, ruling ARCH-DEMUX-PLAN-CONTROL item 4), so the test reads the Run state only.
+        XCTAssertFalse(controller.testingSelectContaminantFilter(mode: .custom))
         let referenceURL = URL(fileURLWithPath: "/tmp/contaminants.fasta")
-        let configured = controller.testingSelectContaminantFilter(
-            mode: .custom,
-            referenceURL: referenceURL
-        )
-
-        XCTAssertTrue(configured.isRunEnabled)
-        XCTAssertEqual(
-            configured.request,
-            .contaminantFilter(
-                mode: .custom,
-                referenceFasta: referenceURL.standardizedFileURL.path,
-                kmerSize: 31,
-                hammingDistance: 1
-            )
-        )
+        XCTAssertTrue(controller.testingSelectContaminantFilter(mode: .custom, referenceURL: referenceURL))
     }
 
     func testFASTQDatasetViewControllerLaunchPathRemovesDrawerFirstOperationsFlow() throws {

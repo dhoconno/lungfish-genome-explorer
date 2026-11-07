@@ -111,7 +111,8 @@ extension AppDelegate {
         initialToolID: FASTQOperationToolID? = nil,
         preferredInputURLs: [URL] = [],
         mafftAllSequenceCount: Int = 0,
-        mafftSelectedSequenceNames: [String] = []
+        mafftSelectedSequenceNames: [String] = [],
+        configureState: (@MainActor (FASTQOperationDialogState) -> Void)? = nil
     ) {
         guard let originController = activeMainWindowController(sender: sender),
               let originSplit = originController.mainSplitViewController,
@@ -139,10 +140,8 @@ extension AppDelegate {
                 return
             }
 
-            // The viewer route passes its own record count. The Tools menu
-            // route only knows the selected inputs, so derive the count for the
-            // MAFFT pane's "All sequences (N)" row off the main actor first;
-            // otherwise the pane reads "Aligning all 0 sequences."
+            // The viewer passes its own record count. The Tools menu knows only the inputs, so the MAFFT pane's
+            // "All sequences (N)" row counts them off the main actor first, or it reads "Aligning all 0 sequences."
             guard mafftAllSequenceCount == 0,
                   Self.dialogShowsMAFFTSequenceScope(initialCategory: initialCategory, initialToolID: initialToolID) else {
                 presentResolvedOperationsDialog(
@@ -171,6 +170,7 @@ extension AppDelegate {
                 projectURL: currentProjectURL,
                 mafftAllSequenceCount: mafftAllSequenceCount,
                 mafftSelectedSequenceNames: mafftSelectedSequenceNames,
+                configure: configureState,
                 onRun: { [weak self] state in
                 guard let self else { return }
                 debugLog("showFASTQOperationsDialog: confirmed \(state.selectedToolID.rawValue) for \(state.selectedInputURLs.count) input(s)")

@@ -201,11 +201,11 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
         viewer.openDemuxSetupDrawer()
         plan = try XCTUnwrap(viewer.fastqMetadataDrawerView).currentDemuxPlan()
         XCTAssertEqual(plan.steps.first?.sampleAssignments.first?.sampleName, Self.assignment.sampleName, "the saved plan did not come back")
-        let request = try XCTUnwrap(viewer.fastqDatasetController?.testingDemultiplexRequest(), "the saved plan did not reach the operation")
-        guard case .demultiplex(_, _, _, _, _, _, _, _, _, let assignments, _) = request else {
-            return XCTFail("the operation is not a demultiplex: \(request)")
-        }
-        XCTAssertEqual(assignments?.map(\.sampleName), [Self.assignment.sampleName])
+        var opened: FASTQDemultiplexPlanLaunch?
+        viewer.openDemultiplexDialog(for: plan, projectURL: root) { opened = $0 }
+        let launch = try XCTUnwrap(opened, "the saved plan did not reach Demultiplex Barcodes")
+        let definition = try String(contentsOf: launch.definitionURL, encoding: .utf8)
+        XCTAssertTrue(definition.contains(try XCTUnwrap(Self.assignment.sampleName)), definition)
     }
 
     // MARK: - The drawer's words
@@ -450,7 +450,6 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
         XCTAssertNil(first.view.superview?.window, "the first dashboard stayed in the window")
         XCTAssertNil(viewer.fastqMetadataDrawerView, "the first dashboard's drawer stayed")
         XCTAssertFalse(viewer.isActiveDrawerOpen, "the second dashboard reads as having an open drawer")
-        XCTAssertNil(second.currentDemuxConfig, "the first drawer's plan reached the second dashboard's operation")
         XCTAssertEqual(viewer.currentFASTQDatasetURL?.standardizedFileURL, fastq.standardizedFileURL)
     }
 
@@ -554,20 +553,19 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
     private func assertAPlanInTheDrawerReachesTheOperation(
         _ viewer: ViewerViewController, file: StaticString = #filePath, line: UInt = #line
     ) throws {
-        let dashboard = try XCTUnwrap(viewer.fastqDatasetController, file: file, line: line)
-        XCTAssertNil(dashboard.testingDemultiplexRequest(), "an operation ran with no plan", file: file, line: line)
-
+        XCTAssertNotNil(viewer.fastqDatasetController, file: file, line: line)
         viewer.openDemuxSetupDrawer()
         let drawer = try XCTUnwrap(viewer.fastqMetadataDrawerView, file: file, line: line)
-        drawer.applySampleAssignmentsToCurrentStep([Self.assignment])
+        var opened: FASTQDemultiplexPlanLaunch?
+        viewer.openDemultiplexDialog(for: drawer.currentDemuxPlan(), projectURL: root) { opened = $0 }
+        XCTAssertNil(opened, "Demultiplex\u{2026} opened a plan with no samples", file: file, line: line)
 
-        let kit = drawer.currentDemuxPlan().steps.first?.barcodeKitID
-        let request = try XCTUnwrap(dashboard.testingDemultiplexRequest(), "the plan did not reach the operation", file: file, line: line)
-        guard case .demultiplex(let kitID, _, _, _, _, _, _, _, _, let assignments, _) = request else {
-            return XCTFail("the operation is not a demultiplex: \(request)", file: file, line: line)
-        }
-        XCTAssertEqual(kitID, kit, "the operation took another kit", file: file, line: line)
-        XCTAssertEqual(assignments?.map(\.sampleName), [Self.assignment.sampleName], "the operation took other samples", file: file, line: line)
+        drawer.applySampleAssignmentsToCurrentStep([Self.assignment])
+        viewer.openDemultiplexDialog(for: drawer.currentDemuxPlan(), projectURL: root) { opened = $0 }
+        let launch = try XCTUnwrap(opened, "the plan did not reach Demultiplex Barcodes", file: file, line: line)
+        XCTAssertEqual(launch.step.barcodeKitID, drawer.currentDemuxPlan().steps.first?.barcodeKitID, file: file, line: line)
+        let definition = try String(contentsOf: launch.definitionURL, encoding: .utf8)
+        XCTAssertTrue(definition.contains(try XCTUnwrap(Self.assignment.sampleName)), definition, file: file, line: line)
     }
 
     private func observeLoadedPosts(of observed: ViewerViewController, into posts: LoadedPosts) -> NSObjectProtocol {
@@ -578,7 +576,7 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
                 posts.seen.append(LoadedPosts.Post(
                     dashboardShows: viewer.fastqDatasetController != nil,
                     datasetURL: viewer.currentFASTQDatasetURL,
-                    samplesInTheConfiguration: viewer.fastqDatasetController?.currentDemuxConfig?.sampleAssignments.count
+                    samplesInTheConfiguration: viewer.fastqMetadataDrawerView?.currentDemuxPlan().steps.first?.sampleAssignments.count
                 ))
             }
         }

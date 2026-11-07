@@ -41,7 +41,8 @@ final class DemultiplexDrawerPlanRunTests: XCTestCase {
             + Array(repeating: "NNNNNNNN", count: 10)
         let sequence = String(repeating: "GATTACA", count: 21)
         let quality = String(repeating: "I", count: sequence.count)
-        let directory = folder.map { project.appendingPathComponent($0, isDirectory: true) } ?? project
+        let base: URL = project
+        let directory = folder.map { base.appendingPathComponent($0, isDirectory: true) } ?? base
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let input = directory.appendingPathComponent("mixed.fastq")
         try indexes.enumerated().map { "@r\($0.offset) 1:N:0:\($0.element)\n\(sequence)\n+\n\(quality)\n" }.joined()
