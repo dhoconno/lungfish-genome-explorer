@@ -298,14 +298,14 @@ public final class FASTAReader: Sendable {
     }
 
     /// The smallest share of a record's letters that A, C, G, T, U and N must make for the record to be nucleotide, as
-    /// `numerator / denominator`. Half, the panel's line (FASTA-PEPTIDE-NUCLEOTIDE-LETTERS): a record with a smaller share is
-    /// protein, and a record with exactly half stays nucleotide.
-    static let minimumNucleotideShare = (numerator: 1, denominator: 2)
+    /// `numerator / denominator`. 70%, BIO's line (FASTA-PEPTIDE-NUCLEOTIDE-LETTERS): a record with a smaller share is
+    /// protein, and a record with exactly 70% stays nucleotide.
+    static let minimumNucleotideShare = (numerator: 7, denominator: 10)
 
     /// Types a record from its letters (one pass, case-insensitive).
     ///
     /// - A letter only protein uses (E, F, I, L, P, Q or Z) makes the record protein at once.
-    /// - Otherwise the record is protein when fewer than half of its letters are A, C, G, T, U or N. A short peptide such as
+    /// - Otherwise the record is protein when fewer than 70% of its letters are A, C, G, T, U or N. A short peptide such as
     ///   `MKTAYGHSSRV` is made of letters that are also IUPAC nucleotide codes, and was typed DNA, so the FASTA list showed a GC
     ///   percent for it. The share counts letters only, so a gap, a dot and a stop symbol never count against an aligned
     ///   nucleotide record.

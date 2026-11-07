@@ -10,7 +10,7 @@ import XCTest
 ///
 /// The reader typed a record protein only when it held one of E, F, I, L, P, Q or Z, so a short peptide whose every letter is
 /// an IUPAC nucleotide code (`MKTAYGHSSRV`) was typed DNA and the FASTA list showed a GC percent for it. The reader now also
-/// types a record protein when fewer than half of its letters are A, C, G, T, U or N. That types more records protein, and the
+/// types a record protein when fewer than 70% of its letters are A, C, G, T, U or N. That types more records protein, and the
 /// protein alphabet refused B, Z, J, U, O and lower-case x, so a record with one of them would have thrown where it opened.
 final class FASTAReaderCompositionTests: XCTestCase {
     private var tempDirectory: URL!
@@ -66,19 +66,32 @@ final class FASTAReaderCompositionTests: XCTestCase {
         XCTAssertEqual(sequences[4].asString(), "ATGGCTACGTTAGCNNRYATGC", "RNA is stored and emitted with T")
     }
 
-    /// The line is fewer than half. Exactly half stays nucleotide, and a letter counts the same in either case.
-    func testCompositionLineIsFewerThanHalfNucleotideLetters() throws {
+    /// The line is fewer than 70%. Exactly 70% stays nucleotide, and a letter counts the same in either case.
+    func testCompositionLineIsFewerThanSeventyPercentNucleotideLetters() throws {
         let records = [
-            (name: "half", bases: "ACGTKMRY", expected: SequenceAlphabet.dna),
-            (name: "fewerThanHalf", bases: "ACGKMRYS", expected: .protein),
-            (name: "halfLowerCase", bases: "acgtkmry", expected: .dna),
-            (name: "fewerThanHalfLowerCase", bases: "acgkmrys", expected: .protein),
+            (name: "seventyPercent", bases: "ACGTACGKMR", expected: SequenceAlphabet.dna),
+            (name: "sixtyPercent", bases: "ACGTACKMRY", expected: .protein),
+            (name: "half", bases: "ACGTKMRY", expected: .protein),
+            (name: "seventyPercentLowerCase", bases: "acgtacgkmr", expected: .dna),
+            (name: "sixtyPercentLowerCase", bases: "acgtackmry", expected: .protein),
             (name: "allN", bases: "NNNNNNNN", expected: .dna),
             (name: "letterOfProteinOnly", bases: "ACGTEACGT", expected: .protein)
         ]
         let sequences = try read(records.map { (name: $0.name, bases: $0.bases) })
 
         XCTAssertEqual(sequences.map(\.alphabet), records.map(\.expected))
+    }
+
+    /// Two peptides that hold none of E, F, I, L, P, Q or Z and have 67% and 56% of their letters in A, C, G, T, U or N. A line
+    /// at half types both DNA, and the list then shows a GC percent for each (BIO's ruling on FASTAGC, SF1).
+    func testPeptideBetweenHalfAndSeventyPercentIsReadAsProtein() throws {
+        let peptides = ["GASTNKGDA", "GNSAKTDGS"]
+        let sequences = try read(peptides.enumerated().map { (name: "peptide\($0.offset + 1)", bases: $0.element) })
+
+        XCTAssertEqual(sequences.count, peptides.count)
+        for (sequence, peptide) in zip(sequences, peptides) {
+            XCTAssertEqual(sequence.alphabet, .protein, "\(peptide) is a peptide, so it is not typed DNA")
+        }
     }
 
     /// A gap, a dot and a stop symbol are not letters, so they never count against a nucleotide record. An aligned nucleotide
