@@ -33,7 +33,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 1579 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
-| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 86 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
+| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 87 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
 
 ## Test targets
 
@@ -3661,6 +3661,7 @@ None.
 - `BlastFaultScript` struct, `Tests/Support/LungfishTestSupport/BlastFaultScript.swift`
 - `BlastFaultStandIn` class, `Tests/Support/LungfishTestSupport/BlastFaultStandIn.swift`
 - `BundleAlignmentFixture` struct, `Tests/Support/LungfishTestSupport/BundleAlignmentFixture.swift`
+- `BundleCountedOnceFixtures` enum, `Tests/Support/LungfishTestSupport/BundleCountedOnceFixtures.swift`
 - `BundleFixtureResourceError` enum, `Tests/Support/LungfishTestSupport/BundleFixtureResource.swift`
 - `CallerIdentityPaths` enum, `Tests/Support/LungfishTestSupport/CallerIdentityPaths.swift`
 - `ClassifierParityFixtures` enum, `Tests/Support/LungfishTestSupport/ClassifierParityFixtures.swift`
