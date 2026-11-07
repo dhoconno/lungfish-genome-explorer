@@ -43,6 +43,10 @@ final class FASTAListPeptideLettersTests: XCTestCase {
             XCTAssertFalse(peptide.isNucleotide, "\(name) is a protein record")
             XCTAssertNil(peptide.percent, "\(name) reads a dash, not a GC percent")
             XCTAssertNotNil(peptide.dashToolTip)
+            XCTAssertTrue(
+                try XCTUnwrap(peptide.dashToolTip).contains("too few of its letters are A, C, G, T, U or N"),
+                "\(name) is made of nucleotide codes, so its tooltip must name the share of nucleotide letters as the cause"
+            )
         }
         XCTAssertEqual(result.proteinRecordCount, 3)
 
