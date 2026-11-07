@@ -74,6 +74,56 @@ final class DemultiplexEngineRouteConformanceTests: XCTestCase {
         XCTAssertEqual(provenance.options.explicit["indexSource"], .string("read-sequences"))
     }
 
+    /// 200 reads led by D701, 3 by D702 and 2,000 of random bases, no name carrying an index, so the run searches
+    /// the bases and D702 sits within chance.
+    private func writeChanceInput() throws -> URL {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let input = project.appendingPathComponent("chance.fastq")
+        let bases: [Character] = ["A", "C", "G", "T"]
+        var state: UInt64 = 17
+        var text = ""
+        for index in 0..<2_203 {
+            var sequence = index < 200 ? "ATTACTCG" : (index < 203 ? "TCCGGAGA" : "")
+            while sequence.count < 150 {
+                state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+                sequence.append(bases[Int((state >> 33) % 4)])
+            }
+            text += "@c\(index)\n\(sequence)\n+\n\(String(repeating: "I", count: sequence.count))\n"
+        }
+        try text.write(to: input, atomically: true, encoding: .utf8)
+        return input
+    }
+
+    /// DEMUXFLOOR-ARCH SF1: the record keys of BIO's chance floor (BIO-DEMUX-FLOOR item 10) are pinned by name.
+    func testRunRecordNamesTheChanceFloorTrialsAndTheBarcodesWithinChance() async throws {
+        try await requireTools()
+        let input = try writeChanceInput()
+        let output = root.appendingPathComponent("Project.lungfish/Analyses/chance", isDirectory: true)
+        try await FastqDemultiplexSubcommand.parse([input.path, "--kit", "truseq-single-a", "--output", output.path]).run()
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: output))
+        guard case .dictionary(let floor)? = provenance.options.explicit["chanceFloor"] else {
+            return XCTFail("the record has no chanceFloor dictionary: \(provenance.options.explicit)")
+        }
+        XCTAssertEqual(floor["kitTail"], .number(1e-6))
+        guard case .integer(let trials)? = floor["chanceTrials"] else { return XCTFail("no chanceTrials: \(floor)") }
+        XCTAssertGreaterThan(trials, 0)
+        guard case .dictionary(let within)? = floor["barcodesWithinChance"] else { return XCTFail("no barcodesWithinChance: \(floor)") }
+        guard case .integer(let d702)? = within["D702"] else { return XCTFail("D702 is not named within chance: \(within)") }
+        XCTAssertGreaterThanOrEqual(d702, 3)
+        XCTAssertNil(within["D701"], "a barcode of 200 reads is not within chance")
+
+        // Exact Bare Barcode takes no floor, so its record has no chanceFloor key.
+        let sheet = root.appendingPathComponent("Project.lungfish/sheet.csv")
+        try "S1,ATTACTCG\nS2,TCCGGAGA\n".write(to: sheet, atomically: true, encoding: .utf8)
+        let exact = root.appendingPathComponent("Project.lungfish/Analyses/exact", isDirectory: true)
+        try await FastqDemultiplexSubcommand.parse([
+            input.path, "--kit", sheet.path, "--output", exact.path, "--engine", "exact-bare",
+        ]).run()
+        XCTAssertNil(try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: exact)).options.explicit["chanceFloor"])
+    }
+
     func testDemultiplexWithNoEngineOnNamesCarryingTheKitsIndexRefusesBeforeAnyTool() async throws {
         try await requireTools()
         let input = try writeInput()
