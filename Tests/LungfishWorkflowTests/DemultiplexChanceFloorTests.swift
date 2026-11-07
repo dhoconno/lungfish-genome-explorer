@@ -363,6 +363,28 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count, open, "the tally left files open")
     }
 
+    /// A cancelled pass throws, so the floor never judges a tally of part of the file (DEMUX-FLOOR-DECOY-SCALE).
+    func testACancelledPassThrowsInsteadOfReturningPartOfTheFile() async throws {
+        var generator = DemuxFloorSeededGenerator(seed: 9)
+        let url = try writeFASTQ((0..<5_000).map { _ in [DemuxFloorFixtures.randomBases(40, using: &generator)] })
+        defer { try? FileManager.default.removeItem(at: url) }
+        let patterns = defaultKitPatterns
+        let rate = errorRate
+        let (gate, release) = AsyncStream<Void>.makeStream()
+        defer { release.finish() }
+        let pass = Task { () throws -> [DemultiplexChanceFloor.StartTally] in
+            for await _ in gate {}
+            return try await DemultiplexChanceFloor.unassignedStartTallies(
+                fastqURL: url, patterns: patterns, errorRate: rate, allowsIndels: true, paired: false
+            )
+        }
+        pass.cancel()
+        do {
+            _ = try await pass.value
+            XCTFail("a cancelled pass returned a tally")
+        } catch is CancellationError {}
+    }
+
     // MARK: - A decoy that expects far less than one read (BIO-DEMUX-SPARSE-MARGIN)
 
     private let sparsePatterns = ["FLD0001": ["^GTATCGTCGT"]]
