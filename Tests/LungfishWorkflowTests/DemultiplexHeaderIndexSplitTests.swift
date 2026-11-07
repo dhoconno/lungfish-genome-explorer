@@ -32,9 +32,9 @@ final class DemultiplexHeaderIndexSplitTests: XCTestCase {
 
     /// A run with no engine named, so the route owner reads the names.
     private func run(
-        _ input: URL, kit: BarcodeKitDefinition = BarcodeKitRegistry.truseqSingleA, output: URL
+        _ input: URL, kit: BarcodeKitDefinition = BarcodeKitRegistry.truseqSingleA, output: URL, threads: Int = 1
     ) async throws -> DemultiplexResult {
-        let config = DemultiplexConfig(inputURL: input, barcodeKit: kit, outputDirectory: output, errorRate: 0.15, threads: 1)
+        let config = DemultiplexConfig(inputURL: input, barcodeKit: kit, outputDirectory: output, errorRate: 0.15, threads: threads)
         return try await DemultiplexingPipeline().run(config: config, progress: { _, _ in })
     }
 
@@ -120,6 +120,16 @@ final class DemultiplexHeaderIndexSplitTests: XCTestCase {
         XCTAssertEqual(pooled.manifest.inputReadCount, 200)
         XCTAssertEqual(counts(pooled), ["S1": 100, "S2": 100])
         XCTAssertEqual(pooled.manifest.unassigned.readCount, 0)
+
+        // The same bundle at two workers: each file is a shard of the task group, and the shards merge in file order.
+        let parallelOut = root.appendingPathComponent("parallel", isDirectory: true)
+        let parallel = try await run(bundle, kit: kit, output: parallelOut, threads: 2)
+        XCTAssertEqual(counts(parallel), ["S1": 100, "S2": 100])
+        XCTAssertEqual(parallel.manifest.unassigned.readCount, 0)
+        XCTAssertEqual(
+            try readIDs(parallel, output: parallelOut),
+            try readIDs(pooled, output: root.appendingPathComponent("pooled", isDirectory: true))
+        )
     }
 
     /// BIO's L6 amendment: four samples on one i7 with four i5s split, 100 reads each, and no read goes elsewhere.
