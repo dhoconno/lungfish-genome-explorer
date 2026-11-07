@@ -925,7 +925,6 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         ])
     }
 
-
     private func setupConstraints() {
         // Common/fixed constraints
         NSLayoutConstraint.activate([
@@ -1303,6 +1302,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
                 reverseSequence: reverseSequence,
                 metadata: current.metadata
             )
+            tableView.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
             statusLabel.stringValue = "Updated sample '\(sampleID)'."
             if activeTab == .demux {
                 demuxSteps[0].sampleAssignments = sampleAssignments

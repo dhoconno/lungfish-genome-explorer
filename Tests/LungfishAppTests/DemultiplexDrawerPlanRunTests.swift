@@ -240,7 +240,9 @@ final class DemultiplexDrawerPlanRunTests: XCTestCase {
         XCTAssertThrowsError(try DemultiplexPlanDefinition(step: broken, kit: kit))
     }
 
-    /// UX's round 2 line: a name the sanitizer changes shows its output name in the drawer's table before the run.
+    /// UX's round 2 line: a name the sanitizer changes shows its output name in the drawer's table before the run. The
+    /// names are typed through the table's own edit path (review DEMUXPLAN, UX should-fix 1). No unit test sees a stale
+    /// cell: the table's invalidation is not observable outside a displayed window, so the closing walk reads it.
     func testDrawerPlanShowsTheOutputNameOfAChangedSampleName() throws {
         XCTAssertEqual(DemultiplexPlanDefinition.outputName(for: assignment("D701", Self.d701, name: "NTC, 1")), "NTC_1")
         XCTAssertEqual(DemultiplexPlanDefinition.outputName(for: assignment("D702", Self.d702, name: "plate/A1")), "plate_A1")
@@ -249,13 +251,18 @@ final class DemultiplexDrawerPlanRunTests: XCTestCase {
         let drawer = FASTQMetadataDrawerView()
         drawer.selectDemuxTab()
         drawer.applySampleAssignmentsToCurrentStep([
-            assignment("D701", Self.d701, name: "NTC, 1"), assignment("D702", Self.d702, name: "plate/A1"),
+            assignment("D701", Self.d701, name: nil), assignment("D702", Self.d702, name: nil),
         ])
         func tables(in view: NSView) -> [NSTableView] {
             ((view as? NSTableView).map { [$0] } ?? []) + view.subviews.flatMap { tables(in: $0) }
         }
         let table = try XCTUnwrap(tables(in: drawer).first { $0.tableColumn(withIdentifier: .init("sampleName")) != nil })
+        let nameColumn = try XCTUnwrap(table.tableColumn(withIdentifier: .init("sampleName")))
         let column = try XCTUnwrap(table.tableColumn(withIdentifier: .init("outputName")), "the table shows no output name")
+        XCTAssertEqual(drawer.tableView(table, objectValueFor: column, row: 0) as? String, "D701")
+
+        drawer.tableView(table, setObjectValue: "NTC, 1", for: nameColumn, row: 0)
+        drawer.tableView(table, setObjectValue: "plate/A1", for: nameColumn, row: 1)
         XCTAssertEqual(drawer.tableView(table, objectValueFor: column, row: 0) as? String, "NTC_1")
         XCTAssertEqual(drawer.tableView(table, objectValueFor: column, row: 1) as? String, "plate_A1")
     }
