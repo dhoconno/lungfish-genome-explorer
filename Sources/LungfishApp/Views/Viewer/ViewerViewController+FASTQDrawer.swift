@@ -186,15 +186,15 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         syncDemuxConfigToController()
     }
 
-    /// What the drawer says after a scout. A demultiplexing run builds its request from the operations dialog's own
-    /// fields and reads no saved plan, so the words send the person there and promise no Run button.
+    /// What the drawer says after a scout. The plan reaches a run through the Demux tab's Demultiplex…, which opens
+    /// Demultiplex Barcodes with it, so the words name that control and promise no Run button here.
     static func scoutProceedWords(count: Int) -> String {
-        "\(count) barcode\(count == 1 ? "" : "s") added to the plan. No run reads it: set the kit and options in the FASTQ operations dialog."
+        "\(count) barcode\(count == 1 ? "" : "s") added to the plan. Demultiplex\u{2026} opens Demultiplex Barcodes with it."
     }
 
     /// Handles the user clicking "Proceed" in the BarcodeScoutSheet after reviewing scout results.
-    /// Converts accepted detections into sample assignments and updates the drawer's plan. It starts no run, since a
-    /// demultiplexing run takes its settings from the FASTQ operations dialog.
+    /// Converts accepted detections into sample assignments and updates the drawer's plan. It starts no run, since
+    /// Demultiplex… in the Demux tab opens the run.
     private func handleScoutProceed(
         acceptedDetections: [BarcodeDetection],
         scoutResult: BarcodeScoutResult,

@@ -210,17 +210,17 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
 
     // MARK: - The drawer's words
 
-    /// The drawer has no Run control, and no run reads its plan, so its words promise neither.
+    /// The drawer has no Run control, so its words name Demultiplex…, which opens the run, and promise no Run button.
     func testTheDrawerDoesNotTellAPersonToClickARunThatIsNotThere() {
         let words = ViewerViewController.scoutProceedWords(count: 3)
         XCTAssertFalse(words.contains("Click Run"), words)
         XCTAssertTrue(words.hasPrefix("3 barcodes "), words)
         XCTAssertTrue(ViewerViewController.scoutProceedWords(count: 1).hasPrefix("1 barcode "))
-        XCTAssertTrue(words.contains("FASTQ operations dialog"), words)
-        XCTAssertTrue(words.contains("No run reads it"), words)
+        XCTAssertTrue(words.contains("Demultiplex\u{2026}"), words)
+        XCTAssertFalse(words.contains("No run reads it"), words)
     }
 
-    /// A person can tell that the plan is saved and that no run uses it yet. The test clicks Save's own action.
+    /// A person can tell that the plan is saved and which control runs it. The test clicks Save's own action.
     func testASavedPlanSaysThatItIsSavedAndThatNoRunReadsItYet() async throws {
         let harness = try ViewSwitchWindowHarness()
         defer { harness.close() }
@@ -236,7 +236,7 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
         XCTAssertNotNil(FASTQMetadataStore.load(for: url)?.demultiplexMetadata?.demuxPlanJSON, "the plan was not saved")
         let status = try XCTUnwrap(Self.labels(in: drawer).first { $0.stringValue.hasPrefix("Saved ") }, "the drawer did not say the plan was saved")
         XCTAssertTrue(status.stringValue.contains("with this dataset"), status.stringValue)
-        XCTAssertTrue(status.stringValue.contains("No demultiplexing run reads this plan yet"), status.stringValue)
+        XCTAssertTrue(status.stringValue.contains("Demultiplex\u{2026} runs it"), status.stringValue)
 
         // The label is one line and clips its end, so each line has to fit the width it has at this window's width.
         viewer.view.layoutSubtreeIfNeeded()

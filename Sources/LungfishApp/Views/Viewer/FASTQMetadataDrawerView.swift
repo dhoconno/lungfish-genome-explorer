@@ -187,7 +187,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     private var patternLabelTopToCutadapt: NSLayoutConstraint!
     private var patternLabelTopToInsert: NSLayoutConstraint!
     private let demuxAdvancedDisclosure = NSButton(checkboxWithTitle: "Advanced", target: nil, action: nil)
-    private let demuxSimpleSummaryLabel = NSTextField(labelWithString: "Outputs will be created per detected barcode.")
+    private let demuxSimpleSummaryLabel = NSTextField(labelWithString: "Demultiplex\u{2026} opens Demultiplex Barcodes with this plan. It makes one output for each sample in the table.")
     private let demuxPatternLabel = NSTextField(labelWithString: "Pattern:")
 
     // Primer Trim tab
@@ -1385,7 +1385,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         }
         demuxSimpleSummaryLabel.isHidden = isDemuxAdvancedEnabled
         demuxSimpleSummaryLabel.stringValue = step.symmetryMode == .symmetric
-            ? "Outputs will be created per detected barcode ID from the selected kit." : "Enable Advanced to edit barcode mappings and demux parameters."
+            ? "Demultiplex\u{2026} opens Demultiplex Barcodes with this plan. It makes one output for each sample in the table." : "Enable Advanced to edit barcode mappings and demux parameters."
         refreshSelectedKitReference()
     }
 
@@ -1995,7 +1995,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
 
     @objc private func saveClicked(_ sender: NSButton) {
         delegate?.fastqMetadataDrawerViewDidSave(self, fastqURL: fastqURL, metadata: currentMetadata())
-        statusLabel.stringValue = "Saved with this dataset. No demultiplexing run reads this plan yet, so set the kit in the FASTQ operations dialog too."
+        statusLabel.stringValue = "Saved with this dataset. Demultiplex\u{2026} runs it."
     }
 
     private func notifyDemuxPlanChanged() {
