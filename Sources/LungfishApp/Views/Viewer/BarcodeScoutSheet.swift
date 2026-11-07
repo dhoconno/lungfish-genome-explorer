@@ -257,6 +257,9 @@ public final class BarcodeScoutSheet: NSViewController, NSTableViewDataSource, N
         if let single = result.oneSampleDetection {
             lines.insert("Almost every read carries \(single.barcodeID), so this file holds one sample and needs no demultiplexing.", at: 1)
         }
+        if result.countSource == .readNameIndex, result.acceptedCount == 0, result.oneSampleDetection == nil {
+            lines.insert("No barcode of \(kitDisplayName) stands above chance in the read names. The index in them may belong to another kit. Choose the kit the library was made with and detect again.", at: 1)
+        }
         return lines.joined(separator: "\n")
     }
 

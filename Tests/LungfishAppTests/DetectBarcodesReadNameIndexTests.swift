@@ -83,6 +83,18 @@ final class DetectBarcodesReadNameIndexTests: XCTestCase {
 
         XCTAssertTrue(words.contains("Counted from the index in the read names: 1,000 of 1,000 reads carry one."), words)
         XCTAssertFalse(words.contains("holds one sample"), words)
+        XCTAssertFalse(words.contains("may belong to another kit"), "a count with barcodes above chance names no wrong kit: \(words)")
+    }
+
+    /// UX should-fix 1 of the DETECTHDR review: names that carry the index of another kit (a wrong kit picked, the
+    /// commonest bench slip) give a count with no barcode above chance, and the result says what to try next.
+    func testHeaderCountWithNoBarcodeAboveChanceSaysTheIndexMayBelongToAnotherKit() async throws {
+        let result = try await scout(try writeNames([("AACCAACC", 1_000)], file: "other-kit.fastq"))
+        XCTAssertEqual(result.acceptedCount, 0, "an index of another kit gives no accepted barcode")
+        let words = BarcodeScoutSheet.resultWords(for: result, kitDisplayName: "TruSeq")
+
+        XCTAssertTrue(words.contains("may belong to another kit"), words)
+        XCTAssertFalse(words.contains("holds one sample"), words)
     }
 
     /// Condition 2, one sample, at BIO's 99% line: 990 of 1,000 names carry D701.
