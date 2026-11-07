@@ -2808,7 +2808,7 @@ class DebugLinuxExecutorTests(unittest.TestCase):
             def __init__(self, _root, environment):
                 self.environment = environment
 
-            def run(self, command):
+            def run(self, command, **_keywords):
                 events.append(("run", command))
                 if place is not None:
                     place()

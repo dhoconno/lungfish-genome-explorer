@@ -1819,7 +1819,7 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
                 self.builder = None
                 self.environment = {}
 
-            def run(self, command, *, capture=False, env=None, check=True):
+            def run(self, command, *, capture=False, env=None, check=True, timeout=None):
                 self.calls.append((list(command), dict(env or {})))
                 if command[:3] == ["gh", "release", "view"]:
                     # released is False (absent), True (public), "draft" or "garbled".
