@@ -504,7 +504,7 @@ public enum LungfishHelpContent {
 
     public static let fastqDemultiplexEngine = HelpItem(
         id: "workflow.fastq.field.demultiplexEngine",
-        summary: "Choose exact barcode matching or cutadapt fuzzy matching.",
+        summary: "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
         detail: "Demultiplexing engine changes command arguments and is written with command provenance.",
         audience: .analyst,
         provenanceRelevant: true
