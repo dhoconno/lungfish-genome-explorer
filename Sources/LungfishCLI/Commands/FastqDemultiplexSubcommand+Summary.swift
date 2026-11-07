@@ -44,19 +44,6 @@ extension FastqDemultiplexSubcommand {
     static func withinChanceSummary(
         _ within: [(barcodeID: String, readCount: Int)], null: DemultiplexChanceFloor.Null
     ) -> String? {
-        guard !within.isEmpty else { return nil }
-        let named = within.map { "\($0.barcodeID) (\($0.readCount) \($0.readCount == 1 ? "read" : "reads"))" }
-            .joined(separator: ", ")
-        let measuredOn: String
-        switch null {
-        case .startComposition:
-            measuredOn = "The chance is measured on the first bases of the Unassigned reads."
-        case .randomBases:
-            measuredOn = "The chance is worked out as if A, C, G and T were equally likely, because the Unassigned reads "
-                + "could not measure it."
-        }
-        return "Could be chance matches: \(named). Reads that carry no barcode match a barcode by chance at this error "
-            + "rate, and each of these holds no more reads than chance gives. \(measuredOn) Their files were kept, so "
-            + "check them against the samples you expect."
+        DemultiplexChanceWords.withinChanceSummary(within, null: null)
     }
 }

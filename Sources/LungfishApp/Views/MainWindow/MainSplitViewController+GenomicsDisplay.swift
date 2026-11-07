@@ -836,17 +836,17 @@ extension MainSplitViewController {
                     let completionTarget = result.groupedContainerURL ?? result.importedURLs.last
                     // The output paths are known now. This reads the imported manifests, so it stays off the main actor.
                     let rowCommand = FASTQOperationRowCommand.refinement(for: result)
-                    let chanceNotice = FASTQDemultiplexChanceNotice.notice(for: result)
+                    let chanceNotice = FASTQDemultiplexChanceNotice.rowNotice(for: result)
 
                     DispatchQueue.main.async { [weak self] in
                         MainActor.assumeIsolated {
                             OperationCenter.shared.log(id: opID, level: .info, message: "Completed in \(String(format: "%.1f", elapsed))s")
-                            if let chanceNotice { OperationCenter.shared.log(id: opID, level: .warning, message: chanceNotice) }
+                            if let chanceNotice { OperationCenter.shared.log(id: opID, level: .warning, message: chanceNotice.message) }
                             FASTQOperationRowCommand.apply(rowCommand, to: opID)
                             let completionDetail = "Done in \(String(format: "%.1f", elapsed))s"
                             guard FASTQOperationCompletion.complete(
                                 id: opID,
-                                detail: chanceNotice == nil ? completionDetail : FASTQDemultiplexChanceNotice.rowDetail(completionDetail),
+                                detail: chanceNotice?.rowDetail(completionDetail) ?? completionDetail,
                                 result: result,
                                 warning: chanceNotice != nil
                             ) else { return }
