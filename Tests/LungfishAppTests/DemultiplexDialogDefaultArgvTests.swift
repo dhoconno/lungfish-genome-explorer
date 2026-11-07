@@ -56,6 +56,13 @@ final class DemultiplexDialogDefaultArgvTests: XCTestCase {
         }
     }
 
+    /// The split by the read names chooses the i5 orientation of each file of a bundle, so a Read Names pick passes a
+    /// multi-file bundle whole and the dialog does not join its files first (BIO-DEMUX-PARITY section 3, S3).
+    func testReadNamesPickPassesAMultiFileBundleWhole() {
+        XCTAssertTrue(request(engine: .headerIndex).allowsDirectMultiFileFASTQBundleInput)
+        XCTAssertFalse(request(engine: .cutadapt).allowsDirectMultiFileFASTQBundleInput)
+    }
+
     /// The dialog's default argv, run by the CLI on L6's mixed fixture, takes the header route and records it. At
     /// 2b1e3e6ec the same run stopped in the floor's read-name refusal (DEMUXSPLIT Handoff 2).
     func testDialogDefaultArgvOfTheDefaultKitTakesTheHeaderRoute() async throws {
