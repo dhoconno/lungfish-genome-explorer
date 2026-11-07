@@ -1,8 +1,12 @@
 OVERVIEW: Scout barcode assignments before FASTQ demultiplexing
 
-Scans a subset of reads against a barcode kit and writes a
+Counts the barcodes of a kit in the first reads of a file and writes a
 scout-result.json file with per-barcode hit counts and suggested
-accept/reject dispositions.
+accept/reject dispositions. For Illumina and Element kits it reads the
+index that bcl2fastq or BCL Convert wrote in each read name and accepts
+a barcode only above its chance bound. Other kits are searched in the
+read bases. Ultima and MGI kits, and a file whose read names hold no
+index, are refused with words that say so.
 
 USAGE: lungfish-cli fastq scout <input> --kit <kit> --output <output> [--read-limit <read-limit>] [--accept-threshold <accept-threshold>] [--reject-threshold <reject-threshold>] [--error-rate <error-rate>] [--overlap <overlap>] [--source-platform <source-platform>] [--no-indels]
 
@@ -35,12 +39,15 @@ OPTIONS:
                           Maximum hits to auto-reject a barcode found in the
                           read bases (default: 3)
   --error-rate <error-rate>
-                          Override barcode matching error rate
-  --overlap <overlap>     Override minimum barcode overlap
+                          Override barcode matching error rate (read-base
+                          search only)
+  --overlap <overlap>     Override minimum barcode overlap (read-base search
+                          only)
   --source-platform <source-platform>
                           Source platform: illumina, ont, pacbio, element,
                           ultima, mgi
-  --no-indels             Disallow indels in barcode matching
+  --no-indels             Disallow indels in barcode matching (read-base search
+                          only)
   --version               Show the version.
   -h, --help              Show help information.
 
