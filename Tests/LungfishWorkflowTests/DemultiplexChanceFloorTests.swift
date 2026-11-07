@@ -385,4 +385,51 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         tally.coversEveryRead = false
         XCTAssertGreaterThan(sparseOutcome(tally).margin, 100, "a tally cut at the read limit keeps the largest decoy ratio")
     }
+
+    // MARK: - Every decoy over every unassigned read (DEMUX-FLOOR-DECOY-SCALE)
+
+    /// DEMUX-FLOOR-DECOY-SCALE (BIO-DEMUX-SPARSE-MARGIN item 9). A run left with more than 200,000 reads that carry no barcode
+    /// counted its decoys on the first 200,000 and its barcodes on all of them, so there every decoy set the margin, and one
+    /// chance read on one decoy of a 12-base exact kit raised it far past 2 (167 here). Counted on every read, each decoy expects about
+    /// 0.015 reads in 250,000 random reads, chance at twice its share explains its reads, and the margin is 2. A 12-base
+    /// barcode with 3 chance reads then stays at or below the floor, and a real sample still beats it. The run goes through
+    /// the floor the pipeline calls.
+    func testARunPastTheReadLimitCountsEveryDecoyOnEveryRead() async throws {
+        let reads = DemultiplexChanceFloor.compositionReadLimit + 50_000
+        var generator = DemuxFloorSeededGenerator(seed: 4_242)
+        let quality = String(repeating: "I", count: 24)
+        var text = ""
+        text.reserveCapacity(reads * 64)
+        for index in 0..<reads { text += "@u\(index)\n\(DemuxFloorFixtures.randomBases(24, using: &generator))\n+\n\(quality)\n" }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("decoy-scale-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let unassignedURL = folder.appendingPathComponent("unassigned.fastq")
+        try Data(text.utf8).write(to: unassignedURL)
+        let realBarcode = "GTATCGTCGTAC"
+        let longBarcode = "CAACTGCAACAT"
+        let adapterFASTA = folder.appendingPathComponent("barcodes.fasta")
+        try ">REAL\n^\(realBarcode)\n>LONG\n^\(longBarcode)\n".write(to: adapterFASTA, atomically: true, encoding: .utf8)
+        let kit = BarcodeKitDefinition(
+            id: "custom-decoy-scale", displayName: "Custom 12-base kit", vendor: "custom", isDualIndexed: false,
+            pairingMode: .singleEnd,
+            barcodes: [BarcodeEntry(id: "REAL", i7Sequence: realBarcode), BarcodeEntry(id: "LONG", i7Sequence: longBarcode)]
+        )
+        let config = DemultiplexConfig(
+            inputURL: unassignedURL, barcodeKit: kit, outputDirectory: folder, barcodeLocation: .fivePrime, errorRate: 0,
+            adapterContext: BareAdapterContext()
+        )
+        let floor = try await DemultiplexingPipeline().requireBarcodesAboveChance(
+            config: config, adapterFASTA: adapterFASTA, counts: ["REAL": 500, "LONG": 3], readsSearched: reads + 503,
+            unassigned: reads, paired: false, unassignedReadsURL: unassignedURL
+        )
+        let outcome = try XCTUnwrap(floor)
+        let long = outcome.barcodes.first { $0.barcodeID == "LONG" }
+        print("DECOYSCALE margin \(outcome.margin), composition \(outcome.compositionReads), LONG ceiling \(long?.chanceCeiling ?? -1)")
+        XCTAssertEqual(outcome.null, .startComposition)
+        XCTAssertEqual(outcome.compositionReads, DemultiplexChanceFloor.compositionReadLimit, "the composition comes from the first reads")
+        XCTAssertEqual(outcome.margin, 2, "a run past the read limit keeps the sparse rule, since every decoy is counted on every read")
+        XCTAssertEqual(long?.beatsTheFloor, false, "3 chance reads on a 12-base exact barcode stay at or below the floor")
+        XCTAssertEqual(outcome.barcodes.first { $0.barcodeID == "REAL" }?.beatsTheFloor, true, "a real sample still beats it")
+    }
 }
