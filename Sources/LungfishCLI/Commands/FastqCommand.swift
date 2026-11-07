@@ -573,12 +573,10 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             ).utf8))
         }
         FileHandle.standardError.write(Data("Barcodes with reads: \(result.manifest.barcodes.filter { $0.readCount > 0 }.count)\n".utf8))
-        if let within = result.chanceFloor?.barcodesWithinChance, !within.isEmpty {
-            FileHandle.standardError.write(Data((
-                "Could be chance matches (no more reads than the reads without a barcode give one barcode by chance "
-                + "at this error rate): "
-                + within.map { "\($0.barcodeID) \($0.readCount)" }.joined(separator: ", ") + "\n"
-            ).utf8))
+        if let line = Self.withinChanceSummary((result.chanceFloor?.barcodesWithinChance ?? []).map {
+            (barcodeID: $0.barcodeID, readCount: $0.readCount)
+        }) {
+            FileHandle.standardError.write(Data((line + "\n").utf8))
         }
         FileHandle.standardError.write(Data("Output: \(output)\n".utf8))
         FileHandle.standardError.write(Data("Time: \(String(format: "%.1f", result.wallClockSeconds))s\n".utf8))
