@@ -129,14 +129,16 @@ private let barcodeKitHelpText = """
 Barcode kit: \(barcodeKitIDsHelpText), or path to custom CSV/TSV/text barcode definition. \(barcodeDefinitionFormatHelpText)
 """
 
-func resolveBarcodeKitArgument(_ kit: String) throws -> (definition: BarcodeKitDefinition, customURL: URL?) {
+func resolveBarcodeKitArgument(_ kit: String) throws -> (definition: BarcodeKitDefinition, customURL: URL?, customData: Data?) {
     if let builtin = BarcodeKitRegistry.kit(byID: kit) {
-        return (builtin, nil)
+        return (builtin, nil, nil)
     }
     if FileManager.default.fileExists(atPath: kit) {
         let csvURL = URL(fileURLWithPath: kit)
         let name = csvURL.deletingPathExtension().lastPathComponent
-        return (try BarcodeKitRegistry.loadCustomKit(from: csvURL, name: name), csvURL)
+        // Read once, so a demultiplexing run keeps the bytes it searched with (L8, `DemultiplexDefinitionCopy`).
+        let data = try Data(contentsOf: csvURL)
+        return (try BarcodeKitRegistry.loadCustomKit(data: data, name: name), csvURL, data)
     }
     throw ValidationError(
         "Unknown barcode kit '\(kit)'. Use one of: \(barcodeKitIDsHelpText), "
@@ -274,6 +276,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         let resolvedKit = try resolveBarcodeKitArgument(kit)
         let barcodeKit = resolvedKit.definition
         let customKitURL = resolvedKit.customURL
+        let definitionCopy = try DemultiplexDefinitionCopy.make(sourceURL: customKitURL, data: resolvedKit.customData)
 
         let sourceBundleURL = resolvedInput.wasMaterialized || FASTQBundle.isBundleURL(resolvedInput.originalURL)
             ? resolvedInput.bundleURL
@@ -397,9 +400,12 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             throw error
         }
         earlierOutput?.discard()
+        // The run keeps the definition it read, and the recorded command and the record name the copy (L8, QA).
+        let keptKitURL = try definitionCopy?.keep(in: outputURL)
+        let recordedKit = keptKitURL?.path ?? kit
         // The engine that ran, which the route owner chose when --engine was left out. Only cutadapt takes its options.
         let ranEngine = result.engine ?? demultiplexEngine
-        var cliArguments = ["demultiplex", resolvedInput.originalURL.path, "--kit", kit, "--output", output,
+        var cliArguments = ["demultiplex", resolvedInput.originalURL.path, "--kit", recordedKit, "--output", output,
                             "--engine", ranEngine.rawValue]
         if ranEngine == .cutadapt {
             if location != "bothends" {
@@ -451,12 +457,12 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         let stepCommand = result.nativeCommand
             ?? result.manifest.parameters.commandLine?.split(separator: " ").map(String.init)
         let inputRecords = try resolvedInput.inputRecords()
-            + (customKitURL.map { provenanceRecords(for: $0, format: .text, role: .reference) } ?? [])
+            + (keptKitURL.map { provenanceRecords(for: $0, format: .text, role: .reference) } ?? [])
         var provenanceParameters: [String: ParameterValue] = [
             "input": .file(resolvedInput.originalURL),
-            "kit": .string(kit),
+            "kit": .string(recordedKit),
             "resolvedKit": .string(barcodeKit.id),
-            "customBarcodeKit": customKitURL.map(ParameterValue.file) ?? .null,
+            "customBarcodeKit": keptKitURL.map(ParameterValue.file) ?? .null,
             "output": .file(outputURL),
             "engine": .string(ranEngine.rawValue),
             "indexSource": .string(ranEngine == .headerIndex ? "read-names" : "read-sequences"),
