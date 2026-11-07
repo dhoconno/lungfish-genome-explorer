@@ -20,7 +20,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishIO | library | Sources/LungfishIO | 665 | LungfishCore |
+| LungfishIO | library | Sources/LungfishIO | 666 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 161 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -30,7 +30,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1579 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1582 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 87 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
@@ -1063,6 +1063,7 @@ None.
 - `FASTQReadLayout` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQReadLayoutClassifier.swift`
 - `FASTQReadLayoutClassification` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQReadLayoutClassifier.swift`
 - `FASTQReadLayoutHandling` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQInputLayout.swift`
+- `FASTQReadNameIndex` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQReadNameIndex.swift`
 - `FASTQRecord` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQRecord.swift`
 - `FASTQRecordedReadCount` struct, `Sources/LungfishIO/Formats/FASTQ/PersistedFASTQMetadata.swift`
 - `FASTQRiboDetectorEnsure` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift`
@@ -2411,6 +2412,7 @@ None.
 - `DemoProjectInstallStatus` enum, `Sources/LungfishWorkflow/DemoProjects/DemoProjectInstaller.swift`
 - `DemoProjectManifest` struct, `Sources/LungfishWorkflow/DemoProjects/DemoProjectManifest.swift`
 - `DemoProjectVersion` enum, `Sources/LungfishWorkflow/DemoProjects/DemoProjectManifest.swift`
+- `DemultiplexChanceFloor` enum, `Sources/LungfishWorkflow/Demultiplex/DemultiplexChanceFloor.swift`
 - `DemultiplexConfig` struct, `Sources/LungfishWorkflow/Demultiplex/DemultiplexConfig.swift`
 - `DemultiplexEngine` enum, `Sources/LungfishWorkflow/Demultiplex/DemultiplexEngine.swift`
 - `DemultiplexError` enum, `Sources/LungfishWorkflow/Demultiplex/DemultiplexError.swift`
@@ -2418,6 +2420,8 @@ None.
 - `DemultiplexPlan` struct, `Sources/LungfishWorkflow/Demultiplex/DemultiplexPlan.swift`
 - `DemultiplexPlanError` enum, `Sources/LungfishWorkflow/Demultiplex/DemultiplexPlan.swift`
 - `DemultiplexResult` struct, `Sources/LungfishWorkflow/Demultiplex/DemultiplexResult.swift`
+- `DemultiplexSearchRoute` enum, `Sources/LungfishWorkflow/Demultiplex/DemultiplexSearchRoute.swift`
+- `DemultiplexSearchRouteOwner` enum, `Sources/LungfishWorkflow/Demultiplex/DemultiplexSearchRoute.swift`
 - `DemultiplexStep` struct, `Sources/LungfishWorkflow/Demultiplex/DemultiplexPlan.swift`
 - `DependencyManifest` typealias, `Sources/LungfishWorkflow/Dependencies/DependencyManifestSections.swift`
 - `DependencyOperationSink` protocol, `Sources/LungfishWorkflow/Dependencies/DependencyOperationSink.swift`
