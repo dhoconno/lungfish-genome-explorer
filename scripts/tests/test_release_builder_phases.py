@@ -1030,6 +1030,23 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.assertFalse((self.fixture.release / "unsigned-candidate-receipt.json").exists())
         self.assertNotIn("Unsigned package complete", result.stdout)
 
+    def test_a_refused_app_smoke_leaves_no_lock_ready_entry_and_the_next_package_runs(self):
+        """C6-RELEASE-LOCK (docs/plans/BACKLOG.md:249), lane RELSMOKE item F
+        (ruling QA-RELEASE-SMOKE-GATE items 7 and 11). A Stable package whose
+        smoke gate fails leaves no .lock-ready.* in its cache namespace, and
+        the next package of the same commit runs with no removal by hand."""
+        failed = self.fixture.run("--package-only", "--channel", "stable",
+                                  extra_env={"BUILDER_FAIL_APP_SMOKE": "1"})
+        self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+        self.assertEqual(sorted(self.fixture.scratch_root.rglob(".lock-ready.*")), [])
+        release = self.fixture.root / "release-2"
+        # The derived data stays the cache namespace's own, which the builder requires.
+        rerun = self.fixture.run("--package-only", "--channel", "stable", release=release,
+                                 archive=self.fixture.root / "archive-2" / "Lungfish.xcarchive")
+        self.assertEqual(rerun.returncode, 0, rerun.stdout + rerun.stderr)
+        self.assertTrue((release / "unsigned-candidate-receipt.json").is_file())
+        self.assertEqual(sorted(self.fixture.scratch_root.rglob(".lock-ready.*")), [])
+
     def test_package_only_needs_no_credentials_and_stops_before_private_or_remote_tools(
         self,
     ):
