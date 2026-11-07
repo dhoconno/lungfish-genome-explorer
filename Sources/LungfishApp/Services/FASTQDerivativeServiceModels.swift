@@ -291,6 +291,7 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         case .translate(let frameOffset):
             return ["frame": "\(frameOffset + 1)"]
         case .demultiplex(let kitID, _, let location, _, _, _, let errorRate, let engine, let trimBarcodes, _, _):
+            if engine == .headerIndex { return ["kitID": kitID, "engine": engine.rawValue, "indexMismatches": "\(DemultiplexSearchRouteOwner.indexMismatches)"] }
             if engine == .exactBareBarcode {
                 return [
                     "kitID": kitID,
