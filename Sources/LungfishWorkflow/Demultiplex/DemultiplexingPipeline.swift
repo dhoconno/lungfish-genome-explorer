@@ -1983,8 +1983,9 @@ extension DemultiplexingPipeline {
             args += ["--revcomp"]
         }
 
-        // Single-end barcode mode can trim both ends from one read via repeated matching.
-        if config.barcodeKit.pairingMode == .singleEnd {
+        // A short-read single-end kit's lines are all `^`-anchored or all `$`-anchored, so a second search can only
+        // find a barcode in the insert, and cutadapt names a read by its last match (BIO-DEMUX-PARITY, S1).
+        if config.barcodeKit.pairingMode == .singleEnd && config.barcodeKit.platform.readsCanBeReverseComplemented {
             args += ["--times", "2"]
         }
 
