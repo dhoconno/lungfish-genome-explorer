@@ -125,11 +125,17 @@ struct FASTQDemultiplexPlanLaunch {
         return Self(definitionURL: url, inputURLs: [datasetURL], step: step)
     }
 
-    /// Sets Demultiplex Barcodes to the plan's definition, location, error rate, distances and trim. The engine stays
-    /// at the dialog's default, which writes no `--engine`, so the route owner chooses the route (L4, ruling C5).
+    /// Sets Demultiplex Barcodes to the plan's definition, location, error rate, distances and trim. When a row of the
+    /// plan records the read-name route, as Detect's Proceed writes it for a count from the read names, the engine is
+    /// Read Names, which writes `--engine header-index`, so the plan's route no longer rests on the probe (ruling
+    /// ARCH-DEMUX-PLAN-CONTROL C5, ARCH pin 6). Otherwise the engine stays at the dialog's default, which writes no
+    /// `--engine`, so the route owner chooses the route (L4).
     func configure(_ state: FASTQOperationDialogState) {
         state.demultiplexBarcodeSource = .customDefinition
         state.setAuxiliaryInput(definitionURL, for: .barcodeDefinition)
+        if step.sampleAssignments.contains(where: { $0.recordedDemultiplexRoute == .headerIndex }) {
+            state.demultiplexEngine = .headerIndex
+        }
         switch step.barcodeLocation {
         case .fivePrime: state.demultiplexLocation = "5prime"
         case .threePrime: state.demultiplexLocation = "3prime"
