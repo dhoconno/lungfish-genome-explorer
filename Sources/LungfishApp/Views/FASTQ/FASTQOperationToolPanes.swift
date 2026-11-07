@@ -1042,9 +1042,9 @@ private extension DemultiplexEngine {
 
     var explanation: String {
         switch self {
-        case .cutadapt: return "Cutadapt searches the read sequences for the barcodes with the error rate below and can allow insertions and deletions. For Illumina and Element kits and Custom Definitions, it first reads the read names. If they carry two or more of the kit's indexes, the reads are split by those names instead, as Read Names does."
-        case .exactBareBarcode: return "Exact bare barcode scans whole reads for exact A/C/G/T barcode and reverse-complement matches, then preserves reads."
-        case .headerIndex: return "Read Names splits the reads by the index bcl2fastq or BCL Convert wrote in each read name, with at most one mismatch in each index. It does not search the read sequences, keeps each read whole and keeps both reads of a pair together. A read whose name carries none of the kit's indexes goes to unassigned."
+        case .cutadapt: return "Cutadapt searches the read sequences for the barcodes, uses the error rate below and can allow insertions and deletions. For Illumina, Element, Ultima and MGI kits and Custom Definitions, it first checks the read names. If they carry the indexes of two or more of the kit's barcodes, it splits the reads by those indexes instead, as Read Names does."
+        case .exactBareBarcode: return "Exact Bare Barcode looks for each barcode, and its reverse complement, as an exact match anywhere in the read. It works with barcodes of plain A, C, G and T letters and never trims, so the barcode stays in the read."
+        case .headerIndex: return "Read Names splits the reads by the index that bcl2fastq or BCL Convert wrote in each read name, with at most one mismatch in each index. It does not search the read sequences, leaves every read as it is and keeps both reads of a pair together. A read whose name matches no barcode of the kit, or more than one, goes to Unassigned."
         }
     }
 }

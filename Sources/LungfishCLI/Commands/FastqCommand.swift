@@ -232,7 +232,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
     var overlap: Int = 3
 
     @Option(name: .customLong("engine"),
-            help: "Demultiplexing engine: cutadapt, exact-bare or header-index. Without it, reads whose names carry two or more of the kit's indexes are split by those names (header-index), and other reads are searched with cutadapt")
+            help: "Demultiplexing engine: cutadapt, exact-bare or header-index. Without it, a file whose read names carry the indexes of two or more of the kit's barcodes is split by those names (header-index) and any other file is searched with cutadapt. Naming cutadapt or exact-bare always searches the read sequences")
     var engine: String?
 
     @Flag(name: .customLong("no-trim"),
