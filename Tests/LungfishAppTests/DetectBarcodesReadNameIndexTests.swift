@@ -97,6 +97,18 @@ final class DetectBarcodesReadNameIndexTests: XCTestCase {
         XCTAssertFalse(words.contains("holds one sample"), words)
     }
 
+    /// UX should-fix 3 of the DETECTHDR review (the words are UX's, the number is BIO's): the Accept and Reject boxes do
+    /// nothing for a count from the read names, whose dispositions are the chance bound's, so the sheet turns them off
+    /// and says why. A count of the read bases keeps them.
+    func testThresholdBoxesAreOffForACountFromTheReadNames() async throws {
+        let names = try await scout(try writeNames([(Self.d701, 100)], file: "t.fastq"))
+        let note = try XCTUnwrap(BarcodeScoutSheet.thresholdNote(for: names), "a count from the read names has no use for the limits")
+        XCTAssertTrue(note.contains("chance bound"), note)
+
+        let bases = BarcodeScoutResult(readsScanned: 10, detections: [], unassignedCount: 10, scoutedKitIDs: [], elapsedSeconds: 0)
+        XCTAssertNil(BarcodeScoutSheet.thresholdNote(for: bases), "a search of the read bases keeps its limits")
+    }
+
     /// Condition 2, one sample, at BIO's 99% line: 990 of 1,000 names carry D701.
     func testOneIndexFileSaysItHoldsOneSample() async throws {
         let result = try await scout(try writeNames([(Self.d701, 990), ("NNNNNNNN", 10)], file: "one.fastq"))

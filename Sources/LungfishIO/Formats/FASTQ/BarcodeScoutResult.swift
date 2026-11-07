@@ -87,7 +87,11 @@ public struct BarcodeScoutResult: Codable, Sendable {
     ///
     /// When both conditions are true (overlapping thresholds), accept takes precedence.
     /// Barcodes between the thresholds are set to undecided.
+    ///
+    /// A count from the read names keeps the dispositions Detect gave it, the chance bound of L5. These absolute
+    /// thresholds are for a search of the read bases.
     public mutating func applyThresholds(acceptMinHits: Int, rejectMaxHits: Int) {
+        guard countSource != .readNameIndex else { return }
         for i in detections.indices {
             if detections[i].hitCount >= acceptMinHits {
                 detections[i].disposition = .accepted

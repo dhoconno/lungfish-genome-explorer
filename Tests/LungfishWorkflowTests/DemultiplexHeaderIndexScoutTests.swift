@@ -182,6 +182,35 @@ final class DemultiplexHeaderIndexScoutTests: XCTestCase {
         XCTAssertEqual(result.detections.first { $0.barcodeID == "D703" }?.hitCount, 12, "the 12 names are counted and shown")
     }
 
+    /// BIO should-fix 1 of the DETECTHDR review: Apply must not put the absolute thresholds back on a count from the read
+    /// names. Its accept line is the chance bound of L5, and `applyThresholds` accepted at `hitCount >= 10` whatever the
+    /// source (DETECT-ABSOLUTE-ACCEPT again, by a person's own click). A count from the read names keeps the dispositions
+    /// Detect gave it: 12 names of D703 stay under the bound of 18, and the one-sample barcode stays undecided.
+    func testApplyThresholdsLeavesAReadNameCountAtItsChanceBound() async throws {
+        let d703 = BarcodeKitRegistry.truseqSingleA.barcodes[2].i7Sequence
+        let comments = Array(repeating: "1:N:0:\(Self.d701)", count: 4_994)
+            + Array(repeating: "1:N:0:\(Self.d702)", count: 4_994) + Array(repeating: "1:N:0:\(d703)", count: 12)
+        var result = try await scout(try write(comments, to: "apply-bound.fastq"))
+        XCTAssertEqual(accepted(result), ["D701": 4_994, "D702": 4_994])
+
+        result.applyThresholds(acceptMinHits: 10, rejectMaxHits: 3)
+
+        XCTAssertEqual(accepted(result), ["D701": 4_994, "D702": 4_994], "Apply keeps the chance bound's accepts")
+        XCTAssertEqual(result.detections.first { $0.barcodeID == "D703" }?.disposition, .rejected, "12 names stay under the bound")
+    }
+
+    /// The same press on a file that holds one sample (990 of 1,000 names carry D701): the scout leaves that barcode
+    /// undecided and Apply keeps it so, since a plex of one barcode is no plan (BIO should-fix 1).
+    func testApplyThresholdsLeavesTheOneSampleBarcodeUndecided() async throws {
+        let one = Array(repeating: "1:N:0:\(Self.d701)", count: 990) + Array(repeating: "1:N:0:NNNNNNNN", count: 10)
+        var single = try await scout(try write(one, to: "apply-one.fastq"))
+        let states = { (result: BarcodeScoutResult) in result.detections.map { "\($0.barcodeID) \($0.hitCount) \($0.disposition)" } }
+        XCTAssertEqual(states(single), ["D701 990 undecided"], "the scout leaves the one-sample barcode undecided")
+        single.applyThresholds(acceptMinHits: 10, rejectMaxHits: 3)
+        XCTAssertEqual(states(single), ["D701 990 undecided"], "Apply does not make the one-sample barcode a plex of one")
+        XCTAssertTrue(single.acceptedDetections.isEmpty, "Apply does not make the one-sample barcode a plex: \(accepted(single))")
+    }
+
     /// BIO's line for the header share (`S33-R2-BIO.md:65`): each sample of an even 384-plex, near 0.26% of the reads,
     /// is found. 384 barcodes of 8 bases at least three apart, 26 names each.
     func testDetectFindsEverySampleOfAnEven384PlexByItsNames() async throws {

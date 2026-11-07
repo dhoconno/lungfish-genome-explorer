@@ -239,6 +239,18 @@ public final class BarcodeScoutSheet: NSViewController, NSTableViewDataSource, N
         summaryLabel.maximumNumberOfLines = 0
         summaryLabel.lineBreakMode = .byWordWrapping
         summaryLabel.preferredMaxLayoutWidth = 728
+        let note = Self.thresholdNote(for: scoutResult)
+        for control in [acceptThresholdField, rejectThresholdField, applyThresholdsButton] as [NSControl] {
+            control.isEnabled = note == nil
+            control.toolTip = note
+        }
+    }
+
+    /// Why the Accept and Reject boxes do nothing for a count from the read names, nil for a search of the read bases.
+    static func thresholdNote(for result: BarcodeScoutResult) -> String? {
+        result.countSource == .readNameIndex
+            ? "A count from the read names is accepted above its chance bound, so these limits do not apply."
+            : nil
     }
 
     /// The sheet's words for `result`: the scan line, then the summary. A count from the read names says so, with how
