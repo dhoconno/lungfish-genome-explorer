@@ -239,7 +239,7 @@ extension DemultiplexingPipeline {
         readsSearched: Int,
         unassigned: Int,
         paired: Bool,
-        unassignedBundleURL: URL?
+        unassignedReadsURL: URL?
     ) async throws -> DemultiplexChanceFloor.Outcome? {
         guard config.demuxAdapterContext is BareAdapterContext else { return nil }
         var patterns: [String: [String]] = [:]
@@ -252,7 +252,7 @@ extension DemultiplexingPipeline {
             }
         }
         let tallies = try await unassignedStartTallies(
-            bundleURL: unassignedBundleURL, patterns: patterns, errorRate: config.effectiveErrorRate, paired: paired
+            readsURL: unassignedReadsURL, patterns: patterns, errorRate: config.effectiveErrorRate, paired: paired
         )
         let outcome = DemultiplexChanceFloor.evaluate(
             patterns: patterns,
@@ -270,12 +270,13 @@ extension DemultiplexingPipeline {
         return outcome
     }
 
-    /// The first bases of the first reads of the unassigned bundle, one tally a mate. No tally is returned when the run keeps no
-    /// unassigned bundle, and the floor then measures on random bases.
+    /// The first bases of the first unassigned reads, one tally a mate. The run passes the FASTQ that holds every unassigned
+    /// read, cutadapt's output in virtual mode, whose bundle keeps a 1,000-read preview, and read before a discarded bundle is
+    /// removed (DEMUXNULL-SWIFT B1). No tally is returned when there is no such file, and the floor then keeps to random bases.
     private func unassignedStartTallies(
-        bundleURL: URL?, patterns: [String: [String]], errorRate: Double, paired: Bool
+        readsURL: URL?, patterns: [String: [String]], errorRate: Double, paired: Bool
     ) async throws -> [DemultiplexChanceFloor.StartTally] {
-        guard let bundleURL, let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) else { return [] }
+        guard let readsURL, let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: readsURL) else { return [] }
         return try await DemultiplexChanceFloor.unassignedStartTallies(
             fastqURL: fastqURL,
             windowLength: DemultiplexChanceFloor.startWindowLength(patterns: patterns, errorRate: errorRate),

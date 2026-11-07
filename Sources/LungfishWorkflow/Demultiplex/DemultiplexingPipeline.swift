@@ -454,7 +454,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
         var barcodeResults: [BarcodeResult] = []
         var bundleURLs: [URL] = []
-        var unassignedBundleURL: URL?
+        var unassignedBundleURL: URL?, unassignedReadsURL: URL?
         var assignedReadCount = 0
         var unassignedReadCount = 0
         var unassignedBaseCount: Int64 = 0
@@ -484,13 +484,15 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             let baseName: String
             let isUnassigned: Bool
             let bundleURL: URL
+            /// Every read of the bundle, cutadapt's output where a virtual bundle keeps a preview (DEMUXNULL-SWIFT B1).
+            let readsURL: URL
             let bundleName: String
             let statistics: FASTQDatasetStatistics
         }
         enum BundleOutcome: Sendable {
             case finished(VirtualBundleResult)
             /// The bundle's preview and statistics come from its group's pass over the root.
-            case rebuildFromRoot(baseName: String, isUnassigned: Bool, bundleURL: URL, bundleName: String, VirtualBarcodeRebuild)
+            case rebuildFromRoot(baseName: String, isUnassigned: Bool, bundleURL: URL, readsURL: URL, bundleName: String, VirtualBarcodeRebuild)
         }
 
         // Virtual mode: extract read IDs + preview (default for single-step and final multi-step)
@@ -513,9 +515,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             func collect(_ outcome: BundleOutcome?) async throws {
                 switch outcome {
                 case .finished(let result): results.append(result)
-                case .rebuildFromRoot(let baseName, let isUnassigned, let bundleURL, let bundleName, let rebuild):
+                case .rebuildFromRoot(let baseName, let isUnassigned, let bundleURL, let readsURL, let bundleName, let rebuild):
                     results += try await rebuildGroup.add(rebuild) {
-                        VirtualBundleResult(baseName: baseName, isUnassigned: isUnassigned, bundleURL: bundleURL, bundleName: bundleName, statistics: $0)
+                        VirtualBundleResult(baseName: baseName, isUnassigned: isUnassigned, bundleURL: bundleURL, readsURL: readsURL, bundleName: bundleName, statistics: $0)
                     }
                 case nil: break
                 }
@@ -559,7 +561,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                         return .finished(VirtualBundleResult(
                             baseName: file.baseName,
                             isUnassigned: file.isUnassigned,
-                            bundleURL: bundleURL,
+                            bundleURL: bundleURL, readsURL: destURL,
                             bundleName: bundleName,
                             statistics: statistics
                         ))
@@ -737,7 +739,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                         return .rebuildFromRoot(
                             baseName: file.baseName,
                             isUnassigned: file.isUnassigned,
-                            bundleURL: bundleURL,
+                            bundleURL: bundleURL, readsURL: file.url,
                             bundleName: bundleName,
                             VirtualBarcodeRebuild(
                                 orderedReadIDs: orderedReadIDs,
@@ -758,7 +760,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     return .finished(VirtualBundleResult(
                         baseName: file.baseName,
                         isUnassigned: file.isUnassigned,
-                        bundleURL: bundleURL,
+                        bundleURL: bundleURL, readsURL: statsSource,
                         bundleName: bundleName,
                         statistics: statistics
                     ))
@@ -780,12 +782,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             if result.isUnassigned {
                 unassignedReadCount = stats.readCount
                 unassignedBaseCount = stats.baseCount
-                if config.unassignedDisposition == .keep {
-                    unassignedBundleURL = result.bundleURL
-                } else {
-                    try? fm.removeItem(at: result.bundleURL)
-                    continue
-                }
+                unassignedReadsURL = result.readsURL
+                guard config.unassignedDisposition == .keep else { continue }  // removed once the floor has read it
+                unassignedBundleURL = result.bundleURL
             } else {
                 assignedReadCount += stats.readCount
                 let sequenceInfo = barcodeSequenceInfo(
@@ -884,8 +883,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             config: config, adapterFASTA: adapterConfig.adapterFASTA,
             counts: Dictionary(barcodeResults.map { ($0.barcodeID, $0.readCount) }, uniquingKeysWith: +),
             readsSearched: assignedReadCount + unassignedReadCount, unassigned: unassignedReadCount, paired: placesMates,
-            unassignedBundleURL: unassignedBundleURL
+            unassignedReadsURL: unassignedReadsURL
         )
+        if config.unassignedDisposition != .keep { bundleResults.filter(\.isUnassigned).forEach { try? fm.removeItem(at: $0.bundleURL) } }
         let manifest = DemultiplexManifest(
             barcodeKit: kitForManifest,
             parameters: DemultiplexParameters(
