@@ -30,7 +30,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1582 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1583 | LungfishCore, LungfishIO |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
 | LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 87 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
@@ -2414,6 +2414,7 @@ None.
 - `DemoProjectManifest` struct, `Sources/LungfishWorkflow/DemoProjects/DemoProjectManifest.swift`
 - `DemoProjectVersion` enum, `Sources/LungfishWorkflow/DemoProjects/DemoProjectManifest.swift`
 - `DemultiplexChanceFloor` enum, `Sources/LungfishWorkflow/Demultiplex/DemultiplexChanceFloor.swift`
+- `DemultiplexChanceWords` enum, `Sources/LungfishWorkflow/Demultiplex/DemultiplexChanceWords.swift`
 - `DemultiplexConfig` struct, `Sources/LungfishWorkflow/Demultiplex/DemultiplexConfig.swift`
 - `DemultiplexEngine` enum, `Sources/LungfishWorkflow/Demultiplex/DemultiplexEngine.swift`
 - `DemultiplexError` enum, `Sources/LungfishWorkflow/Demultiplex/DemultiplexError.swift`
