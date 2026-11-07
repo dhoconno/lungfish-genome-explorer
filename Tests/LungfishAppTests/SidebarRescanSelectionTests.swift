@@ -82,6 +82,8 @@ final class SidebarRescanSelectionTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
+        // A failed screen check waits the whole lookup budget, so the first one ends the test.
+        continueAfterFailure = false
         root = try TestTempDirectory.make(prefix: "sidebar-rescan-selection")
         hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
         project = root.appendingPathComponent("Rescan.lungfish", isDirectory: true)
@@ -130,45 +132,54 @@ final class SidebarRescanSelectionTests: XCTestCase {
 
     // MARK: - Row 35
 
-    /// In every order, five times running and after a second rescan, the viewer, its rows' samples, the Summary's
-    /// samples, the Inspector's name and the sidebar's selected row all name the result selected last.
+    /// In every order, for both reload variants, three times running and after a second rescan, the viewer, its rows'
+    /// samples, the Summary's samples, the Inspector's name and the sidebar's selected row all name the result selected
+    /// last. `notify` false is the watcher's reload. `notify` true is the one about forty callers ask for, whose
+    /// unchanged selection is replayed through `sidebarDidRefreshSelectedItems`, which cancels a pending debounce.
     func testSelectingAnotherResultDuringARescanShowsTheSelectedResult() throws {
-        for round in 0..<5 {
-            for order in Order.allCases {
-                let (from, to) = round.isMultiple(of: 2) ? (resultA!, resultB!) : (resultB!, resultA!)
-                click(from)
-                assertShows(from, "\(order.rawValue), round \(round + 1), before the rescan")
-
-                hold.close()
-                let landed = hold.shownWhenTheRescanLanded.count
-                let applied = try startRescan()
-                XCTAssertTrue(waitUntilOnRunLoop(budget: .lookup) { self.hold.arrivals > landed },
-                              "the rescan never finished reading the project")
-                switch order {
-                case .beforeTheSelection:
-                    hold.release()
-                    waitForApply(applied)
-                    click(to)
-                case .insideTheDebounce:
-                    // One main-actor turn: the click schedules the debounce and the release queues the apply first.
-                    click(to)
-                    hold.release()
-                    waitForApply(applied)
-                    XCTAssertEqual(hold.shownWhenTheRescanLanded.last ?? nil, from.url,
-                                   "the order was not forced: the selection's debounce ran before the rescan landed")
-                case .afterTheDisplay:
-                    click(to)
-                    assertShows(to, "\(order.rawValue), round \(round + 1), before the release")
-                    hold.release()
-                    waitForApply(applied)
-                    XCTAssertEqual(hold.shownWhenTheRescanLanded.last ?? nil, to.url)
+        for notify in [false, true] {
+            for round in 0..<3 {
+                for order in Order.allCases {
+                    try runRound(round, order: order, notify: notify)
                 }
-                assertShows(to, "\(order.rawValue), round \(round + 1)")
-
-                waitForApply(try startRescan())
-                assertShows(to, "\(order.rawValue), round \(round + 1), after a second rescan")
             }
         }
+    }
+
+    private func runRound(_ round: Int, order: Order, notify: Bool) throws {
+        let (from, to) = round.isMultiple(of: 2) ? (resultA!, resultB!) : (resultB!, resultA!)
+        let context = "\(order.rawValue), round \(round + 1), notify \(notify)"
+        click(from)
+        assertShows(from, "\(context), before the rescan")
+
+        hold.close()
+        let landed = hold.shownWhenTheRescanLanded.count
+        let applied = try startRescan(notify: notify)
+        XCTAssertTrue(waitUntilOnRunLoop(budget: .lookup) { self.hold.arrivals > landed },
+                      "the rescan never finished reading the project")
+        switch order {
+        case .beforeTheSelection:
+            hold.release()
+            waitForApply(applied)
+            click(to)
+        case .insideTheDebounce:
+            // One main-actor turn: the click schedules the debounce and the release queues the apply first.
+            click(to)
+            hold.release()
+            waitForApply(applied)
+            XCTAssertEqual(hold.shownWhenTheRescanLanded.last ?? nil, from.url,
+                           "the order was not forced: the selection's debounce ran before the rescan landed")
+        case .afterTheDisplay:
+            click(to)
+            assertShows(to, "\(context), before the release")
+            hold.release()
+            waitForApply(applied)
+            XCTAssertEqual(hold.shownWhenTheRescanLanded.last ?? nil, to.url)
+        }
+        assertShows(to, context)
+
+        waitForApply(try startRescan(notify: notify))
+        assertShows(to, "\(context), after a second rescan")
     }
 
     // MARK: - A selection made while the shown result's table has the focus (BIO-FOCUS-DROP, lane FOCUSDROP)
@@ -297,23 +308,31 @@ final class SidebarRescanSelectionTests: XCTestCase {
         sidebar.outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
     }
 
-    /// Copies result A's folder into Analyses under a new name and starts the rescan the watcher's event starts.
-    private func startRescan() throws -> Done {
+    /// Copies result A's folder into Analyses under a new name and starts a rescan, the watcher's (`notify` false) or
+    /// the one that replays an unchanged selection (`notify` true).
+    private func startRescan(notify: Bool = false) throws -> (done: Done, copy: URL) {
         copies += 1
         let name = String(format: "taxtriage-batch-2026-11-04T09-%02d-00", copies)
-        try FileManager.default.copyItem(at: resultA.url, to: analyses.appendingPathComponent(name, isDirectory: true))
-        let scan = controller.sidebarController.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: false)
+        let copy = analyses.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.copyItem(at: resultA.url, to: copy)
+        let scan = controller.sidebarController.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: notify)
         XCTAssertNotNil(scan, "the sidebar started no rescan")
         let done = Done()
         Task { @MainActor in
             await scan?.value
             done.value = true
         }
-        return done
+        return (done, copy.standardizedFileURL)
     }
 
-    private func waitForApply(_ done: Done, file: StaticString = #filePath, line: UInt = #line) {
-        XCTAssertTrue(waitUntilOnRunLoop(budget: .lookup) { done.value }, "the rescan never applied", file: file, line: line)
+    /// Waits for the rescan's task to end, then checks that it applied: a scan found stale ends its task without
+    /// touching the tree (`reloadFromFilesystemAsync`), so the copied folder's row proves the apply ran.
+    private func waitForApply(_ rescan: (done: Done, copy: URL), file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(waitUntilOnRunLoop(budget: .lookup) { rescan.done.value }, "the rescan never applied",
+                      file: file, line: line)
+        XCTAssertNotNil(item(at: rescan.copy, in: controller.sidebarController.rootItems),
+                        "the rescan was dropped as stale: the sidebar does not list \(rescan.copy.lastPathComponent)",
+                        file: file, line: line)
     }
 
     /// Waits until every place on screen names `result`, and says what each one shows when they do not.
