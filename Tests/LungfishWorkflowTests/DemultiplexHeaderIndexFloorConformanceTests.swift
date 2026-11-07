@@ -274,4 +274,23 @@ final class DemultiplexHeaderIndexFloorConformanceTests: XCTestCase {
         }
         XCTAssertEqual(routedResult.manifest.unassigned.readCount, explicitResult.manifest.unassigned.readCount)
     }
+
+    /// BIO-DEMUX-PARITY: a read that starts with D703 and whose next 8 bases spell D712 keeps D703. cutadapt names a
+    /// read by its last match, so a second anchored search (`--times 2`) moved such reads to the barcode in their insert.
+    func testInlineRunGivesAReadItsLeadingBarcodeWhenTheNextBasesSpellAnother() async throws {
+        try await requireTools()
+        let d703 = try XCTUnwrap(Self.kit.barcodes.first { $0.id == "D703" }).i7Sequence
+        let d712 = try XCTUnwrap(Self.kit.barcodes.first { $0.id == "D712" }).i7Sequence
+        let project = try project("SecondBarcode")
+        let input = project.appendingPathComponent("second.fastq")
+        try DemuxFloorFixtures.write(
+            names: (0..<100).map { "s\($0)" }, leads: Array(repeating: d703 + d712, count: 100), seed: 13, to: input
+        )
+        let output = project.appendingPathComponent("explicit")
+        let result = try await run(input, output: output, explicitCutadapt: true)
+        let ids = try await readIDs(result, output: output)
+        XCTAssertEqual(ids["D703"], Set((0..<100).map { "s\($0)" }), "each read keeps the barcode it starts with")
+        XCTAssertNil(ids["D712"], "no read is given the barcode in its insert")
+        XCTAssertEqual(result.manifest.unassigned.readCount, 0)
+    }
 }
