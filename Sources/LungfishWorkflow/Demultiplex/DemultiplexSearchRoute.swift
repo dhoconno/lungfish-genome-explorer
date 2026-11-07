@@ -100,7 +100,10 @@ public enum DemultiplexSearchRouteOwner {
             shapes[[name.i7?.count ?? 0, name.i5?.count ?? 0], default: 0] += 1
         }
         let indexed = tally.values.reduce(0) { $0 + $1.count }
-        guard indexed > 0, let shape = shapes.max(by: { $0.value < $1.value })?.key else { return 0 }
+        // Equal counts take the later shape in lexicographic order, so a tie routes the same way in every process.
+        guard indexed > 0, let shape = shapes.max(by: {
+            $0.value != $1.value ? $0.value < $1.value : $0.key.lexicographicallyPrecedes($1.key)
+        })?.key else { return 0 }
         func withinOne(_ length: Int) -> Double { (1 + 3 * Double(length)) / pow(4, Double(length)) }
         let tail = chanceTail / Double(max(1, kit.barcodes.count))
         var present = 0

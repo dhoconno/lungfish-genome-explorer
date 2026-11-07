@@ -7,6 +7,7 @@
 
 import XCTest
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class DemultiplexSearchRouteTests: XCTestCase {
@@ -142,6 +143,92 @@ final class DemultiplexSearchRouteTests: XCTestCase {
         try comments.enumerated().map { "@r\($0.offset) \($0.element)\nACGTACGT\n+\nIIIIIIII\n" }.joined()
             .write(to: file, atomically: true, encoding: .utf8)
         let route = await DemultiplexSearchRouteOwner.route(for: config(kit), input: file)
+        XCTAssertEqual(label(route), "headerIndex")
+    }
+
+    private func writeRecords(_ comments: [String], tail: String = "", to file: URL) throws {
+        try (comments.enumerated().map { "@r\($0.offset) \($0.element)\nACGTACGT\n+\nIIIIIIII\n" }.joined() + tail)
+            .write(to: file, atomically: true, encoding: .utf8)
+    }
+
+    private var twoSamples: [String] {
+        Array(repeating: "1:N:0:ATTACTCG", count: 900) + Array(repeating: "1:N:0:TCCGGAGA", count: 100)
+    }
+
+    /// DEMUXFLOOR-SWIFT SF1: the probe stops at 1,000 names, and at 10,000 when it reads on, so a bad record after
+    /// them is never read (a read error routes to the bases search).
+    func testProbeStopsReadingAtItsNameCount() async throws {
+        let kit = BarcodeKitRegistry.truseqSingleA
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("demux-route-\(UUID().uuidString).fastq")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let bad = "this is not a FASTQ record\n" + (0..<50).map { "@x\($0) 1:N:0:ATTACTCG\nACGTACGT\n+\nIIIIIIII\n" }.joined()
+        try writeRecords(twoSamples, tail: bad, to: file)
+        let first = await DemultiplexSearchRouteOwner.route(for: config(kit), input: file)
+        XCTAssertEqual(label(first), "headerIndex")
+        let readOn = Array(repeating: "1:N:0:ATTACTCG", count: 1_000)
+            + (0..<9_000).map { $0 % 360 == 0 ? "1:N:0:TCCGGAGA" : "1:N:0:ATTACTCG" }
+        try writeRecords(readOn, tail: bad, to: file)
+        let readingOn = await DemultiplexSearchRouteOwner.route(for: config(kit), input: file)
+        XCTAssertEqual(label(readingOn), "headerIndex")
+    }
+
+    /// DEMUXFLOOR-SWIFT SF1: a gzip input gives the route of the plain file.
+    func testGzipInputGivesTheRouteOfThePlainFile() async throws {
+        let kit = BarcodeKitRegistry.truseqSingleA
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("demux-route-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        for (name, comments, route) in [
+            ("two", twoSamples, "headerIndex"), ("one", Array(repeating: "1:N:0:ATTACTCG", count: 1_000), "inline"),
+        ] {
+            let plain = folder.appendingPathComponent("\(name).fastq")
+            try writeRecords(comments, to: plain)
+            let gz = folder.appendingPathComponent("\(name).fastq.gz")
+            try await SystemToolProbe.gzip(plain, to: gz)
+            let probed = await DemultiplexSearchRouteOwner.route(for: config(kit), input: gz)
+            XCTAssertEqual(label(probed), route, name)
+        }
+    }
+
+    /// DEMUXFLOOR-SWIFT SF1: a bundle whose payload is `reads.fastq.gz`, the input the app sends, is probed through
+    /// `resolveInputFASTQ` and refuses in the header words before the project and tool checks.
+    func testBundleWithGzipPayloadRefusesInTheHeaderWords() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("demux-route-\(UUID().uuidString)")
+        let bundle = folder.appendingPathComponent("Reads.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let plain = folder.appendingPathComponent("reads.fastq")
+        try writeRecords(twoSamples, to: plain)
+        try await SystemToolProbe.gzip(plain, to: bundle.appendingPathComponent("reads.fastq.gz"))
+        do {
+            try await DemultiplexingPipeline().preflight(config: DemultiplexConfig(
+                inputURL: bundle, barcodeKit: BarcodeKitRegistry.truseqSingleA,
+                outputDirectory: folder.appendingPathComponent("out", isDirectory: true)
+            ))
+            XCTFail("the bundle's reads were not probed")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.hasPrefix("These reads carry their index in the read names"),
+                          error.localizedDescription)
+        }
+    }
+
+    /// DEMUXFLOOR-SWIFT SF2: no built-in kit of a platform whose indexes sit in separate reads holds a colliding pair,
+    /// since the collision words send a person to a definition a built-in kit does not let them edit.
+    func testNoBuiltInKitOfAnIndexInSeparateReadsPlatformHoldsACollidingPair() {
+        let kits = BarcodeKitRegistry.builtinKits().filter { $0.platform.indexesInSeparateReads }
+        XCTAssertFalse(kits.isEmpty)
+        for kit in kits {
+            XCTAssertNil(DemultiplexSearchRouteOwner.collisionWords(for: kit), kit.id)
+        }
+    }
+
+    /// DEMUXFLOOR-SWIFT SF3: names split evenly between two index shapes route the same way in every process. Half
+    /// the names carry the kit's 8-base indexes and half a 6-base index, so the shape chosen decides the route; the
+    /// longer shape wins the tie. Before the tie-break the answer followed the per-process dictionary order.
+    func testEqualIndexShapesRouteTheSameWayInEveryProcess() {
+        let comments = (0..<500).map { $0.isMultiple(of: 2) ? "1:N:0:ATTACTCG" : "1:N:0:TCCGGAGA" }
+            + Array(repeating: "1:N:0:ACGTAC", count: 500)
+        let route = DemultiplexSearchRouteOwner.route(for: config(BarcodeKitRegistry.truseqSingleA), names: names(comments))
         XCTAssertEqual(label(route), "headerIndex")
     }
 
