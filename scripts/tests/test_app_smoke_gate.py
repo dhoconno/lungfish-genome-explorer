@@ -731,6 +731,35 @@ class CandidateCopyTests(unittest.TestCase):
     def evidence(self, output="evidence"):
         return json.loads((self.base / output / "app-smoke.result.json").read_text())
 
+    def test_the_gate_holds_caffeinate_on_its_own_pid_while_the_tests_run_and_ends_it(self):
+        """RELSMOKE item E (ruling QA-RELEASE-SMOKE-GATE item 6). The gate holds `caffeinate -d -i -u -w <gate pid>`,
+        which ends with the gate even after SIGKILL, and ends it itself after a pass or a failure. A stand-in that
+        sleeps takes caffeinate's place, so the test keeps no display awake."""
+        import app_smoke_gate
+        real_popen = app_smoke_gate.subprocess.Popen
+        held, during = [], []
+
+        def popen(argv, *arguments, **keywords):
+            if list(argv)[:1] == ["/usr/bin/caffeinate"]:
+                held.append((list(argv), real_popen([sys.executable, "-c", "import time; time.sleep(60)"])))
+                return held[-1][1]
+            return real_popen(argv, *arguments, **keywords)
+        for failing in (None, "real-app-tests"):
+            held.clear()
+            during.clear()
+            command = self.command(failing=failing, during_tests=lambda: during.append(
+                [process.poll() for _, process in held]))
+            with self.subTest(failing=failing), patch.object(app_smoke_gate.subprocess, "Popen", side_effect=popen):
+                if failing:
+                    with self.assertRaises(EvidenceError):
+                        self.run_gate(command, output="evidence-failing")
+                else:
+                    self.run_gate(command)
+                self.assertEqual([argv for argv, _ in held],
+                                 [["/usr/bin/caffeinate", "-d", "-i", "-u", "-w", str(os.getpid())]])
+                self.assertEqual(during, [[None]], "caffeinate is held while the tests run")
+                self.assertIsNotNone(held[0][1].poll(), "the gate ended caffeinate after the run")
+
     def test_the_gate_launches_a_copy_outside_documents_and_names_both_paths(self):
         from app_smoke_gate import ui_target
         self.run_gate(self.command())

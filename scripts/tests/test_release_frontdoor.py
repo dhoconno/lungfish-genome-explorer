@@ -2937,6 +2937,97 @@ class DebugLinuxExecutorTests(unittest.TestCase):
                 self.assertIn("unrecognized arguments: --without-linux-executor", errors.getvalue())
 
 
+class StableSmokePreflightTests(GateOperationsMixin, unittest.TestCase):
+    """RELSMOKE item E (ruling QA-RELEASE-SMOKE-GATE item 6). With gates.appSmokeRequired true, `package stable` runs the
+    smoke gate's own session and running-app checks in doctor_package, so a locked screen or an open Lungfish refuses
+    in seconds with the gate's words instead of after the archive and the gates. Preview, and Stable with the flag
+    false, run neither check. The real coordinator and doctor_package run, the build start only records."""
+
+    class BuildStarted(Exception):
+        pass
+
+    class Runner:
+        environment = {"PATH": "/usr/bin:/bin"}
+
+        def __init__(self):
+            self.commands = []
+
+        def run(self, command, **_keywords):
+            self.commands.append(command)
+            return subprocess.CompletedProcess(command, 0)
+
+    def setUp(self):
+        self.release = load_module()
+        import app_smoke_gate
+        self.gate = app_smoke_gate
+        self.started = []
+
+    def package(self, channel, required, **gate_patches):
+        contract = self.release.load_contract(ROOT / "config/release-contract.json")
+        operations = object.__new__(self.release.LocalReleaseOperations)
+        operations.root, operations.runner = ROOT, self.Runner()
+        operations.contract = replace(contract, gates=replace(contract.gates, appSmokeRequired=required))
+        cache = SimpleNamespace(swiftpm=Path("/cache/swiftpm"), namespace=Path("/cache/root/v1/key/print"),
+                                fingerprint="f" * 64)
+        operations._cache_paths = lambda _request: cache
+        operations._paths = lambda _request: (Path("/release/Lungfish.xcarchive"), Path("/cache/derived"),
+                                              Path("/release"))
+        operations._managed_gate_python = lambda _request: Path(sys.executable)
+        operations.verify_package_source = lambda _request: None
+
+        def start(_request):
+            self.started.append(channel)
+            raise self.BuildStarted()
+        operations.start_package_build = start
+        request = replace(self.request("package"), channel=channel)
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(self.release, "verify_dependency_receipt_file"))
+            for name, options in gate_patches.items():
+                stack.enter_context(mock.patch.object(self.gate, name, **options))
+            self.release.ReleaseCoordinator(operations).package(request)
+
+    def active_session(self):
+        return {"active": True, "locked": False, "onConsole": True, "username": "owner", "consoleUser": "owner",
+                "accountHome": "/Users/owner", "candidateHome": "/private/tmp/preflight", "cleanState": True,
+                "existingState": []}
+
+    @staticmethod
+    def listing(output):
+        return lambda argv: (0, output) if argv == ["lsappinfo", "list"] else (1, "unexpected " + " ".join(argv))
+
+    def test_package_stable_refuses_a_locked_screen_before_the_build(self):
+        # The real graphical_session reads a locked screen as inactive on any host.
+        with self.assertRaisesRegex(self.release.ReleaseError,
+                                    "package stable stopped before the build.*real-app smoke requires the active "
+                                    "logged-in graphical user with the screen unlocked.*run package stable again"):
+            self.package("stable", True, screen_state={"return_value": {"onConsole": True, "locked": True}},
+                         run_tool={"side_effect": self.listing("")})
+        self.assertEqual(self.started, [], "the build never started")
+
+    def test_package_stable_refuses_a_running_lungfish_before_the_build(self):
+        running = self.listing('"Lungfish" ASN:0x0-0x1: bundleID="com.lungfish.browser.preview"\n')
+        with self.assertRaisesRegex(self.release.ReleaseError,
+                                    r"Lungfish is running \(com\.lungfish\.browser\.preview\)\. Quit every copy"):
+            self.package("stable", True, graphical_session={"return_value": self.active_session()},
+                         run_tool={"side_effect": running})
+        self.assertEqual(self.started, [])
+
+    def test_package_stable_builds_when_the_session_is_ready(self):
+        with self.assertRaises(self.BuildStarted):
+            self.package("stable", True, graphical_session={"return_value": self.active_session()},
+                         run_tool={"side_effect": self.listing("")})
+        self.assertEqual(self.started, ["stable"])
+
+    def test_preview_and_a_false_flag_check_no_session(self):
+        refused = {"graphical_session": {"side_effect": AssertionError("session checked")},
+                   "run_tool": {"side_effect": AssertionError("apps listed")}}
+        for channel, required in (("preview", True), ("stable", False), ("preview", False)):
+            self.started.clear()
+            with self.subTest(channel=channel, required=required), self.assertRaises(self.BuildStarted):
+                self.package(channel, required, **refused)
+            self.assertEqual(self.started, [channel])
+
+
 class DoctorFrontDoorTests(unittest.TestCase):
     def test_missing_default_profile_reports_package_ready_without_credentials(self):
         release = load_module()
