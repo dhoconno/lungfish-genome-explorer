@@ -124,6 +124,19 @@ final class DemultiplexEngineRouteConformanceTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: exact)).options.explicit["chanceFloor"])
     }
 
+    /// DEMUXFLOOR-ARCH SF3: a run with no engine records the engine the route owner chose (L4's record clause).
+    func testRunWithNoEngineRecordsCutadaptInItsCommandAndParameters() async throws {
+        try await requireTools()
+        let input = try writeChanceInput()
+        let output = root.appendingPathComponent("Project.lungfish/Analyses/no-engine", isDirectory: true)
+        try await FastqDemultiplexSubcommand.parse([input.path, "--kit", "truseq-single-a", "--output", output.path]).run()
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: output))
+        let engineIndex = try XCTUnwrap(provenance.argv.firstIndex(of: "--engine"), "\(provenance.argv)")
+        XCTAssertEqual(provenance.argv[engineIndex + 1], "cutadapt")
+        XCTAssertEqual(provenance.options.explicit["engine"], .string("cutadapt"))
+        XCTAssertEqual(provenance.options.explicit["indexSource"], .string("read-sequences"))
+    }
+
     func testDemultiplexWithNoEngineOnNamesCarryingTheKitsIndexRefusesBeforeAnyTool() async throws {
         try await requireTools()
         let input = try writeInput()
