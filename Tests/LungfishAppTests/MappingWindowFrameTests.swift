@@ -93,6 +93,8 @@ final class MappingWindowFrameTests: XCTestCase {
             guard let viewport = viewer.referenceBundleViewportController else { return false }
             return viewport.currentInput?.mappingResultDirectoryURL == mapping.result.standardizedFileURL
                 && viewport.summaryLabel.stringValue.contains("Mapping")
+                // The measured line, or for the BAMs-gone result the long words of a line that could not be measured.
+                && !viewport.summaryLabel.stringValue.contains("Measuring")
         }
         let line = viewer.referenceBundleViewportController?.summaryLabel.stringValue ?? "no viewport"
         XCTAssertTrue(settled, "the mapping result never showed its summary line, it reads \(line)")
