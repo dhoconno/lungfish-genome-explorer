@@ -10,10 +10,11 @@
 // the two consensus quality limits, the duplicate, secondary and supplementary toggles and the read group filter. The S3BESIDE
 // review (BIO SF2) found the same carry in all of them, since they ride in the one payload the viewer reads.
 //
-// ALIGN-CONSENSUS-SETTINGS-CARRY (3.3 lane ALIGNCARRY). Six more settings ride in that payload, and the consensus track and an
-// export made from it read them, so they carried to the next bundle the same way. They are the masking switch, the gap threshold,
-// the minimum depth, the masking depth, the caller mode and the IUPAC switch. They follow the same identity check, so one place
-// owns the reset that a different bundle causes, and each setting goes back to the value its declaration gives it.
+// ALIGN-CONSENSUS-SETTINGS-CARRY (3.3 lane ALIGNCARRY). Six more settings ride in that payload and carried to the next bundle the
+// same way. The consensus track and an export read three of them (the minimum depth, the caller mode and the IUPAC switch), and
+// the read track reads the other three (the masking switch, the gap threshold and the masking depth). All six follow the same
+// identity check, so one place owns the reset that a different bundle causes, and each setting goes back to the value its
+// declaration gives it.
 
 import Foundation
 
@@ -49,9 +50,9 @@ extension ReadStyleSectionViewModel {
         selectedReadGroups = []
     }
 
-    /// The six consensus settings that the consensus track draws from and a consensus export is made from, each back at the value
-    /// it is declared with. A model nothing has touched supplies them, so the declarations stay the one place that owns a default.
-    /// `clear()` leaves them alone.
+    /// The six consensus settings that the consensus track, the read track and a consensus export draw from, each back at the
+    /// value it is declared with. A model nothing has touched supplies them, so the declarations stay the one place that owns a
+    /// default. `clear()` leaves them alone.
     private func resetConsensusSettings() {
         let declared = ReadStyleSectionViewModel()
         consensusMaskingEnabled = declared.consensusMaskingEnabled
