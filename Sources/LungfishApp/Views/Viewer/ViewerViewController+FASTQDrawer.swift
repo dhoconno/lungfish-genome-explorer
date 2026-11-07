@@ -188,8 +188,11 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
 
     /// What the drawer says after a scout. The plan reaches a run through the Demux tab's Demultiplex…, which opens
     /// Demultiplex Barcodes with it, so the words name that control and promise no Run button here.
-    static func scoutProceedWords(count: Int) -> String {
-        "\(count) barcode\(count == 1 ? "" : "s") added to the plan. Demultiplex\u{2026} opens Demultiplex Barcodes with it."
+    /// After a count from the read names it says the run splits the reads by that index (UX condition 3, changed).
+    static func scoutProceedWords(count: Int, source: BarcodeCountSource? = nil) -> String {
+        let added = "\(count) barcode\(count == 1 ? "" : "s") added to the plan."
+        guard source == .readNameIndex else { return added + " Demultiplex\u{2026} opens Demultiplex Barcodes with it." }
+        return added + " Demultiplex\u{2026} opens Demultiplex Barcodes, which splits the reads by the index in their names."
     }
 
     /// Handles the user clicking "Proceed" in the BarcodeScoutSheet after reviewing scout results.
@@ -200,10 +203,34 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         scoutResult: BarcodeScoutResult,
         kit: BarcodeKitDefinition
     ) {
+        let assignments = Self.scoutAssignments(acceptedDetections: acceptedDetections, scoutResult: scoutResult, kit: kit)
+
+        // Update the drawer's demux step with sample assignments
+        if let drawer = fastqMetadataDrawerView {
+            drawer.updateSampleAssignments(assignments)
+            drawer.applySampleAssignmentsToCurrentStep(assignments)
+            drawer.updateScoutStatus(Self.scoutProceedWords(count: acceptedDetections.count, source: scoutResult.countSource))
+        }
+
+        // Sync the dashboard's primer trim settings. No run starts here, since Demultiplex… opens the run.
+        syncDemuxConfigToController()
+
+        fastqDrawerLogger.info("Scout proceed: \(acceptedDetections.count) barcodes accepted, ready for manual run")
+    }
+
+    /// The plan rows Proceed writes for the accepted barcodes. A barcode counted from the index in the read names
+    /// carries its source and the header route in its metadata, so the plan's run splits by the read names and never
+    /// searches the read bases for it (SWIFT condition 1, ARCH pin 6).
+    static func scoutAssignments(
+        acceptedDetections: [BarcodeDetection],
+        scoutResult: BarcodeScoutResult,
+        kit: BarcodeKitDefinition
+    ) -> [FASTQSampleBarcodeAssignment] {
+        let metadata = scoutResult.countSource == .readNameIndex ? FASTQSampleBarcodeAssignment.readNameIndexMetadata : [:]
         // Convert accepted detections to sample assignments.
         // For combinatorial kits, scout detection IDs are in pair format "bc1001--bc1096".
         // For fixedDual kits, scout detection IDs are single barcode IDs (no "--").
-        let assignments: [FASTQSampleBarcodeAssignment] = acceptedDetections.map { detection in
+        return acceptedDetections.map { detection in
             if kit.pairingMode == .combinatorialDual {
                 let parts = detection.barcodeID.components(separatedBy: "--")
                 if parts.count == 2 {
@@ -217,7 +244,8 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
                         forwardBarcodeID: fwdID,
                         forwardSequence: fwdBarcode?.i7Sequence,
                         reverseBarcodeID: revID,
-                        reverseSequence: revBarcode?.i7Sequence
+                        reverseSequence: revBarcode?.i7Sequence,
+                        metadata: metadata
                     )
                 }
             }
@@ -229,21 +257,10 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
                 forwardBarcodeID: detection.barcodeID,
                 forwardSequence: barcode?.i7Sequence,
                 reverseBarcodeID: detection.barcodeID,
-                reverseSequence: barcode?.i5Sequence ?? barcode?.i7Sequence
+                reverseSequence: barcode?.i5Sequence ?? barcode?.i7Sequence,
+                metadata: metadata
             )
         }
-
-        // Update the drawer's demux step with sample assignments
-        if let drawer = fastqMetadataDrawerView {
-            drawer.updateSampleAssignments(assignments)
-            drawer.applySampleAssignmentsToCurrentStep(assignments)
-            drawer.updateScoutStatus(Self.scoutProceedWords(count: acceptedDetections.count))
-        }
-
-        // Sync the dashboard's primer trim settings. No run starts here, since Demultiplex… opens the run.
-        syncDemuxConfigToController()
-
-        fastqDrawerLogger.info("Scout proceed: \(acceptedDetections.count) barcodes accepted, ready for manual run")
     }
 
     /// Syncs the drawer's primer trim configuration to the dashboard. The demux plan reaches a run only through

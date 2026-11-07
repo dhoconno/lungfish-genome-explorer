@@ -233,13 +233,31 @@ public final class BarcodeScoutSheet: NSViewController, NSTableViewDataSource, N
     // MARK: - Header
 
     private func updateHeader() {
-        let detected = scoutResult.detections.count
-        let accepted = scoutResult.acceptedCount
-        let rate = scoutResult.assignmentRate * 100
-        let unassigned = 100.0 - rate
+        let lines = Self.resultWords(for: scoutResult, kitDisplayName: kitDisplayName).components(separatedBy: "\n")
+        headerLabel.stringValue = lines.first ?? ""
+        summaryLabel.stringValue = lines.dropFirst().joined(separator: " ")
+        summaryLabel.maximumNumberOfLines = 0
+        summaryLabel.lineBreakMode = .byWordWrapping
+        summaryLabel.preferredMaxLayoutWidth = 728
+    }
 
-        headerLabel.stringValue = "Scanned \(formatCount(scoutResult.readsScanned)) reads in \(String(format: "%.1f", scoutResult.elapsedSeconds))s"
-        summaryLabel.stringValue = "\(detected) barcodes detected | \(accepted) accepted | \(String(format: "%.1f", rate))% assigned | \(String(format: "%.1f", unassigned))% unassigned | Kit: \(kitDisplayName)"
+    /// The sheet's words for `result`: the scan line, then the summary. A count from the read names says so, with how
+    /// many names carry an index, and a file that holds one sample says it needs no demultiplexing (UX conditions 1
+    /// and 2 of `S2-R2-UX.md:30-31`, at BIO's 99% line).
+    static func resultWords(for result: BarcodeScoutResult, kitDisplayName: String) -> String {
+        let rate = result.assignmentRate * 100
+        var lines = [
+            "Scanned \(LungfishFormatters.formatGroupedCount(result.readsScanned)) reads in \(String(format: "%.1f", result.elapsedSeconds))s",
+            "\(result.detections.count) barcodes detected | \(result.acceptedCount) accepted | \(String(format: "%.1f", rate))% assigned | \(String(format: "%.1f", 100.0 - rate))% unassigned | Kit: \(kitDisplayName)",
+        ]
+        if result.countSource == .readNameIndex {
+            let indexed = LungfishFormatters.formatGroupedCount(result.indexedReadCount ?? 0)
+            lines.insert("Counted from the index in the read names: \(indexed) of \(LungfishFormatters.formatGroupedCount(result.readsScanned)) reads carry one.", at: 1)
+        }
+        if let single = result.oneSampleDetection {
+            lines.insert("Almost every read carries \(single.barcodeID), so this file holds one sample and needs no demultiplexing.", at: 1)
+        }
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - NSTableViewDataSource
