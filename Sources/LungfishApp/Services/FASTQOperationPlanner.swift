@@ -866,7 +866,7 @@ extension FASTQOperationLaunchRequest {
               ) = request else {
             return false
         }
-        return engine == .exactBareBarcode
+        return engine == .exactBareBarcode || engine == .headerIndex
     }
 
     /// Whether the dialog resolves each input to files before it runs the CLI.
