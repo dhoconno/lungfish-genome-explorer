@@ -270,20 +270,16 @@ extension DemultiplexingPipeline {
         return outcome
     }
 
-    /// The first bases of the first reads of the unassigned bundle, one tally a mate (the mates of a pair alternate in the
-    /// file). No tally is returned when the run keeps no unassigned bundle, and the floor then measures on random bases.
+    /// The first bases of the first reads of the unassigned bundle, one tally a mate. No tally is returned when the run keeps no
+    /// unassigned bundle, and the floor then measures on random bases.
     private func unassignedStartTallies(
         bundleURL: URL?, patterns: [String: [String]], errorRate: Double, paired: Bool
     ) async throws -> [DemultiplexChanceFloor.StartTally] {
         guard let bundleURL, let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) else { return [] }
-        let window = DemultiplexChanceFloor.startWindowLength(patterns: patterns, errorRate: errorRate)
-        var tallies = Array(repeating: DemultiplexChanceFloor.StartTally(windowLength: window), count: paired ? 2 : 1)
-        var seen = 0
-        for try await record in FASTQReader(validateSequence: false).records(from: fastqURL) {
-            tallies[paired ? seen % 2 : 0].add(record.sequence)
-            seen += 1
-            if seen >= DemultiplexChanceFloor.compositionReadLimit { break }
-        }
-        return tallies
+        return try await DemultiplexChanceFloor.unassignedStartTallies(
+            fastqURL: fastqURL,
+            windowLength: DemultiplexChanceFloor.startWindowLength(patterns: patterns, errorRate: errorRate),
+            paired: paired
+        )
     }
 }

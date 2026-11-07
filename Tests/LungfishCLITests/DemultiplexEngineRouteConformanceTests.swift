@@ -109,6 +109,15 @@ final class DemultiplexEngineRouteConformanceTests: XCTestCase {
         XCTAssertEqual(floor["kitTail"], .number(1e-6))
         guard case .integer(let trials)? = floor["chanceTrials"] else { return XCTFail("no chanceTrials: \(floor)") }
         XCTAssertGreaterThan(trials, 0)
+        // BIO-DEMUX-NULL item 9: what the chance count was measured on, its margin and the windows it was tallied from.
+        guard case .string(let null)? = floor["null"] else { return XCTFail("no null: \(floor)") }
+        XCTAssertTrue(["start-composition", "random-bases"].contains(null), "the null is named by its two words: \(null)")
+        guard case .number(let margin)? = floor["margin"] else { return XCTFail("no margin: \(floor)") }
+        XCTAssertGreaterThanOrEqual(margin, 1)
+        guard case .integer(let compositionReads)? = floor["compositionReads"] else {
+            return XCTFail("no compositionReads: \(floor)")
+        }
+        XCTAssertGreaterThanOrEqual(compositionReads, 0)
         guard case .dictionary(let within)? = floor["barcodesWithinChance"] else { return XCTFail("no barcodesWithinChance: \(floor)") }
         guard case .integer(let d702)? = within["D702"] else { return XCTFail("D702 is not named within chance: \(within)") }
         XCTAssertGreaterThanOrEqual(d702, 3)

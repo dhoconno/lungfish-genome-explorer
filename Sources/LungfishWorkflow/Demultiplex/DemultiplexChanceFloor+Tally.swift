@@ -8,10 +8,23 @@
 // the decoy margin counts against the tally.
 
 import Foundation
+import LungfishIO
 
 extension DemultiplexChanceFloor {
     /// The most reads the floor tallies for a file's start composition (BIO-DEMUX-NULL item 3).
     public static let compositionReadLimit = 200_000
+
+    /// The first bases of the first reads of an unassigned FASTQ, one tally a mate for a paired run (item 7).
+    static func unassignedStartTallies(fastqURL: URL, windowLength: Int, paired: Bool) async throws -> [StartTally] {
+        var tallies = Array(repeating: StartTally(windowLength: windowLength), count: paired ? 2 : 1)
+        var seen = 0
+        for try await record in FASTQReader(validateSequence: false).records(from: fastqURL) {
+            tallies[paired ? seen % 2 : 0].add(record.sequence)
+            seen += 1
+            if seen >= compositionReadLimit { break }
+        }
+        return tallies
+    }
 
     /// A window packs two bits a base into 58 bits, and the top bits of a key hold the length of the prefix.
     static let maximumPackedBases = 29

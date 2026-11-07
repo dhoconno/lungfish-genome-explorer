@@ -3,12 +3,15 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishWorkflow
 
 extension FastqDemultiplexSubcommand {
     /// The summary line for barcodes at or below BIO's chance floor, or nil when there are none (DEMUXFLOOR-UX SF1).
     /// Their count is measured against the reads that carry no barcode (ruling BIO-DEMUX-FLOOR item 10), and their
-    /// files are kept.
-    static func withinChanceSummary(_ within: [(barcodeID: String, readCount: Int)]) -> String? {
+    /// files are kept. `null` says what the chance count was measured on (ruling BIO-DEMUX-NULL item 9).
+    static func withinChanceSummary(
+        _ within: [(barcodeID: String, readCount: Int)], null: DemultiplexChanceFloor.Null = .startComposition
+    ) -> String? {
         guard !within.isEmpty else { return nil }
         let named = within.map { "\($0.barcodeID) (\($0.readCount) \($0.readCount == 1 ? "read" : "reads"))" }
             .joined(separator: ", ")

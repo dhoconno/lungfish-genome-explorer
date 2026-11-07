@@ -250,4 +250,33 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         }
         XCTAssertLessThanOrEqual(missed.count, 3, "seeds where the lone sample of 0.5% did not beat the floor: \(missed)")
     }
+
+    // MARK: - Paired runs (BIO-DEMUX-NULL item 7)
+
+    /// The unassigned file of a run that places mates keeps the input's order, a pair's mates side by side, and a read with no
+    /// mate beside it stands alone (`DemultiplexingPipeline+MateAssignment.swift`). The floor tallies mate 1 and mate 2 apart by
+    /// the same rule, so a single read in the file never moves the mates that follow it.
+    func testPairedUnassignedStartsAreTalliedByMateAndASingleReadIsLeftOut() async throws {
+        var text = ""
+        func add(_ name: String, _ bases: String) {
+            text += "@\(name)\n\(bases)\n+\n\(String(repeating: "I", count: bases.count))\n"
+        }
+        for pair in 0..<20 {
+            if pair == 10 { add("lone/1", "CCCCCCCCCCCCCCCC") }
+            add("pair\(pair)/1", "GGGGGGGGGGGGGGGG")
+            add("pair\(pair)/2", "TTTTTTTTTTTTTTTT")
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("unassigned-\(UUID().uuidString).fastq")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let window = DemultiplexChanceFloor.startWindowLength(patterns: defaultKitPatterns, errorRate: errorRate)
+
+        let paired = try await DemultiplexChanceFloor.unassignedStartTallies(fastqURL: url, windowLength: window, paired: true)
+        XCTAssertEqual(paired.map(\.windows), [20, 20], "the single read belongs to neither mate")
+        XCTAssertEqual(paired[0].composition?.first, [0, 0, 1, 0], "mate 1 starts with G")
+        XCTAssertEqual(paired[1].composition?.first, [0, 0, 0, 1], "mate 2 starts with T")
+
+        let single = try await DemultiplexChanceFloor.unassignedStartTallies(fastqURL: url, windowLength: window, paired: false)
+        XCTAssertEqual(single.map(\.windows), [41], "a run of single reads tallies every record")
+    }
 }
