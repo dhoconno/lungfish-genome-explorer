@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
@@ -11,10 +12,29 @@ extension ViewerFailureReports {
     /// `DemultiplexError.inputFileNotFound` when the FASTQ file is gone, `emptyAdapterSequences` or
     /// `ambiguousAdapterSequences` from its adapter check before any search tool starts (W-18, so the body says no search
     /// ran and gives the kit's cause), and otherwise the search tool's failure, whose text goes to the details.
-    static func detectBarcodes(_ error: any Error) -> FailureReport {
+    /// `kit` gives the way out for its platform: an Illumina or Element kit is counted from the read names, and Detect
+    /// cannot search an Ultima or MGI kit, so for those the words send no one back to Detect (DETECT-WAYOUT-CIRCLE, UX's
+    /// condition 4 of `S2-R2-UX.md:33`).
+    static func detectBarcodes(_ error: any Error, kit: BarcodeKitDefinition? = nil) -> FailureReport {
         let failedStep = "Detect the barcodes in the FASTQ file"
+        let platform = kit?.platform
         if let demultiplexError = error as? DemultiplexError {
             switch demultiplexError {
+            case .readNamesCarryNoIndex:
+                return FailureReport(
+                    failedStep: failedStep,
+                    whatHappened: "Detect Barcodes found no index in the read names of this file.",
+                    nextStep: readNameWayOut,
+                    underlying: error
+                )
+            case .emptyAdapterSequences where platform == .ultima || platform == .mgi,
+                 .ambiguousAdapterSequences where platform == .ultima || platform == .mgi:
+                return FailureReport(
+                    failedStep: failedStep,
+                    whatHappened: "Detect Barcodes cannot search Ultima or MGI kits.",
+                    nextStep: readNameWayOut,
+                    underlying: error
+                )
             case .inputFileNotFound:
                 return FailureReport(
                     failedStep: failedStep,
@@ -51,6 +71,10 @@ extension ViewerFailureReports {
     /// What to try when the kit gave the scout nothing to search for. The FASTQ file is not the cause, and the details
     /// hold the kit's own message.
     private static let kitWayOut = "If you used a different kit, choose it and detect the barcodes again. Otherwise run Demultiplex Barcodes from the FASTQ operations dialog with a Custom Definition of the barcode sequences from your index sheet. Show Details has the full message."
+
+    /// The way out for a kit whose index sits in the read names or in separate index reads, where another kit would
+    /// refuse the same way (UX, `S33-R1-UX.md` D1c).
+    private static let readNameWayOut = "For barcodes inside the reads, run Demultiplex Barcodes from the FASTQ operations dialog with a Custom Definition. Show Details has the full message."
 
     /// The command that deletes the annotation rows failed. Its Operations row is failed just before this
     /// alert, so the panel holds the command's message.

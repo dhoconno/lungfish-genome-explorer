@@ -171,7 +171,7 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
                         // The search ended, so its last progress line must not outlast the alert (W-18).
                         self?.fastqMetadataDrawerView?.updateScoutStatus("")
                         if let window = self?.view.window {
-                            FailurePresenter.present(ViewerFailureReports.detectBarcodes(error), in: window)
+                            FailurePresenter.present(ViewerFailureReports.detectBarcodes(error, kit: kit), in: window)
                         }
                     }
                 }
