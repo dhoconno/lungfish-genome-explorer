@@ -96,4 +96,27 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         XCTAssertEqual(mixed.barcodesWithinChance, [], "trials \(mixed.chanceTrials) from \(unassigned) unassigned")
         print("DEMUXRUN 384 pool plus 1,920 random reads: \(unassigned) unassigned, \(mixed.chanceTrials) chance trials")
     }
+
+    /// DEMUXFLOOR-UX SF3: the floor also guards a Custom Definition, so its next step names one.
+    func testNoBarcodeAboveChanceWordsOfferTheCustomDefinitionWayOut() throws {
+        let words = try XCTUnwrap(DemultiplexError.noBarcodeAboveChance(kitName: "K").errorDescription)
+        XCTAssertTrue(words.hasPrefix(
+            "No barcode of K matched more reads than chance alone gives, so Demultiplex Barcodes made no sample files."
+        ), words)
+        XCTAssertTrue(words.contains("already be split into one file per sample"), words)
+        XCTAssertTrue(words.hasSuffix(
+            "Choose the kit the library was made with, check the barcode sequences and the end of the read you chose "
+                + "for a Custom Definition, or import this file as one sample."
+        ), words)
+    }
+
+    /// DEMUXFLOOR-UX SF3: the header refusal keeps UX's words of `S33-R2-UX.md:41` whole.
+    func testReadNameIndexRefusalSaysWhatHappenedAndTheNextStep() {
+        XCTAssertEqual(
+            DemultiplexError.readNameIndexNotSplitYet.errorDescription,
+            "These reads carry their index in the read names. Demultiplex Barcodes searches the read sequences and "
+                + "cannot split them by that index yet, so it did not start and wrote no files. Get one FASTQ file per "
+                + "sample, as bcl2fastq or BCL Convert writes them from the run's sample sheet, and import those."
+        )
+    }
 }
