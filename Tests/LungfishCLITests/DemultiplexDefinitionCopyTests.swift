@@ -86,4 +86,41 @@ final class DemultiplexDefinitionCopyTests: XCTestCase {
         XCTAssertEqual(record?.checksumSHA256, hex(bytes), "the record does not name the copy with its digest")
         XCTAssertEqual(try counts(in: output), ["Water_blank": 200, "NTC_1": 100])
     }
+
+    /// Review DEMUXPLAN-ARCH, should-fix 1: a definition named like a file the run writes in its result folder refuses
+    /// before the run writes anything, and the words say to rename it.
+    func testDefinitionNamedLikeAnOutputRefusesBeforeTheRunWritesAnything() async throws {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let definitions = project.appendingPathComponent("Barcode Definitions", isDirectory: true)
+        try FileManager.default.createDirectory(at: definitions, withIntermediateDirectories: true)
+        let input = project.appendingPathComponent("reads.fastq")
+        try writeReads(to: input)
+        let output = project.appendingPathComponent("Analyses/demux", isDirectory: true)
+        for name in [".plan.csv", "demux-manifest.json", "plan.lungfishfastq", "plan.lungfish-provenance.json"] {
+            let source = definitions.appendingPathComponent(name)
+            try definition("S1", "S2").write(to: source, atomically: true, encoding: .utf8)
+            do {
+                try await run([input.path, "--kit", source.path, "-o", output.path])
+                XCTFail("a definition named \(name) did not refuse")
+            } catch {
+                let words = String(describing: error)
+                XCTAssertTrue(words.contains(name), words)
+                XCTAssertTrue(words.contains("Rename the definition"), words)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "the run made its result folder for \(name)")
+        }
+    }
+
+    /// The copy never replaces a file that is already in the result folder: keeping it refuses, and that file stays.
+    func testKeepRefusesANameAlreadyInTheResultFolderAndLeavesThatFileAlone() throws {
+        let folder = root.appendingPathComponent("result", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let copy = try XCTUnwrap(try DemultiplexDefinitionCopy.make(
+            sourceURL: root.appendingPathComponent("plan.csv"), data: Data("new".utf8)
+        ))
+        let existing = folder.appendingPathComponent("plan.csv")
+        try "old".write(to: existing, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try copy.keep(in: folder))
+        XCTAssertEqual(try String(contentsOf: existing, encoding: .utf8), "old")
+    }
 }

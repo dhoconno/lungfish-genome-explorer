@@ -87,4 +87,32 @@ final class BarcodeDefinitionPlanLayoutTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("no-such-kit"), error.localizedDescription)
         }
     }
+
+    /// Review DEMUXPLAN-ARCH, should-fix 1: two `# kit:` lines that name different kits refuse in words that name both.
+    func testDefinitionWithTwoDifferentKitLinesRefusesInWords() throws {
+        XCTAssertThrowsError(try load("""
+            # kit: truseq-single-a
+            # kit: illumina-nextera
+            id,sequence,sample_name
+            S1,ATTACTCG,Sample 1
+
+            """)) { error in
+            for id in ["truseq-single-a", "illumina-nextera"] {
+                XCTAssertTrue(error.localizedDescription.contains(id), error.localizedDescription)
+            }
+        }
+    }
+
+    /// A row whose index count differs from the kit the definition names refuses in words that name the row, since the
+    /// kit's search would not find the row's second index.
+    func testDefinitionWhoseIndexCountDiffersFromItsKitRefusesInWords() throws {
+        XCTAssertThrowsError(try load("""
+            # kit: truseq-single-a
+            id,sequence,secondary_sequence,sample_name
+            S1,ATTACTCG,TCCGGAGA,Sample 1
+
+            """)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("S1"), error.localizedDescription)
+        }
+    }
 }
