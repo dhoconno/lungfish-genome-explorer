@@ -141,6 +141,30 @@ final class DemultiplexHeaderIndexSplitTests: XCTestCase {
         }
     }
 
+    /// Both Ends anchors the two indexes of a search of the read bases. The split by the names searches no base, so a
+    /// dual plate at 5' End splits by its names, and the same plate on names with no index still refuses (Finding 2).
+    func testDualPlateAtFivePrimeEndSplitsByItsNames() async throws {
+        let kit = plate([("S1", "ATTACTCG", "TATAGCCT"), ("S2", "TCCGGAGA", "ATAGAGGC")])
+        func config(_ input: URL, _ output: String) -> DemultiplexConfig {
+            DemultiplexConfig(inputURL: input, barcodeKit: kit, outputDirectory: root.appendingPathComponent(output, isDirectory: true),
+                              barcodeLocation: .fivePrime, errorRate: 0.15, threads: 1)
+        }
+        let names = (0..<200).map { "r\($0) 1:N:0:\(kit.barcodes[$0 % 2].i7Sequence)+\(kit.barcodes[$0 % 2].i5Sequence!)" }
+        let input = root.appendingPathComponent("plate.fastq")
+        try DemuxFloorFixtures.write(names: names, seed: 12, to: input)
+        let result = try await DemultiplexingPipeline().run(config: config(input, "out"), progress: { _, _ in })
+        XCTAssertEqual(counts(result), ["S1": 100, "S2": 100])
+
+        let bare = root.appendingPathComponent("bare.fastq")
+        try DemuxFloorFixtures.write(names: (0..<200).map { "r\($0)" }, seed: 13, to: bare)
+        do {
+            try await DemultiplexingPipeline().preflight(config: config(bare, "bare-out"))
+            XCTFail("a search of the bases at 5' End leaves the plate's second index free")
+        } catch DemultiplexError.dualKitNeedsBothEnds(let kitName) {
+            XCTAssertEqual(kitName, kit.displayName)
+        }
+    }
+
     /// Both mates of an interleaved pair follow their names, and a pair whose second mate's index is all `N` follows
     /// its first mate (A9, D6).
     func testMatesOfAnInterleavedPairFollowTheirNames() async throws {

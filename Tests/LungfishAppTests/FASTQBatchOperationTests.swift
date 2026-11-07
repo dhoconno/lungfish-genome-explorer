@@ -105,4 +105,15 @@ final class FASTQBatchOperationTests: XCTestCase {
         let request = FASTQDerivativeRequest.errorCorrection(kmerSize: 31)
         XCTAssertEqual(request.batchParameters["kmerSize"], "31")
     }
+
+    /// A Read Names demultiplex searches no base, so its parameters list the kit, the engine and the mismatches each
+    /// index may have, and no location or error rate (DEMUXRUN-3 Finding 3).
+    func testBatchParametersOfAReadNamesDemultiplexListNoBaseSearchOption() {
+        let request = FASTQDerivativeRequest.demultiplex(
+            kitID: "truseq-single-a", customCSVPath: nil, location: "bothends", symmetryMode: nil,
+            maxDistanceFrom5Prime: 0, maxDistanceFrom3Prime: 0, errorRate: 0.15, engine: .headerIndex,
+            trimBarcodes: true, sampleAssignments: nil, kitOverride: nil
+        )
+        XCTAssertEqual(request.batchParameters, ["kitID": "truseq-single-a", "engine": "header-index", "indexMismatches": "1"])
+    }
 }

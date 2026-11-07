@@ -138,4 +138,13 @@ final class LungfishHelpContentTests: XCTestCase {
         XCTAssertEqual(actionBar.blastButton.toolTip, LungfishHelpContent.classifierBlastVerify.summary)
         XCTAssertEqual(actionBar.blastButton.accessibilityHelp(), LungfishHelpContent.classifierBlastVerify.detail)
     }
+
+    /// The engine picker offers a split by the index in the read names beside the two searches of the read bases, so
+    /// its hover help names all three (DEMUXRUN-3 Finding 1).
+    func testDemultiplexEngineHelpNamesTheReadNamesChoice() {
+        let summary = LungfishHelpContent.fastqDemultiplexEngine.summary
+        for words in ["read name", "cutadapt", "exact"] {
+            XCTAssertTrue(summary.localizedCaseInsensitiveContains(words), "\(words) not in: \(summary)")
+        }
+    }
 }

@@ -39,4 +39,15 @@ final class DemultiplexDialogDefaultArgvTests: XCTestCase {
         XCTAssertEqual(invocation.arguments[kitIndex + 1], "truseq-single-a")
         XCTAssertTrue(invocation.arguments.contains("--error-rate"))
     }
+
+    /// A Read Names pick is written as `--engine header-index`, with none of the options of a search of the bases,
+    /// so the run takes the header route the person chose and its record says so (DEMUXSPLIT Handoff 1).
+    func testReadNamesPickWritesTheHeaderEngineAndNoBaseSearchOption() throws {
+        let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: request(engine: .headerIndex))
+        let engineIndex = try XCTUnwrap(invocation.arguments.firstIndex(of: "--engine"), "\(invocation.arguments)")
+        XCTAssertEqual(invocation.arguments[engineIndex + 1], "header-index")
+        for option in ["--location", "--max-distance-5prime", "--max-distance-3prime", "--error-rate", "--no-trim"] {
+            XCTAssertFalse(invocation.arguments.contains(option), "\(option) in \(invocation.arguments)")
+        }
+    }
 }
