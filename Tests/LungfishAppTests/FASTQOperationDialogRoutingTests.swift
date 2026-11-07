@@ -1126,6 +1126,27 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
+    /// DEMUX-EXACT-BARE-NO-FLOOR (ruling UX-EXACT-BARE-WORDS): the person meets the limit at the explicit choice.
+    func testExactBareCaptionShowsOnlyWhenExactBareIsPicked() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .demultiplexing,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+        state.selectTool(.demultiplexBarcodes)
+
+        state.demultiplexEngine = .exactBareBarcode
+        XCTAssertEqual(
+            state.demultiplexEngineChanceCaption,
+            "Exact Bare Barcode does not check for chance matches. On reads that do not carry the chosen barcodes in "
+                + "their sequence, such as reads whose index is only in the read names, it can make sample files from "
+                + "chance matches. Use it only on reads that carry the barcodes in their sequence."
+        )
+        state.demultiplexEngine = .cutadapt
+        XCTAssertNil(state.demultiplexEngineChanceCaption)
+        state.demultiplexEngine = .headerIndex
+        XCTAssertNil(state.demultiplexEngineChanceCaption)
+    }
+
     /// The Demultiplex dialog defaulted to TruSeq Single Index Set A on an
     /// ONT bundle. The default kit follows the reads' platform.
     func testDemultiplexDefaultKitMatchesTheReadsPlatform() {

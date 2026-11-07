@@ -19,6 +19,12 @@ extension FastqDemultiplexSubcommand {
         }
     }
 
+    /// The summary line that says Exact Bare Barcode checks no chance matches, or nil for another engine or a run that
+    /// made no sample file (DEMUX-EXACT-BARE-NO-FLOOR, ruling UX-EXACT-BARE-WORDS).
+    static func exactBareChanceSummary(_ engine: DemultiplexEngine, barcodesWithReads: Int) -> String? {
+        nil
+    }
+
     /// The summary line for barcodes at or below BIO's chance floor, or nil when there are none (DEMUXFLOOR-UX SF1).
     /// Their count is measured against the reads that carry no barcode (ruling BIO-DEMUX-FLOOR item 10), and their
     /// files are kept. `null` says what the chance count was measured on (ruling BIO-DEMUX-NULL item 9).

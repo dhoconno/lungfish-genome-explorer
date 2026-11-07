@@ -7,6 +7,7 @@
 // count was measured on. UX set the words in review DEMUXNULL-UX.
 
 import XCTest
+import LungfishWorkflow
 @testable import LungfishCLI
 
 final class DemultiplexSummaryWordsTests: XCTestCase {
@@ -22,6 +23,23 @@ final class DemultiplexSummaryWordsTests: XCTestCase {
         )
         XCTAssertNil(FastqDemultiplexSubcommand.withinChanceSummary([], null: .startComposition))
         XCTAssertNil(FastqDemultiplexSubcommand.withinChanceSummary([], null: .randomBases))
+    }
+
+    /// DEMUX-EXACT-BARE-NO-FLOOR (ruling UX-EXACT-BARE-WORDS): the words, byte for byte, and when they print.
+    func testExactBareSummarySaysItDoesNotCheckForChanceMatchesOnlyWhenItMadeASampleFile() {
+        XCTAssertEqual(
+            DemultiplexEngine.exactBareChanceWords,
+            "Exact Bare Barcode does not check for chance matches. On reads that do not carry the chosen barcodes in "
+                + "their sequence, such as reads whose index is only in the read names, it can make sample files from "
+                + "chance matches. Check the sample files against the samples you expect."
+        )
+        XCTAssertEqual(
+            FastqDemultiplexSubcommand.exactBareChanceSummary(.exactBareBarcode, barcodesWithReads: 2),
+            DemultiplexEngine.exactBareChanceWords
+        )
+        XCTAssertNil(FastqDemultiplexSubcommand.exactBareChanceSummary(.exactBareBarcode, barcodesWithReads: 0))
+        XCTAssertNil(FastqDemultiplexSubcommand.exactBareChanceSummary(.cutadapt, barcodesWithReads: 2))
+        XCTAssertNil(FastqDemultiplexSubcommand.exactBareChanceSummary(.headerIndex, barcodesWithReads: 2))
     }
 
     func testWithinChanceSummarySaysWhyTheChanceIsMeasuredOnRandomBases() {

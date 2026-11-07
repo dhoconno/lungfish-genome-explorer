@@ -122,6 +122,7 @@ final class DemultiplexEngineRouteConformanceTests: XCTestCase {
         guard case .integer(let d702)? = within["D702"] else { return XCTFail("D702 is not named within chance: \(within)") }
         XCTAssertGreaterThanOrEqual(d702, 3)
         XCTAssertNil(within["D701"], "a barcode of 200 reads is not within chance")
+        XCTAssertNil(provenance.options.explicit["chanceCheck"], "a Cutadapt run has its chance floor")
 
         // Exact Bare Barcode takes no floor, so its record has no chanceFloor key.
         let sheet = root.appendingPathComponent("Project.lungfish/sheet.csv")
@@ -131,6 +132,11 @@ final class DemultiplexEngineRouteConformanceTests: XCTestCase {
             input.path, "--kit", sheet.path, "--output", exact.path, "--engine", "exact-bare",
         ]).run()
         XCTAssertNil(try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: exact)).options.explicit["chanceFloor"])
+        // DEMUX-EXACT-BARE-NO-FLOOR (ruling UX-EXACT-BARE-WORDS): a later reader finds the fact by name.
+        XCTAssertEqual(
+            try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: exact)).options.explicit["chanceCheck"],
+            .string("none")
+        )
     }
 
     /// DEMUXFLOOR-ARCH SF3: a run with no engine records the engine the route owner chose (L4's record clause).
