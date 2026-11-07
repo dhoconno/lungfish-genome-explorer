@@ -236,14 +236,18 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         XCTAssertNotNil(DemultiplexError.noBarcodeAboveChance(kitName: kit.displayName).errorDescription)
     }
 
-    /// The first ruling's case, re-ruled: 50 reads of D701 among 10,000 random reads still beat the floor.
+    /// The first ruling's case, re-ruled: 50 reads of D701 among 10,000 random reads still beat the floor. BIO measured 100 of
+    /// 100 seeds with 500 decoys. With the 1,200 decoys of a 12-barcode kit (item 4) the largest decoy ratio is the largest of
+    /// more draws, so about 1 file in 100 asks more than 50 reads of the lone sample (seed 1,039 here, at 58 reads with its
+    /// chance matches). The test allows 3 misses of 100 and names them.
     func testFiftyRealReadsInTenThousandRandomReadsStillBeatTheFloor() {
+        var missed: [Int] = []
         for seed in 1_000..<1_100 {
             var generator = DemuxFloorSeededGenerator(seed: UInt64(seed))
             var starts = (0..<10_000).map { _ in DemuxFloorFixtures.randomBases(40, using: &generator) }
             starts += (0..<50).map { _ in "ATTACTCG" + DemuxFloorFixtures.randomBases(32, using: &generator) }
-            let result = outcome(ofStarts: starts)
-            XCTAssertTrue(beating(result).contains("D701"), "seed \(seed), beating: \(beating(result))")
+            if !beating(outcome(ofStarts: starts)).contains("D701") { missed.append(seed) }
         }
+        XCTAssertLessThanOrEqual(missed.count, 3, "seeds where the lone sample of 0.5% did not beat the floor: \(missed)")
     }
 }

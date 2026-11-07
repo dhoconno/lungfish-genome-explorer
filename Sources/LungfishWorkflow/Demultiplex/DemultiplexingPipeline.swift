@@ -880,10 +880,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             requireBothEnds = config.barcodeKit.isDualIndexed || config.barcodeLocation == .bothEnds
         }
 
-        let chanceFloor = try requireBarcodesAboveChance(
+        let chanceFloor = try await requireBarcodesAboveChance(
             config: config, adapterFASTA: adapterConfig.adapterFASTA,
             counts: Dictionary(barcodeResults.map { ($0.barcodeID, $0.readCount) }, uniquingKeysWith: +),
-            readsSearched: assignedReadCount + unassignedReadCount, unassigned: unassignedReadCount, paired: placesMates
+            readsSearched: assignedReadCount + unassignedReadCount, unassigned: unassignedReadCount, paired: placesMates,
+            unassignedBundleURL: unassignedBundleURL
         )
         let manifest = DemultiplexManifest(
             barcodeKit: kitForManifest,
