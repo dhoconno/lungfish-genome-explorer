@@ -313,6 +313,27 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         ))
     }
 
+    /// A kit with no decoy bank has nothing to count past the composition reads, so the pass stops at the limit as it did before
+    /// DEMUX-FLOOR-DECOY-SCALE, and it closes what it opened (SWIFT SF1). A side with three errors builds no bank.
+    func testAKitWithNoDecoyBankStopsReadingAtTheCompositionLimit() async throws {
+        let patterns = ["LONG": ["^ACGTACGTACGTACGTACGT"]]
+        var generator = DemuxFloorSeededGenerator(seed: 11)
+        let url = try writeFASTQ((0..<1_500).map { _ in [DemuxFloorFixtures.randomBases(40, using: &generator)] })
+        defer { try? FileManager.default.removeItem(at: url) }
+        func pass() async throws -> [DemultiplexChanceFloor.StartTally] {
+            try await DemultiplexChanceFloor.unassignedStartTallies(
+                fastqURL: url, patterns: patterns, errorRate: 0.15, allowsIndels: true, paired: false, compositionLimit: 1_000
+            )
+        }
+        let tallied = try await pass()
+        XCTAssertEqual(tallied.map(\.reads), [1_000], "a kit with no decoy bank stops reading at the limit")
+        XCTAssertEqual(tallied.map(\.windows), [1_000])
+        XCTAssertNil(tallied.first?.decoys, "a side with three errors builds no decoy bank")
+        let open = try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count
+        for _ in 0..<5 { _ = try await pass() }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count, open, "the early stop left files open")
+    }
+
     /// The composition takes the first 200,000 records of a plain or a gzipped file, the decoys are counted on every record,
     /// and the pass closes what it opens (SWIFT SF2, DEMUX-FLOOR-DECOY-SCALE).
     func testTheCompositionStopsAtTheLimitAndTheDecoysCountEveryReadInPlainAndGzippedFiles() async throws {

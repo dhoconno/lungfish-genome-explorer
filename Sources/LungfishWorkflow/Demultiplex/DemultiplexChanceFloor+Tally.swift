@@ -35,6 +35,8 @@ extension DemultiplexChanceFloor {
         for try await record in FASTQReader(validateSequence: false).records(from: fastqURL) {
             seen += 1
             let composing = seen <= compositionLimit
+            // A kit with no decoy bank has nothing to count past the composition reads, so the rest of the file is not read.
+            if !composing, empty.decoys == nil { break }
             if !paired {
                 tallies[0].add(record.sequence, composing: composing)
             } else if let first = pending,
