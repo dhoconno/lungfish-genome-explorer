@@ -245,4 +245,33 @@ final class DemultiplexHeaderIndexFloorConformanceTests: XCTestCase {
         // The published result keeps the floor, so the CLI's summary and record can name barcodes within chance.
         XCTAssertNotNil(routedResult.chanceFloor, "the staging area dropped the chance floor")
     }
+
+    /// When a read's name and its leading bases carry the same index, the split by the names and cutadapt's search of
+    /// the bases give it the same barcode, so the route changes where the barcode is read and not the result.
+    func testHeaderAndInlineRoutesGiveEachReadTheSameBarcodeWhenItsNameAndBasesAgree() async throws {
+        try await requireTools()
+        let barcodes = ["D701", "D702", "D703"].compactMap { id in Self.kit.barcodes.first { $0.id == id } }
+        XCTAssertEqual(barcodes.count, 3)
+        let indexes = barcodes.flatMap { Array(repeating: $0.i7Sequence, count: 100) }
+        let project = try project("Parity")
+        let input = project.appendingPathComponent("agree.fastq")
+        try DemuxFloorFixtures.write(
+            names: indexes.enumerated().map { "r\($0.offset) 1:N:0:\($0.element)" }, leads: indexes, seed: 9, to: input
+        )
+
+        let routed = project.appendingPathComponent("routed")
+        let routedResult = try await run(input, output: routed)
+        XCTAssertEqual(routedResult.manifest.parameters.tool, "header-index-demux")
+        let explicit = project.appendingPathComponent("explicit")
+        let explicitResult = try await run(input, output: explicit, explicitCutadapt: true)
+        XCTAssertNotEqual(explicitResult.manifest.parameters.tool, "header-index-demux")
+
+        let routedIDs = try await readIDs(routedResult, output: routed)
+        let explicitIDs = try await readIDs(explicitResult, output: explicit)
+        XCTAssertEqual(routedIDs, explicitIDs, "same reads in each barcode")
+        for (offset, barcode) in barcodes.enumerated() {
+            XCTAssertEqual(routedIDs[barcode.id], Set((offset * 100..<(offset + 1) * 100).map { "r\($0)" }), barcode.id)
+        }
+        XCTAssertEqual(routedResult.manifest.unassigned.readCount, explicitResult.manifest.unassigned.readCount)
+    }
 }
