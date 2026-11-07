@@ -2500,8 +2500,9 @@ features:
       record that the change rewrites is signed again and passes
       lungfish-cli provenance verify. When it has none, such a record loses
       its signature file and public key and reads unsigned, and lungfish-cli
-      provenance verify on it prints Signature artifact is missing and ends
-      with exit status 64, as it does for any unsigned record. A record
+      provenance verify on it says that the record carries no signature, so
+      there is nothing to verify, and ends with exit status 3, as it does for
+      any unsigned record. A record
       whose signature had already failed stays as it was, so a result
       renamed by an earlier release still fails verify, since a rename
       cannot tell an old rename from an edit.
