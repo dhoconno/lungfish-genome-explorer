@@ -279,4 +279,35 @@ final class DemultiplexSearchRouteTests: XCTestCase {
         let sra = (1...1_000).map { "\($0) length=150" }
         XCTAssertEqual(label(DemultiplexSearchRouteOwner.route(for: config(kit), names: names(sra))), "inline")
     }
+
+    /// QA SF2: an explicit `header-index` engine takes the header route with no probe, so it holds with no names, with the
+    /// names of a GBS lane that the probe sends to the bases search when no engine is named, and for an input file that
+    /// does not exist, which the probe would have read.
+    func testExplicitHeaderIndexEngineTakesTheHeaderRouteWithoutTheProbe() async {
+        let kit = BarcodeKitRegistry.truseqSingleA
+        XCTAssertEqual(label(DemultiplexSearchRouteOwner.route(for: config(kit, engine: .headerIndex), names: [])), "headerIndex")
+        let gbs = names(Array(repeating: "1:N:0:AGTACTCG", count: 1_000))
+        XCTAssertEqual(label(DemultiplexSearchRouteOwner.route(for: config(kit), names: gbs)), "inline")
+        XCTAssertEqual(label(DemultiplexSearchRouteOwner.route(for: config(kit, engine: .headerIndex), names: gbs)), "headerIndex")
+        let missing = FileManager.default.temporaryDirectory.appendingPathComponent("demux-route-\(UUID().uuidString).fastq")
+        let unread = await DemultiplexSearchRouteOwner.route(for: config(kit, engine: .headerIndex), input: missing)
+        XCTAssertEqual(label(unread), "headerIndex")
+    }
+
+    /// QA SF2: an explicit `header-index` engine on a kit whose two barcodes lie within two mismatches in both indexes
+    /// refuses in the collision words, as the probe's route does for the same kit, so a Read Names pick never leaves the
+    /// ambiguous reads of such a kit in Unassigned in silence.
+    func testExplicitHeaderIndexEngineOnAKitWithCollidingBarcodesRefuses() throws {
+        let close = BarcodeKitDefinition(
+            id: "plate", displayName: "Plate", platform: .illumina, isDualIndexed: true, pairingMode: .fixedDual,
+            barcodes: [("S1", "ATTACTCG", "TATAGCCT"), ("S2", "ATTACTAA", "TATAGCAA")].map {
+                BarcodeEntry(id: $0.0, i7Sequence: $0.1, i5Sequence: $0.2)
+            }
+        )
+        let expected = try XCTUnwrap(DemultiplexSearchRouteOwner.collisionWords(for: close))
+        let words = label(DemultiplexSearchRouteOwner.route(for: config(close, engine: .headerIndex), names: []))
+        XCTAssertEqual(words, "refuse: \(expected)")
+        XCTAssertTrue(words.hasPrefix("refuse: Barcodes S1 and S2 differ at 4 bases"), words)
+        XCTAssertTrue(words.contains("Correct the definition, or remove one of the two barcodes."), words)
+    }
 }
