@@ -1,10 +1,14 @@
 """Local invented evidence validates the gate, never app usability."""
+import contextlib
 import copy
 import hashlib
 import json
+import os
 import plistlib
+import signal
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
@@ -74,6 +78,15 @@ def make_account_home(folder):
 
 
 class AppSmokeGateTests(unittest.TestCase):
+    def setUp(self):
+        # The gate copies the candidate under the release cache before it launches anything (RELSMOKE). A test that
+        # calls `run` keeps that copy in its own folder, never in /private/var/tmp/lungfish-release-cache.
+        cache = tempfile.TemporaryDirectory()
+        self.addCleanup(cache.cleanup)
+        environment = patch.dict(os.environ, {"LUNGFISH_RELEASE_CACHE_ROOT": str(Path(cache.name).resolve())})
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def test_retained_selection_must_complete_without_skips_and_remain_candidate_bound(self):
         mutations = {
             "valid": lambda r: None,
@@ -166,14 +179,14 @@ class AppSmokeGateTests(unittest.TestCase):
                            "accountHome": str(root / "owner-home"), "candidateHome": str(root / "evidence.home"),
                            "cleanState": True, "existingState": []}
                 real_mkdtemp = tempfile.mkdtemp
-                def command(argv, cwd, directory, step):
+                def command(argv, cwd, directory, step, **keywords):
                     log = directory / (step + ".log")
                     log.write_text(app_smoke_test_log(identifiers, trailer) if step == "real-app-tests"
                                    else "26.5\n" if step == "sdk-version" else "fixture completed\n")
                     return {"argv": argv, "exitStatus": 0, "files": [file_record(log, directory)]}
                 args = SimpleNamespace(root=root, app=root / "Candidate.app", output=root / "evidence",
                                        channel="stable", derived_data=root / "DerivedData")
-                with patch.object(app_smoke_gate.tempfile, "mkdtemp", side_effect=lambda **keywords: real_mkdtemp(dir=temporary, **keywords)), \
+                with patch.object(app_smoke_gate.tempfile, "mkdtemp", side_effect=lambda **keywords: real_mkdtemp(**{"dir": temporary, **keywords})), \
                      patch.object(app_smoke_gate, "source_identity", return_value={"clean": True, "commit": "a" * 40}), \
                      patch.object(app_smoke_gate, "runtime_identity", return_value={}), \
                      patch.object(app_smoke_gate, "graphical_session", return_value=session), \
@@ -191,6 +204,58 @@ class AppSmokeGateTests(unittest.TestCase):
                     else:
                         with self.assertRaisesRegex(EvidenceError, "did not complete every selected method"):
                             app_smoke_gate.run(args)
+
+    # RELSMOKE (ARCH-RELEASE-SMOKE-GATE item 8, QA-RELEASE-SMOKE-GATE item 3). Schema 2 evidence names the copy the
+    # runner launched in appPath and the original in candidateAppPath. The copy sat outside the account's Documents,
+    # Desktop and Downloads, held the candidate's bytes before and after the run, and was removed. Each refusal names
+    # the field that failed.
+    def test_verify_refuses_evidence_whose_app_path_is_under_documents(self):
+        contract_path = ROOT / "config/release-contract.json"
+
+        def launched_from(relative):
+            def mutate(result, home):
+                result["appPath"] = result["appCopy"]["path"] = home + "/" + relative
+            return mutate
+        cases = {
+            "valid": (lambda r, h: None, None),
+            "schema 1": (lambda r, h: r.update(schemaVersion=1), "predates the copy outside Documents"),
+            "appPath under Documents": (launched_from("Documents/GitHub/lungfish/build/Release/stable/Lungfish.app"),
+                                        "appPath"),
+            "appPath under Desktop": (launched_from("Desktop/Lungfish.app"), "Desktop"),
+            "appPath under Downloads": (launched_from("Downloads/Lungfish.app"), "Downloads"),
+            "copy names another app": (lambda r, h: r["appCopy"].update(path="/private/var/tmp/x/Lungfish.app"),
+                                       "appCopy.path"),
+            "copy changed during the run": (lambda r, h: r["appCopy"].update(payloadSHA256After="f" * 64),
+                                            "appCopy.payloadSHA256After"),
+            "copy has another code directory hash": (lambda r, h: r["appCopy"].update(copyCDHash="b" * 40),
+                                                     "appCopy.copyCDHash"),
+            "copy not removed": (lambda r, h: r["appCopy"].update(removed=False), "appCopy.removed"),
+            "relative candidate": (lambda r, h: r.update(candidateAppPath="build/Release/Lungfish.app"),
+                                   "candidateAppPath"),
+            "candidate is the launched app": (lambda r, h: r.update(candidateAppPath=r["appPath"]), "candidateAppPath"),
+        }
+        for name, (mutate, words) in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                app = root / "Fixture.app"
+                app.mkdir()
+                (app / "payload").write_text("invented harmless payload")
+                source = {"clean": True, "commit": "a" * 40}
+                path = make_app_smoke_fixture(root / "evidence", source, app, contract_path)
+                result = json.loads(path.read_text())
+                payload = result["appPayloadSHA256"]
+                mutate(result, result["graphicalSession"]["accountHome"])
+                write_json(path, result)
+                args = (path, hashlib.sha256(path.read_bytes()).hexdigest(), source, "stable", payload,
+                        load_contract(contract_path))
+                if words is None:
+                    verified = verify_result(*args)
+                    self.assertEqual(verified["candidateAppPath"], str(app))
+                    self.assertNotEqual(verified["appPath"], verified["candidateAppPath"])
+                    continue
+                with self.assertRaises(EvidenceError) as raised:
+                    verify_result(*args)
+                self.assertIn(words, str(raised.exception))
 
     def test_xctestrun_targets_exact_candidate_and_preserves_compiled_runner_paths(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -280,7 +345,7 @@ class AppSmokeGateTests(unittest.TestCase):
             lock = root / "Package.resolved"
             lock.write_text("retained pinned-source sentinel")
             calls = []
-            def command(argv, cwd, directory, name):
+            def command(argv, cwd, directory, name, **keywords):
                 calls.append(argv)
                 log = directory / (name + ".log")
                 log.write_text("26.5\n" if name == "sdk-version" else "deliberate fake build stop\n")
@@ -337,7 +402,7 @@ class AppSmokeGateTests(unittest.TestCase):
                        "cleanState": True, "existingState": []}
             calls = []
             real_mkdtemp = tempfile.mkdtemp
-            def command(argv, cwd, directory, name):
+            def command(argv, cwd, directory, name, **keywords):
                 calls.append(argv)
                 log = directory / (name + ".log")
                 log.write_text("26.5\n" if name == "sdk-version" else "deliberate fake build stop\n")
@@ -351,7 +416,7 @@ class AppSmokeGateTests(unittest.TestCase):
                 args = SimpleNamespace(root=root, app=root / "Candidate.app", output=root / ("evidence-%d" % index),
                                        channel="stable", derived_data=derived)
                 with patch.object(app_smoke_gate.pwd, "getpwuid", return_value=SimpleNamespace(pw_name="owner", pw_dir=str(home))), \
-                     patch.object(app_smoke_gate.tempfile, "mkdtemp", side_effect=lambda **keywords: real_mkdtemp(dir=temporary, **keywords)), \
+                     patch.object(app_smoke_gate.tempfile, "mkdtemp", side_effect=lambda **keywords: real_mkdtemp(**{"dir": temporary, **keywords})), \
                      patch.object(app_smoke_gate, "source_identity", return_value={"clean": True, "commit": "a" * 40}), \
                      patch.object(app_smoke_gate, "runtime_identity", return_value={}), \
                      patch.object(app_smoke_gate, "graphical_session", return_value=session), \
@@ -575,3 +640,194 @@ class AppSmokeGateTests(unittest.TestCase):
         finally:
             for number, handler in saved.items():
                 signal.signal(number, signal.SIG_DFL if handler is None else handler)
+
+
+class FakeGuard:
+    """Stands in for the account preferences guard around the candidate's launches."""
+    evidence = {"before": [], "after": []}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exception):
+        return False
+
+
+class CandidateCopyTests(unittest.TestCase):
+    """RELSMOKE (ruling QA-RELEASE-SMOKE-GATE items 3 to 5 and 7, ARCH-RELEASE-SMOKE-GATE items 7 to 10). The candidate
+    sits in a checkout under the account's Documents, as on galah. The gate launches a `ditto` copy under the release
+    cache instead, only when the copy holds the candidate's bytes, and removes the copy however the run ends."""
+
+    def setUp(self):
+        import app_smoke_gate
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name).resolve()
+        self.home = self.base / "owner-home"
+        self.root = self.home / "Documents/GitHub/lungfish"
+        self.cache = self.base / "release-cache"
+        contract_path = ROOT / "config/release-contract.json"
+        self.identifiers = list(load_contract(contract_path).gates.appSmokeTests)
+        (self.root / "config").mkdir(parents=True)
+        shutil.copyfile(contract_path, self.root / "config/release-contract.json")
+        for relative in app_smoke_gate.SMOKE_FIXTURES:
+            (self.root / relative).mkdir(parents=True)
+        self.app = self.root / "build/Release/stable" / ("c" * 40) / "Lungfish.app"
+        (self.app / "Contents/MacOS").mkdir(parents=True)
+        (self.app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.lungfish.browser"}))
+        executable = self.app / "Contents/MacOS/Lungfish"
+        executable.write_bytes(b"invented harmless executable")
+        executable.chmod(0o755)
+        (self.app / "Contents/Current").symlink_to("MacOS")
+        self.authority = app_smoke_gate.receipt_authority(ROOT)
+        self.digest = self.authority._payload_digest(self.app)
+        self.compiled = self.base / "compiled.xctestrun"
+        self.compiled.write_bytes(plistlib.dumps({"TestConfigurations": [{"TestTargets": [{
+            "BlueprintName": "LungfishXCUITests", "UITargetAppPath": "old.app"}]}]}))
+        self.calls, self.copies = [], []
+
+    def command(self, failing=None, during_tests=None):
+        """A fake `command_record`. `failing` names a step that exits 1, and `during_tests` runs while the tests run."""
+        from scripts.tests.gate_fixtures import app_smoke_test_log
+
+        def record(argv, cwd, directory, step, **keywords):
+            self.calls.append(step)
+            log = directory / (step + ".log")
+            log.write_text(app_smoke_test_log(self.identifiers, "** TEST EXECUTE SUCCEEDED **") if step == "real-app-tests"
+                           else "26.5\n" if step == "sdk-version" else "fixture completed\n")
+            if step == "real-app-tests":
+                self.copies.append(sorted(str(p) for p in self.cache.glob("lungfish-app-smoke.*/app/*.app")))
+                if during_tests:
+                    during_tests()
+            return {"argv": argv, "exitStatus": 1 if step == failing else 0, "files": [file_record(log, directory)]}
+        return record
+
+    def run_gate(self, command, output="evidence", **patches):
+        """`run` on the candidate under Documents, with the session, the guard and the runner faked. `command` None
+        keeps the real `command_record`. Each keyword patches one gate attribute with the given patch options."""
+        import app_smoke_gate
+        args = SimpleNamespace(root=self.root, app=self.app, output=self.base / output, channel="stable",
+                               derived_data=self.base / "DerivedData")
+        session = {"active": True, "uid": 501, "locked": False, "username": "owner", "consoleUser": "owner",
+                   "accountHome": str(self.home), "candidateHome": str(self.base / "evidence.home"),
+                   "cleanState": True, "existingState": []}
+        replaced = {"account_home": self.home, "source_identity": {"clean": True, "commit": "a" * 40},
+                    "runtime_identity": {}, "graphical_session": session, "receipt_authority": self.authority,
+                    "select_xctestrun": self.compiled, "runner_identity": [], "account_preferences_guard": FakeGuard(),
+                    "screen_state": {"locked": False}, "verify_result": None}
+        real_mkdtemp = tempfile.mkdtemp
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, {"LUNGFISH_RELEASE_CACHE_ROOT": str(self.cache)}))
+            stack.enter_context(patch.object(app_smoke_gate.tempfile, "mkdtemp", side_effect=lambda **keywords:
+                                             real_mkdtemp(**{"dir": str(self.base), **keywords})))
+            for name, value in replaced.items():
+                stack.enter_context(patch.object(app_smoke_gate, name, return_value=value))
+            if command is not None:
+                stack.enter_context(patch.object(app_smoke_gate, "command_record", side_effect=command))
+            for name, options in patches.items():
+                stack.enter_context(patch.object(app_smoke_gate, name, **options))
+            app_smoke_gate.run(args)
+
+    def evidence(self, output="evidence"):
+        return json.loads((self.base / output / "app-smoke.result.json").read_text())
+
+    def test_the_gate_launches_a_copy_outside_documents_and_names_both_paths(self):
+        from app_smoke_gate import ui_target
+        self.run_gate(self.command())
+        result = self.evidence()
+        target = ui_target(plistlib.loads((self.base / "evidence/candidate.xctestrun").read_bytes()))
+        launched = target["UITargetAppPath"]
+        self.assertEqual(target["EnvironmentVariables"]["LUNGFISH_RELEASE_SMOKE_APP"], launched)
+        self.assertEqual(result["appPath"], launched)
+        self.assertEqual(result["candidateAppPath"], str(self.app))
+        self.assertEqual(Path(launched).name, self.app.name)
+        self.assertTrue(Path(launched).is_relative_to(self.cache), launched)
+        self.assertFalse(Path(launched).is_relative_to(self.home), "the runner launched nothing under the home")
+        self.assertEqual(self.copies, [[launched]], "the copy was there while the tests ran")
+        self.assertEqual(result["appPayloadSHA256"], self.digest)
+        copied = result["appCopy"]
+        self.assertEqual((copied["path"], copied["method"], copied["removed"]), (launched, "ditto", True))
+        self.assertEqual((copied["payloadSHA256Before"], copied["payloadSHA256After"]), (self.digest, self.digest))
+        self.assertEqual(copied["originalCDHash"], copied["copyCDHash"])
+        self.assertFalse(Path(launched).exists())
+        self.assertEqual(list(self.cache.iterdir()), [], "the copy's folder went with it")
+        self.assertEqual(self.authority._payload_digest(self.app), self.digest, "the original is untouched")
+
+    def test_a_copy_whose_payload_differs_is_refused_in_words_and_launches_nothing(self):
+        import app_smoke_gate
+        real_copy = app_smoke_gate.copy_app
+
+        def tampered(source, destination):
+            real_copy(source, destination)
+            with (Path(destination) / "Contents/MacOS/Lungfish").open("ab") as handle:
+                handle.write(b"\x00")
+        cases = {"payload": ({"copy_app": {"side_effect": tampered}}, "does not hold the same bytes"),
+                 "code directory hash": ({"code_directory_hash": {"side_effect": lambda app: "a" * 40
+                                          if Path(app) == self.app else "b" * 40}}, "code directory hash")}
+        for name, (patches, words) in cases.items():
+            with self.subTest(name=name):
+                del self.calls[:]
+                output = "evidence-" + name.replace(" ", "-")
+                with self.assertRaises(EvidenceError) as raised:
+                    self.run_gate(self.command(), output=output, **patches)
+                self.assertIn(words, str(raised.exception))
+                self.assertIn("launched nothing", str(raised.exception))
+                self.assertEqual(self.calls, [], "no build, no tool and no test ran")
+                result = self.evidence(output)
+                self.assertIs(result["authorized"], False)
+                self.assertIs(result["appCopy"]["removed"], True)
+                self.assertEqual(list(self.cache.iterdir()), [])
+                self.assertEqual(self.authority._payload_digest(self.app), self.digest)
+
+    def test_the_copy_is_gone_after_a_pass_a_failure_and_sigterm(self):
+        import app_smoke_gate
+        saved = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGHUP)}
+
+        def restore():
+            for number, handler in saved.items():
+                signal.signal(number, signal.SIG_DFL if handler is None else handler)
+        self.addCleanup(restore)
+        # The handlers go in first, so a post below never reaches the default action of either signal.
+        app_smoke_gate.unwind_on_termination()
+        cases = (("pass", {}, None), ("failure", {"failing": "build-ui-runner"}, EvidenceError),
+                 ("SIGTERM", {"during_tests": lambda: os.kill(os.getpid(), signal.SIGTERM)}, KeyboardInterrupt),
+                 ("SIGHUP", {"during_tests": lambda: os.kill(os.getpid(), signal.SIGHUP)}, KeyboardInterrupt))
+        for name, options, raised in cases:
+            with self.subTest(name=name):
+                del self.copies[:]
+                output = "evidence-" + name
+                if raised is None:
+                    self.run_gate(self.command(**options), output=output)
+                else:
+                    with self.assertRaises(raised):
+                        self.run_gate(self.command(**options), output=output)
+                self.assertEqual(list(self.cache.glob("lungfish-app-smoke.*")), [], "the copy is gone")
+                self.assertTrue(self.app.is_dir(), "the original stays")
+                if name != "failure":
+                    self.assertEqual([len(found) for found in self.copies], [1], "one copy ran the tests")
+                if raised is not KeyboardInterrupt:
+                    self.assertIs(self.evidence(output)["appCopy"]["removed"], True)
+
+    def test_a_hung_runner_ends_at_its_limit_with_words(self):
+        tools = self.base / "bin"
+        tools.mkdir()
+        (tools / "xcrun").write_text("#!/bin/sh\necho 26.5\n")
+        for hung, verb in (("build-ui-runner", "build-for-testing"), ("real-app-tests", "test-without-building")):
+            with self.subTest(step=hung):
+                # A fake xcodebuild that holds the hung step, as a privacy prompt at launch holds the real one.
+                (tools / "xcodebuild").write_text('#!/bin/sh\n[ "$1" = %s ] && exec /bin/sleep 600\necho done\n' % verb)
+                for tool in tools.iterdir():
+                    tool.chmod(0o755)
+                output = "evidence-" + hung
+                started = time.monotonic()
+                with patch.dict(os.environ, {"PATH": str(tools) + os.pathsep + os.environ["PATH"]}), \
+                        self.assertRaises(EvidenceError) as raised:
+                    self.run_gate(None, output=output,
+                                  STEP_LIMIT_SECONDS={"new": {"build-ui-runner": 1, "real-app-tests": 1}})
+                self.assertLess(time.monotonic() - started, 30, "the gate ended the hung step at its limit")
+                words = str(raised.exception)
+                self.assertIn(hung, words)
+                self.assertIn("privacy prompt", words)
+                record = next(c for c in self.evidence(output)["commands"] if c["argv"][1] == verb)
+                self.assertEqual(record["intervention"], "timeout")
+                self.assertEqual(list(self.cache.glob("lungfish-app-smoke.*")), [])

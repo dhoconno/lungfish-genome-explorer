@@ -595,6 +595,58 @@ class RefusalTests(PruneTestCase):
         self.assertEqual((outside / "precious").read_text(encoding="utf-8"), "keep")
 
 
+SMOKE_MARKER = ".lungfish-app-smoke-copy.json"
+
+
+class SmokeCopyTests(PruneTestCase):
+    """RELSMOKE (ruling QA-RELEASE-SMOKE-GATE item 4). The app smoke gate copies the candidate into
+    <cache-root>/lungfish-app-smoke.XXXXXX/ with a marker and holds the folder's build lock while it
+    runs. It removes the folder itself after a pass, a failure, SIGTERM and SIGHUP. After a SIGKILL
+    the kernel drops the lock, and the pruner removes what is left."""
+
+    def leftover(self, name: str = "lungfish-app-smoke.k2j3h_x1") -> Path:
+        folder = self.root / name
+        (folder / "app/Lungfish.app/Contents").mkdir(parents=True)
+        (folder / "app/Lungfish.app/Contents/Info.plist").write_bytes(b"\x01" * 4096)
+        (folder / SMOKE_MARKER).write_text("{}\n", encoding="utf-8")
+        (folder / SMOKE_MARKER).chmod(0o600)
+        (folder / LOCK).touch(mode=0o600)
+        return folder
+
+    def test_a_copy_a_killed_smoke_left_is_listed_and_removed(self):
+        self.assertEqual(release_cache_fingerprint.SMOKE_COPY_MARKER, SMOKE_MARKER)
+        namespace = self.namespace(KEY_A, 1, age_days=1)
+        folder = self.leftover()
+
+        code, out, err = self.prune_cache()
+        self.assertEqual((code, err), (0, ""))
+        self.assertTrue(folder.is_dir(), "a dry run deletes nothing")
+        row = next(line for line in out.splitlines() if folder.name in line)
+        self.assertTrue(row.startswith("app smoke copy"), row)
+        self.assertTrue(row.endswith("REMOVE"), row)
+
+        code, out, err = self.prune_cache("--apply")
+        self.assertEqual((code, err), (0, ""))
+        self.assertFalse(folder.exists())
+        self.assertTrue(namespace.is_dir(), "the compiler cache keeps its namespaces")
+
+    def test_a_copy_whose_smoke_still_runs_refuses_the_run(self):
+        folder = self.leftover()
+        with held_lock(folder):
+            code, out, err = self.prune_cache("--apply")
+        self.assertEqual(code, 75)
+        self.assertIn(str(folder), err)
+        self.assertTrue((folder / "app/Lungfish.app/Contents/Info.plist").is_file())
+
+    def test_a_smoke_folder_without_its_marker_is_ignored_and_survives(self):
+        folder = self.leftover()
+        (folder / SMOKE_MARKER).unlink()
+        code, out, err = self.prune_cache("--apply")
+        self.assertEqual((code, err), (0, ""))
+        self.assertTrue((folder / "app/Lungfish.app/Contents/Info.plist").is_file())
+        self.assertTrue(any(line.startswith("ignored") and folder.name in line for line in out.splitlines()))
+
+
 class UsageTests(PruneTestCase):
     def test_bad_arguments_are_usage_errors_that_delete_nothing(self):
         stale = self.namespace(KEY_A, 1, age_days=9)

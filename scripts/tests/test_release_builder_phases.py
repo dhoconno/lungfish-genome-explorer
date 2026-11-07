@@ -25,11 +25,10 @@ class ReleaseBuilderFixture:
     def __init__(self, case: unittest.TestCase, app_smoke_required: bool = True):
         """``app_smoke_required`` defaults to the strict policy so Stable smoke
         binding stays covered. Tests that package the Preview channel pass
-        False, the shipped policy (D6a): with True, Preview packaging fails
-        because the builder runs the smoke only for Stable while the receipt
-        demands it for every channel. That release-code mismatch is pinned by
-        the expectedFailure test
-        test_preview_package_binds_app_smoke_when_policy_requires_it.
+        False, the shipped policy (D6a), which keeps the off route pinned.
+        With True, the builder smokes Stable only and the receipt asks for
+        smoke evidence on Stable only, so a Preview package passes with no
+        evidence (test_preview_package_needs_no_app_smoke_when_policy_requires_it).
         """
         self.case = case
         self.temporary = tempfile.TemporaryDirectory()
@@ -961,26 +960,21 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.fixture = ReleaseBuilderFixture(self, app_smoke_required=False)
         return self.fixture
 
-    @unittest.expectedFailure
-    def test_preview_package_binds_app_smoke_when_policy_requires_it(self):
-        """Known release-code bug (triage R1, found 2026-09-24).
+    def test_preview_package_needs_no_app_smoke_when_policy_requires_it(self):
+        """Triage R1 (found 2026-09-24), fixed by lane RELSMOKE (ruling QA-RELEASE-SMOKE-GATE item 2).
 
-        b35a3c006 widened release-candidate-receipt.py's smoke
-        requirement from Stable-only to every channel whenever
-        gates.appSmokeRequired is true, but build-notarized-dmg.sh still runs
-        app_smoke_gate.py only when "$CHANNEL" = "stable" (the REQUIRE_APP_SMOKE
-        block before the receipt `create` call). So with appSmokeRequired true,
-        `package preview` always fails with "preview requires retained
-        exact-candidate real-app smoke evidence". Latent today because the
-        shipped contract keeps appSmokeRequired false (D6a); it bites as soon
-        as D6a is reversed. Fix: drop the Stable-only guard in the builder and
-        let app_smoke_gate.py (and gate_fixtures.make_app_smoke_fixture, which
-        hard-codes "stable") carry the selected channel; or narrow the receipt
-        back to Stable if Preview smoke is not wanted.
+        The builder runs app_smoke_gate.py for Stable only (the REQUIRE_APP_SMOKE
+        block before the receipt `create` call), so the receipt asks for smoke
+        evidence on Stable only. With appSmokeRequired true, `package preview`
+        passes and binds no smoke evidence. The Preview smoke stays the
+        manager's chain step.
         """
         result = self.fixture.run("--package-only", "--channel", "preview")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertTrue((self.fixture.release / "app-smoke-evidence/app-smoke.result.json").is_file())
+        self.assertFalse((self.fixture.release / "app-smoke-evidence").exists())
+        receipt = json.loads((self.fixture.release / "unsigned-candidate-receipt.json").read_text())
+        self.assertIn("appSmoke", receipt)
+        self.assertIsNone(receipt["appSmoke"])
 
     def _stable_resume_args(self, fixture=None):
         selected = fixture or self.fixture
