@@ -78,8 +78,6 @@ final class InspectorMappingModeTests: XCTestCase {
         vc.readStyleSectionViewModel.maxReadRows = 123
         vc.readStyleSectionViewModel.limitReadRows = true
         vc.readStyleSectionViewModel.verticallyCompressContig = false
-        vc.readStyleSectionViewModel.consensusMinDepth = 21
-        vc.readStyleSectionViewModel.consensusMaskingMinDepth = 13
 
         var deliveredPayload: [AnyHashable: Any]?
         vc.updateMappingAlignmentSection(from: bundle) { payload in
@@ -90,6 +88,12 @@ final class InspectorMappingModeTests: XCTestCase {
         XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.maxReadRows] as? Int, 123)
         XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.limitReadRows] as? Bool, true)
         XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.verticalCompressContig] as? Bool, false)
+
+        // The consensus limits belong to the bundle they are set on (ALIGN-CONSENSUS-SETTINGS-CARRY), so a block that loads its
+        // first bundle starts them at the defaults. A change made after the load reaches the viewport in the next payload.
+        vc.readStyleSectionViewModel.consensusMinDepth = 21
+        vc.readStyleSectionViewModel.consensusMaskingMinDepth = 13
+        vc.readStyleSectionViewModel.onSettingsChanged?()
         XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.consensusMinDepth] as? Int, 21)
         XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.consensusMaskingMinDepth] as? Int, 13)
     }
