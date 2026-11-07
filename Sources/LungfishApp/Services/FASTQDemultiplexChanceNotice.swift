@@ -16,10 +16,17 @@ enum FASTQDemultiplexChanceNotice {
     static let rowPrefix = "Not checked for chance matches. "
 
     static func rowDetail(_ completionDetail: String) -> String {
-        completionDetail
+        rowPrefix + completionDetail
     }
 
+    /// The words of Exact Bare Barcode when the run made a sample file, or nil. A run whose manifest cannot be read
+    /// may have made sample files, so it gets the words (the safe side).
     static func notice(for result: FASTQOperationExecutionResult) -> String? {
-        nil
+        guard case .derivative(.demultiplex(_, _, _, _, _, _, _, let engine, _, _, _), _, _) = result.resolvedRequest,
+              engine == .exactBareBarcode else { return nil }
+        let manifests = (result.importedURLs + [result.groupedContainerURL].compactMap { $0 })
+            .compactMap { DemultiplexManifest.load(from: $0) }
+        let madeASampleFile = manifests.contains { $0.barcodes.contains { $0.readCount > 0 } }
+        return manifests.isEmpty || madeASampleFile ? DemultiplexEngine.exactBareChanceWords : nil
     }
 }

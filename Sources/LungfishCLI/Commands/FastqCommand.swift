@@ -483,6 +483,8 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             provenanceDefaults["threads"] = .integer(4)
         } else if ranEngine == .exactBareBarcode {
             provenanceParameters["searchMode"] = .string("whole-read")
+            // Exact Bare Barcode does not check for chance matches (DEMUX-EXACT-BARE-NO-FLOOR, UX-EXACT-BARE-WORDS).
+            provenanceParameters["chanceCheck"] = .string("none")
             provenanceParameters["searchReverseComplement"] = .boolean(true)
             provenanceParameters["trimBarcodes"] = .boolean(false)
             provenanceParameters["threads"] = .integer(threads)
@@ -588,9 +590,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             ).utf8))
         }
         FileHandle.standardError.write(Data("Barcodes with reads: \(result.manifest.barcodes.filter { $0.readCount > 0 }.count)\n".utf8))
-        if let line = Self.withinChanceSummary((result.chanceFloor?.barcodesWithinChance ?? []).map {
-            (barcodeID: $0.barcodeID, readCount: $0.readCount)
-        }, null: result.chanceFloor?.null ?? .randomBases) {
+        for line in Self.chanceSummaryLines(engine: ranEngine, readCounts: result.manifest.barcodes.map(\.readCount), chanceFloor: result.chanceFloor) {
             FileHandle.standardError.write(Data((line + "\n").utf8))
         }
         FileHandle.standardError.write(Data("Output: \(output)\n".utf8))

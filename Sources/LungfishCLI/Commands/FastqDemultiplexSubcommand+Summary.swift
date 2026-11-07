@@ -22,7 +22,20 @@ extension FastqDemultiplexSubcommand {
     /// The summary line that says Exact Bare Barcode checks no chance matches, or nil for another engine or a run that
     /// made no sample file (DEMUX-EXACT-BARE-NO-FLOOR, ruling UX-EXACT-BARE-WORDS).
     static func exactBareChanceSummary(_ engine: DemultiplexEngine, barcodesWithReads: Int) -> String? {
-        nil
+        engine == .exactBareBarcode && barcodesWithReads > 0 ? DemultiplexEngine.exactBareChanceWords : nil
+    }
+
+    /// The chance lines of the summary, in the order they print: the barcodes within the floor of the Cutadapt search, then
+    /// the words of Exact Bare Barcode, which has no floor. One run prints one of them. It sits here so that
+    /// `FastqCommand.swift`, which is at the file-size limit, does not grow.
+    static func chanceSummaryLines(
+        engine: DemultiplexEngine, readCounts: [Int], chanceFloor: DemultiplexChanceFloor.Outcome?
+    ) -> [String] {
+        let within = (chanceFloor?.barcodesWithinChance ?? []).map { (barcodeID: $0.barcodeID, readCount: $0.readCount) }
+        return [
+            withinChanceSummary(within, null: chanceFloor?.null ?? .randomBases),
+            exactBareChanceSummary(engine, barcodesWithReads: readCounts.filter { $0 > 0 }.count),
+        ].compactMap { $0 }
     }
 
     /// The summary line for barcodes at or below BIO's chance floor, or nil when there are none (DEMUXFLOOR-UX SF1).

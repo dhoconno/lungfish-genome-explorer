@@ -21,9 +21,10 @@ enum FASTQOperationCompletion {
         id: UUID,
         detail: String,
         result: FASTQOperationExecutionResult,
+        warning: Bool = false,
         center: OperationCenter = .shared
     ) -> Bool {
-        complete(id: id, detail: detail, outputURLs: outputURLs(for: result), center: center)
+        complete(id: id, detail: detail, outputURLs: outputURLs(for: result), warning: warning, center: center)
     }
 
     @discardableResult
@@ -31,9 +32,13 @@ enum FASTQOperationCompletion {
         id: UUID,
         detail: String,
         outputURLs: [URL],
+        warning: Bool = false,
         center: OperationCenter = .shared
     ) -> Bool {
-        center.complete(id: id, detail: detail, outputURLs: uniqued(outputURLs))
+        // A run that finishes with a warning keeps its output links, as a FASTQ import that finishes with one does.
+        warning
+            ? center.completeWithWarning(id: id, detail: detail, outputURLs: uniqued(outputURLs))
+            : center.complete(id: id, detail: detail, outputURLs: uniqued(outputURLs))
     }
 
     private static func uniqued(_ urls: [URL]) -> [URL] {
