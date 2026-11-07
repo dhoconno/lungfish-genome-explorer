@@ -133,6 +133,8 @@ extension DemultiplexChanceFloor {
         public private(set) var reads = 0
         /// Windows tallied.
         public private(set) var windows = 0
+        /// False when the tally stopped at compositionReadLimit, so its decoys were counted on fewer reads than the barcodes (BIO-DEMUX-SPARSE-MARGIN).
+        public internal(set) var coversEveryRead = true
         /// Per position, how many windows hold A, C, G and T.
         private(set) var baseCounts: [[Int]]
         /// The windows packed two bits a base, first base highest. Empty when the window is too long to pack.

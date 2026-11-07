@@ -280,6 +280,7 @@ final class DemultiplexChanceFloorTests: XCTestCase {
 
         let single = try await DemultiplexChanceFloor.unassignedStartTallies(fastqURL: url, windowLength: window, paired: false)
         XCTAssertEqual(single.map(\.windows), [41], "a run of single reads tallies every record")
+        XCTAssertEqual(single.map(\.coversEveryRead), [true])
     }
 
     // MARK: - Review fixes (DEMUXNULL-BIO SF2, DEMUXNULL-SWIFT SF1 and SF2)
@@ -325,6 +326,7 @@ final class DemultiplexChanceFloorTests: XCTestCase {
             let tallies = try await DemultiplexChanceFloor.unassignedStartTallies(fastqURL: url, windowLength: window, paired: false)
             XCTAssertEqual(tallies.map(\.reads), [limit], url.lastPathComponent)
             XCTAssertEqual(tallies.map(\.windows), [limit], url.lastPathComponent)
+            XCTAssertEqual(tallies.map(\.coversEveryRead), [false], url.lastPathComponent)
         }
         let open = try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count
         for round in 0..<20 {
@@ -333,5 +335,54 @@ final class DemultiplexChanceFloorTests: XCTestCase {
             )
         }
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count, open, "the tally left files open")
+    }
+
+    // MARK: - A decoy that expects far less than one read (BIO-DEMUX-SPARSE-MARGIN)
+
+    private let sparsePatterns = ["FLD0001": ["^GTATCGTCGT"]]
+
+    /// 1,500 random reads tallied for a 10-base exact barcode. Each of its 1,000 decoys expects about 0.0014 reads.
+    private func sparseTally(seed: UInt64) -> DemultiplexChanceFloor.StartTally {
+        var generator = DemuxFloorSeededGenerator(seed: seed)
+        var tally = DemultiplexChanceFloor.StartTally(
+            windowLength: DemultiplexChanceFloor.startWindowLength(patterns: sparsePatterns, errorRate: 0)
+        )
+        for _ in 0..<1_500 { tally.add(DemuxFloorFixtures.randomBases(40, using: &generator)) }
+        return tally
+    }
+
+    /// The floor for the lone barcode with 5 reads among 1,505 searched, 1,500 of them unassigned.
+    private func sparseOutcome(_ tally: DemultiplexChanceFloor.StartTally) -> DemultiplexChanceFloor.Outcome {
+        DemultiplexChanceFloor.evaluate(
+            patterns: sparsePatterns, counts: ["FLD0001": 5], readsSearched: 1_505, unassigned: 1_500, errorRate: 0,
+            allowsIndels: true, pairedFragments: false, unassignedStarts: [tally]
+        )
+    }
+
+    /// One chance read on one decoy must not set the margin. A decoy of a 10-base exact barcode expects 0.0014 reads in 1,500,
+    /// so when one read lands on one of the 1,000 decoys (15 seeds in 20 at the base) its ratio is 566 to 1,083 and the
+    /// margin of random reads jumped from 2 to that, which asked 10 or 11 reads of a barcode that 3 beat. Only a decoy whose
+    /// reads chance at twice its share does not explain sets the margin (the lane's 614).
+    func testOneChanceReadOnOneDecoyDoesNotSetTheMargin() {
+        var marginTwo = 0
+        var beating = 0
+        var margins: [String] = []
+        for seed in 2_000..<2_020 {
+            let outcome = sparseOutcome(sparseTally(seed: UInt64(seed)))
+            if outcome.margin == 2 { marginTwo += 1 }
+            if outcome.barcodes.first(where: { $0.barcodeID == "FLD0001" })?.beatsTheFloor == true { beating += 1 }
+            margins.append("\(seed): \(outcome.margin)")
+        }
+        print("DEMUXSPARSE margin 2 in \(marginTwo) of 20 seeds, 5 reads beat the floor in \(beating)")
+        XCTAssertGreaterThanOrEqual(marginTwo, 18, "seeds with margin 2: \(marginTwo) of 20, margins \(margins)")
+        XCTAssertGreaterThanOrEqual(beating, 18, "seeds where 5 reads beat the floor: \(beating) of 20")
+    }
+
+    /// A tally cut at the read limit counted its decoys on fewer reads than the barcodes, so there every decoy sets the margin
+    /// as before. Seed 2,000 holds a decoy read, and its margin is 566 under that rule.
+    func testATallyCutAtTheReadLimitKeepsEveryDecoy() {
+        var tally = sparseTally(seed: 2_000)
+        tally.coversEveryRead = false
+        XCTAssertGreaterThan(sparseOutcome(tally).margin, 100, "a tally cut at the read limit keeps the largest decoy ratio")
     }
 }
