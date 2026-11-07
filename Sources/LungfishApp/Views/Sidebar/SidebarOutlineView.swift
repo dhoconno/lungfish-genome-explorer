@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import os
 
 /// The sidebar's outline view.
 ///
@@ -13,15 +14,17 @@ import AppKit
 /// the outline is not the first responder. A click or a key in the outline needs no mark, because the outline is then
 /// the first responder.
 final class SidebarOutlineView: NSOutlineView {
-    private var explicitSelectionDepth = 0
+    /// How many explicit scopes are open now. A lock holds it, because the accessibility attribute override below is
+    /// not main-actor isolated and the concurrency-hatches ratchet allows no new `MainActor.assumeIsolated`.
+    private nonisolated let explicitSelectionDepth = OSAllocatedUnfairLock(initialState: 0)
 
     /// True while a selection a person asked for is being made.
-    var isMakingExplicitSelection: Bool { explicitSelectionDepth > 0 }
+    var isMakingExplicitSelection: Bool { explicitSelectionDepth.withLock { $0 > 0 } }
 
     /// Runs `body`, whose selection change a person asked for, with the explicit mark set.
     func withExplicitSelection<T>(_ body: () throws -> T) rethrows -> T {
-        explicitSelectionDepth += 1
-        defer { explicitSelectionDepth -= 1 }
+        explicitSelectionDepth.withLock { $0 += 1 }
+        defer { explicitSelectionDepth.withLock { $0 -= 1 } }
         return try body()
     }
 
@@ -43,9 +46,9 @@ final class SidebarOutlineView: NSOutlineView {
     /// NSTableView selects from it without calling `setAccessibilitySelectedRows`, so it is marked explicit here too.
     override func accessibilitySetValue(_ value: Any?, forAttribute attribute: NSAccessibility.Attribute) {
         guard attribute == .selectedRows else { return super.accessibilitySetValue(value, forAttribute: attribute) }
-        // The attribute API is not main-actor isolated, but AppKit sends it on the main thread.
-        MainActor.assumeIsolated { explicitSelectionDepth += 1 }
-        defer { MainActor.assumeIsolated { explicitSelectionDepth -= 1 } }
+        // The attribute API is not main-actor isolated, so the depth sits behind a lock, not behind a main-actor hop.
+        explicitSelectionDepth.withLock { $0 += 1 }
+        defer { explicitSelectionDepth.withLock { $0 -= 1 } }
         super.accessibilitySetValue(value, forAttribute: attribute)
     }
 }
