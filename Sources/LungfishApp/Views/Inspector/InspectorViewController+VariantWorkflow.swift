@@ -148,8 +148,7 @@ extension InspectorViewController {
 
                     DispatchQueue.main.async { [weak self] in
                         MainActor.assumeIsolated {
-                            let detail = Self.variantCallingCompletionDetail(for: result)
-                            guard OperationCenter.shared.complete(id: opID, detail: detail) else { return }
+                            guard Self.completeVariantCallingRow(opID, bundleURL: bundleURL, result: result) else { return }
                             if let self, let split = self.parent as? MainSplitViewController {
                                 split.sidebarController.requestReloadFromFilesystem()
                                 do {
