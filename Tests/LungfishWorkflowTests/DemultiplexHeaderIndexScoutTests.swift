@@ -282,10 +282,10 @@ final class DemultiplexHeaderIndexScoutConformanceTests: XCTestCase {
 
     /// BIO-DETECT-BASES-UNDERCOUNT: a custom definition with one inline barcode a sample (a GBS or ddRAD key) is counted in
     /// the read bases as the run splits it. Detect wrote the linked spec `BARCODE...revcomp(BARCODE)` for it, so it counted
-    /// only the reads that also hold the barcode's reverse complement later on: 3 and 2 of 500 at the default rate, both
-    /// marked rejected, while the run splits the file 500 and 500. (a) Detect counts every read that starts with its barcode,
-    /// (b) it agrees with the run, and (c) it finds no barcode in reads of pure chance, so a fix that drops the anchor at the
-    /// read's 5' end (12 and 9 chance hits in 1,000 random reads) is red.
+    /// only the reads that also hold the barcode's reverse complement later on: 4 and 5 of 500 at the default rate on this
+    /// fixture, none accepted, while the run splits the file 500 and 500. (a) Detect counts every read that starts with its
+    /// barcode, (b) it agrees with the run, and (c) it finds no barcode in reads of pure chance, so a fix that drops the
+    /// anchor at the read's 5' end (63 and 73 chance hits in 10,000 random reads at seed 11, over the 10 to accept) is red.
     func testDetectOfACustomInlineKeyCountsWhatTheRunSplits() async throws {
         guard await NativeToolRunner.shared.isToolAvailable(.cutadapt),
               await NativeToolRunner.shared.isToolAvailable(.seqkit) else {
@@ -322,7 +322,7 @@ final class DemultiplexHeaderIndexScoutConformanceTests: XCTestCase {
 
         // (c) Reads of pure chance hold no barcode of the key, so the anchor at the read's start stays.
         let random = project.appendingPathComponent("chance.fastq")
-        try DemuxFloorFixtures.write(names: (0..<1_000).map { "n\($0)" }, seed: 11, to: random)
+        try DemuxFloorFixtures.write(names: (0..<10_000).map { "n\($0)" }, seed: 11, to: random)
         let chance = try await DemultiplexingPipeline().scout(inputURL: random, kit: kit, progress: { _, _ in })
         XCTAssertTrue(chance.acceptedDetections.isEmpty, "random reads accept no barcode: \(counts(chance))")
     }
