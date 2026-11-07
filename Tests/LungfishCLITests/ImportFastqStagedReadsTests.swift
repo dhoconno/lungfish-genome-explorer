@@ -43,10 +43,6 @@ final class ImportFastqStagedReadsTests: XCTestCase {
     ]
     private static let digest = String(repeating: "e", count: 64)
 
-    /// The SHA-256 of `README.txt` that a batch of reads on the Mac named `batch` gets, in the staging folder above,
-    /// with the image `lge-tools-test.sif`. It moved from d549cc1fd397 once, in ruling X6 R-README (`listed`, step 1).
-    private static let baseReadmeSHA256 = "b13aadd4a75cc1607d0a528cfccabcf51bd1c70243dbb9d8ebf19e514f54a63f"
-
     // MARK: What a staged plan writes
 
     /// The plan pins each read by the list's SHA-256 and size and names it by its own file name, and the sample's original
@@ -199,9 +195,44 @@ final class ImportFastqStagedReadsTests: XCTestCase {
         XCTAssertTrue(readme.contains("The name of a file in shared/ starts with its SHA-256, so a file already there with the listed size is the same file. Leave it, and never copy over it, since the jobs of other batches may be reading it."), readme)
     }
 
-    /// ARCH 7. A batch of reads on the Mac keeps the base's README byte for byte, and a batch of staged reads differs from
-    /// it only in the two sentences.
-    func testReadmeWithoutStagedReadsIsUnchanged() async throws {
+    /// A README says a point when all the fragments of the point sit inside a window of three sentences of its lowercased
+    /// text, so a check follows the meaning and not the phrasing (Phase 3.3 lane P3WORDS, row CHTC-README).
+    private static func readmeSays(_ readme: String, _ point: String, _ fragments: [String], line: UInt = #line) {
+        let sentences = readme.lowercased().components(separatedBy: ". ")
+        let found = sentences.indices.contains { start in
+            let window = sentences[start..<min(start + 3, sentences.count)].joined(separator: ". ")
+            return fragments.allSatisfy { window.contains($0) }
+        }
+        XCTAssertTrue(found, "The README does not say \(point): \(fragments)", line: line)
+    }
+
+    /// The points of rows P3-R4 to P3-R9 that hold for both READMEs, since the way home and the local route are the same
+    /// for a batch of reads on the Mac and a batch of staged reads (ruling ARCH-P3WORDS, item 10).
+    private static func assertReadmeSaysTheSharedPoints(_ readme: String) {
+        readmeSays(readme, "R4, RSYNC_RSH or rsync -e for a host that needs ssh -F", ["rsync_rsh", "rsync -e", "ssh -f"])
+        readmeSays(readme, "R4, the measured size and time of the copy home", ["4.96 gb", "1 min 54 s", "measured example"])
+        readmeSays(readme, "R4, a transfer host for larger batches, untested",
+                   ["transfer.chtc.wisc.edu", "netid", "duo", "untested"])
+        readmeSays(readme, "R5, an HTCondor result/ holds no logs/", ["run-local.sh", "htcondor result/ holds no logs/"])
+        readmeSays(readme, "R6, the adopt makes a project when none is at <project>",
+                   ["no project is at <project>", "the adopt makes one"])
+        readmeSays(readme, "R7, the adopt copies each payload and leaves the returned copy, so the Mac needs the space twice",
+                   ["copies each payload", "returned copy", "twice", "<sample>/out/", "deleted"])
+        readmeSays(readme, "R7, the second copy shares the space on one APFS volume", ["one apfs volume", "shares the space"])
+        readmeSays(readme, "R8, when the sample result folders may be removed",
+                   ["may be removed", "result/", "adopt has finished"])
+        readmeSays(readme, "R9, step 2 of the local route copies nothing when the staging folder is the data folder, "
+                   + "and copies a shared/ file of another size again",
+                   ["copies nothing", "data folder", "shared/", "another size", "copy it again"])
+        XCTAssertTrue(readme.contains("export RSYNC_RSH='ssh -F <config file>'"), "RSYNC_RSH is exported on a line of its own")
+        XCTAssertFalse(readme.contains("copy the result/ folder"), "step 3 copies the files inside result/, as step 2 does")
+    }
+
+    /// ARCH 7 kept the README of a batch of reads on the Mac byte for byte, by its SHA-256, while the staged route landed.
+    /// That route has landed, so the pin is by meaning (Phase 3.3 lane P3WORDS, ruling ARCH-P3WORDS, item 12). A batch of
+    /// reads on the Mac says the points that hold for both batches, none that belong to staged reads, and keeps the
+    /// sentences of ruling X6. Both READMEs keep their four sections and the commands in them.
+    func testMacReadmeSaysTheSharedPointsAndNoStagedOne() async throws {
         let fixture = try writeFixture()
         let macReads = try writeMacPair("S1")
         let macFolder = root.appendingPathComponent("mac/batch", isDirectory: true)
@@ -209,60 +240,50 @@ final class ImportFastqStagedReadsTests: XCTestCase {
         try await ImportCommand.FastqSubcommand.parse(
             macReads.map(\.path) + fixture.planArguments(folder: macFolder) + Fixture.settings
         ).run()
-        let mac = try Data(contentsOf: macFolder.appendingPathComponent("README.txt"))
-        XCTAssertEqual(PortableDigest.sha256Hex(of: mac), Self.baseReadmeSHA256, "The README of a batch of Mac reads moved")
+        let mac = Self.collapsed(try String(contentsOf: macFolder.appendingPathComponent("README.txt"), encoding: .utf8))
+
+        Self.assertReadmeSaysTheSharedPoints(mac)
+        // The ruling's fourth phrase, "at its stagingpath", is also in step 2 of the local route (the red run showed it), so
+        // the staged-only phrase is the one of R1, which names a read of the batch.
+        for stagedOnly in ["--staged-reads", "no source on the mac", "staged reads", "read of the batch is at its stagingpath"] {
+            XCTAssertFalse(mac.lowercased().contains(stagedOnly), "The Mac README holds a point of staged reads: \(stagedOnly)")
+        }
+        for sentence in Self.macReadmeSentences + [
+            "The name of a file in shared/ starts with its SHA-256, so a file already there with the listed size is the same file.",
+        ] {
+            XCTAssertTrue(mac.contains(sentence), "The Mac README lost: \(sentence)")
+        }
 
         let stagedFolder = root.appendingPathComponent("staged/batch", isDirectory: true)
         try FileManager.default.createDirectory(at: stagedFolder.deletingLastPathComponent(), withIntermediateDirectories: true)
         try await ImportCommand.FastqSubcommand.parse(fixture.stagedArguments(folder: stagedFolder)).run()
-        var staged = Self.collapsed(try String(contentsOf: stagedFolder.appendingPathComponent("README.txt"), encoding: .utf8))
-        for (new, old) in zip(Self.stagedReadmeSentences, Self.macReadmeSentences) {
-            XCTAssertTrue(staged.contains(new), new)
-            staged = staged.replacingOccurrences(of: new, with: old)
-        }
-        // Phase 3.3 lane P3WORDS (row CHTC-README): the nine points add to a staged README and reword the passages they
-        // correct, so it no longer equals the base with two sentences swapped. It keeps the four sections and their commands.
-        for kept in ["Run on an HTCondor pool", "If a sample's job is held", "Run on one machine with Apptainer or Docker",
-                     "Bring the results back to the Mac", "condor_submit_dag run.dag", "condor_rm <ClusterId>.<ProcId>",
-                     "sh run-local.sh --runtime apptainer --data <data folder>",
-                     "lungfish-cli import fastq batch --adopt --project <project>"] {
-            XCTAssertTrue(staged.contains(kept), "The staged README lost: \(kept)")
+        let staged = Self.collapsed(try String(contentsOf: stagedFolder.appendingPathComponent("README.txt"), encoding: .utf8))
+        for readme in [mac, staged] {
+            for kept in ["Run on an HTCondor pool", "If a sample's job is held", "Run on one machine with Apptainer or Docker",
+                         "Bring the results back to the Mac", "condor_submit_dag run.dag", "condor_rm <ClusterId>.<ProcId>",
+                         "sh run-local.sh --runtime apptainer --data <data folder>",
+                         "lungfish-cli import fastq batch --adopt --project <project>"] {
+                XCTAssertTrue(readme.contains(kept), "A README lost: \(kept)")
+            }
         }
     }
 
-    /// Phase 3.3 lane P3WORDS, row CHTC-README (P3-R1 to P3-R9). The README that a staged plan writes says each of nine
-    /// points, found by meaning: a few words of the point inside a window of three sentences, whatever the phrasing.
+    /// Phase 3.3 lane P3WORDS, row CHTC-README (P3-R1 to P3-R9). The README that a staged plan writes says each of the nine
+    /// points, found by meaning, whatever the phrasing. R4 to R9 are the points that both READMEs share.
     func testStagedReadmeSaysTheNinePointsOfRowCHTCReadme() async throws {
         let fixture = try writeFixture()
         let folder = root.appendingPathComponent("batch", isDirectory: true)
         try await ImportCommand.FastqSubcommand.parse(fixture.stagedArguments(folder: folder)).run()
         let readme = Self.collapsed(try String(contentsOf: folder.appendingPathComponent("README.txt"), encoding: .utf8))
-        let sentences = readme.lowercased().components(separatedBy: ". ")
-        func says(_ point: String, _ fragments: [String], line: UInt = #line) {
-            let found = sentences.indices.contains { start in
-                let window = sentences[start..<min(start + 3, sentences.count)].joined(separator: ". ")
-                return fragments.allSatisfy { window.contains($0) }
-            }
-            XCTAssertTrue(found, "The README does not say \(point): \(fragments)", line: line)
-        }
-        says("R1, check each staged read before the submit and leave the reads until every job has run",
-             ["each read", "stagingpath", "every job has run", "no run record"])
-        says("R2, r1 and r2 are absolute staging paths, each with a row of the list",
-             ["--staged-reads", "absolute", "r1 and r2", "bytes", "sha256"])
-        says("R3, a local run takes the reads from the staging folder, and the measured size is an example",
-             ["local run", "from the staging folder", "no source on the mac", "34.6 gb", "measured example"])
-        says("R4, RSYNC_RSH or rsync -e for a host that needs ssh -F", ["rsync_rsh", "rsync -e", "ssh -f"])
-        says("R4, the measured size and time of the copy home", ["4.96 gb", "1 min 54 s", "measured example"])
-        says("R4, a transfer host for larger batches, untested", ["transfer.chtc.wisc.edu", "netid", "duo", "untested"])
-        says("R5, an HTCondor result/ holds no logs/", ["run-local.sh", "htcondor result/ holds no logs/"])
-        says("R6, the adopt makes a project when none is at <project>",
-             ["no project is at <project>", "the adopt makes one"])
-        says("R7, the adopt copies each payload and leaves the returned copy, so the Mac needs the space twice",
-             ["copies each payload", "returned copy", "twice", "<sample>/out/", "deleted"])
-        says("R8, when the sample result folders and the staged reads may be removed",
-             ["may be removed", "staged reads", "result/", "adopt has finished"])
-        says("R9, step 2 of the local route copies nothing when the staging folder is the data folder, and copies a shared/ file of another size again",
-             ["copies nothing", "data folder", "shared/", "another size", "copy it again"])
+        Self.readmeSays(readme, "R1, check each staged read before the submit and leave the reads until every job has run",
+                        ["each read", "stagingpath", "every job has run", "no run record"])
+        Self.readmeSays(readme, "R2, r1 and r2 are absolute staging paths, each with a row of the list",
+                        ["--staged-reads", "absolute", "r1 and r2", "bytes", "sha256"])
+        Self.readmeSays(readme, "R3, a local run takes the reads from the staging folder, and the measured size is an example",
+                        ["local run", "from the staging folder", "no source on the mac", "34.6 gb", "measured example"])
+        Self.readmeSays(readme, "R8, when the staged reads may be removed",
+                        ["may be removed", "staged reads", "result/", "adopt has finished"])
+        Self.assertReadmeSaysTheSharedPoints(readme)
     }
 
     /// The dry run names each read by its full staging path, says in the line before its last that each job checks the
