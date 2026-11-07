@@ -141,6 +141,33 @@ final class DemultiplexHeaderIndexSplitTests: XCTestCase {
         }
     }
 
+    /// UX SF3: a Read Names run whose names carry no index of the kit stops in words and publishes nothing, so a person
+    /// is not left with every read in Unassigned and no sentence that says why or what to try.
+    func testReadNamesRunOnNamesWithNoIndexOfTheKitEndsInWordsAndPublishesNothing() async throws {
+        let kit = BarcodeKitRegistry.truseqSingleA
+        for barcode in kit.barcodes {
+            XCTAssertGreaterThan(DemuxFloorFixtures.mismatches("GGGGGGGG", barcode.i7Sequence), 2, barcode.id)
+        }
+        let input = root.appendingPathComponent("no-index.fastq")
+        try DemuxFloorFixtures.write(names: (0..<200).map { "r\($0) 1:N:0:GGGGGGGG" }, seed: 14, to: input)
+        let output = root.appendingPathComponent("out", isDirectory: true)
+        let config = DemultiplexConfig(
+            inputURL: input, barcodeKit: kit, outputDirectory: output, errorRate: 0.15, threads: 1, engine: .headerIndex
+        )
+        do {
+            _ = try await DemultiplexingPipeline().run(config: config, progress: { _, _ in })
+            XCTFail("the run published a result with every read in Unassigned")
+        } catch {
+            XCTAssertTrue(String(describing: error).hasPrefix("noReadNameIndex("), "\(error)")
+            let words = error.localizedDescription
+            XCTAssertTrue(words.hasPrefix("No read name carried an index of \(kit.displayName)"), words)
+            XCTAssertTrue(words.hasSuffix("or import this file as one sample."), words)
+        }
+        let bundles = ((try? FileManager.default.contentsOfDirectory(atPath: output.path)) ?? [])
+            .filter { $0.hasSuffix(".\(FASTQBundle.directoryExtension)") }
+        XCTAssertEqual(bundles, [], "no bundle is published")
+    }
+
     /// Both Ends anchors the two indexes of a search of the read bases. The split by the names searches no base, so a
     /// dual plate at 5' End splits by its names, and the same plate on names with no index still refuses (Finding 2).
     func testDualPlateAtFivePrimeEndSplitsByItsNames() async throws {
