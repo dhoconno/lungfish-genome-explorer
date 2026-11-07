@@ -230,8 +230,8 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
     var overlap: Int = 3
 
     @Option(name: .customLong("engine"),
-            help: "Demultiplexing engine: cutadapt or exact-bare")
-    var engine: String = DemultiplexEngine.cutadapt.rawValue
+            help: "Demultiplexing engine: cutadapt or exact-bare. Without it, reads whose names carry the kit's index stop with words, and other reads are searched with cutadapt")
+    var engine: String?
 
     @Flag(name: .customLong("no-trim"),
           help: "Cutadapt only: keep barcode sequences in output reads (exact-bare always preserves reads)")
@@ -303,15 +303,21 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             throw ValidationError("Invalid barcode location '\(location)'. Use: 5prime, 3prime, bothends")
         }
 
-        let demultiplexEngine: DemultiplexEngine
-        switch engine.lowercased() {
+        // With no --engine the route owner reads the first read names in the preflight below (L4 of the 3.3 tally).
+        // Its one route that runs until the split by the read-name index lands is cutadapt's search of the read
+        // sequences, which the recorded command and the record then name.
+        let requestedEngine: DemultiplexEngine?
+        switch engine?.lowercased() {
+        case nil:
+            requestedEngine = nil
         case "cutadapt":
-            demultiplexEngine = .cutadapt
+            requestedEngine = .cutadapt
         case "exact-bare", "exact-bare-barcode", "exactbare", "bare":
-            demultiplexEngine = .exactBareBarcode
+            requestedEngine = .exactBareBarcode
         default:
-            throw ValidationError("Invalid demultiplexing engine '\(engine)'. Use: cutadapt or exact-bare")
+            throw ValidationError("Invalid demultiplexing engine '\(engine ?? "")'. Use: cutadapt or exact-bare")
         }
+        let demultiplexEngine = requestedEngine ?? .cutadapt
         let effectiveTrimBarcodes = demultiplexEngine == .exactBareBarcode ? false : !noTrim
 
         if demultiplexEngine == .cutadapt, barcodeKit.searchesFullPlatformConstruct,
@@ -339,7 +345,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
                 trimBarcodes: effectiveTrimBarcodes,
                 unassignedDisposition: discardUnassigned ? .discard : .keep,
                 threads: threads,
-                engine: demultiplexEngine,
+                engine: requestedEngine,
                 // FASTA execution uses a synthetic FASTQ solely inside the tool boundary.
                 // Publish complete FASTA bundles instead of virtual synthetic-quality previews.
                 rootBundleURL: fastaInput ? nil : rootBundleURL,
@@ -395,6 +401,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
                 cliArguments += ["--threads", String(threads)]
             }
         } else {
+            cliArguments += ["--engine", demultiplexEngine.rawValue]
             if location != "bothends" {
                 cliArguments += ["--location", location]
             }
@@ -452,12 +459,15 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             "customBarcodeKit": customKitURL.map(ParameterValue.file) ?? .null,
             "output": .file(outputURL),
             "engine": .string(demultiplexEngine.rawValue),
+            "indexSource": .string("read-sequences"),
             "inputFormat": .string((inputSequenceFormat ?? .fastq).rawValue),
             "outputFormat": .string((inputSequenceFormat ?? .fastq).rawValue),
             "discardUnassigned": .boolean(discardUnassigned),
         ]
         var provenanceDefaults: [String: ParameterValue] = [
-            "engine": .string(DemultiplexEngine.cutadapt.rawValue),
+            // No default engine: the route owner chooses when --engine is left out, and the record names the engine
+            // that ran (L4).
+            "engine": .null,
             "discardUnassigned": .boolean(false),
             "customBarcodeKit": .null,
         ]

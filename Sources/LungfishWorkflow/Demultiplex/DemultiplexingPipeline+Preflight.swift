@@ -42,6 +42,13 @@ extension DemultiplexingPipeline {
         guard FileManager.default.fileExists(atPath: inputFASTQ.path) else {
             throw DemultiplexError.inputFileNotFound(inputFASTQ)
         }
+        // With no engine named, the route owner reads the first read names (L1 of the 3.3 tally). Until the split
+        // by the read-name index lands, reads whose names carry the kit's index stop here, before any tool starts.
+        switch await DemultiplexSearchRouteOwner.route(for: config, input: inputFASTQ) {
+        case .headerIndex: throw DemultiplexError.readNameIndexNotSplitYet
+        case .refuse(let words): throw DemultiplexError.searchRouteRefused(words)
+        case .inline: break
+        }
         if config.symmetryMode == .asymmetric && !config.sampleAssignments.isEmpty {
             let resolvesABarcodePair = config.sampleAssignments.contains { assignment in
                 resolveSequence(

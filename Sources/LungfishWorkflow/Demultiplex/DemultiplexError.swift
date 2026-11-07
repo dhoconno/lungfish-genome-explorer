@@ -23,9 +23,17 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     case binCountExceeded(count: Int, limit: Int)
     case exactBareBarcodeUnsupported
     case fileSetNeedsInterleaving(bundleName: String, fileNames: [String])
+    /// The read names carry the kit's index, which no run splits by yet (the floor of L1, 3.3 tally).
+    case readNameIndexNotSplitYet
+    /// ``DemultiplexSearchRouteOwner`` refused the run, for the reason the words give.
+    case searchRouteRefused(String)
 
     public var errorDescription: String? {
         switch self {
+        case .readNameIndexNotSplitYet:
+            return "These reads carry their index in the read names. Demultiplex Barcodes searches the read sequences and cannot split them by that index yet, so it did not start and wrote no files. Get one FASTQ file per sample, as bcl2fastq or BCL Convert writes them from the run's sample sheet, and import those."
+        case .searchRouteRefused(let words):
+            return words
         case .inputFileNotFound(let url):
             return "Input FASTQ not found: \(url.lastPathComponent)"
         case .cutadaptFailed(let code, let stderr):

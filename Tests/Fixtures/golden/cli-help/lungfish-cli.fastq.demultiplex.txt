@@ -81,8 +81,10 @@ OPTIONS:
                           Cutadapt maximum error rate for barcode matching
                           (default: 0.15)
   --overlap <overlap>     Cutadapt minimum overlap length (default: 3)
-  --engine <engine>       Demultiplexing engine: cutadapt or exact-bare
-                          (default: cutadapt)
+  --engine <engine>       Demultiplexing engine: cutadapt or exact-bare.
+                          Without it, reads whose names carry the kit's index
+                          stop with words, and other reads are searched with
+                          cutadapt
   --no-trim               Cutadapt only: keep barcode sequences in output reads
                           (exact-bare always preserves reads)
   --discard-unassigned    Discard reads that do not match any barcode

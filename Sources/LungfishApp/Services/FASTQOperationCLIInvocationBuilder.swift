@@ -659,8 +659,9 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 "--max-distance-5prime", "\(maxDistanceFrom5Prime)",
                 "--max-distance-3prime", "\(maxDistanceFrom3Prime)",
                 "--error-rate", String(format: "%.2f", errorRate),
-                "--engine", engine.rawValue,
             ]
+            // The dialog's default engine writes no --engine, so the run asks the route owner, which reads the read
+            // names before it searches the bases (L4 of the 3.3 tally). Exact Bare Barcode, picked, is written above.
             if !trimBarcodes { arguments.append("--no-trim") }
             return arguments
         case .orient(let referenceURL, let wordLength, let dbMask, let saveUnoriented, let extraArguments):
