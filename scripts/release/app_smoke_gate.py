@@ -408,11 +408,7 @@ class AccountPreferencesGuard:
         self.evidence = {"guardedDomains": self.domains, "journal": str(self.journal)}
 
     def __enter__(self):
-        running = self.running_lungfish()
-        if running:
-            raise EvidenceError("Lungfish is running (%s). Quit every copy of Lungfish and run the smoke again, "
-                                "since the gate moves the account's Lungfish preferences aside while it runs."
-                                % ", ".join(running))
+        self.refuse_running()
         if self.journal.exists():
             self.restore()
             raise EvidenceError("An earlier smoke run stopped before it restored the account's Lungfish preferences. "
@@ -564,6 +560,14 @@ class AccountPreferencesGuard:
             raise EvidenceError("lsappinfo could not list the running apps, so the gate cannot tell whether "
                                 "Lungfish runs: " + output.strip())
         return sorted(set(RUNNING_LUNGFISH.findall(output)))
+
+    def refuse_running(self):
+        """The first check of __enter__, which `package stable` also runs before its build (package_preflight)."""
+        running = self.running_lungfish()
+        if running:
+            raise EvidenceError("Lungfish is running (%s). Quit every copy of Lungfish and run the smoke again, "
+                                "since the gate moves the account's Lungfish preferences aside while it runs."
+                                % ", ".join(running))
 
     def export(self, domain, path):
         status, output = self.runner(["defaults", "export", domain, str(path)])
@@ -760,6 +764,43 @@ def refuse_timeout(record, step):
         raise EvidenceError(limit_words(step))
 
 
+SESSION_WORDS = "real-app smoke requires the active logged-in graphical user with the screen unlocked"
+CAFFEINATE = "/usr/bin/caffeinate"
+
+
+def package_preflight(runner=None):
+    """RELSMOKE item E (ruling QA-RELEASE-SMOKE-GATE item 6). `release.py package stable` with gates.appSmokeRequired
+    runs these two checks of `run` before it builds anything, so a locked screen or an open Lungfish refuses in
+    seconds with the gate's own words instead of after the archive and the gates. `run` checks both again."""
+    with tempfile.TemporaryDirectory(prefix="lungfish-smoke-preflight-") as folder:
+        session = graphical_session(Path(folder))
+    if not session["active"]:
+        raise EvidenceError(SESSION_WORDS)
+    AccountPreferencesGuard(session["accountHome"], ACCOUNT_DOMAINS, runner=runner or run_tool).refuse_running()
+
+
+def hold_awake():
+    """`caffeinate -d -i -u -w <gate pid>` (ruling QA-RELEASE-SMOKE-GATE item 6) asks macOS to keep the display and
+    the system awake while the gate runs. `-w` ends it with the gate, a SIGKILL included, and `run` ends it in its
+    finally. Whether it stops the screen lock is not measured, so a lock during the run still ends red with words.
+    None where there is no caffeinate."""
+    if not os.access(CAFFEINATE, os.X_OK):
+        return None
+    return subprocess.Popen([CAFFEINATE, "-d", "-i", "-u", "-w", str(os.getpid())], stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def release_awake(process):
+    if process is None or process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
 def run(args):
     home = account_home()
     refuse_protected_derived_data(args.derived_data, home)
@@ -782,10 +823,12 @@ def run(args):
               "appPayloadSHA256": payload,
               "selectedTests": identifiers, "startedAt": now(), "runtime": runtime_identity(),
               "commands": [], "files": [], "errors": [], "authorized": False}
+    awake = None
     try:
         result["graphicalSession"] = session = graphical_session(candidate_home)
         if not session["active"]:
-            raise EvidenceError("real-app smoke requires the active logged-in graphical user with the screen unlocked")
+            raise EvidenceError(SESSION_WORDS)
+        awake = hold_awake()
         validate_isolated_session(session, contract)
         launched = candidate.make(receipt_authority(root)._payload_digest, payload)
         result["appPath"] = str(launched)
@@ -861,6 +904,7 @@ def run(args):
     finally:
         # After the guard has seen the last candidate quit. A KeyboardInterrupt from SIGTERM or SIGHUP passes the
         # except above and still reaches this line.
+        release_awake(awake)
         failure = candidate.remove()
         if failure:
             result["errors"].append(failure)

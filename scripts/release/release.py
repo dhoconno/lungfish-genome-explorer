@@ -2051,6 +2051,7 @@ class LocalReleaseOperations:
     def doctor_package(self, request: ReleaseRequest) -> None:
         # This is the coordinator's request-level gate. The builder repeats the
         # Doctor at its destructive mutation boundary as defense for direct use.
+        self._preflight_app_smoke(request)
         archive, derived, release_dir = self._paths(request)
         selected_cache = self._cache_paths(request)
         scratch = selected_cache.swiftpm
@@ -2083,6 +2084,24 @@ class LocalReleaseOperations:
         if self.contract.gates.dependencyPolicy == "installed":
             verify_dependency_receipt_file(self.root, request.dependency_receipt)
             self._managed_gate_python(request)
+
+    def _preflight_app_smoke(self, request: ReleaseRequest) -> None:
+        """RELSMOKE item E (ruling QA-RELEASE-SMOKE-GATE item 6). The builder runs
+        the real-app smoke near its end, so a Stable package that needs it runs
+        the gate's session and running-app checks first and refuses in seconds."""
+        if request.channel != "stable" or not self.contract.gates.appSmokeRequired:
+            return
+        # Imported here, since only this route needs the gate, and fixtures that
+        # copy release.py for other routes need not carry it.
+        from app_smoke_gate import package_preflight
+        try:
+            package_preflight()
+        except EvidenceError as error:
+            raise ReleaseError(
+                "package stable stopped before the build, since gates.appSmokeRequired "
+                "runs the real-app smoke and its check refused. "
+                + str(error).rstrip(".") + ". Fix that, then run package stable again."
+            ) from error
 
     def _managed_gate_python(self, request: ReleaseRequest) -> Path:
         candidate = request.dependency_receipt.parent / "parity-python" / "bin" / "python3"
