@@ -514,6 +514,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         if let floor = result.chanceFloor {
             provenanceParameters["chanceFloor"] = .dictionary([
                 "kitTail": .number(DemultiplexChanceFloor.kitTail),
+                "chanceTrials": .integer(floor.chanceTrials),
                 "barcodesWithinChance": .dictionary(Dictionary(
                     floor.barcodesWithinChance.map { ($0.barcodeID, ParameterValue.integer($0.readCount)) },
                     uniquingKeysWith: { first, _ in first }
@@ -574,7 +575,8 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         FileHandle.standardError.write(Data("Barcodes with reads: \(result.manifest.barcodes.filter { $0.readCount > 0 }.count)\n".utf8))
         if let within = result.chanceFloor?.barcodesWithinChance, !within.isEmpty {
             FileHandle.standardError.write(Data((
-                "Within chance (no more reads than chance matches give at this error rate): "
+                "Could be chance matches (no more reads than the reads without a barcode give one barcode by chance "
+                + "at this error rate): "
                 + within.map { "\($0.barcodeID) \($0.readCount)" }.joined(separator: ", ") + "\n"
             ).utf8))
         }

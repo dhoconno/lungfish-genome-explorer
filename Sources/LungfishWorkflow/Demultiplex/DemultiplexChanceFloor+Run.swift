@@ -18,6 +18,8 @@ extension DemultiplexChanceFloor {
     /// The floor of one run of the search of the read bases.
     public struct Outcome: Sendable, Equatable {
         public let readsSearched: Int
+        /// The reads the floor counts as chance trials, the reads that carry no barcode (BIO-DEMUX-FLOOR item 4).
+        public let chanceTrials: Int
         public let barcodes: [BarcodeCount]
         public var anyBarcodeBeatsTheFloor: Bool { barcodes.contains(where: \.beatsTheFloor) }
         /// Barcodes with reads whose count lies at or below the floor. They keep their outputs when another barcode
@@ -27,23 +29,36 @@ extension DemultiplexChanceFloor {
 
     /// The floor for the cutadapt adapter lines of each barcode (`patterns`), the reads each holds and the reads
     /// searched. A paired file places both mates by a fragment's one call, so its chance unit is the fragment.
+    ///
+    /// A chance match comes only from a read that carries no barcode, and such a read stays unassigned with chance
+    /// `1 - kitShare`, so the trials are `min(searched, ceil(unassigned / (1 - kitShare)))`, or every read searched
+    /// when the kit's shares reach one (BIO-DEMUX-FLOOR item 4). Counting every read searched named real samples of
+    /// an even pool as chance.
     public static func evaluate(
         patterns: [String: [String]],
         counts: [String: Int],
         readsSearched: Int,
+        unassigned: Int,
         errorRate: Double,
         allowsIndels: Bool,
         pairedFragments: Bool
     ) -> Outcome {
         let tail = kitTail / Double(max(1, patterns.count))
         let unit = pairedFragments ? 2 : 1
-        let barcodes = patterns.keys.sorted().map { barcodeID -> BarcodeCount in
+        let shares = patterns.keys.sorted().map { barcodeID -> (String, Double) in
             let read = chanceProbability(ofLines: patterns[barcodeID] ?? [], errorRate: errorRate, allowsIndels: allowsIndels)
-            let fragment = 1 - pow(1 - read, Double(unit))
-            let ceiling = unit * chanceCeiling(trials: readsSearched / unit, probability: fragment, tail: tail)
+            return (barcodeID, 1 - pow(1 - read, Double(unit)))
+        }
+        let kitShare = shares.reduce(0) { $0 + $1.1 }
+        let searchedUnits = readsSearched / unit
+        let trials = kitShare >= 1
+            ? searchedUnits
+            : min(searchedUnits, Int((Double(unassigned / unit) / (1 - kitShare)).rounded(.up)))
+        let barcodes = shares.map { barcodeID, fragment -> BarcodeCount in
+            let ceiling = unit * chanceCeiling(trials: trials, probability: fragment, tail: tail)
             return BarcodeCount(barcodeID: barcodeID, readCount: counts[barcodeID] ?? 0, chanceCeiling: ceiling)
         }
-        return Outcome(readsSearched: readsSearched, barcodes: barcodes)
+        return Outcome(readsSearched: readsSearched, chanceTrials: trials * unit, barcodes: barcodes)
     }
 
     /// The chance that a read of random bases matches one of `lines`, a union bound over the lines. Each side of a
@@ -122,6 +137,7 @@ extension DemultiplexingPipeline {
         adapterFASTA: URL,
         counts: [String: Int],
         readsSearched: Int,
+        unassigned: Int,
         paired: Bool
     ) throws -> DemultiplexChanceFloor.Outcome? {
         guard config.demuxAdapterContext is BareAdapterContext else { return nil }
@@ -138,6 +154,7 @@ extension DemultiplexingPipeline {
             patterns: patterns,
             counts: counts,
             readsSearched: readsSearched,
+            unassigned: unassigned,
             errorRate: config.effectiveErrorRate,
             allowsIndels: !config.useNoIndels,
             pairedFragments: paired

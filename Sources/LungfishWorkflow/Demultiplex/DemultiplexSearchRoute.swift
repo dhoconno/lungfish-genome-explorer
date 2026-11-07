@@ -21,14 +21,17 @@ public enum DemultiplexSearchRoute: Sendable {
 /// A kit whose platform has `indexesInSeparateReads` (Illumina, Element, Ultima, MGI) is searched in the read bases
 /// as a bare index, so a file whose index sits only in its read names gave reads a barcode by chance
 /// (DEMUX-HEADER-INDEX-NOT-READ). With no engine named, the owner reads the first read names and takes the header
-/// route only when more of them carry an index within one mismatch of a kit barcode in each index than chance gives
-/// at a tail of one in a million (BIO's rule, `S33-R1-BIO.md` A2, L1 and L4 of the 3.3 tally). Otherwise the run
-/// searches the bases, so a GBS or ddRAD lane whose names carry its one library index keeps its inline split. An
+/// route only when two or more kit barcodes are present in them (ruling BIO-DEMUX-FLOOR item 1, see
+/// ``presentBarcodes(of:in:)``). Otherwise the run searches the bases, so a GBS or ddRAD lane whose names carry its
+/// one library index keeps its inline split, and one sample's file ends in the chance floor's words. A custom
+/// definition is searched as a bare index, as an Illumina kit is, so its run reads the names too. An
 /// explicit engine, a context override or sample assignments always search the bases, as recorded commands of
 /// earlier versions ran.
 public enum DemultiplexSearchRouteOwner {
     /// Read names the probe reads from the start of the input (BIO, `S33-R1-BIO.md` D1c).
     public static let probedReadCount = 1_000
+    /// Read names the probe reads on to when exactly one barcode is present in the first 1,000 (BIO-DEMUX-FLOOR 2).
+    public static let readOnCount = 10_000
     /// The tail the probe's match count must pass, one in a million, the tail of the chance floor (L5).
     public static let chanceTail = 1e-6
     /// The most mismatches a read-name index may have in each index and still match a barcode (L4, BIO).
@@ -45,7 +48,9 @@ public enum DemultiplexSearchRouteOwner {
             for try await record in FASTQReader(validateSequence: false).records(from: input) {
                 let raw = record.description.map { "\(record.identifier) \($0)" } ?? record.identifier
                 names.append(FASTQReadNameIndex(rawName: raw))
-                if names.count >= probedReadCount { break }
+                // One barcode present in the first names reads on before the owner chooses (BIO-DEMUX-FLOOR item 2).
+                if names.count == probedReadCount, presentBarcodes(of: config.barcodeKit, in: names) != 1 { break }
+                if names.count >= readOnCount { break }
             }
         } catch {
             return .inline(config.demuxAdapterContext)
@@ -57,15 +62,11 @@ public enum DemultiplexSearchRouteOwner {
     public static func route(for config: DemultiplexConfig, names: [FASTQReadNameIndex]) -> DemultiplexSearchRoute {
         guard readsNames(config) else { return .inline(config.demuxAdapterContext) }
         let kit = config.barcodeKit
-        let indexed = names.filter(\.hasIndex)
-        guard !indexed.isEmpty else { return .inline(config.demuxAdapterContext) }
-        let matched = indexed.filter { name in kit.barcodes.contains { matches(name, $0) } }.count
-        let ceiling = DemultiplexChanceFloor.chanceCeiling(
-            trials: indexed.count,
-            probability: chanceMatchShare(of: kit, names: indexed),
-            tail: chanceTail
-        )
-        guard matched > ceiling else { return .inline(config.demuxAdapterContext) }
+        var present = presentBarcodes(of: kit, in: Array(names.prefix(probedReadCount)))
+        if present == 1, names.count > probedReadCount {
+            present = presentBarcodes(of: kit, in: Array(names.prefix(readOnCount)))
+        }
+        guard present >= 2 else { return .inline(config.demuxAdapterContext) }
         if let words = collisionWords(for: kit) { return .refuse(words) }
         return .headerIndex
     }
@@ -73,7 +74,7 @@ public enum DemultiplexSearchRouteOwner {
     /// Whether the route of `config` depends on its read names.
     static func readsNames(_ config: DemultiplexConfig) -> Bool {
         config.engine == nil && config.adapterContext == nil && config.sampleAssignments.isEmpty
-            && config.barcodeKit.platform.indexesInSeparateReads
+            && (config.barcodeKit.platform.indexesInSeparateReads || config.barcodeKit.vendor == "custom")
     }
 
     /// Whether `name` carries `barcode`, at most one mismatch in each index. i5 is tried as listed and reverse
@@ -85,21 +86,43 @@ public enum DemultiplexSearchRouteOwner {
             || mismatches(nameI5, PlatformAdapters.reverseComplement(barcodeI5)) <= indexMismatches
     }
 
-    /// The share of random indexes of the names' commonest shape that match some barcode of `kit`.
-    static func chanceMatchShare(of kit: BarcodeKitDefinition, names: [FASTQReadNameIndex]) -> Double {
+    /// The barcodes of `kit` present in `names` (BIO-DEMUX-FLOOR item 1). The names are tallied by index value, since
+    /// a file's names repeat a few values. A barcode is present when the names within one mismatch of it in each
+    /// index number more than its own chance ceiling, at its share `(1 + 3L)/4^L` and a tail of one in a million
+    /// split over the kit's barcodes, and their commonest index is the barcode itself. So a library index one
+    /// mismatch from a barcode, or another kit's index near one, is not that barcode.
+    static func presentBarcodes(of kit: BarcodeKitDefinition, in names: [FASTQReadNameIndex]) -> Int {
+        struct IndexValue: Hashable { let i7: String?, i5: String? }
+        var tally: [IndexValue: (name: FASTQReadNameIndex, count: Int)] = [:]
         var shapes: [[Int]: Int] = [:]
-        for name in names { shapes[[name.i7?.count ?? 0, name.i5?.count ?? 0], default: 0] += 1 }
-        guard let shape = shapes.max(by: { $0.value < $1.value })?.key else { return 0 }
-        func withinOne(_ length: Int) -> Double { (1 + 3 * Double(length)) / pow(4, Double(length)) }
-        var share = 0.0
-        for barcode in kit.barcodes where barcode.i7Sequence.count == shape[0] {
-            var match = withinOne(shape[0])
-            if let i5 = barcode.i5Sequence, shape[1] > 0 {
-                match *= i5.count == shape[1] ? min(1, 2 * withinOne(shape[1])) : 0
-            }
-            share += match
+        for name in names where name.hasIndex {
+            tally[IndexValue(i7: name.i7, i5: name.i5), default: (name, 0)].count += 1
+            shapes[[name.i7?.count ?? 0, name.i5?.count ?? 0], default: 0] += 1
         }
-        return min(1, share)
+        let indexed = tally.values.reduce(0) { $0 + $1.count }
+        guard indexed > 0, let shape = shapes.max(by: { $0.value < $1.value })?.key else { return 0 }
+        func withinOne(_ length: Int) -> Double { (1 + 3 * Double(length)) / pow(4, Double(length)) }
+        let tail = chanceTail / Double(max(1, kit.barcodes.count))
+        var present = 0
+        for barcode in kit.barcodes where barcode.i7Sequence.count == shape[0] {
+            var share = withinOne(shape[0])
+            if let i5 = barcode.i5Sequence, shape[1] > 0 {
+                share *= i5.count == shape[1] ? min(1, 2 * withinOne(shape[1])) : 0
+            }
+            let near = tally.values.filter { matches($0.name, barcode) }
+            let ceiling = DemultiplexChanceFloor.chanceCeiling(trials: indexed, probability: share, tail: tail)
+            guard near.reduce(0, { $0 + $1.count }) > ceiling else { continue }
+            let exact = near.filter { isExact($0.name, barcode) }.map(\.count).max() ?? 0
+            if exact > 0, exact >= near.map(\.count).max() ?? 0 { present += 1 }
+        }
+        return present
+    }
+
+    /// Whether `name` carries `barcode` with no mismatch, i5 as listed or reverse complemented.
+    static func isExact(_ name: FASTQReadNameIndex, _ barcode: BarcodeEntry) -> Bool {
+        guard let i7 = name.i7, mismatches(i7, barcode.i7Sequence) == 0 else { return false }
+        guard let nameI5 = name.i5, let barcodeI5 = barcode.i5Sequence else { return true }
+        return mismatches(nameI5, barcodeI5) == 0 || mismatches(nameI5, PlatformAdapters.reverseComplement(barcodeI5)) == 0
     }
 
     /// Words that refuse the header route when two barcodes lie within two mismatches in every index they both

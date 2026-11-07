@@ -83,14 +83,20 @@ final class DemultiplexSearchRouteTests: XCTestCase {
         XCTAssertEqual(label(DemultiplexSearchRouteOwner.route(for: config(plate), names: plateNames)), "headerIndex")
 
         // Two barcodes within two mismatches in both i7 and i5 refuse, and the words name both.
+        // Each kit's names carry two of its own barcodes, so two are present (BIO-DEMUX-FLOOR item 1).
+        func pairs(_ second: String) -> [FASTQReadNameIndex] {
+            names(Array(repeating: "1:N:0:ATTACTCG+TATAGCCT", count: 500) + Array(repeating: "1:N:0:\(second)", count: 500))
+        }
         let close = kit([("S1", "ATTACTCG", "TATAGCCT"), ("S2", "ATTACTAA", "TATAGCAA")])
-        let words = label(DemultiplexSearchRouteOwner.route(for: config(close), names: plateNames))
+        let words = label(DemultiplexSearchRouteOwner.route(for: config(close), names: pairs("ATTACTAA+TATAGCAA")))
         XCTAssertTrue(words.hasPrefix("refuse: Barcodes S1 and S2 differ at 4 bases"), words)
         XCTAssertTrue(words.contains("Correct the definition, or remove one of the two barcodes."), words)
 
         // Close in i7 only is no collision.
         let farI5 = kit([("S1", "ATTACTCG", "TATAGCCT"), ("S2", "ATTACTAA", "GGCTCTGA")])
-        XCTAssertEqual(label(DemultiplexSearchRouteOwner.route(for: config(farI5), names: plateNames)), "headerIndex")
+        XCTAssertEqual(
+            label(DemultiplexSearchRouteOwner.route(for: config(farI5), names: pairs("ATTACTAA+GGCTCTGA"))), "headerIndex"
+        )
 
         // i5 matches as listed or reverse complemented.
         let reversed = names(["TATAGCCT", "ATAGAGGC"].flatMap {
