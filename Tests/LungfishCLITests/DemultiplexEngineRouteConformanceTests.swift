@@ -146,27 +146,33 @@ final class DemultiplexEngineRouteConformanceTests: XCTestCase {
         XCTAssertEqual(provenance.options.explicit["indexSource"], .string("read-sequences"))
     }
 
-    func testDemultiplexWithNoEngineOnNamesCarryingTheKitsIndexRefusesBeforeAnyTool() async throws {
-        try await requireTools()
+    /// L4: a run with no --engine on names that carry two of the kit's indexes splits by the names, records
+    /// `--engine header-index` and no cutadapt option, and its recorded command replays to the same split. No tool runs.
+    func testDemultiplexWithNoEngineOnNamesCarryingTheKitsIndexRecordsHeaderIndex() async throws {
         let input = try writeInput()
         let output = root.appendingPathComponent("Project.lungfish/Analyses/routed", isDirectory: true)
-        do {
-            try await FastqDemultiplexSubcommand.parse([
-                input.path, "--kit", "truseq-single-a", "--output", output.path, "--location", "5prime",
-            ]).run()
-            XCTFail("a run with no --engine on names that carry the kit's index searched the read bases")
-        } catch {
-            XCTAssertTrue(
-                error.localizedDescription.contains("These reads carry their index in the read names"),
-                error.localizedDescription
-            )
+        try await FastqDemultiplexSubcommand.parse([
+            input.path, "--kit", "truseq-single-a", "--output", output.path, "--location", "5prime",
+        ]).run()
+        func counts(_ folder: URL) throws -> [String: Int] {
+            let manifest = try XCTUnwrap(DemultiplexManifest.load(from: folder))
+            XCTAssertEqual(manifest.unassigned.readCount, 0, folder.lastPathComponent)
+            return Dictionary(uniqueKeysWithValues: manifest.barcodes.filter { $0.readCount > 0 }.map { ($0.barcodeID, $0.readCount) })
         }
-        let items = ((try? FileManager.default.contentsOfDirectory(atPath: output.path)) ?? []).filter { !$0.hasPrefix(".") }
-        XCTAssertEqual(items, [], "no output is published")
-        // The staging folder and the provenance sidecar start with a dot, so the filter above cannot see them.
-        let leftovers = ((try? FileManager.default.contentsOfDirectory(atPath: output.path)) ?? [])
-            .filter { $0.hasPrefix(".lungfish-demux-incomplete-") || $0.hasSuffix("lungfish-provenance.json") }
-        XCTAssertEqual(leftovers, [], "a refused run leaves no staging folder and no record")
-        XCTAssertNil(try ProvenanceEnvelopeReader.loadCanonical(from: output))
+        XCTAssertEqual(try counts(output), ["D701": 100, "D702": 100])
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: output))
+        let engineIndex = try XCTUnwrap(provenance.argv.firstIndex(of: "--engine"), "\(provenance.argv)")
+        XCTAssertEqual(provenance.argv[engineIndex + 1], "header-index")
+        XCTAssertFalse(provenance.argv.contains("--location"), "the header route takes no cutadapt option: \(provenance.argv)")
+        XCTAssertEqual(provenance.options.explicit["engine"], .string("header-index"))
+        XCTAssertEqual(provenance.options.explicit["indexSource"], .string("read-names"))
+
+        var replay = Array(provenance.argv.drop(while: { $0 != "demultiplex" }).dropFirst())
+        let outputIndex = try XCTUnwrap(replay.firstIndex(of: "--output"), "\(replay)")
+        let replayed = root.appendingPathComponent("Project.lungfish/Analyses/replayed", isDirectory: true)
+        replay[outputIndex + 1] = replayed.path
+        try await FastqDemultiplexSubcommand.parse(replay).run()
+        XCTAssertEqual(try counts(replayed), ["D701": 100, "D702": 100])
     }
 }

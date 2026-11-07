@@ -4,8 +4,9 @@
 //
 // Phase 3.3 lane DEMUXRUN (L1, L5, L6). A run of TruSeq Single Index Set A on reads whose index sits only in their
 // names searched the read bases for the bare index and gave about 0.93% of the reads a barcode by chance
-// (DEMUX-HEADER-INDEX-NOT-READ, S1). The floor refuses reads whose names carry the kit's index before any tool
-// starts, and a search of the bases in which no barcode beats BIO's chance floor publishes no barcode output.
+// (DEMUX-HEADER-INDEX-NOT-READ, S1). Reads whose names carry two or more of the kit's indexes are split by those
+// names (DemultiplexHeaderIndexSplitTests), and a search of the bases in which no barcode beats BIO's chance floor
+// publishes no barcode output.
 
 import XCTest
 import LungfishIO
@@ -72,7 +73,6 @@ enum DemuxFloorFixtures {
 final class DemultiplexHeaderIndexFloorConformanceTests: XCTestCase {
     private var root: URL!
     private static let kit = BarcodeKitRegistry.truseqSingleA
-    private static let headerWords = "These reads carry their index in the read names"
     private static let chanceWords = "matched more reads than chance alone gives"
 
     override func setUpWithError() throws {
@@ -143,8 +143,9 @@ final class DemultiplexHeaderIndexFloorConformanceTests: XCTestCase {
         return ids
     }
 
-    func testTruSeqRunOnReadsWhoseNamesCarryTheKitsIndexRefusesInWords() async throws {
-        try await requireTools()
+    /// L6's mixed fixture holds what its split test needs: each of the 20 names one mismatch from D701 lies two or
+    /// more mismatches from every other barcode, so a split at one mismatch gives it to D701 alone.
+    func testMixedFixtureNamesOneMismatchFromD701LieFarFromEveryOtherBarcode() {
         let names = DemuxFloorFixtures.mixedHeaderNames(seed: 11)
         for name in names where name.hasSuffix(":N:0:NNNNNNNN") == false && !name.hasSuffix("ATTACTCG") && !name.hasSuffix("TCCGGAGA") {
             let index = String(name.split(separator: ":").last!)
@@ -152,11 +153,6 @@ final class DemultiplexHeaderIndexFloorConformanceTests: XCTestCase {
                 XCTAssertGreaterThanOrEqual(DemuxFloorFixtures.mismatches(index, barcode.i7Sequence), 2, "\(index) near \(barcode.id)")
             }
         }
-        let project = try project("Mixed")
-        let input = project.appendingPathComponent("mixed.fastq")
-        try DemuxFloorFixtures.write(names: names, seed: 11, to: input)
-        let assigned = try await assertRefuses(input, output: project.appendingPathComponent("out"), words: Self.headerWords)
-        print("DEMUXRUN mixed fixture seed 11: \(assigned) of \(names.count) reads given a barcode")
     }
 
     func testTruSeqRunOnReadsWithAnEmptyIndexInTheirNamesAssignsNoRead() async throws {
