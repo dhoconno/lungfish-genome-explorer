@@ -22,6 +22,7 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     case dualKitNeedsBothEnds(kitName: String)
     case binCountExceeded(count: Int, limit: Int)
     case exactBareBarcodeUnsupported
+    case fileSetNeedsInterleaving(bundleName: String, fileNames: [String])
 
     public var errorDescription: String? {
         switch self {
@@ -51,6 +52,8 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
             return "Bin count (\(count)) exceeds maximum (\(limit)). Reduce the number of barcode combinations or use fewer demux steps."
         case .exactBareBarcodeUnsupported:
             return "Exact bare-barcode demultiplexing requires a single-index bare barcode kit with A/C/G/T sequences. Use cutadapt for adapter-context, dual-index, or fuzzy barcode matching."
+        case .fileSetNeedsInterleaving(let bundleName, let fileNames):
+            return "The bundle \"\(bundleName)\" holds \(fileNames.count) FASTQ files (\(fileNames.joined(separator: ", "))) and no source-files.json, so they are the R1 and R2 of one sample. Exact-barcode demultiplexing calls every read on its own, so the two mates of a pair would not follow one call, and nothing was run. Make one interleaved FASTQ file of the pair (lungfish-cli fastq interleave), then demultiplex that file."
         }
     }
 }

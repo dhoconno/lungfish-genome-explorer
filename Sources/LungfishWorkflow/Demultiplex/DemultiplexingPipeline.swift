@@ -937,6 +937,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         runClock: ProvenanceRunClock,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> DemultiplexResult {
+        try Self.requireNoUnmanifestedFileSet(config: config)
         let fm = FileManager.default
         try fm.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
 

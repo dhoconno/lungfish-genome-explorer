@@ -9,12 +9,28 @@ import os.log
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "DemultiplexingPipeline")
 
 extension DemultiplexingPipeline {
+    /// Stops a run on a bundle that holds several FASTQ files and no `source-files.json`. Such a bundle is the R1 and R2
+    /// of a pair, which `extract reads --by-id --source R1 --source R2 --bundle` writes. Both exact-barcode engines call
+    /// every read on its own, so the mates would not follow one call (PAIREDROOT). A bundle with `source-files.json`
+    /// is chunks of one read set and a one-file bundle is one file; both are unchanged.
+    static func requireNoUnmanifestedFileSet(config: DemultiplexConfig) throws {
+        guard let bundleURL = config.sourceBundleURL ?? (FASTQBundle.isBundleURL(config.inputURL) ? config.inputURL : nil),
+              !FASTQBundle.isDerivedBundle(bundleURL),
+              !FASTQBundle.isMultiFileBundle(bundleURL),
+              let allURLs = FASTQBundle.resolveAllFASTQURLs(for: bundleURL),
+              allURLs.count > 1 else { return }
+        throw DemultiplexError.fileSetNeedsInterleaving(
+            bundleName: bundleURL.lastPathComponent, fileNames: allURLs.map(\.lastPathComponent)
+        )
+    }
+
     func runExactBareBarcodeDemux(
         config: DemultiplexConfig,
         inputFASTQ: URL,
         runClock: ProvenanceRunClock,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> DemultiplexResult {
+        try Self.requireNoUnmanifestedFileSet(config: config)
         let fm = FileManager.default
         try fm.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
 
