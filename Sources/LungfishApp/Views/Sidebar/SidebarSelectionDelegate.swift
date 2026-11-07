@@ -48,6 +48,13 @@ public protocol SidebarSelectionDelegate: AnyObject {
         commit: @escaping @MainActor () -> Void
     ) -> Bool
 
+    /// Asks whether the sidebar may take a selection of `items`. `explicit` is true when a person asked for it
+    /// without the outline having the focus (a context menu, the Inspector's source link, the Operations panel's
+    /// Results button, the select after an import or a run, an accessibility select). A refused selection goes back
+    /// to the committed rows and posts no notice, so the sidebar, the Inspector and the viewer all keep naming the
+    /// content on screen.
+    func sidebarShouldAcceptSelection(_ items: [SidebarItem], explicit: Bool) -> Bool
+
     /// Called when the sidebar selection changes to a single item.
     ///
     /// This method is called synchronously from `outlineViewSelectionDidChange`,
@@ -81,6 +88,12 @@ public extension SidebarSelectionDelegate {
         _ = transition
         _ = commit
         return false
+    }
+
+    func sidebarShouldAcceptSelection(_ items: [SidebarItem], explicit: Bool) -> Bool {
+        _ = items
+        _ = explicit
+        return true
     }
 
     /// Default implementation forwards to single-selection handler with first item.

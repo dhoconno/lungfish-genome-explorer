@@ -172,6 +172,19 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         }
     }
 
+    /// The focus rule. While a metagenomics, FASTQ, assembly or mapping child viewer is shown, a single selection or a
+    /// clear is taken only when a person asked for it: the outline has the focus (a click or a key in the sidebar), or
+    /// the selection is explicit. Selection churn nobody asked for (a focus shift, a refresh) is refused, and the
+    /// sidebar then goes back to the committed rows, so it never names one result over another's rows.
+    public func sidebarShouldAcceptSelection(_ items: [SidebarItem], explicit: Bool) -> Bool {
+        guard !explicit, items.count <= 1, hasActiveSidebarChildViewport else { return true }
+        guard sidebarController.outlineViewIsFirstResponder(view.window?.firstResponder) else {
+            mainSplitLogger.debug("sidebarShouldAcceptSelection: Refused, sidebar not focused while a child viewer is shown")
+            return false
+        }
+        return true
+    }
+
     public func sidebarDidSelectItem(_ item: SidebarItem?) {
         // Cancel any pending debounced selection
         selectionDebounceWorkItem?.cancel()
@@ -180,18 +193,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         // Increment generation counter to invalidate any in-flight background loads
         selectionGeneration &+= 1
 
-        // If a metagenomics/FASTQ child VC is actively displayed, only process
-        // selection changes when the sidebar outline view is the actual first
-        // responder (i.e., the user clicked in the sidebar). Ignore spurious
-        // selection changes from focus shifts, filesystem refreshes, etc.
-        if hasActiveSidebarChildViewport {
-            let firstResponder = view.window?.firstResponder
-            let sidebarHasFocus = sidebarController.outlineViewIsFirstResponder(firstResponder)
-            if !sidebarHasFocus {
-                mainSplitLogger.debug("sidebarDidSelectItem: Ignoring selection change — sidebar not focused, active child VC displayed")
-                return
-            }
-        }
+        // The focus rule ran before the sidebar committed this selection (`sidebarShouldAcceptSelection`).
         let userInitiatedInSidebar = isLikelyUserDrivenSidebarSelectionChange()
         // An accepted new intent supersedes pending reads before debounce ends.
         invalidateDisplayRequest()

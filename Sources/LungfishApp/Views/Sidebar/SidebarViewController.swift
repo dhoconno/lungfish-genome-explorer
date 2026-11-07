@@ -71,7 +71,7 @@ public class SidebarViewController: NSViewController {
     // MARK: - UI Components
 
     /// The outline view for hierarchical navigation
-    var outlineView: NSOutlineView!
+    var outlineView: SidebarOutlineView!
 
     /// Scroll view containing the outline view
     private var scrollView: NSScrollView!
@@ -284,7 +284,7 @@ public class SidebarViewController: NSViewController {
         containerView.addSubview(advancedSearchButton)
 
         // Create outline view
-        outlineView = NSOutlineView()
+        outlineView = SidebarOutlineView()
         outlineView.setAccessibilityIdentifier(SidebarAccessibilityIdentifier.outline)
         outlineView.headerView = nil  // No header for sidebar
         outlineView.rowHeight = 24
@@ -842,14 +842,14 @@ public class SidebarViewController: NSViewController {
 
     /// Selects an item in the sidebar by its file URL.
     ///
-    /// This method searches the sidebar hierarchy for an item matching the given URL
-    /// and selects it if found. Use this after loading a document to highlight
-    /// the corresponding file in the sidebar.
+    /// Pass `explicit: true` when a person asked for it (a link, the Results button, the select after an import or
+    /// a run): the focus rule of a shown child viewer then takes it without the outline's focus. Without it, a
+    /// selection the rule refuses goes back to the committed rows (`sidebarShouldAcceptSelection(_:explicit:)`).
     ///
     /// - Parameter url: The file URL to select
-    /// - Returns: `true` if an item was found and selected, `false` otherwise
+    /// - Returns: `true` if an item was found and its selection was asked for, `false` otherwise
     @discardableResult
-    public func selectItem(forURL url: URL) -> Bool {
+    public func selectItem(forURL url: URL, explicit: Bool = false) -> Bool {
         // A search that hides the item (for example a result that finished
         // while the user was searching) is cleared so the item can be shown.
         if filteredRootItems != nil, findItem(byURL: url) == nil,
@@ -866,7 +866,7 @@ public class SidebarViewController: NSViewController {
 
         let row = outlineView.row(forItem: item)
         if row >= 0 {
-            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false, explicit: explicit)
             outlineView.scrollRowToVisible(row)
             sidebarLogger.debug("selectItem(forURL:): Selected \(url.lastPathComponent, privacy: .public) at row \(row)")
             return true

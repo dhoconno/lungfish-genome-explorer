@@ -152,6 +152,14 @@ extension SidebarViewController: NSOutlineViewDelegate {
     }
 
     func handleSelectionChange(_ items: [SidebarItem], source: String) {
+        // A refused selection goes back to the committed rows before anything names it: no viewport callback, no
+        // notice, no unsaved-edit question. The sidebar then keeps naming what the viewer and the Inspector show.
+        let explicit = outlineView.isMakingExplicitSelection
+        if selectionDelegate?.sidebarShouldAcceptSelection(items, explicit: explicit) == false {
+            sidebarLogger.debug("\(source, privacy: .public): Selection refused, restoring the committed rows")
+            restoreCommittedSelection()
+            return
+        }
         let requestedItems = items
         let commit: @MainActor () -> Void = {
             [weak self] in
