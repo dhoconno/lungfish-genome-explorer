@@ -102,7 +102,7 @@ final class MappingWindowFrameTests: XCTestCase {
             guard let viewport = viewer.referenceBundleViewportController else { return false }
             return viewport.currentInput?.mappingResultDirectoryURL == mapping.result.standardizedFileURL
                 && viewport.summaryLabel.stringValue.contains("Mapping")
-                // The measured line, or for the BAMs-gone result the long words of a line that could not be measured.
+                // The measured line. This fixture's BAMs-gone result settles to the same short line as the healthy one, so the test bites on the label's compression resistance and not on the long warning words W-26 saw.
                 && !viewport.summaryLabel.stringValue.contains("Measuring")
         }
         let line = viewer.referenceBundleViewportController?.summaryLabel.stringValue ?? "no viewport"
