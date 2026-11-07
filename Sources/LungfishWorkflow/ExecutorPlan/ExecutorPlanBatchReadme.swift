@@ -6,13 +6,15 @@ import Foundation
 
 /// The text of a batch's `README.txt`, the lab's commands for both launchers: `run.dag` on an HTCondor pool and
 /// `run-local.sh` on one Linux machine, the steps for a held job in UX's words (C5 D14), and the one copy step and the
-/// whole-batch adopt in the BADOPT ruling's order. It names no site (O41), and every path and number in it is the batch's
+/// whole-batch adopt in the BADOPT ruling's order. It names no site (O41) but one transfer host, flagged untested (O57), and every path and number in it is the batch's
 /// own: the staging folder, the batch's name, the image and the most jobs at once (C5 D13).
 package enum ExecutorPlanBatchReadme {
     package static let fileName = "README.txt"
 
     /// `stagedReads` says that reads of the batch are in the staging folder already (C6 ruling STAGED), which changes
-    /// two passages, `listed` and `dataFolders`. A batch with no staged read keeps the text of ruling X6 (ARCH 7).
+    /// two passages, `listed` and `dataFolders`, and adds the nine points of rows P3-R1 to P3-R9 (Phase 3.3 lane
+    /// P3WORDS), whose two figures, 34.6 GB and 4.96 GB in 1 min 54 s, are measured examples. A batch with no staged
+    /// read keeps the text of ruling X6 (ARCH 7).
     package static func text(layout: ExecutorPlanStagingLayout, image: ExecutorPlanImageFile, maxJobs: Int,
                              stagedReads: Bool) -> String {
         let batch = layout.batch
@@ -27,7 +29,12 @@ package enum ExecutorPlanBatchReadme {
                 + "already."
         let dataFolders = stagedReads
             ? "   the folders that hold the reads, and images/ for Apptainer. A Docker run reads no images/ folder.\n"
-                + "   On a machine that reaches the staging folder, \(staging) can be the data folder."
+                + "   On a machine that reaches the staging folder, \(staging) can be the data folder, and then this step\n"
+                + "   copies nothing. A file in shared/ that has another size than the one listed is not the listed file, so\n"
+                + "   copy it again.\n\n"
+                + "   A local run takes the reads of a staged batch from the staging folder, since they have no source on\n"
+                + "   the Mac to copy from. In one measured example the reads of a batch were 34.6 GB, and your batch has\n"
+                + "   its own size, the total of the sizes that staging-files.json lists for its reads."
             : "   batches/\(batch)/, and images/ for Apptainer. A Docker run reads no images/ folder. On a machine\n"
                 + "   that reaches the staging folder, \(staging) can be the data folder."
         let returned = "\(layout.batchFolder)/<sample>/\(HTCondorSubmitTemplate.resultFolderName)/"
@@ -37,6 +44,43 @@ package enum ExecutorPlanBatchReadme {
         let result = HTCondorSubmitTemplate.resultFolderName
         let record = HTCondorSubmitTemplate.runRecordName
         let dag = HTCondorDAG.fileName
+        // The nine points of rows P3-R1 to P3-R9 (Phase 3.3 lane P3WORDS). Each passage is empty for a batch of reads on
+        // the Mac, whose README stays as ruling X6 left it (ARCH 7).
+        func staged(_ lines: [String]) -> String { stagedReads ? "\n\n" + lines.joined(separator: "\n") : "" }
+        let checkReads = staged([
+            "   Before you submit, check that each read of the batch is at its stagingPath with the size that",
+            "   staging-files.json lists. Leave the reads there until every job has run. A read missing from the",
+            "   staging folder holds its job, and that job leaves no run record.",
+        ])
+        let sheetPaths = staged([
+            "With --staged-reads, r1 and r2 are absolute paths of files in the staging folder, and not paths on the Mac.",
+            "Each of those files has a row in the list that --staged-reads reads, with the columns file, bytes and sha256.",
+        ])
+        let copyHome = staged([
+            "   A host that needs ssh -F <config file> or other ssh options needs them in rsync too. Put",
+            "   RSYNC_RSH='ssh -F <config file>' before the command, or use rsync -e 'ssh -F <config file>'.",
+            "   The copy brings the payloads of every sample home. As a measured example, the payloads of one batch",
+            "   were 4.96 GB and took 1 min 54 s to copy, and your batch has its own size and time. For a larger",
+            "   batch, copy through a transfer host. At CHTC that is transfer.chtc.wisc.edu, which needs a NetID and",
+            "   Duo. That host is untested.",
+        ])
+        let adoptNotes = staged([
+            "   When no project is at <project>, the adopt makes one there. The adopt copies each payload into its",
+            "   bundle and leaves the returned copy where it is, so the Mac needs the space for the payloads twice.",
+            "   After the adopt the folder <sample>/out/ may be deleted.",
+        ])
+        let cleanUp = staged([
+            "6. Clean up the staging folder last. When the adopt has finished and no sample was refused, the folders",
+            "   \(returned) in the staging folder may be removed. The staged reads may be removed too, once every job",
+            "   has run and you will not run the batch again.",
+        ])
+        let adoptStep3: String = stagedReads
+            ? ["3. Do not copy a logs/ folder, since the adopt reads no log. A run of \(script) leaves <sample>/\(logs)/",
+               "   beside <sample>/\(result)/, so copy the \(result)/ folder and not the whole sample folder. An HTCondor",
+               "   \(result)/ holds no \(logs)/. Do not copy a plan.json back from the Linux side, since the adopt must read",
+               "   the one the Mac wrote."].joined(separator: "\n")
+            : "3. Do not copy \(logs)/, since the adopt reads no log. Do not copy a plan.json back from the Linux\n"
+                + "   side, since the adopt must read the one the Mac wrote."
         return """
         \(fileName) - how to run the batch \(batch) and bring its results back to the Mac. Written by Lungfish.
 
@@ -51,7 +95,7 @@ package enum ExecutorPlanBatchReadme {
         1. For each file in staging-files.json that has a source, copy or link that source to the file's
            stagingPath, below \(staging). The name of a file in shared/ starts with its SHA-256, so a file
            already there with the listed size is the same file. Leave it, and never copy over it, since the
-           jobs of other batches may be reading it.
+           jobs of other batches may be reading it.\(checkReads)
 
         2. Copy this folder to the machine you submit from, and run this from inside it:
 
@@ -75,7 +119,7 @@ package enum ExecutorPlanBatchReadme {
 
            sample,r1,r2,request_disk
            S1,S1_R1.fastq.gz,S1_R2.fastq.gz,40
-           S2,S2_R1.fastq.gz,S2_R2.fastq.gz,
+           S2,S2_R1.fastq.gz,S2_R2.fastq.gz,\(sheetPaths)
 
 
         If a sample's job is held
@@ -160,14 +204,13 @@ package enum ExecutorPlanBatchReadme {
            <source> is <host>:\(layout.batchFolder) after an HTCondor run, or <host>:<this folder on the
            machine that ran \(script)> after a run of \(script). When the files are on this Mac, <source>
            is that folder alone, with no <host>:. The rsync command reaches <host> through your ssh setup,
-           so a name from your ssh config works.
+           so a name from your ssh config works.\(copyHome)
 
-        3. Do not copy \(logs)/, since the adopt reads no log. Do not copy a plan.json back from the Linux
-           side, since the adopt must read the one the Mac wrote.
+        \(adoptStep3)
 
         4. Adopt the whole folder:
 
-           lungfish-cli import fastq \(batch) --adopt --project <project>
+           lungfish-cli import fastq \(batch) --adopt --project <project>\(adoptNotes)
 
            A batch is adopted whole: when any sample is refused, nothing is imported and each refused
            sample is listed by name. Fix or rerun it, then adopt the whole batch again. The project must
@@ -183,7 +226,7 @@ package enum ExecutorPlanBatchReadme {
 
         5. When the adopt stops after some samples (a full disk, a cancel), the bundles it made stay
            whole and are named in the message: delete them from the project and adopt the batch again.
-           The message says: To adopt the rest, delete the imported bundles and adopt the batch again.
+           The message says: To adopt the rest, delete the imported bundles and adopt the batch again.\(cleanUp)
 
         """
     }
