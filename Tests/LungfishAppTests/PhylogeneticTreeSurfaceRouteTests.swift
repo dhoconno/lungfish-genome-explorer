@@ -170,7 +170,10 @@ final class PhylogeneticTreeSurfaceRouteTests: XCTestCase {
 
         let gone = await waitUntil(budget: .lookup) { weakSplit == nil }
         XCTAssertTrue(gone, "the split is still alive, so this test cannot tell a tree the window kept from one something else kept")
-        XCTAssertNil(weakTree, "the tree viewer outlived its window")
+        // The split went first. A window that closes with no animation lets go of the split on the first poll (CLOSEHOLD),
+        // so the tree gets the same wait the split had, as in the FASTA list and assembly siblings.
+        let released = await waitUntil(budget: .lookup) { weakTree == nil }
+        XCTAssertTrue(released, "the tree viewer outlived its window")
     }
 
     // MARK: - Support

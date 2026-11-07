@@ -18,6 +18,10 @@
 // window's own, and `close()` takes its tables' identity away, so a viewer that
 // outlives the window saves nothing in the runner's defaults on a later test's
 // text-size change (FULL1-12S-LEAK).
+//
+// The window does not animate its open or its close, so a test that closes it
+// and waits for its split controller to go reads what Lungfish holds and not
+// what AppKit's close animation holds (CLOSEHOLD).
 
 import AppKit
 import XCTest
@@ -46,6 +50,10 @@ final class ViewSwitchWindowHarness {
         window.setFrameAutosaveName("")
         window.toolbar?.autosavesConfiguration = false
         window.isReleasedWhenClosed = false
+        // A window that animates its close is held by AppKit's close animation while it runs, and with many test
+        // processes on screen at once that animation can stall for good, so the window and its split controller would
+        // outlive a test's release wait (CLOSEHOLD). This window opens and closes at once.
+        window.animationBehavior = .none
         split = try XCTUnwrap(controller.mainSplitViewController)
         // The App's 12S factory with its BLAST wiring, plus the suite, given
         // before `configure(result:)` keys the tables' layouts by the result.
