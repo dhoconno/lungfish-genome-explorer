@@ -220,7 +220,49 @@ final class ImportFastqStagedReadsTests: XCTestCase {
             XCTAssertTrue(staged.contains(new), new)
             staged = staged.replacingOccurrences(of: new, with: old)
         }
-        XCTAssertEqual(staged, Self.collapsed(String(decoding: mac, as: UTF8.self)))
+        // Phase 3.3 lane P3WORDS (row CHTC-README): the nine points add to a staged README and reword the passages they
+        // correct, so it no longer equals the base with two sentences swapped. It keeps the four sections and their commands.
+        for kept in ["Run on an HTCondor pool", "If a sample's job is held", "Run on one machine with Apptainer or Docker",
+                     "Bring the results back to the Mac", "condor_submit_dag run.dag", "condor_rm <ClusterId>.<ProcId>",
+                     "sh run-local.sh --runtime apptainer --data <data folder>",
+                     "lungfish-cli import fastq batch --adopt --project <project>"] {
+            XCTAssertTrue(staged.contains(kept), "The staged README lost: \(kept)")
+        }
+    }
+
+    /// Phase 3.3 lane P3WORDS, row CHTC-README (P3-R1 to P3-R9). The README that a staged plan writes says each of nine
+    /// points, found by meaning: a few words of the point inside a window of three sentences, whatever the phrasing.
+    func testStagedReadmeSaysTheNinePointsOfRowCHTCReadme() async throws {
+        let fixture = try writeFixture()
+        let folder = root.appendingPathComponent("batch", isDirectory: true)
+        try await ImportCommand.FastqSubcommand.parse(fixture.stagedArguments(folder: folder)).run()
+        let readme = Self.collapsed(try String(contentsOf: folder.appendingPathComponent("README.txt"), encoding: .utf8))
+        let sentences = readme.lowercased().components(separatedBy: ". ")
+        func says(_ point: String, _ fragments: [String], line: UInt = #line) {
+            let found = sentences.indices.contains { start in
+                let window = sentences[start..<min(start + 3, sentences.count)].joined(separator: ". ")
+                return fragments.allSatisfy { window.contains($0) }
+            }
+            XCTAssertTrue(found, "The README does not say \(point): \(fragments)", line: line)
+        }
+        says("R1, check each staged read before the submit and leave the reads until every job has run",
+             ["each read", "stagingpath", "every job has run", "no run record"])
+        says("R2, r1 and r2 are absolute staging paths, each with a row of the list",
+             ["--staged-reads", "absolute", "r1 and r2", "bytes", "sha256"])
+        says("R3, a local run takes the reads from the staging folder, and the measured size is an example",
+             ["local run", "from the staging folder", "no source on the mac", "34.6 gb", "measured example"])
+        says("R4, RSYNC_RSH or rsync -e for a host that needs ssh -F", ["rsync_rsh", "rsync -e", "ssh -f"])
+        says("R4, the measured size and time of the copy home", ["4.96 gb", "1 min 54 s", "measured example"])
+        says("R4, a transfer host for larger batches, untested", ["transfer.chtc.wisc.edu", "netid", "duo", "untested"])
+        says("R5, an HTCondor result/ holds no logs/", ["run-local.sh", "htcondor result/ holds no logs/"])
+        says("R6, the adopt makes a project when none is at <project>",
+             ["no project is at <project>", "the adopt makes one"])
+        says("R7, the adopt copies each payload and leaves the returned copy, so the Mac needs the space twice",
+             ["copies each payload", "returned copy", "twice", "<sample>/out/", "deleted"])
+        says("R8, when the sample result folders and the staged reads may be removed",
+             ["may be removed", "staged reads", "result/", "adopt has finished"])
+        says("R9, step 2 of the local route copies nothing when the staging folder is the data folder, and copies a shared/ file of another size again",
+             ["copies nothing", "data folder", "shared/", "another size", "copy it again"])
     }
 
     /// The dry run names each read by its full staging path, says in the line before its last that each job checks the
