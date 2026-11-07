@@ -421,6 +421,11 @@ extension DemultiplexingPipeline {
         }
 
         try outputCache.closeAll()
+        // A split by the names that found no index of the kit in any name stops in words, so the staging area
+        // discards the run and no result with every read in Unassigned is published (UX SF3).
+        if byReadNames, totalReads > 0, !barcodeAccumulators.contains(where: { $0.readCount > 0 }) {
+            throw DemultiplexError.noReadNameIndex(kitName: config.barcodeKit.displayName)
+        }
         progress(0.80, "Creating exact demultiplex bundles...")
 
         var barcodeResults: [BarcodeResult] = []
