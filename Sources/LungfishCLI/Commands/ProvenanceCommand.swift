@@ -126,9 +126,68 @@ struct ProvenanceCommand: AsyncParsableCommand {
                 print("Provenance SHA-256: \(result.provenanceSHA256)")
                 print("Signature: \(result.signatureURL.path)")
                 print("Public key: \(result.publicKeyURL.path)")
+            } catch ProvenanceSignatureVerificationError.signatureMissing(_) where signature == nil {
+                // A record with no signature file is not a failed workflow, so it gets its own words and the input error
+                // exit code (3) of the CLI exit-code contract, the code of a request the command cannot do with the file it
+                // was given. A tampered or malformed signature keeps the workflow error code (64). Phase 3.3 lane P3WORDS,
+                // row P3-PV. The exit code was 64 before, and a script that tests for 64 now sees 3 for this case.
+                let words = Self.unsignedRecordWords(for: provenanceURL).joined(separator: "\n") + "\n"
+                FileHandle.standardError.write(Data(words.utf8))
+                throw CLIExitCode.inputError.exitCode
             } catch {
                 throw CLIError.wrapping(error)
             }
+        }
+
+        /// What the command says about a record with no signature file beside it, one line each. It says that there is
+        /// nothing to verify, names the record, says when Lungfish signs a record and what to do, and names the bundle
+        /// whose signed record states the folder of an unsigned copy, such as the copy a Viral Recon run keeps in its
+        /// results folder on purpose.
+        static func unsignedRecordWords(for provenanceURL: URL) -> [String] {
+            var lines = [
+                "This record carries no signature, so there is nothing to verify.",
+                "Record \(provenanceURL.path)",
+                "Lungfish signs a record only when LUNGFISH_PROVENANCE_SIGNING_KEY or LUNGFISH_PROVENANCE_SIGNING_KEY_FILE "
+                    + "is set as the record is written. To get a signed record, set one of them and run the analysis again.",
+            ]
+            let workflowName = ((try? ProvenanceEnvelopeReader.read(fromSidecar: provenanceURL)) ?? nil)?.envelope.workflowName
+            let isViralRecon = workflowName?.lowercased().filter(\.isLetter).contains("viralrecon") ?? false
+            let bundle = signedRecordFolder(statingTheFolderOf: provenanceURL)
+            if isViralRecon {
+                lines.append("A Viral Recon run keeps this unsigned copy in its results folder on purpose, and the record "
+                    + "in its run bundle states the digest of this folder.")
+            }
+            if let bundle {
+                lines.append("The signed record is in the bundle \(bundle.path). Run lungfish-cli provenance verify "
+                    + "\(bundle.path) to check the run.")
+            } else if isViralRecon {
+                lines.append("When the run had a signing key, its run bundle holds the signed record. Run "
+                    + "lungfish-cli provenance verify on that bundle to check the run.")
+            }
+            return lines
+        }
+
+        /// The folder near the one that holds `sidecarURL` whose signed record states that folder, or a file in it, as an
+        /// output. It looks in the two folders above, and in the folders beside, the one that holds the record.
+        static func signedRecordFolder(statingTheFolderOf sidecarURL: URL) -> URL? {
+            let fileManager = FileManager.default
+            let folder = sidecarURL.deletingLastPathComponent().standardizedFileURL
+            let parent = folder.deletingLastPathComponent()
+            let beside = ((try? fileManager.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil)) ?? [])
+                .sorted { $0.path < $1.path }
+            for candidate in [parent, parent.deletingLastPathComponent()] + beside
+            where candidate.standardizedFileURL.path != folder.path {
+                let record = candidate.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+                guard fileManager.fileExists(atPath: ProvenanceSigningConfiguration.signatureURL(for: record).path),
+                      let reading = (try? ProvenanceEnvelopeReader.read(fromSidecar: record)) ?? nil else { continue }
+                let stated = reading.envelope.outputs + reading.envelope.steps.flatMap(\.outputs)
+                let statesFolder = stated.contains { descriptor in
+                    let path = URL(fileURLWithPath: descriptor.path).standardizedFileURL.path
+                    return path == folder.path || path.hasPrefix(folder.path + "/")
+                }
+                if statesFolder { return candidate }
+            }
+            return nil
         }
     }
 
