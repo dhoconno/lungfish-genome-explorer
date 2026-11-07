@@ -644,6 +644,15 @@ unset GH_HOST
 export GH_REPO="github.com/${GITHUB_REPOSITORY}"
 SPARKLE_FEED_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${SPARKLE_PUBLISH_RELEASE}/${SPARKLE_APPCAST_FILENAME}"
 
+# run_sparkle_build_gate STEP ARGUMENT...: the Sparkle build-number gate under a limit. Its Python start reads the script from
+# the release checkout, which can sit under ~/Documents, and it then reads the live appcast (30 seconds of its own), so the
+# limit is twice the short-read limit (RELEASE-UNBOUNDED-LOCAL-READS).
+run_sparkle_build_gate() {
+    local step="$1"
+    shift
+    bounded_local "$step" "$((LOCAL_READ_SECONDS * 2))" "$RELEASE_PYTHON" "$SPARKLE_BUILD_GATE_SCRIPT" "$@"
+}
+
 run_live_sparkle_build_gates() {
     local planned="$1"
     local feed_root="https://github.com/${GITHUB_REPOSITORY}/releases/download"
@@ -651,21 +660,21 @@ run_live_sparkle_build_gates() {
     if [ "$FORK_RUNTIME_IDENTITY" = true ]; then
         initial_feed_args="--allow-http-not-found"
     else
-        "$RELEASE_PYTHON" "$SPARKLE_BUILD_GATE_SCRIPT" \
+        run_sparkle_build_gate sparkle-gate-legacy-feed \
             --planned "$planned" \
             --appcast-url "${feed_root}/${PREVIEW_LEGACY_SPARKLE_RELEASE}/${PREVIEW_LEGACY_APPCAST_FILENAME}"
     fi
     if [ "$CHANNEL" = stable ]; then
-        "$RELEASE_PYTHON" "$SPARKLE_BUILD_GATE_SCRIPT" \
+        run_sparkle_build_gate sparkle-gate-preview-feed \
             --planned "$planned" \
             --appcast-url "${feed_root}/${PREVIEW_SPARKLE_RELEASE}/${PREVIEW_APPCAST_FILENAME}" \
             ${initial_feed_args:+--allow-http-not-found}
-        "$RELEASE_PYTHON" "$SPARKLE_BUILD_GATE_SCRIPT" \
+        run_sparkle_build_gate sparkle-gate-stable-feed \
             --planned "$planned" \
             --appcast-url "${feed_root}/${CONTRACT_SPARKLE_PUBLISH_RELEASE}/${CONTRACT_SPARKLE_APPCAST_FILENAME}" \
             --allow-http-not-found
     else
-        "$RELEASE_PYTHON" "$SPARKLE_BUILD_GATE_SCRIPT" \
+        run_sparkle_build_gate sparkle-gate-feed \
             --planned "$planned" \
             --appcast-url "${feed_root}/${CONTRACT_SPARKLE_PUBLISH_RELEASE}/${CONTRACT_SPARKLE_APPCAST_FILENAME}" \
             ${initial_feed_args:+--allow-http-not-found}
@@ -724,6 +733,27 @@ bounded_network() {
         --timeout "$seconds" --phase "$phase" --public-stdout -- "$@"
 }
 
+# Seconds a short read of the repository or the release folder (git rev-parse, stat, mkdir) and the start of the Sparkle
+# build-number gate may take after signing. A read held by a macOS privacy prompt ends at this limit with words that name
+# the step (RELEASE-UNBOUNDED-LOCAL-READS). The variable lets a test shorten the limit and changes nothing else.
+LOCAL_READ_SECONDS="${LUNGFISH_RELEASE_LOCAL_READ_TIMEOUT_SECONDS:-60}"
+case "$LOCAL_READ_SECONDS" in
+    ''|*[!0-9]*|0)
+        echo "LUNGFISH_RELEASE_LOCAL_READ_TIMEOUT_SECONDS must be a whole number of seconds above zero, not '$LOCAL_READ_SECONDS'" >&2
+        exit 64
+        ;;
+esac
+
+# read_head_commit STEP: the commit HEAD names, read under the limit. The step names the call in the words of a timeout.
+read_head_commit() {
+    bounded_local "git-rev-parse-$1" "$LOCAL_READ_SECONDS" git rev-parse HEAD
+}
+
+# read_file_size STEP PATH: the size of a file in the release folder, read under the limit.
+read_file_size() {
+    bounded_local "stat-$1" "$LOCAL_READ_SECONDS" /usr/bin/stat -f %z "$2"
+}
+
 verify_versioned_release_identity() {
     if [ -z "$GITHUB_RELEASE_TAG" ] || [ "$DEFER_REMOTE_PUBLISH" -eq 1 ]; then
         return
@@ -736,7 +766,7 @@ verify_versioned_release_identity() {
     local direct_count
     local peeled_count
     local release_exists=0
-    head_commit=$(git rev-parse HEAD)
+    head_commit=$(read_head_commit identity)
     remote_lines=$(bounded_network git-ls-remote 180 git ls-remote --tags "$GIT_REMOTE" \
         "refs/tags/${GITHUB_RELEASE_TAG}" \
         "refs/tags/${GITHUB_RELEASE_TAG}^{}")
@@ -1017,7 +1047,7 @@ publish_github_release_dmg() {
     local notes_source
     local target_commit
     notes_source="$(sparkle_release_notes_source)"
-    target_commit="$(git rev-parse HEAD)"
+    target_commit="$(read_head_commit publish)"
 
     if github_cli release view "$GITHUB_RELEASE_TAG" >/dev/null 2>&1; then
         local existing_digest
@@ -1104,7 +1134,7 @@ ensure_mutable_release() {
     local title="$2"
     local notes="$3"
     local target_commit
-    target_commit="$(git rev-parse HEAD)"
+    target_commit="$(read_head_commit mutable-release)"
     if ! github_cli release view "$release_tag" >/dev/null 2>&1; then
         github_cli release create "$release_tag" \
             --title "$title" \
@@ -1137,7 +1167,7 @@ publish_mutable_asset_if_changed() {
     local remote_record
     asset_name=$(basename "$local_path")
     expected_digest="sha256:$(bounded_local sha256-mutable-asset 300 /usr/bin/shasum -a 256 "$local_path" | awk '{print $1}')"
-    expected_size=$(/usr/bin/stat -f %z "$local_path")
+    expected_size=$(read_file_size mutable-asset "$local_path")
     remote_record=$(github_cli release view "$release_tag" --json assets \
         --jq ".assets[] | select(.name == \"${asset_name}\") | [.digest,.size] | @tsv")
     if [ "$remote_record" = "${expected_digest}"$'\t'"${expected_size}" ]; then
@@ -1175,7 +1205,7 @@ generate_sparkle_appcast() {
         release_notes_url_prefix="https://github.com/${GITHUB_REPOSITORY}/releases/download/${SPARKLE_PUBLISH_RELEASE}/"
     fi
 
-    mkdir -p "$SPARKLE_APPCAST_DIR"
+    bounded_local appcast-dir "$LOCAL_READ_SECONDS" /bin/mkdir -p "$SPARKLE_APPCAST_DIR"
     bounded_local dmg-copy 300 /bin/cp -p "$DMG_PATH" "$appcast_dmg"
 
     if [ -f "$notes_source" ]; then
@@ -1717,7 +1747,7 @@ verify_file_matches_remote_asset() {
         exit 64
     fi
     actual_digest="sha256:$(bounded_local sha256-remote-match 300 /usr/bin/shasum -a 256 "$path" | awk '{print $1}')"
-    actual_size=$(/usr/bin/stat -f %z "$path")
+    actual_size=$(read_file_size remote-match "$path")
     if [ "$actual_digest" != "$expected_digest" ] || [ "$actual_size" != "$expected_size" ]; then
         echo "$label does not match the immutable GitHub release asset" >&2
         exit 64
@@ -1851,7 +1881,7 @@ generate_sparkle_appcast
 prune_github_prereleases
 
 DMG_SHA=$(bounded_local sha256-dmg 300 /usr/bin/shasum -a 256 "$DMG_PATH" | awk '{print $1}')
-COMMIT_SHA=$(git rev-parse HEAD)
+COMMIT_SHA=$(read_head_commit metadata)
 SPARKLE_APPCAST_SHA=""
 SPARKLE_APPCAST_SIZE=""
 SPARKLE_BRIDGE_APPCAST_PATH=""
@@ -1859,13 +1889,13 @@ SPARKLE_BRIDGE_APPCAST_SHA=""
 SPARKLE_BRIDGE_APPCAST_SIZE=""
 if [ -n "${SPARKLE_APPCAST_PATH:-}" ] && [ -f "$SPARKLE_APPCAST_PATH" ]; then
     SPARKLE_APPCAST_SHA=$(bounded_local sha256-appcast 300 /usr/bin/shasum -a 256 "$SPARKLE_APPCAST_PATH" | awk '{print $1}')
-    SPARKLE_APPCAST_SIZE=$(/usr/bin/stat -f %z "$SPARKLE_APPCAST_PATH")
+    SPARKLE_APPCAST_SIZE=$(read_file_size appcast "$SPARKLE_APPCAST_PATH")
 fi
 if [ -n "$SPARKLE_BRIDGE_APPCAST_FILENAME" ]; then
     SPARKLE_BRIDGE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/${SPARKLE_BRIDGE_APPCAST_FILENAME}"
     if [ -f "$SPARKLE_BRIDGE_APPCAST_PATH" ]; then
         SPARKLE_BRIDGE_APPCAST_SHA=$(bounded_local sha256-bridge-appcast 300 /usr/bin/shasum -a 256 "$SPARKLE_BRIDGE_APPCAST_PATH" | awk '{print $1}')
-        SPARKLE_BRIDGE_APPCAST_SIZE=$(/usr/bin/stat -f %z "$SPARKLE_BRIDGE_APPCAST_PATH")
+        SPARKLE_BRIDGE_APPCAST_SIZE=$(read_file_size bridge-appcast "$SPARKLE_BRIDGE_APPCAST_PATH")
     else
         SPARKLE_BRIDGE_APPCAST_PATH=""
     fi
