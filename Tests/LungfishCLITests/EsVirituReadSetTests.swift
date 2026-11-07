@@ -237,11 +237,36 @@ final class EsVirituReadSetTests: XCTestCase {
     /// handed the pair with `-p paired`, not R1, R2, R1 and R2 with `-p unpaired`.
     func testTwoFilesOfOnePairedRootReadThePairOnce() async throws {
         let pairRoot = try BundleCountedOnceFixtures.pairedRoot(named: "pairroot", in: root, pairs: 4)
-        let run = try await detect(inputs: [pairRoot.r1, pairRoot.r2])
+        let events = EventLines()
+        let run = try await detect(inputs: [pairRoot.r1, pairRoot.r2], events: AnalysisRunEvents { events.append($0) })
         XCTAssertEqual(run.formatSeen, "paired")
         XCTAssertEqual(run.filesSeen.count, 2, "EsViritu takes exactly two files with -p paired")
         XCTAssertEqual(run.filesSeen.first, try ReadSetFixtures.readNames(in: pairRoot.r1))
         XCTAssertEqual(run.filesSeen.last, try ReadSetFixtures.readNames(in: pairRoot.r2))
+        // The run names the collapse in its events, as `map` does, so a person sees why two inputs ran as one.
+        XCTAssertTrue(
+            events.logMessages.contains {
+                $0.contains("each bundle is read once, as the bundle") && $0.contains("pairroot.lungfishfastq (2 inputs)")
+            },
+            "\(events.logMessages)"
+        )
+    }
+
+    /// The event lines of a run, collected from any thread.
+    private final class EventLines: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: [CLIEventLine] = []
+
+        var logMessages: [String] {
+            lock.withLock { stored }.compactMap(\.event).compactMap { event in
+                if case .log(_, let message) = event { return message }
+                return nil
+            }
+        }
+
+        func append(_ line: CLIEventLine) {
+            lock.withLock { stored.append(line) }
+        }
     }
 
     private struct DetectRun {
@@ -272,7 +297,8 @@ final class EsVirituReadSetTests: XCTestCase {
     private func detect(
         inputs: [URL],
         readFormat: String = "auto",
-        materializer: (any CLISequenceInputMaterializing & Sendable)? = nil
+        materializer: (any CLISequenceInputMaterializing & Sendable)? = nil,
+        events: AnalysisRunEvents? = nil
     ) async throws -> DetectRun {
         let runRoot = root.appendingPathComponent("run-\(UUID().uuidString)", isDirectory: true)
         let esviritu = try StandInEsViritu(root: runRoot)
@@ -286,10 +312,21 @@ final class EsVirituReadSetTests: XCTestCase {
             "--quiet",
         ])
         let command = try XCTUnwrap(parsed as? EsVirituCommand.DetectSubcommand)
-        try await command.execute(
-            pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
-            materializer: materializer ?? fixtures.materializer
-        )
+        if let events {
+            // The run's events go to `events`, so a test can read each one.
+            let exitCode = await command.detect(
+                pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
+                materializer: materializer ?? fixtures.materializer,
+                cancelRequested: { false },
+                events: events
+            )
+            XCTAssertEqual(exitCode, 0)
+        } else {
+            try await command.execute(
+                pipeline: EsVirituPipeline(condaManager: esviritu.condaManager),
+                materializer: materializer ?? fixtures.materializer
+            )
+        }
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: outputDirectory))
         return DetectRun(
             outputDirectory: outputDirectory,

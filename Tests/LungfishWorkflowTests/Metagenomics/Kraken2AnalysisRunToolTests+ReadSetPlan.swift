@@ -70,5 +70,14 @@ extension Kraken2AnalysisRunToolTests {
         let config = try XCTUnwrap(seen.values.first)
         XCTAssertEqual(config.inputFiles, [pairRoot.r1, pairRoot.r2])
         XCTAssertTrue(config.isPairedEnd)
+        // The run names the collapse in its events, as `map` does, so a person sees why two inputs ran as one.
+        let lines = run.events.compactMap(\.event).compactMap { event -> String? in
+            if case .log(_, let message) = event { return message }
+            return nil
+        }
+        XCTAssertTrue(
+            lines.contains { $0.contains("each bundle is read once, as the bundle") && $0.contains("pairroot.lungfishfastq (2 inputs)") },
+            "\(lines)"
+        )
     }
 }
