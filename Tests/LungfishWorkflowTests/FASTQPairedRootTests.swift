@@ -136,6 +136,16 @@ final class FASTQPairedRootTests: XCTestCase {
         XCTAssertEqual(lines.count / 4, 8, "the export holds the reads of both mates")
         XCTAssertEqual(lines.first, "@r1_1", "R1 comes first")
         XCTAssertTrue(lines.contains("@r2_4"), "the last read of R2 is in the export")
+
+        // What "both mates" means here: the R1 file's reads and then the R2 file's, each in its own order. The export is
+        // not an interleaved file, so a tool that reads it as adjacent pairs would pair the wrong reads (PAIREDROOT-BIO S-2).
+        let headers = stride(from: 0, to: lines.count, by: 4).map { lines[$0] }
+        XCTAssertEqual(
+            headers, ["@r1_1", "@r1_2", "@r1_3", "@r1_4", "@r2_1", "@r2_2", "@r2_3", "@r2_4"],
+            "R1 file then R2 file, each in its own order"
+        )
+        XCTAssertEqual(lines[3], "IIII", "R1 keeps its Q40 line")
+        XCTAssertEqual(lines[19], "++++", "R2 keeps its Q10 line")
     }
 
     // MARK: - The exact-barcode engines refuse a root of R1 and R2 files (PAIREDROOT-BIO B1)

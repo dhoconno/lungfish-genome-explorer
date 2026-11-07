@@ -66,11 +66,25 @@ final class FASTQPairedRootDashboardTests: XCTestCase {
         XCTAssertEqual(statistics.gcContent, 0.75, accuracy: 0.005, "GC of both mates, where R1 alone is 50%")
 
         let dashboard = try XCTUnwrap(split.viewerController.fastqDatasetController)
-        let cards = dashboard.testingSummaryAccessibilityChildren.map {
-            "\($0.accessibilityLabel() ?? ""): \(($0.accessibilityValue() as? String) ?? "")"
+        func cardLines() -> [String] {
+            dashboard.testingSummaryAccessibilityChildren.map {
+                "\($0.accessibilityLabel() ?? ""): \(($0.accessibilityValue() as? String) ?? "")"
+            }
         }
+        // The card fills after the Inspector model does, so wait on the card's own text and not on a delay.
+        let measured = await waitUntil(budget: .lookup) { cardLines().contains("Reads: 8") }
+        let cards = cardLines()
+        XCTAssertTrue(measured, "the cards never showed 8 reads: \(cards)")
         XCTAssertTrue(cards.contains("Reads: 8"), "the cards are \(cards)")
         XCTAssertTrue(cards.contains("\(FASTQStatisticsDisplayRules.meanQualityLabel): 13.0"), "the cards are \(cards)")
+        XCTAssertTrue(
+            cards.contains("Q20: 50.0%"),
+            "R1 is all Q40 and R2 all Q10 with equal bases, so half the bases reach Q20, where R1 alone reads 100.0%; the cards are \(cards)"
+        )
+        XCTAssertTrue(
+            cards.contains("Q30: 50.0%"),
+            "half the bases reach Q30, where R1 alone reads 100.0%; the cards are \(cards)"
+        )
         XCTAssertTrue(cards.contains("GC: 75.0%"), "the cards are \(cards)")
     }
 }
