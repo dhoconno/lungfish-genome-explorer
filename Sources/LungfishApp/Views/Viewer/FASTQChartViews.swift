@@ -34,7 +34,7 @@ final class FASTQSummaryBar: GenomicSummaryCardBar {
             Card(label: "Mean Length", value: String(format: "%.0f bp", stats.meanReadLength)),
             Card(label: "Median Length", value: "\(stats.medianReadLength) bp"),
             Card(label: "N50", value: "\(stats.n50ReadLength) bp"),
-            Card(label: "Mean Q", value: FASTQStatisticsDisplayRules.meanQualityText(stats)),
+            Card(label: FASTQStatisticsDisplayRules.meanQualityLabel, value: FASTQStatisticsDisplayRules.meanQualityText(stats)),
             Card(label: "Q20", value: FASTQStatisticsDisplayRules.q20Text(stats)),
             Card(label: "Q30", value: FASTQStatisticsDisplayRules.q30Text(stats)),
             Card(label: "GC", value: String(format: "%.1f%%", stats.gcContent * 100)),

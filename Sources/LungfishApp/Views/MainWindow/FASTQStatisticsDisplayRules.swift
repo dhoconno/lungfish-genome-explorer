@@ -11,6 +11,12 @@ enum FASTQStatisticsDisplayRules {
     /// The words shown in place of mean Q, Q20 and Q30 for reads that carry no quality scores.
     static let noQualityScores = "No quality scores"
 
+    /// The label of the dataset mean quality on every surface that shows it (Phase 3.3 lane MEANQ, BIO-MEANQ).
+    static let meanQualityLabel = "Mean Q"
+
+    /// The help text that says which mean the dataset mean quality is.
+    static let meanQualityHelp = ""
+
     /// `statistics` when a view can show them as stored, or nil when it measures the reads instead.
     ///
     /// A record that counts reads and gives the longest of them 0 bases was never measured (`isMeasured`). Bundles

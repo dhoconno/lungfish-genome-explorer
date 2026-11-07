@@ -35,7 +35,7 @@ public enum FASTQStatisticsServiceError: Error, LocalizedError {
 /// quality-report pass (`FASTQReader.computeStatistics(sampleLimit: 0)`).
 public enum FASTQStatisticsService {
 
-    private struct SeqkitSummary: Sendable {
+    struct SeqkitSummary: Sendable {
         let numSeqs: Int
         let sumLen: Int64
         let minLen: Int
@@ -316,7 +316,7 @@ public enum FASTQStatisticsService {
         }
     }
 
-    private static func aggregateSeqkitSummaries(_ summaries: [SeqkitSummary]) -> SeqkitSummary {
+    static func aggregateSeqkitSummaries(_ summaries: [SeqkitSummary]) -> SeqkitSummary {
         let numSeqs = summaries.reduce(0) { $0 + $1.numSeqs }
         let sumLen = summaries.reduce(Int64(0)) { $0 + $1.sumLen }
         let minLen = summaries
