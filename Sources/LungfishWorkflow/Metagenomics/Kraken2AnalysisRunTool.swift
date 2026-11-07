@@ -50,9 +50,16 @@ public struct Kraken2AnalysisRunTool: AnalysisRunTool {
         if let confidence = request.confidence, !(0.0...1.0).contains(confidence) {
             throw Kraken2RunRefusal.input("Confidence must be between 0.0 and 1.0, got \(confidence)")
         }
-        let inputURLs = try services.expandInputs(request.inputArguments, request.recursive).map(\.standardizedFileURL)
-        guard !inputURLs.isEmpty else {
+        let chosenInputURLs = try services.expandInputs(request.inputArguments, request.recursive).map(\.standardizedFileURL)
+        guard !chosenInputURLs.isEmpty else {
             throw Kraken2RunRefusal.input("No eligible FASTQ or FASTA inputs found.")
+        }
+        // Inputs that lie in one bundle are that bundle, once (BIO-BUNDLE-COUNTED-TWICE), as map and assemble read
+        // them. A file inside a bundle is read as the whole bundle, so the two files of one root of R1 and R2 files
+        // were classified as R1, R2, R1 and R2 of single reads.
+        let inputURLs = AssemblyInputSamples.sampleURLs(chosenInputURLs)
+        if inputURLs.count < chosenInputURLs.count {
+            context.log(.info, MappingInputResolver.collapsedInputsMessage(chosen: chosenInputURLs, samples: inputURLs, setsAsidePaired: false))
         }
         // A demultiplexed group bundle is a container with no reads of its own. It is refused
         // before the read format, the database and the output are looked at, with the input

@@ -110,14 +110,21 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
         if let conflict = options.usageConflict {
             throw EsVirituAnalysisRunRefusal.input(conflict)
         }
-        let inputURLs: [URL]
+        let chosenInputURLs: [URL]
         do {
-            inputURLs = try expandInputs(request.inputs)
+            chosenInputURLs = try expandInputs(request.inputs)
         } catch {
             throw EsVirituAnalysisRunRefusal.input(error.localizedDescription)
         }
-        guard !inputURLs.isEmpty else {
+        guard !chosenInputURLs.isEmpty else {
             throw EsVirituAnalysisRunRefusal.input("At least one --input file is required")
+        }
+        // Inputs that lie in one bundle are that bundle, once (BIO-BUNDLE-COUNTED-TWICE), as map and assemble read
+        // them. A file inside a bundle is read as the whole bundle, so the two files of one root of R1 and R2 files
+        // ran `-p unpaired` as R1, R2, R1 and R2.
+        let inputURLs = AssemblyInputSamples.sampleURLs(chosenInputURLs)
+        if inputURLs.count < chosenInputURLs.count {
+            context.log(.info, MappingInputResolver.collapsedInputsMessage(chosen: chosenInputURLs, samples: inputURLs, setsAsidePaired: false))
         }
         let extraArguments: [String]
         do {
