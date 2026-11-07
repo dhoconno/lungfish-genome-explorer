@@ -1174,8 +1174,15 @@ class FullTierSwiftTestingTests(unittest.TestCase):
         def strip_the_hang_record(forged):
             del forged["bundleBound"]["runnerHangs"]
 
+        def list_a_survivor(forged):
+            forged["attempts"][2]["survivors"] = [123]
+
+        def give_the_hung_step_an_event_stream(forged):
+            forged["attempts"][2].setdefault("files", []).append(
+                {"path": "bundle-02/swift-testing.jsonl", "sha256": "0" * 64, "sizeBytes": 10})
+
         for forge in (drop_the_rerun, claim_the_hung_step_ran_a_test, change_what_the_rerun_selected,
-                      fail_another_bundle, strip_the_hang_record):
+                      fail_another_bundle, strip_the_hang_record, list_a_survivor, give_the_hung_step_an_event_stream):
             with self.subTest(forge=forge.__name__):
                 forged, source = _clean_copy(evidence)
                 forge(forged)

@@ -1377,10 +1377,11 @@ def _command_shape(attempt):
 def validate_runner_hang_rerun(result, attempts):
     """Check a full-tier run that claims a runner hang clearance (FULLFIX, ruling 2 of the FULL2 review) and return the
     authoritative attempt its rerun clears. Nothing here trusts a flag of the record. The Swift Testing step is the last
-    authoritative attempt, was killed at its bound and ran no test (executed 0, no event file with content). Every other
-    authoritative attempt passed with no error, and exactly one attempt follows, of role runner-hang-rerun, that ran
-    the same command, selected the same tests, and passed with exit 0 and no intervention. The record of the hang must
-    equal what these attempts show. Any other shape cannot authorize a candidate."""
+    authoritative attempt, was killed at its bound, ran no test (executed 0, no event file with content) and left no
+    process of its tree alive (survivors empty). Every other authoritative attempt passed with no error, and exactly one
+    attempt follows, of role runner-hang-rerun, that ran the same command, selected the same tests, and passed with exit
+    0 and no intervention. The record of the hang must equal what these attempts show. Any other shape cannot authorize
+    a candidate."""
     bound = result.get("bundleBound")
     count = next((index for index, attempt in enumerate(attempts) if attempt.get("role") != "authoritative"),
                  len(attempts))
@@ -1398,6 +1399,7 @@ def validate_runner_hang_rerun(result, attempts):
     if (hung.get("bundle") != SWIFT_TESTING_BUNDLE or hung.get("harness") != "swift-testing"
             or hung.get("intervention") != "timeout" or chosen.get("executed") != 0
             or any(record.get("sizeBytes") for record in streams)
+            or hung.get("survivors")
             or not isinstance(tests, list) or not tests
             or any(other.get("passed") is not True or other.get("exitStatus") != 0 or other.get("errors")
                    or other.get("intervention") is not None or other.get("testStateLeaks") for other in others)
