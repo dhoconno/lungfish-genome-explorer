@@ -115,17 +115,28 @@ public enum DemultiplexSearchRouteOwner {
             let near = tally.values.filter { matches($0.name, barcode) }
             let ceiling = DemultiplexChanceFloor.chanceCeiling(trials: indexed, probability: share, tail: tail)
             guard near.reduce(0, { $0 + $1.count }) > ceiling else { continue }
-            let exact = near.filter { isExact($0.name, barcode) }.map(\.count).max() ?? 0
-            if exact > 0, exact >= near.map(\.count).max() ?? 0 { present += 1 }
+            // A no-call carries no evidence against the barcode: names that differ from it only at an N are the
+            // barcode, and a rival is the commonest index that differs at a base the name called.
+            let own = near.filter { isExact($0.name, barcode) }.reduce(0) { $0 + $1.count }
+            let rival = near.filter { !isExact($0.name, barcode) }.map(\.count).max() ?? 0
+            if own > 0, own >= rival { present += 1 }
         }
         return present
     }
 
-    /// Whether `name` carries `barcode` with no mismatch, i5 as listed or reverse complemented.
+    /// Whether `name` carries `barcode` at every base it called, i5 as listed or reverse complemented. An `N` in the
+    /// name is a no-call and agrees with any base (the first index cycle of the first tiles of a MiSeq run is often N).
     static func isExact(_ name: FASTQReadNameIndex, _ barcode: BarcodeEntry) -> Bool {
-        guard let i7 = name.i7, mismatches(i7, barcode.i7Sequence) == 0 else { return false }
+        guard let i7 = name.i7, calledMismatches(i7, barcode.i7Sequence) == 0 else { return false }
         guard let nameI5 = name.i5, let barcodeI5 = barcode.i5Sequence else { return true }
-        return mismatches(nameI5, barcodeI5) == 0 || mismatches(nameI5, PlatformAdapters.reverseComplement(barcodeI5)) == 0
+        return calledMismatches(nameI5, barcodeI5) == 0
+            || calledMismatches(nameI5, PlatformAdapters.reverseComplement(barcodeI5)) == 0
+    }
+
+    /// Mismatches between a name's index and a barcode's at the bases the name called, or `Int.max` when their lengths differ.
+    static func calledMismatches(_ name: String, _ barcode: String) -> Int {
+        guard name.count == barcode.count else { return Int.max }
+        return zip(name.uppercased(), barcode.uppercased()).filter { $0 != $1 && $0 != "N" }.count
     }
 
     /// Words that refuse the header route when two barcodes lie within two mismatches in every index they both
