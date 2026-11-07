@@ -124,6 +124,36 @@ final class DemultiplexHeaderIndexScoutTests: XCTestCase {
         XCTAssertEqual(detected.unassignedCount, run.manifest.unassigned.readCount)
     }
 
+    /// BIO's dual-index agreement pin (`DETECTHDR-BIO.md` should-fix 2): the same agreement for a dual-index kit whose names
+    /// carry i5 reverse complemented. Detect tallies with the caller over the whole kit and the run reads the kit the same
+    /// way, so the two could part. 600, 300 and 100 names carry P1, P2 and P3, 5 more carry P1 with one mismatch in i5, 10
+    /// pair P1's i7 with P2's i5 (index hopping) and 10 hold no call. A pin, green at the head.
+    func testDetectAndRunAgreeOnDualIndexReadsWithI5ReverseComplemented() async throws {
+        let pairs = [("P1", Self.d701, "TATAGCCT"), ("P2", Self.d702, "ATAGAGGC"), ("P3", "CGCTCATT", "CCTATCCT")]
+        let kit = BarcodeKitDefinition(
+            id: "plate", displayName: "Plate", platform: .illumina, isDualIndexed: true, pairingMode: .fixedDual,
+            barcodes: pairs.map { BarcodeEntry(id: $0.0, i7Sequence: $0.1, i5Sequence: $0.2) }
+        )
+        var comments = zip(pairs, [600, 300, 100]).flatMap { pair, count in
+            Array(repeating: "1:N:0:\(pair.1)+\(PlatformAdapters.reverseComplement(pair.2))", count: count)
+        }
+        comments += (0..<5).map { "1:N:0:\(pairs[0].1)+" + Self.oneMismatch(from: PlatformAdapters.reverseComplement(pairs[0].2), $0) }
+        comments += Array(repeating: "1:N:0:\(pairs[0].1)+\(PlatformAdapters.reverseComplement(pairs[1].2))", count: 10)
+        comments += Array(repeating: "1:N:0:NNNNNNNN+NNNNNNNN", count: 10)
+        let input = try write(comments, to: "dual-agree.fastq")
+        let detected = try await scout(input, kit: kit)
+        let output = project.appendingPathComponent("out-dual", isDirectory: true)
+        let config = DemultiplexConfig(inputURL: input, barcodeKit: kit, outputDirectory: output, errorRate: 0.15)
+        let run = try await DemultiplexingPipeline().run(config: config, progress: { _, _ in })
+        let ran = Dictionary(
+            run.manifest.barcodes.filter { $0.readCount > 0 }.map { ($0.barcodeID, $0.readCount) }, uniquingKeysWith: +
+        )
+
+        XCTAssertEqual(Set(ran.keys), ["P1", "P2", "P3"], "the run names the three barcodes, so the pin is not empty on both sides")
+        XCTAssertEqual(accepted(detected), ran, "Detect and the run name the same dual-index barcodes with the same counts")
+        XCTAssertEqual(detected.unassignedCount, run.manifest.unassigned.readCount)
+    }
+
     /// BIO's one-sample line (L9, `S33-R2-BIO.md:65`): when 99% or more of the names carry one index, the file reads as
     /// one sample, so Detect accepts no barcode as a plex and keeps the tally. At 98% the file is a plex of two.
     func testAFileWhoseNamesAlmostAllCarryOneIndexReadsAsOneSample() async throws {
