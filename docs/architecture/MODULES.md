@@ -20,7 +20,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishIO | library | Sources/LungfishIO | 666 | LungfishCore |
+| LungfishIO | library | Sources/LungfishIO | 667 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 161 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -948,6 +948,7 @@ None.
 - `AssemblyStatistics` struct, `Sources/LungfishIO/Assembly/AssemblyStatistics.swift`
 - `AssemblyStatisticsCalculator` enum, `Sources/LungfishIO/Assembly/AssemblyStatistics.swift`
 - `AssemblyStatisticsError` enum, `Sources/LungfishIO/Assembly/AssemblyStatistics.swift`
+- `BarcodeCountSource` enum, `Sources/LungfishIO/Formats/FASTQ/BarcodeScoutResult.swift`
 - `BarcodeDetection` struct, `Sources/LungfishIO/Formats/FASTQ/BarcodeScoutResult.swift`
 - `BarcodeEntry` struct, `Sources/LungfishIO/Formats/FASTQ/BarcodeEntry.swift`
 - `BarcodeKit` struct, `Sources/LungfishIO/Formats/FASTQ/DemultiplexManifest.swift`
