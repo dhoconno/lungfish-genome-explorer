@@ -288,6 +288,7 @@ final class DemultiplexChanceFloorTests: XCTestCase {
     /// at -e 0.15 keeps the floor of random bases and never builds that decoy bank (BIO SF2). At the base the call built
     /// 1,000 decoys of about 224,535 keys each and did not return in a test's time.
     func testAKitWithThreeErrorsASideKeepsTheFloorOfRandomBases() {
+        continueAfterFailure = false
         let patterns = ["LONG": ["^ACGTACGTACGTACGTACGT"]]
         let window = DemultiplexChanceFloor.startWindowLength(patterns: patterns, errorRate: 0.15)
         XCTAssertEqual(window, 24, "20 bases, 3 errors and one more base")
@@ -295,6 +296,10 @@ final class DemultiplexChanceFloorTests: XCTestCase {
         var tally = DemultiplexChanceFloor.StartTally(windowLength: window)
         for _ in 0..<2_000 { tally.add(DemuxFloorFixtures.randomBases(window, using: &generator)) }
         XCTAssertEqual(tally.windows, 2_000)
+        XCTAssertEqual(DemultiplexChanceFloor.allowedErrors(length: 20, errorRate: 0.15), 3, "the kit must need three errors a side")
+        XCTAssertEqual(DemultiplexChanceFloor.maximumDecoyErrors, 2, "a cap of 3 would build the 224,000-key decoy bank here")
+        XCTAssertTrue(tally.isPackable)
+        XCTAssertGreaterThanOrEqual(tally.windows, DemultiplexChanceFloor.minimumCompositionWindows)
         XCTAssertNil(DemultiplexChanceFloor.measuredNull(
             patterns: patterns, errorRate: 0.15, allowsIndels: true, unit: 1, tallies: [tally]
         ))
