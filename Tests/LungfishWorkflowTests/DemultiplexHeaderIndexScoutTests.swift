@@ -279,4 +279,55 @@ final class DemultiplexHeaderIndexScoutConformanceTests: XCTestCase {
         XCTAssertEqual(Set(result.acceptedDetections.map(\.barcodeID)), ["G1", "G2"])
         XCTAssertTrue(result.detections.allSatisfy { $0.hitCount < 500 }, "\(result.detections.map(\.hitCount))")
     }
+
+    /// BIO-DETECT-BASES-UNDERCOUNT: a custom definition with one inline barcode a sample (a GBS or ddRAD key) is counted in
+    /// the read bases as the run splits it. Detect wrote the linked spec `BARCODE...revcomp(BARCODE)` for it, so it counted
+    /// only the reads that also hold the barcode's reverse complement later on: 3 and 2 of 500 at the default rate, both
+    /// marked rejected, while the run splits the file 500 and 500. (a) Detect counts every read that starts with its barcode,
+    /// (b) it agrees with the run, and (c) it finds no barcode in reads of pure chance, so a fix that drops the anchor at the
+    /// read's 5' end (12 and 9 chance hits in 1,000 random reads) is red.
+    func testDetectOfACustomInlineKeyCountsWhatTheRunSplits() async throws {
+        guard await NativeToolRunner.shared.isToolAvailable(.cutadapt),
+              await NativeToolRunner.shared.isToolAvailable(.seqkit) else {
+            try ToolAvailability.skipOrFail("managed cutadapt or seqkit is not installed")
+            return
+        }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let kit = try BarcodeKitRegistry.loadCustomKit(text: "G1,ACGGTCAT\nG2,GTTACCGA\n", name: "GBS key")
+        let input = project.appendingPathComponent("gbs-counted.fastq")
+        try DemuxFloorFixtures.write(
+            names: (0..<1_000).map { "r\($0) 1:N:0:AGTACTCG" },
+            leads: (0..<1_000).map { $0 < 500 ? "ACGGTCAT" : "GTTACCGA" }, seed: 5, to: input
+        )
+
+        // Detect at the default rate, as the CLI and the drawer call it, and the run on the same file with no engine named,
+        // so that its route owner reads the bases.
+        let detected = try await DemultiplexingPipeline().scout(inputURL: input, kit: kit, progress: { _, _ in })
+        let config = DemultiplexConfig(
+            inputURL: input, barcodeKit: kit, outputDirectory: project.appendingPathComponent("out", isDirectory: true)
+        )
+        let run = try await DemultiplexingPipeline().run(config: config, progress: { _, _ in })
+        let ran = Dictionary(
+            run.manifest.barcodes.filter { $0.readCount > 0 }.map { ($0.barcodeID, $0.readCount) }, uniquingKeysWith: +
+        )
+
+        // (b) Detect and the run count the same reads for each barcode. It comes first, so that a red run shows Detect's
+        // counts and the run's in one line.
+        XCTAssertEqual(counts(detected), ran, "Detect and the run count the same reads for each barcode")
+        // (a) Detect counts every read that starts with its barcode, and leaves none unassigned.
+        XCTAssertEqual(counts(detected), ["G1": 500, "G2": 500], "Detect counts every read that starts with its barcode")
+        XCTAssertEqual(detected.unassignedCount, 0, "every read starts with a barcode of the key")
+        XCTAssertEqual(Set(detected.acceptedDetections.map(\.barcodeID)), ["G1", "G2"], "both barcodes are in the file")
+
+        // (c) Reads of pure chance hold no barcode of the key, so the anchor at the read's start stays.
+        let random = project.appendingPathComponent("chance.fastq")
+        try DemuxFloorFixtures.write(names: (0..<1_000).map { "n\($0)" }, seed: 11, to: random)
+        let chance = try await DemultiplexingPipeline().scout(inputURL: random, kit: kit, progress: { _, _ in })
+        XCTAssertTrue(chance.acceptedDetections.isEmpty, "random reads accept no barcode: \(counts(chance))")
+    }
+
+    private func counts(_ result: BarcodeScoutResult) -> [String: Int] {
+        Dictionary(uniqueKeysWithValues: result.detections.map { ($0.barcodeID, $0.hitCount) })
+    }
 }
