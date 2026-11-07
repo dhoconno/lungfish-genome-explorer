@@ -690,7 +690,7 @@ bounded_credential_command() {
 
 github_cli() {
     "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/bounded_process.py" \
-        --timeout 180 --phase github --public-stdout -- gh --repo "$GH_REPO" "$@"
+        --timeout 180 --phase github --network --public-stdout -- gh --repo "$GH_REPO" "$@"
 }
 
 # Metadata calls (release view/edit/create without an asset) are
@@ -709,7 +709,7 @@ github_cli_upload_asset() {
     local timeout_seconds
     timeout_seconds=$(github_cli_asset_upload_timeout_seconds "$asset_path")
     "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/bounded_process.py" \
-        --timeout "$timeout_seconds" --phase github-upload --public-stdout -- \
+        --timeout "$timeout_seconds" --phase github-upload --network --public-stdout -- \
         gh --repo "$GH_REPO" release upload "$release_tag" "$@"
 }
 
@@ -725,12 +725,14 @@ bounded_local() {
         --timeout "$seconds" --phase "$phase" --local-files --public-stdout -- "$@"
 }
 
+# A network step passes --network, as github_cli and github_cli_upload_asset do, so a timeout names the step and says to
+# check the network and run gh auth status, then publish again (RELEASE-NETWORK-STEP-WORDS).
 bounded_network() {
     local phase="$1"
     local seconds="$2"
     shift 2
     "$RELEASE_PYTHON" "$PROJECT_ROOT/scripts/release/bounded_process.py" \
-        --timeout "$seconds" --phase "$phase" --public-stdout -- "$@"
+        --timeout "$seconds" --phase "$phase" --network --public-stdout -- "$@"
 }
 
 # Seconds a short read of the repository or the release folder (git rev-parse, stat, mkdir) and the start of the Sparkle

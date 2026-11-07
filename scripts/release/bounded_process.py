@@ -52,10 +52,18 @@ PRIVACY_PROMPT_WORDS = (
     'System Settings, Privacy and Security, Files and Folders.')
 
 
-def timeout_words(phase, seconds, *, local_files=False):
-    """Words for a step that ran out of time. A step that reads local files may be waiting on a macOS privacy prompt."""
-    words = f'FAIL {phase} timed out after {seconds:g} seconds.'
-    return f'{words} {PRIVACY_PROMPT_WORDS}' if local_files else words
+NETWORK_WORDS = (
+    'This step uses the network, so the connection may be slow or down, or the GitHub sign-in may have lapsed. '
+    'To go on, check the network and run gh auth status, then publish again.')
+
+
+def timeout_words(phase, seconds, *, local_files=False, network=False):
+    """Words for a step that ran out of time. A step that reads local files may be waiting on a macOS privacy prompt, and
+    a step that uses the network names the network and what to try next (RELEASE-NETWORK-STEP-WORDS)."""
+    words = [f'FAIL {phase} timed out after {seconds:g} seconds.']
+    if local_files: words.append(PRIVACY_PROMPT_WORDS)
+    if network: words.append(NETWORK_WORDS)
+    return ' '.join(words)
 
 
 def main():
@@ -64,6 +72,7 @@ def main():
     parser.add_argument('--phase', required=True)
     parser.add_argument('--public-stdout', action='store_true', help='Forward successful public protocol output; never use for secret-bearing commands')
     parser.add_argument('--local-files', action='store_true', help='The step reads local files, so a timeout names the macOS privacy prompt')
+    parser.add_argument('--network', action='store_true', help='The step uses the network, so a timeout names the network and what to try next')
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
@@ -73,7 +82,7 @@ def main():
         print(json.dumps(dict(phase=args.phase, exitStatus=127, error='tool unavailable')))
         return 127
     print(json.dumps(safe_record(result, phase=args.phase)), file=sys.stderr if args.public_stdout else sys.stdout)
-    if result.timed_out: print(timeout_words(args.phase, args.timeout, local_files=args.local_files), file=sys.stderr)
+    if result.timed_out: print(timeout_words(args.phase, args.timeout, local_files=args.local_files, network=args.network), file=sys.stderr)
     if args.local_files and result.returncode != 0 and not result.timed_out and result.stderr: sys.stderr.write(result.stderr)
     if args.public_stdout and result.returncode == 0:
         sys.stdout.write(result.stdout)
