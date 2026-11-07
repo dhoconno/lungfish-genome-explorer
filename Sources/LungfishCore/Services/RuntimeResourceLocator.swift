@@ -122,8 +122,15 @@ public enum RuntimeResourceLocator {
     ) -> [URL] {
         var roots: [URL] = []
         var seenPaths = Set<String>()
+        // A command-line tool run through a symlink, which is how a person installs one on PATH, reports the link as its
+        // executable and the link's folder as its resources. A link sits in no app, so the app that holds the binary was
+        // never found and the lock beside the binary was missed (walk W-35, Phase 3.3 lane CLISYM). Every lookup below
+        // starts from the binary the link names. The case-alias guard still reads the path as it was given.
+        let linkedExecutableURL = executableURL
+        let executableURL = executableURL?.resolvingSymlinksInPath()
         if !allowSourceFallback,
-           containsCaseAliasedAppBundle(mainResourceURL) || containsCaseAliasedAppBundle(executableURL) {
+           containsCaseAliasedAppBundle(mainResourceURL) || containsCaseAliasedAppBundle(linkedExecutableURL)
+            || containsCaseAliasedAppBundle(executableURL) {
             return []
         }
         let appBundleURL = allowSourceFallback || !testBundleURLs.isEmpty
