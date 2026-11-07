@@ -800,12 +800,31 @@ def read_test_state_ledger(path):
     return errors
 
 
+def swift_testing_event_count(path):
+    """The lines of a Swift Testing event stream that parse as JSON objects, 0 for a file that is absent or empty. A
+    process killed mid-write leaves a partial last line, which does not hide the whole events before it."""
+    try:
+        lines = Path(path).read_text(errors="replace").splitlines()
+    except OSError:
+        return 0
+    count = 0
+    for line in lines:
+        try:
+            if isinstance(json.loads(line), dict):
+                count += 1
+        except ValueError:
+            continue
+    return count
+
+
 def run_bundle_attempts(attempt, bound, selection, directory):
     """Run each step of a full-tier plan (plan_full_tier) as its own authoritative attempt under its own bound
     (FULL_TIER_BUNDLE_TIMEOUT_SECONDS) within the run's budget, recording each bundle that ran out or never started in
     `bound`. A bundle's XCTest attempt runs its .xctest directly, and a Swift Testing attempt runs swift test with
     --disable-xctest. Returns the errors that name them. The same lines go to stdout as they happen and to
-    bundle-timeouts.txt, which the quiet gate prints after its fail line."""
+    bundle-timeouts.txt, which the quiet gate prints after its fail line. A Swift Testing step that is killed at its
+    bound having written no event is named a runner hang (GATE RUNNER HANG), since no test started, and a discovery
+    that lists no Swift Testing function plans no such step and says so (FULL2-SWIFT-TESTING-HANG)."""
     budget, started, notes, errors = bound["budgetSeconds"], time.monotonic(), [], []
     # Unbuffered stdio, as in run_class_attempts, so the start line of the case a hung bundle is in reaches the log.
     environment = {**os.environ, "NSUnbufferedIO": "YES"}
@@ -844,10 +863,29 @@ def run_bundle_attempts(attempt, bound, selection, directory):
                 limit = f"its {timeout:.0f} s bound"
             else:
                 limit = f"the run's {budget} s budget, which left it {timeout:.0f} s"
-            message = f"{bundle} ran out of {limit} in {where} and was killed with its process tree"
-            notes.append("GATE BUNDLE TIMEOUT: " + message)
+            if step["harness"] == "swift-testing" and not swift_testing_event_count(directory / name / "swift-testing.jsonl"):
+                # Not one event came, so no test started and the swift test runner itself hung. The full tier on
+                # b475214ea read this as a case the log does not name, as if a test had failed.
+                count = len(chosen["swift-testing"])
+                result["runnerHang"] = True
+                message = (f"{bundle} hung in the runner and wrote no Swift Testing event in {limit}, so none of its "
+                           f"{count} discovered function{'' if count == 1 else 's'} started. The swift test runner "
+                           "stopped before it ran any test, so this is a runner fault and not a failed test. It was "
+                           "killed with its process tree. The tier stays red, and a run with a hung bundle cannot be "
+                           "the base of --rerun-of, so run the whole full tier again.")
+                notes.append("GATE RUNNER HANG: " + message)
+            else:
+                message = f"{bundle} ran out of {limit} in {where} and was killed with its process tree"
+                notes.append("GATE BUNDLE TIMEOUT: " + message)
             errors.append("bundle " + message)
             print(notes[-1], flush=True)
+    if not selection["swift-testing"]:
+        # plan_full_tier adds no Swift Testing step when discovery lists no function. Discovery reads the function names
+        # from discover-swift-testing.log, and the event file beside it stays empty for every swift test list, so an
+        # empty event file says nothing of the discovery.
+        line = "Swift Testing: no test discovered, not run"
+        bound["swiftTesting"] = {"selected": 0, "executed": 0, "note": line}
+        print(line, flush=True)
     if notes:
         (directory / "bundle-timeouts.txt").write_text("".join(note + "\n" for note in notes))
     return errors
