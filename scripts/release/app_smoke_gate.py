@@ -123,8 +123,10 @@ def verify_candidate_copy(result, payload_digest):
     after the run, carried its code directory hash, and the gate removed it. Each refusal names the field."""
     launched, original, record = result.get("appPath"), result.get("candidateAppPath"), result.get("appCopy")
     home = result.get("graphicalSession", {}).get("accountHome")
-    if not isinstance(launched, str) or not Path(launched).is_absolute() or not isinstance(home, str):
+    if not isinstance(launched, str) or not Path(launched).is_absolute():
         raise EvidenceError("app smoke appPath is not the absolute path of the app the runner launched")
+    if not isinstance(home, str):
+        raise EvidenceError("app smoke graphicalSession.accountHome is missing, so the check of appPath cannot run")
     folder = protected_folder(launched, home)
     if folder is not None:
         raise EvidenceError("app smoke appPath %s is inside %s, so the runner launched the candidate there and not a "
@@ -561,13 +563,13 @@ class AccountPreferencesGuard:
                                 "Lungfish runs: " + output.strip())
         return sorted(set(RUNNING_LUNGFISH.findall(output)))
 
-    def refuse_running(self):
-        """The first check of __enter__, which `package stable` also runs before its build (package_preflight)."""
+    def refuse_running(self, next_step=" and run the smoke again"):
+        """The first check of __enter__, which `package stable` also runs before its build (package_preflight). The
+        preflight passes an empty next_step, since no smoke has run for it to run again."""
         running = self.running_lungfish()
         if running:
-            raise EvidenceError("Lungfish is running (%s). Quit every copy of Lungfish and run the smoke again, "
-                                "since the gate moves the account's Lungfish preferences aside while it runs."
-                                % ", ".join(running))
+            raise EvidenceError("Lungfish is running (%s). Quit every copy of Lungfish%s, since the gate moves the "
+                                "account's Lungfish preferences aside while it runs." % (", ".join(running), next_step))
 
     def export(self, domain, path):
         status, output = self.runner(["defaults", "export", domain, str(path)])
@@ -764,11 +766,16 @@ class CandidateCopy:
 
 
 def limit_words(step):
-    return ("The real-app smoke step %s ran past its limit of %d seconds, so the gate stopped it. macOS may be showing a "
-            "privacy prompt (for example 'would like to access files in your Documents folder') or another dialog "
-            "that the XCUI runner cannot answer. Look at the Mac's screen, answer the prompt or allow the folder in "
-            "System Settings, Privacy and Security, Files and Folders, quit every copy of Lungfish and run the smoke "
-            "again." % (step, STEP_LIMIT_SECONDS[step]))
+    opening = ("The real-app smoke step %s ran past its limit of %d seconds, so the gate stopped it. "
+               % (step, STEP_LIMIT_SECONDS[step]))
+    dialog = ("macOS may be showing a privacy prompt (for example 'would like to access files in your Documents folder') "
+              "or another dialog ")
+    if step == "build-ui-runner":
+        return (opening + "This step compiles the XCUI runner and starts no app. " + dialog + "that waits for an answer. "
+                "Look at the Mac's screen, answer it, and run the smoke again.")
+    return (opening + dialog + "that the XCUI runner cannot answer. Look at the Mac's screen. Answer the prompt, or allow "
+            "the folder in System Settings, Privacy and Security, Files and Folders. Then quit every copy of Lungfish and "
+            "run the smoke again.")
 
 
 def refuse_timeout(record, step):
@@ -782,13 +789,14 @@ CAFFEINATE = "/usr/bin/caffeinate"
 
 def package_preflight(runner=None):
     """RELSMOKE item E (ruling QA-RELEASE-SMOKE-GATE item 6). `release.py package stable` with gates.appSmokeRequired
-    runs these two checks of `run` before it builds anything, so a locked screen or an open Lungfish refuses in
-    seconds with the gate's own words instead of after the archive and the gates. `run` checks both again."""
+    runs these two checks of `run` before the app build starts, so a locked screen or an open Lungfish refuses with the
+    gate's own words instead of after the archive and the gates. `run_package` compiles the Linux executor first, so
+    the refusal comes after that compile. `run` checks both again."""
     with tempfile.TemporaryDirectory(prefix="lungfish-smoke-preflight-") as folder:
         session = graphical_session(Path(folder))
     if not session["active"]:
         raise EvidenceError(SESSION_WORDS)
-    AccountPreferencesGuard(session["accountHome"], ACCOUNT_DOMAINS, runner=runner or run_tool).refuse_running()
+    AccountPreferencesGuard(session["accountHome"], ACCOUNT_DOMAINS, runner=runner or run_tool).refuse_running(next_step="")
 
 
 def hold_awake():

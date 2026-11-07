@@ -2111,7 +2111,9 @@ class LocalReleaseOperations:
     def _preflight_app_smoke(self, request: ReleaseRequest) -> None:
         """RELSMOKE item E (ruling QA-RELEASE-SMOKE-GATE item 6). The builder runs
         the real-app smoke near its end, so a Stable package that needs it runs
-        the gate's session and running-app checks first and refuses in seconds."""
+        the gate's session and running-app checks before the app build starts,
+        after the Linux executor compile, and refuses there instead of after the
+        archive and the gates."""
         if request.channel != "stable" or not self.contract.gates.appSmokeRequired:
             return
         # Imported here, since only this route needs the gate, and fixtures that
