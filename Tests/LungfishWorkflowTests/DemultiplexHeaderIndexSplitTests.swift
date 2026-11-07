@@ -141,6 +141,26 @@ final class DemultiplexHeaderIndexSplitTests: XCTestCase {
         }
     }
 
+    /// BIO SF2: the i5 rules no other split test reaches. One mismatch in i5 is allowed and so is a no-call `N`, two are
+    /// not, a hopped pair (one barcode's i7 with another's i5) stays unassigned, and a name with no i5 is called by its i7.
+    func testDualIndexNamesAllowOneMismatchInI5AndLeaveAHoppedPairUnassigned() async throws {
+        let kit = plate([("S1", "ATTACTCG", "TATAGCCT"), ("S2", "TCCGGAGA", "ATAGAGGC")])
+        var comments = Array(repeating: "1:N:0:ATTACTCG+TATAGCCT", count: 100)
+        comments += Array(repeating: "1:N:0:TCCGGAGA+ATAGAGGC", count: 100)
+        // r200 to r239, 10 each: S1's i7 with an i5 one substitution away, one with an N, two substitutions away, and S2's i5.
+        for i5 in ["TATAGCCA", "NATAGCCT", "TATAGCAA", "ATAGAGGC"] {
+            comments += Array(repeating: "1:N:0:ATTACTCG+\(i5)", count: 10)
+        }
+        comments += Array(repeating: "1:N:0:ATTACTCG", count: 10) // r240 to r249, no i5
+        let input = root.appendingPathComponent("hopped.fastq")
+        try DemuxFloorFixtures.write(names: comments.enumerated().map { "r\($0.offset) \($0.element)" }, seed: 15, to: input)
+        let output = root.appendingPathComponent("out", isDirectory: true)
+        let result = try await run(input, kit: kit, output: output)
+        XCTAssertEqual(counts(result), ["S1": 130, "S2": 100])
+        XCTAssertEqual(result.manifest.unassigned.readCount, 20)
+        XCTAssertEqual(try readIDs(result, output: output)["unassigned"], Set((220..<240).map { "r\($0)" }))
+    }
+
     /// UX SF3: a Read Names run whose names carry no index of the kit stops in words and publishes nothing, so a person
     /// is not left with every read in Unassigned and no sentence that says why or what to try.
     func testReadNamesRunOnNamesWithNoIndexOfTheKitEndsInWordsAndPublishesNothing() async throws {
