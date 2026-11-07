@@ -284,8 +284,8 @@ final class DemultiplexHeaderIndexScoutConformanceTests: XCTestCase {
     /// the read bases as the run splits it. Detect wrote the linked spec `BARCODE...revcomp(BARCODE)` for it, so it counted
     /// only the reads that also hold the barcode's reverse complement later on: 4 and 5 of 500 at the default rate on this
     /// fixture, none accepted, while the run splits the file 500 and 500. (a) Detect counts every read that starts with its
-    /// barcode, (b) it agrees with the run, and (c) it finds no barcode in reads of pure chance, so a fix that drops the
-    /// anchor at the read's 5' end (63 and 73 chance hits in 10,000 random reads at seed 11, over the 10 to accept) is red.
+    /// barcode, and (b) it agrees with the run. A fix that drops the anchor at the read's 5' end is red here by one read
+    /// (501 and 499 against 500 and 500), and the next test is the one that finds it by its chance hits.
     func testDetectOfACustomInlineKeyCountsWhatTheRunSplits() async throws {
         guard await NativeToolRunner.shared.isToolAvailable(.cutadapt),
               await NativeToolRunner.shared.isToolAvailable(.seqkit) else {
@@ -319,10 +319,24 @@ final class DemultiplexHeaderIndexScoutConformanceTests: XCTestCase {
         XCTAssertEqual(counts(detected), ["G1": 500, "G2": 500], "Detect counts every read that starts with its barcode")
         XCTAssertEqual(detected.unassignedCount, 0, "every read starts with a barcode of the key")
         XCTAssertEqual(Set(detected.acceptedDetections.map(\.barcodeID)), ["G1", "G2"], "both barcodes are in the file")
+    }
 
-        // (c) Reads of pure chance hold no barcode of the key, so the anchor at the read's start stays.
+    /// BIO-DETECT-BASES-UNDERCOUNT, the chance arm: reads of pure chance hold no barcode of a custom inline key, so Detect
+    /// accepts none, because it keeps the anchor at the read's 5' end that the run has. A search without the anchor finds
+    /// 63 G1 and 73 G2 hits in 10,000 random reads at seed 11, over the 10 to accept. It is a test of its own, since a failed
+    /// assertion of (a) or (b) in the test above ended that test before it reached this arm (LAND-50).
+    func testDetectOfACustomInlineKeyAcceptsNoBarcodeInRandomReads() async throws {
+        guard await NativeToolRunner.shared.isToolAvailable(.cutadapt),
+              await NativeToolRunner.shared.isToolAvailable(.seqkit) else {
+            try ToolAvailability.skipOrFail("managed cutadapt or seqkit is not installed")
+            return
+        }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let kit = try BarcodeKitRegistry.loadCustomKit(text: "G1,ACGGTCAT\nG2,GTTACCGA\n", name: "GBS key")
         let random = project.appendingPathComponent("chance.fastq")
         try DemuxFloorFixtures.write(names: (0..<10_000).map { "n\($0)" }, seed: 11, to: random)
+
         let chance = try await DemultiplexingPipeline().scout(inputURL: random, kit: kit, progress: { _, _ in })
         XCTAssertTrue(chance.acceptedDetections.isEmpty, "random reads accept no barcode: \(counts(chance))")
     }
