@@ -141,19 +141,21 @@ class NetworkStepWordsTests(unittest.TestCase):
         result, seconds = self.run_builder_function(
             'bounded_network', 'bounded_network git-ls-remote 1 git ls-remote --tags origin refs/tags/v1', tool='git')
         self.assert_next_step_words(result, 1, 'git-ls-remote')
-        self.assertLess(seconds, 30, 'the step must be stopped at its limit')
+        self.assertLess(seconds, 6, 'the step must end within its limit of 1 second plus 5')
         record = json.loads(next(line for line in result.stderr.splitlines() if line.startswith('{')))
         self.assertEqual({'phase', 'executable', 'exitStatus', 'timedOut', 'wallTimeSeconds'}, set(record))
         self.assertTrue(record['timedOut'])
 
     def test_every_gh_call_of_the_builder_says_the_same_when_it_runs_out_of_time(self):
-        result, _ = self.run_builder_function('github_cli', 'github_cli release view v1', tool='gh',
-                                              replace=('--timeout 180', '--timeout 1'))
+        result, seconds = self.run_builder_function('github_cli', 'github_cli release view v1', tool='gh',
+                                                    replace=('--timeout 180', '--timeout 1'))
         self.assert_next_step_words(result, 1, 'github')
-        result, _ = self.run_builder_function(
+        self.assertLess(seconds, 6, 'the step must end within its limit of 1 second plus 5')
+        result, seconds = self.run_builder_function(
             'github_cli_upload_asset', 'github_cli_upload_asset v1 /tmp/example.dmg', tool='gh',
             extra_env={'LUNGFISH_RELEASE_UPLOAD_TIMEOUT_SECONDS': '1'})
         self.assert_next_step_words(result, 1, 'github-upload')
+        self.assertLess(seconds, 6, 'the step must end within its limit of 1 second plus 5')
 
 
 class SmokeWordsReachTheConsoleTests(unittest.TestCase):
