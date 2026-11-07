@@ -47,4 +47,28 @@ extension Kraken2AnalysisRunToolTests {
         let singleRecord = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batchRoot.appendingPathComponent(single.resultDirectory)))
         XCTAssertNil(singleRecord.readSetPlan, "a sample of single reads records no plan")
     }
+
+    /// BIO-BUNDLE-COUNTED-TWICE. The two files of one root of R1 and R2 files are that root, once, so the pair
+    /// is classified as a pair, not as R1, R2, R1 and R2 of single reads.
+    func testTwoFilesOfOnePairedRootClassifyThePairOnce() async throws {
+        let pairRoot = try BundleCountedOnceFixtures.pairedRoot(named: "pairroot", in: root, pairs: 4)
+        let output = root.appendingPathComponent("paired-root-out", isDirectory: true)
+        let inputs = [pairRoot.r1.path, pairRoot.r2.path]
+        let pipeline = ClassificationPipeline(condaManager: kraken2.condaManager)
+        let seen = Kraken2Captured<ClassificationConfig>()
+        let capturing: PipelineRun = { config, progress in
+            seen.append(config)
+            return try await pipeline.classify(config: config, progress: progress)
+        }
+
+        let run = await execute(
+            request(inputs), .directory(output),
+            argv: command(inputs + ["--output-dir", output.path]), runPipeline: capturing
+        )
+
+        XCTAssertEqual(run.report.status, .completed, run.report.message)
+        let config = try XCTUnwrap(seen.values.first)
+        XCTAssertEqual(config.inputFiles, [pairRoot.r1, pairRoot.r2])
+        XCTAssertTrue(config.isPairedEnd)
+    }
 }

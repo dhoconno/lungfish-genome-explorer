@@ -233,6 +233,17 @@ final class EsVirituReadSetTests: XCTestCase {
         return try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: outputDirectory))
     }
 
+    /// BIO-BUNDLE-COUNTED-TWICE. The two files of one root of R1 and R2 files are that root, once, so EsViritu is
+    /// handed the pair with `-p paired`, not R1, R2, R1 and R2 with `-p unpaired`.
+    func testTwoFilesOfOnePairedRootReadThePairOnce() async throws {
+        let pairRoot = try BundleCountedOnceFixtures.pairedRoot(named: "pairroot", in: root, pairs: 4)
+        let run = try await detect(inputs: [pairRoot.r1, pairRoot.r2])
+        XCTAssertEqual(run.formatSeen, "paired")
+        XCTAssertEqual(run.filesSeen.count, 2, "EsViritu takes exactly two files with -p paired")
+        XCTAssertEqual(run.filesSeen.first, try ReadSetFixtures.readNames(in: pairRoot.r1))
+        XCTAssertEqual(run.filesSeen.last, try ReadSetFixtures.readNames(in: pairRoot.r2))
+    }
+
     private struct DetectRun {
         let outputDirectory: URL
         /// The record names of each file EsViritu was handed, in argument order.
@@ -254,12 +265,19 @@ final class EsVirituReadSetTests: XCTestCase {
         readFormat: String = "auto",
         materializer: (any CLISequenceInputMaterializing & Sendable)? = nil
     ) async throws -> DetectRun {
+        try await detect(inputs: [input], readFormat: readFormat, materializer: materializer)
+    }
+
+    /// `detect` with one `--input` for each of `inputs`.
+    private func detect(
+        inputs: [URL],
+        readFormat: String = "auto",
+        materializer: (any CLISequenceInputMaterializing & Sendable)? = nil
+    ) async throws -> DetectRun {
         let runRoot = root.appendingPathComponent("run-\(UUID().uuidString)", isDirectory: true)
         let esviritu = try StandInEsViritu(root: runRoot)
         let outputDirectory = runRoot.appendingPathComponent("esviritu/sample", isDirectory: true)
-        let parsed = try LungfishCLI.parseAsRoot([
-            "esviritu", "detect",
-            "--input", input.path,
+        let parsed = try LungfishCLI.parseAsRoot(["esviritu", "detect"] + inputs.flatMap { ["--input", $0.path] } + [
             "--sample", "sample",
             "--read-format", readFormat,
             "--db", esviritu.databaseURL.path,
