@@ -66,8 +66,26 @@ final class FASTQOperationCompletionOutputsTests: XCTestCase {
 
         let item = try XCTUnwrap(center.items.first { $0.id == id })
         XCTAssertEqual(item.state, .completed)
+        XCTAssertFalse(item.hasWarnings, "a run with no warning flag stays Completed")
         XCTAssertEqual(item.outputURLs, [bundle])
         XCTAssertEqual(OperationResultNavigation.resultURL(for: item), bundle.standardizedFileURL)
+    }
+
+    func testCompletionWithAWarningFinishesTheRowWithTheWarningAndKeepsItsOutputLinks() throws {
+        let (project, bundle) = try makeProjectBundle(named: "HG002-demux")
+        let center = OperationCenter()
+        let id = startOperation(in: center, project: project)
+
+        XCTAssertTrue(FASTQOperationCompletion.complete(
+            id: id, detail: "Not checked for chance matches. Done in 1.0s", outputURLs: [bundle], warning: true, center: center
+        ))
+
+        let item = try XCTUnwrap(center.items.first { $0.id == id })
+        XCTAssertEqual(item.state, .completed)
+        XCTAssertTrue(item.hasWarnings)
+        XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
+        XCTAssertEqual(item.detail, "Not checked for chance matches. Done in 1.0s")
+        XCTAssertEqual(item.outputURLs, [bundle])
     }
 
     func testCompletedDerivativeServiceRunCarriesItsOutputBundles() throws {
