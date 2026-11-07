@@ -369,7 +369,9 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         try await command.run()
         for name in ["README.txt", "jobs.tsv", "run-local.sh"] {
             let text = try String(contentsOf: folder.appendingPathComponent(name), encoding: .utf8)
-            XCTAssertFalse(text.lowercased().contains("chtc"), "\(name) names a site")
+            // O41 with O57 (Phase 3.3 lane P3WORDS): the README names no site but the transfer host of R4, flagged untested.
+            let flat = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            XCTAssertFalse(flat.replacingOccurrences(of: "At CHTC that is transfer.chtc.wisc.edu, which needs a NetID and Duo. That host is untested.", with: "").lowercased().contains("chtc"), "\(name) names a site")
         }
         for name in ["run.dag", "sample.sub", "lge-job.sh"] {
             let text = try String(contentsOf: folder.appendingPathComponent(name), encoding: .utf8)

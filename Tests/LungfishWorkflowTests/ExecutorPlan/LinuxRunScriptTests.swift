@@ -362,7 +362,14 @@ final class LinuxRunScriptTests: XCTestCase {
         XCTAssertEqual(order, order.sorted())
         for name in ["README.txt", "run-local.sh", "jobs.tsv"] {
             let text = try String(contentsOf: written.folder.appendingPathComponent(name), encoding: .utf8)
-            XCTAssertFalse(text.lowercased().contains("chtc"), "\(name) names a site")
+            // O41 with O57 (Phase 3.3 lane P3WORDS): the README names no site but the transfer host of R4, flagged untested.
+            let collapsed = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            XCTAssertFalse(
+                collapsed.replacingOccurrences(
+                    of: "At CHTC that is transfer.chtc.wisc.edu, which needs a NetID and Duo. That host is untested.", with: ""
+                ).lowercased().contains("chtc"),
+                "\(name) names a site"
+            )
         }
     }
 
@@ -436,7 +443,9 @@ final class LinuxRunScriptTests: XCTestCase {
             XCTAssertTrue(flat.contains(sentence), sentence)
         }
         XCTAssertFalse(flat.contains("Copy each file"), "a file may be linked as well as copied")
-        XCTAssertFalse(readme.lowercased().contains("chtc"), "the README names no site (O41)")
+        // O41 with O57 (Phase 3.3 lane P3WORDS): the README names no site but the transfer host of R4, flagged untested.
+        XCTAssertFalse(flat.replacingOccurrences(of: "At CHTC that is transfer.chtc.wisc.edu, which needs a NetID and Duo. That host is untested.", with: "").lowercased().contains("chtc"),
+                       "the README names no site (O41) but the transfer host of R4 (O57)")
     }
 
     /// The fact-check of lane CMD's strings (FC-CMD) found three README sentences false. A job that the executor
@@ -496,7 +505,9 @@ final class LinuxRunScriptTests: XCTestCase {
         XCTAssertLessThan(evicted, heldLine)
         XCTAssertTrue(held.contains("copy the results back to the Mac and adopt the batch"), held)
         XCTAssertFalse(held.contains("copy the batch folder back"), held)
-        XCTAssertFalse(readme.lowercased().contains("chtc"))
+        let flatReadme = readme.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        XCTAssertFalse(flatReadme.replacingOccurrences(of: "At CHTC that is transfer.chtc.wisc.edu, which needs a NetID and Duo. That host is untested.", with: "").lowercased().contains("chtc"),
+                       "the README names no site (O41) but the transfer host of R4 (O57)")
     }
 
     /// QA 2 and C5 D13: `--jobs` is the most samples running together, and the script runs that many at once. The
