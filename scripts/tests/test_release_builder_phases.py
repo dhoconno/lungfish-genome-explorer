@@ -5,11 +5,13 @@ import json
 import os
 import plistlib
 import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 from scripts.tests.gate_fixtures import make_gate_fixture
@@ -797,10 +799,13 @@ class ReleaseBuilderFixture:
         include_output_paths=True,
         with_gate_manifest=True,
         pass_fds=(),
+        timeout=None,
     ):
         """``with_gate_manifest=False`` leaves the gate evidence out of the
         command line, as the coordinator does when it hands the result over a
-        descriptor instead (``pass_fds`` keeps that descriptor open)."""
+        descriptor instead (``pass_fds`` keeps that descriptor open).
+        ``timeout`` ends a builder that is still waiting at the limit, with
+        every process it started, and reports return code -9."""
         environment = os.environ.copy()
         environment.update(
             {
@@ -845,6 +850,8 @@ class ReleaseBuilderFixture:
         command.extend(arguments)
         if derived is not None:
             command[2:2] = ["--derived-data-path", str(derived)]
+        if timeout is not None:
+            return self._run_with_limit(command, environment, pass_fds, timeout)
         return subprocess.run(
             command,
             cwd=self.repo,
@@ -855,6 +862,20 @@ class ReleaseBuilderFixture:
             check=False,
             pass_fds=pass_fds,
         )
+
+    def _run_with_limit(self, command, environment, pass_fds, timeout):
+        """The builder runs in its own process group, so a hold that never ends is ended with every child it started."""
+        process = subprocess.Popen(
+            command, cwd=self.repo, env=environment, text=True, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, pass_fds=pass_fds, start_new_session=True)
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            stdout, stderr = process.communicate()
+            note = f"\n[test harness] the builder was still waiting after {timeout:g} seconds and was ended\n"
+            return subprocess.CompletedProcess(command, -9, stdout, (stderr or "") + note)
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
     def gate_manifest(self, channel):
         """Retained gate evidence for the fixture's HEAD: the manifest path and its SHA-256."""
@@ -975,6 +996,69 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         receipt = json.loads((self.fixture.release / "unsigned-candidate-receipt.json").read_text())
         self.assertIn("appSmoke", receipt)
         self.assertIsNone(receipt["appSmoke"])
+
+    HANG_PROMPT_WORDS = (
+        "privacy prompt", "run the publish at the Mac", "System Settings", "Privacy and Security", "Files and Folders",
+    )
+
+    @staticmethod
+    def _hang_git_rev_parse_after_signing(fixture, hang_at):
+        """A fake git first on PATH sleeps 600 s on the hang_at-th `git rev-parse HEAD` after the signing pipeline stapled the
+        DMG, as a read held by a macOS privacy prompt would. It counts every such call and marks the start of the hold."""
+        count, started = fixture.root / "rev-parse-count", fixture.root / "rev-parse-hang-started"
+        (fixture.bin / "git").rename(fixture.bin / "git-fixture")
+        fixture._write_executable(
+            fixture.bin / "git",
+            f"""
+            #!/bin/bash
+            set -eu
+            if [ "$*" = "rev-parse HEAD" ] && /usr/bin/grep -q '^xcrun:stapler validate .*[.]dmg$' "$BUILDER_EVENTS" 2>/dev/null; then
+                calls=$(( $(/bin/cat '{count}' 2>/dev/null || echo 0) + 1 ))
+                echo "$calls" >'{count}'
+                if [ "$calls" -eq {hang_at} ]; then
+                    : >'{started}'
+                    exec /bin/sleep 600
+                fi
+            fi
+            exec '{fixture.bin}/git-fixture' "$@"
+            """,
+        )
+        return count, started
+
+    def test_a_hung_git_rev_parse_after_signing_ends_at_its_limit_with_words(self):
+        """RELEASE-UNBOUNDED-LOCAL-READS (lane RELBOUND, ruling QA-RELEASE-SMOKE-GATE section 3).
+
+        Every `git rev-parse HEAD` the builder runs after signing reads the repository, which lives under ~/Documents
+        in a worktree. A read held by the privacy prompt waited 5 hours with no words in the publish of Preview 2026.11.1.
+        A control publish counts the reads. Then each read in turn is held, and the builder must end with exit 124
+        within its limit plus 5 seconds and say which step it was and what to do about the prompt.
+        """
+        limit = 2
+        arguments = ("--signing-identity", "Developer ID Application: Test (TEAM123456)", "--team-id", "TEAM123456",
+                     "--notary-profile", "fixture", "--channel", "stable")
+
+        def publish(hang_at):
+            fixture = ReleaseBuilderFixture(self)
+            self.addCleanup(fixture.cleanup)
+            fixture.prepare_remote_tag()
+            count, started = self._hang_git_rev_parse_after_signing(fixture, hang_at)
+            result = fixture.run(*arguments, "--sparkle-generate-appcast", str(fixture.bin / "generate_appcast"),
+                                 extra_env={"LUNGFISH_RELEASE_LOCAL_READ_TIMEOUT_SECONDS": str(limit)}, timeout=30)
+            return result, count, started, time.time()
+
+        control, count, _, _ = publish(hang_at=0)
+        self.assertEqual(control.returncode, 0, control.stdout + control.stderr)
+        sites = int(count.read_text())
+        self.assertGreaterEqual(sites, 4, "the publish reads the repository head at least four times after signing")
+        for site in range(1, sites + 1):
+            with self.subTest(read_after_signing=site):
+                result, _, started, ended = publish(hang_at=site)
+                self.assertTrue(started.exists(), "the read that should hold never ran\n" + result.stderr[-1500:])
+                self.assertEqual(124, result.returncode, "the builder must end at the limit of the held read\n" + result.stderr[-1500:])
+                self.assertLessEqual(ended - started.stat().st_mtime, limit + 5, "the builder must end within its limit plus 5 seconds")
+                self.assertRegex(result.stderr, rf"FAIL git-rev-parse[a-z-]* timed out after {limit} seconds")
+                for words in self.HANG_PROMPT_WORDS:
+                    self.assertIn(words, result.stderr)
 
     def _stable_resume_args(self, fixture=None):
         selected = fixture or self.fixture

@@ -2165,6 +2165,62 @@ class CommonReleaseCoordinatorTests(unittest.TestCase):
         with self.assertRaisesRegex(self.coordinator.ReleaseError, "missing DMG_PATH"):
             verify("build_number=9046")
 
+    def test_independent_verify_bounds_every_command(self):
+        """RELEASE-SMOKE-NO-WHOLE-CALL-TIMEOUT (lane RELBOUND, ruling QA-RELEASE-SMOKE-GATE section 3).
+
+        The independent verify runs codesign, stapler twice, spctl and the tool smoke on files under the release
+        folder. Each call has a limit, so a hold ends at a named step with words. A real runner ends a command that
+        never returns at its limit and raises an error that names the step.
+        """
+        class Stop(Exception):
+            pass
+
+        class RecordingRunner:
+            def __init__(self):
+                self.calls = []
+
+            def run(self, command, **kwargs):
+                self.calls.append((command, kwargs))
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            def json(self, command):
+                raise Stop
+
+            text = json
+
+        commit = "a" * 40
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            release_dir = root / "release"
+            (release_dir / "signed/Lungfish.app").mkdir(parents=True)
+            dmg = release_dir / "Lungfish-2026.10.19-arm64.dmg"
+            dmg.write_bytes(b"fixture dmg")
+            receipt = release_dir / "unsigned-candidate-receipt.json"
+            receipt.write_text(json.dumps({"release": {"build": "9046"}}), encoding="utf-8")
+            lines = ["version=2026.10.19", "channel=preview", f"git_commit={commit}", "build_number=9046",
+                     f"DMG_PATH={dmg}", f"app_path={release_dir / 'signed/Lungfish.app'}",
+                     f"dmg_sha256={hashlib.sha256(dmg.read_bytes()).hexdigest()}"]
+            (release_dir / "release-metadata.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            identity = self.coordinator.CandidateIdentity(
+                receipt=receipt, tag="v2026.10.19", commit=commit, version="2026.10.19", scratch_path=release_dir / "scratch")
+            operations = object.__new__(self.coordinator.LocalReleaseOperations)
+            operations.root = root
+            operations.contract = self.coordinator.load_contract(Path(__file__).resolve().parents[2] / "config/release-contract.json")
+            operations.runner = RecordingRunner()
+            with self.assertRaises(Stop):
+                operations.independent_verify(self.request(channel="preview"), identity)
+            names = [Path(command[0]).name for command, _ in operations.runner.calls]
+            self.assertEqual(["codesign", "xcrun", "xcrun", "spctl", "smoke-test-release-tools.sh"], names)
+            for command, kwargs in operations.runner.calls:
+                self.assertGreater(kwargs.get("timeout") or 0, 0, f"{' '.join(command[:3])} must run under a limit")
+
+            started = time.monotonic()
+            with self.assertRaises(self.coordinator.ReleaseError) as raised:
+                self.coordinator.SubprocessRunner(root).run(["/bin/sleep", "600"], timeout=1)
+            self.assertLess(time.monotonic() - started, 6, "the command must be ended at its limit")
+            for words in ("sleep 600", "timed out after 1 seconds", "privacy prompt"):
+                self.assertIn(words, str(raised.exception))
+
     def test_cli_rejects_direct_credential_paths_and_public_resume(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temporary = Path(temp_dir)
