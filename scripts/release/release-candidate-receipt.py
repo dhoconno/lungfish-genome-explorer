@@ -551,7 +551,10 @@ def _build_receipt(
         "packagedAppPayloadSha256": _payload_digest(app),
     }
     smoke_binding = None
-    if load_contract(CONTRACT_PATH).gates.appSmokeRequired:
+    # The builder runs the smoke gate for Stable only (build-notarized-dmg.sh, the REQUIRE_APP_SMOKE block), so one
+    # rule decides both: Stable asks for smoke evidence when the policy requires it, and every other channel refuses
+    # evidence it was given (ruling QA-RELEASE-SMOKE-GATE item 2, triage R1).
+    if channel == "stable" and load_contract(CONTRACT_PATH).gates.appSmokeRequired:
         if app_smoke is None or app_smoke_digest is None:
             raise ReceiptError(
                 f"{channel} requires retained exact-candidate real-app smoke evidence"
