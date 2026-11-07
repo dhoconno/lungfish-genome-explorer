@@ -21,7 +21,9 @@ public enum SequenceAlphabet: String, Codable, Sendable, CaseIterable {
         case .rna:
             return Set("AUTGCNautgcnRYSWKMBDHVryswkmbdhv")
         case .protein:
-            return Set("ACDEFGHIKLMNPQRSTVWYacdefghiklmnpqrstvwy*X")
+            // Every IUPAC protein letter in either case, and the stop symbol: the 20 standard residues, B (Asx), Z (Glx),
+            // J (Xle), U (selenocysteine, which UniProt writes as U), O (pyrrolysine) and X (any residue).
+            return Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz*")
         }
     }
 

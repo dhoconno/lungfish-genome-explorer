@@ -283,7 +283,7 @@ public final class FASTAReader: Sendable {
         alphabet: SequenceAlphabet?,
         lineNumber: Int
     ) throws -> Sequence {
-        let detectedAlphabet = alphabet ?? detectAlphabet(bases)
+        let detectedAlphabet = alphabet ?? Self.detectAlphabet(of: bases)
 
         do {
             return try Sequence(
@@ -297,27 +297,53 @@ public final class FASTAReader: Sendable {
         }
     }
 
-    private func detectAlphabet(_ bases: String) -> SequenceAlphabet {
-        let upper = bases.uppercased()
+    /// The smallest share of a record's letters that A, C, G, T, U and N must make for the record to be nucleotide, as
+    /// `numerator / denominator`. Half, the panel's line (FASTA-PEPTIDE-NUCLEOTIDE-LETTERS): a record with a smaller share is
+    /// protein, and a record with exactly half stays nucleotide.
+    static let minimumNucleotideShare = (numerator: 1, denominator: 2)
 
-        // Check for protein-specific amino acids
-        let proteinOnly = Set("EFILPQZ")
-        for char in upper {
-            if proteinOnly.contains(char) {
+    /// Types a record from its letters (one pass, case-insensitive).
+    ///
+    /// - A letter only protein uses (E, F, I, L, P, Q or Z) makes the record protein at once.
+    /// - Otherwise the record is protein when fewer than half of its letters are A, C, G, T, U or N. A short peptide such as
+    ///   `MKTAYGHSSRV` is made of letters that are also IUPAC nucleotide codes, and was typed DNA, so the FASTA list showed a GC
+    ///   percent for it. The share counts letters only, so a gap, a dot and a stop symbol never count against an aligned
+    ///   nucleotide record.
+    /// - Otherwise a record with U and no T is RNA, and any other is DNA, as before. A record with no letters stays DNA.
+    static func detectAlphabet(of bases: String) -> SequenceAlphabet {
+        var letters = 0
+        var nucleotideLetters = 0
+        var hasU = false
+        var hasT = false
+        for byte in bases.utf8 {
+            // Clearing bit 5 folds a lower-case ASCII letter to upper case and leaves every non-letter outside A...Z.
+            switch byte & 0xDF {
+            case UInt8(ascii: "E"), UInt8(ascii: "F"), UInt8(ascii: "I"), UInt8(ascii: "L"),
+                 UInt8(ascii: "P"), UInt8(ascii: "Q"), UInt8(ascii: "Z"):
                 return .protein
+            case UInt8(ascii: "A"), UInt8(ascii: "C"), UInt8(ascii: "G"), UInt8(ascii: "N"):
+                letters += 1
+                nucleotideLetters += 1
+            case UInt8(ascii: "T"):
+                letters += 1
+                nucleotideLetters += 1
+                hasT = true
+            case UInt8(ascii: "U"):
+                letters += 1
+                nucleotideLetters += 1
+                hasU = true
+            case UInt8(ascii: "A")...UInt8(ascii: "Z"):
+                letters += 1
+            default:
+                break
             }
         }
 
-        // Check for U (RNA) vs T (DNA)
-        let hasU = upper.contains("U")
-        let hasT = upper.contains("T")
-
-        if hasU && !hasT {
-            return .rna
+        let share = minimumNucleotideShare
+        if letters > 0, nucleotideLetters * share.denominator < letters * share.numerator {
+            return .protein
         }
-
-        // Default to DNA
-        return .dna
+        return hasU && !hasT ? .rna : .dna
     }
 }
 

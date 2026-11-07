@@ -81,6 +81,18 @@ final class FASTAReaderCompositionTests: XCTestCase {
         XCTAssertEqual(sequences.map(\.alphabet), records.map(\.expected))
     }
 
+    /// A gap, a dot and a stop symbol are not letters, so they never count against a nucleotide record. An aligned nucleotide
+    /// record keeps its nucleotide type, which a later fix of the reader refusing `-` in a nucleotide record needs. The
+    /// function is called directly, since the reader still refuses a `-` in a nucleotide record (FASTA-NUCLEOTIDE-GAP-REJECTED).
+    func testAlignedNucleotideRecordWithGapsStaysNucleotide() {
+        XCTAssertEqual(FASTAReader.detectAlphabet(of: "AC--GT....AC**GT--------"), .dna)
+        XCTAssertEqual(FASTAReader.detectAlphabet(of: "A--------------------T"), .dna)
+        XCTAssertEqual(FASTAReader.detectAlphabet(of: "AC--GU....AC**GU--------"), .rna)
+        XCTAssertEqual(FASTAReader.detectAlphabet(of: "MK--TAYGHSSRV...."), .protein)
+        XCTAssertEqual(FASTAReader.detectAlphabet(of: "-----"), .dna, "no letters to count, so the old default holds")
+        XCTAssertEqual(FASTAReader.detectAlphabet(of: ""), .dna)
+    }
+
     // MARK: - PROTEIN-ALPHABET-REJECTS-LETTERS
 
     /// Selenocysteine (U) as UniProt writes it, one record with B (Asx) and Z (Glx), one with B and no letter that only protein

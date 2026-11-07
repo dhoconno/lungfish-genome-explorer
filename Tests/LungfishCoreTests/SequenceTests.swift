@@ -76,8 +76,8 @@ final class SequenceTests: XCTestCase {
     }
 
     func testInvalidProteinCharacterThrows() {
-        // 'J' is not a valid amino acid
-        XCTAssertThrowsError(try Sequence(name: "bad", alphabet: .protein, bases: "MKTJAY"))
+        // A digit is no amino acid. J, B, Z, U and O are IUPAC protein letters (PROTEIN-ALPHABET-REJECTS-LETTERS).
+        XCTAssertThrowsError(try Sequence(name: "bad", alphabet: .protein, bases: "MKT1AY"))
     }
 
     // MARK: - Edge Cases: Empty and Single Base

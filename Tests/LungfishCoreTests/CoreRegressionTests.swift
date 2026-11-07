@@ -386,8 +386,13 @@ final class SequenceAlphabetRegressionTests: XCTestCase {
         // Stop codon symbol and unknown
         XCTAssertTrue(valid.contains("*"))
         XCTAssertTrue(valid.contains("X"))
-        // DNA-specific bases not in protein
-        XCTAssertFalse(valid.contains("U"))
+        // The other IUPAC protein letters, with U for selenocysteine (PROTEIN-ALPHABET-REJECTS-LETTERS)
+        for c: Character in ["B", "Z", "J", "U", "O", "x"] {
+            XCTAssertTrue(valid.contains(c), "Protein should contain \(c)")
+        }
+        // A gap and a digit are no protein letters
+        XCTAssertFalse(valid.contains("-"))
+        XCTAssertFalse(valid.contains("1"))
     }
 
     // MARK: Complement Map
