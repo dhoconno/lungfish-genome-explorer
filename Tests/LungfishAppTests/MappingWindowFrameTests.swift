@@ -76,6 +76,15 @@ final class MappingWindowFrameTests: XCTestCase {
                 XCTAssertEqual(frame.minX, set.minX, accuracy: 1, "the window moved to x \(frame.minX), \(context)")
                 XCTAssertEqual(frame.minY, set.minY, accuracy: 1, "the window moved to y \(frame.minY), \(context)")
             }
+            // W-26's trigger: a summary line far wider than the window, such as the words of an alignment summary that could not be measured.
+            let viewport = try XCTUnwrap(harness.split.viewerController.referenceBundleViewportController, "no viewport to write the long line into")
+            let measuredLine = viewport.summaryLabel.stringValue
+            viewport.summaryLabel.stringValue = String(repeating: "Alignment statistics could not be measured because the BAM file is missing. ", count: 12)
+            harness.window.layoutIfNeeded()
+            XCTAssertEqual(harness.window.frame.width, set.width, accuracy: 1,
+                           "a long summary line grew the window to \(harness.window.frame.width) points at \(Int(width)) points")
+            // The next width starts from the measured line, or the long line would size its window before `set` is read.
+            viewport.summaryLabel.stringValue = measuredLine
         }
     }
 
