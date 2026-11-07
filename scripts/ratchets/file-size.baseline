@@ -15,7 +15,7 @@ Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift 1112
 Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift 2453
 Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift 1010
 Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift 2306
-Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1103
+Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1102
 Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift 971
 Sources/LungfishApp/Views/Inspector/InspectorView.swift 888
 Sources/LungfishApp/Views/Inspector/InspectorViewController+MetadataImport.swift 1051
@@ -28,7 +28,7 @@ Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift 807
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift 1332
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift 967
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController+FASTQImport.swift 992
-Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1103
+Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift 1102
 Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift 827
 Sources/LungfishApp/Views/MainWindow/MainWindowController.swift 1119
 Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift 1024
