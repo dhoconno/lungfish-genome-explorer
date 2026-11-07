@@ -273,7 +273,7 @@ extension MainSplitViewController {
             ? FASTQBundle.resolveAllFASTQURLs(for: standardizedSourceURL)?.map(\.standardizedFileURL)
             : fastqURL.map { [$0] }
         let statisticsCacheURL: URL? = FASTQBundle.isBundleURL(standardizedSourceURL)
-            && FASTQBundle.isMultiFileBundle(standardizedSourceURL)
+            && (FASTQBundle.isMultiFileBundle(standardizedSourceURL) || (resolvedFASTQURLs?.count ?? 0) > 1)
             ? standardizedSourceURL
             : fastqURL
         let derivedManifest = FASTQBundle.isBundleURL(standardizedSourceURL)

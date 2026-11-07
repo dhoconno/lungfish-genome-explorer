@@ -154,14 +154,22 @@ public enum FASTQBundle {
         FASTQSourceFileManifest.exists(in: bundleURL)
     }
 
-    /// Resolves all constituent FASTQ file URLs for a multi-file bundle.
+    /// Resolves all constituent FASTQ file URLs for a bundle.
     ///
     /// Returns the ordered list of chunk file URLs from `source-files.json`.
-    /// For single-file bundles (no manifest), returns the primary FASTQ URL in an array.
+    /// A root that no manifest describes, with no `source-files.json` and no derived manifest, is every physical
+    /// FASTQ it holds, preview excluded and sorted as ``resolvePrimaryFASTQURL(for:)`` sorts them, so the R1 and R2
+    /// files that `extract reads --by-id --source R1 --source R2 --bundle` writes both resolve and R1 comes first.
+    /// ``isMultiFileBundle(_:)`` stays a question about `source-files.json` alone.
+    /// A single-file root, a derived bundle and a FASTQ file return the primary FASTQ URL in an array.
     /// Returns `nil` if neither source manifest nor primary FASTQ can be resolved.
     public static func resolveAllFASTQURLs(for bundleURL: URL) -> [URL]? {
         if let manifestURLs = resolveSourceManifestFASTQURLs(for: bundleURL) {
             return manifestURLs
+        }
+        if isBundleURL(bundleURL), !isDerivedBundle(bundleURL) {
+            let physicalURLs = findPhysicalFASTQFiles(in: bundleURL, recursive: false)
+            if physicalURLs.count > 1 { return physicalURLs }
         }
         if let primary = resolvePrimaryFASTQURL(for: bundleURL) {
             return [primary]
