@@ -80,8 +80,8 @@ extension DemultiplexChanceFloor {
     }
 
     /// The null the tallies measure, or nil when the run keeps to the floor of uniform random bases (item 6): fewer than
-    /// 1,000 windows a mate, a window too short or too long to use, a kit whose uniform share is 0.5 or more, or fewer than
-    /// 100 decoys at a barcode length.
+    /// 1,000 windows a mate, a window too short or too long to use, a kit whose uniform share is 0.5 or more, a side with
+    /// more than `maximumDecoyErrors` errors, or fewer than 100 decoys at a barcode length.
     static func measuredNull(
         patterns: [String: [String]], errorRate: Double, allowsIndels: Bool, unit: Int, tallies: [StartTally]
     ) -> MeasuredNull? {
