@@ -7,10 +7,70 @@
 // count was measured on. UX set the words in review DEMUXNULL-UX.
 
 import XCTest
-import LungfishWorkflow
+@testable import LungfishWorkflow
 @testable import LungfishCLI
 
 final class DemultiplexSummaryWordsTests: XCTestCase {
+    /// The limit of the floor, byte for byte (DEMUX-FLOOR-DECOY-MAX, rulings BIO-DECOY-MAX-STABLE and STB-R2-UX section D).
+    private let notInPoolLine = "A barcode that is not in your pool can still pass as a sample. For each such barcode this "
+        + "happens in about one run in 1,000, and more often in amplicon files. Check samples with few reads against "
+        + "your sample sheet."
+
+    /// BIO's measured false sample (ruling BIO-DECOY-MAX-STABLE section 1): 317 reads of one barcode over a ceiling of 45
+    /// in 84,882 unassigned reads, the chance measured on the start composition. `withinChance` adds a second barcode with
+    /// 3 reads under its ceiling.
+    private func outcome(withinChance: Bool) -> DemultiplexChanceFloor.Outcome {
+        var barcodes = [DemultiplexChanceFloor.BarcodeCount(barcodeID: "CAACTGCAACAT", readCount: 317, chanceCeiling: 45)]
+        if withinChance {
+            barcodes.append(DemultiplexChanceFloor.BarcodeCount(barcodeID: "D703", readCount: 3, chanceCeiling: 5))
+        }
+        return DemultiplexChanceFloor.Outcome(
+            readsSearched: 85_199, chanceTrials: 84_882, barcodes: barcodes, null: .startComposition, margin: 86.92,
+            compositionReads: 84_882
+        )
+    }
+
+    /// A floor run that published a sample and names no barcode within chance prints the limit line alone.
+    func testAFloorRunThatPublishesSaysABarcodeNotInThePoolCanStillPass() {
+        XCTAssertEqual(
+            FastqDemultiplexSubcommand.chanceSummaryLines(
+                engine: .cutadapt, readCounts: [317, 0], chanceFloor: outcome(withinChance: false)
+            ),
+            [notInPoolLine]
+        )
+    }
+
+    /// With a barcode within chance too, the within line prints first and the limit line follows it.
+    func testAFloorRunWithABarcodeWithinChanceSaysTheWithinLineThenTheLimit() {
+        let within = "Could be chance matches: D703 (3 reads). Reads that carry no barcode match a barcode by chance at this "
+            + "error rate, and each of these holds no more reads than chance gives. The chance is measured on the first "
+            + "bases of the Unassigned reads. Their files were kept, so check them against the samples you expect."
+        XCTAssertEqual(
+            FastqDemultiplexSubcommand.chanceSummaryLines(
+                engine: .cutadapt, readCounts: [317, 3], chanceFloor: outcome(withinChance: true)
+            ),
+            [within, notInPoolLine]
+        )
+    }
+
+    /// A run with no floor outcome, a Read Names run or one that searched nothing, says nothing about the pool.
+    func testARunWithNoFloorOutcomeSaysNothingOfThePool() {
+        XCTAssertEqual(
+            FastqDemultiplexSubcommand.chanceSummaryLines(engine: .cutadapt, readCounts: [317, 0], chanceFloor: nil), []
+        )
+        XCTAssertEqual(
+            FastqDemultiplexSubcommand.chanceSummaryLines(engine: .headerIndex, readCounts: [317, 0], chanceFloor: nil), []
+        )
+    }
+
+    /// Exact Bare Barcode has no floor, so its words print alone and the limit of the floor never prints.
+    func testExactBareRunsPrintOnlyTheirOwnWords() {
+        XCTAssertEqual(
+            FastqDemultiplexSubcommand.chanceSummaryLines(engine: .exactBareBarcode, readCounts: [317, 0], chanceFloor: nil),
+            [DemultiplexEngine.exactBareChanceWords]
+        )
+    }
+
     func testWithinChanceSummaryNamesEachBarcodeWithItsReadsAndSaysTheChanceIsMeasuredOnThisFilesReads() {
         XCTAssertEqual(
             FastqDemultiplexSubcommand.withinChanceSummary(

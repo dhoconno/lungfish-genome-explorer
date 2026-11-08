@@ -28,4 +28,7 @@ public enum DemultiplexChanceWords {
             + "rate, and each of these holds no more reads than chance gives. \(measuredOn) Their files were kept, so "
             + "check them against the samples you expect."
     }
+
+    /// STUB of the red commit of lane DECOYWORDS. The fix replaces it.
+    public static func notInPoolLimit(publishedBarcodes: Int) -> String? { "" }
 }

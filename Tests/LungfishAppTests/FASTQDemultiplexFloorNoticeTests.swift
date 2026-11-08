@@ -9,6 +9,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+@testable import LungfishKit
 @testable import LungfishWorkflow
 
 final class FASTQDemultiplexFloorNoticeTests: XCTestCase {
@@ -105,5 +106,88 @@ final class FASTQDemultiplexFloorNoticeTests: XCTestCase {
         XCTAssertNil(FASTQDemultiplexChanceNotice.floorNotice(for: result()), "no record in the folder")
         try writeRecord(chanceFloor: nil)
         XCTAssertNil(FASTQDemultiplexChanceNotice.floorNotice(for: result()), "a record with no chanceFloor block")
+    }
+
+    // DEMUX-FLOOR-DECOY-MAX (rulings BIO-DECOY-MAX-STABLE and STB-R2-UX section D, Stable job lane DECOYWORDS). A record
+    // holds a `chanceFloor` block only when a barcode beat the floor, so the block alone says the run published a sample
+    // and the manifest is not read. The line is information, never the row's one warning.
+
+    /// The line UX set, byte for byte.
+    private let notInPoolLine = "A barcode that is not in your pool can still pass as a sample. For each such barcode this "
+        + "happens in about one run in 1,000, and more often in amplicon files. Check samples with few reads against "
+        + "your sample sheet."
+
+    func testAFloorRunWithNoBarcodeWithinChanceStillCarriesTheNotInPoolLine() throws {
+        try writeRecord(chanceFloor: floor(null: "start-composition", within: [:]))
+        XCTAssertNil(FASTQDemultiplexChanceNotice.rowNotice(for: result()), "the line is not the row's warning")
+        XCTAssertEqual(FASTQDemultiplexChanceNotice.floorLimitLine(for: result()), notInPoolLine)
+        let words = FASTQDemultiplexChanceNotice.rowWords(for: result())
+        XCTAssertNil(words.notice)
+        XCTAssertEqual(words.floorLimitLine, notInPoolLine)
+    }
+
+    func testARunWithABarcodeWithinChanceKeepsItsWarningAndAlsoCarriesTheNotInPoolLine() throws {
+        try writeRecord(chanceFloor: floor(null: "start-composition", within: ["D703": 3]))
+        let within = "Could be chance matches: D703 (3 reads). Reads that carry no barcode match a barcode by chance at this "
+            + "error rate, and each of these holds no more reads than chance gives. The chance is measured on the first "
+            + "bases of the Unassigned reads. Their files were kept, so check them against the samples you expect."
+        XCTAssertEqual(FASTQDemultiplexChanceNotice.rowNotice(for: result())?.message, within)
+        XCTAssertEqual(FASTQDemultiplexChanceNotice.floorLimitLine(for: result()), notInPoolLine)
+        let words = FASTQDemultiplexChanceNotice.rowWords(for: result())
+        XCTAssertEqual(words.notice?.message, within)
+        XCTAssertEqual(words.floorLimitLine, notInPoolLine)
+    }
+
+    func testARunWithNoRecordOrNoFloorBlockHasNoNotInPoolLine() throws {
+        XCTAssertNil(FASTQDemultiplexChanceNotice.floorLimitLine(for: result()), "no record in the folder")
+        try writeRecord(chanceFloor: nil)
+        XCTAssertNil(FASTQDemultiplexChanceNotice.floorLimitLine(for: result()), "a record with no chanceFloor block")
+        XCTAssertNil(FASTQDemultiplexChanceNotice.rowWords(for: result()).floorLimitLine)
+    }
+
+    /// The row stays Completed, so its detail starts with the check when the line stands without a warning, and with the
+    /// warning's own prefix when there is one.
+    func testTheRowDetailStartsWithTheCheckOnlyWhenTheLineStandsWithoutAWarning() {
+        XCTAssertEqual(
+            FASTQDemultiplexChanceNotice.floorLimitRowPrefix, "Check samples with few reads against your sample sheet. "
+        )
+        let warning = FASTQDemultiplexChanceNotice.RowNotice(
+            message: "Could be chance matches: D703 (3 reads).", detailPrefix: FASTQDemultiplexChanceNotice.floorRowPrefix
+        )
+        XCTAssertEqual(
+            FASTQDemultiplexChanceNotice.rowDetail(nil, notInPoolLine, "Done in 12.3s"),
+            "Check samples with few reads against your sample sheet. Done in 12.3s"
+        )
+        XCTAssertEqual(
+            FASTQDemultiplexChanceNotice.rowDetail(warning, notInPoolLine, "Done in 12.3s"),
+            "Some barcodes could be chance matches. Done in 12.3s"
+        )
+        XCTAssertEqual(FASTQDemultiplexChanceNotice.rowDetail(nil, nil, "Done in 12.3s"), "Done in 12.3s")
+    }
+
+    /// The Log takes the warning at `.warning`, then the line at `.info`. A `.warning` entry turns a finished row into
+    /// Completed with Warnings (`OperationCenter.Item.hasWarnings`), so the line alone must leave the row without one.
+    @MainActor
+    func testTheNotInPoolLineGoesToTheLogAtInfoAfterTheWarning() throws {
+        let center = OperationCenter()
+        let warning = FASTQDemultiplexChanceNotice.RowNotice(
+            message: "Could be chance matches: D703 (3 reads).", detailPrefix: FASTQDemultiplexChanceNotice.floorRowPrefix
+        )
+        let withWarning = try XCTUnwrap(center.begin(
+            title: "Demultiplex Barcodes", detail: "", operationType: .fastqOperation, cliCommand: "lungfish fastq demultiplex"
+        ).startedID)
+        FASTQDemultiplexChanceNotice.log(warning, notInPoolLine, id: withWarning, in: center)
+        let first = try XCTUnwrap(center.items.first { $0.id == withWarning })
+        XCTAssertEqual(first.logEntries.map(\.level), [.warning, .info])
+        XCTAssertEqual(first.logEntries.map(\.message), [warning.message, notInPoolLine])
+
+        let lineAlone = try XCTUnwrap(center.begin(
+            title: "Demultiplex Barcodes", detail: "", operationType: .fastqOperation, cliCommand: "lungfish fastq demultiplex"
+        ).startedID)
+        FASTQDemultiplexChanceNotice.log(nil, notInPoolLine, id: lineAlone, in: center)
+        let second = try XCTUnwrap(center.items.first { $0.id == lineAlone })
+        XCTAssertEqual(second.logEntries.map(\.level), [.info])
+        XCTAssertEqual(second.logEntries.map(\.message), [notInPoolLine])
+        XCTAssertFalse(second.hasWarnings, "the line alone leaves the finished row Completed")
     }
 }

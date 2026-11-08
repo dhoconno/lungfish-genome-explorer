@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
 
 extension FASTQDemultiplexChanceNotice {
@@ -46,5 +47,25 @@ extension FASTQDemultiplexChanceNotice {
         if let words = notice(for: result) { return RowNotice(message: words, detailPrefix: rowPrefix) }
         if let line = floorNotice(for: result) { return RowNotice(message: line, detailPrefix: floorRowPrefix) }
         return nil
+    }
+
+    // STUBS of the red commit of lane DECOYWORDS (DEMUX-FLOOR-DECOY-MAX). The fix replaces them. Each one does what the
+    // base does, so the tests below the stubs fail on the missing line and nothing else.
+
+    static let floorLimitRowPrefix = ""
+
+    static func floorLimitLine(for result: FASTQOperationExecutionResult) -> String? { nil }
+
+    static func rowWords(for result: FASTQOperationExecutionResult) -> (notice: RowNotice?, floorLimitLine: String?) {
+        (rowNotice(for: result), nil)
+    }
+
+    static func rowDetail(_ notice: RowNotice?, _ floorLimitLine: String?, _ completionDetail: String) -> String {
+        notice?.rowDetail(completionDetail) ?? completionDetail
+    }
+
+    @MainActor
+    static func log(_ notice: RowNotice?, _ floorLimitLine: String?, id: UUID, in center: OperationCenter) {
+        if let notice { center.log(id: id, level: .warning, message: notice.message) }
     }
 }
