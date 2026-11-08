@@ -98,7 +98,7 @@ These operations state how they meet the rule. A note is current as of Phase 2.1
 
 A replay that needs an external tool runs in the integration tier, which takes every LungfishAppTests class whose name ends in `ReplayTests`. A replay of a remote service runs in the unit tier against a recorded response. A replay of pure Swift code runs in the unit tier. `Tests/LungfishAppTests/CLIReplayHarnessReplayTests.swift` replays a `bam filter` run end to end and serves as the template.
 
-Parity compares sides A, C and C' in one run. C against its replay C' lists nothing and is the acceptance, and A against C keeps a list of declared differences that may only shrink.
+Parity compares the legacy route (A), the new route (C) and C's recorded command replayed (C') in one run. C against C' lists nothing and is the acceptance, and A against C keeps a list of declared differences that may only shrink.
 
 ## The ratchet
 
