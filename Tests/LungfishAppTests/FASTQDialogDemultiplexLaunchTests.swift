@@ -259,6 +259,27 @@ final class FASTQDialogDemultiplexLaunchTests: XCTestCase {
             XCTAssertTrue(row.contains(input.lastPathComponent), row, file: file, line: line)
             XCTAssertTrue(row.contains(run.outputDirectory.lastPathComponent), row, file: file, line: line)
             XCTAssertFalse(row.contains("<derived>"), row, file: file, line: line)
+            // The row parses with the shipped parser, and its thresholds are the ones the dialog launched with
+            // (the record leaves out a default, which parses back to the same value).
+            let began = try XCTUnwrap(
+                RecordedCLICommand.parseScript(run.commandAtBegin).first as? FastqDemultiplexSubcommand,
+                file: file, line: line
+            )
+            let shown = try XCTUnwrap(
+                RecordedCLICommand.parseScript(row).first as? FastqDemultiplexSubcommand,
+                file: file, line: line
+            )
+            XCTAssertEqual(shown.engine, "cutadapt", file: file, line: line)
+            XCTAssertEqual(shown.location, began.location, file: file, line: line)
+            XCTAssertEqual(shown.maxDistanceFrom5Prime, began.maxDistanceFrom5Prime, file: file, line: line)
+            XCTAssertEqual(shown.maxDistanceFrom3Prime, began.maxDistanceFrom3Prime, file: file, line: line)
+            XCTAssertEqual(shown.errorRate, began.errorRate, file: file, line: line)
+            XCTAssertEqual(shown.noTrim, began.noTrim, file: file, line: line)
+            XCTAssertEqual(
+                URL(fileURLWithPath: shown.output).resolvingSymlinksInPath().path,
+                run.outputDirectory.resolvingSymlinksInPath().path,
+                file: file, line: line
+            )
         }
         XCTAssertTrue(run.commandAtBegin.hasPrefix("lungfish-cli fastq demultiplex "), run.commandAtBegin, file: file, line: line)
         XCTAssertFalse(run.commandAtBegin.contains("materialized-inputs-"), run.commandAtBegin, file: file, line: line)

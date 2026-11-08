@@ -264,11 +264,13 @@ final class FASTQOperationRowCommandTests: XCTestCase {
         )
     }
 
-    /// The words after `lungfish-cli fastq` that the subcommand records for a run into `runFolder`.
+    /// The words after `lungfish-cli fastq` that `FastqDemultiplexSubcommand` records for a cutadapt run at its
+    /// default thresholds (`cliArguments` in `FastqCommand.swift`). The record always names the engine that ran,
+    /// and it leaves out `--location`, `--error-rate`, `--threads` and the other options while they hold their defaults.
     private func demultiplexArguments(on source: (bundleURL: URL, fastqURL: URL), runFolder: URL) -> [String] {
         [
             "demultiplex", source.bundleURL.path, "--kit", "illumina-nextera", "--output", runFolder.path,
-            "--location", "bothends", "--error-rate", "0.15", "--threads", "4",
+            "--engine", "cutadapt",
         ]
     }
 
@@ -453,6 +455,30 @@ final class FASTQOperationRowCommandTests: XCTestCase {
             FASTQOperationRowCommand.refinement(for: result),
             .keep(reason: "a recorded command is not a lungfish-cli command that names its final output")
         )
+    }
+
+    /// A threshold the run recorded because it is not a default stays in the row, and the row parses back to the
+    /// run's own values (`docs/contracts/CLI-EQUIVALENCE.md` asks that the parsed values equal the run's configuration).
+    func testANonDefaultThresholdTheRunRecordedStaysInTheRow() async throws {
+        let source = try makeSourceBundle(named: "Sample 1")
+        let runFolder = root.appendingPathComponent("Project.lungfish/Analyses/demultiplex-7", isDirectory: true)
+        let arguments = demultiplexArguments(on: source, runFolder: runFolder)
+            + ["--location", "5prime", "--error-rate", "0.2", "--no-trim", "--threads", "8"]
+        try await writeDemultiplexRecord(in: runFolder, command: [CLICommandIdentity.executableName, "fastq"] + arguments)
+        let result = FASTQOperationExecutionResult(
+            resolvedRequest: demultiplexLaunch(on: source), executedInvocations: [],
+            importedURLs: [runFolder], groupedContainerURL: nil
+        )
+
+        guard case .replace(let command) = FASTQOperationRowCommand.refinement(for: result) else {
+            return XCTFail("a record with non-default thresholds is a record the row takes")
+        }
+        let parsed = try XCTUnwrap(RecordedCLICommand.parseScript(command).first as? FastqDemultiplexSubcommand)
+        XCTAssertEqual(parsed.engine, "cutadapt")
+        XCTAssertEqual(parsed.location, "5prime")
+        XCTAssertEqual(parsed.errorRate, 0.2)
+        XCTAssertTrue(parsed.noTrim)
+        XCTAssertEqual(parsed.threads, 8)
     }
 
     // MARK: - A refinement never makes a row worse
