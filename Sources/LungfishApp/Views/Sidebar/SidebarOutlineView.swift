@@ -83,9 +83,10 @@ final class SidebarOutlineView: NSOutlineView {
     /// Arms the token for `item` at `row`. The delegate calls it only for a select that changes the rows.
     func noteSelectProposedWithoutFocus(row: Int, item: AnyObject) {
         proposedItem = item
+        let identity = ObjectIdentifier(item)
         let generation = proposedSelect.withLock { state -> UInt64 in
             state.generation &+= 1
-            state.token = ProposedSelect(row: row, item: ObjectIdentifier(item), generation: state.generation)
+            state.token = ProposedSelect(row: row, item: identity, generation: state.generation)
             return state.generation
         }
         let held = proposedSelect
