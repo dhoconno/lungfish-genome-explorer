@@ -213,9 +213,10 @@ enum FASTQOperationRowCommand {
     // MARK: - The safety rule
 
     /// The forms a record keeps for a path it does not spell in full. The CLI takes none of them.
-    nonisolated private static let placeholderPaths = [
-        "@/", "<external>/", "<workspace>/", "<bundle>/", "<tool-root>/", "<storage-root>/",
-    ]
+    nonisolated private static let placeholderPaths: [String] = [PortablePath.projectPrefix] + [
+        PortablePath.bundlePlaceholder, PortablePath.workspacePlaceholder, PortablePath.toolRootPlaceholder,
+        PortablePath.storageRootPlaceholder, PortablePath.externalPlaceholder,
+    ].map { $0 + "/" }
 
     /// `commands` as the row's command script when every line is a `lungfish-cli` command that
     /// names a final output, and a `keep` otherwise. A line that still holds a placeholder path
