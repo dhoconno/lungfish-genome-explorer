@@ -10,7 +10,8 @@ import os
 /// It marks a selection a person asked for as explicit while the selection is made: a context-menu or Inspector
 /// link select, the Operations panel's Results button, the select after an import or a run, an accessibility client's
 /// select of the outline's rows (`AXSelectedRows`), and AppKit's own select of one row element (`AXSelected`) made
-/// without the outline's focus, which is marked only for the select AppKit proposed and made inside that one request.
+/// without the outline's focus, which is marked only for the first select of the row AppKit proposed, made in the
+/// run-loop turn of that request and ending in a selection notice.
 /// The shown result's focus rule (`MainSplitViewController.sidebarShouldAcceptSelection(_:explicit:)`) lets an
 /// explicit selection through even when the outline is not the first responder. A click or a key in the outline needs
 /// no mark, because the outline is then the first responder.
@@ -58,8 +59,10 @@ final class SidebarOutlineView: NSOutlineView {
     /// An AX client's `AXSelected` on one row element (AppKit's `NSOutlineRow`) never reaches the entries above.
     /// AppKit's user path asks the delegate's `outlineView(_:shouldSelectItem:)`, calls `selectRowIndexes`, then posts
     /// the selection notice, all inside the one request. This token carries the mark across those three calls only.
-    /// The first select spends it, and only AppKit's own select of the proposed row and item promotes it. The first
-    /// notice of any kind takes it, and the end of the run-loop turn that armed it clears it. Each way fails closed.
+    /// The first select spends it. Only that first select, when it is not an extension, names exactly the proposed row
+    /// and item and changes the rows, promotes it (the override cannot tell AppKit's call from the app's, so the notice
+    /// and the turn bound it). The first notice of any kind takes it, and the end of the run-loop turn that armed it
+    /// clears it. Each way fails closed.
     private struct ProposedSelect: Sendable {
         let row: Int
         let item: ObjectIdentifier

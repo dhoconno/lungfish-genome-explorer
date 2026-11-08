@@ -217,10 +217,13 @@ final class SidebarRescanSelectionTests: XCTestCase {
 
     // MARK: - Owner row 9: B's row element itself, set through the AX server (lane FOCUSAX)
 
-    /// Owner row 9 (b), and (a), which sets the same attribute from computer use: an AX client in another process
-    /// sets `AXSelected` on B's row element while A's table has the focus. The request goes through the real AX
-    /// server, as the Accessibility Inspector's does. The control makes the same set with the sidebar focused, which
-    /// the focus rule takes, so a red line after it is the refusal and not a window the server cannot select in.
+    /// Owner row 9 (b), and (a), which sets the same attribute from computer use: an AX client sets `AXSelected` on
+    /// B's row element while A's table has the focus. The test sends the request to its own process with
+    /// `AXUIElementSetAttributeValue`, which the AX server answers on the calling thread by the entry that an Inspector
+    /// or computer use reaches (`AXProcessProbe.swift:19-23`). A client in another process reaches it as a message on
+    /// the main run loop, which this test does not drive, so the walk of row 9 (a) on the package is that proof. The
+    /// control makes the same set with the sidebar focused, which the focus rule takes, so a red line after it is the
+    /// refusal and not a window the server cannot select in.
     /// AppKit's row element (`NSOutlineRow`) selects through NSTableView's own user path, which asks the delegate's
     /// `outlineView(_:shouldSelectItem:)` and then calls `selectRowIndexes(_:byExtendingSelection:)`, and never
     /// through the outline's marked `AXSelectedRows` entries.
