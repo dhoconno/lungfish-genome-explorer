@@ -257,6 +257,7 @@ final class SidebarRescanSelectionTests: XCTestCase {
         XCTAssertFalse(lines.contains { $0.contains("\"AXPress\"") }, "B's row or its cell offers AXPress: \(lines)")
         for child in [nil, 0] as [Int?] {
             let answer = AXProcessProbe.pressRow(sidebarOutline, row: rowB, child: child)
+            XCTAssertNotNil(answer, "the AX server listed no \(child == nil ? "row" : "cell") of B to press")
             XCTAssertNotEqual(answer, .success, "the server ran AXPress on B's \(child == nil ? "row" : "cell")")
         }
         assertShows(resultA, "after an AXPress on B's row and on its cell")
@@ -270,10 +271,13 @@ final class SidebarRescanSelectionTests: XCTestCase {
         try prepareTheAXServer()
         let outline = try startOnAWithItsTableFocused("Inspector read")
         let rowB = try row(of: resultB)
-        XCTAssertFalse(AXProcessProbe.inspectRow(sidebarOutline, row: rowB).isEmpty)
-        _ = AXProcessProbe.rowActionLines(sidebarOutline, row: rowB)
-        AXProcessProbe.pressRow(sidebarOutline, row: rowB)
-        AXProcessProbe.pressRow(sidebarOutline, row: rowB, child: 0)
+        XCTAssertNotEqual(AXProcessProbe.inspectRow(sidebarOutline, row: rowB), "no row",
+                          "the AX server lists no row element \(rowB), so nothing was read")
+        XCTAssertNotNil(AXProcessProbe.rowActionLines(sidebarOutline, row: rowB),
+                        "the server listed no actions for the row")
+        XCTAssertNotNil(AXProcessProbe.pressRow(sidebarOutline, row: rowB), "the row press never reached the server")
+        XCTAssertNotNil(AXProcessProbe.pressRow(sidebarOutline, row: rowB, child: 0),
+                        "the cell press never reached the server")
         XCTAssertFalse(outline.isHoldingProposedSelect, "an Inspector read or press armed a token")
         outline.selectRowIndexes(IndexSet(integer: rowB), byExtendingSelection: false)
         assertShows(resultA, "an unexplained select of B after an Inspector read of B's row")
