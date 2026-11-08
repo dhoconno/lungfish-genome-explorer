@@ -153,6 +153,40 @@ public enum AXProcessProbe {
         }
     }
 
+    /// Sets `AXSelected` to true on the row element whose `AXIndex` is `row`, in the table or outline `query` finds,
+    /// as the Accessibility Inspector does. Returns the server's answer, or nil when the server lists no such row.
+    @discardableResult
+    public static func setRowSelected(_ query: Query, row: Int) -> AXError? {
+        offMain {
+            guard let element = rowElement(query, row: row) else { return nil }
+            return AXUIElementSetAttributeValue(element, kAXSelectedAttribute as CFString, kCFBooleanTrue)
+        }
+    }
+
+    /// Performs `AXPress` on the row element whose `AXIndex` is `row` (`child` nil), or on that row's child at index
+    /// `child`. Returns the server's answer, or nil when the server lists no such element.
+    @discardableResult
+    public static func pressRow(_ query: Query, row: Int, child: Int? = nil) -> AXError? {
+        offMain {
+            guard let element = rowElement(query, row: row) else { return nil }
+            guard let child else { return AXUIElementPerformAction(element, kAXPressAction as CFString) }
+            let elements = children(element)
+            guard elements.indices.contains(child) else { return nil }
+            return AXUIElementPerformAction(elements[child], kAXPressAction as CFString)
+        }
+    }
+
+    /// The action names the server lists on the row element whose `AXIndex` is `row` and on each of its children, as
+    /// "role: [names]" lines with custom actions decoded, the row's line first. Nil when the server lists no such row.
+    public static func rowActionLines(_ query: Query, row: Int) -> [String]? {
+        offMain {
+            guard let element = rowElement(query, row: row) else { return nil }
+            return ([element] + children(element)).map { item in
+                "\(string(item, kAXRoleAttribute) ?? "?"): \(rawNames(of: item).map { decode($0) ?? $0 })"
+            }
+        }
+    }
+
     /// A readable dump of the windows' AX tree (role, title, description,
     /// identifier and raw action names), for failure messages.
     public static func treeDescription(depth: Int = 8) -> String {
@@ -261,6 +295,12 @@ public enum AXProcessProbe {
               let rows = attribute(table, kAXRowsAttribute) as? [AXUIElement], rows.indices.contains(row)
         else { return nil }
         return children(rows[row]).first ?? rows[row]
+    }
+
+    /// The row element whose `AXIndex` is `row`, among the `AXRows` of the table or outline `query` finds.
+    private static func rowElement(_ query: Query, row: Int) -> AXUIElement? {
+        guard let table = find(query), let rows = attribute(table, kAXRowsAttribute) as? [AXUIElement] else { return nil }
+        return rows.first { (attribute($0, kAXIndexAttribute) as? NSNumber)?.intValue == row }
     }
 
     // MARK: - Encoded action names

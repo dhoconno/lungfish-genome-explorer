@@ -182,8 +182,9 @@ final class SidebarRescanSelectionTests: XCTestCase {
 
     // MARK: - A selection made while the shown result's table has the focus (BIO-FOCUS-DROP, lane FOCUSDROP)
 
-    /// An accessibility select (VoiceOver, Voice Control, the Accessibility Inspector, walk 3's AX click) leaves the
-    /// focus in the shown result's table. A person asked for it, so the result it selects is shown.
+    /// An AX client's set of the outline's `AXSelectedRows` leaves the focus in the shown result's table. A person
+    /// asked for it, so the result it selects is shown. A set of `AXSelected` on one row element takes another route,
+    /// which the FOCUSAX tests below drive.
     func testAnAccessibilitySelectionWithoutSidebarFocusShowsTheSelectedResult() throws {
         try assertAnAccessibilitySelectShowsResultB("AX selected rows of the outline") { outline, element in
             outline.accessibilitySetValue([element], forAttribute: .selectedRows)
@@ -192,8 +193,7 @@ final class SidebarRescanSelectionTests: XCTestCase {
 
     /// The outline's accessibility rows are AppKit's own elements (`NSOutlineRow`), not its row views, and not every
     /// one conforms to `NSAccessibilityRow`. They are read and set by attribute, the way an AX client's request
-    /// reaches them. (Setting `AXSelected` on the row element selects nothing in a unit test's window, so that route
-    /// is left to the packaged walk.)
+    /// reaches them.
     private func assertAnAccessibilitySelectShowsResultB(
         _ route: String,
         _ select: (NSOutlineView, NSObject) -> Void
@@ -213,6 +213,75 @@ final class SidebarRescanSelectionTests: XCTestCase {
         assertShows(resultB, route)
         waitForApply(try startRescan())
         assertShows(resultB, "\(route), after a rescan")
+    }
+
+    // MARK: - Owner row 9: B's row element itself, set through the AX server (lane FOCUSAX)
+
+    /// Owner row 9 (b), and (a), which sets the same attribute from computer use: an AX client in another process
+    /// sets `AXSelected` on B's row element while A's table has the focus. The request goes through the real AX
+    /// server, as the Accessibility Inspector's does. The control makes the same set with the sidebar focused, which
+    /// the focus rule takes, so a red line after it is the refusal and not a window the server cannot select in.
+    /// AppKit's row element (`NSOutlineRow`) selects through NSTableView's own user path, which asks the delegate's
+    /// `outlineView(_:shouldSelectItem:)` and then calls `selectRowIndexes(_:byExtendingSelection:)`, and never
+    /// through the outline's marked `AXSelectedRows` entries.
+    func testAnAXServerSelectOfTheRowElementWithTheTableFocusedShowsTheSelectedResult() throws {
+        try prepareTheAXServer()
+        let rowB = try row(of: resultB)
+        click(resultA)
+        assertShows(resultA, "AXSelected with the sidebar focused, before")
+        XCTAssertEqual(AXProcessProbe.setRowSelected(sidebarOutline, row: rowB), .success,
+                       "the AX server set no AXSelected on row element \(rowB): \(AXProcessProbe.treeDescription())")
+        assertShows(resultB, "the control (the AX server's AXSelected selects nothing in this window)")
+        try assertAnAccessibilitySelectShowsResultB("AXSelected on B's row element through the AX server") { _, _ in
+            XCTAssertEqual(AXProcessProbe.setRowSelected(sidebarOutline, row: rowB), .success)
+        }
+        assertAnUnexplainedSelectAfterwardIsRefused()
+    }
+
+    /// Owner row 9 (c): an AX client's `AXPress` on B's row element or on its cell while A's table has the focus.
+    /// AppKit's row element (`NSOutlineRow`) lists AXShowDefaultUI and AXShowAlternateUI, and the cell lists only the
+    /// row's custom actions, so neither offers AXPress and the server does not run one. Nothing is selected and every
+    /// surface stays on A, so the app refuses nothing (UX's E ruling). If AppKit ever offers AXPress there, this test
+    /// fails, and the press then needs the mark that (b) needs.
+    func testAnAXServerPressOnASidebarRowIsNotOfferedAndLeavesTheShownResult() throws {
+        try prepareTheAXServer()
+        let rowB = try row(of: resultB)
+        click(resultA)
+        assertShows(resultA, "AXPress, before")
+        try focusTheShownResultsTable()
+        let lines = try XCTUnwrap(AXProcessProbe.rowActionLines(sidebarOutline, row: rowB),
+                                  "the AX server lists no row element \(rowB) in the sidebar")
+        XCTAssertFalse(lines.contains { $0.contains("\"AXPress\"") }, "B's row or its cell offers AXPress: \(lines)")
+        for child in [nil, 0] as [Int?] {
+            let answer = AXProcessProbe.pressRow(sidebarOutline, row: rowB, child: child)
+            XCTAssertNotEqual(answer, .success, "the server ran AXPress on B's \(child == nil ? "row" : "cell")")
+        }
+        assertShows(resultA, "after an AXPress on B's row and on its cell")
+    }
+
+    /// After an accessibility select shows B, with the focus still out of the sidebar, a selection nobody asked for
+    /// is still refused: the explicit mark ended with the request.
+    private func assertAnUnexplainedSelectAfterwardIsRefused(file: StaticString = #filePath, line: UInt = #line) {
+        let outline = controller.sidebarController.outlineView!
+        XCTAssertFalse(controller.sidebarController.outlineViewIsFirstResponder(window.firstResponder),
+                       "the focus moved into the sidebar", file: file, line: line)
+        XCTAssertFalse(outline.isMakingExplicitSelection, "the explicit mark outlived the request", file: file, line: line)
+        guard let rowA = try? row(of: resultA) else { return XCTFail("no row for A", file: file, line: line) }
+        outline.selectRowIndexes(IndexSet(integer: rowA), byExtendingSelection: false)
+        assertShows(resultB, "an unexplained selection right after the accessibility select", file: file, line: line)
+    }
+
+    /// The sidebar's outline as the AX server finds it.
+    private var sidebarOutline: AXProcessProbe.Query {
+        AXProcessProbe.Query(role: "AXOutline", text: SidebarAccessibilityIdentifier.outline)
+    }
+
+    /// Orders the window front, so the AX server lists it, or skips when the process cannot reach the server.
+    private func prepareTheAXServer() throws {
+        try XCTSkipUnless(AXProcessProbe.isAvailable, AXProcessProbe.unavailableReason)
+        window.orderFront(nil)
+        let shown = window!
+        addTeardownBlock { @MainActor in shown.orderOut(nil) }
     }
 
     /// A selection nobody asked for (no focus in the sidebar, no click, no accessibility select) while a result is shown
