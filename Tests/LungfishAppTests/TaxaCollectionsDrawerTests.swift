@@ -274,11 +274,9 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
     /// and a click on a footer button landed on a tab. Each button takes the click in every state of the drawer, a closed drawer
     /// draws nothing through the bar, and a shown drawer still takes its own clicks. Each move runs to its end before the next read.
     func testClosedTaxaDrawerLeavesTheActionBarButtonsPressable() throws {
-        let suite = "org.lungfish.tests.taxa-drawer.\(UUID().uuidString)"
-        let isolated = try XCTUnwrap(UserDefaults(suiteName: suite))
         let kept = TaxaCollectionsDrawerSeams.defaults
-        TaxaCollectionsDrawerSeams.defaults = isolated
-        defer { TaxaCollectionsDrawerSeams.defaults = kept; isolated.removePersistentDomain(forName: suite) }
+        TaxaCollectionsDrawerSeams.defaults = makeTestDefaultsSuite(prefix: "TaxaCollectionsDrawerTests").defaults
+        defer { TaxaCollectionsDrawerSeams.defaults = kept }
         let vc = TaxonomyViewController()
         isolateLayouts(vc)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
@@ -340,11 +338,9 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
     /// Phase 3.4 lane BLASTRELAUNCH, row KRAKEN-DRAWER-CLOSED-OVER-BAR (BLASTRELAUNCH-UX should-fix 2a). An open that lands before
     /// the close it follows has finished leaves the drawer shown: the close's completion reads the live state, which is open.
     func testOpeningTheTaxaDrawerBeforeItsCloseHasFinishedLeavesItShown() throws {
-        let suite = "org.lungfish.tests.taxa-drawer.\(UUID().uuidString)"
-        let isolated = try XCTUnwrap(UserDefaults(suiteName: suite))
         let kept = TaxaCollectionsDrawerSeams.defaults
-        TaxaCollectionsDrawerSeams.defaults = isolated
-        defer { TaxaCollectionsDrawerSeams.defaults = kept; isolated.removePersistentDomain(forName: suite) }
+        TaxaCollectionsDrawerSeams.defaults = makeTestDefaultsSuite(prefix: "TaxaCollectionsDrawerTests").defaults
+        defer { TaxaCollectionsDrawerSeams.defaults = kept }
         let vc = TaxonomyViewController()
         isolateLayouts(vc)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
@@ -371,11 +367,9 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
     /// Phase 3.4 lane BLASTRELAUNCH, row KRAKEN-DRAWER-CLOSED-OVER-BAR (BLASTRELAUNCH-UX should-fix 2b). With no window the drawer
     /// moves at once, so it is shown when it opens and hidden when it closes, with no wait.
     func testTheTaxaDrawerOfAControllerWithNoWindowIsShownOpenAndHiddenClosedAtOnce() throws {
-        let suite = "org.lungfish.tests.taxa-drawer.\(UUID().uuidString)"
-        let isolated = try XCTUnwrap(UserDefaults(suiteName: suite))
         let kept = TaxaCollectionsDrawerSeams.defaults
-        TaxaCollectionsDrawerSeams.defaults = isolated
-        defer { TaxaCollectionsDrawerSeams.defaults = kept; isolated.removePersistentDomain(forName: suite) }
+        TaxaCollectionsDrawerSeams.defaults = makeTestDefaultsSuite(prefix: "TaxaCollectionsDrawerTests").defaults
+        defer { TaxaCollectionsDrawerSeams.defaults = kept }
         let vc = TaxonomyViewController()
         isolateLayouts(vc)
         _ = vc.view
