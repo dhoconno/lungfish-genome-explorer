@@ -135,12 +135,25 @@ extension SidebarViewController: NSOutlineViewDelegate {
 
     public func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
         if let sidebarItem = item as? SidebarItem {
-            return sidebarItem.type != .group
+            let selectable = sidebarItem.type != .group
+            // AppKit asks this only on its user path. Without the outline's focus that is an accessibility client's
+            // select of one row element, which the outline marks for its one request (`SidebarOutlineView`). A select
+            // of the row that is already the only selection changes nothing and posts no notice, so it arms nothing.
+            if selectable, let outline = outlineView as? SidebarOutlineView,
+               !outlineViewIsFirstResponder(outlineView.window?.firstResponder) {
+                let row = outlineView.row(forItem: item)
+                if row >= 0, outlineView.selectedRowIndexes != IndexSet(integer: row) {
+                    outline.noteSelectProposedWithoutFocus(row: row, item: sidebarItem)
+                }
+            }
+            return selectable
         }
         return true
     }
 
     public func outlineViewSelectionDidChange(_ notification: Notification) {
+        // Every notice spends the outline's proposed-select token, a suppressed one too.
+        let proposedSelect = outlineView.takeProposedSelect()
         if suppressSelectionCallbacks {
             sidebarLogger.debug("outlineViewSelectionDidChange: Suppressed during programmatic update")
             return
@@ -148,7 +161,8 @@ extension SidebarViewController: NSOutlineViewDelegate {
 
         // Get ALL selected items for multi-selection support
         let items = selectedItems()
-        handleSelectionChange(items, source: "outlineViewSelectionDidChange")
+        guard proposedSelect else { return handleSelectionChange(items, source: "outlineViewSelectionDidChange") }
+        outlineView.withExplicitSelection { handleSelectionChange(items, source: "outlineViewSelectionDidChange") }
     }
 
     func handleSelectionChange(_ items: [SidebarItem], source: String) {

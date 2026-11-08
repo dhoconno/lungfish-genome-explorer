@@ -54,12 +54,6 @@ private final class Done {
     var value = false
 }
 
-/// The base holds no proposed-select token, so the pins read none. The FOCUSAX fix gives `SidebarOutlineView` its own
-/// `isHoldingProposedSelect` and removes this.
-extension SidebarOutlineView {
-    var isHoldingProposedSelect: Bool { false }
-}
-
 @MainActor
 final class SidebarRescanSelectionTests: XCTestCase {
     private enum Order: String, CaseIterable {
