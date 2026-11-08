@@ -178,6 +178,8 @@ public enum ViewportContentMode: String, Sendable {
     case genotype
     /// Nothing displayed.
     case empty
+    /// A file previewed as text, with PDFKit or with Quick Look.
+    case preview
 }
 
 extension Notification.Name {

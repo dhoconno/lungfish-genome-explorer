@@ -73,7 +73,7 @@ public final class InspectorViewModel {
             return [.resultSummary, .provenance]
         case .genotype:
             return [.bundle, .selectedItem, .annotations, .view, .provenance]
-        case .empty:
+        case .empty, .preview:
             return [.bundle, .selectedItem]
         }
     }

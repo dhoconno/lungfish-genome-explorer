@@ -291,7 +291,7 @@ public class MainWindowController: NSWindowController, NSMenuItemValidation {
                 switch mode {
                 case .genomics, .fastq, .metagenomics:
                     visible = true
-                case .mapping, .assembly, .genotype, .empty:
+                case .mapping, .assembly, .genotype, .empty, .preview:
                     visible = false
                 }
                 item.isHidden = !visible

@@ -39,6 +39,11 @@ extension ViewerViewController {
             return false
         }
 
+        // A preview is neither a result nor a sequence, so the Inspector and the toolbar take the mode of a preview
+        // and not the words and the items of the kind shown before it. The failure route above keeps the empty mode
+        // that `clearViewport` sets.
+        contentMode = .preview
+
         // A preview's words stay in the status bar, which every writer of the bar can reach, so the bar comes back
         // after the show and the preview ends at its top.
         statusBar.isHidden = false

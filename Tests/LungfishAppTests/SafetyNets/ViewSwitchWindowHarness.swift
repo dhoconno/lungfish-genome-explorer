@@ -195,7 +195,7 @@ enum ViewSwitchToolbar {
         case .empty: return [sidebar, chromosomes, translate, operations, inspector]
         case .mapping: return [sidebar, translate, operations, inspector]
         case .fastq, .metagenomics: return [sidebar, operations, drawer, inspector]
-        case .assembly, .genotype: return [sidebar, operations, inspector]
+        case .assembly, .genotype, .preview: return [sidebar, operations, inspector]
         }
     }
 }

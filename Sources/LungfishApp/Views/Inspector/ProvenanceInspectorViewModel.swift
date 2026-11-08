@@ -178,7 +178,7 @@ struct ProvenanceCoverageMonitor {
         switch contentMode {
         case .genomics, .mapping, .assembly, .fastq, .metagenomics, .genotype:
             return true
-        case .empty:
+        case .empty, .preview:
             return false
         }
     }
