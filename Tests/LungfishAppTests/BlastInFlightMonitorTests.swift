@@ -424,7 +424,10 @@ final class BlastInFlightMonitorTests: XCTestCase {
         await fulfillment(of: [cameBack], timeout: 5)
         XCTAssertEqual(item(row)?.state, .completed)
         XCTAssertEqual(item(row)?.detail, "1 of 2 verified")
-        XCTAssertEqual(item(row)?.outputURLs, [record], "a row reads Completed only with its outputs")
+        XCTAssertEqual(
+            item(row)?.outputURLs, [URL(fileURLWithPath: line.output, isDirectory: true)],
+            "a row reads Completed only with its outputs, and its output is the search folder, where the person looks"
+        )
     }
 
     /// Phase 3.4 lane BLASTRELAUNCH (the Preview 2026.11.5 walk, row R13). A search that comes back after a relaunch is the

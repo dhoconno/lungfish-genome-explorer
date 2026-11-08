@@ -20,7 +20,8 @@ private let monitorLogger = Logger(subsystem: LogSubsystem.app, category: "Blast
 final class BlastInFlightMonitor {
     /// What a pass of `blast resume --once` came to.
     enum PassOutcome: Sendable, Equatable {
-        /// The record is saved, with the row's words.
+        /// The record is saved, with the row's words. `outputs` are the files the pass reported, the record and the query.
+        /// The row does not link to them, since a file is no result for its Results button (see `settle`).
         case collected(outputs: [URL], words: String)
         /// The search still waits, with its row's words.
         case waiting(words: String, state: CLIEventWaitingState)
@@ -350,9 +351,11 @@ final class BlastInFlightMonitor {
             center.log(id: row, level: .info, message: BlastSearchWords.relaunched(at: now(), now: now()))
         }
         switch outcome {
-        case .collected(let outputs, let words):
+        case .collected(_, let words):
             center.reopen(id: row, detail: words)
-            OperationCenterCLIBridge.completeOperation(row, detail: words, outputURLs: outputs)
+            // The row links to the search's folder, which holds the record, as a viewer's own run does (`launchBlastSubmit`). The
+            // files `blast resume` reports are no result for the Results button, which opens a package or a BLAST folder (BLASTRELAUNCH).
+            OperationCenterCLIBridge.completeOperation(row, detail: words, outputURLs: [output])
             forget(line.searchID)
             NotificationCenter.default.post(
                 name: Self.searchCameBack, object: self, userInfo: [Self.resultFolderKey: output]
