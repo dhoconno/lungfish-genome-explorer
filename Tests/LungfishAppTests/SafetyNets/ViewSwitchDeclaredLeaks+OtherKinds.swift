@@ -40,7 +40,7 @@ extension ViewSwitchDeclaredLeaks {
         leak("FASTQ", to: ["Tree", "TaxTriage"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("Tree", to: ["Quick Look"], "NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
+        leak("Tree", to: ["Quick Look"], "INSPECTOR-STALE, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "+ inspectorTab: preview selection of [document, selection]",
             "+ inspectorBlocks: selection, variant",

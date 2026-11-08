@@ -9,7 +9,7 @@
 
 extension ViewSwitchDeclaredLeaks {
     static let fromThePDFKind: [DeclaredViewSwitchLeak] = [
-        leak("Tree", to: ["PDF"], "NET-PROVENANCE-STAYS", [
+        leak("Tree", to: ["PDF"], "INSPECTOR-STALE", [
             "+ inspectorTab: preview selection of [document, selection]",
             "+ inspectorBlocks: selection, variant",
             "- inspectorTab: preview document of [document, selection]",
