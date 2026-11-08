@@ -175,6 +175,7 @@ commit that adds a phase's first row moves the earlier phase's rows there.
 | Session | Date | Spend and wall time | Lanes landed | Direct cost per landed lane | All-in per landed lane |
 |---|---|---|---|---|---|
 | 3.3 session 1, to the monitor after the last landing and before the final candidate | 2026-11-06 and 07 | $477 over 17h57m by the ledger estimate (opus $267, sonnet $211), $94 of it the manager with three compactions, $41 the panel's meeting of ten opus max seats in two rounds, $34 fifteen rulings and re-rates, $109 fifty-five reviews and checks, $51 twenty-one landings, the week 8% to 41% at about $14 to $19 a point. The owner set no budget for 3.3 | 24 in 17 landing batches | median $10.23, mean $13.13 | $19.89 |
+| 2026.11.4 job of 3.3, started as the first monthly stable job until O159 made it a Preview, to the monitor after the last landing and during the last package | 2026-11-07 | $93 over 4h15m by the ledger estimate (opus $72, sonnet $21), $24 of it the manager with no compaction, $32 the panel's meeting of ten opus max seats in two rounds, $6.61 three rulings at opus xhigh, $9.17 five reviews, $7.00 four documentation agents, the week 45% to 51% with the 3.3 session open. No budget figure was set | 6, three in one landing and three documentation commits the manager picked | median $2.19, mean $4.88 | $15.51 |
 
 ## End-of-session duty
 
