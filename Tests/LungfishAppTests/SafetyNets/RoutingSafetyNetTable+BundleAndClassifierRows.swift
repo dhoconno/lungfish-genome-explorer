@@ -179,10 +179,12 @@ extension RoutingSafetyNetTable {
                 return RoutingRowFixture(
                     item: RoutingSafetyNetItems.scanned(bundle),
                     expected: RoutingObservation(
+                        mode: .preview,
                         status: "Previewing: DW472-mhc-workbook.xlsx",
                         quickLook: "\(path)/DW472-mhc-workbook.xlsx",
                         inspector: ["genotype=\(path)"],
-                        provenance: "genotypeResultBundle \(path)"
+                        provenance: "genotypeResultBundle \(path)",
+                        inspectorTab: "preview document of [document, selection]"
                     )
                 )
             },

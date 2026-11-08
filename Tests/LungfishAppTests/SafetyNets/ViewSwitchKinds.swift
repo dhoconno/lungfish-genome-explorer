@@ -75,9 +75,9 @@ enum ViewSwitchKinds {
         kind("FASTA document", "document in genomics", "files/FASTA file", "k17-fasta"),
         // The text preview is drawn for real and removed as in the app, where a
         // recorded Quick Look preview draws nothing.
-        kind("Quick Look", "Quick Look in empty", "files/Nextflow script previews as text", "k18-quicklook"),
+        kind("Quick Look", "Quick Look in preview", "files/Nextflow script previews as text", "k18-quicklook"),
         kind("Status only", "status in empty", "bundles/primer scheme, metadata only", "k19-status"),
-        kind("PDF", "PDF in empty", "files/PDF figure", "k20-pdf"),
+        kind("PDF", "PDF in preview", "files/PDF figure", "k20-pdf"),
         kind(
             "FASTA collection", "FASTACollectionViewController in genomics",
             "files/FASTA file with several records", "k21-fastacollection"

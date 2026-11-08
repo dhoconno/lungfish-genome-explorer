@@ -388,9 +388,11 @@ extension RoutingSafetyNetTable {
                 return RoutingRowFixture(
                     item: RoutingSafetyNetItems.scanned(notes),
                     expected: RoutingObservation(
+                        mode: .preview,
                         status: "Previewing: notes.md",
                         quickLook: "Inputs/notes.md",
-                        provenance: "document Inputs/notes.md"
+                        provenance: "document Inputs/notes.md",
+                        inspectorTab: "preview document of [document, selection]"
                     )
                 )
             },
@@ -402,9 +404,11 @@ extension RoutingSafetyNetTable {
                 return RoutingRowFixture(
                     item: RoutingSafetyNetItems.scanned(image),
                     expected: RoutingObservation(
+                        mode: .preview,
                         status: "Previewing: coverage.png",
                         quickLook: "Inputs/coverage.png",
-                        provenance: "image Inputs/coverage.png"
+                        provenance: "image Inputs/coverage.png",
+                        inspectorTab: "preview document of [document, selection]"
                     )
                 )
             },
@@ -416,9 +420,11 @@ extension RoutingSafetyNetTable {
                 return RoutingRowFixture(
                     item: RoutingSafetyNetItems.scanned(log),
                     expected: RoutingObservation(
+                        mode: .preview,
                         status: "Previewing: spades.log",
                         quickLook: "Inputs/spades.log",
-                        provenance: "unknown Inputs/spades.log"
+                        provenance: "unknown Inputs/spades.log",
+                        inspectorTab: "preview document of [document, selection]"
                     )
                 )
             },
@@ -434,9 +440,11 @@ extension RoutingSafetyNetTable {
                 return RoutingRowFixture(
                     item: RoutingSafetyNetItems.scanned(script),
                     expected: RoutingObservation(
+                        mode: .preview,
                         status: "Previewing: main.nf",
                         quickLook: "Inputs/main.nf as text",
-                        provenance: "unknown Inputs/main.nf"
+                        provenance: "unknown Inputs/main.nf",
+                        inspectorTab: "preview document of [document, selection]"
                     )
                 )
             },
@@ -449,9 +457,11 @@ extension RoutingSafetyNetTable {
                 return RoutingRowFixture(
                     item: RoutingSafetyNetItems.scanned(figure),
                     expected: RoutingObservation(
+                        mode: .preview,
                         status: "figure.pdf (1 page)",
                         quickLook: "Inputs/figure.pdf as PDF",
-                        provenance: "document Inputs/figure.pdf"
+                        provenance: "document Inputs/figure.pdf",
+                        inspectorTab: "preview document of [document, selection]"
                     )
                 )
             },
@@ -465,9 +475,11 @@ extension RoutingSafetyNetTable {
                 return RoutingRowFixture(
                     item: RoutingSafetyNetItems.scanned(package),
                     expected: RoutingObservation(
+                        mode: .preview,
                         status: "Previewing: legacy-import.lungfishtax",
                         quickLook: "Inputs/legacy-import.lungfishtax",
-                        provenance: "document Inputs/legacy-import.lungfishtax"
+                        provenance: "document Inputs/legacy-import.lungfishtax",
+                        inspectorTab: "preview document of [document, selection]"
                     )
                 )
             },
