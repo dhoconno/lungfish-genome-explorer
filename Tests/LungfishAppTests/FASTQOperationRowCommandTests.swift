@@ -248,6 +248,155 @@ final class FASTQOperationRowCommandTests: XCTestCase {
         XCTAssertEqual(savont.input, source.bundleURL.path)
     }
 
+    // MARK: - Demultiplex
+
+    /// The Demultiplex Barcodes launch the dialog builds. It gives a demultiplex the per-input mode, and the
+    /// run's folder comes back as its one imported URL with no grouped container.
+    private func demultiplexLaunch(on source: (bundleURL: URL, fastqURL: URL)) -> FASTQOperationLaunchRequest {
+        .derivative(
+            request: .demultiplex(
+                kitID: "illumina-nextera", customCSVPath: nil, location: "bothends", symmetryMode: nil,
+                maxDistanceFrom5Prime: 0, maxDistanceFrom3Prime: 0, errorRate: 0.15, engine: .cutadapt,
+                trimBarcodes: true, sampleAssignments: nil, kitOverride: nil
+            ),
+            inputURLs: [source.bundleURL],
+            outputMode: .perInput
+        )
+    }
+
+    /// The words after `lungfish-cli fastq` that the subcommand records for a run into `runFolder`.
+    private func demultiplexArguments(on source: (bundleURL: URL, fastqURL: URL), runFolder: URL) -> [String] {
+        [
+            "demultiplex", source.bundleURL.path, "--kit", "illumina-nextera", "--output", runFolder.path,
+            "--location", "bothends", "--error-rate", "0.15", "--threads", "4",
+        ]
+    }
+
+    /// Writes the record `lungfish-cli fastq demultiplex` leaves at the root of its run folder, with the real
+    /// writer (`CLIProvenanceSupport.recordSingleStepRun`). Its run command is `command`.
+    private func writeDemultiplexRecord(in runFolder: URL, command: [String]) async throws {
+        try FileManager.default.createDirectory(at: runFolder, withIntermediateDirectories: true)
+        let barcodeFile = runFolder.appendingPathComponent("bc01.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: barcodeFile, readCount: 2, readLength: 20)
+        _ = try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish fastq demultiplex",
+            parameters: [:],
+            toolName: "cutadapt",
+            toolVersion: "5.0",
+            command: command,
+            inputs: [],
+            outputs: [ProvenanceRecorder.fileRecord(url: barcodeFile, format: .fastq, role: .output)],
+            exitCode: 0,
+            wallTime: 1,
+            stderr: nil,
+            status: .completed,
+            outputDirectory: runFolder
+        )
+    }
+
+    func testDemultiplexRowTakesTheRecordedArgvAndLogsNoRecordsNoCommandLine() async throws {
+        let source = try makeSourceBundle(named: "Sample 1")
+        let launch = demultiplexLaunch(on: source)
+        let runFolder = root.appendingPathComponent("Project.lungfish/Analyses/demultiplex-1", isDirectory: true)
+        let arguments = demultiplexArguments(on: source, runFolder: runFolder)
+        try await writeDemultiplexRecord(in: runFolder, command: [CLICommandIdentity.executableName, "fastq"] + arguments)
+        // The record's first word is the one `checked` tests, and it comes from the record the real writer made.
+        let recorded = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: runFolder)?.argv)
+        XCTAssertEqual(recorded.first, CLICommandIdentity.executableName)
+        let result = FASTQOperationExecutionResult(
+            resolvedRequest: launch, executedInvocations: [], importedURLs: [runFolder], groupedContainerURL: nil
+        )
+
+        let reporter = RecordingOperationReporter()
+        let id = try beginRow(for: launch, on: reporter)
+        let begun = try XCTUnwrap(reporter.items.first?.cliCommand)
+        XCTAssertTrue(begun.contains("<derived>"), "the row records the placeholder at begin: \(begun)")
+        let refinement = FASTQOperationRowCommand.refinement(for: result)
+        FASTQOperationRowCommand.apply(refinement, to: id, reporter: reporter)
+
+        let expected = FASTQOperationCLIInvocationBuilder.commandLine(
+            for: FASTQCLIInvocation(subcommand: "fastq", arguments: arguments)
+        )
+        XCTAssertEqual(refinement, .replace(with: expected), "the row takes the argv the run's record holds")
+        let row = try XCTUnwrap(reporter.items.first?.cliCommand)
+        XCTAssertEqual(row, expected)
+        XCTAssertFalse(row.contains("<derived>"), row)
+        XCTAssertTrue(row.contains(runFolder.path), "the row names the run's folder: \(row)")
+        let logs = try XCTUnwrap(reporter.items.first).logs.map(\.message)
+        XCTAssertFalse(logs.contains { $0.contains("records no command") }, "\(logs)")
+        XCTAssertEqual(logs, [], "a replaced command logs nothing")
+        let commands = try RecordedCLICommand.parseScript(row)
+        XCTAssertEqual(commands.count, 1)
+        XCTAssertTrue(commands.first is FastqDemultiplexSubcommand)
+    }
+
+    func testARecordedAbsoluteCLIPathShowsAsLungfishCLI() async throws {
+        let source = try makeSourceBundle(named: "Sample 1")
+        let runFolder = root.appendingPathComponent("Project.lungfish/Analyses/demultiplex-4", isDirectory: true)
+        let arguments = demultiplexArguments(on: source, runFolder: runFolder)
+        try await writeDemultiplexRecord(
+            in: runFolder,
+            command: ["/Applications/Lungfish.app/Contents/MacOS/\(CLICommandIdentity.executableName)", "fastq"] + arguments
+        )
+        let result = FASTQOperationExecutionResult(
+            resolvedRequest: demultiplexLaunch(on: source),
+            executedInvocations: [],
+            importedURLs: [runFolder],
+            groupedContainerURL: nil
+        )
+
+        let expected = FASTQOperationCLIInvocationBuilder.commandLine(
+            for: FASTQCLIInvocation(subcommand: "fastq", arguments: arguments)
+        )
+        XCTAssertTrue(expected.hasPrefix(CLICommandIdentity.executableName + " fastq demultiplex "), expected)
+        XCTAssertEqual(FASTQOperationRowCommand.refinement(for: result), .replace(with: expected))
+    }
+
+    func testADemultiplexFolderWithNoRecordKeepsTheBeginCommandAndSaysSo() throws {
+        let source = try makeSourceBundle(named: "Sample 1")
+        let launch = demultiplexLaunch(on: source)
+        let runFolder = root.appendingPathComponent("Project.lungfish/Analyses/demultiplex-2", isDirectory: true)
+        try FileManager.default.createDirectory(at: runFolder, withIntermediateDirectories: true)
+        let result = FASTQOperationExecutionResult(
+            resolvedRequest: launch, executedInvocations: [], importedURLs: [runFolder], groupedContainerURL: nil
+        )
+
+        let reporter = RecordingOperationReporter()
+        let id = try beginRow(for: launch, on: reporter)
+        let begun = try XCTUnwrap(reporter.items.first?.cliCommand)
+        let refinement = FASTQOperationRowCommand.refinement(for: result)
+        FASTQOperationRowCommand.apply(refinement, to: id, reporter: reporter)
+
+        let reason = "demultiplex-2 holds no provenance record of its command"
+        XCTAssertEqual(refinement, .keep(reason: reason))
+        XCTAssertEqual(reporter.items.first?.cliCommand, begun)
+        XCTAssertEqual(
+            try XCTUnwrap(reporter.items.first).logs.map(\.message),
+            ["The row keeps the command recorded at launch: \(reason)"]
+        )
+    }
+
+    func testARunIsToldAsADemultiplexByItsRequestAndNotByItsFolderName() async throws {
+        let source = try makeSourceBundle(named: "Sample 1")
+        let runFolder = root.appendingPathComponent("Project.lungfish/Analyses/demultiplex-9", isDirectory: true)
+        try await writeDemultiplexRecord(
+            in: runFolder,
+            command: [CLICommandIdentity.executableName, "fastq"] + demultiplexArguments(on: source, runFolder: runFolder)
+        )
+        // A length filter whose imported URL is named like a demultiplex run is a derivative: its folder has no manifest.
+        let result = FASTQOperationExecutionResult(
+            resolvedRequest: derivativeLaunch(.lengthFilter(min: 10, max: nil), on: [source]),
+            executedInvocations: [],
+            importedURLs: [runFolder],
+            groupedContainerURL: nil
+        )
+
+        guard case .keep(let reason) = FASTQOperationRowCommand.refinement(for: result) else {
+            return XCTFail("a derivative takes no command from a folder name")
+        }
+        XCTAssertTrue(reason.contains("records no command"), reason)
+    }
+
     // MARK: - A refinement never makes a row worse
 
     func testAGroupedResultKeepsTheBeginCommand() throws {
