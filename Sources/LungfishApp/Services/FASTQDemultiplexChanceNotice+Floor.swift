@@ -49,23 +49,48 @@ extension FASTQDemultiplexChanceNotice {
         return nil
     }
 
-    // STUBS of the red commit of lane DECOYWORDS (DEMUX-FLOOR-DECOY-MAX). The fix replaces them. Each one does what the
-    // base does, so the tests below the stubs fail on the missing line and nothing else.
+    // The limit of the floor (DEMUX-FLOOR-DECOY-MAX, rulings BIO-DECOY-MAX-STABLE and STB-R2-UX section D). A barcode that
+    // is not in the pool can still pass the floor, so a run that published a sample file says so. It is information about
+    // the method and not a cause found in this run, so it is never the row's warning: `rowNotice(for:)` is not changed and
+    // alone decides the warning, and the line goes to the Log at `.info`.
 
-    static let floorLimitRowPrefix = ""
+    /// The line under the row's name when the run published a sample and names no barcode within chance. That run has no
+    /// cause to name, so the line is the check that the limit ends on, word for word, and the row stays Completed.
+    static let floorLimitRowPrefix = "Check samples with few reads against your sample sheet. "
 
-    static func floorLimitLine(for result: FASTQOperationExecutionResult) -> String? { nil }
+    /// The limit of the floor for a finished run, or nil when its record holds no `chanceFloor` block or cannot be read.
+    /// A record holds the block only when a barcode beat the floor (a run where none did throws before it writes one,
+    /// `DemultiplexChanceFloor+Run.swift`), so the block alone says the run published a sample, and the manifest is not
+    /// read. It reads files, so a caller runs it off the main actor.
+    static func floorLimitLine(for result: FASTQOperationExecutionResult) -> String? {
+        guard case .derivative(.demultiplex, _, _) = result.resolvedRequest else { return nil }
+        for folder in result.importedURLs + [result.groupedContainerURL].compactMap({ $0 }) {
+            guard let envelope = try? ProvenanceEnvelopeReader.loadCanonical(from: folder),
+                  case .dictionary(_)? = envelope.options.explicit["chanceFloor"] else { continue }
+            return DemultiplexChanceWords.notInPoolLimit(publishedBarcodes: 1)
+        }
+        return nil
+    }
 
+    /// The run's one warning and its information line, read together so that one call off the main actor serves the row and
+    /// the Log. It reads files.
     static func rowWords(for result: FASTQOperationExecutionResult) -> (notice: RowNotice?, floorLimitLine: String?) {
-        (rowNotice(for: result), nil)
+        (rowNotice(for: result), floorLimitLine(for: result))
     }
 
+    /// The detail of the finished row: the warning's own prefix when there is a warning, else the check when only the
+    /// information line is there, else the plain completion detail. The row's warning state is the notice alone.
     static func rowDetail(_ notice: RowNotice?, _ floorLimitLine: String?, _ completionDetail: String) -> String {
-        notice?.rowDetail(completionDetail) ?? completionDetail
+        if let notice { return notice.rowDetail(completionDetail) }
+        return (floorLimitLine == nil ? "" : floorLimitRowPrefix) + completionDetail
     }
 
+    /// The run's chance lines in its Log: the warning at `.warning`, then the information line at `.info`. A `.warning`
+    /// entry turns a finished row into Completed with Warnings (`OperationCenter.Item.hasWarnings`), so the information
+    /// line stays at `.info`.
     @MainActor
     static func log(_ notice: RowNotice?, _ floorLimitLine: String?, id: UUID, in center: OperationCenter) {
         if let notice { center.log(id: id, level: .warning, message: notice.message) }
+        if let floorLimitLine { center.log(id: id, level: .info, message: floorLimitLine) }
     }
 }

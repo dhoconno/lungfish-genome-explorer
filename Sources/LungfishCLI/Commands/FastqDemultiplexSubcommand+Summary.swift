@@ -25,9 +25,10 @@ extension FastqDemultiplexSubcommand {
         engine == .exactBareBarcode && barcodesWithReads > 0 ? DemultiplexEngine.exactBareChanceWords : nil
     }
 
-    /// The chance lines of the summary, in the order they print: the barcodes within the floor of the Cutadapt search, then
-    /// the words of Exact Bare Barcode, which has no floor. One run prints one of them. It sits here so that
-    /// `FastqCommand.swift`, which is at the file-size limit, does not grow.
+    /// The chance lines of the summary, in the order they print: the barcodes within the floor of the Cutadapt search, the
+    /// words of Exact Bare Barcode, which has no floor, and the limit of the floor, which a run that published a sample
+    /// file the floor passed carries (DEMUX-FLOOR-DECOY-MAX). A floor run prints the first and the last, and an Exact
+    /// Bare run only its words. It sits here so that `FastqCommand.swift`, which is at the file-size limit, does not grow.
     static func chanceSummaryLines(
         engine: DemultiplexEngine, readCounts: [Int], chanceFloor: DemultiplexChanceFloor.Outcome?
     ) -> [String] {
@@ -35,6 +36,9 @@ extension FastqDemultiplexSubcommand {
         return [
             withinChanceSummary(within, null: chanceFloor?.null ?? .randomBases),
             exactBareChanceSummary(engine, barcodesWithReads: readCounts.filter { $0 > 0 }.count),
+            chanceFloor.flatMap {
+                DemultiplexChanceWords.notInPoolLimit(publishedBarcodes: $0.barcodes.filter(\.beatsTheFloor).count)
+            },
         ].compactMap { $0 }
     }
 
