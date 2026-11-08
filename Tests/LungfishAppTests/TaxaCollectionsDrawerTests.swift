@@ -8,6 +8,7 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 import LungfishKit
+import LungfishTestSupport
 @testable import LungfishTaxonomyUI
 
 // MARK: - Test Helpers
@@ -266,6 +267,65 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
         // Toggle closed
         vc.toggleTaxaCollectionsDrawer()
         XCTAssertFalse(vc.testIsCollectionsDrawerOpen)
+    }
+
+    /// Phase 3.4 lane BLASTRELAUNCH, row KRAKEN-DRAWER-CLOSED-OVER-BAR (Walk 34 of Preview 2026.11.5, WALK34-UX section 3). A closed
+    /// drawer has its top edge on the action bar's top edge and was added after the bar, so its divider and tabs lay over the bar
+    /// and a click on a footer button landed on a tab. Each button takes the click in every state of the drawer, a closed drawer
+    /// draws nothing through the bar, and a shown drawer still takes its own clicks. Each move runs to its end before the next read.
+    func testClosedTaxaDrawerLeavesTheActionBarButtonsPressable() throws {
+        restoreHostDefaultsAfterTest(keys: ["taxaCollectionsDrawerOpen"])
+        let vc = TaxonomyViewController()
+        isolateLayouts(vc)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = vc.view
+        vc.configure(result: makeDrawerTestResult())
+        vc.view.layoutSubtreeIfNeeded()
+
+        let buttons: [(name: String, button: NSButton)] = [
+            ("Verify with BLAST", vc.testActionBar.blastButton), ("Export", vc.testActionBar.exportButton),
+            ("Extract Reads", vc.testActionBar.extractButton), ("BLAST Results", vc.resultActions.blastResultsButton),
+            ("Collections", vc.collectionsToggleButton),
+        ]
+        /// Whether a click at the centre of `target` reaches it, found the way AppKit finds it, from the view that hosts it.
+        func takesTheClick(_ target: NSView) -> Bool {
+            let centre = target.convert(NSPoint(x: target.bounds.midX, y: target.bounds.midY), to: vc.view.superview)
+            let hit = vc.view.hitTest(centre)
+            return hit === target || hit?.isDescendant(of: target) == true
+        }
+        func everyButtonTakesTheClick(_ state: String) {
+            for (name, button) in buttons {
+                XCTAssertTrue(takesTheClick(button), "a click on \(name) lands on the drawer or its tabs while the drawer is \(state)")
+            }
+        }
+        /// Toggles the drawer and reads again once the move has ended.
+        func toggle(toOpen open: Bool) {
+            vc.toggleTaxaCollectionsDrawer()
+            let moved = waitUntilOnRunLoop(budget: .lookup) {
+                guard let bottom = vc.taxaCollectionsDrawerBottomConstraint, let height = vc.taxaCollectionsDrawerHeightConstraint else { return false }
+                return abs(bottom.constant - (open ? 0 : height.constant)) < 0.5
+            }
+            XCTAssertTrue(moved, "the drawer did not finish \(open ? "opening" : "closing")")
+            vc.view.layoutSubtreeIfNeeded()
+        }
+
+        everyButtonTakesTheClick("not yet made")
+        toggle(toOpen: true)
+        let drawer = try XCTUnwrap(vc.testCollectionsDrawer)
+        everyButtonTakesTheClick("open")
+        toggle(toOpen: false)
+        everyButtonTakesTheClick("closed")
+        XCTAssertTrue(
+            waitUntilOnRunLoop(budget: .lookup) { drawer.isHiddenOrHasHiddenAncestor },
+            "the closed drawer still draws its divider and tabs where the bar's buttons are"
+        )
+        toggle(toOpen: true)
+        XCTAssertFalse(drawer.isHiddenOrHasHiddenAncestor, "a reopened drawer is not shown")
+        everyButtonTakesTheClick("reopened")
+        XCTAssertTrue(takesTheClick(drawer.tabControl), "a click on a reopened drawer's tabs does not reach them")
+        XCTAssertTrue(takesTheClick(drawer.dividerView), "a click on a reopened drawer's divider does not reach it")
     }
 
     func testActionBarCollectionsButton() throws {
