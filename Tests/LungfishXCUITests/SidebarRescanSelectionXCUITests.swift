@@ -32,10 +32,12 @@ final class SidebarRescanSelectionXCUITests: XCTestCase {
         }
         let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
         robot.launch(openingProject: project)
-        guard robot.projectWindow(for: project).waitForExistence(timeout: 15) else {
+        let window = robot.projectWindow(for: project)
+        guard window.waitForExistence(timeout: 15) else {
             XCTFail("The Debug app opened no window for \(project.lastPathComponent)")
             return
         }
+        guard closeReadOnlySheet(on: window) else { return }
         let any = robot.app.descendants(matching: .any)
         let taxTriage = (row: Self.taxTriageRow, viewer: any["taxtriage-result-view"].firstMatch)
         let esViritu = (row: Self.esVirituRow, viewer: any["esviritu-result-view"].firstMatch)
@@ -70,6 +72,32 @@ final class SidebarRescanSelectionXCUITests: XCTestCase {
                           "Round \(round): the Inspector shows no Summary for \(next.row)")
             shown = next
         }
+    }
+
+    /// The fixture project has no project store (`.project.db`), so the app opens it Read Only and says so in an "Opened
+    /// Read Only" sheet on its window (`AppDelegate.completeProjectOpen`, the filesystem fallback). A sheet takes every
+    /// click in its window. The first run of this twin (candidate chain 12) clicked the TaxTriage row under that sheet,
+    /// got no viewer and stopped at its first wait, before any rescan. The test needs no store, since the test process
+    /// copies the result folders in itself and the sidebar's watcher scans the folder with or without one, so it
+    /// presses OK before its first click. A window that shows no sheet within 10 s has nothing to close.
+    @MainActor
+    private func closeReadOnlySheet(on window: XCUIElement) -> Bool {
+        let sheet = window.sheets.firstMatch
+        guard sheet.waitForExistence(timeout: 10) else { return true }
+        let words = sheet.staticTexts.allElementsBoundByIndex
+            .map { $0.label.isEmpty ? String(describing: $0.value ?? "") : $0.label }
+            .joined(separator: " | ")
+        let ok = sheet.buttons["OK"].firstMatch
+        guard ok.waitForExistence(timeout: 5) else {
+            XCTFail("The sheet on the project window has no OK button, so every click in the window stays blocked: \(words)")
+            return false
+        }
+        ok.click()
+        guard sheet.waitForNonExistence(timeout: 5) else {
+            XCTFail("The sheet on the project window stays after OK: \(words)")
+            return false
+        }
+        return true
     }
 
     @MainActor
