@@ -176,6 +176,20 @@ public enum AXProcessProbe {
         }
     }
 
+    /// Reads every attribute of the row element and whether it is settable, as the Accessibility Inspector does.
+    public static func inspectRow(_ query: Query, row: Int) -> String {
+        offMain {
+            guard let element = rowElement(query, row: row) else { return "no row" }
+            var names: CFArray?
+            AXUIElementCopyAttributeNames(element, &names)
+            return ((names as? [String]) ?? []).map { name in
+                var settable: DarwinBoolean = false
+                AXUIElementIsAttributeSettable(element, name as CFString, &settable)
+                return "\(name)=\(attribute(element, name).map { String(describing: $0).prefix(40) } ?? "nil") \(settable.boolValue)"
+            }.joined(separator: "; ")
+        }
+    }
+
     /// The action names the server lists on the row element whose `AXIndex` is `row` and on each of its children, as
     /// "role: [names]" lines with custom actions decoded, the row's line first. Nil when the server lists no such row.
     public static func rowActionLines(_ query: Query, row: Int) -> [String]? {

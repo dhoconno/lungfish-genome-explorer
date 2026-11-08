@@ -54,6 +54,12 @@ private final class Done {
     var value = false
 }
 
+/// The base holds no proposed-select token, so the pins read none. The FOCUSAX fix gives `SidebarOutlineView` its own
+/// `isHoldingProposedSelect` and removes this.
+extension SidebarOutlineView {
+    var isHoldingProposedSelect: Bool { false }
+}
+
 @MainActor
 final class SidebarRescanSelectionTests: XCTestCase {
     private enum Order: String, CaseIterable {
@@ -234,6 +240,9 @@ final class SidebarRescanSelectionTests: XCTestCase {
         assertShows(resultB, "the control (the AX server's AXSelected selects nothing in this window)")
         try assertAnAccessibilitySelectShowsResultB("AXSelected on B's row element through the AX server") { _, _ in
             XCTAssertEqual(AXProcessProbe.setRowSelected(sidebarOutline, row: rowB), .success)
+            // SWIFT's ruling, item 9: the notice inside the request spent the token, before anything spins the run loop.
+            XCTAssertFalse(controller.sidebarController.outlineView.isHoldingProposedSelect,
+                           "the row's AX select left its token after the request")
         }
         assertAnUnexplainedSelectAfterwardIsRefused()
     }
@@ -257,6 +266,151 @@ final class SidebarRescanSelectionTests: XCTestCase {
             XCTAssertNotEqual(answer, .success, "the server ran AXPress on B's \(child == nil ? "row" : "cell")")
         }
         assertShows(resultA, "after an AXPress on B's row and on its cell")
+    }
+
+    // MARK: - The one-request token's limits (rulings FOCUSAX-MARK-BIO P1 to P6 and FOCUSAX-MARK-SWIFT items 9 to 14)
+
+    /// BIO P6 and SWIFT item 14: an Inspector's read of every attribute of B's row and their settability, a read of its
+    /// actions and a press of the row and of its cell arm no token, so a later unexplained select of B is refused.
+    func testAnInspectorReadAndPressOfARowLeaveNoMarkForALaterSelect() throws {
+        try prepareTheAXServer()
+        let outline = try startOnAWithItsTableFocused("Inspector read")
+        let rowB = try row(of: resultB)
+        XCTAssertFalse(AXProcessProbe.inspectRow(sidebarOutline, row: rowB).isEmpty)
+        _ = AXProcessProbe.rowActionLines(sidebarOutline, row: rowB)
+        AXProcessProbe.pressRow(sidebarOutline, row: rowB)
+        AXProcessProbe.pressRow(sidebarOutline, row: rowB, child: 0)
+        XCTAssertFalse(outline.isHoldingProposedSelect, "an Inspector read or press armed a token")
+        outline.selectRowIndexes(IndexSet(integer: rowB), byExtendingSelection: false)
+        assertShows(resultA, "an unexplained select of B after an Inspector read of B's row")
+    }
+
+    /// BIO P1 and SWIFT N1: AppKit's question for the row that is already the only selection arms nothing, since no
+    /// select and no notice follow it. The control: the question for another row arms one.
+    func testTheProposalOfTheOnlySelectedRowArmsNoMark() throws {
+        let outline = try startOnAWithItsTableFocused("P1")
+        XCTAssertTrue(propose(try sidebarItem(resultA), in: outline))
+        XCTAssertFalse(outline.isHoldingProposedSelect, "a proposal that changes nothing armed a mark")
+        XCTAssertTrue(propose(try sidebarItem(resultB), in: outline))
+        XCTAssertTrue(outline.isHoldingProposedSelect, "the control: a proposal of another row armed no mark")
+    }
+
+    /// SWIFT item 10 (N1) through the AX server: an AX select of the row already selected leaves no token.
+    func testAnAXSelectOfTheSelectedRowArmsNoToken() throws {
+        try prepareTheAXServer()
+        let outline = try startOnAWithItsTableFocused("AX select of the selected row")
+        XCTAssertEqual(AXProcessProbe.setRowSelected(sidebarOutline, row: try row(of: resultA)), .success)
+        XCTAssertFalse(outline.isHoldingProposedSelect, "the AX select of the selected row left a token")
+        propose(try sidebarItem(resultA), in: outline)
+        XCTAssertFalse(outline.isHoldingProposedSelect, "the question for the selected row armed a token")
+        assertShows(resultA, "after an AX select of the selected row")
+    }
+
+    /// SWIFT item 11 (N3): a question that no select follows is spent by the next select of any row, so a later
+    /// select of the proposed row is unexplained and refused.
+    func testAProposalNoSelectFollowsIsSpentByTheNextSelect() throws {
+        let outline = try startOnAWithItsTableFocused("N3")
+        let (rowA, rowB) = (try row(of: resultA), try row(of: resultB))
+        propose(try sidebarItem(resultB), in: outline)
+        XCTAssertTrue(outline.isHoldingProposedSelect, "the control: a proposal of B armed no token")
+        outline.selectRowIndexes(IndexSet(integer: rowA), byExtendingSelection: false)
+        XCTAssertFalse(outline.isHoldingProposedSelect, "a select of another row left the token")
+        outline.selectRowIndexes(IndexSet(integer: rowB), byExtendingSelection: false)
+        assertShows(resultA, "a select of the proposed row after another select")
+    }
+
+    /// BIO P2 (T3): a suppressed change of the selection, as a reload's or a restore's, ends an armed token, so an
+    /// unexplained select of the armed row after it is refused.
+    func testASuppressedSelectionChangeEndsAnArmedMark() throws {
+        click(resultA)
+        assertShows(resultA, "P2, before")
+        let third = try startRescan()
+        waitForApply(third)
+        let outline = try startOnAWithItsTableFocused("P2")
+        let rowX = outline.row(forItem: try XCTUnwrap(item(at: third.copy, in: controller.sidebarController.rootItems)))
+        let rowB = try row(of: resultB)
+        propose(try sidebarItem(resultB), in: outline)
+        controller.sidebarController.withSelectionSuppressed {
+            outline.selectRowIndexes(IndexSet(integer: rowX), byExtendingSelection: false)
+        }
+        outline.selectRowIndexes(IndexSet(integer: rowB), byExtendingSelection: false)
+        assertShows(resultA, "an unexplained select of the armed row after a suppressed change")
+    }
+
+    /// SWIFT item 12 (N4): the notice of a suppressed select of the proposed row spends the token.
+    func testASuppressedNoticeSpendsTheToken() throws {
+        let outline = try startOnAWithItsTableFocused("N4")
+        let (rowA, rowB) = (try row(of: resultA), try row(of: resultB))
+        let sidebar = controller.sidebarController!
+        propose(try sidebarItem(resultB), in: outline)
+        sidebar.withSelectionSuppressed { outline.selectRowIndexes(IndexSet(integer: rowB), byExtendingSelection: false) }
+        XCTAssertFalse(outline.isHoldingProposedSelect, "a suppressed select of the proposed row left the token")
+        sidebar.withSelectionSuppressed { outline.selectRowIndexes(IndexSet(integer: rowA), byExtendingSelection: false) }
+        assertShows(resultA, "after the suppressed selects")
+        outline.selectRowIndexes(IndexSet(integer: rowB), byExtendingSelection: false)
+        assertShows(resultA, "an unexplained select of B after a suppressed notice")
+    }
+
+    /// BIO P3 (T2) and SWIFT item 13 (N5): a token that no select and no notice spend ends with the run-loop turn that
+    /// armed it, so an unexplained select of the armed row one turn later is refused.
+    func testAMarkArmedWithNoSelectEndsWithItsRunLoopTurn() throws {
+        let outline = try startOnAWithItsTableFocused("P3")
+        let rowB = try row(of: resultB)
+        propose(try sidebarItem(resultB), in: outline)
+        XCTAssertTrue(outline.isHoldingProposedSelect, "the control: a proposal of B armed no token")
+        XCTAssertTrue(waitUntilOnRunLoop(budget: .lookup) { !outline.isHoldingProposedSelect },
+                      "the mark outlived its run-loop turn")
+        outline.selectRowIndexes(IndexSet(integer: rowB), byExtendingSelection: false)
+        assertShows(resultA, "an unexplained select of the armed row one turn later")
+    }
+
+    /// BIO P4 (T1, T4) and SWIFT N2: a token names the item, not only its row. A row shift that posts no notice puts
+    /// another item at B's row, and an unexplained select of that row is refused.
+    func testAMarkArmedForOneResultMarksNoOtherResultAtItsRow() throws {
+        let outline = try startOnAWithItsTableFocused("P4")
+        let itemB = try sidebarItem(resultB)
+        let oldRowB = outline.row(forItem: itemB)
+        XCTAssertLessThan(try row(of: resultA), oldRowB, "A's selected row would move with the shift")
+        let parent = try XCTUnwrap(outline.parent(forItem: itemB) as? SidebarItem, "B's row has no parent row")
+        let index = try XCTUnwrap(parent.children.firstIndex { $0 === itemB })
+        propose(itemB, in: outline)
+        parent.children.insert(SidebarItem(title: "FOCUSAX row shift", type: .folder), at: index)
+        outline.insertItems(at: IndexSet(integer: index), inParent: parent, withAnimation: [])
+        XCTAssertFalse((outline.item(atRow: oldRowB) as AnyObject?) === itemB, "no row moved")
+        outline.selectRowIndexes(IndexSet(integer: oldRowB), byExtendingSelection: false)
+        assertShows(resultA, "an unexplained select of B's old row, which another item now holds")
+    }
+
+    /// BIO P5, the lane's named hole end to end: an AX select of the row already shown, then a rescan that moves the
+    /// rows, then an unexplained select of the old row index. It is refused.
+    func testAnAXSelectOfTheShownRowThenARescanLetsNoUnexplainedSelectThrough() throws {
+        try prepareTheAXServer()
+        let outline = try startOnAWithItsTableFocused("P5")
+        let rowAAtTheSelect = try row(of: resultA)
+        XCTAssertEqual(AXProcessProbe.setRowSelected(sidebarOutline, row: rowAAtTheSelect), .success)
+        waitForApply(try startRescan())
+        XCTAssertNotEqual(try row(of: resultA), rowAAtTheSelect, "the rescan moved no row")
+        outline.selectRowIndexes(IndexSet(integer: rowAAtTheSelect), byExtendingSelection: false)
+        assertShows(resultA, "an unexplained select of the old row after an AX select of the shown row and a rescan")
+    }
+
+    /// A shown and A's table focused, the start of each pin above.
+    private func startOnAWithItsTableFocused(_ context: String) throws -> SidebarOutlineView {
+        click(resultA)
+        assertShows(resultA, "\(context), before")
+        try focusTheShownResultsTable()
+        return controller.sidebarController.outlineView
+    }
+
+    private func sidebarItem(_ result: Result) throws -> SidebarItem {
+        try XCTUnwrap(item(at: result.url, in: controller.sidebarController.rootItems),
+                      "the sidebar lists no row for \(result.url.lastPathComponent)")
+    }
+
+    /// AppKit's question on its user path (`outlineView(_:shouldSelectItem:)`), asked as AppKit asks it.
+    @discardableResult
+    private func propose(_ item: SidebarItem, in outline: SidebarOutlineView) -> Bool {
+        controller.sidebarController.outlineView(outline, shouldSelectItem: item)
     }
 
     /// After an accessibility select shows B, with the focus still out of the sidebar, a selection nobody asked for
