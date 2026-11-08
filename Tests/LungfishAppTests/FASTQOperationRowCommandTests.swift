@@ -405,6 +405,56 @@ final class FASTQOperationRowCommandTests: XCTestCase {
         XCTAssertTrue(reason.contains("records no command"), reason)
     }
 
+    /// The dialog hands the CLI a staged copy of a virtual input and the run deletes it, so a record that names
+    /// the copy holds no input the person can run again. The rule reads only the words of the record, so this test
+    /// needs no managed tool and the live virtual-bundle test is no longer its only pin.
+    func testADemultiplexRecordThatNamesAStagedCopyKeepsTheBeginCommandAndSaysSo() async throws {
+        let source = try makeSourceBundle(named: "Sample 1")
+        let launch = demultiplexLaunch(on: source)
+        let runFolder = root.appendingPathComponent("Project.lungfish/Analyses/demultiplex-3", isDirectory: true)
+        let staged = root.appendingPathComponent("Project.lungfish/Analyses/materialized-inputs-0F1E2D3C/materialized-0A1B2C3D.fastq")
+        var arguments = demultiplexArguments(on: source, runFolder: runFolder)
+        arguments[1] = staged.path
+        try await writeDemultiplexRecord(in: runFolder, command: [CLICommandIdentity.executableName, "fastq"] + arguments)
+        let result = FASTQOperationExecutionResult(
+            resolvedRequest: launch, executedInvocations: [], importedURLs: [runFolder], groupedContainerURL: nil
+        )
+
+        let reporter = RecordingOperationReporter()
+        let id = try beginRow(for: launch, on: reporter)
+        let begun = try XCTUnwrap(reporter.items.first?.cliCommand)
+        let refinement = FASTQOperationRowCommand.refinement(for: result)
+        FASTQOperationRowCommand.apply(refinement, to: id, reporter: reporter)
+
+        let reason = "the recorded command names a staged copy of the input, which the run deleted"
+        XCTAssertEqual(refinement, .keep(reason: reason))
+        XCTAssertEqual(reporter.items.first?.cliCommand, begun)
+        XCTAssertEqual(
+            try XCTUnwrap(reporter.items.first).logs.map(\.message),
+            ["The row keeps the command recorded at launch: \(reason)"]
+        )
+    }
+
+    /// A word the record keeps as `<external>/<file name>` names a file the CLI cannot open. `checked` refuses it,
+    /// for the derivative and Savont rows too, so the row keeps its launch command.
+    func testADemultiplexRecordThatNamesAFileOutsideTheProjectKeepsTheBeginCommand() async throws {
+        let source = try makeSourceBundle(named: "Sample 1")
+        let runFolder = root.appendingPathComponent("Project.lungfish/Analyses/demultiplex-6", isDirectory: true)
+        var arguments = demultiplexArguments(on: source, runFolder: runFolder)
+        // The writer keeps a path outside the project as `<external>/<file name>`, which no reader resolves.
+        arguments[3] = "<external>/barcodes.csv"
+        try await writeDemultiplexRecord(in: runFolder, command: [CLICommandIdentity.executableName, "fastq"] + arguments)
+        let result = FASTQOperationExecutionResult(
+            resolvedRequest: demultiplexLaunch(on: source), executedInvocations: [],
+            importedURLs: [runFolder], groupedContainerURL: nil
+        )
+
+        XCTAssertEqual(
+            FASTQOperationRowCommand.refinement(for: result),
+            .keep(reason: "a recorded command is not a lungfish-cli command that names its final output")
+        )
+    }
+
     // MARK: - A refinement never makes a row worse
 
     func testAGroupedResultKeepsTheBeginCommand() throws {
