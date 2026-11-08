@@ -169,13 +169,11 @@ most 45 minutes that reads `get_usage`, disk and each agent's transcript size, a
 The direct cost of a lane is its lane agents, its review, its fix agent and its share of the landing agent, and the
 all-in cost adds the panel, the manager and the monitor. `docs/contracts/LLM-EVIDENCE.md` holds the measurement behind
 each rule. A manager reads it only to question or change a rule, and the monitor adds to it at the end of a session.
-Rows of earlier phases, 2.7 to 3.2 so far, are in `/Users/dho/lungfish-phase-records/session-table.md`, and the docs
+Rows of earlier phases, 2.7 to 3.3 so far, are in `/Users/dho/lungfish-phase-records/session-table.md`, and the docs
 commit that adds a phase's first row moves the earlier phase's rows there.
 
 | Session | Date | Spend and wall time | Lanes landed | Direct cost per landed lane | All-in per landed lane |
 |---|---|---|---|---|---|
-| 3.3 session 1, to the monitor after the last landing and before the final candidate | 2026-11-06 and 07 | $477 over 17h57m by the ledger estimate (opus $267, sonnet $211), $94 of it the manager with three compactions, $41 the panel's meeting of ten opus max seats in two rounds, $34 fifteen rulings and re-rates, $109 fifty-five reviews and checks, $51 twenty-one landings, the week 8% to 41% at about $14 to $19 a point. The owner set no budget for 3.3 | 24 in 17 landing batches | median $10.23, mean $13.13 | $19.89 |
-| 2026.11.4 job of 3.3, started as the first monthly stable job until O159 made it a Preview, to the monitor after the last landing and during the last package | 2026-11-07 | $93 over 4h15m by the ledger estimate (opus $72, sonnet $21), $24 of it the manager with no compaction, $32 the panel's meeting of ten opus max seats in two rounds, $6.61 three rulings at opus xhigh, $9.17 five reviews, $7.00 four documentation agents, the week 45% to 51% with the 3.3 session open. No budget figure was set | 6, three in one landing and three documentation commits the manager picked | median $2.19, mean $4.88 | $15.51 |
 | 3.4, one session, to the monitor after the last landing and before the final candidate | 2026-11-08 | $115 over 5h30m by the ledger estimate (opus $66, sonnet $49), $20 of it the manager with no compaction, $37 the panel's meeting of ten opus seats (round 1 at xhigh $14, round 2 at max $23), $6.73 two rulings, $13 six reviews and a fact-check, $6.39 two documentation lanes, the week 52% to 58% at about $20 a point. No budget figure was set | 6 in 2 landings, with a tidy commit | median $5.94, mean $6.57 | $19.19 |
 
 ## End-of-session duty
