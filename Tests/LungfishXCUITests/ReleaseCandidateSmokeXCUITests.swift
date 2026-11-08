@@ -157,7 +157,8 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
     /// MHC reference, the FASTA collection and the text, PDF and image previews of Quick Look joined in 3.2, each with
     /// a fixture the test writes or copies from `Tests/Fixtures/analyses`, which the smoke gate stages. Left out: NVD,
     /// CZ ID, 12S, both primer kinds and FASTA document, which have no fixture the smoke can open without managed tools,
-    /// as 3.1 found. Status only draws no viewer to wait for.
+    /// as 3.1 found, and Mapping result, whose matrix row is a minimap2 mapping with a viewer bundle, which the smoke cannot
+    /// write without a mapping run (Phase 3.4 lane EXBARE). Status only draws no viewer to wait for.
     @MainActor
     func testReleaseCandidateViewSwitchPerKind() throws {
         let robot = try ReleaseAppSmokeRobot()
