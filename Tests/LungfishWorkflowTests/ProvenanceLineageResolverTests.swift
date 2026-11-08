@@ -56,10 +56,22 @@ final class ProvenanceLineageResolverTests: XCTestCase {
         return url
     }
 
-    private func run(_ name: String, tool: String, inputs: [FileRecord], outputs: [FileRecord]) -> WorkflowRun {
+    /// Every record of the class starts at this one moment (2026-01-15 12:00:00 UTC, in whole seconds because
+    /// `writeLegacy` encodes dates with `.iso8601`). The resolver keeps a producer only when it started no later
+    /// than its consumer (`ProvenanceLineageResolver.visitDependency`), and a legacy record's `createdAt` is its
+    /// `startTime`. Records made from `Date()` read as later whenever the clock crossed a second between two of
+    /// them, so a sidecar written again after the chain dropped out of the walk unless both writes fell in one
+    /// second. Equal start times keep every producer, which every case here assumes.
+    private static let started = Date(timeIntervalSince1970: 1_768_478_400)
+
+    private func run(
+        _ name: String, tool: String, inputs: [FileRecord], outputs: [FileRecord],
+        started: Date = ProvenanceLineageResolverTests.started
+    ) -> WorkflowRun {
         WorkflowRun(
             name: name,
-            endTime: Date(),
+            startTime: started,
+            endTime: started.addingTimeInterval(1),
             status: .completed,
             steps: [
                 StepExecution(
@@ -265,10 +277,12 @@ final class ProvenanceLineageResolverTests: XCTestCase {
         XCTAssertEqual(resolver.resolve(envelope: envelope, sidecarURL: sidecar).map(\.envelope.workflowName), chain)
         XCTAssertEqual(events.indexedSidecars.dropFirst(4).map(\.path), [mapSidecar.path])
 
+        // The import written again replaces the first import's record, so it keeps that record's start time.
         let importSidecar = try writeLegacy(
             run("lungfish import fastq again", tool: "clumpify.sh",
                 inputs: [record("/elsewhere/inputs/raw.fastq.gz", String(repeating: "9", count: 64), .input)],
-                outputs: [record("\(foreign)/Imports/reads.lungfishfastq/reads.fastq.gz", readsSHA, .output)]),
+                outputs: [record("\(foreign)/Imports/reads.lungfishfastq/reads.fastq.gz", readsSHA, .output)],
+                started: Self.started),
             to: "Imports/reads.lungfishfastq/.lungfish-provenance.json"
         )
         let runs = resolver.resolve(envelope: envelope, sidecarURL: sidecar)
