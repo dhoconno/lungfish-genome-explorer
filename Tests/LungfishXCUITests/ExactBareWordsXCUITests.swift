@@ -12,16 +12,17 @@ import XCTest
 /// clauses and not whole strings, so a rewrap cannot turn it red but a changed word can. It runs only on the gate's
 /// candidate (`ReleaseAppSmokeRobot` skips without one), and a skip counts as not run.
 final class ExactBareWordsXCUITests: XCTestCase {
-    /// The caption under the engine (`FASTQOperationDialogState+ChanceCaption.swift`), by its first and last sentences and
-    /// the clause that says what can go wrong.
+    /// The caption under the engine (`FASTQOperationDialogState+ChanceCaption.swift`), by its first and last sentences, the
+    /// clause that says what can go wrong and the clause that says when it can.
     private static let captionOpening = "Exact Bare Barcode does not check for chance matches."
     private static let captionReason = "it can make sample files from chance matches"
     private static let captionClosing = "Use it only on reads that carry the barcodes in their sequence."
+    private static let captionScope = "do not carry the chosen barcodes in their sequence"
     /// The Operations row starts with the cause (`FASTQDemultiplexChanceNotice.rowPrefix`) and ends with the completion.
     private static let rowClause = "Not checked for chance matches."
     private static let rowCompletion = "Done in"
-    /// The Log's warning starts with the caption's first sentence and asks for a check of the sample files.
-    private static let logOpening = "Exact Bare Barcode does not check for chance matches."
+    /// The Log's warning is a [WARNING] line that starts with the caption's first sentence and asks for a check of the sample files.
+    private static let logOpening = "[WARNING] Exact Bare Barcode does not check for chance matches."
     private static let logClosing = "Check the sample files against the samples you expect."
 
     /// Synchronous, because an XCTest interrupt of a test whose class has async set-up or tear-down hung for 11 minutes
@@ -55,7 +56,7 @@ final class ExactBareWordsXCUITests: XCTestCase {
 
         // Row 21, the caption. Exact Bare Barcode is picked and the words under the engine say no chance check runs.
         guard click("Exact Bare Barcode", in: robot) else { return }
-        for clause in [Self.captionOpening, Self.captionReason, Self.captionClosing] {
+        for clause in [Self.captionOpening, Self.captionScope, Self.captionReason, Self.captionClosing] {
             XCTAssertTrue(staticText(containing: clause, in: app).waitForExistence(timeout: 10),
                           "The dialog's caption under Exact Bare Barcode holds \"\(clause)\"")
         }
