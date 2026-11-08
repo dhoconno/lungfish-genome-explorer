@@ -192,7 +192,7 @@ Nextflow 25.04 starts its output with the banner `N E X T F L O W  ~  version 25
 
 ## 5. The registry row and the words (U9)
 
-A Nextflow workflow shows itself to a user in two places. The registry row names it once, and the Operations row is what the user watches while it runs. Every string of the Operations row spells the workflow's name as the registry row does, so a new workflow takes its words from one field. This section states the registry row's other fields, the words of the Operations row from its first detail to the closing line of the command, the rules those words follow, and what each of the four rows a user can start shows today. It rests on panel decisions N13, W1, W2 and W3 of the Phase 2.9 plan (`docs/plans/2026-10-12-phase-2-9.md`).
+A Nextflow workflow shows itself to a user in two places. The registry row names it once, and the Operations row is what the user watches while it runs. Every string of the Operations row spells the workflow's name as the registry row does, so a new workflow takes its words from one field. This section states the registry row's other fields, the words of the Operations row from its first detail to the closing line of the command, the rules those words follow, and what each of the four rows a user can start shows today. It rests on panel decisions N13, W1, W2 and W3 of the Phase 2.9 plan (`0c972abf4:docs/plans/2026-10-12-phase-2-9.md:72` for N13 and `0c972abf4:docs/plans/2026-10-12-phase-2-9.md:96` for W1 to W3).
 
 ### The registry row's other fields
 

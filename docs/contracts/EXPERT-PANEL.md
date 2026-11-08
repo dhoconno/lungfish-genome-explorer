@@ -12,7 +12,7 @@ and the owner accepted the change by putting it on `main` (`docs/reports/2026-10
 votes were unanimous. Panel design, reviews and rulings cost about $3,800 of the $12,904 measured on the release Mac
 from 2026-10-07 to 2026-10-26, and about one review fix in six touched a defect a user could meet. Domain review earned its place, since a
 BIO ruling caught a wrong multi-sample Clade % in 2.13. The dated evidence below comes from Phase 2.7, whose record is
-`docs/plans/2026-10-11-phase-2-7.md`.
+`0c972abf4:docs/plans/2026-10-11-phase-2-7.md:1`.
 
 ## Scope
 
