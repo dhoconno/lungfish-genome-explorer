@@ -267,9 +267,9 @@ final class BlastInFlightMonitorTests: XCTestCase {
         OperationCenter.shared.items.first { $0.id == row }
     }
 
-    private static func line(label: String, due: Date?, state: String = "waiting") throws -> BlastInFlightLine {
+    private static func line(label: String, due: Date?, state: String = "waiting", output: URL? = nil) throws -> BlastInFlightLine {
         var object: [String: Any] = [
-            "schemaVersion": 1, "searchID": UUID().uuidString, "output": "/tmp/blast-monitor-test/\(label)", "label": label,
+            "schemaVersion": 1, "searchID": UUID().uuidString, "output": output?.path ?? "/tmp/blast-monitor-test/\(label)", "label": label,
             "origin": "standIn", "state": state, "createdAt": Date(timeIntervalSince1970: 1_000_000).formatted(.iso8601),
             "lastContactAt": Date(timeIntervalSince1970: 1_000_000).formatted(.iso8601), "rids": ["RID\(label)"],
             "words": "Waiting at NCBI, \(label)",
@@ -425,6 +425,39 @@ final class BlastInFlightMonitorTests: XCTestCase {
         XCTAssertEqual(item(row)?.state, .completed)
         XCTAssertEqual(item(row)?.detail, "1 of 2 verified")
         XCTAssertEqual(item(row)?.outputURLs, [record], "a row reads Completed only with its outputs")
+    }
+
+    /// Phase 3.4 lane BLASTRELAUNCH (the Preview 2026.11.5 walk, row R13). A search that comes back after a relaunch is the
+    /// row a person finds finished, and its Results button opens the search's folder, as the button of a search that
+    /// finished in one launch does (`launchBlastSubmit` completes that row with the folder). `blast resume --once` reports
+    /// the record and the query file as its outputs, and a file is no result for the button, so the row must not take them.
+    func testAPassThatCollectsAfterARelaunchGivesTheRowTheSearchFolderForItsResultsButton() async throws {
+        let search = try TestTempDirectory.make(prefix: "blast-monitor-relaunch")
+        defer { TestTempDirectory.cleanup(search) }
+        let record = search.appendingPathComponent(BlastSubmissionRecord.recordFileName)
+        let query = search.appendingPathComponent("query.fasta")
+        try Data("{}".utf8).write(to: record)
+        try Data(">read\nACGT\n".utf8).write(to: query)
+        let moment = Date()
+        let line = try Self.line(label: "relaunched", due: moment.addingTimeInterval(-60), output: search)
+        let monitor = monitor(lines: [line], asked: Asked(), moment: moment) { _ in
+            .collected(outputs: [record, query], words: "1 of 2 verified")
+        }
+
+        await monitor.refresh()
+        let row = try XCTUnwrap(monitor.row(ofSearch: line.searchID))
+        rows.append(row)
+        await monitor.passesFinished()
+
+        let finished = try XCTUnwrap(item(row))
+        XCTAssertEqual(finished.state, .completed)
+        XCTAssertEqual(finished.detail, "1 of 2 verified")
+        XCTAssertEqual(
+            OperationResultNavigation.resultURL(for: finished),
+            URL(fileURLWithPath: search.path, isDirectory: true).standardizedFileURL,
+            "the row of a search collected after a relaunch names no result its Results button can open"
+        )
+        XCTAssertTrue(OperationResultNavigation.canNavigate(to: finished), "the Results button of the row is grey")
     }
 
     func testAPassThatNCBIEndedFailsTheRowWithItsWordsAndNoNewsLeavesItWaiting() async throws {
