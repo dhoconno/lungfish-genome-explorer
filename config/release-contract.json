@@ -85,7 +85,8 @@
       "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateDroppedZipLandsItsBundle",
       "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateRefusedZipShowsWords",
       "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateExtractFromARenamedResultUsesTheLoadedFolder",
-      "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateViewSwitchPerKind"
+      "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateViewSwitchPerKind",
+      "LungfishXCUITests/ExactBareWordsXCUITests/testExactBarePickShowsTheCaptionAndItsRunSaysNotCheckedForChanceMatches"
     ],
     "appSmokeAccount": null,
     "dependencyPolicy": "manifest",
