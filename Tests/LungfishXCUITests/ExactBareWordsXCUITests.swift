@@ -62,7 +62,9 @@ final class ExactBareWordsXCUITests: XCTestCase {
 
         // The Custom Definition is the project's custom-8mers.csv, chosen from the Project File picker.
         guard click("Custom Definition", in: robot) else { return }
-        let projectFile = app.popUpButtons["Project File"].firstMatch
+        // SwiftUI draws the Project File picker as a pop-up whose value is the chosen item's words, and the words "Project File"
+        // belong to a static text beside it (gate run 2 of lane EXBARE, real-app-tests.log, the tree under the first failure).
+        let projectFile = app.popUpButtons.matching(NSPredicate(format: "value == %@", "Choose project file")).firstMatch
         guard projectFile.waitForExistence(timeout: 10) else {
             robot.failShowingScreen("The dialog shows no Project File picker for the custom definition")
             return
@@ -110,8 +112,11 @@ final class ExactBareWordsXCUITests: XCTestCase {
             return
         }
         for clause in [Self.logOpening, Self.logClosing] {
-            let said = inspector.descendants(matching: .any).matching(NSPredicate(format: "value CONTAINS %@ OR label CONTAINS %@", clause, clause))
-            XCTAssertTrue(said.firstMatch.waitForExistence(timeout: 10), "The Log of the run holds \"\(clause)\"")
+            // The Log is a text view whose value is its text. Only text views and static texts are asked, since CONTAINS cannot
+            // match a value that is a number.
+            let inTextView = app.textViews.matching(NSPredicate(format: "value CONTAINS %@", clause)).firstMatch
+            let inStaticText = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", clause, clause)).firstMatch
+            XCTAssertNotNil(robot.firstOf([inTextView, inStaticText], timeout: 10), "The Log of the run holds \"\(clause)\"")
         }
 
         // Row 21, the disk. The run folder's record says no chance check ran, and EB01 and EB02 each hold the reads of the input.
@@ -290,7 +295,9 @@ nonisolated enum ExactBareFixture {
     /// Every folder of the project that holds a `demux-manifest.json`, which is a demultiplex run folder.
     static func runFolders(in project: URL) -> [URL] {
         guard let walker = FileManager.default.enumerator(at: project, includingPropertiesForKeys: nil) else { return [] }
+        // A run folder holds the manifest and the run's own record side by side.
         return walker.compactMap { ($0 as? URL).flatMap { $0.lastPathComponent == "demux-manifest.json" ? $0.deletingLastPathComponent() : nil } }
+            .filter { FileManager.default.fileExists(atPath: $0.appendingPathComponent(".lungfish-provenance.json").path) }
     }
 
     /// The reads of the sample file that `barcode` got in the run folder (`<barcode>.lungfishfastq/<barcode>.fastq`).
