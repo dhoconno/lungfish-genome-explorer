@@ -314,14 +314,17 @@ final class FASTQOperationRowCommandTests: XCTestCase {
         let refinement = FASTQOperationRowCommand.refinement(for: result)
         FASTQOperationRowCommand.apply(refinement, to: id, reporter: reporter)
 
+        // The record's reader spells a project path as the standardized URL does (`/var/...`), where the
+        // fixtures spell it physically (`/private/var/...`), so the expected row is the argv the reader hands back.
         let expected = FASTQOperationCLIInvocationBuilder.commandLine(
-            for: FASTQCLIInvocation(subcommand: "fastq", arguments: arguments)
+            for: FASTQCLIInvocation(subcommand: recorded[1], arguments: Array(recorded.dropFirst(2)))
         )
         XCTAssertEqual(refinement, .replace(with: expected), "the row takes the argv the run's record holds")
         let row = try XCTUnwrap(reporter.items.first?.cliCommand)
         XCTAssertEqual(row, expected)
         XCTAssertFalse(row.contains("<derived>"), row)
-        XCTAssertTrue(row.contains(runFolder.path), "the row names the run's folder: \(row)")
+        XCTAssertTrue(row.contains(runFolder.lastPathComponent), "the row names the run's folder: \(row)")
+        XCTAssertTrue(row.contains("--output") && row.contains("Sample 1.lungfishfastq"), row)
         let logs = try XCTUnwrap(reporter.items.first).logs.map(\.message)
         XCTAssertFalse(logs.contains { $0.contains("records no command") }, "\(logs)")
         XCTAssertEqual(logs, [], "a replaced command logs nothing")
@@ -345,8 +348,13 @@ final class FASTQOperationRowCommandTests: XCTestCase {
             groupedContainerURL: nil
         )
 
+        let recorded = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: runFolder)?.argv)
+        XCTAssertEqual(
+            recorded.first, "/Applications/Lungfish.app/Contents/MacOS/\(CLICommandIdentity.executableName)",
+            "the record keeps the CLI as it was launched"
+        )
         let expected = FASTQOperationCLIInvocationBuilder.commandLine(
-            for: FASTQCLIInvocation(subcommand: "fastq", arguments: arguments)
+            for: FASTQCLIInvocation(subcommand: recorded[1], arguments: Array(recorded.dropFirst(2)))
         )
         XCTAssertTrue(expected.hasPrefix(CLICommandIdentity.executableName + " fastq demultiplex "), expected)
         XCTAssertEqual(FASTQOperationRowCommand.refinement(for: result), .replace(with: expected))

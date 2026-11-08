@@ -245,11 +245,22 @@ final class FASTQDialogDemultiplexLaunchTests: XCTestCase {
             .filter { $0.split(separator: "/").contains { $0.hasPrefix("materialized-inputs-") } }
         XCTAssertEqual(leftovers, [], "staging left in the project", file: file, line: line)
 
-        // The row keeps the command recorded at launch, which names the
-        // dialog's input, never a staging path.
-        XCTAssertEqual(run.rowCommand, run.commandAtBegin, file: file, line: line)
+        // The row holds the command the run's record holds (DEMUX-ROW-COMMAND-LOG-LINE). It names the
+        // dialog's input and the run's folder, never a staging path or the placeholder recorded at launch.
+        let row = try XCTUnwrap(run.rowCommand, file: file, line: line)
+        XCTAssertTrue(row.hasPrefix("lungfish-cli fastq demultiplex "), row, file: file, line: line)
+        XCTAssertFalse(row.contains("materialized-inputs-"), row, file: file, line: line)
+        if FASTQBundle.isDerivedBundle(input) {
+            // The CLI is handed a staged copy of a virtual input and the run deletes it, so the record names no
+            // input to run again and the row keeps its launch command (a row for a later lane).
+            XCTAssertEqual(row, run.commandAtBegin, file: file, line: line)
+            XCTAssertTrue(row.contains(input.path), row, file: file, line: line)
+        } else {
+            XCTAssertTrue(row.contains(input.lastPathComponent), row, file: file, line: line)
+            XCTAssertTrue(row.contains(run.outputDirectory.lastPathComponent), row, file: file, line: line)
+            XCTAssertFalse(row.contains("<derived>"), row, file: file, line: line)
+        }
         XCTAssertTrue(run.commandAtBegin.hasPrefix("lungfish-cli fastq demultiplex "), run.commandAtBegin, file: file, line: line)
-        XCTAssertTrue(run.commandAtBegin.contains(input.path), run.commandAtBegin, file: file, line: line)
         XCTAssertFalse(run.commandAtBegin.contains("materialized-inputs-"), run.commandAtBegin, file: file, line: line)
     }
 
