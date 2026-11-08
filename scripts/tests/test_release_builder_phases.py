@@ -1115,7 +1115,7 @@ class ReleaseBuilderPhaseTests(unittest.TestCase):
         self.assertNotIn("Unsigned package complete", result.stdout)
 
     def test_a_refused_app_smoke_leaves_no_lock_ready_entry_and_the_next_package_runs(self):
-        """C6-RELEASE-LOCK (docs/plans/BACKLOG.md:249), lane RELSMOKE item F
+        """C6-RELEASE-LOCK (0c972abf4:docs/plans/BACKLOG.md:249), lane RELSMOKE item F
         (ruling QA-RELEASE-SMOKE-GATE items 7 and 11). A Stable package whose
         smoke gate fails leaves no .lock-ready.* in its cache namespace, and
         the next package of the same commit runs with no removal by hand."""
