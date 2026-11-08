@@ -139,7 +139,100 @@ final class TaxTriageRecordedBAMTests: XCTestCase {
         }
     }
 
+    // MARK: - The scan of minimap2/ when nothing is recorded (Phase 3.4 lane EXTRACT, EXTRACT-PREFIX-SCAN-NO-DATABASE)
+
+    /// On a raw nf-core folder a sample takes its own file and no other sample's. Red at the base, whose scan takes
+    /// the first file, in listing order, whose name starts with `S1`. APFS lists by name hash, so the underscore
+    /// folder lists S10's file first, and the last folder, which holds only S10's file, gives S1 that file.
+    func testTaxTriagePrefixScanTakesOnlyTheSamplesOwnBAM() async throws {
+        let folders: [(files: [String], s1: String?)] = [
+            (["S1.dedup.bam", "S10.dedup.bam"], "S1.dedup.bam"),
+            (["S1_dedup.bam", "S10_dedup.bam"], "S1_dedup.bam"),
+            (["S1-dedup.bam", "S10-dedup.bam"], "S1-dedup.bam"),
+            (["S10.dedup.bam"], nil),
+        ]
+        for folder in folders {
+            let root = try TestTempDirectory.make(prefix: "TaxTriagePrefixScan")
+            defer { TestTempDirectory.cleanup(root) }
+            for file in folder.files { _ = try placeBAM("minimap2/\(file)", in: root) }
+            let label = folder.files.joined(separator: " + ")
+            if let own = folder.s1 {
+                let found = try await resolveTaxTriageBAM("S1", in: root)
+                XCTAssertEqual(found.lastPathComponent, own, label)
+            } else {
+                await assertMissingBAMRefusal("S1", in: root, label)
+            }
+            let s10 = try await resolveTaxTriageBAM("S10", in: root)
+            XCTAssertEqual(s10.lastPathComponent, folder.files.first { $0.hasPrefix("S10") }, label)
+        }
+    }
+
+    /// Two files that fit one sample are a refusal in words that name both, and no file is read. Red at the base,
+    /// which returns the first of them. S10's file beside them is not named and S10 still gets it.
+    func testTaxTriagePrefixScanRefusesTwoFilesThatFitOneSample() async throws {
+        let root = try TestTempDirectory.make(prefix: "TaxTriagePrefixScan")
+        defer { TestTempDirectory.cleanup(root) }
+        for file in ["S1.raw.bam", "S1.dedup.bam", "S10.dedup.bam"] { _ = try placeBAM("minimap2/\(file)", in: root) }
+        do {
+            let found = try await resolveTaxTriageBAM("S1", in: root)
+            XCTFail("two BAM files fit S1, so none is read, but \(found.lastPathComponent) was")
+        } catch let error as ClassifierExtractionError {
+            let words = error.errorDescription ?? ""
+            XCTAssertTrue(
+                words.hasPrefix("More than one BAM file fits sample 'S1' in minimap2: S1.dedup.bam, S1.raw.bam."), words
+            )
+            XCTAssertTrue(
+                words.hasSuffix("LGE takes a sample's reads from one BAM. Keep only that sample's file in minimap2 and try again."),
+                words
+            )
+            XCTAssertFalse(words.contains("S10"), "S10's file does not fit S1")
+            XCTAssertTrue(error.blocksExtraction, "the Extract sheet shows these words and turns Extract off")
+        }
+        let s10 = try await resolveTaxTriageBAM("S10", in: root)
+        XCTAssertEqual(s10.lastPathComponent, "S10.dedup.bam")
+    }
+
+    /// The nf-core name `{X}.{X}.dwnld.references.bam` belongs to sample X alone. With only `S1.1`'s file in
+    /// `minimap2/`, S1 gets the missing-BAM refusal and S1.1 gets the file. Red at the base, which gives S1 that file.
+    func testTaxTriagePrefixScanLeavesADottedSiblingsBAMAlone() async throws {
+        let root = try TestTempDirectory.make(prefix: "TaxTriagePrefixScan")
+        defer { TestTempDirectory.cleanup(root) }
+        _ = try placeBAM("minimap2/S1.1.S1.1.dwnld.references.bam", in: root)
+        await assertMissingBAMRefusal("S1", in: root, "S1 beside S1.1")
+        let dotted = try await resolveTaxTriageBAM("S1.1", in: root)
+        XCTAssertEqual(dotted.lastPathComponent, "S1.1.S1.1.dwnld.references.bam")
+    }
+
+    /// When the sample's nf-core file is there, no scan runs, so a sibling whose name shares the boundary neither
+    /// replaces it nor makes two fits. Red at the base, which never tries that name and takes the first listed file
+    /// (APFS lists `S1.x.bam` before it).
+    func testTaxTriageCurrentLayoutNameWinsOverASiblingThatSharesTheBoundary() async throws {
+        let root = try TestTempDirectory.make(prefix: "TaxTriagePrefixScan")
+        defer { TestTempDirectory.cleanup(root) }
+        for file in ["S1.S1.dwnld.references.bam", "S1.x.bam", "S1.final.bam"] { _ = try placeBAM("minimap2/\(file)", in: root) }
+        let found = try await resolveTaxTriageBAM("S1", in: root)
+        XCTAssertEqual(found.lastPathComponent, "S1.S1.dwnld.references.bam")
+    }
+
     // MARK: - Helpers
+
+    /// What the command line does: the result folder goes in as the result path, with no database in it.
+    private func resolveTaxTriageBAM(_ sample: String, in root: URL) async throws -> URL {
+        try await ClassifierReadResolver().testingResolveBAMURL(tool: .taxtriage, sampleId: sample, resultPath: root)
+    }
+
+    /// Asserts that `sample` gets the missing-BAM refusal with its own name, and that no file is read.
+    private func assertMissingBAMRefusal(_ sample: String, in root: URL, _ label: String) async {
+        do {
+            let found = try await resolveTaxTriageBAM(sample, in: root)
+            XCTFail("\(label): \(sample) has no BAM of its own, so none is read, but \(found.lastPathComponent) was")
+        } catch let error as ClassifierExtractionError {
+            guard case .bamNotFound(let named) = error else { return XCTFail("\(label): \(error)") }
+            XCTAssertEqual(named, sample, label)
+        } catch {
+            XCTFail("\(label): \(error)")
+        }
+    }
 
     /// Writes a placeholder BAM at `relative` under `root`, with the BGZF magic the other layout tests write.
     private func placeBAM(_ relative: String, in root: URL) throws -> URL {
