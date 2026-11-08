@@ -106,28 +106,39 @@ final class ExactBareWordsXCUITests: XCTestCase {
             return
         }
         toggle.click()
-        let inspector = app.descendants(matching: .any)["operations-log-inspector"].firstMatch
-        guard inspector.waitForExistence(timeout: 10) else {
+        // The inspector's own view carries the identifier operations-log-inspector but is no accessibility element, so gate run 3
+        // of lane EXBARE found nothing by it. The Log is the text view operations-inspector-log-text, whose value is its text.
+        let logText = app.textViews["operations-inspector-log-text"].firstMatch
+        guard logText.waitForExistence(timeout: 10) else {
             robot.failShowingScreen("The Log button opens no Operations log")
             return
         }
+        // From here the checks are independent, so a miss does not stop the test and one run shows every miss.
+        continueAfterFailure = true
+        func excerpt(_ value: Any?) -> String {
+            let text = (value as? String) ?? String(describing: value ?? "no text")
+            return text.count > 700 ? String(text.prefix(700)) + "..." : text
+        }
+        func listing() -> String {
+            guard let walker = FileManager.default.enumerator(at: project, includingPropertiesForKeys: nil) else { return "nothing" }
+            let names = walker.compactMap { ($0 as? URL)?.path.replacingOccurrences(of: project.path, with: "") }
+            return names.prefix(40).joined(separator: ", ") + (names.count > 40 ? ", and \(names.count - 40) more" : "")
+        }
         for clause in [Self.logOpening, Self.logClosing] {
-            // The Log is a text view whose value is its text. Only text views and static texts are asked, since CONTAINS cannot
-            // match a value that is a number.
-            let inTextView = app.textViews.matching(NSPredicate(format: "value CONTAINS %@", clause)).firstMatch
-            let inStaticText = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", clause, clause)).firstMatch
-            XCTAssertNotNil(robot.firstOf([inTextView, inStaticText], timeout: 10), "The Log of the run holds \"\(clause)\"")
+            let holds = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", clause), object: logText)
+            XCTAssertEqual(XCTWaiter.wait(for: [holds], timeout: 10), .completed,
+                           "The Log of the run holds \"\(clause)\" and reads \"\(excerpt(logText.value))\"")
         }
 
         // Row 21, the disk. The run folder's record says no chance check ran, and EB01 and EB02 each hold the reads of the input.
         let written = NSPredicate { _, _ in !ExactBareFixture.runFolders(in: project).isEmpty }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: written, object: nil)], timeout: 30), .completed,
-                       "The run writes a run folder with a demultiplex manifest")
+                       "The run writes a run folder with a demultiplex manifest and its record, and the project holds \(listing())")
         let folders = ExactBareFixture.runFolders(in: project)
         XCTAssertEqual(folders.count, 1, "The run writes one run folder, not \(folders.map(\.lastPathComponent))")
         guard let runFolder = folders.first else { return }
-        let checks = try ExactBareFixture.chanceChecks(inRecordAt: runFolder.appendingPathComponent(".lungfish-provenance.json"))
-        XCTAssertEqual(checks, ["none"], "The run folder's record says chanceCheck is none")
+        XCTAssertEqual(try ExactBareFixture.chanceChecks(inRecordAt: runFolder.appendingPathComponent(".lungfish-provenance.json")), ["none"],
+                       "The run folder's record says chanceCheck is none")
         for (barcode, count) in expected.sorted(by: { $0.key < $1.key }) {
             XCTAssertEqual(try ExactBareFixture.readCount(ofBarcode: barcode, in: runFolder), count,
                            "\(barcode) holds the \(count) reads of the input that carry it")
