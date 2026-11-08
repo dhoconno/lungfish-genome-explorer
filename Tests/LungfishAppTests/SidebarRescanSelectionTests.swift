@@ -286,6 +286,18 @@ final class SidebarRescanSelectionTests: XCTestCase {
         assertShows(resultA, "an unexplained select of B after an Inspector read of B's row")
     }
 
+    /// R1's boundary: AppKit's question for a row, then its select of exactly that row in one turn with A's table focused,
+    /// is the one thing the token marks. It needs no AX trust, so it never skips.
+    func testTheQuestionAndTheSelectOfOneRowInOneTurnShowTheSelectedResult() throws {
+        let outline = try startOnAWithItsTableFocused("question and select")
+        let rowB = try row(of: resultB)
+        XCTAssertTrue(propose(try sidebarItem(resultB), in: outline))
+        outline.selectRowIndexes(IndexSet(integer: rowB), byExtendingSelection: false)
+        XCTAssertFalse(outline.isHoldingProposedSelect, "the notice left the token")
+        assertShows(resultB, "the question and the select of B in one turn, with A's table focused")
+        assertAnUnexplainedSelectAfterwardIsRefused()
+    }
+
     /// BIO P1 and SWIFT N1: AppKit's question for the row that is already the only selection arms nothing, since no
     /// select and no notice follow it. The control: the question for another row arms one.
     func testTheProposalOfTheOnlySelectedRowArmsNoMark() throws {
