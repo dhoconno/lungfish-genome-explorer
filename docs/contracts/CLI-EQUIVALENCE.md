@@ -4,7 +4,7 @@ This contract binds every operation in Lungfish Genome Explorer (LGE) that makes
 
 ## Scope
 
-Scientific data means reads, alignments, variants, classifications, assemblies, trees, genotype calls, annotations, imports and downloads. An operation that makes or changes them records a command. An export, a figure, a copy between projects, a clipboard action, a share or a label edit needs no command of its own and gets no new CLI leaf, parity class or replay test. A new file export writes a small sidecar that names the result it came from and its settings, and nothing more. The exports and copies that Phases 2.10 to 2.12 already gave commands keep them, and a lane that would have to change one may drop it instead. Phases 2.10 to 2.12 cost $4,308, most new CLI paths were exports or copies, and moving Export Image onto `bundle export-graphic` lost the mismatch marks of mapping figures (Stable blocker OBS-W7).
+Scientific data means reads, alignments, variants, classifications, assemblies, trees, genotype calls, annotations, imports and downloads. An operation that makes or changes them records a command. An export, a figure, a copy between projects, a clipboard action, a share or a label edit needs no command of its own and gets no new CLI leaf, parity class or replay test. A new file export writes a small sidecar that names the result it came from and its settings, and nothing more. The exports and copies that Phases 2.10 to 2.12 already gave commands keep them, and a lane that would have to change one may drop it instead.
 
 ## The rule
 
@@ -22,6 +22,8 @@ Every Operations panel row of an operation in scope records a `lungfish-cli` com
 A command may be refined after `begin` with `setCommand`, only to a more specific command for the same run, such as one that names outputs resolved after `begin`. The final value obeys every requirement above.
 
 The FASTQ operations dialog row is the first to do this. Its output path is chosen during the run, so the row records `<derived>` as the output at `begin`. After a successful run, `FASTQOperationRowCommand` in `Sources/LungfishApp/Services/FASTQOperationRowCommand.swift` replaces it. A derivative takes the command each imported bundle's manifest records, one line per distinct command in import order. A Savont row takes its executed invocations instead, each naming the published FASTA in `--output`. A Demultiplex Barcodes row, which its request tells and never the name of its folder, takes the argv of the record at the root of its run folder (`.lungfish-provenance.json`), reads no other file, and shows the CLI's path as `lungfish-cli`. That argv is the command in the CLI's own spelling, so it can name more than the launch command did, such as the engine that ran and the kept copy of a custom barcode definition, and it is not the executed argv word for word. The row is refined only when every imported bundle, published FASTA or run folder exists and every line starts with `lungfish-cli`, holds no `<derived>` and holds no placeholder path (`@/`, `<external>/`, `<workspace>/`, `<bundle>/`, `<tool-root>/` or `<storage-root>/`), which a record keeps for a path it cannot spell in full. Otherwise the `begin` command stays and one log line says why. A Demultiplex row also keeps the `begin` command when its run folder holds no record and when the record names the staged copy of the input, which the run deletes. The app stages the input when it must rebuild it as one file first, as for a subset or other derived FASTQ and for a bundle of several files such as an ONT import, so a demultiplex of those still shows `<derived>` until the dialog stops staging the input. A result in the grouped mode, which the dialog does not give a demultiplex, keeps the placeholder. `FASTQOperationRowCommandTests` pins the rule, `FASTQDialogDemultiplexLaunchTests` pins the row of a live demultiplex, and `FASTQDialogRowCommandReplayTests` replays a refined derivative command onto a second root and compares the payload files.
+
+The run argv of a grouped FASTQ result is a `/bin/sh -lc` reproduction of its commands joined by ` && `, and no code launches it through a shell.
 
 The EsViritu, TaxTriage and 12S BLAST Verify rows begin with no command while their query is prepared, which is the extraction of the reads of the selected accessions from the BAM for the first two and the export of the unresolved sequences for the third, and take `plan.cliCommand` through `setCommand` once the plan exists and before the leaf starts. The Kraken2 BLAST Verify row does the same while its read lookup runs.
 
@@ -59,13 +61,13 @@ The kind of output decides what "same" means. Same result means the same scienti
 
 A user confirmation inside a run, for example accepting a low-depth consensus, is not an exception. The CLI takes the answer as an explicit flag, and the recorded command passes it.
 
+A step that stays in the app writes no file a record names, keeps its scratch in the project and off the main actor, chooses or stages no scientific input, and replays to an equal result with nothing declared.
+
 ## Gaps until they close
 
 A row that does not meet the rule today is a gap. Each gap has an ID, and the begin helper's doc comment carries the marker `cli-parity-gap: <ID>` with the closest command and why it falls short. An inline begin call may carry the marker in a comment between the start of its function and the end of the call. The row records nil, never a descriptive text. A test pins it with `assertCLIParityGap(_:id:)`, which asserts that the row records nil. When a command lands, that test fails, and the change replaces it with a parse test and a replay test and removes the marker.
 
 No new gap may be added. A new operation in scope lands with its command.
-
-The gaps counted when this contract landed numbered 43. Three of them first sat in files that other lanes were editing, so they were listed in `scripts/ratchets/cli-parity-gaps.pending` until those lanes gave them markers. Deleting the unreachable FASTQ dashboard derivative path then closed `fastq-dashboard-derivative`. The count is now 42, and every gap carries a marker in `Sources/`, so the pending file holds no gap line.
 
 A gap that a lane cannot mark in its own commit goes in the pending file as `ID file:function lane`. A pending gap needs no pin while its line stays there, and the lane that closes it deletes the line.
 
@@ -95,6 +97,8 @@ These operations state how they meet the rule. A note is current as of Phase 2.1
 | Provenance names the command | every row that writes provenance | Read the envelope with `ProvenanceEnvelopeReader` and assert that its argv equals the recorded command. |
 
 A replay that needs an external tool runs in the integration tier, which takes every LungfishAppTests class whose name ends in `ReplayTests`. A replay of a remote service runs in the unit tier against a recorded response. A replay of pure Swift code runs in the unit tier. `Tests/LungfishAppTests/CLIReplayHarnessReplayTests.swift` replays a `bam filter` run end to end and serves as the template.
+
+Parity compares sides A, C and C' in one run. C against its replay C' lists nothing and is the acceptance, and A against C keeps a list of declared differences that may only shrink.
 
 ## The ratchet
 
