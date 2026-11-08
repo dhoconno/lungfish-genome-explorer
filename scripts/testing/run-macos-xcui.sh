@@ -1,16 +1,23 @@
 #!/usr/bin/env bash
-# ATTENDED DIAGNOSTIC, not a release gate: macOS ties the UI-automation (TCC)
-# permission to the freshly built XCUITests-Runner binary, so any rebuild can
-# re-prompt; unattended runs then fail with "Timed out while enabling
-# automation mode". Run this with an operator at the keyboard.
+# DIAGNOSTIC, not a release gate. It needs an unlocked console session. On a Mac whose
+# `automationmodetool` reads "This device DOES NOT REQUIRE user authentication to enable
+# Automation Mode" (galah), an unlocked console is enough and nobody has to sit at the
+# keyboard. A run that ends in "Timed out while enabling automation mode" is not a run.
 #
 # If a run hangs or times out while xcodebuild is "enabling automation mode",
 # a macOS permission prompt is waiting for you (or a prior grant was dropped
-# after a rebuild, since the TCC grant is tied to the specific signed binary).
-# Bring the prompt to the foreground and approve it, or re-grant manually in
+# after a rebuild, since macOS ties the UI-automation (TCC) grant to the specific
+# signed XCUITests-Runner binary, so any rebuild can re-prompt). The prompt stays
+# the owner's to answer. Bring it to the foreground and approve it, or re-grant manually in
 # System Settings > Privacy & Security > Automation (and, if needed,
 # Accessibility) for the LungfishXCUITests-Runner / Lungfish app, then re-run
 # this script.
+#
+# LUNGFISH_RELEASE_SMOKE_FIXTURES=<folder that holds analyses/> points the runner at a copy
+# of the fixtures outside ~/Documents, whose privacy prompt no unattended run can answer.
+# Make the copy with cp -Rc of Tests/Fixtures/analyses and Tests/Fixtures/kraken2-mini into
+# <copy>/Tests/Fixtures under /private/var/tmp, and run for owner row 20:
+#   caffeinate -d -i env LUNGFISH_RELEASE_SMOKE_FIXTURES=<copy>/Tests/Fixtures LUNGFISH_XCUI_DERIVED_DATA_PATH=/private/var/tmp/lungfish-xcui-dd scripts/testing/run-macos-xcui.sh <test id>
 #
 # Most of the 34 XCUI robots predate the 2026-07-07 workflow-enablement menu
 # redesign (commit 69bf2e72) and needed repair; see build/xcui-triage-report.md
@@ -143,6 +150,22 @@ fi
 # fixtures) resolve the binary deterministically instead of re-deriving it.
 /usr/libexec/PlistBuddy -c "Delete :$UI_TEST_TARGET:EnvironmentVariables:LUNGFISH_CLI_PATH" "$PATCHED_XCTESTRUN_FILE" >/dev/null 2>&1 || true
 /usr/libexec/PlistBuddy -c "Add :$UI_TEST_TARGET:EnvironmentVariables:LUNGFISH_CLI_PATH string $LUNGFISH_CLI_BIN_PATH" "$PATCHED_XCTESTRUN_FILE"
+
+# Thread the fixtures folder into the runner the same way, when the caller names one.
+# LungfishFixtureCatalog.fixturesRoot reads LUNGFISH_RELEASE_SMOKE_FIXTURES before it looks in
+# the checkout, which sits under ~/Documents on this Mac and raises a privacy prompt that no
+# unattended run can answer. The xctestrun's own EnvironmentVariables carry it, the route that
+# LUNGFISH_CLI_PATH takes above, so the variable reaches the runner whatever xcodebuild passes on.
+# The folder must hold analyses/ (the sidebar twin copies a result out of it), and a folder that
+# does not stops the run here, since the test would otherwise fail on its first fixture.
+if [ -n "${LUNGFISH_RELEASE_SMOKE_FIXTURES:-}" ]; then
+  if [ ! -d "$LUNGFISH_RELEASE_SMOKE_FIXTURES/analyses" ]; then
+    echo "error: LUNGFISH_RELEASE_SMOKE_FIXTURES must name a folder that holds analyses/, got: $LUNGFISH_RELEASE_SMOKE_FIXTURES" >&2
+    exit 1
+  fi
+  /usr/libexec/PlistBuddy -c "Delete :$UI_TEST_TARGET:EnvironmentVariables:LUNGFISH_RELEASE_SMOKE_FIXTURES" "$PATCHED_XCTESTRUN_FILE" >/dev/null 2>&1 || true
+  /usr/libexec/PlistBuddy -c "Add :$UI_TEST_TARGET:EnvironmentVariables:LUNGFISH_RELEASE_SMOKE_FIXTURES string $LUNGFISH_RELEASE_SMOKE_FIXTURES" "$PATCHED_XCTESTRUN_FILE"
+fi
 
 TEST_WITHOUT_BUILDING_CMD=(
   xcodebuild
