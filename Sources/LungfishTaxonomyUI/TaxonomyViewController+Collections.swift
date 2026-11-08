@@ -80,20 +80,25 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
             configureTaxaCollectionsDrawer()
         }
 
-        guard let bottomConstraint = taxaCollectionsDrawerBottomConstraint else { return }
+        guard let bottomConstraint = taxaCollectionsDrawerBottomConstraint, let drawer = taxaCollectionsDrawerView else { return }
 
         let isOpen = isTaxaCollectionsDrawerOpen
         let currentHeight = taxaCollectionsDrawerHeightConstraint?.constant ?? Self.defaultTaxaDrawerHeight
 
-        // When closing, set the constraint to push the drawer offscreen.
+        // When closing, set the constraint to push the drawer down until its top edge is the action bar's top edge.
         // When opening, set it to 0 so the drawer sits flush above the action bar.
         let targetConstant: CGFloat = isOpen ? currentHeight : 0
 
+        // A closed drawer lies behind the action bar, which paints no background, with its divider and tabs where the bar's
+        // buttons are. So it is shown before it comes back and hidden once it has gone (KRAKEN-DRAWER-CLOSED-OVER-BAR).
+        if !isOpen { drawer.isHidden = false }
+
         let shouldReduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
 
-        if shouldReduceMotion {
+        if shouldReduceMotion || view.window == nil {
             bottomConstraint.constant = targetConstant
             view.layoutSubtreeIfNeeded()
+            if isOpen { drawer.isHidden = true }
         } else {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.25
@@ -102,6 +107,11 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
 
                 bottomConstraint.animator().constant = targetConstant
                 self.view.layoutSubtreeIfNeeded()
+            } completionHandler: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, !self.isTaxaCollectionsDrawerOpen else { return }
+                    self.taxaCollectionsDrawerView?.isHidden = true
+                }
             }
         }
 
@@ -133,7 +143,10 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
         let drawer = TaxaCollectionsDrawerView()
         drawer.translatesAutoresizingMaskIntoConstraints = false
         drawer.delegate = self
-        view.addSubview(drawer)
+        // Behind the action bar, so a drawer that has not moved clear of the bar never takes a click meant for a footer button.
+        // It starts closed, so it starts hidden, and the first toggle shows it (KRAKEN-DRAWER-CLOSED-OVER-BAR).
+        view.addSubview(drawer, positioned: .below, relativeTo: actionBar)
+        drawer.isHidden = true
 
         // Load persisted height or use default
         let persistedHeight = TaxaCollectionsDrawerSeams.defaults.double(forKey: Self.taxaDrawerHeightKey)
