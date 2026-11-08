@@ -13,7 +13,7 @@
 # Accessibility) for the LungfishXCUITests-Runner / Lungfish app, then re-run
 # this script.
 #
-# LUNGFISH_RELEASE_SMOKE_FIXTURES=<folder that holds analyses/> points the runner at a copy
+# LUNGFISH_RELEASE_SMOKE_FIXTURES=<absolute path of a folder that holds analyses/> points the runner at a copy
 # of the fixtures outside ~/Documents, whose privacy prompt no unattended run can answer.
 # Make the copy with cp -Rc of Tests/Fixtures/analyses and Tests/Fixtures/kraken2-mini into
 # <copy>/Tests/Fixtures under /private/var/tmp, and run for owner row 20:
@@ -30,6 +30,20 @@ SCHEME_NAME="${LUNGFISH_XCODE_SCHEME:-Lungfish}"
 DESTINATION="${LUNGFISH_XCUI_DESTINATION:-platform=macOS}"
 DERIVED_DATA_PATH="${LUNGFISH_XCUI_DERIVED_DATA_PATH:-$ROOT_DIR/.build/xcode-xcui}"
 UI_TEST_TARGET="${LUNGFISH_XCUI_TARGET_NAME:-LungfishXCUITests}"
+
+# The fixtures folder for the run, from either spelling (xcodebuild forwards TEST_RUNNER_ names to the runner, but the
+# pair near the end of this script does not depend on that), checked here so a wrong folder costs seconds and not a build.
+LUNGFISH_RELEASE_SMOKE_FIXTURES="${LUNGFISH_RELEASE_SMOKE_FIXTURES:-${TEST_RUNNER_LUNGFISH_RELEASE_SMOKE_FIXTURES:-}}"
+if [ -n "$LUNGFISH_RELEASE_SMOKE_FIXTURES" ]; then
+  case "$LUNGFISH_RELEASE_SMOKE_FIXTURES" in
+    /*) ;;
+    *) echo "error: LUNGFISH_RELEASE_SMOKE_FIXTURES must be an absolute path, got: $LUNGFISH_RELEASE_SMOKE_FIXTURES" >&2; exit 1 ;;
+  esac
+  if [ ! -d "$LUNGFISH_RELEASE_SMOKE_FIXTURES/analyses" ]; then
+    echo "error: LUNGFISH_RELEASE_SMOKE_FIXTURES must name a folder that holds analyses/, got: $LUNGFISH_RELEASE_SMOKE_FIXTURES" >&2
+    exit 1
+  fi
+fi
 
 # --smoke: run only the diagnostic tier's core -- the boot/reachability robots
 # that were green in the 2026-08-22 triage (build/xcui-final2.log) and do not
@@ -157,12 +171,8 @@ fi
 # unattended run can answer. The xctestrun's own EnvironmentVariables carry it, the route that
 # LUNGFISH_CLI_PATH takes above, so the variable reaches the runner whatever xcodebuild passes on.
 # The folder must hold analyses/ (the sidebar twin copies a result out of it), and a folder that
-# does not stops the run here, since the test would otherwise fail on its first fixture.
-if [ -n "${LUNGFISH_RELEASE_SMOKE_FIXTURES:-}" ]; then
-  if [ ! -d "$LUNGFISH_RELEASE_SMOKE_FIXTURES/analyses" ]; then
-    echo "error: LUNGFISH_RELEASE_SMOKE_FIXTURES must name a folder that holds analyses/, got: $LUNGFISH_RELEASE_SMOKE_FIXTURES" >&2
-    exit 1
-  fi
+# does not stops the run at the top of this script, before the builds, since the test would otherwise fail on its first fixture.
+if [ -n "$LUNGFISH_RELEASE_SMOKE_FIXTURES" ]; then
   /usr/libexec/PlistBuddy -c "Delete :$UI_TEST_TARGET:EnvironmentVariables:LUNGFISH_RELEASE_SMOKE_FIXTURES" "$PATCHED_XCTESTRUN_FILE" >/dev/null 2>&1 || true
   /usr/libexec/PlistBuddy -c "Add :$UI_TEST_TARGET:EnvironmentVariables:LUNGFISH_RELEASE_SMOKE_FIXTURES string $LUNGFISH_RELEASE_SMOKE_FIXTURES" "$PATCHED_XCTESTRUN_FILE"
 fi
