@@ -38,26 +38,12 @@ extension ViewSwitchDeclaredLeaks {
         leak("FASTA document", to: ["Mapping result"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("Mapping result", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-ALIGNMENT-SECTION-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
-            "+ mode: mapping",
+        leak("Mapping result", to: ["Quick Look"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-ALIGNMENT-SECTION-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspectorTab: mapping document of [document, selection, view, derive, provenance]",
-            "+ toolbar: ToggleSidebar, TranslateTool, Operations, ToggleInspector",
-            "- mode: empty",
             "- status: Previewing: main.nf",
-            "- inspectorTab: empty document of [document, selection]",
-            "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
         leak("Quick Look", to: ["Mapping result"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-        ]),
-        leak("Mapping result", to: ["PDF"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
-            "+ mode: mapping",
-            "+ inspectorTab: mapping document of [document, selection, view, derive, provenance]",
-            "+ toolbar: ToggleSidebar, TranslateTool, Operations, ToggleInspector",
-            "- mode: empty",
-            "- inspectorTab: empty document of [document, selection]",
-            "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
     ]
 }

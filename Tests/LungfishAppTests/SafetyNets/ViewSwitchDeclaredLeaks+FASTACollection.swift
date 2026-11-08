@@ -22,26 +22,12 @@ extension ViewSwitchDeclaredLeaks {
         leak("FASTA document", to: ["FASTA collection"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("FASTA collection", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
-            "+ mode: genomics",
+        leak("FASTA collection", to: ["Quick Look"], "NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspectorTab: genomics document of [document, selection, view, derive, provenance]",
-            "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
-            "- mode: empty",
             "- status: Previewing: main.nf",
-            "- inspectorTab: empty document of [document, selection]",
-            "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
         leak("Quick Look", to: ["FASTA collection"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-        ]),
-        leak("FASTA collection", to: ["PDF"], "NET-PROVENANCE-STAYS, NET-TOOLBAR-MODE", [
-            "+ mode: genomics",
-            "+ inspectorTab: genomics document of [document, selection, view, derive, provenance]",
-            "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
-            "- mode: empty",
-            "- inspectorTab: empty document of [document, selection]",
-            "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
     ]
 }

@@ -15,7 +15,7 @@ extension ViewSwitchDeclaredLeaks {
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
-        leak("fresh window", to: ["Quick Look", "PDF", "Status only"], "NET-TOOLBAR-MODE", [
+        leak("fresh window", to: ["Status only"], "NET-TOOLBAR-MODE", [
             "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
             "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
@@ -69,30 +69,14 @@ extension ViewSwitchDeclaredLeaks {
         ]),
         // re-read on this pair after HOST-UX SF1 cleared the 12S blocks (manager ruling 22:3x)
         // smaller after NAOMGS's reset (manager ruling 00:4x)
-        leak("CZ ID", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
-            "+ mode: metagenomics",
+        leak("CZ ID", to: ["Quick Look"], "NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
-            "+ inspectorBlocks: selectAResult, panelLayout",
-            "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
-            "- mode: empty",
             "- status: Previewing: main.nf",
-            "- inspectorTab: empty document of [document, selection]",
-            "- inspectorBlocks: document",
-            "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
         // smaller after NVDV's reset (manager ruling 15:56)
-        leak("NVD", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
-            "+ mode: metagenomics",
+        leak("NVD", to: ["Quick Look"], "INSPECTOR-BLOCK-OWNER, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
-            "+ inspectorBlocks: selectAResult, panelLayout",
-            "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
-            "- mode: empty",
             "- status: Previewing: main.nf",
-            "- inspectorTab: empty document of [document, selection]",
-            "- inspectorBlocks: document",
-            "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
         // smaller after NAOMGS's reset (manager ruling 00:4x)
         leak("12S", to: ["EsViritu"], "INSPECTOR-STALE, NET-INSPECTOR-DOCUMENT-STAYS, NET-DOCUMENT-STAYS", [
@@ -116,18 +100,9 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: organism, seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
         ]),
-        leak("EsViritu", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
-            "+ mode: metagenomics",
+        leak("EsViritu", to: ["Quick Look"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspectorTab: metagenomics resultSummary of [resultSummary, provenance]",
-            // BACKLOG INSPECTOR-CLEAR-MODE (S3): a cleared Inspector keeps its result mode's empty blocks beside a preview, and its Panel Layout picker stays live (InspectorView.swift:536-556).
-            "+ inspectorBlocks: selectAResult, panelLayout",
-            "+ toolbar: ToggleSidebar, Operations, ToggleAnnotationDrawer, ToggleInspector",
-            "- mode: empty",
             "- status: Previewing: main.nf",
-            "- inspectorTab: empty document of [document, selection]",
-            "- inspectorBlocks: document",
-            "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
         leak("CZ ID", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: assembly",

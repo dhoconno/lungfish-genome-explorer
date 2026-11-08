@@ -7,15 +7,9 @@
 
 extension ViewSwitchDeclaredLeaks {
     static let fromOtherKinds: [DeclaredViewSwitchLeak] = [
-        leak("FASTA document", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
-            "+ mode: genomics",
+        leak("FASTA document", to: ["Quick Look"], "NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspectorTab: genomics document of [document, selection, view, derive, provenance]",
-            "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
-            "- mode: empty",
             "- status: Previewing: main.nf",
-            "- inspectorTab: empty document of [document, selection]",
-            "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
         leak("Status only", to: ["Kraken2", "EsViritu"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: primerScheme=QIASeqDIRECT-SARS2",
@@ -46,17 +40,13 @@ extension ViewSwitchDeclaredLeaks {
         leak("FASTQ", to: ["Tree", "TaxTriage"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("Tree", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
-            "+ mode: genomics",
+        leak("Tree", to: ["Quick Look"], "NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspectorTab: genomics selection of [document, selection, view, derive, provenance]",
+            "+ inspectorTab: preview selection of [document, selection]",
             "+ inspectorBlocks: selection, variant",
-            "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
-            "- mode: empty",
             "- status: Previewing: main.nf",
-            "- inspectorTab: empty document of [document, selection]",
+            "- inspectorTab: preview document of [document, selection]",
             "- inspectorBlocks: document",
-            "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
         leak("Quick Look", to: ["TaxTriage"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
@@ -67,15 +57,9 @@ extension ViewSwitchDeclaredLeaks {
         leak("Reference", to: ["MSA"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("MSA", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
-            "+ mode: genomics",
+        leak("MSA", to: ["Quick Look"], "NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspectorTab: genomics document of [document, selection, view, derive, provenance]",
-            "+ toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleAnnotationDrawer, ToggleInspector",
-            "- mode: empty",
             "- status: Previewing: main.nf",
-            "- inspectorTab: empty document of [document, selection]",
-            "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
         leak("Quick Look", to: ["NAO-MGS", "Assembly", "Genotype", "MHC reference"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
@@ -114,15 +98,9 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
         ]),
-        leak("Reference", to: ["Quick Look"], "W6-PREVIEW-KEEPS-RESULT-BLOCK, NET-INSPECTOR-DOCUMENT-STAYS, NET-ALIGNMENT-SECTION-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS, NET-TOOLBAR-MODE", [
-            "+ mode: mapping",
+        leak("Reference", to: ["Quick Look"], "NET-INSPECTOR-DOCUMENT-STAYS, NET-ALIGNMENT-SECTION-STAYS, NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspectorTab: mapping document of [document, selection, view, derive, provenance]",
-            "+ toolbar: ToggleSidebar, TranslateTool, Operations, ToggleInspector",
-            "- mode: empty",
             "- status: Previewing: main.nf",
-            "- inspectorTab: empty document of [document, selection]",
-            "- toolbar: ToggleSidebar, ToggleChromosomeDrawer, TranslateTool, Operations, ToggleInspector",
         ]),
         leak("FASTQ", to: ["Kraken2"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: fastqStatistics",
