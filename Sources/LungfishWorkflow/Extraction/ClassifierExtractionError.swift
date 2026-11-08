@@ -26,6 +26,12 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
     /// it, so the user is told the true cause in place of "not found" (decision W4 of 2.9).
     case bamOutsideResult(sampleId: String)
 
+    /// A TaxTriage result that records no BAM path and has neither of the two names the pipeline gives a sample's BAM
+    /// holds more than one BAM file in `minimap2/` whose name fits the sample. Lungfish cannot tell which file holds
+    /// the sample's reads, so it reads none, and `names` are the file names, sorted (Phase 3.4 lane EXTRACT,
+    /// EXTRACT-PREFIX-SCAN-NO-DATABASE). The Extract sheet, the Extract alert and the CLI show the same words.
+    case moreThanOneBAMFitsSample(sampleId: String, names: [String])
+
     /// The NAO-MGS BAM of the given sample was made before the strand fix, so it stores the reads that map to the
     /// reverse strand the wrong way round, or it holds no marker that says otherwise. The resolver never reads it,
     /// and the words say to import the same NAO-MGS results file again (Phase 3.1 lane NAO-BAM-STALE, ruling
@@ -106,6 +112,9 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
             return "No BAM file found for sample '\(sampleId)'. The classifier result may be corrupted or imported without the underlying alignment data."
         case .bamOutsideResult(let sampleId):
             return "The BAM file of sample '\(sampleId)' is a link to a file outside this result folder, and LGE extracts reads only from BAM files inside it. Replace the link with a copy of the file and try again."
+        case .moreThanOneBAMFitsSample(let sampleId, let names):
+            return "More than one BAM file fits sample '\(sampleId)' in minimap2: \(names.joined(separator: ", ")). "
+                + "LGE takes a sample's reads from one BAM. Keep only that sample's file in minimap2 and try again."
         case .naoMgsBAMBeforeStrandFix(let sampleId):
             return "The alignment file of sample '\(sampleId)' comes from an earlier NAO-MGS import, which stored reads that map to the reverse strand the wrong way round, so Lungfish does not extract reads from it. "
                 + "Import the same NAO-MGS results file again in the Import Center (NAO-MGS Results), then extract from the new result. "
@@ -187,11 +196,11 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
     }
 
     /// Whether the error is a refusal that the extraction itself would hit again, so a pre-flight estimate that
-    /// ends in it leaves nothing to run. True for exactly the three BAM refusals (Phase 2.12 lane 12.26, U-W2, and
-    /// Phase 3.1 lane NAO-BAM-STALE).
+    /// ends in it leaves nothing to run. True for exactly the four BAM refusals (Phase 2.12 lane 12.26, U-W2,
+    /// Phase 3.1 lane NAO-BAM-STALE, and Phase 3.4 lane EXTRACT).
     public var blocksExtraction: Bool {
         switch self {
-        case .bamNotFound, .bamOutsideResult, .naoMgsBAMBeforeStrandFix:
+        case .bamNotFound, .bamOutsideResult, .moreThanOneBAMFitsSample, .naoMgsBAMBeforeStrandFix:
             return true
         default:
             return false
