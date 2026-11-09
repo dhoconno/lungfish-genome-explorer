@@ -32,7 +32,8 @@ lines pair one to one and in order, and a pair is equal once one access word
 (private, fileprivate, internal, package, public or open, each with an optional
 (set)) leaves the modifiers wherever it stands, as in `@objc private func` and
 `private(set) var`. No word counts as internal. The added access must be wider
-and must not be public or open as a new word. A pass prints
+and must not be public or open as a new word. A removed and added pair that is
+the same line is git's own merge of a hunk and is skipped. A pass prints
 ACCESS-ONLY OK <n> widened. No flag relaxes the move check.
 
 Non-Swift files are listed as NOTE for the reviewer to read, and so is the root
@@ -338,6 +339,8 @@ def check_access_only(rows, hunks):
             problems.append(f"NOT-WIDENING {path}:{start}: {len(removed)} removed and {len(added)} added lines do not pair")
             continue
         for offset, (before, after) in enumerate(zip(removed, added)):
+            if before == after:
+                continue
             why = widening_problem(before, after)
             if why is None:
                 widened += 1

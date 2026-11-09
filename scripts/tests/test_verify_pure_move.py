@@ -256,6 +256,17 @@ class AccessOnlyTests(VerifierCase):
         self.assertEqual(code, 1, out)
         self.assertIn("a widening commit only modifies files", out)
 
+    def test_access_only_passes_a_hunk_that_git_merges_over_a_blank_line(self):
+        # A line that repeats often in a file, here the blank line after each of 20 groups, is dropped by git
+        # into one hunk as a removed and an added line when changed lines sit on both sides of it.
+        def members(access):
+            groups = ("".join(f"    {access}let a{g}x{j} = {j}\n" for j in range(7)) + "\n" for g in range(20))
+            return "final class V {\n" + "".join(groups) + "}\n"
+
+        code, out, _ = self.run_case({"V.swift": members("private ")}, {"V.swift": members("")}, "--access-only")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out.splitlines()[-1], "ACCESS-ONLY OK 140 widened")
+
 
 class MoreMoveCheckTests(VerifierCase):
     OLD = """
