@@ -71,13 +71,15 @@ final class BundleExportGraphicMaskingConformanceTests: XCTestCase {
         return try ViewerGraphicBundle(url: bundle)
     }
 
-    /// The figure of the first 400 bases at the command's width, with the view state the app would write, read from
-    /// `json` as the leaf reads the file.
-    private func figure(_ bundle: ViewerGraphicBundle, viewStateJSON json: String?) async throws -> ViewerGraphicFigure {
+    /// The figure of the first `end` bases (400 unless given) at `width` points (800 unless given), with the view state
+    /// the app would write, read from `json` as the leaf reads the file.
+    private func figure(
+        _ bundle: ViewerGraphicBundle, viewStateJSON json: String?, end: Int = 400, width: Double = 800
+    ) async throws -> ViewerGraphicFigure {
         let state = try json.map { try JSONDecoder().decode(ViewerGraphicViewState.self, from: Data($0.utf8)) }
         return try await ViewerGraphicExport.figure(
-            bundle: bundle, region: try bundle.region(contig: "chr1", start: 0, end: 400), trackIDs: ["reads"],
-            settings: .init(region: "chr1:1-400", width: 800, includeRuler: true, format: .png, coverageScale: .linear),
+            bundle: bundle, region: try bundle.region(contig: "chr1", start: 0, end: end), trackIDs: ["reads"],
+            settings: .init(region: "chr1:1-\(end)", width: width, includeRuler: true, format: .png, coverageScale: .linear),
             viewState: state, viewStateURL: nil
         )
     }
@@ -110,6 +112,34 @@ final class BundleExportGraphicMaskingConformanceTests: XCTestCase {
         XCTAssertTrue(BundleExportGraphicRecord.warns(omission), "the image differs from the window, so the line is a warning")
         XCTAssertTrue(
             ViewerGraphicExport.degradedFacts(of: on.scene).contains(omission), "the record's degraded list holds the omission"
+        )
+    }
+
+    /// Above 2 bases per point (the coverage tier) neither the window nor the figure draws a read, so the switch changes
+    /// nothing there and the figure records no masking omission, which would warn about reads the image does not show
+    /// (FIGURE-DEPTH-BIO and FIGURE-DEPTH-UX, should-fix 1). All 1,200 bases at 300 points is about 4 bases per point.
+    func testHideHighGapSitesOnAtTheCoverageTierRecordsNoOmission() async throws {
+        let frame = ViewerFigureFrame(
+            chromosome: "chr1", start: 0, end: Double(Self.contigLength), pixelWidth: 300,
+            sequenceLength: Self.contigLength, trailingInset: ViewerFigureFrame.defaultTrailingInset
+        )
+        XCTAssertEqual(ReadTrackRenderer.zoomTier(scale: frame.scale), .coverage, "the case needs the coverage tier")
+
+        let bundle = try await makeBundle()
+        let on = try await figure(
+            bundle, viewStateJSON: #"{"schemaVersion":1,"tracks":[],"hideHighGapSites":true}"#, end: Self.contigLength, width: 300
+        )
+
+        XCTAssertTrue(
+            on.scene.omissions.contains { $0.trackID == "reads" && $0.kind.rawValue == "scaleMode" },
+            "the reads track left its reads out at this zoom, \(on.scene.omissions)"
+        )
+        XCTAssertEqual(
+            on.scene.omissions.filter { $0.kind.rawValue == "highGapMasking" }, [], "no read is drawn, so nothing is recorded"
+        )
+        XCTAssertEqual(
+            ViewerGraphicExport.degradedFacts(of: on.scene).filter { $0.kind.rawValue == "highGapMasking" }, [],
+            "the record's degraded list holds no masking line"
         )
     }
 }

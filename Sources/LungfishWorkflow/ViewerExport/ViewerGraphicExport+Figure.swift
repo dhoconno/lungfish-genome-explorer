@@ -244,9 +244,10 @@ extension ViewerGraphicExport {
                 let depthMapQ = max(0, viewState?.depthMinMapQ ?? 0)
                 let depthBaseQ = max(0, viewState?.depthMinBaseQ ?? 0)
                 readRowCap = options.maxRows
-                if viewState?.hideHighGapSites == true {
+                if viewState?.hideHighGapSites == true, ReadTrackRenderer.zoomTier(scale: frame.scale) != .coverage {
                     // The window hid high-gap sites from its reads and the figure draws them. The omission says so and
-                    // no item changes (ALIGN-IMAGE-EXPORT-MASKING).
+                    // no item changes (ALIGN-IMAGE-EXPORT-MASKING). The window draws no reads at the coverage tier, so
+                    // the switch changes nothing there and nothing is recorded.
                     notDrawn.append(ViewerFigureOmission(
                         trackID: id, kind: .highGapMasking, reason: "Hide high-gap sites applies in the window only", count: nil
                     ))
