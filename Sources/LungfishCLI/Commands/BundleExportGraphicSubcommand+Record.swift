@@ -149,7 +149,11 @@ struct BundleExportGraphicRecord {
         let what: String
         switch fact.kind {
         case .labelsOmitted: what = "left out labels"
-        case .scaleMode: what = "drew a summary at this zoom"
+        case .scaleMode:
+            // The read track's two reasons (`ViewerFigureReadTrack.swift`, the coverage tier and a read narrower than the
+            // minimum width) begin `reads ` and mean it drew no reads there, a line and the Depth strip standing in. The
+            // sequence and annotation tracks do draw a summary at a zoom, so they keep the words (W7-COVERAGE-TIER-FACT).
+            what = fact.reason.hasPrefix("reads ") ? "left out reads at this zoom" : "drew a summary at this zoom"
         case .annotationLimit: what = "stopped at a limit"
         case .readRowCap: what = "left out rows"
         case .readSample: what = "drew a sample of the reads"
