@@ -539,11 +539,8 @@ extension MainSplitViewController {
         }
 
         if let window = self.view.window ?? NSApp.keyWindow {
-            let summaryText = [
-                "ONT run folder: \(sourceURL.lastPathComponent)",
-                "Found \(layout.barcodeDirectories.count) barcode directories.",
-                "Total size: \(formatFASTQImportBytes(layout.totalSizeBytes))"
-            ].joined(separator: "\n")
+            let summaryText = ONTImportOperationCoordinator.importSheetSummary(
+                runName: sourceURL.lastPathComponent, layout: layout, formattedSize: formatFASTQImportBytes(layout.totalSizeBytes))
 
             FASTQImportConfigSheet.present(
                 on: window,

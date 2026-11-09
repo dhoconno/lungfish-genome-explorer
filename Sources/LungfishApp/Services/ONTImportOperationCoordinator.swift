@@ -91,7 +91,7 @@ public final class ONTImportOperationCoordinator {
         do {
             let run = try await runner.runEvents(arguments: ["fastq", "import-ont"] + cliArgs, operationID: opID)
             let bundleURLs = run.outputs.map { URL(fileURLWithPath: $0, isDirectory: true) }
-            let detail = run.message ?? "\(bundleURLs.count) barcode bundles"
+            let detail = run.message ?? Self.completionDetail(bundleCount: bundleURLs.count)
             // A cancel that came after the command finished ends the row Cancelled. The bundles exist,
             // so they are returned and the window shows them.
             _ = operationCenter.complete(id: opID, detail: detail, bundleURLs: bundleURLs)
@@ -117,6 +117,31 @@ public final class ONTImportOperationCoordinator {
     /// import route (Import Center, sidebar drops, the CLI import runner)
     /// writes under this folder, so ONT run folders do too.
     nonisolated static let importsFolderName = "Imports"
+
+    /// The last words of a finished row when the command sent none (ONT-WORDS).
+    nonisolated static func completionDetail(bundleCount: Int) -> String {
+        bundleCount == 1 ? "1 barcode bundle" : "\(bundleCount) barcode bundles"
+    }
+
+    /// The summary the import sheet shows before a recipe is chosen (ONT-WORDS). An ordinary import passes
+    /// `includeUnclassified: false`, so the `unclassified` folder is not counted. The Fluidigm and PacBio recipes read
+    /// every FASTQ under the run folder, so the sentence speaks of the ordinary import and names no way to include it.
+    nonisolated static func importSheetSummary(
+        runName: String,
+        layout: ONTDirectoryLayout,
+        formattedSize: String
+    ) -> String {
+        let folders = layout.barcodeDirectories.filter { !$0.isUnclassified }.count
+        var lines = [
+            "ONT run folder: \(runName)",
+            "Found \(folders) barcode \(folders == 1 ? "directory" : "directories").",
+        ]
+        if layout.barcodeDirectories.contains(where: \.isUnclassified) {
+            lines.append("An ordinary import leaves the unclassified folder out.")
+        }
+        lines.append("Total size: \(formattedSize)")
+        return lines.joined(separator: "\n")
+    }
 
     /// Resolves `<project>/Imports/<run name>/`, the folder the per-barcode
     /// bundles are written into.
