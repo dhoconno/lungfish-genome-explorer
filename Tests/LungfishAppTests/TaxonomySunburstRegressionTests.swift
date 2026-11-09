@@ -290,7 +290,7 @@ final class TaxonomySunburstRegressionTests: XCTestCase {
         XCTAssertFalse(png.isEmpty)
     }
 
-    func testTooltipUsesDistinctTotalAndClassifiedDenominators() {
+    func testTooltipUsesDistinctTotalAndClassifiedDenominators() throws {
         let tooltip = TaxonomyTooltipView(frame: .zero)
         let taxonomy = tree()
         tooltip.update(
@@ -298,11 +298,40 @@ final class TaxonomySunburstRegressionTests: XCTestCase {
             totalReads: taxonomy.totalReads,
             classifiedReads: taxonomy.classifiedReads
         )
-        XCTAssertEqual(tooltip.percentOfTotal, 7, accuracy: 1e-8)
-        XCTAssertEqual(tooltip.percentOfClassified, 70, accuracy: 1e-8)
+        XCTAssertEqual(try XCTUnwrap(tooltip.percentOfTotal), 7, accuracy: 1e-8)
+        XCTAssertEqual(try XCTUnwrap(tooltip.percentOfClassified), 70, accuracy: 1e-8)
 
+        // Totals of 0 are totals that were not recorded, so no percent exists, where the tooltip drew a false 0%.
         tooltip.update(with: taxonomy.root, totalReads: 0, classifiedReads: 0)
-        XCTAssertEqual(tooltip.percentOfTotal, 0)
-        XCTAssertEqual(tooltip.percentOfClassified, 0)
+        let unknown: [Double?] = [tooltip.percentOfTotal, tooltip.percentOfClassified]
+        XCTAssertNil(unknown[0], "no total, so no share of it")
+        XCTAssertNil(unknown[1], "no classified reads, so no share of them")
+    }
+
+    /// KRAKEN-TOOLTIP-ZERO-PERCENT (Phase 4 lane RIDERS-RESULT). A Kraken 2 sample whose database records no total of
+    /// its own now reads a total of 0 (KRAKEN-TOTAL-FALLBACK), and its tooltip must not trade the wrong percent for a
+    /// false "0%". The percent over the classified reads is known and stays. Red at the base, which keeps the line of
+    /// "% of total" at 0.
+    func testTooltipShowsNoPercentWhenTheTreeHasNoRecordedTotal() throws {
+        let taxonomy = tree()
+        let child = taxonomy.root.children[0]
+        let tooltip = TaxonomyTooltipView(frame: .zero)
+        tooltip.update(with: child, totalReads: taxonomy.totalReads, classifiedReads: taxonomy.classifiedReads)
+        let heightWithBothPercents = tooltip.preferredSize.height
+
+        let unrecorded = TaxonTree(root: taxonomy.root, unclassifiedNode: nil, totalReads: 0)
+        XCTAssertEqual(unrecorded.totalReads, 0)
+        tooltip.update(with: child, totalReads: unrecorded.totalReads, classifiedReads: unrecorded.classifiedReads)
+        let ofTotal: Double? = tooltip.percentOfTotal
+        let ofClassified: Double? = tooltip.percentOfClassified
+        XCTAssertNil(ofTotal, "a share of a total that was never recorded is not 0%")
+        XCTAssertEqual(try XCTUnwrap(ofClassified), 70, accuracy: 1e-8, "the classified reads are known")
+        let heightWithOnePercent = tooltip.preferredSize.height
+        XCTAssertLessThan(heightWithOnePercent, heightWithBothPercents, "the line of the missing percent is not drawn")
+
+        tooltip.update(with: child, totalReads: 0, classifiedReads: 0)
+        let neither: [Double?] = [tooltip.percentOfTotal, tooltip.percentOfClassified]
+        XCTAssertTrue(neither.allSatisfy { $0 == nil }, "neither total is known")
+        XCTAssertLessThan(tooltip.preferredSize.height, heightWithOnePercent, "neither percent line is drawn")
     }
 }

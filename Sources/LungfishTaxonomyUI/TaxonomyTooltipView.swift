@@ -48,8 +48,10 @@ public class TaxonomyTooltipView: NSView {
     private var rankName: String = ""
     private var readsDirect: Int = 0
     private var readsClade: Int = 0
-    private(set) var percentOfTotal: Double = 0
-    private(set) var percentOfClassified: Double = 0
+    /// The share of the total reads, nil when the tree records no total (a 0% would be a number it does not have).
+    private(set) var percentOfTotal: Double?
+    /// The share of the classified reads, nil when the tree has none.
+    private(set) var percentOfClassified: Double?
     private var childCount: Int = 0
 
     // MARK: - Configuration
@@ -77,15 +79,8 @@ public class TaxonomyTooltipView: NSView {
         readsClade = node.readsClade
         childCount = node.children.count
 
-        if totalReads > 0 {
-            percentOfTotal = Double(node.readsClade) / Double(totalReads) * 100
-        } else {
-            percentOfTotal = 0
-        }
-
-        percentOfClassified = classifiedReads > 0
-            ? Double(node.readsClade) / Double(classifiedReads) * 100
-            : 0
+        percentOfTotal = totalReads > 0 ? Double(node.readsClade) / Double(totalReads) * 100 : nil
+        percentOfClassified = classifiedReads > 0 ? Double(node.readsClade) / Double(classifiedReads) * 100 : nil
 
         needsDisplay = true
         invalidateIntrinsicContentSize()
@@ -214,27 +209,31 @@ public class TaxonomyTooltipView: NSView {
         ))
         lines.append(cladeLine)
 
-        // Percentage of total
-        let pctTotalLine = NSMutableAttributedString(
-            string: "% of total: ",
-            attributes: labelAttrs
-        )
-        pctTotalLine.append(NSAttributedString(
-            string: TaxonomyPercentFormat.string(fraction: percentOfTotal / 100),
-            attributes: detailAttrs
-        ))
-        lines.append(pctTotalLine)
+        // Percentage of total, none when the tree records no total
+        if let percentOfTotal {
+            let pctTotalLine = NSMutableAttributedString(
+                string: "% of total: ",
+                attributes: labelAttrs
+            )
+            pctTotalLine.append(NSAttributedString(
+                string: TaxonomyPercentFormat.string(fraction: percentOfTotal / 100),
+                attributes: detailAttrs
+            ))
+            lines.append(pctTotalLine)
+        }
 
-        // Percentage of classified
-        let pctClassLine = NSMutableAttributedString(
-            string: "% of classified: ",
-            attributes: labelAttrs
-        )
-        pctClassLine.append(NSAttributedString(
-            string: TaxonomyPercentFormat.string(fraction: percentOfClassified / 100),
-            attributes: detailAttrs
-        ))
-        lines.append(pctClassLine)
+        // Percentage of classified, none when the tree has no classified reads
+        if let percentOfClassified {
+            let pctClassLine = NSMutableAttributedString(
+                string: "% of classified: ",
+                attributes: labelAttrs
+            )
+            pctClassLine.append(NSAttributedString(
+                string: TaxonomyPercentFormat.string(fraction: percentOfClassified / 100),
+                attributes: detailAttrs
+            ))
+            lines.append(pctClassLine)
+        }
 
         // Child count
         if childCount > 0 {

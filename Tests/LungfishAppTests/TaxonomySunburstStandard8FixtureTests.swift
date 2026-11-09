@@ -162,8 +162,8 @@ final class TaxonomySunburstStandard8FixtureTests: XCTestCase {
         let pooled = try XCTUnwrap(layout.computeSegments().first { $0.isOther && $0.node.taxId == 131567 })
         let tooltip = TaxonomyTooltipView(frame: .zero)
         tooltip.update(with: pooled.node, totalReads: tree.totalReads, classifiedReads: tree.classifiedReads)
-        XCTAssertEqual(tooltip.percentOfTotal, 69.0 / 11_284_830 * 100, accuracy: 1e-9)
-        XCTAssertEqual(tooltip.percentOfClassified, 69.0 / 80_971 * 100, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(tooltip.percentOfTotal), 69.0 / 11_284_830 * 100, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(tooltip.percentOfClassified), 69.0 / 80_971 * 100, accuracy: 1e-9)
     }
 
     // MARK: - Interaction
