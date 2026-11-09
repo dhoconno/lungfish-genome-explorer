@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.12 lane 12.34 M4, FIDX review fix 3 (docs/plans/2026-10-17-phase-2-12-pre-fixes/reviews/FIDX-T1.md). The
+// Phase 2.12 lane 12.34 M4, FIDX review fix 3 (0c972abf4:docs/plans/2026-10-17-phase-2-12-pre-fixes/reviews/FIDX-T1.md). The
 // open builds the reference's bundle, its chromosome name index and its `.fai` reader once, off the main actor.
 // `copyReferenceSequences` made its data provider with no bundle, so the first fetch of every Copy Sequences built a
 // second bundle with a second name index and a second `.fai` parse. The provider now shares the prepared bundle.

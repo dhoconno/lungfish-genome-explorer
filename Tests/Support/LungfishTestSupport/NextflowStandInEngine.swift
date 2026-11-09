@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.9 lane Q9 M1, decision N11 (docs/plans/2026-10-12-phase-2-9.md), grown from the engine of
-// 2.8 lane TF-G (decisions T14 and T16 of docs/plans/2026-10-11-phase-2-8.md). It takes the place
+// Phase 2.9 lane Q9 M1, decision N11 (0c972abf4:docs/plans/2026-10-12-phase-2-9.md), grown from the engine of
+// 2.8 lane TF-G (decisions T14 and T16 of 0c972abf4:docs/plans/2026-10-11-phase-2-8.md). It takes the place
 // of the managed Nextflow behind `micromamba run -n nextflow nextflow ...`, or behind
 // `engineLaunch` for a runner that starts the engine directly, so every step of the caller runs
 // around it.

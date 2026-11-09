@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Panel decision T2 in docs/plans/2026-10-11-phase-2-7.md. A fixed fact that sides C and C' do not
+// Panel decision T2 in 0c972abf4:docs/plans/2026-10-11-phase-2-7.md. A fixed fact that sides C and C' do not
 // hold is declared here with its reason, the lane whose change removes it, and how many found
 // differences it matches in each case. ClassifierCLIGUIParityReplayTests fails on a difference no
 // entry declares and on an entry that matches more or fewer differences in a case than its count,

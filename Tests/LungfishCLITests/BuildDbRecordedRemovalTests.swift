@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Row 423 and panel decision P1 of Phase 2.8 (docs/plans/2026-10-11-phase-2-8.md). The classifier's
+// Row 423 and panel decision P1 of Phase 2.8 (0c972abf4:docs/plans/2026-10-11-phase-2-8.md). The classifier's
 // record names the per-read output it wrote with its digest. When `build-db kraken2` compacts that
 // output, the run records the index and gzip steps the classifier records for its own compaction,
 // and one removal step that names each removed file with the digest it had, so no record names

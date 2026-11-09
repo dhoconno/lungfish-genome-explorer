@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane B34, rows 268 and 271 of docs/plans/2026-10-11-phase-2-8.md, under owner direction O5 of
+// Phase 2.10 lane B34, rows 268 and 271 of 0c972abf4:docs/plans/2026-10-11-phase-2-8.md, under owner direction O5 of
 // Phase 2.9. `KrakenCompactionOrderTests` runs the classification pipeline against a stand-in kraken2 in the unit
 // tier and keeps every case. This class runs the same record checks on the managed kraken2 and gzip, the Kraken2
 // Viral database and the shared SARS-CoV-2 reads, so the per-read output is the one the real tool wrote.

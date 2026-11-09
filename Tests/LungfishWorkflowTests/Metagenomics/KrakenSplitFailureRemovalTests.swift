@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane B34, row 268 of docs/plans/2026-10-11-phase-2-8.md. The split step names both halves of an
+// Phase 2.10 lane B34, row 268 of 0c972abf4:docs/plans/2026-10-11-phase-2-8.md. The split step names both halves of an
 // interleaved input as outputs, and the run's `defer` removes their folder on every exit. A failure after the split
 // and before kraken2 saved a record that named two files the run then deleted, with no step to say so.
 

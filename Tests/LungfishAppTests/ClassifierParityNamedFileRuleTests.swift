@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Panel decision P1 of Phase 2.8 (docs/plans/2026-10-11-phase-2-8.md). A record keeps its step
+// Panel decision P1 of Phase 2.8 (0c972abf4:docs/plans/2026-10-11-phase-2-8.md). A record keeps its step
 // facts as they were, and a file it names that is gone or holds another digest is accepted
 // only when the result recorded why. These cases hold the rule on hand-built facts, so they
 // run without tools.

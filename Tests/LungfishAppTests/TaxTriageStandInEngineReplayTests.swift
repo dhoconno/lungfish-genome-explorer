@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.8 lane TF-G, decisions T14 and T16 (docs/plans/2026-10-11-phase-2-8.md). One sample runs
+// Phase 2.8 lane TF-G, decisions T14 and T16 (0c972abf4:docs/plans/2026-10-11-phase-2-8.md). One sample runs
 // through the CLI's pipeline factory, `TaxTriageCommand.RunSubcommand.makePipeline`, which
 // `taxtriage run` reads, on `TaxTriageStandInEngine`, and the case checks what today's code writes,
 // what the engine received, the result and its provenance record. The case of the GUI's runner

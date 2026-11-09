@@ -204,7 +204,7 @@ extension TaxTriagePipeline {
 
 /// The facts a TaxTriage record holds about one run, as values. The pipeline's own save writes them in 2.8, and the
 /// executor's root record takes the same values when `taxtriage run` moves to it, so one writer puts them in each record
-/// (Phase 2.8 lane B2, decisions T6 to T8 of `docs/plans/2026-10-11-phase-2-8.md`).
+/// (Phase 2.8 lane B2, decisions T6 to T8 of `0c972abf4:docs/plans/2026-10-11-phase-2-8.md`).
 ///
 /// - Every TaxTriage step is the tool `taxtriage` at the revision, with the release tag beside it (RT4). With the
 ///   pipeline source and the Nextflow version they are the step's ``NextflowRecordFacts`` (R1, T6).

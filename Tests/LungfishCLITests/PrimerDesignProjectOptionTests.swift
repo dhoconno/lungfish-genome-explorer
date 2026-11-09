@@ -91,7 +91,7 @@ final class PrimerDesignProjectOptionTests: XCTestCase {
     }
 
     /// An existing `--output` without `--project` refuses with the words of R-B1, which name `--project` again now
-    /// that the four leaves take it. The text is word for word the one of docs/plans/2026-10-17-phase-2-12-panel-decisions.md.
+    /// that the four leaves take it. The text is word for word the one of 0c972abf4:docs/plans/2026-10-17-phase-2-12-panel-decisions.md.
     func testAnExistingOutputWithoutProjectRefusesWithTheProjectClause() throws {
         let existing = analysesBundle("Old")
         try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)

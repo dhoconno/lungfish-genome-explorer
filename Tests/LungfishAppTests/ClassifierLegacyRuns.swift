@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.7 lane F1, the unit-tier freeze of today's classifier records
-// (panel decisions T2, T3 and T9, docs/plans/2026-10-11-phase-2-7.md). Each
+// (panel decisions T2, T3 and T9, 0c972abf4:docs/plans/2026-10-11-phase-2-7.md). Each
 // function runs one writer the way its route runs it at the base of 2.7, with
 // the fake kraken2 and Bracken of `FakeClassificationCondaFixture` or the
 // stand-in EsViritu below, so `ClassifierWriterFactsTests` and

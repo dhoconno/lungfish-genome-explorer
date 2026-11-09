@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.8 lane TF-G, decisions T14 and T16 (docs/plans/2026-10-11-phase-2-8.md). No test runs
+// Phase 2.8 lane TF-G, decisions T14 and T16 (0c972abf4:docs/plans/2026-10-11-phase-2-8.md). No test runs
 // the real TaxTriage, which needs Docker, container images and NCBI downloads. This engine takes
 // the place of the managed Nextflow behind the pipeline's own launch, `micromamba run -n nextflow
 // nextflow ...`, so every step of today's `TaxTriagePipeline` runs around it.

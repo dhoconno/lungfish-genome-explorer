@@ -6,7 +6,7 @@
 // a record that today's GUI or CLI path writes, driven with fake tools through
 // `ClassifierLegacyRuns`, and names the lane whose change flips it. That lane
 // changes the pin in the commit that fixes the defect, so the change shows
-// against this base (docs/plans/2026-10-11-phase-2-7.md). A pin of the legacy
+// against this base (0c972abf4:docs/plans/2026-10-11-phase-2-7.md). A pin of the legacy
 // GUI route that lane F3 flipped keeps the legacy half until that route goes
 // in 2.9 (E14), and adds what the app's route, the CLI route, records.
 

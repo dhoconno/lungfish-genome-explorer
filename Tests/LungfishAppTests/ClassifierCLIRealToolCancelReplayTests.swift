@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.8 lane S6, the test row at line 430 of docs/plans/2026-10-11-phase-2-7.md. The CLI
+// Phase 2.8 lane S6, the test row at line 430 of 0c972abf4:docs/plans/2026-10-11-phase-2-7.md. The CLI
 // route's cancel and failure paths have stand-in cases (ClassifierCLIRouteRowTests,
 // CLIClassifierRunnerTests) and owner check list row 4, and no case that runs the real tool.
 // Each case here hands the dialog's launch, `AppDelegate.launchClassification`, the configs of a

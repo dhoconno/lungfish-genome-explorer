@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane B34, row 268 of docs/plans/2026-10-11-phase-2-8.md and ARCH 5, cleanup deletes nothing a record
+// Phase 2.10 lane B34, row 268 of 0c972abf4:docs/plans/2026-10-11-phase-2-8.md and ARCH 5, cleanup deletes nothing a record
 // names. The index step and the gzip step record their outputs before the pipeline removes `classification.kraken`.
 // When that removal throws, the compaction's `catch` deleted the gzip copy and the index its own steps name, with no
 // step to say so. The stand-in kraken2 makes its per-read output immutable (`chflags uchg`), which stops the removal

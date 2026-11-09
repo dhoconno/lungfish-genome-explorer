@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.8 lane B2, decision O1 (docs/plans/2026-10-11-phase-2-8.md). A bundle of several files of single reads
+// Phase 2.8 lane B2, decision O1 (0c972abf4:docs/plans/2026-10-11-phase-2-8.md). A bundle of several files of single reads
 // runs as one file that the planner joins with `cat`. The record names that file twice, as the output of the `cat`
 // step and as the input of the TaxTriage step, so under O1 the file stays in the result's
 // `.lungfish-taxtriage-inputs` folder after the run, unchanged. The case runs `taxtriage run` through

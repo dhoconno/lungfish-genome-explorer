@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.8 lane S1, decisions T10 to T13 (docs/plans/2026-10-11-phase-2-8.md) and 2.7 E5. Each case
+// Phase 2.8 lane S1, decisions T10 to T13 (0c972abf4:docs/plans/2026-10-11-phase-2-8.md) and 2.7 E5. Each case
 // cancels `TaxTriagePipeline`, or a batch of `TaxTriageAnalysisRunTool` on the analysis run executor (the serial
 // batch runner's two cases, retargeted in 2.13 K1b when the runner went), on `TaxTriageStandInEngine`, most of them
 // in its TERM-trapping mode, where the engine and a heartbeat child it forks trap TERM and go on, so

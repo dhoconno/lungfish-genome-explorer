@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane Q30, panel decisions G1, C13 and G5 in docs/plans/2026-10-13-phase-2-10.md, and
+// Phase 2.10 lane Q30, panel decisions G1, C13 and G5 in 0c972abf4:docs/plans/2026-10-13-phase-2-10.md, and
 // docs/contracts/CLI-EQUIVALENCE.md. Every batch 1 family moves an in-process GUI route onto
 // `lungfish-cli` and shows that both routes give the same result. Its parity class runs each case
 // on three sides, in three sibling roots that start as copies of one fixture.

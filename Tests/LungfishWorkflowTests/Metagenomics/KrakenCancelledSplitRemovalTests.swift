@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane B34, review fix 4, row 268 of docs/plans/2026-10-11-phase-2-8.md. Fix 4 of the BIO review of
+// Phase 2.10 lane B34, review fix 4, row 268 of 0c972abf4:docs/plans/2026-10-11-phase-2-8.md. Fix 4 of the BIO review of
 // Phase 2.8 (`d2ad025b8`) made `recordKraken2Failure` record the removal of the interleaved halves after the kraken2
 // step that read them, and left no test, because the stand-in kraken2 of the classifier tests has no mode that throws.
 // In the unit tier `runTool` throws only on a cancel or a timeout, so this stand-in waits and the test cancels the

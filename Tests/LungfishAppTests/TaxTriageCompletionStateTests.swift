@@ -79,7 +79,7 @@ final class TaxTriageCompletionStateTests: XCTestCase {
     // MARK: - The words of the finish
     //
     // Phase 2.8 lane U2 pinned these words on the finish of the in-process route (T8, T9 and D4 of
-    // docs/plans/2026-10-11-phase-2-8.md). Since Phase 2.12 K1 the Tools menu runs `taxtriage run` only, and
+    // 0c972abf4:docs/plans/2026-10-11-phase-2-8.md). Since Phase 2.12 K1 the Tools menu runs `taxtriage run` only, and
     // its row reads the finished result back with `CLIClassifierRunner.taxTriageCompletion(folder:)`, so the
     // pins hold the words of that read-back. The paragraph of ignored task failures is a line of the command,
     // which `TaxTriageCLIRouteRowTests.testIgnoredTasksReadCompletedWithWarningsAndOneWarningLine` pins as the

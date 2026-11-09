@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.7 lane F1, the freeze of today's classifier behaviour (panel
-// decisions T2 and T9, docs/plans/2026-10-11-phase-2-7.md). One table, one row
+// decisions T2 and T9, 0c972abf4:docs/plans/2026-10-11-phase-2-7.md). One table, one row
 // per fixture bundle, one column per route. A route takes the sample the
 // wizard groups from the bundle and returns what the tool is handed: its argv
 // with the scratch, output, database and project paths masked, the read names

@@ -65,9 +65,9 @@ The two schema numbers differ in which rows `contigs` holds.
 - Schema 1 lists every reference sequence of the BAM header, zero rows included, and holds neither count. Results made before schema 2, and results whose counts are unknown such as the filtered results of ONT genotyping, are schema 1.
 - Schema 2 lists only the reference sequences that at least one alignment record names, primary, secondary or supplementary. A sequence with only secondary or supplementary records keeps its row with 0 in `mappedReads` and its measured MAPQ and identity. Both counts are present, and `contigs.count + unalignedReferenceCount == referenceCount`.
 - `save` writes schema 2 when both counts are known and schema 1 with neither count otherwise. An absent count means unknown, never that `contigs` lists every reference sequence.
-- Readers accept both numbers and never refuse a higher one. A build released before schema 2 reads a schema-2 file, ignores the counts and shows its rows. Nothing rewrites a schema-1 file, and its table export keeps its bytes.
+- Readers accept both numbers and never refuse a higher one. A build released before schema 2 reads a schema-2 file, ignores the counts and shows its rows. Nothing rewrites a schema-1 file.
 
-The mapping table export writes the rows the file holds, never more, and its provenance record adds `referenceCount` and `unalignedReferenceCount` to the resolved values of a schema-2 result.
+The alignment metadata table chromosome_stats keeps one row for every @SQ reference, including references with no reads, because the viewer's BAM-to-reference name map, the graphic export's (`ViewerGraphicExport+Figure.swift:120-135`) and the Inspector read it as the full reference list. A row may leave only when mapped_reads and unmapped_reads are both 0, file_info records reference_count, and both name maps read the names from the BAM header instead.
 
 ## How a folder is recognized
 

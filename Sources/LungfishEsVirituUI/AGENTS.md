@@ -36,6 +36,6 @@ Target LungfishEsVirituUITests in Tests/LungfishEsVirituUITests. Run only it wit
 | Trap | Evidence |
 |---|---|
 | The GUI run builds esviritu.sqlite, the batch manifest and provenance, while `lungfish-cli esviritu detect` does not, so a CLI result tree may not open here | Sources/LungfishApp/App/AppDelegate+Classification.swift lines 911 to 1159 and Sources/LungfishCLI/Commands/EsVirituCommand.swift (R3) |
-| A CLI run on a `.lungfishfastq` bundle keeps its materialized reads in `.lungfish-esviritu-inputs` and records the bundle in provenance, while a GUI run materializes into a temporary folder it deletes and records the deleted file | `execute(pipeline:materializer:)` in Sources/LungfishCLI/Commands/EsVirituCommand.swift, `runEsViritu` in Sources/LungfishApp/App/AppDelegate+Classification.swift (R3) |
+| A run on a `.lungfishfastq` bundle keeps its materialized reads in `.lungfish-esviritu-inputs` and records the bundle in provenance, on every route, since the app runs the CLI | `execute(pipeline:materializer:)` in Sources/LungfishCLI/Commands/EsVirituCommand.swift, `runEsVirituThroughCLI` in Sources/LungfishApp/App/AppDelegate+ClassificationCLIRoute.swift (R3) |
 | Private copies of the extraction dialog and BLAST display | `presentUnifiedExtractionDialog` at EsVirituResultViewController.swift line 1448, `showBlastResults` at line 1592 (R14) |
 | The App has 51 files that mention EsViritu, so the leaf did not remove App coupling | REVIEW.md R1 |

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.7 lane F2 (panel decisions T1, T2, T3 and T9 in docs/plans/2026-10-11-phase-2-7.md).
+// Phase 2.7 lane F2 (panel decisions T1, T2, T3 and T9 in 0c972abf4:docs/plans/2026-10-11-phase-2-7.md).
 // ClassifierCLIGUIParityReplayTests runs each classifier case on several sides and compares
 // them. Every side gets its own root holding one project that `makeProject(in:)` builds with
 // the same bytes. The project holds four bundles, described in

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.8 lane TF-W. Every assertion states what the code does at the base of the phase. A later lane flips
-// an assertion only where its decision in docs/plans/2026-10-11-phase-2-8.md says so. "BIO T5" in a doc comment is
+// an assertion only where its decision in 0c972abf4:docs/plans/2026-10-11-phase-2-8.md says so. "BIO T5" in a doc comment is
 // row T5 of the bioinformatics expert's inventory of the TaxTriage record for that phase, and the comment states the
 // fact in full.
 //

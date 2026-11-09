@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane S30, decision G1 (docs/plans/2026-10-13-phase-2-10.md). The app cancels a CLI route
+// Phase 2.10 lane S30, decision G1 (0c972abf4:docs/plans/2026-10-13-phase-2-10.md). The app cancels a CLI route
 // with SIGTERM and gives the command a 6-second grace before SIGKILL (2.9 N6). A command that
 // converts SIGTERM into a cancel exits 125 inside that grace, has written its `cancelled` record by
 // then, and leaves no process of its tree running. The CLI suites check those three facts here, and

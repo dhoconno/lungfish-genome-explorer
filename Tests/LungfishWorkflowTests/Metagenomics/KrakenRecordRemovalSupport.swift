@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane B34, rows 268 and 271 of docs/plans/2026-10-11-phase-2-8.md. A Kraken2 record keeps naming
+// Phase 2.10 lane B34, rows 268 and 271 of 0c972abf4:docs/plans/2026-10-11-phase-2-8.md. A Kraken2 record keeps naming
 // the files a run removed, so each of them needs a step that says why it is gone (P1 of Phase 2.8, ARCH 5).
 
 import Foundation

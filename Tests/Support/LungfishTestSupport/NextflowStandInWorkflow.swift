@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.9 lane Q9 M1, decision N11 (docs/plans/2026-10-12-phase-2-9.md). `NextflowStandInEngine`
+// Phase 2.9 lane Q9 M1, decision N11 (0c972abf4:docs/plans/2026-10-12-phase-2-9.md). `NextflowStandInEngine`
 // records each launch and prints the engine's own lines. A workflow brings what only it knows:
 // its fixtures, the outputs it writes for each sample, the names of its tasks and the lines its
 // own code prints. `.taxTriage` is the first, and Phase 2.10 lane Q33 adds `.viralRecon`.

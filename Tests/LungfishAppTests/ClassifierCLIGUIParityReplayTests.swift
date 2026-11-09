@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Phase 2.7 lanes F2 and F3, today's classifier runs against the GUI route through the analysis
-// run executor (panel decisions T1, T2, T3, T9, E10 and E15 in docs/plans/2026-10-11-phase-2-7.md).
+// run executor (panel decisions T1, T2, T3, T9, E10 and E15 in 0c972abf4:docs/plans/2026-10-11-phase-2-7.md).
 // The in-process route went in Phase 2.9 (E14), and with it side A, its GUI path, and side B, the
 // replay of side A's command (lane A12, QA Q12). Each case runs on two sides, one after another.
 //

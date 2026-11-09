@@ -68,7 +68,7 @@ final class PrimerDesignExistingOutputTests: XCTestCase {
     // MARK: - Helpers
 
     /// The words a leaf writes to standard error when `--output` names a destination that exists. They are R-B1 of
-    /// docs/plans/2026-10-17-phase-2-12-panel-decisions.md word for word. 12.17 shipped them without the clause that
+    /// 0c972abf4:docs/plans/2026-10-17-phase-2-12-panel-decisions.md word for word. 12.17 shipped them without the clause that
     /// names `--project`, since no leaf had the option, and lane 13.43 M2 returns the clause with the option.
     static func refusalWords(_ path: String) -> String {
         "Output already exists: \(path). Give --output a new path, or use --project to write a new bundle in the project."

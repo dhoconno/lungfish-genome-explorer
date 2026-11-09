@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.9 lane Q9 M1, decision N11 (docs/plans/2026-10-12-phase-2-9.md). The five TaxTriage
+// Phase 2.9 lane Q9 M1, decision N11 (0c972abf4:docs/plans/2026-10-12-phase-2-9.md). The five TaxTriage
 // classes run the stand-in through today's pipeline. These cases launch it directly: the record
 // numbers of launches at once, the line shapes of R1's real Nextflow 26.04.6 output (an agent's
 // run), the console of Q35's real Viral Recon run V1 (Phase 2.10), the 2.8 lines and the 25.04.6

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.10 lane B34, row 271 of docs/plans/2026-10-11-phase-2-8.md. The index step and the gzip step both read
+// Phase 2.10 lane B34, row 271 of 0c972abf4:docs/plans/2026-10-11-phase-2-8.md. The index step and the gzip step both read
 // `classification.kraken`, and the removal step removes it. The record gave the removal the gzip step alone, so a
 // replay ordered by `dependsOn` could remove the file before the index read it. The result sidecar step gave
 // itself the kraken2 step alone, though it names the gzip copy and the index the compaction made.
