@@ -123,9 +123,9 @@ public final class ONTImportOperationCoordinator {
         bundleCount == 1 ? "1 barcode bundle" : "\(bundleCount) barcode bundles"
     }
 
-    /// The summary the import sheet shows before a recipe is chosen (ONT-WORDS). An ordinary import passes
-    /// `includeUnclassified: false`, so the `unclassified` folder is not counted. The Fluidigm and PacBio recipes read
-    /// every FASTQ under the run folder, so the sentence speaks of the ordinary import and names no way to include it.
+    /// The summary the import sheet shows before a recipe is chosen (ONT-WORDS). An import with no processing recipe
+    /// passes `includeUnclassified: false`, so the `unclassified` folder is not counted. The Fluidigm and PacBio
+    /// recipes read every FASTQ under the run folder, so the sentence speaks only of an import with no recipe.
     nonisolated static func importSheetSummary(
         runName: String,
         layout: ONTDirectoryLayout,
@@ -137,7 +137,7 @@ public final class ONTImportOperationCoordinator {
             "Found \(folders) barcode \(folders == 1 ? "directory" : "directories").",
         ]
         if layout.barcodeDirectories.contains(where: \.isUnclassified) {
-            lines.append("An ordinary import leaves the unclassified folder out.")
+            lines.append("Without a processing recipe, the import leaves the unclassified folder out.")
         }
         lines.append("Total size: \(formattedSize)")
         return lines.joined(separator: "\n")

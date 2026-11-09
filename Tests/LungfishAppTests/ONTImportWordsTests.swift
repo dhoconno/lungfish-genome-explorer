@@ -8,7 +8,7 @@ import LungfishTestSupport
 @testable import LungfishApp
 
 /// ONT-WORDS (rewalk WO-11). The sheet said `Found 7 barcode directories` while the import made 6 bundles, since
-/// an ordinary import leaves the `unclassified` folder out, and the row said `1 barcode bundles` for one.
+/// an import with no processing recipe leaves the `unclassified` folder out, and the row said `1 barcode bundles` for one.
 @MainActor
 final class ONTImportWordsTests: XCTestCase {
     private var tempDirectory: URL!
@@ -34,7 +34,7 @@ final class ONTImportWordsTests: XCTestCase {
             runName: "fastq_pass", layout: layout, formattedSize: "28 bytes"
         )
         XCTAssertTrue(words.contains("Found 6 barcode directories."), words)
-        XCTAssertTrue(words.contains("An ordinary import leaves the unclassified folder out."), words)
+        XCTAssertTrue(words.contains("Without a processing recipe, the import leaves the unclassified folder out."), words)
         XCTAssertTrue(words.contains("ONT run folder: fastq_pass"), words)
         XCTAssertTrue(words.contains("Total size: 28 bytes"), words)
         XCTAssertFalse(words.lowercased().contains("include"), "the app offers no way to include the folder, so the words promise none: \(words)")
