@@ -16,19 +16,31 @@ extension ClassifierReadResolver {
     /// Then come the two names the pipeline gives a sample's BAM in `minimap2/`, `{S}.bam` and
     /// `{S}.{S}.dwnld.references.bam`. The folder is scanned only when nothing is recorded and neither name exists, and
     /// the scan reads the listing sorted by name for the files whose names fit the sample
-    /// (``taxTriageNameFits(_:sampleId:)``). One fit is the candidate. Two or more cannot be told apart, so the lookup
+    /// (``taxTriageNameFits(_:sampleId:)``). One fit is the candidate, and the extraction says so
+    /// (``taxTriageScanNotice(tool:sampleId:resultPath:bam:)``). Two or more cannot be told apart, so the lookup
     /// ends in ``ClassifierExtractionError/moreThanOneBAMFitsSample(sampleId:names:)`` and no file is read.
     static func taxTriageBAMCandidates(sampleId: String, resultDir: URL) throws -> [URL] {
         let recorded = taxTriageRecordedBAMCandidates(sampleId: sampleId, resultDir: resultDir)
-        let minimap2Dir = resultDir.appendingPathComponent("minimap2")
-        let named = [
-            minimap2Dir.appendingPathComponent("\(sampleId).bam"),
-            minimap2Dir.appendingPathComponent("\(sampleId).\(sampleId)\(taxTriageReferencesBAMSuffix)"),
-        ]
+        let named = taxTriageNamedBAMs(sampleId: sampleId, resultDir: resultDir)
         guard recorded.isEmpty, named.allSatisfy({ checkedBAMCandidate($0, within: resultDir) == .absent }) else {
             return recorded + named
         }
-        let fits = listedFiles(in: minimap2Dir, within: resultDir)
+        return try named + taxTriageScanFits(sampleId: sampleId, resultDir: resultDir)
+    }
+
+    /// The two names that the pipeline gives a sample's BAM in `minimap2/`.
+    private static func taxTriageNamedBAMs(sampleId: String, resultDir: URL) -> [URL] {
+        let minimap2Dir = resultDir.appendingPathComponent("minimap2")
+        return [
+            minimap2Dir.appendingPathComponent("\(sampleId).bam"),
+            minimap2Dir.appendingPathComponent("\(sampleId).\(sampleId)\(taxTriageReferencesBAMSuffix)"),
+        ]
+    }
+
+    /// The files of `minimap2/` whose names fit the sample and that exist, none or one. Two or more end in
+    /// ``ClassifierExtractionError/moreThanOneBAMFitsSample(sampleId:names:)``.
+    private static func taxTriageScanFits(sampleId: String, resultDir: URL) throws -> [URL] {
+        let fits = listedFiles(in: resultDir.appendingPathComponent("minimap2"), within: resultDir)
             .filter { taxTriageNameFits($0.lastPathComponent, sampleId: sampleId) }
             .filter { checkedBAMCandidate($0, within: resultDir) != .absent }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
@@ -37,7 +49,46 @@ extension ClassifierReadResolver {
                 sampleId: sampleId, names: fits.map(\.lastPathComponent)
             )
         }
-        return named + fits
+        return fits
+    }
+
+    /// The words that say which file a name scan took for a sample, or nil when `bam` came from anywhere else, a path
+    /// the database records or one of the two names the pipeline gives (EXTRACT-SCAN-EXTENDED-ID). A file such as
+    /// `S1_2.bam` fits sample `S1` and can belong to another sample, and the lookup holds no list of the folder's
+    /// sample ids to tell, so the extraction names the file, prints the words as a progress line (the CLI line and the
+    /// Operations Panel Log) and records them with the extraction.
+    static func taxTriageScanNotice(tool: ClassifierTool, sampleId: String?, resultPath: URL, bam: URL) -> String? {
+        guard tool == .taxtriage, let sampleId else { return nil }
+        let resultDir = resultPath.hasDirectoryPath ? resultPath : resultPath.deletingLastPathComponent()
+        guard taxTriageRecordedBAMCandidates(sampleId: sampleId, resultDir: resultDir).isEmpty,
+              taxTriageNamedBAMs(sampleId: sampleId, resultDir: resultDir)
+                  .allSatisfy({ checkedBAMCandidate($0, within: resultDir) == .absent }),
+              let scanned = (try? taxTriageScanFits(sampleId: sampleId, resultDir: resultDir))?.first,
+              scanned.resolvingSymlinksInPath().path == bam.resolvingSymlinksInPath().path else { return nil }
+        return "Sample \(sampleId)'s own BAM was not found, so Lungfish read \(scanned.lastPathComponent), "
+            + "the one file in the minimap2 folder that fits its name. "
+            + "If that file belongs to another sample, put \(sampleId)'s own BAM back and try again."
+    }
+
+    /// `destination` and `options` that carry `notes`, the words of ``taxTriageScanNotice(tool:sampleId:resultPath:bam:)``,
+    /// into the extraction's record as the Kraken 2 read-change notes are carried
+    /// (``recordingReadChangeNotes(_:in:options:)``), a bundle's parameters and a file export's resolved options.
+    static func recordingBAMScanNotes(
+        _ notes: [String], in destination: ExtractionDestination, options: ExtractionOptions
+    ) -> (destination: ExtractionDestination, options: ExtractionOptions) {
+        guard !notes.isEmpty else { return (destination, options) }
+        let note = notes.joined(separator: " ")
+        var recorded = destination
+        if case .bundle(let projectRoot, let displayName, let metadata) = destination {
+            recorded = .bundle(
+                projectRoot: projectRoot, displayName: displayName,
+                metadata: metadata.mergingParameters(["classifierExtractionBAMScanNote": note])
+            )
+        }
+        let recordedOptions = options.fileProvenance.map {
+            options.recordingFileProvenance($0.mergingResolved(["bamScanNote": .string(note)]))
+        } ?? options
+        return (recorded, recordedOptions)
     }
 
     /// Whether the file name `name` fits `sampleId`. It ends in `.bam` and is the sample id followed by `.`, `_` or `-`.

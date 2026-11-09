@@ -467,6 +467,7 @@ public actor ClassifierReadResolver {
 
         // Step 1: per-sample samtools view -b -F <flags> -> per-sample BAM -> per-sample FASTQ.
         var perSampleFASTQs: [URL] = []
+        var scanNotes: [String] = []
         let totalSamples = Double(grouped.count)
 
         for (index, (sampleId, group)) in grouped.enumerated() {
@@ -491,12 +492,11 @@ public actor ClassifierReadResolver {
                 return lists.reduce(into: Set<String>()) { $0.formUnion($1) }
             }()
 
-            let bamURL = try await resolveBAMURL(
-                tool: tool,
-                sampleId: sampleId,
-                resultPath: resultPath
-            )
+            let bamURL = try await resolveBAMURL(tool: tool, sampleId: sampleId, resultPath: resultPath)
             provenanceSourceURLs.append(bamURL)
+            if let note = Self.taxTriageScanNotice(tool: tool, sampleId: sampleId, resultPath: resultPath, bam: bamURL) {
+                scanNotes.append(note)
+            }
 
             let perSampleBAM = tempDir.appendingPathComponent("\(stem)_regions.bam")
             var viewArgs = ["view", "-b", "-F", String(options.samtoolsExcludeFlags)]
@@ -573,15 +573,13 @@ public actor ClassifierReadResolver {
             finalFASTQ = concatenated
         }
 
-        return try await routeToDestination(
-            finalFile: finalFASTQ,
-            readCount: readCount,
-            destination: destination,
-            options: options,
-            provenanceSourceURLs: existingUniqueURLs(provenanceSourceURLs),
-            extractionClock: runClock,
-            progress: progress
+        let recorded = Self.recordingBAMScanNotes(scanNotes, in: destination, options: options)
+        let outcome = try await routeToDestination(
+            finalFile: finalFASTQ, readCount: readCount, destination: recorded.destination, options: recorded.options,
+            provenanceSourceURLs: existingUniqueURLs(provenanceSourceURLs), extractionClock: runClock, progress: progress
         )
+        scanNotes.forEach { progress?(1.0, $0) }
+        return outcome
     }
 
     // MARK: - File helpers
