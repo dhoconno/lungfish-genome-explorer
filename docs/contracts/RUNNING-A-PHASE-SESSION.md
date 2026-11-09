@@ -174,7 +174,7 @@ commit that adds a phase's first row moves the earlier phase's rows there.
 
 | Session | Date | Spend and wall time | Lanes landed | Direct cost per landed lane | All-in per landed lane |
 |---|---|---|---|---|---|
-| 3.4, one session, to the monitor after the last landing and before the final candidate | 2026-11-08 | $115 over 5h30m by the ledger estimate (opus $66, sonnet $49), $20 of it the manager with no compaction, $37 the panel's meeting of ten opus seats (round 1 at xhigh $14, round 2 at max $23), $6.73 two rulings, $13 six reviews and a fact-check, $6.39 two documentation lanes, the week 52% to 58% at about $20 a point. No budget figure was set | 6 in 2 landings, with a tidy commit | median $5.94, mean $6.57 | $19.19 |
+| 3.4, one session, to the close (the second monitor after the last landing) | 2026-11-08 | $196 over 14h09m by the ledger estimate (opus $118, sonnet $79), $58 of it the manager with two compactions, $37 the panel's meeting of ten opus seats (round 1 at xhigh $14, round 2 at max $23), $16 six rulings, $21 nine reviews and a fact-check, $13 five tidy lanes, $9 three documentation lanes, the week 52% to 64% at about $16.4 a point. No budget figure was set | 11 (6 code, 3 documentation, 2 tidy) in 6 landings and the records landing | median $5.18, mean $6.54 | $17.86 |
 
 ## End-of-session duty
 
