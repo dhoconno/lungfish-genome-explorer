@@ -331,7 +331,7 @@ def check_access_only(rows, hunks):
     problems, widened = [], 0
     for status, parts in rows:
         path = parts[-1]
-        if path.endswith(".swift") and path != MANIFEST and not status.startswith("M"):
+        if not path.endswith(".swift") or path == MANIFEST or not status.startswith("M"):
             problems.append(f"NOT-WIDENING {status} {path}: a widening commit only modifies files")
     for old_path, new_path, start, removed, added in hunks:
         path = new_path or old_path

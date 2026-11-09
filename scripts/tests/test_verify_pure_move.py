@@ -267,6 +267,16 @@ class AccessOnlyTests(VerifierCase):
         self.assertEqual(code, 0, out)
         self.assertEqual(out.splitlines()[-1], "ACCESS-ONLY OK 140 widened")
 
+    def test_access_only_fails_when_another_file_changes(self):
+        base = "final class A {\n    private func f() {}\n}\n"
+        head = "final class A {\n    func f() {}\n}\n"
+        for name, old, new in (("Package.swift", "let p = 1\n", "let p = 2\n"), ("README.md", "one\n", "two\n")):
+            with self.subTest(name=name):
+                code, out, _ = self.run_case({name: old, "A.swift": base}, {name: new, "A.swift": head}, "--access-only")
+                self.assertEqual(code, 1, out)
+                self.assertIn(f"NOT-WIDENING M {name}: a widening commit only modifies files", out)
+                self.assertIn("NOT AN ACCESS-ONLY WIDENING", out)
+
 
 class MoreMoveCheckTests(VerifierCase):
     OLD = """
