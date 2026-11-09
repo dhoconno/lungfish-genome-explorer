@@ -821,9 +821,11 @@ public final class Kraken2Database: @unchecked Sendable {
         let rows = try fetchRows(samples: [sample])
         let meta = try fetchMetadata()
 
-        // Per-sample metadata takes priority, fall back to aggregated
-        let totalReads = Int(meta["total_reads_\(sample)"] ?? meta["total_reads"] ?? "0") ?? 0
-
+        // Per-sample keys first. The aggregate keys belong to the whole batch, so only a one-sample database reads them.
+        func recorded(_ key: String) throws -> Int {
+            Int(try meta["\(key)_\(sample)"] ?? (fetchSamples().count == 1 ? meta[key] : nil) ?? "0") ?? 0
+        }
+        let totalReads = try recorded("total_reads")
         // Build nodes indexed by taxId
         var nodesByTaxId: [Int: TaxonNode] = [:]
         for row in rows {
@@ -861,9 +863,7 @@ public final class Kraken2Database: @unchecked Sendable {
         }
 
         // Build unclassified node from metadata
-        let unclassifiedReads = Int(
-            meta["unclassified_reads_\(sample)"] ?? meta["unclassified_reads"] ?? "0"
-        ) ?? 0
+        let unclassifiedReads = try recorded("unclassified_reads")
         let unclassifiedNode: TaxonNode? = unclassifiedReads > 0 ? TaxonNode(
             taxId: 0,
             name: "unclassified",

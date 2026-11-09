@@ -324,7 +324,7 @@ public struct TaxonTree: Sendable {
             uniquingKeysWith: { _, latest in latest }
         )
         self.classifiedReads = root.readsClade
-        self.unclassifiedReads = unclassifiedNode?.readsClade ?? (totalReads - root.readsClade)
+        self.unclassifiedReads = unclassifiedNode?.readsClade ?? max(0, totalReads - root.readsClade)
 
         // Build tax ID index
         var index: [Int: TaxonNode] = [:]
