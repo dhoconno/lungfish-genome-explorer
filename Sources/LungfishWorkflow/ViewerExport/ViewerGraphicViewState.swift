@@ -38,16 +38,29 @@ public struct ViewerGraphicViewState: Codable, Sendable, Equatable {
     /// that says so (ALIGN-IMAGE-EXPORT-MASKING) and draws every item it draws with the switch off. Nil is off and the
     /// file then holds no key, so a state at the defaults writes the bytes it wrote before.
     public var hideHighGapSites: Bool?
+    /// The mapping quality the window's reads are fetched at (`minMapQSetting`), or nil for 0. The window's reads use
+    /// this number alone, so the figure's read track fetches at it (EXPORT-DEPTH-FILTERS).
+    public var readMinMapQ: Int?
+    /// The mapping quality the window's Depth strip counts reads at, the larger of `minMapQSetting` and
+    /// `consensusMinMapQSetting`, or nil for 0. The figure's Depth track counts at it, so the figure's depth is the
+    /// window's, and the record and the image's own line name it.
+    public var depthMinMapQ: Int?
+    /// The base quality the window's Depth strip counts bases at (`consensusMinBaseQSetting`), or nil for 0. The file
+    /// holds no key for a cutoff at 0, so a state at the defaults writes the bytes it wrote before.
+    public var depthMinBaseQ: Int?
 
     public init(
         tracks: [Track] = [], readRowCap: Int? = nil, sampleDisplay: SampleDisplayState? = nil,
-        hideHighGapSites: Bool? = nil
+        hideHighGapSites: Bool? = nil, readMinMapQ: Int? = nil, depthMinMapQ: Int? = nil, depthMinBaseQ: Int? = nil
     ) {
         self.schemaVersion = Self.currentSchemaVersion
         self.tracks = tracks
         self.readRowCap = readRowCap
         self.sampleDisplay = sampleDisplay
         self.hideHighGapSites = hideHighGapSites
+        self.readMinMapQ = readMinMapQ
+        self.depthMinMapQ = depthMinMapQ
+        self.depthMinBaseQ = depthMinBaseQ
     }
 
     /// The height set for `trackID`, if any.

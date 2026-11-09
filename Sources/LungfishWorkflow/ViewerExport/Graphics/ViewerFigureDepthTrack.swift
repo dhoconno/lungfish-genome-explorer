@@ -8,10 +8,11 @@ import LungfishIO
 
 /// The Depth track the live viewer draws above the reads of an alignment track, its coverage strip, which the window
 /// always shows (`SequenceViewerView+Rendering.swift`, `ReadTrackRenderer.drawCoverage(depthPoints:...)`). It reads
-/// `samtools depth` over the figure's region through `AlignmentDataProvider.fetchDepth`, under the read track's flag
-/// and mapping-quality filters and no base-quality filter as the live view's defaults set them, and draws it through a
-/// coverage layer in the scale the command names, with the legend, the covered share and the max and mean depth
-/// (3.0 lane EXPORT-IMG, walk WF-5).
+/// `samtools depth` over the figure's region through `AlignmentDataProvider.fetchDepth`, under the window's flag filter
+/// and the mapping-quality and base-quality cutoffs of its depth strip, which a figure takes from its view state and
+/// which are 0 and 0 at the defaults, and draws it through a coverage layer in the scale the command names, with the
+/// legend, the covered share and the max and mean depth (3.0 lane EXPORT-IMG, walk WF-5). With a cutoff set it draws
+/// one line under the strip that says which, in the form of the read track's line (EXPORT-DEPTH-FILTERS).
 ///
 /// Above ``thresholdBasesPerPoint`` the track reads no depth. It draws one line where the strip would be, in the form
 /// of the read track's line, and records a `trackNotDrawn` omission, so the image and the record say so.
@@ -27,20 +28,27 @@ public struct ViewerFigureDepthTrack: ViewerFigureTrackBuilding {
     public let source: ViewerFigureReadTrack.Source?
     public let scaleMode: CoverageScaleMode
     public let excludeFlags: UInt16
+    /// The mapping quality of the reads the depth counts, 0 counting every read (`samtools depth -Q`).
     public let minMapQ: Int
-    /// The live strip's 60 points when the track draws, and the height of one line when the scale leaves it out.
+    /// The base quality of the bases the depth counts, 0 counting every base (`samtools depth -q`).
+    public let minBaseQ: Int
+    /// The live strip's 60 points when the track draws, a line more under it when a cutoff is set, and the height of
+    /// one line when the scale leaves it out.
     public let height: Double
 
     public init(
         trackID: String, source: ViewerFigureReadTrack.Source?, frame: ViewerFigureFrame,
-        scaleMode: CoverageScaleMode = .default, excludeFlags: UInt16 = 0x904, minMapQ: Int = 0
+        scaleMode: CoverageScaleMode = .default, excludeFlags: UInt16 = 0x904, minMapQ: Int = 0, minBaseQ: Int = 0
     ) {
         self.trackID = trackID
         self.source = source
         self.scaleMode = scaleMode
         self.excludeFlags = excludeFlags
         self.minMapQ = minMapQ
-        self.height = Self.draws(at: frame) ? Double(ReadTrackRenderer.coverageTrackHeight) : ViewerFigureReadTrack.overflowBarHeight
+        self.minBaseQ = minBaseQ
+        let line = Self.cutoffLines(minMapQ: minMapQ, minBaseQ: minBaseQ) == nil ? 0 : ViewerFigureReadTrack.overflowBarHeight
+        self.height = Self.draws(at: frame)
+            ? Double(ReadTrackRenderer.coverageTrackHeight) + line : ViewerFigureReadTrack.overflowBarHeight
     }
 
     /// Whether a figure of `frame` draws the depth.
@@ -53,7 +61,21 @@ public struct ViewerFigureDepthTrack: ViewerFigureTrackBuilding {
             try drawNote(into: &canvas, frame: frame, area: area)
             return
         }
-        draw(try await load(frame: frame), into: &canvas, frame: frame, area: area)
+        let depths = try await load(frame: frame)
+        // With a cutoff set the strip keeps its own height and a line under it names the cutoffs, so a depth read off
+        // the figure comes with them. At the defaults the strip takes the whole area as before (EXPORT-DEPTH-FILTERS).
+        guard let lines = Self.cutoffLines(minMapQ: minMapQ, minBaseQ: minBaseQ),
+              area.height >= ViewerFigureReadTrack.overflowBarHeight else {
+            draw(depths, into: &canvas, frame: frame, area: area)
+            return
+        }
+        let bar = ViewerFigureReadTrack.overflowBarHeight
+        draw(depths, into: &canvas, frame: frame,
+             area: ViewerFigureRect(x: area.x, y: area.y, width: area.width, height: area.height - bar))
+        let fits = try canvas.textWidth(lines.full, fontNames: Self.fontNames, size: 9) <= area.width - 8
+        try ViewerFigureReadTrack.drawLine(
+            fits ? lines.full : lines.short, top: area.y + area.height - bar, area: area, into: &canvas
+        )
     }
 
     /// Reads the depth of the window once, off the main actor. The live view asks again under the reference's contig
@@ -70,11 +92,11 @@ public struct ViewerFigureDepthTrack: ViewerFigureTrackBuilding {
         )
         let name = source.alignmentChromosome(for: frame.chromosome)
         var points = try await provider.fetchDepth(
-            chromosome: name, start: start, end: end, minMapQ: minMapQ, minBaseQ: 0, excludeFlags: excludeFlags
+            chromosome: name, start: start, end: end, minMapQ: minMapQ, minBaseQ: minBaseQ, excludeFlags: excludeFlags
         )
         if points.isEmpty, name != frame.chromosome {
             points = (try? await provider.fetchDepth(
-                chromosome: frame.chromosome, start: start, end: end, minMapQ: minMapQ, minBaseQ: 0, excludeFlags: excludeFlags
+                chromosome: frame.chromosome, start: start, end: end, minMapQ: minMapQ, minBaseQ: minBaseQ, excludeFlags: excludeFlags
             )) ?? []
         }
         return points.filter { $0.depth > 0 && $0.position >= start && $0.position < end }
@@ -98,6 +120,24 @@ public struct ViewerFigureDepthTrack: ViewerFigureTrackBuilding {
         let widest = Int((thresholdBasesPerPoint * Double(frame.dataPixelWidth)).rounded(.down))
         let short = "Depth not drawn at \(String(format: "%.1f", frame.scale)) bases per point."
         return (short + " Export \(widest) bases or fewer at this width to draw it.", short)
+    }
+
+    /// The line under the strip that names the cutoffs the depth counted under, in full and in short for a narrow
+    /// figure, or nil when both are 0 and the strip is the unfiltered depth. Each part names a cutoff that is set, and
+    /// a read or base counts at the cutoff or above it, as `samtools depth -Q` and `-q` count (EXPORT-DEPTH-FILTERS).
+    static func cutoffLines(minMapQ: Int, minBaseQ: Int) -> (full: String, short: String)? {
+        var full: [String] = []
+        var short: [String] = []
+        if minMapQ > 0 {
+            full.append("reads with mapping quality \(minMapQ) or more")
+            short.append("mapping quality \(minMapQ)+")
+        }
+        if minBaseQ > 0 {
+            full.append("bases with quality \(minBaseQ) or more")
+            short.append("base quality \(minBaseQ)+")
+        }
+        guard !full.isEmpty else { return nil }
+        return ("Depth counts \(full.joined(separator: " and ")).", "Depth: \(short.joined(separator: ", ")).")
     }
 
     private func drawNote(into canvas: inout ViewerFigureCanvas, frame: ViewerFigureFrame, area: ViewerFigureRect) throws {

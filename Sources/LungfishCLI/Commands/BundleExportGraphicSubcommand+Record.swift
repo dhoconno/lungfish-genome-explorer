@@ -66,10 +66,7 @@ struct BundleExportGraphicRecord {
             "region": .string(region.display),
             "regionConvention": .string(ViewerGraphicExport.regionConvention),
             "regionLength": .integer(region.length),
-            "tracks": .array(figure.tracks.map {
-                .dictionary(["id": .string($0.id), "kind": .string($0.kind), "displayMode": .string($0.displayMode),
-                             "height": .number($0.height)])
-            }),
+            "tracks": .array(figure.tracks.map(Self.trackEntry)),
             "includeRuler": .boolean(settings.includeRuler),
             "theme": .string((settings.theme ?? .light).rawValue),
             "widthPoints": .number(scene.width),
@@ -116,6 +113,22 @@ struct BundleExportGraphicRecord {
 
     static func fileFormat(_ format: ViewerFigureFormat) -> FileFormat {
         FileFormat(rawValue: format.rawValue)
+    }
+
+    /// One drawn track as the record states it. A depth or alignment track that drew under a cutoff adds `minMapQ` and
+    /// `minBaseQ` as integers (EXPORT-DEPTH-FILTERS), and a track at the defaults holds the four keys it always held.
+    static func trackEntry(_ track: ViewerGraphicTrackFact) -> ParameterValue {
+        var entry: [String: ParameterValue] = [
+            "id": .string(track.id), "kind": .string(track.kind), "displayMode": .string(track.displayMode),
+            "height": .number(track.height),
+        ]
+        if let minMapQ = track.minMapQ {
+            entry["minMapQ"] = .integer(minMapQ)
+        }
+        if let minBaseQ = track.minBaseQ {
+            entry["minBaseQ"] = .integer(minBaseQ)
+        }
+        return .dictionary(entry)
     }
 
     static func entry(_ fact: ViewerFigureOmission) -> ParameterValue {

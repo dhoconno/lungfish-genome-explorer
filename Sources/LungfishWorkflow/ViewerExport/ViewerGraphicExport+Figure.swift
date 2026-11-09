@@ -36,6 +36,22 @@ public struct ViewerGraphicTrackFact: Sendable, Equatable {
     public let kind: String
     public let displayMode: String
     public let height: Double
+    /// The mapping-quality cutoff the track drew under, nil at 0 (EXPORT-DEPTH-FILTERS). A depth fact holds the
+    /// cutoff its depth counted at, and an alignment fact the cutoff its reads were fetched at.
+    public let minMapQ: Int?
+    /// The base-quality cutoff a depth fact counted bases at, nil at 0 and nil for every other track.
+    public let minBaseQ: Int?
+
+    public init(
+        id: String, kind: String, displayMode: String, height: Double, minMapQ: Int? = nil, minBaseQ: Int? = nil
+    ) {
+        self.id = id
+        self.kind = kind
+        self.displayMode = displayMode
+        self.height = height
+        self.minMapQ = minMapQ
+        self.minBaseQ = minBaseQ
+    }
 }
 
 /// A figure built from a bundle, with the files it read and what it left out.
@@ -221,6 +237,12 @@ extension ViewerGraphicExport {
                 var options = ViewerFigureReadTrack.Options()
                 options.excludeFlags = settings.excludeFlags ?? defaultExcludeFlags
                 options.maxRows = viewState?.readRowCap ?? defaultReadRowCap
+                // The window fetches its reads at `minMapQSetting` alone and counts its depth at the larger of that and
+                // the consensus mapping quality, with the consensus base quality, so the view state carries the three
+                // numbers and each track takes its own (EXPORT-DEPTH-FILTERS). At 0 and 0 nothing differs.
+                options.minMapQ = max(0, viewState?.readMinMapQ ?? 0)
+                let depthMapQ = max(0, viewState?.depthMinMapQ ?? 0)
+                let depthBaseQ = max(0, viewState?.depthMinBaseQ ?? 0)
                 readRowCap = options.maxRows
                 if viewState?.hideHighGapSites == true {
                     // The window hid high-gap sites from its reads and the figure draws them. The omission says so and
@@ -253,11 +275,14 @@ extension ViewerGraphicExport {
                 // names (WF-5).
                 let depth = ViewerFigureDepthTrack(
                     trackID: id, source: source, frame: frame, scaleMode: settings.coverageScale ?? .default,
-                    excludeFlags: options.excludeFlags, minMapQ: options.minMapQ
+                    excludeFlags: options.excludeFlags, minMapQ: depthMapQ, minBaseQ: depthBaseQ
                 )
                 builders.append(depth)
                 if ViewerFigureDepthTrack.draws(at: frame) {
-                    facts.append(ViewerGraphicTrackFact(id: id, kind: "depth", displayMode: depth.scaleMode.rawValue, height: depth.height))
+                    facts.append(ViewerGraphicTrackFact(
+                        id: id, kind: "depth", displayMode: depth.scaleMode.rawValue, height: depth.height,
+                        minMapQ: depthMapQ > 0 ? depthMapQ : nil, minBaseQ: depthBaseQ > 0 ? depthBaseQ : nil
+                    ))
                 }
                 let track = ViewerFigureReadTrack(
                     trackID: id, source: source, height: height ?? defaultReadHeight, options: options
@@ -265,7 +290,10 @@ extension ViewerGraphicExport {
                 builders.append(track)
                 inputs += [alignmentURL, indexURL] + (referenceURL.map { [$0] } ?? []) + (genomeFiles?.inputFiles ?? [])
                     + aliases.opened
-                facts.append(ViewerGraphicTrackFact(id: id, kind: "alignment", displayMode: "packed", height: track.height))
+                facts.append(ViewerGraphicTrackFact(
+                    id: id, kind: "alignment", displayMode: "packed", height: track.height,
+                    minMapQ: options.minMapQ > 0 ? options.minMapQ : nil
+                ))
             } else if let info = manifest.variants.first(where: { $0.id == id }) {
                 guard let databasePath = info.databasePath else {
                     notDrawn.append(ViewerFigureOmission(trackID: id, kind: .trackNotDrawn, reason: "no variant database", count: nil))

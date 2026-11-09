@@ -297,6 +297,17 @@ extension AppDelegate {
         )
     }
 
+    /// The three cutoffs the view-state file carries for the figure's reads and depth (EXPORT-DEPTH-FILTERS). The window
+    /// fetches its reads at `minMapQSetting` alone and counts its depth at the larger of that and
+    /// `consensusMinMapQSetting`, with `consensusMinBaseQSetting` (`SequenceViewerView+Alignment.swift:40,360-361,696`).
+    /// Each is clamped at 0 and is nil at 0, so a window at the defaults writes the file it wrote before.
+    nonisolated static func viewerGraphicsExportCutoffs(
+        minMapQ: Int, consensusMinMapQ: Int, consensusMinBaseQ: Int
+    ) -> (readMinMapQ: Int?, depthMinMapQ: Int?, depthMinBaseQ: Int?) {
+        func cutoff(_ value: Int) -> Int? { value > 0 ? value : nil }
+        return (cutoff(minMapQ), cutoff(max(minMapQ, consensusMinMapQ)), cutoff(consensusMinBaseQ))
+    }
+
     /// Builds the leaf's invocation from the view of the viewer that draws the bundle, writes `view-state.json` and
     /// begins the row. The window, the selection and the read settings are that viewer's (2.14 lane OBS11).
     private static func startViewerGraphicsExport(
@@ -326,10 +337,16 @@ extension AppDelegate {
                 appearance: view.effectiveAppearance,
                 alignment: drawsAlignment ? (view.excludeFlagsSetting, view.coverageScaleModeSetting) : nil
             )
-            // The window's Hide high-gap sites switch travels in the view-state file, nil when off, so the file at the
-            // defaults is the file the app wrote before (ALIGN-IMAGE-EXPORT-MASKING).
+            // The window's Hide high-gap sites switch and its mapping-quality and base-quality cutoffs travel in the
+            // view-state file, nil when off or 0, so the file at the defaults is the file the app wrote before
+            // (ALIGN-IMAGE-EXPORT-MASKING, EXPORT-DEPTH-FILTERS).
+            let cutoffs = Self.viewerGraphicsExportCutoffs(
+                minMapQ: view.minMapQSetting, consensusMinMapQ: view.consensusMinMapQSetting,
+                consensusMinBaseQ: view.consensusMinBaseQSetting
+            )
             settings.viewState = try ViewerGraphicViewState(
-                sampleDisplay: view.sampleDisplayState, hideHighGapSites: view.consensusMaskingEnabledSetting ? true : nil
+                sampleDisplay: view.sampleDisplayState, hideHighGapSites: view.consensusMaskingEnabledSetting ? true : nil,
+                readMinMapQ: cutoffs.readMinMapQ, depthMinMapQ: cutoffs.depthMinMapQ, depthMinBaseQ: cutoffs.depthMinBaseQ
             ).write(besideOutput: outputURL).path
             invocation = ViewerGraphicExport.invocation(
                 bundleURL: bundleURL, settings: settings, outputURL: outputURL,
