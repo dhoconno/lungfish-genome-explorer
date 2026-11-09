@@ -3054,8 +3054,8 @@ final class NaoMgsSummaryBar: GenomicSummaryCardBar {
             samplesLabel = "\(selectedCount) of \(allSampleCount) samples"
         }
 
-        let rows = (try? database.fetchTaxonSummaryRows(samples: selectedSamples)) ?? []
-        taxaLabel = rows.count == 1 ? "1 taxon" : "\(rows.count) taxa"
+        let taxonCount = Set(((try? database.fetchTaxonSummaryRows(samples: selectedSamples)) ?? []).map(\.taxId)).count
+        taxaLabel = taxonCount == 1 ? "1 taxon" : "\(taxonCount) taxa"
 
         cardsDidChange()
     }
@@ -3075,7 +3075,7 @@ final class NaoMgsSummaryBar: GenomicSummaryCardBar {
         let selectedRows = selectedSampleIds.isEmpty
             ? cachedRows
             : cachedRows.filter { selectedSampleIds.contains($0.sample) }
-        let taxonCount = selectedRows.isEmpty ? (cachedRows.isEmpty ? (manifest?.taxonCount ?? 0) : 0) : selectedRows.count
+        let taxonCount = selectedRows.isEmpty ? (cachedRows.isEmpty ? (manifest?.taxonCount ?? 0) : 0) : Set(selectedRows.map(\.taxId)).count
         taxaLabel = taxonCount == 1 ? "1 taxon" : "\(taxonCount) taxa"
         cardsDidChange()
     }
