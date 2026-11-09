@@ -63,12 +63,43 @@ enum OperationResultNavigation {
         }
 
         await sidebar.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
-        guard sidebar.selectItem(forURL: resultURL, explicit: true) else { return false }
+        guard selectNearestListedCandidate(
+            from: resultURL,
+            upTo: item.routeContext?.projectURL,
+            select: { sidebar.selectItem(forURL: $0, explicit: true) }
+        ) else { return false }
 
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         return true
+    }
+
+    /// Asks `select` for the result's own row, then for each folder above it below the project, and stops at the
+    /// first the sidebar lists (OPS-RESULTS-BLAST-ANCESTOR). The closure stands for the sidebar in tests.
+    static func selectNearestListedCandidate(
+        from resultURL: URL,
+        upTo projectURL: URL?,
+        select: (URL) -> Bool
+    ) -> Bool {
+        selectionCandidates(from: resultURL, upTo: projectURL).contains(where: select)
+    }
+
+    /// The result's own URL, then each parent folder below the project, nearest first. A route with no project, or a
+    /// result outside the project, yields the result alone, so the walk never climbs into another project's folders.
+    static func selectionCandidates(from resultURL: URL, upTo projectURL: URL?) -> [URL] {
+        let result = resultURL.standardizedFileURL
+        guard let projectURL else { return [result] }
+        let insideProject = projectURL.standardizedFileURL.resolvingSymlinksInPath().path + "/"
+        var candidates = [result]
+        var current = result
+        while true {
+            let parent = current.deletingLastPathComponent().standardizedFileURL
+            guard parent.resolvingSymlinksInPath().path.hasPrefix(insideProject) else { break }
+            candidates.append(parent)
+            current = parent
+        }
+        return candidates
     }
 
     /// The folder of a BLAST search that collected its record (`blast submit` writes `blast-result.json` last). A BLAST
