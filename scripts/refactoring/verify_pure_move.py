@@ -20,12 +20,10 @@ Two things are tolerated and printed as INFO.
   so a split of one extension over several files passes.
 
 Run check. Per added file, the added lines are cut into maximal runs that are
-consecutive in the removed lines of one hunk, and the bare `}` lines that follow
-a run belong to it, since git may line a block's closing brace up with another
-`}`. A run of fewer than 3 lines that is not made of bare `}` lines fails as
-RUN-BREAK, so two swapped statements fail and a block split over several new
-files passes. A move of fewer than 3 lines fails too. A reorder of whole members
-is not caught, so it lands alone.
+consecutive in the removed lines of one hunk. A run of fewer than 3 lines that is
+not made of bare `}` lines fails as RUN-BREAK, so two swapped statements fail and
+a block split over several new files passes. A move of fewer than 3 lines fails
+too. A reorder of whole members is not caught, so it lands alone.
 
 --access-only proves a widening commit alone. In each hunk the removed and added
 lines pair one to one and in order, and a pair is equal once one access word
@@ -190,8 +188,6 @@ def run_breaks(segments, added, dropped):
                 i += 1
                 continue
             run = best
-            while i + run < len(seq) and seq[i + run][1] == "}":
-                run += 1
             if run < MIN_RUN and any(text != "}" for _, text in seq[i:i + run]):
                 problems.append((path, seq[i][0], run, seq[i][1]))
             i += run
