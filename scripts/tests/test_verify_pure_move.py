@@ -3,6 +3,7 @@
 Run from the repository root:
     /opt/homebrew/bin/python3 -m unittest scripts/tests/test_verify_pure_move.py
 """
+import os
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,8 @@ import unittest
 from pathlib import Path
 
 VERIFY = Path(__file__).resolve().parents[1] / "refactoring" / "verify_pure_move.py"
+# A hook sets GIT_DIR, which would send every git call of these tests to the real repository.
+ENV = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
 
 
 class Repo:
@@ -24,7 +27,7 @@ class Repo:
         done = subprocess.run(
             ["git", "-C", str(self.root), "-c", "user.name=Test", "-c", "user.email=test@example.com",
              "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", *args],
-            check=True, capture_output=True, text=True)
+            check=True, capture_output=True, text=True, env=ENV)
         return done.stdout.strip()
 
     def commit(self, files):
@@ -45,7 +48,7 @@ class VerifierCase(unittest.TestCase):
             base = repo.commit(before)
             head = repo.commit(after)
             done = subprocess.run([sys.executable, str(VERIFY), *flags, root, base, head],
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, env=ENV)
             return done.returncode, done.stdout, done.stderr
 
 

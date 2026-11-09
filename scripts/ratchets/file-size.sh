@@ -14,9 +14,22 @@ Usage:
     scripts/ratchets/file-size.sh --print      # print each over-limit file and its length, no pass/fail
     scripts/ratchets/file-size.sh --update     # rewrite the baseline to the current state
                                                  (only for a deliberate, reviewed change)
+    scripts/ratchets/file-size.sh --renames <base>
+                                               # re-key the baseline rows of renamed files, then check
 
-Exit codes: 0 = no new oversize file and no baselined file grew, 1 = violation.
+--renames reads `git diff -M --name-status <base>..HEAD`. A baselined file that the
+diff shows renamed moves its row to the new path with the same number, or with the
+file's length when that is lower, and a renamed file of 800 lines or fewer drops its
+row. It refuses, with the baseline untouched, a rename whose file is longer than the
+recorded number or whose new path already has a row. It adds a row for nothing else,
+so a new oversize file still fails the check that follows. Like --update it writes
+the baseline in a read-only run and skips the automatic lowering, since a lane asks
+for it by name. The blanket --update stays as it is.
+
+Exit codes: 0 = no new oversize file and no baselined file grew, 1 = violation,
+2 = --renames could not read its base.
 """
+import subprocess
 import sys
 from pathlib import Path
 
@@ -60,6 +73,73 @@ def read_baseline():
     return entries
 
 
+def baseline_path(row):
+    """The path of a baseline row, or None for a blank or comment row."""
+    text = row.strip()
+    return None if not text or text.startswith("#") else text.rpartition(" ")[0]
+
+
+def renamed_pairs(base):
+    """The (old, new) paths of the renames in git diff -M --name-status <base>..HEAD, or None when git fails."""
+    done = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "-c", "core.quotepath=false", "diff", "-M", "--name-status", "-z", f"{base}..HEAD"],
+        capture_output=True, text=True,
+    )
+    if done.returncode != 0:
+        return None
+    fields, pairs, i = done.stdout.split("\0"), [], 0
+    while i < len(fields) and fields[i]:
+        if fields[i][0] == "R":
+            pairs.append((fields[i + 1], fields[i + 2]))
+        i += 3 if fields[i][0] in "RC" else 2
+    return pairs
+
+
+def apply_renames(base):
+    """Re-key the baseline rows of the files that git shows renamed since base. Returns 0, or a nonzero
+    status with the reasons printed and the baseline untouched."""
+    pairs = renamed_pairs(base)
+    if pairs is None:
+        print(f"file-size: git diff -M --name-status {base}..HEAD failed, so no rename was read.", file=sys.stderr)
+        return 2
+    baseline = read_baseline()
+    if baseline is None:
+        print(f"file-size: no baseline recorded at {BASELINE_FILE}.", file=sys.stderr)
+        return 1
+    drop, add, notes, refusals = set(), {}, [], []
+    for old, new in pairs:
+        if old not in baseline:
+            continue
+        path = REPO_ROOT / new
+        size = count_lines(path) if new.startswith("Sources/") and new.endswith(".swift") and path.is_file() else 0
+        if new in baseline:
+            refusals.append(f"  {old} -> {new}: the new path already has a baseline row")
+        elif size > baseline[old]:
+            refusals.append(f"  {old} -> {new}: {size} lines, longer than the recorded {baseline[old]}, and --renames never raises a number")
+        elif size <= LIMIT:
+            drop.add(old)
+            notes.append(f"  {old} -> {new}: {size} lines, at or under {LIMIT}, so its row is dropped")
+        else:
+            drop.add(old)
+            add[new] = size
+            notes.append(f"  {old} -> {new}: {size} lines, was {baseline[old]}")
+    if refusals:
+        print("file-size: --renames refuses these renames and leaves the baseline as it was.", file=sys.stderr)
+        for line in refusals:
+            print(line, file=sys.stderr)
+        return 1
+    if drop:
+        rows = [row for row in BASELINE_FILE.read_text(encoding="utf-8").splitlines() if baseline_path(row) not in drop]
+        for new, size in sorted(add.items()):
+            at = next((i for i, row in enumerate(rows) if (baseline_path(row) or "") > new), len(rows))
+            rows.insert(at, f"{new} {size}")
+        BASELINE_FILE.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    print(f"file-size: --renames re-keyed {len(drop)} baseline row(s).")
+    for line in notes:
+        print(line)
+    return 0
+
+
 def main(argv):
     current = oversize_files()
 
@@ -75,6 +155,15 @@ def main(argv):
         BASELINE_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
         print(f"Updated baseline to {len(current)} files over {LIMIT} lines.")
         return 0
+
+    if "--renames" in argv:
+        at = argv.index("--renames") + 1
+        if at >= len(argv) or argv[at].startswith("--"):
+            print("file-size: --renames needs a base commit, as in --renames <base>.", file=sys.stderr)
+            return 2
+        status = apply_renames(argv[at])
+        if status != 0:
+            return status
 
     baseline = read_baseline()
     if baseline is None:
@@ -116,4 +205,6 @@ def main(argv):
 
 if __name__ == "__main__":
     import ratchet_baseline
+    if "--renames" in sys.argv[1:]:
+        sys.exit(main(sys.argv[1:]))
     sys.exit(ratchet_baseline.run(main, sys.argv[1:], BASELINE_FILE))
