@@ -34,12 +34,20 @@ public struct ViewerGraphicViewState: Codable, Sendable, Equatable {
     public var readRowCap: Int?
     /// The sample order, filters, row heights and colour theme the variant track drew with, or nil for the defaults.
     public var sampleDisplay: SampleDisplayState?
+    /// True when the window had Hide high-gap sites on. A figure does not hide those sites, so it records an omission
+    /// that says so (ALIGN-IMAGE-EXPORT-MASKING) and draws every item it draws with the switch off. Nil is off and the
+    /// file then holds no key, so a state at the defaults writes the bytes it wrote before.
+    public var hideHighGapSites: Bool?
 
-    public init(tracks: [Track] = [], readRowCap: Int? = nil, sampleDisplay: SampleDisplayState? = nil) {
+    public init(
+        tracks: [Track] = [], readRowCap: Int? = nil, sampleDisplay: SampleDisplayState? = nil,
+        hideHighGapSites: Bool? = nil
+    ) {
         self.schemaVersion = Self.currentSchemaVersion
         self.tracks = tracks
         self.readRowCap = readRowCap
         self.sampleDisplay = sampleDisplay
+        self.hideHighGapSites = hideHighGapSites
     }
 
     /// The height set for `trackID`, if any.

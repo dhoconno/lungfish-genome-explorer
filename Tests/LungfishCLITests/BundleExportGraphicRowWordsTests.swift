@@ -161,7 +161,7 @@ final class BundleExportGraphicRowWordsTests: XCTestCase {
     /// The level of each kind of fact, a sentence that names no enum case, and the image name the bulk form puts first.
     func testOnlyTheFactsThatLeaveDataOutAreWarnings() {
         let notes: [ViewerFigureOmissionKind] = [.labelsOmitted, .scaleMode, .fontFallback]
-        let warnings: [ViewerFigureOmissionKind] = [.annotationLimit, .readRowCap, .readSample, .trackNotDrawn]
+        let warnings: [ViewerFigureOmissionKind] = [.annotationLimit, .readRowCap, .readSample, .trackNotDrawn, .highGapMasking]
         XCTAssertEqual(Set(notes + warnings), Set(ViewerFigureOmissionKind.allCases), "every kind has a level")
         for kind in notes + warnings {
             let fact = ViewerFigureOmission(trackID: "annotations", kind: kind, reason: "a reason", count: 3)

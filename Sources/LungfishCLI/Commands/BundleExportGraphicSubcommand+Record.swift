@@ -142,17 +142,19 @@ struct BundleExportGraphicRecord {
         case .readSample: what = "drew a sample of the reads"
         case .trackNotDrawn: what = "was not drawn in full"
         case .fontFallback: what = "used another font"
+        case .highGapMasking: what = "still shows the high-gap sites"
         }
         let count = fact.count.map { ", \($0) left out" } ?? ""
         return "\(subject) \(what) (\(fact.reason)\(count))."
     }
 
-    /// A fact that leaves data out of the image is a warning. One that repeats a choice the viewer makes too, labels that
-    /// do not fit, a summary at a zoom and a font that stood in, is a note, and the row stays Completed (UX 2).
+    /// A fact that leaves data out of the image is a warning, and so is one that says the image differs from the window,
+    /// the high-gap sites the window hid. One that repeats a choice the viewer makes too, labels that do not fit, a
+    /// summary at a zoom and a font that stood in, is a note, and the row stays Completed (UX 2).
     static func warns(_ fact: ViewerFigureOmission) -> Bool {
         switch fact.kind {
         case .labelsOmitted, .scaleMode, .fontFallback: return false
-        case .annotationLimit, .readRowCap, .readSample, .trackNotDrawn: return true
+        case .annotationLimit, .readRowCap, .readSample, .trackNotDrawn, .highGapMasking: return true
         }
     }
 

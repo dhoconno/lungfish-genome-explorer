@@ -124,6 +124,9 @@ public enum ViewerFigureOmissionKind: String, Sendable, Hashable, Codable, CaseI
     case fontFallback
     /// A track the figure has no builder for, or a Depth track the figure's scale left out.
     case trackNotDrawn
+    /// The window hid high-gap sites from its reads and the figure draws them. The figure records the difference and
+    /// changes no item (ALIGN-IMAGE-EXPORT-MASKING).
+    case highGapMasking
 }
 
 /// One limit that hid data from a figure, with the track it hit, its reason and the count left

@@ -326,8 +326,11 @@ extension AppDelegate {
                 appearance: view.effectiveAppearance,
                 alignment: drawsAlignment ? (view.excludeFlagsSetting, view.coverageScaleModeSetting) : nil
             )
-            settings.viewState = try ViewerGraphicViewState(sampleDisplay: view.sampleDisplayState)
-                .write(besideOutput: outputURL).path
+            // The window's Hide high-gap sites switch travels in the view-state file, nil when off, so the file at the
+            // defaults is the file the app wrote before (ALIGN-IMAGE-EXPORT-MASKING).
+            settings.viewState = try ViewerGraphicViewState(
+                sampleDisplay: view.sampleDisplayState, hideHighGapSites: view.consensusMaskingEnabledSetting ? true : nil
+            ).write(besideOutput: outputURL).path
             invocation = ViewerGraphicExport.invocation(
                 bundleURL: bundleURL, settings: settings, outputURL: outputURL,
                 force: FileManager.default.fileExists(atPath: outputURL.path)

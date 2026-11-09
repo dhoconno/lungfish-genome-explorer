@@ -222,6 +222,13 @@ extension ViewerGraphicExport {
                 options.excludeFlags = settings.excludeFlags ?? defaultExcludeFlags
                 options.maxRows = viewState?.readRowCap ?? defaultReadRowCap
                 readRowCap = options.maxRows
+                if viewState?.hideHighGapSites == true {
+                    // The window hid high-gap sites from its reads and the figure draws them. The omission says so and
+                    // no item changes (ALIGN-IMAGE-EXPORT-MASKING).
+                    notDrawn.append(ViewerFigureOmission(
+                        trackID: id, kind: .highGapMasking, reason: "Hide high-gap sites applies in the window only", count: nil
+                    ))
+                }
                 let alignmentURL = bundle.resolved(info.sourcePath)
                 let indexURL = bundle.resolved(info.indexPath)
                 let referenceURL = info.format == .cram ? manifest.genome.map { bundle.resolved($0.path) } : nil
