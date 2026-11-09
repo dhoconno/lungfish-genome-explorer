@@ -217,6 +217,9 @@ def check_move(repo, base, head, rows, hunks):
         leftover += collections.Counter()
         if side == "added":
             dropped = collections.Counter({t: n for t, n in wrappers.items() if t != "}"})
+    wrapper_only = [path for path, rows in added.items()
+                    if any(r[1] in dropped for r in rows)
+                    and not any(r[1] != "}" and r[1] not in dropped for r in rows)]
     ok = True
     for text, n in sorted(extra.items()):
         if LOGGER.match(text):
@@ -230,6 +233,9 @@ def check_move(repo, base, head, rows, hunks):
     for path, line, length, text in run_breaks(segments, added, dropped):
         ok = False
         print(f"RUN-BREAK {path}:{line}: {length} line(s) in a row are not consecutive in the removed lines: {text[:120]}")
+    for path in wrapper_only:
+        ok = False
+        print(f"WRAPPER-EMPTY {path}: an extension wrapper was added and no moved line stands inside it")
     print("PURE-MOVE OK" if ok else "NOT A PURE MOVE")
     return 0 if ok else 1
 

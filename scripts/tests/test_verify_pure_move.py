@@ -355,6 +355,56 @@ class MoreMoveCheckTests(VerifierCase):
         self.assertIn("ADDED-NOT-REMOVED x1: extension Stranger {", out)
         self.assertNotIn("INFO wrapper", out)
 
+    def test_wrapper_pair_around_unmoved_lines_fails(self):
+        before = {"Foo.swift": """
+            final class Foo {}
+            func helper() {
+                print("x")
+            }
+            """}
+        after = {"Foo.swift": """
+            final class Foo {}
+            extension Foo {
+            func helper() {
+                print("x")
+            }
+            }
+            """}
+        code, out, _ = self.run_case(before, after)
+        self.assertEqual(code, 1, out)
+        self.assertIn("WRAPPER-EMPTY Foo.swift", out)
+
+    def test_split_wrapper_holding_one_three_line_member_passes(self):
+        before = {"A.swift": """
+            final class A {}
+            extension A {
+                func f() {
+                    a()
+                }
+
+                func g() {
+                    b()
+                }
+            }
+            """}
+        after = {"A.swift": """
+            final class A {}
+            extension A {
+                func f() {
+                    a()
+                }
+            }
+            """, "B.swift": """
+            extension A {
+                func g() {
+                    b()
+                }
+            }
+            """}
+        code, out, _ = self.run_case(before, after)
+        self.assertEqual(code, 0, out)
+        self.assertIn("PURE-MOVE OK", out)
+
     def test_access_word_change_in_a_move_fails(self):
         before = {"Old.swift": """
             final class Widget {
