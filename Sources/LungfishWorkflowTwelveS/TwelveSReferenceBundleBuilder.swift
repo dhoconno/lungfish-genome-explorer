@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 public struct TwelveSReferenceBundleBuildConfiguration: Equatable, Sendable {
     public let deduplicatedFASTA: URL

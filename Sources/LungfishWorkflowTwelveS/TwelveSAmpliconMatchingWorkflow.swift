@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import os.log
 
 private let twelveSWorkflowLogger = Logger(subsystem: "com.lungfish.workflow", category: "TwelveSAmplicon")

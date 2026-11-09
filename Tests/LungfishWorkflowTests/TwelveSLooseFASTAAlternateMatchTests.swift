@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishWorkflowTwelveS
 
 /// Alternate species from the `also_matches=` header field of a loose 12S
 /// reference FASTA, without a `.lungfish12sref` metadata table.

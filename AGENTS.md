@@ -39,19 +39,21 @@ Modules form a stack. Each row imports only rows above it.
 | 1 | LungfishCore |
 | 2 | LungfishIO |
 | 3 | LungfishWorkflow |
+| 3a | LungfishWorkflowTwelveS and each later Workflow domain target (each imports only Core, IO and Workflow) |
 | 4 | LungfishOperations |
 | 5 | LungfishKit |
 | 6 | The ten leaves (LungfishAlignmentUI, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI) |
 | 7 | LungfishApp |
 | 8 | Lungfish (app executable) |
 
-LungfishCLI sits beside the UI stack and imports only Core, IO and Workflow. LungfishCLIExecutable wraps it as `lungfish-cli`.
+LungfishCLI sits beside the UI stack and imports only Core, IO, Workflow and the Workflow domain targets of row 3a. LungfishCLIExecutable wraps it as `lungfish-cli`.
 LungfishExecutor (`lungfish-executor`) and its C wrapper CLungfishExecutor sit beside the stack. LungfishExecutor imports only LungfishPortable and CLungfishExecutor, CLungfishExecutor depends on nothing, and no target but LungfishExecutorTests depends on LungfishExecutor (`scripts/ratchets/portable-imports.sh`).
 
 1. LungfishKit and the leaves never import LungfishApp. A leaf exposes callbacks and the App wires them.
 2. LungfishCLI never imports LungfishKit, LungfishOperations or any UI target.
-3. Logic the CLI must also run belongs in LungfishWorkflow or below. New feature UI belongs in a leaf, not in LungfishApp.
+3. Logic the CLI must also run belongs in LungfishWorkflow, a Workflow domain target of row 3a, or below. New feature UI belongs in a leaf, not in LungfishApp.
 4. LungfishOperations imports only Core, IO and Workflow, and among the source modules only LungfishApp imports it. It holds the UI-free services that LungfishApp calls. A type or member that LungfishApp uses from it takes `package` access.
+5. A domain target imports only rows 0 to 3, LungfishWorkflow never imports a domain target, and a target that names a domain target's type lists it in its own dependencies.
 
 ## Where to find things
 

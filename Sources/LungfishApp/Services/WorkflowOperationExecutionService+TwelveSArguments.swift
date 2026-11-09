@@ -8,6 +8,7 @@
 import Foundation
 import LungfishIO
 import LungfishWorkflow
+import LungfishWorkflowTwelveS
 
 extension WorkflowOperationExecutionService {
 

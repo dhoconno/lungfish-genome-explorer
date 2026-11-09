@@ -1,5 +1,6 @@
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 struct TwelveSFastqRecord: Equatable, Sendable {
     let identifier: String

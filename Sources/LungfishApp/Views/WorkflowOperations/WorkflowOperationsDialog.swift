@@ -2,6 +2,7 @@ import AppKit
 import LungfishIO
 import LungfishKit
 import LungfishWorkflow
+import LungfishWorkflowTwelveS
 import SwiftUI
 import UniformTypeIdentifiers
 

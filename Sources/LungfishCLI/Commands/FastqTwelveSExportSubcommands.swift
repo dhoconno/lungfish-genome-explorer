@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import LungfishCore
 import LungfishWorkflow
+import LungfishWorkflowTwelveS
 
 extension TwelveSResultExportFormat: ExpressibleByArgument {}
 extension TwelveSExportChimeraFilter: ExpressibleByArgument {}

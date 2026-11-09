@@ -265,6 +265,7 @@ let package = Package(
             dependencies: [
                 "LungfishIO",
                 "LungfishWorkflow",
+                "LungfishWorkflowTwelveS",
                 "LungfishTestSupport",
             ],
             path: "Tests/LungfishWorkflowTests",
@@ -274,6 +275,19 @@ let package = Package(
             resources: [
                 .copy("Resources")
             ]
+        ),
+
+        // MARK: - LungfishWorkflowTwelveS (12S amplicon matching, the first Workflow domain target)
+        // Imports only Core, IO and Workflow, and LungfishWorkflow never imports it. It lists no resources, so the bundle
+        // list of scripts/build-app.sh does not change, and no product. A target that names one of its types lists it.
+        .target(
+            name: "LungfishWorkflowTwelveS",
+            dependencies: [
+                "LungfishCore",
+                "LungfishIO",
+                "LungfishWorkflow",
+            ],
+            path: "Sources/LungfishWorkflowTwelveS"
         ),
 
         // MARK: - LungfishOperations (UI-free services extracted from LungfishApp)
@@ -335,6 +349,7 @@ let package = Package(
                 "LungfishCore",
                 "LungfishIO",
                 "LungfishWorkflow",
+                "LungfishWorkflowTwelveS",
                 "LungfishKit",
             ],
             path: "Sources/LungfishTwelveSUI",
@@ -510,6 +525,7 @@ let package = Package(
                 "LungfishCore",
                 "LungfishIO",
                 "LungfishWorkflow",
+                "LungfishWorkflowTwelveS",
                 "LungfishOperations",
                 "LungfishKit",
                 "LungfishTwelveSUI",
@@ -535,7 +551,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppTests",
-            dependencies: ["LungfishApp", "LungfishOperations", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI", "LungfishTaxonomyUI", "LungfishTestSupport", "LungfishKitTestSupport", .product(name: "ViewInspector", package: "ViewInspector")],
+            dependencies: ["LungfishApp", "LungfishOperations", "LungfishKit", "LungfishCLI", "LungfishNvdUI", "LungfishNaoMgsUI", "LungfishTaxTriageUI", "LungfishEsVirituUI", "LungfishGenotypeUI", "LungfishPhylogeneticsUI", "LungfishTaxonomyUI", "LungfishWorkflowTwelveS", "LungfishTestSupport", "LungfishKitTestSupport", .product(name: "ViewInspector", package: "ViewInspector")],
             path: "Tests/LungfishAppTests",
             resources: [
                 .copy("Fixtures")
@@ -548,7 +564,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishAppWorkflowTests",
-            dependencies: ["LungfishApp", "LungfishWorkflow", "LungfishTestSupport", "LungfishKitTestSupport"],
+            dependencies: ["LungfishApp", "LungfishWorkflow", "LungfishWorkflowTwelveS", "LungfishTestSupport", "LungfishKitTestSupport"],
             path: "Tests/LungfishAppWorkflowTests"
         ),
 
@@ -574,6 +590,7 @@ let package = Package(
                 "LungfishCore",
                 "LungfishIO",
                 "LungfishWorkflow",
+                "LungfishWorkflowTwelveS",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/LungfishCLI",
@@ -587,7 +604,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishCLITests",
-            dependencies: ["LungfishCLI", "LungfishIO", "LungfishTestSupport"],
+            dependencies: ["LungfishCLI", "LungfishIO", "LungfishWorkflowTwelveS", "LungfishTestSupport"],
             path: "Tests/LungfishCLITests"
         ),
 

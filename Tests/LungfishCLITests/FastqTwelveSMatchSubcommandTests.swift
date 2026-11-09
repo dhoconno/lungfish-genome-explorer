@@ -2,6 +2,7 @@ import ArgumentParser
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishWorkflow
+@testable import LungfishWorkflowTwelveS
 
 final class FastqTwelveSMatchSubcommandTests: XCTestCase {
     /// Re-review 2. The help says what the command reads, FASTQ files or

@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import LungfishCore
 import LungfishWorkflow
+import LungfishWorkflowTwelveS
 
 struct FastqTwelveSReferenceMetadataSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(

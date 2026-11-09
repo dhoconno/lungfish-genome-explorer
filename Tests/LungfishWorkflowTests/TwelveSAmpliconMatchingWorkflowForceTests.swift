@@ -2,6 +2,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishWorkflowTwelveS
 import XCTest
 
 /// An earlier 12S result must survive a run that fails or is refused, with

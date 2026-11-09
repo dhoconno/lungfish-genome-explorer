@@ -6,6 +6,7 @@ import Foundation
 @testable import LungfishCLI
 import LungfishIO
 import LungfishWorkflow
+import LungfishWorkflowTwelveS
 import XCTest
 
 /// Re-review 2, N6. When a forced `lungfish-cli fastq 12s-match` fails while it

@@ -1,5 +1,6 @@
 import Foundation
 @testable import LungfishWorkflow
+@testable import LungfishWorkflowTwelveS
 import XCTest
 
 /// The join table of docs/design L4. A pair is concordant only when both

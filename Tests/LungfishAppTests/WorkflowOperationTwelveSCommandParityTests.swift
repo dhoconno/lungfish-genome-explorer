@@ -7,6 +7,7 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishWorkflow
+import LungfishWorkflowTwelveS
 @testable import LungfishApp
 @testable import LungfishCLI
 import XCTest

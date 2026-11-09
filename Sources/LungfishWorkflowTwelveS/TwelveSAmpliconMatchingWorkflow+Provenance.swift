@@ -9,6 +9,7 @@ import Foundation
 import CryptoKit
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 extension TwelveSAmpliconMatchingWorkflow {
 

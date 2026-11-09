@@ -15,6 +15,7 @@ import LungfishKit
 import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
+import LungfishWorkflowTwelveS
 
 @MainActor
 private final class TwelveSExportFailureCalls {

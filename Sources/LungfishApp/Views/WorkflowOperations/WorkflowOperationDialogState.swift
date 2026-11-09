@@ -2,6 +2,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishWorkflowTwelveS
 import Observation
 
 enum WorkflowOperationToolKind: Equatable, Sendable {

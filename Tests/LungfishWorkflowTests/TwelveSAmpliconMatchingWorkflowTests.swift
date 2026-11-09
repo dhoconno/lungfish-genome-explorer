@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishWorkflowTwelveS
 
 final class TwelveSAmpliconMatchingWorkflowTests: XCTestCase {
     func testClassifiesBothEndSoftClippedExactTargetMatch() throws {

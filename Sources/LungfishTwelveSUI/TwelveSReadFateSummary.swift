@@ -5,6 +5,7 @@
 import AppKit
 import LungfishIO
 import LungfishWorkflow
+import LungfishWorkflowTwelveS
 import SwiftUI
 
 /// The one-line read fate of a 12S result, and the pairs it left out.

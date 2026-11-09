@@ -12,6 +12,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 /// One fragment of a sample as 12S matching counts it.
 enum TwelveSFragment: Equatable, Sendable {

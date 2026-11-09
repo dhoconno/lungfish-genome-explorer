@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishWorkflowTwelveS
 
 final class TwelveSReferenceBundleBuilderTests: XCTestCase {
     private static let recordSuffix = ".lungfish-provenance.json"

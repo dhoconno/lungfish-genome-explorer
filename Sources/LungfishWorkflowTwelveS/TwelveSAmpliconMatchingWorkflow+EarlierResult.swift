@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishWorkflow
 
 /// A forced 12S run failed after it set the earlier result aside, and the
 /// earlier result could not be moved back either. The description is the

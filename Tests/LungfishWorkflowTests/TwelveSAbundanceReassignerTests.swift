@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishWorkflow
+@testable import LungfishWorkflowTwelveS
 
 final class TwelveSAbundanceReassignerTests: XCTestCase {
 

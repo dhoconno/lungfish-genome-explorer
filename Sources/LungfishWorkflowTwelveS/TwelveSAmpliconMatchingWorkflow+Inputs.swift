@@ -10,6 +10,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 extension TwelveSAmpliconMatchingWorkflow {
 

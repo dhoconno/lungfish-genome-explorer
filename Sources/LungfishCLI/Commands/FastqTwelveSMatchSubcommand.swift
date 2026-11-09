@@ -3,6 +3,7 @@ import Foundation
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import LungfishWorkflowTwelveS
 
 struct FastqTwelveSMatchSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(

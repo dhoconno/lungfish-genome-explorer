@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 public enum TwelveSResultExportFormat: String, CaseIterable, Sendable {
     case csv

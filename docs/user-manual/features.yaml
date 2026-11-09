@@ -1639,11 +1639,11 @@ features:
     outputs: [twelve-s-result, csv, tsv, xlsx]
     viewport_class: taxonomy
     sources:
-      - Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow.swift
-      - Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow+Fragments.swift
-      - Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow+Inputs.swift
-      - Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow+EarlierResult.swift
-      - Sources/LungfishWorkflow/TwelveS/TwelveSFragmentCall.swift
+      - Sources/LungfishWorkflowTwelveS/TwelveSAmpliconMatchingWorkflow.swift
+      - Sources/LungfishWorkflowTwelveS/TwelveSAmpliconMatchingWorkflow+Fragments.swift
+      - Sources/LungfishWorkflowTwelveS/TwelveSAmpliconMatchingWorkflow+Inputs.swift
+      - Sources/LungfishWorkflowTwelveS/TwelveSAmpliconMatchingWorkflow+EarlierResult.swift
+      - Sources/LungfishWorkflowTwelveS/TwelveSFragmentCall.swift
       - Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift
       - Sources/LungfishTwelveSUI/TwelveSReadFateSummary.swift
       - Sources/LungfishTwelveSUI/TwelveSCountUnit.swift

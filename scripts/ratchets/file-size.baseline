@@ -9,7 +9,7 @@ Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 843
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1317
 Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1060
 Sources/LungfishApp/Services/ProjectStorageCoordinator.swift 960
-Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift 1068
+Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift 1069
 Sources/LungfishApp/Views/AI/AIAssistantPanel.swift 1012
 Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift 1112
 Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift 2453
@@ -65,8 +65,8 @@ Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 872
 Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift 853
 Sources/LungfishApp/Views/Viewer/ViewerViewController.swift 2919
 Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift 1822
-Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift 2040
-Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift 1077
+Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift 2041
+Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift 1078
 Sources/LungfishCLI/Commands/BAMCommand.swift 1071
 Sources/LungfishCLI/Commands/ExtractReadsCommand.swift 929
 Sources/LungfishCLI/Commands/GATKCommand.swift 1094
@@ -189,5 +189,5 @@ Sources/LungfishWorkflow/Storage/ProjectStorageCleanupExecutor.swift 2486
 Sources/LungfishWorkflow/Storage/ProjectStorageCleanupReceiptWriter.swift 1680
 Sources/LungfishWorkflow/Storage/ProjectStorageScanner.swift 1567
 Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift 1596
-Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconMatchingWorkflow.swift 1010
 Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift 1709
+Sources/LungfishWorkflowTwelveS/TwelveSAmpliconMatchingWorkflow.swift 1011

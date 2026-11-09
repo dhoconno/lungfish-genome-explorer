@@ -8,6 +8,7 @@ import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
 import LungfishWorkflow
+import LungfishWorkflowTwelveS
 import os
 @testable import LungfishApp
 @testable import LungfishCLI

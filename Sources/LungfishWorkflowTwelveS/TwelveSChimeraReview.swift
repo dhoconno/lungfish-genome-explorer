@@ -1,5 +1,6 @@
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 public struct TwelveSChimeraReviewResult: Equatable, Sendable {
     public let statusesBySequenceID: [String: TwelveSChimeraStatus]

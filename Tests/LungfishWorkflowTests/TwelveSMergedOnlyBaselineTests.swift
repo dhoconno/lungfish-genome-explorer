@@ -1,6 +1,7 @@
 import Foundation
 import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishWorkflowTwelveS
 import XCTest
 
 /// Pins every result file a merged-only 12S run writes, byte for byte,

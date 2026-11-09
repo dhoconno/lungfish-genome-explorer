@@ -4976,8 +4976,8 @@ operations:
       - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift
       - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift
       - Sources/LungfishApp/Views/Inspector/Sections/TwelveSResultDisplaySection.swift
-      - Sources/LungfishWorkflow/TwelveS/TwelveSAmpliconReadClassifier.swift
-      - Sources/LungfishWorkflow/TwelveS/TwelveSAbundanceReassigner.swift
+      - Sources/LungfishWorkflowTwelveS/TwelveSAmpliconReadClassifier.swift
+      - Sources/LungfishWorkflowTwelveS/TwelveSAbundanceReassigner.swift
       - Sources/LungfishTwelveSUI/TwelveSResultDisplayState.swift
       - Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift
       - Sources/LungfishApp/Services/WorkflowLibrary.swift

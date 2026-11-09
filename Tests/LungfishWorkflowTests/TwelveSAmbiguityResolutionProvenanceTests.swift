@@ -1,6 +1,7 @@
 import Foundation
 import LungfishIO
 @testable import LungfishWorkflow
+@testable import LungfishWorkflowTwelveS
 import XCTest
 
 /// The ambiguity-resolution policy is a choice that changes 12S counts, so
