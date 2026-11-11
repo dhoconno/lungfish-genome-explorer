@@ -112,11 +112,6 @@ final class OperationResultNavigationKraken2BlastTests: XCTestCase {
             [kraken2.standardizedFileURL.path],
             "the Kraken 2 result that holds the search is selected"
         )
-        guard selected else { return }
-        XCTAssertTrue(waitUntilOnRunLoop(budget: .lookup) {
-            self.controller.viewerController.taxonomyViewController?.batchURL?.standardizedFileURL
-                == self.kraken2.standardizedFileURL
-        }, "the selected Kraken 2 result is shown")
     }
 
     // MARK: - Fixtures

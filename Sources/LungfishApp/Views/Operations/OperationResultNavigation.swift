@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishIO
 import LungfishKit
 
 /// Selects a completed operation's persisted result in the originating project window.
@@ -38,12 +39,19 @@ enum OperationResultNavigation {
 
     /// Resolves the exact originating window first. If that window has since
     /// closed, an explicit Results click may use another open window for the
-    /// same project. A projectless stale route never falls back globally.
+    /// same project. A projectless stale route never falls back globally. A row
+    /// begun with no route, as every BLAST row is, goes to the window of the
+    /// project that holds its result.
     static func targetController(
         for item: OperationCenter.Item,
         appDelegate: AppDelegate? = .shared
     ) -> MainWindowController? {
         guard let appDelegate else { return nil }
+        // A row begun with no route (every BLAST row) goes to the window of the project that holds its result,
+        // never to whichever window is key (ROW12).
+        if item.routeContext == nil, let project = resultURL(for: item).flatMap(ProjectTempDirectory.findProjectRoot) {
+            return appDelegate.controller(forProjectURL: project)
+        }
         if let exact = appDelegate.targetMainWindowController(routeContext: item.routeContext) {
             return exact
         }
@@ -68,12 +76,13 @@ enum OperationResultNavigation {
     }
 
     /// Reloads `sidebar` and selects the item's result, or the nearest folder above it that the sidebar lists. The walk
-    /// stops at the route's project. A test calls this with a real sidebar, since `navigate(to:)` reaches its window only
-    /// through `AppDelegate.shared`.
+    /// stops at the route's project, or, for a row with no route, at the `.lungfish` folder that holds the result (ROW12).
+    /// A test calls this with a real sidebar, since `navigate(to:)` reaches its window only through `AppDelegate.shared`.
     static func selectResult(of item: OperationCenter.Item, in sidebar: SidebarViewController) async -> Bool {
         guard let resultURL = resultURL(for: item) else { return false }
         await sidebar.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
-        return selectNearestListedCandidate(from: resultURL, upTo: item.routeContext?.projectURL) {
+        let projectURL = item.routeContext?.projectURL ?? ProjectTempDirectory.findProjectRoot(resultURL)
+        return selectNearestListedCandidate(from: resultURL, upTo: projectURL) {
             sidebar.selectItem(forURL: $0, explicit: true)
         }
     }
