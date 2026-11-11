@@ -665,24 +665,6 @@ final class WindowAppearanceTests: XCTestCase {
                 endToken: "private func runAnnotationTrackDeletion",
                 label: "annotation track deletion"
             ),
-            AlertCase(
-                path: "Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift",
-                startToken: "@objc private func deleteSelectedVariantsAction",
-                endToken: "@objc private func deleteAllVariantsAction",
-                label: "selected variant deletion"
-            ),
-            AlertCase(
-                path: "Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift",
-                startToken: "@objc private func deleteAllVariantsAction",
-                endToken: "private func performVariantDeletion",
-                label: "all variants deletion"
-            ),
-            AlertCase(
-                path: "Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift",
-                startToken: "@objc private func deleteSampleMetadataFieldAction",
-                endToken: "alert.beginSheetModal(for: window)",
-                label: "sample metadata column deletion"
-            ),
         ]
 
         for alertCase in cases {

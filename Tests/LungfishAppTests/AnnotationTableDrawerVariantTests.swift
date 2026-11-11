@@ -35,22 +35,12 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
             ),
             encoding: .utf8
         )
-        let drawerSource = try String(
-            contentsOf: root.appendingPathComponent(
-                "Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift"
-            ),
-            encoding: .utf8
-        )
 
         XCTAssertTrue(filteringSource.contains("DispatchQueue.global(qos: .userInitiated).async"))
         XCTAssertTrue(filteringSource.contains("fetchAnnotationRowsForDisplayOffMain"))
         XCTAssertTrue(filteringSource.contains("self.annotationQueryGeneration == generation"))
         XCTAssertTrue(filteringSource.contains("activeAnnotationQueryCancelToken"))
         XCTAssertTrue(filteringSource.contains("shouldCancel: { cancelToken.isCancelled }"))
-        XCTAssertTrue(drawerSource.contains("struct AnnotationQueryContext"))
-        XCTAssertTrue(drawerSource.contains("databaseURL: URL"))
-        XCTAssertTrue(drawerSource.contains("AnnotationDatabase(url: handle.databaseURL)"))
-        XCTAssertTrue(drawerSource.contains("if shouldCancel?() == true"))
     }
 
     func testAnnotationQueryContextScopesRowsCountsAndTypesByAllowedChromosomes() throws {

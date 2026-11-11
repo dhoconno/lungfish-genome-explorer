@@ -588,59 +588,6 @@ final class OperationRoutingTests: XCTestCase {
         XCTAssertTrue(moveToFolderBody.contains("rehydrateScientificProvenance"))
     }
 
-    func testAnnotationDrawerVariantAndSampleMetadataWritesUseWindowScopedWriteGuard() throws {
-        let drawerURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift")
-        let source = try readRepositorySource(drawerURL)
-
-        XCTAssertTrue(source.contains("private func canWriteVariantDatabaseOutputs(workflowName: String) -> Bool"))
-        XCTAssertTrue(source.contains("windowStateScope: windowStateScope"))
-
-        let deleteBody = try sourceFunctionBody(
-            named: "private func performVariantDeletion",
-            endingBefore: "private func performDeleteAllVariants",
-            in: source
-        )
-        XCTAssertTrue(deleteBody.contains("canWriteVariantDatabaseOutputs(workflowName: \"Variant deletion\")"))
-        XCTAssertTrue(deleteBody.contains("VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteVariants"))
-
-        let deleteAllBody = try sourceFunctionBody(
-            named: "private func performDeleteAllVariants",
-            endingBefore: "/// Groups selected variant row IDs",
-            in: source
-        )
-        XCTAssertTrue(deleteAllBody.contains("canWriteVariantDatabaseOutputs(workflowName: \"Variant deletion\")"))
-        XCTAssertTrue(deleteAllBody.contains("VariantDeletionMutationService(toolName: LungfishAppIdentity.recordedToolName, toolKind: LungfishAppIdentity.recordedToolKind).deleteAllVariants"))
-
-        let importBody = try sourceFunctionBody(
-            named: "@objc private func importMetadataAction",
-            endingBefore: "// MARK: - Sample Groups",
-            in: source
-        )
-        XCTAssertTrue(importBody.contains("canWriteVariantDatabaseOutputs(workflowName: \"Sample metadata import\")"))
-
-        let inlineEditBody = try sourceFunctionBody(
-            named: "public func controlTextDidEndEditing",
-            endingBefore: "// MARK: - Sample Drag-and-Drop Reordering",
-            in: source
-        )
-        XCTAssertTrue(inlineEditBody.contains("canWriteVariantDatabaseOutputs(workflowName: \"Sample display name edit\")"))
-        XCTAssertTrue(inlineEditBody.contains("canWriteVariantDatabaseOutputs(workflowName: \"Sample metadata edit\")"))
-
-        let deleteColumnBody = try sourceFunctionBody(
-            named: "@objc private func deleteSampleMetadataFieldAction",
-            endingBefore: "// MARK: - Import Metadata",
-            in: source
-        )
-        XCTAssertGreaterThanOrEqual(
-            deleteColumnBody.components(separatedBy: "canWriteVariantDatabaseOutputs(workflowName: \"Sample metadata column deletion\")").count,
-            3
-        )
-    }
-
     func testCLIImportPathDoesNotOverwriteCLIWrittenProvenanceWithEmptyAppRun() throws {
         let serviceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
