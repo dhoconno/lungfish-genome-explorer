@@ -496,7 +496,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     var variantQueryGeneration: Int = 0
 
     /// Whether a variant query is currently in progress on a background thread.
-    private(set) var isVariantQuerying: Bool = false
+    var isVariantQuerying: Bool = false
 
     /// Cached global results for the last filter-driven variant query.
     /// Used to make viewport exploration fast without re-running genome-wide SQL.
@@ -1393,7 +1393,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         ScopedEventFilter.scopedUserInfo(userInfo, scope: windowEventScope)
     }
 
-    private func canWriteVariantDatabaseOutputs(workflowName: String) -> Bool {
+    func canWriteVariantDatabaseOutputs(workflowName: String) -> Bool {
         let projectURL = searchIndex?.variantDatabaseHandles
             .compactMap { ProjectTempDirectory.findProjectRoot($0.db.databaseURL) }
             .first
@@ -1405,7 +1405,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         ) ?? true
     }
 
-    private func variantDatabaseBundleURL(from searchIndex: AnnotationSearchIndex) -> URL? {
+    func variantDatabaseBundleURL(from searchIndex: AnnotationSearchIndex) -> URL? {
         searchIndex.variantDatabaseHandles
             .compactMap { Self.enclosingLungfishBundleURL(for: $0.db.databaseURL) }
             .first
@@ -3062,7 +3062,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
     // MARK: - Delete Actions
 
-    @objc private func deleteSelectedVariantsAction(_ sender: NSMenuItem) {
+    @objc func deleteSelectedVariantsAction(_ sender: NSMenuItem) {
         guard let source = searchIndex else { return }
         let selectedRows = commandSelectionIndexes
         let selectedVariants = selectedRows.compactMap { idx -> AnnotationSearchIndex.SearchResult? in
@@ -3089,7 +3089,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         }
     }
 
-    @objc private func deleteAllVariantsAction(_ sender: NSMenuItem) {
+    @objc func deleteAllVariantsAction(_ sender: NSMenuItem) {
         guard let source = searchIndex else { return }
         let count = totalVariantCount
         guard canWriteVariantDatabaseOutputs(workflowName: "Variant deletion") else { return }
@@ -4453,7 +4453,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         }
     }
 
-    @objc private func importMetadataAction(_ sender: Any?) {
+    @objc func importMetadataAction(_ sender: Any?) {
         guard let searchIndex else { return }
         guard canWriteVariantDatabaseOutputs(workflowName: "Sample metadata import") else { return }
         let panel = ViewerFilePanelFactory.variantSampleMetadataImportPanel()
