@@ -94,7 +94,7 @@ RNA-seq is the first surface the program builds on the finished contracts. It co
 
 ### Prerequisites that must exist first
 
-Do not write STAR, HISAT2, salmon, kallisto, featureCounts or R code until these land. Each one is a program task with its own acceptance test.
+This section dates from 2026-10-02 and no longer binds. The route, the stages and the prerequisites of RNA-seq are set by `docs/plans/2026-10-02-architecture-program.md` under The trust session and Phase 5, and lane SURFACE-RECIPE of that plan rewrites this section. Phase 4 dropped the TrackRenderer protocol and the empty LungfishRNASeq target named below, and no lane waits for them. The science rules further down still hold (contig names are never renamed, the library type is explicit and recorded, TPM is never DE input, no test runs without replicates).
 
 | Prerequisite | Why RNA-seq needs it | Program task |
 |---|---|---|
