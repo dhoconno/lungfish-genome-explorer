@@ -49,6 +49,24 @@ final class BuildDbTaxTriageBAMFitTests: XCTestCase {
         }
     }
 
+    /// A sibling's files in a subfolder of `minimap2/` are refused as in the folder itself (BIO review SF-2). Red at P,
+    /// which records `minimap2/sub/S1_2.S1_2.dwnld.references.bam` (score 30) for S1. S1_2 takes `sub/S1_2.bam` (score
+    /// 10), because the exact-name return looks at the direct children of `minimap2/` alone and the lower score wins;
+    /// the review expected the pipeline name there, which the score order does not give (the run at the head said so).
+    func testSiblingBAMInASubfolderOfMinimap2IsNotRecorded() async throws {
+        let result = root.appendingPathComponent("subfolder", isDirectory: true)
+        for sample in ["S1", "S1_2"] { try writeReport(.organismReport, sample: sample, in: result) }
+        try place(["sub/S1_2.S1_2.dwnld.references.bam", "sub/S1_2.bam"], in: result)
+        let built = try await build(result)
+        let s1Rows = try built.database.fetchRows(samples: ["S1"])
+        XCTAssertFalse(s1Rows.isEmpty, "S1 has rows")
+        for row in s1Rows { XCTAssertNil(row.bamPath, "S1 records no BAM of another sample") }
+        for row in try built.database.fetchRows(samples: ["S1_2"]) {
+            XCTAssertEqual(row.bamPath, "minimap2/sub/S1_2.bam", "S1_2 keeps a file of its own in the subfolder")
+        }
+        XCTAssertEqual(try fittedSamples(built.database), [], "S1_2's file has the pipeline's name, S1 has none")
+    }
+
     /// BIO 1.4 (b) item 3. Reports for S1 alone and `minimap2/S1_2.bam`, a file whose name fits S1 and no other sample
     /// of the result. The build still records it, says so in one line and marks S1 as fitted in the metadata, and an
     /// extraction from the database says the scan's sentence by either form of the result path. Red at P, which
@@ -160,7 +178,9 @@ final class BuildDbTaxTriageBAMFitTests: XCTestCase {
         let minimap2 = result.appendingPathComponent("minimap2", isDirectory: true)
         try FileManager.default.createDirectory(at: minimap2, withIntermediateDirectories: true)
         for name in names {
-            try Data("BAM".utf8).write(to: minimap2.appendingPathComponent(name))
+            let file = minimap2.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("BAM".utf8).write(to: file)
         }
     }
 
