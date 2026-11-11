@@ -326,11 +326,10 @@ struct FASTQOperationExecutionService {
             }
         }
 
-        // A demultiplex writes into the working directory, which `lungfish-cli fastq demultiplex`
-        // refuses while it holds an item, so the inputs of a demultiplex are staged beside it.
+        // A demultiplex stages nothing (`resolvesInputsBeforeCLI`). `lungfish-cli fastq demultiplex` is handed the
+        // bundle the person picked, resolves it and keeps it as the lineage source (DEMUX-STAGED-INPUT).
         let materializationDirectory = request.resolvesInputsBeforeCLI
-            ? (planner.isDemultiplexRequest(request) ? workingDirectory.deletingLastPathComponent() : workingDirectory)
-                .appendingPathComponent("materialized-inputs-\(UUID().uuidString)", isDirectory: true)
+            ? workingDirectory.appendingPathComponent("materialized-inputs-\(UUID().uuidString)", isDirectory: true)
             : nil
         let outputDirectory = planner.executionOutputDirectory(for: request, workingDirectory: workingDirectory)
 
@@ -678,8 +677,8 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
     /// its file in place, a bundle that holds several files is every file
     /// joined in `source-files.json` order, a `fullPaired` bundle is R1 and
     /// R2 interleaved, and a virtual derivative is materialized over every
-    /// file of its root. The exact-bare demultiplex engine reads every file
-    /// of a bundle itself, so it receives the bundle (R3, lane 1x).
+    /// file of its root. A demultiplex is not resolved here, since the CLI is
+    /// handed its bundle (DEMUX-STAGED-INPUT).
     private func resolveSingleExecutionInput(
         from inputURL: URL,
         request: FASTQOperationLaunchRequest,
@@ -688,12 +687,6 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
     ) async throws -> URL {
         let standardizedInputURL = inputURL.standardizedFileURL
         if let bundleURL = SequenceInputResolver.enclosingFASTQBundleURL(for: standardizedInputURL) {
-            if request.allowsDirectMultiFileFASTQBundleInput,
-               !FASTQBundle.isDerivedBundle(bundleURL),
-               let allFASTQURLs = FASTQBundle.resolveAllFASTQURLs(for: bundleURL),
-               allFASTQURLs.count > 1 {
-                return bundleURL
-            }
             let materializedURL = try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
                 fromBundle: bundleURL,
                 tempDirectory: tempDirectory,

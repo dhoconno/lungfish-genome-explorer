@@ -144,3 +144,14 @@ let reads = TestFixtures.sarscov2.pairedFastq  // (r1: URL, r2: URL)
 ## License
 
 Test data from nf-core/test-datasets is MIT licensed.
+
+## demux-staged-input/
+
+DEMUX-PROBE's smallest failing input for DEMUX-STAGED-INPUT (Phase 4 close). `P4PE_S1_L001.fastq.gz` holds 322
+interleaved pairs of 100 bp reads, 644 reads in all, with an Illumina index in each read name (`1:N:0:<index>` and
+`2:N:0:<index>`). It is the file that `lungfish-cli import fastq <folder> --platform illumina` wrote for the paired
+sample `P4PE_S1_L001_R1_001.fastq.gz` and `P4PE_S1_L001_R2_001.fastq.gz`, which BIO's `probe_reads.py make` (seed 4411,
+synthetic reads, no biological data) wrote under `rulings/tmp-DEMUX-PROBE/reads/paired` of the Phase 4 records, so the
+import's clumping set the order of the pairs. The Read Names (header-index) engine with the TruSeq Single Index Set A
+kit splits it into D701 240, D702 204, D703 120, D704 60 and unassigned 20 reads, every pair whole. The tests copy it
+into a throwaway project and make the Subsample by Count bundle around it.

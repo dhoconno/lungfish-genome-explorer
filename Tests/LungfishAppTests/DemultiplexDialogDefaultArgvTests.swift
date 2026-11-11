@@ -56,11 +56,13 @@ final class DemultiplexDialogDefaultArgvTests: XCTestCase {
         }
     }
 
-    /// The split by the read names chooses the i5 orientation of each file of a bundle, so a Read Names pick passes a
-    /// multi-file bundle whole and the dialog does not join its files first (BIO-DEMUX-PARITY section 3, S3).
-    func testReadNamesPickPassesAMultiFileBundleWhole() {
-        XCTAssertTrue(request(engine: .headerIndex).allowsDirectMultiFileFASTQBundleInput)
-        XCTAssertFalse(request(engine: .cutadapt).allowsDirectMultiFileFASTQBundleInput)
+    /// Whatever the engine, the dialog hands the CLI the bundle the person picked and stages no copy of it. The CLI
+    /// resolves a multi-file or derived bundle itself and keeps it as the lineage source (DEMUX-STAGED-INPUT). That
+    /// replaces BIO-DEMUX-PARITY section 3, S3, where only a Read Names pick passed a multi-file bundle whole.
+    func testEveryEngineHandsTheCLITheBundleAndStagesNothing() {
+        XCTAssertFalse(request(engine: .cutadapt).resolvesInputsBeforeCLI)
+        XCTAssertFalse(request(engine: .exactBareBarcode).resolvesInputsBeforeCLI)
+        XCTAssertFalse(request(engine: .headerIndex).resolvesInputsBeforeCLI)
     }
 
     /// The dialog's default argv, run by the CLI on L6's mixed fixture, takes the header route and records it. At

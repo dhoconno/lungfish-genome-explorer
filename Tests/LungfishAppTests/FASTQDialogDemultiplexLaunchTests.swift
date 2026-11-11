@@ -250,12 +250,9 @@ final class FASTQDialogDemultiplexLaunchTests: XCTestCase {
         let row = try XCTUnwrap(run.rowCommand, file: file, line: line)
         XCTAssertTrue(row.hasPrefix("lungfish-cli fastq demultiplex "), row, file: file, line: line)
         XCTAssertFalse(row.contains("materialized-inputs-"), row, file: file, line: line)
-        if FASTQBundle.isDerivedBundle(input) {
-            // The CLI is handed a staged copy of a virtual input and the run deletes it, so the record names no
-            // input to run again and the row keeps its launch command (a row for a later lane).
-            XCTAssertEqual(row, run.commandAtBegin, file: file, line: line)
-            XCTAssertTrue(row.contains(input.path), row, file: file, line: line)
-        } else {
+        // A derived input is handed to the CLI as it is, so its row names the bundle and the run's folder too
+        // (DEMUX-STAGED-INPUT). The checks below hold for a physical and a virtual input alike.
+        do {
             XCTAssertTrue(row.contains(input.lastPathComponent), row, file: file, line: line)
             XCTAssertTrue(row.contains(run.outputDirectory.lastPathComponent), row, file: file, line: line)
             XCTAssertFalse(row.contains("<derived>"), row, file: file, line: line)

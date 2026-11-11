@@ -849,32 +849,18 @@ extension FASTQOperationLaunchRequest {
         }
     }
 
-    var allowsDirectMultiFileFASTQBundleInput: Bool {
-        guard case .derivative(let request, _, _) = self,
-              case .demultiplex(
-                  _,
-                  _,
-                  _,
-                  _,
-                  _,
-                  _,
-                  _,
-                  let engine,
-                  _,
-                  _,
-                  _
-              ) = request else {
-            return false
-        }
-        return engine == .exactBareBarcode || engine == .headerIndex
-    }
-
     /// Whether the dialog resolves each input to files before it runs the CLI.
     /// `fastq genotype` plans each bundle itself (READ-PAIRING.md), so a paired
-    /// derivative is one sample, never an R1 sample and an R2 sample.
+    /// derivative is one sample, never an R1 sample and an R2 sample. A demultiplex
+    /// is handed the bundle the person picked, whether it holds one file, several
+    /// files or is derived. `lungfish-cli fastq demultiplex` resolves it and keeps
+    /// it as the lineage source, so the dialog stages no copy of it
+    /// (DEMUX-STAGED-INPUT).
     var resolvesInputsBeforeCLI: Bool {
         switch self {
         case .savont, .assemble, .ontFluidigmSampleSplit, .ontPacBioBarcodeDemux, .ontGenotyping:
+            return false
+        case .derivative(.demultiplex, _, _):
             return false
         default:
             return true

@@ -43,9 +43,10 @@ import LungfishWorkflow
 ///
 /// A result in the grouped mode has no single manifest command, and its
 /// executed invocations may name staging paths the run deletes, so it is not
-/// refined. A demultiplex never takes its command from the executed
-/// invocations either, since they name the staged copy of the input. Every
-/// other launch request (map, classify, assemble, pbAA and genotyping)
+/// refined. A demultiplex takes its command from the run's record, never from
+/// the executed invocations, and the record names the bundle the person
+/// picked, since the dialog stages no copy of a demultiplex's input
+/// (DEMUX-STAGED-INPUT). Every other launch request (map, classify, assemble, pbAA and genotyping)
 /// already records real paths at `begin`, and none of them is refined.
 enum FASTQOperationRowCommand {
     /// What the row does after a successful run.
@@ -143,11 +144,6 @@ enum FASTQOperationRowCommand {
             if !commands.contains(command) {
                 commands.append(command)
             }
-        }
-        // The dialog hands the CLI a staged copy of a virtual input and the run deletes the staging folder, so a
-        // record that names one holds no input the person can run again. The row keeps its launch command.
-        if commands.contains(where: { $0.contains("materialized-inputs-") }) {
-            return .keep(reason: "the recorded command names a staged copy of the input, which the run deleted")
         }
         return checked(commands)
     }
