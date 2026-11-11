@@ -40,7 +40,7 @@ The owner asked for an independent review of the finished work of Phases 1 to 3,
 | Question | Positions | Ruling |
 |---|---|---|
 | Land the reviewed TwelveS pilot | B3 lands it as the recipe for a new domain target. A1 does not, since it adds a target, a walk row and a packaged-resource risk to a rider Preview for no gain, and new targets are already a known operation | Not landed. Its branch stays in the phase bundle as the recipe. The owner can reverse this at the cost of one landing and one unit tier |
-| The RNA-seq route | A2 runs salmon natively to a count table on a 16 GB Mac and imports nf-core/rnaseq output. B3 runs nf-core/rnaseq through the Nextflow contract. A1 wants one measured run before any pick | Sub-phase 5.0 measures both. Sub-phase 5.1, a count table that opens salmon and nf-core/rnaseq output, is the same on either route and goes first. The default for 5.2 is native salmon, since nf-core/rnaseq needs Docker and defaults to STAR at 32 GB or more, and the owner picks after 5.0 |
+| The RNA-seq route | A2 ran salmon natively on a 16 GB Mac. B3 ran nf-core/rnaseq through the Nextflow contract. A1 wanted one measured run before any pick | The owner's answers changed the premise, and a second round decided it. See The second round below |
 | Session size | B1 wants at least 15 lanes a session. B3 plans four Phase 5 sessions of 5 to 10 lanes | A session under 12 lanes runs as a short job with no meeting and no monitor. A session may run two sub-phases back to back with a Preview at each |
 | The full tier | A3 runs only the integration and conformance tiers after a Preview. Their run time alone is not measured | Adopted, with the first run timed. The whole serial tier runs for a stable release and once a phase |
 | Opus at max for the orchestrator | The owner's direction. B1 found no measurement and estimates $20 to $45 more a session | Adopted as directed. The first session's monitor reports its cost a turn beside 3.3's |
@@ -49,7 +49,7 @@ The owner asked for an independent review of the finished work of Phases 1 to 3,
 
 | Document | Change |
 |---|---|
-| `docs/plans/2026-10-02-architecture-program.md` | The structural program is closed. Phase 4 ends with the Preview of its first session. Phase 5 is rewritten with a user outcome, owner questions with defaults, a trust session, sub-phases 5.0 to 5.3, exits and a computed budget. A process job rebuilds the contract set before the trust session |
+| `docs/plans/2026-10-02-architecture-program.md` | The structural program is closed. Phase 4 ends with the Preview of its first session. Phase 5 is rewritten with a user outcome, the route, the owner's answers, a trust session, sub-phases 5.0 to 5.5, exits and a computed budget. A process job rebuilds the contract set before the trust session |
 | `docs/plans/2026-11-09-phase-4.md` | The remaining order, the walk, the exit checks and the budget are cut to the close. The moves of session 2 are closed and replaced by the split-on-touch rule |
 | `docs/contracts/SCOPE-AND-DELIVERY.md` | Precedence, the structural-lane rule, the truth sweep, plan shape and a computed budget, hang and memory words in the severity table, the probe rule for conditional ratings, truth probes, affected results, the backlog and owner-list rules, and the file-size rule. Audit history and the replaced-decisions table moved out |
 | `docs/contracts/RUNNING-A-PHASE-SESSION.md` | The orchestrator on opus at max with what it never does, reviews capped at two and routed by yield, landing by fast-forward or in batches of three, one unit-tier rule, no Debug pass |
@@ -78,10 +78,27 @@ The rebuild of the contract set to its byte caps, the typed agents, the tracked 
 | B2 F3 | A lane's real rules are a 23.5 KB stack in the records folder titled Phase 3.2 | Lane AGENT-TYPES |
 | B2 F10 | The helpers a session depends on live in the records folder | Lane SESSION-SCRIPTS |
 
+## The second round, after the owner's answers
+
+The owner answered the review's eight questions on 2026-11-11 (O161 to O168 in the program plan). RNA-seq covers bulk and single cell, UMIs, human, rhesus and cynomolgus, and the common Illumina and 10x kits, with heavy compute on Linux through the executor, and the experts pick the route. The science seat and the architecture seat each wrote a second report (`seats/R2-SCIENCE.md`, `seats/R2-ARCH.md`) with the owner's notes from a meeting with RNA-seq users in hand.
+
+| Question | Decision |
+|---|---|
+| What LGE is for | It keeps reads, references and records right, launches and checks quantification, holds the count table, shows a first look and hands off. It fits no statistical model and clusters no cells, since RStudio, Seurat, Scanpy and Loupe stay the users' tools |
+| Bulk | Import first, then salmon on the Mac and on Linux from one plan step. STAR with umi_tools only for UMI kits, on Linux |
+| Single cell | Import Cell Ranger and STARsolo output first, then STARsolo on Linux. Cell Ranger's licence forbids shipping it |
+| Heavy compute | A native tool chain under the executor plan of read preprocessing, with a second plan schema. Not Nextflow on the node |
+| Statistics | An export with a DESeq2 template and an edgeR, limma voom and dream template. An in-app test waits for a user's ask |
+| Order | 5.1 counts in and out, 5.2 cells in and pseudobulk out, 5.3 reference sets and salmon on the Mac, 5.4 the same on Linux, 5.5 STARsolo. The first two need no new tool and no Linux |
+
+Where the two seats differed, the ruling follows the field that owns the question. Bulk runs salmon and not STAR then salmon (science). The `.h5` file is kept and not read, and LGE links no HDF5 library (architecture). The seats are least sure of STARsolo against simpleaf, of the macaque reference defaults, and of whether bulk needs the STAR route at all. Spikes on a CHTC node and five asks of the owner in the plan settle those.
+
+The owner's other answers set a stable release after Phase 4's closing Preview, by a new ordered table in `VERIFICATION-ORDER.md` that builds the stable package once, and the move of the repository to `~/lge` at the close of Phase 4, by a table in `MACHINES.md`.
+
 ## What nobody could check
 
 Who uses LGE and on which channel. Salmon's time and memory on this lab's data, and whether nf-core/rnaseq runs at a useful speed under Docker on Apple silicon, which sub-phase 5.0 measures. Whether the tool families nobody read are wrong, which the truth sweep answers. How the weekly quota weighs opus at max. The run time of the integration and conformance tiers alone.
 
 ## Cost of this review
 
-Six seats on Fable at xhigh, 54 to 63 tool calls each, about 13 to 16 minutes each, three points of the week (81% to 84%).
+Six seats on Fable at xhigh, 54 to 63 tool calls each, about 13 to 16 minutes each, three points of the week (81% to 84%). The second round resumed two seats for 16 and 22 calls.

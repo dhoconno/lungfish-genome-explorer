@@ -61,7 +61,27 @@ Owner direction O68 held RNA-seq until Phases 3 and 4 exit. Phase 4 exits with i
 
 ### User outcome
 
-From the FASTQ files of an infection experiment and a sample sheet, a bench scientist gets gene counts for every sample, a quality table (reads, mapping rate, the library type the tool detected, the viral share) and a differential expression table for a design they wrote, on the Mac they have. Every number equals the tools run by hand on a public test set, and each result records its reference, annotation, library type, tool versions and the `lungfish-cli` command that reproduces it.
+A bench scientist brings bulk or single-cell RNA-seq into LGE, either as results another tool already made or as reads that LGE quantifies on the Mac or on a Linux machine. They get a count table tied to a named reference set, a quality view in the tool's own numbers, and an export that their R or Python workflow reads. Every number equals the tools run by hand on a public test set, and each result records its reference, annotation, kit, instrument, tool versions and the command that reproduces it.
+
+### The route, decided by the second round of the review
+
+The owner left the route to the experts (O166). `seats/R2-SCIENCE.md` and `seats/R2-ARCH.md` of the review hold the reasons and the facts checked.
+
+| Stage | Decision |
+|---|---|
+| Bulk quantification | Import first (nf-core/rnaseq tables, salmon folders, DRAGEN quant files). Then salmon with selective alignment, on the Mac and on Linux from one plan step |
+| Bulk kits with UMIs | Linux only. STAR, then umi_tools with the directional method, then salmon, as nf-core/rnaseq does |
+| Single cell (10x 3' and 5' gene expression) | Import Cell Ranger and STARsolo output first. Then STARsolo on Linux. LGE never ships or downloads Cell Ranger, since its licence forbids it |
+| Heavy compute | Linux, as a native tool chain under the executor plan that read preprocessing uses. The Mac writes a plan folder, any x86-64 Linux machine runs it in the tool image, and the Mac adopts the result folder. No Nextflow on the node |
+| Quality | In LGE, from the tools' own files. A MultiQC report opens as a document |
+| Differential expression and enrichment | Hand off first. One export (raw counts, gene lengths, sample sheet, gene table) with a DESeq2 template and an edgeR, limma voom and dream template. A guarded run in the app comes later, on a user's ask |
+| Pseudobulk | In LGE. It sums UMI counts by sample and by a label table the analyst exports from Seurat or Scanpy |
+| Clustering, annotation, embeddings, spatial | Out. Seurat, Scanpy, Loupe and Xenium Explorer stay the users' tools |
+| Isoforms | Transcript rows are kept and exported. Their analysis is out |
+
+A reference set is one named object with checksums that bulk, single cell, the Mac and Linux share. It holds the genome FASTA, the GTF with its source and release, the transcript FASTA and gene table derived from them, the indexes, and extra sequences such as the virus. The defaults are GRCh38 with GENCODE for human, Mmul_10 with Ensembl for rhesus with T2T-MMU8v2.0 offered beside it, and T2T-MFA8v1.1 with RefSeq for cynomolgus. A virus counts as one feature a genome or segment, carries a not-host flag and stays out of size factors, and counts from two reference sets never join in one table.
+
+One bundle kind holds a result, with a bulk or single-cell modality. A bulk matrix loads whole. A single-cell matrix is kept as given with its checksum and is never loaded, rewritten or converted. One streaming pass writes a per-cell summary to SQLite, and tables page from it. LGE reads Matrix Market text and links no HDF5 library.
 
 ### Owner answers of 2026-11-11
 
@@ -71,10 +91,20 @@ From the FASTQ files of an infection experiment and a sample sheet, a bench scie
 | O162 | Is the first use bulk host-response RNA-seq only? | "We should assume both bulk and single cell RNAseq when this is built" | Phase 5 covers bulk and single-cell |
 | O163 | Hosts and libraries | "We should support UMIs, humans, rhesus, and cynomolgus macaques with common Illumina / 10X workflows." | Three host references, UMI handling, and the common Illumina and 10x kits |
 | O164 | Does the lab run nf-core/rnaseq on CHTC or a server? | "No, but we probably should support using the Linux orchestrator to do the heavy compute, like we do with the read pre-processing." | Heavy alignment and quantification run on Linux through the executor |
-| O165 | May the first release stop at a count table and an export that DESeq2 reads? | "Yes" | Sub-phase 5.1 |
-| O166 | The route | "Whatever the experts decide." The owner's notes from a meeting with RNA-seq users are in `~/lungfish-phase-records/review-2026-11-11/briefs/OWNER-ANSWERS.md` | The second round of the review decides it, in `seats/R2-SCIENCE.md` and `seats/R2-ARCH.md` |
+| O165 | May the first release stop at a count table and an export that DESeq2 reads? | "Yes" | Sub-phase 5.1, and no in-app statistics until a user asks |
+| O166 | The route | "Whatever the experts decide." The owner's notes from a meeting with RNA-seq users are in `~/lungfish-phase-records/review-2026-11-11/briefs/OWNER-ANSWERS.md` | The route decided by the second round of the review, above |
 | O167 | Move the repository out of `~/Documents`? | "This is a good idea. Relocate it somewhere sensible, maybe a new ~/lge folder? Make sure it doesn't break GitHUb" | `docs/contracts/MACHINES.md`, Where the repository lives, at the close of Phase 4 |
 | O168 | Start the user manual now? | "I want to finish all of the phases first, then revisit the user manual and screencasts." | No change |
+
+### Asks of the owner before 5.0
+
+| Ask | Why |
+|---|---|
+| Of the lab's last ten experiments, how many used a bulk kit with UMIs, and how many sampled the same animal more than once? | The first decides whether bulk needs the STAR route in 5.4. The second decides whether a later in-app test must handle repeated animals |
+| Which reference did the lab's existing macaque runs and Cell Ranger references use? | The macaque defaults |
+| Which versions of nf-core/rnaseq and Cell Ranger made the results people hold, with one result folder of each | The importers of 5.1 and 5.2 read those layouts |
+| What does the note "Are S10s available" mean? | The reviewers could not read it |
+| The positive control data from the lab member | The acceptance walk of 5.1 and 5.2. It is not a pin, since it is not public |
 
 ### The trust session, with sub-phase 5.0 inside it
 
@@ -86,67 +116,78 @@ One session of about 16 lanes. It ends in a Preview when a lane lands a fix a us
 | PROBES | The 21 backlog rows whose rating waits on a measurement, each probed in at most 40 calls or rated by BIO as if the condition holds | No row keeps a conditional rating |
 | SCALE-SMOKE | A real-size corpus in the golden cache (a 20,000-record FASTA, a 100,000-read FASTQ bundle, a BAM of about 1 GB, one result of each viewer kind). One XCUI test opens each in the packaged app and fails when the main thread does not answer for 5 s or the footprint passes a bound. MAIN-THREAD-BLOCK leaves the backlog | The test is red on 2026.11.1's FASTA hang and green on the head |
 | MEM-WORDS | A managed tool that ends by SIGKILL or exit 137 says it stopped, most likely for memory, with the peak it reached. The app and the CLI stop in words before they grow past a set share of memory | Tests on a stand-in that is killed |
-| UPGRADE-CORPUS | One project a release, made by the `lungfish-cli` inside the DMGs of Stable 2026.10.29 and the newest Preview, with one result of every kind. A check lists, verifies and exports every result with the candidate's CLI and fails on a difference | The check runs after the golden compare |
+| UPGRADE-CORPUS | One project a release, made by the `lungfish-cli` inside the DMGs of the last stable release and the newest Preview, with one result of every kind. A check lists, verifies and exports every result with the candidate's CLI and fails on a difference | The check runs after the golden compare |
 | AFFECTED | A table in the app of results that a fixed S1 made wrong (result kind, builds, one sentence, what to do). A result whose record names such a build shows the sentence in its viewer and Inspector | A test on a record of an affected build |
 | TWINS | The walk rows left unwalked since 2026.11.3 become XCUI tests in a second profile that does not bind, or close on UX's or BIO's word. The owner list is written new at 20 rows | The list's row count, and the tests on the package |
-| P5-PINS (5.0) | BIO states the public test set (small SRA data, O43), the numbers from salmon and tximport and from DESeq2 run by hand, and which outputs are pinned byte for byte and which by a tolerance | The data in `/Users/Shared/lungfish-golden` with its script in `scripts/golden/` |
-| SPIKE-SALMON (5.0) | No app code. Salmon from a lock entry on Apple silicon. Index and quantification of the test set and of one real-size sample (30 M pairs) on galah, with peak memory, disk and time, and the figure for a 16 GB Mac | A one-page report |
-| SPIKE-NFCORE (5.0) | No app code. The nf-core/rnaseq `test` profile on galah with the lock's Nextflow under Docker, salmon-only and with STAR. Time, peak memory, any container fault, and the result folder's file tree saved as a fixture listing | A one-page report |
-| SPIKE-DESEQ2 (5.0) | No app code. A solved Apple silicon environment with R, tximport and DESeq2 and its explicit lock file, run on the pin matrix | The lock file, or the fallback and its cost |
-| P5-PREMISES (5.0) | ARCH checks every row of 5.1 to 5.3 against the head and writes corrections into this plan as a Premises corrected table | The table, at a commit no more than seven days old |
-| SURFACE-RECIPE (5.0) | The touch-point table of `ADDING-AN-ANALYSIS-SURFACE.md` rewritten from the 12S leaf's 21 App files, with the Workflow Operations dialog as a third launch family in `ADDING-AN-OPERATION.md` | The path check passes |
+| P5-LAYOUT (5.0), opus, no code | The bundle layout in `docs/formats/` and the fixtures. One nf-core/rnaseq result of the yeast test set, salmon folders, a Cell Ranger `outs/` folder cut to about 200 cells, a STARsolo folder, and 10x's public pbmc_1k_v3 matrix | The fixtures in the golden cache with the script that made them |
+| P5-PINS (5.0) | BIO states the numbers from salmon by hand and from the tools' own summaries, and which outputs are pinned byte for byte and which by a tolerance | A pin table in this plan |
+| P5-REFS (5.0) | For human, rhesus and cynomolgus, the assembly and annotation release of each default, and the count of annotation contigs missing from the FASTA, which must be 0 | A one-page report |
+| SPIKE-STREAM (5.0) | No app code. One streaming pass over a matrix of 500,000 cells on the Mac | Under 10 minutes and under 1 GB, or the design of 5.2 changes |
+| SPIKE-SALMON (5.0) | No app code. Salmon from a lock entry on Apple silicon, with index and quantification of one real-size sample on a human and a macaque reference set, peak memory, disk and time | The figure for a 16 GB Mac |
+| P5-PREMISES (5.0) | ARCH checks every row of 5.1 to 5.5 against the head and writes corrections into this plan as a Premises corrected table | The table, at a commit no more than seven days old |
+| SURFACE-RECIPE (5.0) | The touch-point table of `ADDING-AN-ANALYSIS-SURFACE.md` rewritten from the real App files of the 12S leaf and the CZ ID import, with the Workflow Operations dialog as a third launch family in `ADDING-AN-OPERATION.md` | The path check passes |
 
-Exit of 5.0. Q2 to Q6 are answered or defaulted, the two spikes say with numbers what fits galah and a 16 GB Mac, the pin data is in the golden cache, and the tables below are confirmed or corrected. If neither route fits a 16 GB Mac, 5.2 is replanned and the owner is asked.
+Exit of 5.0. The fixtures and pins are in the golden cache, the two spikes have their numbers, and the tables below are confirmed or corrected.
 
-### 5.1, open and trust a count table
-
-The same on either route, so it goes first. It ends in a Preview.
-
-| Lane | Model | Files it owns | Proof |
-|---|---|---|---|
-| ARMS | sonnet | The switches over `FASTQOperationToolID` and the Workflow Operations kind | No `default` arm is left, so a new case fails the build at every arm |
-| CM-TYPE | opus | New `Sources/LungfishIO/Analysis/CountMatrix*.swift` and `ExperimentDesign*.swift` | Round trip. Transcript and gene level with counts, TPM and effective length, sample ids exact |
-| CM-IMPORT | sonnet | `lungfish-cli import rnaseq <folder>` and its Import Center row, for salmon quant folders and for nf-core/rnaseq merged tables | Gene sums equal tximport by hand on the pin set. Source checksums and the detected library type are in the record. A folder that is not a result is refused in words |
-| CM-KIND | sonnet | The bundle kind, the sidebar registry row and the view-switch test | The kind opens in the real-window view-switch test in the same change |
-| CM-LEAF | opus | New target `LungfishRNASeqUI` and the count table viewport through `ResultViewport` | Counts on screen equal the source table cell for cell. Search, sort and a minimum-count filter. Opens the real-size set inside a stated time and footprint |
-| CM-QC | sonnet | The leaf's quality panel | Library size, mapping rate, library type and viral share equal the tool's own files |
-| CM-DESIGN | sonnet | The sample sheet editor and its validation | A sheet whose ids differ from the columns fails with a named error |
-| CM-EXPORT | sonnet | Export for DESeq2 (the quant folders or matrix, the sheet and an R script that uses tximport) | The script runs in the 5.0 environment and equals the pin |
-
-Exit checks. X1 a Preview ships after its walk. X2 an imported table equals its source (BIO's pin). X3 the view-switch test passes with the new kind. X4 the quality numbers equal the tool's files. X5 the two refusals show their words. X6 no S1 or S2 of this Preview is open. Reported and not checked is the count of LungfishApp files edited.
-
-### 5.2, run quantification from LGE
-
-The table is for the default route, native salmon. If the owner picks nf-core/rnaseq at Q6, the lanes are the ten steps of `ADDING-A-NEXTFLOW-WORKFLOW.md` section 8 with the same exits.
+### 5.1, counts in and counts out (bulk, no new tool, no Linux)
 
 | Lane | Model | What it builds | Proof |
 |---|---|---|---|
-| RS-LOCK | sonnet | Salmon in the managed-tools lock and the `rna-seq` pack | Lock tests, `doctor` green |
-| RS-REF | opus | The quantification reference. A transcript FASTA, a transcript-to-gene map from its GTF with its checksum, and extra sequences such as the virus | A transcript id in one and not the other is refused with the names listed. Nothing is renamed |
-| RS-INDEX | opus | The salmon index, cached by FASTA checksum, salmon version, k and decoys | A second run reuses it, and the key is in the record |
-| RS-QUANT | opus | `lungfish-cli rnaseq quant` through the existing executor in a new `LungfishRNASeq` target, one recorded step a sample, mates by `READ-PAIRING.md` | CLI and app parity. The recorded command reproduces the pinned counts within BIO's pin class |
-| RS-PREFLIGHT | sonnet | One shared preflight in Workflow that refuses in words before a run that cannot fit (needs X GB, this Mac has Y, what to try). No queue | A refusal test. No scientific parameter changes |
+| ARMS | sonnet | The switches over `FASTQOperationToolID` and the Workflow Operations kind lose their `default` arms | A new case fails the build at every arm |
+| RS-KIND | sonnet | Targets `LungfishRNASeq` and `LungfishRNASeqUI`, the bundle kind with its manifest, the registry rows and a stub surface | The kind opens from the sidebar and joins the view-switch test |
+| RS-BULK-IMPORT | opus | `lungfish-cli rnaseq import` for a plain table, salmon folders, nf-core/rnaseq tables and DRAGEN quant files, with the sample sheet | Counts equal the source by value. Gene sums equal tximport by hand. Sample ids that differ are refused in words. The record states what the files state and reads Not recorded for the rest |
+| RS-BULK-VIEW | opus | The table with gene search, and the quality view (library size, mapping rate, detected library type, rRNA and virus share, a sample correlation plot) | The table equals `counts.tsv`, and the quality numbers equal the tool's files |
+| RS-HANDOFF | sonnet, BIO review | The export with the DESeq2 template and the edgeR, limma voom and dream template | Each template runs in a locked R environment on the pin and equals the numbers by hand |
+| RS-INSTRUMENT | sonnet | At FASTQ import, the instrument id, run number, flowcell and lanes from the read names, a model inferred from the id and marked inferred, and `RunInfo.xml` when a run folder is at hand | A test on read names of three instrument families |
+| RS-GLUE | sonnet, UX review | The Import Center card, its sheet and the CLI runner | The sheet's argv parses through the real subcommand |
+
+Exit checks. X1 a Preview ships after its walk, which imports the lab's positive control. X2 an imported table equals its source (BIO's pin). X3 the view-switch test passes with the new kind. X4 the quality numbers equal the tool's files. X5 the refusals show their words. X6 no S1 or S2 of this Preview is open. Reported and not checked is the count of LungfishApp files edited, expected near 7.
+
+### 5.2, cells in and pseudobulk out (single cell, no Linux)
+
+| Lane | Model | What it builds | Proof |
+|---|---|---|---|
+| RS-SC-IMPORT | opus | The Matrix Market reader over the gzip streams, the summarizer and `cells.sqlite`, for Cell Ranger (also `cellranger multi`) and STARsolo folders. The `.h5` file is kept with its checksum and not read | Per-cell sums equal numbers from a tool run directly on the fixture. The tool's own summary is shown as given, with chemistry and version from its files |
+| RS-SC-VIEW | sonnet | The summary, the barcode rank plot and three histograms, paged from SQLite | Bins equal `cells.sqlite`. A matrix of 500,000 cells opens inside the bound of SPIKE-STREAM |
+| RS-PSEUDOBULK | opus, BIO review | `lungfish-cli rnaseq pseudobulk` with a label table (barcode and label). Groups under 10 cells are dropped and said | Sums by group equal an independent sum, and a replay of the recorded command gives the same table |
+| RS-SC-HANDOFF | sonnet | The matrix folder with Seurat and Scanpy templates, and the pseudobulk table into 5.1's export | The templates read the fixture and report the cell count of the tool's summary |
+| RS-SC-GLUE | sonnet, UX review | The import sheet rows and the words | UX reads the words |
+
+Exit checks. X1 the Preview and its walk on the lab's positive control. X2 the per-cell pin. X3 the pseudobulk pin and its replay. X4 the 500,000-cell bound. X5 the templates run. X6 no S1 or S2 open.
+
+### 5.3, reference sets and salmon on the Mac
+
+| Lane | Model | What it builds | Proof |
+|---|---|---|---|
+| RS-LOCK | sonnet | Salmon and gffread in the managed-tools lock for both platforms | Lock tests, `doctor` green |
+| RS-REFSET | opus | The reference set for human, rhesus and cynomolgus with extra sequences, its derived files and its id | A transcript id in one file and not the other is refused with the names listed. Nothing is renamed. A changed virus sequence makes a new id |
+| RS-INDEX | sonnet | The salmon index, cached by the reference set id, salmon version, k and decoys | A second run reuses it, and the key is in the record |
+| RS-QUANT | opus | `lungfish-cli rnaseq quant` through the existing executor, one recorded step a sample, mates by `READ-PAIRING.md`, the virus flagged not-host | CLI and app parity. The recorded command reproduces the pinned counts within BIO's pin class |
+| RS-PREFLIGHT | sonnet | One shared preflight in Workflow that refuses in words before a run that cannot fit, and names the Linux route | A refusal test. No scientific parameter changes |
 | RS-DIALOG | sonnet, UX review | The launch dialog and the Operations row words | UX reads the words |
-| RS-FINALIZE | sonnet | Finalize calls 5.1's import and opens the table | The run's table equals a direct import of the same folder |
-| RS-SCALE | sonnet | A run of 12 samples of 30 M pairs measured on galah, with peak memory and time in the record | The figures in the technical record |
 
 Exit checks. X1 the Preview and its walk from the dialog to a count table. X2 parity. X3 the recorded command reproduces the pin. X4 the reference refusal. X5 the index reuse test. X6 no S1 or S2 open.
 
-### 5.3, compare groups
+### 5.4 and 5.5, the same steps on Linux, then STARsolo
+
+Spikes on a CHTC node come first, by the manager with the owner's CHTC access. They give STAR's peak memory, time and disk for the index and for one sample of 50 million pairs, the minutes a job spends placing a 30 GB index, the megabytes that come home a sample, and STARsolo against simpleaf on pbmc_1k_v3 (called cells, correlation with 10x's public matrix, memory). If simpleaf is as near to Cell Ranger at a fraction of the memory, it replaces STARsolo.
 
 | Lane | Model | What it builds | Proof |
 |---|---|---|---|
-| ENV-DRIFT | sonnet | Before a managed tool runs, its environment is compared with the lock's explicit list. A difference is said in words with Reinstall offered, and the record says the run was off the lock | A test on an environment with one changed package |
-| DE-ENV | sonnet | The locked R environment as a managed tool, with its own library and no user profile | Versions recorded |
-| DE-RUN | opus | `lungfish-cli rnaseq de` in `LungfishRNASeq`. One factor with optional batch and paired subject | It refuses TPM input, a group with no replicates and an id mismatch, each in words |
-| DE-PIN | sonnet, BIO review | The pin test | LGE's table equals DESeq2 run by hand, at printed precision |
-| DE-KIND, DE-VIEW | sonnet, opus | The result kind and its viewport with MA and volcano plots. A row opens its gene in the count table | The view-switch test, and numbers on screen equal the result file |
-| DE-DIALOG | sonnet, UX review | The contrast dialog (design, reference level, threshold) | UX reads the words |
-| DE-TRACE | sonnet | One provenance test | A result traces by checksum to its table, run, reads, FASTA and GTF |
+| EX-SCHEMA, no code | opus | Plan schema 2 in `docs/formats/executor-plan.md`. A `tool` step kind, a `reference` entry role, an output policy a file (home or stays) and a pipeline identity | ARCH and BIO read it |
+| EX-TOOL | opus | Schema 2 in LungfishPortable and the `tool` step in the plan runner | A schema 2 plan with a stand-in tool runs in a Mac replay and in the Linux tier, and no version 1 plan byte moves |
+| EX-IMAGE | sonnet | Salmon, STAR and umi_tools in the Linux lock, and the image rebuilt at CHTC | The image manifest lists each tool at its pin |
+| EX-INDEX | sonnet | `rnaseq index-plan` and the adopted index record. The index stays on Linux | The record's digests equal the run record's outputs |
+| EX-PLAN | sonnet | The plan emitter for bulk (salmon, and the STAR and UMI route when the sheet names a UMI kit), staged reads and the request rule from the spikes | Plan bytes pinned on a fixture |
+| EX-ADOPT | opus | The adopt split into its checks and its payload writer, with the RNA-seq payload | The adopted bundle equals `rnaseq import` of the same folder, and a FASTQ adopt is byte equal to before |
+| EX-APP | sonnet, UX review | The plan sheet and the adopt card | The sheet's argv parses through the real subcommand |
+| EX-LIVE | manager | One real bulk batch on CHTC, compared with the same tools by hand | The comparison in the technical record |
+| SOLO-PLAN (5.5) | opus, BIO review | The 10x chain for 3' and 5' gene expression, with the 10x filter rule on the GTF and the barcode list from the user's install or a licensed public source | STARsolo on pbmc_1k_v3 against 10x's public matrix, at BIO's threshold |
+| SOLO-LIVE (5.5) | manager | One real 10x library on CHTC, adopted | The cells and counts equal the node's own summary |
 
-Exit checks. X1 the Preview and its walk. X2 the DE pin. X3 the three refusals. X4 the recorded command reproduces the table. X5 the trace test. X6 no S1 or S2 open.
+Exit checks. X1 a Preview after 5.4 and one after 5.5, each with its walk of the plan sheet and the adopt. X2 the stand-in parity. X3 the adopted bundle equals a direct import. X4 version 1 plans are unchanged. X5 the live batch equals the tools by hand. X6 no S1 or S2 open.
 
-Phase 5 exits when 5.3's checks pass. Later, and only on a user's ask, come nf-core/rnaseq as a launch (if not picked at Q6), HISAT2 or STAR genome alignment, a junction view as a new layer of the figure scene, resource admission by class, kallisto and single-cell.
+Phase 5 exits when 5.5's checks pass. Later, and only on a user's ask, come a guarded differential expression in the app (edgeR with limma voom, dream for repeated animals, DESeq2 for two groups), fgsea, a launch of the user's own Cell Ranger from a staged archive, an H5 and h5ad converter, nf-core/rnaseq as a Nextflow launch on a Mac with Docker, a splice view, and spatial data.
 
 ### Budget
 
@@ -155,12 +196,12 @@ Computed as `docs/contracts/SCOPE-AND-DELIVERY.md` sets, at $24 a landed lane ($
 | Session | Lanes | Dollars | Week points |
 |---|---|---|---|
 | Trust session with 5.0 | 16 | about $700 | about 36 |
-| 5.1 | 8 | about $560 | about 28 |
-| 5.2 | 8 | about $600 | about 30 |
-| 5.3 | 8 | about $560 | about 28 |
-| Total | 40 | about $2,400, ask line $3,600 | about 122 |
+| 5.1 and 5.2, two Previews | 12 | about $900 | about 45 |
+| 5.3 | 6 | about $500 | about 25 |
+| 5.4 and 5.5, two Previews | 10 | about $900 | about 45 |
+| Total | 44 | about $3,000, ask line $4,500 | about 150 |
 
-The week points bind. A session starts with at least 35 points of the week free, and 5.1 and 5.2 may run back to back in one session when the week allows.
+The week points bind, and a session starts with at least 35 points of the week free.
 
 ## Risk register
 
