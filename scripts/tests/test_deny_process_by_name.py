@@ -168,7 +168,7 @@ class PatternKillHookTests(unittest.TestCase):
                 self.assertFalse(rule.startswith('Edit(.claude') or rule in ('Edit', 'Write', 'Bash', 'Bash(*)'))
         removals = [rule for rule in permissions['allow'] if rule.startswith('Bash(rm ')]
         self.assertEqual(removals, [
-            'Bash(rm -rf /Users/dho/Documents/GitHub/lungfish-genome-explorer/.claude/worktrees/*/.build)',
+            'Bash(rm -rf /Users/dho/lge/lungfish-genome-explorer/.claude/worktrees/*/.build)',
             'Bash(rm -rf /Users/dho/LGE-GUI-Walk/*)',
             'Bash(rm -rf /private/var/tmp/lungfish-smoke-dd*)',
         ])

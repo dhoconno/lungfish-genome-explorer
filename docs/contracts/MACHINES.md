@@ -126,14 +126,6 @@ Every golden run and every provision leaves what it wrote group writable (`share
 
 ## Where the repository lives
 
-The repository moves from `~/Documents/GitHub/lungfish-genome-explorer` to `~/lge/lungfish-genome-explorer` at the close of Phase 4 (owner, 2026-11-11), since macOS privacy prompts for `~/Documents` cost over six hours in Phase 3. No build product, worktree or walk binary may sit under `~/Documents`, `~/Desktop` or `~/Downloads`. The move does not touch GitHub, since the remote is an HTTPS address inside `.git`.
+The repository lives at `~/lge/lungfish-genome-explorer`. The owner moved it there from `~/Documents/GitHub/lungfish-genome-explorer` on 2026-11-11 (O167), since macOS privacy prompts for `~/Documents` cost over six hours in Phase 3. Nothing remains at the old path, and no symlink may be put there, since a symlink brings the prompts back. No build product, worktree or walk binary may sit under `~/Documents`, `~/Desktop` or `~/Downloads`. The move did not touch GitHub, since the remote is an HTTPS address inside `.git`. The golden environment, the phase records and the scratch disk did not move.
 
-| Step | Who | What |
-|---|---|---|
-| 1 | Session | Bundle and remove every agent worktree, archive the sessions that ran in the old path, and check that no build, gate or app runs from it |
-| 2 | Owner | In Terminal, `mkdir ~/lge` and `mv ~/Documents/GitHub/lungfish-genome-explorer ~/lge/`. Leave no symlink at the old path, since a symlink brings the prompts back |
-| 3 | Owner | In GitHub Desktop, choose Locate for the repository and pick the new folder |
-| 4 | New session in the new path | `git worktree repair`, `git status` and `git fetch origin` to prove the remote answers. The first build is cold, since `.build` holds the old path |
-| 5 | New session | Change the paths in `.claude/settings.json` and `scripts/tests/test_deny_process_by_name.py`, run `bash scripts/install-git-hooks.sh`, and copy the memory folder of `~/.claude/projects/` to the new path's key |
-| 6 | New session | `python3 scripts/release/release.py setup` and `doctor`, since the setup proof is bound to the checkout path. The golden environment, the phase records and the scratch disk do not move |
-
+The Phase 4 close session finished the move: `git worktree repair` with each worktree's new path, `git fetch origin`, the memory folder copied to the new path's key in `~/.claude/projects/`, the paths in `.claude/settings.json` and `scripts/tests/test_deny_process_by_name.py`, and `bash scripts/install-git-hooks.sh`. The first build in each checkout is cold, since `.build` held the old path. Run `python3 scripts/release/release.py setup` right before each publish, since its proof is bound to the checkout path.
