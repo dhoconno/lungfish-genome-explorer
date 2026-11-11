@@ -63,20 +63,18 @@ Owner direction O68 held RNA-seq until Phases 3 and 4 exit. Phase 4 exits with i
 
 From the FASTQ files of an infection experiment and a sample sheet, a bench scientist gets gene counts for every sample, a quality table (reads, mapping rate, the library type the tool detected, the viral share) and a differential expression table for a design they wrote, on the Mac they have. Every number equals the tools run by hand on a public test set, and each result records its reference, annotation, library type, tool versions and the `lungfish-cli` command that reproduces it.
 
-### Owner questions, asked at the Phase 4 close
+### Owner answers of 2026-11-11
 
-The manager takes the default when no answer comes, and the owner can reverse it.
-
-| Id | Question | Default |
-|---|---|---|
-| Q1 | Promote Phase 4's closing Preview to a stable release? Stable 2026.10.29 lacks 14 fixes rated S1 | Yes, as its own short job |
-| Q2 | Is the first use bulk Illumina host-response RNA-seq in macaque and human, with no single-cell, long-read or isoform work? | Yes |
-| Q3 | Which hosts and annotations, and which libraries does the lab make (stranded or not, paired or single, UMIs, 3' tag kits)? | Human GENCODE and rhesus Mmul_10 Ensembl, stranded paired reads, no UMI |
-| Q4 | Does the lab already run nf-core/rnaseq on CHTC or a server? | Unknown. Sub-phase 5.1 opens those folders either way |
-| Q5 | May the first release stop at a count table and an export that DESeq2 reads, with DESeq2 in the app one release later? | Yes |
-| Q6 | The route for running from LGE, picked after the measured run of 5.0. Native salmon on any Mac, or nf-core/rnaseq under Docker | Native salmon. No STAR, HISAT2 or junction track until a user asks |
-| Q7 | Move the repository out of `~/Documents`, where privacy prompts cost over six hours in Phase 3? | Yes, one owner act of about 15 minutes |
-| Q8 | Start the user manual for the surfaces of Phases 1 to 4 in a separate session? | No change. Each release note carries a short how-to |
+| Id | Question | The owner's answer | What it sets |
+|---|---|---|---|
+| O161 | Promote Phase 4's closing Preview to a stable release? | "Yes, we can do a release at the end of Phase 4. Make sure our Stable packaging workflow contract is effective and efficient." | A stable release follows Phase 4's closing Preview by the steps of `docs/contracts/VERIFICATION-ORDER.md`, Promoting a Preview to a stable release |
+| O162 | Is the first use bulk host-response RNA-seq only? | "We should assume both bulk and single cell RNAseq when this is built" | Phase 5 covers bulk and single-cell |
+| O163 | Hosts and libraries | "We should support UMIs, humans, rhesus, and cynomolgus macaques with common Illumina / 10X workflows." | Three host references, UMI handling, and the common Illumina and 10x kits |
+| O164 | Does the lab run nf-core/rnaseq on CHTC or a server? | "No, but we probably should support using the Linux orchestrator to do the heavy compute, like we do with the read pre-processing." | Heavy alignment and quantification run on Linux through the executor |
+| O165 | May the first release stop at a count table and an export that DESeq2 reads? | "Yes" | Sub-phase 5.1 |
+| O166 | The route | "Whatever the experts decide." The owner's notes from a meeting with RNA-seq users are in `~/lungfish-phase-records/review-2026-11-11/briefs/OWNER-ANSWERS.md` | The second round of the review decides it, in `seats/R2-SCIENCE.md` and `seats/R2-ARCH.md` |
+| O167 | Move the repository out of `~/Documents`? | "This is a good idea. Relocate it somewhere sensible, maybe a new ~/lge folder? Make sure it doesn't break GitHUb" | `docs/contracts/MACHINES.md`, Where the repository lives, at the close of Phase 4 |
+| O168 | Start the user manual now? | "I want to finish all of the phases first, then revisit the user manual and screencasts." | No change |
 
 ### The trust session, with sub-phase 5.0 inside it
 
@@ -181,4 +179,4 @@ The week points bind. A session starts with at least 35 points of the week free,
 
 ## Open decisions for the owner
 
-Questions Q1 to Q8 under The trust session and Phase 5. Whether primer "legacy salvage" is still a user-facing mode. Whether Kraken2's CLI command moves to a top-level `classify` with `conda classify` kept as an alias.
+Whether primer "legacy salvage" is still a user-facing mode. Whether Kraken2's CLI command moves to a top-level `classify` with `conda classify` kept as an alias.

@@ -123,3 +123,17 @@ Every golden run and every provision leaves what it wrote group writable (`share
 | The storage the CLI uses during a capture | `CaptureContext.environment` in `scripts/golden/captures.py` |
 | The workflow's triggers, runner and permissions | `.github/workflows/golden.yml`, pinned by `scripts/tests/test_golden_workflow.py` |
 | The lock agrees with the manifest and the goldens | `scripts/tests/test_golden_environment.py` |
+
+## Where the repository lives
+
+The repository moves from `~/Documents/GitHub/lungfish-genome-explorer` to `~/lge/lungfish-genome-explorer` at the close of Phase 4 (owner, 2026-11-11), since macOS privacy prompts for `~/Documents` cost over six hours in Phase 3. No build product, worktree or walk binary may sit under `~/Documents`, `~/Desktop` or `~/Downloads`. The move does not touch GitHub, since the remote is an HTTPS address inside `.git`.
+
+| Step | Who | What |
+|---|---|---|
+| 1 | Session | Bundle and remove every agent worktree, archive the sessions that ran in the old path, and check that no build, gate or app runs from it |
+| 2 | Owner | In Terminal, `mkdir ~/lge` and `mv ~/Documents/GitHub/lungfish-genome-explorer ~/lge/`. Leave no symlink at the old path, since a symlink brings the prompts back |
+| 3 | Owner | In GitHub Desktop, choose Locate for the repository and pick the new folder |
+| 4 | New session in the new path | `git worktree repair`, `git status` and `git fetch origin` to prove the remote answers. The first build is cold, since `.build` holds the old path |
+| 5 | New session | Change the paths in `.claude/settings.json` and `scripts/tests/test_deny_process_by_name.py`, run `bash scripts/install-git-hooks.sh`, and copy the memory folder of `~/.claude/projects/` to the new path's key |
+| 6 | New session | `python3 scripts/release/release.py setup` and `doctor`, since the setup proof is bound to the checkout path. The golden environment, the phase records and the scratch disk do not move |
+
