@@ -223,6 +223,52 @@ final class OperationResultNavigationTests: XCTestCase {
         )
         XCTAssertNil(OperationResultNavigation.targetController(for: unrelatedItem, appDelegate: delegate))
     }
+
+    /// ROW12. A BLAST row is begun with no route context, so its Results button must not go to whichever window is key or
+    /// was opened last. It goes to the window of the project that holds the result. Two project windows are open, the
+    /// delegate's current one is project B, and the search is saved inside project A.
+    func testARoutelessResultGoesToTheWindowOfTheProjectThatHoldsIt() throws {
+        _ = NSApplication.shared
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let projectA = temporaryDirectory.appendingPathComponent("RoutelessA.lungfish", isDirectory: true)
+        let projectB = temporaryDirectory.appendingPathComponent("RoutelessB.lungfish", isDirectory: true)
+        let search = projectA.appendingPathComponent(
+            "Analyses/kraken2-2026-10-21T18-05-55/blast-verifications/Riboviria-2026-11-11T21-02-28-34e0b879",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: search, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectB, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: search.appendingPathComponent("blast-result.json"))
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let delegate = AppDelegate()
+        let sessionA = ProjectSession()
+        sessionA.openReadOnlyFilesystemFallback(at: projectA)
+        let controllerA = MainWindowController(window: nil, projectSession: sessionA)
+        let sessionB = ProjectSession()
+        sessionB.openReadOnlyFilesystemFallback(at: projectB)
+        let controllerB = MainWindowController(window: nil, projectSession: sessionB)
+        delegate.mainWindowController = controllerB
+        delegate.testingSetMainWindowControllers([controllerA, controllerB])
+
+        let item = OperationCenter.Item(
+            title: "BLAST Riboviria",
+            detail: "Done",
+            progress: 1,
+            state: .completed,
+            operationType: .blastVerification,
+            outputURLs: [search],
+            cliCommand: nil
+        )
+        XCTAssertNil(item.routeContext, "the row is begun as the producer begins it, with no route")
+        XCTAssertNotNil(OperationResultNavigation.resultURL(for: item), "the search folder holds the record, so it is the result")
+
+        XCTAssertTrue(
+            OperationResultNavigation.targetController(for: item, appDelegate: delegate) === controllerA,
+            "a routeless result went to another project's window"
+        )
+    }
 }
 
 private extension NSView {

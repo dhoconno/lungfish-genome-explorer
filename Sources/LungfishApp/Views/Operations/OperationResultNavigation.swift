@@ -56,23 +56,26 @@ enum OperationResultNavigation {
     /// No import or document-open path is used, so this cannot create duplicate project data.
     @discardableResult
     static func navigate(to item: OperationCenter.Item) async -> Bool {
-        guard let resultURL = resultURL(for: item),
-              let controller = targetController(for: item),
-              let sidebar = controller.mainSplitViewController?.sidebarController else {
+        guard let controller = targetController(for: item),
+              let sidebar = controller.mainSplitViewController?.sidebarController,
+              await selectResult(of: item, in: sidebar) else {
             return false
         }
-
-        await sidebar.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
-        guard selectNearestListedCandidate(
-            from: resultURL,
-            upTo: item.routeContext?.projectURL,
-            select: { sidebar.selectItem(forURL: $0, explicit: true) }
-        ) else { return false }
-
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         return true
+    }
+
+    /// Reloads `sidebar` and selects the item's result, or the nearest folder above it that the sidebar lists. The walk
+    /// stops at the route's project. A test calls this with a real sidebar, since `navigate(to:)` reaches its window only
+    /// through `AppDelegate.shared`.
+    static func selectResult(of item: OperationCenter.Item, in sidebar: SidebarViewController) async -> Bool {
+        guard let resultURL = resultURL(for: item) else { return false }
+        await sidebar.reloadFromFilesystemAsync(notifyUnchangedSelectionRefresh: true)?.value
+        return selectNearestListedCandidate(from: resultURL, upTo: item.routeContext?.projectURL) {
+            sidebar.selectItem(forURL: $0, explicit: true)
+        }
     }
 
     /// Asks `select` for the result's own row, then for each folder above it below the project, and stops at the
