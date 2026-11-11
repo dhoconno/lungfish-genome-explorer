@@ -66,6 +66,9 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     /// Suppress it while asynchronous mapping rows are being replaced so the
     /// previously-focused row cannot reapply a stale track/RG predicate.
     private var isReplacingMappingRows = false
+    /// The mapping list row the embedded viewer shows now, by the list's own row identity. A sort or a filter
+    /// emits the selected row again, and a row already shown keeps its zoom and its reads (RM-LIST-VIEWPORT).
+    private var displayedContigRowIdentity: String?
     private var metadataPresentationContext: SampleMetadataPresentationContext?
     private var metadataPresentationObserverToken: SampleMetadataPresentationContext.ObserverToken?
     private var alignmentActionContextGeneration = 0
@@ -335,6 +338,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
         contigTableView.onRowSelected = { [weak self] row in
             guard let self, !self.isReplacingMappingRows else { return }
+            // A sort or a filter of the list emits the selected row again. The contig already shown keeps its zoom.
+            guard self.contigTableView.rowIdentity(for: row) != self.displayedContigRowIdentity else { return }
             self.displaySelectedContig(row)
         }
         contigTableView.onSelectionCleared = { [weak self] in
@@ -1104,6 +1109,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
                 start: 0,
                 end: max(1, Int(chromosome.length))
             )
+            displayedContigRowIdentity = contigTableView.rowIdentity(for: selectedContig)
             installAlignmentActionContext(
                 for: selectedContig,
                 bundleURL: viewerBundleURL
@@ -1164,6 +1170,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
     func showDetailPlaceholder(_ message: String) {
         clearAlignmentActionContext()
+        displayedContigRowIdentity = nil
         detailPlaceholderLabel.stringValue = message
         detailPlaceholderLabel.isHidden = false
         embeddedViewerController.view.isHidden = true
