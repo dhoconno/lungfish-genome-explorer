@@ -6742,7 +6742,7 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     }
 }
 
-private final class GenotypeMatrixTableView: NSTableView {
+final class GenotypeMatrixTableView: NSTableView {
     var onCellClick: ((Int, Int, NSEvent.ModifierFlags) -> Bool)?
     var onContextMenuRequest: ((Int, Int) -> NSMenu?)?
     private var hasExplicitAccessibilityFocus = false
@@ -6805,7 +6805,7 @@ private final class GenotypeMatrixTableView: NSTableView {
     }
 }
 
-private final class GenotypeMatrixStyledCellView: NSTableCellView {
+final class GenotypeMatrixStyledCellView: NSTableCellView {
     private var chromeBackgroundColor: NSColor?
     private var decorativeBorderColor: NSColor?
     private var decorativeBorderWidth: CGFloat = 0
@@ -6964,7 +6964,7 @@ private final class GenotypeMatrixStyledCellView: NSTableCellView {
     }
 }
 
-private final class GenotypeMatrixSelectorButton: NSButton {
+final class GenotypeMatrixSelectorButton: NSButton {
     enum Identity: Equatable {
         case row(GenotypeCandidateMatrixRowID)
         case column(String)
@@ -7069,7 +7069,7 @@ private final class GenotypeMatrixSelectorButton: NSButton {
     }
 }
 
-private final class GenotypeMatrixRowSelectorCellView: NSTableCellView {
+final class GenotypeMatrixRowSelectorCellView: NSTableCellView {
     private let chiclet = GenotypeMatrixRowSelectorChicletView()
     private let selectorButton = GenotypeMatrixSelectorButton()
     private var commentFoldSize: CGFloat?
@@ -7193,7 +7193,7 @@ private final class GenotypeMatrixRowSelectorChicletView: NSView {
     }
 }
 
-private final class GenotypeMatrixHeaderView: NSTableHeaderView {
+final class GenotypeMatrixHeaderView: NSTableHeaderView {
     var isColumnSelectable: ((Int) -> Bool)?
     var isColumnSelected: ((Int) -> Bool)?
     var selectorIdentityForColumn: ((Int) -> GenotypeMatrixSelectorButton.Identity?)?
@@ -7437,7 +7437,7 @@ private final class GenotypeMatrixHeaderView: NSTableHeaderView {
         path.fill()
     }
 
-    fileprivate func textBandRects(
+    func textBandRects(
         in rect: NSRect,
         leftInset: CGFloat
     ) -> (title: NSRect, read: NSRect) {
