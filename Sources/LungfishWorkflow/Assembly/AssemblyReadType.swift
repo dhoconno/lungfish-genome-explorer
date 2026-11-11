@@ -76,13 +76,15 @@ public enum AssemblyReadType: String, CaseIterable, Codable, Sendable {
     ///
     /// Supports raw FASTQ files, `.lungfishfastq` bundles, and files inside bundles.
     /// Falls back to persisted sequencing-platform metadata when header sniffing
-    /// is inconclusive.
+    /// is inconclusive. A derived bundle whose own sidecar records neither the
+    /// platform nor the read type answers with the record of the bundle it
+    /// derives from (``FASTQMetadataStore/platformRecord(for:)``).
     public static func detect(fromInputURL url: URL) -> Self? {
         guard let fastqURL = resolveFASTQURL(forInputURL: url) else {
             return nil
         }
 
-        let persistedMetadata = FASTQMetadataStore.load(for: fastqURL)
+        let persistedMetadata = FASTQMetadataStore.platformRecord(for: fastqURL)
 
         if let explicitReadType = persistedMetadata?.assemblyReadType.flatMap(Self.init(persistedReadType:)) {
             return explicitReadType
