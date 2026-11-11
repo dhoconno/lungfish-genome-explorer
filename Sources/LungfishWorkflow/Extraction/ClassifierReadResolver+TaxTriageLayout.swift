@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 extension ClassifierReadResolver {
     // MARK: - The nf-core layout (Phase 3.4 lane EXTRACT, EXTRACT-PREFIX-SCAN-NO-DATABASE)
@@ -52,22 +53,40 @@ extension ClassifierReadResolver {
         return fits
     }
 
-    /// The words that say which file a name scan took for a sample, or nil when `bam` came from anywhere else, a path
-    /// the database records or one of the two names the pipeline gives (EXTRACT-SCAN-EXTENDED-ID). A file such as
-    /// `S1_2.bam` fits sample `S1` and can belong to another sample, and the lookup holds no list of the folder's
-    /// sample ids to tell, so the extraction names the file, prints the words as a progress line (the CLI line and the
-    /// Operations Panel Log) and records them with the extraction.
+    /// The words that say which file a fit of its name gave a sample, or nil when `bam` came from anywhere else, one of
+    /// the two names the pipeline gives or a path the database records with no fitted mark (EXTRACT-SCAN-EXTENDED-ID).
+    /// The fit is the scan's when nothing is recorded, or the build's when the database records a path and its
+    /// metadata marks the sample as fitted (BUILDDB-BAM-FIT, ``TaxTriageDatabase/fittedBAMSamplesMetadataKey``). A file
+    /// such as `S1_2.bam` fits sample `S1` and can belong to another sample, so the extraction names the file, prints
+    /// the words as a progress line (the CLI line and the Operations Panel Log) and records them with the extraction.
     static func taxTriageScanNotice(tool: ClassifierTool, sampleId: String?, resultPath: URL, bam: URL) -> String? {
         guard tool == .taxtriage, let sampleId else { return nil }
         let resultDir = resultPath.hasDirectoryPath ? resultPath : resultPath.deletingLastPathComponent()
-        guard taxTriageRecordedBAMCandidates(sampleId: sampleId, resultDir: resultDir).isEmpty,
-              taxTriageNamedBAMs(sampleId: sampleId, resultDir: resultDir)
-                  .allSatisfy({ checkedBAMCandidate($0, within: resultDir) == .absent }),
-              let scanned = (try? taxTriageScanFits(sampleId: sampleId, resultDir: resultDir))?.first,
-              scanned.resolvingSymlinksInPath().path == bam.resolvingSymlinksInPath().path else { return nil }
+        let recorded = taxTriageRecordedBAMCandidates(sampleId: sampleId, resultDir: resultDir)
+        let fitted: [URL]
+        if !recorded.isEmpty {
+            fitted = taxTriageRecordedBAMIsFitted(sampleId: sampleId, resultDir: resultDir) ? recorded : []
+        } else if taxTriageNamedBAMs(sampleId: sampleId, resultDir: resultDir)
+            .allSatisfy({ checkedBAMCandidate($0, within: resultDir) == .absent }) {
+            fitted = (try? taxTriageScanFits(sampleId: sampleId, resultDir: resultDir)) ?? []
+        } else {
+            fitted = []
+        }
+        guard let scanned = fitted.first(where: {
+            $0.resolvingSymlinksInPath().path == bam.resolvingSymlinksInPath().path
+        }) else { return nil }
         return "Sample \(sampleId)'s own BAM was not found, so Lungfish read \(scanned.lastPathComponent), "
             + "the one file in the minimap2 folder that fits its name. "
             + "If that file belongs to another sample, put \(sampleId)'s own BAM back and try again."
+    }
+
+    /// Whether the metadata of the result's `taxtriage.sqlite` marks `sampleId` as a sample whose recorded BAM
+    /// `build-db taxtriage` took by a fit of its name. A database of an older build holds no mark, so false.
+    private static func taxTriageRecordedBAMIsFitted(sampleId: String, resultDir: URL) -> Bool {
+        let databaseURL = resultDir.appendingPathComponent("taxtriage.sqlite")
+        guard FileManager.default.fileExists(atPath: databaseURL.path),
+              let metadata = try? TaxTriageDatabase(at: databaseURL).fetchMetadata() else { return false }
+        return TaxTriageDatabase.fittedBAMSamples(in: metadata).contains(sampleId)
     }
 
     /// `destination` and `options` that carry `notes`, the words of ``taxTriageScanNotice(tool:sampleId:resultPath:bam:)``,

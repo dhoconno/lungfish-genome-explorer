@@ -164,6 +164,9 @@ extension BuildDbCommand {
                         .map(\.rawValue)
                         .joined(separator: ","),
                     TaxTriageDatabase.tassScaleMetadataKey: TaxTriageDatabase.currentTASSScale,
+                    TaxTriageDatabase.fittedBAMSamplesMetadataKey: TaxTriageDatabase.fittedBAMSamplesMetadataValue(
+                        Self.taxTriageFittedBAMSamples(in: rows)
+                    ),
                 ]
 
                 try events.checkCancellation()
@@ -637,13 +640,13 @@ extension BuildDbCommand {
                 let description = foldersRead.isEmpty
                     ? root.sourceDescription
                     : "\(root.sourceDescription) and serial sample result directories"
-                return (rows, accessionMap, description, sources, lines)
+                return (rows, accessionMap, description, sources, lines + Self.taxTriageFittedBAMLines(in: rows))
             }
             if !rows.isEmpty {
                 let lines = clashes.isEmpty ? [] : [
                     "Left out the rows of \(clashes.joined(separator: ", ")), sample names already read from an earlier report."
                 ]
-                return (rows, accessionMap, "serial sample result directories", sources, lines)
+                return (rows, accessionMap, "serial sample result directories", sources, lines + Self.taxTriageFittedBAMLines(in: rows))
             }
 
             throw ValidationError(

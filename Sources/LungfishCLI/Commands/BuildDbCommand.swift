@@ -335,12 +335,14 @@ extension BuildDbCommand.TaxTriageSubcommand {
     ) throws -> (rows: [TaxTriageTaxonomyRow], accessionMap: [TaxTriageAccessionEntry]) {
         let gcfmapDir = resultURL.appendingPathComponent("combine")
         var gcfmapCache: [String: [(accession: String, organism: String)]] = [:]
-        var bamCache: [String: (bamPath: String?, bamIndexPath: String?)] = [:]
+        let reports = try urls.sorted(by: { $0.path < $1.path }).map { try TaxTriageOrganismReport.parse(url: $0) }
+        // Every sample of the result is parsed before a BAM is resolved, so none takes another's (BUILDDB-BAM-FIT).
+        let bamCache = resolveTaxTriageBAMPaths(samples: Set(reports.joined().map(\.sample)), resultURL: resultURL)
         var seenKeys: Set<String> = []
         var rows: [TaxTriageTaxonomyRow] = []
 
-        for url in urls.sorted(by: { $0.path < $1.path }) {
-            for parsed in try TaxTriageOrganismReport.parse(url: url) {
+        for report in reports {
+            for parsed in report {
                 let sample = parsed.sample
                 // taxonomy_rows is UNIQUE(sample, organism). Keep the first occurrence.
                 guard seenKeys.insert("\(sample)\t\(parsed.organism)").inserted else { continue }
@@ -349,9 +351,6 @@ extension BuildDbCommand.TaxTriageSubcommand {
                     gcfmapCache[sample] = loadGCFMap(
                         at: gcfmapDir.appendingPathComponent("\(sample).combined.gcfmap.tsv")
                     )
-                }
-                if bamCache[sample] == nil {
-                    bamCache[sample] = resolveTaxTriageBAMPaths(sample: sample, resultURL: resultURL)
                 }
                 let bam = bamCache[sample] ?? (nil, nil)
                 let primaryAccession = gcfmapCache[sample].flatMap {
@@ -431,6 +430,9 @@ extension BuildDbCommand.TaxTriageSubcommand {
         let gcfmapDir = resultURL.appendingPathComponent("combine")
         var gcfmapCache: [String: [(accession: String, organism: String)]] = [:]
         var rows: [TaxTriageTaxonomyRow] = []
+        // Every sample of the result is known before a BAM is resolved, so none takes another's (BUILDDB-BAM-FIT).
+        let samples = Set(sortedURLs.map { topReportSampleID(from: $0) }.filter { !$0.isEmpty })
+        let bamCache = resolveTaxTriageBAMPaths(samples: samples, resultURL: resultURL)
 
         for url in sortedURLs {
             let sample = topReportSampleID(from: url)
@@ -457,7 +459,7 @@ extension BuildDbCommand.TaxTriageSubcommand {
                 )
             }
 
-            let (bamPath, bamIndexPath) = resolveTaxTriageBAMPaths(sample: sample, resultURL: resultURL)
+            let (bamPath, bamIndexPath) = bamCache[sample] ?? (nil, nil)
 
             for line in lines.dropFirst() {
                 let fields = line.split(separator: "\t", omittingEmptySubsequences: false)

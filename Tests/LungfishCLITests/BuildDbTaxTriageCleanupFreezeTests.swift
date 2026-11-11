@@ -179,7 +179,11 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
         XCTAssertTrue(rows.allSatisfy { $0.bamPath == nil && $0.uniqueReads == nil }, "no BAM in the copy, so no row names one and no read count is recomputed")
 
         let metadata = try database.fetchMetadata()
-        XCTAssertEqual(metadata.keys.sorted(), ["created_at", "read_count", "source_dir", "tass_scale", "taxonomy_source", "tool"])
+        XCTAssertEqual(
+            metadata.keys.sorted(),
+            ["created_at", "fitted_bam_samples", "read_count", "source_dir", "tass_scale", "taxonomy_source", "tool"]
+        )
+        XCTAssertEqual(metadata[TaxTriageDatabase.fittedBAMSamplesMetadataKey], "[]", "no BAM in the copy, so none is fitted")
         XCTAssertEqual(
             metadata[TaxTriageDatabase.readCountMetadataKey], "odr_reads_aligned+organism_references",
             "Reads keep the report's # Reads Aligned, and every reference of each row's organism is stored"
