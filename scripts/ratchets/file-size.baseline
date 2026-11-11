@@ -6,7 +6,7 @@ Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 815
 Sources/LungfishApp/App/AppDelegate.swift 2637
 Sources/LungfishApp/App/MainMenu.swift 1364
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 843
-Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1317
+Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1318
 Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1060
 Sources/LungfishApp/Services/ProjectStorageCoordinator.swift 960
 Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift 1069
