@@ -89,7 +89,7 @@ Sources/LungfishEsVirituUI/ViralDetectionTableView.swift 2075
 Sources/LungfishGenotypeUI/GenotypeAnnotationStore.swift 2413
 Sources/LungfishGenotypeUI/GenotypeCallEvidenceView.swift 1605
 Sources/LungfishGenotypeUI/GenotypeCandidateAlleleDetailView.swift 1142
-Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift 9319
+Sources/LungfishGenotypeUI/GenotypeComparisonMatrixView.swift 8540
 Sources/LungfishGenotypeUI/GenotypeKnownAlleleDetailView.swift 1092
 Sources/LungfishGenotypeUI/GenotypeManualHaplotypeDraft.swift 814
 Sources/LungfishGenotypeUI/GenotypeOutlineView.swift 814
