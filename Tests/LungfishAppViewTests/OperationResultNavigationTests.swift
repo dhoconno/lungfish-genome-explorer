@@ -268,6 +268,15 @@ final class OperationResultNavigationTests: XCTestCase {
             OperationResultNavigation.targetController(for: item, appDelegate: delegate) === controllerA,
             "a routeless result went to another project's window"
         )
+
+        // The project's own window is closed: the row goes to no window, never to the one that is current.
+        let delegateWithoutA = AppDelegate()
+        delegateWithoutA.mainWindowController = controllerB
+        delegateWithoutA.testingSetMainWindowControllers([controllerB])
+        XCTAssertNil(
+            OperationResultNavigation.targetController(for: item, appDelegate: delegateWithoutA),
+            "a routeless result whose project has no open window went to another project's window"
+        )
     }
 }
 
