@@ -672,7 +672,7 @@ extension BuildDbCommand.TaxTriageSubcommand {
         return String(filename.dropLast(suffix.count))
     }
 
-    private func resolveTaxTriageBAMPaths(
+    func resolveTaxTriageBAMPaths(
         sample: String,
         resultURL: URL
     ) -> (bamPath: String?, bamIndexPath: String?) {
