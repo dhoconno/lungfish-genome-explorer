@@ -75,6 +75,12 @@ extension ClassifierReadResolver {
         guard let scanned = fitted.first(where: {
             $0.resolvingSymlinksInPath().path == bam.resolvingSymlinksInPath().path
         }) else { return nil }
+        if !recorded.isEmpty {
+            return "Sample \(sampleId)'s own BAM was not found when Lungfish built this result's database, so Lungfish "
+                + "read \(scanned.lastPathComponent), a file in the minimap2 folder whose name fits it. "
+                + "If that file belongs to another sample, put \(sampleId)'s own BAM back, delete taxtriage.sqlite in "
+                + "the result folder and select the result again so that Lungfish builds the database anew."
+        }
         return "Sample \(sampleId)'s own BAM was not found, so Lungfish read \(scanned.lastPathComponent), "
             + "the one file in the minimap2 folder that fits its name. "
             + "If that file belongs to another sample, put \(sampleId)'s own BAM back and try again."

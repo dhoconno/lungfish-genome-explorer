@@ -17,8 +17,12 @@ import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class BuildDbTaxTriageBAMFitTests: XCTestCase {
-    private static let sentence = "Sample S1's own BAM was not found, so Lungfish read S1_2.bam, the one file in the "
-        + "minimap2 folder that fits its name. If that file belongs to another sample, put S1's own BAM back and try again."
+    /// The words of the database route (BIO review SF-1), which differ from the scan route's: they say how to bring the
+    /// recorded file back in line, since putting the sample's own BAM back alone changes nothing.
+    private static let sentence = "Sample S1's own BAM was not found when Lungfish built this result's database, so Lungfish "
+        + "read S1_2.bam, a file in the minimap2 folder whose name fits it. If that file belongs to another sample, "
+        + "put S1's own BAM back, delete taxtriage.sqlite in the result folder and select the result again so that "
+        + "Lungfish builds the database anew."
 
     private var root: URL!
 
@@ -69,7 +73,7 @@ final class BuildDbTaxTriageBAMFitTests: XCTestCase {
 
     /// BIO 1.4 (b) item 3. Reports for S1 alone and `minimap2/S1_2.bam`, a file whose name fits S1 and no other sample
     /// of the result. The build still records it, says so in one line and marks S1 as fitted in the metadata, and an
-    /// extraction from the database says the scan's sentence by either form of the result path. Red at P, which
+    /// extraction from the database says its own sentence by either form of the result path. Red at P, which
     /// records the file with no line, no mark and no sentence.
     func testLoneFittedBAMIsMarked() async throws {
         let result = try makeLoneFitResult()
