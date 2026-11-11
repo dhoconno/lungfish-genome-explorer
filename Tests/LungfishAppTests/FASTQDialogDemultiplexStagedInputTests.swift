@@ -11,6 +11,10 @@
 // 100 bp reads with an Illumina index in the read names, in a "Subsample by Count" derived bundle. The counts are
 // the ones BIO counted from the truth table with the packaged build: D701 240, D702 204, D703 120, D704 60 and
 // unassigned 20, every pair whole (SCR/rulings/DEMUX-PROBE.md, Part 2).
+//
+// DEMUX-FIX (SF-3) runs the same dialog on the raw one-file import the subsample is made from. A raw import is not a
+// derived root (`FastqCommand.swift` sets `rootBundleURL` only from a derived source, backlog row B1), so its barcode
+// bundles are physical and carry no `derived.manifest.json`. That run asserts no manifest, so row B1 can change it.
 
 import ArgumentParser
 import Foundation
@@ -35,6 +39,8 @@ final class FASTQDialogDemultiplexStagedInputTests: XCTestCase {
     private struct Project {
         let scratch: URL
         let project: URL
+        /// The raw import, one interleaved file, which a person can also pick.
+        let raw: URL
         /// The bundle the person picks, a Subsample by Count of the imported interleaved pairs.
         let picked: URL
     }
@@ -95,7 +101,7 @@ final class FASTQDialogDemultiplexStagedInputTests: XCTestCase {
             in: picked
         )
         XCTAssertTrue(FASTQBundle.isDerivedBundle(picked))
-        return Project(scratch: scratch, project: project, picked: picked)
+        return Project(scratch: scratch, project: project, raw: source, picked: picked)
     }
 
     private func requireSeqkit() async throws {
@@ -128,10 +134,13 @@ final class FASTQDialogDemultiplexStagedInputTests: XCTestCase {
         return try await FASTQOperationTestHelper.loadFASTQRecords(from: payload)
     }
 
-    /// Checks the run folder `output`: the counts, every pair whole, and the lineage of every barcode bundle.
+    /// Checks the run folder `output`: the counts, every pair whole, and, when `linksBack`, the lineage of every
+    /// barcode bundle. A derived source gives each barcode bundle a manifest that names the picked bundle. A raw
+    /// import gives none (backlog row B1), so a run on it passes `linksBack: false`.
     private func assertTheBarcodeBundles(
         in output: URL,
         project: Project,
+        linksBack: Bool = true,
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
@@ -143,23 +152,25 @@ final class FASTQDialogDemultiplexStagedInputTests: XCTestCase {
             XCTAssertEqual(barcode.readCount, reads, barcodeID, file: file, line: line)
         }
 
-        // Every barcode bundle, the unassigned one too, holds whole pairs and links back to the picked bundle.
+        // Every barcode bundle, the unassigned one too, holds whole pairs and (for a derived source) links back to the picked bundle.
         let bundles = try FileManager.default.contentsOfDirectory(at: output, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == FASTQBundle.directoryExtension }
         XCTAssertEqual(bundles.count, Self.expectedReads.count + 1, "four barcode bundles and the unassigned one", file: file, line: line)
         var pairsSeen = 0
         for bundle in bundles {
             let name = bundle.deletingPathExtension().lastPathComponent
-            let derived = try XCTUnwrap(
-                FASTQBundle.loadDerivedManifest(in: bundle),
-                "a derived.manifest.json in \(bundle.lastPathComponent)",
-                file: file, line: line
-            )
-            XCTAssertEqual(derived.pairingMode, .interleaved, "pairing of \(name)", file: file, line: line)
-            XCTAssertEqual(
-                expanded(derived.parentBundleRelativePath, in: project), project.picked.path,
-                "the parent of \(name) is the picked bundle", file: file, line: line
-            )
+            if linksBack {
+                let derived = try XCTUnwrap(
+                    FASTQBundle.loadDerivedManifest(in: bundle),
+                    "a derived.manifest.json in \(bundle.lastPathComponent)",
+                    file: file, line: line
+                )
+                XCTAssertEqual(derived.pairingMode, .interleaved, "pairing of \(name)", file: file, line: line)
+                XCTAssertEqual(
+                    expanded(derived.parentBundleRelativePath, in: project), project.picked.path,
+                    "the parent of \(name) is the picked bundle", file: file, line: line
+                )
+            }
             let held = try await records(ofBarcodeBundle: bundle, in: project, file: file, line: line)
             XCTAssertEqual(held.count % 2, 0, "\(name) holds whole pairs", file: file, line: line)
             for index in stride(from: 0, to: held.count - 1, by: 2) {
@@ -201,11 +212,24 @@ final class FASTQDialogDemultiplexStagedInputTests: XCTestCase {
     /// The dialog's run on the derived bundle: the CLI gets the bundle, the record names it, every barcode bundle
     /// links back to it and the row's command can be run again.
     func testDemultiplexingADerivedBundleFromTheDialogHandsTheCLITheBundle() async throws {
-        try await requireSeqkit()
         let project = try makeProject()
+        try await assertTheDialogHandsTheCLI(project.picked, in: project, linksBack: true)
+    }
+
+    /// The dialog's run on the raw one-file import (DEMUX-FIX, SF-3). The CLI gets the import bundle and not the file
+    /// inside it, the counts and the pairs are BIO's, and the record and the row name the import. Its barcode bundles
+    /// are physical and carry no `derived.manifest.json` (backlog row B1), so no manifest is asserted.
+    func testDemultiplexingARawPairedBundleFromTheDialogHandsTheCLITheBundle() async throws {
+        let project = try makeProject()
+        try await assertTheDialogHandsTheCLI(project.raw, in: project, linksBack: false)
+    }
+
+    /// Runs Demultiplex Barcodes on `picked` as the dialog does and checks what the person is left with.
+    private func assertTheDialogHandsTheCLI(_ picked: URL, in project: Project, linksBack: Bool) async throws {
+        try await requireSeqkit()
         let state = FASTQOperationDialogState(
             initialCategory: .demultiplexing,
-            selectedInputURLs: [project.picked],
+            selectedInputURLs: [picked],
             projectURL: project.project
         )
         state.selectTool(.demultiplexBarcodes)
@@ -219,7 +243,7 @@ final class FASTQDialogDemultiplexStagedInputTests: XCTestCase {
             return XCTFail("the dialog builds a demultiplex request, got \(launch)")
         }
         XCTAssertEqual(engine, .headerIndex)
-        XCTAssertEqual(inputs, [project.picked])
+        XCTAssertEqual(inputs, [picked])
 
         let destinationRoot = try XCTUnwrap(state.outputDirectoryURL).standardizedFileURL
         try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
@@ -234,24 +258,31 @@ final class FASTQDialogDemultiplexStagedInputTests: XCTestCase {
             request: launch,
             executionService: service,
             routeContext: nil,
+            outputTargetPath: workingDirectory.path,
             reporter: reporter
         ) { _ in }.requireStarted()
+        // At begin the row already spells the run folder, as the launch site gives it, so a run that fails keeps a
+        // command that runs again.
+        let begun = try XCTUnwrap(reporter.items.first?.cliCommand)
+        XCTAssertFalse(begun.contains("<derived>"), begun)
+        let begunShown = try XCTUnwrap(RecordedCLICommand.parseScript(begun).first as? FastqDemultiplexSubcommand)
+        XCTAssertEqual(begunShown.output, workingDirectory.path)
         let result = try await service.execute(request: launch, workingDirectory: workingDirectory)
         FASTQOperationRowCommand.apply(FASTQOperationRowCommand.refinement(for: result), to: id, reporter: reporter)
 
         // The argv input is the picked bundle, never a staged copy.
         let invocation = try XCTUnwrap(result.executedInvocations.first)
-        XCTAssertEqual(invocation.arguments.prefix(2).map { $0 }, ["demultiplex", project.picked.path])
+        XCTAssertEqual(invocation.arguments.prefix(2).map { $0 }, ["demultiplex", picked.path])
         XCTAssertFalse(invocation.argv.contains { $0.contains("materialized-inputs-") }, "\(invocation.argv)")
         XCTAssertEqual(result.importedURLs, [workingDirectory])
 
-        // The counts, the pairs and the lineage of every barcode bundle.
-        try await assertTheBarcodeBundles(in: workingDirectory, project: project)
+        // The counts, the pairs and, for a derived source, the lineage of every barcode bundle.
+        try await assertTheBarcodeBundles(in: workingDirectory, project: project, linksBack: linksBack)
 
         // The run's record names the bundle as its input, and no staged copy.
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: workingDirectory), "the run's record")
         // The record spells a temporary folder as /var and this test as /private/var, so paths are compared resolved.
-        let pickedPath = project.picked.resolvingSymlinksInPath().path
+        let pickedPath = picked.resolvingSymlinksInPath().path
         XCTAssertTrue(
             envelope.argv.contains { URL(fileURLWithPath: expanded($0, in: project)).resolvingSymlinksInPath().path == pickedPath },
             "the record's argv names the picked bundle: \(envelope.argv)"
