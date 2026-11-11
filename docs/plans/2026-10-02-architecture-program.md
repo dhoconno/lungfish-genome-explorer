@@ -1,6 +1,6 @@
 # Architecture program, phased implementation plan (2026-10-02)
 
-Status: active. The structural program closed on 2026-11-11 (`docs/reports/2026-11-11-program-review/SUMMARY.md`), and this file is now the plan of the process job, the trust session and Phase 5. Companion to docs/reports/2026-10-02-architecture-review/REVIEW.md (finding IDs R1 to R18 below refer to it).
+Status: active. The structural program closed on 2026-11-11 (`docs/reports/2026-11-11-program-review/SUMMARY.md`), and this file is now the plan of the process job, the trust session, Phase 5 (Biomark X) and Phase 6 (RNA-seq). Companion to docs/reports/2026-10-02-architecture-review/REVIEW.md (finding IDs R1 to R18 below refer to it).
 
 ## Phase 3, Stable first, then the surface contract
 
@@ -13,7 +13,7 @@ Sub-phases (audit of 2026-10-26, replacing the six sub-phases of 2026-10-17). Ea
 | 3.2 | The other viewer kinds onto ViewportHost, one revertible PR each closed by its view-switch test and a short walk, in this order. Genotype, MSA, phylogenetics and assembly, then the FASTA collection, FASTQ dataset, VCF dataset, MHC reference and Quick Look views, then mapping and reference last. Then the hide list and the optional viewer slots are deleted, and 3b's sidebar registry over BundleKindRegistry retires the three prefix tables with one read-only fallback for manifest-less legacy bundles. Beside these, 3.2 takes GitHub issue 35 and the BLAST rows of O130 and O138 (`0c972abf4:docs/plans/2026-11-03-phase-3-2.md:35`). Ends with a Preview (O128) | 3.1 | 2 sessions, about $3,000 | [6] GEN tags, only if a lane touches those notes |
 | 3.3 | The demultiplexing run reads the index in the read names (an S1 that BIO ruled old), the Demux plan reaches the run, Detect counts the read-name index, the smoke gate runs from a checked copy and the walk rows 3.2 left, as `0c972abf4:docs/plans/2026-11-06-phase-3-3.md:62` sets. O159 set aside the first monthly Stable it planned. The owner added this sub-phase on 2026-11-06 (O154), since the table's rule says no session adds one | 3.2 | 1 session, no dollar figure (O154) | none, the panel decides under the owner's delegation (O154) |
 | 3.4 | Finish Phase 3 with a Preview and tidy the repository for Phase 4, as `docs/plans/2026-11-08-phase-3-4.md` sets. The owner added this sub-phase on 2026-11-08 (O160) | 3.3 | 1 session, no dollar figure (O78) | none, the panel decides under the standing go (O126) |
-| Deferred | 3c's typed event layer beyond a lint on new `Notification.Name` declarations, 3d's OperationLauncher beyond refuse-and-name-the-holder, and the old 3.1's frozen row texts, per-kind accessibility snapshot gate, classifier export byte pins and new ratchets other than viewport hides. The read-ID and unique-count pins of the classifiers stay | User work that touches the files, and Phase 5 for 3d, where RNA-seq brings the first new launch kind | none | none |
+| Deferred | 3c's typed event layer beyond a lint on new `Notification.Name` declarations, 3d's OperationLauncher beyond refuse-and-name-the-holder, and the old 3.1's frozen row texts, per-kind accessibility snapshot gate, classifier export byte pins and new ratchets other than viewport hides. The read-ID and unique-count pins of the classifiers stay | User work that touches the files, and Phase 6 for 3d, where RNA-seq brings the first new launch kind | none | none |
 
 The six exit checks of Phase 3, with the state of each at the close of 3.4. The states come from `docs/plans/2026-11-08-phase-3-4.md` (decisions A and B, section Phase 3's exit and the exit checks X1 to X6) and from the record of Preview 2026.11.5 (`docs/reports/2026.11.5-technical.md`).
 
@@ -30,7 +30,7 @@ The budget of Phase 3 is five sessions, about $6,000 measured, and at $9,000 the
 
 ## Phase 4, closed at its first session's Preview
 
-The review of 2026-11-11 (`docs/reports/2026-11-11-program-review/SUMMARY.md`) closed the structural program. R1 to R5, R7, R14 and R15 are closed. R6, R8 to R13, R16 and R18 are held by their ratchets and move only when a lane that a user outcome sends into the code touches them. R17 is Phase 5.
+The review of 2026-11-11 (`docs/reports/2026-11-11-program-review/SUMMARY.md`) closed the structural program. R1 to R5, R7, R14 and R15 are closed. R6, R8 to R13, R16 and R18 are held by their ratchets and move only when a lane that a user outcome sends into the code touches them. R17 is Phase 6.
 
 Phase 4 ends with the Preview of its first session, as `docs/plans/2026-11-09-phase-4.md` sets. That Preview carries the riders and FIGURE-DEPTH. MATRIX-SPLIT-1, L4B-DRAWER, L4D-SEAMS, L4D-GENO, the later 4a slices, the Q-S7-LOCK ruling, MEASURE-AFTER, 4e and 4f are closed and not moved. L4D-PILOT is not landed, and its branch `4db82a4a8` stays in the phase bundle as the recipe for a new domain target. One rule replaces them (`docs/contracts/SCOPE-AND-DELIVERY.md`, Which work earns a lane). A file over the limit is split by the first lane that a user outcome sends into it, as that lane's first commits, with `verify_pure_move.py`.
 
@@ -55,7 +55,110 @@ One short job with no meeting, no monitor and no Preview rebuilds what a session
 
 Budget. Ten lanes at $24 and $120 for the session, about $360, with no candidate.
 
-## The trust session and Phase 5
+## The trust session
+
+One session of about 14 lanes, before Phase 5. It ends in a Preview when a lane lands a fix a user can see or a result fix. BIO names the two families of the sweep, and the review suggests variant calling with Viral Recon consensus, then MHC genotyping. The four lanes of sub-phase 5.0 run beside these and start when the lab's Biomark X files are at hand.
+
+| Lane | What it does | Proof |
+| SWEEP-1, SWEEP-2 | The truth sweep. For one tool family each, run the tool by hand on a real public data set with real-shaped inputs (sample names with spaces, a virus in segments, two samples of one taxon, a negative control) and compare every number the app shows and exports with the tool's own files | A table of numbers compared. Each difference is a finding with its severity, and an S1 or S2 becomes a lane |
+| PROBES | The 21 backlog rows whose rating waits on a measurement, each probed in at most 40 calls or rated by BIO as if the condition holds | No row keeps a conditional rating |
+| SCALE-SMOKE | A real-size corpus in the golden cache (a 20,000-record FASTA, a 100,000-read FASTQ bundle, a BAM of about 1 GB, one result of each viewer kind). One XCUI test opens each in the packaged app and fails when the main thread does not answer for 5 s or the footprint passes a bound. MAIN-THREAD-BLOCK leaves the backlog | The test is red on 2026.11.1's FASTA hang and green on the head |
+| MEM-WORDS | A managed tool that ends by SIGKILL or exit 137 says it stopped, most likely for memory, with the peak it reached. The app and the CLI stop in words before they grow past a set share of memory | Tests on a stand-in that is killed |
+| UPGRADE-CORPUS | One project a release, made by the `lungfish-cli` inside the DMGs of the last stable release and the newest Preview, with one result of every kind. A check lists, verifies and exports every result with the candidate's CLI and fails on a difference | The check runs after the golden compare |
+| AFFECTED | A table in the app of results that a fixed S1 made wrong (result kind, builds, one sentence, what to do). A result whose record names such a build shows the sentence in its viewer and Inspector | A test on a record of an affected build |
+| TWINS | The walk rows left unwalked since 2026.11.3 become XCUI tests in a second profile that does not bind, or close on UX's or BIO's word. The owner list is written new at 20 rows | The list's row count, and the tests on the package |
+
+Budget. Fourteen lanes with the four of 5.0, about $660 and about 34 points of the week.
+
+## Phase 5, Biomark X SNP genotyping and parentage
+
+The owner added this phase on 2026-11-11 and put it before RNA-seq. "We use this instrument to do parentage assays using SNPs throughout the genome. We need to understand how genotypes are currently called with the BiomarkX software, then we need to implement this into LGE so we can import the BioMarkX data files and perform the SNP analyses and interpretation within the LGE interface." The research behind this plan, with its sources, is `seats/BIOMARK.md` of the review. No Biomark, Fluidigm or parentage code exists in the tree today.
+
+### User outcome
+
+A person imports the files of a Biomark X genotyping run. LGE shows the chip, its assays and samples, the calls and the intensity plot of every assay, checks the run's quality, and assigns each offspring's sire and dam from the candidate animals with a verdict and the loci that support it. Imported calls equal the vendor's, LGE's own calls agree with the vendor's on the lab's runs at a rate BIO sets, and every result records the run, the panel, the settings and the command that reproduces it.
+
+### What is known and what is not
+
+| Topic | State |
+|---|---|
+| Runs | Genotyping uses 48.48, 96.96, Flex Six and 192.24 chips with SNP Type (FAM and HEX) or TaqMan (FAM and VIC) assays and ROX as the reference dye. The current software is Standard BioTools SNP Genotyping Analysis. Whether the lab's runs are read at the end point or in real time is not confirmed |
+| Exports | The software writes four CSV exports (summary, detailed, call map, detailed with raw data). The call map layout is verified from a real file. It has a header block with the confidence threshold and the normalization method, then sections `SNP Calls` (XX, XY, YY, No Call, NTC, Invalid) and `SNP Converted Calls` (bases). Delimiters and offsets vary, so a reader finds sections by their marker and never by line number |
+| The calling method | Not documented in any page the research could open. From secondary sources it normalizes by SNP Type or by the no-template controls, clusters each assay's scatter plot, and applies a confidence threshold that the user sets. The vendor's guides sit behind links that returned nothing, so the method must come from the guide PDFs the lab holds and from the lab's own files |
+| Raw intensities | Only the detailed export with raw data, or the native run file, holds them. Neither was seen, and no open tool re-clusters them. No paper compares the vendor's calls with an independent method |
+| Parentage | 60 to 100 SNPs are enough for likelihood methods. Exclusion alone needs about 40% more loci. A mismatch tolerance near 1% and the verdict bands of ISAG and ICAR (accepted, doubtful, excluded) are the model of good practice. No published SNP parentage panel or tolerance for rhesus or cynomolgus was found, so the lab's panel is the only source |
+| Test data | Twelve real call map files are public (final calls only). No public raw-intensity file and no macaque parentage truth set exist, so parentage is pinned on a simulated pedigree and on the lab's solved cases |
+
+### What the lab must supply before 5.1
+
+Without these the phase cannot start, since the file layouts and the calling method cannot be taken from public sources.
+
+| Item | Used for |
+|---|---|
+| One complete Biomark X run folder with all four exports of that run, and one older run if old data must import | The readers of 5.1 and the re-calling of 5.2 |
+| The SNP Genotyping Analysis version, and the vendor's analysis guides as PDFs | The calling method |
+| The assay panel (names, the two alleles, chromosome and position with its assembly, the species each assay works in, sex or origin markers, known problem assays) | The panel file and the base calls |
+| The lab's calling settings and habits (confidence threshold, normalization, no-template controls, when a call is changed by hand, repeat rules) | The defaults and the review screen |
+| Sample and plate maps as the lab imports them, and the animal identifier scheme | The sample sheet |
+| Candidate sire and dam lists, the existing pedigree, and how results go back into the colony records | Parentage and its export |
+| The decision rule in use today, and a few solved and unsolved cases | The truth for 5.3 |
+
+### 5.0, read the files and write the methods (in the trust session, no app code)
+
+| Lane | Model | Product | Proof |
+|---|---|---|---|
+| BMX-FILES | opus | The layout of every export and of the run folder, written in `docs/formats/` from the lab's real files, with fixtures cut from them and the public call maps | A script reads every file the lab gave and reports each section and column |
+| BMX-CALLING | opus, BIO | The vendor's calling method as the guides state it, and a script outside the app that calls genotypes from the raw export. It reports agreement with the vendor's automatic calls for each assay | The agreement rate on the lab's runs, and BIO's threshold for 5.2. If the method cannot be matched, 5.2 keeps the vendor's call as the record and shows LGE's clusters as a check |
+| BMX-PARENTAGE | opus, BIO | The parentage method. Exclusion with a tolerance and a likelihood score with a genotyping error rate, the panel's power from allele frequencies, and the verdict bands. A simulated pedigree with errors and missing parents | The method assigns the simulated pedigree at the error rate BIO states and agrees with the lab's solved cases |
+| P5-PREMISES | opus, ARCH | Every row of 5.1 to 5.3 checked against the head, written here as a Premises corrected table | The table, at a commit no more than seven days old |
+
+### 5.1, import a run and see it
+
+| Lane | Model | What it builds | Proof |
+|---|---|---|---|
+| BMX-KIND | sonnet | Targets `LungfishSNPAssay` and `LungfishSNPAssayUI`, one bundle kind for a run, its manifest and registry rows | The kind opens from the sidebar and joins the view-switch test |
+| BMX-IMPORT | opus | `lungfish-cli snp import` for the exports, found by section marker, with the header block (software version, confidence threshold, normalization, dye mapping) in the record. The original files are kept with their checksums | Calls equal the vendor's export cell for cell on every fixture. A file that is not an export is refused in words |
+| BMX-PANEL | sonnet | The panel file (assay, alleles, position, assembly, species) and the sample sheet with animal identifiers, controls and replicates | An assay the panel does not know, or one with other alleles than the export, is said in words |
+| BMX-VIEW | opus | The call map as a table, and one scatter plot an assay drawn from the stored intensities and coloured by call | Table and plot equal the stored values, and a 192.24 chip opens inside a stated time |
+| BMX-QC | sonnet, BIO review | Call rate for each sample and assay, the no-template controls, invalid chambers, replicate agreement, and flags at the lab's thresholds | The numbers equal an independent count on the fixtures |
+| BMX-GLUE | sonnet, UX review | The Import Center card, its sheet and the CLI runner, and an export of calls as a table | The sheet's argv parses through the real subcommand |
+
+Exit checks. X1 a Preview ships after its walk on one of the lab's runs. X2 imported calls equal the export. X3 the view-switch test passes with the new kind. X4 the quality numbers equal an independent count. X5 the refusals show their words. X6 no S1 or S2 of this Preview is open.
+
+### 5.2, call and review genotypes
+
+| Lane | Model | What it builds | Proof |
+|---|---|---|---|
+| BMX-CALL | opus, BIO review | `lungfish-cli snp call`, the method of BMX-CALLING in the app, with every setting recorded. The vendor's call and LGE's call sit side by side | Agreement with the vendor's automatic calls at BIO's threshold on the lab's runs, and each disagreement is listed |
+| BMX-REVIEW | opus, UX review | A person changes a call or marks a chamber invalid on the plot. Each change is recorded with who, when and why, and the automatic call is kept | A changed call survives a reopen, and the record lists it |
+| BMX-MERGE | sonnet | One genotype table an animal across chips and runs, with the rule for replicates that disagree | The table equals a hand merge of two fixture runs |
+| BMX-IDENTITY | sonnet, BIO review | Duplicate and swapped samples by genotype match, and sex against the record when the panel carries a marker | Two fixture samples of one animal are found, and a swapped pair is flagged |
+
+Exit checks. X1 the Preview and its walk. X2 the agreement rate. X3 a manual change is recorded and kept. X4 the merged table pin. X5 the duplicate test. X6 no S1 or S2 open.
+
+### 5.3, parentage and its report
+
+| Lane | Model | What it builds | Proof |
+|---|---|---|---|
+| PAR-INPUT | sonnet | Candidate sire and dam lists and the existing pedigree, with dates that rule a candidate out | An animal born after the offspring is refused as a parent in words |
+| PAR-RUN | opus, BIO review | `lungfish-cli snp parentage` in `LungfishSNPAssay`. Exclusion with a tolerance, the likelihood score, duo and trio cases, and a missing parent | The simulated pedigree at BIO's error rate, and the lab's solved cases |
+| PAR-POWER | sonnet, BIO review | The panel's power for the animals at hand from allele frequencies, and a warning when the loci typed are too few to decide | The figures equal a calculation by hand on a small panel |
+| PAR-VIEW | opus, UX review | For each offspring the verdict (accepted, doubtful, excluded, unresolved), the ranked candidates, and the loci that mismatch | Numbers on screen equal the result file |
+| PAR-REPORT | sonnet, UX review | A report and a table export in the form the colony records take | UX and the owner read one |
+| PAR-TRACE | sonnet | One provenance test | A verdict traces by checksum to its runs, panel, settings and candidate list |
+
+Exit checks. X1 the Preview and its walk on a solved case of the lab's. X2 the simulated pedigree pin. X3 the lab's solved cases agree, and each that does not is explained. X4 the recorded command reproduces the result. X5 the trace test. X6 no S1 or S2 open.
+
+### Budget
+
+| Session | Lanes | Dollars | Week points |
+|---|---|---|---|
+| 5.0, inside the trust session | 4 | in that session's figure | in that session's figure |
+| 5.1 and 5.2, two Previews | 10 | about $850 | about 42 |
+| 5.3 | 6 | about $520 | about 26 |
+| Total | 20 | about $1,400, ask line $2,100 | about 68 |
+
+## Phase 6, RNA-seq (was Phase 5 until 2026-11-11)
 
 Owner direction O68 held RNA-seq until Phases 3 and 4 exit. Phase 4 exits with its Preview, so that entry is met.
 
@@ -69,17 +172,17 @@ The owner left the route to the experts (O166). `seats/R2-SCIENCE.md` and `seats
 
 | Stage | Decision |
 |---|---|
-| Bulk quantification | Import first (nf-core/rnaseq tables, salmon folders, DRAGEN quant files). Then salmon with selective alignment, on the Mac and on Linux from one plan step |
-| Bulk kits with UMIs | Linux only. STAR, then umi_tools with the directional method, then salmon, as nf-core/rnaseq does |
-| Single cell (10x 3' and 5' gene expression) | Import Cell Ranger and STARsolo output first. Then STARsolo on Linux. LGE never ships or downloads Cell Ranger, since its licence forbids it |
+| Bulk quantification | Import first (nf-core/rnaseq tables, salmon folders, DRAGEN quant files). The default run is on Linux, STAR then salmon on the alignments, with STAR's gene counts kept beside it, since most published human and macaque studies align with STAR and the Quartet and MAQC benchmark of 45 laboratories recommends genome alignment. Salmon alone with selective alignment is the light route on the Mac, and the record says which route ran |
+| Bulk kits with UMIs | A rare path (1 of 48 sampled series). Linux only. STAR, then umi_tools with the directional method, then salmon. Duplicates are never removed without UMIs |
+| Single cell (10x 3' and 5' gene expression) | Import Cell Ranger and STARsolo output first. Then STARsolo on Linux for 10x 3' v3 and v3.1 and 5' v2, with two named presets (match Cell Ranger 4 to 6 with exons only, and match Cell Ranger 7 and later with introns counted), the preset in the record, and output in Cell Ranger's layout. Each chemistry is gated on agreement with 10x's public matrix. LGE never ships or downloads Cell Ranger, since its licence forbids it. Flex, Parse, BD Rhapsody, V(D)J and feature barcodes are import only |
 | Heavy compute | Linux, as a native tool chain under the executor plan that read preprocessing uses. The Mac writes a plan folder, any x86-64 Linux machine runs it in the tool image, and the Mac adopts the result folder. No Nextflow on the node |
 | Quality | In LGE, from the tools' own files. A MultiQC report opens as a document |
 | Differential expression and enrichment | Hand off first. One export (raw counts, gene lengths, sample sheet, gene table) with a DESeq2 template and an edgeR, limma voom and dream template. A guarded run in the app comes later, on a user's ask |
-| Pseudobulk | In LGE. It sums UMI counts by sample and by a label table the analyst exports from Seurat or Scanpy |
+| Pseudobulk | In LGE. It sums raw UMI counts by sample and by a label table the analyst exports from Seurat or Scanpy, drops groups under 10 cells with a note, refuses a comparison with fewer than 3 animals a group, and carries the animal identifier, since five benchmarks find that tests on single cells give false discoveries |
 | Clustering, annotation, embeddings, spatial | Out. Seurat, Scanpy, Loupe and Xenium Explorer stay the users' tools |
 | Isoforms | Transcript rows are kept and exported. Their analysis is out |
 
-A reference set is one named object with checksums that bulk, single cell, the Mac and Linux share. It holds the genome FASTA, the GTF with its source and release, the transcript FASTA and gene table derived from them, the indexes, and extra sequences such as the virus. The defaults are GRCh38 with GENCODE for human, Mmul_10 with Ensembl for rhesus with T2T-MMU8v2.0 offered beside it, and T2T-MFA8v1.1 with RefSeq for cynomolgus. A virus counts as one feature a genome or segment, carries a not-host flag and stays out of size factors, and counts from two reference sets never join in one table.
+A reference set is one named object with checksums that bulk, single cell, the Mac and Linux share. It holds the genome FASTA, the GTF with its source and release, the transcript FASTA and gene table derived from them, the indexes, and extra sequences such as the virus. The defaults are GRCh38 with GENCODE for human, Mmul_10 with Ensembl for rhesus, with RefSeq's annotation as an equal choice and T2T-MMU8v2.0 offered, and T2T-MFA8v1.1 with RefSeq for cynomolgus, with Macaca_fascicularis_6.0 and 5.0 offered so that results compare with deposited tables. No T2T macaque assembly appears in any sampled study, and the cynomolgus field has no standard. LGE refuses to align one species to another's reference without the person saying so, and records species and origin for each animal. A virus counts as one feature a genome or segment, carries a not-host flag and stays out of size factors, and counts from two reference sets never join in one table. Viral counts are reported for each cell and for empty droplets, and one viral UMI is never called an infected cell. Mitochondrial genes are found by their contig and never by a name prefix, since Ensembl names the macaque genes ND1 and COX1 with no MT- prefix and a prefix test reads 0 percent. Genes of the MHC, KIR, immunoglobulin and T cell receptor loci are marked unreliable at gene level. The quality view reports the share of reads on globin and rRNA genes.
 
 One bundle kind holds a result, with a bulk or single-cell modality. A bulk matrix loads whole. A single-cell matrix is kept as given with its checksum and is never loaded, rewritten or converted. One streaming pass writes a per-cell summary to SQLite, and tables page from it. LGE reads Matrix Market text and links no HDF5 library.
 
@@ -88,48 +191,48 @@ One bundle kind holds a result, with a bulk or single-cell modality. A bulk matr
 | Id | Question | The owner's answer | What it sets |
 |---|---|---|---|
 | O161 | Promote Phase 4's closing Preview to a stable release? | "Yes, we can do a release at the end of Phase 4. Make sure our Stable packaging workflow contract is effective and efficient." | A stable release follows Phase 4's closing Preview by the steps of `docs/contracts/VERIFICATION-ORDER.md`, Promoting a Preview to a stable release |
-| O162 | Is the first use bulk host-response RNA-seq only? | "We should assume both bulk and single cell RNAseq when this is built" | Phase 5 covers bulk and single-cell |
+| O162 | Is the first use bulk host-response RNA-seq only? | "We should assume both bulk and single cell RNAseq when this is built" | Phase 6 covers bulk and single-cell |
 | O163 | Hosts and libraries | "We should support UMIs, humans, rhesus, and cynomolgus macaques with common Illumina / 10X workflows." | Three host references, UMI handling, and the common Illumina and 10x kits |
 | O164 | Does the lab run nf-core/rnaseq on CHTC or a server? | "No, but we probably should support using the Linux orchestrator to do the heavy compute, like we do with the read pre-processing." | Heavy alignment and quantification run on Linux through the executor |
-| O165 | May the first release stop at a count table and an export that DESeq2 reads? | "Yes" | Sub-phase 5.1, and no in-app statistics until a user asks |
+| O165 | May the first release stop at a count table and an export that DESeq2 reads? | "Yes" | Sub-phase 6.1, and no in-app statistics until a user asks |
 | O166 | The route | "Whatever the experts decide." The owner's notes from a meeting with RNA-seq users are in `~/lungfish-phase-records/review-2026-11-11/briefs/OWNER-ANSWERS.md` | The route decided by the second round of the review, above |
 | O167 | Move the repository out of `~/Documents`? | "This is a good idea. Relocate it somewhere sensible, maybe a new ~/lge folder? Make sure it doesn't break GitHUb" | `docs/contracts/MACHINES.md`, Where the repository lives, at the close of Phase 4 |
 | O168 | Start the user manual now? | "I want to finish all of the phases first, then revisit the user manual and screencasts." | No change |
 
-### Asks of the owner before 5.0
+### What the literature set
 
-| Ask | Why |
-|---|---|
-| Of the lab's last ten experiments, how many used a bulk kit with UMIs, and how many sampled the same animal more than once? | The first decides whether bulk needs the STAR route in 5.4. The second decides whether a later in-app test must handle repeated animals |
-| Which reference did the lab's existing macaque runs and Cell Ranger references use? | The macaque defaults |
-| Which versions of nf-core/rnaseq and Cell Ranger made the results people hold, with one result folder of each | The importers of 5.1 and 5.2 read those layouts |
-| What does the note "Are S10s available" mean? | The reviewers could not read it |
-| The positive control data from the lab member | The acceptance walk of 5.1 and 5.2. It is not a pin, since it is not public |
+The owner asked that recent literature, and not the lab's own practice, set the tools, references and control data (2026-11-11). Two reviewers sampled recent human and macaque infection, vaccine and immunology studies and the benchmark papers. Their reports with every citation are `seats/LIT-BULK.md` and `seats/LIT-SC.md` of the review, and the route table above holds their results. The usual library is poly-A, rRNA-depleted or SMART-Seq v4 at 20 to 50 million read pairs from whole blood, PBMC or tissue. DESeq2 leads the statistics, and only 1 of 20 macaque papers modelled repeated sampling of one animal, so the templates take an animal term and the sample sheet always asks for the animal.
 
-### The trust session, with sub-phase 5.0 inside it
+Control data, all public. BIO picks the pins from these in 6.0, and every macaque run is cut to about 5 million pairs.
 
-One session of about 16 lanes. It ends in a Preview when a lane lands a fix a user can see or a result fix. BIO names the two families of the sweep, and the review suggests variant calling with Viral Recon consensus, then MHC genotyping.
+| Use | Data | Truth it gives |
+|---|---|---|
+| Bulk fixture | HBR and UHR with ERCC, chromosome 22 subset, 117 MB (genomedata.org) | The ERCC mix ratios |
+| Bulk benchmark | SEQC samples A and B, GEO GSE47774 | TaqMan values for about 1,000 genes and the mix ratios |
+| Rhesus bulk | GEO GSE304256 (whole blood, vaccine) and GSE301415 (deposited salmon output) | Deposited counts on Mmul_10 |
+| Cynomolgus bulk | GEO GSE290671 (featureCounts table) and GSE341361 (repeated sampling, dream design) | Deposited counts |
+| Bulk UMI kit | GEO GSE163196 and the small GSE300831 | Counts made with UMI-tools |
+| 10x 3' v3 | pbmc_1k_v3, 5.55 GB of reads | 10x's own matrix and its 1,222 cells |
+| 10x 5' v2 | sc5p_v2_hs_PBMC_1k, 7.98 GB | 10x's own matrix |
+| Species mix | hgmm_1k_v3, 4.88 GB | Species purity and doublet rate |
+| Rhesus 10x | GEO GSE293992 (3' v3.1, Mmul_10) and GSE183579 (with a virus in the reference) | Deposited matrices |
+| Cynomolgus 10x | GEO GSE296788 (a pathogen in the reference) | Deposited matrices |
+
+### 6.0, pins, fixtures and spikes (a short job at the start of Phase 6)
 
 | Lane | What it does | Proof |
-|---|---|---|
 | SWEEP-1, SWEEP-2 | The truth sweep. For one tool family each, run the tool by hand on a real public data set with real-shaped inputs (sample names with spaces, a virus in segments, two samples of one taxon, a negative control) and compare every number the app shows and exports with the tool's own files | A table of numbers compared. Each difference is a finding with its severity, and an S1 or S2 becomes a lane |
-| PROBES | The 21 backlog rows whose rating waits on a measurement, each probed in at most 40 calls or rated by BIO as if the condition holds | No row keeps a conditional rating |
-| SCALE-SMOKE | A real-size corpus in the golden cache (a 20,000-record FASTA, a 100,000-read FASTQ bundle, a BAM of about 1 GB, one result of each viewer kind). One XCUI test opens each in the packaged app and fails when the main thread does not answer for 5 s or the footprint passes a bound. MAIN-THREAD-BLOCK leaves the backlog | The test is red on 2026.11.1's FASTA hang and green on the head |
-| MEM-WORDS | A managed tool that ends by SIGKILL or exit 137 says it stopped, most likely for memory, with the peak it reached. The app and the CLI stop in words before they grow past a set share of memory | Tests on a stand-in that is killed |
-| UPGRADE-CORPUS | One project a release, made by the `lungfish-cli` inside the DMGs of the last stable release and the newest Preview, with one result of every kind. A check lists, verifies and exports every result with the candidate's CLI and fails on a difference | The check runs after the golden compare |
-| AFFECTED | A table in the app of results that a fixed S1 made wrong (result kind, builds, one sentence, what to do). A result whose record names such a build shows the sentence in its viewer and Inspector | A test on a record of an affected build |
-| TWINS | The walk rows left unwalked since 2026.11.3 become XCUI tests in a second profile that does not bind, or close on UX's or BIO's word. The owner list is written new at 20 rows | The list's row count, and the tests on the package |
-| P5-LAYOUT (5.0), opus, no code | The bundle layout in `docs/formats/` and the fixtures. One nf-core/rnaseq result of the yeast test set, salmon folders, a Cell Ranger `outs/` folder cut to about 200 cells, a STARsolo folder, and 10x's public pbmc_1k_v3 matrix | The fixtures in the golden cache with the script that made them |
-| P5-PINS (5.0) | BIO states the numbers from salmon by hand and from the tools' own summaries, and which outputs are pinned byte for byte and which by a tolerance | A pin table in this plan |
-| P5-REFS (5.0) | For human, rhesus and cynomolgus, the assembly and annotation release of each default, and the count of annotation contigs missing from the FASTA, which must be 0 | A one-page report |
-| SPIKE-STREAM (5.0) | No app code. One streaming pass over a matrix of 500,000 cells on the Mac | Under 10 minutes and under 1 GB, or the design of 5.2 changes |
-| SPIKE-SALMON (5.0) | No app code. Salmon from a lock entry on Apple silicon, with index and quantification of one real-size sample on a human and a macaque reference set, peak memory, disk and time | The figure for a 16 GB Mac |
-| P5-PREMISES (5.0) | ARCH checks every row of 5.1 to 5.5 against the head and writes corrections into this plan as a Premises corrected table | The table, at a commit no more than seven days old |
-| SURFACE-RECIPE (5.0) | The touch-point table of `ADDING-AN-ANALYSIS-SURFACE.md` rewritten from the real App files of the 12S leaf and the CZ ID import, with the Workflow Operations dialog as a third launch family in `ADDING-AN-OPERATION.md` | The path check passes |
+| P6-LAYOUT, opus, no code | The bundle layout in `docs/formats/` and the fixtures. One nf-core/rnaseq result of the yeast test set, salmon folders, a Cell Ranger `outs/` folder cut to about 200 cells, a STARsolo folder, and 10x's public pbmc_1k_v3 matrix | The fixtures in the golden cache with the script that made them |
+| P6-PINS | BIO states the numbers from salmon by hand and from the tools' own summaries, and which outputs are pinned byte for byte and which by a tolerance | A pin table in this plan |
+| P6-REFS | For human, rhesus and cynomolgus, the assembly and annotation release of each default, and the count of annotation contigs missing from the FASTA, which must be 0 | A one-page report |
+| SPIKE-STREAM | No app code. One streaming pass over a matrix of 500,000 cells on the Mac | Under 10 minutes and under 1 GB, or the design of 6.2 changes |
+| SPIKE-SALMON | No app code. Salmon from a lock entry on Apple silicon, with index and quantification of one real-size sample on a human and a macaque reference set, peak memory, disk and time | The figure for a 16 GB Mac |
+| P6-PREMISES | ARCH checks every row of 6.1 to 6.5 against the head and writes corrections into this plan as a Premises corrected table | The table, at a commit no more than seven days old |
+| SURFACE-RECIPE | The touch-point table of `ADDING-AN-ANALYSIS-SURFACE.md` rewritten from the real App files of the 12S leaf and the CZ ID import, with the Workflow Operations dialog as a third launch family in `ADDING-AN-OPERATION.md` | The path check passes |
 
-Exit of 5.0. The fixtures and pins are in the golden cache, the two spikes have their numbers, and the tables below are confirmed or corrected.
+Exit of 6.0. The fixtures and pins are in the golden cache, the two spikes have their numbers, and the tables below are confirmed or corrected.
 
-### 5.1, counts in and counts out (bulk, no new tool, no Linux)
+### 6.1, counts in and counts out (bulk, no new tool, no Linux)
 
 | Lane | Model | What it builds | Proof |
 |---|---|---|---|
@@ -143,19 +246,19 @@ Exit of 5.0. The fixtures and pins are in the golden cache, the two spikes have 
 
 Exit checks. X1 a Preview ships after its walk, which imports the lab's positive control. X2 an imported table equals its source (BIO's pin). X3 the view-switch test passes with the new kind. X4 the quality numbers equal the tool's files. X5 the refusals show their words. X6 no S1 or S2 of this Preview is open. Reported and not checked is the count of LungfishApp files edited, expected near 7.
 
-### 5.2, cells in and pseudobulk out (single cell, no Linux)
+### 6.2, cells in and pseudobulk out (single cell, no Linux)
 
 | Lane | Model | What it builds | Proof |
 |---|---|---|---|
 | RS-SC-IMPORT | opus | The Matrix Market reader over the gzip streams, the summarizer and `cells.sqlite`, for Cell Ranger (also `cellranger multi`) and STARsolo folders. The `.h5` file is kept with its checksum and not read | Per-cell sums equal numbers from a tool run directly on the fixture. The tool's own summary is shown as given, with chemistry and version from its files |
 | RS-SC-VIEW | sonnet | The summary, the barcode rank plot and three histograms, paged from SQLite | Bins equal `cells.sqlite`. A matrix of 500,000 cells opens inside the bound of SPIKE-STREAM |
 | RS-PSEUDOBULK | opus, BIO review | `lungfish-cli rnaseq pseudobulk` with a label table (barcode and label). Groups under 10 cells are dropped and said | Sums by group equal an independent sum, and a replay of the recorded command gives the same table |
-| RS-SC-HANDOFF | sonnet | The matrix folder with Seurat and Scanpy templates, and the pseudobulk table into 5.1's export | The templates read the fixture and report the cell count of the tool's summary |
+| RS-SC-HANDOFF | sonnet | The matrix folder with Seurat and Scanpy templates, and the pseudobulk table into 6.1's export | The templates read the fixture and report the cell count of the tool's summary |
 | RS-SC-GLUE | sonnet, UX review | The import sheet rows and the words | UX reads the words |
 
 Exit checks. X1 the Preview and its walk on the lab's positive control. X2 the per-cell pin. X3 the pseudobulk pin and its replay. X4 the 500,000-cell bound. X5 the templates run. X6 no S1 or S2 open.
 
-### 5.3, reference sets and salmon on the Mac
+### 6.3, reference sets and salmon on the Mac
 
 | Lane | Model | What it builds | Proof |
 |---|---|---|---|
@@ -168,7 +271,7 @@ Exit checks. X1 the Preview and its walk on the lab's positive control. X2 the p
 
 Exit checks. X1 the Preview and its walk from the dialog to a count table. X2 parity. X3 the recorded command reproduces the pin. X4 the reference refusal. X5 the index reuse test. X6 no S1 or S2 open.
 
-### 5.4 and 5.5, the same steps on Linux, then STARsolo
+### 6.4 and 6.5, the same steps on Linux, then STARsolo
 
 Spikes on a CHTC node come first, by the manager with the owner's CHTC access. They give STAR's peak memory, time and disk for the index and for one sample of 50 million pairs, the minutes a job spends placing a 30 GB index, the megabytes that come home a sample, and STARsolo against simpleaf on pbmc_1k_v3 (called cells, correlation with 10x's public matrix, memory). If simpleaf is as near to Cell Ranger at a fraction of the memory, it replaces STARsolo.
 
@@ -182,12 +285,12 @@ Spikes on a CHTC node come first, by the manager with the owner's CHTC access. T
 | EX-ADOPT | opus | The adopt split into its checks and its payload writer, with the RNA-seq payload | The adopted bundle equals `rnaseq import` of the same folder, and a FASTQ adopt is byte equal to before |
 | EX-APP | sonnet, UX review | The plan sheet and the adopt card | The sheet's argv parses through the real subcommand |
 | EX-LIVE | manager | One real bulk batch on CHTC, compared with the same tools by hand | The comparison in the technical record |
-| SOLO-PLAN (5.5) | opus, BIO review | The 10x chain for 3' and 5' gene expression, with the 10x filter rule on the GTF and the barcode list from the user's install or a licensed public source | STARsolo on pbmc_1k_v3 against 10x's public matrix, at BIO's threshold |
-| SOLO-LIVE (5.5) | manager | One real 10x library on CHTC, adopted | The cells and counts equal the node's own summary |
+| SOLO-PLAN (6.5) | opus, BIO review | The 10x chain for 3' and 5' gene expression, with the 10x filter rule on the GTF and the barcode list from the user's install or a licensed public source | STARsolo on pbmc_1k_v3 against 10x's public matrix, at BIO's threshold |
+| SOLO-LIVE (6.5) | manager | One real 10x library on CHTC, adopted | The cells and counts equal the node's own summary |
 
-Exit checks. X1 a Preview after 5.4 and one after 5.5, each with its walk of the plan sheet and the adopt. X2 the stand-in parity. X3 the adopted bundle equals a direct import. X4 version 1 plans are unchanged. X5 the live batch equals the tools by hand. X6 no S1 or S2 open.
+Exit checks. X1 a Preview after 6.4 and one after 6.5, each with its walk of the plan sheet and the adopt. X2 the stand-in parity. X3 the adopted bundle equals a direct import. X4 version 1 plans are unchanged. X5 the live batch equals the tools by hand. X6 no S1 or S2 open.
 
-Phase 5 exits when 5.5's checks pass. Later, and only on a user's ask, come a guarded differential expression in the app (edgeR with limma voom, dream for repeated animals, DESeq2 for two groups), fgsea, a launch of the user's own Cell Ranger from a staged archive, an H5 and h5ad converter, nf-core/rnaseq as a Nextflow launch on a Mac with Docker, a splice view, and spatial data.
+Phase 6 exits when 6.5's checks pass. Later, and only on a user's ask, come a guarded differential expression in the app (edgeR with limma voom, dream for repeated animals, DESeq2 for two groups), fgsea, a launch of the user's own Cell Ranger from a staged archive, an H5 and h5ad converter, nf-core/rnaseq as a Nextflow launch on a Mac with Docker, a splice view, and spatial data.
 
 ### Budget
 
@@ -195,11 +298,11 @@ Computed as `docs/contracts/SCOPE-AND-DELIVERY.md` sets, at $24 a landed lane ($
 
 | Session | Lanes | Dollars | Week points |
 |---|---|---|---|
-| Trust session with 5.0 | 16 | about $700 | about 36 |
-| 5.1 and 5.2, two Previews | 12 | about $900 | about 45 |
-| 5.3 | 6 | about $500 | about 25 |
-| 5.4 and 5.5, two Previews | 10 | about $900 | about 45 |
-| Total | 44 | about $3,000, ask line $4,500 | about 150 |
+| 6.0 | 7 | about $290 | about 15 |
+| 6.1 and 6.2, two Previews | 12 | about $900 | about 45 |
+| 6.3 | 6 | about $500 | about 25 |
+| 6.4 and 6.5, two Previews | 10 | about $900 | about 45 |
+| Total | 35 | about $2,600, ask line $3,900 | about 130 |
 
 The week points bind, and a session starts with at least 35 points of the week free.
 

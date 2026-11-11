@@ -95,6 +95,18 @@ Where the two seats differed, the ruling follows the field that owns the questio
 
 The owner's other answers set a stable release after Phase 4's closing Preview, by a new ordered table in `VERIFICATION-ORDER.md` that builds the stable package once, and the move of the repository to `~/lge` at the close of Phase 4, by a table in `MACHINES.md`.
 
+## The third round, literature and a new phase
+
+The owner then asked that recent literature, and not the lab's own practice, set the RNA-seq tools, references and control data, and added a phase for the Biomark X instrument ahead of RNA-seq. Three more reports are in the seats folder.
+
+| Report | What it found | What changed |
+|---|---|---|
+| `seats/LIT-BULK.md` | Of sampled human and macaque series that name a tool, most align with STAR (15 of 22 macaque, 9 of 21 human), and the Quartet and MAQC benchmark of 45 laboratories recommends genome alignment. UMI kits are rare. Only 1 of 20 macaque papers modelled repeated sampling of one animal. The reference defaults held | The default bulk run is STAR then salmon on Linux with STAR's gene counts kept. Salmon alone is the light route on the Mac. The templates take an animal term |
+| `seats/LIT-SC.md` | Cell Ranger is named in 264 of 506 macaque and 305 of 538 human methods sections, and STARsolo gives almost identical results. Five benchmarks support pseudobulk. Macaque mitochondrial genes carry no MT- prefix in Ensembl. No sampled study uses a T2T macaque assembly | Two STARsolo presets that match Cell Ranger, import of Cell Ranger output first, mitochondrial genes found by contig, older macaque assemblies offered beside the defaults |
+| `seats/BIOMARK.md` | The call map export's layout is verified from a real file. The vendor's calling method is not documented in any page that could be opened, no open tool re-clusters raw intensities, and no published macaque SNP parentage panel was found | Phase 5 starts with the lab's own run files and the vendor's guides. Its sub-phases are 5.1 import and view, 5.2 call and review, 5.3 parentage and its report |
+
+RNA-seq is now Phase 6. Both literature reports list public control data with the truth each gives, and the plan holds the table.
+
 ## What nobody could check
 
 Who uses LGE and on which channel. Salmon's time and memory on this lab's data, and whether nf-core/rnaseq runs at a useful speed under Docker on Apple silicon, which sub-phase 5.0 measures. Whether the tool families nobody read are wrong, which the truth sweep answers. How the weekly quota weighs opus at max. The run time of the integration and conformance tiers alone.
