@@ -95,7 +95,7 @@ extension ClassifierReadResolver {
     /// The nf-core name `{X}.{X}.dwnld.references.bam` belongs to sample X alone, so it fits `sampleId` only when X is
     /// `sampleId`. That keeps sample `S1` from taking the BAM of `S10`, whose name has no boundary after `S1`, or of
     /// `S1.1`, whose file names `S1.1` twice.
-    static func taxTriageNameFits(_ name: String, sampleId: String) -> Bool {
+    package static func taxTriageNameFits(_ name: String, sampleId: String) -> Bool {
         guard name.hasSuffix(".bam"), name.hasPrefix(sampleId),
               let boundary = name.dropFirst(sampleId.count).first, ".-_".contains(boundary) else { return false }
         guard let owner = taxTriageReferencesBAMOwner(of: name) else { return true }
