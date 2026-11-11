@@ -145,6 +145,29 @@ final class AssemblyReadTypeTests: XCTestCase {
         XCTAssertEqual(MappingReadClass.detect(fromInputURL: grandchild), .ontReads)
     }
 
+    /// A barcode bundle of the Demultiplex pipeline holds a `.demuxedVirtual` manifest, a preview file and no platform
+    /// of its own (DemultiplexingPipeline.swift:826-848 writes only the manifest). It answers with the ONT root's record.
+    func testADemultiplexedBarcodeBundleReadsTheRootRecord() throws {
+        let root = try makeRoot(platform: .oxfordNanopore, readType: .ontReads)
+        let barcode = try makeDerived(
+            named: "barcode87",
+            parent: root,
+            rootPath: "@/Imports/\(root.lastPathComponent)",
+            payload: .demuxedVirtual(
+                barcodeID: "barcode87",
+                readIDListFilename: "read-ids.txt",
+                previewFilename: "preview.fastq",
+                trimPositionsFilename: nil,
+                orientMapFilename: nil
+            ),
+            readsFile: "preview.fastq"
+        )
+        try assertNoRecordOfItsOwnAndShortReadsByLength(barcode)
+
+        XCTAssertEqual(AssemblyReadType.detect(fromInputURL: barcode), .ontReads)
+        XCTAssertEqual(MappingReadClass.detect(fromInputURL: barcode), .ontReads)
+    }
+
     /// The lookup applies only when the bundle's own sidecar holds neither field. A person's own record of the
     /// derived bundle stays the answer.
     func testARecordOfItsOwnBeatsTheRecordOfTheBundleItDerivesFrom() throws {
