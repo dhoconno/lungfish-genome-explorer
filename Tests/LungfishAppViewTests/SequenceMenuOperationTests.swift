@@ -708,10 +708,7 @@ final class SequenceMenuOperationTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let drawerSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift"),
-            encoding: .utf8
-        )
+        let drawerSource = combinedAnnotationTableDrawerSource()
         let viewerDrawerSource = try String(
             contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift"),
             encoding: .utf8
