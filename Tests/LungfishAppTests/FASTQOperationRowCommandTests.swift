@@ -95,13 +95,19 @@ final class FASTQOperationRowCommandTests: XCTestCase {
         .derivative(request: request, inputURLs: sources.map(\.bundleURL), outputMode: .perInput)
     }
 
-    /// Registers the dialog row for `launch` on `reporter`, as the launch site does.
-    private func beginRow(for launch: FASTQOperationLaunchRequest, on reporter: RecordingOperationReporter) throws -> UUID {
+    /// Registers the dialog row for `launch` on `reporter`, as the launch site does. `outputTargetPath` is the output
+    /// the launch site spells in the command, `<derived>` unless the output is known before `begin`.
+    private func beginRow(
+        for launch: FASTQOperationLaunchRequest,
+        on reporter: RecordingOperationReporter,
+        outputTargetPath: String = "<derived>"
+    ) throws -> UUID {
         try MainSplitViewController.beginFASTQLaunchRequestOperation(
             title: "FASTQ: \(launch.operationDisplayTitle)",
             request: launch,
             executionService: FASTQOperationExecutionService(),
             routeContext: nil,
+            outputTargetPath: outputTargetPath,
             reporter: reporter
         ) { _ in }.requireStarted()
     }
@@ -360,6 +366,22 @@ final class FASTQOperationRowCommandTests: XCTestCase {
         )
         XCTAssertTrue(expected.hasPrefix(CLICommandIdentity.executableName + " fastq demultiplex "), expected)
         XCTAssertEqual(FASTQOperationRowCommand.refinement(for: result), .replace(with: expected))
+    }
+
+    /// A Demultiplex Barcodes row is begun with its run folder in `-o`, since the folder is known before `begin`.
+    /// The row of a demultiplex that fails is never refined, so this command is the one Copy CLI Command gives
+    /// for it, and it runs the same demultiplex again.
+    func testTheLaunchCommandOfADemultiplexNamesItsRunFolder() throws {
+        let source = try makeSourceBundle(named: "Sample 1")
+        let runFolder = root.appendingPathComponent("Project.lungfish/Analyses/demultiplex-3", isDirectory: true)
+        let reporter = RecordingOperationReporter()
+        _ = try beginRow(for: demultiplexLaunch(on: source), on: reporter, outputTargetPath: runFolder.path)
+
+        let row = try XCTUnwrap(reporter.items.first?.cliCommand)
+        XCTAssertFalse(row.contains("<derived>"), row)
+        let shown = try XCTUnwrap(RecordedCLICommand.parseScript(row).first as? FastqDemultiplexSubcommand)
+        XCTAssertEqual(shown.input, source.bundleURL.path)
+        XCTAssertEqual(shown.output, runFolder.path, "the command names the run folder, not a placeholder")
     }
 
     func testADemultiplexFolderWithNoRecordKeepsTheBeginCommandAndSaysSo() throws {

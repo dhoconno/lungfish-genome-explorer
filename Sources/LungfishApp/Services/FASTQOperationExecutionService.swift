@@ -562,8 +562,11 @@ struct FASTQOperationExecutionService {
         }
     }
 
-    func buildInvocation(for request: FASTQOperationLaunchRequest) throws -> FASTQCLIInvocation {
-        try invocationBuilder.buildInvocation(for: request)
+    func buildInvocation(
+        for request: FASTQOperationLaunchRequest,
+        outputTargetPath: String = "<derived>"
+    ) throws -> FASTQCLIInvocation {
+        try invocationBuilder.buildInvocation(for: request, outputTargetPath: outputTargetPath)
     }
 
     private func validatePreResolutionTopologyIfNeeded(

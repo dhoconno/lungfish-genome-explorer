@@ -780,11 +780,16 @@ extension MainSplitViewController {
         // This launch declares no bundle lock, so `begin` cannot refuse it today.
         // A refusal would launch nothing and return nil. If a lock is added here,
         // the refused branch must also discard `ownedAnalysisDirectory`.
+        // A demultiplex writes straight into its run folder (`FASTQOperationPlanner.executionOutputDirectory`), so the
+        // launch command spells it and a running or failed row still shows a command that runs again.
+        var beginOutputPath = "<derived>"
+        if case .derivative(.demultiplex, _, _) = request { beginOutputPath = workingDirectory.path }
         let began = Self.beginFASTQLaunchRequestOperation(
             title: "FASTQ: \(attributedDisplayTitle)",
             request: request,
             executionService: executionService,
-            routeContext: operationRouteContext
+            routeContext: operationRouteContext,
+            outputTargetPath: beginOutputPath
         ) { opID in
             OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(attributedDisplayTitle)")
             // An analysis directory (or the batch root around a batch child's

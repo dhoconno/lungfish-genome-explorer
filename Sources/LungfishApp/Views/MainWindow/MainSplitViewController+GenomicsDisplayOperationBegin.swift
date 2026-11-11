@@ -84,18 +84,21 @@ extension MainSplitViewController {
     /// A derivative row then shows the command its imported bundles' manifests
     /// record, and a Savont row shows the executed command that names the
     /// published FASTA. A grouped result and every other request keep the
-    /// command recorded here.
+    /// command recorded here. A Demultiplex Barcodes row is begun with its run
+    /// folder in `-o`, since the folder is known before `begin`, so a running or
+    /// failed demultiplex shows a command that runs again.
     @discardableResult
     static func beginFASTQLaunchRequestOperation(
         title: String,
         request: FASTQOperationLaunchRequest,
         executionService: FASTQOperationExecutionService,
         routeContext: OperationRouteContext?,
+        outputTargetPath: String = "<derived>",
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
         let cliCommand: String? = try? FASTQOperationCLIInvocationBuilder.commandLine(
-            for: executionService.buildInvocation(for: request)
+            for: executionService.buildInvocation(for: request, outputTargetPath: outputTargetPath)
         )
         let result = reporter.begin(
             title: title,
