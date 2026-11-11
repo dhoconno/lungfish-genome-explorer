@@ -231,6 +231,79 @@ final class TaxTriageOrganismReportTests: XCTestCase {
                        "a legacy database without any organism report stays as it is")
     }
 
+    /// MGR-1 (the manager's fold of BIO's backlog B1 of lane BUILDDB-FIX, owner direction O172; the rule is BIO's 6.5).
+    /// A build before BUILDDB-BAM-FIT could record the BAM of another sample, `minimap2/S1_2.S1_2.dwnld.references.bam`
+    /// for S1, and kept no mark of it. A database that is current in every other way, records such a BAM and holds no
+    /// `fitted_bam_samples` key is stale when the result folder holds report files, so the app rebuilds it once a
+    /// session. The same database with the key `[]` is not. Red at the base, which read `taxonomy_source` and
+    /// `read_count` alone.
+    func testADatabaseWithAnotherSamplesBAMAndNoMarkIsStale() throws {
+        let batch = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: batch) }
+        try FileManager.default.copyItem(at: try fixtureSampleDir(), to: batch.appendingPathComponent("SRR12486983"))
+        let current = currentMetadata()
+        let rows = [makeRow(sample: "S1", bamPath: "minimap2/S1_2.S1_2.dwnld.references.bam")]
+
+        let unmarked = try TaxTriageDatabase.create(
+            at: batch.appendingPathComponent("unmarked.sqlite"), rows: rows, metadata: current
+        )
+        XCTAssertTrue(unmarked.isStale(forResultDirectory: batch), "S1 records the BAM of S1_2 and no mark says so")
+        let emptyDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: emptyDir) }
+        XCTAssertFalse(unmarked.isStale(forResultDirectory: emptyDir), "with no organism report it stays as it is")
+
+        let marked = try TaxTriageDatabase.create(
+            at: batch.appendingPathComponent("marked.sqlite"),
+            rows: rows,
+            metadata: current.merging([TaxTriageDatabase.fittedBAMSamplesMetadataKey: "[]"]) { _, new in new }
+        )
+        XCTAssertFalse(marked.isStale(forResultDirectory: batch), "the key is there, so the build that wrote it vouches")
+    }
+
+    /// A database of an older build whose recorded BAMs all carry their sample's own name cannot hold another sample's
+    /// file, so the missing key alone does not make it stale. Rebuilding it would drop the stored Unique Reads of a
+    /// result whose BAM is gone (BIO 6.1) and hide the result in a project open read-only.
+    func testADatabaseOfEachSamplesOwnBAMNamesIsNotStaleForWantOfAMark() throws {
+        let batch = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: batch) }
+        try FileManager.default.copyItem(at: try fixtureSampleDir(), to: batch.appendingPathComponent("SRR12486983"))
+        let rows = [
+            makeRow(sample: "S1", bamPath: "minimap2/S1.S1.dwnld.references.bam"),
+            makeRow(sample: "S2", bamPath: "minimap2/S2.bam"),
+        ]
+        let database = try TaxTriageDatabase.create(
+            at: batch.appendingPathComponent("own-names.sqlite"), rows: rows, metadata: currentMetadata()
+        )
+        XCTAssertFalse(database.isStale(forResultDirectory: batch), "each sample's own BAM name, no mark needed")
+    }
+
+    /// The metadata of a database built with the current `taxonomy_source` and `read_count` and no fitted-BAM key.
+    private func currentMetadata() -> [String: String] {
+        [
+            "tool": "taxtriage",
+            TaxTriageDatabase.taxonomySourceMetadataKey: "organism_report",
+            TaxTriageDatabase.readCountMetadataKey: TaxTriageDatabase.currentReadCount,
+        ]
+    }
+
+    private func makeRow(sample: String, bamPath: String?) -> TaxTriageTaxonomyRow {
+        TaxTriageTaxonomyRow(
+            sample: sample, organism: "Test organism", taxId: nil, status: nil,
+            tassScore: 0.5, readsAligned: 10, uniqueReads: nil,
+            pctReads: nil, pctAlignedReads: nil, coverageBreadth: nil,
+            meanCoverage: nil, meanDepth: nil, confidence: nil,
+            k2Reads: nil, parentK2Reads: nil, giniCoefficient: nil,
+            meanBaseQ: nil, meanMapQ: nil, mapqScore: nil,
+            disparityScore: nil, minhashScore: nil, diamondIdentity: nil,
+            k2DisparityScore: nil, siblingsScore: nil, breadthWeightScore: nil,
+            hhsPercentile: nil, isAnnotated: nil, annClass: nil,
+            microbialCategory: nil, highConsequence: nil, isSpecies: nil,
+            pathogenicSubstrains: nil, sampleType: nil,
+            bamPath: bamPath, bamIndexPath: nil,
+            primaryAccession: nil, accessionLength: nil
+        )
+    }
+
     /// 3.2 lane TTREADS. A build before Reads counted every reference of an organism counted a row on its first
     /// reference alone, so Influenza A, whose reads sat on other segments, read 0 in the NTC-P batch. Such a database
     /// is stale, so the app rebuilds it when it shows the result. Red at the base, which read `taxonomy_source` alone.

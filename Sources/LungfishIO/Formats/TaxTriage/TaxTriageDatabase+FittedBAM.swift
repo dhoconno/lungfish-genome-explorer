@@ -26,4 +26,18 @@ extension TaxTriageDatabase {
               let samples = try? JSONDecoder().decode([String].self, from: Data(value.utf8)) else { return [] }
         return Set(samples)
     }
+
+    /// True for a database of a build before BUILDDB-BAM-FIT (no `fitted_bam_samples` key) with a row whose BAM is
+    /// neither `{sample}.bam` nor `{sample}.{sample}.dwnld.references.bam`, the only databases that can hold another
+    /// sample's BAM. ``isStale(forResultDirectory:)`` reads it (MGR-1, the narrowed rule of the BIO review of BUILDDB-FIX).
+    func recordsUnmarkedFittedBAM(_ metadata: [String: String]) -> Bool {
+        guard metadata[Self.fittedBAMSamplesMetadataKey] == nil,
+              let samples = try? fetchSamples().map(\.sample),
+              let rows = try? fetchRows(samples: samples) else { return false }
+        return rows.contains { row in
+            guard let path = row.bamPath else { return false }
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            return name != "\(row.sample).bam" && name != "\(row.sample).\(row.sample).dwnld.references.bam"
+        }
+    }
 }

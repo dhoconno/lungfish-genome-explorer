@@ -57,11 +57,11 @@ public final class TaxTriageDatabase: @unchecked Sendable {
     /// True when the result folder holds a TaxTriage organism report and this database was built before
     /// organism-report parsing existed (no `taxonomy_source`, TASS 0 from the Kraken-only top report) or while its
     /// Reads were BAM counts on the first reference (no current `read_count`, so a segmented virus could read 0,
-    /// 3.2 TTREADS). The app rebuilds such a database once a session when it shows the result, as
-    /// `lungfish build-db taxtriage <result-dir> --force` does.
+    /// 3.2 TTREADS). A database with an unmarked fitted BAM is stale too (BUILDDB-BAM-FIT). The app rebuilds such a
+    /// database once a session when it shows the result, as `lungfish build-db taxtriage <result-dir> --force` does.
     public func isStale(forResultDirectory resultURL: URL) -> Bool {
         let metadata = (try? fetchMetadata()) ?? [:]
-        guard metadata[Self.taxonomySourceMetadataKey] == nil || Self.readCountIsStale(metadata) else { return false }
+        guard metadata[Self.taxonomySourceMetadataKey] == nil || Self.readCountIsStale(metadata) || recordsUnmarkedFittedBAM(metadata) else { return false }
         return TaxTriageOrganismReport.containsReportFiles(inResultOrBatchDirectory: resultURL)
     }
 
