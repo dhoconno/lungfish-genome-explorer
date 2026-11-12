@@ -3,9 +3,21 @@ import XCTest
 @MainActor
 struct ProjectLifecycleRobot {
     let app: XCUIApplication
+    /// Set when the exact-candidate gate names a packaged app (`LUNGFISH_RELEASE_SMOKE_APP`). The packaged app has no
+    /// launch hooks, so `launch(openingProject:)` opens the project through File > Open Project Folder... as
+    /// `ReleaseAppSmokeRobot` does, and the tests of the `ui-twins` profile run on the package (lane TWINS).
+    private let packaged: ReleaseAppSmokeRobot?
+    private let packagedFailure: String?
 
-    init(app: XCUIApplication = XCUIApplication()) {
-        self.app = app
+    init(app: XCUIApplication = XCUIApplication(), testName: String = #function) {
+        var candidate: ReleaseAppSmokeRobot?
+        var failure: String?
+        if ProcessInfo.processInfo.environment["LUNGFISH_RELEASE_SMOKE_APP"] != nil {
+            do { candidate = try ReleaseAppSmokeRobot(testName: testName) } catch { failure = String(describing: error) }
+        }
+        self.packaged = candidate
+        self.packagedFailure = failure
+        self.app = candidate?.app ?? app
     }
 
     var welcomeWindow: XCUIElement {
@@ -48,6 +60,19 @@ struct ProjectLifecycleRobot {
     }
 
     func launch(openingProject projectURL: URL, file: StaticString = #filePath, line: UInt = #line) {
+        if let packagedFailure {
+            XCTFail("The packaged app could not be prepared for the launch: \(packagedFailure)", file: file, line: line)
+            return
+        }
+        if let packaged {
+            do {
+                try packaged.launch()
+                packaged.openProject(projectURL)
+            } catch {
+                XCTFail("The packaged app did not launch: \(error)", file: file, line: line)
+            }
+            return
+        }
         configureBaseLaunch()
         var options = LungfishUITestLaunchOptions(
             projectPath: projectURL,

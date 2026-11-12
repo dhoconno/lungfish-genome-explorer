@@ -32,7 +32,24 @@ def selected_tests(contract):
     return list(contract.gates.appSmokeTests)
 
 
+def profile_tests(root, profile):
+    """The tests a profile of config/test-catalog.json lists for this gate. Only a profile that says binding false
+    runs here, so gates.appSmokeTests stays the one selection a release step checks."""
+    entry = read_json(Path(root) / "config/test-catalog.json").get("profiles", {}).get(profile)
+    if not isinstance(entry, dict) or entry.get("binding") is not False or not entry.get("appSmokeTests"):
+        raise EvidenceError("profile %s lists no tests for the gate or does not say binding false" % profile)
+    return list(entry["appSmokeTests"])
+
+
 def verify_result(path, digest, source, channel, payload_digest, contract):
+    """The check a publish makes. It takes the binding selection only, so the result of a profile that does not
+    bind (--profile ui-twins) never passes it."""
+    return check_result(path, digest, source, channel, payload_digest, contract, selected_tests(contract), True)
+
+
+def check_result(path, digest, source, channel, payload_digest, contract, tests, binding):
+    """Every proof of a gate run for the selection `tests`. A binding check refuses a result that names a profile
+    or says binding, and the run of a profile must say binding false."""
     path = Path(path)
     root = path.parent
     if file_record(path, root)["sha256"] != digest:
@@ -40,10 +57,15 @@ def verify_result(path, digest, source, channel, payload_digest, contract):
     result = read_json(path)
     if result.get("schemaVersion") == 1:
         raise EvidenceError("app smoke evidence predates the copy outside Documents. Run the smoke again.")
+    if binding and (result.get("binding") is not None or result.get("profile") is not None):
+        raise EvidenceError("app smoke ran the %s profile, which does not bind a release. Run the binding selection "
+                            "of gates.appSmokeTests" % (result.get("profile") or "unnamed"))
+    if not binding and result.get("binding") is not False:
+        raise EvidenceError("app smoke of a profile must say binding false")
     if (result.get("schemaVersion") != 2 or result.get("kind") != "xcode-real-app"
             or result.get("channel") != channel or not same_source(result.get("source", {}), source)
             or result.get("appPayloadSHA256") != payload_digest
-            or result.get("selectedTests") != selected_tests(contract)):
+            or result.get("selectedTests") != tests):
         raise EvidenceError("app smoke identity or selection does not match candidate")
     verify_candidate_copy(result, payload_digest)
     if result.get("authorized") is not True or result.get("errors"):
@@ -89,7 +111,7 @@ def verify_result(path, digest, source, channel, payload_digest, contract):
     if "test-without-building" not in argv or any(x.startswith("-skip-testing") for x in argv):
         raise EvidenceError("app smoke did not use the selected compiled test runner")
     only = [arg.split(":", 1)[1] for arg in argv if arg.startswith("-only-testing:")]
-    if only != selected_tests(contract):
+    if only != tests:
         raise EvidenceError("app smoke command selection changed")
     if "candidate.xctestrun" not in files or "-xctestrun" not in argv:
         raise EvidenceError("app smoke candidate runner configuration is absent")
@@ -108,7 +130,7 @@ def verify_result(path, digest, source, channel, payload_digest, contract):
             or target.get("OnlyTestIdentifiers") != [name.split("/", 1)[1] for name in only]
             or target.get("SkipTestIdentifiers")):
         raise EvidenceError("app smoke runner was not bound to the declared candidate and selection")
-    selection = {"xctest": [name.replace("/", ".", 1) for name in selected_tests(contract)], "swift-testing": []}
+    selection = {"xctest": [name.replace("/", ".", 1) for name in tests], "swift-testing": []}
     observed = analyze_attempt(root, copy.deepcopy(test), selection, parallel=False, require_tools=True)
     if not observed["passed"] or observed["harnesses"] != test.get("harnesses"):
         raise EvidenceError("app smoke test records are failed, skipped, empty, or incomplete")
@@ -834,7 +856,8 @@ def run(args):
     contract = load_contract(root / "config/release-contract.json")
     source = source_identity(root)
     payload = receipt_authority(root)._payload_digest(app)
-    identifiers = selected_tests(contract)
+    profile = getattr(args, "profile", None)
+    identifiers = selected_tests(contract) if profile is None else profile_tests(root, profile)
     candidate_home, fixtures = prepare_candidate_workspace(root, workspace, identifiers)
     candidate = CandidateCopy(app, release_cache_root())
     # appPath names the copy the runner launches, once it exists, and candidateAppPath the original (schema 2).
@@ -843,6 +866,9 @@ def run(args):
               "appPayloadSHA256": payload,
               "selectedTests": identifiers, "startedAt": now(), "runtime": runtime_identity(),
               "commands": [], "files": [], "errors": [], "authorized": False}
+    if profile is not None:
+        # The run of a profile is for the person who reads it and never evidence for a release.
+        result.update(profile=profile, binding=False)
     awake = None
     try:
         result["graphicalSession"] = session = graphical_session(candidate_home)
@@ -935,6 +961,10 @@ def run(args):
     if result["errors"]:
         raise EvidenceError(" ".join(result["errors"]) + " Evidence: " + str(path))
     digest = file_record(path, directory)["sha256"]
+    if profile is not None:
+        check_result(path, digest, source, args.channel, payload, contract, identifiers, False)
+        print("PASS %s real-app run, not binding and never evidence for a release: %s" % (profile, path))
+        return
     verify_result(path, digest, source, args.channel, payload, contract)
     print("PASS exact-candidate real-app smoke: " + str(path))
 
@@ -947,6 +977,9 @@ def argument_parser():
                              "removes the copy after the run" % (RELEASE_CACHE_VARIABLE, RELEASE_CACHE_ROOT))
     # The package route passes stable. preview smokes an installed Preview, such as a pre-fix app for a red run.
     parser.add_argument("--channel", choices=["stable", "preview"], required=True)
+    parser.add_argument("--profile", choices=["ui-twins"], default=None,
+                        help="run the tests this profile of config/test-catalog.json lists and write binding false, "
+                             "which a release step refuses. Without it the gate runs gates.appSmokeTests")
     parser.add_argument("--output", type=Path, required=True,
                         help="new evidence folder (the candidate's fresh home goes in the temporary folder)")
     parser.add_argument("--derived-data", type=Path, required=True,

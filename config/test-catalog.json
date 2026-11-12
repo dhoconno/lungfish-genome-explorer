@@ -266,6 +266,37 @@
         "<Xcode derived data folder>"
       ]
     },
+    "ui-twins": {
+      "collections": [
+        "ui-diagnostics"
+      ],
+      "filter": "^LungfishXCUITests\\.",
+      "parallel": false,
+      "workers": 1,
+      "requireTools": false,
+      "pythonModules": [],
+      "binding": false,
+      "appSmokeTests": [
+        "LungfishXCUITests/SidebarRescanSelectionXCUITests/testClickingAnotherResultRightAfterARescanShowsTheClickedResult",
+        "LungfishXCUITests/WalkTwinsXCUITests/testRightClickingAnUnselectedSidebarRowLeavesOneResultOnEverySurface"
+      ],
+      "nativeXCUITestCommand": [
+        "python3",
+        "scripts/release/app_smoke_gate.py",
+        "--profile",
+        "ui-twins",
+        "--root",
+        ".",
+        "--app",
+        "<candidate Lungfish.app>",
+        "--channel",
+        "stable",
+        "--output",
+        "<new evidence folder>",
+        "--derived-data",
+        "<Xcode derived data folder>"
+      ]
+    },
     "tool-conformance": {
       "collections": [
         "tool-conformance",
