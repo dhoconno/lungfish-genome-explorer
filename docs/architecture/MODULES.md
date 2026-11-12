@@ -30,7 +30,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1545 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1548 | LungfishCore, LungfishIO |
 | LungfishWorkflowTwelveS | library | Sources/LungfishWorkflowTwelveS | 38 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
@@ -2023,6 +2023,9 @@ None.
 
 - `AdvancedCommandLineOptions` enum, `Sources/LungfishWorkflow/Native/ShellUtilities.swift`
 - `AdvancedCommandLineOptionsError` enum, `Sources/LungfishWorkflow/Native/ShellUtilities.swift`
+- `AffectedResultKind` enum, `Sources/LungfishWorkflow/Provenance/AffectedResults.swift`
+- `AffectedResultRow` struct, `Sources/LungfishWorkflow/Provenance/AffectedResults.swift`
+- `AffectedResults` enum, `Sources/LungfishWorkflow/Provenance/AffectedResults.swift`
 - `AIHaplotypingAlleleRecord` struct, `Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingKnowledgePack.swift`
 - `AIHaplotypingAnalystGuidance` struct, `Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingKnowledgePack.swift`
 - `AIHaplotypingChunkOutput` struct, `Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingChunkOutput.swift`
