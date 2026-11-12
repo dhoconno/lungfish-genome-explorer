@@ -75,6 +75,21 @@ class AgentEndedTests(unittest.TestCase):
         self.assertEqual(self.check([entry("assistant", TEXT, 300), other("attachment", 100)]), (0, "ENDED"))
         self.assertEqual(self.check([entry("assistant", TEXT, 300), other("attachment", 5)]), (1, "RUNNING 5s"))
 
+    def test_a_subagent_handback_and_its_result_have_ended(self):
+        handback = [{"type": "tool_use", "id": "h1", "name": "SubagentHandback", "input": {"message": "report"}}]
+        answer = [{"type": "tool_result", "tool_use_id": "h1", "content": "ok"}]
+        lines = [entry("assistant", TOOL, 900), entry("user", RESULT, 800), entry("assistant", handback, 300)]
+        self.assertEqual(self.check(lines), (0, "ENDED"))
+        lines += [other("api-request", 290), entry("user", answer, 280), other("api-request-blob", 270)]
+        self.assertEqual(self.check(lines), (0, "ENDED"))
+        self.assertEqual(self.check(lines + [entry("user", "go on", 100)]), (1, "RUNNING 100s"))
+
+    def test_a_handback_beside_another_call_or_answered_by_another_result_is_running(self):
+        handback = [{"type": "tool_use", "id": "h1", "name": "SubagentHandback", "input": {}}]
+        self.assertEqual(self.check([entry("assistant", handback + TOOL, 300)]), (1, "RUNNING 300s"))
+        lines = [entry("assistant", handback, 300), entry("user", RESULT, 290)]
+        self.assertEqual(self.check(lines), (1, "RUNNING 290s"))
+
     def test_blank_and_broken_lines_are_skipped(self):
         self.assertEqual(self.check(["", "{not json", "[1, 2]", entry("assistant", TEXT, 100)]), (0, "ENDED"))
 

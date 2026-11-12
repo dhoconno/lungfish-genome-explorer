@@ -171,6 +171,39 @@ class CtxWatchTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0)
         self.assertTrue(done.stdout.startswith(A))
 
+    def handback(self, n, seconds, tool='h1'):
+        entry = assistant(n, seconds, 'm-%d' % n, 5_000, tool=tool)
+        entry['message']['content'][0]['name'] = 'SubagentHandback'
+        return entry
+
+    def handback_result(self, n, seconds, tool='h1'):
+        entry = user(n, seconds)
+        entry['message']['content'][0]['tool_use_id'] = tool
+        return entry
+
+    def test_a_subagent_handback_is_final_and_never_stalled(self):
+        head = [user(1, 0), assistant(2, 5, 'm1', 50_000, tool='t1'), user(3, 6), self.handback(4, 10)]
+        noise = [{'type': 'api-request', 'timestamp': stamp(11)}, {'type': 'api-request-blob', 'timestamp': stamp(12)}]
+        for entries in (head, head + noise + [self.handback_result(5, 13)] + noise[:1]):
+            self.agent(A, entries, 'handed back')
+            self.assertEqual(self.watch()[1].split()[-1], 'final')
+            self.assertEqual(self.watch('--busy')[1], 'none\n')
+            self.assertEqual(self.watch('--stalled', '1')[1], 'none\n')
+        self.assertIn('calls   2 ctx    5K', self.watch()[1])
+
+    def test_a_message_after_the_handback_makes_the_agent_busy_again(self):
+        entries = [user(1, 0), self.handback(2, 5), self.handback_result(3, 6)]
+        self.agent(A, entries + [user(4, 20)], 'resumed')
+        self.assertEqual(self.watch()[1].split()[-1], 'busy')
+        self.agent(A, entries + [assistant(4, 20, 'm-4', 6_000, tool='t2')], 'resumed and working')
+        self.assertEqual(self.watch()[1].split()[-1], 'busy')
+
+    def test_a_handback_beside_another_tool_call_is_not_final(self):
+        entry = self.handback(2, 5)
+        entry['message']['content'].append({'type': 'tool_use', 'id': 't9', 'name': 'Bash', 'input': {}})
+        self.agent(A, [user(1, 0), entry], 'mixed')
+        self.assertEqual(self.watch()[1].split()[-1], 'busy')
+
     def test_source_names_no_process_killers(self):
         source = SCRIPT.read_text()
         for banned in ('pk' + 'ill', 'kill' + 'all', 'os.kill'):

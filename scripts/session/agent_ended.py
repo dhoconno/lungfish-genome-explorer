@@ -4,8 +4,9 @@
 Say whether an agent has ended, so that no review, landing or check starts early.
 
 An agent has ended when the last message entry of its transcript is a final
-message (an assistant entry with no tool call, and no user entry after it) and the
-last entry of the transcript is at least --min-age seconds old (default 30). With
+message (an assistant entry with no tool call or only a SubagentHandback call, and no
+user entry after it except the tool result of that call) and the last entry of the
+transcript is at least --min-age seconds old (default 30). With
 --worktree DIR it has ended only if no process also has its working folder in DIR
 or below it (read from lsof -a -d cwd), since a build or test of the agent can
 outlive its final message.
@@ -34,9 +35,16 @@ def parse_time(text):
         return None
 
 
+HANDBACK = "SubagentHandback"
+
+
 def read_state(path):
-    """(final, stamp): is the last message entry a final message, and when was the last entry written."""
-    final, stamp = False, None
+    """(final, stamp): is the last message entry a final message, and when was the last entry written.
+
+    A call of the SubagentHandback tool is a final message, and the tool result that answers it does not undo that,
+    since a subagent ends with that call and its transcript then holds one more user entry.
+    """
+    final, stamp, handbacks = False, None, set()
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
             try:
@@ -48,13 +56,17 @@ def read_state(path):
             when = parse_time(entry.get("timestamp"))
             if when is not None:
                 stamp = when
+            message = entry.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            blocks = [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
             if entry.get("type") == "assistant":
-                content = (entry.get("message") or {}).get("content")
-                pending = isinstance(content, list) and any(
-                    isinstance(block, dict) and block.get("type") == "tool_use" for block in content)
-                final = not pending
+                tools = [b for b in blocks if b.get("type") == "tool_use"]
+                handbacks.update(b.get("id") for b in tools if b.get("name") == HANDBACK)
+                final = all(b.get("name") == HANDBACK for b in tools)
             elif entry.get("type") == "user":
-                final = False
+                results = [b for b in blocks if b.get("type") == "tool_result"]
+                if not (results and all(b.get("tool_use_id") in handbacks for b in results)):
+                    final = False
     return final, stamp
 
 

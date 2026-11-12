@@ -3,7 +3,8 @@
 
 Prints one line for each subagent of a Claude Code session, read from PROJECT_DIR/SID/subagents. A line holds the
 agent id, its description, its tool calls so far, the context of its last API turn in K (input plus cache read plus
-cache write), the age of its last entry and "final" when that entry is a message with no tool call, else "busy". A
+cache write), the age of its last entry and "final" when that entry is a message with no tool call or only a
+SubagentHandback call, which is how a subagent ends, else "busy". A
 line at or over --review-k (default 300) ends with REVIEW-STOP and at or over --send-k (default 400) with SEND-STOP.
 --over K keeps the agents at or over K. --busy drops the agents whose last entry is final. --stalled SECONDS keeps the
 agents whose last entry is older than SECONDS and not final, so a tool call may be pending, and starts each such line
@@ -31,9 +32,13 @@ def parse_time(text):
         return None
 
 
-def last_state(path):
-    """(tool calls, context tokens of the last API turn, last stamp, last entry is final) of one transcript."""
-    seen, calls, usage_by_id = set(), set(), {}
+def last_state(path, handback="SubagentHandback"):
+    """(tool calls, context tokens of the last API turn, last stamp, last entry is final) of one transcript.
+
+    A subagent ends with a call of the tool named handback, answered by a tool result. So an assistant entry whose
+    only tool calls are that one is final, and the result of that call does not undo it.
+    """
+    seen, calls, usage_by_id, handbacks = set(), set(), {}, set()
     last_id = last_stamp = None
     final = False
     with open(path, encoding="utf-8", errors="replace") as handle:
@@ -61,12 +66,17 @@ def last_state(path):
                     usage_by_id[message["id"]] = max(usage_by_id.get(message["id"], 0), tokens)
                     last_id = message["id"]
                 content = message.get("content")
-                blocks = content if isinstance(content, list) else []
-                tools = [b for b in blocks if isinstance(b, dict) and b.get("type") == "tool_use"]
+                blocks = [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
+                tools = [b for b in blocks if b.get("type") == "tool_use"]
                 calls.update(block.get("id") for block in tools)
-                final = not tools
+                handbacks.update(block.get("id") for block in tools if block.get("name") == handback)
+                final = all(block.get("name") == handback for block in tools)
             elif entry.get("type") == "user":
-                final = False
+                content = message.get("content")
+                blocks = content if isinstance(content, list) else []
+                results = [b for b in blocks if isinstance(b, dict) and b.get("type") == "tool_result"]
+                if not (results and all(b.get("tool_use_id") in handbacks for b in results)):
+                    final = False
     return len(calls), usage_by_id.get(last_id, 0), last_stamp, final
 
 
