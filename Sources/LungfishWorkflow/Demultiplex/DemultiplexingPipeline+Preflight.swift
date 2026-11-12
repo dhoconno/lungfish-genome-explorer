@@ -18,21 +18,17 @@ extension DemultiplexingPipeline {
     /// that gives cutadapt no adapter (a combinatorial kit without sample
     /// assignments, a dual kit without second barcodes, a line with no base on
     /// one side, or two barcodes that share one line), the IDT UD kit while
-    /// its built-in sequences are being checked, and a search of the read bases
-    /// with a dual Illumina-family kit at 5' End or 3' End, which leaves one of
-    /// its two indexes free.
+    /// its built-in sequences are being checked, a definition whose `# kit:` line
+    /// names that kit and whose rows hold a pair of its table, and a search of the
+    /// read bases with a dual Illumina-family kit at 5' End or 3' End, which leaves
+    /// one of its two indexes free.
     /// It runs no tool and writes only a scratch adapter file it removes, and returns the route the run takes.
     @discardableResult
     public func preflight(config: DemultiplexConfig) async throws -> DemultiplexSearchRoute {
         guard !config.barcodeKit.barcodes.isEmpty else {
             throw DemultiplexError.noBarcodes
         }
-        // The `idt-ud-indexes` table repeats each i5 every eight rows and holds 24 of 96 pairs, so a run could name
-        // samples after the wrong wells. BIO may drop this refusal after checking the sequences against Illumina's
-        // Adapter Sequences document (ruling UX-DEMUX-ILLUMINA, item 5).
-        if config.barcodeKit.id == BarcodeKitRegistry.idtUDIndexes.id {
-            throw DemultiplexError.kitSequencesUnderCheck(kitName: config.barcodeKit.displayName)
-        }
+        try Self.requireVerifiedKitSequences(of: config.barcodeKit)
         let inputFASTQ = resolveInputFASTQ(config.inputURL)
         guard FileManager.default.fileExists(atPath: inputFASTQ.path) else {
             throw DemultiplexError.inputFileNotFound(inputFASTQ)
@@ -89,6 +85,23 @@ extension DemultiplexingPipeline {
         let adapters = try await createAdapterConfiguration(for: config, workDirectory: scratch)
         try requireAdapterSequences(in: adapters.adapterFASTA, kitName: config.barcodeKit.displayName)
         return route
+    }
+
+    /// Refuses the kit `idt-ud-indexes`, whose table repeats each i5 every eight rows and holds 24 of 96 pairs, so a run
+    /// could name samples after the wrong wells (IDT-UD-SEQUENCES, BIO-PROBES-A Q1). It refuses the id, and a
+    /// definition whose `# kit:` line names the kit and whose rows hold a pair of that table, which is the file the
+    /// Demux tab's Demultiplex button wrote in builds 2026.11.3 to 2026.11.7. A typed definition with pairs of its own
+    /// passes. Preflight and Detect both call it, so an earlier plan file is refused in the same words. BIO may drop
+    /// the refusal after checking the sequences against Illumina's Adapter Sequences document (ruling UX-DEMUX-ILLUMINA, item 5).
+    static func requireVerifiedKitSequences(of kit: BarcodeKitDefinition) throws {
+        let table = BarcodeKitRegistry.idtUDIndexes
+        if kit.id == table.id { throw DemultiplexError.kitSequencesUnderCheck(kitName: kit.displayName) }
+        guard kit.sourceKitID == table.id else { return }
+        func pair(_ barcode: BarcodeEntry) -> String { "\(barcode.i7Sequence.uppercased())+\((barcode.i5Sequence ?? "").uppercased())" }
+        let tablePairs = Set(table.barcodes.map(pair))
+        if kit.barcodes.contains(where: { tablePairs.contains(pair($0)) }) {
+            throw DemultiplexError.definitionHoldsKitSequencesUnderCheck(kitName: table.displayName)
+        }
     }
 
     /// Refuses an adapter FASTA that cutadapt cannot use or that cannot tell its barcodes apart, and names the kit.

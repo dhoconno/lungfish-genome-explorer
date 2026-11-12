@@ -40,6 +40,9 @@ extension DemultiplexingPipeline {
         rejectThreshold: Int = 3,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> BarcodeScoutResult {
+        // Detect counts reads against the kit's sequences, so it refuses what a run refuses, before it reads a name
+        // (IDT-UD-SEQUENCES). The drawer's Detect and `fastq scout` both come through here.
+        try Self.requireVerifiedKitSequences(of: kit)
         let runClock = ProvenanceRunClock()
 
         let inputFASTQ = resolveInputFASTQ(inputURL)

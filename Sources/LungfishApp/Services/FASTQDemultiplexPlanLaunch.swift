@@ -36,6 +36,11 @@ struct DemultiplexPlanDefinition {
     }
 
     init(step: DemultiplexStep, kit: BarcodeKitDefinition) throws {
+        // The table of the IDT UD kit is not the kit's, so a definition written from it holds false pairs. The plan
+        // refuses in the words the CLI prints for the kit id, before any file is written (IDT-UD-SEQUENCES).
+        if kit.id == BarcodeKitRegistry.idtUDIndexes.id {
+            throw DemultiplexError.kitSequencesUnderCheck(kitName: kit.displayName)
+        }
         guard !step.sampleAssignments.isEmpty else {
             throw DemultiplexPlanRefusal(words: "The plan has no samples. Add your samples' barcodes to the table, or press Detect to find them, then press Demultiplex\u{2026} again.")
         }

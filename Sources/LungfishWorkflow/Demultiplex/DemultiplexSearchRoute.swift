@@ -83,9 +83,11 @@ public enum DemultiplexSearchRouteOwner {
     /// The kit whose barcodes the probe counts in the read names. A definition whose `# kit:` line names a built-in
     /// kit is probed with that kit's barcodes, so a plan of one sample, or one whose second sample has no reads in the
     /// first names, routes as the kit's own run on the same file does (ruling ARCH-DEMUX-PLAN-CONTROL C1). The
-    /// collision words and the split keep the definition's own rows.
+    /// collision words and the split keep the definition's own rows. The table of the IDT UD kit is not the kit's
+    /// (IDT-UD-SEQUENCES), so a definition that names it is probed with its own rows, which a person typed from an index sheet.
     static func probeKit(_ kit: BarcodeKitDefinition) -> BarcodeKitDefinition {
-        kit.sourceKitID.flatMap { BarcodeKitRegistry.kit(byID: $0) } ?? kit
+        guard let sourceID = kit.sourceKitID, sourceID != BarcodeKitRegistry.idtUDIndexes.id else { return kit }
+        return BarcodeKitRegistry.kit(byID: sourceID) ?? kit
     }
 
     /// Whether the route of `config` depends on its read names.

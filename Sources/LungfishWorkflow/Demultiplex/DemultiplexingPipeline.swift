@@ -894,7 +894,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             parameters: DemultiplexParameters(
                 tool: "cutadapt",
                 toolVersion: cutadaptVersion,
-                maxMismatches: Int(config.errorRate * Double(config.barcodeKit.barcodes[0].i7Sequence.count)),
+                // The mismatches cutadapt allowed, at the rate it ran at (DEMUX-MANIFEST-MISMATCH-RATE, BIO-PROBES-A).
+                maxMismatches: Int(config.effectiveErrorRate * Double(config.barcodeKit.barcodes[0].i7Sequence.count)),
                 requireBothEnds: requireBothEnds,
                 trimBarcodes: config.trimBarcodes,
                 commandLine: "cutadapt \(args.joined(separator: " "))",
