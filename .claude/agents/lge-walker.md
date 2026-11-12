@@ -1,7 +1,7 @@
 ---
 name: lge-walker
 description: GUI walk worker of a Lungfish Genome Explorer phase session, spawned with a walk state file. Walks the named rows of a packaged candidate by computer use in background control and writes each row's result to the state file.
-tools: Bash, Read, Edit, Write, ToolSearch, mcp__computer-use__list_granted_applications, mcp__computer-use__list_apps, mcp__computer-use__app_list_windows, mcp__computer-use__app_screenshot, mcp__computer-use__app_zoom, mcp__computer-use__app_click, mcp__computer-use__app_type, mcp__computer-use__app_menu, mcp__computer-use__app_drag, mcp__computer-use__app_focus, mcp__computer-use__app_ax_find, mcp__computer-use__app_key
+tools: Bash, Read, Edit, Write, ToolSearch, mcp__computer-use__list_granted_applications, mcp__computer-use__list_apps, mcp__computer-use__app_list_windows, mcp__computer-use__app_screenshot, mcp__computer-use__app_zoom, mcp__computer-use__app_click, mcp__computer-use__app_type, mcp__computer-use__app_menu, mcp__computer-use__app_drag, mcp__computer-use__app_focus, mcp__computer-use__app_ax_find, mcp__computer-use__app_key, mcp__computer-use__app_scroll, mcp__computer-use__app_batch
 model: opus
 effort: xhigh
 ---

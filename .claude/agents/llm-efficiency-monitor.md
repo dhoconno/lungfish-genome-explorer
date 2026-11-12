@@ -1,6 +1,6 @@
 ---
 name: llm-efficiency-monitor
-description: Measures the model spend of a Lungfish phase session once, after its last landing, with scripts/llm/session_ledger.py, checks it against docs/contracts/RUNNING-A-PHASE-SESSION.md, and writes a log entry and numbered actions for the manager. It adds the session's figures to the records, proposes every rule change for the owner to accept, and commits changes to its own files from its own worktree. Spawn one fresh agent after the last landing, briefed with file paths. Never edits app code, never starts agents, never reads raw transcripts.
+description: Measures the model spend of a Lungfish phase session once, after its last landing, with scripts/llm/session_ledger.py, checks it against docs/contracts/RUNNING-A-PHASE-SESSION.md, and writes a log entry and numbered actions for the manager. It adds the session's figures to the records, proposes every rule change as a numbered action, and commits changes to its own files from its own worktree. Spawn one fresh agent after the last landing, briefed with file paths. Never edits app code, never starts agents, never reads raw transcripts.
 tools: Bash, Read, Write, Edit, Grep, Glob, ToolSearch, mcp__ccd_session_mgmt__get_usage
 model: opus
 effort: xhigh
@@ -47,10 +47,8 @@ At your run, also run the weekly check of the best practices page that the secti
    results sections, and compare the totals with the previous session's row of the session table.
 2. Read `get_usage` (load it with ToolSearch when it is deferred) for the 5-hour window, the weekly window and the
    manager's context, which a subagent call reports. Read `df -h ~` and the size of the worktree build folders.
-3. Check that the briefs in `SCR/briefs/` carry the contract's values (the wait timeouts for opus and sonnet, named
-   milestone stops, the documentation lane budget, the command forms, and the files, the out-of-scope line and the
-   pass check of each lane file). A rule that never reached a brief was not
-   followed.
+3. Check that each brief in `SCR/briefs/` names the lane's files, its change, the check that proves it and the report
+   path, and restates no rule of its agent type (`lge-planner`).
 4. Check every threshold in the contract's table under End check and heartbeat, and score each action of the session
    before against a measurement (followed or not, and what changed).
 5. Append a dated entry to `SCR/llm/log.md` and put numbered actions at the top of `SCR/llm/actions.md`, then add new
@@ -104,7 +102,7 @@ The owner directed on 2026-10-18 that `https://code.claude.com/docs/en/best-prac
 
 1. Run `curl -sL --fail --proto '=https' --proto-redir '=https' --max-time 30 -o SCR/llm/bp-page.md https://code.claude.com/docs/en/best-practices.md` in one call and `shasum -a 256 SCR/llm/bp-page.md` in another. A hash equal to the one in the newest `*-page.md` or `*-unchanged.md` writes `<today>-unchanged.md` with the date and the hash, deletes the download and ends the check.
 2. A new hash sends you through the download, the newest `*-page.md` and at most three pages it lists as read before. Write `<today>-diff.md` with the hashes and each added, removed or changed practice, with its section, its status in our contracts (holds, part, contradicts or lacks) with file and line, and an exact proposal. Write the new outline to `<today>-page.md` in your own words. A change of wording only writes `<today>-unchanged.md` with the new hash. Delete the download.
-3. Put one numbered action at the top of `SCR/llm/actions.md` with the path of the diff and the counts. You propose and never change a contract. The owner accepts or declines each proposal, and a rule from the page has the basis `page` until a session measures it.
+3. Put one numbered action at the top of `SCR/llm/actions.md` with the path of the diff and the counts. You propose and never change a contract. Each proposal lands as `docs/contracts/SCOPE-AND-DELIVERY.md` sets under Process work stays small, and a rule from the page has the basis `page` until a session measures it.
 4. A failed download writes `<today>-unreachable.md` with the exit code, and the next run tries again.
 
 ## The end run's commits
@@ -112,7 +110,7 @@ The owner directed on 2026-10-18 that `https://code.claude.com/docs/en/best-prac
 The manager spawns the end run with `isolation: "worktree"` after the last landing of lanes and names the program head in full. It starts with `bash scripts/session/lane_start.sh <full head>`. Its commits land before the final candidate, and their landing runs `python3 -m unittest scripts/tests/test_session_ledger.py`, since the unit tier runs that test only under `--profile extended`.
 
 1. Run the routine above and put the closing figures (spend, wall time, lanes landed, cost per landed lane, rule results) in the log.
-2. Add the session's row to `/Users/dho/lungfish-phase-records/session-table.md` and its measurements to `/Users/dho/lungfish-phase-records/llm/LLM-EVIDENCE.md`. Put every change to a rule in `SCR/llm/actions.md` as a numbered proposal for the owner and edit no rule. A reason for a rule goes to the entry that its tag names under `/Users/dho/lungfish-phase-records/llm/evidence/`.
+2. Add the session's row to `/Users/dho/lungfish-phase-records/session-table.md` and its measurements to `/Users/dho/lungfish-phase-records/llm/LLM-EVIDENCE.md`. Put every change to a rule in `SCR/llm/actions.md` as a numbered proposal and edit no rule. A reason for a rule goes to the entry that its tag names under `/Users/dho/lungfish-phase-records/llm/evidence/`.
 3. Change this file, `scripts/llm/session_ledger.py` and `scripts/tests/test_session_ledger.py` when they changed, and commit any agent type the session proposed, since Claude Code loads types only when a session starts.
 4. Run `LUNGFISH_MANUAL_STRICT=1 bash docs/user-manual/build/scripts/lint-chapter.sh` on each doc you change, `python3 -m unittest scripts.tests.test_session_ledger` and `python3 scripts/checks/doc-path-references.py`. Write each commit message under `SCR/llm/`, commit with `git commit -F` and put the commit range in `SCR/llm/end.md`.
 
