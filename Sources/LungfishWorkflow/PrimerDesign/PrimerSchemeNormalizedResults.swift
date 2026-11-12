@@ -196,10 +196,7 @@ public struct PrimerSchemeResultsDocument: Codable, Equatable, Sendable {
             throw PrimerSchemeDesignError.contractViolation(
                 "Stored result engine or mode differs from the requested design.")
         }
-        try validateEnvelope(
-            knownInputIDs: knownInputIDs, projections: projections,
-            minimumAmpliconLength: options.minimumAmpliconLength,
-            maximumAmpliconLength: options.maximumAmpliconLength)
+        try validateEnvelope(knownInputIDs: knownInputIDs, projections: projections)
     }
 
     /// Strictly validates a reopened normalized result using its adapter-resolved settings.
@@ -222,14 +219,11 @@ public struct PrimerSchemeResultsDocument: Codable, Equatable, Sendable {
                 "Stored binding projection sourcePath must be a contained bundle-relative path.")
         }
         try validateStoredEngineSettings()
-        try validateEnvelope(
-            knownInputIDs: knownInputIDs, projections: projections,
-            minimumAmpliconLength: minimum, maximumAmpliconLength: maximum)
+        try validateEnvelope(knownInputIDs: knownInputIDs, projections: projections)
     }
 
     private func validateEnvelope(
-        knownInputIDs: Set<UUID>, projections: [String: PrimerBindingProjection],
-        minimumAmpliconLength: Int, maximumAmpliconLength: Int
+        knownInputIDs: Set<UUID>, projections: [String: PrimerBindingProjection]
     ) throws {
         let expectedVersion = engine == .olivar ? "1.3.3" : "1.3.2"
         guard schemaVersion == Self.currentSchemaVersion,
@@ -262,18 +256,13 @@ public struct PrimerSchemeResultsDocument: Codable, Equatable, Sendable {
                 }
                 try projection.validate(target: target)
                 try Self.validateTarget(
-                                        target, mode: mode,
-                                        minimumAmpliconLength: minimumAmpliconLength,
-                                        maximumAmpliconLength: maximumAmpliconLength,
-                                        allAssayIDs: &allAssayIDs,
-                                        allOligoIDs: &allOligoIDs)
+                    target, mode: mode, allAssayIDs: &allAssayIDs, allOligoIDs: &allOligoIDs)
             }
         }
     }
 
     private static func validateTarget(
         _ target: PrimerSchemeTarget, mode: PrimerSchemeMode,
-        minimumAmpliconLength: Int, maximumAmpliconLength: Int,
         allAssayIDs: inout Set<UUID>, allOligoIDs: inout Set<UUID>
     ) throws {
         guard !target.assays.isEmpty, !target.oligos.isEmpty else {
@@ -313,7 +302,7 @@ public struct PrimerSchemeResultsDocument: Codable, Equatable, Sendable {
             let members = Set(assay.memberIDs)
             // The requested size range is a search target of both engines and neither enforces it on
             // the amplicons it writes, so the adapter reports an amplicon outside it as a warning
-            // and this check keeps the scheme. The bounds parameters stay until the next cleanup.
+            // and this check keeps the scheme.
             guard assay.start >= 0, assay.end > assay.start, assay.end <= target.referenceLength,
                   !members.isEmpty, members.count == assay.memberIDs.count,
                   members.isSubset(of: oligoIDs), assay.rank.map({ $0 >= 0 }) ?? true,
