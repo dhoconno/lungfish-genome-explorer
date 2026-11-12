@@ -29,7 +29,7 @@ and by no gate. The decisions this contract replaced are listed in
 | Known issues reach the Stable page | A Preview that fixes an S1 or S2 living in the last Stable adds its known-issue line to that Stable's release page in the same publish step. |
 | A phase never holds Stable | No phase exit, sub-phase or refactor holds a Stable release. Only an open S1 or S2 finding does. |
 | A short owner check list | The Stable check list holds at most 20 rows. Each is a task a person does in about two minutes that no automated test covers, and a row that an automated test comes to cover is deleted. A row that needs a person's own senses, such as a real-mouse drag or hearing VoiceOver, does not block a release and runs when the owner is next at the Mac. The list is written new for each release and carries no older list. A walk row left unwalked in two walks running becomes an XCUI test in the next session or closes on UX's or BIO's word. |
-| Previews carry something | A Preview ships when it carries a change a user can see or a result fix, after a person, or the manager by computer use, walks the changed screens on the packaged build. A sub-phase with neither ends at a green unit tier on `main` and publishes nothing. No Preview ships on a walk substitute, and no weekly cap applies. |
+| Previews carry something | A Preview ships when it carries a change a user can see or a result fix, after a person, or `lge-walker`, walks the changed screens on the packaged build. A sub-phase with neither ends at a green unit tier on `main` and publishes nothing. No Preview ships on a walk substitute, and no weekly cap applies. |
 
 ## The standing go
 

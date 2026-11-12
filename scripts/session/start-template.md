@@ -14,7 +14,7 @@ The plan is `{{plan}}`. The session takes the lanes {{scope}}.
 Rows of `docs/contracts/OWNER-DIRECTIONS.md`, by id.
 {{owner}}
 
-## Read whole, in this order
+## Read, in this order
 1. `AGENTS.md`
 2. `docs/contracts/SCOPE-AND-DELIVERY.md`
 3. `docs/contracts/RUNNING-A-PHASE-SESSION.md`
