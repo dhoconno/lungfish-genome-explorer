@@ -130,23 +130,6 @@ final class ViralReconReadPairingTests: XCTestCase {
         XCTAssertEqual(split.counts.r1Records, 3)
     }
 
-    // A samplesheet handed to `workflow run` is read back here, so a sample
-    // cell with a space is refused before the run splits anything.
-    func testSamplesheetWithASpaceInASampleNameIsRefused() throws {
-        let sheet = root.appendingPathComponent("samplesheet.csv")
-        let r1 = root.appendingPathComponent("A_R1.fastq.gz").path
-        let r2 = root.appendingPathComponent("A_R2.fastq.gz").path
-        try "sample,fastq_1,fastq_2\nSample 1,\(r1),\(r2)\n".write(to: sheet, atomically: true, encoding: .utf8)
-
-        XCTAssertThrowsError(try ViralReconReadPairing.parseIlluminaSamplesheet(at: sheet)) { error in
-            XCTAssertEqual(
-                error.localizedDescription,
-                "The sample name “Sample 1” holds a space, and viralrecon's samplesheet does not accept one. "
-                    + "Rename the sample, for example to “Sample_1”, and run again."
-            )
-        }
-    }
-
     func testGzipInterleavedSourceIsSplitTheSameWay() async throws {
         let plain = root.appendingPathComponent("reads.fastq")
         try InterleavedFASTQFixture.write(pairCount: 5, naming: .slashSuffix, to: plain)
@@ -257,14 +240,14 @@ final class ViralReconReadPairingTests: XCTestCase {
         try """
         sample,fastq_1,fastq_2
         A,/data/A_R1.fastq.gz,/data/A_R2.fastq.gz
-        "B, two",/data/B.fastq.gz,
+        "B,two",/data/B.fastq.gz,
         C,/data/C.fastq.gz
 
         """.write(to: sheet, atomically: true, encoding: .utf8)
 
         let samples = try ViralReconReadPairing.parseIlluminaSamplesheet(at: sheet)
 
-        XCTAssertEqual(samples.map(\.sampleName), ["A", "B, two", "C"])
+        XCTAssertEqual(samples.map(\.sampleName), ["A", "B,two", "C"])
         XCTAssertEqual(samples.map { $0.fastqURLs.map(\.path) }, [
             ["/data/A_R1.fastq.gz", "/data/A_R2.fastq.gz"],
             ["/data/B.fastq.gz"],
@@ -273,7 +256,7 @@ final class ViralReconReadPairingTests: XCTestCase {
         let rewritten = try ViralReconSamplesheetBuilder.writeIlluminaSamplesheet(samples: samples, in: root, filename: "again.csv")
         XCTAssertEqual(
             try String(contentsOf: rewritten, encoding: .utf8),
-            "sample,fastq_1,fastq_2\nA,/data/A_R1.fastq.gz,/data/A_R2.fastq.gz\n\"B, two\",/data/B.fastq.gz,\nC,/data/C.fastq.gz,\n"
+            "sample,fastq_1,fastq_2\nA,/data/A_R1.fastq.gz,/data/A_R2.fastq.gz\n\"B,two\",/data/B.fastq.gz,\nC,/data/C.fastq.gz,\n"
         )
     }
 

@@ -90,13 +90,13 @@ final class ViralReconInputResolverTests: XCTestCase {
             fastqText: "@INST:1:FC:1:1101:1000:1000\nACGT\n+\n!!!!\n",
             metadataCSV: """
             sample_id,sample_name,sequencing_platform
-            display-id,Clinical Sample 42,illumina
+            display-id,Clinical_Sample_42,illumina
             """,
             sidecarJSON: nil
         )
 
         let resolved = try ViralReconInputResolver.resolveInputs(from: [bundle])
 
-        XCTAssertEqual(resolved.first?.sampleName, "Clinical Sample 42")
+        XCTAssertEqual(resolved.first?.sampleName, "Clinical_Sample_42")
     }
 }
