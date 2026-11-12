@@ -86,7 +86,7 @@ EXPECTED_GATES = {
         "docs/release/NEXT-RELEASE-HANDOFF.md",
     ],
     # Nothing built into the app: the Preview's walk and smoke cover a Stable commit whose changes since the walked
-    # commit all fall here (VERIFICATION-ORDER.md, row "Stable on a clock", Phase 3.1 ruling QA-RELEASE-LOOP).
+    # commit all fall here (VERIFICATION-ORDER.md, row "3. Notes on P", Phase 3.1 ruling QA-RELEASE-LOOP).
     "appNeutralPaths": [
         "docs/release-notes/**", "docs/plans/**", "docs/reports/**", "docs/contracts/**", "docs/architecture/**",
         "docs/release/NEXT-RELEASE-HANDOFF.md",

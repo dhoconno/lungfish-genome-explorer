@@ -373,7 +373,7 @@ def _parse_gates(raw: Any, package_text: str | None = None) -> GateContract:
 def _parse_app_neutral_paths(raw: Any, package_text: str | None) -> tuple[str, ...]:
     """Paths none of which is built into the app: the release-neutral paths, the folders of the SwiftPM test
     targets and the scripts only the gates run. The Preview's walk and smoke cover a Stable commit whose changes
-    since the walked commit all fall under them (docs/contracts/VERIFICATION-ORDER.md, row "Stable on a clock").
+    since the walked commit all fall under them (docs/contracts/VERIFICATION-ORDER.md, row "3. Notes on P").
     Each entry is an exact file or a folder ending in /**, with no other wildcard and no '..'. No entry may be
     Package.swift or Package.resolved, lie under Sources/, or lie under or hold the path of a target of the
     Package.swift beside config/ that is not a test target."""
