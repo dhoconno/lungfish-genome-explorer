@@ -23,7 +23,7 @@ Reports go to `SCR/lanes/`, `SCR/reviews/` and `SCR/land/`. The monitor keeps le
 
 ## Session start
 
-Before the first launch run `python3 scripts/session/preflight.py [--fetch] [--doctor] [--session-id ID] [--program-worktree DIR]`. It prints PASS, ACT or SKIP for each start check and the facts a START prompt carries, and exits 1 on an ACT line, which the manager acts on before launching. Read `get_usage`, loaded with ToolSearch in the same message as every other deferred tool (E-RUN-20). A call held at the permission step holds the manager's turn and no notification wakes it, so the owner starts a phase session in bypass permissions (E-RUN-8), and in the default mode only command forms that already ran this session are safe.
+Before the first launch run `python3 scripts/session/preflight.py [--fetch] [--doctor] [--session-id ID] [--program-worktree DIR]`. It prints PASS, ACT or SKIP lines and exits 1 on ACT, which the manager acts on first. `--start` fills the START prompt from `scripts/session/start-template.md` and the prompt holds nothing else. Read `get_usage`, loaded with ToolSearch in the same message as every other deferred tool (E-RUN-20). A call held at the permission step holds the manager's turn and no notification wakes it, so the owner starts a phase session in bypass permissions (E-RUN-8), and in the default mode only command forms that already ran this session are safe.
 
 ## Rules for the manager
 
