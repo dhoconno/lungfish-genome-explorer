@@ -64,6 +64,33 @@ final class ViralReconResultInventoryTests: XCTestCase {
         )
     }
 
+    // Trust session FIX-VR (F2, S1). viralrecon accepts a dotted sample name,
+    // so `S1` and `S1.1` (a replicate) can share one run. A prefix match on
+    // `S1.` handed `S1` the other sample's Pangolin, Nextclade and Freyja
+    // tables, and the Inspector showed them under `S1`'s name. Each table is
+    // `<sample>` plus one suffix per folder in viralrecon 3.0.0, so a file
+    // belongs to a sample only when its name is that exact name.
+    func testDottedSampleNamesTakeOnlyTheirOwnLineageTables() throws {
+        let consensusRoot = "variants/ivar/consensus/bcftools"
+        try makeFile("\(consensusRoot)/pangolin/S1.1.pangolin.csv")
+        try makeFile("\(consensusRoot)/nextclade/S1.1.csv")
+        try makeFile("variants/freyja/demix/S1.tsv")
+        try makeFile("variants/freyja/demix/S1.1.tsv")
+
+        let s1 = ViralReconResultInventory.discover(in: root, sampleName: "S1")
+        XCTAssertEqual(
+            s1.lineageFiles.map(\.lastPathComponent).sorted(),
+            ["S1.csv", "S1.pangolin.csv", "S1.tsv"],
+            "S1 takes none of S1.1's tables"
+        )
+
+        let s11 = ViralReconResultInventory.discover(in: root, sampleName: "S1.1")
+        XCTAssertEqual(
+            s11.lineageFiles.map(\.lastPathComponent).sorted(),
+            ["S1.1.csv", "S1.1.pangolin.csv", "S1.1.tsv"]
+        )
+    }
+
     func testLineageToolIsReadFromTheFolderThenTheNameThenTheHeader() throws {
         let consensusRoot = "variants/ivar/consensus/bcftools"
         let nextcladeByFolder = root.appendingPathComponent("\(consensusRoot)/nextclade/S1.csv")

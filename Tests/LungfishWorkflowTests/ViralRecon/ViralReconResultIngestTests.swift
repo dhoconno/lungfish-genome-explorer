@@ -143,6 +143,50 @@ final class ViralReconResultIngestTests: XCTestCase {
         }
     }
 
+    // Trust session FIX-VR (F2, S1). In a batch of `S1` and `S1.1`, `S1`'s
+    // bundle must hold only its own lineage tables. A prefix match copied
+    // `S1.1`'s Pangolin and Nextclade tables into `S1`'s `lineage/`, listed
+    // them in its sidecar, and sorted them first in the Inspector.
+    func testDottedSampleNamesKeepTheirOwnLineageTablesInABatch() throws {
+        let consensusRoot = "variants/ivar/consensus/bcftools"
+        for sample in ["S1", "S1.1"] {
+            for relative in ["variants/bowtie2/\(sample).sorted.bam",
+                             "\(consensusRoot)/pangolin/\(sample).pangolin.csv",
+                             "\(consensusRoot)/nextclade/\(sample).csv"] {
+                let url = results.appendingPathComponent(relative)
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                        withIntermediateDirectories: true)
+                try Data("\(sample) table".utf8).write(to: url)
+            }
+        }
+        let project = root.appendingPathComponent("PDotted.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+
+        let ingested = try ViralReconResultIngest.ingestBatch(
+            resultsDirectory: results,
+            sampleNames: ["S1", "S1.1"],
+            referenceBundleURL: referenceBundle,
+            projectURL: project)
+
+        XCTAssertEqual(ingested.count, 2)
+        for (entry, sample) in zip(ingested, ["S1", "S1.1"]) {
+            let lineage = entry.bundleDirectory.appendingPathComponent("lineage", isDirectory: true)
+            let names = try FileManager.default.contentsOfDirectory(atPath: lineage.path).sorted()
+            XCTAssertEqual(names, ["\(sample).nextclade.csv", "\(sample).pangolin.csv"], "\(sample) holds its own two tables")
+            for name in names {
+                XCTAssertEqual(
+                    try String(contentsOf: lineage.appendingPathComponent(name), encoding: .utf8),
+                    "\(sample) table",
+                    "\(sample)/lineage/\(name) is \(sample)'s table"
+                )
+            }
+            let sidecar = try JSONSerialization.jsonObject(
+                with: Data(contentsOf: entry.bundleDirectory.appendingPathComponent("viralrecon-result.json"))
+            ) as? [String: Any]
+            XCTAssertEqual((sidecar?["lineagePaths"] as? [String])?.count, 2, "\(sample) lists two lineage paths")
+        }
+    }
+
     // M-3: `guard sampleNames.count != 1` sent count == 0 down the batch path,
     // which created an empty batch directory in Analyses/ and returned no
     // samples. Unreachable in production today, but a latent trap: it litters
