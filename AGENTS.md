@@ -23,7 +23,6 @@ This is the entry point for any agent working in the Lungfish Genome Explorer (L
 | [docs/contracts/SCOPE-AND-DELIVERY.md](docs/contracts/SCOPE-AND-DELIVERY.md) | Which work a phase takes on, its budget and exit checks, how findings get a severity, and when a fix reaches Stable. Read it before planning or briefing any phase, sub-phase or lane |
 | [docs/contracts/RUNNING-A-PHASE-SESSION.md](docs/contracts/RUNNING-A-PHASE-SESSION.md) | How a phase session spends model time with subagents |
 | [docs/contracts/EXPERT-PANEL.md](docs/contracts/EXPERT-PANEL.md) | The five experts who set a phase's scope and review its exit, the two checks, how rulings and votes work, and the review checklist of each field |
-| [docs/contracts/CLAUDE-CODE-PRACTICES.md](docs/contracts/CLAUDE-CODE-PRACTICES.md) | The weekly check of the Claude Code best practices page, the basis of a rule that comes from it, and the decisions and trials that follow from each check |
 | [docs/contracts/SCREENCASTS.md](docs/contracts/SCREENCASTS.md) | How screencasts are made, revised after feedback, narrated and published to the Videos page |
 | [docs/user-manual/features.yaml](docs/user-manual/features.yaml) | Every user-reachable feature with its menu path and source files |
 | [docs/design/design-system/README.md](docs/design/design-system/README.md) | The GUI keeps Apple's system fonts, and the brand faces apply to docs and the site only |
