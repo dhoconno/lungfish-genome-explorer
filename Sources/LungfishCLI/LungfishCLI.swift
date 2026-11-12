@@ -132,6 +132,8 @@ public enum LungfishCLIMain {
         // the CLI ends, because each tool runs in a process group of its own.
         CLITerminationSignals.install()
         let arguments = LungfishCLI.normalizedArgumentsForParsing(Array(CommandLine.arguments.dropFirst()))
+        // At half of the Mac's memory the CLI stops its work and says why, before the Mac runs out.
+        CLIMemoryGuard.install(arguments: arguments)
         do {
             var command = try LungfishCLI.parseAsRoot(arguments)
             if var asyncCommand = command as? AsyncParsableCommand {
