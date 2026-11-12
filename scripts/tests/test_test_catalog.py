@@ -131,5 +131,36 @@ class CatalogTests(unittest.TestCase):
                         'the catalog notes must say the ui profile runs the XCUI smoke through the gate script')
         self.assertFalse(any('remain explicit app-smoke diagnostics' in note for note in self.data['notes']))
 
+    def test_ui_twins_profile_runs_through_the_gate_script_and_never_binds(self):
+        """TWINS item 1. The profile is non-binding. Each test it lists names a class and a method in
+        Tests/LungfishXCUITests and a class in the Xcode project, and none is in gates.appSmokeTests."""
+        profile = self.data['profiles']['ui-twins']
+        self.assertIs(profile['binding'], False)
+        command = profile['nativeXCUITestCommand']
+        self.assertEqual(command[:4], ['python3', 'scripts/release/app_smoke_gate.py', '--profile', 'ui-twins'])
+        script = ROOT / command[1]
+        sys.path.insert(0, str(script.parent))
+        spec = importlib.util.spec_from_file_location('app_smoke_gate_from_twins', script)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        arguments = gate.argument_parser().parse_args(command[2:])
+        self.assertEqual((arguments.profile, arguments.channel), ('ui-twins', 'stable'))
+        binding = json.loads((ROOT / 'config/release-contract.json').read_text())['gates']['appSmokeTests']
+        project = (ROOT / 'Lungfish.xcodeproj/project.pbxproj').read_text()
+        tests = profile['appSmokeTests']
+        self.assertEqual(len(tests), len(set(tests)))
+        self.assertIn('LungfishXCUITests/SidebarRescanSelectionXCUITests/', ' '.join(tests))
+        self.assertFalse(set(tests) & set(binding))
+        for name in tests:
+            target, cls, method = name.split('/')
+            source = ROOT / 'Tests/LungfishXCUITests' / (cls + '.swift')
+            self.assertEqual(target, 'LungfishXCUITests', name)
+            self.assertTrue(source.is_file(), name + ' has no source file')
+            self.assertIn('func ' + method + '(', source.read_text(), name)
+            self.assertIn(cls + '.swift in Sources', project, name)
+        options = self.catalog.profile_options(self.data, 'ui-twins')
+        self.assertFalse(self.catalog.matches('LungfishAppTests.AppSettingsTests/testX', options),
+                         'the profile selects no SwiftPM test, so no other profile expectation moves')
+
 if __name__ == '__main__':
     unittest.main()

@@ -703,12 +703,13 @@ class CandidateCopyTests(unittest.TestCase):
             return {"argv": argv, "exitStatus": 1 if step == failing else 0, "files": [file_record(log, directory)]}
         return record
 
-    def run_gate(self, command, output="evidence", **patches):
+    def run_gate(self, command, output="evidence", profile=None, **patches):
         """`run` on the candidate under Documents, with the session, the guard and the runner faked. `command` None
-        keeps the real `command_record`. Each keyword patches one gate attribute with the given patch options."""
+        keeps the real `command_record`. `profile` is the gate's --profile. Each other keyword patches one gate
+        attribute with the given patch options."""
         import app_smoke_gate
         args = SimpleNamespace(root=self.root, app=self.app, output=self.base / output, channel="stable",
-                               derived_data=self.base / "DerivedData")
+                               derived_data=self.base / "DerivedData", profile=profile)
         session = {"active": True, "uid": 501, "locked": False, "username": "owner", "consoleUser": "owner",
                    "accountHome": str(self.home), "candidateHome": str(self.base / "evidence.home"),
                    "cleanState": True, "existingState": []}
@@ -907,3 +908,83 @@ class CandidateCopyTests(unittest.TestCase):
                 record = next(c for c in self.evidence(output)["commands"] if c["argv"][1] == verb)
                 self.assertEqual(record["intervention"], "timeout")
                 self.assertEqual(list(self.cache.glob("lungfish-app-smoke.*")), [])
+
+    # TWINS item 1. The ui-twins profile runs the XCUI twins of owner-list rows on the packaged app and never binds.
+    def fixture_result(self, temporary, **marks):
+        """The arguments of verify_result for a valid result of invented evidence with `marks` set on it."""
+        root = Path(temporary)
+        app = root / "Fixture.app"
+        app.mkdir()
+        (app / "payload").write_text("invented harmless payload")
+        source = {"clean": True, "commit": "a" * 40}
+        contract_path = ROOT / "config/release-contract.json"
+        path = make_app_smoke_fixture(root / "evidence", source, app, contract_path)
+        result = json.loads(path.read_text())
+        payload = result["appPayloadSHA256"]
+        result.update(marks)
+        write_json(path, result)
+        return (path, hashlib.sha256(path.read_bytes()).hexdigest(), source, "stable", payload,
+                load_contract(contract_path))
+
+    def test_the_gate_takes_the_ui_twins_profile_and_no_other(self):
+        import app_smoke_gate
+        base = ["--root", ".", "--app", "Candidate.app", "--output", "evidence", "--derived-data", "dd",
+                "--channel", "stable"]
+        self.assertIsNone(app_smoke_gate.argument_parser().parse_args(base).profile)
+        self.assertEqual(app_smoke_gate.argument_parser().parse_args(base + ["--profile", "ui-twins"]).profile,
+                         "ui-twins")
+        for refused in ("ui", "binding", "made-up"):
+            with self.subTest(profile=refused), self.assertRaises(SystemExit):
+                app_smoke_gate.argument_parser().parse_args(base + ["--profile", refused])
+
+    def test_a_result_of_a_profile_that_does_not_bind_never_verifies_for_a_release(self):
+        """The ui-twins run writes binding false. verify_result, the check a publish makes, refuses such a result in
+        words, whatever else it proved, even one that lists the binding selection."""
+        marks = {"binding false": {"binding": False}, "a profile named": {"profile": "ui-twins"},
+                 "both": {"binding": False, "profile": "ui-twins"}}
+        for name, mark in marks.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                with self.assertRaises(EvidenceError) as raised:
+                    verify_result(*self.fixture_result(temporary, **mark))
+                self.assertIn("does not bind a release", str(raised.exception))
+        with tempfile.TemporaryDirectory() as temporary:
+            self.assertEqual(verify_result(*self.fixture_result(temporary))["channel"], "stable")
+
+    def test_a_profile_result_passes_its_own_check_only_when_it_says_binding_false(self):
+        """check_result is the one body of both checks. A profile run keeps every proof of the binding run (identity,
+        copy, session, preferences, test records) and must say binding false."""
+        import app_smoke_gate
+        tests = list(load_contract(ROOT / "config/release-contract.json").gates.appSmokeTests)
+        marks = (("says binding false", {"binding": False, "profile": "ui-twins"}, None),
+                 ("says nothing", {}, "must say binding false"),
+                 ("says binding true", {"binding": True, "profile": "ui-twins"}, "must say binding false"))
+        for name, mark, words in marks:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                arguments = self.fixture_result(temporary, **mark)
+                if words is None:
+                    self.assertIs(app_smoke_gate.check_result(*arguments, tests, binding=False)["binding"], False)
+                    continue
+                with self.assertRaises(EvidenceError) as raised:
+                    app_smoke_gate.check_result(*arguments, tests, binding=False)
+                self.assertIn(words, str(raised.exception))
+
+    def test_the_ui_twins_profile_runs_the_catalog_list_and_writes_binding_false(self):
+        """`--profile ui-twins` runs the tests the profile of config/test-catalog.json lists on the same gate (copy,
+        session, guard, runner) and writes binding false. The default run keeps the binding selection of
+        gates.appSmokeTests and its result gains no field."""
+        shutil.copyfile(ROOT / "config/test-catalog.json", self.root / "config/test-catalog.json")
+        twins = json.loads((ROOT / "config/test-catalog.json").read_text())["profiles"]["ui-twins"]["appSmokeTests"]
+        binding = list(self.identifiers)
+        self.assertTrue(twins and not set(twins) & set(binding))
+        self.identifiers = twins  # the stand-in's test log names the tests the run selected
+        self.run_gate(self.command(), output="evidence-twins", profile="ui-twins", check_result={"return_value": None})
+        result = self.evidence("evidence-twins")
+        self.assertEqual((result["profile"], result["binding"], result["selectedTests"]), ("ui-twins", False, twins))
+        test_run = next(c for c in result["commands"] if c["argv"][:2] == ["xcodebuild", "test-without-building"])
+        self.assertEqual([a.split(":", 1)[1] for a in test_run["argv"] if a.startswith("-only-testing:")], twins)
+        self.identifiers = binding
+        self.run_gate(self.command(), output="evidence-default")
+        default = self.evidence("evidence-default")
+        self.assertEqual(default["selectedTests"], binding)
+        self.assertNotIn("binding", default)
+        self.assertNotIn("profile", default)
