@@ -227,6 +227,37 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertEqual(try backlogIDs(assembly("2026.11.1"), .assembly), [])
     }
 
+    func testAVersionNamesTheBuildsOfItsRelease() {
+        XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.10.29"), 11808...12045, "after 2026.10.28, up to its own")
+        XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.8.1"), 4192...4192, "the first published release")
+        XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.9.5"), 4363...4440, "never published, between 9.4 and 9.6")
+        for text in ["2026.11.8", "2026.7.30", "Lungfish 2026.10.29 (12045)", "2026.10.29.1", "dev", ""] {
+            XCTAssertNil(AffectedResults.builds(ofVersion: text), text)
+        }
+        var fixture = ProvenanceEnvelope.fixture()
+        fixture.runtimeIdentity = ProvenanceRuntimeIdentity(appVersion: "Lungfish 2026.10.14 (4701)")
+        XCTAssertEqual(AffectedResults.builds(of: fixture), 7255...7526, "a number its version does not hold")
+        fixture.runtimeIdentity = ProvenanceRuntimeIdentity(appVersion: "Lungfish 2026.10.29 (12045)")
+        XCTAssertEqual(AffectedResults.builds(of: fixture), 12045...12045)
+    }
+
+    func testThePublishedReleasesAreInOrderAndHoldEveryRowsLastBuild() {
+        let releases = AffectedResults.publishedReleases
+        for (older, newer) in zip(releases, releases.dropFirst()) {
+            XCTAssertLessThan(older.build, newer.build, newer.version)
+            XCTAssertTrue(AffectedResults.versionKey(older.version)!
+                .lexicographicallyPrecedes(AffectedResults.versionKey(newer.version)!), newer.version)
+        }
+        let builds = Dictionary(uniqueKeysWithValues: releases.map { ($0.version, $0.build) })
+        let verified = ["2026.10.27": 11609, "2026.10.28": 11807, "2026.10.29": 12045, "2026.11.1": 12518,
+                        "2026.11.2": 12591, "2026.11.3": 12803, "2026.11.4": 12818, "2026.11.5": 12859,
+                        "2026.11.6": 12962, "2026.11.7": 12972]
+        for (version, build) in verified { XCTAssertEqual(builds[version], build, version) }
+        for row in AffectedResults.rows {
+            XCTAssertTrue(builds.values.contains(row.lastBuild), "\(row.backlogID) ends at a published release")
+        }
+    }
+
     func testTheBundleRowNamesTheFixItsSentenceSpeaksAbout() throws {
         let row = try XCTUnwrap(AffectedResults.rows.first { $0.sentence.contains("multi-file FASTQ bundle") })
         XCTAssertEqual(row.backlogID, "BUNDLE-COUNTED-TWICE", "notes 2026.11.3:37, not the one-file operations of :80")
