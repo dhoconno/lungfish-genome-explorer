@@ -30,7 +30,17 @@ final class PrimerSchemeNormalizationTests: XCTestCase {
         XCTAssertEqual(target.oligos.first(where: { $0.role == .probe })?.strand, .reverse)
     }
 
-    func testRejectsAssaySpanOutsideRequestedBounds() {
+    /// G1. Both engines use the size range as a search target and neither enforces it on the
+    /// amplicons it writes, so an amplicon a few bp outside it stays in the scheme. The adapter
+    /// reports it as a warning. This assay is 100 bp against bounds of 70 to 90 bp.
+    func testAcceptsAssaySpanOutsideRequestedBounds() throws {
+        let document = makeDocument(mode: .tiled, assayStart: 0, assayEnd: 100)
+        XCTAssertNoThrow(try document.validateStructure(
+            knownInputIDs: [inputID], options: tiledOptions,
+            projections: ["maps/target.json": projection()]))
+    }
+
+    func testRejectsAssayThatDoesNotContainItsOligos() {
         let document = makeDocument(mode: .tiled, assayStart: 10, assayEnd: 71)
         XCTAssertThrowsError(try document.validateStructure(
             knownInputIDs: [inputID], options: tiledOptions,
