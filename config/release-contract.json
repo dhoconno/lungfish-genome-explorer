@@ -131,7 +131,8 @@
       "scripts/release/gate_evidence.py",
       "scripts/testing/**",
       "scripts/tests/**",
-      "scripts/ratchets/**"
+      "scripts/ratchets/**",
+      "scripts/session/**"
     ]
   },
   "identity": {

@@ -95,7 +95,7 @@ EXPECTED_GATES = {
             "AssemblyUI", "NvdUI", "NaoMgsUI", "TaxTriageUI", "EsVirituUI", "GenotypeUI", "PhylogeneticsUI", "App",
             "AppView", "AppWorkflow", "CLI", "Integration")],
         "scripts/full-suite-gate.sh", "scripts/release/gate_evidence.py", "scripts/testing/**", "scripts/tests/**",
-        "scripts/ratchets/**",
+        "scripts/ratchets/**", "scripts/session/**",
     ],
     "focusedReleaseTests": [
         "scripts.tests.test_test_catalog",
