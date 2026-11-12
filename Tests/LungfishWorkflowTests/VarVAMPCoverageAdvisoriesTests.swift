@@ -32,6 +32,21 @@ final class VarVAMPCoverageAdvisoriesTests: XCTestCase {
 
     private var key: String { inputID.uuidString.lowercased() }
 
+    /// The adapter's words for amplicons outside the requested size range (G1), one per engine.
+    private let varVAMPSpanWarning = "2 of 3 amplicons are outside the requested size range of 360 to 440 bp. "
+        + "varVAMP_48 is 354 bp. varVAMP_63 is 444 bp. varVAMP wrote them, so the scheme keeps them. "
+        + "Check their lengths against your protocol before you order primers."
+    private let olivarSpanWarning = "1 of 1 amplicon is outside the requested size range of 200 to 220 bp. "
+        + "scheme_1 is 198 bp. Olivar wrote it, so the scheme keeps it. "
+        + "Check its length against your protocol before you order primers."
+
+    /// An adapter resolution that holds `warnings` for this document's input, the shape both adapters write.
+    private func recorded(_ warnings: [String], inputKey: String? = nil) -> [String: PrimerSchemeJSONValue] {
+        ["coverageDiagnostics": .object([inputKey ?? key: .object([
+            "nativeWarnings": .array(warnings.map { .string($0) }),
+        ])])]
+    }
+
     func testRecordedDiagnosticsExplainThresholdWarningsAndSingleChain() {
         let (document, target) = document(resolution: [
             "nativeCumulativeConsensusThresholds": .object([key: .number(0.99)]),
@@ -68,5 +83,45 @@ final class VarVAMPCoverageAdvisoriesTests: XCTestCase {
         XCTAssertEqual(single.varVAMPCoverageAdvisories(for: singleTarget), [])
         let (olivar, olivarTarget) = document(engine: .olivar, resolution: [:], coveredEnd: 300)
         XCTAssertEqual(olivar.varVAMPCoverageAdvisories(for: olivarTarget), [])
+    }
+
+    func testSchemeAdvisoriesShowTheRecordedVarVAMPSpanWarning() {
+        let (document, target) = document(resolution: recorded([varVAMPSpanWarning]), coveredEnd: 990)
+        XCTAssertEqual(document.schemeAdvisories(for: target),
+                       [.init(severity: .warning, message: "varVAMP warning: " + varVAMPSpanWarning)])
+    }
+
+    func testSchemeAdvisoriesShowTheRecordedOlivarSpanWarning() {
+        let (document, target) = document(engine: .olivar, resolution: recorded([olivarSpanWarning]), coveredEnd: 300)
+        XCTAssertEqual(document.schemeAdvisories(for: target),
+                       [.init(severity: .warning, message: "Olivar warning: " + olivarSpanWarning)])
+    }
+
+    func testSchemeAdvisoriesForOlivarWithoutAWarningStayEmpty() {
+        let (olivar, target) = document(engine: .olivar, resolution: [:], coveredEnd: 300)
+        XCTAssertEqual(olivar.schemeAdvisories(for: target), [])
+        let other = UUID().uuidString.lowercased()
+        let (elsewhere, elsewhereTarget) = document(
+            engine: .olivar, resolution: recorded([olivarSpanWarning], inputKey: other), coveredEnd: 300)
+        XCTAssertEqual(elsewhere.schemeAdvisories(for: elsewhereTarget), [], "another input's warning is not this target's")
+    }
+
+    func testSchemeAdvisoriesForVarVAMPAreTheCoverageAdvisories() {
+        let (document, target) = document(resolution: recorded([varVAMPSpanWarning]), coveredEnd: 666)
+        XCTAssertEqual(document.schemeAdvisories(for: target), document.varVAMPCoverageAdvisories(for: target))
+        XCTAssertEqual(document.schemeAdvisories(for: target).count, 2, "the warning and the single-chain explanation")
+    }
+
+    func testViewerPresentationCarriesTheRecordedSpanWarningOfEachEngine() throws {
+        let cases: [(engine: PrimerSchemeEngine, warning: String, prefix: String)] = [
+            (.varvamp, varVAMPSpanWarning, "varVAMP warning: "),
+            (.olivar, olivarSpanWarning, "Olivar warning: "),
+        ]
+        for item in cases {
+            let (document, _) = document(engine: item.engine, resolution: recorded([item.warning]), coveredEnd: 990)
+            let review = try XCTUnwrap(PrimerSchemeViewerAdapter.adapt(document: document).reviews.first)
+            XCTAssertEqual(review.advisories.map(\.message), [item.prefix + item.warning], "\(item.engine)")
+            XCTAssertEqual(review.advisories.map(\.severity), [.warning], "\(item.engine)")
+        }
     }
 }
