@@ -17,6 +17,7 @@ These documents are the written rules for extending Lungfish Genome Explorer (LG
 | `docs/contracts/VERIFICATION-ORDER.md` | run tests, gates, golden comparisons or a GUI walk in a session, or package and publish a release, so that nothing runs twice on the same code |
 | `docs/contracts/MACHINES.md` | work on a Mac other than the golden runner, run or change the golden environment, or set up the self-hosted runner |
 | `docs/contracts/SCOPE-AND-DELIVERY.md` | plan or brief a phase, sub-phase or lane, decide whether a row earns a lane, give a finding its severity, or decide when a Preview or a fix reaches Stable |
+| `docs/contracts/OWNER-DIRECTIONS.md` | need the owner's standing directions, such as who decides while the owner is away, the standing go, when a stable release is built, budgets, the phase order and the model rules |
 | `docs/contracts/RUNNING-A-PHASE-SESSION.md` | run a phase session with subagents, write a lane, review, fix or landing brief, or measure a session's model spend with `scripts/llm/session_ledger.py` |
 | `docs/contracts/EXPERT-PANEL.md` | plan a phase or review its exit with the panel, brief or spawn an expert, review a lane in a field, settle a question of scope or fact, or record or revisit a panel decision |
 | `docs/contracts/CLAUDE-CODE-PRACTICES.md` | run or read the weekly check of the Claude Code best practices page, or decide whether a practice from it enters a contract |
