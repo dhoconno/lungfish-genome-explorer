@@ -36,9 +36,7 @@ checks are agents in `.claude/agents/`.
 | Documentation fact-check, the `manual-fidelity-reviewer` agent | none | no | Every factual claim of a lane that writes user-facing text (the manual, release notes, an owner check list). It writes `SCR/reviews/<LANE>-facts.md` beside the field review, and each wrong fact is a fix that lands with the lane |
 | LLM-efficiency monitor, the `llm-efficiency-monitor` agent | none | no | The model spend of every session, measured once at its end, as the efficiency contract sets under The monitor runs once, at the end |
 
-The voting panel stays at five. In Phase 2.7 the five fields covered all 39 reviews of 34 lanes, and no lane waited for
-want of a field. Two remits widened on 2026-10-11. QA and QC took release engineering and code signing, and Swift and
-macOS took process, file-system and other security-sensitive code. The fact-check joined because the 2.7
+The voting panel stays at five. The fact-check joined because the 2.7
 documentation lanes cost the most per line and carried the only factual errors that reached review.
 
 When a phase's scope reaches a field none of the five owns, such as the security of downloads, updates and plugin
@@ -48,19 +46,19 @@ questions and reviews its lanes, and its seat ends with the phase.
 
 ## How the panel leads a session
 
-A phase session runs these stages in order. The efficiency contract sets how each agent is spawned, sized and paced.
+A phase session runs these stages in order. The panel meets once, when a phase plan is written, in rounds 1 and 2. A later session of the same plan, a fix session, a release job and a short job hold no meeting. The efficiency contract sets how each agent is spawned, sized and paced.
 
 | Stage | Who works, on which model | What it leaves |
 |---|---|---|
 | Owner direction | The owner, written down by the manager with its date. While the owner is at the Mac and before the first spawn, the manager uses the AskUserQuestion tool to ask what only the owner can answer, on scope, what stays out, risks, tradeoffs and the result that ends the phase, and asks nothing that the last plan or a recorded decision answers. When the plan is drafted at the end of a long session, the questions go to a short session of its own. Each answer becomes a row with an id, the question, the owner's choice quoted and what it sets. Once agents run, the manager asks the owner in a plain message that ends its turn, never in a question call, so that the agents' notifications still wake it | The first section of the phase plan, which names what is in scope, what stays out and the result that ends the phase. While the owner is away, a question only the owner can answer takes the manager's stated recommendation after 15 minutes, as `docs/contracts/SCOPE-AND-DELIVERY.md` sets, and goes on the owner check list |
-| Inventory, once a phase | One fresh read-only agent per field, Opus at effort xhigh, starting from the last plan's decisions and the backlog's ranked rows | `SCR/inv/<FIELD>.md` with facts at a named commit, candidate lanes with their files and models, risks, open questions `Q-<letter><n>` and what should move out |
-| Plan draft and challenge, once a phase | One planner, Opus at effort xhigh, writes the plan and every lane brief from the inventories. Each field with a row in the draft then reads only its rows, Opus at effort xhigh with a stop at 25 calls, and writes CORRECT lines (a wrong fact with its `path:line`) and OBJECT lines (scope or severity). Only an OBJECT that a second field opposes is voted. A disputed fact or severity is one ruling. No tally agent runs and no second round | The plan draft, `SCR/challenge/<FIELD>.md` and the decision table of the voted objections |
+| Round 1, inventory | One fresh read-only agent per field, Opus at effort xhigh, starting from the last plan's decisions and the backlog's ranked rows | `SCR/inv/<FIELD>.md` with facts at a named commit, candidate lanes with their files and models, risks, open questions `Q-<letter><n>` and what should move out |
+| Round 2, plan draft and challenge | One planner, Opus at effort xhigh, writes the plan and every lane brief from the inventories. Each field with a row in the draft then reads only its rows, Opus at effort xhigh, and writes CORRECT lines (a wrong fact with its `path:line`) and OBJECT lines (scope or severity). Only an OBJECT that a second field opposes is voted. A disputed fact or severity is one ruling. No tally agent runs and no third round | The plan draft, `SCR/challenge/<FIELD>.md` and the decision table of the voted objections |
 | Plan | The planner's draft with the CORRECT lines applied, accepted by the manager | The phase plan with the decisions, lanes, models, dependencies and the panel's cut order, first to cut first |
 | Lanes | One agent per lane, Sonnet at effort max for mechanical or well-pinned work, Opus at effort xhigh for design-sensitive work and the longest chain | Commits and a lane report |
-| Review | One fresh agent from the field the lane changes most, plus BIO when the lane touches scientific output, Sonnet at effort max since the tests of 2026-10-15, which measured a candidate review and a code-diff review, plus the fact-check for user-facing text, also Sonnet at effort max. A lane that changes only documentation or only tests gets the fact-check where it writes user-facing text and no field review | `SCR/reviews/<LANE>.md` with a verdict (Merge, Merge after fixes or Block), its blockers and at most three should-fix items. A blocker is a wrong result, data loss, a crash, a security hole, a broken build, an S1 or S2 finding or a requirement of the lane's brief that the lane does not meet. Every other finding goes to `docs/plans/BACKLOG.md` with its `path:line` and its effect on results or users, with no fix agent spawned for it |
+| Review | One fresh agent from the field the lane changes most, plus BIO when the lane touches scientific output, Sonnet at effort max, plus the fact-check for user-facing text, also Sonnet at effort max. A lane that changes only documentation or only tests gets the fact-check where it writes user-facing text and no field review | `SCR/reviews/<LANE>.md` with a verdict (Merge, Merge after fixes or Block), its blockers and at most three should-fix items. A blocker is a wrong result, data loss, a crash, a security hole, a broken build, an S1 or S2 finding or a requirement of the lane's brief that the lane does not meet. Every other finding goes to `docs/plans/BACKLOG.md` with its `path:line` and its effect on results or users, with no fix agent spawned for it |
 | Fixes | A fresh fix agent, Sonnet at effort max for code fixes and at effort high for given words pasted into documentation, Opus at effort xhigh when a fix needs judgment | Commits that answer each numbered fix |
 | Landing | Landing agents in batches, Sonnet at effort max | The program branch, holding reviewed lanes only |
-| Final candidate | The manager runs the gates of `docs/contracts/VERIFICATION-ORDER.md` once, the XCUI smoke and the packaged walk among them, and one fresh QA expert, Sonnet at effort max, reads their evidence as the Evidence read row of that contract sets. No publish runs without its PASS (O126), and 3.1's Stable has no record of this read | The candidate commit, the findings with their severities and the owner check list |
+| Final candidate | The manager runs the gates of `docs/contracts/VERIFICATION-ORDER.md` once, the XCUI smoke and the packaged walk among them, and one fresh QA expert, Sonnet at effort max, reads their evidence as the Evidence read row of that contract sets. No publish runs without its PASS (O126) | The candidate commit, the findings with their severities and the owner check list |
 | Record | The manager | What ran, Expert reviews and Final candidate in the phase plan, and new rows in `docs/plans/BACKLOG.md` |
 
 Three rules hold at every stage. Experts never edit code or build. They read, vote, rule and review, and a review that
@@ -95,7 +93,7 @@ a number, unique within its plan, and a later plan cites it with its phase, as 2
 `4 to 0, Swift abstained` or `4 to 1, bioinformatics voted removal`, and an amended decision says so.
 
 A recorded decision binds every later session until the panel revisits it with a recorded vote, or until a contract
-the owner accepts replaces it, as the last table of `docs/contracts/SCOPE-AND-DELIVERY.md` does. The revisit is a row of
+change replaces it as `docs/contracts/SCOPE-AND-DELIVERY.md` sets under Process work stays small. The revisit is a row of
 the new plan's table under the old id, with the new decision, the vote and the evidence that reopened it. Before a plan
 is deleted, its decisions still in force move into the next plan or into the contract they belong to.
 
@@ -150,11 +148,11 @@ phase's memos add, and cites each check by its id.
 
 ## Spawning an expert
 
-Each expert task runs in a fresh agent, on Opus at effort xhigh for inventories, memos and rulings (`model: "opus"`,
+Each expert task runs in a fresh agent, on Opus at effort xhigh for inventories, challenge reads and rulings (`model: "opus"`,
 `effort: "xhigh"`), on Opus at effort max for votes, and on Sonnet at effort max for reviews (`model: "sonnet"`,
 `effort: "max"`), as the efficiency contract's Model choice row sets from the two tests of 2026-10-15. It is briefed
 with files and
-never resumed, as the efficiency contract's rule on fresh agents sets. Its memory is its field's inventory, memo and
+never resumed, as the efficiency contract's rule on fresh agents sets. Its memory is its field's inventory, challenge file and
 reviews in `SCR` within a session, and the plan's decisions across sessions. A shared brief per stage holds what every
 expert needs, and the prompt adds the role. The spawn sets the model and the effort, and the prompt's first line states
 them, as the efficiency contract's row on model and effort sets. An expert's report opens with the model and effort it

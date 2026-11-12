@@ -7,7 +7,7 @@ that audit on the records, the code and the measured spend, blind to each other 
 (`docs/reports/2026-11-11-program-review/SUMMARY.md`) added the rules on structural lanes, truth, scale and session
 size.
 
-Precedence. The owner's words in chat hold first, then the owner's recorded directions, then this contract, then the
+Precedence. The owner's words in chat hold first, then `docs/contracts/OWNER-DIRECTIONS.md`, then this contract, then the
 phase plan, then any other contract. An agent definition or a brief that disagrees with a contract is a defect to fix
 and not a choice.
 
@@ -24,12 +24,12 @@ and by no gate. The decisions this contract replaced are listed in
 
 | Rule | What it means |
 |---|---|
-| Stable on a clock | Stable ships about once a month, about four weeks after the last Stable, from the newest Preview that passed its packaged walk with no open S1 or S2 finding (owner direction O128). A phase ends in a Preview and not in a Stable, since the Stable loop took longer than a phase could carry. When the date falls inside a phase, the manager promotes that Preview and the phase goes on. A stable release is built only on the owner's word (O159). |
-| Result fixes reach a Preview fast | A fix that changes a scientific result or stops data loss reaches a Preview within seven days of landing, and the next monthly Stable carries it. When BIO rules that an S1 live in Stable cannot wait for that Stable, the manager asks the owner for a known-issue line on the Stable's release page and a patch release from the last Stable tag. |
+| Stable on the owner's word | A stable release is built only on the owner's word in chat (O159), from the newest Preview that passed its packaged walk with no open S1 or S2 finding. A phase ends in a Preview and not in a Stable. Previews follow the standing go below (O126). |
+| Result fixes reach a Preview fast | A fix that changes a scientific result or stops data loss reaches a Preview within seven days of landing, and the next stable release carries it. When BIO rules that an S1 live in Stable cannot wait for that release, the manager asks the owner for a known-issue line on the Stable's release page and a patch release from the last Stable tag. |
 | Known issues reach the Stable page | A Preview that fixes an S1 or S2 living in the last Stable adds its known-issue line to that Stable's release page in the same publish step. |
 | A phase never holds Stable | No phase exit, sub-phase or refactor holds a Stable release. Only an open S1 or S2 finding does. |
 | A short owner check list | The Stable check list holds at most 20 rows. Each is a task a person does in about two minutes that no automated test covers, and a row that an automated test comes to cover is deleted. A row that needs a person's own senses, such as a real-mouse drag or hearing VoiceOver, does not block a release and runs when the owner is next at the Mac. The list is written new for each release and carries no older list. A walk row left unwalked in two walks running becomes an XCUI test in the next session or closes on UX's or BIO's word. |
-| Previews carry something | A Preview ships when it carries a change a user can see or a result fix, after a person, or the manager by computer use, walks the changed screens on the packaged build. A sub-phase with neither ends at a green unit tier on `main` and publishes nothing. No Preview ships on a walk substitute, and no weekly cap applies, since the daily Previews of 2026-10-03 to 2026-10-08 each carried result fixes. |
+| Previews carry something | A Preview ships when it carries a change a user can see or a result fix, after a person, or the manager by computer use, walks the changed screens on the packaged build. A sub-phase with neither ends at a green unit tier on `main` and publishes nothing. No Preview ships on a walk substitute, and no weekly cap applies. |
 
 ## The standing go
 
@@ -52,8 +52,8 @@ The owner set these on 2026-11-03 (O126). In 3.1 session 2, 20h43m of 55h33m wen
 | A computed budget | The budget is the planned lanes times the last phase's all-in cost a landed lane ($24, and $36 for a lane that adds a type, a viewer or a launch), plus $120 a session and $100 a packaged candidate, with two candidates a Preview, and the plan prints the sum. It is also stated in points of the week, and the week points bind. |
 | Session size | A session plans at least 12 lanes and starts with at least 35 points of the week free. Fewer lanes run as a short job with no meeting and no monitor, only the ledger command. A session may run two sub-phases back to back with a Preview at each. |
 | Exits name outcomes | Every phase exit names a user outcome and the Preview that carries it. A structural count, such as a ratchet at zero, is reported at exit and is never an exit check by itself. A zero target may carry an exemption list that the owner approves once. |
-| Budgets stop work | At one and a half times its budget a session starts no new lane until the owner answers. When a check fails late or the budget runs out, the owner moves or waives the check, or an expert rules a Known limit as The standing go sets. No session adds a sub-phase on its own. |
-| Process work stays small | Trials of the process itself, such as model and effort tests, take at most 2% of a phase budget. A session's monitor proposes changes to a process contract, and the owner accepts them. |
+| Budgets stop work | At one and a half times its budget the manager starts no new lane, tells the owner and closes the session with a Preview if one is due. When a check fails late or the budget runs out, the owner moves or waives the check, or an expert rules a Known limit as The standing go sets. No session adds a sub-phase on its own. |
+| Process work stays small | Trials of the process itself, such as model and effort tests, take at most 2% of a phase budget. A session's monitor proposes changes to a process contract. A contract change that carries a measurement is ruled by ARCH and QA at the close and lands, unless it touches a row of What stays the owner's (O171). |
 
 ## Which work earns a lane
 
@@ -96,7 +96,7 @@ Ordinary sizes are 20 M read pairs, 20,000 FASTA records, a reference of 3,000 s
 | Truth probes | Every operation family that makes a scientific number has one probe, namely a small public input, the number LGE reports through `lungfish-cli`, and the same number from the tool run directly or from an independent count. BIO owns the list, and a new operation lands with its probe. A comparison of the screen with `lungfish-cli` is a display check and not a truth check. |
 | The truth sweep | Each phase BIO names two tool families that no lane read in the last two phases. One lane a family runs the tool by hand on a real public data set with real-shaped inputs and compares every number the app shows and exports with the tool's own files. Each difference is a finding with its severity. |
 | Each science fix adds an input | A fixed science defect adds its smallest failing input, with the numbers taken from the tool run directly. |
-| GUI checks bind the candidate | Every final candidate runs the XCUI smoke on the packaged app in a session that does not lock, and its result binds like the unit tier. A candidate whose XCUI or Accessibility tests skipped is not a candidate. A new bundle kind joins the view-switch test in the change that adds it. |
+| GUI checks bind the candidate | Every packaged candidate, Preview or stable, runs the XCUI smoke on the packaged app in a session that does not lock, and its result binds like the unit tier. A candidate whose XCUI or Accessibility tests skipped is not a candidate. A new bundle kind joins the view-switch test in the change that adds it. |
 | Load-sensitive waits | `docs/contracts/VERIFICATION-ORDER.md` sets how a red tier of timed-out waits is handled. No lane raises the wait of one test. |
 | Tests per family | A family of commands takes one argv round trip, one replay and one cancel test. A new route in the family adds a case to them and not a new set. |
 | Help text until HELP-GOLDENS | Until that backlog row lands, a lane that changes help text recaptures only the help files it changed. |
