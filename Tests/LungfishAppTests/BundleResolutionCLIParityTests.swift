@@ -256,6 +256,62 @@ final class BundleResolutionCLIParityTests: XCTestCase {
             XCTAssertTrue(ViralReconReadPairing.decisions(for: appSamples).allSatisfy(\.needsSplit), "\(shape): staged by the run")
         }
     }
+
+    /// Trust session FIX-VR (F1, S2). A sample name with a space fails a whole
+    /// viralrecon run. The wizard's input check, the app's Run and
+    /// `workflow run --input <bundle>` each refuse it before launch, with the
+    /// same words, and the app's Run writes no samplesheet.
+    func testViralReconRefusesASampleNameWithASpaceWithTheSameWordsInTheAppAndTheCLI() throws {
+        let words = "The sample name “Sample 1” holds a space, and viralrecon's samplesheet does not accept one. "
+            + "Rename the sample, for example to “Sample_1”, and run again."
+        let bundle = try InterleavedFASTQFixture.writeBundle(named: "Sample 1", in: root, pairCount: 2, naming: .casava)
+        var metadata = try XCTUnwrap(FASTQMetadataStore.load(for: bundle.fastqURL))
+        metadata.sequencingPlatform = .illumina
+        FASTQMetadataStore.save(metadata, for: bundle.fastqURL)
+
+        // The wizard shows this error's words under its input list.
+        XCTAssertThrowsError(try ViralReconWizardInputPolicy.resolveInputs([bundle.bundleURL], platformOverride: nil)) { error in
+            XCTAssertEqual(error.localizedDescription, words, "wizard input check")
+        }
+        XCTAssertThrowsError(try ViralReconWizardInputPolicy.resolveInputs([bundle.bundleURL], platformOverride: .illumina)) { error in
+            XCTAssertEqual(error.localizedDescription, words, "wizard input check with a chosen platform")
+        }
+
+        // Run, as the sheet calls it, refuses before the samplesheet is written.
+        let outputRoot = root.appendingPathComponent("run-output", isDirectory: true)
+        let input = ViralReconResolvedInput(
+            bundleURL: bundle.bundleURL,
+            sampleName: "Sample 1",
+            fastqURLs: [bundle.fastqURL],
+            platform: .illumina,
+            barcode: nil,
+            sequencingSummaryURL: nil
+        )
+        XCTAssertThrowsError(try ViralReconRunPreparation.buildRequest(from: ViralReconRunInputs(
+            platform: .illumina,
+            outputRoot: outputRoot,
+            primerBundleURL: root.appendingPathComponent("primer.lungfishprimers", isDirectory: true),
+            resolvedInputs: [input],
+            advancedParameters: [:],
+            advancedError: nil,
+            minimumMappedReads: 0,
+            advancedGFFURL: nil,
+            projectURL: nil
+        ))) { error in
+            XCTAssertEqual(error.localizedDescription, words, "app Run")
+        }
+        let staged = (try? FileManager.default.subpathsOfDirectory(atPath: outputRoot.path)) ?? []
+        XCTAssertFalse(staged.contains { $0.hasSuffix("samplesheet.csv") }, "no samplesheet was written: \(staged)")
+
+        var params: [String: String] = [:]
+        XCTAssertThrowsError(try ViralReconCLIInputs.resolve(
+            inputURLs: [bundle.bundleURL],
+            runBundleURL: root.appendingPathComponent("cli.lungfishrun", isDirectory: true),
+            params: &params
+        )) { error in
+            XCTAssertEqual(error.localizedDescription, words, "workflow run --input <bundle>")
+        }
+    }
 }
 
 /// Keeps the bytes of the file each `fastq qc-summary` invocation reads, while

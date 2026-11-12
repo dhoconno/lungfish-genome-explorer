@@ -93,6 +93,83 @@ final class ViralReconSamplesheetBuilderTests: XCTestCase {
         }
     }
 
+    // Trust session FIX-VR (F1, S2). viralrecon's samplesheet refuses a
+    // `sample` cell with a space (`^\S+$`) and a read file whose name holds
+    // one, and then the whole run fails. The builder refuses first, with
+    // words that name the sample and say what to do, and writes no file.
+    func testIlluminaSamplesheetRefusesASampleNameWithASpaceAndWritesNoFile() throws {
+        let temp = try ViralReconWorkflowTestFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let sheetDirectory = temp.appendingPathComponent("sheet", isDirectory: true)
+        let samples = [
+            ViralReconSample(sampleName: "Sample_2", sourceBundleURL: temp, fastqURLs: [temp.appendingPathComponent("S2.fastq.gz")], barcode: nil, sequencingSummaryURL: nil),
+            ViralReconSample(sampleName: "Sample 1", sourceBundleURL: temp, fastqURLs: [temp.appendingPathComponent("S1.fastq.gz")], barcode: nil, sequencingSummaryURL: nil),
+        ]
+
+        XCTAssertThrowsError(
+            try ViralReconSamplesheetBuilder.writeIlluminaSamplesheet(samples: samples, in: sheetDirectory)
+        ) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The sample name “Sample 1” holds a space, and viralrecon's samplesheet does not accept one. "
+                    + "Rename the sample, for example to “Sample_1”, and run again."
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sheetDirectory.appendingPathComponent("samplesheet.csv").path))
+    }
+
+    func testNanoporeStagingRefusesASampleNameWithASpaceBeforeCopyingReads() throws {
+        let temp = try ViralReconWorkflowTestFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let sample = try makeNanoporeSample(name: "ONT A", barcode: "01", in: temp)
+
+        XCTAssertThrowsError(try ViralReconSamplesheetBuilder.stageNanoporeInputs(samples: [sample], in: temp)) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The sample name “ONT A” holds a space, and viralrecon's samplesheet does not accept one. "
+                    + "Rename the sample, for example to “ONT_A”, and run again."
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temp.appendingPathComponent("fastq_pass").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temp.appendingPathComponent("samplesheet.csv").path))
+    }
+
+    // A paired row goes to viralrecon as named, so a space in either file
+    // name is refused by name. A single file is not refused here: the run
+    // may split it, and the split names its halves without a space.
+    func testIlluminaSamplesheetRefusesAPairedReadFileWithASpaceInItsName() throws {
+        let temp = try ViralReconWorkflowTestFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let r1 = temp.appendingPathComponent("Sample 1_R1.fastq.gz")
+        let paired = ViralReconSample(
+            sampleName: "Sample_1",
+            sourceBundleURL: temp,
+            fastqURLs: [r1, temp.appendingPathComponent("Sample_1_R2.fastq.gz")],
+            barcode: nil,
+            sequencingSummaryURL: nil
+        )
+
+        XCTAssertThrowsError(
+            try ViralReconSamplesheetBuilder.writeIlluminaSamplesheet(samples: [paired], in: temp)
+        ) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The read file “Sample 1_R1.fastq.gz” of sample “Sample_1” holds a space in its name, "
+                    + "and viralrecon's samplesheet does not accept one. Rename the file, "
+                    + "for example to “Sample_1_R1.fastq.gz”, and run again."
+            )
+        }
+
+        let single = ViralReconSample(
+            sampleName: "Sample_1",
+            sourceBundleURL: temp,
+            fastqURLs: [temp.appendingPathComponent("Sample 1.fastq.gz")],
+            barcode: nil,
+            sequencingSummaryURL: nil
+        )
+        XCTAssertNoThrow(try ViralReconSamplesheetBuilder.writeIlluminaSamplesheet(samples: [single], in: temp))
+    }
+
     func testNanoporeSamplesheetStagesFastqPassAndBarcodes() throws {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let source = temp.appendingPathComponent("reads.fastq")

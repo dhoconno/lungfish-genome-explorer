@@ -108,6 +108,45 @@ final class ViralReconReadPairingTests: XCTestCase {
         }
     }
 
+    // Trust session FIX-VR (F1, S2). The split halves are named from the
+    // source file, and viralrecon refuses a read file whose name holds a
+    // space, so a bundle file named "Sample 1.fastq.gz" failed the whole run
+    // even after the sample was renamed. The halves are app-made names in a
+    // per-sample folder, so whitespace becomes `_`.
+    func testSplitHalvesHoldNoSpaceWhenTheSourceNameHasOne() async throws {
+        let plain = root.appendingPathComponent("Sample 1.fastq")
+        try InterleavedFASTQFixture.write(pairCount: 3, naming: .casava, to: plain)
+        let compressed = try gzip(plain)
+        try FileManager.default.removeItem(at: plain)
+
+        let split = try await ViralReconReadPairing.splitInterleavedInput(
+            compressed,
+            into: root.appendingPathComponent("split/Sample_1", isDirectory: true)
+        )
+        XCTAssertEqual(
+            [split.r1.lastPathComponent, split.r2.lastPathComponent],
+            ["Sample_1_R1.fastq.gz", "Sample_1_R2.fastq.gz"]
+        )
+        XCTAssertEqual(split.counts.r1Records, 3)
+    }
+
+    // A samplesheet handed to `workflow run` is read back here, so a sample
+    // cell with a space is refused before the run splits anything.
+    func testSamplesheetWithASpaceInASampleNameIsRefused() throws {
+        let sheet = root.appendingPathComponent("samplesheet.csv")
+        let r1 = root.appendingPathComponent("A_R1.fastq.gz").path
+        let r2 = root.appendingPathComponent("A_R2.fastq.gz").path
+        try "sample,fastq_1,fastq_2\nSample 1,\(r1),\(r2)\n".write(to: sheet, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try ViralReconReadPairing.parseIlluminaSamplesheet(at: sheet)) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The sample name “Sample 1” holds a space, and viralrecon's samplesheet does not accept one. "
+                    + "Rename the sample, for example to “Sample_1”, and run again."
+            )
+        }
+    }
+
     func testGzipInterleavedSourceIsSplitTheSameWay() async throws {
         let plain = root.appendingPathComponent("reads.fastq")
         try InterleavedFASTQFixture.write(pairCount: 5, naming: .slashSuffix, to: plain)

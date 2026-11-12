@@ -25,6 +25,30 @@ final class ViralReconInputResolverTests: XCTestCase {
         }
     }
 
+    // Trust session FIX-VR (F1, S2). The wizard, `workflow run` with bundle
+    // inputs and the app's Run all make their samples here, so a sample name
+    // viralrecon refuses is refused here, before any read is split or staged.
+    func testMakeSamplesRefusesASampleNameWithASpaceBeforeAnythingIsStaged() throws {
+        let inputs = ["Sample_2", "Sample 1"].map { name in
+            ViralReconResolvedInput(
+                bundleURL: URL(fileURLWithPath: "/tmp/\(name).lungfishfastq"),
+                sampleName: name,
+                fastqURLs: [URL(fileURLWithPath: "/tmp/\(name).lungfishfastq")],
+                platform: .illumina,
+                barcode: nil,
+                sequencingSummaryURL: nil
+            )
+        }
+
+        XCTAssertThrowsError(try ViralReconInputResolver.makeSamples(from: inputs)) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The sample name “Sample 1” holds a space, and viralrecon's samplesheet does not accept one. "
+                    + "Rename the sample, for example to “Sample_1”, and run again."
+            )
+        }
+    }
+
     func testResolverPrefersPersistedSequencingPlatformOverFastqHeader() throws {
         let temp = try ViralReconWorkflowTestFixtures.makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: temp) }

@@ -300,6 +300,43 @@ final class ViralReconReadPairingCLITests: XCTestCase {
         }
     }
 
+    // Trust session FIX-VR (F1, S2). viralrecon refuses a sample name with
+    // a space and the whole run fails after Nextflow starts. The CLI refuses
+    // before launch, with words that name the sample and say what to do.
+    func testBundleWhoseSampleNameHoldsASpaceIsRefusedBeforeLaunch() async throws {
+        let runner = CapturingNextflowRunner()
+        let bundle = try writeInterleavedIlluminaBundle(named: "Sample 1", pairCount: 2)
+        let runBundleURL = root.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
+        let results = root.appendingPathComponent("results", isDirectory: true)
+        let command = try RunSubcommand.parse([
+            "nf-core/viralrecon",
+            "--executor", "docker",
+            "--input", bundle.bundleURL.path,
+            "--results-dir", results.path,
+            "--expected-output", results.path,
+            "--bundle-path", runBundleURL.path,
+            "--version", "3.0.0",
+            "--param", "protocol=amplicon",
+            "--quiet",
+        ])
+        do {
+            try await command.run(nfCoreRunner: runner)
+            XCTFail("expected the sample name to be refused")
+        } catch let error as CLIError {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Workflow execution failed: The sample name “Sample 1” holds a space, and viralrecon's samplesheet "
+                    + "does not accept one. Rename the sample, for example to “Sample_1”, and run again."
+            )
+            XCTAssertEqual(error.exitCode, .workflowError)
+        }
+        XCTAssertTrue(runner.launches.isEmpty, "Nextflow never started")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: runBundleURL.appendingPathComponent("inputs/samplesheet.csv").path),
+            "no samplesheet was written"
+        )
+    }
+
     func testPlatformParameterMustAgreeWithTheBundle() async throws {
         let bundle = try writeInterleavedIlluminaBundle(named: "platform", pairCount: 1)
         let command = try RunSubcommand.parse([
