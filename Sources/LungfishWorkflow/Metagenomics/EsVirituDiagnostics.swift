@@ -245,19 +245,23 @@ extension EsVirituPipelineError {
     /// read names of all alignments in memory while it compares the reads that references share
     /// (`esv_funcs.py`, `assembly_read_sharing_table`), so a large sample rich in viral reads can
     /// need more memory than the Mac has.
-    static let killedExitCode: Int32 = 137
+    static let killedExitCode: Int32 = ToolProcessMemoryStop.killedExitCode
 
-    /// The reason shown for a killed run in place of EsViritu's whole stderr, or `nil` for any
-    /// other error.
+    /// What to try next after a killed run.
+    static let killedNextStep = "Deduplicate or subsample the reads, or run the sample on a Mac with more memory."
+
+    /// The reason shown for a killed run in place of EsViritu's whole stderr, through the shared route
+    /// ``ToolProcessMemoryStop`` with the peak `wait4` read, or `nil` for any other error.
     var killedReason: String? {
-        guard case .esVirituFailed(let code, _) = self, code == Self.killedExitCode else { return nil }
-        return "EsViritu was stopped before it finished, most likely because the Mac ran out of memory (exit code \(code)). Deduplicate or subsample the reads, or run the sample on a Mac with more memory."
+        guard case .esVirituFailed(let code, _, let peak) = self,
+              let stop = ToolProcessMemoryStop(tool: "EsViritu", exitCode: code, peakMemoryBytes: peak) else { return nil }
+        return stop.message(nextStep: Self.killedNextStep)
     }
 
     /// The last lines of a killed run's stderr, which name the step it stopped in, or `nil` for
     /// any other error.
     var killedStderrTail: String? {
-        guard case .esVirituFailed(let code, let stderr) = self, code == Self.killedExitCode else { return nil }
+        guard case .esVirituFailed(let code, let stderr, _) = self, code == Self.killedExitCode else { return nil }
         return EsVirituFailureDiagnosis.tail(ofLog: stderr)
     }
 }

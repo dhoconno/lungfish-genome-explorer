@@ -14,8 +14,9 @@ private let logger = Logger(subsystem: "com.lungfish.workflow", category: "EsVir
 /// Errors produced during EsViritu pipeline execution.
 public enum EsVirituPipelineError: Error, LocalizedError, Sendable {
 
-    /// EsViritu exited with a non-zero status.
-    case esVirituFailed(exitCode: Int32, stderr: String)
+    /// EsViritu exited with a non-zero status. `peakMemoryBytes` is the peak `wait4` read for the
+    /// launch when the Mac stopped it for memory, and nil otherwise.
+    case esVirituFailed(exitCode: Int32, stderr: String, peakMemoryBytes: UInt64? = nil)
 
     /// The EsViritu tool is not installed in the conda environment.
     case esVirituNotInstalled
@@ -35,7 +36,7 @@ public enum EsVirituPipelineError: Error, LocalizedError, Sendable {
 
     public var errorDescription: String? {
         switch self {
-        case .esVirituFailed(let code, let stderr):
+        case .esVirituFailed(let code, let stderr, _):
             return killedReason ?? "EsViritu failed with exit code \(code): \(stderr)"
         case .esVirituNotInstalled:
             return "EsViritu is not installed. Run: lungfish-cli conda install --pack metagenomics"
@@ -478,6 +479,9 @@ public actor EsVirituPipeline {
 
         let esVirituResult: (stdout: String, stderr: String, exitCode: Int32)
         let esVirituLaunch = await ClassifierLaunchDeclaration(recorder: provenanceRecorder, runID: runID)
+        // Keeps how the launch ended and its peak for the words of a run the Mac stopped for memory, and hands the
+        // observation on to the step's provenance observer unchanged.
+        let esVirituEnd = ToolProcessEndCapture()
         do {
             // No wall-clock limit. A large sample rich in one virus aligns for hours, and the
             // one-hour floor ended such runs and discarded the work. Cancel still stops a run.
@@ -488,7 +492,7 @@ public actor EsVirituPipeline {
                 environmentVariables: ["ESVIRITU_DB": effectiveConfig.databasePath.path],
                 timeout: .infinity,
                 stderrHandler: esVirituStderrHandler,
-                observer: esVirituLaunch.observer
+                observer: esVirituEnd.observer(forwardingTo: esVirituLaunch.observer ?? ToolProcessObservation.observer)
             )
         } catch let error as CondaError {
             await provenanceRecorder.completeRun(runID, status: .failed)
@@ -521,7 +525,8 @@ public actor EsVirituPipeline {
             await provenanceRecorder.completeRun(runID, status: .failed)
             throw EsVirituPipelineError.esVirituFailed(
                 exitCode: esVirituResult.exitCode,
-                stderr: esVirituResult.stderr
+                stderr: esVirituResult.stderr,
+                peakMemoryBytes: esVirituEnd.memoryStop()?.peakMemoryBytes
             )
         }
 
