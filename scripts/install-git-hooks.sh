@@ -21,6 +21,8 @@
 #     which would point at a deleted report (scripts/checks/audit-tags.py, finding R5), then
 #     checks that docs/plans/BACKLOG.md and docs/plans/backlog-later.tsv hold their caps and
 #     rules (scripts/checks/backlog.py, docs/contracts/SCOPE-AND-DELIVERY.md, One backlog), then
+#     checks that no contract, AGENTS.md, module guide or agent type is over its byte cap and larger than
+#     its baseline (scripts/checks/contract-size.py, docs/contracts/SCOPE-AND-DELIVERY.md, Contracts), then
 #     runs the unit tier of the full-suite gate (scripts/full-suite-gate.sh
 #     --tier unit) before pushing, so the regression gate runs locally on
 #     this fast Apple-Silicon Mac instead of on slow/usage-limited hosted CI.
@@ -244,6 +246,12 @@ fi
 echo "pre-push: checking the backlog caps and rules (use --no-verify to skip)..."
 if ! python3 "$REPO_ROOT/scripts/checks/backlog.py"; then
     echo "pre-push: backlog check FAILED (BACKLOG.md over 80 KB or backlog-later.tsv over 450 KB, a row that begins with Done, Fixed, Closed or Landed, a malformed or repeated row, a row in the wrong file, or a later row two phases old with keep empty; see docs/contracts/SCOPE-AND-DELIVERY.md, One backlog) - push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
+echo "pre-push: checking the byte caps of the contracts and guides (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/checks/contract-size.py"; then
+    echo "pre-push: contract-size check FAILED (a contract, AGENTS.md, module guide or agent type is over its byte cap and larger than its line in scripts/checks/contract-size.baseline, has no line there, or has a stale line there. A file over its cap may only shrink, so trim it and run python3 scripts/checks/contract-size.py --update. See docs/contracts/SCOPE-AND-DELIVERY.md, row Contracts) - push aborted. Use --no-verify to bypass." >&2
     exit 1
 fi
 
