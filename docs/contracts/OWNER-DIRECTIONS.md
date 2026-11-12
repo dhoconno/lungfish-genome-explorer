@@ -13,9 +13,9 @@ Each row is a direction of the owner that still binds later sessions, in the own
 | none, review brief | 2026-11-11 | "After the revised plans land, I'll use Opus Max orchestrators with contracts specifying other types of lesser agents for implementation, as we do currently." | Managers run on opus at max, lesser agent types implement |
 | O103 | 2026-10-31 | "xhigh" | Opus fix agents run at effort xhigh |
 | none, memory note | 2026-10-15 | Words not on file. | Every delegation names its model and effort |
-| O67 | 2026-10-26 | "Yes, we should push." | Audit contracts bind, panel at plan and exit, monitor once a session |
+| O67 | 2026-10-26 | "Yes, we should push." | Audit contracts bind. The panel meets when a plan is written, and a short job has no monitor (review of 2026-11-11) |
 | O75 | 2026-10-26 | "Have the experts convene a meeting and decide which to include by consensus" | Panel consensus picks older S1 and S2 backlog rows for a phase |
-| O69 | 2026-10-26 | "Yes, we should keep the measurement contracts because ... this may change once new models become available." | LLM-EVIDENCE, CLAUDE-CODE-PRACTICES and the weekly check stay |
+| O69 | 2026-10-26 | "Yes, we should keep the measurement contracts because ... this may change once new models become available." | The measurements and the weekly check are kept, in the records from the process job on |
 | 2.12 O12 | 2026-10-18 | "We should also make sure that the Claude Code best practices ... are checked weekly ..." | Check the Claude Code best practices page weekly |
 | 2.12 O10 | 2026-10-18 | "... when we get close to the quota we should by contract output a prompt I can use to resume in a new account that doesn't have this session's context" | Near the quota stop, write a resume prompt for a new account |
 | 2.13 O26 | 2026-10-21 | "The notes have gotten excessively detailed. We should have the experts write more accessible notes anyway." | Release notes are short, plain and written for bench scientists |
