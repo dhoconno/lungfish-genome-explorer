@@ -501,6 +501,7 @@ final class ProvenanceInspectorViewModel {
                 self.apply(outcome, item: item)
                 self.callLineageReady(for: item, found: outcome.resolvedEnvelope != nil)
             }
+            self.applyAffectedResults(item: item)
         }
     }
 

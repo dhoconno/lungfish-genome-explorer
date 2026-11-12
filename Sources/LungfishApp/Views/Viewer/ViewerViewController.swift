@@ -491,6 +491,7 @@ public class ViewerViewController: NSViewController {
     public override func viewDidLoad() {
         super.viewDidLoad()
         logger.info("viewDidLoad: ViewerViewController loaded")
+        installAffectedResultsStrip()
 
         // Set background color
         view.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
