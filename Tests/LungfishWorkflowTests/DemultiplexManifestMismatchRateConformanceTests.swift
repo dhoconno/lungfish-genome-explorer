@@ -2,13 +2,15 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Trust session lane PROBES-A, row DEMUX-MANIFEST-MISMATCH-RATE. The manifest's `parameters.maxMismatches` is
-// `Int(config.errorRate x first barcode length)` (`DemultiplexingPipeline.swift`, the `DemultiplexParameters` call),
-// while cutadapt and the chance floor run at `config.effectiveErrorRate`. The two differ only when a run carries a
+// Trust session lane PROBES-A, row DEMUX-MANIFEST-MISMATCH-RATE, flipped by lane FIX-IDT on BIO's word (BIO-PROBES-A,
+// Q1 item 3). The manifest's `parameters.maxMismatches` is a record fact, so it is `Int(config.effectiveErrorRate x
+// first barcode length)` (`DemultiplexingPipeline.swift`, the `DemultiplexParameters` call), the rate cutadapt and the
+// chance floor run at. It was `config.errorRate`, the configured rate. The two differ only when a run carries a
 // source platform other than the kit's and the configured rate is below that platform's recommended rate (0.15 for
-// ONT, 0.10 for every other platform). No route in the product sets a source platform on a run: `lungfish-cli fastq
-// demultiplex` has no such option, and the Demux tab's Detect uses its platform only for scouting. Nothing reads the
-// field, so it reaches the manifest file and no screen, export or record text.
+// ONT, 0.10 for every other platform), so the default 0.15 records what it always did. No route in the product sets a
+// source platform on a run: `lungfish-cli fastq demultiplex` has no such option, and the Demux tab's Detect uses its
+// platform only for scouting. Nothing reads the field, so it reaches the manifest file and no screen, export or
+// record text.
 //
 // A real-tool suite. Its name puts it in the conformance tier, and it skips when managed cutadapt or seqkit is
 // missing, or fails under LUNGFISH_REQUIRE_TOOLS=1.
@@ -88,12 +90,12 @@ final class DemultiplexManifestMismatchRateConformanceTests: XCTestCase {
     }
 
     /// The reach is a run the product cannot make. At 0.05 with an ONT source on an Illumina kit, cutadapt runs at 0.15
-    /// (one mismatch of eight) and the manifest records 0, from the configured 0.05.
-    func testACrossPlatformConfigRunsTheEffectiveRateAndTheManifestKeepsTheConfiguredOne() async throws {
+    /// (one mismatch of eight) and the manifest records 1, the mismatches cutadapt allowed, and not 0 from the configured 0.05.
+    func testACrossPlatformConfigRunsTheEffectiveRateAndTheManifestRecordsIt() async throws {
         try await requireTools()
         XCTAssertEqual(LungfishIO.SequencingPlatform.oxfordNanopore.recommendedErrorRate, 0.15, accuracy: 1e-9)
         let ran = try await run(errorRate: 0.05, sourcePlatform: .oxfordNanopore)
         XCTAssertEqual(ran.cutadaptRate, 0.15, accuracy: 1e-9, "cutadapt ran at the effective rate")
-        XCTAssertEqual(ran.maxMismatches, 0, "the manifest keeps the configured rate (DEMUX-MANIFEST-MISMATCH-RATE)")
+        XCTAssertEqual(ran.maxMismatches, 1, "the manifest records what cutadapt allowed at its effective rate (DEMUX-MANIFEST-MISMATCH-RATE)")
     }
 }

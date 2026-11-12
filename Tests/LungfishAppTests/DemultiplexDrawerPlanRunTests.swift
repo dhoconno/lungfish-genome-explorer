@@ -220,6 +220,23 @@ final class DemultiplexDrawerPlanRunTests: XCTestCase {
         XCTAssertEqual(written, [], "a refused plan wrote a definition")
     }
 
+    /// IDT-UD-SEQUENCES (FIX-IDT): the table of the IDT UD kit is not the kit's, so every definition the button wrote
+    /// from it held false pairs. A plan on the kit refuses in the run's own words and writes no definition.
+    func testDrawerPlanOnTheIDTUDKitRefusesInTheRunsWordsAndWritesNoDefinition() throws {
+        let input = try writeHeaderIndexedReads()
+        let kit = try XCTUnwrap(BarcodeKitRegistry.kit(byID: "idt-ud-indexes"))
+        let rows = kit.barcodes.prefix(2).map { assignment($0.id, $0.i7Sequence, name: nil) }
+        let plan = DemultiplexPlan(steps: [DemultiplexStep(label: "Plan", barcodeKitID: kit.id, sampleAssignments: rows)])
+        XCTAssertThrowsError(try launch(plan, input: input)) { error in
+            XCTAssertEqual(
+                error.localizedDescription, DemultiplexError.kitSequencesUnderCheck(kitName: kit.displayName).errorDescription,
+                "the button refuses in the words the CLI prints for the kit id"
+            )
+        }
+        let definitions = project.appendingPathComponent("Barcode Definitions")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: definitions.path), "a refused plan wrote a definition")
+    }
+
     /// SWIFT 6: the definition quotes a name with a comma or a quote and reads back every awkward name whole, and a
     /// name with a line break refuses in words.
     func testDrawerPlanDefinitionRoundTripsAwkwardNames() throws {
