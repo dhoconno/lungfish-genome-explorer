@@ -1,6 +1,6 @@
 # Machines
 
-This contract says what each Mac that works on Lungfish Genome Explorer (LGE) is for, where the golden comparison runs, and how a laptop takes part without holding the golden environment. The owner set it on 2026-10-08, when the Mac Studio became the golden runner and the only release Mac.
+This contract says what each Mac that works on Lungfish Genome Explorer (LGE) is for, where the golden comparison runs, and how a laptop takes part without holding the golden environment.
 
 ## Roles
 
@@ -10,7 +10,7 @@ This contract says what each Mac that works on Lungfish Genome Explorer (LGE) is
 | The laptop (M4 Pro, 14 cores) | Development Mac | Day-to-day development, Debug builds, targeted tests, the unit tier and the golden comparison |
 | Any other Mac | Development Mac | Debug builds, targeted tests, the unit tier and, when its owner provisions the golden environment, the golden comparison |
 
-The release Mac holds the signing identity, the notary profile and the Sparkle key, and `python3 scripts/release/release.py setup` passes on it. The laptop keeps the same credentials as a standby, but it runs no `release.py package` or `release.py publish`. Making it a release Mac again takes a reviewed change to this table. Both Macs hold the same Developer ID Application certificate and select it by SHA-1 in their release profiles. [docs/development/developer-id.md](../development/developer-id.md) says how to create, check, copy, renew and retire it, including the move to the G2 Sub-CA before the original Sub-CA expires on 2027-02-01. The golden runner holds the golden environment and runs the GitHub Actions runner service. Neither role depends on the account name, because nothing in the goldens records a home folder.
+The release Mac holds the signing identity, the notary profile and the Sparkle key, and `python3 scripts/release/release.py setup` passes on it. The laptop keeps the same credentials as a standby, but it runs no `release.py package` or `release.py publish`. Making it a release Mac again takes a reviewed change to this table. Both Macs hold the same Developer ID Application certificate and select it by SHA-1 in their release profiles. [docs/development/developer-id.md](../development/developer-id.md) says how to create, check, copy, renew and retire it. The golden runner holds the golden environment and runs the GitHub Actions runner service.
 
 ## Builds on each Mac
 
@@ -19,11 +19,9 @@ The release Mac holds the signing identity, the notary profile and the Sparkle k
 | Lungfish Debug | Any development Mac, with `python3 scripts/release/release.py debug` from its own checkout. It is ad-hoc signed and needs no release credentials. The Debug app writes Linux executor plans only when built from a committed tree on a Mac that holds the pinned Linux toolchain and Static Linux SDK of `scripts/linux/toolchain.json`, and any Mac without them, or any edited tree, builds it with `release.py debug --without-linux-executor`, which gives an app that writes no plan. | It does not. Each Mac builds its own, and Debug is never published. |
 | Lungfish Preview and Lungfish (Stable) | The Mac Studio only, with `release.py package` and then `release.py publish` | Sparkle updates the installed app from its channel's feed. The notarized DMG is also on the GitHub release. |
 
-A development Mac needs no release verification root (`~/.lungfish-verify`) and no packaged releases under `build/Release`, because it never packages.
-
 ## Storage on the Mac Studio
 
-The Mac Studio has two disks. The internal disk (1.8 TiB APFS, FileVault) holds the system, the accounts, the checkouts and everything a release or a gate reads. Hourly local Time Machine snapshots keep every deleted block on it until they are thinned. The scratch disk `/Volumes/lge_scratch` is a Samsung T7 USB SSD (2 TB APFS on a 10 Gb/s link, not encrypted, owners enabled), left out of Time Machine and Spotlight, with no local snapshots. The owner set it up on 2026-10-27 and keeps it connected. LGE's files on it live under `/Volumes/lge_scratch/lge`, which belongs to `dho`.
+The Mac Studio has two disks. The internal disk (1.8 TiB APFS, FileVault) holds the system, the accounts, the checkouts and everything a release or a gate reads. Hourly local Time Machine snapshots keep every deleted block on it until they are thinned. The scratch disk `/Volumes/lge_scratch` is a Samsung T7 USB SSD (2 TB APFS, not encrypted), left out of Time Machine and Spotlight, with no local snapshots. LGE's files on it live under `/Volumes/lge_scratch/lge`, which belongs to `dho`.
 
 | Data | Disk | Why |
 |---|---|---|
@@ -32,7 +30,7 @@ The Mac Studio has two disks. The internal disk (1.8 TiB APFS, FileVault) holds 
 | The golden environment `/Users/Shared/lungfish-golden` | Internal | The goldens record its fixed path, and the runner account shares it |
 | `~/.lungfish` and `~/.lungfish-stable` | Internal | The installed apps and Debug use them as storage roots |
 | The system temporary folder and `TMPDIR` | Internal | `ProjectTempDirectory` honours `TMPDIR` and `FileManager` does not, so moving it would put one run's files on two disks |
-| Lane, continuation and fix builds | Internal until the build trial of backlog row SCRATCH-BUILD-TRIAL passes | They are the 18 GB folders that filled the internal disk in Phase 3.0 |
+| Lane, continuation and fix builds | Internal | They are 18 GB folders |
 | Closed walk corpora and phase-end worktree bundles | Scratch, under `/Volumes/lge_scratch/lge/archive/` | Nothing reads them by path during a session |
 
 When the scratch disk is missing or full, nothing large moves to the internal disk without the owner's word. `docs/contracts/RUNNING-A-PHASE-SESSION.md` says what a session does instead.
@@ -41,7 +39,7 @@ When the scratch disk is missing or full, nothing large moves to the internal di
 
 The golden captures run `lungfish-cli` against a managed storage root at `/Users/Shared/lungfish-golden/storage`. The path is the same on every Mac, so the goldens record the same tool and database paths whoever runs them. The folder holds ten conda environments (minimap2, samtools, seqkit, kraken2, esviritu, bbtools, pysam, openpyxl, xz and zstd), one test-only Python environment (ivar-oracle, which runs the viralrecon script that IVarConverterViralReconParityTests compares the Swift iVar converter with) and two databases (the Kraken2 Viral database and the EsViritu Viral DB), about 5 GB in all.
 
-`Tests/Fixtures/golden-environment/lock.json` pins all of it. Each environment has an explicit conda file that lists every package by URL and MD5, so a rebuild installs the same bytes. Each database has its source archive and the size and SHA-256 of its files. The Kraken2 Viral database also has the payload digest that LGE's installer recorded for it (`payloadDigest`). The folder's own README explains each field.
+`Tests/Fixtures/golden-environment/lock.json` pins all of it. Each environment has an explicit conda file that lists every package by URL and MD5, so a rebuild installs the same bytes. Each database has its source archive and the size and SHA-256 of its files. The Kraken2 Viral database also has the payload digest that LGE's installer recorded for it (`payloadDigest`).
 
 | Command | What it does |
 |---|---|
@@ -55,7 +53,7 @@ Rules for the folder:
 2. The folder belongs to the `staff` group and is group writable, so the runner account and a person's account on the same Mac can both run the comparison. One golden run at a time holds `cache/.lock`.
 3. The goldens no longer read `~/.lungfish-stable`. Copying that folder between Macs is not part of golden work.
 4. The goldens mask the macOS version and build (rule H1 in `Tests/Fixtures/golden/README.md`), so any macOS 26 build on Apple silicon gives the same result.
-5. LGE installs the Kraken2 Viral database through its own database update flow, so the registry row holds the payload digest and the receipt digest that LGE wrote, and the classifiers golden records a checked database. On a folder whose row lacks them, run `LUNGFISH_STORAGE_ROOT=/Users/Shared/lungfish-golden/storage lungfish-cli conda db update kraken2-viral --yes` once and then `provision` again, which leaves the new files group writable and verifies them. The update downloads the 572 MB archive and gives the same digest as the install of 2026-10-20 that read the cached archive.
+5. LGE installs the Kraken2 Viral database through its own database update flow, so the registry row holds the payload digest and the receipt digest that LGE wrote, and the classifiers golden records a checked database. On a folder whose row lacks them, run `LUNGFISH_STORAGE_ROOT=/Users/Shared/lungfish-golden/storage lungfish-cli conda db update kraken2-viral --yes` once and then `provision` again, which leaves the new files group writable and verifies them.
 
 ## How a laptop works
 
@@ -66,9 +64,9 @@ A laptop follows `docs/contracts/VERIFICATION-ORDER.md` for targeted tests and t
 | Ask the runner | The usual case, and every time the laptop has no golden environment | Push the branch, then run `gh workflow run golden.yml --ref <branch>` and read the result with `gh run watch`. The runner compares that commit exactly as it compares `main`. |
 | Compare locally | The laptop owner wants the result without a push, or is changing goldens on purpose | Run `environment.py provision` once (about 5 GB of downloads) and the Kraken2 Viral install of rule 5, then `golden.py compare` as usual |
 
-Both give the same answer, because both run the locked environment at the same path. A golden recapture (`golden.py capture`) may run on any Mac whose `environment.py verify` passes, and the runner's comparison of the pushed commit confirms it. A recapture still goes in its own reviewed commit, as `Tests/Fixtures/golden/README.md` describes.
+A golden recapture (`golden.py capture`) may run on any Mac whose `environment.py verify` passes, and the runner's comparison of the pushed commit confirms it. A recapture still goes in its own reviewed commit, as `Tests/Fixtures/golden/README.md` describes.
 
-The push to `main` starts the `Golden` workflow on its own. A red run on `main` is diagnosed like a red unit tier. Read the diff in the job log, decide whether the change or the goldens are wrong, and fix it in a new commit.
+A red run on `main` is diagnosed like a red unit tier. Read the diff in the job log, decide whether the change or the goldens are wrong, and fix it in a new commit.
 
 ## Updating the lock
 
@@ -80,13 +78,13 @@ A golden environment changes only through a reviewed commit that updates the loc
 | A database version | Change the database's `version`, `source.url` and registry `downloadURL` in `lock.json`. `provision` installs the new archive and reports that its files differ. Then run `environment.py lock --from-storage /Users/Shared/lungfish-golden/storage --database <name>`, `provision` again, and compare and capture as above. For the Kraken2 Viral database, run the install of rule 5 after the first `provision` and put the digest it records in `payloadDigest`. |
 | Proving the lock matches a machine's existing environments | `python3 scripts/golden/environment.py lock --from-storage <storage root>` rewrites the explicit files from that root's installed packages, and `git diff` shows any difference |
 
-`scripts/tests/test_golden_environment.py` fails when a golden tool's pin in the manifest differs from its pin in the lock, or when the lock's databases differ from the fingerprints in `Tests/Fixtures/golden/classifiers/environment.json`. Neither can drift without a test going red.
+`scripts/tests/test_golden_environment.py` fails when a golden tool's pin in the manifest differs from its pin in the lock, or when the lock's databases differ from the fingerprints in `Tests/Fixtures/golden/classifiers/environment.json`.
 
 ## The runner
 
-The `Golden` workflow in `.github/workflows/golden.yml` runs on a runner with the labels `self-hosted`, `macOS`, `ARM64` and `lge-golden`. It runs on pushes to `main` and on demand, never on pull requests, because a self-hosted runner executes whatever it checks out. Its permissions are read-only and it reads no secrets. `ci.yml` stays dispatch-only, as its header explains, and no job runs on a hosted runner because of this contract.
+The `Golden` workflow in `.github/workflows/golden.yml` runs on a runner with the labels `self-hosted`, `macOS`, `ARM64` and `lge-golden`. It runs on pushes to `main` and on demand, never on pull requests, because a self-hosted runner executes whatever it checks out. Its permissions are read-only and it reads no secrets.
 
-The owner registers the runner once on the Mac Studio. It was set up this way on 2026-10-08.
+The owner registers the runner once on the Mac Studio.
 
 ### Account and runner
 
@@ -114,6 +112,16 @@ To run a command as `lge-runner` from another account, use `sudo -H -u lge-runne
 
 Every golden run and every provision leaves what it wrote group writable (`share_tree` in `scripts/golden/environment.py`), because the next run may belong to the other account and empties `run/` first.
 
+## Walk
+
+An `lge-walker` agent runs the packaged walk in background control.
+
+- Full-screen control needs the owner's go in chat. `request_full_control` asks for approval on galah's own screen, not on the owner's laptop, and an unanswered approval reads as denied (E-RUN-9). A row that needs the app in front or a pop-up menu, which the background app tools do not open, is an owner list row without that go.
+- Give each block of rows to a fresh walker, since screenshots grow a context 5K to 16K a minute. Walk the rows that the last lanes added as soon as the package exists, and make one real send under the standing go (E-RUN-9).
+- No Debug pass runs in a walk. State the storage root of any Debug pass, since a Debug app whose tool locks match the packaged app's shares `~/.lungfish`, and run no packaged app beside it.
+- Keep the screen on with `caffeinate -d -i -t 43200` (not `-u`, which let the idle limit lock it overnight). Press Cancel only on the only running row, or after reading its name in the same frame. Never search the home folder.
+- A Finder drag works as a press, stepped moves, a pause and a release. A save sheet refuses a typed path, so choose its folder from the folder pop-up's Recent Places. A copied walk project keeps classifier results whose stored paths point into the old project, so run a fresh result in the copy before any Extract. `lungfish-cli provenance verify` checks signed sidecars only.
+
 ## Where the rules live in code
 
 | Rule | Code |
@@ -126,6 +134,6 @@ Every golden run and every provision leaves what it wrote group writable (`share
 
 ## Where the repository lives
 
-The repository lives at `~/lge/lungfish-genome-explorer`. The owner moved it there from `~/Documents/GitHub/lungfish-genome-explorer` on 2026-11-11 (O167), since macOS privacy prompts for `~/Documents` cost over six hours in Phase 3. Nothing remains at the old path, and no symlink may be put there, since a symlink brings the prompts back. No build product, worktree or walk binary may sit under `~/Documents`, `~/Desktop` or `~/Downloads`. The move did not touch GitHub, since the remote is an HTTPS address inside `.git`. The golden environment, the phase records and the scratch disk did not move.
+The repository lives at `~/lge/lungfish-genome-explorer`. The owner moved it there from `~/Documents/GitHub/lungfish-genome-explorer` on 2026-11-11 (O167), since macOS privacy prompts for `~/Documents` cost over six hours in Phase 3. Nothing remains at the old path, and no symlink may be put there, since a symlink brings the prompts back. No build product, worktree or walk binary may sit under `~/Documents`, `~/Desktop` or `~/Downloads`. The golden environment, the phase records and the scratch disk did not move.
 
-The Phase 4 close session finished the move: `git worktree repair` with each worktree's new path, `git fetch origin`, the memory folder copied to the new path's key in `~/.claude/projects/`, the paths in `.claude/settings.json` and `scripts/tests/test_deny_process_by_name.py`, and `bash scripts/install-git-hooks.sh`. SwiftPM keeps absolute artifact paths in each checkout's `.build/workspace-state.json`, so after the move the first build stopped with "There is no XCFramework found" at Sparkle's old path. Rewriting that one path to the new one in each checkout fixed it, and a moved checkout needs the same fix, or a fresh `.build`, before its first build. Run `python3 scripts/release/release.py setup` right before each publish, since its proof is bound to the checkout path.
+SwiftPM keeps absolute artifact paths in each checkout's `.build/workspace-state.json`, so a moved checkout needs that one path rewritten, or a fresh `.build`, before its first build, which otherwise stops with "There is no XCFramework found" at Sparkle's old path. After a move run `git worktree repair` with each worktree's new path and `bash scripts/install-git-hooks.sh`, and run `python3 scripts/release/release.py setup` right before each publish, since its proof is bound to the checkout path.
