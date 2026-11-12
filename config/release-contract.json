@@ -86,6 +86,7 @@
       "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateRefusedZipShowsWords",
       "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateExtractFromARenamedResultUsesTheLoadedFolder",
       "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateViewSwitchPerKind",
+      "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateScaleCorpusOpensWithoutAHang",
       "LungfishXCUITests/ExactBareWordsXCUITests/testExactBarePickShowsTheCaptionAndItsRunSaysNotCheckedForChanceMatches"
     ],
     "appSmokeAccount": null,

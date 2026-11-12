@@ -684,3 +684,300 @@ enum ReleaseSmokeFixtures {
         }
     }
 }
+
+import ApplicationServices
+import Darwin
+
+/// The real-size corpus that `scripts/golden/scale_corpus.py` builds in the golden cache (trust session lane SCALE-SMOKE).
+/// `corpus.json` lists the items in the order the gate test opens them, each with the sidebar words of its row and the
+/// accessibility identifier of the viewer that opening it must show.
+struct ScaleCorpus {
+    struct Item {
+        let id: String
+        let kind: String
+        let row: String
+        let viewer: String?
+        let records: Int?
+    }
+
+    let root: URL
+    let project: String
+    let items: [Item]
+
+    static let defaultPath = "/Users/Shared/lungfish-golden/cache/scale-corpus"
+
+    /// The corpus at `LUNGFISH_SCALE_CORPUS` or in the golden cache. One that cannot be read fails the test with the
+    /// command that builds it, since a smoke that skips covers nothing.
+    static func locate() throws -> ScaleCorpus {
+        let path = ProcessInfo.processInfo.environment["LUNGFISH_SCALE_CORPUS"] ?? defaultPath
+        let root = URL(fileURLWithPath: path, isDirectory: true)
+        guard let data = try? Data(contentsOf: root.appendingPathComponent("corpus.json")),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let project = json["project"] as? String, let rows = json["items"] as? [[String: Any]] else {
+            throw NSError(domain: "ScaleCorpus", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                "No scale corpus can be read at \(root.path). Build it with python3 scripts/golden/scale_corpus.py build, or name its folder in LUNGFISH_SCALE_CORPUS."])
+        }
+        let items = rows.compactMap { row -> Item? in
+            guard let id = row["id"] as? String, let kind = row["kind"] as? String, let words = row["row"] as? String else { return nil }
+            return Item(id: id, kind: kind, row: words, viewer: row["viewer"] as? String, records: row["records"] as? Int)
+        }
+        return ScaleCorpus(root: root, project: project, items: items)
+    }
+
+    /// A copy of the project in a new folder of the runner's temporary directory. APFS clones the files, so the
+    /// BAM of about 1 GB costs neither time nor space, and the cache stays as it was built.
+    func cloneProject(named name: String) throws -> URL {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-xcui-scale-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let clone = folder.appendingPathComponent("\(name).lungfish", isDirectory: true)
+        try FileManager.default.copyItem(at: root.appendingPathComponent(project, isDirectory: true), to: clone)
+        return clone
+    }
+
+    /// The sidebar row of `words`. Folders of the project (Imports, Reference Sequences) start closed, so the
+    /// collapsed disclosure triangles are opened one at a time until the row shows.
+    @MainActor
+    static func row(_ words: String, in app: XCUIApplication) -> XCUIElement {
+        let outline = app.outlines["sidebar-outline"].firstMatch
+        let match = NSPredicate(format: "label CONTAINS[c] %@ OR value CONTAINS[c] %@", words, words)
+        let item = outline.staticTexts.matching(match).firstMatch
+        var opened = 0
+        while !item.waitForExistence(timeout: 3), opened < 12 {
+            let closed = outline.disclosureTriangles.matching(NSPredicate(format: "value == 0")).firstMatch
+            guard closed.exists else { break }
+            closed.click()
+            opened += 1
+        }
+        return item
+    }
+}
+
+/// Asks a running app, from outside it, whether it answers and how much memory it holds (trust session lane
+/// SCALE-SMOKE). The ask is the app's focused window with a 5 s messaging timeout (`AXUIElementSetMessagingTimeout`),
+/// which a main thread that is busy for 5 s cannot answer, and the memory is `ri_phys_footprint` of `proc_pid_rusage`,
+/// which counts compressed pages that `ps` leaves out. Neither needs the app's help, so both run on old builds. A timer
+/// asks every 0.25 s, so a hang is met while the test's own call is still waiting on the app.
+final class AppWatch: @unchecked Sendable {
+    static let answerLimit: TimeInterval = 5
+    static let footprintLimit: UInt64 = 8 << 30
+
+    let pid: pid_t
+    private let element: AXUIElement
+    private let endsOnSilence: Bool
+    private let lock = NSLock()
+    private var timer: DispatchSourceTimer?
+    private var failureWords: String?
+    private var peakFootprint: UInt64 = 0
+    private var slowestAnswer: TimeInterval = 0
+
+    /// `endsOnSilence` false only records a silent app, for the measuring test, which still ends the app past the memory bound.
+    init(pid: pid_t, endsOnSilence: Bool = true) {
+        self.pid = pid
+        self.endsOnSilence = endsOnSilence
+        element = AXUIElementCreateApplication(pid)
+        _ = AXUIElementSetMessagingTimeout(element, Float(Self.answerLimit))
+    }
+
+    static func footprint(of pid: pid_t) -> UInt64? {
+        var info = rusage_info_v4()
+        let status = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V4, $0) }
+        }
+        return status == 0 ? info.ri_phys_footprint : nil
+    }
+
+    /// Any answer, even "no focused window", means the main thread ran. `.cannotComplete` after the limit means it did not.
+    func ask() -> (seconds: TimeInterval, silent: Bool, trusted: Bool) {
+        var value: CFTypeRef?
+        let start = Date()
+        let error = AXUIElementCopyAttributeValue(element, kAXFocusedWindowAttribute as CFString, &value)
+        let seconds = Date().timeIntervalSince(start)
+        return (seconds, error == .cannotComplete && seconds >= Self.answerLimit - 0.5 && kill(pid, 0) == 0, error != .apiDisabled)
+    }
+
+    /// The process id of the copy of the candidate that the robot launched, found as `ReleaseAppSmokeRobot.launch` finds it,
+    /// since XCUIApplication has no process id on macOS.
+    @MainActor
+    static func processIdentifier(of robot: ReleaseAppSmokeRobot) throws -> pid_t {
+        let identifier = try XCTUnwrap(Bundle(url: robot.candidateURL)?.bundleIdentifier, "The candidate has a bundle identifier")
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+            .filter { $0.bundleURL?.standardizedFileURL == robot.candidateURL }
+        return try XCTUnwrap(running.first, "The candidate runs as one process").processIdentifier
+    }
+
+    func start() {
+        let source = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "scale-watch"))
+        source.schedule(deadline: .now(), repeating: .milliseconds(250))
+        source.setEventHandler { [weak self] in self?.tick() }
+        lock.lock(); timer = source; lock.unlock()
+        source.resume()
+    }
+
+    func stop() {
+        lock.lock(); timer?.cancel(); timer = nil; lock.unlock()
+    }
+
+    private func tick() {
+        if let footprint = Self.footprint(of: pid) {
+            lock.lock(); peakFootprint = max(peakFootprint, footprint); lock.unlock()
+            if footprint > Self.footprintLimit { return endApp("The app's memory footprint passed 8 GB (\(footprint >> 20) MB)") }
+        }
+        let answer = ask()
+        lock.lock(); slowestAnswer = max(slowestAnswer, answer.seconds); lock.unlock()
+        if !answer.trusted { return endApp("The runner has no Accessibility permission, so it cannot ask the app whether it answers", kills: false) }
+        if answer.silent && endsOnSilence { endApp("The app did not answer for \(Int(answer.seconds)) s") }
+    }
+
+    /// Records the first failure and ends the app by its process id.
+    func endApp(_ words: String, kills: Bool = true) {
+        lock.lock()
+        let first = failureWords == nil
+        if first { failureWords = words }
+        timer?.cancel()
+        lock.unlock()
+        guard first, kills else { return }
+        if kill(pid, SIGKILL) != 0 { NSRunningApplication(processIdentifier: pid)?.forceTerminate() }
+    }
+
+    var failure: String? {
+        lock.lock(); defer { lock.unlock() }
+        return failureWords
+    }
+
+    /// The peak footprint in MB and the slowest answer in seconds since the last lap.
+    func lap() -> (megabytes: UInt64, slowest: TimeInterval) {
+        lock.lock(); defer { lock.unlock() }
+        let result = (peakFootprint >> 20, slowestAnswer)
+        peakFootprint = 0
+        slowestAnswer = 0
+        return result
+    }
+
+    /// True while the watch has found nothing. Otherwise fails the test with the watch's words.
+    @MainActor
+    func healthy(after step: String) -> Bool {
+        guard let words = failure else { return true }
+        XCTFail("\(words) after \(step). The watch ended the app by its process id \(pid).")
+        return false
+    }
+}
+
+extension ReleaseCandidateSmokeXCUITests {
+    /// Trust session lane SCALE-SMOKE. Opens each item of the real-size corpus (`ScaleCorpus`) on the candidate in turn and
+    /// fails, ending the app by its process id, when the app does not answer for 5 s or its footprint passes 8 GB
+    /// (`AppWatch`). The corpus is cloned into the runner's temporary folder as a project with no store, which opens Read
+    /// Only as the other smoke projects do. W-34 froze a candidate on the 20,000-record FASTA, and the bounds are the ones
+    /// a bench scientist would not wait for.
+    @MainActor
+    func testReleaseCandidateScaleCorpusOpensWithoutAHang() throws {
+        let robot = try ReleaseAppSmokeRobot()
+        let corpus = try ScaleCorpus.locate()
+        let project = try corpus.cloneProject(named: "ReleaseScale-\(UUID().uuidString)")
+        var lines: [String] = []
+        defer {
+            robot.app.terminate()
+            try? FileManager.default.removeItem(at: project.deletingLastPathComponent())
+            attachScaleLines(lines, named: "scale-steps")
+        }
+        try robot.launch()
+        let watch = AppWatch(pid: try AppWatch.processIdentifier(of: robot))
+        watch.start()
+        defer { watch.stop() }
+        robot.openProject(project)
+        guard watch.healthy(after: "opening the project") else { return }
+        for item in corpus.items {
+            let began = Date()
+            ScaleCorpus.row(item.row, in: robot.app).click()
+            let shown = item.viewer.map { robot.app.descendants(matching: .any)[$0].firstMatch.waitForExistence(timeout: 120) } ?? true
+            let answer = watch.ask()
+            if answer.silent { watch.endApp("The app did not answer for \(Int(answer.seconds)) s") }
+            guard watch.healthy(after: "opening \(item.id) (\(item.kind))") else { return }
+            let lap = watch.lap()
+            let line = String(format: "SCALE-STEP %@ kind=%@ seconds=%.1f peakFootprintMB=%llu slowestAnswerSeconds=%.2f",
+                              item.id, item.kind, Date().timeIntervalSince(began), lap.megabytes, lap.slowest)
+            print(line)
+            lines.append(line)
+            guard shown else {
+                robot.failShowingScreen("The \(item.kind) item \(item.id) shows no \(item.viewer ?? "viewer") within 120 s")
+                return
+            }
+        }
+        XCTAssertNil(watch.failure)
+    }
+
+    /// Prints the measure lines and keeps them with the run.
+    @MainActor
+    fileprivate func attachScaleLines(_ lines: [String], named name: String) {
+        let attachment = XCTAttachment(string: lines.joined(separator: "\n"))
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}
+
+extension ReleaseCandidateSmokeXCUITests {
+    /// Not in the gate. Times the two large FASTA lists and the bundle of 3,000 contigs on the candidate (rows
+    /// FASTA-LIST-RELEASE-UNMEASURED, FASTA-RESTORE-BUILDS-RECORDS-PER-CLICK and BUNDLE-MANY-CONTIGS-UNPROBED). A step is
+    /// timed to the return of its call and to the app's next answer, which is when its main thread is free again, and the
+    /// peak footprint of the step is read. The watch only records silence here, so a hold over 5 s shows as a number, and
+    /// it still ends the app past 8 GB.
+    @MainActor
+    func testScaleCorpusMeasuresLargeFASTALists() throws {
+        let robot = try ReleaseAppSmokeRobot()
+        let corpus = try ScaleCorpus.locate()
+        let project = try corpus.cloneProject(named: "ReleaseScaleMeasure-\(UUID().uuidString)")
+        var lines: [String] = []
+        defer {
+            robot.app.terminate()
+            try? FileManager.default.removeItem(at: project.deletingLastPathComponent())
+            attachScaleLines(lines, named: "scale-measures")
+        }
+        try robot.launch()
+        let watch = AppWatch(pid: try AppWatch.processIdentifier(of: robot), endsOnSilence: false)
+        watch.start()
+        defer { watch.stop() }
+        robot.openProject(project)
+        func step(_ label: String, _ action: () -> Void) {
+            let began = Date()
+            action()
+            let returned = Date().timeIntervalSince(began)
+            while watch.failure == nil, Date().timeIntervalSince(began) < 180, watch.ask().silent {}
+            let lap = watch.lap()
+            let line = String(format: "SCALE-MEASURE %@ returned=%.2fs answered=%.2fs peakFootprintMB=%llu",
+                              label, returned, Date().timeIntervalSince(began), lap.megabytes)
+            print(line)
+            lines.append(line)
+        }
+        func open(_ item: ScaleCorpus.Item) {
+            ScaleCorpus.row(item.row, in: robot.app).click()
+            _ = item.viewer.map { robot.app.descendants(matching: .any)[$0].firstMatch.waitForExistence(timeout: 180) }
+        }
+        for id in ["fasta-small", "fasta-large"] {
+            guard let item = corpus.items.first(where: { $0.id == id }) else { return XCTFail("The corpus has no \(id)") }
+            step("\(id) open") { open(item) }
+            let table = robot.app.tables.firstMatch
+            guard table.waitForExistence(timeout: 60) else { return robot.failShowingScreen("The \(id) list shows no table") }
+            step("\(id) click the first record") { table.tableRows.firstMatch.click() }
+            step("\(id) select all") { robot.app.typeKey("a", modifierFlags: .command) }
+            step("\(id) click among the picked records") { table.tableRows.element(boundBy: 2).click() }
+            if id == "fasta-small", let records = item.records {
+                // The generator names record n "contig_" and its number to six digits, and puts the 1.5 Mbp one at records / 2.
+                let name = String(format: "contig_%06d", records / 2 + 1)
+                let cell = NSPredicate(format: "label BEGINSWITH %@ OR value BEGINSWITH %@", name, name)
+                step("\(id) click the 1.5 Mbp record") { table.staticTexts.matching(cell).firstMatch.click() }
+            }
+            guard watch.healthy(after: id) else { return }
+        }
+        if let contigs = corpus.items.first(where: { $0.id == "contigs" }) {
+            step("contigs open") { open(contigs) }
+            let navigator = robot.app.tables.firstMatch
+            if navigator.waitForExistence(timeout: 30) {
+                step("contigs click a navigator row") { navigator.tableRows.element(boundBy: 2).click() }
+            } else {
+                lines.append("SCALE-MEASURE contigs navigator shows no table, so no row was clicked")
+            }
+        }
+        XCTAssertNil(watch.failure)
+    }
+}
