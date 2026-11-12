@@ -1,86 +1,54 @@
-# Analysis surface checklist
+# New operation and surface
 
-Copy this file into the plan for a new surface in Lungfish Genome Explorer (LGE) and tick each box in the commit that satisfies it. The reasons and file paths behind every box are in `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md` and `docs/contracts/ADDING-AN-OPERATION.md`. A box that does not apply gets a one-line reason instead of a tick.
+This is the one path for a new operation that has a `lungfish-cli` command and a result surface in Lungfish Genome Explorer (LGE). Work the steps in order and tick each box in the commit that satisfies it. A box that does not apply gets a one-line reason. Each box names a file and symbol to copy and the one contract section, by heading, that explains it. Read that section only when the box leaves a question. Search `docs/architecture/MODULES.md` for a type and never read it whole.
 
-## Before writing code
+## 1. Workflow service
 
-- [ ] The surface has a plan under `docs/plans/` that names the leaf target, the Workflow domain and every operation.
-- [ ] Every scientific parameter, default and threshold is named in the plan with its source, and none is invented for the UI.
-- [ ] Golden outputs or fixtures exist for any existing behaviour the surface will touch.
-- [ ] The prerequisites the surface depends on (index cache, annotation input, count matrix, resource admission, registries) have landed.
+- [ ] The service and its request type sit in a domain folder under `Sources/LungfishWorkflow/` and import no AppKit. Copy `TwelveSAmpliconMatchingWorkflow` in `Sources/LungfishWorkflowTwelveS/TwelveSAmpliconMatchingWorkflow.swift`. Section "Where a new domain goes" in `docs/contracts/ADDING-AN-OPERATION.md`.
+- [ ] A domain becomes its own target, declared in `Package.swift` like `LungfishWorkflowTwelveS`, only when no other Workflow folder names its types.
+- [ ] The result type on disk and its reader sit in `Sources/LungfishIO/`, so the CLI writes and reads the same result.
+- [ ] Each scientific parameter, default and threshold has a cited source, and none is invented for the UI.
+- [ ] A tool the service runs has a lock manifest entry and starts through `ToolProcess`. Section "Adding a managed tool" in `docs/contracts/RUNNING-A-TOOL.md`.
 
-## Module and result type
+## 2. CLI command and provenance policy
 
-- [ ] The leaf target, its library product and its test target are declared in `Package.swift`, and LungfishApp depends on the leaf.
-- [ ] The leaf imports only LungfishCore, LungfishIO, LungfishWorkflow and LungfishKit.
-- [ ] Scientific logic and the result reader live in Workflow or IO, so the CLI can produce and read the result.
-- [ ] Every new Swift file is at or under 800 lines.
+- [ ] One `AsyncParsableCommand` sits in `Sources/LungfishCLI/Commands/`. A new group joins `subcommands` in `Sources/LungfishCLI/LungfishCLI.swift`. A subcommand of an existing group is a new file and one entry in that group's `subcommands`, as `FastqTwelveSMatchSubcommand` is for `FastqCommand`. Section "The recipe of a new CLI route" in `docs/contracts/ADDING-AN-OPERATION.md`.
+- [ ] The command reports progress as `CLIEvent` lines through `CLIEventEmitter` and prints its output path, so a runner can follow it. Copy `Sources/LungfishCLI/Commands/TreeCommand.swift`.
+- [ ] The command has an entry in `cliCommandPolicies` or `cliCommandPathPolicies` of `ScientificProvenancePolicy`, and a new group joins `canonicalCLICommandNames`, all in `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift`. `ScientificCLIProvenanceCoverageTests` fails without it.
+- [ ] The app route and the command run the same Workflow service, so one result needs no second implementation. Section "The rule" in `docs/contracts/CLI-EQUIVALENCE.md`.
 
-## Each operation the surface launches
+## 3. GUI runner
 
-- [ ] One Workflow service, one CLI command, and either a GUI runner built on `CLISubprocessTransport` or a FASTQ dialog tool.
-- [ ] `OperationCenter.shared.begin` with an explicit `operationType`, a non-nil `cliCommand` built from the executed argv, and declared lock scope.
-- [ ] Progress mapped through `OperationCenterCLIBridge`, so the row gets both `update` and `log`.
-- [ ] Cancellation reaches the subprocess without waiting on the running task.
-- [ ] Virtual FASTQ inputs are materialized before any tool runs.
+- [ ] A `CLI<Name>Runner` in `Sources/LungfishApp/Services/` runs the command through `CLISubprocessTransport` and maps its events with `OperationCenterCLIBridge`, so a row gets both `update` and `log`. Copy `CLITreeRunner` in `Sources/LungfishApp/Services/CLITreeRunner.swift`.
+- [ ] The launch site calls `OperationCenter.shared.begin` with an explicit `operationType`, a `cliCommand` built from the argv that runs, and a declared lock scope. Add an `OperationType` case in `Sources/LungfishKit/OperationCenter.swift` if none fits. The launch site is a new `AppDelegate+<Area>.swift` in `Sources/LungfishApp/App/` or `InspectorViewController+<Area>.swift` in `Sources/LungfishApp/Views/Inspector/`. Copy `Sources/LungfishApp/Views/Viewer/ViewerViewController+TreeInference.swift`. Section "Registering an operation with begin()" in `docs/contracts/ADDING-AN-OPERATION.md`.
+- [ ] Cancel reaches the subprocess without waiting on the running task, and a cancelled or failed run discards its folder.
+- [ ] A virtual FASTQ input is materialized before any tool runs. A FASTQ-input tool is a `FASTQOperationToolID` case with no hand-written menu item. Section "What a new FASTQ-input tool adds" in `docs/contracts/ADDING-AN-OPERATION.md`.
 
-### Outputs and provenance
+## 4. Provenance record
 
-- [ ] `AnalysesFolder.createAnalysisDirectory` is called without `try?`, and a failed or cancelled run discards the folder.
-- [ ] The producer calls `AnalysesFolder.markAnalysisComplete` and the GUI calls `trackAnalysisOutput`.
-- [ ] Provenance is a `ProvenanceEnvelope` written by `ProvenanceWriter`, with argv, versions, input and output checksums, exit status and wall time.
-- [ ] Alignments are sorted, indexed BAM, and no SAM is left behind.
+- [ ] The command makes its folder with `AnalysesFolder.createAnalysisDirectory` in `Sources/LungfishIO/Bundles/AnalysesFolder.swift` without `try?` and ends with `AnalysesFolder.markAnalysisComplete`. The GUI calls `trackAnalysisOutput` on the operation.
+- [ ] The command writes one `ProvenanceEnvelope` with `CLIProvenanceSupport.recordSingleStepRun` in `Sources/LungfishCLI/Support/CLIProvenanceSupport.swift`, holding argv, tool versions, input and output checksums, exit status and wall time. Copy `Sources/LungfishCLI/Commands/TranslateCommand.swift`. Section "How to write a record today" in `docs/contracts/RECORDING-PROVENANCE.md`.
+- [ ] A run on a project bundle calls `AnalysisManifestStore.recordAnalysis` in `Sources/LungfishIO/Bundles/AnalysisManifest.swift`, so the bundle's Inspector lists it.
 
-### Registration and smaller touch points
+## 5. Leaf module, viewport and registration
 
-- [ ] A FASTQ-input tool is a `FASTQOperationToolID` case listed in `toolIDs(for:)`, with no hand-written menu item.
-- [ ] Every new CLI command and `NativeTool` case has an entry in `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift`.
-- [ ] A run on a project bundle records an entry with `AnalysisManifestStore.recordAnalysis` so the bundle's Inspector lists it.
-- [ ] An operation driven by XCUI tests has a deterministic backend gated on `AppUITestConfiguration`, like `Sources/LungfishApp/UITestSupport/AppUITestMappingBackend.swift`.
+- [ ] The leaf target `Lungfish<Name>UI`, its library product and its `Lungfish<Name>UITests` target sit in `Package.swift` beside `LungfishTwelveSUI`, and LungfishApp depends on the leaf. The leaf imports only LungfishCore, LungfishIO, LungfishWorkflow and LungfishKit.
+- [ ] The viewport is an `NSViewController` in the leaf, with its state in an injected `@MainActor @Observable` model, wrapped by a `ResultViewport` factory. Copy `Sources/LungfishTwelveSUI/TwelveSSurface.swift` and `Sources/LungfishTwelveSUI/TwelveSAmpliconResultViewController.swift`. Section "The leaf-module recipe" in `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md`.
+- [ ] One `registry.register` line sits in `makeSurfaceRegistry()` in `Sources/LungfishApp/Views/Viewer/ViewerViewController+Surfaces.swift`. The display method sits in a new `ViewerViewController+<Name>.swift`, starts with `clearSurfaceForNewContent()` and ends in `showSurface(_:input:as:)`. Copy `Sources/LungfishApp/Views/Viewer/ViewerViewController+TwelveS.swift`.
+- [ ] Inspector sections and row commands live in the leaf, and every row action has a keyboard and VoiceOver route. The Inspector document is an update method in `Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift`, like `updateTwelveSAmpliconResultDocument`.
+- [ ] Background results carry a generation counter, as the patterns in `docs/contracts/CONCURRENCY-PLAYBOOK.md` say. A new `Notification.Name` is avoided, and a needed one is classified in `ScopedEventFilter.classifications`.
 
-## Viewport, Inspector and sidebar
+## 6. Sidebar kind
 
-- [ ] The viewport controller lives in the leaf and keeps its state in an injected `@MainActor @Observable` surface model.
-- [ ] Inspector sections and row commands live in the leaf, and every row action has a keyboard and VoiceOver route.
-- [ ] Results arriving from background work go through the patterns in `docs/contracts/CONCURRENCY-PLAYBOOK.md`, with a generation counter on every fetch that can be superseded.
-- [ ] No new `MainActor.assumeIsolated` outside pattern 1, no new `@unchecked Sendable` without a lock, and no new `nonisolated(unsafe)`.
-- [ ] A new notification name is classified in `ScopedEventFilter.classifications`, a window event is posted with its window's scope, and a window observer calls `ScopedEventFilter.accept`.
+- [ ] One `SidebarKindDescriptor` is added with `SidebarKindRegistry.register` in `Sources/LungfishIO/Bundles/SidebarKindRegistry.swift`, with row type `.registeredBundle`, so the kind opens from the sidebar with no App edit beyond step 5. Copy the stub kind in `Tests/LungfishAppTests/SidebarKindRegistryRouteTests.swift`. Section "Touch points that exist today" in `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md`.
+- [ ] A result under `Analyses/` also has one `AnalysisToolDescriptor` in `AnalysisToolRegistry.all` in `Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift`, placed so no id plus a hyphen starts another, and the pins are updated by hand in the same commit, which are `AnalysisToolRegistryTests`, `AnalysisToolRunsToolsTests`, `AnalysesFolderDisplayNamePinTests`, `SidebarPresentationPinTests`, `InspectorAnalysesIconPinTests` and `SidebarScanSafetyNetProjects`. Section "Adding an analysis kind" in the same contract.
+- [ ] The recognition tables take a hand edit. They are a `probeToolType(in:)` signature in `Sources/LungfishIO/Bundles/AnalysesFolder.swift` and the arms of `buildAnalysisNode` in `Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift`.
+- [ ] No analysis id literal appears in a `switch`, `==` or `hasPrefix` outside `Sources/LungfishIO/Analysis/`. `scripts/ratchets/tool-identity.sh` passes without a baseline change.
 
-## App touch points until Phase 3
+## 7. Tests and ratchets
 
-Tick each one or write "retired" once its program task has landed.
-
-- [ ] `SidebarItemType` case and the switches in `Sources/LungfishApp/Views/Sidebar/SidebarItem.swift`.
-- [ ] `displayContent(for:)` branch in `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ContentDisplay.swift`.
-- [ ] One `register` line in `makeSurfaceRegistry()` in `Sources/LungfishApp/Views/Viewer/ViewerViewController+Surfaces.swift`, and a display method that starts with `clearSurfaceForNewContent()` and ends in `showSurface(_:input:as:)`, as step 3 of `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md` says. No hide method, no viewport slot and no `isNativeBundleViewportInstalled` arm.
-- [ ] Retired in 3.1, the drawer arm. A surface with its own drawer answers `isDrawerOpen` and `toggleDrawer()`, which View > Show Drawer reads first.
-- [ ] Inspector update method in `Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift`.
-
-### Analysis kind
-
-- [ ] One `AnalysisToolDescriptor` in `AnalysisToolRegistry.all` in `Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift`, placed so no id plus a hyphen starts another, with its provisioning link to a lock entry or its reason for none. Its `runsTools` holds the lock ids of the managed tools the pipeline launches and names in its record, defaults to the provisioned tool, and lists samtools or Bracken when the pipeline also records them. `AnalysisRunsToolsAgreementTests` holds each id to the lock and the version probe table. `knownTools` and `displayName(for:)` derive from it.
-- [ ] The pins updated by hand in the same commit, which are `AnalysisToolRegistryTests`, `AnalysisToolRunsToolsTests`, `AnalysesFolderDisplayNamePinTests`, `SidebarPresentationPinTests`, `InspectorAnalysesIconPinTests` and the id list in `SidebarScanSafetyNetProjects.swift`. No snapshot is regenerated to make a test pass. `ToolRegistryAgreementTests` passes, with a new kind that has no lock link added to its exact set with a reason.
-- [ ] No new analysis id literal in a `switch`, `==` or `hasPrefix` outside `Sources/LungfishIO/Analysis/`. `scripts/ratchets/tool-identity.sh` passes without a baseline change.
-
-### Recognition tables until Phase 3b
-
-- [ ] A `probeToolType(in:)` signature in `Sources/LungfishIO/Bundles/AnalysesFolder.swift`.
-- [ ] Scanner arms for the item type and batch subtitle in `Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift`. The sidebar icon and badge come from the descriptor.
-- [ ] The Inspector filename-prefix arm in `Sources/LungfishApp/App/AppDelegate.swift`, if the result keeps its own Inspector tab.
-- [ ] Classifier routing in `Sources/LungfishApp/Views/MainWindow/ClassifierDatabaseRouter.swift`, if the result is a classifier.
-- [ ] For every new managed tool, the lock entry, the plugin pack entry, one probe table entry in `ManagedToolVersionProbe.swift`, and a `NativeTool` case with its `managedToolID` arm if it runs natively (`docs/contracts/RUNNING-A-TOOL.md`).
-
-## Tests and registry
-
-- [ ] An argv round-trip test proves the GUI's argv parses through the real CLI subcommand.
-- [ ] A CLI test and a Workflow test check scientific output by value on a fixture.
-- [ ] A CLI and GUI parity test shows identical output trees and provenance with timestamps masked.
-- [ ] A routing test shows the surface opens for its result and binds the right inputs, and the new bundle kind joins the view-switch test in the same change (`docs/contracts/SCOPE-AND-DELIVERY.md`).
+- [ ] An argv round-trip test parses the GUI's recorded command through the real subcommand. Copy `Tests/LungfishAppTests/CLIRunnerArgvRoundTripTests.swift`. Section "Tests that enforce it" in `docs/contracts/CLI-EQUIVALENCE.md`.
+- [ ] A Workflow test and a CLI test check the scientific output by value on a small fixture. A parity replay test shows that the GUI route and the CLI make the same output tree and provenance with timestamps masked. Copy `Tests/LungfishAppTests/TwelveSResultExportCLIGUIParityReplayTests.swift`.
+- [ ] A routing test shows the surface opens for its result, as `Tests/LungfishAppViewTests/SurfaceRegistrationStubTests.swift` does, and the new kind joins `Tests/LungfishAppTests/SafetyNets/ViewSwitchKinds.swift`.
 - [ ] `docs/user-manual/features.yaml` names every source file, the CLI command and the entry points.
-
-### Before merge
-
-- [ ] `swift test --filter` on the new test targets passes.
-- [ ] The unit tier of `scripts/full-suite-gate.sh` passes in the primary checkout.
-- [ ] The ratchets under `scripts/ratchets/` pass without a baseline change, or the commit explains the change.
-- [ ] The app was launched and the surface exercised through the GUI, not only through code review.
+- [ ] Each new Swift file is at most 800 lines (`scripts/ratchets/file-size.sh`). The ratchets under `scripts/ratchets/` pass without a baseline change, and the surface was used through the GUI, not only through code review.
