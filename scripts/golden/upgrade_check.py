@@ -14,8 +14,8 @@ compares byte for byte. It prints one line per difference and exits 1 on any.
 Exit 2 means the corpus is missing or damaged. --capture writes expected/ for a
 release with its own CLI and is only for building the corpus.
 
-Three rules of its own keep what a build says about itself out of the diff,
-because the checking build is not the build that made the project:
+Four rules of its own keep what a build and a Mac say about themselves out of
+the diff, because the checking build is not the build that made the project:
 - the app version of the build that made the project (from expected/_run.json)
   is masked as well as the checking build's, and the build label after a version
   ("(12972)" in a release, "(dev)" in a debug build) becomes <BUILD>;
@@ -24,7 +24,15 @@ because the checking build is not the build that made the project:
 - the SHA-256 and size of a file record whose path is in the step's own output
   folder are masked, because that file holds the time, a random ID, the scratch
   folder and the exporting build. Its text is compared in full. The digest and
-  size of a project file the step only reads stay compared.
+  size of a project file the step only reads stay compared;
+- the managed tool root of the exporting build is masked as <TOOL-ROOT>, and any
+  other use of the home folder as <HOME>. An export expands the <tool-root> that
+  a project stores to the root of the channel that exports (~/.lungfish for a
+  Preview, ~/.lungfish-stable for a Stable build, ~/.lungfish-debug for a Debug
+  build) under the account that runs it, so the root names the install, not the
+  result. Only <home>/.lungfish[-channel]/conda is masked: another tool under it,
+  a root outside the home folder and every other path stay compared. expected/
+  holds no home path, so the check passes on another Mac.
 """
 
 from __future__ import annotations
@@ -146,9 +154,35 @@ def mask_written_files(text: str) -> str:
     return normalize.apply_edits(text, edits)
 
 
+TOOL_ROOT_TOKEN = "<TOOL-ROOT>"
+HOME_TOKEN = "<HOME>"
+TOOL_ROOT_FOLDER = r"/\.lungfish(?:-[A-Za-z0-9]+)*/conda(?![A-Za-z0-9_.-])"
+
+
+def home_folders() -> list[str]:
+    """The home folder of the account that runs the check, as given and with links resolved, longest first."""
+    home = Path.home()
+    folders = {str(home).rstrip("/"), os.path.realpath(home).rstrip("/")}
+    return sorted((folder for folder in folders if folder), key=len, reverse=True)
+
+
+def mask_install_facts(text: str) -> str:
+    """The managed tool root of the exporting build, then any other use of the home folder, become tokens.
+
+    An export expands the <tool-root> that a project stores to the root of the channel that exports, under the
+    home folder of the account that runs it. That says which install and which account ran the export, not what
+    the result is. Only <home>/.lungfish[-channel]/conda is the tool root: a tool under it, a root elsewhere and
+    every path outside the home folder stay compared.
+    """
+    for home in home_folders():
+        text = re.sub(re.escape(home) + TOOL_ROOT_FOLDER, TOOL_ROOT_TOKEN, text)
+        text = re.sub(re.escape(home) + r"(?![A-Za-z0-9_.-])", HOME_TOKEN, text)
+    return text
+
+
 def normalize_text(normalizer: normalize.Normalizer, other_versions: list[str], text: str) -> str:
-    """The golden rules, then the version of the build that made the project, the build labels and the written files' digests."""
-    text = normalizer.text(text)
+    """The golden rules, the install facts, the version of the build that made the project, the build labels and the written files' digests."""
+    text = mask_install_facts(normalizer.text(text))
     for version in other_versions:
         text = normalize.mask_app_version(text, version)
     return mask_written_files(BUILD_LABEL.sub(BUILD_LABEL_TOKEN, text))
