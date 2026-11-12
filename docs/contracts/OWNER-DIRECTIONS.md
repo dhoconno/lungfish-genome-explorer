@@ -5,11 +5,15 @@ Each row is a direction of the owner that still binds later sessions, in the own
 | Id | Date | The owner's words | Binds |
 |---|---|---|---|
 | O171 | 2026-11-11 | "Have expert teams make any necessary decisions so this can keep going for the next 10 hours or so in my absence." | Experts decide in the owner's absence, a split takes the manager's pick |
+| O173 | 2026-11-12 | "Let's promote the RNAseq phase to be next. When we are working in a new topic like this, we should be systematic, identifying well done manuscripts whose underlying data is available in SRA ... First we should do the analyses with bash and python scripts ..., then we should implement these analyses in the LGE CLI, and finally we should add the GUI interfaces ..." | RNA-seq is Phase 5 and Biomark X is Phase 6. A new topic first reproduces published analyses on public SRA data with scripts, then builds the CLI, then the GUI |
+| O174 | 2026-11-12 | "Trust session first" | The trust session, without its Biomark lanes, runs before RNA-seq app code |
+| O175 | 2026-11-12 | "... we should have expert teams (including ad hoc RNAseq experts) adjudicate any issues." | Ad hoc RNA-seq experts sit with the panel on RNA-seq questions and decide in the owner's absence as O171 sets |
+| O176 | 2026-11-12 | "Up to 1 TB" and "Yes, env on lge_scratch" | Up to 1 TB of open-access SRA, ENA and GEO data and one conda environment for the reproduction scripts, both on lge_scratch. No controlled-access data |
 | O105 | 2026-10-31 | "Alerting me is not useful since I'm usually not watching this screen. The agent needs to manage memory pressure ..." | The agent handles memory pressure itself and never alerts the owner |
 | O126 | 2026-11-03 | "Yes, apply and push" | Standing go of SCOPE-AND-DELIVERY, in force when prompt or chat gives it |
 | O159 | 2026-11-07 | "Go without me and also avoid the use of the term 'Stable' unless referencing a stable release, which we won't be building for several weeks." | No stable release without the owner's ask. Say Stable only for one |
 | O78 | 2026-10-26 | "This is fine but don't worry too much about the budget. Focus on quality and reasonableness." | Budgets are soft and quality comes first. The five-builder cap holds |
-| none, program plan | 2026-11-11 | "We use this instrument to do parentage assays using SNPs throughout the genome. We need to understand how genotypes are currently called with the BiomarkX software ..." | Process job, trust session, Phase 5 Biomark X, then Phase 6 RNA-seq |
+| none, program plan | 2026-11-11 | "We use this instrument to do parentage assays using SNPs throughout the genome. We need to understand how genotypes are currently called with the BiomarkX software ..." | Biomark X follows RNA-seq as Phase 6 (O173) |
 | none, review brief | 2026-11-11 | "After the revised plans land, I'll use Opus Max orchestrators with contracts specifying other types of lesser agents for implementation, as we do currently." | Managers run on opus at max, lesser agent types implement |
 | O103 | 2026-10-31 | "xhigh" | Opus fix agents run at effort xhigh |
 | none, memory note | 2026-10-15 | Words not on file. | Every delegation names its model and effort |
