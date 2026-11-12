@@ -173,12 +173,12 @@ most 45 minutes that reads `get_usage`, disk and each agent's transcript size, a
 The direct cost of a lane is its lane agents, its review, its fix agent and its share of the landing agent, and the
 all-in cost adds the panel, the manager and the monitor. `docs/contracts/LLM-EVIDENCE.md` holds the measurement behind
 each rule. A manager reads it only to question or change a rule, and the monitor adds to it at the end of a session.
-Rows of earlier phases, 2.7 to 3.3 so far, are in `/Users/dho/lungfish-phase-records/session-table.md`, and the docs
+Rows of earlier phases, 2.7 to 3.4 so far, are in `/Users/dho/lungfish-phase-records/session-table.md`, and the docs
 commit that adds a phase's first row moves the earlier phase's rows there.
 
 | Session | Date | Spend and wall time | Lanes landed | Direct cost per landed lane | All-in per landed lane |
 |---|---|---|---|---|---|
-| 3.4, one session, to the close (the second monitor after the last landing) | 2026-11-08 | $196 over 14h09m by the ledger estimate (opus $118, sonnet $79), $58 of it the manager with two compactions, $37 the panel's meeting of ten opus seats (round 1 at xhigh $14, round 2 at max $23), $16 six rulings, $21 nine reviews and a fact-check, $13 five tidy lanes, $9 three documentation lanes, the week 52% to 64% at about $16.4 a point. No budget figure was set | 11 (6 code, 3 documentation, 2 tidy) in 6 landings and the records landing | median $5.18, mean $6.54 | $17.86 |
+| 4, session 1 and the close (the close's second monitor, after the last landing and the stable publish) | 2026-11-08 to 11 | $335 by the ledger estimate, with session 1 $98 over a 49h01m span with a pause (its meeting of eleven agents $37, the manager $23), the move session $4 on the old account, and the close $233 over 18h29m (opus $152, sonnet $81). Of the close, $68 was the manager at xhigh by its transcript with three compactions, $34 the walk of four opus xhigh walkers, $19 four records agents, $14 the scope panel of two rounds of five opus xhigh seats and $12 eight code reviews and reads. The close's week went from 0% to 11% on a new account at about $21 a point | 24 (7 in session 1, and 8 code, 8 documentation and 1 measurement lane in the close) | close median $4.67, mean $4.80 | close $13.70, phase $13.96 |
 
 ## End-of-session duty
 
