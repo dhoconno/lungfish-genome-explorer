@@ -215,20 +215,8 @@ struct VarVAMPDesignCommand: AsyncParsableCommand {
             design: { argv, destination, progress in
                 try await execute(argv: argv, destination: destination, progress: progress)
             },
-            summary: { ["varVAMP primer analysis written to \($0.path)"] + Self.advisoryLines(analysisURL: $0) }
+            summary: { ["varVAMP primer analysis written to \($0.path)"] + PrimerDesignCommand.advisoryLines(analysisURL: $0) }
         )
-    }
-
-    /// The same coverage explanations the GUI shows on each saved target.
-    static func advisoryLines(analysisURL: URL) -> [String] {
-        let url = analysisURL.appendingPathComponent(PrimerSchemeResultsDocument.storedRelativePath)
-        guard let data = try? Data(contentsOf: url),
-              let document = try? JSONDecoder().decode(PrimerSchemeResultsDocument.self, from: data) else { return [] }
-        return document.results.flatMap(\.targets).flatMap { target in
-            document.varVAMPCoverageAdvisories(for: target).map { advisory in
-                "[\(advisory.severity.rawValue)] \(target.label): \(advisory.message)"
-            }
-        }
     }
 
     private func execute(

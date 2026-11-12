@@ -140,6 +140,7 @@ struct OlivarDesignCommand: AsyncParsableCommand {
     func run() async throws {
         let output = try await execute(argv: CommandLine.arguments)
         print("Olivar primer analysis written to \(output.path)")
+        PrimerDesignCommand.advisoryLines(analysisURL: output).forEach { print($0) }
     }
 
     private func execute(argv: [String]) async throws -> URL {

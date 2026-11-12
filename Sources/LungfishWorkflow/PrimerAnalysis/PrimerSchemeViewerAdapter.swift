@@ -115,7 +115,7 @@ public enum PrimerSchemeViewerAdapter {
               ? "Overlapping tiled assay spans count once."
               : "Reported alternatives are separate candidates; their displayed span union is not one compatible panel.",
             "Unpooled assays remain unpooled. Display grouping does not create scientific pool membership.",
-          ].compactMap { $0 }, advisories: document.varVAMPCoverageAdvisories(for: target),
+          ].compactMap { $0 }, advisories: document.schemeAdvisories(for: target),
           sourceResultID: resultID, referenceID: target.referenceID))
       }
       let engine = document.engine == .olivar ? "Olivar" : "varVAMP"
