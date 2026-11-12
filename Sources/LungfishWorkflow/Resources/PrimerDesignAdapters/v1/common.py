@@ -117,6 +117,38 @@ def accept_pair_length(length: int, *, minimum: int, maximum: int) -> bool:
     return minimum <= int(length) <= maximum
 
 
+def span_bound_warnings(
+    amplicons: list[tuple[str, int]], *, minimum: int, maximum: int, engine: str,
+) -> list[str]:
+    """Return one warning that names each amplicon outside the requested size range.
+
+    Both engines treat the range as a target for their own search and neither enforces it on
+    the amplicons it writes, so an amplicon a few bp outside it is a result to report and not a
+    reason to discard the scheme. An invalid range is unusable input and still refuses.
+    """
+    outside = [
+        (name, length) for name, length in amplicons
+        if not accept_pair_length(length, minimum=minimum, maximum=maximum)
+    ]
+    if not outside:
+        return []
+    noun = "amplicon" if len(amplicons) == 1 else "amplicons"
+    lengths = " ".join(f"{name} is {length} bp." for name, length in outside)
+    if len(outside) == 1:
+        head = f"1 of {len(amplicons)} {noun} is outside"
+        tail = (
+            f"{engine} wrote it, so the scheme keeps it. "
+            "Check its length against your protocol before you order primers."
+        )
+    else:
+        head = f"{len(outside)} of {len(amplicons)} {noun} are outside"
+        tail = (
+            f"{engine} wrote them, so the scheme keeps them. "
+            "Check their lengths against your protocol before you order primers."
+        )
+    return [f"{head} the requested size range of {minimum} to {maximum} bp. {lengths} {tail}"]
+
+
 def _is_int(value: Any) -> bool:
     return isinstance(value, numbers.Integral) and not isinstance(value, bool)
 

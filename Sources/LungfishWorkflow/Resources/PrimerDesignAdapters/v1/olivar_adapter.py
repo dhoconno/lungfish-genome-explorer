@@ -18,6 +18,7 @@ from common import (
     deterministic_id,
     native_event,
     sha256_file,
+    span_bound_warnings,
     validate_target_contract,
     whitespace_free_blast_prefix,
     write_json,
@@ -333,7 +334,13 @@ def normalize_olivar_outputs(
     binding_projection_path: str = "mappings/projection.json",
     reference_name: str | None = None,
     csv_reference_name: str | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[str]]:
+    """Return the normalized target and the warnings about its amplicon lengths.
+
+    The pair guard drops out-of-range pairs before SADDLE, so an amplicon outside the range is a
+    departure from that guard. The scheme still stays and the amplicon is named in a warning.
+    """
+    spans: list[tuple[str, int]] = []
     csv_path = native_dir / f"{title}.csv"
     bed_path = native_dir / f"{title}.primer.bed"
     reference_file = native_dir / Path(reference_path).name
@@ -358,11 +365,7 @@ def normalize_olivar_outputs(
     for rank, row in enumerate(rows, 1):
         start = int(row["start"]) - 1
         end = int(row["end"])
-        if not accept_pair_length(end - start, minimum=minimum, maximum=maximum):
-            raise AdapterError(
-                "native_contract_mismatch", "Olivar final assay violates requested span bounds",
-                {"ampliconID": row["amplicon_id"], "length": end - start, "minimum": minimum, "maximum": maximum},
-            )
+        spans.append((row["amplicon_id"], end - start))
         assay_id = deterministic_id(target_id, "assay", row["amplicon_id"])
         member_ids: list[str] = []
         expected = [
@@ -419,7 +422,7 @@ def normalize_olivar_outputs(
         "oligos": oligos,
     }
     validate_target_contract(target)
-    return target
+    return target, span_bound_warnings(spans, minimum=minimum, maximum=maximum, engine="Olivar")
 
 
 def _invoke_tiling(
@@ -526,6 +529,7 @@ def run_olivar(
             ref_input = references / item["id"] / f"{reference_titles[item['id']]}.olvr"
             jobs.append(([item], ref_input, stage / "native" / "design" / item["id"], f"result-{item['id']}"))
     targets = []
+    coverage_diagnostics: dict[str, dict[str, Any]] = {}
     for job_items, ref_input, design_dir, design_title in jobs:
         _invoke_tiling(
             modules, ref_input, design_dir, design_title, options, recorder,
@@ -553,7 +557,7 @@ def run_olivar(
                 "blocks": blocks,
             }
             write_json(stage / map_relative, projection)
-            targets.append(normalize_olivar_outputs(
+            target, span_warnings = normalize_olivar_outputs(
                 design_dir,
                 title=design_title,
                 source_input_id=input_id,
@@ -565,7 +569,11 @@ def run_olivar(
                 binding_projection_path=map_relative,
                 reference_name=reference_name,
                 csv_reference_name=native_id,
-            ))
+            )
+            targets.append(target)
+            if span_warnings:
+                # The shape the viewer already reads for varVAMP, so the card and the CLI show it.
+                coverage_diagnostics[input_id] = {"nativeWarnings": span_warnings}
     if request["grouping"] == "combined":
         results = [{"id": request["resultID"], "inputIDs": [item["id"] for item in request["inputs"]], "targets": targets}]
     else:
@@ -573,10 +581,13 @@ def run_olivar(
             {"id": deterministic_id(request["resultID"], "result", target["sourceInputID"]), "inputIDs": [target["sourceInputID"]], "targets": [target]}
             for target in targets
         ]
-    return results, runtime, {
+    resolution: dict[str, Any] = {
         "finalPairGuard": "inclusiveBeforeSADDLE",
         "attemptedSeeds": [options["seed"]],
         "nominalAmpliconLengthRole": "displayAndProvenanceOnly",
         "groupingExecution": "singleCombinedInvocation" if request["grouping"] == "combined" else "independentInvocationPerInput",
         "emptyVariantInputsUsingNativeNoVariantPath": empty_variant_inputs,
     }
+    if coverage_diagnostics:
+        resolution["coverageDiagnostics"] = coverage_diagnostics
+    return results, runtime, resolution

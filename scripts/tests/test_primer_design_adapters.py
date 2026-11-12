@@ -717,10 +717,11 @@ class NativeNormalizationTests(unittest.TestCase):
                 "scheme\t204\t208\tscheme_1_RIGHT_1\t1\t-\tTGCAY\n",
                 encoding="utf-8",
             )
-            target = normalize_olivar_outputs(
+            target, warnings = normalize_olivar_outputs(
                 root, title="scheme", source_input_id=INPUT_ID, target_id=str(uuid.uuid4()),
                 label="synthetic", reference_path="native/input/scheme_ref.fasta", minimum=180, maximum=220,
             )
+            self.assertEqual(warnings, [])
             self.assertEqual((target["assays"][0]["start"], target["assays"][0]["end"]), (10, 208))
             self.assertEqual(set(target["assays"][0]["memberIDs"]), {o["id"] for o in target["oligos"]})
             self.assertEqual([o["role"] for o in target["oligos"]], ["forward", "reverse"])
@@ -765,10 +766,11 @@ class NativeNormalizationTests(unittest.TestCase):
                     f"{scheme}\tRIGHT\t{start+70}\t{start+89}\tACGTACGTACGTACGTACGT\t20\t50\t60\t50\t60\t1\tNo",
                 ])
             (root / "qpcr_primers.tsv").write_text(header + "\n".join(rows) + "\n", encoding="utf-8")
-            target = normalize_varvamp_outputs(
+            target, warnings = normalize_varvamp_outputs(
                 root, mode="qpcr", source_input_id=INPUT_ID, target_id=str(uuid.uuid4()),
                 label="synthetic", reference_path="native/input/ambiguous_consensus.fasta", minimum=70, maximum=200,
             )
+            self.assertEqual(warnings, [])
             self.assertEqual([a["status"] for a in target["assays"]], ["selected", "alternative"])
             self.assertTrue(all(a["pool"] is None for a in target["assays"]))
             reverse_probe = next(o for o in target["oligos"] if o["role"] == "probe" and o["start"] == 40)

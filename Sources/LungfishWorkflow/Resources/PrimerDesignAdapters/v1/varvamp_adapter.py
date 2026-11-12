@@ -14,10 +14,10 @@ from typing import Any
 
 from common import (
     AdapterError,
-    accept_pair_length,
     deterministic_id,
     native_event,
     sha256_file,
+    span_bound_warnings,
     validate_target_contract,
     whitespace_free_blast_prefix,
     write_json,
@@ -315,13 +315,19 @@ def normalize_varvamp_outputs(
     minimum: int,
     maximum: int,
     binding_projection_path: str = "mappings/projection.json",
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[str]]:
+    """Return the normalized target and the warnings about its amplicon lengths.
+
+    varVAMP uses the size range as a search target and does not enforce it on the amplicons it
+    writes, so an amplicon outside the range stays in the scheme and is named in a warning.
+    """
     reference_file = native_dir / "ambiguous_consensus.fasta"
     reference_id, reference_sequence = _read_single_fasta(reference_file)
     oligo_bed = _read_bed(native_dir / "primers.bed")
     amplicon_bed = _read_bed(native_dir / "amplicons.bed")
     assays: list[dict[str, Any]] = []
     oligos: list[dict[str, Any]] = []
+    spans: list[tuple[str, int]] = []
     if mode == "qpcr":
         table_path = native_dir / "qpcr_primers.tsv"
         group_field = "qpcr_scheme"
@@ -363,11 +369,7 @@ def normalize_varvamp_outputs(
         if amp is None:
             raise AdapterError("native_contract_mismatch", f"missing varVAMP amplicon BED row for {assay_name}")
         start, end = amp["start"], amp["end"]
-        if not accept_pair_length(end - start, minimum=minimum, maximum=maximum):
-            raise AdapterError(
-                "native_contract_mismatch", "varVAMP final assay violates requested span bounds",
-                {"ampliconID": assay_name, "length": end - start, "minimum": minimum, "maximum": maximum},
-            )
+        spans.append((assay_name, end - start))
         assay_id = deterministic_id(target_id, "assay", assay_name)
         member_ids = []
         pool: str | None = None if mode in {"single", "qpcr"} else str(amp["score"])
@@ -428,7 +430,7 @@ def normalize_varvamp_outputs(
         "oligos": oligos,
     }
     validate_target_contract(target)
-    return target
+    return target, span_bound_warnings(spans, minimum=minimum, maximum=maximum, engine="varVAMP")
 
 
 def _read_alignment_length(path: Path) -> int:
@@ -687,7 +689,7 @@ def _run_varvamp(
             "blocks": blocks,
         })
         target_id = deterministic_id(request["resultID"], "target", input_id)
-        all_targets.append(normalize_varvamp_outputs(
+        target, span_warnings = normalize_varvamp_outputs(
             native_dir,
             mode=request["mode"],
             source_input_id=input_id,
@@ -697,7 +699,10 @@ def _run_varvamp(
             minimum=options["minimumAmpliconLength"],
             maximum=options["maximumAmpliconLength"],
             binding_projection_path=map_relative,
-        ))
+        )
+        all_targets.append(target)
+        # The viewer and the CLI already show nativeWarnings, so the span warning travels with them.
+        diagnostics_by_input[input_id]["nativeWarnings"].extend(span_warnings)
     results = [
         {"id": deterministic_id(request["resultID"], "result", target["sourceInputID"]), "inputIDs": [target["sourceInputID"]], "targets": [target]}
         for target in all_targets
