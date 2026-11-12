@@ -685,7 +685,6 @@ enum ReleaseSmokeFixtures {
     }
 }
 
-import ApplicationServices
 import Darwin
 
 /// The real-size corpus that `scripts/golden/scale_corpus.py` builds in the golden cache (trust session lane SCALE-SMOKE).
@@ -736,65 +735,113 @@ struct ScaleCorpus {
     }
 
     /// The sidebar row of `words`. Folders of the project (Imports, Reference Sequences) start closed, so the
-    /// collapsed disclosure triangles are opened one at a time until the row shows.
+    /// collapsed disclosure triangles are opened one at a time until the row shows. Each query and click is one ask of
+    /// `watch`, so a sidebar that does not answer fails the step.
     @MainActor
-    static func row(_ words: String, in app: XCUIApplication) -> XCUIElement {
+    static func row(_ words: String, in app: XCUIApplication, watch: AppWatch) -> XCUIElement {
         let outline = app.outlines["sidebar-outline"].firstMatch
         let match = NSPredicate(format: "label CONTAINS[c] %@ OR value CONTAINS[c] %@", words, words)
         let item = outline.staticTexts.matching(match).firstMatch
         var opened = 0
-        while !item.waitForExistence(timeout: 3), opened < 12 {
+        while watch.failure == nil, !watch.ask("the query of the \(words) row", { item.exists }), opened < 12 {
             let closed = outline.disclosureTriangles.matching(NSPredicate(format: "value == 0")).firstMatch
-            guard closed.exists else { break }
-            closed.click()
+            guard watch.ask("the query of a closed folder", { closed.exists }) else { break }
+            watch.ask("a click on a closed folder") { closed.click() }
             opened += 1
         }
         return item
     }
+
+    /// True once the viewer of `identifier` shows. Each ask is one `waitForExistence(timeout: 1)`, whose own wait of
+    /// about 1 s is the watch's allowance, and the loop ends at `timeout` or at the watch's first failure.
+    @MainActor
+    static func waitForViewer(_ identifier: String, in app: XCUIApplication, watch: AppWatch, timeout: TimeInterval) -> Bool {
+        let viewer = app.descendants(matching: .any)[identifier].firstMatch
+        let deadline = Date().addingTimeInterval(timeout)
+        while watch.failure == nil, Date() < deadline {
+            if watch.ask("the query of \(identifier)", { viewer.waitForExistence(timeout: 1) }) { return true }
+        }
+        return false
+    }
 }
 
-/// Asks a running app, from outside it, whether it answers and how much memory it holds (trust session lane
-/// SCALE-SMOKE). The ask is the app's focused window with a 5 s messaging timeout (`AXUIElementSetMessagingTimeout`),
-/// which a main thread that is busy for 5 s cannot answer, and the memory is `ri_phys_footprint` of `proc_pid_rusage`,
-/// which counts compressed pages that `ps` leaves out. Neither needs the app's help, so both run on old builds. A timer
-/// asks every 0.25 s, so a hang is met while the test's own call is still waiting on the app.
+/// Watches a running app from the sandboxed UI runner, which may make no Accessibility call of its own and may read no
+/// other process's `proc_pid_rusage` (trust session lane SCALE-SMOKE, O171). Whether the app answers is timed on the
+/// XCUI calls the test makes through `ask`: each needs the app's main thread, to answer a snapshot or to go idle after
+/// an event, so a call past `answerLimit` and `xcuiAllowance` (XCUI's own finding, waiting and event work, under 1 s on
+/// galah) means the app did not answer for 5 s. A timer reads the memory every 0.25 s as `phys_footprint` of
+/// `task_info(TASK_VM_INFO)` on the app's task name port, which counts the compressed pages `ps` leaves out, and the
+/// same timer ends the app by its process id while a call still waits past the limit, so a hang never waits on XCUI's
+/// own timeouts. Neither read needs the app's help, so both run on old builds.
 final class AppWatch: @unchecked Sendable {
     static let answerLimit: TimeInterval = 5
+    static let xcuiAllowance: TimeInterval = 1
     static let footprintLimit: UInt64 = 8 << 30
+    /// How long one call of the measuring test may wait before the watch ends the app.
+    static let measureCeiling: TimeInterval = 240
+    /// A test-only stand-in for a main thread held past the bound (O171). When the runner's environment names an item
+    /// here, the gate test stops the app with SIGSTOP right after the click on that item's row, so no XCUI call is
+    /// answered from then on. Only the runner does it, and no gate run sets the variable, so the packaged app never does.
+    static let standInItem = ProcessInfo.processInfo.environment["LUNGFISH_SCALE_STAND_IN_HANG"]
 
     let pid: pid_t
-    private let element: AXUIElement
     private let endsOnSilence: Bool
     private let lock = NSLock()
     private var timer: DispatchSourceTimer?
     private var failureWords: String?
     private var peakFootprint: UInt64 = 0
     private var slowestAnswer: TimeInterval = 0
+    private var slowestCall = "none"
+    private var pending: (label: String, since: Date)?
 
-    /// `endsOnSilence` false only records a silent app, for the measuring test, which still ends the app past the memory bound.
+    /// `endsOnSilence` false, for the measuring test, records a slow answer and ends the app only past `measureCeiling`
+    /// or the memory bound.
     init(pid: pid_t, endsOnSilence: Bool = true) {
         self.pid = pid
         self.endsOnSilence = endsOnSilence
-        element = AXUIElementCreateApplication(pid)
-        _ = AXUIElementSetMessagingTimeout(element, Float(Self.answerLimit))
     }
 
+    private var silenceLimit: TimeInterval { endsOnSilence ? Self.answerLimit + Self.xcuiAllowance : Self.measureCeiling }
+
+    /// The physical footprint of `pid`, or nil when it cannot be read.
     static func footprint(of pid: pid_t) -> UInt64? {
-        var info = rusage_info_v4()
+        var name = mach_port_name_t(MACH_PORT_NULL)
+        guard task_name_for_pid(mach_task_self_, pid, &name) == KERN_SUCCESS else { return nil }
+        defer { mach_port_deallocate(mach_task_self_, name) }
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
         let status = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V4, $0) }
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(name, task_flavor_t(TASK_VM_INFO), $0, &count) }
         }
-        return status == 0 ? info.ri_phys_footprint : nil
+        return status == KERN_SUCCESS ? info.phys_footprint : nil
     }
 
-    /// Any answer, even "no focused window", means the main thread ran. `.cannotComplete` after the limit means it did not.
-    func ask() -> (seconds: TimeInterval, silent: Bool, trusted: Bool) {
-        var value: CFTypeRef?
-        let start = Date()
-        let error = AXUIElementCopyAttributeValue(element, kAXFocusedWindowAttribute as CFString, &value)
-        let seconds = Date().timeIntervalSince(start)
-        return (seconds, error == .cannotComplete && seconds >= Self.answerLimit - 0.5 && kill(pid, 0) == 0, error != .apiDisabled)
+    /// Runs one XCUI call the app must answer and times it. A call inside another ask is timed as part of the outer one.
+    @MainActor @discardableResult
+    func ask<T>(_ label: String, _ call: () -> T) -> T {
+        let began = Date()
+        lock.lock()
+        let outer = pending == nil
+        if outer { pending = (label, began) }
+        lock.unlock()
+        let result = call()
+        guard outer else { return result }
+        let seconds = Date().timeIntervalSince(began)
+        lock.lock()
+        pending = nil
+        if seconds > slowestAnswer { slowestAnswer = seconds; slowestCall = label }
+        lock.unlock()
+        if seconds > silenceLimit { endApp(silenceWords(label, seconds)) }
+        return result
     }
+
+    private func silenceWords(_ label: String, _ seconds: TimeInterval) -> String {
+        String(format: "The app did not answer %@ for %.1f s, past the bound of %.0f s and XCUI's own %.0f s",
+               label, seconds, silenceLimit - (endsOnSilence ? Self.xcuiAllowance : 0), endsOnSilence ? Self.xcuiAllowance : 0)
+    }
+
+    /// The stand-in of `standInItem`. True when the app stopped.
+    func standIn() -> Bool { kill(pid, SIGSTOP) == 0 }
 
     /// The process id of the copy of the candidate that the robot launched, found as `ReleaseAppSmokeRobot.launch` finds it,
     /// since XCUIApplication has no process id on macOS.
@@ -818,15 +865,20 @@ final class AppWatch: @unchecked Sendable {
         lock.lock(); timer?.cancel(); timer = nil; lock.unlock()
     }
 
+    /// A footprint that cannot be read fails the test, since a bound the runner cannot read would pass every app.
     private func tick() {
-        if let footprint = Self.footprint(of: pid) {
-            lock.lock(); peakFootprint = max(peakFootprint, footprint); lock.unlock()
-            if footprint > Self.footprintLimit { return endApp("The app's memory footprint passed 8 GB (\(footprint >> 20) MB)") }
+        guard kill(pid, 0) == 0 else { return endApp("The app's process \(pid) ended", kills: false) }
+        guard let footprint = Self.footprint(of: pid) else {
+            return endApp("The runner cannot read the app's memory footprint, so the 8 GB bound cannot hold", kills: false)
         }
-        let answer = ask()
-        lock.lock(); slowestAnswer = max(slowestAnswer, answer.seconds); lock.unlock()
-        if !answer.trusted { return endApp("The runner has no Accessibility permission, so it cannot ask the app whether it answers", kills: false) }
-        if answer.silent && endsOnSilence { endApp("The app did not answer for \(Int(answer.seconds)) s") }
+        lock.lock()
+        peakFootprint = max(peakFootprint, footprint)
+        let waiting = pending
+        lock.unlock()
+        if footprint > Self.footprintLimit { return endApp("The app's memory footprint passed 8 GB (\(footprint >> 20) MB)") }
+        if let waiting, Date().timeIntervalSince(waiting.since) > silenceLimit {
+            endApp(silenceWords(waiting.label, Date().timeIntervalSince(waiting.since)))
+        }
     }
 
     /// Records the first failure and ends the app by its process id.
@@ -845,12 +897,13 @@ final class AppWatch: @unchecked Sendable {
         return failureWords
     }
 
-    /// The peak footprint in MB and the slowest answer in seconds since the last lap.
-    func lap() -> (megabytes: UInt64, slowest: TimeInterval) {
+    /// The peak footprint in MB, the slowest answer in seconds and the call it timed, since the last lap.
+    func lap() -> (megabytes: UInt64, slowest: TimeInterval, call: String) {
         lock.lock(); defer { lock.unlock() }
-        let result = (peakFootprint >> 20, slowestAnswer)
+        let result = (peakFootprint >> 20, slowestAnswer, slowestCall)
         peakFootprint = 0
         slowestAnswer = 0
+        slowestCall = "none"
         return result
     }
 
@@ -865,10 +918,10 @@ final class AppWatch: @unchecked Sendable {
 
 extension ReleaseCandidateSmokeXCUITests {
     /// Trust session lane SCALE-SMOKE. Opens each item of the real-size corpus (`ScaleCorpus`) on the candidate in turn and
-    /// fails, ending the app by its process id, when the app does not answer for 5 s or its footprint passes 8 GB
-    /// (`AppWatch`). The corpus is cloned into the runner's temporary folder as a project with no store, which opens Read
-    /// Only as the other smoke projects do. W-34 froze a candidate on the 20,000-record FASTA, and the bounds are the ones
-    /// a bench scientist would not wait for.
+    /// fails, ending the app by its process id, when one XCUI call waits on the app past 5 s and XCUI's own 1 s, or its
+    /// footprint passes 8 GB (`AppWatch`). The corpus is cloned into the runner's temporary folder as a project with no
+    /// store, which opens Read Only as the other smoke projects do. W-34 froze a candidate on the 20,000-record FASTA, and
+    /// the bounds are the ones a bench scientist would not wait for. `LUNGFISH_SCALE_STAND_IN_HANG` shows the bounds fire.
     @MainActor
     func testReleaseCandidateScaleCorpusOpensWithoutAHang() throws {
         let robot = try ReleaseAppSmokeRobot()
@@ -882,22 +935,31 @@ extension ReleaseCandidateSmokeXCUITests {
         }
         try robot.launch()
         let watch = AppWatch(pid: try AppWatch.processIdentifier(of: robot))
+        var stopped = false
         watch.start()
-        defer { watch.stop() }
+        // A stand-in app the watch did not end is still stopped, and only SIGKILL ends it.
+        defer { watch.stop(); if stopped { _ = kill(watch.pid, SIGKILL) } }
+        scaleLine("SCALE-APP pid=\(watch.pid) path=\(robot.candidateURL.path)", into: &lines)
         robot.openProject(project)
         guard watch.healthy(after: "opening the project") else { return }
+        let title = watch.ask("the query of its first window") { robot.app.windows.firstMatch.title }
+        scaleLine("SCALE-WINDOW \(title)", into: &lines)
         for item in corpus.items {
             let began = Date()
-            ScaleCorpus.row(item.row, in: robot.app).click()
-            let shown = item.viewer.map { robot.app.descendants(matching: .any)[$0].firstMatch.waitForExistence(timeout: 120) } ?? true
-            let answer = watch.ask()
-            if answer.silent { watch.endApp("The app did not answer for \(Int(answer.seconds)) s") }
+            let row = ScaleCorpus.row(item.row, in: robot.app, watch: watch)
+            watch.ask("a click on the \(item.row) row") { row.click() }
+            if item.id == AppWatch.standInItem {
+                stopped = watch.standIn()
+                scaleLine("SCALE-STAND-IN pid=\(watch.pid) stopped=\(stopped) after the click on \(item.row)", into: &lines)
+            }
+            let shown = item.viewer.map { ScaleCorpus.waitForViewer($0, in: robot.app, watch: watch, timeout: 120) } ?? true
+            if watch.failure == nil {
+                watch.ask("the query of its first window after \(item.id)") { _ = robot.app.windows.firstMatch.exists }
+            }
             guard watch.healthy(after: "opening \(item.id) (\(item.kind))") else { return }
             let lap = watch.lap()
-            let line = String(format: "SCALE-STEP %@ kind=%@ seconds=%.1f peakFootprintMB=%llu slowestAnswerSeconds=%.2f",
-                              item.id, item.kind, Date().timeIntervalSince(began), lap.megabytes, lap.slowest)
-            print(line)
-            lines.append(line)
+            scaleLine(String(format: "SCALE-STEP %@ kind=%@ seconds=%.1f peakFootprintMB=%llu slowestAnswerSeconds=%.2f slowestCall=%@",
+                             item.id, item.kind, Date().timeIntervalSince(began), lap.megabytes, lap.slowest, lap.call), into: &lines)
             guard shown else {
                 robot.failShowingScreen("The \(item.kind) item \(item.id) shows no \(item.viewer ?? "viewer") within 120 s")
                 return
@@ -906,7 +968,13 @@ extension ReleaseCandidateSmokeXCUITests {
         XCTAssertNil(watch.failure)
     }
 
-    /// Prints the measure lines and keeps them with the run.
+    /// Prints one measure line to the run's log and keeps it for the attachment.
+    fileprivate func scaleLine(_ line: String, into lines: inout [String]) {
+        print(line)
+        lines.append(line)
+    }
+
+    /// Keeps the measure lines with the run.
     @MainActor
     fileprivate func attachScaleLines(_ lines: [String], named name: String) {
         let attachment = XCTAttachment(string: lines.joined(separator: "\n"))
@@ -921,7 +989,7 @@ extension ReleaseCandidateSmokeXCUITests {
     /// FASTA-LIST-RELEASE-UNMEASURED, FASTA-RESTORE-BUILDS-RECORDS-PER-CLICK and BUNDLE-MANY-CONTIGS-UNPROBED). A step is
     /// timed to the return of its call and to the app's next answer, which is when its main thread is free again, and the
     /// peak footprint of the step is read. The watch only records silence here, so a hold over 5 s shows as a number, and
-    /// it still ends the app past 8 GB.
+    /// it still ends the app past 8 GB or when one call waits past 240 s.
     @MainActor
     func testScaleCorpusMeasuresLargeFASTALists() throws {
         let robot = try ReleaseAppSmokeRobot()
@@ -937,35 +1005,38 @@ extension ReleaseCandidateSmokeXCUITests {
         let watch = AppWatch(pid: try AppWatch.processIdentifier(of: robot), endsOnSilence: false)
         watch.start()
         defer { watch.stop() }
+        scaleLine("SCALE-APP pid=\(watch.pid) path=\(robot.candidateURL.path)", into: &lines)
         robot.openProject(project)
+        // A step is the action's own ask, timed to its return, then one query of the window, timed to the app's answer.
         func step(_ label: String, _ action: () -> Void) {
             let began = Date()
-            action()
+            watch.ask(label, action)
             let returned = Date().timeIntervalSince(began)
-            while watch.failure == nil, Date().timeIntervalSince(began) < 180, watch.ask().silent {}
+            watch.ask("the query of its first window after \(label)") { _ = robot.app.windows.firstMatch.exists }
             let lap = watch.lap()
-            let line = String(format: "SCALE-MEASURE %@ returned=%.2fs answered=%.2fs peakFootprintMB=%llu",
-                              label, returned, Date().timeIntervalSince(began), lap.megabytes)
-            print(line)
-            lines.append(line)
+            scaleLine(String(format: "SCALE-MEASURE %@ returned=%.2fs answered=%.2fs peakFootprintMB=%llu slowestCall=%@",
+                             label, returned, Date().timeIntervalSince(began), lap.megabytes, lap.call), into: &lines)
         }
         func open(_ item: ScaleCorpus.Item) {
-            ScaleCorpus.row(item.row, in: robot.app).click()
+            ScaleCorpus.row(item.row, in: robot.app, watch: watch).click()
             _ = item.viewer.map { robot.app.descendants(matching: .any)[$0].firstMatch.waitForExistence(timeout: 180) }
         }
         for id in ["fasta-small", "fasta-large"] {
             guard let item = corpus.items.first(where: { $0.id == id }) else { return XCTFail("The corpus has no \(id)") }
             step("\(id) open") { open(item) }
-            let table = robot.app.tables.firstMatch
+            let pane = robot.app.descendants(matching: .any)["fasta-collection-table-pane"].firstMatch
+            let table = pane.tables.firstMatch
             guard table.waitForExistence(timeout: 60) else { return robot.failShowingScreen("The \(id) list shows no table") }
             step("\(id) click the first record") { table.tableRows.firstMatch.click() }
             step("\(id) select all") { robot.app.typeKey("a", modifierFlags: .command) }
             step("\(id) click among the picked records") { table.tableRows.element(boundBy: 2).click() }
             if id == "fasta-small", let records = item.records {
-                // The generator names record n "contig_" and its number to six digits, and puts the 1.5 Mbp one at records / 2.
+                // The generator names record n "contig_" and its number to six digits, and puts the 1.5 Mbp one at
+                // records / 2 + 1, far below the rows the table shows, so the pane's filter brings it up.
                 let name = String(format: "contig_%06d", records / 2 + 1)
-                let cell = NSPredicate(format: "label BEGINSWITH %@ OR value BEGINSWITH %@", name, name)
-                step("\(id) click the 1.5 Mbp record") { table.staticTexts.matching(cell).firstMatch.click() }
+                let filter = pane.searchFields.firstMatch
+                step("\(id) filter to the 1.5 Mbp record") { filter.click(); filter.typeText(name) }
+                step("\(id) click the 1.5 Mbp record") { table.tableRows.firstMatch.click() }
             }
             guard watch.healthy(after: id) else { return }
         }
@@ -974,8 +1045,9 @@ extension ReleaseCandidateSmokeXCUITests {
             let navigator = robot.app.tables.firstMatch
             if navigator.waitForExistence(timeout: 30) {
                 step("contigs click a navigator row") { navigator.tableRows.element(boundBy: 2).click() }
+                step("contigs click a later navigator row") { navigator.tableRows.element(boundBy: 12).click() }
             } else {
-                lines.append("SCALE-MEASURE contigs navigator shows no table, so no row was clicked")
+                scaleLine("SCALE-MEASURE contigs navigator shows no table, so no row was clicked", into: &lines)
             }
         }
         XCTAssertNil(watch.failure)
