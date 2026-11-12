@@ -26,6 +26,7 @@ IDS="genes-and-sequences,mhc-genotyping,primer-design,twelve-s-metabarcoding,hum
 ARCHIVES=/Users/Shared/lungfish-golden/cache/demo-archives
 FX="$REPO/docs/user-manual/fixtures/hg002-chr20"
 
+build_projects() {
 if [ ! -f "$FX/GRCh38.chr20.10.0-10.5Mb.fasta" ]; then
     mkdir -p "$FX"
     unzip -q -o -j "$ARCHIVES/lge-demo-human-mapping-and-variants-2026.9.58.zip" "*/Practice Data/hg002-chr20/*" -d "$FX"
@@ -43,6 +44,11 @@ for id in ${IDS//,/ }; do
     mkdir -p "$CORPUS/$TAG/$id"
     unzip -q "$WORK/zips/lge-demo-$id-${TAG#v}.zip" -d "$CORPUS/$TAG/$id"
 done
+}
+
+# RECAPTURE=1 keeps the projects already in the corpus and only rewrites expected/, build.json and
+# SHA256SUMS. Use it after a change to the rules of upgrade_check.py, which alter what expected/ holds.
+if [ "${RECAPTURE:-0}" != "1" ]; then build_projects; fi
 
 python3 "$REPO/scripts/golden/upgrade_check.py" --capture --cli "$CLI" --corpus "$CORPUS" --only "$TAG"
 

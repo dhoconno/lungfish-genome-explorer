@@ -170,7 +170,7 @@ def run_plan(cli: Path, version: str, project_dir: Path, scratch: Path, other_ve
         record = (f"argv: {step.argv}\nexit: {step.code}\n--- stdout\n{normalize_text(normalizer, others, step.out)}"
                   f"--- stderr\n{normalize_text(normalizer, others, step.err)}")
         for path, text in step.files:
-            record += f"--- file {path}\n{normalize_text(normalizer, others, text)}"
+            record += f"--- file {normalize_text(normalizer, others, path)}\n{normalize_text(normalizer, others, text)}"
         records[f"{index:03d}-{re.sub(r'[^A-Za-z0-9._-]+', '_', name)[:90]}.txt"] = record
     return records
 
