@@ -13,7 +13,7 @@ signals only the PID given and never finds a process by name.
 Prints ENDED, DRY RUN, REFUSED, NOT FOUND or STILL RUNNING and the PID. Exit codes are 0 for ENDED, a dry run or a
 listing, 2 for a bad argument, 3 when no process has the PID, 4 for a refusal and 5 when the app still runs.
 
-Serves the rows "Leftover processes, with the command below" and "Own processes only" in
+Serves the row "Own processes only" in the section "Rules for the manager" of
 docs/contracts/RUNNING-A-PHASE-SESSION.md.
 """
 import argparse

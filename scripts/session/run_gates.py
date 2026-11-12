@@ -10,8 +10,8 @@ script passed and 1 when any failed. No earlier line starts with exit=, so a blo
 the whole run. The table is printed too. --list prints the sequence and runs nothing. --root defaults to the current
 folder. Exit codes are the log's exit line and 2 for a bad argument.
 
-Serves the rows "SCR/land/*.py" and "Wait by blocking" in docs/contracts/RUNNING-A-PHASE-SESSION.md, and the gates
-that a landing agent runs.
+Serves the row "Landing batches" in the section "Rules for the manager" of
+docs/contracts/RUNNING-A-PHASE-SESSION.md, and the gates that a landing agent runs.
 """
 import argparse
 import glob

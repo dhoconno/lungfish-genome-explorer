@@ -21,8 +21,8 @@ starts and ends no process and acts on that one literal path.
 Exit codes: 0 done or dry run, 2 refused, 1 the removal failed.
 
 Serves docs/contracts/RUNNING-A-PHASE-SESSION.md, section "Rules for the manager",
-rows "Fresh worktrees" and "Disk and snapshots" (delete a lane's build folder as
-soon as its last agent ends).
+row "Disk and snapshots" (the manager removes a finished lane's build folder once
+its last agent has ended).
 """
 from __future__ import annotations
 

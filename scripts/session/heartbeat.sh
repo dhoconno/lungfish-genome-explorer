@@ -17,7 +17,8 @@
 # The PYTHON variable names the interpreter that runs ctx_watch.py (default python3).
 #
 # Serves the End check and heartbeat section of docs/contracts/RUNNING-A-PHASE-SESSION.md, its rows "Pending tool
-# call", "Lane size" and "Free disk", and the row that asks for a background command ending within about 55 minutes.
+# call", "Lane size" and "Free disk", and the bullet of the section "The manager's context budget" that asks for a
+# background command ending within about 55 minutes.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 PYTHON=${PYTHON:-python3}

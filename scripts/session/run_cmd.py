@@ -12,8 +12,9 @@ folder (default the current one). The options come before LOG.
 Prints nothing itself. Exit codes are the status of the command as logged, 127 when it cannot start and 2 for a missing
 LOG or COMMAND.
 
-Serves the rows "SCR/land/*.py", "Guard-safe commands" and "Wait by blocking" in
-docs/contracts/RUNNING-A-PHASE-SESSION.md.
+Serves the row "Refusals, polling, cache" in the End check and heartbeat table of
+docs/contracts/RUNNING-A-PHASE-SESSION.md, and is the fallback that the Commands rule of
+.claude/agents/lge-lane.md and lge-lane-opus.md names for a subshell the guard refuses.
 """
 import os
 import subprocess

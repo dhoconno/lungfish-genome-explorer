@@ -32,6 +32,7 @@ scripts/tests/test_full_suite_gate_tiers.py pins these regexes, so change them t
 
 - Wait with `waitUntil` from Tests/Support/LungfishTestSupport/XCTestAsyncAssertions.swift (line 44). Never assert after a fixed number of yields or a sub-second sleep (memory file feedback_test_waits_and_gate_time.md).
 - Use `TestTempDirectory` (Tests/Support/LungfishTestSupport/TestTempDirectory.swift line 13) for scratch files.
+- A test that posts SIGTERM to its own process ignores SIGTERM first, then waits for the handler's cancel before the instance ends or puts the handler out of reach before the post. A post held in flight is held with a seam, not another thread.
 - Do not add assertions that read Swift source text with `.contains("...")`. 68 files already hold 1,385 of them by the rule of the source-text-assertions ratchet, which freezes the count (REVIEW.md R11).
 - Put a test in the target of the module it tests. Tests/LungfishAppTests holds 1,238 files and 8,275 test functions, some of them for other modules (R11).
 - Inject URL openers and presenters, or a test can open the real browser or block on a modal (memory file project_test_suite_review.md).

@@ -15,8 +15,8 @@ over --max-bytes (default 3072). The notes file is replaced in one step, with it
 file mode kept.
 
 Serves docs/contracts/RUNNING-A-PHASE-SESSION.md, section "Files the session
-keeps", the row for the notes file (a STATE block of about 40 lines, rewritten at
-every landing and launch).
+keeps", row "SCR/notes.md" (the STATE block, at most 3 KB, replaced at every
+landing and launch).
 """
 from __future__ import annotations
 
