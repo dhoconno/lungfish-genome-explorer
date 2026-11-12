@@ -54,6 +54,9 @@ extension RunSubcommand {
             throw CLIError.workflowFailed(reason: error.localizedDescription)
         } catch let error as ViralReconReadPairing.PairingError {
             throw CLIError.workflowFailed(reason: error.localizedDescription)
+        } catch let error as ViralReconSamplesheetBuilder.ValidationError {
+            // A name viralrecon would refuse, refused before launch (FIX-VR, F1).
+            throw CLIError.workflowFailed(reason: error.localizedDescription)
         }
         let callerSamplesheetURL = resolvedInputs.samplesheetURL
 

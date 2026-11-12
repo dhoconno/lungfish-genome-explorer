@@ -68,12 +68,14 @@ enum ViralReconRunPreparation {
             throw WizardError.missingPrimer
         }
 
+        // Made first, so a sample name viralrecon refuses stops Run before the
+        // staging folder is written (FIX-VR, F1).
+        let samples = try ViralReconInputResolver.makeSamples(from: inputs.resolvedInputs)
         let token = String(UUID().uuidString.prefix(8)).lowercased()
         let stagingDirectory = outputRoot.appendingPathComponent(".viralrecon-inputs-\(token)", isDirectory: true)
         let outputDirectory = outputRoot.appendingPathComponent("viralrecon-results-\(token)", isDirectory: true)
         try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
 
-        let samples = try ViralReconInputResolver.makeSamples(from: inputs.resolvedInputs)
         let samplesheetURL: URL
         var fastqPassDirectoryURL: URL?
         switch platform {

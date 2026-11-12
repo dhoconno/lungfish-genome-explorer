@@ -41,6 +41,9 @@ public enum ViralReconInputResolver {
         guard !resolvedInputs.isEmpty else { throw ResolveError.noInputs }
         let platforms = Set(resolvedInputs.map(\.platform))
         guard platforms.count == 1 else { throw ResolveError.mixedPlatforms }
+        // viralrecon refuses a sample name with a space and the whole run
+        // fails, so the name is refused here, before any read is staged.
+        try ViralReconSamplesheetBuilder.refuseSampleNamesWithSpace(resolvedInputs.map(\.sampleName))
 
         return resolvedInputs.enumerated().map { index, input in
             let barcode: String?

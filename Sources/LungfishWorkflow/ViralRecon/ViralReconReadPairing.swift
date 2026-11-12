@@ -328,6 +328,10 @@ public enum ViralReconReadPairing {
         for suffix in [".gz", ".fastq", ".fq"] where stem.lowercased().hasSuffix(suffix) {
             stem = String(stem.dropLast(suffix.count))
         }
+        // viralrecon refuses a read file whose name holds whitespace. These
+        // names are made here, in a per-sample folder, so a source named
+        // "Sample 1.fastq.gz" gives "Sample_1_R1.fastq.gz" (FIX-VR, F1).
+        stem = ViralReconSamplesheetBuilder.replacingWhitespace(in: stem)
         let r1 = directory.appendingPathComponent("\(stem)_R1.fastq.gz")
         let r2 = directory.appendingPathComponent("\(stem)_R2.fastq.gz")
 

@@ -6,9 +6,25 @@ public enum ViralReconSamplesheetBuilder {
         case unsupportedIlluminaFASTQ(URL)
         /// A virtual bundle holds no FASTQ file to copy into `fastq_pass`.
         case virtualNanoporeBundle(URL)
+        /// viralrecon's samplesheet refuses a `sample` cell that holds
+        /// whitespace (`^\S+$` in `assets/schema_input.json`), and then the
+        /// whole run fails, so LGE refuses the name before launch.
+        case sampleNameHoldsSpace(String)
+        /// viralrecon refuses a `fastq_1` or `fastq_2` whose file name holds
+        /// whitespace (its folders may hold some).
+        case readFileNameHoldsSpace(sampleName: String, URL)
 
         public var errorDescription: String? {
             switch self {
+            case .sampleNameHoldsSpace(let name):
+                return "The sample name “\(name)” holds a space, and viralrecon's samplesheet does not accept one. "
+                    + "Rename the sample, for example to “\(ViralReconSamplesheetBuilder.replacingWhitespace(in: name))”, "
+                    + "and run again."
+            case .readFileNameHoldsSpace(let sampleName, let url):
+                let name = url.lastPathComponent
+                return "The read file “\(name)” of sample “\(sampleName)” holds a space in its name, "
+                    + "and viralrecon's samplesheet does not accept one. Rename the file, "
+                    + "for example to “\(ViralReconSamplesheetBuilder.replacingWhitespace(in: name))”, and run again."
             case .unsupportedIlluminaFASTQ:
                 return nil
             case .virtualNanoporeBundle(let url):
@@ -38,6 +54,7 @@ public enum ViralReconSamplesheetBuilder {
         in directory: URL,
         filename: String = "samplesheet.csv"
     ) throws -> URL {
+        try refuseNamesViralReconRefuses(in: samples)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(filename)
         var lines = ["sample,fastq_1,fastq_2"]
@@ -67,6 +84,7 @@ public enum ViralReconSamplesheetBuilder {
         if let virtual = samples.first(where: { ViralReconReadPairing.isVirtualBundle($0.sourceBundleURL) }) {
             throw ValidationError.virtualNanoporeBundle(virtual.sourceBundleURL)
         }
+        try refuseSampleNamesWithSpace(samples.map(\.sampleName))
         let fastqPassDirectory = directory.appendingPathComponent("fastq_pass", isDirectory: true)
         try FileManager.default.createDirectory(at: fastqPassDirectory, withIntermediateDirectories: true)
 
@@ -91,6 +109,50 @@ public enum ViralReconSamplesheetBuilder {
         }
         try (lines.joined(separator: "\n") + "\n").write(to: samplesheetURL, atomically: true, encoding: .utf8)
         return NanoporeStagingResult(samplesheetURL: samplesheetURL, fastqPassDirectory: fastqPassDirectory)
+    }
+
+    /// Refuses the first sample name that holds whitespace, which
+    /// viralrecon's samplesheet refuses (`^\S+$`). The wizard, the app's Run
+    /// and `workflow run` with bundle inputs reach this through
+    /// ``ViralReconInputResolver/makeSamples(from:)``, so the run stops
+    /// before any read is split or staged, and both samplesheet writers call
+    /// it again (trust session FIX-VR, F1). A samplesheet that a caller wrote
+    /// by hand is not read for names. The run checks it only when it writes
+    /// the samplesheet again for a split read.
+    ///
+    /// The name is refused, not mapped. A mapped name would stay inside the
+    /// files the ingest copies byte for byte (the consensus header, Pangolin's
+    /// `taxon`, Nextclade's `seqName`) while the bundle carries the user's
+    /// name, so one sample would go by two labels (ruling BIO, SWEEP-1 B2).
+    public static func refuseSampleNamesWithSpace(_ names: [String]) throws {
+        if let name = names.first(where: holdsWhitespace) {
+            throw ValidationError.sampleNameHoldsSpace(name)
+        }
+    }
+
+    /// Refuses a sample name with whitespace, then a read file of a paired
+    /// row whose name holds whitespace. A paired row goes to viralrecon as
+    /// named. A row of one file is left alone, because the run may split it
+    /// and the split names its halves without whitespace
+    /// (``ViralReconReadPairing/splitInterleavedInput(_:into:)``).
+    public static func refuseNamesViralReconRefuses(in samples: [ViralReconSample]) throws {
+        try refuseSampleNamesWithSpace(samples.map(\.sampleName))
+        for sample in samples where !ViralReconReadPairing.namesBundle(sample.fastqURLs) {
+            for index in stride(from: 0, to: sample.fastqURLs.count, by: 2) where index + 1 < sample.fastqURLs.count {
+                for url in sample.fastqURLs[index...(index + 1)] where holdsWhitespace(url.lastPathComponent) {
+                    throw ValidationError.readFileNameHoldsSpace(sampleName: sample.sampleName, url)
+                }
+            }
+        }
+    }
+
+    static func holdsWhitespace(_ text: String) -> Bool {
+        text.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
+    }
+
+    /// `text` with each whitespace character replaced by `_`.
+    static func replacingWhitespace(in text: String) -> String {
+        String(text.unicodeScalars.map { CharacterSet.whitespacesAndNewlines.contains($0) ? "_" : Character($0) })
     }
 
     private static func isCompressedFASTQ(_ url: URL) -> Bool {
