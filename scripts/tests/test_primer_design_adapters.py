@@ -312,6 +312,30 @@ class ProvenanceRetentionTests(unittest.TestCase):
             self.assertEqual(durable["out_path"], {"base": "outputDirectory", "path": "native/input"})
             self.assertTrue((output / durable["config"]["path"]).is_file())
 
+    def test_engine_resolution_warning_reaches_the_result_and_the_provenance(self):
+        # The span-bound warning of either engine travels in the adapter resolution. This pins
+        # the route that already carries varVAMP's own warnings, so a scheme the run keeps is
+        # recorded with its warning in both files.
+        warning = (
+            "1 of 1 amplicon is outside the requested size range of 200 to 220 bp. scheme_1 is 198 bp. "
+            "Olivar wrote it, so the scheme keeps it. Check its length against your protocol before you order primers."
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            request, request_path = self.write_request(root)
+            resolution = {"coverageDiagnostics": {request["inputs"][0]["id"]: {"nativeWarnings": [warning]}}}
+
+            def succeed(request, stage, recorder):
+                recorder["runtime"] = self.fake_runtime()
+                return [], recorder["runtime"], resolution
+
+            with mock.patch("olivar_adapter.run_olivar", side_effect=succeed):
+                output = adapter_run.execute(request_path)
+            provenance = json.loads((output / "provenance-v1.json").read_text(encoding="utf-8"))
+            result = json.loads((output / "adapter-result-v1.json").read_text(encoding="utf-8"))
+            self.assertEqual(provenance["settings"]["resolved"]["adapterResolution"], resolution)
+            self.assertEqual(result["resolvedOptions"]["adapterResolution"], resolution)
+
     def test_input_mutation_fails_and_keeps_pre_execution_checksum(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -752,6 +776,205 @@ class NativeNormalizationTests(unittest.TestCase):
             for assay in target["assays"]:
                 roles = {o["role"] for o in target["oligos"] if assay["id"] in o["assayIDs"]}
                 self.assertEqual(roles, {"forward", "reverse", "probe"})
+
+
+class SpanBoundWarningTests(unittest.TestCase):
+    """G1. An amplicon a few bp outside the requested size range stays in the scheme and the run says so."""
+
+    # Real rows of varVAMP 1.3.2 on the 29,827 nt SARS-CoV-2 consensus with -ol 360 -ml 440.
+    # Each row is name, pool, amplicon BED interval, LEFT BED interval and sequence, RIGHT likewise.
+    REAL_ROWS = (
+        ("varVAMP_0", "1", (7, 401), (7, 31, "CAACCAACTTTCGATCTCTTGTAG"), (380, 401, "ACTAAGCCACAAGTGCCATCT")),
+        ("varVAMP_48", "1", (13145, 13499), (13145, 13168, "GGTCAGGCAATAACAGTTACACC"), (13477, 13499, "CGACATCAGTACTAGTGCCTGT")),
+        ("varVAMP_63", "2", (17285, 17729), (17285, 17305, "ATGCATTGCCTGAGACGACA"), (17707, 17729, "CTTTTCTCCAAGCAGGGTTACG")),
+    )
+    CONSENSUS = "ACGT" * 7456 + "ACG"
+    TSV_HEADER = (
+        "amlicon_name\tamplicon_length\tprimer_name\tprimer_name_all_primers\tpool\tstart\tstop\tseq\tsize"
+        "\tgc_best\ttemp_best\tmean_gc\tmean_temp\tpenalty\toff_target_amplicons\n"
+    )
+
+    @classmethod
+    def write_varvamp_folder(cls, root: Path, rows) -> None:
+        (root / "ambiguous_consensus.fasta").write_text(
+            ">varVAMP_ambiguous_consensus\n" + cls.CONSENSUS + "\n", encoding="utf-8")
+        amplicons, primers, table = [], [], [cls.TSV_HEADER]
+        for name, pool, (start, end), left, right in rows:
+            amplicons.append(f"varVAMP_ambiguous_consensus\t{start}\t{end}\t{name}\t{pool}\t.\n")
+            for index, (suffix, strand, (oligo_start, oligo_end, sequence)) in enumerate(
+                (("LEFT", "+", left), ("RIGHT", "-", right))
+            ):
+                oligo = f"{name}_{suffix}"
+                primers.append(
+                    f"varVAMP_ambiguous_consensus\t{oligo_start}\t{oligo_end}\t{oligo}\t{pool}\t{strand}\t{sequence}\n")
+                table.append(
+                    f"{name}\t{end - start}\t{oligo}\t{suffix}_{index}\t{pool}\t{oligo_start + 1}\t{oligo_end}"
+                    f"\t{sequence}\t{len(sequence)}\t50.0\t60.0\t50.0\t60.0\t1.0\tn.d.\n")
+        (root / "amplicons.bed").write_text("".join(amplicons), encoding="utf-8")
+        (root / "primers.bed").write_text("".join(primers), encoding="utf-8")
+        (root / "primers.tsv").write_text("".join(table), encoding="utf-8")
+
+    def normalize_rows(self, rows, *, minimum=360, maximum=440):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.write_varvamp_folder(root, rows)
+            return normalize_varvamp_outputs(
+                root, mode="tiled", source_input_id=INPUT_ID, target_id=str(uuid.uuid4()),
+                label="sars2-3", reference_path="native/input/ambiguous_consensus.fasta",
+                minimum=minimum, maximum=maximum,
+            )
+
+    def test_varvamp_keeps_the_scheme_and_names_both_amplicons_outside_the_band(self):
+        target, warnings = self.normalize_rows(self.REAL_ROWS)
+        self.assertEqual(target["referenceLength"], 29827)
+        self.assertEqual([a["end"] - a["start"] for a in target["assays"]], [394, 354, 444])
+        self.assertEqual(len(warnings), 1, warnings)
+        for expected in ("2 of 3 amplicons", "varVAMP_48", "354", "varVAMP_63", "444", "360", "440"):
+            self.assertIn(expected, warnings[0])
+        self.assertNotIn("varVAMP_0", warnings[0])
+
+    def test_varvamp_smallest_case_is_one_amplicon_below_the_band(self):
+        target, warnings = self.normalize_rows(self.REAL_ROWS[1:2])
+        self.assertEqual([a["end"] - a["start"] for a in target["assays"]], [354])
+        self.assertEqual(len(warnings), 1, warnings)
+        for expected in ("1 of 1 amplicon", "varVAMP_48", "354", "360", "440"):
+            self.assertIn(expected, warnings[0])
+
+    def test_varvamp_amplicons_inside_the_band_give_no_warning(self):
+        target, warnings = self.normalize_rows(self.REAL_ROWS[:1])
+        self.assertEqual([a["end"] - a["start"] for a in target["assays"]], [394])
+        self.assertEqual(warnings, [])
+
+    def test_span_bound_warnings_counts_inclusive_bounds_and_names_each_amplicon(self):
+        warnings = adapter_common.span_bound_warnings(
+            [("amp_low_edge", 360), ("amp_high_edge", 440), ("amp_below", 359), ("amp_above", 441)],
+            minimum=360, maximum=440, engine="varVAMP")
+        self.assertEqual(len(warnings), 1, warnings)
+        for expected in ("2 of 4 amplicons are", "amp_below is 359 bp", "amp_above is 441 bp", "360 to 440 bp", "varVAMP"):
+            self.assertIn(expected, warnings[0])
+        for absent in ("amp_low_edge", "amp_high_edge"):
+            self.assertNotIn(absent, warnings[0])
+        self.assertEqual(
+            adapter_common.span_bound_warnings([("amp_low_edge", 360)], minimum=360, maximum=440, engine="varVAMP"), [])
+        self.assertEqual(adapter_common.span_bound_warnings([], minimum=360, maximum=440, engine="varVAMP"), [])
+
+    def test_span_bound_warnings_still_refuses_an_invalid_range(self):
+        with self.assertRaises(AdapterError) as raised:
+            adapter_common.span_bound_warnings([("amp_one", 400)], minimum=440, maximum=360, engine="varVAMP")
+        self.assertEqual(raised.exception.code, "invalid_amplicon_range")
+
+    @staticmethod
+    def write_olivar_folder(root: Path, *, title="scheme", fasta_name="scheme_ref.fasta", reference="scheme") -> None:
+        (root / fasta_name).write_text(">ref\n" + "A" * 250 + "\n", encoding="utf-8")
+        with (root / f"{title}.csv").open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=[
+                "reference", "amplicon_id", "pool", "fP", "rP", "start",
+                "insert_start", "insert_end", "end", "amplicon", "insert", "fP_full", "rP_full",
+            ])
+            writer.writeheader()
+            writer.writerow({
+                "reference": reference, "amplicon_id": "scheme_1", "pool": "1",
+                "fP": "ACGTR", "rP": "TGCAY", "start": "11", "insert_start": "16",
+                "insert_end": "204", "end": "208", "amplicon": "A" * 198,
+                "insert": "A" * 189, "fP_full": "ACGTR", "rP_full": "TGCAY",
+            })
+        (root / f"{title}.primer.bed").write_text(
+            "scheme\t10\t15\tscheme_1_LEFT_1\t1\t+\tACGTR\n"
+            "scheme\t204\t208\tscheme_1_RIGHT_1\t1\t-\tTGCAY\n",
+            encoding="utf-8",
+        )
+
+    def normalize_olivar(self, *, minimum, maximum):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.write_olivar_folder(root)
+            return normalize_olivar_outputs(
+                root, title="scheme", source_input_id=INPUT_ID, target_id=str(uuid.uuid4()),
+                label="synthetic", reference_path="native/input/scheme_ref.fasta",
+                minimum=minimum, maximum=maximum,
+            )
+
+    def test_olivar_keeps_the_scheme_and_names_the_amplicon_outside_the_band(self):
+        target, warnings = self.normalize_olivar(minimum=200, maximum=220)
+        self.assertEqual([(a["start"], a["end"]) for a in target["assays"]], [(10, 208)])
+        self.assertEqual(len(warnings), 1, warnings)
+        for expected in ("1 of 1 amplicon", "scheme_1", "198", "200", "220", "Olivar"):
+            self.assertIn(expected, warnings[0])
+
+    def test_olivar_amplicons_inside_the_band_give_no_warning(self):
+        target, warnings = self.normalize_olivar(minimum=180, maximum=220)
+        self.assertEqual(len(target["assays"]), 1)
+        self.assertEqual(warnings, [])
+
+    def test_varvamp_run_adds_the_warning_to_the_native_warnings_of_its_input(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            request = base_request(root, engine="varvamp", mode="tiled")
+            request["options"].update({
+                "nominalAmpliconLength": 400, "minimumAmpliconLength": 360, "maximumAmpliconLength": 440,
+            })
+            fasta(Path(request["inputs"][0]["path"]), (self.CONSENSUS, self.CONSENSUS))
+            request = validate_request(request)
+            stage = root / "stage"
+            stage.mkdir()
+            alignment = types.SimpleNamespace(process_alignment=lambda aligned, threshold: (aligned, []))
+
+            def main():
+                native_dir = Path(sys.argv[-1])
+                alignment.process_alignment("aligned", 0.99)
+                native_dir.mkdir(parents=True)
+                self.write_varvamp_folder(native_dir, self.REAL_ROWS)
+                (native_dir / "varvamp_log.txt").write_text(
+                    "WARNING: coverage < 70 %. Possible solutions:\n\t - lower threshold\n", encoding="utf-8")
+
+            runtime = {
+                "modules": {"command": types.SimpleNamespace(__file__=__file__, main=main), "alignment": alignment},
+                "distribution": "test::varvamp=1.3.2=fake",
+                "modulePath": __file__,
+            }
+            with mock.patch("varvamp_adapter.verify_runtime", return_value=runtime):
+                from varvamp_adapter import run_varvamp
+                results, _, _, _, resolution = run_varvamp(request, stage, {"nativeEvents": []})
+            self.assertEqual([len(result["targets"][0]["assays"]) for result in results], [3])
+            native_warnings = resolution["coverageDiagnostics"][INPUT_ID]["nativeWarnings"]
+            self.assertEqual(len(native_warnings), 2, native_warnings)
+            self.assertIn("coverage < 70 %", native_warnings[0])
+            for expected in ("varVAMP_48", "354", "varVAMP_63", "444"):
+                self.assertIn(expected, native_warnings[1])
+
+    def test_olivar_run_returns_the_warning_in_its_resolution(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            request = base_request(root, engine="olivar", mode="tiled")
+            request["options"].update({
+                "nominalAmpliconLength": 210, "minimumAmpliconLength": 200, "maximumAmpliconLength": 220,
+            })
+            request = validate_request(request)
+            stage = root / "stage"
+            stage.mkdir()
+            name = f"input-{INPUT_ID}"
+
+            def tile(modules, ref_input, design_dir, design_title, options, recorder, grouping, input_ids):
+                design_dir.mkdir(parents=True)
+                self.write_olivar_folder(design_dir, title=design_title, fasta_name=f"{name}_ref.fasta", reference="ref")
+
+            runtime = {
+                "modules": {"tiling_helper": types.SimpleNamespace(__file__=__file__), "main": types.SimpleNamespace()},
+                "distribution": "test::olivar=1.3.3=fake",
+                "modulePath": __file__,
+            }
+            import olivar_adapter
+            with mock.patch("olivar_adapter.verify_runtime", return_value=runtime), \
+                    mock.patch("olivar_adapter.install_pair_guard", return_value=lambda *args: None), \
+                    mock.patch("olivar_adapter.capture_msa_projection", return_value=("A" * 250, "A" * 250, [])), \
+                    mock.patch("olivar_adapter._build_reference", return_value=False), \
+                    mock.patch("olivar_adapter._invoke_tiling", side_effect=tile):
+                results, _, resolution = olivar_adapter.run_olivar(request, stage, {"nativeEvents": []})
+            self.assertEqual([len(result["targets"][0]["assays"]) for result in results], [1])
+            native_warnings = resolution["coverageDiagnostics"][INPUT_ID]["nativeWarnings"]
+            self.assertEqual(len(native_warnings), 1, native_warnings)
+            for expected in ("scheme_1", "198", "200", "220"):
+                self.assertIn(expected, native_warnings[0])
 
 
 class BlastDatabaseWhitespaceTests(unittest.TestCase):
