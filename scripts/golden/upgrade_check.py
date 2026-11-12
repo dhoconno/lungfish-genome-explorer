@@ -13,6 +13,18 @@ applies the golden normalization rules (scripts/golden/normalize.py) and
 compares byte for byte. It prints one line per difference and exits 1 on any.
 Exit 2 means the corpus is missing or damaged. --capture writes expected/ for a
 release with its own CLI and is only for building the corpus.
+
+Three rules of its own keep what a build says about itself out of the diff,
+because the checking build is not the build that made the project:
+- the app version of the build that made the project (from expected/_run.json)
+  is masked as well as the checking build's, and the build label after a version
+  ("(12972)" in a release, "(dev)" in a debug build) becomes <BUILD>;
+- the CLI path is not masked, because a project's records hold the path of the
+  CLI that made it and the checking CLI has another path;
+- the SHA-256 and size of a file record whose path is in the step's own output
+  folder are masked, because that file holds the time, a random ID, the scratch
+  folder and the exporting build. Its text is compared in full. The digest and
+  size of a project file the step only reads stay compared.
 """
 
 from __future__ import annotations
@@ -27,6 +39,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -42,6 +55,11 @@ RESULT_SUFFIXES = (".lungfishref", ".lungfishfastq", ".lungfishmsa", ".lungfisht
                    ".lungfish12sref", ".lungfishtax", ".lungfishrun")
 MAX_LINES_PER_FILE = 10
 STEP_SECONDS = 900
+WRITTEN_FILE_PREFIX = normalize.RUN_ROOT_TOKEN + "/out/"
+WRITTEN_HASH_TOKEN = '"<SHA256-WRITTEN>"'
+WRITTEN_SIZE_TOKEN = '"<SIZE-WRITTEN>"'
+BUILD_LABEL = re.compile(re.escape(normalize.APP_VERSION_TOKEN) + r" \([^)\"\\]*\)")
+BUILD_LABEL_TOKEN = normalize.APP_VERSION_TOKEN + " (<BUILD>)"
 
 
 class CorpusError(Exception):
@@ -83,8 +101,18 @@ def sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
-def run_step(cli: Path, argv: list[str], project: Path, scratch: Path, index: int) -> str:
-    """One CLI call as text: the argv shape, exit code, stdout, stderr and every file it wrote."""
+@dataclass
+class StepRun:
+    """One CLI call: the argv shape, the exit code, both streams and every file it wrote."""
+
+    argv: str
+    code: str
+    out: str
+    err: str
+    files: list[tuple[str, str]]
+
+
+def run_step(cli: Path, argv: list[str], project: Path, scratch: Path, index: int) -> StepRun:
     out_dir = scratch / "out" / f"{index:03d}"
     out_dir.mkdir(parents=True)
     args = [a.replace("{P}", str(project)).replace("{OUT}", str(out_dir / "export")) for a in argv]
@@ -96,24 +124,63 @@ def run_step(cli: Path, argv: list[str], project: Path, scratch: Path, index: in
         code, out, err = str(done.returncode), done.stdout, done.stderr
     except subprocess.TimeoutExpired:
         code, out, err = "timeout", "", f"no answer in {STEP_SECONDS} s\n"
-    record = f"argv: {' '.join(argv)}\nexit: {code}\n--- stdout\n{out}--- stderr\n{err}"
-    for path in sorted(out_dir.rglob("*")):
-        if path.is_file():
-            record += f"--- file {path.relative_to(out_dir).as_posix()}\n" + path.read_bytes().decode("utf-8", "replace")
-    return record
+    files = [(path.relative_to(out_dir).as_posix(), path.read_bytes().decode("utf-8", "replace"))
+             for path in sorted(out_dir.rglob("*")) if path.is_file()]
+    return StepRun(" ".join(argv), code, out, err, files)
 
 
-def run_plan(cli: Path, version: str, project_dir: Path, scratch: Path) -> dict[str, str]:
-    """Copy the project into scratch, run every step and return the normalized record of each by file name."""
+def mask_written_files(text: str) -> str:
+    """The SHA-256 and size of each file record whose path is in the step's output folder become tokens."""
+    root = normalize.parse_json(text)
+    if root is None:
+        return text
+    edits: dict[tuple[int, int], str] = {}
+    for record in normalize.file_records(root):
+        if not str(record.get("path").value).startswith(WRITTEN_FILE_PREFIX):
+            continue
+        for keys, token in ((normalize.HASH_KEYS, WRITTEN_HASH_TOKEN), (normalize.SIZE_KEYS, WRITTEN_SIZE_TOKEN)):
+            for key in keys:
+                node = record.get(key)
+                if node is not None:
+                    edits[(node.start, node.end)] = token
+    return normalize.apply_edits(text, edits)
+
+
+def normalize_text(normalizer: normalize.Normalizer, other_versions: list[str], text: str) -> str:
+    """The golden rules, then the version of the build that made the project, the build labels and the written files' digests."""
+    text = normalizer.text(text)
+    for version in other_versions:
+        text = normalize.mask_app_version(text, version)
+    return mask_written_files(BUILD_LABEL.sub(BUILD_LABEL_TOKEN, text))
+
+
+def run_plan(cli: Path, version: str, project_dir: Path, scratch: Path, other_versions: list[str]) -> dict[str, str]:
+    """Copy the project into scratch, run every step and return the normalized record of each by file name.
+
+    other_versions are the app versions of the builds that made the project or its expected/ output.
+    """
     (scratch / "tmp").mkdir(parents=True)
     project = scratch / "project" / project_dir.name
     shutil.copytree(project_dir, project, symlinks=True)
     normalizer = normalize.Normalizer(run_root=str(scratch), app_version=version, lock_sha256=None)
+    others = [other for other in other_versions if other != version]
     records: dict[str, str] = {}
     for index, (name, argv) in enumerate(plan(project)):
-        text = run_step(cli, argv, project, scratch, index).replace(str(cli), "<CLI>")
-        records[f"{index:03d}-{re.sub(r'[^A-Za-z0-9._-]+', '_', name)[:90]}.txt"] = normalizer.text(text)
+        step = run_step(cli, argv, project, scratch, index)
+        record = (f"argv: {step.argv}\nexit: {step.code}\n--- stdout\n{normalize_text(normalizer, others, step.out)}"
+                  f"--- stderr\n{normalize_text(normalizer, others, step.err)}")
+        for path, text in step.files:
+            record += f"--- file {path}\n{normalize_text(normalizer, others, text)}"
+        records[f"{index:03d}-{re.sub(r'[^A-Za-z0-9._-]+', '_', name)[:90]}.txt"] = record
     return records
+
+
+def captured_versions(expected_dir: Path) -> list[str]:
+    """The version of the CLI that wrote expected/, which is also the version of the build that made the project."""
+    try:
+        return [str(json.loads((expected_dir / "_run.json").read_text())["cliVersion"])]
+    except (OSError, ValueError, KeyError):
+        return []
 
 
 def compare(label: str, expected: dict[str, str], actual: dict[str, str]) -> list[str]:
@@ -201,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
         began = time.monotonic()
         scratch = Path(os.path.realpath(tempfile.mkdtemp(prefix="upgrade-check-")))
         try:
-            records = run_plan(cli, version, project_dir, scratch)
+            records = run_plan(cli, version, project_dir, scratch, [] if args.capture else captured_versions(expected_dir))
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
         steps += len(records)
