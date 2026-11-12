@@ -283,6 +283,16 @@ def run(argv: list[str] | None = None) -> int:
         else:
             print(f"[{name}] matches ({len(context.outputs)} files) in {timings[name]:.1f} s", flush=True)
 
+    if args.mode == "compare" and not args.replay and not args.only:
+        # Projects made by older releases must open and export the same in this CLI
+        # (scripts/golden/upgrade_check.py). A partial compare (--only) and a replay skip it.
+        import upgrade_check  # noqa: E402
+
+        print("golden: upgrade check starts", flush=True)
+        upgrade_code = upgrade_check.main(["--cli", str(staged_cli)])
+        if upgrade_code:
+            failures.append(f"upgrade-check: FAILED with exit {upgrade_code}, its lines are above\n")
+
     total = time.monotonic() - started
     summary = {
         "mode": args.mode,
