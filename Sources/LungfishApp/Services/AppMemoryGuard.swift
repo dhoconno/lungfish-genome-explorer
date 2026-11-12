@@ -121,17 +121,27 @@ extension AppMemoryGuard.Actions {
                 return cancelled
             },
             present: { words in
+                let title = "LGE Stopped Work to Save Memory"
+                guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+                    NSApp.presentError(MemoryStopNotice(title: title, message: words))
+                    return
+                }
                 let alert = NSAlert()
                 alert.alertStyle = .warning
-                alert.messageText = "LGE Stopped Work to Save Memory"
+                alert.messageText = title
                 alert.informativeText = words
                 alert.addButton(withTitle: "OK")
-                if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-                    alert.beginSheetModal(for: window)
-                } else {
-                    alert.runModal()
-                }
+                alert.beginSheetModal(for: window)
             }
         )
     }
+}
+
+/// The notice as an error, which AppKit shows as an application-modal alert with the title over the words.
+private struct MemoryStopNotice: LocalizedError {
+    let title: String
+    let message: String
+
+    var errorDescription: String? { title }
+    var recoverySuggestion: String? { message }
 }
