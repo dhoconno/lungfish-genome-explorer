@@ -170,7 +170,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // Bring managed tools and databases in line with the bundled manifest, a no-op when this machine matches it.
         scheduleDependencyReconciliation()
-        BlastInFlightMonitor.shared.start()
+        startLaunchMonitors()
 
         // Clean up stale temp files from previous sessions, and sweep scratch whose creator is gone
         cleanUpTemporaryFiles(retentionHours: AppSettings.shared.tempFileRetentionHours, atLaunch: true)

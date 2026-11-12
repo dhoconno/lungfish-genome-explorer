@@ -13,6 +13,7 @@ import XCTest
 final class AppMemoryGuardTests: XCTestCase {
     private let sixteenGB: UInt64 = 16 << 30
 
+    @MainActor
     private final class Recorder {
         var operations: [AppMemoryGuard.RunningOperation] = []
         var loadsInFlight = 0
