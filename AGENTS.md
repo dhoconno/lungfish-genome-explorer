@@ -1,6 +1,6 @@
 # Agent guide
 
-This is the entry point for any agent working in the Lungfish Genome Explorer (LGE) repository. LGE is a SwiftPM package with an app and `lungfish-cli`. Read this file first, then `docs/architecture/ARCHITECTURE.md`, then the module guide for the code you will change. Search `docs/architecture/MODULES.md` for a type or a target and never read it whole.
+This is the entry point for any agent working in the Lungfish Genome Explorer (LGE) repository. LGE is a SwiftPM package with an app and `lungfish-cli`. Read this file first, then `docs/architecture/ARCHITECTURE.md`, then the module guide for the code you will change. Search `docs/architecture/MODULES.md` and never read it whole.
 
 ## Read next
 
@@ -10,10 +10,10 @@ This is the entry point for any agent working in the Lungfish Genome Explorer (L
 | [docs/architecture/MODULES.md](docs/architecture/MODULES.md) | Generated per-target facts with dependencies, subdirectories, public types and test targets, and no file or line counts |
 | `Sources/<Module>/AGENTS.md` | Module-specific purpose, allowed imports, entry points, owned contracts, test target and known traps |
 | [docs/contracts/README.md](docs/contracts/README.md) | Index of the written contracts |
-| [docs/contracts/ADDING-AN-OPERATION.md](docs/contracts/ADDING-AN-OPERATION.md) | The rules of an operation, from Workflow service to CLI command to App runner. The checklist below is the path a lane follows |
+| [docs/contracts/ADDING-AN-OPERATION.md](docs/contracts/ADDING-AN-OPERATION.md) | The rules of an operation, from Workflow service to CLI command to App runner |
 | [docs/contracts/CLI-EQUIVALENCE.md](docs/contracts/CLI-EQUIVALENCE.md) | Which operations need a `lungfish-cli` equivalent, how a recorded command is tested and replayed, and how parity gaps are pinned and counted |
-| [docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md](docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md) | The reasons behind the checklist boxes, with the leaf-module recipe for a new result viewer and every App touch point it needs today. Read a section only when a checklist box names it |
-| [docs/contracts/analysis-surface-checklist.md](docs/contracts/analysis-surface-checklist.md) | The one path for a new operation with a `lungfish-cli` command and a result surface, in the order a lane works, with a model to copy in each box |
+| [docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md](docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md) | The reasons behind the checklist boxes, with the leaf-module recipe for a new result viewer and each App touch point. Read a section only when a checklist box names it |
+| [docs/contracts/analysis-surface-checklist.md](docs/contracts/analysis-surface-checklist.md) | The one path for a new operation with a `lungfish-cli` command and a result surface, with a model to copy in each box |
 | [docs/contracts/RUNNING-A-TOOL.md](docs/contracts/RUNNING-A-TOOL.md) | Which entry point launches a tool |
 | [docs/contracts/RECORDING-PROVENANCE.md](docs/contracts/RECORDING-PROVENANCE.md) | What a provenance record must hold, which code writes one and how to write one today, why reading never writes, which legacy files are frozen, and what the two writer ratchets count |
 | [docs/contracts/CONCURRENCY-PLAYBOOK.md](docs/contracts/CONCURRENCY-PLAYBOOK.md) | MainActor dispatch, progress callbacks, generation counters and the ratcheted escape hatches |

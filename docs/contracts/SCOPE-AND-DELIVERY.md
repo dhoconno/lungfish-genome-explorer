@@ -1,11 +1,9 @@
 # Scope and delivery
 
 This contract sets which work a Lungfish Genome Explorer (LGE) phase takes on, when that work stops, and how its results
-reach users. Read it before planning or briefing any phase, sub-phase or lane. It comes from the independent audit of
-Phases 1 and 2 of 2026-10-26 (`docs/reports/2026-10-26-phase-1-2-audit/SUMMARY.md`). Two teams of outside experts ran
-that audit on the records, the code and the measured spend, blind to each other and to the expert panel. The review of 2026-11-11
-(`docs/reports/2026-11-11-program-review/SUMMARY.md`) added the rules on structural lanes, truth, scale and session
-size.
+reach users. Read it before planning or briefing any phase, sub-phase or lane. It comes from the audit of Phases 1 and 2
+(`docs/reports/2026-10-26-phase-1-2-audit/SUMMARY.md`) and the program review
+(`docs/reports/2026-11-11-program-review/SUMMARY.md`).
 
 Precedence. The owner's words in chat hold first, then `docs/contracts/OWNER-DIRECTIONS.md`, then this contract, then the
 phase plan, then any other contract. An agent definition or a brief that disagrees with a contract is a defect to fix
@@ -13,12 +11,8 @@ and not a choice.
 
 ## Why it exists
 
-The audit judged about a third of the $12,904 of Phases 1 and 2 essential, a third defensible and a third of low
-value, and no Stable release shipped in that program. Walks of the packaged app found all 13 Stable blockers for under
-5% of the spend, and about 8,400 new test functions found none of them. The review of Phase 3 found the same pattern.
-Wrong numbers and hangs were found by the packaged walk, by BIO measuring against the tool itself and by the owner,
-and by no gate. The decisions this contract replaced are listed in
-`docs/reports/2026-10-26-phase-1-2-audit/REPLACED-DECISIONS.md`.
+Walks of the packaged app, BIO measuring against the tool itself and the owner found the Stable blockers, the wrong
+numbers and the hangs, and no gate or new test found them (E-SAD-1).
 
 ## Stable comes first
 
@@ -33,7 +27,7 @@ and by no gate. The decisions this contract replaced are listed in
 
 ## The standing go
 
-The owner set these on 2026-11-03 (O126). In 3.1 session 2, 20h43m of 55h33m went to waits for the owner, and every go given was a yes. The rules bind a session only when the owner's start prompt or a message in chat gives the go, since a file cannot authorize a send or a publish.
+The owner set these on 2026-11-03 (O126, E-SAD-2). The rules bind a session only when the owner's start prompt or a message in chat gives the go, since a file cannot authorize a send or a publish.
 
 | Rule | What it means |
 |---|---|
@@ -71,7 +65,7 @@ A structural change (a move, a split, a new target, a ratchet lowered) is never 
 
 | Rule | What it means |
 |---|---|
-| One backlog | Open rows live in two files, each row with its effect on results or users. `docs/plans/BACKLOG.md` holds at most 80 KB. It opens with a section Results and data that holds every open S1, S2 and probe row, and goes on with the section of the phase now and the section of the next phase. Its header carries a `Phase now` line with the number of the phase now. Every other open row lives in `docs/plans/backlog-later.tsv`, one row a line, with the tab separated columns id, severity, field, effect, source, phase_filed and keep, and no agent reads that file whole. A review files a row only for an S1, an S2, or an S3 that names what a person sees. An S4 finding and an edge case nobody met stay in the review file. A row that is done is deleted in the landing that closes it, and that commit is its record. At each phase close a row left unscheduled for two phases closes unless it changes results, loses data, crashes or hangs, and `keep` records which of results, data, crash or hang protects a later row. `scripts/checks/backlog.py` holds the caps and these rules, and the pre-push hook runs it. A plan holds only its own rows and no Moved out table. |
+| One backlog | Open rows live in two files, each row with its effect on results or users. `docs/plans/BACKLOG.md` holds at most 80 KB. It opens with a section Results and data that holds every open S1, S2 and probe row, and goes on with the section of the phase now and the section of the next phase. Its header carries a `Phase now` line with the number of the phase now. Every other open row lives in `docs/plans/backlog-later.tsv`, one row a line, and no agent reads that file whole. A review files a row only for an S1, an S2, or an S3 that names what a person sees. An S4 finding and an edge case nobody met stay in the review file. A row that is done is deleted in the landing that closes it, and that commit is its record. At each phase close a row left unscheduled for two phases closes unless it changes results, loses data, crashes or hangs, and `keep` records which of results, data, crash or hang protects a later row. `scripts/checks/backlog.py` holds the caps, the columns and these rules, and the pre-push hook runs it. A plan holds only its own rows and no Moved out table. |
 | Severity, not votes | Each finding gets a severity from the table below. BIO sets it for anything that touches a scientific number, and no vote lowers an S1. UX sets it for everything else, and the owner settles a dispute. S1 and S2 block Stable. S3 and S4 go to the backlog with no vote. A rating that depends on a measurement is written `S? probe`. The next phase runs its probe in a lane of at most 40 calls, or BIO rates the row as if the condition holds, and no row keeps `S? probe` for two phases. |
 | Bounded reviews | A lane review returns its blockers and at most three should-fix items. A blocker is a wrong result, data loss, a crash, a security hole, a broken build, an S1 or S2 finding or an unmet requirement of the brief. Every other finding goes to the backlog. A lane gets one review from the field it changes most, and BIO's when a number, a file a scientist exports or a record changes, and never more than two unless a ruling names the risk. A commit that prints `PURE-MOVE OK` gets no review by an agent. ARCH reviews no single lane and reads once a wave any commit that edits `Package.swift` or widens access. UX reads a session's new words in one read at the notes step. |
 | Upstream defects | A defect inside a third-party tool gets a retry where one helps and a Known limit, not a study. A Known limit that the app reports in words is not an open S1 or S2 finding. |
@@ -92,7 +86,7 @@ Ordinary sizes are 20 M read pairs, 20,000 FASTA records, a reference of 3,000 s
 |---|---|
 | Science is pinned byte for byte | Byte goldens cover scientific payloads (reads, alignments, counts, calls and sorted tables) and the record facts of the methods minimum. A scientific golden moves only with a BIO note that names the change. |
 | Everything else is checked by meaning | Help text gets a parse test and the CLI event stream a schema test, not byte captures. Words a person reads may change when the change makes them clearer. A pin of wording, layout or source text goes when the move it guarded lands. |
-| Pins before a change are for science | Old behaviour is pinned before a change only when it is scientific output. A science pin needs BIO's word that the pinned behaviour is right, since `38ae07de8` pinned a broken pooled mapping for nine days. |
+| Pins before a change are for science | Old behaviour is pinned before a change only when it is scientific output. A science pin needs BIO's word that the pinned behaviour is right (E-SAD-3). |
 | Truth probes | Every operation family that makes a scientific number has one probe, namely a small public input, the number LGE reports through `lungfish-cli`, and the same number from the tool run directly or from an independent count. BIO owns the list, and a new operation lands with its probe. A comparison of the screen with `lungfish-cli` is a display check and not a truth check. |
 | The truth sweep | Each phase BIO names two tool families that no lane read in the last two phases. One lane a family runs the tool by hand on a real public data set with real-shaped inputs and compares every number the app shows and exports with the tool's own files. Each difference is a finding with its severity. |
 | Each science fix adds an input | A fixed science defect adds its smallest failing input, with the numbers taken from the tool run directly. |
