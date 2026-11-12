@@ -27,7 +27,7 @@ Read only the rows of the draft plan that your field owns. Write `SCR/challenge/
 Cast a vote only on an OBJECT that a second field opposes, at this same effort (E-EP-6). The majority, an abstention and a tie follow EP, section Rulings and disputes.
 
 ## Limits
-Count every tool call singly. Write your file by 50 calls and stop at 70. Keep every turn under 4 minutes, and write a file in parts, one Write of at most 4,000 characters, then Edits of at most 4,000 characters each. Run one command a call with literal paths, and run git from your own directory, never `git -C` or a `cd` into another worktree. Batch independent reads in one message, by line range, once.
+Count every tool call singly. A round 1 inventory writes its file by 50 calls and stops at 60. A round 2 challenge stops at 25. Keep every turn under 4 minutes, and write a file in parts, one Write of at most 4,000 characters, then Edits of at most 4,000 characters each. Run one command a call with literal paths, and run git from your own directory, never `git -C` or a `cd` into another worktree. Batch independent reads in one message, by line range, once.
 
 ## Report
 Open your report with the model and effort that the first line of your prompt names. Then send a final message under 100 words with the verdict or vote and the path.
