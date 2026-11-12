@@ -311,8 +311,10 @@ public struct PrimerSchemeResultsDocument: Codable, Equatable, Sendable {
         let oligoByID = Dictionary(uniqueKeysWithValues: target.oligos.map { ($0.id, $0) })
         for assay in target.assays {
             let members = Set(assay.memberIDs)
+            // The requested size range is a search target of both engines and neither enforces it on
+            // the amplicons it writes, so the adapter reports an amplicon outside it as a warning
+            // and this check keeps the scheme. The bounds parameters stay until the next cleanup.
             guard assay.start >= 0, assay.end > assay.start, assay.end <= target.referenceLength,
-                  (minimumAmpliconLength...maximumAmpliconLength).contains(assay.end - assay.start),
                   !members.isEmpty, members.count == assay.memberIDs.count,
                   members.isSubset(of: oligoIDs), assay.rank.map({ $0 >= 0 }) ?? true,
                   assay.pool.map({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? true,
