@@ -96,12 +96,13 @@ extension AppDelegate {
 }
 
 extension AppMemoryGuard.Actions {
-    /// The app's operations, its open viewers and an alert.
+    /// The app's operations, its open viewers and an alert. A row with no cancel callback is left out, since
+    /// `OperationCenter.cancel(id:)` returns at once for it and the words must not say LGE stopped it.
     static var live: AppMemoryGuard.Actions {
         AppMemoryGuard.Actions(
             runningOperations: {
                 OperationCenter.shared.activeItems
-                    .filter { $0.state == .running || $0.state == .waiting }
+                    .filter { $0.state == .running && $0.onCancel != nil }
                     .map { AppMemoryGuard.RunningOperation(id: $0.id, title: $0.title) }
             },
             cancelOperation: { id, words in

@@ -6,9 +6,11 @@ import Foundation
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
+import LungfishKit
 
 /// The guard reads the footprint through an injected reader and acts through injected actions, so these tests set a
-/// footprint over the share, allocate nothing and touch no shared `OperationCenter`.
+/// footprint over the share, allocate nothing and touch no shared `OperationCenter`, except the one test of the
+/// live reader of running operations, which begins two rows of its own and completes them.
 @MainActor
 final class AppMemoryGuardTests: XCTestCase {
     private let sixteenGB: UInt64 = 16 << 30
@@ -120,5 +122,24 @@ final class AppMemoryGuardTests: XCTestCase {
         XCTAssertTrue(recorder.cancelled.isEmpty)
         XCTAssertEqual(recorder.loadCancels, 0)
         XCTAssertTrue(recorder.presented.isEmpty)
+    }
+
+    /// `OperationCenter.cancel(id:)` returns at once for a row with no cancel callback, so the live reader leaves such
+    /// a row out and the words never say LGE stopped something that keeps running (MEM-WORDS review SF1).
+    func testLiveReaderNamesOnlyRowsThatHaveACancelCallback() {
+        let center = OperationCenter.shared
+        let stoppable = center.begin(
+            title: "MEMTEST stoppable", detail: "Running", operationType: .download, cliCommand: nil, onCancel: {}
+        ).rowID
+        let fixed = center.begin(
+            title: "MEMTEST fixed", detail: "Running", operationType: .download, cliCommand: nil
+        ).rowID
+        defer {
+            center.complete(id: stoppable, detail: "Done")
+            center.complete(id: fixed, detail: "Done")
+        }
+        let titles = AppMemoryGuard.Actions.live.runningOperations().map(\.title)
+        XCTAssertTrue(titles.contains("MEMTEST stoppable"), "\(titles)")
+        XCTAssertFalse(titles.contains("MEMTEST fixed"), "\(titles)")
     }
 }
