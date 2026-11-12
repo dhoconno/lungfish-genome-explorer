@@ -3,9 +3,10 @@ import Foundation
 /// The lineage-assignment tools whose per-sample tables a Viral Recon run
 /// leaves behind, and how to tell which tool wrote a given file.
 ///
-/// viralrecon names Pangolin's table `<sample>.pangolin.csv` and Freyja's
-/// `<sample>.demix.tsv`, but Nextclade's is plain `<sample>.csv`: only its
-/// folder (`.../consensus/bcftools/nextclade/`) says which tool produced it.
+/// viralrecon names Pangolin's table `<sample>.pangolin.csv`, but Nextclade's
+/// is plain `<sample>.csv` and Freyja's plain `<sample>.tsv`: only their
+/// folders (`.../consensus/bcftools/nextclade/`, `variants/freyja/demix/`)
+/// say which tool produced them.
 /// The Inspector catalogue used to label rows by file name alone, so the
 /// Nextclade row was shown under its bare file name.
 public enum ViralReconLineageTool: String, Sendable, Equatable, CaseIterable {
@@ -87,13 +88,30 @@ public enum ViralReconLineageTool: String, Sendable, Equatable, CaseIterable {
     }
 }
 
-extension ViralReconResultInventory {
-    /// Whether a per-sample output file belongs to `sampleName`: viralrecon
-    /// names every per-sample table `<sample>.<...>`, so a file belongs to a
-    /// sample when its name is the sample or starts with `<sample>.` (a
-    /// bare prefix match would hand `S10`'s files to `S1`).
-    public static func fileBelongs(toSample sampleName: String, _ url: URL) -> Bool {
-        let name = url.lastPathComponent
-        return name == sampleName || name.hasPrefix("\(sampleName).")
+extension ViralReconLineageTool {
+    /// The results folder, under the results directory, that holds this
+    /// tool's per-sample tables in an Illumina run of viralrecon 3.0.0.
+    public var resultsFolder: String {
+        switch self {
+        case .pangolin: return "variants/ivar/consensus/bcftools/pangolin"
+        case .nextclade: return "variants/ivar/consensus/bcftools/nextclade"
+        case .freyja: return "variants/freyja/demix"
+        }
+    }
+
+    /// The one file name this tool's table has for `sampleName` in viralrecon
+    /// 3.0.0: Pangolin's `--outfile ${prefix}.pangolin.csv`, Nextclade's
+    /// published `${prefix}.csv` and Freyja demix's `--output ${prefix}.tsv`,
+    /// where the prefix is the sample's id.
+    ///
+    /// A table belongs to a sample only when its name is exactly this. A
+    /// prefix match on `<sample>.` handed `S1` the tables of `S1.1`, a name
+    /// viralrecon accepts (trust session FIX-VR, F2).
+    public func tableFileName(forSample sampleName: String) -> String {
+        switch self {
+        case .pangolin: return "\(sampleName).pangolin.csv"
+        case .nextclade: return "\(sampleName).csv"
+        case .freyja: return "\(sampleName).tsv"
+        }
     }
 }

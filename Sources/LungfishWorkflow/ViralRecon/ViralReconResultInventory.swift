@@ -54,18 +54,19 @@ public struct ViralReconResultInventory: Sendable, Equatable {
         let consensus = existing("\(consensusRoot)/\(sampleName).consensus.fa")
 
         // The lineage folders hold one table per sample of the whole batch
-        // (`<sample>.pangolin.csv`, Nextclade's bare `<sample>.csv`,
-        // `<sample>.demix.tsv`), so only this sample's tables are taken;
-        // copying the folders wholesale gave every sample every sample's
-        // lineage files.
+        // (`<sample>.pangolin.csv`, Nextclade's bare `<sample>.csv`, Freyja's
+        // bare `<sample>.tsv`), so only the table named for this sample is
+        // taken. Copying the folders wholesale gave every sample every
+        // sample's tables, and a match on the prefix `<sample>.` gave `S1`
+        // the tables of `S1.1`.
         var lineage: [URL] = []
-        for relative in ["\(consensusRoot)/pangolin", "\(consensusRoot)/nextclade", "variants/freyja/demix"] {
-            let directory = resultsDirectory.appendingPathComponent(relative, isDirectory: true)
-            let contents = (try? fileManager.contentsOfDirectory(at: directory,
-                                                                includingPropertiesForKeys: nil)) ?? []
-            lineage.append(contentsOf: contents.filter {
-                !$0.hasDirectoryPath && fileBelongs(toSample: sampleName, $0)
-            })
+        for tool in ViralReconLineageTool.allCases {
+            let relative = "\(tool.resultsFolder)/\(tool.tableFileName(forSample: sampleName))"
+            var isDirectory: ObjCBool = false
+            let url = resultsDirectory.appendingPathComponent(relative)
+            if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue {
+                lineage.append(url)
+            }
         }
 
         var reports: [URL] = []

@@ -48,19 +48,21 @@ final class ViralReconResultInventoryTests: XCTestCase {
         let consensusRoot = "variants/ivar/consensus/bcftools"
         try makeFile("\(consensusRoot)/pangolin/S10.pangolin.csv")
         try makeFile("\(consensusRoot)/nextclade/S10.csv")
-        try makeFile("variants/freyja/demix/S1.demix.tsv")
-        try makeFile("variants/freyja/demix/S10.demix.tsv")
+        // Freyja demix writes `--output ${prefix}.tsv` in viralrecon 3.0.0
+        // (modules/nf-core/freyja/demix/main.nf), not `<sample>.demix.tsv`.
+        try makeFile("variants/freyja/demix/S1.tsv")
+        try makeFile("variants/freyja/demix/S10.tsv")
 
         let s1 = ViralReconResultInventory.discover(in: root, sampleName: "S1")
         XCTAssertEqual(
             s1.lineageFiles.map(\.lastPathComponent).sorted(),
-            ["S1.csv", "S1.demix.tsv", "S1.pangolin.csv"]
+            ["S1.csv", "S1.pangolin.csv", "S1.tsv"]
         )
 
         let s10 = ViralReconResultInventory.discover(in: root, sampleName: "S10")
         XCTAssertEqual(
             s10.lineageFiles.map(\.lastPathComponent).sorted(),
-            ["S10.csv", "S10.demix.tsv", "S10.pangolin.csv"]
+            ["S10.csv", "S10.pangolin.csv", "S10.tsv"]
         )
     }
 
