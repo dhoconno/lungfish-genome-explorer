@@ -64,6 +64,10 @@ elif args[:2] == ["provenance", "export"]:
     body.write_text(json.dumps({"id": str(uuid.uuid4()), "exportedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
                                 "folder": str(out), "appVersion": f"Lungfish {VERSION} ({BUILD})",
                                 "source": record}, indent=2) + "\\n")
+    # The real exporter also copies the source records to a name under external/ that holds their full path.
+    copy = out / "external" / str(source.parent).removeprefix("/private").lstrip("/")
+    copy.mkdir(parents=True)
+    (copy / "note.txt").write_text("copied\\n")
     files = [{"role": "input", "path": str(source), "checksumSHA256": digest(source), "fileSize": source.stat().st_size},
              {"role": "output", "path": str(body), "checksumSHA256": digest(body), "fileSize": body.stat().st_size}]
     (out / "record.json").write_text(json.dumps({"files": files}, indent=2, sort_keys=True) + "\\n")
