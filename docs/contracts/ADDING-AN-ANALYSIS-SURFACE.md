@@ -4,7 +4,7 @@ This contract binds all new result surfaces in Lungfish Genome Explorer (LGE). P
 
 An analysis surface is everything a user sees for one kind of result. It has a result type on disk, a viewport that shows it, Inspector sections, a sidebar entry, row commands, and the operations that produce it. Each operation follows `docs/contracts/ADDING-AN-OPERATION.md`. This document covers the rest.
 
-New surface code lives in a leaf UI module that exports a surface factory, and the App registers it with one line. The hand edits that remain in LungfishApp are listed with their files under "Touch points that exist today". The last section walks the whole recipe for RNA-seq. The copyable per-surface checklist is `docs/contracts/analysis-surface-checklist.md`.
+New surface code lives in a leaf UI module that exports a surface factory, and the App registers it with one line. The hand edits that remain in LungfishApp are listed with their files under "Touch points that exist today". The last section walks the whole recipe for RNA-seq. The one path for a new operation and surface is `docs/contracts/analysis-surface-checklist.md`, and each of its boxes names the section of this contract that explains it.
 
 ## The leaf-module recipe
 
@@ -16,7 +16,7 @@ Declare the leaf in `Package.swift` next to `LungfishTwelveSUI`. A leaf depends 
 
 ### 2. Domain code and result type
 
-Scientific logic and the on-disk result type do not belong in the leaf. Put the computation in a domain folder under `Sources/LungfishWorkflow/` and the result reader in LungfishIO or the domain, so the CLI can produce and read the same result. Phase 4d turns domains into separate targets, and code moves when its target exists. A leaf reads results and presents them. It never runs a tool.
+Scientific logic and the on-disk result type do not belong in the leaf. Put the computation in a domain folder under `Sources/LungfishWorkflow/` and the result reader in LungfishIO or the domain, so the CLI can produce and read the same result. A folder whose types no other Workflow folder names can become its own target, as TwelveS did in `LungfishWorkflowTwelveS`. A leaf reads results and presents them. It never runs a tool.
 
 ### 3. Viewport class, surface and registration
 
@@ -36,7 +36,7 @@ Add a feature entry to `docs/user-manual/features.yaml` that names every source 
 
 ### 6. Notifications and window scope
 
-A new surface avoids new `Notification.Name` declarations, because Phase 3c replaces them with typed events. When one is unavoidable, follow these rules from finding R9. Several project windows can be open at once, and an event that reaches the wrong window changes that window's Inspector, selection or display.
+A new surface avoids new `Notification.Name` declarations. When one is unavoidable, follow these rules from finding R9. Several project windows can be open at once, and an event that reaches the wrong window changes that window's Inspector, selection or display.
 
 1. Classify the name in `ScopedEventFilter.classifications` in `Sources/LungfishKit/ScopedEventFilter.swift`. A window event changes the state of one project window, such as a selection, an Inspector request or a viewer display setting. An application event concerns the whole app, such as a saved preference, a managed resource change or an operation finishing. `ScopedEventClassificationTests` in `Tests/LungfishKitTests` fails until the name is classified.
 2. Post a window event with the window's scope. Build the payload with `ScopedEventFilter.scopedUserInfo` and the scope the App handed the poster. A view that a container embeds without a scope uses `ScopedEventFilter.hostingWindowScope` to find the scope of the window that shows it. A window event posted without a scope reaches no window.
@@ -67,26 +67,26 @@ Not every table reads the registry yet. The touch point table below says which r
 
 ## Touch points that exist today
 
-Since Phase 3.2 a new surface adds no viewer slot, no drawer arm and no hide method. It still edits the files below. A missed row does not fail the build. It shows up as a stale viewport, a gearshape icon, a generic Inspector tab or a hidden result. The phase column names the program task that retires each row.
+Since Phase 3.2 a new surface adds no viewer slot, no drawer arm and no hide method. It still edits the files below. A missed row does not fail the build. It shows up as a stale viewport, a gearshape icon, a generic Inspector tab or a hidden result.
 
-| Touch point | File | What to add | Retired by |
-|---|---|---|---|
-| Sidebar kind | `Sources/LungfishIO/Bundles/SidebarKindRegistry.swift` | one `SidebarKindDescriptor`, added with `SidebarKindRegistry.register` as a `.registeredBundle` row. A built-in row type instead adds a `SidebarRowType` case, its `SidebarItemType` case in `Sources/LungfishApp/Views/Sidebar/SidebarItem.swift` and that case's arms in the color and grouping switches there | Done in 3.2 for a registered kind |
-| Content routing | `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+SidebarKindRoute.swift` | nothing for a `.registeredBundle` kind, which opens the viewport its descriptor names through `surfaceHost`. A built-in row type adds its arm in `displaySidebarKind` | Done in 3.2 for a registered kind |
-| Classifier routing, if the result is a classifier | `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift` and `Sources/LungfishApp/Views/MainWindow/ClassifierDatabaseRouter.swift` | a `routeClassifierDisplay(url:)` arm and a `toolDefinitions` row naming the analysis id and its database file. The router reads the display name and `buildDatabaseToken` from the descriptor | Phase 3b |
-| Universal search, if the result is indexed | `Sources/LungfishIO/Search/ProjectUniversalSearchModels.swift` | a `ProjectUniversalSearchResultKind` case with its stored kind, analysis id, CLI group and sidecar file, so `type:` queries and folder recognition find it | Phase 3b |
-| Surface registration | `Sources/LungfishApp/Views/Viewer/ViewerViewController+Surfaces.swift` | one `register` line in `makeSurfaceRegistry()` | stays |
-| Display method | a new `ViewerViewController+<Name>.swift` in `Sources/LungfishApp/Views/Viewer/` | the display method of recipe step 3, which starts with `clearSurfaceForNewContent()` and ends in `showSurface(_:input:as:)` | stays |
-| Inspector document | `Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift` | an update method like `updateTwelveSAmpliconResultDocument` | Phase 3a, sections come from the viewport |
-| Tools menu and FASTQ dialog, if the operation reads FASTQ | `Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift`, `Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift` and `Sources/LungfishApp/Views/FASTQ/FASTQOperationsCatalog.swift` | a `FASTQOperationToolID` case with its arms and a `toolIDs(for:)` entry, never a menu item by hand. The full list is in "What a new FASTQ-input tool adds" in `docs/contracts/ADDING-AN-OPERATION.md` | Phase 3d `OperationLauncher` |
-| Provenance policy | `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift` | the CLI command and every new `NativeTool` case, or the coverage test fails and the tool refuses to run | stays |
-| Launch glue | an `AppDelegate+<Area>.swift` file in `Sources/LungfishApp/App/` or an `InspectorViewController+<Area>.swift` file in `Sources/LungfishApp/Views/Inspector/` | the dialog presentation and the operation launcher | Phase 2d executor and Phase 3d `OperationLauncher` |
-| Inspector tab after an import | `Sources/LungfishIO/Bundles/SidebarKindRegistry.swift` | `inspectorTab: .setByViewer` on the kind's descriptor if the result keeps the tab its viewer sets. `AppDelegate` reads it through `inspectorTab(afterImportOf:)` | Done in 3.2 |
-| Analyses folder recognition | `Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift` and `Sources/LungfishIO/Bundles/AnalysesFolder.swift` | the descriptor, as "Adding an analysis kind" says. `knownTools` and `displayName(for:)` derive from it. A `probeToolType(in:)` signature is still a hand edit | A later sub-phase |
-| Sidebar scan | `Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift` | arms in `buildAnalysisNode` and for batches `classifierBatchSubtitle(for:)`. A bundle's extension, `analysisItemType(for:)`, `analysisIcon(for:)` and `classifierBatchBadge(for:)` read the registries and need no arm | Phase 3b |
-| Tool availability | `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json` and the Swift files that "Adding a managed tool" in `docs/contracts/RUNNING-A-TOOL.md` names | each step of that section, whose tests fail until it exists | stays |
-| Notifications | `Sources/LungfishCore/Models/Notifications.swift` and `Sources/LungfishKit/ScopedEventFilter.swift` | avoid new names. If one is unavoidable, classify it and scope it as step 6 of the recipe says | Phase 3c typed events |
-| Module wiring | `Package.swift` | the leaf, its product, its test target, and the LungfishApp dependency | stays |
+| Touch point | File | What to add |
+|---|---|---|
+| Sidebar kind | `Sources/LungfishIO/Bundles/SidebarKindRegistry.swift` | one `SidebarKindDescriptor`, added with `SidebarKindRegistry.register` as a `.registeredBundle` row. A built-in row type instead adds a `SidebarRowType` case, its `SidebarItemType` case in `Sources/LungfishApp/Views/Sidebar/SidebarItem.swift` and that case's arms in the color and grouping switches there |
+| Content routing | `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+SidebarKindRoute.swift` | nothing for a `.registeredBundle` kind, which opens the viewport its descriptor names through `surfaceHost`. A built-in row type adds its arm in `displaySidebarKind` |
+| Classifier routing, if the result is a classifier | `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift` and `Sources/LungfishApp/Views/MainWindow/ClassifierDatabaseRouter.swift` | a `routeClassifierDisplay(url:)` arm and a `toolDefinitions` row naming the analysis id and its database file. The router reads the display name and `buildDatabaseToken` from the descriptor |
+| Universal search, if the result is indexed | `Sources/LungfishIO/Search/ProjectUniversalSearchModels.swift` | a `ProjectUniversalSearchResultKind` case with its stored kind, analysis id, CLI group and sidecar file, so `type:` queries and folder recognition find it |
+| Surface registration | `Sources/LungfishApp/Views/Viewer/ViewerViewController+Surfaces.swift` | one `register` line in `makeSurfaceRegistry()` |
+| Display method | a new `ViewerViewController+<Name>.swift` in `Sources/LungfishApp/Views/Viewer/` | the display method of recipe step 3, which starts with `clearSurfaceForNewContent()` and ends in `showSurface(_:input:as:)` |
+| Inspector document | `Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift` | an update method like `updateTwelveSAmpliconResultDocument` |
+| Tools menu and FASTQ dialog, if the operation reads FASTQ | `Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift`, `Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift` and `Sources/LungfishApp/Views/FASTQ/FASTQOperationsCatalog.swift` | a `FASTQOperationToolID` case with its arms and a `toolIDs(for:)` entry, never a menu item by hand. The full list is in "What a new FASTQ-input tool adds" in `docs/contracts/ADDING-AN-OPERATION.md` |
+| Provenance policy | `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift` | the CLI command and every new `NativeTool` case, or the coverage test fails and the tool refuses to run |
+| Launch glue | an `AppDelegate+<Area>.swift` file in `Sources/LungfishApp/App/` or an `InspectorViewController+<Area>.swift` file in `Sources/LungfishApp/Views/Inspector/` | the dialog presentation and the operation launcher |
+| Inspector tab after an import | `Sources/LungfishIO/Bundles/SidebarKindRegistry.swift` | `inspectorTab: .setByViewer` on the kind's descriptor if the result keeps the tab its viewer sets. `AppDelegate` reads it through `inspectorTab(afterImportOf:)` |
+| Analyses folder recognition | `Sources/LungfishIO/Analysis/AnalysisToolRegistry.swift` and `Sources/LungfishIO/Bundles/AnalysesFolder.swift` | the descriptor, as "Adding an analysis kind" says. `knownTools` and `displayName(for:)` derive from it. A `probeToolType(in:)` signature is still a hand edit |
+| Sidebar scan | `Sources/LungfishApp/Views/Sidebar/SidebarProjectScanner.swift` | arms in `buildAnalysisNode` and for batches `classifierBatchSubtitle(for:)`. A bundle's extension, `analysisItemType(for:)`, `analysisIcon(for:)` and `classifierBatchBadge(for:)` read the registries and need no arm |
+| Tool availability | `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json` and the Swift files that "Adding a managed tool" in `docs/contracts/RUNNING-A-TOOL.md` names | each step of that section, whose tests fail until it exists |
+| Notifications | `Sources/LungfishCore/Models/Notifications.swift` and `Sources/LungfishKit/ScopedEventFilter.swift` | avoid new names. If one is unavoidable, classify it and scope it as step 6 of the recipe says |
+| Module wiring | `Package.swift` | the leaf, its product, its test target, and the LungfishApp dependency |
 
 ## RNA-seq, the reference surface
 
@@ -94,19 +94,19 @@ RNA-seq is the first surface the program builds on the finished contracts. It co
 
 ### Prerequisites that must exist first
 
-This section dates from 2026-10-02 and no longer binds. The route, the stages and the prerequisites of RNA-seq are set by `docs/plans/2026-10-02-architecture-program.md` under The trust session and Phase 5, and lane SURFACE-RECIPE of that plan rewrites this section. Phase 4 dropped the TrackRenderer protocol and the empty LungfishRNASeq target named below, and no lane waits for them. The science rules further down still hold (contig names are never renamed, the library type is explicit and recorded, TPM is never DE input, no test runs without replicates).
+This section dates from 2026-10-02 and no longer binds. The route, the stages and the prerequisites of RNA-seq are set by `docs/plans/2026-10-02-architecture-program.md` under The trust session and Phase 5, and lane SURFACE-RECIPE of that plan rewrites this section. Phase 4 dropped the TrackRenderer protocol and the empty LungfishRNASeq target, and no lane waits for them. The science rules further down still hold (contig names are never renamed, the library type is explicit and recorded, TPM is never DE input, no test runs without replicates).
 
-| Prerequisite | Why RNA-seq needs it | Program task |
-|---|---|---|
-| `ReferenceIndexCache` keyed by reference checksum, annotation checksum, tool, tool version and index parameters | A STAR index for a human-sized genome takes about 30 GB of disk and about an hour to build. Today mapper indexes are rebuilt per run inside the output folder (`Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift`). | Phase 5a (R17) |
-| An annotation input type with a checksum and contig-name validation against the FASTA | A GTF from a different build or naming scheme silently produces zero or wrong counts. `Sources/LungfishIO/Formats/GFF/GTFReader.swift` reads GTF, but no request type carries one. | Phase 5b (R17) |
-| `CountMatrix`, `ExperimentDesign` and a recorded strandedness value | featureCounts, salmon and DE must share one matrix and one sample sheet, and the strandedness used must be in provenance. | Phase 5c (R17) |
-| Resource classes with admission that blocks or queues, and an R activation profile | STAR genome generation needs about 32 GB of RAM for a human-sized genome and can run for hours. `CondaManager.runTool` in `Sources/LungfishWorkflow/Conda/CondaManager.swift` has no time limit by default. R needs `R_HOME`, an isolated `R_LIBS` and no user `~/.Rprofile`. | Phase 5d (R17) |
-| Tool descriptor registry, run executor, operation launcher, envelope-only provenance, `ResultViewport` and `TrackRenderer` | Without them the surface repeats every touch point above. The `rna-seq` plugin pack in `Sources/LungfishWorkflow/Conda/PluginPack.swift` lists packages, but the lock manifest has no RNA-seq entries yet. | Phases 2c, 2d, 2b, 3a, 3d and 4c, plus the empty LungfishRNASeq target from Phase 4d |
+| Prerequisite | Why RNA-seq needs it |
+|---|---|
+| `ReferenceIndexCache` keyed by reference checksum, annotation checksum, tool, tool version and index parameters | A STAR index for a human-sized genome takes about 30 GB of disk and about an hour to build. Today mapper indexes are rebuilt per run inside the output folder (`Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift`). |
+| An annotation input type with a checksum and contig-name validation against the FASTA | A GTF from a different build or naming scheme silently produces zero or wrong counts. `Sources/LungfishIO/Formats/GFF/GTFReader.swift` reads GTF, but no request type carries one. |
+| `CountMatrix`, `ExperimentDesign` and a recorded strandedness value | featureCounts, salmon and DE must share one matrix and one sample sheet, and the strandedness used must be in provenance. |
+| Resource classes with admission that blocks or queues, and an R activation profile | STAR genome generation needs about 32 GB of RAM for a human-sized genome and can run for hours. `CondaManager.runTool` in `Sources/LungfishWorkflow/Conda/CondaManager.swift` has no time limit by default. R needs `R_HOME`, an isolated `R_LIBS` and no user `~/.Rprofile`. |
+| A lock entry for each RNA-seq tool | The `rna-seq` plugin pack in `Sources/LungfishWorkflow/Conda/PluginPack.swift` lists packages, and a managed tool needs its lock entry as "Adding a managed tool" in `docs/contracts/RUNNING-A-TOOL.md` says. |
 
 ### Targets and commands
 
-LungfishRNASeq is the RNA-seq domain target. Phase 4d creates it empty when it splits LungfishWorkflow into domain targets, and Phase 5e builds the surface in it, so RNA-seq code never starts as a folder under `Sources/LungfishWorkflow/`. Any other new domain is still a folder there until Phase 4d. LungfishRNASeq holds request types, pipelines, the count-matrix builder and the DE runner, with no AppKit. LungfishRNASeqUI is a leaf on LungfishKit that holds the viewports, Inspector sections and row commands. The CLI gets one command group with a subcommand per stage (index, align, quant, count, de). Each subcommand is a complete operation under `docs/contracts/ADDING-AN-OPERATION.md`, so a user can rerun any stage from the copied command.
+RNA-seq code belongs in a domain target, LungfishRNASeq, and a leaf on LungfishKit, LungfishRNASeqUI. Neither exists today. SwiftPM wants a source file in every target, so each is created with its first code in it. LungfishRNASeq holds request types, pipelines, the count-matrix builder and the DE runner, with no AppKit. LungfishRNASeqUI holds the viewports, Inspector sections and row commands. The CLI gets one command group with a subcommand per stage (index, align, quant, count, de). Each subcommand is a complete operation under `docs/contracts/ADDING-AN-OPERATION.md`, so a user can rerun any stage from the copied command.
 
 ### Stage 1. Reference index build
 
@@ -144,7 +144,7 @@ DE input is raw integer counts, or salmon estimated counts imported with transcr
 
 ### Stage 6. Splice-aware viewing
 
-The viewer adds a junction track built from the aligner's junction output or from CIGAR `N` operations, with counts split into uniquely and multiply mapped reads and a flag for annotated junctions. Coverage never counts CIGAR `N` skips or `D` deletions, which `Sources/LungfishWorkflow/ViewerExport/Graphics/ReadTrackRenderer.swift` already respects. Strand-specific coverage uses the recorded strandedness of each sample, so a reverse-stranded read 1 counts toward the opposite strand. Junction arcs and sashimi plots arrive as a `TrackRenderer` in the genome browser leaf from Phase 4c, not as new branches in the read renderer.
+The viewer adds a junction track built from the aligner's junction output or from CIGAR `N` operations, with counts split into uniquely and multiply mapped reads and a flag for annotated junctions. Coverage never counts CIGAR `N` skips or `D` deletions, which `Sources/LungfishWorkflow/ViewerExport/Graphics/ReadTrackRenderer.swift` already respects. Strand-specific coverage uses the recorded strandedness of each sample, so a reverse-stranded read 1 counts toward the opposite strand. Junction arcs and sashimi plots get their own renderer type and add no branch to the read renderer.
 
 ### Rules that hold across all six stages
 

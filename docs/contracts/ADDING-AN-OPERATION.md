@@ -126,13 +126,13 @@ A new operation named Foo that writes an `Analyses/` folder touches these places
 | Layer | File |
 |---|---|
 | Request type and service | new `FooRequest` and `FooPipeline` types in a domain folder under `Sources/LungfishWorkflow/` (see "Where a new domain goes" below) |
-| Tool availability | the lock manifest `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`, and either a `NativeTool` case in `Sources/LungfishWorkflow/Native/NativeToolRunner.swift` or a conda environment run through `Sources/LungfishWorkflow/Conda/CondaManager.swift` (Phase 2 replaces both with one tool descriptor). Both launch through `ToolProcess`, and `docs/contracts/RUNNING-A-TOOL.md` says which entry point to use, how cancellation works and how to pin the tool with a golden |
+| Tool availability | the lock manifest `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`, and either a `NativeTool` case in `Sources/LungfishWorkflow/Native/NativeToolRunner.swift` or a conda environment run through `Sources/LungfishWorkflow/Conda/CondaManager.swift`. Both launch through `ToolProcess`, and `docs/contracts/RUNNING-A-TOOL.md` says which entry point to use, how cancellation works and how to pin the tool with a golden |
 | Provenance policy | the CLI command and any `NativeTool` case in `Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift` (Rule 11) |
 | CLI command | a new `FooCommand` in `Sources/LungfishCLI/Commands/`, registered in `Sources/LungfishCLI/LungfishCLI.swift` |
 | Operation type | a case in `OperationType` in `Sources/LungfishKit/OperationCenter.swift` if none fits |
 | GUI runner and launcher, standalone family | a new `CLIFooRunner` in `Sources/LungfishApp/Services/` modeled on `Sources/LungfishApp/Services/CLITreeRunner.swift`, plus a launcher in the owning leaf or App extension (see `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md`) |
 | GUI wiring, FASTQ family | the rows in "What a new FASTQ-input tool adds" above, with no new runner and no hand-written menu item |
-| Result recognition | the tool tables listed in `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md` until Phase 2 replaces them |
+| Result recognition | the touch points table of `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md` |
 | Registry and tests | `docs/user-manual/features.yaml`, plus tests under `Tests/LungfishWorkflowTests`, `Tests/LungfishCLITests` and `Tests/LungfishAppTests` |
 
 ### Smaller touch points that are easy to miss
@@ -146,7 +146,7 @@ A new operation named Foo that writes an `Analyses/` folder touches these places
 
 ### Where a new domain goes
 
-Today a new domain is a folder under `Sources/LungfishWorkflow/`, beside Mapping, Variants and TwelveS. Phase 4d of `docs/plans/2026-10-02-architecture-program.md` splits LungfishWorkflow into a core target and domain targets and creates an empty LungfishRNASeq target. Domain code moves into its target when that target exists. RNA-seq work waits for the Phase 5 prerequisites listed in "Prerequisites that must exist first" in `docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md`.
+A new domain is a folder under `Sources/LungfishWorkflow/`, beside Mapping and Variants. A folder whose types no other Workflow folder names can leave for its own target, as TwelveS did when it became `LungfishWorkflowTwelveS` in `Sources/LungfishWorkflowTwelveS/`. That target imports LungfishWorkflow, and LungfishWorkflow never imports it.
 
 ## The recipe of a new CLI route
 
@@ -287,6 +287,6 @@ Run `python3 scripts/ratchets/unchecked-operation-start.sh`, which stays as a gu
 
 The protocol is in `Sources/LungfishKit/OperationReporting.swift`, the recording reporter in `Tests/Support/LungfishKitTestSupport/RecordingOperationReporter.swift` and the parse helper in `Tests/LungfishAppTests/RecordedCLICommand.swift`.
 
-## What changes later in the program
+## The process primitive and the run executor
 
-Phase 2 added one process primitive, `ToolProcess`, in sub-phase 2.2, and sub-phase 2.4 stopped LGE writing a bare `WorkflowRun` or a run nested in an envelope. The rest of Phase 2 adds a shared run executor that owns the analysis-directory lifecycle. Sub-phase 2.7 rebuilds the `ProvenanceRecorder` actor in `Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift` on `ProvenanceRunBuilder` beside the executor, and the ToolProcess observer hook feeds it. `docs/contracts/RECORDING-PROVENANCE.md` says what each step covers and what is deferred. Phase 3 adds an `OperationSpec` value and an `OperationLauncher` that becomes the only caller of `begin`. When those land, this document is rewritten around them, and the rules above stay true.
+`ToolProcess` is the one process primitive, and LGE writes no bare `WorkflowRun` and no run nested in an envelope. A shared run executor owns the analysis-directory lifecycle of the tools that run as an `AnalysisRunTool`, such as Kraken2 and EsViritu. `docs/contracts/RECORDING-PROVENANCE.md` says what each step covers. Each launch site calls `OperationCenter.begin` itself.

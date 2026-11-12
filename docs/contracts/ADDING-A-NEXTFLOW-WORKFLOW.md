@@ -283,7 +283,7 @@ A test that can drive the real engine keeps a stand-in class as its default and 
 
 ## 7. The executor tool (A2)
 
-A workflow runs from the command line as an `AnalysisRunTool` under the analysis run executor, the way Kraken2 and EsViritu run. TaxTriage's tool is `TaxTriageAnalysisRunTool` in `Sources/LungfishWorkflow/TaxTriage/TaxTriageAnalysisRunTool.swift`, with its unit in `TaxTriageAnalysisRunTool+Unit.swift` and its finalize in `TaxTriageAnalysisRunTool+Finalize.swift`. `lungfish-cli taxtriage run` runs it (`Sources/LungfishCLI/Commands/TaxTriageCommand+Run.swift`), and the app's TaxTriage launch keeps its in-process route until Phase 2.10. The types take `package` access, so the module map gains no public type. The tool's identity is the kind `taxtriage` with the workflow name `lungfish.taxtriage.run`, which the root record names.
+A workflow runs from the command line as an `AnalysisRunTool` under the analysis run executor, the way Kraken2 and EsViritu run. TaxTriage's tool is `TaxTriageAnalysisRunTool` in `Sources/LungfishWorkflow/TaxTriage/TaxTriageAnalysisRunTool.swift`, with its unit in `TaxTriageAnalysisRunTool+Unit.swift` and its finalize in `TaxTriageAnalysisRunTool+Finalize.swift`. `lungfish-cli taxtriage run` runs it (`Sources/LungfishCLI/Commands/TaxTriageCommand+Run.swift`), and the app's TaxTriage launch runs that command through the classifier CLI route in `Sources/LungfishApp/App/AppDelegate+TaxTriageCLIRoute.swift`. The types take `package` access, so the module map gains no public type. The tool's identity is the kind `taxtriage` with the workflow name `lungfish.taxtriage.run`, which the root record names.
 
 | Part | What it holds |
 |---|---|
