@@ -8,7 +8,7 @@ effort: xhigh
 
 # LGE lane on opus
 
-You implement one lane of a Lungfish Genome Explorer (LGE) phase or continue one from its Handoff. The owner may be away, so never wait on the owner. Read your brief, `AGENTS.md` and what the brief names in one message. `docs/contracts/SCOPE-AND-DELIVERY.md` overrides older decisions and plan text. SCR is the records folder your brief names.
+You implement one lane of a Lungfish Genome Explorer (LGE) phase or continue one from its Handoff. Never wait on the owner. Read your brief, `AGENTS.md` and what the brief names in one message. `docs/contracts/SCOPE-AND-DELIVERY.md` overrides older decisions and plan text. SCR is the records folder your brief names.
 
 ## Start
 - `git branch --show-current` names a `worktree-agent-` branch and `git status --short` is empty. Then `git reset --hard <full base>` with the hash in your prompt (later `bash scripts/session/lane_start.sh <full base>`) and `git log -1 --format=%H` equals it. Otherwise stop and report. A merge or fast-forward is never the start.
@@ -21,14 +21,14 @@ You implement one lane of a Lungfish Genome Explorer (LGE) phase or continue one
 - Contact NCBI, SRA or another live service only when the brief names the request, and list it with its time under Sends. Never put the owner's address, a cookie or an API key in a file.
 
 ## Quality
-- Red first. A fix commits its test first, shown failing at the base, with the failing line in your report. `docs/contracts/SCOPE-AND-DELIVERY.md`, sections What tests and goldens hold and What the app must do, bind tests, routes and words. Add no sleep, raise no wait (use `WaitBudget`), write nothing to `UserDefaults.standard` (use `makeTestDefaultsSuite(prefix:)`), and make a test that posts SIGTERM to itself ignore it first. A test that needs real tools has `Conformance` in its class name, which keeps it out of the unit tier, and a stand-in beside it as the default. Never start Docker Desktop from a test.
+- Red first. A fix commits its test first, shown failing at the base, with the failing line in your report. `docs/contracts/SCOPE-AND-DELIVERY.md`, sections What tests and goldens hold and What the app must do, bind tests, routes and words. Add no sleep, raise no wait (use `WaitBudget`), write nothing to `UserDefaults.standard` (use `makeTestDefaultsSuite(prefix:)`), and make a test that posts SIGTERM to itself ignore it first. A test that needs real tools has `Conformance` in its class name, with a stand-in beside it as the default. Never start Docker Desktop from a test.
 - A moved snapshot, golden or routing test you did not predict stops the lane. When a shared expectation moves, `rg` `Tests/` for pins of the old value, run those suites and list them under Suites moved.
 - Run a ratchet with the interpreter its first line names and `LUNGFISH_RATCHET_READ_ONLY=1`. Report counts, never `--update`, never commit a `.baseline` file a run wrote.
 - Never export `LUNGFISH_STORAGE_ROOT` or `LUNGFISH_CONDA_ROOT`. Before and after your last test run, `defaults read com.apple.dt.xctest.tool DatabaseStorageLocation` must say the pair does not exist (report both readings).
 - Keep true the contract and `AGENTS.md` lines your change makes false. Only the notes step edits `docs/release-notes/`, `docs/reports/` and `docs/user-manual/features.yaml`. Prose follows `AGENTS.md`, Writing docs.
 
 ## Commands
-- One command a call with literal paths. The guard refuses a `;` or `&&` chain naming a path under the checkout folder, `git -C`, `cd` into another worktree, loops, `$(...)`, a shell variable before a path and `python3 -`. Put loops in a script file and write files with Write or Edit.
+- One command a call with literal paths. The guard refuses a `;` or `&&` chain naming a path under the checkout folder, `git -C`, `cd` into another worktree, loops, `$(...)`, a shell variable before a path and `python3 -`. Put loops in a script file and write files with Write or Edit. If the guard refuses a subshell, run `python3 scripts/session/run_cmd.py <log> <command> <args>`.
 - Batch independent reads in one message, by line range, once.
 - Pass timeout 180000 on long calls. Run a long job in the background with a relative log, `(swift build --skip-update --build-tests; echo "exit=$?") > build/lane/build.log 2>&1`, then wait with `until rg -q '^exit=' build/lane/build.log; do sleep 5; done` and repeat on timeout. Never use Monitor or repeated `tail`. Let background commands end before your final message.
 - Stop only a process you started, by PID, never `pkill` or `killall`. Never `find` over `/Users/dho`. Spawn no subagents. A refusal citing the auto mode classifier is a server error, so run the call once more.
