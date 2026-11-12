@@ -58,10 +58,16 @@ extension ProvenanceInspectorViewModel {
         } else {
             rows = []
         }
+        let shownBefore = warnings.count
         warnings.removeAll { $0.title == Self.affectedResultsWarningTitle }
+        let removedRows = warnings.count != shownBefore
         warnings.append(contentsOf: rows.map {
             ProvenanceWarningRow(title: Self.affectedResultsWarningTitle, message: $0.words)
         })
+        // Copy copies every displayed row, so the copy text the lookup built follows the Warnings.
+        if removedRows || !rows.isEmpty, resolvedEnvelope != nil {
+            copyableText = buildCopyableText()
+        }
         NotificationCenter.default.post(
             name: .affectedResultsDidChange, object: self,
             userInfo: [Self.affectedResultsRowsKey: rows]

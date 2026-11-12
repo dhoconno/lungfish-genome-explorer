@@ -981,7 +981,7 @@ final class ProvenanceInspectorViewModel {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    private func buildCopyableText() -> String {
+    func buildCopyableText() -> String {
         var sections: [String] = []
 
         sections.append(labeledLines(title: "Run Summary", rows: runSummaryCopyRows))
