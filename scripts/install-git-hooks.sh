@@ -19,6 +19,8 @@
 #     stale (scripts/checks/working-memory-staleness.py, finding R5), then
 #     checks that no comment in Sources, Tests, scripts, agents, .github or .codex cites an audit finding tag,
 #     which would point at a deleted report (scripts/checks/audit-tags.py, finding R5), then
+#     checks that docs/plans/BACKLOG.md and docs/plans/backlog-later.tsv hold their caps and
+#     rules (scripts/checks/backlog.py, docs/contracts/SCOPE-AND-DELIVERY.md, One backlog), then
 #     runs the unit tier of the full-suite gate (scripts/full-suite-gate.sh
 #     --tier unit) before pushing, so the regression gate runs locally on
 #     this fast Apple-Silicon Mac instead of on slow/usage-limited hosted CI.
@@ -236,6 +238,12 @@ fi
 echo "pre-push: checking for audit finding tags in comments (use --no-verify to skip)..."
 if ! python3 "$REPO_ROOT/scripts/checks/audit-tags.py"; then
     echo "pre-push: audit-tags check FAILED (a comment in Sources, Tests, scripts, agents, .github or .codex cites an audit finding tag; rewrite it as a self-contained sentence) — push aborted. Use --no-verify to bypass." >&2
+    exit 1
+fi
+
+echo "pre-push: checking the backlog caps and rules (use --no-verify to skip)..."
+if ! python3 "$REPO_ROOT/scripts/checks/backlog.py"; then
+    echo "pre-push: backlog check FAILED (BACKLOG.md over 80 KB or backlog-later.tsv over 450 KB, a row that begins with Done, Fixed, Closed or Landed, a malformed or repeated row, a row in the wrong file, or a later row two phases old with keep empty; see docs/contracts/SCOPE-AND-DELIVERY.md, One backlog) - push aborted. Use --no-verify to bypass." >&2
     exit 1
 fi
 
