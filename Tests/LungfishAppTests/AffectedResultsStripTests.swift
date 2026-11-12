@@ -48,6 +48,38 @@ final class AffectedResultsStripTests: XCTestCase {
         XCTAssertEqual(strip.frame.width, 640, accuracy: 0.5)
     }
 
+    func testTheStripIsTallForEveryLineOfTheLongestWords() throws {
+        // A wrapping label reports its whole text on one line as its width unless it is told its width
+        // (walk finding NAO-NOTE-WIDENS-WINDOW), so the strip must neither widen the window nor cut a line.
+        let longest = try XCTUnwrap(AffectedResults.rows.map(\.words).max { $0.count < $1.count })
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled, .resizable],
+            backing: .buffered, defer: true
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let (container, surface, _) = container()
+        window.contentView = container
+        AffectedResultsStrip.place(words: longest, above: surface, in: container)
+        window.layoutIfNeeded()
+        container.layoutSubtreeIfNeeded()
+
+        let strip = try XCTUnwrap(AffectedResultsStrip.strip(in: container))
+        let label = strip.label
+        let cell = try XCTUnwrap(label.cell)
+        let tall = CGFloat.greatestFiniteMagnitude
+        let oneLine = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: CGFloat(100_000), height: tall)).height
+        let needed = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: label.frame.width, height: tall)).height
+        XCTAssertEqual(window.frame.width, 800, accuracy: 1, "the strip does not widen the window")
+        XCTAssertEqual(strip.frame.width, 800, accuracy: 1, "the strip spans the viewer")
+        XCTAssertLessThanOrEqual(label.frame.maxX, strip.bounds.width, "the words end inside the strip")
+        XCTAssertGreaterThan(needed, oneLine * 1.5, "the words need more than one line at this width")
+        XCTAssertGreaterThan(label.frame.height, oneLine * 1.5,
+                             "the strip grows past one line, found \(label.frame.height) pt for a line of \(oneLine) pt")
+        XCTAssertGreaterThanOrEqual(label.frame.height, needed - 1,
+                                    "the strip is tall enough for every line, found \(label.frame.height) pt for \(needed) pt")
+    }
+
     func testTheStripIsAbsentForARecordOfAnUnaffectedOrDevBuild() {
         for build in ["Lungfish 2026.11.7 (12972)", "Lungfish 2026.11.7 (dev)"] {
             let (container, surface, top) = container()

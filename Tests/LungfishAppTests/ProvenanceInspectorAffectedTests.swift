@@ -36,6 +36,26 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
                        AffectedResults.rows(forAppVersion: "Lungfish 2026.10.29 (12045)", kind: .taxTriage).count)
     }
 
+    func testTheInspectorOfARootRecordWithTheBareVersionShowsTheSentence() throws {
+        // The root record of a Kraken 2, TaxTriage or EsViritu run names only the version, such as 2026.10.29.
+        let model = model(build: "2026.10.29")
+        model.applyAffectedResults(item: item(.taxTriageResult))
+        let reads = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "TTREADS" })
+        XCTAssertTrue(shown(model).contains(reads.words))
+    }
+
+    func testTheCopyTextHoldsTheAffectedResultRows() throws {
+        let model = model(build: "Lungfish 2026.10.29 (12045)")
+        model.applyAffectedResults(item: item(.taxTriageResult))
+        let reads = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "TTREADS" })
+        XCTAssertTrue(model.copyableText.contains("Affected result: " + reads.words),
+                      "Copy copies every displayed row, the Warnings among them")
+        let fixed = model
+        fixed.resolvedEnvelope = ProvenanceEnvelope.fixture()
+        fixed.applyAffectedResults(item: item(.taxTriageResult))
+        XCTAssertFalse(fixed.copyableText.contains("Affected result"), "rows that went leave the copy text too")
+    }
+
     func testARecordOfAnUnaffectedOrDevBuildShowsNothing() {
         for appVersion in ["Lungfish 2026.11.7 (12972)", "Lungfish 2026.11.7 (dev)", "Lungfish 2026.11.7"] {
             let model = model(build: appVersion)
