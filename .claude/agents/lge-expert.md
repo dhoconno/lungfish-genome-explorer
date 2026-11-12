@@ -1,6 +1,6 @@
 ---
 name: lge-expert
-description: Expert of the Lungfish Genome Explorer panel for inventories, memos, votes, rulings and lane reviews. Spawned by the manager with a brief file and a field. Reads, votes, rules and reviews, never edits code.
+description: Expert of the Lungfish Genome Explorer panel for inventories, memos, votes, rulings and lane reviews. Spawned by the manager with a brief file and a field. Reads, votes, rules and reviews, never edits code. Kept until the process job closes, then removed for the typed agents.
 tools: Bash, Read, Write, Edit
 ---
 

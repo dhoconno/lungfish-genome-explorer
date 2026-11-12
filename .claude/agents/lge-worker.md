@@ -1,6 +1,6 @@
 ---
 name: lge-worker
-description: Lane, continuation, fix and landing worker of a Lungfish Genome Explorer phase session. Spawned by the manager with a brief file, in its own worktree for lanes, continuations and fixes. Implements, fixes or lands one lane as the brief says.
+description: Lane, continuation, fix and landing worker of a Lungfish Genome Explorer phase session. Spawned by the manager with a brief file, in its own worktree for lanes, continuations and fixes. Implements, fixes or lands one lane as the brief says. Kept until the process job closes, then removed for the typed agents.
 tools: Bash, Read, Edit, Write
 ---
 
