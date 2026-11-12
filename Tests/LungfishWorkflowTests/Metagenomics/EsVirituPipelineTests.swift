@@ -687,10 +687,35 @@ final class EsVirituPipelineErrorTests: XCTestCase {
         let stderr = "\u{1B}[93m2026-10-13 14:28:05,600 - INFO - Starting assembly_read_sharing_table...\u{1B}[0m"
         let error = EsVirituPipelineError.esVirituFailed(exitCode: 137, stderr: stderr)
         XCTAssertTrue(error.localizedDescription.contains("ran out of memory"))
-        XCTAssertTrue(error.localizedDescription.contains("137"))
         XCTAssertFalse(error.localizedDescription.contains("assembly_read_sharing_table"))
         XCTAssertEqual(error.logTail, "2026-10-13 14:28:05,600 - INFO - Starting assembly_read_sharing_table...")
         XCTAssertNil(EsVirituPipelineError.esVirituFailed(exitCode: 1, stderr: stderr).logTail)
+    }
+
+    /// A killed run says so through the shared route, with the peak `wait4` read and this Mac's memory, and keeps
+    /// EsViritu's own next step.
+    func testEsVirituKilledDescriptionNamesPeakAndMacMemory() {
+        let peak: UInt64 = 3 << 30
+        let error = EsVirituPipelineError.esVirituFailed(exitCode: 137, stderr: "", peakMemoryBytes: peak)
+        let ram = MemoryWords.bytes(ProcessInfo.processInfo.physicalMemory)
+        XCTAssertEqual(
+            error.localizedDescription,
+            "EsViritu stopped before it finished, most likely because the Mac ran out of memory. "
+                + "It reached 3 GB at its peak on a Mac with \(ram). "
+                + "Deduplicate or subsample the reads, or run the sample on a Mac with more memory."
+        )
+    }
+
+    /// Without a peak the words still name the Mac's memory.
+    func testEsVirituKilledDescriptionWithoutPeak() {
+        let error = EsVirituPipelineError.esVirituFailed(exitCode: 137, stderr: "")
+        let ram = MemoryWords.bytes(ProcessInfo.processInfo.physicalMemory)
+        XCTAssertEqual(
+            error.localizedDescription,
+            "EsViritu stopped before it finished, most likely because the Mac ran out of memory. "
+                + "It ran on a Mac with \(ram). "
+                + "Deduplicate or subsample the reads, or run the sample on a Mac with more memory."
+        )
     }
 
     func testEsVirituNotInstalledDescription() {
