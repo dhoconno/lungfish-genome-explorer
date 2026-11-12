@@ -25,6 +25,13 @@ Resolution rules for a reference token ending in `.swift`:
     entry per line as `<token>  # reason`. Use it only for intentionally
     hypothetical files (a contract's "new file" example).
 
+Closed-phase rule: a line of docs/contracts/*.md or Sources/*/AGENTS.md that says
+"until Phase N" or "once Phase N" for a phase N from 0 to 4 fails. A closed phase
+gates nothing, so the clause is stale. State what holds today in the present tense.
+Phase 5 and later may still be named. Allowlist entries for this rule read
+`<doc path>: <matched text>  # reason`, for example
+`docs/contracts/FOO.md: until Phase 3  # quoted in an example`.
+
 Usage:
     scripts/checks/doc-path-references.py
     scripts/checks/doc-path-references.py --root DIR --allowlist FILE
@@ -123,6 +130,27 @@ def check(docs: list[Path], root: Path, names, paths, allow: set[str]):
     return problems
 
 
+CLOSED_PHASE = re.compile(r"\b(?:until|Until|once|Once) Phase [0-4](?:\.[0-9]+)?[a-z]?\b")
+
+
+def closed_phase_docs(root: Path) -> list[Path]:
+    """The contracts and module guides that the closed-phase rule scans."""
+    return sorted((root / "docs" / "contracts").glob("*.md")) + sorted((root / "Sources").glob("*/AGENTS.md"))
+
+
+def check_closed_phase(docs: list[Path], root: Path, allow: set[str]):
+    """Return (doc, line, phrase) for each clause that waits on a closed phase."""
+    stale = []
+    for doc in docs:
+        rel = doc.relative_to(root).as_posix()
+        text = doc.read_text(encoding="utf-8", errors="replace")
+        for lineno, line in enumerate(text.splitlines(), 1):
+            for m in CLOSED_PHASE.finditer(line):
+                if f"{rel}: {m.group(0)}" not in allow:
+                    stale.append((rel, lineno, m.group(0)))
+    return stale
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
@@ -134,6 +162,7 @@ def main(argv=None) -> int:
     allow = read_allowlist(args.allowlist)
 
     problems = check(checked_docs(root), root, names, paths, allow)
+    stale = check_closed_phase(closed_phase_docs(root), root, allow)
     if problems:
         print(f"doc-path-references: {len(problems)} reference(s) do not resolve to a Swift file:", file=sys.stderr)
         for rel, lineno, token in problems:
@@ -143,9 +172,20 @@ def main(argv=None) -> int:
             "scripts/checks/doc-path-references.allowlist.",
             file=sys.stderr,
         )
+    if stale:
+        print(f"doc-path-references: {len(stale)} clause(s) wait on a closed phase:", file=sys.stderr)
+        for rel, lineno, phrase in stale:
+            print(f"  {rel}:{lineno}: {phrase}", file=sys.stderr)
+        print(
+            "Rewrite the clause in the present tense. A quoted example goes in "
+            "scripts/checks/doc-path-references.allowlist as `<doc path>: <phrase>  # reason`.",
+            file=sys.stderr,
+        )
+    if problems or stale:
         return 1
 
     print("doc-path-references: every Swift file reference in the checked docs resolves.")
+    print("doc-path-references: no clause in the contracts or module guides waits on a closed phase.")
     return 0
 
 
