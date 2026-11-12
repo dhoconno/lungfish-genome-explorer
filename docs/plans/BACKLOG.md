@@ -38,7 +38,9 @@ Every row deleted as done when this file was split stays readable at `60c7e3e07:
 
 ## Phase 5
 
-No open row has Phase 5 as its target.
+| Id | Effect on results or users | Severity | Field | Source |
+|---|---|---|---|---|
+| IVAR-MERGED-DP-WORDS | A merged iVar codon record's `MERGED_DP` holds each row's ALT_DP (`IVarTSVToVCFConverter.swift:246`), but the VCF header LGE writes calls it "Total Depth of each merged variant" (`:188`) and the variant popover calls it "Merged depths" (`SequenceViewerView+VariantDetails.swift:96`). On SRR36291587 the record at 28311 CC>TT reads `MERGED_DP=2556,2549`, which are iVar's ALT_DP, while its TOTAL_DP are 2563 and 2552. The numbers are iVar's and match viralrecon 3.0.0's own script, which carries the same header words (`bin/ivar_variants_to_vcf.py:717`); a reader of the header or popover takes alt depth for total depth | S3 | BIO | `~/lungfish-phase-records/trust-session/lanes/SWEEP-1/SWEEP-1.md` |
 
 ## Phase 6
 
