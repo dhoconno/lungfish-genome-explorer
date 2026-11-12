@@ -1,3 +1,2 @@
 # Swift file names that docs cite on purpose although no such file exists (hypothetical examples).
 # Format: <token>  # reason, or for the closed-phase rule <doc path>: <matched text>  # reason.
-Sources/LungfishGenotypeUI/AGENTS.md: until Phase 4a  # line 18 is in a guide the SHORT-PATH lane does not own, the Genotype guide lane rewrites it and removes this entry
