@@ -17,6 +17,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 GOLDEN = Path(__file__).resolve().parents[1] / "golden"
 sys.path.insert(0, str(GOLDEN))
@@ -25,11 +26,14 @@ sys.dont_write_bytecode = True
 import upgrade_check  # noqa: E402
 
 STAND_IN = '''#!PYTHON
-import hashlib, json, sys, time, uuid
+import hashlib, json, os, sys, time, uuid
 from pathlib import Path
 CHANGE = CHANGE_FLAG
 REWRITE_INPUT = REWRITE_FLAG
 EDIT_EXPORT = EDIT_FLAG
+TOOL_DIR = TOOLDIR_TEXT
+TOOL_ROOT = TOOLROOT_TEXT
+TOOL_ENV = TOOLENV_TEXT
 VERSION = "VERSION_TEXT"
 BUILD = "BUILD_TEXT"
 args = sys.argv[1:]
@@ -52,12 +56,19 @@ elif args[:2] == ["provenance", "verify"]:
 elif args[:2] == ["provenance", "export"]:
     # Like the real exporter, this writes a file that holds a random ID, the time, its own folder
     # and the build that exports, and a record that lists the checksum and size of that file.
+    # It also expands the stored <tool-root> to the managed tool root of the build that exports,
+    # which sits under the home folder of the account that runs it (~/.lungfish for a Preview,
+    # ~/.lungfish-stable for a Stable, ~/.lungfish-debug for a Debug build).
     out = Path(args[args.index("--output") + 1])
     out.mkdir()
     source = Path(args[2]) / ".lungfish-provenance.json"
     if REWRITE_INPUT:
         source.write_text(source.read_text() + "\\n")
-    record = json.loads(source.read_text())
+    home = os.environ["HOME"]
+    root = TOOL_ROOT or home + "/" + TOOL_DIR + "/conda"
+    stored = source.read_text().replace("<tool-root>", root).replace("/envs/samtools/", "/envs/" + TOOL_ENV + "/")
+    record = json.loads(stored)
+    record["cacheDir"] = home + "/Library/Caches/lungfish"
     if EDIT_EXPORT:
         record["step"] = "edited"
     body = out / "provenance.json"
@@ -82,11 +93,16 @@ else:
 
 
 def make_cli(folder: Path, change_cell: bool = False, version: str = "2026.1.1", build: str = "12972",
-             rewrite_input: bool = False, edit_export: bool = False) -> Path:
+             rewrite_input: bool = False, edit_export: bool = False, tool_dir: str = ".lungfish",
+             tool_root: str | None = None, tool_env: str = "samtools") -> Path:
+    """tool_dir is the channel folder under the home folder that the exporter expands <tool-root> to,
+    tool_root names another root outright and tool_env is the tool environment the exported command names."""
     folder.mkdir(parents=True)
     cli = folder / "lungfish-cli"
     cli.write_text(STAND_IN.replace("PYTHON", sys.executable).replace("CHANGE_FLAG", str(change_cell))
                    .replace("REWRITE_FLAG", str(rewrite_input)).replace("EDIT_FLAG", str(edit_export))
+                   .replace("TOOLDIR_TEXT", repr(tool_dir)).replace("TOOLROOT_TEXT", repr(tool_root))
+                   .replace("TOOLENV_TEXT", repr(tool_env))
                    .replace("VERSION_TEXT", version).replace("BUILD_TEXT", build))
     cli.chmod(cli.stat().st_mode | stat.S_IXUSR)
     return cli
@@ -105,7 +121,10 @@ def make_corpus(root: Path, built_by: Path) -> Path:
         (result / "info.json").write_text('{"name": "' + result.name + '", "createdAt": "2026-11-01T10:00:00Z"}\n')
         (result / ".lungfish-provenance.json").write_text(json.dumps(
             {"step": "made", "createdAt": "2026-11-01T10:00:00Z", "builtBy": str(built_by),
-             "toolVersion": "Lungfish 2026.1.1 (12972)"}) + "\n")
+             "toolVersion": "Lungfish 2026.1.1 (12972)",
+             # A real project stores the placeholder <tool-root>, and an export expands it.
+             "argv": ["<tool-root>/envs/samtools/bin/samtools", "faidx", "x.fa"],
+             "reproducibleCommand": "<tool-root>/envs/samtools/bin/samtools faidx 'x.fa'"}) + "\n")
     return project
 
 
@@ -201,6 +220,35 @@ class UpgradeCheckTests(unittest.TestCase):
         self.assertEqual(code, 1, out)
         lines = [line for line in out.splitlines() if "checksumSHA256" in line]
         self.assertEqual(len(lines), 2, out)  # the input record of each of the two export steps, not the written file's
+
+    def test_the_tool_root_of_the_exporting_build_does_not_count_on_any_channel(self) -> None:
+        """An export expands the stored <tool-root> to the root of its own channel. That names the install (O171)."""
+        for channel in (".lungfish-stable", ".lungfish-debug", ".lungfish"):
+            cli = make_cli(self.root / f"channel{channel}", tool_dir=channel)
+            code, out, err = run_main("--cli", str(cli), "--corpus", str(self.corpus))
+            self.assertEqual(code, 0, f"{channel}\n{out}{err}")
+
+    def test_expected_holds_no_home_path_and_the_check_passes_under_another_account(self) -> None:
+        """F4: a path under the home folder differs on another Mac, even for the same release."""
+        home = str(Path.home())
+        for text_file in sorted((self.project.parent / "expected").glob("*.txt")):
+            self.assertNotIn(home, text_file.read_text(), text_file.name)
+        stable = make_cli(self.root / "stable", tool_dir=".lungfish-stable")
+        with mock.patch.object(Path, "home", return_value=Path("/Users/someone-else")):
+            code, out, err = run_main("--cli", str(stable), "--corpus", str(self.corpus))
+        self.assertEqual(code, 0, out + err)
+
+    def test_a_different_tool_under_the_tool_root_is_still_a_difference(self) -> None:
+        other = make_cli(self.root / "other-tool", tool_env="bwa")
+        code, out, _ = run_main("--cli", str(other), "--corpus", str(self.corpus))
+        self.assertEqual(code, 1, out)
+        self.assertTrue(any("envs/bwa/" in line for line in out.splitlines()), out)
+
+    def test_a_tool_root_outside_the_home_folder_is_still_a_difference(self) -> None:
+        elsewhere = make_cli(self.root / "elsewhere", tool_root="/usr/local/lib/conda")
+        code, out, _ = run_main("--cli", str(elsewhere), "--corpus", str(self.corpus))
+        self.assertEqual(code, 1, out)
+        self.assertTrue(any("/usr/local/lib/conda" in line for line in out.splitlines()), out)
 
 
 if __name__ == "__main__":
