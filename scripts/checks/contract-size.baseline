@@ -1,12 +1,12 @@
 .claude/agents/llm-efficiency-monitor.md 6144 13093
-AGENTS.md 6144 11122
+AGENTS.md 6144 11476
 Sources/LungfishApp/AGENTS.md 12288 16515
 Sources/LungfishCLI/AGENTS.md 12288 17646
 Sources/LungfishIO/AGENTS.md 12288 12620
-Sources/LungfishWorkflow/AGENTS.md 12288 41367
-docs/contracts/ADDING-A-NEXTFLOW-WORKFLOW.md 20480 55028
-docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md 20480 28472
-docs/contracts/ADDING-AN-OPERATION.md 20480 55288
+Sources/LungfishWorkflow/AGENTS.md 12288 41312
+docs/contracts/ADDING-A-NEXTFLOW-WORKFLOW.md 20480 55100
+docs/contracts/ADDING-AN-ANALYSIS-SURFACE.md 20480 27705
+docs/contracts/ADDING-AN-OPERATION.md 20480 54715
 docs/contracts/CLI-EQUIVALENCE.md 20480 35671
 docs/contracts/EXPERT-PANEL.md 10240 22833
 docs/contracts/LLM-EVIDENCE.md 20480 37670
@@ -15,5 +15,5 @@ docs/contracts/READ-PAIRING.md 20480 26077
 docs/contracts/RECORDING-PROVENANCE.md 20480 50285
 docs/contracts/RUNNING-A-PHASE-SESSION.md 12288 37820
 docs/contracts/RUNNING-A-TOOL.md 20480 28229
-docs/contracts/SCOPE-AND-DELIVERY.md 10240 17964
+docs/contracts/SCOPE-AND-DELIVERY.md 10240 18322
 docs/contracts/VERIFICATION-ORDER.md 12288 20105
