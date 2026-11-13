@@ -19,9 +19,12 @@ import LungfishWorkflow
 /// `source-files.json` order, a `fullPaired` bundle is R1 and R2
 /// interleaved, a `fullMixed` bundle is its files joined, and a virtual
 /// derivative is its recipe applied to every file of its root. A file
-/// inside a bundle is that file in place (a chunk of an ONT import, R1 of a
-/// fullPaired bundle), except the preview of a virtual derivative, which is
-/// not the data: the bundle is resolved instead, and a note says so.
+/// inside a bundle is that file in place (R1 of a fullPaired bundle, a file
+/// of a root that no `source-files.json` describes), a person's explicit
+/// choice, except the preview of a virtual derivative, which is not the data,
+/// and a file of a multi-file bundle (an ONT import or a merge, listed in
+/// `source-files.json`), which is one part of a sample: the bundle is
+/// resolved instead, and a note says so.
 ///
 /// Whatever was written for the run lives in a scratch folder that
 /// ``cleanup()`` removes. The recorded command and the provenance name the
@@ -81,8 +84,16 @@ struct FASTQSubcommandInput: Sendable {
                 FileHandle.standardError.write(Data(
                     "Note: \(originalURL.lastPathComponent) is the preview of the virtual bundle \(virtualBundleURL.lastPathComponent), not its reads. Reading the bundle instead.\n".utf8
                 ))
+            } else if FASTQBundle.isMultiFileBundle(enclosingBundleURL) {
+                // A file of a bundle that lists its files in `source-files.json` (an ONT import's chunk, a merge's member) is
+                // one part of a sample. Read where it is, a demultiplex would count part of the run per barcode with no word,
+                // so the bundle is read whole, as the Tools menu dialog and `assemble` read it (DEMUX-MEMBER-FILE-READ-IN-PLACE).
+                FileHandle.standardError.write(Data(
+                    "Note: \(originalURL.lastPathComponent) is one file of the multi-file bundle \(enclosingBundleURL.lastPathComponent), not all of its reads. Reading the bundle instead.\n".utf8
+                ))
             } else {
-                // A file inside a bundle is read in place, as before.
+                // A file inside any other bundle (R1 of a pair, a root no manifest describes) is read in place, a person's
+                // explicit choice (`FastqSubcommandPairedRootTests`).
                 return FASTQSubcommandInput(
                     originalURL: originalURL,
                     executionURL: originalURL,
