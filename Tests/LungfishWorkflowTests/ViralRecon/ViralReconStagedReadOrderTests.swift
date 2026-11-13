@@ -162,4 +162,39 @@ final class ViralReconStagedReadOrderTests: XCTestCase {
         XCTAssertEqual(SeededPairOrder.order(count: 8), [4, 3, 7, 0, 1, 5, 6, 2])
         XCTAssertEqual(SeededPairOrder.order(count: 12), [8, 10, 4, 3, 7, 0, 11, 1, 5, 9, 6, 2])
     }
+
+    // R2. A single-end row of a bundle is staged in the seeded order too, since fastp guesses a single-end adapter
+    // from the head of the file as well. The row is one gzip file that holds every read once, and the record says so.
+    func testSingleEndBundleRowIsStagedInTheSeededOrderNotTheBundleOrder() async throws {
+        let bundle = try InterleavedFASTQFixture.writeBundle(
+            named: "solo", in: root, pairCount: 300, naming: .casava, pairingMode: .singleEnd, pairingSource: .explicit
+        )
+        let source = try records(bundle.fastqURL)
+        func stage(_ tag: String) async throws -> (reads: [String], decision: ViralReconReadPairingDecision) {
+            let prepared = try await ViralReconReadPairing.prepareIlluminaSamples(
+                [ViralReconSample(
+                    sampleName: "S1", sourceBundleURL: bundle.bundleURL, fastqURLs: [bundle.bundleURL],
+                    barcode: nil, sequencingSummaryURL: nil
+                )],
+                splitRoot: root.appendingPathComponent("split-\(tag)", isDirectory: true)
+            )
+            let staged = try XCTUnwrap(prepared.samples.first?.fastqURLs)
+            XCTAssertEqual(staged.count, 1, "a single-end row is one file")
+            return (try records(try XCTUnwrap(staged.first)), try XCTUnwrap(prepared.decisions.first))
+        }
+
+        let first = try await stage("1")
+        let second = try await stage("2")
+        XCTAssertEqual(first.decision.layout, .singleEnd)
+        XCTAssertEqual(first.reads.sorted(), source.sorted(), "viralrecon gets every read once, byte for byte")
+        XCTAssertNotEqual(first.reads, source, "viralrecon must not get the bundle's clumped order")
+        XCTAssertEqual(first.reads, SeededPairOrder.order(count: source.count).map { source[$0] })
+        XCTAssertEqual(second.reads, first.reads, "every run stages the same order")
+        guard case .dictionary(let fields) = first.decision.provenanceValue,
+              case .dictionary(let order)? = fields["stagedPairOrder"] else {
+            return XCTFail("the record does not name the order the reads were staged in")
+        }
+        XCTAssertEqual(order["step"], .string("reads staged in seeded random order"))
+        XCTAssertEqual(order["seed"], .integer(1))
+    }
 }

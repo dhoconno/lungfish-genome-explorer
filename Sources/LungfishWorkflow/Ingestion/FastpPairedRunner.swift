@@ -116,6 +116,9 @@ public struct FastpPairedRunOutcome: Sendable {
     /// steps that write the output itself; the run directory's envelope
     /// keeps them all.
     public let extraSteps: [ProvenanceStep]
+    /// How the reads were staged ahead of fastp when it detected the adapter,
+    /// nil when they reached fastp as stored (trust session R1 and R2).
+    public let stagedPairOrder: SeededPairOrder.Record?
 }
 
 /// A fastp run that did not finish, with the message the caller shows.
@@ -206,7 +209,7 @@ public enum FastpPairedRunner {
             }
             return FastpPairedRunOutcome(
                 plan: plan, result: result, nativeArguments: args, stepID: stepID,
-                stepInputs: nil, stepOutputs: nil, extraSteps: []
+                stepInputs: nil, stepOutputs: nil, extraSteps: [], stagedPairOrder: nil
             )
         }
 
@@ -367,7 +370,8 @@ public enum FastpPairedRunner {
             stepID: stepID,
             stepInputs: stepInputs,
             stepOutputs: stepOutputs,
-            extraSteps: extraSteps
+            extraSteps: extraSteps,
+            stagedPairOrder: nil
         )
     }
 
