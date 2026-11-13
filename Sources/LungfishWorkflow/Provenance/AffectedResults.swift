@@ -13,6 +13,7 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     case naoMgs
     case nvd
     case assembly
+    case viralRecon
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -302,6 +303,25 @@ public enum AffectedResults {
             whatToDo: "If you ran BLAST Contig or Copy FASTA on this result after it was moved or copied, "
                 + "run it again.",
             fixCommit: "622463625"
+        ),
+        AffectedResultRow(
+            backlogID: "VIRALRECON-LINEAGE-PREFIX", kinds: [.viralRecon], firstBuild: 5524, lastBuild: 12972,
+            sentence: "The version that made this result could put the Pangolin and Nextclade tables of a Viral "
+                + "Recon sample into the lineage files of another sample in the same batch when its name began "
+                + "with the other sample's name and a dot, such as S1.1 beside S1, so the Inspector could show "
+                + "the lineage and clade of S1.1 under S1.",
+            whatToDo: "Run the batch again with this version, or keep from each sample's lineage files only the "
+                + "tables whose names start with that sample's own name and then .pangolin or .nextclade.",
+            fixCommit: "21f491b8e"
+        ),
+        AffectedResultRow(
+            backlogID: "VIRALRECON-LINEAGE-ALL-SAMPLES", kinds: [.viralRecon], firstBuild: 4400, lastBuild: 5442,
+            sentence: "The version that made this result gave every sample of a Viral Recon batch the Pangolin "
+                + "and Nextclade tables of every sample in the batch, so the lineage and clade that the "
+                + "Inspector listed first for a sample could belong to another sample.",
+            whatToDo: "Run the batch again with this version, or keep from each sample's lineage files only the "
+                + "tables whose names start with that sample's own name and then .pangolin or .nextclade.",
+            fixCommit: "8739d18dd"
         ),
     ]
 

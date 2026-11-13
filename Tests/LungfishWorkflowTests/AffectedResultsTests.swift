@@ -7,8 +7,11 @@ import LungfishCore
 @testable import LungfishWorkflow
 
 final class AffectedResultsTests: XCTestCase {
-    /// The builds of the published releases from Stable 2026.10.27 on, each the commit count of its packaged commit.
-    private let publishedBuilds: Set<Int> = [11609, 11807, 12045, 12518, 12591, 12803, 12818, 12859, 12962, 12972]
+    /// The builds of the published releases from Stable 2026.10.27 on, each the commit count of its packaged commit,
+    /// and 2026.9.52 (`git rev-list --count v2026.9.52`), the last build without the older Viral Recon lineage fix.
+    private let publishedBuilds: Set<Int> = [
+        5442, 11609, 11807, 12045, 12518, 12591, 12803, 12818, 12859, 12962, 12972,
+    ]
 
     private func version(_ build: Int) -> String { "Lungfish 2026.10.29 (\(build))" }
 
@@ -88,12 +91,15 @@ final class AffectedResultsTests: XCTestCase {
 
     func testTheTableIsWellFormed() {
         let rows = AffectedResults.rows
+        let newestPublished = AffectedResults.publishedReleases.last?.build ?? 0
         XCTAssertEqual(Set(rows.map(\.backlogID)).count, rows.count, "one row for each backlog id")
         for row in rows {
             XCTAssertFalse(row.kinds.isEmpty, row.backlogID)
             XCTAssertTrue(publishedBuilds.contains(row.lastBuild),
                           "\(row.backlogID) ends at the newest published build that lacks the fix")
-            XCTAssertLessThan(row.lastBuild, 12972, "\(row.backlogID) is fixed in the newest Stable")
+            // A row may end at the newest published build when no release holds its fix yet (the Viral Recon prefix
+            // match), and never beyond it.
+            XCTAssertLessThanOrEqual(row.lastBuild, newestPublished, "\(row.backlogID) ends at a published build")
             if let first = row.firstBuild { XCTAssertLessThanOrEqual(first, row.lastBuild, row.backlogID) }
             XCTAssertNotNil(row.fixCommit.range(of: "^[0-9a-f]{9}$", options: .regularExpression), row.backlogID)
             for words in [row.sentence, row.whatToDo] {
@@ -104,6 +110,39 @@ final class AffectedResultsTests: XCTestCase {
             }
             XCTAssertEqual(row.words, row.sentence + " " + row.whatToDo)
         }
+    }
+
+    // Trust session FIX-VR review BIO, section 4, ruling 5. SAD sets one row for each fix of an S1. The older, wider
+    // copy (every sample of a batch took every sample's lineage tables) and the prefix match (S1 took S1.1's) are two
+    // fixes with two build spans that do not overlap. No Viral Recon file names a build yet, so no record can show
+    // either row until AFFECTED-VIRALRECON-NO-BUILD is done.
+    func testTheTwoViralReconLineageRowsHoldTheirOwnBuilds() throws {
+        let rows = AffectedResults.rows.filter { $0.kinds.contains(.viralRecon) }
+        XCTAssertEqual(Set(rows.map(\.backlogID)), ["VIRALRECON-LINEAGE-PREFIX", "VIRALRECON-LINEAGE-ALL-SAMPLES"])
+        let prefix = try XCTUnwrap(rows.first { $0.backlogID == "VIRALRECON-LINEAGE-PREFIX" })
+        let allSamples = try XCTUnwrap(rows.first { $0.backlogID == "VIRALRECON-LINEAGE-ALL-SAMPLES" })
+        XCTAssertEqual(prefix.kinds, [.viralRecon])
+        XCTAssertEqual(allSamples.kinds, [.viralRecon])
+        XCTAssertEqual(prefix.firstBuild, 5524, "8739d18dd, which brought the prefix match in")
+        XCTAssertEqual(prefix.lastBuild, 12972, "Stable 2026.11.7, the newest build, lacks the fix")
+        XCTAssertEqual(allSamples.firstBuild, 4400, "0f8b6d1dd, the batch ingest")
+        XCTAssertEqual(allSamples.lastBuild, 5442, "2026.9.52, the newest build before 8739d18dd")
+        XCTAssertEqual(allSamples.fixCommit, "8739d18dd")
+
+        XCTAssertEqual(ids(4399, .viralRecon), [])
+        XCTAssertEqual(ids(4400, .viralRecon), ["VIRALRECON-LINEAGE-ALL-SAMPLES"])
+        XCTAssertEqual(ids(5442, .viralRecon), ["VIRALRECON-LINEAGE-ALL-SAMPLES"])
+        XCTAssertEqual(ids(5524, .viralRecon), ["VIRALRECON-LINEAGE-PREFIX"])
+        XCTAssertEqual(ids(12972, .viralRecon), ["VIRALRECON-LINEAGE-PREFIX"], "Stable 2026.11.7")
+        XCTAssertEqual(ids(12973, .viralRecon), [])
+        for kind in AffectedResultKind.allCases where kind != .viralRecon {
+            XCTAssertFalse(ids(5442, kind).contains("VIRALRECON-LINEAGE-ALL-SAMPLES"), "\(kind)")
+            XCTAssertFalse(ids(12972, kind).contains("VIRALRECON-LINEAGE-PREFIX"), "\(kind)")
+        }
+
+        XCTAssertTrue(prefix.sentence.contains("such as S1.1 beside S1"), "the example needs the dotted name")
+        XCTAssertTrue(prefix.whatToDo.hasPrefix("Run the batch again with this version"))
+        XCTAssertEqual(allSamples.whatToDo, prefix.whatToDo, "the same redo line")
     }
 
     // MARK: - Records as the app wrote them, with the bare version at the root
