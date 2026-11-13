@@ -29,6 +29,11 @@ public enum SampleFolderNaming {
     /// silently inherits its results, which attributes one sample's data to
     /// another. Every batch runner that lays out per-sample directories must
     /// use this, not `sanitizedDirectoryName` on its own.
+    ///
+    /// `usedNames` holds each name under its case-folded key, because the volumes that hold a project (APFS and ExFAT)
+    /// ignore letter case: "Sample_1" and "sample_1" would be one folder, and the second sample would read the first
+    /// one's results (trust session VR-SAME-NAME). A case-only repeat takes the next suffix, "sample_1-2". The name
+    /// returned keeps its own case.
     public static func uniqueDirectoryName(
         for sampleID: String,
         usedNames: inout Set<String>
@@ -36,11 +41,11 @@ public enum SampleFolderNaming {
         let base = sanitizedDirectoryName(for: sampleID)
         var candidate = base
         var suffix = 2
-        while usedNames.contains(candidate) {
+        while usedNames.contains(candidate.lowercased()) {
             candidate = "\(base)-\(suffix)"
             suffix += 1
         }
-        usedNames.insert(candidate)
+        usedNames.insert(candidate.lowercased())
         return candidate
     }
 }

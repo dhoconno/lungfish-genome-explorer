@@ -469,11 +469,13 @@ public enum ViralReconReadPairing {
         if base.isEmpty || base.allSatisfy({ $0 == "." }) { base = "sample" }
         var candidate = base
         var suffix = 2
-        while usedNames.contains(candidate) {
+        // Held under the case-folded key, because a project's volume ignores letter case and "Sample_1" and
+        // "sample_1" would be one folder (trust session VR-SAME-NAME).
+        while usedNames.contains(candidate.lowercased()) {
             candidate = "\(base)-\(suffix)"
             suffix += 1
         }
-        usedNames.insert(candidate)
+        usedNames.insert(candidate.lowercased())
         return candidate
     }
 
