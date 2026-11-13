@@ -138,6 +138,18 @@ final class FASTQDemultiplexFloorRoutesConformanceTests: XCTestCase {
             )
             if floorLine == nil { missed.append("\(route.label): no floor line") }
             if limitLine == nil { missed.append("\(route.label): no limit line") }
+            // DEMUX-GROUPED-DROPS-INPUTS: every input is in a command. A grouped run of two datasets of one format
+            // ran one command that named the first.
+            if argvInputs.count != inputs.count {
+                missed.append("\(route.label): the commands name \(argvInputs.count) of \(inputs.count) inputs")
+            }
+            // A run of several commands names the input of each line, and a run of one command names none
+            // (BIO review of FIX-FLOOR, fold 2): the line is a fact about the run, not a guess at the words.
+            if let floorLine {
+                let several = result.executedInvocations.count > 1
+                if several && !floorLine.contains("S2 in pool") { missed.append("\(route.label): the line names no input") }
+                if !several && floorLine.contains("S2 in ") { missed.append("\(route.label): one command names an input") }
+            }
         }
         XCTAssertEqual(missed, [], "a route of the dialog misses the floor's words")
     }
