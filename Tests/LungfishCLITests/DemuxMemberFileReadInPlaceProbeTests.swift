@@ -45,7 +45,7 @@ final class DemuxMemberFileReadInPlaceProbeTests: XCTestCase {
             fixture.chunk1.path, operationName: "demultiplex", contextURL: root.appendingPathComponent("out")
         )
         XCTAssertEqual(input.executionURL.standardizedFileURL.path, fixture.chunk1.standardizedFileURL.path, "read in place")
-        XCTAssertNil(input.scratchDirectory, "nothing was materialized, so the other chunk is never read")
+        XCTAssertFalse(input.wasMaterialized, "nothing was materialized, so the other chunk is never read")
         XCTAssertEqual(input.bundleURL?.standardizedFileURL.path, fixture.bundle.standardizedFileURL.path)
         let read = try String(contentsOf: input.executionURL, encoding: .utf8)
         XCTAssertEqual(read.split(separator: "\n").filter { $0.hasPrefix("@") }.count, 3, "chunk 1's three reads, not the bundle's five")
