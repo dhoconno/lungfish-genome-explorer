@@ -7,6 +7,7 @@
 #   star.sh index <fasta> <gtf> <index_dir> <star_env> [threads] [sjdb_overhang]     (heavy)
 #   star.sh align <index_dir> <out_dir> <star_env> <threads> <reads_1> [<reads_2>]   (heavy)
 # STAR_INDEX_EXTRA adds options to the index build, for a toy genome in a script test only.
+# STAR_ALIGN_EXTRA adds options to an alignment, for the flag tests of toy_nrows.sh and nmax.sh only (empty in the chain).
 # For align, give one FASTQ (single-end) or two (paired), each file or a comma list of files.
 set -euo pipefail
 MODE=$1; shift
@@ -27,6 +28,6 @@ align)
   rm -rf "$D/_STARtmp"   # left by an interrupted run, and STAR refuses to start beside it
   /usr/bin/time -l -o "$D/time.txt" "$ENVP/bin/STAR" --runThreadN "$T" --genomeDir "$IDX" \
     --readFilesIn "$@" --readFilesCommand gunzip -c --outSAMtype BAM Unsorted --quantMode GeneCounts \
-    --outFileNamePrefix "$D/" ;;
+    --outFileNamePrefix "$D/" ${STAR_ALIGN_EXTRA:-} ;;
 *) echo "unknown mode $MODE"; exit 2 ;;
 esac

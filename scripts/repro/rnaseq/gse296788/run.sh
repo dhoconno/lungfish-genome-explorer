@@ -8,9 +8,11 @@
 #               refs/mtb/GCA_000668235.1 (stage_mtb.sh) and MANIFEST.tsv
 #   work_dir    everything this script makes
 #   env_prefix  conda environment with STAR 2.7.11b, samtools and python (scipy, pysam)
-#   stages      ref index solo:<GSM> slice:<GSM> cells:<GSM> compare prune
+#   stages      ref index solo:<GSM> slice:<GSM> cells:<GSM> compare mtb claims prune
 #               "all" (the default) runs ref, index, then solo, slice and cells for each
-#               library, then compare and prune
+#               library, then compare and prune. compare runs mtb and claims at its end; mtb
+#               (the not-host count and flag, from the kept slice and the raw matrix) and claims
+#               (claims.tsv from the compare outputs) also run alone, both light, and read no full BAM
 # Environment:
 #   LOCKS       folder holding the shared heavy lock (mkdir LOCKS/heavy) and PAUSE; "-" runs heavy
 #               steps at once (default "-")
@@ -147,12 +149,30 @@ stage_cells() {
   log "top $n cells of $s"
 }
 
+# Both counts are scored in the deposit's layout, where the 13 mitochondrial genes count 0 (every
+# deposit holds 0 UMIs in them): exon-only (Cell Ranger 6.0's default) and exons plus introns
+# (--include-introns), which the deposit turned out to be.
 stage_compare() {
   stage_truth
-  $PY "$HERE/compare.py" --work "$WORK" --libs $LIBS --out "$WORK/compare" | tee "$WORK/logs/compare.log"
+  # shellcheck disable=SC2086
+  $PY "$HERE/compare.py" --work "$WORK" --libs $LIBS --out "$WORK/compare" --no-mito-exons | tee "$WORK/logs/compare.log"
+  # shellcheck disable=SC2086
+  $PY "$HERE/compare.py" --work "$WORK" --libs $LIBS --out "$WORK/compare-genefull" --feature GeneFull_Ex50pAS \
+    --no-mito-exons --no-background | tee "$WORK/logs/compare-genefull.log"
+  stage_mtb
+  stage_claims
+}
+
+# The Mtb strand and evidence counts and the GN not-host count and flag, from nonhost_and_mt.bam,
+# STARsolo's raw Gene matrix and the top cells; no full BAM.
+stage_mtb() {
+  # shellcheck disable=SC2086
   $PY "$HERE/mtb.py" --work "$WORK" --libs $LIBS --out "$WORK/compare" \
     --mtb-gtf "$MTBREF"/GCA_000668235.1_Myco_tube_Erdman_V1_genomic.gtf.gz | tee "$WORK/logs/mtb.log"
-  $PY "$HERE/claims.py" --compare "$WORK/compare" --out "$WORK/compare/claims.tsv"
+}
+
+stage_claims() {
+  $PY "$HERE/claims.py" --compare "$WORK/compare" --introns "$WORK/compare-genefull" --out "$WORK/compare/claims.tsv"
 }
 
 # A full BAM goes once the counts made from it pass their class (R2 tally, Q4); the slice stays.
@@ -170,6 +190,8 @@ for st in $STAGES; do
     slice:*) stage_slice "${st#slice:}" ;;
     cells:*) stage_cells "${st#cells:}" ;;
     compare) stage_compare ;;
+    mtb) stage_mtb ;;
+    claims) stage_claims ;;
     prune) stage_prune ;;
     all)
       stage_ref; stage_index

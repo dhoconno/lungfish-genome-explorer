@@ -6,7 +6,7 @@
 # Usage: run.sh <data_root> <work_dir> <env_prefix> [stage ...]
 #   data_root   holds studies/GSE304256/{fastq,geo,samples.tsv}, refs/rhesus/ensembl-100 and MANIFEST.tsv
 #   env_prefix  the main environment (python3); STAR 2.7.3a comes from STAR_ENV
-#   stages      ref index align compare (default: all four)
+#   stages      ref index align compare de (default: the first four; de runs after compare)
 # Environment:
 #   STAR_ENV    folder of the STAR 2.7.3a environment (default: env-star273a beside env_prefix)
 #   LOCKS       folder of the shared heavy lock (mkdir LOCKS/heavy around a heavy step);
@@ -44,4 +44,22 @@ if has compare; then
   if [ "${KEEP_BAM:-0}" != 1 ] && [ -s "$WORK/compare/exact_runs.txt" ]; then
     while read -r run; do rm -f "$WORK/star/$run/Aligned.out.bam"; done < "$WORK/compare/exact_runs.txt"
   fi
+fi
+
+# DE claims (R2-STAT C6 claims 3 to 5, R2-BIO claim 5), run twice with one script: step A on the
+# deposited files, step B with the six aligned runs swapped in. Light, after compare.
+if has de; then
+  D=$WORK/de; mkdir -p "$D/deposit"
+  tar -xf "$STUDY/geo/GSE304256_RAW.tar" -C "$D/deposit"
+  [ -s "$D/names.tsv" ] || $NICE awk -F'\t' '$3=="gene"{a=$9; id=a; sub(/.*gene_id "/,"",id); sub(/".*/,"",id); n=id;
+    if (a ~ /gene_name "/) {n=a; sub(/.*gene_name "/,"",n); sub(/".*/,"",n)}; print id "\t" n}' \
+    "$WORK/ref/genes.gtf" > "$D/names.tsv"
+  ENA=$STUDY/paper/ena_read_run_PRJNA1299784.tsv
+  for days in d0-2 all; do
+    $NICE "$ENVP/bin/Rscript" "$HERE/de.R" "$D/deposit" "$ENA" "$D/names.tsv" "$D/stepA" $days > "$D/stepA_$days.log" 2>&1
+    $NICE "$ENVP/bin/Rscript" "$HERE/de.R" "$D/deposit" "$ENA" "$D/names.tsv" "$D/stepB" $days \
+      "$WORK/star" "$WORK/compare/runs.tsv" > "$D/stepB_$days.log" 2>&1
+  done
+  $NICE $PY "$HERE/de_claims.py" "$D" "$WORK/compare/label.txt" | tee "$WORK/logs/de.log"
+  { cat "$WORK/compare/claims.tsv"; cat "$D/claims_de.tsv"; } > "$D/claims.tsv"
 fi

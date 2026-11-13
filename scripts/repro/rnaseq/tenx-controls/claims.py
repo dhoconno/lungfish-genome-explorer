@@ -62,6 +62,14 @@ CLAIMS = [
     ("HGMM-11", "hgmm_1k_v3", "STARsolo_Gene:pergenome", "gem_class_agreement_shared", "GEM class on the shared barcodes of both filtered matrices", "min", 0.99),
 ]
 
+# Text a ruling adds to the note of a scored row, by claim id. A rerun of this script must give back the committed
+# claims.tsv, so the ruled text is kept here and not typed into the table. Each entry ends in the ruling it cites.
+RULED = {
+    "CR7-4": "class version drift: STARsolo's Ex50pAS rule and Cell Ranger 7.0.1's include-introns rule are different "
+             "counting models; 80% of the deficit in genes at least 80% intronic, ours higher; bar 0.99 and output "
+             "Ex50pAS unchanged (rulings/ADJ-SC-2.md Q1, item 4)",
+}
+
 
 def load(work):
     rows = {}
@@ -104,9 +112,11 @@ def main():
             # Built per rule, since the range rule's threshold is a pair that cannot be scaled.
             rule_txt = {"min": lambda: "at least %s" % (thr,), "rel": lambda: "within %g%%" % (thr * 100),
                         "abs": lambda: "within %g points" % (thr * 100), "range": lambda: "inside %s" % (thr,)}[rule]()
+            note = rule_txt + ("; " + r["note"] if r["note"] else "")
+            if cid in RULED:
+                note += "; " + RULED[cid]
             fh.write("%s\t%s %s\t%s\t%s\t%s\tclose\t%s\t%s, %s; %s\n" % (
-                cid, s, where, r["tenx"], dep, r["ours"], "pass" if ok else "fail",
-                run, meas, rule_txt + ("; " + r["note"] if r["note"] else "")))
+                cid, s, where, r["tenx"], dep, r["ours"], "pass" if ok else "fail", run, meas, note))
     print(open(out).read())
 
 

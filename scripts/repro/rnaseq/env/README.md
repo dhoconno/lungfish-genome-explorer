@@ -41,11 +41,11 @@ The two R environments hold the same build of every other package, DESeq2 1.50.2
 
 ## Why a separate micromamba
 
-The base miniconda at `/Users/dho/opt/miniconda3` is an Intel (osx-64) install that runs under Rosetta. Its `mamba` 0.5.1 fails at start against conda 23.3.1, and its conda would solve for osx-64 with the slow classic solver. So a native arm64 micromamba from conda-forge builds the environment. That micromamba was installed once, by asking the base conda for the osx-arm64 subdir. The command does not change the base environment.
+The base miniconda at `<conda root>` is an Intel (osx-64) install that runs under Rosetta. Its `mamba` 0.5.1 fails at start against conda 23.3.1, and its conda would solve for osx-64 with the slow classic solver. So a native arm64 micromamba from conda-forge builds the environment. That micromamba was installed once, by asking the base conda for the osx-arm64 subdir. The command does not change the base environment.
 
 ```bash
 CONDA_SUBDIR=osx-arm64 CONDA_PKGS_DIRS=/Volumes/lge_scratch/lge/rnaseq/conda-pkgs \
-  /Users/dho/opt/miniconda3/bin/conda create -y -p /Volumes/lge_scratch/lge/rnaseq/installer-arm64 \
+  <conda root>/bin/conda create -y -p /Volumes/lge_scratch/lge/rnaseq/installer-arm64 \
   --override-channels -c conda-forge --strict-channel-priority micromamba
 ```
 

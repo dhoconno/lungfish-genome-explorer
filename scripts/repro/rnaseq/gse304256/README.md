@@ -33,6 +33,10 @@ Styles TM, Akhtar A, Gu C, et al. Chimeric hemagglutinin-based universal influen
 | index | `star.sh index` | `genomeGenerate` with the GTF, `--sjdbOverhang 100` and the full suffix array. Heavy. |
 | align | `align.sh`, `star.sh align` | One STAR run for each subset run, default parameters, `--quantMode GeneCounts`, an unsorted BAM. Heavy, one lock for all runs. |
 | compare | `compare.py` | Compares each run's table with its deposited file, by value in all three count columns and the four `N_` rows, and by bytes. Writes `runs.tsv`, a `diff_*.tsv` for every difference, the label and `claims.tsv`. Then `run.sh` deletes the BAM of every exact run. |
+| de | `de.R`, `de_claims.py` | DESeq2 on column 2 of the deposited files (step A), then on the same files with the six aligned runs swapped in (step B). Each group alone, day 1 and day 2 against day 0, with `~day` and `~animal + day`, on days 0 to 2 and on all five days. Writes the DE claims and checks that the two steps agree. It also writes the reported line C6-6-bar1, the counts at an assumed unstated fold-change bar of 2 (log2FC of 1 in size), which is not a gate. Light. |
+| (test) | `toy_nrows.sh` | A toy genome with a gene copied 12 times, aligned by each local STAR build, to show which `N_` row a build files the pairs mapped to too many loci in. Light. |
+| (test) | `nmax.sh`, `nmax_rerun.sh` | Realigns runs with `--outFilterMultimapNmax <K>`, the first run alone and the rest only if it is exact, counts pairs by their NH tag and compares every run of `runs.tsv` with the deposit. It waits for a gate marker, takes the heavy lock, keeps a hold file while STAR aligns, retries a run once after a tool failure (any exit but 0 and 75), skips finished runs and writes `DONE`. `nmax_rerun.sh` queues it for the five runs the first chain left (K=1000). Heavy. |
+| (test) | `nmax_selftest.sh` | A dry run of the waiting and retry logic of `nmax.sh` and `heavy.sh` with a stub in place of STAR, 29 checks in a folder of its own (`DRY_RUN=1 nmax.sh ...` checks the real inputs). Light. |
 
 ## Deviations and their reasons
 
@@ -42,8 +46,16 @@ Styles TM, Akhtar A, Gu C, et al. Chimeric hemagglutinin-based universal influen
 | 2 | `--sjdbOverhang 100` | The paper gives no index parameters. 100 is STAR's default and read length minus one for 101-base reads (an undocumented step) |
 | 3 | The full suffix array | The brief allows `--genomeSAsparseD 2` only when the exact class does not need the paper's own setting, and here it does |
 | 4 | Top-level FASTA | Ensembl 100 offers no primary assembly file for Mmul_10 (an undocumented step) |
-| 5 | STAR from bioconda, built in 2025, under Rosetta 2 | The authors' binary is the 2020 release. A difference that traces to the build would be version drift, and the results table says if one appears |
+| 5 | STAR from bioconda under Rosetta 2 | The package holds the 2.7.3a release binary for macOS, compiled on 8 October 2019 (`Log.out`). Its gene counts equal the deposit's on every row |
+| 6 | The DE design | The paper names DESeq2 and BH under 0.05 only. `de.R` fits each group alone with `~day` and with `~animal + day`, with no prefilter and no fold-change bar, on days 0 to 2 (the ruling's 30 files) and on all five days (the 50 deposited files). Verdicts use days 0 to 2 under both designs. C6-6-bar1 reports the counts at a fold change of 2 as an assumed unstated bar (ADJ-BULK-4 C6 Q3, an undocumented step) and moves no verdict |
+| 7 | ENA groups LNP-RNA and sam-RNA | Read as the paper's mRNA-LNP and sam-MDNP, the two groups of Fig. 6 |
 
 ## Results
 
-No count has been compared yet. The index build and the 6 alignments had not started when this lane stopped. The compare stage writes `claims.tsv` to `<work_dir>/compare/`, with each claim's paper wording, the deposit, our value, the class and the verdict, and a finished run copies it into this folder. The lane report `REPRO-gse304256.md` in the phase records holds the commands that start the run and the label the BULK-SUBSET ruling sets for claims that use the deposit.
+The chain ran on 2026-11-13 with default alignment options. On all 6 runs every gene row in all three count columns equals the deposit, and so do `N_noFeature` and `N_ambiguous`. Only two `N_` rows differ. Our `N_unmapped` is higher, and our `N_multimapping` lower, than the deposit's by exactly the run's count of pairs "mapped to too many loci" in `Log.final.out` (10,818 to 32,569 pairs, 0.04 to 0.07% of a run).
+
+STAR 2.7.3a counts a pair that maps to more than `--outFilterMultimapNmax` loci (default 10) as unmapped. The deposit counts these pairs as multimapping. `toy_nrows.sh` shows that both local builds, 2.7.3a and 2.7.11b, file them under `N_unmapped` by default, and that a larger `--outFilterMultimapNmax` moves them to `N_multimapping`. Realigned with `--outFilterMultimapNmax 1000`, SRR34827388 gives a table byte-identical to its deposited file. Its pairs over 10 loci reach NH 164, and 2,234 of them map to more than 20 loci, so the ENCODE value of 20 would not reproduce the deposit. The authors' value is an undocumented step, at least the largest NH of any run. `nmax.sh` realigns the other five runs, and claim C6-1 stays pending until it ends.
+
+The DE stage ran both steps, and step B equals step A on every output. The day 1 totals and the six day 1 interferon genes keep the paper's direction (C6-5 and C6-7 pass). On day 2 mRNA-LNP keeps more up genes and a larger total than sam-MDNP, but sam-MDNP has more down genes than mRNA-LNP, so C6-6 fails its bar. Our totals are larger than the paper's under every design, for example 2,064 up and 1,172 down for mRNA-LNP on day 1 against 1,078 and 332.
+
+The lane report `REPRO-gse304256.md` in the phase records holds the compute figures, the Handoff of the chain and the questions for adjudication.

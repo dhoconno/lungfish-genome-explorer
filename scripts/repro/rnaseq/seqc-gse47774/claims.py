@@ -6,6 +6,10 @@ The pass rules were written before the first scored run and follow the panel's c
 (R2-STAT Q6): exact for identity facts, close for the same features counted two ways
 (worst library Pearson r of log2(count + 1) at least 0.99 on genes with 10 or more counts,
 or at least 90% of a reference DE list found), directional for design truths.
+
+The three X rows compare our own routes with one another, so they are not paper claims
+(rulings/ADJ-BULK-5.md item 1): class "route comparison", verdict "reported", no pass rule, each
+note beginning with the ruling's words and keeping its numbers.
 """
 import json
 import os
@@ -21,7 +25,7 @@ rows = []
 def add(cid, where, paper, dep, ours, cls, ok, note):
     rows.append({"claim_id": cid, "where": where, "paper_value": paper, "deposited_value": dep,
                  "our_value": ours, "tolerance_class": cls,
-                 "verdict": {True: "pass", False: "fail", None: "report"}[ok], "note": note})
+                 "verdict": {True: "pass", False: "fail", None: "report", "reported": "reported"}[ok], "note": note})
 
 
 f3 = lambda x: f"{x:.3f}"
@@ -125,11 +129,22 @@ rt = os.path.join(os.path.dirname(sys.argv[1]), "routes.tsv")
 if os.path.exists(rt):
     r = pd.read_csv(rt, sep="\t")
     r = r[(r.part == "genes") & (r.route_a == "salmon_SA")]
+    # ADJ-BULK-5 item 1: route comparisons, not paper claims, so no pass rule and no 0.99 bar. ADJ-ROUTE item 11
+    # named the first pair; ADJ-BULK-5 widens it to one table, one route, which covers the other two.
+    refuses = {
+        "STAR_salmon": "rulings/ADJ-ROUTE.md item 11, which reads this gap as r 0.968 on A_1, "
+                       "and rulings/ADJ-BULK-5.md widens it to one table, one route",
+        "STAR_GeneCounts_unstranded": "rulings/ADJ-ROUTE.md item 11 names STAR then salmon against salmon on reads, "
+                                      "and rulings/ADJ-BULK-5.md widens it to one table, one route",
+        "featureCounts": "rulings/ADJ-ROUTE.md item 11 names STAR then salmon against salmon on reads, "
+                         "and rulings/ADJ-BULK-5.md widens it to one table, one route",
+    }
     for b in ("STAR_salmon", "STAR_GeneCounts_unstranded", "featureCounts"):
         x = r[r.route_b == b]
         add(f"X-{b}", "Cross-route on the same runs", "NA", "NA",
             f"worst r {x.pearson_log2.min():.4f}; median log2 SA/{b} {x.median_log2_a_over_b.median():+.3f}; beyond 2-fold {pc(x.share_beyond_2fold.max())} ({', '.join(x.library)})",
-            "close", x.pearson_log2.min() >= 0.99,
-            f"genes with 10 or more counts in either; {len(x)} librar{'y' if len(x) == 1 else 'ies'} aligned")
+            "route comparison", "reported",
+            f"route comparison, not a paper claim, reported (ADJ-BULK-5); genes with 10 or more counts in either; "
+            f"{len(x)} librar{'y' if len(x) == 1 else 'ies'} aligned; LGE refuses mixed-route tables ({refuses[b]})")
 pd.DataFrame(rows).to_csv(out, sep="\t", index=False)
 print(pd.DataFrame(rows)[["claim_id", "verdict", "our_value"]].to_string())

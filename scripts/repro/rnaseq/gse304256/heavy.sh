@@ -5,6 +5,7 @@
 # and remove the lock whether it passed or failed.
 # Usage: heavy.sh <locks_dir> <owner_name> <max_wait_minutes> <command> [args...]
 # With locks_dir "-" the step runs at once (a machine with no other lanes).
+# HEAVY_LOAD_MAX (36) is the 1-minute load limit and HEAVY_POLL (30) the seconds between checks.
 set -uo pipefail
 LOCKS=$1; OWNER=$2; MAXW=$3; shift 3
 LOADMAX=${HEAVY_LOAD_MAX:-36}
@@ -21,7 +22,7 @@ if [ "$LOCKS" != "-" ]; then
       break
     fi
     [ "$(date +%s)" -ge "$deadline" ] && { echo "no lock after $MAXW min"; exit 75; }
-    sleep 30
+    sleep "${HEAVY_POLL:-30}"
   done
 fi
 "$@"

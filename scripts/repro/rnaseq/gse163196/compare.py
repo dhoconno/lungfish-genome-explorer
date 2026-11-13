@@ -7,6 +7,12 @@ log2(count + 1) at least 0.99 for the worst sample. Beside it: the median log2 r
 deposit) and the share of those genes beyond 2-fold. Genes are matched by Ensembl id for the 2024
 deposit and by symbol for the 2020 deposit; a gene missing from a table counts 0 there.
 Claim C9-1b: genes with at least one count per sample, within 2%.
+The columns ending in _rows repeat r, genes with a count and the total on the deposit's own rows only
+(its gene set), so that genes outside the authors' annotation do not enter. Added 2026-11-13 after
+the first scoring; the scored columns are unchanged.
+share_outside_rows is the share of our counts outside the deposit's rows. A close claim scored on the
+rows must keep it under 1%, so that a row filter cannot hide a loss (ADJ-BULK-3, C9 Q7). It is the last
+column, added 2026-11-13; every earlier column is unchanged.
 Writes per_sample.tsv (one row per sample, table and route) and prints a summary.
 """
 import csv
@@ -36,8 +42,25 @@ def pearson(x, y):
     return sxy / math.sqrt(sxx * syy)
 
 
-def close(ours, dep):
-    genes = [g for g in set(ours) | set(dep) if ours.get(g, 0) >= 10 or dep.get(g, 0) >= 10]
+def row_set(path):
+    with open(path) as fh:
+        next(fh)
+        return {line.split("\t", 1)[0] for line in fh}
+
+
+def on_rows(ours, dep, rows):
+    """r, genes with a count (ours over deposit, less 1), the total ratio on the deposit's rows, and the
+    share of our counts outside those rows."""
+    r = close(ours, dep, rows)[0]
+    o1 = sum(1 for g in rows if ours.get(g, 0) > 0)
+    d1 = sum(1 for g in rows if dep.get(g, 0) > 0)
+    inside = sum(ours.get(g, 0) for g in rows)
+    return r, o1 / d1 - 1, inside / sum(dep.get(g, 0) for g in rows), 1 - inside / sum(ours.values())
+
+
+def close(ours, dep, universe=None):
+    universe = set(ours) | set(dep) if universe is None else universe
+    genes = [g for g in universe if ours.get(g, 0) >= 10 or dep.get(g, 0) >= 10]
     x = [math.log2(ours.get(g, 0) + 1) for g in genes]
     y = [math.log2(dep.get(g, 0) + 1) for g in genes]
     ratios = [a - b for a, b in zip(x, y)]
@@ -65,7 +88,9 @@ def main():
     dep20 = load(f"{mdir}/deposited_2020.tsv")
     ours = {k: load(f"{mdir}/{k}.tsv") for k in ("ours_P", "ours_L", "reads")}
     ours_sym = {k: by_symbol(v, sym) for k, v in ours.items()}
-    dep_sym = by_symbol(dep, {})
+    dep_sym = by_symbol(dep, sym)  # the 2024 rows are Ensembl ids; the 2020 rows are symbols
+    rows24 = row_set(f"{mdir}/deposited.tsv")
+    rows20 = row_set(f"{mdir}/deposited_2020.tsv")
     rows = []
     for s in samples:
         name = s["sample"]
@@ -73,29 +98,34 @@ def main():
             if name not in ours[key]:
                 continue
             o = ours[key][name]
-            for tname, table, odata in (("2024", dep, o), ("2020", dep20, ours_sym[key][name])):
+            for tname, table, odata, rset in (("2024", dep, o, rows24), ("2020", dep20, ours_sym[key][name], rows20)):
                 if name not in table:
                     continue
                 d = table[name]
                 r, med, share, n = close(odata, d)
+                rr, g1r, tr, outside = on_rows(odata, d, rset)
                 rows.append([name, s["tissue"], key, tname, f"{r:.4f}", f"{med:.3f}", f"{share:.4f}", n,
                              sum(odata.values()), sum(d.values()), f"{sum(odata.values()) / sum(d.values()):.3f}",
                              sum(1 for v in odata.values() if v > 0), sum(1 for v in d.values() if v > 0),
-                             f"{sum(1 for v in odata.values() if v > 0) / sum(1 for v in d.values() if v > 0) - 1:+.4f}"])
+                             f"{sum(1 for v in odata.values() if v > 0) / sum(1 for v in d.values() if v > 0) - 1:+.4f}",
+                             f"{rr:.4f}", f"{g1r:+.4f}", f"{tr:.4f}", f"{outside:.5f}"])
     # the authors' own two deposits of the same reads (2020 name, 2024 name), by symbol
+    shared = {sym.get(g, g) for g in rows24} & rows20
     for s in samples:
         if s["run"].startswith("SRR28") and s["same_counts_as"] != "NA":
             twin = next(t["sample"] for t in samples if t["run"] == s["same_counts_as"])
             a, b = dep_sym.get(s["sample"]), dep20.get(twin)
             if a and b:
                 r, med, share, n = close(a, b)
+                rr, g1r, tr, outside = on_rows(a, b, shared)
                 rows.append([f"{s['sample']}~{twin}", "PBL", "deposit2024", "2020", f"{r:.4f}", f"{med:.3f}",
                              f"{share:.4f}", n, sum(a.values()), sum(b.values()), f"{sum(a.values()) / sum(b.values()):.3f}",
                              sum(1 for v in a.values() if v > 0), sum(1 for v in b.values() if v > 0),
-                             f"{sum(1 for v in a.values() if v > 0) / sum(1 for v in b.values() if v > 0) - 1:+.4f}"])
+                             f"{sum(1 for v in a.values() if v > 0) / sum(1 for v in b.values() if v > 0) - 1:+.4f}",
+                             f"{rr:.4f}", f"{g1r:+.4f}", f"{tr:.4f}", f"{outside:.5f}"])
     head = ["sample", "tissue", "ours", "deposit", "pearson_log2", "median_log2_ratio", "share_beyond_2fold",
             "genes_tested", "ours_total", "deposit_total", "total_ratio", "ours_genes_ge1", "deposit_genes_ge1",
-            "genes_ge1_diff"]
+            "genes_ge1_diff", "pearson_log2_rows", "genes_ge1_diff_rows", "total_ratio_rows", "share_outside_rows"]
     with open(f"{out}/per_sample.tsv", "w") as fh:
         fh.write("\t".join(head) + "\n")
         for row in rows:
@@ -127,7 +157,11 @@ def main():
                   f"median log2 ratio range {min(float(r[5]) for r in sel):.3f}..{max(float(r[5]) for r in sel):.3f}, "
                   f"share>2fold max {max(float(r[6]) for r in sel):.4f}, "
                   f"total ratio {min(float(r[10]) for r in sel):.3f}..{max(float(r[10]) for r in sel):.3f}, "
-                  f"genes>=1 diff {min(float(r[13]) for r in sel):+.4f}..{max(float(r[13]) for r in sel):+.4f}")
+                  f"genes>=1 diff {min(float(r[13]) for r in sel):+.4f}..{max(float(r[13]) for r in sel):+.4f}; "
+                  f"on the deposit's rows: worst r {min(float(r[14]) for r in sel):.4f}, "
+                  f"genes>=1 diff {min(float(r[15]) for r in sel):+.4f}..{max(float(r[15]) for r in sel):+.4f}, "
+                  f"total ratio {min(float(r[16]) for r in sel):.4f}..{max(float(r[16]) for r in sel):.4f}, "
+                  f"our counts outside the rows up to {max(float(r[17]) for r in sel):.5f}")
 
 
 if __name__ == "__main__":

@@ -9,6 +9,10 @@
 # splits the STAR BAM by those ranges, counts each part with count.R and
 # compares each part with the deposited column.
 #
+# The split is one pass over the BAM. The part BAMs are deleted once their
+# counts are written, unless KEEP_PARTS=1. LT sets the featureCounts threads
+# (default 4).
+#
 # Usage:
 #   flowcell_test.sh RUN SAMPLE FASTQ_R1 BAM OUTDIR GTF DEPOSIT ENV BIOC_ENV MODE
 set -euo pipefail
@@ -22,17 +26,27 @@ gunzip -c "$R1" | awk 'NR%4==1 {split($2, a, ":"); fc = a[3]; n = (NR + 3) / 4;
   END { print cur, first, (NR) / 4 }' > "$OUT/flowcells.txt"
 cat "$OUT/flowcells.txt"
 
+# One pass: each record goes to the part whose spot range holds its spot
+# number, and the header goes to every part.
+# A flowcell may hold more than one range; its part is one BAM.
 bams=()
-while read -r fc first last; do
+for fc in $(awk '!seen[$1]++ {print $1}' "$OUT/flowcells.txt"); do
   mkdir -p "$OUT/$fc"
-  "$ENV/bin/samtools" view -h "$BAM" \
-    | awk -v f="$first" -v l="$last" -F'\t' '/^@/ {print; next}
-        { split($1, a, "."); n = a[2] + 0; if (n >= f && n <= l) print }' \
-    | "$ENV/bin/samtools" view -b -o "$OUT/$fc/Aligned.out.bam" -
   bams+=("$OUT/$fc/Aligned.out.bam")
-done < "$OUT/flowcells.txt"
+done
+"$ENV/bin/samtools" view -@ 1 -h "$BAM" \
+  | awk -F'\t' -v ranges="$(tr '\n' ';' < "$OUT/flowcells.txt")" -v out="$OUT" \
+      -v st="$ENV/bin/samtools" '
+    BEGIN { n = split(ranges, rr, ";"); k = 0
+      for (i = 1; i <= n; i++) { if (rr[i] == "") continue; split(rr[i], p, " ")
+        k++; lo[k] = p[2] + 0; hi[k] = p[3] + 0; fc[k] = p[1]
+        cmd[p[1]] = st " view -b -o " out "/" p[1] "/Aligned.out.bam -" } }
+    /^@/ { for (f in cmd) print | cmd[f]; next }
+    { split($1, a, "."); s = a[2] + 0
+      for (i = 1; i <= k; i++) if (s >= lo[i] && s <= hi[i]) { print | cmd[fc[i]]; break } }
+    END { for (f in cmd) close(cmd[f]) }'
 
-"$BIOC/bin/Rscript" "$HERE/count.R" "$GTF" "$OUT/parts" "$MODE" 4 "${bams[@]}" > "$OUT/count.log" 2>&1
+"$BIOC/bin/Rscript" "$HERE/count.R" "$GTF" "$OUT/parts" "$MODE" "${LT:-4}" "${bams[@]}" > "$OUT/count.log" 2>&1
 "$ENV/bin/python3" -I "$HERE/match_columns.py" "$DEP" "$OUT/parts.counts.tsv" 3 | tee "$OUT/columns.txt"
 
 # Exact test of each part, and of the sum of every pair of parts, against
@@ -54,3 +68,7 @@ for c in combos:
     diff = sum(a != b for a, b in zip(v, dep))
     print("+".join(c), "genes_differ", diff, "sum", sum(v), "deposit_sum", sum(dep))
 EOF
+
+if [ "${KEEP_PARTS:-0}" != 1 ] && [ -s "$OUT/parts.counts.tsv" ] && [ -s "$OUT/exact.txt" ]; then
+  for b in "${bams[@]}"; do rm -f "$b"; done
+fi

@@ -49,21 +49,44 @@ if (is.null(extra)) {
 }
 print(extra)
 
-fc <- do.call(featureCounts, c(list(
+run_fc <- function(ex) do.call(featureCounts, c(list(
   files = bams,
   annot.ext = gtf,
   isGTFAnnotationFile = TRUE,
   nthreads = threads
-), extra))
+), ex))
+fc <- tryCatch(run_fc(extra), error = function(e) e)
+if (inherits(fc, "error")) {
+  # Rsubread stops on a BAM with no reads at all when isPairedEnd = TRUE (a
+  # BOMV slice of a run with no virus read). Count it as single end, and keep
+  # the zero counts only if no read was seen at all. Otherwise the first
+  # error stands.
+  ex2 <- extra
+  ex2$isPairedEnd <- FALSE
+  ex2$countReadPairs <- NULL
+  fc2 <- tryCatch(run_fc(ex2), error = function(e) NULL)
+  if (isTRUE(extra$isPairedEnd) && !is.null(fc2) && sum(fc2$stat[, -1]) == 0) {
+    cat("no reads in", bams, "so every count is zero\n")
+    fc <- fc2
+  } else {
+    stop(fc)
+  }
+}
 
 counts <- fc$counts
-# Name each column by the BAM's folder, which run.sh names after the run.
-colnames(counts) <- basename(dirname(bams))
+# Name each column by the run: the BAM's folder for STAR's Aligned.out.bam
+# (run.sh names the folder after the run), else the file name up to its
+# first dot (a slice, <run>.OK633884.1.bam).
+run_name <- function(b) {
+  if (basename(b) == "Aligned.out.bam") basename(dirname(b)) else sub("\\..*$", "", basename(b))
+}
+runs <- vapply(bams, run_name, "", USE.NAMES = FALSE)
+colnames(counts) <- runs
 tab <- data.frame(GeneID = rownames(counts), counts, check.names = FALSE)
 write.table(tab, paste0(out, ".counts.tsv"), sep = "\t", quote = FALSE,
   row.names = FALSE)
 
 stat <- fc$stat
-colnames(stat) <- c("Status", basename(dirname(bams)))
+colnames(stat) <- c("Status", runs)
 write.table(stat, paste0(out, ".summary.tsv"), sep = "\t", quote = FALSE,
   row.names = FALSE)

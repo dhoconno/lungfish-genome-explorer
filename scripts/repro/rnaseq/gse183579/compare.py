@@ -35,7 +35,7 @@ def second_call(raw, out, expect):
         star = shutil.which("STAR") or "STAR"
         subprocess.run([star, "--runMode", "soloCellFiltering", raw.rstrip("/") + "/", out.rstrip("/") + "/",
                         "--soloCellFilter", "EmptyDrops_CR", str(expect)] + ED,
-                       check=True, stdout=subprocess.DEVNULL)
+                       check=True, stdout=subprocess.DEVNULL, cwd=out)  # STAR writes Log.out in its cwd
     return [l.strip().split("-")[0] for l in open(os.path.join(out, "barcodes.tsv"))]
 
 

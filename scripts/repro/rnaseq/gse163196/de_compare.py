@@ -35,7 +35,8 @@ def load(path, sym):
 
 
 def degs(rows):
-    return {g for g, (fc, pa) in rows.items() if pa == pa and pa < 0.05 and abs(fc) > 1}
+    # (gene, sign) pairs, so a gene found with the other sign does not count as found (ADJ-BULK gate GU)
+    return {(g, fc > 0) for g, (fc, pa) in rows.items() if pa == pa and pa < 0.05 and abs(fc) > 1}
 
 
 def main():

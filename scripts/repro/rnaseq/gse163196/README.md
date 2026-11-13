@@ -40,6 +40,7 @@ Every aligned run passes through three counts, all from the same STAR BAM.
 | `compare.py` | Close-class comparison with the deposits, and UMI counts against read counts |
 | `de.R`, `de_compare.py` | DESeq2 PBL against CSF in groups I to III, and the scoring against the paper |
 | `claims.py`, `claims.tsv` | The claims table |
+| `gap.py`, `gap_variants.py`, `de_gap.py` | Diagnostics of the gap between route P and the 2024 files. They are not stages of `run.sh` |
 
 ## Assumptions and deviations
 
@@ -58,3 +59,14 @@ Each step the paper leaves open is set as below. None was chosen by fitting to t
 | fastp | Run before upload | Not run again | The uploads are already cleaned (mate lengths 31 to 150) |
 | DESeq2 | Version and design not stated | 1.50.2, `~ tissue`, no prefilter, unshrunk log2FC, PBL over CSF | The simplest reading of "pairwise comparison". A paired `~ patient + tissue` design is written beside it |
 | 2020 runs with a 2024 twin | The paper uses the 2024 names | Not aligned again. Their columns take the twin's counts | `pairhash.py` shows that each twin holds the same read pairs |
+
+## What the two deposits show
+
+Measured on 2026-11-13 from the 21 aligned runs.
+
+- Route P reproduces the authors' December 2020 files of B1 to B13. On the rows of the 2020 files, the worst Pearson r of log2 counts is 0.9908, our totals are 1.0003 to 1.0041 times theirs, and 84% to 88% of genes hold the same count. Counted over every Ensembl 100 gene, with genes absent from a 2020 file read as zero there, the worst r is 0.9832.
+- The February 2024 files of the same reads are a second processing. Their totals are 1.18 to 1.20 times the 2020 files for B23, B31, B32 and B33, and 1.65 to 1.80 times for the other eight. The gap differs from gene to gene and comes in two patterns, one for each set of samples. The CSF files, which have no 2020 twin, fall into the same two sets. Neither gene-body counting nor counting a read in every gene it overlaps reproduces the gap.
+- In groups II and III, two of three PBL samples carry the larger gap and no CSF sample does. The deposit DEGs that our counts miss carry a larger gap than the ones they find.
+- `compare.py` writes each figure twice, once over every gene and once over the deposit's own rows (columns ending in `_rows`). The last column, `share_outside_rows`, is the share of our counts outside those rows.
+- `claims.tsv` scores a close claim against a deposit on the deposit's own rows (ADJ-BULK-3). The bars are a worst per-sample r of at least 0.985, genes with a UMI within 2%, totals within 1% on every sample, and our counts outside the rows under 1%. The 2020 files carry the scored claim, C9-1c-rows, and it passes. The 2024 files are report-only with a floor of worst r 0.95 on their rows, which holds at 0.9632. Gate G4 reports STAR's too-short share per sample, because the 2024 processing is not settleable in 5.0. Route L, read counts and the all-row table are route checks.
+- The DE claim keeps the deposit's DEG recall as a reported figure. The paper's 7 claim genes and 53 named genes pass with sign and cut. Gate GU scores the CLI's DE against this step B instead, with 90% of the DEGs found both ways at padj under 0.1 with the same sign. The deposit's group II and III lists are a paper error.

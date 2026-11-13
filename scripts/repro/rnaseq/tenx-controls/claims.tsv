@@ -21,14 +21,14 @@ SC5P-5	sc5p_v2_hs_PBMC_1k metrics_summary Median Genes per Cell	1874	1874	1874	c
 SC5P-6	sc5p_v2_hs_PBMC_1k metrics_summary Median UMI Counts per Cell	5381		5372	close	pass	STARsolo_Gene, median_umi_per_cell; within 2%; 10x metrics summary
 SC5P-7	sc5p_v2_hs_PBMC_1k metrics_summary Fraction Reads in Cells	0.96500		0.96608	close	pass	STARsolo_Gene, summary:Fraction of Unique Reads in Cells; within 1 points; 10x: Fraction Reads in Cells
 SC5P-8	sc5p_v2_hs_PBMC_1k metrics_summary Sequencing Saturation	0.88600		0.88691	close	pass	STARsolo_Gene, summary:Sequencing Saturation; within 1 points; 10x: Sequencing Saturation
-CR7-1	SC3pv3_GEX_Human_PBMC filtered barcodes				close	not run	STARsolo_GeneFull_Ex50pAS jaccard
-CR7-2	SC3pv3_GEX_Human_PBMC filtered barcodes				close	not run	STARsolo_GeneFull_Ex50pAS share_of_10x_cells_called
-CR7-3	SC3pv3_GEX_Human_PBMC filtered matrix column sums				close	not run	STARsolo_GeneFull_Ex50pAS cell_umi_pearson_log1p_shared
-CR7-4	SC3pv3_GEX_Human_PBMC filtered matrix row sums				close	not run	STARsolo_GeneFull_Ex50pAS gene_total_pearson_log1p_ge10
-CR7-5	SC3pv3_GEX_Human_PBMC metrics_summary Median Genes per Cell				close	not run	STARsolo_GeneFull_Ex50pAS median_genes_per_cell
-CR7-6	SC3pv3_GEX_Human_PBMC metrics_summary Median UMI Counts per Cell				close	not run	STARsolo_GeneFull_Ex50pAS median_umi_per_cell
-CR7-7	SC3pv3_GEX_Human_PBMC metrics_summary Fraction Reads in Cells				close	not run	STARsolo_GeneFull_Ex50pAS summary:Fraction of Unique Reads in Cells
-CR7-8	SC3pv3_GEX_Human_PBMC metrics_summary Sequencing Saturation				close	not run	STARsolo_GeneFull_Ex50pAS summary:Sequencing Saturation
+CR7-1	SC3pv3_GEX_Human_PBMC filtered barcodes	1.00000		0.99903	close	pass	STARsolo_GeneFull_Ex50pAS, jaccard; at least 0.95
+CR7-2	SC3pv3_GEX_Human_PBMC filtered barcodes	1.00000		0.99942	close	pass	STARsolo_GeneFull_Ex50pAS, share_of_10x_cells_called; at least 0.95; recall
+CR7-3	SC3pv3_GEX_Human_PBMC filtered matrix column sums	1.00000		0.99998	close	pass	STARsolo_GeneFull_Ex50pAS, cell_umi_pearson_log1p_shared; at least 0.99; n=5137
+CR7-4	SC3pv3_GEX_Human_PBMC filtered matrix row sums	1.00000		0.98805	close	fail	STARsolo_GeneFull_Ex50pAS, gene_total_pearson_log1p_ge10; at least 0.99; 20854 genes with >=10 in either; class version drift: STARsolo's Ex50pAS rule and Cell Ranger 7.0.1's include-introns rule are different counting models; 80% of the deficit in genes at least 80% intronic, ours higher; bar 0.99 and output Ex50pAS unchanged (rulings/ADJ-SC-2.md Q1, item 4)
+CR7-5	SC3pv3_GEX_Human_PBMC metrics_summary Median Genes per Cell	2827	2827	2867	close	pass	STARsolo_GeneFull_Ex50pAS, median_genes_per_cell; within 2%; 10x metrics summary
+CR7-6	SC3pv3_GEX_Human_PBMC metrics_summary Median UMI Counts per Cell	8685		8752	close	pass	STARsolo_GeneFull_Ex50pAS, median_umi_per_cell; within 2%; 10x metrics summary
+CR7-7	SC3pv3_GEX_Human_PBMC metrics_summary Fraction Reads in Cells	0.93600		0.93583	close	pass	STARsolo_GeneFull_Ex50pAS, summary:Fraction of Unique Reads in Cells; within 1 points; 10x: Fraction Reads in Cells
+CR7-8	SC3pv3_GEX_Human_PBMC metrics_summary Sequencing Saturation	0.60900		0.60973	close	pass	STARsolo_GeneFull_Ex50pAS, summary:Sequencing Saturation; within 1 points; 10x: Sequencing Saturation
 HGMM-1	hgmm_1k_v3 filtered barcodes	1.00000		0.99904	close	pass	STARsolo_Gene, jaccard; at least 0.95
 HGMM-2	hgmm_1k_v3 filtered barcodes	1.00000		0.99904	close	pass	STARsolo_Gene, share_of_10x_cells_called; at least 0.95; recall
 HGMM-3	hgmm_1k_v3 filtered matrix column sums	1.00000		1.00000	close	pass	STARsolo_Gene, cell_umi_pearson_log1p_shared; at least 0.99; n=1045

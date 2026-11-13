@@ -101,7 +101,12 @@ if has compare; then
 fi
 
 if has virus; then $NICE $PY "$HERE/virus.py" "$WORK" "$HERE/runs.tsv" | tee "$WORK/logs/virus.log"; fi
-if has labels; then $NICE $PY "$HERE/labels.py" "$WORK" "$HERE/runs.tsv" | tee "$WORK/logs/labels.log"; fi
+if has labels; then
+  $NICE $PY "$HERE/labels.py" "$WORK" "$HERE/runs.tsv" | tee "$WORK/logs/labels.log"
+  # the unfitted row of ruling ADJ-SC gse183579 Q2: QC fixed before looking, labels one to one
+  QC_FIXED=200,20 LABELS_OUT=labels_unfitted $NICE $PY "$HERE/labels.py" "$WORK" "$HERE/runs.tsv" \
+    | tee "$WORK/logs/labels_unfitted.log"
+fi
 if has claims; then
   $NICE $PY "$HERE/claims.py" "$WORK" "$HERE/runs.tsv" "$HERE/claims.tsv" | tee "$WORK/logs/claims.log"
 fi

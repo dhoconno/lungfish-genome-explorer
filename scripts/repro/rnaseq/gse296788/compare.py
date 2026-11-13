@@ -11,8 +11,15 @@ For each library, on the deposit's barcodes and on ours (STARsolo "Gene", the ex
     prefix the Methods name).
 It also reads the 10 main deposited matrices (6 GEO samples) for the Mtb background in unsorted cells.
 
-Usage: python -I compare.py --work WORK --libs GSM... --out DIR
-Writes DIR/summary.tsv, DIR/<GSM>.json, DIR/mtb_background.tsv, DIR/pass_libs.txt.
+--feature picks the STARsolo matrix: Gene (the default, exons only) or GeneFull_Ex50pAS (exons and
+introns, as Cell Ranger's --include-introns counts). For a feature other than Gene the top-N call is
+made here from the raw matrix (every barcode with at least the UMI count at rank N, ties kept, as
+STAR's TopCells does). For Gene it is STAR's own topcells/ folder, and the count made here is
+reported beside it.
+
+Usage: python -I compare.py --work WORK --libs GSM... --out DIR [--feature F] [--no-background]
+Writes DIR/summary.tsv, DIR/<GSM>.json, DIR/<GSM>.mtb_per_cell.tsv, DIR/mtb_background.tsv and
+DIR/pass_libs.txt.
 """
 import argparse
 import glob
@@ -83,7 +90,7 @@ def cell_stats(m, genes, mito, label):
     qc = (ngenes >= 700) & (rp_frac <= 0.05)
     qc_strict = (ngenes >= 700) & (rp_strict <= 0.05)
     return {
-        "label": label, "cells": int(m.shape[1]),
+        "label": label, "cells": int(m.shape[1]), "mt_umi_total": int(mt_umi.sum()),
         "median_umi": float(np.median(umi)), "median_genes": float(np.median(ngenes)),
         "median_mt_frac": float(np.median(mt_frac)), "median_rp_frac": float(np.median(rp_frac)),
         "qc_pass": int(qc.sum()), "qc_pass_strict_rp": int(qc_strict.sum()),
@@ -100,27 +107,48 @@ def jaccard(a, b):
     return len(a & b), (len(a & b) / len(a | b) if a | b else float("nan"))
 
 
-def library(work, gsm, mito):
+def library(work, gsm, mito, feature="Gene", outdir=None, no_mito_exons=False):
     dep_prefix = glob.glob(os.path.join(work, "truth", gsm + "_*_barcodes.tsv.gz"))[0][: -len("_barcodes.tsv.gz")]
     dgenes, dbcs, dm = read_mex(dep_prefix, True)
-    solo = os.path.join(work, "solo", gsm, "Solo.out", "Gene")
+    solo = os.path.join(work, "solo", gsm, "Solo.out", feature)
     ogenes, obcs, om = read_mex(os.path.join(solo, "raw"), False)
     om = align_genes(om, ogenes, dgenes)
+    if no_mito_exons:
+        # The deposit's layout: with NCBI's GTF the 13 mitochondrial genes have no exon, so Cell
+        # Ranger lists them and counts 0 (every deposited matrix holds 0 UMIs in them).
+        keep = np.array([g not in mito for g in dgenes], dtype=float)
+        om = sp.csc_matrix(sp.diags(keep) @ om)
+        om.eliminate_zeros()
     col = {b: i for i, b in enumerate(obcs)}
-    out = {"library": gsm, "deposit": os.path.basename(dep_prefix), "deposit_cells": len(dbcs)}
+    out = {"library": gsm, "feature": feature, "deposit": os.path.basename(dep_prefix), "deposit_cells": len(dbcs)}
 
-    # Cell calls.
-    top = [b[0] for b in read_lines(os.path.join(work, "solo", gsm, "topcells", "barcodes.tsv"))]
+    # Cell calls: top N with ties kept, made here, and STAR's own call for Gene.
+    tot = np.asarray(om.sum(0)).ravel()
+    order = np.sort(tot)[::-1]
+    n = len(dbcs)
+    thr = order[n - 1]
+    top_py = [obcs[i] for i in np.where(tot >= thr)[0]]
+    out["top_cells_python"] = len(top_py)
+    if feature == "Gene" and not no_mito_exons:
+        top = [b[0] for b in read_lines(os.path.join(work, "solo", gsm, "topcells", "barcodes.tsv"))]
+    else:
+        top = top_py
     ed = [b[0] for b in read_lines(os.path.join(solo, "filtered", "barcodes.tsv"))]
     out["top_cells"] = len(top)
     out["top_shared"], out["top_jaccard"] = jaccard(top, dbcs)
     out["ed_cells"] = len(ed)
     out["ed_shared"], out["ed_jaccard"] = jaccard(ed, dbcs)
-    tot = np.asarray(om.sum(0)).ravel()
-    order = np.sort(tot)[::-1]
-    n = len(dbcs)
-    out["umi_at_rank_n"] = int(order[n - 1]) if len(order) >= n else None
-    out["barcodes_tied_at_rank_n"] = int((tot == order[n - 1]).sum()) if len(order) >= n else None
+    out["umi_at_rank_n"] = int(thr)
+    out["barcodes_tied_at_rank_n"] = int((tot == thr).sum())
+    # Is a miss only at the boundary? Our barcodes strictly above the rank-N count should all be in
+    # the deposit, and the deposit's other barcodes should sit in our tied group, not below it.
+    dset0 = set(dbcs)
+    above = np.where(tot > thr)[0]
+    dtot = np.array([tot[col[b]] if b in col else 0 for b in dbcs])
+    out["top_strict"] = int(len(above))
+    out["top_strict_in_deposit"] = int(sum(obcs[i] in dset0 for i in above))
+    out["deposit_at_tie"] = int((dtot == thr).sum())
+    out["deposit_below_tie"] = int((dtot < thr).sum())
     # The paper's QC on every barcode of our raw matrix, not only the forced N: if the deposit's N
     # were not the top N, cells passing QC would sit outside it.
     ng_all = np.asarray((om > 0).sum(0)).ravel()
@@ -161,9 +189,25 @@ def library(work, gsm, mito):
     out["gene_r_log1p"] = r_log(dg[keep], og[keep])
     ratio = (og[keep] + 1) / (dg[keep] + 1)
     out["genes_beyond_2fold"] = int(((ratio > 2) | (ratio < 0.5)).sum())
+    host = keep & np.array([g not in MTB for g in dgenes])
+    hr = (og[host] + 1) / (dg[host] + 1)
+    out["gene_median_ratio"] = float(np.median(hr))
+    out["gene_ratio_q1_q3"] = [float(np.quantile(hr, 0.25)), float(np.quantile(hr, 0.75))]
     out["gene_total_ratio"] = float(og.sum() / dg.sum())
+    # Totals by gene group: ribosomal protein genes (processed pseudogenes, few intronic reads), the
+    # 13 mitochondrial genes (no introns), Mtb, and the rest.
+    grp = {"rp": [gi[g] for g in dgenes if RP_STRICT.match(g)], "mito": [gi[g] for g in dgenes if g in mito],
+           "mtb": [gi[g] for g in MTB]}
+    grp["other"] = sorted(set(range(len(dgenes))) - set().union(*grp.values()))
+    for k, rows in grp.items():
+        out[f"{k}_total_ratio"] = float(og[rows].sum() / dg[rows].sum()) if dg[rows].sum() else float("nan")
+    with open(os.path.join(outdir or os.path.join(work, "compare"), gsm + ".genes.tsv"), "w") as w:
+        w.write("gene\tdeposit_umi\tours_umi\n")
+        for i, g in enumerate(dgenes):
+            if dg[i] or og[i]:
+                w.write(f"{g}\t{int(dg[i])}\t{int(og[i])}\n")
     # Per-cell Mtb counts on the deposit's barcodes, for mtb.py and the analysis agent.
-    with open(os.path.join(work, "compare", gsm + ".mtb_per_cell.tsv"), "w") as w:
+    with open(os.path.join(outdir or os.path.join(work, "compare"), gsm + ".mtb_per_cell.tsv"), "w") as w:
         w.write("barcode\tdeposit_umi\tdeposit_genes\tdeposit_mtb\tours_umi\tours_mtb\tdeposit_qc\n")
         dng = np.asarray((dm > 0).sum(0)).ravel()
         for i, b in enumerate(dbcs):
@@ -189,6 +233,10 @@ def main():
     ap.add_argument("--work", required=True)
     ap.add_argument("--libs", nargs="+", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--feature", default="Gene")
+    ap.add_argument("--no-background", action="store_true")
+    ap.add_argument("--no-mito-exons", action="store_true",
+                    help="count the 13 mitochondrial genes as 0, as the deposit does")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     mito = {r[0] for r in read_lines(os.path.join(a.work, "ref", "mito_genes.tsv"))[1:]}
@@ -197,13 +245,16 @@ def main():
         if not os.path.exists(os.path.join(a.work, "solo", gsm, "topcells", "barcodes.tsv")):
             print(f"{gsm}: not run yet")
             continue
-        r = library(a.work, gsm, mito)
+        r = library(a.work, gsm, mito, a.feature, a.out, a.no_mito_exons)
+        r["mito_counted"] = not a.no_mito_exons
         res.append(r)
         with open(os.path.join(a.out, gsm + ".json"), "w") as w:
             json.dump(r, w, indent=1)
-    keys = ["library", "deposit_cells", "top_cells", "top_shared", "top_jaccard", "umi_at_rank_n",
-            "barcodes_tied_at_rank_n", "ed_cells", "ed_shared", "ed_jaccard", "cell_umi_r_log1p",
-            "cell_umi_median_ratio", "gene_r_log1p", "genes_ge10", "genes_beyond_2fold", "gene_total_ratio",
+    keys = ["library", "feature", "deposit_cells", "top_cells", "top_cells_python", "top_shared", "top_jaccard",
+            "umi_at_rank_n", "barcodes_tied_at_rank_n", "top_strict", "top_strict_in_deposit", "deposit_at_tie",
+            "deposit_below_tie", "ed_cells", "ed_shared", "ed_jaccard", "cell_umi_r_log1p",
+            "cell_umi_median_ratio", "gene_r_log1p", "genes_ge10", "genes_beyond_2fold", "gene_total_ratio", "gene_median_ratio",
+            "rp_total_ratio", "mito_total_ratio", "mtb_total_ratio", "other_total_ratio",
             "mtb_cell_r_log1p", "mtb_umi_ratio", "mtb_cells_equal", "qc_pass_both", "raw_barcodes_ge700_genes",
             "raw_qc_pass", "raw_qc_pass_in_deposit"]
     sub = ["median_umi", "median_genes", "median_mt_frac", "qc_pass", "qc_pass_strict_rp", "mtb_umi_total",
@@ -219,8 +270,8 @@ def main():
         for r in res:
             if r["cell_umi_r_log1p"] >= 0.99 and r["gene_r_log1p"] >= 0.99:
                 w.write(r["library"] + "\n")
-    bg = background(a.work, set(a.libs), mito)
-    with open(os.path.join(a.out, "mtb_background.tsv"), "w") as w:
+    bg = [] if a.no_background else background(a.work, set(a.libs), mito)
+    with open(os.path.join(a.out, "mtb_background.tsv") if bg else os.devnull, "w") as w:
         k = list(bg[0].keys()) if bg else []
         w.write("\t".join(k) + "\n")
         for s in bg:

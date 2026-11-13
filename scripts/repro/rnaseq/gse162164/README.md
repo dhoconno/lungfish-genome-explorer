@@ -40,7 +40,17 @@ Kulkarni V, Queiroz ATL, Sangle S, et al. A Two-Gene Signature for Tuberculosis 
 | compare | `compare.py` | Sums NumReads by gene id, which is what tximport with `countsFromAbundance = "no"` returns, and builds four symbol tables (all gene ids summed, the lowest ENST of the symbol, the first transcript in the FASTA, the lowest ENSG). Each is set beside the deposit per sample, and `rowmatch.tsv` finds, row by row across the samples, which of our candidates follows each deposit row best. |
 | de | `de.R` | DESeq2 with `~ group`, Wald test, MLE fold changes, then VST, sva, the two-gene GLM and its ROC, an India-only rpart tree, a nested leave-one-out and the INSL3 checks. It runs on the deposit (step A) and on our symbol sums (step B). |
 
+Three scripts run by hand after the chain, for the analysis.
+
+| Script | What it does |
+|---|---|
+| `probe.py` | Tests how the deposit was built (question C5 Q1) beyond `rowmatch.tsv`. It adds one-transcript candidates per sample (highest ENST, last in the FASTA, the symbol's dominant transcript), each row's own symbol against a mean-matched random symbol once each column is scaled to its depth, a search of all our symbols for the best match of each deposit row, and the ratio of the deposit to ours on genes with one transcript. |
+| `libtype_test.sh` | Quantifies the first N pairs of a few runs against the paper index with `-l ISR`, `-l IU` and `-l ISF`, so `probe.py` can show whether a library-type setting moves our counts toward the deposit. |
+| `gate.py` | Gate GC's tiers 2 and 3 (rulings/ADJ-BULK.md, lines 137 to 140) for a route under test against this folder's counts. It checks per-run gene-id counts and mapping rate, then the DEG recall both ways, the signs of INSL3 and RAB20 and the in-sample AUC. |
+
 `ledger_rows.py` added the ledger rows of SRR13142280 and SRR13142281. The bulk downloader marked them failed after three md5 mismatches on mate 2, then fetched mate 2 again whole. Both mates now equal ENA's md5, so they needed rows and no S3 fetch.
+
+SRR13142277 and SRR13142293 had no mate 1 when the chain ended. The STAGE-4 lane fetched both mates 1 again whole from ENA, checked each file's md5 against ENA's and wrote ledger rows with `source_checksum_verified` yes. `quant.sh` then quantified the two runs in both arms with the same flags as the other 23. `compare.py`, step B of `de.R`, `probe.py`, `gate.py` and `claims.py` were rerun, so every table here stands on all 25 runs.
 
 ## Steps the paper does not state
 
@@ -52,6 +62,12 @@ Kulkarni V, Queiroz ATL, Sangle S, et al. A Two-Gene Signature for Tuberculosis 
 | sva | `num.sv` with the group in the model, `sva`, then limma `removeBatchEffect` on the surrogate variables | The paper names the package only. In the paper sva ran on India and Uganda together, so India alone cannot repeat it. |
 | The tree | Not repeatable here | The tree was grown on the DEGs of both cohorts together. INSL3 is a Uganda DEG (log2 fold change 3.3) and not an India DEG. The India-only tree in `de.R` is a finding, not a check. |
 
+## How the deposit was built (question C5 Q1)
+
+No symbol sum, gene id or single transcript of ours follows the deposit, on either index. `rowmatch.tsv` gives a median best r of 0.78 across the 25 runs against 0.72 for the symbol sum, under the bar of 0.9, and the best is chosen from many candidates, so it reads high. `probe.py` shows the rows keep their labels. With depth scaled out, a row follows its own symbol at r 0.92 and a random symbol at 0.47. Per sample, no rule that keeps one transcript a symbol reaches the symbol sum's r of 0.51. `libtype_test.sh` rules out the library type. Unstranded counting moves nothing toward the deposit, and the wrong strand keeps about a tenth of the fragments.
+
+Two features remain. 11% of the deposit's cells are 0 where our symbol sum is 50 or more, which no gene sum of the same reads can give. Four of the paper's 77 DEGs rest on such zeros (PARP10 with a log2 fold change of 22.1, SLC4A2 21.9, NKRF 7.1, MYOF 4.0). Step B does not find PARP10, SLC4A2 or NKRF, so those three are not gene-level differences in these reads and count as a paper error (claim C5-8, ADJ-BULK-3 C5 Q7). Step B finds MYOF, at a log2 fold change of about 1.7, so only its size is inflated. Genes with one transcript keep only about 0.55 of our counts, and the share falls with transcript length, from 0.76 under 1 kb to 0.29 over 4 kb. That points to a different fragment allocation, such as salmon 1.2.0's mapper or an unstated flag, which only salmon 1.2.0 can test. The deposit is therefore report-only (rulings ADJ-BULK C5 Q1), and the gate compares the CLI with this folder's gene sums. No salmon 1.2.0 environment is built in Phase 5.0 (ADJ-BULK-3 C5 Q4), so the cause of the lost depth stays open.
+
 ## Deviations
 
 | Deviation | Reason |
@@ -59,4 +75,5 @@ Kulkarni V, Queiroz ATL, Sangle S, et al. A Two-Gene Signature for Tuberculosis 
 | salmon 2.11.0 in place of 1.2.0 | The environment's version. Its selective alignment is the same method, but scores, defaults and the EM differ in detail, so the per-sample class is close, not exact. |
 | DESeq2 1.50.2 in place of the release R 4.0.2 carried, about 1.28 | The environment's version. The deposit gives the paper's baseMean to 4e-15 and fold changes within 0.00024. |
 | A second arm on the decoy-aware index | It is the index LGE's light route would use, and it shows what decoys change on total RNA from blood, where most fragments fall outside transcripts. |
+| Two runs quantified late | SRR13142277 and SRR13142293 reached the ledger after the chain's deadline, since their mate 1 had to be fetched again. They were quantified afterwards and the comparison, step B and the claims were rerun, so every figure stands on 25 runs. Step A on the deposit's first 23 columns gives 90 DEGs, so the paper's 77 need all 25. |
 | No Uganda half | The Uganda reads belong to another study and the panel did not take them (R1-BULK). |

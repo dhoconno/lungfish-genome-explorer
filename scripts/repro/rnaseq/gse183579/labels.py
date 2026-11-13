@@ -18,7 +18,12 @@ filtered for high mitochondrial genes and abnormal UMI counts (no numbers), 2,00
 Our cells get the QC, normalisation, projection and nearest k-means centre of the model fitted
 on the deposits, with no refit.
 
-Usage (python -I): labels.py WORK RUNS.tsv
+The unfitted row (ruling ADJ-SC gse183579 Q2): QC_FIXED=200,20 replaces the fitted QC with at
+least 200 genes and at most 20% mitochondrial UMIs, fixed before looking, and LABELS_OUT names
+the output folder (default labels; the unfitted row uses labels_unfitted). The model is refitted
+on the deposits kept by that QC. The grid is still scored for the record.
+
+Usage (python -I): [QC_FIXED=genes,mito] [LABELS_OUT=dir] labels.py WORK RUNS.tsv
 """
 import csv
 import gzip
@@ -112,7 +117,7 @@ def main(work, runs_tsv):
     import scanpy as sc
     from sklearn.cluster import KMeans
     from sklearn.decomposition import PCA
-    od = os.path.join(work, "labels")
+    od = os.path.join(work, os.environ.get("LABELS_OUT", "labels"))
     os.makedirs(od, exist_ok=True)
     genes = [r for r in csv.reader(open(os.path.join(work, "ref", "genes.tsv")), delimiter="\t")]
     gid = [g[0] for g in genes]
@@ -143,6 +148,13 @@ def main(work, runs_tsv):
         for r in sorted(rows, key=lambda r: r[len(keys)]):
             f.write("\t".join(str(x) for x in r) + "\n")
     P = best[0]
+    if os.environ.get("QC_FIXED"):
+        mg, mm = os.environ["QC_FIXED"].split(",")
+        P = dict(min_genes=int(mg), max_mito=float(mm), max_genes=10 ** 9, min_umi=0)
+        lr = np.array([np.log2(keep(qstat[g], P).sum() / int(match[g]["n_after_qc"])) for g in tied])
+        best = (P, float(np.median(np.abs(lr))))
+        print("QC fixed before looking (unfitted row) %s: median |log2(kept / figshare N)| %.3f, worst %.3f"
+              % (json.dumps(P), best[1], float(np.max(np.abs(lr)))))
     print("QC chosen %s: median |log2(kept / figshare N)| %.3f over %d tied BALF libraries" % (json.dumps(P), best[1], len(tied)))
     cc = {"S": [sym.index(s) for s in S_GENES if s in sym], "G2M": [sym.index(s) for s in G2M_GENES if s in sym]}
     count = {}
@@ -240,7 +252,8 @@ def main(work, runs_tsv):
         for r in share_rows:
             f.write("\t".join(str(x) for x in r) + "\n")
     with open(os.path.join(od, "qc_chosen.json"), "w") as f:
-        json.dump(dict(qc=P, median_abs_log2=best[1], tied_libraries=len(tied), k=K, div_frac=DIV_FRAC), f)
+        json.dump(dict(qc=P, fixed=bool(os.environ.get("QC_FIXED")), median_abs_log2=best[1],
+                       tied_libraries=len(tied), k=K, div_frac=DIV_FRAC), f)
     print("labels written to", od)
 
 

@@ -37,6 +37,7 @@ The bulk methods sit in the Science supplement. The copy on the drive is an HTML
 | index | `star.sh index` | `genomeGenerate` with the GTF, `--sjdbOverhang 100` and the full suffix array. Heavy. |
 | align | `align.sh`, `star.sh align` | One STAR run for each subset run, default parameters, `--quantMode GeneCounts`, an unsorted BAM. Heavy, one lock for all runs. |
 | compare | `compare.py` | Adds a sample's two runs in each of the three ReadsPerGene count columns and compares each sum with the deposited column, gene by gene. Writes `samples.tsv`, a `diff_*.tsv` for every difference, the label and `claims.tsv`. Then `run.sh` deletes the BAM of every run whose sample is exact. |
+| de | `de.R`, `de_claims.py` | The two expression claims on the deposited matrix (step A), then on the same matrix with the aligned samples' columns swapped in (step B). An ISG score and DESeq2 `~covid` on all 34 samples and on one sample a patient, and the CPM of the IFNA genes and IFNB1. Writes the claims and checks that the two steps agree. Light. |
 
 ## Deviations and their reasons
 
@@ -47,8 +48,14 @@ The bulk methods sit in the Science supplement. The copy on the drive is an HTML
 | 3 | The full suffix array | The brief allows `--genomeSAsparseD 2` only when the exact class does not need the paper's own setting, and here it does |
 | 4 | Each run aligned alone, then summed | Counts of uniquely mapped reads add, so this equals one STAR run on both files, and it shows which run is at fault if a sample differs |
 | 5 | The strand column is found by equality | GEO does not say which of the three ReadsPerGene columns it deposited |
-| 6 | STAR from bioconda, built in 2025, under Rosetta 2 | The authors' binary is the 2020 release. A difference that traces to the build would be version drift, and the results table says if one appears |
+| 6 | STAR from bioconda under Rosetta 2 | The package holds the 2.7.3a release binary for macOS, compiled on 8 October 2019 (`Log.out`). No count differed, so the build made no difference here |
+| 7 | An ISG stand-in set for Fig. 4G | The 33 ISGs are drawn in Fig. 4C and 4G and listed in the supplement, which is not on the drive. The score uses the three ISGs the Results name (IFI27, IFITM3, ISG15), so claim C2-6 stays pending. One try at PMC's article PDF through Europe PMC on 2026-11-13 met a Cloudflare challenge (403), so the 33 names stay unread. The 33 names are accepted only when Fig. 4C and 4G of a legible source give the same 33 |
+| 8 | No IFNA or IFNB read as under 1 CPM in every sample | The paper says only that no expression was detected. The bar is R2-STAT's |
 
 ## Results
 
-No count has been compared yet. The index build and the 14 alignments had not started when this lane stopped. The compare stage writes `claims.tsv` to `<work_dir>/compare/`, with each claim's paper wording, the deposit, our value, the class and the verdict, and a finished run copies it into this folder. The lane report `REPRO-gse152418.md` in the phase records holds the commands that start the run and the label the BULK-SUBSET ruling sets for claims that use the deposit.
+The chain ran on 2026-11-13 and `claims.tsv` in this folder holds its result. Column 2 (unstranded), summed over a sample's two runs, equals the deposited matrix on every gene row of the 7 tested samples, so claims C2-1 to C2-5 pass at exact class. A repeat of SRR12007829 at 4 threads gave the same table as the 8-thread run.
+
+The DE stage ran both steps. Step B, with our 7 columns swapped in, equals step A on every output. No IFNA gene and not IFNB1 reaches 1 CPM in any sample (the highest is 0.37 CPM), so C2-7 passes. The stand-in ISG score is higher in COVID-19 on all 34 samples and on one sample a patient, but C2-6 stays pending until the 33-gene list is read.
+
+The lane report `REPRO-gse152418.md` in the phase records holds the compute figures and the questions for adjudication.
