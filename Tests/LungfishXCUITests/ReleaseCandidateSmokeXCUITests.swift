@@ -752,14 +752,17 @@ struct ScaleCorpus {
         return item
     }
 
-    /// True once the viewer of `identifier` shows. Each ask is one `waitForExistence(timeout: 1)`, whose own wait of
-    /// about 1 s is the watch's allowance, and the loop ends at `timeout` or at the watch's first failure.
+    /// True once the viewer of `identifier` shows. Each ask is one `exists` query, which on a false answer takes no
+    /// whole-app accessibility snapshot. A `waitForExistence` that times out does take one, and XCUI's finds with the
+    /// 20,000-row table shown took 3.7 to 10.9 s, past the watch's bound for a healthy app (SCALE-SMOKE-QA should-fix 1).
+    /// A pause of 0.25 s separates the asks, and the loop ends at `timeout` or at the watch's first failure.
     @MainActor
     static func waitForViewer(_ identifier: String, in app: XCUIApplication, watch: AppWatch, timeout: TimeInterval) -> Bool {
         let viewer = app.descendants(matching: .any)[identifier].firstMatch
         let deadline = Date().addingTimeInterval(timeout)
         while watch.failure == nil, Date() < deadline {
-            if watch.ask("the query of \(identifier)", { viewer.waitForExistence(timeout: 1) }) { return true }
+            if watch.ask("the query of \(identifier)", { viewer.exists }) { return true }
+            _ = XCTWaiter().wait(for: [XCTestExpectation(description: "poll the viewer")], timeout: 0.25)
         }
         return false
     }
@@ -939,7 +942,10 @@ extension ReleaseCandidateSmokeXCUITests {
         watch.start()
         // A stand-in app the watch did not end is still stopped, and only SIGKILL ends it.
         defer { watch.stop(); if stopped { _ = kill(watch.pid, SIGKILL) } }
-        scaleLine("SCALE-APP pid=\(watch.pid) path=\(robot.candidateURL.path)", into: &lines)
+        // The load at the start, so that a red can be read as a hang or as a busy Mac (SCALE-SMOKE-QA should-fix 1).
+        var load = [Double](repeating: 0, count: 3)
+        getloadavg(&load, 3)
+        scaleLine("SCALE-APP pid=\(watch.pid) path=\(robot.candidateURL.path) load=\(load[0])", into: &lines)
         robot.openProject(project)
         guard watch.healthy(after: "opening the project") else { return }
         let title = watch.ask("the query of its first window") { robot.app.windows.firstMatch.title }
