@@ -159,6 +159,11 @@ final class FastqFastpPairedRunTests: XCTestCase {
             XCTAssertTrue(envelope.steps.contains { $0.toolName == "lungfish fastq trim interleave" }, envelope.steps.map(\.toolName).joined(separator: ", "))
             XCTAssertEqual(envelope.options.resolvedDefaults["fastpLayoutPlan"], .string("interleaved"))
             XCTAssertEqual(envelope.options.resolvedDefaults["readLayout"], .string("strictly_interleaved"))
+            // The run detects the adapter, so it staged the pairs in the fixed-seed order, and says so (trust session R1).
+            XCTAssertEqual(
+                envelope.options.resolvedDefaults["stagedPairOrder"], SeededPairOrder.Record().provenanceValue,
+                "the record names the staging and its seed (\(pairing))"
+            )
         }
     }
 
@@ -236,6 +241,12 @@ final class FastqFastpPairedRunTests: XCTestCase {
         XCTAssertFalse(envelope.steps[0].argv.contains("-I"))
         XCTAssertTrue(envelope.argv.contains("--pairing"), "\(envelope.argv)")
         XCTAssertEqual(envelope.options.resolvedDefaults["fastpLayoutPlan"], .string("single_end"))
+        // No adapter is named, so fastp guesses it from the head of the reads. They were staged in the fixed-seed
+        // order, and the record says so (trust session R2).
+        XCTAssertEqual(
+            envelope.options.resolvedDefaults["stagedPairOrder"], SeededPairOrder.Record.reads.provenanceValue,
+            "the record names the staging of single reads and its seed"
+        )
     }
 
     // MARK: - Fixtures
