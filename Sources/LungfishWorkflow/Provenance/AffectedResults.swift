@@ -343,6 +343,15 @@ public enum AffectedResults {
                 + "position's own frequency.",
             fixCommit: "c86b0c2d2"
         ),
+        AffectedResultRow(
+            backlogID: "ESV-STAGING-SYMBOL-NAMES", kinds: [.esViritu], firstBuild: 520, lastBuild: 12972,
+            sentence: "The version that made this EsViritu result could give EsViritu the second of two input files of "
+                + "one name twice and the first not at all when a folder in the input or output path held a space, "
+                + "so that sample's detections, read counts and abundances are wrong.",
+            whatToDo: "If this sample had two input files of the same name, such as reads.fastq.gz from two run "
+                + "folders, and a space in a folder name, run the sample again with this version.",
+            fixCommit: "3d75f96a4"
+        ),
     ]
 
     /// A published release, its version and the build of the commit it was packaged from.

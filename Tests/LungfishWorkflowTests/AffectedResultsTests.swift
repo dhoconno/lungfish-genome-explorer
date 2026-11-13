@@ -181,6 +181,28 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertEqual(ids(12973, .variantCalls), [])
     }
 
+    // Trust session FIX-ESV review BIO, fold 1. ESV-STAGING-SYMBOL-NAMES holds an EsViritu result from the build that
+    // brought in the spaces-in-path staging (a9762b9fd, 520) to Stable 2026.11.7, and no other kind. The table matches
+    // by build alone, so the sentence says "could" and names the two conditions that the record can show.
+    func testTheEsVirituStagingRowHoldsItsBuilds() throws {
+        let row = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "ESV-STAGING-SYMBOL-NAMES" })
+        XCTAssertEqual(row.kinds, [.esViritu])
+        XCTAssertEqual(row.firstBuild, 520, "a9762b9fd, the spaces-in-path staging")
+        XCTAssertEqual(row.lastBuild, 12972, "Stable 2026.11.7, the newest build, lacks the fix")
+        XCTAssertFalse(ids(519, .esViritu).contains(row.backlogID))
+        XCTAssertTrue(ids(520, .esViritu).contains(row.backlogID))
+        XCTAssertTrue(ids(12972, .esViritu).contains(row.backlogID), "Stable 2026.11.7")
+        XCTAssertFalse(ids(12973, .esViritu).contains(row.backlogID))
+        for kind in AffectedResultKind.allCases where kind != .esViritu {
+            XCTAssertFalse(ids(12972, kind).contains(row.backlogID), "\(kind)")
+        }
+
+        XCTAssertTrue(row.sentence.contains("the second of two input files of one name twice and the first not at all"))
+        XCTAssertTrue(row.sentence.contains("a folder in the input or output path held a space"))
+        XCTAssertTrue(row.whatToDo.hasPrefix("If this sample had two input files of the same name"))
+        XCTAssertTrue(row.whatToDo.hasSuffix("run the sample again with this version."))
+    }
+
     // MARK: - Records as the app wrote them, with the bare version at the root
 
     private func backlogIDs(_ record: ProvenanceEnvelope, _ kind: AffectedResultKind) -> [String] {
