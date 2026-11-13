@@ -223,6 +223,56 @@ final class WindowEventPosterScopeTests: XCTestCase {
         XCTAssertEqual(posted.userInfo?[NotificationUserInfoKey.inspectorTab] as? String, "ai")
     }
 
+    // MARK: - Affected results notice
+
+    /// The Inspector tells the viewers of its window which rows of the affected-results table matched. The notice is a
+    /// window event, so it carries the scope of the window that shows the Inspector.
+    func testTheAffectedResultsNoticeCarriesTheScopeOfTheInspectorsWindow() throws {
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        let scope = WindowStateScope()
+        inspector.windowStateScope = scope
+        let recorder = PostedEventRecorder(.affectedResultsDidChange)
+        defer { recorder.stop() }
+        let item = ProvenanceInspectableItem(
+            url: URL(fileURLWithPath: "/tmp/affected-results-test"), sidebarType: .taxTriageResult,
+            contentMode: .metagenomics, displayName: "result"
+        )
+
+        inspector.provenanceSectionViewModel.applyAffectedResults(item: item)
+
+        let posted = try XCTUnwrap(recorder.last)
+        XCTAssertEqual(posted.windowScope, scope)
+    }
+
+    /// A strip takes the notice of its own window's Inspector and ignores the notice of every other window and a
+    /// notice with no scope. An empty notice takes the strip away, so a strip that stays shows a dropped notice.
+    func testTheAffectedResultsNoticeReachesOnlyTheViewerOfItsOwnWindow() throws {
+        let own = WindowStateScope()
+        let viewer = ViewerViewController()
+        viewer.windowStateScope = own
+        _ = viewer.view
+        _ = try viewer.showSurface(.analysis(.kraken2), input: TaxonomyViewController(), as: Kraken2Surface.self)
+        let surfaceView = try XCTUnwrap(viewer.installedSurface?.viewController.view)
+        XCTAssertTrue(surfaceView.superview === viewer.view, "the strip sits in the viewer's own view")
+        AffectedResultsStrip.place(words: "An earlier build made this result wrong.", above: surfaceView, in: viewer.view)
+        XCTAssertNotNil(AffectedResultsStrip.strip(in: viewer.view))
+
+        func postNotice(scope: WindowStateScope?) {
+            NotificationCenter.default.post(
+                name: .affectedResultsDidChange, object: ProvenanceInspectorViewModel(),
+                userInfo: ScopedEventFilter.scopedUserInfo(scope: scope)
+            )
+        }
+
+        postNotice(scope: WindowStateScope())
+        XCTAssertNotNil(AffectedResultsStrip.strip(in: viewer.view), "the notice of another window leaves this strip")
+        postNotice(scope: nil)
+        XCTAssertNotNil(AffectedResultsStrip.strip(in: viewer.view), "a window event with no scope is dropped")
+        postNotice(scope: own)
+        XCTAssertNil(AffectedResultsStrip.strip(in: viewer.view), "the notice of this window takes the strip away")
+    }
+
     // MARK: - Window-owned project session
 
     func testMirroredProjectOpenCarriesTheSessionWindowScope() throws {

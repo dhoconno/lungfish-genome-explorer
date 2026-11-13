@@ -122,6 +122,8 @@ public class InspectorViewController: NSViewController {
             // Sections that post window events themselves attach this scope.
             viewModel.annotationSectionViewModel.windowStateScope = windowStateScope
             viewModel.sampleSectionViewModel.windowStateScope = windowStateScope
+            // The Provenance model attaches this scope to its notice of an affected result.
+            viewModel.provenanceSectionViewModel.windowStateScope = windowStateScope
         }
     }
     var activeContentSelectionIdentity: ContentSelectionIdentity?

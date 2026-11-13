@@ -68,9 +68,17 @@ extension ProvenanceInspectorViewModel {
         if removedRows || !rows.isEmpty, resolvedEnvelope != nil {
             copyableText = buildCopyableText()
         }
+        // The notice is a window event, so it carries the scope of the window that shows this Inspector.
         NotificationCenter.default.post(
             name: .affectedResultsDidChange, object: self,
-            userInfo: [Self.affectedResultsRowsKey: rows]
+            userInfo: ScopedEventFilter.scopedUserInfo([Self.affectedResultsRowsKey: rows], scope: windowStateScope)
         )
+    }
+
+    /// Whether the viewers of the window with `windowScope` take `notice`, a notice of an affected result. It is a
+    /// window event (``ScopedEventFilter``), so only the viewers of the window whose Inspector posted it take it, and
+    /// a notice with no scope is dropped.
+    static func viewerTakes(_ notice: Notification, inWindowWith windowScope: WindowStateScope?) -> Bool {
+        ScopedEventFilter.accept(notice, for: windowScope)
     }
 }

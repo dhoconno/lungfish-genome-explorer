@@ -295,6 +295,9 @@ final class ProvenanceInspectorViewModel {
     nonisolated static let maximumDisplayedStepPaths = 200
 
     var currentItem: ProvenanceInspectableItem?
+    /// The scope of the project window that shows this Inspector. The Inspector hands it over with its own, and the
+    /// notice of an affected result carries it so that only the viewers of that window take the rows.
+    var windowStateScope: WindowStateScope?
     private(set) var sources: [ProvenanceSource] = []
     private(set) var selectedSourceID = ""
 

@@ -120,6 +120,9 @@ extension ViewerViewController {
     }
 
     @objc private func affectedResultsDidChange(_ notification: Notification) {
+        // The notice is a window event. A viewer that no split view controller owns, such as an embedded one, finds its
+        // window's scope itself, and a viewer in no project window takes none of these notices.
+        guard ProvenanceInspectorViewModel.viewerTakes(notification, inWindowWith: windowEventScope) else { return }
         // Only the Inspector of this window speaks for this viewer.
         if let split = parent as? MainSplitViewController,
            let model = split.inspectorController?.provenanceSectionViewModel,

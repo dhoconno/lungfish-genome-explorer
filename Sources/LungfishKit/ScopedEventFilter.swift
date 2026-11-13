@@ -131,6 +131,11 @@ public enum ScopedEventFilter {
         // Posted inline by SequenceViewerView+Interaction.swift.
         Notification.Name("createAnnotationFromSelection"): .window,
 
+        // LungfishApp, Views/Inspector/ProvenanceInspectorViewModel+Affected.swift. One Inspector's lookup tells the
+        // viewers which rows of the affected-results table matched. The Provenance model attaches the scope of its
+        // window, and a viewer takes the notice only from the Inspector of its own window.
+        Notification.Name("LungfishAffectedResultsDidChange"): .window,
+
         // LungfishAssemblyUI, AssemblyLayoutPreference.swift
         Notification.Name("com.lungfish.assemblyLayoutSwapRequested"): .application,
 
