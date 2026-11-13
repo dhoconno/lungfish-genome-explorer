@@ -241,7 +241,8 @@ final class CondaManagerTests: XCTestCase {
         let toolsDirectoryURL = Self.bundledToolsDirectoryURL()
         let entries = try FileManager.default.contentsOfDirectory(atPath: toolsDirectoryURL.path).sorted()
 
-        XCTAssertEqual(entries, ["VERSIONS.txt", "micromamba", "tool-versions.json"])
+        // fastp-known-adapters.fasta is the list a single-read trim names so fastp guesses no adapter (BIO-PROBES-E).
+        XCTAssertEqual(entries, ["VERSIONS.txt", "fastp-known-adapters.fasta", "micromamba", "tool-versions.json"])
     }
 
     private static func toolVersionsManifestURL() -> URL {

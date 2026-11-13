@@ -191,8 +191,10 @@ if [ ! -f "$TOOLS_DIR/VERSIONS.txt" ]; then
     exit 66
 fi
 
+# fastp-known-adapters.fasta: the adapters a single-read trim names so fastp guesses none (ruling BIO-PROBES-E).
 EXPECTED_ENTRIES=(
     "VERSIONS.txt"
+    "fastp-known-adapters.fasta"
     "micromamba"
     "tool-versions.json"
 )

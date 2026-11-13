@@ -156,13 +156,33 @@ public enum FastpPairedRunner {
         public let fastaSequences: [String: String]
 
         /// The adapters bundled with LGE.
-        public static func bundled() throws -> SingleReadAdapters {
-            guard let url = RuntimeResourceLocator.path(resourcePath, in: .workflow) else {
+        ///
+        /// - Parameter locate: finds a workflow resource; defaults to the app's resources. A `lungfish-cli` run from
+        ///   the build folder sits in no app, so the locator finds nothing there, and a debug build then reads the
+        ///   list from the source tree as the tool manifest and the conda locks do (SE-NAMED-ADAPTERS-d). A release
+        ///   build reads it only from the app.
+        public static func bundled(
+            locate: (String) -> URL? = { RuntimeResourceLocator.path($0, in: .workflow) }
+        ) throws -> SingleReadAdapters {
+            guard let url = locate(resourcePath) ?? debugSourceURL() else {
                 throw FastpPairedRunError(
                     "The list of known adapters that Lungfish trims from single reads is missing from this copy of Lungfish (\(resourcePath)). Install Lungfish again."
                 )
             }
             return try SingleReadAdapters(fastaURL: url)
+        }
+
+        private static func debugSourceURL() -> URL? {
+            #if DEBUG
+            let sourceURL = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Resources")
+                .appendingPathComponent(resourcePath)
+            return FileManager.default.fileExists(atPath: sourceURL.path) ? sourceURL : nil
+            #else
+            return nil
+            #endif
         }
 
         public init(adapterSequence: String = truSeqRead1, fastaURL: URL) throws {
