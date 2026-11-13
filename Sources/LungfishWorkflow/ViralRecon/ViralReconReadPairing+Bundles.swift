@@ -150,10 +150,12 @@ extension ViralReconReadPairing {
     ///
     /// A sample of pairs gives one R1 and R2 row per mate pair. A sample of
     /// single reads, or one that mixes pairs and single reads, gives one
-    /// single-end row of every read: R1 records, then R2 records, then the
-    /// single reads. The decision then records why the mates run as single
-    /// reads. A virtual bundle is materialized first. The files the plan
-    /// wrote are removed once the gzip files exist.
+    /// single-end row of every read (R1 records, then R2 records, then the
+    /// single reads) in the fixed-seed random order of ``SeededPairOrder``,
+    /// so the trimmers that sample the reads they meet first do not see the
+    /// bundle's clumped order. The decision then records why the mates run
+    /// as single reads, and the order. A virtual bundle is materialized
+    /// first. The files the plan wrote are removed once the gzip files exist.
     static func stageBundle(
         of sample: ViralReconSample,
         bundleURL: URL,

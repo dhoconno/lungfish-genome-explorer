@@ -119,12 +119,19 @@ final class ViralReconReadSetRoundTripTests: XCTestCase {
     /// For each derived bundle shape: the app's run (the argv the service
     /// hands `lungfish-cli`) and a replay of the recorded command string
     /// launch the same rows, and those rows hold every read in its role.
+    ///
+    /// A single-end row is staged in the fixed-seed order (`SeededPairOrder`, seed 1), not in the bundle's
+    /// clumped order, because fastp and viralrecon's trimming sample the reads they meet first (trust session
+    /// FIX-TRIM; the BIO review of FIX-F5 rated the bundle's order S1). Five reads in seed 1 come out as input
+    /// positions 4, 3, 0, 1, 2. Two pairs keep their order (positions 0, 1).
     func testTheRecordedCommandStagesTheRowsTheAppsRunStages() async throws {
         let fixtures = try ReadSetFixtures(in: root)
         let expected: [(URL, [Row])] = [
             (fixtures.pairedDerivative, [Row(sample: "paired", reads1: ["p1/1", "p2/1"], reads2: ["p1/2", "p2/2"])]),
-            (fixtures.mergeDerivative, [Row(sample: "merge", reads1: ["u1/1", "u1/2", "x1", "x2", "x3"], reads2: [])]),
-            (fixtures.repairDerivative, [Row(sample: "repair", reads1: ["r1/1", "r2/1", "r1/2", "r2/2", "o1"], reads2: [])]),
+            // The bundle holds u1/1, u1/2, x1, x2, x3.
+            (fixtures.mergeDerivative, [Row(sample: "merge", reads1: ["x3", "x2", "u1/1", "u1/2", "x1"], reads2: [])]),
+            // The bundle holds r1/1, r2/1, r1/2, r2/2, o1.
+            (fixtures.repairDerivative, [Row(sample: "repair", reads1: ["o1", "r2/2", "r1/1", "r2/1", "r1/2"], reads2: [])]),
         ]
         for (bundle, rows) in expected {
             let runner = CapturingNextflowRunner()
