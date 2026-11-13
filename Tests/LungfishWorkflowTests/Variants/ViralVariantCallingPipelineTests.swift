@@ -715,6 +715,14 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(result.commandLine.contains(" | "))
         XCTAssertTrue(result.commandLine.contains("/envs/samtools/bin/samtools"))
         XCTAssertTrue(result.commandLine.contains("/envs/ivar/bin/ivar"))
+
+        // FIX-F6 review BIO, B1. The merge distance decides nothing since the codon merge rule changed, so the call
+        // record names the rule that decides, beside the distance the user chose.
+        let converterStep = try XCTUnwrap(result.provenanceSteps.first { $0.toolName == "lungfish ivar-tsv-to-vcf-converter" })
+        XCTAssertTrue(converterStep.command.contains("--merge-af-threshold"), "the user's choice stays in the record")
+        let rule = try XCTUnwrap(converterStep.command.firstIndex(of: "--codon-merge-rule"), "the record names the rule")
+        XCTAssertEqual(converterStep.command.dropFirst(rule + 1).first,
+                       "every-frequency-above-consensus-af-else-one-record-for-each-change")
     }
 
     // The converter's default sample column is the TSV basename, which is the

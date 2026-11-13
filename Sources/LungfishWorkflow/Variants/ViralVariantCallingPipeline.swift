@@ -987,6 +987,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                     "--all-haplotypes-output", allHapURL.path,
                     "--consensus-af", String(request.ivarConsensusAF),
                     "--merge-af-threshold", String(request.ivarMergeAFThreshold),
+                    "--codon-merge-rule", "every-frequency-above-consensus-af-else-one-record-for-each-change",
                     "--bad-quality-threshold", String(request.ivarBadQualityThreshold),
                     "--ignore-strand-bias", String(request.ivarIgnoreStrandBias),
                 ],
