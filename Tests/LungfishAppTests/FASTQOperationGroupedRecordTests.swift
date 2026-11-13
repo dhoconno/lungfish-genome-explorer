@@ -7,9 +7,10 @@
 // folder holds no record that names every output, the dispatcher writes one itself after the
 // commands exit (`FASTQOperationPlanner.ensureGroupedResultProvenance`), from the commands it ran.
 //
-// The dispatcher runs one command for most grouped requests. A group that mixes FASTA and FASTQ
-// inputs cannot share one execution representation, so the planner splits it into one command for
-// each input. Before decision D2 of Phase 2.8 the record of those several commands named
+// The dispatcher runs one command for a grouped request of one input. A group of several inputs is
+// split by the planner into one command for each input (a command names one input, and a group that
+// mixes FASTA and FASTQ cannot share one execution representation either; DEMUX-GROUPED-DROPS-INPUTS).
+// Before decision D2 of Phase 2.8 the record of those several commands named
 // `lungfish-cli gui fastq-grouped-result --operation <kind>`, a command no leaf defines, and
 // listed one step that held the same false command. D2 gives the record one step for each
 // command, with the real `lungfish-cli` argv, and makes the run command the shell form of those
@@ -322,8 +323,8 @@ final class FASTQOperationGroupedRecordTests: XCTestCase {
         )
     }
 
-    /// One length filter over a FASTA file and one over a FASTQ file, the one case in which the
-    /// dispatcher runs several commands for a grouped result.
+    /// One length filter over a FASTA file and one over a FASTQ file, a group of two inputs, for
+    /// which the dispatcher runs several commands for a grouped result.
     private func makeMixedFormatRun() throws -> GroupedRun {
         let group = try makeGroupFolder()
         let sequences = root.appendingPathComponent("sequences.fasta")

@@ -106,9 +106,13 @@ final class FASTQDemultiplexGroupedInputsConformanceTests: XCTestCase {
         XCTAssertEqual(counts, ["poolA": 1, "poolB": 1], "S1 holds the read of each pool and nothing else is a result")
         XCTAssertEqual(counts.values.reduce(0, +), 2, "the reads of both pools are in sample S1")
 
-        // The record at the run folder is the command script of what ran, one line for each pool.
+        // The record at the run folder is the shell form of what ran (decision D2 of Phase 2.8): the commands of the
+        // plans joined by `&&` on one line, where the Operations row holds a script of one line for each. Each part
+        // parses with the real CLI parser and names one pool.
         let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: run))
-        let recorded = try RecordedCLICommand.parseScript(envelope.reproducibleCommand)
+        let parts = try XCTUnwrap(envelope.reproducibleCommand).components(separatedBy: " && ")
+        XCTAssertEqual(parts.count, 2, "one command for each pool: \(envelope.reproducibleCommand ?? "nil")")
+        let recorded = try parts.map { try RecordedCLICommand.parse($0) }
         let inputs = recorded.compactMap { ($0 as? FastqDemultiplexSubcommand)?.input }
         XCTAssertEqual(inputs.sorted(), pools.map(\.path).sorted(), "the record names both pools")
     }

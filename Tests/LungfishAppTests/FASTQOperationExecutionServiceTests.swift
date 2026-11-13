@@ -2487,30 +2487,23 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 outputMode: .groupedResult
             )
         )
-        let runner = SpyCommandRunner { _, outputDirectory in
-            let outputABundle = try FASTQOperationTestHelper.makeBundle(named: "filtered-a", in: outputDirectory)
-            let outputBBundle = try FASTQOperationTestHelper.makeBundle(named: "filtered-b", in: outputDirectory)
-            try FASTQOperationTestHelper.writeSyntheticFASTQ(to: outputABundle.fastqURL, readCount: 1, readLength: 20)
-            try FASTQOperationTestHelper.writeSyntheticFASTQ(to: outputBBundle.fastqURL, readCount: 1, readLength: 20)
+        // A grouped run of two datasets is one command for each (DEMUX-GROUPED-DROPS-INPUTS: it was one command that
+        // named the first), so each call makes the output of the input it read, in that input's folder.
+        let runner = SpyCommandRunner { invocation, outputDirectory in
+            let inputs = [("a", inputABundle), ("b", inputBBundle)]
+            let (suffix, inputBundle) = try XCTUnwrap(inputs.first { invocation.arguments.contains($0.1.bundleURL.path) })
+            let outputBundle = try FASTQOperationTestHelper.makeBundle(named: "filtered-\(suffix)", in: outputDirectory)
+            try FASTQOperationTestHelper.writeSyntheticFASTQ(to: outputBundle.fastqURL, readCount: 1, readLength: 20)
             try writeSyntheticProvenance(
-                to: outputABundle.bundleURL,
+                to: outputBundle.bundleURL,
                 name: "lungfish fastq length-filter",
                 toolName: "seqkit",
                 toolVersion: "2.9.0",
-                command: ["seqkit", "seq", inputABundle.fastqURL.path, "-o", outputABundle.fastqURL.path],
-                inputURL: inputABundle.fastqURL,
-                outputURL: outputABundle.fastqURL
+                command: ["seqkit", "seq", inputBundle.fastqURL.path, "-o", outputBundle.fastqURL.path],
+                inputURL: inputBundle.fastqURL,
+                outputURL: outputBundle.fastqURL
             )
-            try writeSyntheticProvenance(
-                to: outputBBundle.bundleURL,
-                name: "lungfish fastq length-filter",
-                toolName: "seqkit",
-                toolVersion: "2.9.0",
-                command: ["seqkit", "seq", inputBBundle.fastqURL.path, "-o", outputBBundle.fastqURL.path],
-                inputURL: inputBBundle.fastqURL,
-                outputURL: outputBBundle.fastqURL
-            )
-            return FASTQCLIExecutionResult(outputURLs: [outputABundle.bundleURL, outputBBundle.bundleURL])
+            return FASTQCLIExecutionResult(outputURLs: [outputBundle.bundleURL])
         }
         let importer = SpyDirectImporter()
         let service = FASTQOperationExecutionService(
@@ -2537,9 +2530,10 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let manifest = try XCTUnwrap(FASTQBatchManifest.load(from: groupedURL))
         XCTAssertEqual(manifest.operations.count, 1)
         let record = try XCTUnwrap(manifest.operations.first)
+        XCTAssertEqual(runner.invocations.count, 2, "one command for each input")
         XCTAssertEqual(record.outputBundlePaths.sorted(), [
-            "filtered-a.\(FASTQBundle.directoryExtension)",
-            "filtered-b.\(FASTQBundle.directoryExtension)",
+            "input-a/filtered-a.\(FASTQBundle.directoryExtension)",
+            "input-b/filtered-b.\(FASTQBundle.directoryExtension)",
         ])
         XCTAssertEqual(record.inputBundlePaths.sorted(), [
             "../input-a.\(FASTQBundle.directoryExtension)",

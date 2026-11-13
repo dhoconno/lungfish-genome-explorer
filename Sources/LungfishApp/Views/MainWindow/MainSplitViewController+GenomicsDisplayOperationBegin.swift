@@ -86,7 +86,10 @@ extension MainSplitViewController {
     /// published FASTA. A grouped result and every other request keep the
     /// command recorded here. A Demultiplex Barcodes row is begun with its run
     /// folder in `-o`, since the folder is known before `begin`, so a running or
-    /// failed demultiplex shows a command that runs again.
+    /// failed demultiplex shows a command that runs again. A demultiplex of
+    /// several inputs runs one command for each input, so its row begins with
+    /// a command script of one line for each (`buildInvocations`,
+    /// DEMUX-GROUPED-DROPS-INPUTS).
     @discardableResult
     static func beginFASTQLaunchRequestOperation(
         title: String,
@@ -97,9 +100,10 @@ extension MainSplitViewController {
         reporter: any OperationReporting = OperationCenter.shared,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
-        let cliCommand: String? = try? FASTQOperationCLIInvocationBuilder.commandLine(
-            for: executionService.buildInvocation(for: request, outputTargetPath: outputTargetPath)
-        )
+        let cliCommand: String? = try? executionService
+            .buildInvocations(for: request, outputTargetPath: outputTargetPath)
+            .map { FASTQOperationCLIInvocationBuilder.commandLine(for: $0) }
+            .joined(separator: "\n")
         let result = reporter.begin(
             title: title,
             detail: "Preparing...",

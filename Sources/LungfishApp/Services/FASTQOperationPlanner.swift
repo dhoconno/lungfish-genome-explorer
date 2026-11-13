@@ -201,17 +201,18 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
         resolvedRequest: FASTQOperationLaunchRequest
     ) -> [(original: FASTQOperationLaunchRequest, resolved: FASTQOperationLaunchRequest)] {
         switch (originalRequest, resolvedRequest) {
-        // A mixed-format group cannot share one execution representation and
-        // still preserve both formats. Keep each input's output identity while
-        // publishing all results under the same requested group.
+        // A command names one input (`FASTQOperationCLIInvocationBuilder` takes
+        // `inputURLs.first`), so a grouped run of several datasets is one plan
+        // for each input whatever the formats: one plan for the group would
+        // read the first dataset and drop the rest (DEMUX-GROUPED-DROPS-INPUTS).
+        // A mixed-format group could not share one execution representation
+        // and still preserve both formats either. Keep each input's output
+        // identity while publishing all results under the same requested group.
         case (
             .derivative(let originalDerivative, let originalInputURLs, let outputMode),
             .derivative(let resolvedDerivative, let resolvedInputURLs, let resolvedOutputMode)
         )
-            where (outputMode == .perInput ||
-                   (outputMode == .groupedResult &&
-                    originalInputURLs.contains(where: { SequenceInputResolver.inputSequenceFormat(for: $0) == .fasta }) &&
-                    originalInputURLs.contains(where: { SequenceInputResolver.inputSequenceFormat(for: $0) == .fastq }))) &&
+            where (outputMode == .perInput || outputMode == .groupedResult) &&
                   resolvedOutputMode == outputMode &&
                   originalInputURLs.count > 1 &&
                   originalInputURLs.count == resolvedInputURLs.count:

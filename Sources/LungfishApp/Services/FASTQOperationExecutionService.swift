@@ -569,6 +569,31 @@ struct FASTQOperationExecutionService {
         try invocationBuilder.buildInvocation(for: request, outputTargetPath: outputTargetPath)
     }
 
+    /// The commands `request` runs, one for each plan the planner makes, so the Operations row can begin with all of
+    /// them before any output exists (docs/contracts/CLI-EQUIVALENCE.md, a command script). A Demultiplex Barcodes
+    /// request of several inputs is one plan for each input, and `outputTargetPath` is the run folder the plans write
+    /// under (`<run>/<input stem>`). Any other request, one input, or the `<derived>` placeholder is the one
+    /// command `buildInvocation` gives. DEMUX-GROUPED-DROPS-INPUTS: the row named the first input only.
+    func buildInvocations(
+        for request: FASTQOperationLaunchRequest,
+        outputTargetPath: String = "<derived>"
+    ) throws -> [FASTQCLIInvocation] {
+        guard case .derivative(.demultiplex, _, _) = request, outputTargetPath != "<derived>" else {
+            return [try buildInvocation(for: request, outputTargetPath: outputTargetPath)]
+        }
+        let plans = planner.makeExecutionPlans(
+            originalRequest: request,
+            resolvedRequest: request,
+            baseOutputDirectory: URL(fileURLWithPath: outputTargetPath, isDirectory: true)
+        )
+        guard plans.count > 1 else {
+            return [try buildInvocation(for: request, outputTargetPath: outputTargetPath)]
+        }
+        return try plans.map {
+            try buildInvocation(for: $0.resolvedRequest, outputTargetPath: $0.outputTarget.path)
+        }
+    }
+
     private func validatePreResolutionTopologyIfNeeded(
         for request: FASTQOperationLaunchRequest
     ) throws {
