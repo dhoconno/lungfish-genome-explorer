@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: MIT
 //
 // Freezes ruling BIO-PRESET's preset E on the 1,000,000-pair slice of C079876_S1 that lanes C0-M1 and the ruling
-// measured: at one thread the fused call keeps 869,933 pairs and 242,843,520 bases, and two runs there were
-// byte-identical. The flags come from the planner, so the test follows the recipe file. It needs the real fastp and
+// measured. With the TruSeq pair named, at one thread the fused call keeps 869,933 pairs and 242,827,260 bases
+// (869,933 and 242,843,520 with fastp's own guess, before lane RECIPE-NAMED-ADAPTERS), and two runs there gave the
+// same two numbers. The flags come from the planner, so the test follows the recipe file. It needs the real fastp and
 // the slice on this Mac, so a missing tool or slice is a skip, and LUNGFISH_REQUIRE_TOOLS=1 makes either a failure.
 // The class name holds Conformance, so the unit tier never runs it.
 
@@ -46,6 +47,6 @@ final class MergedRecipeSliceConformanceTests: XCTestCase {
         let reads = try XCTUnwrap(after["total_reads"] as? Int)
         let bases = try XCTUnwrap(after["total_bases"] as? Int)
         XCTAssertEqual(reads, 2 * 869_933, "pairs kept at -w 1")
-        XCTAssertEqual(bases, 242_843_520, "bases kept at -w 1")
+        XCTAssertEqual(bases, 242_827_260, "bases kept at -w 1")
     }
 }
