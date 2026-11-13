@@ -47,19 +47,30 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
 
     /// R6. The in-process payload's E1 counts and E3 digest for each case, from this test's run at the lane's base
     /// `efcdc7e1c` (K4-M5a.md). A lane that changes a payload on purpose updates these with a prediction.
+    ///
+    /// Trust session, FIX-PARITY. All three anchors moved with dbadae4f5 (ruling ARCH-BIO-RECIPE-TRIM option d): the
+    /// recipe trim names the TruSeq pair (`--adapter_sequence`, `--adapter_sequence_r2`) in place of
+    /// `--detect_adapter_for_pe`. fastp's guess found no adapter on this slice, so the old trim cut by mate overlap
+    /// only, and the named pair also cuts 3' ends that match the adapter's start (5 to 13 bases on 2,792 of 982,710
+    /// pairs, no read lost). That takes bases away, and a few pairs with a cut mate no longer merge, so pairs rise and
+    /// singles fall by the same count (by hand without the Deacon step: 106 merged pairs stay unmerged, 2 go the other
+    /// way, pairs +104, singles -104, records +104, bases -3,917; FIX-PARITY.md in the trust-session records). The
+    /// values are the `PARITY-FREEZE` lines of the candidate run at db34fb3f3 (gate-20261113-040732-db34fb3f3-63258,
+    /// primary and retry the same), where the replay equalled the in-process import at E1 to E3. Before: vsp2 950,309
+    /// records and 153,874,043 bases, wastewater 196,598 and 29,517,836, keep-duplicates 1,067,470 and 172,256,541.
     static let frozen: [String: PayloadLevels.Anchor] = [
         "vsp2-target-enrichment": PayloadLevels.Anchor(
-            e1: PayloadLevels.E1(records: 950_309, bases: 153_874_043, pairs: 100_191, singles: 749_927),
-            e3: "f4d9a2ee74e8585c520907101952499327e34a8b83b0b36b7aa8596fc772b1f3"
+            e1: PayloadLevels.E1(records: 950_381, bases: 153_870_033, pairs: 100_263, singles: 749_855),
+            e3: "1927676a3d7ae507b462b701a69c69b4b85349a4910527cb859e6b52f9f73788"
         ),
         "wastewater-metagenomics": PayloadLevels.Anchor(
-            e1: PayloadLevels.E1(records: 196_598, bases: 29_517_836, pairs: 11_227, singles: 174_144),
-            e3: "418ed25cea1d29bbd2c35ea9ca410df5601b71046219ae686ad5b508ebcc0e66"
+            e1: PayloadLevels.E1(records: 196_603, bases: 29_517_317, pairs: 11_231, singles: 174_141),
+            e3: "7594430325e441897a34e460897d5ed940056a5ae8b1e8e405ec8745b81204c1"
         ),
         // C5 lane BF M1. The in-process import with duplicates kept, from a run at the lane base bf9fa9479 (no plan form there) and equal again at the lane head. Predicted before the run: every key above the duplicates-removed anchor, records = 2 x pairs + singles, a different E3.
         "vsp2-target-enrichment-keep-duplicates": PayloadLevels.Anchor(
-            e1: PayloadLevels.E1(records: 1_067_470, bases: 172_256_541, pairs: 107_318, singles: 852_834),
-            e3: "9830c7b6cb7083aa2d90227c5f2e2a7aa4420542c92e5a4facda0d1603674fe4"
+            e1: PayloadLevels.E1(records: 1_067_574, bases: 172_252_668, pairs: 107_422, singles: 852_730),
+            e3: "ff9d39152b95c8dd430af12ad8bdae46f58b855cb1ec3db55f7072e194008185"
         ),
     ]
 
