@@ -2120,12 +2120,10 @@ public enum FASTQBatchImporter {
             case .adapterTrim:
                 // Run fastp adapter trim
                 let r2OutputURL = workspace.appendingPathComponent("step_\(absIndex)_\(pair.sampleName)_R2.fastq.gz")
-                var args = ["-i", currentURL.path, "-o", outputURL.path,
-                            "-w", String(config.threads), "--json", "/dev/null", "--html", "/dev/null"]
-                if currentIsInterleaved {
-                    args += ["--interleaved_in"]
-                    args += ["-O", r2OutputURL.path]
-                }
+                let args = try FASTQBatchImporter.legacyAdapterTrimArguments(
+                    input: currentURL, output: outputURL, r2Output: r2OutputURL, threads: config.threads,
+                    interleaved: currentIsInterleaved,
+                    adapterSequence: step.adapterSequence, adapterSequenceR2: step.adapterSequenceR2)
                 let result = try await runner.run(.fastp, arguments: args, timeout: AnalysisTimeLimit.launchTimeout)
                 guard result.isSuccess else {
                     throw BatchImportError.unknownRecipe("fastp adapter trim failed: \(result.stderr.suffix(500))")

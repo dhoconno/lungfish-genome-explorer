@@ -119,6 +119,9 @@ public struct FastpPairedRunOutcome: Sendable {
     /// How the reads were staged ahead of fastp when it detected the adapter,
     /// nil when they reached fastp as stored (trust session R1 and R2).
     public let stagedPairOrder: SeededPairOrder.Record?
+    /// The adapters a single-read run named in place of fastp's guess, nil
+    /// when the caller named its own or the run was paired (ruling BIO-PROBES-E).
+    public let singleReadAdapters: FastpPairedRunner.SingleReadAdapters?
 }
 
 /// A fastp run that did not finish, with the message the caller shows.
@@ -136,6 +139,74 @@ public enum FastpPairedRunner {
     /// Runs one native tool and returns its result. The window passes a
     /// closure that also records the run for the derivative's provenance.
     public typealias Executor = @Sendable (NativeTool, [String]) async throws -> NativeToolResult
+
+    /// The adapters a single-read trim names when the caller names none (ruling BIO-PROBES-E). fastp's single-end
+    /// auto-detection guesses from the reads it sees first, so two orders of one file gave two adapters and two
+    /// results. Naming TruSeq Read 1 with `-a` and the bundled known adapters with `--adapter_fasta` turns the guess
+    /// off, and fastp trims every listed adapter in any order.
+    public struct SingleReadAdapters: Equatable, Sendable {
+        /// TruSeq Read 1, the adapter `-a` names.
+        public static let truSeqRead1 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA"
+        /// Where the known-adapter FASTA lives in the workflow resources.
+        public static let resourcePath = "Tools/fastp-known-adapters.fasta"
+
+        public let adapterSequence: String
+        public let fastaURL: URL
+        /// The FASTA's records, name to sequence.
+        public let fastaSequences: [String: String]
+
+        /// The adapters bundled with LGE.
+        public static func bundled() throws -> SingleReadAdapters {
+            guard let url = RuntimeResourceLocator.path(resourcePath, in: .workflow) else {
+                throw FastpPairedRunError(
+                    "The list of known adapters that Lungfish trims from single reads is missing from this copy of Lungfish (\(resourcePath)). Install Lungfish again."
+                )
+            }
+            return try SingleReadAdapters(fastaURL: url)
+        }
+
+        public init(adapterSequence: String = truSeqRead1, fastaURL: URL) throws {
+            guard let text = try? String(contentsOf: fastaURL, encoding: .utf8) else {
+                throw FastpPairedRunError(
+                    "Lungfish could not read its list of known adapters at \(fastaURL.path). Install Lungfish again."
+                )
+            }
+            var sequences: [String: String] = [:]
+            var name: String?
+            for line in text.split(whereSeparator: \.isNewline) {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix(">") {
+                    name = String(trimmed.dropFirst())
+                } else if let name, !trimmed.isEmpty {
+                    sequences[name, default: ""] += trimmed
+                }
+            }
+            guard !sequences.isEmpty else {
+                throw FastpPairedRunError(
+                    "Lungfish's list of known adapters at \(fastaURL.path) holds no adapters. Install Lungfish again."
+                )
+            }
+            self.adapterSequence = adapterSequence
+            self.fastaURL = fastaURL
+            self.fastaSequences = sequences
+        }
+
+        /// The fastp flags that name the adapters.
+        public var arguments: [String] {
+            ["-a", adapterSequence, "--adapter_fasta", fastaURL.path]
+        }
+
+        /// What the run records: the adapters named and the FASTA's records, by file name so the record does not
+        /// carry the install path.
+        public var provenanceValue: ParameterValue {
+            .dictionary([
+                "step": .string("adapters named for single reads, so fastp guesses none"),
+                "adapterSequence": .string(adapterSequence),
+                "adapterFasta": .string(fastaURL.lastPathComponent),
+                "adapterFastaSequences": .dictionary(fastaSequences.mapValues(ParameterValue.string)),
+            ])
+        }
+    }
 
     /// The fastp argv for one run, without the executable: the input and
     /// output flags, then the caller's options.
@@ -197,26 +268,15 @@ public enum FastpPairedRunner {
         let stepID = UUID()
 
         guard let expectedCounts = plan.expectedCounts else {
-            // fastp guesses a single-end adapter from the head of its input too, so when it detects the adapter the
-            // reads go in the seeded order of SeededPairOrder, never in the stored (clumped) order (trust session R2).
-            var fastpInput = inputURL
-            var staged: URL?
-            var stagedScratch: URL?
-            defer { if let stagedScratch { try? FileManager.default.removeItem(at: stagedScratch) } }
-            if detectPairedAdapters {
-                let scratch = URL(fileURLWithPath: outputPath).deletingLastPathComponent()
-                    .appendingPathComponent(".fastp-reads-\(UUID().uuidString)", isDirectory: true)
-                try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
-                stagedScratch = scratch
-                let seeded = scratch.appendingPathComponent("in_seeded.fastq")
-                _ = try await Self.stageReads([inputURL], to: seeded, scratch: scratch.appendingPathComponent("order", isDirectory: true))
-                fastpInput = seeded
-                staged = seeded
-            }
+            // fastp guesses a single-end adapter from the reads it sees first, and two orders of one file gave two
+            // guesses even when the reads were staged in a seeded order (ruling BIO-PROBES-E). So a trim that names no
+            // adapter names TruSeq Read 1 and the bundled known adapters, fastp guesses nothing, and the reads reach it
+            // as stored.
+            let adapters = detectPairedAdapters ? try SingleReadAdapters.bundled() : nil
             let args = fastpArguments(
-                inputPath: fastpInput.path,
+                inputPath: inputURL.path,
                 outputPath: outputPath,
-                options: options,
+                options: options + (adapters?.arguments ?? []),
                 detectPairedAdapters: false
             )
             let result = try await execute(.fastp, args)
@@ -226,7 +286,7 @@ public enum FastpPairedRunner {
             return FastpPairedRunOutcome(
                 plan: plan, result: result, nativeArguments: args, stepID: stepID,
                 stepInputs: nil,
-                stepOutputs: nil, extraSteps: [], stagedPairOrder: staged == nil ? nil : .reads
+                stepOutputs: nil, extraSteps: [], stagedPairOrder: nil, singleReadAdapters: adapters
             )
         }
 
@@ -409,7 +469,8 @@ public enum FastpPairedRunner {
             stepInputs: stepInputs,
             stepOutputs: stepOutputs,
             extraSteps: extraSteps,
-            stagedPairOrder: stagedPairOrder
+            stagedPairOrder: stagedPairOrder,
+            singleReadAdapters: nil
         )
     }
 
@@ -423,17 +484,6 @@ public enum FastpPairedRunner {
             let handle2 = try FileHandle(forWritingTo: out2)
             defer { try? handle2.close() }
             return try SeededPairOrder.write(.separate(r1: r1, r2: r2), r1: handle1, r2: handle2, scratch: scratch)
-        }
-        return try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
-    }
-
-    /// Writes every record of `sources` to `out` in the seeded order and returns the reads written.
-    private static func stageReads(_ sources: [URL], to out: URL, scratch: URL) async throws -> Int {
-        let worker = Task.detached(priority: .utility) { () throws -> Int in
-            FileManager.default.createFile(atPath: out.path, contents: nil)
-            let handle = try FileHandle(forWritingTo: out)
-            defer { try? handle.close() }
-            return try SeededPairOrder.writeReads(sources, to: handle, scratch: scratch)
         }
         return try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
     }
