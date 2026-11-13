@@ -109,8 +109,14 @@ public struct BlastSavedSearchRow: Sendable, Equatable {
     /// Whether the record stored at `recordURL` with `lineage` is a search of this row. A tax ID of 0 reads as none, as
     /// a request's does. The source result compares with its symbolic links resolved, since its `@/` path resolves in
     /// the project that holds the record now. Resolving a path reads the disk, so this runs off the main actor.
+    ///
+    /// A key that names no sample, taxon, contig or query sequences is only its result folder, and so is the lineage of any
+    /// search that names none of them, such as a FASTA list's search whose source fell back to a result folder. That key is
+    /// the source of no search, since it would show another route's search as its own verdict
+    /// (BLAST-SAVED-ROW-LINEAGE-MATCHES-OTHER-ROUTE). The key stays the row's identity, so the pane still empties on the row.
     public func isSource(of lineage: BlastSubmissionRecord.Lineage, recordAt recordURL: URL) -> Bool {
-        guard lineage.sample == sample,
+        guard namesASearch,
+              lineage.sample == sample,
               Self.contigList(lineage.contig) == Self.contigList(contig),
               (lineage.taxId ?? 0) == (taxId ?? 0),
               let recorded = lineage.sourceResultURL(recordAt: recordURL),
@@ -119,6 +125,12 @@ public struct BlastSavedSearchRow: Sendable, Equatable {
         }
         guard let querySequences else { return true }
         return Self.query(ofRecordAt: recordURL, holds: querySequences)
+    }
+
+    /// Whether this key tells its search from the other searches of its result: it names a sample, a taxon (a tax ID of 0
+    /// is none), a contig or the query sequences. Only a TaxTriage row with no BAM owner, taxon or accessions names none.
+    private var namesASearch: Bool {
+        sample != nil || (taxId ?? 0) != 0 || contig != nil || querySequences != nil
     }
 
     /// Whether the query copy beside the record holds exactly `held`, each ID with its sequence, in any order. A copy that
