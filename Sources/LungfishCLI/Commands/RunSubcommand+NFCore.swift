@@ -57,6 +57,12 @@ extension RunSubcommand {
         } catch let error as ViralReconSamplesheetBuilder.ValidationError {
             // A name viralrecon would refuse, refused before launch (FIX-VR, F1).
             throw CLIError.workflowFailed(reason: error.localizedDescription)
+        } catch let error as ViralReconSamplesheetBuilder.SharedSampleNameError {
+            // Two inputs of one sample name, refused before launch (VR-SAME-NAME).
+            throw CLIError.workflowFailed(reason: error.localizedDescription)
+        } catch let error as ViralReconSamplesheetBuilder.SharedBarcodeError {
+            // Two Nanopore inputs on one barcode, refused before launch (VR-SAME-NAME).
+            throw CLIError.workflowFailed(reason: error.localizedDescription)
         }
         let callerSamplesheetURL = resolvedInputs.samplesheetURL
 
