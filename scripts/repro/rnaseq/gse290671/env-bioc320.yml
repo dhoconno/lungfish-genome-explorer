@@ -1,0 +1,16 @@
+# The Bioconductor 3.20 environment for GSE290671 (C7).
+# The paper counted with Rsubread featureCounts 2.20.0, removed batch with
+# sva ComBat-seq 3.54.0 and tested with DESeq2 1.46.0. All three are
+# Bioconductor 3.20 on R 4.4. The main environment has no Rsubread and holds
+# DESeq2 1.50.2 on R 4.5, so this small environment holds the paper's versions.
+name: env-bioc320
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - r-base=4.4
+  - bioconductor-rsubread=2.20.0
+  - bioconductor-deseq2=1.46.0
+  - bioconductor-sva=3.54.0
+  - bioconductor-apeglm
+  - r-ashr

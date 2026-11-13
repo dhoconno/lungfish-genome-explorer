@@ -1,0 +1,22 @@
+# Stage 0 benchmark sets from 10x Genomics (public, no login). Run with --etag so the S3 ETag of each file is the source checksum.
+# url	dest_path	checksum_type	checksum	bytes
+https://cf.10xgenomics.com/samples/cell-exp/3.0.0/pbmc_1k_v3/pbmc_1k_v3_fastqs.tar	tenx/pbmc_1k_v3/pbmc_1k_v3_fastqs.tar			
+https://cf.10xgenomics.com/samples/cell-vdj/5.0.0/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_fastqs.tar	tenx/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_fastqs.tar			
+https://cf.10xgenomics.com/samples/cell-exp/3.0.0/hgmm_1k_v3/hgmm_1k_v3_fastqs.tar	tenx/hgmm_1k_v3/hgmm_1k_v3_fastqs.tar			
+https://cf.10xgenomics.com/samples/cell-exp/3.0.0/pbmc_1k_v3/pbmc_1k_v3_filtered_feature_bc_matrix.tar.gz	tenx/pbmc_1k_v3/pbmc_1k_v3_filtered_feature_bc_matrix.tar.gz			
+https://cf.10xgenomics.com/samples/cell-exp/3.0.0/pbmc_1k_v3/pbmc_1k_v3_raw_feature_bc_matrix.tar.gz	tenx/pbmc_1k_v3/pbmc_1k_v3_raw_feature_bc_matrix.tar.gz			
+https://cf.10xgenomics.com/samples/cell-exp/3.0.0/pbmc_1k_v3/pbmc_1k_v3_metrics_summary.csv	tenx/pbmc_1k_v3/pbmc_1k_v3_metrics_summary.csv			
+https://cf.10xgenomics.com/samples/cell-exp/3.0.0/pbmc_1k_v3/pbmc_1k_v3_web_summary.html	tenx/pbmc_1k_v3/pbmc_1k_v3_web_summary.html			
+https://cf.10xgenomics.com/samples/cell-exp/3.0.0/pbmc_1k_v3/pbmc_1k_v3_molecule_info.h5	tenx/pbmc_1k_v3/pbmc_1k_v3_molecule_info.h5			
+https://cf.10xgenomics.com/samples/cell-vdj/5.0.0/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_filtered_feature_bc_matrix.tar.gz	tenx/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_filtered_feature_bc_matrix.tar.gz			
+https://cf.10xgenomics.com/samples/cell-vdj/5.0.0/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_raw_feature_bc_matrix.tar.gz	tenx/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_raw_feature_bc_matrix.tar.gz			
+https://cf.10xgenomics.com/samples/cell-vdj/5.0.0/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_metrics_summary.csv	tenx/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_metrics_summary.csv			
+https://cf.10xgenomics.com/samples/cell-vdj/5.0.0/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_gex_web_summary.html	tenx/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_gex_web_summary.html			
+https://cf.10xgenomics.com/samples/cell-vdj/5.0.0/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_molecule_info.h5	tenx/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_molecule_info.h5			
+https://cf.10xgenomics.com/samples/cell-vdj/5.0.0/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_feature_ref.csv	tenx/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_feature_ref.csv			
+https://cf.10xgenomics.com/samples/cell-vdj/5.0.0/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_library.csv	tenx/sc5p_v2_hs_PBMC_1k/sc5p_v2_hs_PBMC_1k_library.csv			
+https://cf.10xgenomics.com/samples/cell-exp/3.0.0/hgmm_1k_v3/hgmm_1k_v3_filtered_feature_bc_matrix.tar.gz	tenx/hgmm_1k_v3/hgmm_1k_v3_filtered_feature_bc_matrix.tar.gz			
+https://cf.10xgenomics.com/samples/cell-exp/3.0.0/hgmm_1k_v3/hgmm_1k_v3_raw_feature_bc_matrix.tar.gz	tenx/hgmm_1k_v3/hgmm_1k_v3_raw_feature_bc_matrix.tar.gz			
+https://cf.10xgenomics.com/samples/cell-exp/3.0.0/hgmm_1k_v3/hgmm_1k_v3_metrics_summary.csv	tenx/hgmm_1k_v3/hgmm_1k_v3_metrics_summary.csv			
+https://cf.10xgenomics.com/samples/cell-exp/3.0.0/hgmm_1k_v3/hgmm_1k_v3_web_summary.html	tenx/hgmm_1k_v3/hgmm_1k_v3_web_summary.html			
+https://cf.10xgenomics.com/samples/cell-exp/3.0.0/hgmm_1k_v3/hgmm_1k_v3_molecule_info.h5	tenx/hgmm_1k_v3/hgmm_1k_v3_molecule_info.h5			

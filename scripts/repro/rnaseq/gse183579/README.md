@@ -1,0 +1,46 @@
+# GSE183579: rhesus BALF and lung 10x data with SARS-CoV-2 in the reference
+
+Speranza E, Purushotham JN, Port JR, et al. Age-related differences in immune dynamics during SARS-CoV-2 infection in rhesus macaques. Life Sci Alliance 2022;5(4):e202101314 (PMC8807873). Lane REPRO-GSE183579.
+
+## What the paper did
+
+- Libraries. 10x Genomics 3' v3.1, about 10,000 cells captured a sample, NextSeq 550 (Methods, single-cell sequencing). BALF from 4 animals an age group at -7 dpi and 8 at 3 and 7 dpi, lung from 4 an age group at 7 dpi (Results, scRNA-seq paragraph). GEO holds 47 of the 48 libraries; RMO1 has no 7 dpi BALF.
+- Counting. "samples were demultiplexed using the cellRanger pipeline. Alignments were done against the Rhesus Macaque Genome (Mmul_10, GCA_003339765.3) with the SARS-CoV-2 genome added in (Wuhan-Hu-1, NC_045512.2)" (Methods, scRNA-seq data analysis). GEO names Cell Ranger 3.0.2. The deposit's 35,432 `ENSMMUG` ids are every gene of the Ensembl 100 Mmul_10 GTF, and its 11 viral ids are the NCBI GFF3 gene ids `gene-GU280_gp01` to `gp11`.
+- Analysis. Seurat 3.1.5 in R 3.6.2, BALF and lung apart, `IntegrateData` across days, cells "filtered for high mitochondrial genes and abnormally high or low unique molecular identifier counts" with no numbers, doublets "relabeled and saved elsewhere", 2,000 variable genes and 20 principal components, cell types by the method of the paper's reference 23 against a human lung reference (Madissoon 2020), dividing cells as clusters with more than 98% of cells in S or G2M (Methods).
+- Claims checked here. Fig. 3B and 3C, two-way ANOVA: B and T cells in BALF up at 3 dpi (P = 0.03 each), pDC peak at 3 dpi (P < 0.0001), macrophages down at 3 and 7 dpi (P = 0.01 and 0.0001), at 7 dpi more ciliated cells (P = 0.0007) and pneumocytes (P = 0.03) in older animals, T cells higher in younger animals (P = 0.01). "we did not detect enough reads mapping to the viral genome to determine which cell types are productively infected" (Results).
+
+## What the scripts do
+
+`run.sh <data_root> <work_dir> <env_prefix> [stage ...]` runs the stages in order. `chain.sh` runs the same stages from a snapshot of the scripts, for a chain left waiting on the heavy lock.
+
+| Stage | Script | Does |
+| --- | --- | --- |
+| stage | `stage_virus.sh` | NCBI RefSeq assembly GCF_009858895.2 (NC_045512.2): FASTA, GFF3, GTF and report, each checked against NCBI's `md5checksums.txt`, one ledger row a file |
+| whitelist | REPRO-10X's `tenx_prep.py` | The 3M-february-2018 list from 10x's `pbmc_1k_v3_molecule_info.h5`, checked against REPRO-10X's sha256 |
+| ref | `ref.sh` | Ensembl 100 Mmul_10 toplevel FASTA and GTF (no biotype filter) plus NC_045512.2 with one exon a gene over each GFF3 gene span, ids and names as deposited |
+| inputs | `prep.py`, `figshare.py`, `match.py` | The sample table from the series matrix; the 47 deposited matrices and per-library figures; the cells-after-QC total of each figshare column; each BALF library tied to its column |
+| index | STAR 2.7.11b | `--genomeSAsparseD 2`, `--sjdbOverhang 100`, heavy lock |
+| align | `solo.sh` | STARsolo with REPRO-10X's Cell Ranger 3 preset (16 + 12 nt, 3M-february-2018, forward strand, `1MM_multi_Nbase_pseudocounts`, `MultiGeneUMI_CR`, `1MM_CR`, `EmptyDrops_CR` at 3,000 expected cells, Cell Ranger's default), sorted BAM with CB and UB tags, heavy lock, all 8 libraries in one hold |
+| slice | samtools | The reads on NC_045512.2 of each library, kept; `idxstats` of the full BAM |
+| compare | `compare.py` | REPRO-10X's measures against each deposit, and a second cell call at 10,000 expected cells. Deletes the full BAM of a library that passes |
+| virus | `virus.py` | Viral UMIs a barcode as 11 genes and as one genome feature, in cells, in empty droplets and in EmptyDrops' ambient window; cells above ambient |
+| labels | `labels.py` | QC, clusters and cell-type labels fitted on the deposits, then applied unchanged to our matrices |
+| claims | `claims.py` | `claims.tsv` |
+
+`test_small.sh` runs solo, slice, compare and virus on 100,000 spots of two libraries against a chromosome 19, MT and NC_045512.2 reference, as a light check before the heavy steps.
+
+## Deviations and assumptions
+
+1. Aligner. STARsolo 2.7.11b with the Cell Ranger 3 preset stands in for Cell Ranger 3.0.2, as REPRO-10X measured on pbmc_1k_v3 (Jaccard 0.9967). Version drift if a library misses the close class by cell calls at the EmptyDrops boundary.
+2. Viral GTF (undocumented step). How the authors turned the NCBI GFF3 into a Cell Ranger GTF is not stated. Assumed: one exon a gene over the GFF3 gene span, so ORF1ab is one exon over its frameshift and the 5' and 3' UTRs belong to no gene. `virus.py` counts the whole genome from the BAM slice as well, which holds the UTR reads.
+3. Expected cells (undocumented step). Cell Ranger 3.0.2's default of 3,000 is used; 10,000, the paper's capture target, is scored beside it and not chosen by the result.
+4. QC thresholds (undocumented step). The paper gives none. `labels.py` picks them from a grid by how well each library's kept cells match the figshare totals of the 32 libraries tied by count or by animal order. Chosen: at least 100 genes, at most 6,000 genes, at most 40% mitochondrial UMIs (genes on contig MT), no UMI floor. Median error 1.7% (|log2| 0.024), worst 9%.
+5. Cell types (undocumented step). GEO and figshare hold no labels, and Seurat, igraph and leiden are not in the environment. Labels come from k-means clusters (k 40 BALF, 30 lung) on 20 principal components of 2,000 variable genes, each cluster named by marker z-scores, dividing at 90% of cells in S or G2M (scanpy's cell-cycle score; the paper's 98% cut is also counted). No integration across days.
+6. What each figshare group holds (undocumented step). `claims.py` fits it on the 32 tied libraries: "T cells" is our T plus NK (Spearman 1.00 against figshare over 38 libraries, median ratio 1.01; T alone 0.64), "macrophages" is macrophage, monocyte, cDC and the hemoglobin-high macrophage cluster, "pneumocytes" is pneumocyte, club and basal cells. `claims/group_fit.tsv` lists every candidate.
+7. Figshare columns. The figshare table gives no animal ids. Within each age and day, column k of Fig. 3C is animal k. In each of the five complete groups the animal-order assignment fits the cell totals (no column larger than its library), while only 0.1% to 25% of all assignments do, so the chance of all five fitting by accident is about 2 in 10 billion. The six 7 dpi old columns take RMO2, RMO3, RMO4, RMO6, RMO7 and RMO8; RMO5 (GSM5560883, median 65 genes a cell) has no column. It keeps 296 cells under the fitted QC, fewer than the smallest column (344), and the share distance picks the same assignment (9.6 against 13.7 for the next).
+8. Statistics. The paper's P values come from Prism's two-way ANOVA. `claims.py` runs the day by age ANOVA with Sidak-adjusted comparisons on its pooled residual, which reproduces the paper's ciliated (0.00069 against 0.0007) and pneumocyte (0.027 against 0.03) values from the figshare numbers, and adds the animal-as-block model the panel asked for.
+9. Group claims on our reads are "deposited counts, 6 of 39 BALF libraries from LGE reads" (8 of 47 libraries in all), never "reproduced from reads" (ruling SC-SUBSET item 4).
+
+## Not in the environment
+
+Seurat, igraph and leiden (labels use k-means), openpyxl (the figshare table is read as XML).

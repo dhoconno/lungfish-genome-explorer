@@ -1,0 +1,11 @@
+# Request for the STAR 2.7.3a environment of the RNA-seq reproduction stage (lane ENV-2).
+# STAR 2.7.3a is the version that the exact-class checks of GSE152418 and GSE304256 need.
+# It lives in its own folder because the main environment holds a newer STAR and the two
+# index formats do not mix. bioconda has no osx-arm64 build of 2.7.3a, only osx-64 builds
+# that run under Rosetta 2, so create this one with --platform osx-64. See README.md.
+name: lge-star273a
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - star=2.7.3a

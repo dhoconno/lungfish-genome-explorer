@@ -1,0 +1,12 @@
+claim	where	paper	deposited	ours	class	verdict	note
+C5-1-paper	GEO GSE162164_counts.txt.gz	14,440 x 25 integers	the deposit	pending	close	pending	paper index not yet quantified
+C5-1-decoy	GEO GSE162164_counts.txt.gz	14,440 x 25 integers	the deposit	pending	close	pending	decoy index not yet quantified
+C5-3A	Supplementary Table 2, India_DEGS	77 DEGs, 70 up, 7 down	NA	77 DEGs, 70 up, 7 down, 77 shared; baseMean rel diff max 3.9968e-15, fold change diff max 0.000231377	directional	pass	step A on the deposit, alpha 0.05 (alpha 0.1 gives 89)
+C5-3B	Supplementary Table 2, India_DEGS	77 DEGs	step A 77	pending DEGs, ? up, ? down, ? shared with the paper's 77	close	pending	step B, the same script on our symbol sums, paper index
+C5-4-INSL3	Fig. 2A and 2B	INSL3 higher in TB	NA	deposit log2FC 1.555 (SE 0.443, padj nan); ours log2FC NA (padj pending); deposit counts TB 3,5,9,5,2,3,6,2,5,8,6,5,7,8 HIV 1,4,3,4,1,1,2,0,5,3,0	directional	pass	INSL3 padj NA means DESeq2's independent filter dropped it (baseMean about 4)
+C5-4-RAB20	Fig. 2A and 2B	RAB20 higher in TB	NA	deposit log2FC 1.474 (SE 0.340, padj 0.00273982); ours log2FC NA (padj pending); deposit counts TB 40,125,76,17,24,30,104,47,99,128,50,52,18,22 HIV 20,40,10,17,18,20,19,26,38,20,63	directional	pass	INSL3 padj NA means DESeq2's independent filter dropped it (baseMean about 4)
+C5-5A	Fig. 2D	India AUC 0.948 (0.87 to 1.00)	NA	in-sample GLM on VST 0.948052 (0.871-1); with sva 0.955; leave-one-out with the genes fixed 0.890	directional	pass	step A
+C5-5B	Fig. 2D	India AUC 0.948	step A 0.948	in-sample GLM on VST NA; leave-one-out NA	directional	pending	step B
+C5-5N	R2-STAT claim 4	selection inside the loop	NA	nested leave-one-out AUC tree 0.630, GLM on the tree's genes 0.675; folds picking INSL3 0, RAB20 0; top picks XRN1:15,NKRF:7,LINC01252:2,GBP6:1	finding	finding	India alone, deposit counts; the paper's tree also saw Uganda
+C5-6	Fig. 2B	3 India samples misclassified	NA	GLM at 0.5 misclassifies 4	directional	pass	the paper counts the tree's thresholds, not the GLM
+C5-7	INSL3 stability	0 to 9 counts a sample	NA	mean 3.92, max 9, zeros 2; 2-gene AUC median and 95% range under Poisson noise 0.922/0.877/0.981, half depth 0.922/0.87/0.981, quarter depth 0.903/0.857/0.974; optimism-corrected 0.927	finding	finding	deposit counts

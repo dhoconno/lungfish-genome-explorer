@@ -1,0 +1,4 @@
+claim	where	paper	deposited	ours	class	verdict	note
+C9-2	GEO GSM8118575 extract protocol; R2-STAT C9 gate	Read 1 = ATCAATC + 16-nt UMI, Read 2 = transcript	NA	33 runs; exact ATCAATC min 879/1000 (SRR28155077); within 1 mismatch min 938/1000; names equal in all; T-rich after the UMI	exact (layout)	pass	gate of 90% exact: missed by SRR28155077; met by every run within 1 mismatch
+C9-5	GEO GSE163196 sample list (2020 B1-B13, 2024 B23-B35)	not stated	12 2024 runs with the ENA read and base counts of 12 2020 runs	12 of 12 twin runs hold the same multiset of read pairs (order-free md5 sum, both mates)	exact (deposit fact)	pass	the 2024 runs re-deposit the 2020 reads in another order, with Illumina names and binned qualities
+C9-3A	Results, bulk section; Fig. 8C; Suppl. Fig. S16	PPBP, PF4, SPARC, MYL9, CD79A, IGKC, IGHM top G1+ (high in PBL)	7/7 with log2FC > 1 and padj < 0.05	NA	directional	pass	

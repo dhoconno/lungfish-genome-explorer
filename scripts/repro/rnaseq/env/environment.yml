@@ -1,0 +1,47 @@
+# Request for the RNA-seq reproduction environment (owner direction O176).
+# One conda environment on the external drive, separate from the tools LGE manages.
+# Create it with README.md in this folder. Channels use strict priority.
+name: lge-rnaseq
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  # Aligners, quantifiers and counters
+  - star
+  - salmon
+  - subread
+  - htseq
+  - kallisto
+  - simpleaf
+  - alevin-fry
+  # Reads, files and QC
+  - sra-tools
+  - umi_tools
+  - samtools
+  - fastp
+  - gffread
+  - multiqc
+  - seqkit
+  - pigz
+  # Python
+  - python=3.11
+  - pandas
+  - numpy
+  - scipy
+  - anndata
+  - scanpy
+  - pyyaml
+  # R and Bioconductor
+  - r-base
+  - bioconductor-deseq2
+  - bioconductor-edger
+  - bioconductor-limma
+  - bioconductor-tximport
+  - bioconductor-tximeta
+  - r-data.table
+  - r-jsonlite
+  # Added after the first build with --freeze-installed (lane ENV-3), so no other package moved.
+  # sva is not here. It needs older edgeR and limma, so it lives in env-r-sva.yml.
+  - r-rpart
+  - bioconductor-apeglm
+  - r-proc

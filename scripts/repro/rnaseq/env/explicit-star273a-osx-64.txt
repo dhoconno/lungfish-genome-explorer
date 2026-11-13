@@ -1,0 +1,9 @@
+# This file may be used to create an environment using:
+# $ conda create --name <env> --file <this file>
+# platform: osx-64
+# These are osx-64 packages. They run on Apple silicon under Rosetta 2. micromamba writes the
+# platform of the machine it ran on into this header, which was corrected here by hand.
+@EXPLICIT
+https://conda.anaconda.org/conda-forge/osx-64/libcxx-23.1.5-h19cb2f5_0.conda#ce6f5df6b20cc6bc7228f38258df826b
+https://conda.anaconda.org/conda-forge/osx-64/libzlib-1.3.2-hbb4bfdb_3.conda#7d3fa28263bb7f8ea32db11f570a5bb6
+https://conda.anaconda.org/bioconda/osx-64/star-2.7.3a-h1f6ca2e_1.tar.bz2#7cabe642664e4f4adacde1b30251b35c

@@ -1,0 +1,50 @@
+# Request for the second R environment of the RNA-seq reproduction stage (lane ENV-3).
+# It is the request of environment.yml plus bioconductor-sva, so every tool of the main environment
+# is here too. bioconda builds sva 3.58.0 for R 4.5 with a pin on bioconductor-edger 4.8.x and
+# bioconductor-limma 3.66.x. The solver therefore moves those two back from the edgeR 4.10.7 and
+# limma 3.68.5 of the main environment to edgeR 4.8.2 and limma 3.66.0. Use this environment for any
+# script that calls sva or needs those two versions, and the main one for everything else.
+# Create it with README.md in this folder. Channels use strict priority.
+name: lge-rnaseq-r-sva
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  # Aligners, quantifiers and counters
+  - star
+  - salmon
+  - subread
+  - htseq
+  - kallisto
+  - simpleaf
+  - alevin-fry
+  # Reads, files and QC
+  - sra-tools
+  - umi_tools
+  - samtools
+  - fastp
+  - gffread
+  - multiqc
+  - seqkit
+  - pigz
+  # Python
+  - python=3.11
+  - pandas
+  - numpy
+  - scipy
+  - anndata
+  - scanpy
+  - pyyaml
+  # R and Bioconductor
+  - r-base
+  - bioconductor-deseq2
+  - bioconductor-edger
+  - bioconductor-limma
+  - bioconductor-tximport
+  - bioconductor-tximeta
+  - r-data.table
+  - r-jsonlite
+  - r-rpart
+  - bioconductor-apeglm
+  - r-proc
+  - bioconductor-sva

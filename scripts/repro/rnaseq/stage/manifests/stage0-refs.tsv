@@ -1,0 +1,47 @@
+# Stage 0 references. Every FASTA and GTF carries the checksum from its source's own checksum file.
+# human ensembl-93 FASTA: BSD sum values from https://ftp.ensembl.org/pub/release-93/fasta/homo_sapiens/dna/CHECKSUMS
+# human ensembl-93 GTF: BSD sum values from https://ftp.ensembl.org/pub/release-93/gtf/homo_sapiens/CHECKSUMS
+# human ensembl-98 FASTA: BSD sum values from https://ftp.ensembl.org/pub/release-98/fasta/homo_sapiens/dna/CHECKSUMS
+# human ensembl-98 GTF: BSD sum values from https://ftp.ensembl.org/pub/release-98/gtf/homo_sapiens/CHECKSUMS
+# human gencode-32: md5 values from https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_32/MD5SUMS
+# human gencode-50: md5 values from https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_50/MD5SUMS
+# human ensembl-grch37-87 FASTA: BSD sum values from https://ftp.ensembl.org/pub/grch37/release-87/fasta/homo_sapiens/dna/CHECKSUMS
+# human ensembl-grch37-87 GTF: BSD sum values from https://ftp.ensembl.org/pub/grch37/release-87/gtf/homo_sapiens/CHECKSUMS
+# mouse ensembl-93 FASTA: BSD sum values from https://ftp.ensembl.org/pub/release-93/fasta/mus_musculus/dna/CHECKSUMS
+# mouse ensembl-93 GTF: BSD sum values from https://ftp.ensembl.org/pub/release-93/gtf/mus_musculus/CHECKSUMS
+# rhesus ensembl-116 FASTA: BSD sum values from https://ftp.ensembl.org/pub/release-116/fasta/macaca_mulatta/dna/CHECKSUMS
+# rhesus ensembl-116 GTF: BSD sum values from https://ftp.ensembl.org/pub/release-116/gtf/macaca_mulatta/CHECKSUMS
+# rhesus refseq: md5 values from https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/003/339/765/GCF_003339765.1_Mmul_10/md5checksums.txt
+# url	dest_path	checksum_type	checksum	bytes
+https://ftp.ensembl.org/pub/release-93/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz	refs/human/ensembl-93/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz	bsdsum	07119 860562	
+https://ftp.ensembl.org/pub/release-93/gtf/homo_sapiens/Homo_sapiens.GRCh38.93.gtf.gz	refs/human/ensembl-93/Homo_sapiens.GRCh38.93.gtf.gz	bsdsum	59225 41916	
+https://ftp.ensembl.org/pub/release-93/fasta/homo_sapiens/dna/CHECKSUMS	refs/human/ensembl-93/CHECKSUMS.fasta			
+https://ftp.ensembl.org/pub/release-93/gtf/homo_sapiens/CHECKSUMS	refs/human/ensembl-93/CHECKSUMS.gtf			
+https://ftp.ensembl.org/pub/release-98/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz	refs/human/ensembl-98/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz	bsdsum	02415 860559	
+https://ftp.ensembl.org/pub/release-98/gtf/homo_sapiens/Homo_sapiens.GRCh38.98.gtf.gz	refs/human/ensembl-98/Homo_sapiens.GRCh38.98.gtf.gz	bsdsum	47563 45618	
+https://ftp.ensembl.org/pub/release-98/fasta/homo_sapiens/dna/CHECKSUMS	refs/human/ensembl-98/CHECKSUMS.fasta			
+https://ftp.ensembl.org/pub/release-98/gtf/homo_sapiens/CHECKSUMS	refs/human/ensembl-98/CHECKSUMS.gtf			
+https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_32/GRCh38.primary_assembly.genome.fa.gz	refs/human/gencode-32/GRCh38.primary_assembly.genome.fa.gz	md5	a08878cc9076dfa98908123e0069007f	
+https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_32/gencode.v32.primary_assembly.annotation.gtf.gz	refs/human/gencode-32/gencode.v32.primary_assembly.annotation.gtf.gz	md5	f660ce967d954fe704700ddc81ebf373	
+https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_32/MD5SUMS	refs/human/gencode-32/MD5SUMS			
+https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_50/GRCh38.primary_assembly.genome.fa.gz	refs/human/gencode-50/GRCh38.primary_assembly.genome.fa.gz	md5	da1a11258be075cfa7af718162c894e7	
+https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_50/gencode.v50.primary_assembly.annotation.gtf.gz	refs/human/gencode-50/gencode.v50.primary_assembly.annotation.gtf.gz	md5	289b91e5e95e8b0450d223246f10a12e	
+https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_50/MD5SUMS	refs/human/gencode-50/MD5SUMS			
+https://ftp.ensembl.org/pub/grch37/release-87/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz	refs/human/ensembl-grch37-87/Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz	bsdsum	42797 849535	
+https://ftp.ensembl.org/pub/grch37/release-87/gtf/homo_sapiens/Homo_sapiens.GRCh37.87.gtf.gz	refs/human/ensembl-grch37-87/Homo_sapiens.GRCh37.87.gtf.gz	bsdsum	25146 41407	
+https://ftp.ensembl.org/pub/grch37/release-87/fasta/homo_sapiens/dna/CHECKSUMS	refs/human/ensembl-grch37-87/CHECKSUMS.fasta			
+https://ftp.ensembl.org/pub/grch37/release-87/gtf/homo_sapiens/CHECKSUMS	refs/human/ensembl-grch37-87/CHECKSUMS.gtf			
+https://ftp.ensembl.org/pub/release-93/fasta/mus_musculus/dna/Mus_musculus.GRCm38.dna.primary_assembly.fa.gz	refs/mouse/ensembl-93/Mus_musculus.GRCm38.dna.primary_assembly.fa.gz	bsdsum	36200 787097	
+https://ftp.ensembl.org/pub/release-93/gtf/mus_musculus/Mus_musculus.GRCm38.93.gtf.gz	refs/mouse/ensembl-93/Mus_musculus.GRCm38.93.gtf.gz	bsdsum	65055 28510	
+https://ftp.ensembl.org/pub/release-93/fasta/mus_musculus/dna/CHECKSUMS	refs/mouse/ensembl-93/CHECKSUMS.fasta			
+https://ftp.ensembl.org/pub/release-93/gtf/mus_musculus/CHECKSUMS	refs/mouse/ensembl-93/CHECKSUMS.gtf			
+https://ftp.ensembl.org/pub/release-116/fasta/macaca_mulatta/dna/Macaca_mulatta.Mmul_10.dna.toplevel.fa.gz	refs/rhesus/ensembl-116/Macaca_mulatta.Mmul_10.dna.toplevel.fa.gz	bsdsum	34598 852463	
+https://ftp.ensembl.org/pub/release-116/gtf/macaca_mulatta/Macaca_mulatta.Mmul_10.116.gtf.gz	refs/rhesus/ensembl-116/Macaca_mulatta.Mmul_10.116.gtf.gz	bsdsum	07540 19353	
+https://ftp.ensembl.org/pub/release-116/fasta/macaca_mulatta/dna/CHECKSUMS	refs/rhesus/ensembl-116/CHECKSUMS.fasta			
+https://ftp.ensembl.org/pub/release-116/fasta/macaca_mulatta/dna/README	refs/rhesus/ensembl-116/README.fasta			
+https://ftp.ensembl.org/pub/release-116/gtf/macaca_mulatta/CHECKSUMS	refs/rhesus/ensembl-116/CHECKSUMS.gtf			
+https://ftp.ensembl.org/pub/release-116/gtf/macaca_mulatta/README	refs/rhesus/ensembl-116/README.gtf			
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/003/339/765/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.fna.gz	refs/rhesus/refseq-GCF_003339765.1/GCF_003339765.1_Mmul_10_genomic.fna.gz	md5	58462b2760f47a97ab82bf87987ba151	
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/003/339/765/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.gtf.gz	refs/rhesus/refseq-GCF_003339765.1/GCF_003339765.1_Mmul_10_genomic.gtf.gz	md5	a7d55276ce47fb25389cc384c5674f58	
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/003/339/765/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_assembly_report.txt	refs/rhesus/refseq-GCF_003339765.1/GCF_003339765.1_Mmul_10_assembly_report.txt	md5	772859f66147062b3263f15ead854e36	
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/003/339/765/GCF_003339765.1_Mmul_10/md5checksums.txt	refs/rhesus/refseq-GCF_003339765.1/md5checksums.txt			

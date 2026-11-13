@@ -1,0 +1,42 @@
+claim_id	where	paper_value	deposited_value	our_value	tolerance_class	verdict	note
+PBMC3-1	pbmc_1k_v3 filtered_feature_bc_matrix barcodes	1.00000		0.99673	close	pass	STARsolo_Gene, jaccard; at least 0.95
+PBMC3-2	pbmc_1k_v3 filtered barcodes	1.00000		0.99918	close	pass	STARsolo_Gene, share_of_10x_cells_called; at least 0.95; recall
+PBMC3-3	pbmc_1k_v3 filtered matrix column sums	1.00000		1.00000	close	pass	STARsolo_Gene, cell_umi_pearson_log1p_shared; at least 0.99; n=1221
+PBMC3-4	pbmc_1k_v3 filtered matrix row sums	1.00000		0.99970	close	pass	STARsolo_Gene, gene_total_pearson_log1p_ge10; at least 0.99; 12744 genes with >=10 in either
+PBMC3-5	pbmc_1k_v3 metrics_summary Median Genes per Cell	1919	1919	1916	close	pass	STARsolo_Gene, median_genes_per_cell; within 2%; 10x metrics summary
+PBMC3-6	pbmc_1k_v3 metrics_summary Median UMI Counts per Cell	6628		6617	close	pass	STARsolo_Gene, median_umi_per_cell; within 2%; 10x metrics summary
+PBMC3-7	pbmc_1k_v3 metrics_summary Fraction Reads in Cells	0.94900		0.95016	close	pass	STARsolo_Gene, summary:Fraction of Unique Reads in Cells; within 1 points; 10x: Fraction Reads in Cells
+PBMC3-8	pbmc_1k_v3 metrics_summary Sequencing Saturation	0.70800		0.70912	close	pass	STARsolo_Gene, summary:Sequencing Saturation; within 1 points; 10x: Sequencing Saturation
+PBMC3-9	pbmc_1k_v3 filtered barcodes	1.00000		0.99186	close	pass	simpleaf_SA, jaccard; at least 0.95
+PBMC3-10	pbmc_1k_v3 filtered barcodes	1.00000		0.99755	close	pass	simpleaf_SA, share_of_10x_cells_called; at least 0.95; recall
+PBMC3-11	pbmc_1k_v3 filtered matrix column sums	1.00000		0.99983	close	pass	simpleaf_SA, cell_umi_pearson_log1p_shared; at least 0.99; n=1219
+PBMC3-12	pbmc_1k_v3 filtered matrix row sums	1.00000		0.98640	close	fail	simpleaf_SA, gene_total_pearson_log1p_ge10; at least 0.99; 12895 genes with >=10 in either
+PBMC3-13	pbmc_1k_v3 metrics_summary Median Genes per Cell	1919	1919	1880	close	fail	simpleaf_SA, median_genes_per_cell; within 2%; 10x metrics summary
+PBMC3-14	pbmc_1k_v3 metrics_summary Median UMI Counts per Cell	6628		7014	close	fail	simpleaf_SA, median_umi_per_cell; within 2%; 10x metrics summary
+SC5P-1	sc5p_v2_hs_PBMC_1k filtered barcodes	1.00000		0.99794	close	pass	STARsolo_Gene, jaccard; at least 0.95
+SC5P-2	sc5p_v2_hs_PBMC_1k filtered barcodes	1.00000		1.00000	close	pass	STARsolo_Gene, share_of_10x_cells_called; at least 0.95; recall
+SC5P-3	sc5p_v2_hs_PBMC_1k filtered matrix column sums	1.00000		1.00000	close	pass	STARsolo_Gene, cell_umi_pearson_log1p_shared; at least 0.99; n=970
+SC5P-4	sc5p_v2_hs_PBMC_1k filtered matrix row sums	1.00000		0.99949	close	pass	STARsolo_Gene, gene_total_pearson_log1p_ge10; at least 0.99; 12297 genes with >=10 in either
+SC5P-5	sc5p_v2_hs_PBMC_1k metrics_summary Median Genes per Cell	1874	1874	1874	close	pass	STARsolo_Gene, median_genes_per_cell; within 2%; 10x metrics summary
+SC5P-6	sc5p_v2_hs_PBMC_1k metrics_summary Median UMI Counts per Cell	5381		5372	close	pass	STARsolo_Gene, median_umi_per_cell; within 2%; 10x metrics summary
+SC5P-7	sc5p_v2_hs_PBMC_1k metrics_summary Fraction Reads in Cells	0.96500		0.96608	close	pass	STARsolo_Gene, summary:Fraction of Unique Reads in Cells; within 1 points; 10x: Fraction Reads in Cells
+SC5P-8	sc5p_v2_hs_PBMC_1k metrics_summary Sequencing Saturation	0.88600		0.88691	close	pass	STARsolo_Gene, summary:Sequencing Saturation; within 1 points; 10x: Sequencing Saturation
+CR7-1	SC3pv3_GEX_Human_PBMC filtered barcodes				close	not run	STARsolo_GeneFull_Ex50pAS jaccard
+CR7-2	SC3pv3_GEX_Human_PBMC filtered barcodes				close	not run	STARsolo_GeneFull_Ex50pAS share_of_10x_cells_called
+CR7-3	SC3pv3_GEX_Human_PBMC filtered matrix column sums				close	not run	STARsolo_GeneFull_Ex50pAS cell_umi_pearson_log1p_shared
+CR7-4	SC3pv3_GEX_Human_PBMC filtered matrix row sums				close	not run	STARsolo_GeneFull_Ex50pAS gene_total_pearson_log1p_ge10
+CR7-5	SC3pv3_GEX_Human_PBMC metrics_summary Median Genes per Cell				close	not run	STARsolo_GeneFull_Ex50pAS median_genes_per_cell
+CR7-6	SC3pv3_GEX_Human_PBMC metrics_summary Median UMI Counts per Cell				close	not run	STARsolo_GeneFull_Ex50pAS median_umi_per_cell
+CR7-7	SC3pv3_GEX_Human_PBMC metrics_summary Fraction Reads in Cells				close	not run	STARsolo_GeneFull_Ex50pAS summary:Fraction of Unique Reads in Cells
+CR7-8	SC3pv3_GEX_Human_PBMC metrics_summary Sequencing Saturation				close	not run	STARsolo_GeneFull_Ex50pAS summary:Sequencing Saturation
+HGMM-1	hgmm_1k_v3 filtered barcodes	1.00000		0.99904	close	pass	STARsolo_Gene, jaccard; at least 0.95
+HGMM-2	hgmm_1k_v3 filtered barcodes	1.00000		0.99904	close	pass	STARsolo_Gene, share_of_10x_cells_called; at least 0.95; recall
+HGMM-3	hgmm_1k_v3 filtered matrix column sums	1.00000		1.00000	close	pass	STARsolo_Gene, cell_umi_pearson_log1p_shared; at least 0.99; n=1045
+HGMM-4	hgmm_1k_v3 filtered matrix row sums	1.00000		0.99839	close	pass	STARsolo_Gene, gene_total_pearson_log1p_ge10; at least 0.99; 27173 genes with >=10 in either
+HGMM-5	hgmm_1k_v3 metrics_summary hg19 Median Genes per Cell	6258	6258	6248	close	pass	STARsolo_Gene:hg19, median_genes_per_cell; within 2%; 10x metrics summary
+HGMM-6	hgmm_1k_v3 metrics_summary mm10 Median Genes per Cell	4235	4235	4231	close	pass	STARsolo_Gene:mm10, median_genes_per_cell; within 2%; 10x metrics summary
+HGMM-7	hgmm_1k_v3 metrics_summary hg19 Estimated Number of Cell Partitions	504		502	close	pass	STARsolo_Gene:pergenome, hg19_cells; within 5%; per-genome call, multiplets included
+HGMM-8	hgmm_1k_v3 metrics_summary mm10 Estimated Number of Cell Partitions	543		539	close	pass	STARsolo_Gene:pergenome, mm10_cells; within 5%; per-genome call, multiplets included
+HGMM-9	hgmm_1k_v3 metrics_summary Mean UMI Count Purity (0.997)	0.99700		0.99666	close	pass	STARsolo_Gene:pergenome, cr_umi_purity; within 0.5 points; Cell Ranger's rule on our filtered matrix, against the metrics summary. The rule gives 0.9965 on 10x's filtered matrix
+HGMM-10	hgmm_1k_v3 metrics_summary Fraction GEMs with >1 Cell	0.00200		0.00192	close	pass	STARsolo_Gene:pergenome, fraction_gems_gt1_cell; inside (0.0, 0.006); 10x bounds 0.000 to 0.006
+HGMM-11	hgmm_1k_v3 GEM class on the shared barcodes of both filtered matrices	1.00000		1.00000	close	pass	STARsolo_Gene:pergenome, gem_class_agreement_shared; at least 0.99; Cell Ranger's rule on both filtered matrices, 1045 of 1045 shared barcodes, multiplets 1 ours and 1 10x
