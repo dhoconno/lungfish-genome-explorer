@@ -12,8 +12,15 @@ final class ExecutorPlanFillTests: XCTestCase {
     /// The SHA-256 and byte count of the Mac's per-sample plan of `goldenRequest()`, recorded at 2667f6cad, before the
     /// plan request was split into a template and a fill (ARCH-fill F6). A change to the VSP2 recipe, the emitter or the
     /// plan types changes them, and that change needs its own prediction of the plan bytes.
-    private static let goldenSHA256 = "b61f5751fab34f809d49abd248f5f3fce4f97e4946d48fc99a6cd19a3c7633e5"
-    private static let goldenByteCount = 11060
+    ///
+    /// Moved once, by FIX-UNIT6 (trust session, unit tier 6), from b61f5751fab34f809d49abd248f5f3fce4f97e4946d48fc99a6cd19a3c7633e5
+    /// and 11060 bytes. The cause is dbadae4f5 (RECIPE-NAMED-ADAPTERS, ruling ARCH-BIO-RECIPE-TRIM item 2): the recipe's
+    /// fused fastp call passes `--adapter_sequence <TruSeq R1> --adapter_sequence_r2 <TruSeq R2>` in place of
+    /// `--detect_adapter_for_pe`. The plan's bytes differ in that one argv element and nothing else: one line of 35 bytes
+    /// became four lines of 153 bytes, 118 bytes in all (11060 + 118 = 11178). The head with only that commit's change to
+    /// `FastpTrimStep.swift` reverted gives the old digest again, and a line-by-line diff of the two plans is that one hunk.
+    private static let goldenSHA256 = "2fe894f37e0e3337fdd0cc28d1dd15ed0624d577f00f39ac2f89cdebc4f2e605"
+    private static let goldenByteCount = 11178
 
     private var root: URL!
 
