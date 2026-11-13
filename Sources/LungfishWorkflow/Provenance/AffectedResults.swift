@@ -15,6 +15,7 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     case assembly
     case viralRecon
     case variantCalls
+    case fastqTrim
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -332,7 +333,7 @@ public enum AffectedResults {
                 + "at primer sites.",
             whatToDo: "Run Viral Recon again on the same samples with this version and compare the variant table "
                 + "and consensus.",
-            fixCommit: "ea8fb960f"
+            fixCommit: "3b0f0c233"
         ),
         AffectedResultRow(
             backlogID: "IVAR-CODON-MERGE", kinds: [.variantCalls], firstBuild: 1728, lastBuild: 12972,
@@ -351,6 +352,16 @@ public enum AffectedResults {
             whatToDo: "If this sample had two input files of the same name, such as reads.fastq.gz from two run "
                 + "folders, and a space in a folder name, run the sample again with this version.",
             fixCommit: "3d75f96a4"
+        ),
+        AffectedResultRow(
+            backlogID: "FASTQ-TRIM-READ-ORDER", kinds: [.fastqTrim], firstBuild: 344, lastBuild: 12972,
+            sentence: "The version that made these trimmed reads gave fastp the reads, as pairs or as single reads, "
+                + "in the order the import stored them, so fastp could choose the wrong adapter and leave adapter "
+                + "bases on some reads, which can change mapping, primer trimming and allele frequencies made "
+                + "from them.",
+            whatToDo: "Trim the original reads again with this version, or name your adapter in the trim dialog, "
+                + "and redo any mapping or variant calling that used the trimmed reads.",
+            fixCommit: "1cf7f7b28"
         ),
     ]
 

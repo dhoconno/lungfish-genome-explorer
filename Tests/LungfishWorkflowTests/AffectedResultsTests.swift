@@ -203,6 +203,28 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertTrue(row.whatToDo.hasSuffix("run the sample again with this version."))
     }
 
+    // Trust session FIX-TRIM review BIO, affected rows (5). FASTQ-TRIM-READ-ORDER holds a result of `fastq trim` or
+    // `fastq adapter-trim` from the build that brought the clumped bundle order in (75c319483, 344) to Stable
+    // 2026.11.7, and no other kind. The single-end Viral Recon rows are fixed by 2102ef1ef (landed as 3b0f0c233), so the
+    // Viral Recon read-order row takes that hash in place of the F5 one.
+    func testTheFastqTrimReadOrderRowHoldsItsBuilds() throws {
+        let row = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "FASTQ-TRIM-READ-ORDER" })
+        XCTAssertEqual(row.kinds, [.fastqTrim])
+        XCTAssertEqual(row.firstBuild, 344, "75c319483")
+        XCTAssertEqual(row.lastBuild, 12972, "Stable 2026.11.7, the newest build, lacks the fix")
+        XCTAssertEqual(ids(343, .fastqTrim), [])
+        XCTAssertEqual(ids(344, .fastqTrim), ["FASTQ-TRIM-READ-ORDER"])
+        XCTAssertEqual(ids(12972, .fastqTrim), ["FASTQ-TRIM-READ-ORDER"], "Stable 2026.11.7")
+        XCTAssertEqual(ids(12973, .fastqTrim), [])
+        for kind in AffectedResultKind.allCases where kind != .fastqTrim {
+            XCTAssertFalse(ids(12972, kind).contains(row.backlogID), "\(kind)")
+        }
+        XCTAssertTrue(row.sentence.contains("as pairs or as single reads, in the order the import stored them"))
+        XCTAssertTrue(row.whatToDo.contains("or name your adapter in the trim dialog"))
+        let viralRecon = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "VIRALRECON-READ-ORDER" })
+        XCTAssertEqual(viralRecon.fixCommit, "3b0f0c233", "2102ef1ef, which fixed the single-end rows")
+    }
+
     // MARK: - Records as the app wrote them, with the bare version at the root
 
     private func backlogIDs(_ record: ProvenanceEnvelope, _ kind: AffectedResultKind) -> [String] {
