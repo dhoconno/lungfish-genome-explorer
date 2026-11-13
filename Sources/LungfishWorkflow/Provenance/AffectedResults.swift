@@ -14,6 +14,7 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     case nvd
     case assembly
     case viralRecon
+    case variantCalls
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -332,6 +333,15 @@ public enum AffectedResults {
             whatToDo: "Run Viral Recon again on the same samples with this version and compare the variant table "
                 + "and consensus.",
             fixCommit: "ea8fb960f"
+        ),
+        AffectedResultRow(
+            backlogID: "IVAR-CODON-MERGE", kinds: [.variantCalls], firstBuild: 1728, lastBuild: 12972,
+            sentence: "The version that made these iVar calls joined two changes in one codon into one record "
+                + "shown at the lower frequency, and could leave low-frequency changes in a shared codon out, "
+                + "so a variant can be missing or shown too low.",
+            whatToDo: "Call variants again with this version, or read MERGED_AF in a merged record for each "
+                + "position's own frequency.",
+            fixCommit: "c86b0c2d2"
         ),
     ]
 

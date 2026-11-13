@@ -170,6 +170,17 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertTrue(row.whatToDo.hasPrefix("Run Viral Recon again on the same samples with this version"))
     }
 
+    // Trust session FIX-F6 review BIO, final affected row. IVAR-CODON-MERGE holds iVar Call Variants from the build
+    // that wired the converter in (7bc9c34bf, 1728) to Stable 2026.11.7, and no other kind.
+    func testTheIVarCodonMergeRowHoldsItsBuilds() throws {
+        let row = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "IVAR-CODON-MERGE" })
+        XCTAssertEqual(row.kinds, [.variantCalls])
+        XCTAssertEqual(ids(1727, .variantCalls), [])
+        XCTAssertEqual(ids(1728, .variantCalls), ["IVAR-CODON-MERGE"])
+        XCTAssertEqual(ids(12972, .variantCalls), ["IVAR-CODON-MERGE"], "Stable 2026.11.7")
+        XCTAssertEqual(ids(12973, .variantCalls), [])
+    }
+
     // MARK: - Records as the app wrote them, with the bare version at the root
 
     private func backlogIDs(_ record: ProvenanceEnvelope, _ kind: AffectedResultKind) -> [String] {
