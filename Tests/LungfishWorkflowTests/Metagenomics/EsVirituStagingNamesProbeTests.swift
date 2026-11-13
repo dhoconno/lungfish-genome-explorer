@@ -2,11 +2,12 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Trust session probe PROBES-B, row ESV-STAGING-SYMBOL-NAMES. `EsVirituPipeline.detect` links each input into
-// `_input_links` under its last path component with only spaces replaced, when a path holds a space, so two inputs of one
-// name in different folders (the F1 class) or a symbol in a name (the W-1 class) may hit it. The stand-in EsViritu below
-// writes down each file after `-r`, as the tool is given it, with the first line of the file it resolves to. No EsViritu
-// runs, and what the real tool does with a `#`, `'` or `&` in a path it is given is not measured here.
+// Trust session probe PROBES-B, row ESV-STAGING-SYMBOL-NAMES, fixed by lane FIX-ESV. When a path holds a space,
+// `EsVirituPipeline.detect` links each input into `_input_links` and gives EsViritu the links. Whatever the names hold, each
+// link must resolve to its own input. The cases are two inputs of one name in different folders (the F1 class), two names that
+// differ only by a space and an underscore, a symbol in a name (the W-1 class) and links left by a run that failed. The
+// stand-in EsViritu below writes down each file after `-r`, as the tool is given it, with the first line of the file it
+// resolves to. No EsViritu runs, and what the real tool does with a `#`, `'` or `&` in a path it is given is not measured here.
 
 import Foundation
 import LungfishTestSupport
@@ -17,16 +18,22 @@ private struct StagingStandIn {
     let root: URL
     let condaManager: CondaManager
     let database: URL
+    /// While this file exists the stand-in EsViritu exits 1 before it logs anything, as a run that fails does.
+    let failFlag: URL
 
     init() throws {
         let fm = FileManager.default
         root = try TestTempDirectory.make(prefix: "esviritu-staging")
         database = root.appendingPathComponent("esviritu-db", isDirectory: true)
+        failFlag = root.appendingPathComponent("fail.flag")
         try fm.createDirectory(at: database, withIntermediateDirectories: true)
         let micromamba = root.appendingPathComponent("stand-in-micromamba")
-        // The conda manager installs a copy of the bundled micromamba, so the script names its log by absolute path.
+        // The conda manager installs a copy of the bundled micromamba, so the script names its files by absolute path.
         let log = root.appendingPathComponent("staging.log").path
-        try Self.script.replacingOccurrences(of: "__LOG__", with: log).write(to: micromamba, atomically: true, encoding: .utf8)
+        try Self.script
+            .replacingOccurrences(of: "__LOG__", with: log)
+            .replacingOccurrences(of: "__FAIL__", with: failFlag.path)
+            .write(to: micromamba, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: micromamba.path)
         condaManager = CondaManager(
             rootPrefix: root.appendingPathComponent("conda", isDirectory: true),
@@ -76,6 +83,7 @@ private struct StagingStandIn {
         tool="$1"; shift
         [ "$tool" = "EsViritu" ] || { echo "unexpected tool: $tool" >&2; exit 64; }
         if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then echo "EsViritu 1.3.3"; exit 0; fi
+        if [ -e '__FAIL__' ]; then echo "EsViritu stand-in failed on request" >&2; exit 1; fi
         sample=""; output=""; collecting=0
         while [ "$#" -gt 0 ]; do
           case "$1" in
@@ -107,12 +115,44 @@ final class EsVirituStagingNamesProbeTests: XCTestCase {
         let mate2 = try standIn.input(folder: "Run B", name: "reads.fastq.gz", line: "mate-2-from-run-B")
         try await detect(standIn.config(inputs: [mate1, mate2], paired: true), with: standIn)
         let given = try standIn.given()
-        // Measured at af54540c8, red at this line without the expectation: the second link replaces the first at the same
-        // path, so both mates resolve to run B's file and the pair is read as mate 2 twice. The fix lane removes this
-        // expectation (S1, BACKLOG ESV-STAGING-SYMBOL-NAMES).
-        XCTExpectFailure("ESV-STAGING-SYMBOL-NAMES: both mates are staged as the second file") {
-            XCTAssertEqual(given.map(\.line), ["mate-1-from-run-A", "mate-2-from-run-B"], "given \(given)")
+        // Measured red at af54540c8 before the fix: the second link replaced the first at the same path, so both mates
+        // resolved to run B's file and the pair was read as mate 2 twice (S1, BACKLOG ESV-STAGING-SYMBOL-NAMES).
+        XCTAssertEqual(given.map(\.line), ["mate-1-from-run-A", "mate-2-from-run-B"], "given \(given)")
+        XCTAssertEqual(Set(given.map(\.path)).count, 2, "each mate is staged at a path of its own: \(given)")
+    }
+
+    /// Two names that differ only by a space and an underscore, in one folder, are two files for the tool.
+    func testTwoNamesThatDifferOnlyBySpaceAndUnderscoreAreStagedAsTwoFiles() async throws {
+        let standIn = try StagingStandIn()
+        defer { standIn.remove() }
+        let withSpace = try standIn.input(folder: "Run A", name: "reads 1.fastq.gz", line: "reads-named-with-a-space")
+        let withUnderscore = try standIn.input(folder: "Run A", name: "reads_1.fastq.gz", line: "reads-named-with-an-underscore")
+        try await detect(standIn.config(inputs: [withSpace, withUnderscore], paired: false), with: standIn)
+        let given = try standIn.given()
+        XCTAssertEqual(given.map(\.line), ["reads-named-with-a-space", "reads-named-with-an-underscore"], "given \(given)")
+    }
+
+    /// A run that fails leaves its links in the output folder, and the next run into that folder links the same inputs
+    /// again, each at the path its earlier link has, so a link that is there must not stop the run.
+    func testLinksLeftByAFailedRunDoNotStopTheNextRunIntoTheSameFolder() async throws {
+        let standIn = try StagingStandIn()
+        defer { standIn.remove() }
+        let mate1 = try standIn.input(folder: "Run A", name: "reads.fastq.gz", line: "mate-1-from-run-A")
+        let mate2 = try standIn.input(folder: "Run B", name: "reads.fastq.gz", line: "mate-2-from-run-B")
+        let config = standIn.config(inputs: [mate1, mate2], paired: true)
+        XCTAssertTrue(FileManager.default.createFile(atPath: standIn.failFlag.path, contents: Data()))
+        do {
+            try await detect(config, with: standIn)
+            XCTFail("the stand-in EsViritu was set to fail")
+        } catch is EsVirituPipelineError {
+            // The failed first run.
         }
+        let links = config.outputDirectory.appendingPathComponent("_input_links", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: links.path), "a failed run leaves its links, the premise of this test")
+        try FileManager.default.removeItem(at: standIn.failFlag)
+        try await detect(config, with: standIn)
+        let given = try standIn.given()
+        XCTAssertEqual(given.map(\.line), ["mate-1-from-run-A", "mate-2-from-run-B"], "given \(given)")
     }
 
     /// Two samples, each with a `reads.fastq.gz` of its own folder, run as the batch does, one config and one output a sample.
@@ -138,6 +178,8 @@ final class EsVirituStagingNamesProbeTests: XCTestCase {
         try await detect(standIn.config(inputs: [reads], paired: false), with: standIn)
         let given = try standIn.given()
         XCTAssertEqual(given.map(\.line), ["reads-with-symbols"], "given \(given)")
-        XCTAssertEqual(given.first.map { URL(fileURLWithPath: $0.path).lastPathComponent }, "it's_#1_&_co.fastq.gz")
+        let stagedName = try XCTUnwrap(given.first.map { URL(fileURLWithPath: $0.path).lastPathComponent })
+        XCTAssertFalse(stagedName.contains(" "), "a staged name holds no space: \(stagedName)")
+        XCTAssertTrue(stagedName.hasSuffix("it's_#1_&_co.fastq.gz"), "the symbols and the ending of the name stay: \(stagedName)")
     }
 }
