@@ -172,6 +172,7 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
                 "pairs": pairingDecision.resolution.pairsProvenanceValue,
                 "unpairedReads": pairingDecision.resolution.unpairedReadsProvenanceValue,
                 "fastpLayoutPlan": outcome.plan.provenanceValue,
+                "stagedPairOrder": outcome.stagedPairOrder?.provenanceValue ?? .null,
                 "force": .boolean(output.force),
                 "compress": .boolean(output.compress)
             ],
@@ -185,6 +186,7 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
                 "interleaved": .boolean(false),
                 "readLayout": FASTQPairingOptions.readLayoutProvenanceDefault,
                 "fastpLayoutPlan": FastpReadLayoutPlan.singleEnd.provenanceValue,
+                "stagedPairOrder": .null,
                 "force": .boolean(false),
                 "compress": .boolean(false)
             ],
