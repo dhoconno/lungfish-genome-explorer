@@ -131,6 +131,140 @@ final class WalkTwinsXCUITests: XCTestCase {
         }
     }
 
+    /// Old row 19 of the 2026.11.5 owner list (NTC-P export, S1 for a false clean). The walk's TaxTriage batch named its
+    /// control "NTC 1" and the pipeline named its results `NTC_1`. The result is built from `Tests/Fixtures/taxtriage-ntc-p`
+    /// (the `patient` and `NTC_1` folders of that batch) with a sidecar that marks "NTC 1" as the control. The control
+    /// holds three organisms, so the organism matrix must read Yes for those and No for the one organism only the patient
+    /// holds, and the batch report must name "NTC 1 (named NTC_1 in the results)" and list the organisms the control
+    /// holds. It must never say "No organisms detected in negative controls". Both files come out of the viewer's Export
+    /// menu and its save sheet, as a person takes them.
+    @MainActor
+    func testTheExportsOfABatchWhoseControlHoldsOrganismsAreNeverFalseClean() throws {
+        let robot = try ReleaseAppSmokeRobot()
+        let project = try LungfishProjectFixtureBuilder.makeBundleBrowserProject(named: "TwinNTCP-\(UUID().uuidString)")
+        let app = robot.app
+        addTeardownBlock {
+            MainActor.assumeIsolated { app.terminate() }
+            try? FileManager.default.removeItem(at: project.deletingLastPathComponent())
+        }
+        let row = "taxtriage-2026-01-15T15-00-00"
+        try Self.addNTCPBatch(to: project, named: row)
+        try robot.launch()
+        robot.openProject(project)
+        robot.printLaunchRecord(of: #function)
+
+        ReleaseSmokeFixtures.openSidebarItem(containing: row, in: app)
+        guard app.descendants(matching: .any)["taxtriage-result-view"].firstMatch.waitForExistence(timeout: 30) else {
+            robot.failShowingScreen("The TaxTriage batch \(row) shows no viewer")
+            return
+        }
+        let folder = project.deletingLastPathComponent()
+        guard let matrix = Self.exportText(choosing: "Export Organism Matrix (CSV)\u{2026}", as: "organism_matrix.csv", in: folder, robot: robot),
+              let report = Self.exportText(choosing: "Export Batch Report\u{2026}", as: "batch_report.txt", in: folder, robot: robot) else {
+            return
+        }
+
+        let lines = matrix.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        XCTAssertEqual(lines.first, "Organism,Mean TASS,Samples Detected,Contamination Risk,NTC_1,patient", "The matrix header:\n\(matrix)")
+        let risk = { (organism: String) -> String? in
+            guard let line = lines.first(where: { $0.hasPrefix(organism + ",") }) else { return nil }
+            let fields = line.split(separator: ",", omittingEmptySubsequences: false)
+            return fields.count > 3 ? String(fields[3]) : nil
+        }
+        for held in ["Severe acute respiratory syndrome coronavirus 2", "Sewage-associated gemycircularvirus 4",
+                     "Influenza A virus (A/New York/392/2004(H3N2))"] {
+            XCTAssertEqual(risk(held), "Yes", "The matrix does not read Yes for \(held), which the control NTC_1 holds:\n\(matrix)")
+        }
+        XCTAssertEqual(risk("Bovine coronavirus"), "No", "The matrix does not read No for the organism only the patient holds:\n\(matrix)")
+
+        XCTAssertFalse(report.contains("No organisms detected in negative controls"),
+                       "The batch report says no organism was detected in a control that holds three:\n\(report)")
+        XCTAssertTrue(report.contains("Negative Controls: NTC 1 (named NTC_1 in the results)"),
+                      "The batch report does not name the control as typed and as the results name it:\n\(report)")
+        XCTAssertTrue(report.contains("NTC_1 [NTC]: 3 organisms"), "The per-sample summary does not mark NTC_1 as a control:\n\(report)")
+        let section = report.components(separatedBy: "--- Contamination Risk Organisms ---").dropFirst().first?
+            .components(separatedBy: "--- High-Confidence").first ?? ""
+        for held in ["Severe acute respiratory syndrome coronavirus 2", "Influenza A virus (A/New York/392/2004(H3N2))"] {
+            XCTAssertTrue(section.contains("\(held) (detected in:") && section.contains("NTC_1"),
+                          "The contamination section does not list \(held) as held by NTC_1:\n\(report)")
+        }
+    }
+
+    /// The `patient` and `NTC_1` folders of `Tests/Fixtures/taxtriage-ntc-p` as one TaxTriage result under Analyses, with
+    /// the sidecar of a run whose samples were typed "NTC 1" (a control) and "patient". The app builds the database when
+    /// it opens the result, as it does for any result that holds none.
+    @MainActor
+    private static func addNTCPBatch(to project: URL, named folder: String) throws {
+        let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
+        let result = analyses.appendingPathComponent(folder, isDirectory: true)
+        try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: LungfishFixtureCatalog.fixturesRoot.appendingPathComponent("taxtriage-ntc-p", isDirectory: true),
+                                         to: result)
+        try? FileManager.default.removeItem(at: result.appendingPathComponent("README.md"))
+        let sample = { (name: String, file: String, control: Bool) -> [String: Any] in
+            ["sampleId": name, "fastq1": "file:///nonexistent/\(file).fastq.gz", "platform": "ILLUMINA", "isNegativeControl": control]
+        }
+        let config: [String: Any] = ["samples": [sample("NTC 1", "ntc1", true), sample("patient", "patient", false)],
+                                     "platform": "ILLUMINA", "outputDirectory": result.absoluteString]
+        let sidecar: [String: Any] = ["config": config, "runtime": 120.5, "exitCode": 0, "outputDirectory": result.absoluteString]
+        try JSONSerialization.data(withJSONObject: sidecar, options: [.prettyPrinted, .sortedKeys])
+            .write(to: result.appendingPathComponent("taxtriage-result.json"))
+        try ReleaseSmokeFixtures.writeAnalysisMetadata(tool: "taxtriage", in: result)
+    }
+
+    /// True once `condition` holds, polled on the app's own run loop for at most `timeout` seconds.
+    @MainActor
+    private static func poll(_ timeout: TimeInterval, in app: XCUIApplication, until condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() { return true }
+            _ = app.windows.firstMatch.waitForNonExistence(timeout: 0.25)
+        } while Date() < deadline
+        return condition()
+    }
+
+    /// Chooses `item` in the viewer's Export menu, saves as `name` in `folder` through the save sheet (its Go to Folder
+    /// field and its name field, as a person would) and returns the text of the file once the export has written it.
+    /// Returns nil after recording the failure when a step does not come.
+    @MainActor
+    private static func exportText(choosing item: String, as name: String, in folder: URL, robot: ReleaseAppSmokeRobot) -> String? {
+        let app = robot.app
+        let hittable = { (query: XCUIElementQuery) in query.allElementsBoundByIndex.first { $0.exists && $0.isHittable && $0.isEnabled } }
+        let button = app.buttons.matching(NSPredicate(format: "label == %@ OR title == %@", "Export", "Export"))
+        guard poll(60, in: app, until: { hittable(button) != nil }), let export = hittable(button) else {
+            robot.failShowingScreen("The viewer shows no Export button that takes a click")
+            return nil
+        }
+        export.click()
+        let menuItem = app.menuItems.matching(NSPredicate(format: "title == %@", item))
+        guard poll(10, in: app, until: { hittable(menuItem) != nil }), let entry = hittable(menuItem) else {
+            robot.failShowingScreen("The Export menu shows no item \"\(item)\"")
+            return nil
+        }
+        entry.click()
+        let nameField = NSPredicate(format: "elementType == %d AND (identifier == %@ OR value BEGINSWITH %@)",
+                                    XCUIElement.ElementType.textField.rawValue, "saveAsNameTextField", String(name.prefix(5)))
+        guard let panel = robot.firstOf([app.sheets.containing(nameField).firstMatch, app.dialogs.containing(nameField).firstMatch,
+                                         app.windows.containing(nameField).firstMatch]) else {
+            robot.failShowingScreen("\"\(item)\" opens no save sheet with a name field")
+            return nil
+        }
+        let field = panel.descendants(matching: .textField).matching(nameField).firstMatch
+        guard field.waitForExistence(timeout: 5), robot.goToFolder(folder.path, in: panel, focusing: field) else { return nil }
+        field.click()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText(name)
+        field.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        let file = folder.appendingPathComponent(name)
+        let written = NSPredicate { _, _ in FileManager.default.fileExists(atPath: file.path) }
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: written, object: nil)], timeout: 60) == .completed,
+              let text = try? String(contentsOf: file, encoding: .utf8) else {
+            robot.failShowingScreen("\"\(item)\" wrote no file \(name) within 60 s")
+            return nil
+        }
+        return text
+    }
+
     /// Copies the result folder `name` as `copy` and points the copy's sidecar at its own folder (`outputDirectory`).
     private static func copyAssemblyResult(named name: String, as copy: String, in analyses: URL) throws {
         let destination = analyses.appendingPathComponent(copy, isDirectory: true)

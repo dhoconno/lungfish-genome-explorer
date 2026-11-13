@@ -279,7 +279,8 @@
       "appSmokeTests": [
         "LungfishXCUITests/SidebarRescanSelectionXCUITests/testClickingAnotherResultRightAfterARescanShowsTheClickedResult",
         "LungfishXCUITests/WalkTwinsXCUITests/testRightClickingAnUnselectedSidebarRowLeavesOneResultOnEverySurface",
-        "LungfishXCUITests/WalkTwinsXCUITests/testAnAssemblyWhoseContigsFileHoldsNoContigSaysSoAndShowsNoStoredNumbers"
+        "LungfishXCUITests/WalkTwinsXCUITests/testAnAssemblyWhoseContigsFileHoldsNoContigSaysSoAndShowsNoStoredNumbers",
+        "LungfishXCUITests/WalkTwinsXCUITests/testTheExportsOfABatchWhoseControlHoldsOrganismsAreNeverFalseClean"
       ],
       "nativeXCUITestCommand": [
         "python3",

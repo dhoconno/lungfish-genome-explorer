@@ -174,6 +174,7 @@ class AppSmokeGateTests(unittest.TestCase):
                 shutil.copyfile(contract_path, root / "config/release-contract.json")
                 (root / "Tests/Fixtures/analyses").mkdir(parents=True)
                 (root / "Tests/Fixtures/kraken2-mini").mkdir(parents=True)
+                (root / "Tests/Fixtures/taxtriage-ntc-p").mkdir(parents=True)
                 (root / "Candidate.app/Contents").mkdir(parents=True)
                 (root / "Candidate.app/Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.lungfish.browser"}))
                 session = {"active": True, "uid": 501, "locked": False, "username": "owner", "consoleUser": "owner",
@@ -343,6 +344,7 @@ class AppSmokeGateTests(unittest.TestCase):
             shutil.copyfile(ROOT / "config/release-contract.json", root / "config/release-contract.json")
             (root / "Tests/Fixtures/analyses").mkdir(parents=True)
             (root / "Tests/Fixtures/kraken2-mini").mkdir(parents=True)
+            (root / "Tests/Fixtures/taxtriage-ntc-p").mkdir(parents=True)
             lock = root / "Package.resolved"
             lock.write_text("retained pinned-source sentinel")
             calls = []
@@ -396,6 +398,7 @@ class AppSmokeGateTests(unittest.TestCase):
             shutil.copyfile(ROOT / "config/release-contract.json", root / "config/release-contract.json")
             (root / "Tests/Fixtures/analyses").mkdir(parents=True)
             (root / "Tests/Fixtures/kraken2-mini").mkdir(parents=True)
+            (root / "Tests/Fixtures/taxtriage-ntc-p").mkdir(parents=True)
             (root / "Candidate.app/Contents").mkdir(parents=True)
             (root / "Candidate.app/Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.lungfish.browser"}))
             session = {"active": True, "uid": 501, "locked": False, "username": "owner", "consoleUser": "owner",
