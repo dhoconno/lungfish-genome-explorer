@@ -262,7 +262,10 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertTrue(expected.contains("BLAST-MATES"))
         XCTAssertEqual(backlogIDs(record, .esViritu), expected)
         let fixed = try goldenRecord("esviritu", version: "2026.11.7", stepApp: "Lungfish 2026.11.7 (dev)")
-        XCTAssertEqual(backlogIDs(fixed, .esViritu), [], "Stable 2026.11.7 holds every fix")
+        XCTAssertEqual(
+            backlogIDs(fixed, .esViritu), ["ESV-STAGING-SYMBOL-NAMES"],
+            "Stable 2026.11.7 holds every fix but the staging of same-named inputs (FIX-ESV)"
+        )
     }
 
     func testARecordOfAnUnpackagedBuildMatchesNothing() throws {
