@@ -33,6 +33,7 @@ final class FastpStagedReadOrderTests: XCTestCase {
         struct Call {
             let r1: [String]
             let r2: [String]?
+            var arguments: [String] = []
         }
 
         struct Failure: Error {}
@@ -52,7 +53,7 @@ final class FastpStagedReadOrderTests: XCTestCase {
             }
             guard let input = value("-i"), let output = value("-o") else { throw Failure() }
             let mate = value("-I")
-            let call = Call(r1: try Self.fastqRecords(input), r2: try mate.map(Self.fastqRecords))
+            let call = Call(r1: try Self.fastqRecords(input), r2: try mate.map(Self.fastqRecords), arguments: arguments)
             append(call)
             for (source, destination) in [(input, output), (mate, value("-O"))] {
                 guard let source, let destination else { continue }
@@ -141,27 +142,34 @@ final class FastpStagedReadOrderTests: XCTestCase {
         XCTAssertEqual(run1.outcome.stagedPairOrder, SeededPairOrder.Record(), "the run names the staging and its seed")
     }
 
-    // R2. Single reads (`--pairing single`, a single-end bundle) are staged the same way, since fastp guesses a
-    // single-end adapter from the head of the file by default.
-    func testAutoDetectHandsFastpSingleReadsInTheSeededOrderNotTheBundleOrder() async throws {
+    // R2 and ruling BIO-PROBES-E. A seeded order of single reads only fixed which adapter fastp guessed, and two
+    // orders of one file still gave two results. A single-read trim that names no adapter now names TruSeq Read 1
+    // and the bundled known adapters, so fastp guesses nothing and the reads reach it as stored.
+    func testAutoDetectOnSingleReadsNamesTheAdaptersAndKeepsTheStoredOrder() async throws {
         let input = root.appendingPathComponent("clumped-single.fastq")
         try InterleavedFASTQFixture.write(pairCount: 300, naming: .casava, to: input)
         let source = try records(input)
 
-        let first = StandInFastp()
-        let second = StandInFastp()
-        let run1 = try await run(input, plan: .singleEnd, detect: true, standIn: first, tag: "1")
-        _ = try await run(input, plan: .singleEnd, detect: true, standIn: second, tag: "2")
+        let standIn = StandInFastp()
+        let run1 = try await run(input, plan: .singleEnd, detect: true, standIn: standIn, tag: "1")
 
-        let call = try XCTUnwrap(first.calls.first)
+        let call = try XCTUnwrap(standIn.calls.first)
         XCTAssertNil(call.r2, "single reads run without a mate file")
-        XCTAssertEqual(call.r1.sorted(), source.sorted(), "fastp gets every read once, byte for byte")
-        XCTAssertNotEqual(call.r1, source, "fastp must not get the bundle's clumped order")
-        XCTAssertEqual(call.r1, SeededPairOrder.order(count: source.count).map { source[$0] })
-        XCTAssertEqual(second.calls.first?.r1, call.r1, "every run stages the same order")
+        XCTAssertEqual(call.r1, source, "nothing is staged, so fastp gets the reads as stored")
+        func value(_ flag: String) -> String? {
+            call.arguments.firstIndex(of: flag).flatMap { $0 + 1 < call.arguments.count ? call.arguments[$0 + 1] : nil }
+        }
+        XCTAssertEqual(value("-a"), "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA", "TruSeq Read 1 is named, so fastp guesses nothing")
+        let fasta = try XCTUnwrap(value("--adapter_fasta"), "the known adapters are named: \(call.arguments)")
+        let sequences = try String(contentsOfFile: fasta, encoding: .utf8)
+            .split(whereSeparator: \.isNewline).filter { !$0.hasPrefix(">") }.map(String.init)
+        XCTAssertEqual(sequences, [
+            "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA", "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT", "CTGTCTCTTATACACATCT",
+            "TGGAATTCTCGGGTGCCAAGG", "GATCGTCGGACTGTAGAACTCTGAACGTGTAGA",
+        ])
         XCTAssertEqual(try records(run1.output).count, source.count)
-        XCTAssertEqual(run1.outcome.stagedPairOrder?.step, "reads staged in seeded random order")
-        XCTAssertEqual(run1.outcome.stagedPairOrder?.seed, 1)
+        XCTAssertNil(run1.outcome.stagedPairOrder, "nothing was staged")
+        XCTAssertEqual(run1.outcome.nativeArguments, call.arguments, "the record keeps the argv fastp got")
     }
 
     // Item 4 of the fix. A named adapter makes the output independent of the order, so nothing is staged and the

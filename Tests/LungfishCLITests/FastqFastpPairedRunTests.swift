@@ -241,12 +241,15 @@ final class FastqFastpPairedRunTests: XCTestCase {
         XCTAssertFalse(envelope.steps[0].argv.contains("-I"))
         XCTAssertTrue(envelope.argv.contains("--pairing"), "\(envelope.argv)")
         XCTAssertEqual(envelope.options.resolvedDefaults["fastpLayoutPlan"], .string("single_end"))
-        // No adapter is named, so fastp guesses it from the head of the reads. They were staged in the fixed-seed
-        // order, and the record says so (trust session R2).
-        XCTAssertEqual(
-            envelope.options.resolvedDefaults["stagedPairOrder"], SeededPairOrder.Record.reads.provenanceValue,
-            "the record names the staging of single reads and its seed"
-        )
+        // No adapter is named, so the trim names TruSeq Read 1 and the bundled known adapters and fastp guesses
+        // nothing (ruling BIO-PROBES-E). Nothing is staged, and the record names the adapters.
+        XCTAssertEqual(envelope.options.resolvedDefaults["stagedPairOrder"], .null, "single reads are not staged")
+        guard case .dictionary(let adapters)? = envelope.options.resolvedDefaults["singleReadAdapters"] else {
+            return XCTFail("the record names the adapters of single reads: \(envelope.options.resolvedDefaults)")
+        }
+        XCTAssertEqual(adapters["adapterSequence"], .string("AGATCGGAAGAGCACACGTCTGAACTCCAGTCA"))
+        XCTAssertNotNil(adapters["adapterFastaSequences"], "the record lists the FASTA's adapters")
+        XCTAssertTrue(envelope.steps[0].argv.contains("--adapter_fasta"), "\(envelope.steps[0].argv)")
         // The staged copy is deleted after the run, so the record names the person's file (trust session FIX-TRIM
         // review BIO, SF-1).
         XCTAssertEqual(
