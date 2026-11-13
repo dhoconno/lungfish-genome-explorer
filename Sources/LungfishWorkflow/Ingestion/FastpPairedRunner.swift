@@ -197,8 +197,24 @@ public enum FastpPairedRunner {
         let stepID = UUID()
 
         guard let expectedCounts = plan.expectedCounts else {
+            // fastp guesses a single-end adapter from the head of its input too, so when it detects the adapter the
+            // reads go in the seeded order of SeededPairOrder, never in the stored (clumped) order (trust session R2).
+            var fastpInput = inputURL
+            var staged: URL?
+            var stagedScratch: URL?
+            defer { if let stagedScratch { try? FileManager.default.removeItem(at: stagedScratch) } }
+            if detectPairedAdapters {
+                let scratch = URL(fileURLWithPath: outputPath).deletingLastPathComponent()
+                    .appendingPathComponent(".fastp-reads-\(UUID().uuidString)", isDirectory: true)
+                try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+                stagedScratch = scratch
+                let seeded = scratch.appendingPathComponent("in_seeded.fastq")
+                _ = try await Self.stageReads([inputURL], to: seeded, scratch: scratch.appendingPathComponent("order", isDirectory: true))
+                fastpInput = seeded
+                staged = seeded
+            }
             let args = fastpArguments(
-                inputPath: inputURL.path,
+                inputPath: fastpInput.path,
                 outputPath: outputPath,
                 options: options,
                 detectPairedAdapters: false
@@ -209,7 +225,8 @@ public enum FastpPairedRunner {
             }
             return FastpPairedRunOutcome(
                 plan: plan, result: result, nativeArguments: args, stepID: stepID,
-                stepInputs: nil, stepOutputs: nil, extraSteps: [], stagedPairOrder: nil
+                stepInputs: staged.map { [ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)] },
+                stepOutputs: nil, extraSteps: [], stagedPairOrder: staged == nil ? nil : .reads
             )
         }
 
@@ -248,12 +265,33 @@ public enum FastpPairedRunner {
             }
         }.value
 
+        // fastp guesses the adapter from the head of its input, so when it detects the adapter the pairs go in the
+        // fixed-seed order of SeededPairOrder, mates together, never in the stored (clumped) order (trust session R1).
+        var fastpR1 = r1
+        var fastpR2 = r2
+        var stagedPairOrder: SeededPairOrder.Record?
+        if detectPairedAdapters {
+            let seeded1 = scratch.appendingPathComponent("in_seeded_R1.fastq")
+            let seeded2 = scratch.appendingPathComponent("in_seeded_R2.fastq")
+            let staged = try await Self.stagePairs(
+                r1: r1, r2: r2, to: seeded1, seeded2, scratch: scratch.appendingPathComponent("order", isDirectory: true)
+            )
+            guard staged == expectedCounts.pairs else {
+                throw FastpPairedRunError("the pair staging wrote \(staged) pairs where \(expectedCounts.pairs) were expected")
+            }
+            try? fm.removeItem(at: r1)
+            try? fm.removeItem(at: r2)
+            fastpR1 = seeded1
+            fastpR2 = seeded2
+            stagedPairOrder = SeededPairOrder.Record()
+        }
+
         // fastp on the pairs: both mates kept or dropped together.
         let out1 = scratch.appendingPathComponent("out_R1.fastq")
         let out2 = scratch.appendingPathComponent("out_R2.fastq")
         let pairedArgs = fastpArguments(
-            inputPath: r1.path,
-            mateInputPath: r2.path,
+            inputPath: fastpR1.path,
+            mateInputPath: fastpR2.path,
             outputPath: out1.path,
             mateOutputPath: out2.path,
             options: options,
@@ -263,7 +301,7 @@ public enum FastpPairedRunner {
         guard pairedResult.isSuccess else {
             throw FastpPairedRunError("\(failureLabel) failed on the mate pairs: \(pairedResult.stderr)")
         }
-        let stepInputs = [r1, r2].map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) }
+        let stepInputs = [fastpR1, fastpR2].map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) }
         let stepOutputs = [out1, out2].map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) }
 
         var extraSteps: [ProvenanceStep] = []
@@ -371,8 +409,33 @@ public enum FastpPairedRunner {
             stepInputs: stepInputs,
             stepOutputs: stepOutputs,
             extraSteps: extraSteps,
-            stagedPairOrder: nil
+            stagedPairOrder: stagedPairOrder
         )
+    }
+
+    /// Writes the pairs of `r1` and `r2` to `out1` and `out2` in the seeded order and returns the pairs written.
+    private static func stagePairs(r1: URL, r2: URL, to out1: URL, _ out2: URL, scratch: URL) async throws -> Int {
+        let worker = Task.detached(priority: .utility) { () throws -> Int in
+            FileManager.default.createFile(atPath: out1.path, contents: nil)
+            FileManager.default.createFile(atPath: out2.path, contents: nil)
+            let handle1 = try FileHandle(forWritingTo: out1)
+            defer { try? handle1.close() }
+            let handle2 = try FileHandle(forWritingTo: out2)
+            defer { try? handle2.close() }
+            return try SeededPairOrder.write(.separate(r1: r1, r2: r2), r1: handle1, r2: handle2, scratch: scratch)
+        }
+        return try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+    }
+
+    /// Writes every record of `sources` to `out` in the seeded order and returns the reads written.
+    private static func stageReads(_ sources: [URL], to out: URL, scratch: URL) async throws -> Int {
+        let worker = Task.detached(priority: .utility) { () throws -> Int in
+            FileManager.default.createFile(atPath: out.path, contents: nil)
+            let handle = try FileHandle(forWritingTo: out)
+            defer { try? handle.close() }
+            return try SeededPairOrder.writeReads(sources, to: handle, scratch: scratch)
+        }
+        return try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
     }
 
     /// Interleaves `r1` and `r2` into `target`, then appends every record of

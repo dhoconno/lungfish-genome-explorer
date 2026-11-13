@@ -179,7 +179,7 @@ extension ViralReconReadPairing {
                 pairCount = try await stagePairs(plan.matePairs, sampleName: sample.sampleName, into: directory, staged: &staged)
             } else {
                 let output = directory.appendingPathComponent("\(directory.lastPathComponent).fastq.gz")
-                singleReadCount = try await writeGzipFASTQ(plan.executionURLs, to: output)
+                singleReadCount = try await writeSeededReads(plan.executionURLs, to: output, scratch: directory)
                 staged = [output]
             }
             let layout: FASTQInputLayout
@@ -208,7 +208,7 @@ extension ViralReconReadPairing {
                     singleReadReason: plan.singleReadReason
                 ),
                 layoutScan: plan.layoutClassification,
-                stagedPairOrder: runsPaired ? SeededPairOrder.Record() : nil
+                stagedPairOrder: runsPaired ? SeededPairOrder.Record() : SeededPairOrder.Record.reads
             )
             let stagedSample = ViralReconSample(
                 sampleName: sample.sampleName,
@@ -266,18 +266,18 @@ extension ViralReconReadPairing {
     }
 
     /// Writes every record of `sources`, plain or gzip, one file after
-    /// another, into the gzip file `destination` through `/usr/bin/gzip -c`,
-    /// and returns the record count. A partial record stops the write and
-    /// removes the file.
-    static func writeGzipFASTQ(_ sources: [URL], to destination: URL) async throws -> Int {
+    /// another, into the gzip file `destination` through `/usr/bin/gzip -c`
+    /// in the seeded order of ``SeededPairOrder``, and returns the record
+    /// count. The import clumps a bundle's reads and viralrecon's fastp
+    /// guesses a single-end adapter from the head of the file, so the file
+    /// is never in the bundle's order (trust session R2). A partial record
+    /// stops the write and removes the file.
+    static func writeSeededReads(_ sources: [URL], to destination: URL, scratch: URL) async throws -> Int {
+        let buckets = scratch.appendingPathComponent(".read-order-\(destination.lastPathComponent)", isDirectory: true)
         let worker = Task.detached(priority: .utility) { () throws -> Int in
             let sink = try GzipFileSink(destination: destination)
             do {
-                var records = 0
-                for source in sources {
-                    try Task.checkCancellation()
-                    records += try ReadSetResolver.copyRecords(of: source, to: sink.writeHandle)
-                }
+                let records = try SeededPairOrder.writeReads(sources, to: sink.writeHandle, scratch: buckets)
                 try sink.finish()
                 return records
             } catch {

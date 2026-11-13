@@ -25,6 +25,9 @@ public enum SeededPairOrder {
     /// The staging step as a run record names it.
     public static let stepDescription = "pairs staged in seeded random order"
 
+    /// The staging step of single reads as a run record names it.
+    public static let readsStepDescription = "reads staged in seeded random order"
+
     /// What a run record keeps of the staging.
     public struct Record: Codable, Sendable, Equatable {
         public let step: String
@@ -35,7 +38,10 @@ public enum SeededPairOrder {
             self.seed = seed
         }
 
-        var provenanceValue: ParameterValue {
+        /// The record of single reads staged one by one (trust session R2).
+        public static var reads: Record { Record(step: SeededPairOrder.readsStepDescription) }
+
+        public var provenanceValue: ParameterValue {
             .dictionary(["step": .string(step), "seed": .integer(Int(truncatingIfNeeded: seed))])
         }
     }
@@ -133,6 +139,48 @@ public enum SeededPairOrder {
         try output1.flush()
         try output2.flush()
         return pairs
+    }
+
+    /// Writes every record of `sources`, one file after another, to `sink` in the seeded order and returns the
+    /// records written. It is the single-record form of ``write(_:r1:r2:scratch:seed:bucketCount:)``, so N reads
+    /// are permuted the way N pairs are. `scratch` holds the bucket files while it runs and is removed before it
+    /// returns.
+    static func writeReads(
+        _ sources: [URL],
+        to sink: FileHandle,
+        scratch: URL,
+        seed: UInt64 = seed,
+        bucketCount: Int? = nil
+    ) throws -> Int {
+        let fileManager = FileManager.default
+        try? fileManager.removeItem(at: scratch)
+        try fileManager.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: scratch) }
+        let buckets = BucketFiles(directory: scratch, count: bucketCount ?? Self.bucketCount(for: sources))
+        var reads = 0
+        for url in sources {
+            let reader = try FASTQRawLineReader(url: url)
+            defer { reader.close() }
+            let file = url.lastPathComponent
+            var number = 0
+            while let record = try FASTQPairInterleaver.readRecord(from: reader, file: file, recordNumber: number + 1) {
+                number += 1
+                try buckets.append(key: key(of: UInt64(reads), seed: seed), index: UInt64(reads), joined(record), [])
+                reads += 1
+                if reads & 0x3FFF == 0 { try Task.checkCancellation() }
+            }
+        }
+        try buckets.flushAll()
+        var output = Output(handle: sink)
+        for bucket in 0..<buckets.count {
+            try Task.checkCancellation()
+            let raw = try buckets.load(bucket)
+            for entry in try entries(in: raw, bucket: bucket, seed: seed) {
+                try output.append(raw[entry.r1])
+            }
+        }
+        try output.flush()
+        return reads
     }
 
     /// Hands each pair of `source` to `body` as two whole records with their newlines.
