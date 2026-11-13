@@ -154,4 +154,12 @@ final class ViralReconStagedReadOrderTests: XCTestCase {
         try ViralReconReadPairing.writeDecisions(prepared.decisions, to: url)
         XCTAssertEqual(ViralReconReadPairing.loadDecisions(from: url), prepared.decisions)
     }
+
+    // F5, BIO 7. The seeded order is pinned (SplitMix64, seed 1), so a changed constant or seed fails here.
+    func testSeededOrderIsPinned() {
+        XCTAssertEqual(SeededPairOrder.key(of: 0, seed: 1), 0x910a_2dec_8902_5cc1)
+        XCTAssertEqual(SeededPairOrder.key(of: 1, seed: 1), 0xbeeb_8da1_658e_ec67)
+        XCTAssertEqual(SeededPairOrder.order(count: 8), [4, 3, 7, 0, 1, 5, 6, 2])
+        XCTAssertEqual(SeededPairOrder.order(count: 12), [8, 10, 4, 3, 7, 0, 11, 1, 5, 9, 6, 2])
+    }
 }
