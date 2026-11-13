@@ -32,6 +32,7 @@ final class WalkTwinsXCUITests: XCTestCase {
         }
         try robot.launch()
         robot.openProject(project)
+        robot.printLaunchRecord(of: #function)
         let any = robot.app.descendants(matching: .any)
         let first = (row: Self.esVirituRow, viewer: any["esviritu-result-view"].firstMatch)
         let other = (row: Self.taxTriageRow, viewer: any["taxtriage-result-view"].firstMatch)

@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 @MainActor
@@ -8,8 +9,10 @@ struct ProjectLifecycleRobot {
     /// `ReleaseAppSmokeRobot` does, and the tests of the `ui-twins` profile run on the package (lane TWINS).
     private let packaged: ReleaseAppSmokeRobot?
     private let packagedFailure: String?
+    private let testName: String
 
     init(app: XCUIApplication = XCUIApplication(), testName: String = #function) {
+        self.testName = testName
         var candidate: ReleaseAppSmokeRobot?
         var failure: String?
         if ProcessInfo.processInfo.environment["LUNGFISH_RELEASE_SMOKE_APP"] != nil {
@@ -68,6 +71,7 @@ struct ProjectLifecycleRobot {
             do {
                 try packaged.launch()
                 packaged.openProject(projectURL)
+                packaged.printLaunchRecord(of: testName)
             } catch {
                 XCTFail("The packaged app did not launch: \(error)", file: file, line: line)
             }
@@ -130,5 +134,18 @@ struct ProjectLifecycleRobot {
     private func configureBaseLaunch() {
         LungfishUITestLaunchOptions().apply(to: app)
         app.launchEnvironment["LUNGFISH_DEBUG_BYPASS_REQUIRED_SETUP"] = "1"
+    }
+}
+
+extension ReleaseAppSmokeRobot {
+    /// One line in the run's log for the report of lane TWINS. It names the test, the process id of the candidate copy
+    /// this runner launched and the titles of the copy's windows, the first one first. `XCUIApplication` has no process
+    /// id on macOS, so the id is found the way `launch()` finds it.
+    func printLaunchRecord(of test: String) {
+        let identifier = Bundle(url: candidateURL)?.bundleIdentifier ?? ""
+        let pids = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+            .filter { $0.bundleURL?.standardizedFileURL == candidateURL }.map { String($0.processIdentifier) }
+        let titles = app.windows.allElementsBoundByIndex.map { "\"\($0.title)\"" }
+        print("TWIN-APP test=\(test) pid=\(pids.joined(separator: ",")) windows=\(titles.joined(separator: " | ")) path=\(candidateURL.path)")
     }
 }
