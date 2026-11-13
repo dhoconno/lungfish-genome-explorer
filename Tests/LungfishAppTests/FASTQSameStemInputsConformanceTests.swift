@@ -28,7 +28,12 @@ final class FASTQSameStemInputsConformanceTests: XCTestCase {
             try ToolAvailability.skipOrFail("no lungfish-cli is built beside the test bundle")
         }
         cli = built
-        root = try TestTempDirectory.make(prefix: "same-stem-inputs")
+        // The projects live in a folder whose path has one spelling. Under the temporary folder the importer lists an
+        // rRNA result as `/private/var/...` while its sidecar reads back as `/var/...`, and the plain-text match refuses
+        // it (row RIBO-OUTPUT-PATH-SPELLING), whichever of the two spellings the test gives.
+        let caches = try XCTUnwrap(FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first)
+        root = caches.appendingPathComponent("lungfish-tests/same-stem-inputs-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }
 
     override func tearDown() {
@@ -55,13 +60,23 @@ final class FASTQSameStemInputsConformanceTests: XCTestCase {
     }
 
     /// The bundles under `folder` that hold each read id, by path relative to `folder`. Hidden folders are skipped.
+    /// A `.fastq.gz` result (demultiplex, length filter) is read through `GzipInputStream`.
     private func readHolders(under folder: URL) -> [String: [String]] {
         var holders: [String: [String]] = [:]
         guard let walk = FileManager.default.enumerator(
             at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
         ) else { return holders }
-        for case let file as URL in walk where file.pathExtension == "fastq" {
-            guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+        for case let file as URL in walk {
+            let name = file.lastPathComponent.lowercased()
+            let text: String?
+            if name.hasSuffix(".fastq") {
+                text = try? String(contentsOf: file, encoding: .utf8)
+            } else if name.hasSuffix(".fastq.gz") {
+                text = try? GzipInputStream(url: file).readAllSync()
+            } else {
+                continue
+            }
+            guard let text else { continue }
             let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
             let place = String(file.deletingLastPathComponent().path.dropFirst(folder.path.count + 1))
             for index in stride(from: 0, to: lines.count, by: 4) where lines[index].hasPrefix("@") {
