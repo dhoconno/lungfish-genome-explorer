@@ -44,6 +44,11 @@ public enum ViralReconInputResolver {
         // viralrecon refuses a sample name with a space and the whole run
         // fails, so the name is refused here, before any read is staged.
         try ViralReconSamplesheetBuilder.refuseSampleNamesWithSpace(resolvedInputs.map(\.sampleName))
+        // viralrecon joins the rows of one sample name into one sample, so two inputs that go by one name (or by
+        // names that differ only in letter case) are refused, never renamed (trust session VR-SAME-NAME, S1).
+        try ViralReconSamplesheetBuilder.refuseInputsThatShareASampleName(
+            resolvedInputs.map { (name: $0.sampleName, url: $0.bundleURL) }
+        )
 
         return resolvedInputs.enumerated().map { index, input in
             let barcode: String?
