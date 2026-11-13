@@ -21,10 +21,10 @@ final class WalkTwinsXCUITests: XCTestCase {
     /// table gives the table the focus, and a real right-click lands on the row of another result that is not selected.
     /// Whatever the right-click selects, the sidebar's selected row and the viewer on screen must name the same result
     /// with the menu open and after Escape. If the right-click selected nothing, both still name the first result,
-    /// which is no fail (the row says so). The EsViritu result holds the detection table of a real run
-    /// (`giveEsVirituResultItsDetections`), since the shared fixture's table has columns that `build-db esviritu` does
-    /// not read, so its database held no row and the table showed none: the gate runs of lane TWINS-e, f and g clicked
-    /// the viewer and never a table.
+    /// which is no fail (the row says so). The EsViritu result holds a detection table with the columns of a real run,
+    /// written by the test (`giveEsVirituResultItsDetections`), since the shared fixture's table has columns that
+    /// `build-db esviritu` does not read, so its database held no row and the table showed none: the gate runs of lane
+    /// TWINS-e, f and g clicked the viewer and never a table.
     @MainActor
     func testRightClickingAnUnselectedSidebarRowLeavesOneResultOnEverySurface() throws {
         let robot = try ReleaseAppSmokeRobot()
@@ -53,7 +53,8 @@ final class WalkTwinsXCUITests: XCTestCase {
         }
         // The focus goes into the result's table, as it does for a person who worked in it. A table that shows no row
         // fails the twin with its words: a click on the viewer would leave the precondition of the row (the table holds
-        // the focus and not the sidebar) untested, as it was in the gate runs of lane TWINS before `giveEsVirituResult`.
+        // the focus and not the sidebar) untested, as it was in the gate runs of lane TWINS before the test wrote a
+        // table of its own (`giveEsVirituResultItsDetections`).
         let tableRow = app.outlines["esviritu-detection-outline-view"].firstMatch.outlineRows.firstMatch
         guard tableRow.waitForExistence(timeout: 20) else {
             robot.failShowingScreen("The EsViritu table shows no row, so the focus cannot go into a table")
@@ -235,20 +236,39 @@ final class WalkTwinsXCUITests: XCTestCase {
         try ReleaseSmokeFixtures.writeAnalysisMetadata(tool: "taxtriage", in: result)
     }
 
-    /// Replaces the detection table of the EsViritu result `folder` in the copy of the classifier project with the table
-    /// of a real EsViritu run (`Tests/Fixtures/esviritu-mini`, 14 detections). The table of the shared fixture
+    /// The 25 columns of the table that an EsViritu run writes (`<sample>.detected_virus.info.tsv`), in the order of the real
+    /// runs under `Tests/Fixtures/esviritu-mini` (SRR35517702). `build-db esviritu` needs `Name` and `Accession` and reads
+    /// the others if they are there (`BuildDbCommand+EsVirituCore.swift:337-360`).
+    private static let esVirituColumns = [
+        "sample_ID", "Name", "description", "Length", "Segment", "Accession", "Assembly", "Asm_length", "kingdom", "phylum",
+        "tclass", "order", "family", "genus", "species", "subspecies", "adj_taxonomy", "RPKMF", "read_count",
+        "covered_bases", "mean_coverage", "avg_read_identity", "consensus_ref_identity", "Pi", "filtered_reads_in_sample"]
+
+    /// The first two detections of that real run, each with the 25 fields of the columns above and the sample `testSample`.
+    private static let esVirituDetections = [
+        ["testSample", "Bocaparvovirus primate1", "Primate bocaparvovirus 1 isolate st2", "5299", "", "NC_007455.1",
+         "GCF_000866725.1", "5299", "k__Viruses", "p__Cossaviricota", "c__Quintoviricetes", "o__Piccovirales",
+         "f__Parvoviridae", "g__Bocaparvovirus", "s__Bocaparvovirus primate1", "t__Bocaparvovirus primate1", "false",
+         "3.8204480496161883", "2", "231", "0.056425740705793544", "1.0", "1.0", "0.0", "98792"],
+        ["testSample", "rhinovirus A102", "rhinovirus A102", "7160", "", "EF155421.1", "set:EF155421", "7160",
+         "k__Viruses", "p__Pisuviricota", "c__Pisoniviricetes", "o__Picornavirales", "f__Picornaviridae", "g__Enterovirus",
+         "s__Rhinovirus A", "t__rhinovirus A102", "false", "2.8274517059938806", "2", "224", "0.04217877094972067",
+         "0.9834437086092715", "0.9821428571428571", "0.0", "98792"]]
+
+    /// Replaces the detection table of the EsViritu result `folder` in the copy of the classifier project with a table in
+    /// the format of a real EsViritu run, two detections of 25 columns, written inline. The table of the shared fixture
     /// (`Tests/Fixtures/analyses`) has the columns `virus_name` and `num_reads`, and `build-db esviritu` reads `Name`,
     /// `Accession` and `read_count`: the packaged CLI parsed 0 detection rows from it and built `esviritu.sqlite` with 0
     /// rows (lane TWINS-h), so the table of the viewer showed no row. The shared fixture stays as it is for the tests
-    /// that read it with the model parser. `build-db` names the sample by the file name (`testSample`), whatever the
-    /// table's `sample_ID` column says.
+    /// that read it with the model parser. The table is not read from `Tests/Fixtures/esviritu-mini`: the gate stages only
+    /// some folders of `Tests/Fixtures` for the runner, and `esviritu-mini` is not one of them (the first gate run of lane
+    /// TWINS-h failed in set-up on the missing file). `build-db` names the sample by the file name (`testSample`).
     @MainActor
     private static func giveEsVirituResultItsDetections(in project: URL, named folder: String) throws {
-        let real = LungfishFixtureCatalog.fixturesRoot
-            .appendingPathComponent("esviritu-mini/SRR35517703/SRR35517703.detected_virus.info.tsv")
         let held = project.appendingPathComponent("Analyses/\(folder)/testSample.detected_virus.info.tsv")
+        let table = ([esVirituColumns] + esVirituDetections).map { $0.joined(separator: "\t") }.joined(separator: "\n") + "\n"
         try FileManager.default.removeItem(at: held)
-        try FileManager.default.copyItem(at: real, to: held)
+        try table.write(to: held, atomically: true, encoding: .utf8)
     }
 
     /// True once `condition` holds, polled on the app's own run loop for at most `timeout` seconds.
