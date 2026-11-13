@@ -87,6 +87,18 @@ public enum ViralReconSamplesheetBuilder {
             throw ValidationError.virtualNanoporeBundle(virtual.sourceBundleURL)
         }
         try refuseSampleNamesWithSpace(samples.map(\.sampleName))
+        // Two samples on one barcode are copied into one `barcodeNN` folder by file name, and the second
+        // `reads.fastq.gz` replaces the first, so they are refused before anything is created (VR-SAME-NAME).
+        var sampleOfBarcode: [String: ViralReconSample] = [:]
+        for sample in samples {
+            let barcode = normalizedBarcode(sample.barcode).directoryValue
+            if let earlier = sampleOfBarcode[barcode] {
+                throw SharedBarcodeError(
+                    barcode: barcode, input: earlier.sourceBundleURL, otherInput: sample.sourceBundleURL
+                )
+            }
+            sampleOfBarcode[barcode] = sample
+        }
         let fastqPassDirectory = directory.appendingPathComponent("fastq_pass", isDirectory: true)
         try FileManager.default.createDirectory(at: fastqPassDirectory, withIntermediateDirectories: true)
 
