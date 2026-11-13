@@ -272,7 +272,7 @@ public enum FastpPairedRunner {
             // guesses even when the reads were staged in a seeded order (ruling BIO-PROBES-E). So a trim that names no
             // adapter names TruSeq Read 1 and the bundled known adapters, fastp guesses nothing, and the reads reach it
             // as stored.
-            let adapters = detectPairedAdapters ? try SingleReadAdapters.bundled() : nil
+            let adapters = try detectPairedAdapters ? SingleReadAdapters.bundled() : nil
             let args = fastpArguments(
                 inputPath: inputURL.path,
                 outputPath: outputPath,
