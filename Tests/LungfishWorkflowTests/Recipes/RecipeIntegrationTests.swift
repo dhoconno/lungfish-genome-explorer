@@ -51,7 +51,11 @@ final class RecipeIntegrationTests: XCTestCase {
 
         if case .fusedFastp(let args, _, _, _) = plan[0] {
             XCTAssertTrue(args.contains("--dedup"), "Fused args should include --dedup")
-            XCTAssertTrue(args.contains("--detect_adapter_for_pe"), "Should include adapter detection")
+            XCTAssertNotNil(args.firstRange(of: [
+                "--adapter_sequence", "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA",
+                "--adapter_sequence_r2", "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
+            ]), "Should name the TruSeq adapter pair")
+            XCTAssertFalse(args.contains("--detect_adapter_for_pe"), "Should not guess the adapter from read order")
             XCTAssertTrue(args.contains("-q"), "Should include quality threshold")
             XCTAssertTrue(args.contains("15"), "Quality should be 15")
         } else {

@@ -9,9 +9,15 @@ import XCTest
 /// argv the step records back. The real-tool run on the C079876 slice is `MergedRecipeSliceConformanceTests`.
 final class FastpTrimStepTests: XCTestCase {
 
-    /// The flags ruling BIO-PRESET P1 names for the trim, every value written out.
-    static let ruledTrimFlags = [
-        "--detect_adapter_for_pe", "-g", "--poly_g_min_len", "10",
+    /// The TruSeq pair the trim names in place of fastp's guess from read order (ruling ARCH-BIO-RECIPE-TRIM item 2).
+    static let namedTruSeqPair = [
+        "--adapter_sequence", "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA",
+        "--adapter_sequence_r2", "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
+    ]
+
+    /// The flags ruling BIO-PRESET P1 names for the trim, every value written out, with the adapter named.
+    static let ruledTrimFlags = namedTruSeqPair + [
+        "-g", "--poly_g_min_len", "10",
         "-q", "15", "-u", "40", "-n", "5", "-l", "15", "-W", "5", "--cut_tail", "-M", "20",
     ]
 
@@ -90,7 +96,39 @@ final class FastpTrimStepTests: XCTestCase {
 
     func test_olderTrimParamsKeepTheirArgv() throws {
         let step = try FastpTrimStep(params: ["quality": .int(15), "window": .int(5), "cutMode": .string("right")])
-        XCTAssertEqual(step.fastpArgs(), ["--detect_adapter_for_pe", "-q", "15", "-W", "5", "--cut_right"])
+        XCTAssertEqual(step.fastpArgs(), Self.namedTruSeqPair + ["-q", "15", "-W", "5", "--cut_right"])
+        XCTAssertFalse(step.fastpArgs().contains("--detect_adapter_for_pe"), "the adapter is named, never guessed")
+        let overlapOnly = try FastpTrimStep(params: ["detectAdapter": .bool(false), "quality": .int(15)])
+        XCTAssertEqual(overlapOnly.fastpArgs(), ["-q", "15", "-W", "4", "--cut_right"], "off trims by pair overlap only")
+    }
+
+    /// No built-in recipe lets fastp guess the adapter from the order of the reads (ruling ARCH-BIO-RECIPE-TRIM item
+    /// 6). Every fastp argv a built-in recipe plans, the fused call and a lone step alike, under every switch setting.
+    func test_noBuiltInRecipeGuessesTheAdapter() throws {
+        let builtin = RecipeRegistryV2.builtinRecipes()
+        var checked = 0
+        for recipe in builtin {
+            let switchIDs = recipe.switches.map(\.id)
+            for mask in 0..<(1 << switchIDs.count) {
+                var options: [String: Bool] = [:]
+                for (bit, id) in switchIDs.enumerated() { options[id] = mask & (1 << bit) != 0 }
+                let resolved = try XCTUnwrap(try RecipeResolver.resolve(recipe.id, in: builtin, switchOptions: options))
+                for step in try RecipeEngine().plan(recipe: resolved, inputFormat: .pairedR1R2) {
+                    let args: [String]
+                    switch step {
+                    case .fusedFastp(let fused, _, _, _): args = fused
+                    case .singleStep(let executor as any FastpFusible, _): args = executor.fastpArgs()
+                    default: continue
+                    }
+                    checked += 1
+                    XCTAssertFalse(
+                        args.contains("--detect_adapter_for_pe"),
+                        "\(recipe.id) \(options) must not guess the adapter from read order: \(args)"
+                    )
+                }
+            }
+        }
+        XCTAssertGreaterThanOrEqual(checked, 4, "the paired cleanup's four switch settings each plan a trim")
     }
 
     func test_qualifiedQualityBeatsQuality() throws {

@@ -280,7 +280,11 @@ final class FASTQBatchImporterRecipeIntegrationTests: XCTestCase {
         XCTAssertEqual(fastpStep.logicalComponents.map(\.typeID), ["fastp-dedup", "fastp-trim"])
         let fusedArgv = try XCTUnwrap(fastpStep.commandArguments)
         XCTAssertTrue(fusedArgv.contains("--dedup"))
-        XCTAssertTrue(fusedArgv.contains("--detect_adapter_for_pe"))
+        XCTAssertNotNil(fusedArgv.firstRange(of: [
+            "--adapter_sequence", "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA",
+            "--adapter_sequence_r2", "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
+        ]), "the record names the TruSeq pair the trim removed")
+        XCTAssertFalse(fusedArgv.contains("--detect_adapter_for_pe"), "the record shows no adapter guess")
         XCTAssertTrue(fusedArgv.contains("-q"))
         XCTAssertEqual(metadata.ingestion?.recipeApplied?.deduplicationSummary, nil)
         XCTAssertEqual(

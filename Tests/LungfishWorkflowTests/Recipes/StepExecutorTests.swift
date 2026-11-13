@@ -40,7 +40,11 @@ final class StepExecutorTests: XCTestCase {
     func testFastpTrimDefaultArgs() throws {
         let step = try FastpTrimStep(params: nil)
         let args = step.fastpArgs()
-        XCTAssertTrue(args.contains("--detect_adapter_for_pe"), "Expected --detect_adapter_for_pe in \(args)")
+        XCTAssertNotNil(args.firstRange(of: [
+            "--adapter_sequence", "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA",
+            "--adapter_sequence_r2", "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
+        ]), "Expected the named TruSeq pair in \(args)")
+        XCTAssertFalse(args.contains("--detect_adapter_for_pe"), "Expected no adapter guess in \(args)")
         XCTAssertTrue(args.contains("-q"),          "Expected -q in \(args)")
         XCTAssertTrue(args.contains("20"),          "Expected 20 (default quality) in \(args)")
         XCTAssertTrue(args.contains("--cut_right"), "Expected --cut_right for default cutMode in \(args)")

@@ -50,7 +50,9 @@ extension RecipeEngineTests {
     /// recipe file.
     private static let fusedFastp = [
         "-i", "inputs/R1.fastq", "-I", "inputs/R2.fastq", "-o", "work/sample_fused_R1.fq.gz", "-O", "work/sample_fused_R2.fq.gz",
-        "--dedup", "--dup_calc_accuracy", "3", "--detect_adapter_for_pe", "-g", "--poly_g_min_len", "10", "-q", "15",
+        "--dedup", "--dup_calc_accuracy", "3",
+        "--adapter_sequence", "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA", "--adapter_sequence_r2", "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
+        "-g", "--poly_g_min_len", "10", "-q", "15",
         "-u", "40", "-n", "5", "-l", "15", "-W", "5", "--cut_tail", "-M", "20", "-w", "1",
         "-j", "work/sample_fused_fastp_report.json", "-h", "/dev/null",
     ]
