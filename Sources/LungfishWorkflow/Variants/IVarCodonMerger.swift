@@ -1,7 +1,8 @@
-// IVarCodonMerger.swift - Codon-aware haplotype merging matching nf-core/viralrecon
-// ivar_variants_to_vcf.py semantics. Adjacent SNPs that share a REF_CODON or
-// ALT_CODON value are grouped, and all 2^n REF/ALT combinations are enumerated
-// and validated against AF rules.
+// IVarCodonMerger.swift - Codon-aware grouping of iVar SNP rows. Adjacent SNPs that share a
+// REF_CODON or ALT_CODON value are grouped, and all 2^n REF/ALT combinations are enumerated for
+// the all-haplotypes list. The primary list merges a group into one record only when every member
+// is above the consensus frequency (BIO-F5-READ-ORDER, Question 3), which is stricter than
+// nf-core/viralrecon's ivar_variants_to_vcf.py. Every other group keeps each member as its own record.
 
 import Foundation
 
@@ -46,12 +47,11 @@ public enum IVarCodonMerger {
                 consensus.append(single)
                 continue
             }
-            let afs = group.map(\.altFreq)
-            if mergeRuleCheck(afs: afs, consensusAF: consensusAF, mergeAFThreshold: mergeAFThreshold) {
-                let merged = MergedVariant(positions: group.map(\.pos), rows: group, kind: .merged)
-                consensus.append(merged)
+            if mergeRuleCheck(afs: group.map(\.altFreq), consensusAF: consensusAF) {
+                consensus.append(MergedVariant(positions: group.map(\.pos), rows: group, kind: .merged))
             } else {
-                for row in group where row.altFreq > consensusAF {
+                // Each member stays a record of its own, with the frequency and depth that iVar measured for it.
+                for row in group {
                     consensus.append(MergedVariant(positions: [row.pos], rows: [row], kind: .single))
                 }
             }
@@ -100,17 +100,12 @@ public enum IVarCodonMerger {
         return groups
     }
 
-    /// Mirror of viralrecon's `merge_rule_check`. Returns true if the AF group
-    /// should be kept as a single merged record.
-    static func mergeRuleCheck(afs: [Double], consensusAF: Double, mergeAFThreshold: Double) -> Bool {
-        if afs.allSatisfy({ $0 > consensusAF }) { return true }
-        if afs.allSatisfy({ $0 >= 0.4 && $0 <= 0.6 }) { return true }
-        let sorted = afs.sorted()
-        var maxDist = 0.0
-        for i in 0..<(sorted.count - 1) {
-            maxDist = max(maxDist, abs(sorted[i + 1] - sorted[i]))
-        }
-        if maxDist < mergeAFThreshold { return true }
-        return false
+    /// True when a group of changes in one codon becomes one merged record. That holds only when every
+    /// member is above `consensusAF`, because then at least AF1 + AF2 - 1 of the reads carry both changes
+    /// and the change of the codon is real. Any other group is written as one record for each member.
+    /// viralrecon's 0.4 to 0.6 rule and its distance rule are not used. They joined a 29.6% change and a
+    /// 9.5% change on PR8 into one record at 9.5%, and the 29.6% allele had no row (F6).
+    static func mergeRuleCheck(afs: [Double], consensusAF: Double) -> Bool {
+        afs.allSatisfy { $0 > consensusAF }
     }
 }
