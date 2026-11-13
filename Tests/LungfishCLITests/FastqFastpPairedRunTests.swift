@@ -247,6 +247,12 @@ final class FastqFastpPairedRunTests: XCTestCase {
             envelope.options.resolvedDefaults["stagedPairOrder"], SeededPairOrder.Record.reads.provenanceValue,
             "the record names the staging of single reads and its seed"
         )
+        // The staged copy is deleted after the run, so the record names the person's file (trust session FIX-TRIM
+        // review BIO, SF-1).
+        XCTAssertEqual(
+            envelope.steps[0].inputs.map { URL(fileURLWithPath: $0.path).lastPathComponent }, ["declared-single.fastq"],
+            "the record names the person's reads, not the staged copy that is deleted after the run"
+        )
     }
 
     // MARK: - Fixtures

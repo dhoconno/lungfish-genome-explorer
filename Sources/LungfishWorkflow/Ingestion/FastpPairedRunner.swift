@@ -225,7 +225,7 @@ public enum FastpPairedRunner {
             }
             return FastpPairedRunOutcome(
                 plan: plan, result: result, nativeArguments: args, stepID: stepID,
-                stepInputs: staged.map { [ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)] },
+                stepInputs: nil,
                 stepOutputs: nil, extraSteps: [], stagedPairOrder: staged == nil ? nil : .reads
             )
         }
