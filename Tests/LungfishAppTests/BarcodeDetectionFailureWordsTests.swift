@@ -55,4 +55,23 @@ final class BarcodeDetectionFailureWordsTests: XCTestCase {
         XCTAssertTrue(report.whatHappened.contains("stopped before it finished"), "a search that ran can stop: \(report.whatHappened)")
         XCTAssertTrue(report.nextStep.contains("FASTQ file is complete"), "the file is a fair thing to check then: \(report.nextStep)")
     }
+
+    // Trust session FIX-IDT review BIO, fix 1 (S3). FIX-IDT's scout refuses the IDT UD kit with `kitSequencesUnderCheck`
+    // (a plan file that holds the table's pairs, with `definitionHoldsKitSequencesUnderCheck`) before any search tool
+    // starts. The alert worded both as a file problem ("stopped before it finished", "check that the FASTQ file is
+    // complete") although the file is sound and a retry fails the same way.
+    func testTheIDTKitRefusalSaysNoSearchRanAndOffersACustomDefinitionNotAFileCheck() throws {
+        let kit = try XCTUnwrap(BarcodeKitRegistry.kit(byID: "idt-ud-indexes")).displayName
+        for error in [
+            DemultiplexError.kitSequencesUnderCheck(kitName: kit),
+            DemultiplexError.definitionHoldsKitSequencesUnderCheck(kitName: kit),
+        ] {
+            let report = ViewerFailureReports.detectBarcodes(error)
+            XCTAssertFalse(report.whatHappened.contains("stopped"), "nothing ran, so nothing stopped: \(report.whatHappened)")
+            XCTAssertTrue(report.whatHappened.contains(kit), "the body names the kit: \(report.whatHappened)")
+            XCTAssertTrue(report.whatHappened.contains("No search was run"), "the body says nothing ran: \(report.whatHappened)")
+            XCTAssertFalse(report.nextStep.contains("FASTQ file is complete"), "the file is not the cause: \(report.nextStep)")
+            XCTAssertTrue(report.nextStep.contains("Custom Definition"), "the next step offers the way out: \(report.nextStep)")
+        }
+    }
 }

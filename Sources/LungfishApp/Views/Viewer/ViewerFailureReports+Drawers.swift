@@ -11,7 +11,9 @@ extension ViewerFailureReports {
     /// The barcode scout of the FASTQ drawer stopped (ALERT-C4). The scout starts no Operations row. It throws
     /// `DemultiplexError.inputFileNotFound` when the FASTQ file is gone, `emptyAdapterSequences` or
     /// `ambiguousAdapterSequences` from its adapter check before any search tool starts (W-18, so the body says no search
-    /// ran and gives the kit's cause), and otherwise the search tool's failure, whose text goes to the details.
+    /// ran and gives the kit's cause), `kitSequencesUnderCheck` or `definitionHoldsKitSequencesUnderCheck` when the
+    /// kit's built-in sequences are being checked (FIX-IDT, same words), and otherwise the search tool's failure, whose
+    /// text goes to the details.
     /// `kit` gives the way out for its platform: an Illumina or Element kit is counted from the read names, and Detect
     /// cannot search an Ultima or MGI kit, so for those the words send no one back to Detect (DETECT-WAYOUT-CIRCLE, UX's
     /// condition 4 of `S2-R2-UX.md:33`).
@@ -53,6 +55,13 @@ extension ViewerFailureReports {
                 return FailureReport(
                     failedStep: failedStep,
                     whatHappened: "No search was run, because two barcodes of the kit \"\(kitName)\" give the same search sequence, so their reads could not be told apart. No barcodes were detected and no files changed.",
+                    nextStep: kitWayOut,
+                    underlying: error
+                )
+            case .kitSequencesUnderCheck(let kitName), .definitionHoldsKitSequencesUnderCheck(let kitName):
+                return FailureReport(
+                    failedStep: failedStep,
+                    whatHappened: "No search was run, because the built-in sequences for the kit \"\(kitName)\" are being checked and Lungfish does not use them for now. No barcodes were detected and no files changed.",
                     nextStep: kitWayOut,
                     underlying: error
                 )
