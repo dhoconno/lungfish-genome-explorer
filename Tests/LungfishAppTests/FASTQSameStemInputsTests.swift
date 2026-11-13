@@ -5,9 +5,9 @@
 // Trust session lane PROBE-STEM (review FIX-GROUP-BIO, section 6 item 3). A run of several datasets writes each one's
 // output under `<run>/<dataset stem>`, and `a/reads.lungfishfastq` and `b/reads.lungfishfastq` (or `s.fastq` and
 // `s.fastq.gz`) were both given `<run>/reads`. `lungfish-cli fastq deacon-ribo` writes into a folder that holds files
-// and names its file after the dataset, so the second dataset's command replaced the first's reads with no words
-// (measured in `FASTQSameStemInputsConformanceTests`). The planner now gives a later dataset with a name an earlier one
-// holds `<stem>-2`, `-3` and so on, and leaves every other folder where it was.
+// and names its file after the dataset, so the second command met the first one's output and the run failed
+// (`FASTQSameStemInputsConformanceTests` runs the real tools). The planner now gives a later dataset with a name
+// an earlier one holds `<stem>-2`, `-3` and so on, and leaves every other folder where it was.
 //
 // This is the stand-in and needs no tool: it reads the plans and the command the Operations row begins with.
 
