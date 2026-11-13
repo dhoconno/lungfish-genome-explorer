@@ -9,9 +9,12 @@
 // dashboard do, through FASTQCLIMaterializer, so the recorded command
 // replays: a single-file bundle is its file, a multi-file bundle is every
 // file joined, a fullPaired bundle is R1 and R2 interleaved, and a virtual
-// bundle is its materialized reads. A file inside a physical bundle is still
-// that one file, and the preview of a virtual bundle is never processed as
-// data (R3, R8, lane 1x).
+// bundle is its materialized reads. A file of a multi-file bundle (an ONT
+// import's chunk, a merge's member) is its whole bundle, joined, with a note
+// on stderr, and so is the preview of a virtual bundle: neither is the data
+// (R3, R8, lane 1x; DEMUX-MEMBER-FILE-READ-IN-PLACE). A file inside a root
+// that no `source-files.json` describes is still that one file
+// (`FastqSubcommandPairedRootTests`).
 //
 // `reverse-complement` is pure Swift, so most cases need no tool. The
 // length filter runs seqkit and the fullPaired case runs reformat.sh, so
@@ -93,12 +96,22 @@ final class FastqSubcommandBundleInputTests: XCTestCase {
         XCTAssertEqual(try names(outputURL), ["p1/1", "p1/2", "p2/1", "p2/2"])
     }
 
-    func testAFileInsideAPhysicalBundleIsStillThatOneFile() async throws {
+    /// A chunk of a multi-file bundle (an ONT import's chunk or a merge's member, listed in `source-files.json`) is one part
+    /// of a sample, so a subcommand given the chunk reads the whole bundle, joined, as `assemble` and the FASTQ operations
+    /// dialog read it. This was pinned as "still that one file", and a demultiplex of one chunk then counted part of a run
+    /// per barcode with no word (DEMUX-MEMBER-FILE-READ-IN-PLACE, BIO-PROBES-B ruling 3).
+    func testAFileOfAMultiFileBundleIsReadAsTheWholeBundle() async throws {
+        let chunk = shapes.multiFileChunks[1]
+        XCTAssertEqual(try names(chunk), ["m3", "m4", "m5"], "the chunk alone holds three of the bundle's five reads")
         let outputURL = output("chunk-1.fastq")
-        try await reverseComplement(shapes.multiFileChunks[1].path, to: outputURL)
-        XCTAssertEqual(try names(outputURL), ["m3", "m4", "m5"])
-        let envelope = try envelope(for: outputURL)
-        XCTAssertFalse(envelope.steps.contains { $0.toolName == SequenceInputConcatenation.toolName }, "nothing was joined")
+        try await reverseComplement(chunk.path, to: outputURL)
+        XCTAssertEqual(try names(outputURL), ["m1", "m2", "m3", "m4", "m5"], "the bundle's reads in manifest order, not the chunk's")
+        let envelope = try runEnvelope(for: outputURL)
+        let join = try XCTUnwrap(
+            envelope.steps.first { $0.toolName == SequenceInputConcatenation.toolName },
+            "the bundle's files were joined"
+        )
+        XCTAssertEqual(Set(join.inputs.map(\.path)), Set(shapes.multiFileChunks.map(\.standardizedFileURL.path)))
     }
 
     /// The only FASTQ inside a virtual bundle is a preview of its first
