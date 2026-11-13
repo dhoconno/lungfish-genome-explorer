@@ -24,7 +24,20 @@ final class SampleFolderNamingTests: XCTestCase {
             "\u{00E9}1",
         ]
         XCTAssertEqual(names.map { Array($0.utf8) }, expected.map { Array($0.utf8) })
-        XCTAssertEqual(used, Set(expected), "each name is taken once")
+        // Taken once whatever its case (trust session VR-SAME-NAME: the set holds each name under its case-folded key).
+        XCTAssertEqual(Set(used.map { $0.lowercased() }), Set(expected.map { $0.lowercased() }), "each name is taken once")
+    }
+
+    // Trust session VR-SAME-NAME (BIO-PROBES-F Q2, S1 as if). A project folder on APFS or ExFAT ignores letter case, so
+    // "Sample_1" and "sample_1" were one folder and the second sample read the first one's results. Only names that
+    // differ in more than case keep the names they had (the test above), and a case-only repeat takes a suffix.
+    func testNamesThatDifferOnlyInLetterCaseGetTwoFolderNames() {
+        var used = Set<String>()
+        let names = ["Sample_1", "sample_1", "SAMPLE_1", "Sample_2", "S 1", "s_1"]
+            .map { SampleFolderNaming.uniqueDirectoryName(for: $0, usedNames: &used) }
+
+        XCTAssertEqual(names, ["Sample_1", "sample_1-2", "SAMPLE_1-3", "Sample_2", "S_1", "s_1-2"])
+        XCTAssertEqual(Set(names.map { $0.lowercased() }).count, names.count, "no two folders share a name once case is ignored")
     }
 
     func testTheSanitizerAloneCollapsesWhatTheUniqueNameKeepsApart() {

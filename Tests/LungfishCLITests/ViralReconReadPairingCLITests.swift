@@ -73,8 +73,14 @@ final class ViralReconReadPairingCLITests: XCTestCase {
 
     /// An Illumina `.lungfishfastq` bundle holding one gzip interleaved file
     /// whose metadata names the platform, the way an import leaves it.
-    private func writeInterleavedIlluminaBundle(named name: String, pairCount: Int) throws -> (bundleURL: URL, fastqURL: URL) {
-        let bundle = try InterleavedFASTQFixture.writeBundle(named: name, in: root, pairCount: pairCount, naming: .casava)
+    private func writeInterleavedIlluminaBundle(
+        named name: String,
+        pairCount: Int,
+        inFolder folder: String? = nil
+    ) throws -> (bundleURL: URL, fastqURL: URL) {
+        let directory: URL = folder.map { root.appendingPathComponent($0, isDirectory: true) } ?? root
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let bundle = try InterleavedFASTQFixture.writeBundle(named: name, in: directory, pairCount: pairCount, naming: .casava)
         var metadata = try XCTUnwrap(FASTQMetadataStore.load(for: bundle.fastqURL))
         metadata.sequencingPlatform = .illumina
         let compressed = try gzipInPlace(bundle.fastqURL)
@@ -327,6 +333,46 @@ final class ViralReconReadPairingCLITests: XCTestCase {
                 error.localizedDescription,
                 "Workflow execution failed: The sample name “Sample 1” holds a space, and viralrecon's samplesheet "
                     + "does not accept one. Rename the sample, for example to “Sample_1”, and run again."
+            )
+            XCTAssertEqual(error.exitCode, .workflowError)
+        }
+        XCTAssertTrue(runner.launches.isEmpty, "Nextflow never started")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: runBundleURL.appendingPathComponent("inputs/samplesheet.csv").path),
+            "no samplesheet was written"
+        )
+    }
+
+    // Trust session VR-SAME-NAME (BIO-PROBES-F Q1, S1). Two runs each give an `NTC` bundle, and viralrecon joins the
+    // rows of one sample name into one sample, with no words. The CLI refuses before launch, with the words the app
+    // shows, and writes no samplesheet.
+    func testTwoBundlesOfOneSampleNameAreRefusedBeforeLaunch() async throws {
+        let runner = CapturingNextflowRunner()
+        let first = try writeInterleavedIlluminaBundle(named: "NTC", pairCount: 2, inFolder: "Run A")
+        let second = try writeInterleavedIlluminaBundle(named: "NTC", pairCount: 2, inFolder: "Run B")
+        let runBundleURL = root.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
+        let results = root.appendingPathComponent("results", isDirectory: true)
+        let command = try RunSubcommand.parse([
+            "nf-core/viralrecon",
+            "--executor", "docker",
+            "--input", first.bundleURL.path,
+            "--input", second.bundleURL.path,
+            "--results-dir", results.path,
+            "--expected-output", results.path,
+            "--bundle-path", runBundleURL.path,
+            "--version", "3.0.0",
+            "--param", "protocol=amplicon",
+            "--quiet",
+        ])
+        do {
+            try await command.run(nfCoreRunner: runner)
+            XCTFail("expected the two inputs of one sample name to be refused")
+        } catch let error as CLIError {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Workflow execution failed: The inputs “Run A/NTC.lungfishfastq” and “Run B/NTC.lungfishfastq” both "
+                    + "have the sample name “NTC”, and viralrecon would join their reads into one sample. "
+                    + "Rename the sample of one of them in its metadata, and run again."
             )
             XCTAssertEqual(error.exitCode, .workflowError)
         }

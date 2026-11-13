@@ -312,6 +312,67 @@ final class BundleResolutionCLIParityTests: XCTestCase {
             XCTAssertEqual(error.localizedDescription, words, "workflow run --input <bundle>")
         }
     }
+
+    /// Trust session VR-SAME-NAME (BIO-PROBES-F Q1, S1). viralrecon joins the
+    /// rows of one sample name into one sample, so two bundles of one name
+    /// (an `NTC` from each of two runs) are refused by the wizard's input
+    /// check, the app's Run and `workflow run --input <bundle> --input <bundle>`
+    /// with the same words, and the app's Run writes no samplesheet.
+    func testViralReconRefusesTwoInputsOfOneSampleNameWithTheSameWordsInTheAppAndTheCLI() throws {
+        let words = "The inputs “Run A/NTC.lungfishfastq” and “Run B/NTC.lungfishfastq” both have the sample name "
+            + "“NTC”, and viralrecon would join their reads into one sample. "
+            + "Rename the sample of one of them in its metadata, and run again."
+        let bundles = try ["Run A", "Run B"].map { run -> (bundleURL: URL, fastqURL: URL) in
+            let folder = root.appendingPathComponent(run, isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let bundle = try InterleavedFASTQFixture.writeBundle(named: "NTC", in: folder, pairCount: 2, naming: .casava)
+            var metadata = try XCTUnwrap(FASTQMetadataStore.load(for: bundle.fastqURL))
+            metadata.sequencingPlatform = .illumina
+            FASTQMetadataStore.save(metadata, for: bundle.fastqURL)
+            return bundle
+        }
+        let urls = bundles.map(\.bundleURL)
+
+        XCTAssertThrowsError(try ViralReconWizardInputPolicy.resolveInputs(urls, platformOverride: nil)) { error in
+            XCTAssertEqual(error.localizedDescription, words, "wizard input check")
+        }
+
+        let outputRoot = root.appendingPathComponent("run-output", isDirectory: true)
+        let inputs = bundles.map { bundle in
+            ViralReconResolvedInput(
+                bundleURL: bundle.bundleURL,
+                sampleName: "NTC",
+                fastqURLs: [bundle.fastqURL],
+                platform: .illumina,
+                barcode: nil,
+                sequencingSummaryURL: nil
+            )
+        }
+        XCTAssertThrowsError(try ViralReconRunPreparation.buildRequest(from: ViralReconRunInputs(
+            platform: .illumina,
+            outputRoot: outputRoot,
+            primerBundleURL: root.appendingPathComponent("primer.lungfishprimers", isDirectory: true),
+            resolvedInputs: inputs,
+            advancedParameters: [:],
+            advancedError: nil,
+            minimumMappedReads: 0,
+            advancedGFFURL: nil,
+            projectURL: nil
+        ))) { error in
+            XCTAssertEqual(error.localizedDescription, words, "app Run")
+        }
+        let staged = (try? FileManager.default.subpathsOfDirectory(atPath: outputRoot.path)) ?? []
+        XCTAssertFalse(staged.contains { $0.hasSuffix("samplesheet.csv") }, "no samplesheet was written: \(staged)")
+
+        var params: [String: String] = [:]
+        XCTAssertThrowsError(try ViralReconCLIInputs.resolve(
+            inputURLs: urls,
+            runBundleURL: root.appendingPathComponent("cli.lungfishrun", isDirectory: true),
+            params: &params
+        )) { error in
+            XCTAssertEqual(error.localizedDescription, words, "workflow run --input <bundle> --input <bundle>")
+        }
+    }
 }
 
 /// Keeps the bytes of the file each `fastq qc-summary` invocation reads, while

@@ -134,6 +134,17 @@ final class ViralReconReadPairingTests: XCTestCase {
         XCTAssertEqual(split.counts.r1Records, 3)
     }
 
+    // Trust session VR-SAME-NAME (BIO-PROBES-F Q2, S1 as if). The split folders of two samples that differ only in
+    // letter case were one folder on a disk that ignores case, so one sample's halves replaced the other's. Names that
+    // differ in more than case keep the folder names they had.
+    func testSplitFoldersOfNamesThatDifferOnlyInLetterCaseAreTwoFolders() {
+        var used = Set<String>()
+        let names = ["Sample_1", "sample_1", "Sample 1", "S.1", "-x"]
+            .map { ViralReconReadPairing.uniqueDirectoryName(for: $0, usedNames: &used) }
+
+        XCTAssertEqual(names, ["Sample_1", "sample_1-2", "Sample_1-3", "S.1", "-x"])
+    }
+
     func testGzipInterleavedSourceIsSplitTheSameWay() async throws {
         let plain = root.appendingPathComponent("reads.fastq")
         try InterleavedFASTQFixture.write(pairCount: 5, naming: .slashSuffix, to: plain)

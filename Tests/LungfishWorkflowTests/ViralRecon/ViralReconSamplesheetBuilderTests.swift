@@ -244,6 +244,73 @@ final class ViralReconSamplesheetBuilderTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: staged.fastqPassDirectory.appendingPathComponent("barcode04/ONT_D.fastq").path))
     }
 
+    // Trust session VR-SAME-NAME (BIO-PROBES-F Q1, S1 as if). Two samples that
+    // resolve to one barcode were copied into one `barcodeNN` folder by file
+    // name, and the second `reads.fastq.gz` replaced the first. "barcode01"
+    // and "BC1" are one barcode once normalized. The refusal comes before
+    // anything is copied or written, and names both inputs.
+    func testNanoporeStagingRefusesTwoSamplesOnOneBarcodeBeforeCopyingReads() throws {
+        let temp = try ViralReconWorkflowTestFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let samples = try ViralReconInputResolver.makeSamples(from: nanoporeInputs([
+            (run: "Run A", name: "ONT_A", barcode: "barcode01"),
+            (run: "Run B", name: "ONT_B", barcode: "BC1"),
+        ], in: temp))
+        let staging = temp.appendingPathComponent("staging", isDirectory: true)
+
+        XCTAssertThrowsError(try ViralReconSamplesheetBuilder.stageNanoporeInputs(samples: samples, in: staging)) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The inputs “Run A” and “Run B” both use the barcode “01”, and viralrecon reads each barcode "
+                    + "folder as one sample, so the reads of one would replace the reads of the other. "
+                    + "Give one of them its own barcode in its metadata, and run again."
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staging.appendingPathComponent("fastq_pass").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staging.appendingPathComponent("samplesheet.csv").path))
+    }
+
+    // A typed barcode can meet the index fallback of an input that has none,
+    // and the two are refused the same way.
+    func testNanoporeStagingRefusesATypedBarcodeThatMeetsTheIndexFallback() throws {
+        let temp = try ViralReconWorkflowTestFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let samples = try ViralReconInputResolver.makeSamples(from: nanoporeInputs([
+            (run: "Run A", name: "ONT_A", barcode: "02"),
+            (run: "Run B", name: "ONT_B", barcode: nil),
+        ], in: temp))
+        XCTAssertEqual(samples.map(\.barcode), ["02", "02"], "the second input takes its position as its barcode")
+
+        XCTAssertThrowsError(
+            try ViralReconSamplesheetBuilder.stageNanoporeInputs(
+                samples: samples,
+                in: temp.appendingPathComponent("staging", isDirectory: true)
+            )
+        ) { error in
+            XCTAssertTrue(error.localizedDescription.contains("both use the barcode “02”"), error.localizedDescription)
+        }
+    }
+
+    private func nanoporeInputs(
+        _ rows: [(run: String, name: String, barcode: String?)],
+        in directory: URL
+    ) throws -> [ViralReconResolvedInput] {
+        try rows.map { row in
+            let folder = directory.appendingPathComponent(row.run, isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let source = folder.appendingPathComponent("reads.fastq.gz")
+            try "@\(row.name)\nACGT\n+\n!!!!\n".write(to: source, atomically: true, encoding: .utf8)
+            return ViralReconResolvedInput(
+                bundleURL: folder,
+                sampleName: row.name,
+                fastqURLs: [source],
+                platform: .nanopore,
+                barcode: row.barcode,
+                sequencingSummaryURL: nil
+            )
+        }
+    }
+
     private func makeNanoporeSample(name: String, barcode: String, in directory: URL) throws -> ViralReconSample {
         let source = directory.appendingPathComponent("\(name).fastq")
         try "@\(name)\nACGT\n+\n!!!!\n".write(to: source, atomically: true, encoding: .utf8)
