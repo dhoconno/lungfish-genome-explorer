@@ -588,7 +588,8 @@ extension FASTQDerivativeOperation {
             let mode = adapterMode ?? .autoDetect
             switch mode {
             case .autoDetect:
-                return "Adapter sequences were removed\(tool) with auto-detection."
+                return "Adapter sequences were removed\(tool): detected from the reads for read pairs, and TruSeq Read 1 "
+                    + "with the bundled list of known adapters for single reads."
             case .specified:
                 return "Adapter sequences were removed\(tool) with specified adapter sequence."
             case .fastaFile:

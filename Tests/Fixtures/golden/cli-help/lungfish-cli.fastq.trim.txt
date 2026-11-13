@@ -13,7 +13,7 @@ OPTIONS:
   --adapter-trimming/--no-adapter-trimming
                           Run fastp adapter trimming in the same pass (default:
                           --adapter-trimming)
-  --adapter <adapter>     Adapter sequence (omit for auto-detect)
+  --adapter <adapter>     Adapter sequence (omit to use the default adapters)
   --extra-args <extra-args>
                           Additional fastp arguments passed verbatim
   --pairing <pairing>     How to treat the input's records: interleaved

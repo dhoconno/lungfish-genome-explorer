@@ -19,7 +19,7 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
     @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
     var input: String
 
-    @Option(name: .customLong("adapter"), help: "Adapter sequence (omit for auto-detect)")
+    @Option(name: .customLong("adapter"), help: "Adapter sequence (omit to use the default adapters)")
     var adapterSequence: String?
 
     @OptionGroup var pairing: FASTQPairingOptions

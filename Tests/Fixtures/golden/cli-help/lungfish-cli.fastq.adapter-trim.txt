@@ -6,7 +6,7 @@ ARGUMENTS:
   <input>                 Input FASTQ file or .lungfishfastq bundle
 
 OPTIONS:
-  --adapter <adapter>     Adapter sequence (omit for auto-detect)
+  --adapter <adapter>     Adapter sequence (omit to use the default adapters)
   --pairing <pairing>     How to treat the input's records: interleaved
                           (adjacent records are mates and are kept or dropped
                           together), single, or auto (values: interleaved,

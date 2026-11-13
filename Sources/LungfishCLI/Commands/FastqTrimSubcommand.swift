@@ -35,7 +35,7 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
     )
     var adapterTrimming: Bool = true
 
-    @Option(name: .customLong("adapter"), help: "Adapter sequence (omit for auto-detect)")
+    @Option(name: .customLong("adapter"), help: "Adapter sequence (omit to use the default adapters)")
     var adapterSequence: String?
 
     @Option(

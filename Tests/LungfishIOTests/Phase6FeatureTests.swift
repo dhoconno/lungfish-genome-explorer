@@ -21,9 +21,15 @@ final class Phase6FeatureTests: XCTestCase {
         XCTAssertTrue(sentence.contains("window size 5"), sentence)
     }
 
+    // SE-NAMED-ADAPTERS review BIO, SF-1 (c): single reads no longer auto-detect, so the sentence says what each layout
+    // does. The review found no pin of the old "auto-detection" words, and this one is it.
     func testMethodsSentenceForAdapterTrimAutoDetect() {
         let op = FASTQDerivativeOperation(kind: .adapterTrim, adapterMode: .autoDetect)
-        XCTAssertTrue(op.methodsSentence.contains("auto-detection"))
+        XCTAssertTrue(op.methodsSentence.contains(
+            "detected from the reads for read pairs, and TruSeq Read 1 with the bundled list of known adapters for "
+                + "single reads."
+        ), op.methodsSentence)
+        XCTAssertFalse(op.methodsSentence.contains("auto-detection"), op.methodsSentence)
     }
 
     func testMethodsSentenceForPrimerRemoval() {
