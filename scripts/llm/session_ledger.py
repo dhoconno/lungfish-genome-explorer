@@ -82,7 +82,7 @@ ROLE_RULES = [  # first match wins, so fix agents, rulings, landings and monitor
     ("design", re.compile(r"inventor|expert|design|memo|\bplan\b|planning|panel|question|survey|scope|research|investigat|triage|diagnos|\bbriefs?\b", re.I)),
     ("lane", re.compile(r"\blane\b|\bfix|implement|\bwave\b|writer|\bland|port|migrat|refactor|add |build", re.I)),
 ]
-UNSET = "unset"  # a spawn setting that neither the Agent call nor the subagent's meta carries
+UNSET = "unset"  # a spawn setting that neither the Agent call, the subagent's meta nor its type's file carries
 READ_CMD_RES = [  # group 1: range or command form, group 2: file argument(s)
     re.compile(r"\bsed\s+-n\s+('[^']*'|\"[^\"]*\"|\S+)\s+([^\s|;&<>()]+)"),
     re.compile(r"(?:^|[\s;&|(])(cat|nl\s+-ba|nl)\s+((?:[^\s|;&<>()-][^\s|;&<>()]*\s*)+)"),
@@ -810,16 +810,45 @@ def analyze_agent(ag, now, top):
     return r
 
 
+# The agent types' files. The contract's Spawn rule asks an Agent call for a model and effort only where the type names
+# none, so a spawn that sets neither runs at its type's settings and is no breach.
+AGENTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".claude", "agents")
+_TYPE_SETTINGS = {}
+
+
+def type_settings(agent_type):
+    """The model and effort the frontmatter of AGENTS_DIR/<type>.md names, or {} when the type has no file."""
+    key = (AGENTS_DIR, agent_type)
+    if key not in _TYPE_SETTINGS:
+        found = {}
+        path = os.path.join(AGENTS_DIR, "%s.md" % agent_type) if agent_type and agent_type != UNSET else ""
+        if path and os.path.isfile(path):
+            with open(path, encoding="utf-8") as f:
+                lines = f.read().split("\n")
+            if lines and lines[0].strip() == "---":
+                for ln in lines[1:]:
+                    if ln.strip() == "---":
+                        break
+                    m = re.match(r"(model|effort):\s*(\S+)\s*$", ln)
+                    if m:
+                        found[m.group(1)] = m.group(2)
+        _TYPE_SETTINGS[key] = found
+    return _TYPE_SETTINGS[key]
+
+
 def request_of(r):
     """The model and effort an agent's spawn asked for, with the model its turns ran on beside them. Each setting comes
-    from the Agent call's input, else the subagent's meta, else UNSET. A subagent's own transcript effort field is not
-    used: it reads the session's setting on every message, not the spawn's. The manager has no spawn, so its effort is
-    the field of its own transcript (the most common value)."""
+    from the Agent call's input, else the subagent's meta, else its agent type's file, else UNSET. A subagent's own
+    transcript effort field is not used: it reads the session's setting on every message, not the spawn's. The manager
+    has no spawn, so its effort is the field of its own transcript (the most common value)."""
     sp, meta = r.get("spawn") or {}, r.get("meta") or {}
-    own = r.get("transcript_effort") if r.get("kind") == "main" else None
-    return {"model": sp.get("model") or meta.get("model") or UNSET,
-            "effort": sp.get("effort") or meta.get("effort") or own or UNSET,
-            "agent_type": sp.get("subagent_type") or meta.get("agentType") or UNSET,
+    main = r.get("kind") == "main"
+    own = r.get("transcript_effort") if main else None
+    agent_type = sp.get("subagent_type") or meta.get("agentType") or UNSET
+    typ = {} if main else type_settings(agent_type)
+    return {"model": sp.get("model") or meta.get("model") or typ.get("model") or UNSET,
+            "effort": sp.get("effort") or meta.get("effort") or own or typ.get("effort") or UNSET,
+            "agent_type": agent_type,
             "ran_on": r["model"]}
 
 
@@ -1005,7 +1034,7 @@ def md_session(S, top):
                    f"{sum(r['fail_count'] for r in rs)} |")
     out.append("")
     out.append("### By role, model and effort\n")
-    out.append("Effort is what the agent's spawn asked for (the Agent call's, else the subagent meta's, else unset) and the "
+    out.append("Effort is what the agent's spawn asked for (the Agent call's, else the subagent meta's, else its agent type's file, else unset) and the "
                "model is the one its turns ran on. Thinking is recorded where the transcript kept it and estimated from "
                "content for turns that kept no final usage.\n")
     out.append("| role | model | effort | agents | turns | output | thinking recorded | thinking estimated | thinking % of output | turns without final usage | est $ |")

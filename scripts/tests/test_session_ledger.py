@@ -411,6 +411,24 @@ class SpendByRoleModelAndEffortTests(LedgerTestCase):
         self.assertEqual(request({'model': self.OPUS, 'meta': {}}),
                          {'model': 'unset', 'effort': 'unset', 'agent_type': 'unset', 'ran_on': self.OPUS})
 
+    def test_a_spawn_that_sets_neither_takes_the_model_and_effort_its_type_file_names(self):
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, 'lge-lane.md').write_text('---\nname: lge-lane\nmodel: sonnet\neffort: max\n---\neffort: low\n')
+            Path(d, 'lge-bare.md').write_text('---\nname: lge-bare\n---\n')
+            old, self.ledger.AGENTS_DIR = self.ledger.AGENTS_DIR, d
+            try:
+                def q(spawn):
+                    r = self.ledger.request_of({'kind': 'sub', 'model': self.OPUS, 'spawn': spawn, 'meta': {}})
+                    return r['model'], r['effort']
+                self.assertEqual(q({'model': None, 'effort': None, 'subagent_type': 'lge-lane'}), ('sonnet', 'max'))
+                self.assertEqual(q({'model': 'opus', 'effort': 'xhigh', 'subagent_type': 'lge-lane'}), ('opus', 'xhigh'))
+                self.assertEqual(q({'subagent_type': 'lge-bare'}), ('unset', 'unset'))
+                self.assertEqual(q({'subagent_type': 'lge-missing'}), ('unset', 'unset'))
+                self.assertEqual(self.ledger.request_of({'kind': 'main', 'model': self.OPUS, 'spawn': {'subagent_type': 'lge-lane'},
+                                                         'transcript_effort': None})['effort'], 'unset')
+            finally:
+                self.ledger.AGENTS_DIR = old
+
     def test_a_spawn_missing_one_setting_names_that_setting_and_the_main_transcript_is_no_spawn(self):
         def agent(kind, key, model, effort):
             return {'kind': kind, 'key': key, 'label': 'Agent ' + key, 'request': {
