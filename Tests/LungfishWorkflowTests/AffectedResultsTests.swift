@@ -147,6 +147,29 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertEqual(allSamples.whatToDo, prefix.whatToDo, "the same redo line")
     }
 
+    // Trust session FIX-F5 review BIO, SF-2. F5 (viralrecon got the reads in the order the import stored them) holds
+    // a Viral Recon result made from the first Viral Recon commit to Stable 2026.11.7, a span that overlaps both
+    // lineage rows.
+    func testTheViralReconReadOrderRowHoldsItsBuilds() throws {
+        let row = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "VIRALRECON-READ-ORDER" })
+        XCTAssertEqual(row.kinds, [.viralRecon])
+        XCTAssertEqual(row.firstBuild, 1618, "be56a5d8e, the first Viral Recon commit")
+        XCTAssertEqual(row.lastBuild, 12972, "Stable 2026.11.7, the newest build, lacks the fix")
+
+        XCTAssertEqual(ids(1617, .viralRecon), [])
+        XCTAssertEqual(ids(1618, .viralRecon), ["VIRALRECON-READ-ORDER"])
+        XCTAssertEqual(Set(ids(5524, .viralRecon)), ["VIRALRECON-LINEAGE-PREFIX", "VIRALRECON-READ-ORDER"])
+        XCTAssertEqual(Set(ids(12972, .viralRecon)), ["VIRALRECON-LINEAGE-PREFIX", "VIRALRECON-READ-ORDER"],
+                       "Stable 2026.11.7")
+        XCTAssertEqual(ids(12973, .viralRecon), [])
+        for kind in AffectedResultKind.allCases where kind != .viralRecon {
+            XCTAssertFalse(ids(12972, kind).contains("VIRALRECON-READ-ORDER"), "\(kind)")
+        }
+
+        XCTAssertTrue(row.sentence.contains("the reads in the order the import stored them"))
+        XCTAssertTrue(row.whatToDo.hasPrefix("Run Viral Recon again on the same samples with this version"))
+    }
+
     // MARK: - Records as the app wrote them, with the bare version at the root
 
     private func backlogIDs(_ record: ProvenanceEnvelope, _ kind: AffectedResultKind) -> [String] {

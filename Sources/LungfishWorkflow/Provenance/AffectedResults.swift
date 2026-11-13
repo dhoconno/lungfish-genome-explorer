@@ -323,6 +323,16 @@ public enum AffectedResults {
                 + "tables whose names start with that sample's own name and then .pangolin or .nextclade.",
             fixCommit: "8739d18dd"
         ),
+        AffectedResultRow(
+            backlogID: "VIRALRECON-READ-ORDER", kinds: [.viralRecon], firstBuild: 1618, lastBuild: 12972,
+            sentence: "The version that made this Viral Recon result gave viralrecon the reads in the order the "
+                + "import stored them, so fastp could choose the wrong adapter and leave adapter bases on some "
+                + "reads, which can change allele frequencies, consensus bases and Nextclade amino-acid changes "
+                + "at primer sites.",
+            whatToDo: "Run Viral Recon again on the same samples with this version and compare the variant table "
+                + "and consensus.",
+            fixCommit: "ea8fb960f"
+        ),
     ]
 
     /// A published release, its version and the build of the commit it was packaged from.
