@@ -21,7 +21,10 @@ final class WalkTwinsXCUITests: XCTestCase {
     /// table gives the table the focus, and a real right-click lands on the row of another result that is not selected.
     /// Whatever the right-click selects, the sidebar's selected row and the viewer on screen must name the same result
     /// with the menu open and after Escape. If the right-click selected nothing, both still name the first result,
-    /// which is no fail (the row says so).
+    /// which is no fail (the row says so). The EsViritu result holds the detection table of a real run
+    /// (`giveEsVirituResultItsDetections`), since the shared fixture's table has columns that `build-db esviritu` does
+    /// not read, so its database held no row and the table showed none: the gate runs of lane TWINS-e, f and g clicked
+    /// the viewer and never a table.
     @MainActor
     func testRightClickingAnUnselectedSidebarRowLeavesOneResultOnEverySurface() throws {
         let robot = try ReleaseAppSmokeRobot()
@@ -35,6 +38,7 @@ final class WalkTwinsXCUITests: XCTestCase {
             MainActor.assumeIsolated { app.terminate() }
             try? FileManager.default.removeItem(at: project.deletingLastPathComponent())
         }
+        try Self.giveEsVirituResultItsDetections(in: project, named: Self.esVirituRow)
         try robot.launch()
         robot.openProject(project)
         robot.printLaunchRecord(of: #function)
@@ -47,13 +51,20 @@ final class WalkTwinsXCUITests: XCTestCase {
             XCTFail("The EsViritu result \(first.row) shows no viewer before the right-click")
             return
         }
-        // The focus goes into the result's table, as it does for a person who worked in it.
-        let tableRow = robot.app.outlines["esviritu-detection-outline-view"].firstMatch.outlineRows.firstMatch
-        if tableRow.waitForExistence(timeout: 10) {
-            tableRow.click()
-        } else {
-            XCTContext.runActivity(named: "The EsViritu table has no row, so the focus goes to the viewer") { _ in }
-            first.viewer.click()
+        // The focus goes into the result's table, as it does for a person who worked in it. A table that shows no row
+        // fails the twin with its words: a click on the viewer would leave the precondition of the row (the table holds
+        // the focus and not the sidebar) untested, as it was in the gate runs of lane TWINS before `giveEsVirituResult`.
+        let tableRow = app.outlines["esviritu-detection-outline-view"].firstMatch.outlineRows.firstMatch
+        guard tableRow.waitForExistence(timeout: 20) else {
+            robot.failShowingScreen("The EsViritu table shows no row, so the focus cannot go into a table")
+            return
+        }
+        tableRow.click()
+        // A click that selects a row of an NSTableView makes the table the first responder of the window, so a row that
+        // the click left unselected means the table did not take the focus.
+        guard Self.poll(5, in: app, until: { tableRow.exists && tableRow.isSelected }) else {
+            robot.failShowingScreen("The click on a row of the EsViritu table selected no row, so the table did not take the focus")
+            return
         }
 
         let otherRow = ReleaseSmokeFixtures.sidebarRow(containing: other.row, in: robot.app)
@@ -82,6 +93,7 @@ final class WalkTwinsXCUITests: XCTestCase {
     /// strip. The second has a contigs file that holds bytes and no contig, as the damaged `spades-walk39` result of the
     /// walk did. Opening it must say in words that the contigs file could not be read, and the strip must not show the
     /// stored numbers over the empty table.
+    /// It covers a contigs file that holds bytes and no contig. An empty (0-byte) file is not covered: the viewer reads it as an assembly that found nothing (`AssemblyResultViewController.swift:512` refuses a file only when it holds bytes).
     @MainActor
     func testAnAssemblyWhoseContigsFileHoldsNoContigSaysSoAndShowsNoStoredNumbers() throws {
         let robot = try ReleaseAppSmokeRobot()
@@ -223,6 +235,22 @@ final class WalkTwinsXCUITests: XCTestCase {
         try ReleaseSmokeFixtures.writeAnalysisMetadata(tool: "taxtriage", in: result)
     }
 
+    /// Replaces the detection table of the EsViritu result `folder` in the copy of the classifier project with the table
+    /// of a real EsViritu run (`Tests/Fixtures/esviritu-mini`, 14 detections). The table of the shared fixture
+    /// (`Tests/Fixtures/analyses`) has the columns `virus_name` and `num_reads`, and `build-db esviritu` reads `Name`,
+    /// `Accession` and `read_count`: the packaged CLI parsed 0 detection rows from it and built `esviritu.sqlite` with 0
+    /// rows (lane TWINS-h), so the table of the viewer showed no row. The shared fixture stays as it is for the tests
+    /// that read it with the model parser. `build-db` names the sample by the file name (`testSample`), whatever the
+    /// table's `sample_ID` column says.
+    @MainActor
+    private static func giveEsVirituResultItsDetections(in project: URL, named folder: String) throws {
+        let real = LungfishFixtureCatalog.fixturesRoot
+            .appendingPathComponent("esviritu-mini/SRR35517703/SRR35517703.detected_virus.info.tsv")
+        let held = project.appendingPathComponent("Analyses/\(folder)/testSample.detected_virus.info.tsv")
+        try FileManager.default.removeItem(at: held)
+        try FileManager.default.copyItem(at: real, to: held)
+    }
+
     /// True once `condition` holds, polled on the app's own run loop for at most `timeout` seconds.
     @MainActor
     private static func poll(_ timeout: TimeInterval, in app: XCUIApplication, until condition: () -> Bool) -> Bool {
@@ -309,18 +337,46 @@ final class WalkTwinsXCUITests: XCTestCase {
     }
 
     /// The viewers on screen and the selected sidebar rows must name one result: exactly one viewer shows, and the
-    /// selected row is the row of that viewer.
+    /// selected row is the row of that viewer. The surfaces move after a right-click (the selection lands first, the
+    /// viewer follows 0.1 s later, and a result that holds no database builds one, which writes into the watched project
+    /// and makes the sidebar rescan), so the read waits up to 20 s for them to agree. A mismatch that lasts the 20 s
+    /// fails, and its message lists every selected row of the sidebar.
     @MainActor
     private func assertOneResult(_ moment: String, first: (row: String, viewer: XCUIElement),
                                  other: (row: String, viewer: XCUIElement), in app: XCUIApplication) {
+        // `row.exists` first, so a row that is being rebuilt reads as not selected and ends no test with "no matches".
+        let isOn = { (name: String) -> Bool in
+            let row = self.selectedRow(named: name, in: app)
+            return row.exists && row.isSelected
+        }
+        let agree = { () -> Bool in
+            let shows = [first.viewer.exists, other.viewer.exists]
+            return shows.filter { $0 }.count == 1 && isOn(first.row) == shows[0] && isOn(other.row) == shows[1]
+        }
+        _ = Self.poll(20, in: app, until: agree)
         let showsFirst = first.viewer.exists
         let showsOther = other.viewer.exists
-        let selectsFirst = selectedRow(named: first.row, in: app).isSelected
-        let selectsOther = selectedRow(named: other.row, in: app).isSelected
-        let state = "viewer \(showsFirst ? first.row : "")\(showsOther ? other.row : ""), selected \(selectsFirst ? first.row : "")\(selectsOther ? other.row : "")"
-        XCTAssertEqual([showsFirst, showsOther].filter { $0 }.count, 1, "\(moment): not exactly one result viewer shows (\(state))")
-        XCTAssertEqual(selectsFirst, showsFirst, "\(moment): the sidebar and the viewer name different results (\(state))")
-        XCTAssertEqual(selectsOther, showsOther, "\(moment): the sidebar and the viewer name different results (\(state))")
+        let selectsFirst = isOn(first.row)
+        let selectsOther = isOn(other.row)
+        // Read only for a failing assertion: the viewers that show and every selected row of the sidebar.
+        let state = { () -> String in
+            let selected = self.selectedSidebarRows(in: app)
+            return "viewer \(showsFirst ? first.row : "")\(showsOther ? other.row : ""), "
+                + "selected \(selected.isEmpty ? "(none)" : selected.joined(separator: " | "))"
+        }
+        XCTAssertEqual([showsFirst, showsOther].filter { $0 }.count, 1, "\(moment): not exactly one result viewer shows (\(state()))")
+        XCTAssertEqual(selectsFirst, showsFirst, "\(moment): the sidebar and the viewer name different results (\(state()))")
+        XCTAssertEqual(selectsOther, showsOther, "\(moment): the sidebar and the viewer name different results (\(state()))")
+    }
+
+    /// The words of every selected row of the sidebar, as the row shows them (its first static text).
+    @MainActor
+    private func selectedSidebarRows(in app: XCUIApplication) -> [String] {
+        app.outlines["sidebar-outline"].firstMatch.outlineRows.allElementsBoundByIndex.filter { $0.isSelected }.map { row in
+            let text = row.staticTexts.firstMatch
+            guard text.exists else { return row.label }
+            return (text.value as? String) ?? text.label
+        }
     }
 
     @MainActor
