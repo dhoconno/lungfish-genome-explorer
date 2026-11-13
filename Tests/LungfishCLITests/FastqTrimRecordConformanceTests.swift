@@ -59,6 +59,9 @@ final class FastqTrimRecordConformanceTests: XCTestCase {
                 .replacingOccurrences(of: plainRoot, with: "<root>")
                 .replacingOccurrences(of: #"\S*/bin/fastp "#, with: "<fastp> ", options: .regularExpression)
                 .replacingOccurrences(of: #" -w \d+ "#, with: " -w N ", options: .regularExpression)
+                .replacingOccurrences(
+                    of: #"\.fastp-reads-[0-9A-F-]{36}"#, with: ".fastp-reads-<id>", options: .regularExpression
+                )
         }
         func json<T: Encodable>(_ value: T) throws -> String {
             let encoder = JSONEncoder()
