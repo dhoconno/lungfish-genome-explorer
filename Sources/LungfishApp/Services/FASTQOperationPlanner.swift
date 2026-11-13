@@ -89,13 +89,15 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             resolvedRequest: resolvedRequest
         )
 
+        let folderNames = Self.inputFolderNames(for: requestPairs.map { $0.original })
         var reservedOutputPaths = Set<String>()
-        return requestPairs.map { pair in
+        return requestPairs.enumerated().map { index, pair in
             let outputKind = executionOutputKind(for: pair.original)
             let parentDirectory = outputParentDirectory(
                 for: pair.original,
                 baseOutputDirectory: baseOutputDirectory,
-                totalRequestCount: requestPairs.count
+                totalRequestCount: requestPairs.count,
+                folderName: folderNames[index]
             )
             let outputTarget: URL
 
@@ -318,7 +320,8 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
     private func outputParentDirectory(
         for request: FASTQOperationLaunchRequest,
         baseOutputDirectory: URL,
-        totalRequestCount: Int
+        totalRequestCount: Int,
+        folderName: String
     ) -> URL {
         if isSavontRequest(request) {
             return baseOutputDirectory
@@ -327,10 +330,7 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             return baseOutputDirectory
         }
 
-        let stem = request.inputURLs.first
-            .map(Self.sanitizedStem(for:))
-            ?? "output-\(UUID().uuidString.prefix(8))"
-        return baseOutputDirectory.appendingPathComponent(stem, isDirectory: true)
+        return baseOutputDirectory.appendingPathComponent(folderName, isDirectory: true)
     }
 
     /// Whether a resolved execution input is gzip-compressed.
