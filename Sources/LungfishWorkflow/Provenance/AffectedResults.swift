@@ -16,6 +16,8 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     case viralRecon
     case variantCalls
     case fastqTrim
+    /// A FASTQ bundle made by an import that ran a recipe's fastp step.
+    case fastqRecipeImport
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -372,6 +374,14 @@ public enum AffectedResults {
                 + "small RNA adapters for single reads, or name your adapter in the trim dialog if your library used "
                 + "another, and redo any mapping, counting or variant calling that used the trimmed reads.",
             fixCommit: "c4e2d9908"
+        ),
+        AffectedResultRow(
+            backlogID: "FASTQ-TRIM-RECIPE-READ-ORDER", kinds: [.fastqRecipeImport], firstBuild: 802, lastBuild: 12972,
+            sentence: "If the reads you imported with this recipe were exported from a Lungfish bundle, the version "
+                + "that made this result let fastp choose the adapter from the order Lungfish had stored them in, "
+                + "which can leave adapter bases on some reads.",
+            whatToDo: "Import the original sequencer files again with this version.",
+            fixCommit: "dbadae4f5"
         ),
     ]
 

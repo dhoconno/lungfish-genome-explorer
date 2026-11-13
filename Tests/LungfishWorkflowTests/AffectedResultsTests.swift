@@ -249,6 +249,29 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertTrue(row.whatToDo.contains("or name your adapter in the trim dialog if your library used another"))
     }
 
+    // Trust session RECIPE-NAMED-ADAPTERS review BIO, Q5. FASTQ-TRIM-RECIPE-READ-ORDER holds a FASTQ bundle made by an
+    // import that ran a recipe's fastp step, from the build that brought the recipe steps in (a382f8b2b, 802) to Stable
+    // 2026.11.7, and no other kind. Its fix is 1542f138d, landed as dbadae4f5. The Inspector maps no sidebar item to the
+    // kind yet (AFFECTED-KINDS-NOT-MAPPED), so the row shows nothing in the app until it does.
+    func testTheFastqRecipeReadOrderRowHoldsItsBuilds() throws {
+        let row = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "FASTQ-TRIM-RECIPE-READ-ORDER" })
+        XCTAssertEqual(row.kinds, [.fastqRecipeImport])
+        XCTAssertEqual(row.firstBuild, 802, "a382f8b2b, the recipe step executors")
+        XCTAssertEqual(row.lastBuild, 12972, "Stable 2026.11.7, the newest build, lacks the fix")
+        XCTAssertEqual(row.fixCommit, "dbadae4f5", "1542f138d, which named the TruSeq pair")
+        XCTAssertEqual(ids(801, .fastqRecipeImport), [])
+        XCTAssertEqual(ids(802, .fastqRecipeImport), ["FASTQ-TRIM-RECIPE-READ-ORDER"])
+        XCTAssertEqual(ids(12972, .fastqRecipeImport), ["FASTQ-TRIM-RECIPE-READ-ORDER"], "Stable 2026.11.7")
+        XCTAssertEqual(ids(12973, .fastqRecipeImport), [])
+        for kind in AffectedResultKind.allCases where kind != .fastqRecipeImport {
+            XCTAssertFalse(ids(12972, kind).contains(row.backlogID), "\(kind)")
+        }
+        XCTAssertEqual(row.sentence, "If the reads you imported with this recipe were exported from a Lungfish bundle, the "
+                       + "version that made this result let fastp choose the adapter from the order Lungfish had stored "
+                       + "them in, which can leave adapter bases on some reads.")
+        XCTAssertEqual(row.whatToDo, "Import the original sequencer files again with this version.")
+    }
+
     // MARK: - Records as the app wrote them, with the bare version at the root
 
     private func backlogIDs(_ record: ProvenanceEnvelope, _ kind: AffectedResultKind) -> [String] {
