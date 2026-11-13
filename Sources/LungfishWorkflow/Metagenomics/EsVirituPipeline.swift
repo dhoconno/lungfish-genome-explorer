@@ -403,11 +403,16 @@ public actor EsVirituPipeline {
             || config.outputDirectory.path.contains(" ")
 
         if needsSymlinks {
+            // A folder that a failed run left holds links at the paths this run is about to make, so it goes whole first.
+            if fm.fileExists(atPath: symlinkDir.path) {
+                try fm.removeItem(at: symlinkDir)
+            }
             try fm.createDirectory(at: symlinkDir, withIntermediateDirectories: true)
-            for inputFile in config.inputFiles {
-                let linkName = inputFile.lastPathComponent.replacingOccurrences(of: " ", with: "_")
+            for (index, inputFile) in config.inputFiles.enumerated() {
+                // The input's index leads its link's name, so two inputs of one file name in different folders, or of two
+                // names that differ only by a space and an underscore, are two links and not one link to the second file.
+                let linkName = "\(index)_" + inputFile.lastPathComponent.replacingOccurrences(of: " ", with: "_")
                 let linkURL = symlinkDir.appendingPathComponent(linkName)
-                try? fm.removeItem(at: linkURL)
                 try fm.createSymbolicLink(at: linkURL, withDestinationURL: inputFile)
                 symlinkPaths.append(linkURL)
             }
