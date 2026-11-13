@@ -128,6 +128,47 @@ final class ReferenceBundleCopySelectionTests: XCTestCase {
         XCTAssertEqual(pasteboard.string(forType: .string), expected, "Edit > Copy on bases 30 to 45 left the pasteboard unchanged")
     }
 
+    /// An older copy whose read of the bundle is still in flight must not overwrite a newer copy. Only the copy that
+    /// reads the bundle bumped `fastaOperationFetchGeneration`, so a newer copy from the cached window left the older
+    /// fetch current and its bases landed on the pasteboard after the newer ones (FIX-COPY review UX, fold F1).
+    func testANewerCopyBeatsAnOlderFetchStillInFlight() async throws {
+        let (viewer, olderBases) = try await makeViewerShowingBases(selecting: 100..<5000)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        viewer.copyPasteboard = pasteboard
+        pasteboard.clearContents()
+        pasteboard.setString("sentinel-before-copy", forType: .string)
+        let newerBases = String(Array(bases)[10..<20])
+        XCTAssertNotEqual(olderBases, newerBases, "the two selections must be told apart on the pasteboard")
+        // The older copy reads the bundle because the viewer holds nothing cached, and its fetch is held mid-flight.
+        let cachedBases = try XCTUnwrap(viewer.cachedBundleSequence)
+        let cachedWindow = try XCTUnwrap(viewer.cachedSequenceRegion)
+        viewer.cachedBundleSequence = nil
+        viewer.cachedSequenceRegion = nil
+        let hold = CopyFetchHold()
+        SequenceViewerView.fastaOperationFetchGate = { await hold.hold() }
+        defer { SequenceViewerView.fastaOperationFetchGate = nil }
+        viewer.copySelectionToClipboard()
+        await hold.waitUntilStarted()
+        SequenceViewerView.fastaOperationFetchGate = nil
+
+        // The newer copy takes bases 10 to 20 from the cached window and finishes at once.
+        viewer.cachedBundleSequence = cachedBases
+        viewer.cachedSequenceRegion = cachedWindow
+        viewer.selectionRange = 10..<20
+        viewer.copySelectionToClipboard()
+        XCTAssertEqual(pasteboard.string(forType: .string), newerBases, "the newer copy writes its bases at once")
+
+        // The older fetch finishes now. Its copy is older than the newer one, so it must write nothing.
+        await hold.release()
+        for _ in 0..<20 { await Task.yield() }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(
+            pasteboard.string(forType: .string), newerBases,
+            "an older copy whose fetch was still in flight overwrote the newer copy on the pasteboard"
+        )
+    }
+
     /// With a bundle open and no region on screen to take, a copy with nothing selected says to select bases. It said
     /// the viewer holds no sequence, which the open bundle contradicts.
     func testCopyWithNothingSelectedInAReferenceBundleSaysToSelectBases() throws {
@@ -207,5 +248,36 @@ final class ReferenceBundleCopySelectionTests: XCTestCase {
         )
         try manifest.save(to: bundleURL)
         return bundleURL
+    }
+}
+
+/// Holds one fetch of a bundle region mid-flight through the `fastaOperationFetchGate` seam, so a test can finish a
+/// newer copy first and release the older fetch after it.
+private actor CopyFetchHold {
+    private var started = false
+    private var released = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Awaited from the gate inside the fetch: tells the test the fetch has started, then waits for `release()`.
+    func hold() async {
+        started = true
+        let waiting = startWaiters
+        startWaiters.removeAll()
+        for waiter in waiting { waiter.resume() }
+        if released { return }
+        await withCheckedContinuation { releaseWaiters.append($0) }
+    }
+
+    func waitUntilStarted() async {
+        if started { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func release() {
+        released = true
+        let waiting = releaseWaiters
+        releaseWaiters.removeAll()
+        for waiter in waiting { waiter.resume() }
     }
 }

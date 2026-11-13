@@ -31,6 +31,9 @@ extension SequenceViewerView {
     /// nothing selected it takes the visible region, as a single sequence does. It reads the cached window when that
     /// holds the selection and the bundle otherwise, off the main actor.
     func copyBundleSelectionToClipboard(step: String) {
+        // Every copy bumps the generation, so a slower fetch of an older copy that lands later is dropped.
+        fastaOperationFetchGeneration += 1
+        let generation = fastaOperationFetchGeneration
         if selectionRange == nil {
             selectVisibleRegion()
         }
@@ -58,9 +61,6 @@ extension SequenceViewerView {
             ViewerRefusalSeam.present(ViewerRefusalReports.selectionBasesNotRead(step: step), in: window)
             return
         }
-        // A newer copy or FASTA operation bumps the generation, and this older result is then dropped.
-        fastaOperationFetchGeneration += 1
-        let generation = fastaOperationFetchGeneration
         let region = GenomicRegion(chromosome: chromosome, start: lower, end: upper)
         Task { @MainActor [weak self] in
             guard let self else { return }
