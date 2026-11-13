@@ -26,8 +26,13 @@ final class WalkTwinsXCUITests: XCTestCase {
     func testRightClickingAnUnselectedSidebarRowLeavesOneResultOnEverySurface() throws {
         let robot = try ReleaseAppSmokeRobot()
         let project = try ReleaseSmokeFixtures.makeClassifierResultsProject(named: "TwinRightClick-\(UUID().uuidString)")
-        defer {
-            robot.app.terminate()
+        let app = robot.app
+        // A teardown block and no `defer`. With `continueAfterFailure` false XCTest ends a failed test by raising an
+        // Objective-C exception, and that skips the `defer` of a Swift frame. Gate 1 of lane TWINS-b failed at its
+        // Escape step, logged no `Terminate` line and left its copy of the package running, and a copy left running
+        // keeps the gate from restoring the account's preferences.
+        addTeardownBlock {
+            MainActor.assumeIsolated { app.terminate() }
             try? FileManager.default.removeItem(at: project.deletingLastPathComponent())
         }
         try robot.launch()
@@ -57,12 +62,40 @@ final class WalkTwinsXCUITests: XCTestCase {
             return
         }
         otherRow.rightClick()
-        let menu = robot.app.menus.firstMatch
-        XCTAssertTrue(menu.waitForExistence(timeout: 5), "The right-click on \(other.row) opened no context menu")
-        assertOneResult("with the menu open", first: first, other: other, in: robot.app)
-        robot.app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-        XCTAssertTrue(menu.waitForNonExistence(timeout: 5), "Escape did not close the context menu")
-        assertOneResult("after Escape", first: first, other: other, in: robot.app)
+        guard waitForContextMenu(in: app, toShow: true) else {
+            robot.failShowingScreen("The right-click on \(other.row) opened no context menu")
+            return
+        }
+        assertOneResult("with the menu open", first: first, other: other, in: app)
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        // An app whose context menu stays after Escape is a finding and no reason to click elsewhere.
+        guard waitForContextMenu(in: app, toShow: false) else {
+            robot.failShowingScreen("Escape did not close the context menu")
+            return
+        }
+        assertOneResult("after Escape", first: first, other: other, in: app)
+    }
+
+    /// The Rename… item of the open context menu, found by what the screen shows. The menu bar's menus exist all the
+    /// time with a frame of zero size off the screen, and its Selection menu has an item of the same title, so
+    /// `app.menus.firstMatch` took the Apple menu and neither showed the context menu nor could see it close (gate 1
+    /// of lane TWINS-b failed on it at `WalkTwinsXCUITests.swift:64`, while the recording of that run shows the menu
+    /// open at the right-click and gone after Escape). Only an item of the open menu can be hit.
+    @MainActor
+    private func openContextMenuItem(in app: XCUIApplication) -> XCUIElement? {
+        app.menuItems.matching(NSPredicate(format: "title == %@", "Rename\u{2026}")).allElementsBoundByIndex
+            .first { $0.isHittable }
+    }
+
+    /// True once the context menu shows (or, with `toShow` false, no longer shows) within `timeout`.
+    @MainActor
+    private func waitForContextMenu(in app: XCUIApplication, toShow shows: Bool, timeout: TimeInterval = 5) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if (openContextMenuItem(in: app) != nil) == shows { return true }
+            _ = app.windows.firstMatch.waitForNonExistence(timeout: 0.25)
+        } while Date() < deadline
+        return (openContextMenuItem(in: app) != nil) == shows
     }
 
     /// The viewers on screen and the selected sidebar rows must name one result: exactly one viewer shows, and the
