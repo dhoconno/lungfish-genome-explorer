@@ -278,7 +278,8 @@
       "binding": false,
       "appSmokeTests": [
         "LungfishXCUITests/SidebarRescanSelectionXCUITests/testClickingAnotherResultRightAfterARescanShowsTheClickedResult",
-        "LungfishXCUITests/WalkTwinsXCUITests/testRightClickingAnUnselectedSidebarRowLeavesOneResultOnEverySurface"
+        "LungfishXCUITests/WalkTwinsXCUITests/testRightClickingAnUnselectedSidebarRowLeavesOneResultOnEverySurface",
+        "LungfishXCUITests/WalkTwinsXCUITests/testAnAssemblyWhoseContigsFileHoldsNoContigSaysSoAndShowsNoStoredNumbers"
       ],
       "nativeXCUITestCommand": [
         "python3",

@@ -76,6 +76,71 @@ final class WalkTwinsXCUITests: XCTestCase {
         assertOneResult("after Escape", first: first, other: other, in: app)
     }
 
+    /// Old row 14 of the 2026.11.5 owner list (W-30, S2 if a viewer shows the stored numbers of a result over an empty
+    /// table with no words). One project holds two SPAdes results with the same stored numbers (2 contigs, 183 bp). The
+    /// first keeps its contigs, so its summary strip shows Contigs and Total bp, which proves that the selectors see the
+    /// strip. The second has a contigs file that holds bytes and no contig, as the damaged `spades-walk39` result of the
+    /// walk did. Opening it must say in words that the contigs file could not be read, and the strip must not show the
+    /// stored numbers over the empty table.
+    @MainActor
+    func testAnAssemblyWhoseContigsFileHoldsNoContigSaysSoAndShowsNoStoredNumbers() throws {
+        let robot = try ReleaseAppSmokeRobot()
+        let project = try ReleaseSmokeFixtures.makeClassifierResultsProject(named: "TwinContigs-\(UUID().uuidString)")
+        let app = robot.app
+        addTeardownBlock {
+            MainActor.assumeIsolated { app.terminate() }
+            try? FileManager.default.removeItem(at: project.deletingLastPathComponent())
+        }
+        try ReleaseSmokeFixtures.addAssemblyResult(to: project)
+        let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
+        let (held, damaged) = ("spades-2026-01-15T13-00-00", "spades-2026-01-15T14-00-00")
+        try Self.copyAssemblyResult(named: held, as: damaged, in: analyses)
+        try "This is not a FASTA file. No line of it starts with a greater-than sign.\n"
+            .write(to: analyses.appendingPathComponent(damaged).appendingPathComponent("contigs.fasta"),
+                   atomically: true, encoding: .utf8)
+        try robot.launch()
+        robot.openProject(project)
+        robot.printLaunchRecord(of: #function)
+        let any = app.descendants(matching: .any)
+        let strip = ["assembly-result-summary-contigs", "assembly-result-summary-total-bp"].map { any[$0].firstMatch }
+
+        ReleaseSmokeFixtures.openSidebarItem(containing: held, in: app)
+        guard any["assembly-result-view"].firstMatch.waitForExistence(timeout: 15) else {
+            robot.failShowingScreen("The assembly \(held) shows no viewer")
+            return
+        }
+        for field in strip {
+            XCTAssertTrue(field.waitForExistence(timeout: 10), "The strip of the assembly with its contigs shows no \(field.identifier)")
+        }
+
+        ReleaseSmokeFixtures.openSidebarItem(containing: damaged, in: app)
+        for fragment in ["could not read the contigs file of this assembly", "the table is empty and no contig can be selected"] {
+            let said = NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", fragment, fragment)
+            XCTAssertTrue(app.staticTexts.matching(said).firstMatch.waitForExistence(timeout: 20),
+                          "No words say \"\(fragment)\" after the assembly with a damaged contigs file opened")
+        }
+        guard let alert = robot.firstOf([app.sheets.firstMatch, app.dialogs.firstMatch], timeout: 5) else {
+            robot.failShowingScreen("The words about the contigs file stand in no sheet or dialog")
+            return
+        }
+        alert.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 5), "The alert about the contigs file stays after Return")
+        for field in strip {
+            XCTAssertTrue(field.waitForNonExistence(timeout: 10),
+                          "The strip still shows its stored \(field.identifier) over the empty table of the damaged assembly")
+        }
+    }
+
+    /// Copies the result folder `name` as `copy` and points the copy's sidecar at its own folder (`outputDirectory`).
+    private static func copyAssemblyResult(named name: String, as copy: String, in analyses: URL) throws {
+        let destination = analyses.appendingPathComponent(copy, isDirectory: true)
+        try FileManager.default.copyItem(at: analyses.appendingPathComponent(name, isDirectory: true), to: destination)
+        let sidecar = destination.appendingPathComponent("assembly-result.json")
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: sidecar)) as? [String: Any])
+        json["outputDirectory"] = destination.path
+        try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]).write(to: sidecar)
+    }
+
     /// The Rename… item of the open context menu, found by what the screen shows. The menu bar's menus exist all the
     /// time with a frame of zero size off the screen, and its Selection menu has an item of the same title, so
     /// `app.menus.firstMatch` took the Apple menu and neither showed the context menu nor could see it close (gate 1

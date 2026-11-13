@@ -7,10 +7,12 @@ import XCTest
 /// found by its own identifier, so a result left on screen reads as the old viewer still there. If the app test passes
 /// and this one fails, the fault is in the click route and not in the rescan.
 ///
-/// It runs on the Debug app with its launch hooks (`ProjectLifecycleRobot`), the app `scripts/testing/run-macos-xcui.sh`
-/// builds, so it needs the console session and an unlocked screen but no packaged candidate. It is not in
-/// `gates.appSmokeTests`. The click cannot force an order against the watcher (the app test forces all three), so a
-/// green run shows that a real click works in whichever order it hit.
+/// It runs on the Debug app with its launch hooks (`scripts/testing/run-macos-xcui.sh`) and, when the variable
+/// `LUNGFISH_RELEASE_SMOKE_APP` names a packaged app, on that app through `ProjectLifecycleRobot`, which opens the
+/// project with File > Open Project Folder. The `ui-twins` profile of `config/test-catalog.json` selects it on the
+/// package (`scripts/release/app_smoke_gate.py --profile ui-twins`), and it is in no binding list. The click cannot
+/// force an order against the watcher (the app test forces all three), so a green run shows that a real click works
+/// in whichever order it hit.
 final class SidebarRescanSelectionXCUITests: XCTestCase {
     private static let taxTriageRow = "taxtriage-2026-01-15T12-00-00"
     private static let esVirituRow = "esviritu-2026-01-15T10-00-00"
@@ -26,8 +28,12 @@ final class SidebarRescanSelectionXCUITests: XCTestCase {
     func testClickingAnotherResultRightAfterARescanShowsTheClickedResult() throws {
         let project = try ReleaseSmokeFixtures.makeClassifierResultsProject(named: "Rescan-\(UUID().uuidString)")
         let robot = ProjectLifecycleRobot()
-        defer {
-            robot.app.terminate()
+        let app = robot.app
+        // A teardown block and no `defer`. With `continueAfterFailure` false XCTest ends a failed test by raising an
+        // Objective-C exception, which skips the `defer` of a Swift frame and left the app and the account's
+        // preferences journal behind in gate 1 of lane TWINS-b.
+        addTeardownBlock {
+            MainActor.assumeIsolated { app.terminate() }
             try? FileManager.default.removeItem(at: project.deletingLastPathComponent())
         }
         let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
