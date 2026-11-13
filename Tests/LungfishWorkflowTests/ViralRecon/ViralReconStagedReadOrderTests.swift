@@ -83,6 +83,55 @@ final class ViralReconStagedReadOrderTests: XCTestCase {
         XCTAssertEqual(try records(second.r2), r2, "every run stages the same order")
     }
 
+    // F5, BIO item 2. The order is the seeded sort of the pair indices for
+    // any bucket count, so bounded memory never changes it, and two mate
+    // files are staged the same way as one interleaved file.
+    func testOrderIsTheSameForAnyBucketCountAndForTwoMateFiles() throws {
+        let pairCount = 500
+        let interleaved = root.appendingPathComponent("pairs.fastq")
+        try InterleavedFASTQFixture.write(pairCount: pairCount, naming: .slashSuffix, to: interleaved)
+        let source = try records(interleaved)
+        let mate1 = root.appendingPathComponent("pairs_R1.fastq")
+        let mate2 = root.appendingPathComponent("pairs_R2.fastq")
+        try (stride(from: 0, to: source.count, by: 2).map { source[$0] + "\n" }.joined()).write(to: mate1, atomically: true, encoding: .utf8)
+        try (stride(from: 1, to: source.count, by: 2).map { source[$0] + "\n" }.joined()).write(to: mate2, atomically: true, encoding: .utf8)
+
+        func stage(_ input: SeededPairOrder.Source, buckets: Int, _ tag: String) throws -> (r1: [String], r2: [String]) {
+            let out1 = root.appendingPathComponent("\(tag)_R1.fastq")
+            let out2 = root.appendingPathComponent("\(tag)_R2.fastq")
+            FileManager.default.createFile(atPath: out1.path, contents: nil)
+            FileManager.default.createFile(atPath: out2.path, contents: nil)
+            let handle1 = try FileHandle(forWritingTo: out1)
+            let handle2 = try FileHandle(forWritingTo: out2)
+            let pairs = try SeededPairOrder.write(
+                input, r1: handle1, r2: handle2,
+                scratch: root.appendingPathComponent("scratch-\(tag)", isDirectory: true), bucketCount: buckets
+            )
+            try handle1.close()
+            try handle2.close()
+            XCTAssertEqual(pairs, pairCount, tag)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("scratch-\(tag)").path), tag)
+            return (try records(out1), try records(out2))
+        }
+
+        let one = try stage(.interleaved(interleaved), buckets: 1, "one")
+        let expectedR1 = SeededPairOrder.order(count: pairCount).map { source[2 * $0] }
+        XCTAssertEqual(one.r1, expectedR1, "the order is the pair indices sorted by their seeded key")
+        XCTAssertEqual(one.r2, SeededPairOrder.order(count: pairCount).map { source[2 * $0 + 1] })
+        let seven = try stage(.interleaved(interleaved), buckets: 7, "seven")
+        XCTAssertEqual(seven.r1, one.r1, "the bucket count never changes the order")
+        XCTAssertEqual(seven.r2, one.r2)
+        let files = try stage(.separate(r1: mate1, r2: mate2), buckets: 3, "files")
+        XCTAssertEqual(files.r1, one.r1, "two mate files are staged in the same order")
+        XCTAssertEqual(files.r2, one.r2)
+
+        let short = root.appendingPathComponent("ten-second-mates.fastq")
+        try (stride(from: 1, to: 20, by: 2).map { source[$0] + "\n" }.joined()).write(to: short, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try stage(.separate(r1: mate1, r2: short), buckets: 2, "short")) { error in
+            XCTAssertEqual(error as? SeededPairOrder.StagingError, .mateCountMismatch(r1Records: pairCount, r2Records: 10))
+        }
+    }
+
     // F5, BIO item 2. The run record names the staging step and its seed.
     func testRunRecordNamesTheSeededStagingStep() async throws {
         let bundle = try InterleavedFASTQFixture.writeBundle(named: "S1", in: root, pairCount: 12, naming: .slashSuffix)

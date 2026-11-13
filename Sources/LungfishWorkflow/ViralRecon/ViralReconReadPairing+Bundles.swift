@@ -207,7 +207,8 @@ extension ViralReconReadPairing {
                     singleReadCount: singleReadCount,
                     singleReadReason: plan.singleReadReason
                 ),
-                layoutScan: plan.layoutClassification
+                layoutScan: plan.layoutClassification,
+                stagedPairOrder: runsPaired ? SeededPairOrder.Record() : nil
             )
             let stagedSample = ViralReconSample(
                 sampleName: sample.sampleName,
@@ -237,17 +238,14 @@ extension ViralReconReadPairing {
             let name = pairs.count > 1 ? "\(directory.lastPathComponent)-\(index + 1)" : directory.lastPathComponent
             switch pair.files {
             case .separate(let r1, let r2):
+                // In the seeded order, as an interleaved file is (trust session F5).
                 let stagedR1 = directory.appendingPathComponent("\(name)_R1.fastq.gz")
                 let stagedR2 = directory.appendingPathComponent("\(name)_R2.fastq.gz")
-                let r1Records = try await writeGzipFASTQ([r1], to: stagedR1)
-                let r2Records = try await writeGzipFASTQ([r2], to: stagedR2)
-                guard r1Records == r2Records else {
-                    throw PairingError.bundleStagingFailed(
-                        sampleName: sampleName,
-                        reason: "its R1 file holds \(r1Records) reads and its R2 file holds \(r2Records)"
-                    )
+                do {
+                    written += try await writeSeededPairs(.separate(r1: r1, r2: r2), r1: stagedR1, r2: stagedR2, scratch: directory)
+                } catch let error as SeededPairOrder.StagingError {
+                    throw PairingError.bundleStagingFailed(sampleName: sampleName, reason: error.localizedDescription)
                 }
-                written += r1Records
                 staged += [stagedR1, stagedR2]
             case .interleaved(let url):
                 let split = try await splitInterleavedInput(url, into: directory.appendingPathComponent(name, isDirectory: true))

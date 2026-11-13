@@ -43,6 +43,10 @@ public struct ViralReconReadPairingDecision: Codable, Sendable, Equatable {
     public let bundleStaging: BundleStaging?
     /// The scan that decided ``layout``, for the record. Nil when no scan decided it.
     public let layoutScan: FASTQReadLayoutClassification?
+    /// How the run ordered the pairs it staged (trust session F5). Nil when
+    /// it staged no pairs, and in the record of a run made before the fix,
+    /// which staged them in the bundle's order.
+    public let stagedPairOrder: SeededPairOrder.Record?
 
     public init(
         sampleName: String,
@@ -54,8 +58,10 @@ public struct ViralReconReadPairingDecision: Codable, Sendable, Equatable {
         splitR1URL: URL? = nil,
         splitR2URL: URL? = nil,
         bundleStaging: BundleStaging? = nil,
-        layoutScan: FASTQReadLayoutClassification? = nil
+        layoutScan: FASTQReadLayoutClassification? = nil,
+        stagedPairOrder: SeededPairOrder.Record? = nil
     ) {
+        self.stagedPairOrder = stagedPairOrder
         self.sampleName = sampleName
         self.sourceFASTQURLs = sourceFASTQURLs
         self.layout = layout
@@ -121,6 +127,7 @@ public struct ViralReconReadPairingDecision: Codable, Sendable, Equatable {
         if let splitR1URL { fields["splitR1"] = .file(splitR1URL) }
         if let splitR2URL { fields["splitR2"] = .file(splitR2URL) }
         if let bundleStaging { fields["readSetPlan"] = bundleStaging.provenanceValue }
+        if let stagedPairOrder { fields["stagedPairOrder"] = stagedPairOrder.provenanceValue }
         return .dictionary(fields)
     }
 }
@@ -305,7 +312,8 @@ public enum ViralReconReadPairing {
                 pairCount: split.counts.r1Records,
                 splitR1URL: split.r1,
                 splitR2URL: split.r2,
-                layoutScan: decision.layoutScan
+                layoutScan: decision.layoutScan,
+                stagedPairOrder: SeededPairOrder.Record()
             ))
         }
         return ViralReconPreparedIlluminaSamples(samples: prepared, decisions: decisions)
@@ -314,9 +322,13 @@ public enum ViralReconReadPairing {
     /// Splits a strictly interleaved FASTQ (plain or gzip) into
     /// `<stem>_R1.fastq.gz` and `<stem>_R2.fastq.gz` inside `directory`.
     ///
-    /// Records are copied byte for byte through `/usr/bin/gzip -c`, so the
-    /// halves never touch the disk uncompressed. `directory` is replaced if
-    /// it exists and removed again if the split fails.
+    /// Records are copied byte for byte through `/usr/bin/gzip -c`, in the
+    /// fixed-seed random pair order of ``SeededPairOrder`` with mates kept
+    /// together, never in the bundle's order (trust session F5: the import
+    /// clumps the reads, and viralrecon's fastp guesses the adapter from the
+    /// head of the file). The bucket files of the reordering sit, packed, in
+    /// `directory` while it runs. `directory` is replaced if it exists and
+    /// removed again if the split fails.
     public static func splitInterleavedInput(
         _ source: URL,
         into directory: URL
@@ -334,17 +346,32 @@ public enum ViralReconReadPairing {
         stem = ViralReconSamplesheetBuilder.replacingWhitespace(in: stem)
         let r1 = directory.appendingPathComponent("\(stem)_R1.fastq.gz")
         let r2 = directory.appendingPathComponent("\(stem)_R2.fastq.gz")
+        do {
+            let pairs = try await writeSeededPairs(.interleaved(source), r1: r1, r2: r2, scratch: directory)
+            return (r1, r2, FASTQPairInterleaver.Counts(r1Records: pairs, r2Records: pairs, writtenRecords: pairs * 2))
+        } catch {
+            try? fm.removeItem(at: directory)
+            throw error
+        }
+    }
 
-        let worker = Task.detached(priority: .utility) { () throws -> FASTQPairInterleaver.Counts in
+    /// Writes the pairs of `source` to the gzip files `r1` and `r2` in the
+    /// order of ``SeededPairOrder`` and returns the pairs written. The
+    /// reordering's bucket files sit in a hidden folder of `scratch` and are
+    /// gone when it returns.
+    static func writeSeededPairs(
+        _ source: SeededPairOrder.Source,
+        r1: URL,
+        r2: URL,
+        scratch: URL
+    ) async throws -> Int {
+        let buckets = scratch.appendingPathComponent(".pair-order-\(r1.lastPathComponent)", isDirectory: true)
+        let worker = Task.detached(priority: .utility) { () throws -> Int in
             let sink1 = try GzipFileSink(destination: r1)
             let sink2 = try GzipFileSink(destination: r2)
-            let counts: FASTQPairInterleaver.Counts
+            let pairs: Int
             do {
-                counts = try FASTQPairInterleaver.deinterleave(
-                    interleaved: source,
-                    r1: sink1.writeHandle,
-                    r2: sink2.writeHandle
-                )
+                pairs = try SeededPairOrder.write(source, r1: sink1.writeHandle, r2: sink2.writeHandle, scratch: buckets)
             } catch {
                 sink1.abort()
                 sink2.abort()
@@ -352,18 +379,12 @@ public enum ViralReconReadPairing {
             }
             try sink1.finish()
             try sink2.finish()
-            return counts
+            return pairs
         }
-        do {
-            let counts = try await withTaskCancellationHandler {
-                try await worker.value
-            } onCancel: {
-                worker.cancel()
-            }
-            return (r1, r2, counts)
-        } catch {
-            try? fm.removeItem(at: directory)
-            throw error
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
         }
     }
 

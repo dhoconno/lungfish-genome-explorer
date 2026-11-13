@@ -86,15 +86,19 @@ final class ViralReconReadPairingTests: XCTestCase {
             XCTAssertEqual(recorded.sourceFASTQURLs, [bundle.fastqURL], "the decision names the file the user chose")
             XCTAssertTrue(prepared.didSplit)
 
-            // Each half holds exactly its mates, byte for byte.
-            let r1 = try gunzipText(prepared0.fastqURLs[0])
-            let r2 = try gunzipText(prepared0.fastqURLs[1])
+            // Each half holds exactly its mates, byte for byte. The pairs are
+            // staged in the seeded order (trust session F5), so they match
+            // the source's pairs as a set, with mates side by side.
+            let r1 = try gunzipText(prepared0.fastqURLs[0]).split(separator: "\n").map(String.init)
+            let r2 = try gunzipText(prepared0.fastqURLs[1]).split(separator: "\n").map(String.init)
             let expected = InterleavedFASTQFixture.fastqText(pairCount: 6, naming: naming)
                 .split(separator: "\n").map(String.init)
-            let expectedR1 = stride(from: 0, to: expected.count, by: 8).flatMap { expected[$0..<$0 + 4] }.joined(separator: "\n") + "\n"
-            let expectedR2 = stride(from: 4, to: expected.count, by: 8).flatMap { expected[$0..<$0 + 4] }.joined(separator: "\n") + "\n"
-            XCTAssertEqual(r1, expectedR1, naming.rawValue)
-            XCTAssertEqual(r2, expectedR2, naming.rawValue)
+            let expectedPairs = stride(from: 0, to: expected.count, by: 8).map { expected[$0..<$0 + 8].joined(separator: "\n") }
+            XCTAssertEqual(r1.count, 24, naming.rawValue)
+            XCTAssertEqual(r2.count, 24, naming.rawValue)
+            guard r1.count == r2.count, r1.count % 4 == 0 else { continue }
+            let stagedPairs = stride(from: 0, to: r1.count, by: 4).map { (r1[$0..<$0 + 4] + r2[$0..<$0 + 4]).joined(separator: "\n") }
+            XCTAssertEqual(stagedPairs.sorted(), expectedPairs.sorted(), naming.rawValue)
 
             let samplesheet = try ViralReconSamplesheetBuilder.writeIlluminaSamplesheet(
                 samples: prepared.samples,
@@ -144,7 +148,10 @@ final class ViralReconReadPairingTests: XCTestCase {
         XCTAssertEqual(decision.handling, .splitToR1R2)
         XCTAssertEqual(decision.pairCount, 5)
         XCTAssertEqual(prepared.samples[0].fastqURLs.map(\.lastPathComponent), ["reads_R1.fastq.gz", "reads_R2.fastq.gz"])
-        XCTAssertTrue(try gunzipText(prepared.samples[0].fastqURLs[1]).hasPrefix("@frag0/2\n"))
+        // The R2 half holds the second mates, in the seeded order (trust session F5).
+        let r2Headers = try gunzipText(prepared.samples[0].fastqURLs[1]).split(separator: "\n").enumerated()
+            .filter { $0.offset % 4 == 0 }.map { String($0.element) }
+        XCTAssertEqual(r2Headers.sorted(), (0..<5).map { "@frag\($0)/2" })
     }
 
     // MARK: - Layouts that stay single or are already paired
