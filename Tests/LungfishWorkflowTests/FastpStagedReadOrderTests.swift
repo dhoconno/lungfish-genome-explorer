@@ -190,4 +190,30 @@ final class FastpStagedReadOrderTests: XCTestCase {
         XCTAssertEqual(single.calls.first?.r1, source)
         XCTAssertNil(singleRun.outcome.stagedPairOrder)
     }
+
+    // SE-NAMED-ADAPTERS-d. A `lungfish-cli` run from the build folder sits in no app and loads no test bundle, so
+    // the resource locator finds no workflow root (release binaries read no build-machine path), and every
+    // single-read trim stopped with "The list of known adapters ... is missing". A test process finds the list
+    // through its test bundle, so the in-process tests stayed green. Where the locator finds nothing, a debug build
+    // reads the list from the source tree, as the tool manifest and the conda locks do.
+    func testSingleReadAdaptersResolveWhereTheLocatorFindsNoWorkflowRoot() throws {
+        var asked: [String] = []
+        let adapters = try FastpPairedRunner.SingleReadAdapters.bundled(locate: { path in
+            asked.append(path)
+            return nil
+        })
+        XCTAssertEqual(asked, ["Tools/fastp-known-adapters.fasta"], "the locator is asked first")
+        XCTAssertEqual(adapters.fastaURL.lastPathComponent, "fastp-known-adapters.fasta")
+        XCTAssertEqual(adapters.fastaSequences.count, 5, "the five known adapters: \(adapters.fastaSequences)")
+        XCTAssertEqual(Array(adapters.arguments.prefix(2)), ["-a", "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA"])
+    }
+
+    // What the locator finds wins over the source tree, so an installed app reads its own copy.
+    func testSingleReadAdaptersReadTheCopyTheLocatorFinds() throws {
+        let copy = root.appendingPathComponent("located-adapters.fasta")
+        try ">only\nAAAACCCCGGGGTTTT\n".write(to: copy, atomically: true, encoding: .utf8)
+        let adapters = try FastpPairedRunner.SingleReadAdapters.bundled(locate: { _ in copy })
+        XCTAssertEqual(adapters.fastaURL, copy)
+        XCTAssertEqual(adapters.fastaSequences, ["only": "AAAACCCCGGGGTTTT"])
+    }
 }
