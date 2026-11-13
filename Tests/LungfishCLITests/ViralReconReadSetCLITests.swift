@@ -164,6 +164,14 @@ final class ViralReconReadSetCLITests: XCTestCase {
         XCTAssertEqual(decision.pairCount, 2)
     }
 
+    /// The reads of a bundle as a single-end row stages them. The row holds the reads in the fixed-seed order of
+    /// `SeededPairOrder` (seed 1), not in the bundle's clumped order, because fastp and viralrecon's trimming sample
+    /// the reads they meet first (trust session FIX-TRIM, finding R2). Five reads come out as input positions
+    /// 4, 3, 0, 1, 2.
+    private func seededOrder(_ bundleOrder: [String]) -> [String] {
+        SeededPairOrder.order(count: bundleOrder.count).map { bundleOrder[$0] }
+    }
+
     /// L5c. Before: the merged reads alone, refused as an uncompressed file.
     func testAMergeDerivativeRunsAsOneGzipSingleEndRowOfEveryReadWithTheReason() async throws {
         let fixtures = try ReadSetFixtures(in: root)
@@ -174,7 +182,10 @@ final class ViralReconReadSetCLITests: XCTestCase {
         XCTAssertEqual(row.sample, "merge")
         XCTAssertTrue(row.fastq1.hasSuffix(".fastq.gz"), row.fastq1)
         XCTAssertEqual(row.fastq2, "")
-        XCTAssertEqual(row.reads1, ["u1/1", "u1/2", "x1", "x2", "x3"])
+        // The bundle holds u1/1, u1/2, x1, x2, x3. The row holds all five once, in the fixed-seed order.
+        let bundleReads = ["u1/1", "u1/2", "x1", "x2", "x3"]
+        XCTAssertEqual(row.reads1.sorted(), bundleReads.sorted(), "every read of the bundle is in the row once")
+        XCTAssertEqual(row.reads1, seededOrder(bundleReads), "the row holds the reads in the fixed-seed order")
 
         let decision = try XCTUnwrap(try run.decisions().first)
         XCTAssertFalse(decision.runsPaired)
@@ -190,7 +201,10 @@ final class ViralReconReadSetCLITests: XCTestCase {
         let row = try XCTUnwrap(run.rows.first)
         XCTAssertEqual(run.rows.count, 1)
         XCTAssertEqual(row.fastq2, "")
-        XCTAssertEqual(row.reads1, ["r1/1", "r2/1", "r1/2", "r2/2", "o1"])
+        // The bundle holds r1/1, r2/1, r1/2, r2/2, o1. The row holds all five once, in the fixed-seed order.
+        let bundleReads = ["r1/1", "r2/1", "r1/2", "r2/2", "o1"]
+        XCTAssertEqual(row.reads1.sorted(), bundleReads.sorted(), "every read of the bundle is in the row once")
+        XCTAssertEqual(row.reads1, seededOrder(bundleReads), "the row holds the reads in the fixed-seed order")
         XCTAssertNotNil(try run.decisions().first?.warning)
     }
 
