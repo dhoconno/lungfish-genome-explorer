@@ -115,9 +115,11 @@ final class AffectedResultsTests: XCTestCase {
     // Trust session FIX-VR review BIO, section 4, ruling 5. SAD sets one row for each fix of an S1. The older, wider
     // copy (every sample of a batch took every sample's lineage tables) and the prefix match (S1 took S1.1's) are two
     // fixes with two build spans that do not overlap. No Viral Recon file names a build yet, so no record can show
-    // either row until AFFECTED-VIRALRECON-NO-BUILD is done.
+    // either row until AFFECTED-VIRALRECON-NO-BUILD is done. The read-order row (VIRALRECON-READ-ORDER, FIX-F5)
+    // shares the kind and has its own test, so this one counts the two lineage rows only.
     func testTheTwoViralReconLineageRowsHoldTheirOwnBuilds() throws {
-        let rows = AffectedResults.rows.filter { $0.kinds.contains(.viralRecon) }
+        let rows = AffectedResults.rows.filter { $0.kinds.contains(.viralRecon) && $0.backlogID.hasPrefix("VIRALRECON-LINEAGE") }
+        func lineageIDs(_ build: Int) -> [String] { ids(build, .viralRecon).filter { $0.hasPrefix("VIRALRECON-LINEAGE") } }
         XCTAssertEqual(Set(rows.map(\.backlogID)), ["VIRALRECON-LINEAGE-PREFIX", "VIRALRECON-LINEAGE-ALL-SAMPLES"])
         let prefix = try XCTUnwrap(rows.first { $0.backlogID == "VIRALRECON-LINEAGE-PREFIX" })
         let allSamples = try XCTUnwrap(rows.first { $0.backlogID == "VIRALRECON-LINEAGE-ALL-SAMPLES" })
@@ -129,12 +131,12 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertEqual(allSamples.lastBuild, 5442, "2026.9.52, the newest build before 8739d18dd")
         XCTAssertEqual(allSamples.fixCommit, "8739d18dd")
 
-        XCTAssertEqual(ids(4399, .viralRecon), [])
-        XCTAssertEqual(ids(4400, .viralRecon), ["VIRALRECON-LINEAGE-ALL-SAMPLES"])
-        XCTAssertEqual(ids(5442, .viralRecon), ["VIRALRECON-LINEAGE-ALL-SAMPLES"])
-        XCTAssertEqual(ids(5524, .viralRecon), ["VIRALRECON-LINEAGE-PREFIX"])
-        XCTAssertEqual(ids(12972, .viralRecon), ["VIRALRECON-LINEAGE-PREFIX"], "Stable 2026.11.7")
-        XCTAssertEqual(ids(12973, .viralRecon), [])
+        XCTAssertEqual(lineageIDs(4399), [])
+        XCTAssertEqual(lineageIDs(4400), ["VIRALRECON-LINEAGE-ALL-SAMPLES"])
+        XCTAssertEqual(lineageIDs(5442), ["VIRALRECON-LINEAGE-ALL-SAMPLES"])
+        XCTAssertEqual(lineageIDs(5524), ["VIRALRECON-LINEAGE-PREFIX"])
+        XCTAssertEqual(lineageIDs(12972), ["VIRALRECON-LINEAGE-PREFIX"], "Stable 2026.11.7")
+        XCTAssertEqual(lineageIDs(12973), [])
         for kind in AffectedResultKind.allCases where kind != .viralRecon {
             XCTAssertFalse(ids(5442, kind).contains("VIRALRECON-LINEAGE-ALL-SAMPLES"), "\(kind)")
             XCTAssertFalse(ids(12972, kind).contains("VIRALRECON-LINEAGE-PREFIX"), "\(kind)")
