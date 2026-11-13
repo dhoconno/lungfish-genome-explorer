@@ -68,12 +68,10 @@ final class BlastSavedRowOtherRouteProbeTests: XCTestCase {
         XCTAssertNil(taxTriage.taxId)
         XCTAssertNil(taxTriage.contig)
         XCTAssertNil(taxTriage.querySequences, "the premise: the real TaxTriage builder yields a key with the lineage alone")
-        // Measured at af54540c8, red at this line without the expectation: the look-up accepts the FASTA record on this row,
-        // since a row with no query sequences is decided by the lineage alone and the record's lineage names nothing more.
-        // The fix lane removes this expectation (S1, BACKLOG BLAST-SAVED-ROW-LINEAGE-MATCHES-OTHER-ROUTE).
-        XCTExpectFailure("BLAST-SAVED-ROW-LINEAGE-MATCHES-OTHER-ROUTE: the FASTA search shows on the TaxTriage row") {
-            XCTAssertFalse(shows(on: taxTriage), "a FASTA search shown on a TaxTriage row is a BLAST verdict on the wrong row")
-        }
+        // The look-up used to accept the FASTA record on this row: a row with no query sequences was decided by the
+        // lineage alone, and the record's lineage names nothing more (S1, BLAST-SAVED-ROW-LINEAGE-MATCHES-OTHER-ROUTE).
+        // A key that names no sample, taxon, contig or query is the source of no search.
+        XCTAssertFalse(shows(on: taxTriage), "a FASTA search shown on a TaxTriage row is a BLAST verdict on the wrong row")
     }
 
     func testRowsOfOtherRoutesThatNameASampleOrATaxonOrAContigNeverShowTheFASTASearch() throws {
