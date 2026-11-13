@@ -6,7 +6,11 @@
 // (ONT Rapid Barcoding, ONT 16S Rapid Amplicon, M13 Universal Primers) is searched with `--times 2`, and a short-read
 // single-index kit is not (`DemultiplexingPipeline.buildCutadaptArguments`, BIO-DEMUX-PARITY). Nothing pinned the
 // kept side. A stand-in cutadapt prints the argument list and the adapter file it was given, then fails, so the run
-// needs no real tool. The measure moved 814 of 2,000 chimeric reads, so BACKLOG row DEMUX-LONGREAD-TIMES2 stays open and a fix that drops `--times 2` flips the first test.
+// needs no real tool. BIO ruled that --times 2 stays (BIO-PROBES-A Q2, backlog row DEMUX-LONGREAD-TIMES2, S3). On a
+// fixture of ONT Rapid Barcoding 24, one search sends half of the A+B chimeras to A carrying B's bases, and
+// --times 2 sends them to B with B's bases only. The measure was made on the 24-barcode kit. Rapid 12 follows from
+// the same construct. For 16S Rapid Amplicon and M13 the pin rests on how their reads are built and was not
+// measured. A change that drops --times 2 flips the first test and needs a new BIO ruling.
 
 import Foundation
 import XCTest
@@ -108,8 +112,8 @@ final class DemultiplexLongReadTimesTwoPinTests: XCTestCase {
         }
     }
 
-    /// The adapter file of the ONT Rapid Barcoding 24 kit, for the by-hand measure in the lane report.
-    func testOntRapidBarcoding24AdapterFileIsPrintedForTheMeasure() async throws {
+    /// The adapter file the run gives cutadapt for ONT Rapid Barcoding 24 holds its 24 barcodes.
+    func testOntRapidBarcoding24AdapterFileHoldsItsTwentyFourBarcodes() async throws {
         let call = try await cutadaptCall(for: BarcodeKitRegistry.ontRapidBarcoding24)
         XCTAssertEqual(call.adapterLines.filter { $0.hasPrefix(">") }.count, 24)
     }
