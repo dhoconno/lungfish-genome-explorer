@@ -106,16 +106,73 @@ final class ReferenceBundleCopySelectionTests: XCTestCase {
 
         let copied = pasteboard.string(forType: .string)
         let words = recorder.reports.map(\.whatHappened)
-        // Measured at af54540c8: the pasteboard keeps its sentinel and the viewer says "The viewer holds no sequence, so
-        // there was nothing to copy." while the bases show. The row is S2 (copying a selection is a common task). The fix
-        // lane deletes this wrapper, and the strict wrapper fails the class the day the copy works, to say so.
-        XCTExpectFailure("BEEPS-COPY-SAYS-NO-SEQUENCE, S2: Command-C in a reference bundle refuses with 'holds no sequence'") {
-            XCTAssertEqual(copied, expected, "Command-C on bases 10 to 20 of a shown reference left the pasteboard with \(copied ?? "nothing"); words shown: \(words)")
-            XCTAssertTrue(words.isEmpty, "a copy that worked shows no refusal, but the viewer said \(words)")
-        }
+        // Measured at the base d38e16ad8 before the fix: the pasteboard kept its sentinel and the viewer said "The viewer
+        // holds no sequence, so there was nothing to copy." while the bases showed.
+        XCTAssertEqual(copied, expected, "Command-C on bases 10 to 20 of a shown reference left the pasteboard with \(copied ?? "nothing"); words shown: \(words)")
+        XCTAssertTrue(words.isEmpty, "a copy that worked shows no refusal, but the viewer said \(words)")
+    }
+
+    /// Edit > Copy is the standard `copy:` action. The viewer did not answer it, so the item stayed greyed out in the
+    /// viewer and only the key reached the copy.
+    func testEditCopyOnASelectionOfAReferenceBundleCopiesTheSelectedBases() async throws {
+        let (viewer, expected) = try await makeViewerShowingBases(selecting: 30..<45)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        viewer.copyPasteboard = pasteboard
+        pasteboard.clearContents()
+        pasteboard.setString("sentinel-before-copy", forType: .string)
+
+        let answered = viewer.tryToPerform(#selector(NSText.copy(_:)), with: nil)
+
+        XCTAssertTrue(answered, "the viewer answers the Edit > Copy action, so the menu item is enabled in it")
+        XCTAssertEqual(pasteboard.string(forType: .string), expected, "Edit > Copy on bases 30 to 45 left the pasteboard unchanged")
+    }
+
+    /// With a bundle open and no region on screen to take, a copy with nothing selected says to select bases. It said
+    /// the viewer holds no sequence, which the open bundle contradicts.
+    func testCopyWithNothingSelectedInAReferenceBundleSaysToSelectBases() throws {
+        let bundleURL = try makeReferenceBundle()
+        let bundle = ReferenceBundle(url: bundleURL, manifest: try BundleManifest.load(from: bundleURL))
+        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        viewer.setReferenceBundle(bundle)
+        let recorder = Recorder()
+
+        ViewerRefusalSeam.$presenter.withValue(recorder) { viewer.copySelectionToClipboard() }
+
+        XCTAssertEqual(recorder.reports.count, 1, "one refusal is shown")
+        let report = try XCTUnwrap(recorder.reports.first)
+        XCTAssertFalse(report.whatHappened.contains("holds no sequence"), report.whatHappened)
+        XCTAssertTrue(report.whatHappened.contains("No bases are selected"), report.whatHappened)
+        XCTAssertTrue(report.nextStep.contains("Select the bases you want"), report.nextStep)
     }
 
     // MARK: - Fixture
+
+    /// A viewer opened on the fixture bundle and zoomed to 60 bases, with the fetch landed and `selection` selected.
+    /// It returns the viewer and the bases the selection covers.
+    private func makeViewerShowingBases(selecting selection: Range<Int>) async throws -> (SequenceViewerView, String) {
+        let bundleURL = try makeReferenceBundle()
+        let bundle = ReferenceBundle(url: bundleURL, manifest: try BundleManifest.load(from: bundleURL))
+        let controller = ViewerViewController()
+        controller.loadView()
+        retainedController = controller
+        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        viewer.viewController = controller
+        viewer.setReferenceBundle(bundle)
+        controller.referenceFrame = ReferenceFrame(
+            chromosome: chromosome, start: 0, end: 60, pixelWidth: 800, sequenceLength: bases.count
+        )
+        viewer.cachedAnnotationRegion = GenomicRegion(chromosome: chromosome, start: 0, end: bases.count)
+        viewer.cachedBundleAnnotations = []
+        viewer.layoutSubtreeIfNeeded()
+        let rep = try XCTUnwrap(viewer.bitmapImageRepForCachingDisplay(in: viewer.bounds))
+        viewer.cacheDisplay(in: viewer.bounds, to: rep)
+        let shown = await waitUntil(budget: .lookup) { viewer.cachedBundleSequence != nil }
+        XCTAssertTrue(shown, "the viewer never fetched the bases of the bundle")
+        viewer.selectionRange = selection
+        return (viewer, String(Array(bases)[selection]))
+    }
+
 
     private func makeReferenceBundle() throws -> URL {
         let bundleURL = root.appendingPathComponent("copy.lungfishref", isDirectory: true)
