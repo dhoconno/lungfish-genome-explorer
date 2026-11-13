@@ -25,8 +25,10 @@ public enum ViralReconSamplesheetBuilder {
                 return "The read file “\(name)” of sample “\(sampleName)” holds a space in its name, "
                     + "and viralrecon's samplesheet does not accept one. Rename the file, "
                     + "for example to “\(ViralReconSamplesheetBuilder.replacingWhitespace(in: name))”, and run again."
-            case .unsupportedIlluminaFASTQ:
-                return nil
+            case .unsupportedIlluminaFASTQ(let url):
+                return "The read file “\(url.lastPathComponent)” does not end in .fastq.gz or .fq.gz, "
+                    + "which viralrecon's samplesheet requires. Compress a plain FASTQ file with gzip, "
+                    + "or rename a gzip file to end in .fastq.gz, and run again."
             case .virtualNanoporeBundle(let url):
                 return """
                     \(url.lastPathComponent) is a virtual bundle, so it holds no FASTQ file for viralrecon's \

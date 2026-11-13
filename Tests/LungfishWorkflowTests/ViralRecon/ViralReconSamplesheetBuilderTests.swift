@@ -93,6 +93,35 @@ final class ViralReconSamplesheetBuilderTests: XCTestCase {
         }
     }
 
+    // Trust session FIX-VR review BIO, fix 2 (S2). A read file that is not
+    // gzip FASTQ was refused with no words, and the app's Run showed the
+    // system's "The operation couldn't be completed" line for the error. The
+    // words name the file and say what to do, and no samplesheet is written.
+    func testIlluminaSamplesheetRefusesAFileThatIsNotGzipFASTQWithWords() throws {
+        let temp = try ViralReconWorkflowTestFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let sheetDirectory = temp.appendingPathComponent("sheet", isDirectory: true)
+        let sample = ViralReconSample(
+            sampleName: "A",
+            sourceBundleURL: temp,
+            fastqURLs: [temp.appendingPathComponent("reads.fastq")],
+            barcode: nil,
+            sequencingSummaryURL: nil
+        )
+
+        XCTAssertThrowsError(
+            try ViralReconSamplesheetBuilder.writeIlluminaSamplesheet(samples: [sample], in: sheetDirectory)
+        ) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "The read file “reads.fastq” does not end in .fastq.gz or .fq.gz, which viralrecon's samplesheet "
+                    + "requires. Compress a plain FASTQ file with gzip, or rename a gzip file to end in .fastq.gz, "
+                    + "and run again."
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sheetDirectory.appendingPathComponent("samplesheet.csv").path))
+    }
+
     // Trust session FIX-VR (F1, S2). viralrecon's samplesheet refuses a
     // `sample` cell with a space (`^\S+$`) and a read file whose name holds
     // one, and then the whole run fails. The builder refuses first, with
