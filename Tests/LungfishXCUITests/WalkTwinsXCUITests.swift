@@ -192,7 +192,8 @@ final class WalkTwinsXCUITests: XCTestCase {
 
     /// The `patient` and `NTC_1` folders of `Tests/Fixtures/taxtriage-ntc-p` as one TaxTriage result under Analyses, with
     /// the sidecar of a run whose samples were typed "NTC 1" (a control) and "patient". The app builds the database when
-    /// it opens the result, as it does for any result that holds none.
+    /// it opens the result, as it does for any result that holds none. The copy leaves each sample's `minimap2`
+    /// alignments out (see the comment in the body).
     @MainActor
     private static func addNTCPBatch(to project: URL, named folder: String) throws {
         let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
@@ -201,6 +202,16 @@ final class WalkTwinsXCUITests: XCTestCase {
         try FileManager.default.copyItem(at: LungfishFixtureCatalog.fixturesRoot.appendingPathComponent("taxtriage-ntc-p", isDirectory: true),
                                          to: result)
         try? FileManager.default.removeItem(at: result.appendingPathComponent("README.md"))
+        // The release smoke starts the app on an empty home, and that home holds no managed samtools. `build-db` counts
+        // every alignment it finds with that samtools, so with the BAMs in place it built the rows, said "Managed
+        // samtools is required to compute build-db read counts" and exited 1, and the app showed "Build failed" over
+        // the batch (gate run of TWINS-f, `lungfish-cli build-db taxtriage --force` with an empty HOME). The matrix and
+        // the report take their words from the rows of the organism reports and the reference maps, so the copy leaves
+        // the alignments out and `build-db` finds no BAM to count.
+        for sample in ["NTC_1", "patient"] {
+            try FileManager.default.removeItem(at: result.appendingPathComponent(sample, isDirectory: true)
+                .appendingPathComponent("minimap2", isDirectory: true))
+        }
         let sample = { (name: String, file: String, control: Bool) -> [String: Any] in
             ["sampleId": name, "fastq1": "file:///nonexistent/\(file).fastq.gz", "platform": "ILLUMINA", "isNegativeControl": control]
         }
