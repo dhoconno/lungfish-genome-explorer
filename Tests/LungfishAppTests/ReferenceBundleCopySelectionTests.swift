@@ -128,6 +128,56 @@ final class ReferenceBundleCopySelectionTests: XCTestCase {
         XCTAssertEqual(pasteboard.string(forType: .string), expected, "Edit > Copy on bases 30 to 45 left the pasteboard unchanged")
     }
 
+    /// A selection wider than the window the viewer holds in its cache is read from the bundle, off the main actor, and
+    /// the pasteboard gets exactly the selected bases (FIX-COPY review UX, should-fix 1, the cache-miss branch).
+    func testCopyOutsideTheCachedWindowReadsTheBundle() async throws {
+        let (viewer, expected) = try await makeViewerShowingBases(selecting: 100..<5000)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        viewer.copyPasteboard = pasteboard
+        pasteboard.clearContents()
+        pasteboard.setString("sentinel-before-copy", forType: .string)
+        // The viewer holds no cached window, so bases 100 to 5000 cannot come from it and the copy reads the bundle.
+        viewer.cachedBundleSequence = nil
+        viewer.cachedSequenceRegion = nil
+        let recorder = Recorder()
+
+        ViewerRefusalSeam.$presenter.withValue(recorder) { viewer.copySelectionToClipboard() }
+        let landed = await waitUntil(budget: .standard) {
+            pasteboard.string(forType: .string) == expected || !recorder.reports.isEmpty
+        }
+
+        XCTAssertTrue(landed, "the copy neither wrote the pasteboard nor showed words")
+        XCTAssertEqual(pasteboard.string(forType: .string), expected, "a copy that read the bundle left the wrong bases")
+        XCTAssertTrue(recorder.reports.isEmpty, "a copy that worked shows no refusal, but the viewer said \(recorder.reports.map(\.whatHappened))")
+    }
+
+    /// When the bundle's sequence file is gone, a copy that has to read it says so in words that name the next step and
+    /// leaves the pasteboard as it was (FIX-COPY review UX, should-fix 1, the failed-read branch).
+    func testCopyWithTheSequenceFileGoneShowsTheFailedReadWords() async throws {
+        let (viewer, _) = try await makeViewerShowingBases(selecting: 100..<5000)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        viewer.copyPasteboard = pasteboard
+        pasteboard.clearContents()
+        pasteboard.setString("sentinel-before-copy", forType: .string)
+        // The viewer showed the bases, then the sequence file went away and the cached window is cleared.
+        try FileManager.default.removeItem(at: root.appendingPathComponent("copy.lungfishref/genome/sequence.fa"))
+        viewer.cachedBundleSequence = nil
+        viewer.cachedSequenceRegion = nil
+        let recorder = Recorder()
+
+        ViewerRefusalSeam.$presenter.withValue(recorder) { viewer.copySelectionToClipboard() }
+        let shown = await waitUntil(budget: .standard) { !recorder.reports.isEmpty }
+
+        XCTAssertTrue(shown, "a copy that could not read the bundle showed no words")
+        XCTAssertEqual(recorder.reports.count, 1, "one refusal is shown")
+        let report = try XCTUnwrap(recorder.reports.first)
+        XCTAssertTrue(report.whatHappened.contains("could not read the selected bases"), report.whatHappened)
+        XCTAssertTrue(report.nextStep.contains("import the original FASTA"), report.nextStep)
+        XCTAssertEqual(pasteboard.string(forType: .string), "sentinel-before-copy", "a failed read must leave the pasteboard as it was")
+    }
+
     /// An older copy whose read of the bundle is still in flight must not overwrite a newer copy. Only the copy that
     /// reads the bundle bumped `fastaOperationFetchGeneration`, so a newer copy from the cached window left the older
     /// fetch current and its bases landed on the pasteboard after the newer ones (FIX-COPY review UX, fold F1).
