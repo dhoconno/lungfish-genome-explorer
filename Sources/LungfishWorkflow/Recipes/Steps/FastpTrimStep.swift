@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 /// Recipe step that trims adapters and low-quality bases using fastp.
 ///
@@ -20,7 +21,9 @@ public struct FastpTrimStep: FastpFusible {
 
     // MARK: - Parameters
 
-    /// Whether to enable fastp's automatic adapter detection for paired-end reads.
+    /// Whether the trim removes the TruSeq adapters by name (`--adapter_sequence`, `--adapter_sequence_r2`) as well as
+    /// by mate overlap, never by fastp's guess from read order (ruling ARCH-BIO-RECIPE-TRIM). The key keeps its name so
+    /// older recipes still open, and `false` trims by mate overlap only.
     public let detectAdapter: Bool
 
     /// Qualified-base threshold of the read filter (`-q`), read from `qualifiedQuality` or, in older recipes,
@@ -93,7 +96,7 @@ public struct FastpTrimStep: FastpFusible {
         var args: [String] = []
 
         if detectAdapter {
-            args.append("--detect_adapter_for_pe")
+            args += ["--adapter_sequence", PlatformAdapters.truseqR1, "--adapter_sequence_r2", PlatformAdapters.truseqR2]
         }
         if trimPolyG {
             args += ["-g", "--poly_g_min_len", "\(polyGMinLength)"]
