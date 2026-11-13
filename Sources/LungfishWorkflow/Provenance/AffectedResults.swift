@@ -355,13 +355,23 @@ public enum AffectedResults {
         ),
         AffectedResultRow(
             backlogID: "FASTQ-TRIM-READ-ORDER", kinds: [.fastqTrim], firstBuild: 344, lastBuild: 12972,
-            sentence: "The version that made these trimmed reads gave fastp the reads, as pairs or as single reads, "
-                + "in the order the import stored them, so fastp could choose the wrong adapter and leave adapter "
-                + "bases on some reads, which can change mapping, primer trimming and allele frequencies made "
-                + "from them.",
+            sentence: "The version that made these trimmed reads gave fastp the read pairs in the order the import "
+                + "stored them, so fastp could choose the wrong adapter and leave adapter bases on some reads, which "
+                + "can change mapping, primer trimming and allele frequencies made from them.",
             whatToDo: "Trim the original reads again with this version, or name your adapter in the trim dialog, "
                 + "and redo any mapping or variant calling that used the trimmed reads.",
             fixCommit: "1cf7f7b28"
+        ),
+        AffectedResultRow(
+            backlogID: "FASTQ-SE-ADAPTER-GUESS", kinds: [.fastqTrim], firstBuild: 344, lastBuild: 12972,
+            sentence: "The version that made these trimmed reads let fastp guess the adapter of single-end reads from "
+                + "the reads it saw first, and the guess changed with the order the reads were stored in, so some "
+                + "reads kept adapter bases or were trimmed differently from the same reads in another order, which "
+                + "can change mapping, primer trimming, small RNA counts and allele frequencies made from them.",
+            whatToDo: "Trim the original reads again with this version, which names the Illumina TruSeq, Nextera and "
+                + "small RNA adapters for single reads, or name your adapter in the trim dialog if your library used "
+                + "another, and redo any mapping, counting or variant calling that used the trimmed reads.",
+            fixCommit: "c4e2d9908"
         ),
     ]
 

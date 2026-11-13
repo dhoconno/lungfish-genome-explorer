@@ -213,16 +213,40 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertEqual(row.firstBuild, 344, "75c319483")
         XCTAssertEqual(row.lastBuild, 12972, "Stable 2026.11.7, the newest build, lacks the fix")
         XCTAssertEqual(ids(343, .fastqTrim), [])
-        XCTAssertEqual(ids(344, .fastqTrim), ["FASTQ-TRIM-READ-ORDER"])
-        XCTAssertEqual(ids(12972, .fastqTrim), ["FASTQ-TRIM-READ-ORDER"], "Stable 2026.11.7")
+        XCTAssertTrue(ids(344, .fastqTrim).contains("FASTQ-TRIM-READ-ORDER"))
+        XCTAssertTrue(ids(12972, .fastqTrim).contains("FASTQ-TRIM-READ-ORDER"), "Stable 2026.11.7")
         XCTAssertEqual(ids(12973, .fastqTrim), [])
         for kind in AffectedResultKind.allCases where kind != .fastqTrim {
             XCTAssertFalse(ids(12972, kind).contains(row.backlogID), "\(kind)")
         }
-        XCTAssertTrue(row.sentence.contains("as pairs or as single reads, in the order the import stored them"))
+        // SE-NAMED-ADAPTERS review BIO, Q5: the row speaks about read pairs, and FASTQ-SE-ADAPTER-GUESS carries the
+        // single reads, since the seeded order of 1cf7f7b28 did not cure them.
+        XCTAssertTrue(row.sentence.contains("gave fastp the read pairs in the order the import stored them"))
+        XCTAssertFalse(row.sentence.contains("single reads"))
         XCTAssertTrue(row.whatToDo.contains("or name your adapter in the trim dialog"))
         let viralRecon = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "VIRALRECON-READ-ORDER" })
         XCTAssertEqual(viralRecon.fixCommit, "3b0f0c233", "2102ef1ef, which fixed the single-end rows")
+    }
+
+    // Trust session SE-NAMED-ADAPTERS review BIO, part 4 Q5. FASTQ-SE-ADAPTER-GUESS holds a result of `fastq trim` or
+    // `fastq adapter-trim` on single-end reads, from the build that brought the clumped bundle order in (75c319483,
+    // 344) to Stable 2026.11.7, and no other kind. It shares the kind and the span of FASTQ-TRIM-READ-ORDER.
+    func testTheFastqSingleReadAdapterGuessRowHoldsItsBuilds() throws {
+        let row = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "FASTQ-SE-ADAPTER-GUESS" })
+        XCTAssertEqual(row.kinds, [.fastqTrim])
+        XCTAssertEqual(row.firstBuild, 344, "75c319483")
+        XCTAssertEqual(row.lastBuild, 12972, "Stable 2026.11.7, the newest build, lacks the fix")
+        let both: Set<String> = ["FASTQ-TRIM-READ-ORDER", "FASTQ-SE-ADAPTER-GUESS"]
+        XCTAssertEqual(ids(343, .fastqTrim), [])
+        XCTAssertEqual(Set(ids(344, .fastqTrim)), both)
+        XCTAssertEqual(Set(ids(12972, .fastqTrim)), both, "Stable 2026.11.7")
+        XCTAssertEqual(ids(12973, .fastqTrim), [])
+        for kind in AffectedResultKind.allCases where kind != .fastqTrim {
+            XCTAssertFalse(ids(12972, kind).contains(row.backlogID), "\(kind)")
+        }
+        XCTAssertTrue(row.sentence.contains("let fastp guess the adapter of single-end reads from the reads it saw first"))
+        XCTAssertTrue(row.whatToDo.contains("which names the Illumina TruSeq, Nextera and small RNA adapters for single reads"))
+        XCTAssertTrue(row.whatToDo.contains("or name your adapter in the trim dialog if your library used another"))
     }
 
     // MARK: - Records as the app wrote them, with the bare version at the root
