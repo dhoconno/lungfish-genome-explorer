@@ -1712,7 +1712,7 @@ extension SequenceViewerView {
     /// unconditionally schedules its body on the cooperative thread pool regardless of the
     /// caller's actor or the callee's suspension behavior, so it is the structural guarantee
     /// this needs (see `Sources/LungfishKit/AsyncFileReader.swift` for the same pattern).
-    nonisolated private static func fetchBundleRegionOffMain(
+    nonisolated static func fetchBundleRegionOffMain(
         bundle: ReferenceBundle,
         region: GenomicRegion
     ) async throws -> String {
@@ -2026,7 +2026,14 @@ extension SequenceViewerView {
     }
 
     /// Copies the selected sequence to the clipboard
+    ///
+    /// A reference bundle view holds no `sequence`, since it fetches the bases it draws on demand, so its copy reads
+    /// the cached window or the bundle (`copyBundleSelectionToClipboard`).
     public func copySelectionToClipboard() {
+        if sequence == nil, currentReferenceBundle != nil || cachedBundleSequence != nil {
+            copyBundleSelectionToClipboard(step: "Copy the selection")
+            return
+        }
         guard let seq = sequence else {
             presentSelectionRefusal(step: "Copy the selection")
             return
