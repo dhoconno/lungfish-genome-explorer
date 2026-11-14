@@ -95,6 +95,24 @@ if has bias; then
   $PY "$HERE/claims.py" "$WORK/claims_gcbias/metrics.json" "$WORK/claims_gcbias/claims.tsv"
 fi
 
+# Lane evidence of RS-BULK-IMPORT, outside the default stages: LGE_CLI imports the salmon folders of quant/ that
+# gene.R reads, labelled <sample>_<library> as gene.R:14, with gene sums through ref/tx2gene.tsv.
+if has lge_import; then
+  : "${LGE_CLI:?set LGE_CLI to a lungfish-cli}"
+  LGE_OUT=$WORK/lge/${LGE_RUN:-RS-BULK-IMPORT}
+  mkdir -p "$LGE_OUT/project.lungfish"
+  printf 'run\tsample\tgroup\n' > "$LGE_OUT/sheet.tsv"
+  LGE_DIRS=()
+  while IFS=$'\t' read -r run sample library _; do
+    [ "$run" = run ] && continue
+    [ -s "$WORK/quant/$run/quant.sf" ] || continue
+    printf '%s\t%s_%s\t%s\n' "$run" "$sample" "$library" "$sample" >> "$LGE_OUT/sheet.tsv"
+    LGE_DIRS+=("$WORK/quant/$run")
+  done < "$HERE/samples.tsv"
+  "$LGE_CLI" import rnaseq "${LGE_DIRS[@]}" --project "$LGE_OUT/project.lungfish" --name seqc-c1 \
+    --tx2gene "$WORK/ref/tx2gene.tsv" --samples "$LGE_OUT/sheet.tsv"
+fi
+
 if has star; then
   heavy $NICE bash "$HERE/star.sh" index "$WORK/ref" "$WORK/star_index" "$ENVP" "$THREADS"
   for run in $STAR_RUNS; do

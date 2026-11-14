@@ -202,6 +202,7 @@ lungfish-cli import taxtriage	shown	0	lungfish-cli.import.taxtriage.txt
 lungfish-cli import nao-mgs	shown	0	lungfish-cli.import.nao-mgs.txt
 lungfish-cli import nvd	shown	0	lungfish-cli.import.nvd.txt
 lungfish-cli import cz-id	shown	0	lungfish-cli.import.cz-id.txt
+lungfish-cli import rnaseq	shown	0	lungfish-cli.import.rnaseq.txt
 lungfish-cli import metadata	shown	0	lungfish-cli.import.metadata.txt
 lungfish-cli import-fastq	shown	0	lungfish-cli.import-fastq.txt
 lungfish-cli ops	shown	0	lungfish-cli.ops.txt

@@ -33,6 +33,7 @@ SUBCOMMANDS:
   nvd                     Import NVD BLAST results
   cz-id                   Import hosted CZ-ID classification results into a
                           project
-  metadata                Import sample metadata CSV/TSV into a result bundle
+  rnaseq                  Import bulk RNA-seq counts into a project
+  metadata               Import sample metadata CSV/TSV into a result bundle
 
   See 'lungfish-cli help import <subcommand>' for detailed help.

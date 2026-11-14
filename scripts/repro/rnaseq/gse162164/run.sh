@@ -75,6 +75,21 @@ de() { # step A on the deposit, step B on ours (gene sums, the tximport default)
   return 0
 }
 nquant() { ls "$WORK/$1"/*/quant.sf 2>/dev/null | wc -l | tr -d ' '; }
+lge_import() { # lane evidence of RS-BULK-IMPORT, outside the chain: LGE_CLI imports the decoy arm with C1's tx2gene
+  : "${LGE_CLI:?set LGE_CLI to a lungfish-cli}"
+  local out=$WORK/lge/${LGE_RUN:-RS-BULK-IMPORT} run gsm title group rest
+  local dirs=()
+  mkdir -p "$out/project.lungfish"
+  printf 'run\tsample\tgroup\n' > "$out/sheet.tsv"
+  while IFS=$'\t' read -r run gsm title group rest; do
+    [ "$run" = run ] && continue
+    [ -s "$WORK/quant_decoy/$run/quant.sf" ] || continue
+    printf '%s\t%s\t%s\n' "$run" "$(printf '%s' "$rest" | cut -f3)" "$group" >> "$out/sheet.tsv"
+    dirs+=("$WORK/quant_decoy/$run")
+  done < "$SHEET"
+  "$LGE_CLI" import rnaseq "${dirs[@]}" --project "$out/project.lungfish" --name gse162164-decoy \
+    --tx2gene "$DECOY_DIR/ref/tx2gene.tsv" --samples "$out/sheet.tsv"
+}
 
 if has chain; then
   log "chain start"; samples; ref; supp; deposit
@@ -102,6 +117,6 @@ if has chain; then
   log "chain done"; touch "$WORK/CHAIN_DONE"
   exit 0
 fi
-for s in samples ref supp deposit index quant_paper quant_decoy compare de; do
+for s in samples ref supp deposit index quant_paper quant_decoy compare de lge_import; do
   if has $s; then log "stage $s"; $s; fi
 done
