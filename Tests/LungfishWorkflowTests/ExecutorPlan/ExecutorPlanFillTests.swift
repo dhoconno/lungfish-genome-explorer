@@ -19,8 +19,15 @@ final class ExecutorPlanFillTests: XCTestCase {
     /// `--detect_adapter_for_pe`. The plan's bytes differ in that one argv element and nothing else: one line of 35 bytes
     /// became four lines of 153 bytes, 118 bytes in all (11060 + 118 = 11178). The head with only that commit's change to
     /// `FastpTrimStep.swift` reverted gives the old digest again, and a line-by-line diff of the two plans is that one hunk.
-    private static let goldenSHA256 = "2fe894f37e0e3337fdd0cc28d1dd15ed0624d577f00f39ac2f89cdebc4f2e605"
-    private static let goldenByteCount = 11178
+    ///
+    /// Moved again by lane NEXTERA (Preview 2026.11.8, ruling BIO-NEXTERA N1) from 2fe894f37e0e3337fdd0cc28d1dd15ed0624d577f00f39ac2f89cdebc4f2e605
+    /// and 11178 bytes. The VSP2 preset's trim names the Nextera pair, and the bundled recipe file is formatVersion 3
+    /// with the preset's `stepParams`. The count the run measured, accounted for before the golden moved (no line diff
+    /// of the two plans was run): the Nextera R1 adapter is 34 bases where TruSeq R1 is
+    /// 33 (+1 byte), the two R2 adapters are both 33 (0), formatVersion 2 becomes 3 (0), the recipe's SHA-256 in the
+    /// identity and its entry stay 64 hex digits (0), and the file's size goes from 2490 to 2563 bytes (0), so 11179.
+    private static let goldenSHA256 = "0f7289d0bc41d9ed8c2330c41971ea362c40c69901adab761087e797afb2eee1"
+    private static let goldenByteCount = 11179
 
     private var root: URL!
 

@@ -47,15 +47,24 @@ extension RecipeEngineTests {
 
     /// Taken from the in-process run of this test at the K4 head 9918341d7, whose step sources M2 left byte equal to
     /// the inline argv they replaced (ARCH review of K4 part A, fix 2). The fused fastp flags come from the bundled
-    /// recipe file.
-    private static let fusedFastp = [
-        "-i", "inputs/R1.fastq", "-I", "inputs/R2.fastq", "-o", "work/sample_fused_R1.fq.gz", "-O", "work/sample_fused_R2.fq.gz",
-        "--dedup", "--dup_calc_accuracy", "3",
+    /// recipe file. Ruling BIO-NEXTERA N1: the VSP2 preset's trim names the Nextera pair where the TruSeq pair stood,
+    /// and the wastewater preset keeps the TruSeq pair.
+    private static let truSeqPair = [
         "--adapter_sequence", "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA", "--adapter_sequence_r2", "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
-        "-g", "--poly_g_min_len", "10", "-q", "15",
-        "-u", "40", "-n", "5", "-l", "15", "-W", "5", "--cut_tail", "-M", "20", "-w", "1",
-        "-j", "work/sample_fused_fastp_report.json", "-h", "/dev/null",
     ]
+    private static let nexteraPair = [
+        "--adapter_sequence", "CTGTCTCTTATACACATCTCCGAGCCCACGAGAC", "--adapter_sequence_r2", "CTGTCTCTTATACACATCTGACGCTGCCGACGA",
+    ]
+    private static func fusedFastp(_ adapterPair: [String]) -> [String] {
+        [
+            "-i", "inputs/R1.fastq", "-I", "inputs/R2.fastq", "-o", "work/sample_fused_R1.fq.gz", "-O", "work/sample_fused_R2.fq.gz",
+            "--dedup", "--dup_calc_accuracy", "3",
+        ] + adapterPair + [
+            "-g", "--poly_g_min_len", "10", "-q", "15",
+            "-u", "40", "-n", "5", "-l", "15", "-W", "5", "--cut_tail", "-M", "20", "-w", "1",
+            "-j", "work/sample_fused_fastp_report.json", "-h", "/dev/null",
+        ]
+    }
     private static let scrub = [
         "filter", "-d", "databases/test-panhuman/panhuman-1.k31w15.idx", "work/sample_fused_R1.fq.gz", "work/sample_fused_R2.fq.gz",
         "-o", "work/sample_scrubbed_R1.fq.gz", "-O", "work/sample_scrubbed_R2.fq.gz",
@@ -86,11 +95,11 @@ extension RecipeEngineTests {
     ]
     private static let frozenArgv: [(String, [[String]])] = [
         ("vsp2-target-enrichment", [
-            fusedFastp, scrub, merge("work/sample_scrubbed_R1.fq.gz", "work/sample_scrubbed_R2.fq.gz"),
+            fusedFastp(nexteraPair), scrub, merge("work/sample_scrubbed_R1.fq.gz", "work/sample_scrubbed_R2.fq.gz"),
             lengthFilterMerged, lengthFilterPairs,
         ]),
         ("wastewater-metagenomics", [
-            fusedFastp, scrub, riboFilter, merge("work/sample_norrna_R1.fastq.gz", "work/sample_norrna_R2.fastq.gz"),
+            fusedFastp(truSeqPair), scrub, riboFilter, merge("work/sample_norrna_R1.fastq.gz", "work/sample_norrna_R2.fastq.gz"),
             lengthFilterMerged, lengthFilterPairs,
         ]),
     ]

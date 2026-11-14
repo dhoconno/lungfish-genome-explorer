@@ -494,7 +494,7 @@ final class ExecutorPlanEmitterTests: XCTestCase {
             XCTAssertEqual(identity.id, "illumina-paired-cleanup", name)
             XCTAssertEqual(identity.name, merged.name, name)
             XCTAssertEqual(identity.requestedName, name)
-            XCTAssertEqual(identity.formatVersion, 2, name)
+            XCTAssertEqual(identity.formatVersion, 3, name)
             XCTAssertEqual(identity.sourceSHA256, plan.entries.first { $0.role == .recipe }?.sha256, name)
             XCTAssertEqual(identity.presetID, name)
             XCTAssertEqual(identity.switches, merged.switchSettings.map {

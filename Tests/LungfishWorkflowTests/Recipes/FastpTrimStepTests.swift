@@ -15,11 +15,15 @@ final class FastpTrimStepTests: XCTestCase {
         "--adapter_sequence_r2", "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
     ]
 
-    /// The flags ruling BIO-PRESET P1 names for the trim, every value written out, with the adapter named.
-    static let ruledTrimFlags = namedTruSeqPair + [
+    /// The flags ruling BIO-PRESET P1 names for the trim after its adapter pair, every value written out.
+    static let ruledFlagsAfterTheAdapter = [
         "-g", "--poly_g_min_len", "10",
         "-q", "15", "-u", "40", "-n", "5", "-l", "15", "-W", "5", "--cut_tail", "-M", "20",
     ]
+
+    /// The VSP2 preset's trim flags, with the Nextera pair named (ruling BIO-NEXTERA N1, where the TruSeq pair stood
+    /// before).
+    static let vsp2TrimFlags = namedNexteraPair + ruledFlagsAfterTheAdapter
 
     func test_mergedRecipeFusedArgv() async throws {
         let root = try makeTemporaryDirectory()
@@ -54,7 +58,7 @@ final class FastpTrimStepTests: XCTestCase {
         XCTAssertEqual(
             argv,
             ["-i", argv[1], "-I", argv[3], "-o", argv[5], "-O", argv[7],
-             "--dedup", "--dup_calc_accuracy", "3"] + Self.ruledTrimFlags
+             "--dedup", "--dup_calc_accuracy", "3"] + Self.vsp2TrimFlags
                 + ["-w", "1", "-j", report, "-h", "/dev/null"]
         )
     }
@@ -84,8 +88,8 @@ final class FastpTrimStepTests: XCTestCase {
 
         let arguments = try XCTUnwrap(output.arguments)
         let start = try XCTUnwrap(arguments.firstIndex(of: "-i"))
-        let flags = Array(arguments[(start + 8)...].prefix(Self.ruledTrimFlags.count))
-        XCTAssertEqual(flags, Self.ruledTrimFlags)
+        let flags = Array(arguments[(start + 8)...].prefix(Self.vsp2TrimFlags.count))
+        XCTAssertEqual(flags, Self.vsp2TrimFlags)
         XCTAssertFalse(arguments.contains("--dedup"))
         let reportIndex = try XCTUnwrap(arguments.firstIndex(of: "-j"))
         XCTAssertNotEqual(arguments[reportIndex + 1], "/dev/null")

@@ -52,9 +52,9 @@ final class RecipeIntegrationTests: XCTestCase {
         if case .fusedFastp(let args, _, _, _) = plan[0] {
             XCTAssertTrue(args.contains("--dedup"), "Fused args should include --dedup")
             XCTAssertNotNil(args.firstRange(of: [
-                "--adapter_sequence", "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA",
-                "--adapter_sequence_r2", "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT",
-            ]), "Should name the TruSeq adapter pair")
+                "--adapter_sequence", "CTGTCTCTTATACACATCTCCGAGCCCACGAGAC",
+                "--adapter_sequence_r2", "CTGTCTCTTATACACATCTGACGCTGCCGACGA",
+            ]), "VSP2 should name the Nextera adapter pair (ruling BIO-NEXTERA N1)")
             XCTAssertFalse(args.contains("--detect_adapter_for_pe"), "Should not guess the adapter from read order")
             XCTAssertTrue(args.contains("-q"), "Should include quality threshold")
             XCTAssertTrue(args.contains("15"), "Quality should be 15")

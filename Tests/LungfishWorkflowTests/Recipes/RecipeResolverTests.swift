@@ -97,8 +97,9 @@ struct RecipeResolverTests {
         let recipes = try builtins()
         #expect(Set(recipes.map(\.id)) == [Self.mergedID, "illumina-amplicon-merge"])
         let merged = try #require(recipes.first { $0.id == Self.mergedID })
-        #expect(merged.formatVersion == 2)
+        #expect(merged.formatVersion == 3)
         #expect(merged.sourceSHA256?.count == 64)
+        #expect(merged.presets.map(\.stepParams) == [["fastp-trim": ["adapterKit": .string("nextera")]], [:]])
         #expect(merged.steps.map(\.type) == [
             "fastp-dedup", "fastp-trim", "deacon-scrub", "deacon-ribo-filter", "fastp-merge", "seqkit-length-filter",
         ])
@@ -117,7 +118,7 @@ struct RecipeResolverTests {
         let folder = RecipeRegistryV2.userRecipesDirectoryURL(applicationSupportDirectory: support)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try Data("""
-        {"formatVersion": 3, "id": "future-recipe", "name": "Future", "platforms": ["illumina"],
+        {"formatVersion": 4, "id": "future-recipe", "name": "Future", "platforms": ["illumina"],
          "requiredInput": "any", "steps": []}
         """.utf8).write(to: folder.appendingPathComponent("future.recipe.json"))
 
@@ -126,14 +127,14 @@ struct RecipeResolverTests {
         let refused = RecipeRegistryV2.refusedRecipeFiles(applicationSupportDirectory: support)
         let refusal = try #require(refused.first { $0.recipeID == "future-recipe" })
         #expect(refusal.fileName == "future.recipe.json")
-        #expect(refusal.formatVersion == 3)
+        #expect(refusal.formatVersion == 4)
 
         do {
             _ = try RecipeResolver.resolve("future-recipe", in: loaded, refused: refused)
             Issue.record("a refused file resolved")
         } catch BatchImportError.unsupportedRecipe(let name, let reason) {
             #expect(name == "future-recipe")
-            #expect(reason.contains("formatVersion 3"))
+            #expect(reason.contains("formatVersion 4"))
         }
     }
 
