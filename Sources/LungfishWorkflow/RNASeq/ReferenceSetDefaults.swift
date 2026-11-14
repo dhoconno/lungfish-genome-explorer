@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // The rows are P5-REFS's table (records `lanes/P5-REFS.md:9-18`). 5.1 downloads nothing: the person passes the files
-// and the owner checks their sha256 against the row. A row with no sha256 is not staged yet and checks nothing.
+// and the owner checks their sha256 against the row. Every row pins its genome and its GTF.
 
 import Foundation
 
@@ -57,11 +57,15 @@ public struct ReferenceSetDefault: Sendable, Equatable {
             ncbi + "003/339/765/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.gtf.gz",
             "2fe11d44f5e3978959f73fbbbc5122dd70a124135a4643630b814e1c5c04ef74"),
         row("rhesus/refseq-GCF_049350105.2", "rhesus offered", "Macaca mulatta", "T2T-MMU8v2.0", "GCF_049350105.2", "RefSeq", "RS_2025_08",
-            ncbi + "049/350/105/GCF_049350105.2_T2T-MMU8v2.0/GCF_049350105.2_T2T-MMU8v2.0_genomic.fna.gz", nil,
-            ncbi + "049/350/105/GCF_049350105.2_T2T-MMU8v2.0/GCF_049350105.2_T2T-MMU8v2.0_genomic.gtf.gz", nil),
+            ncbi + "049/350/105/GCF_049350105.2_T2T-MMU8v2.0/GCF_049350105.2_T2T-MMU8v2.0_genomic.fna.gz",
+            "11f5cafd900bd75bc08b81164febd643ebee916365e6d430faf18461d7fd12ee",
+            ncbi + "049/350/105/GCF_049350105.2_T2T-MMU8v2.0/GCF_049350105.2_T2T-MMU8v2.0_genomic.gtf.gz",
+            "1141b9417f2285f711edea342e7ecc946513fc779286255958c8c9b9b60a0620"),
         row("cynomolgus/refseq-GCF_037993035.2", "cynomolgus default", "Macaca fascicularis", "T2T-MFA8v1.1", "GCF_037993035.2", "RefSeq", "RS_2025_03",
-            ncbi + "037/993/035/GCF_037993035.2_T2T-MFA8v1.1/GCF_037993035.2_T2T-MFA8v1.1_genomic.fna.gz", nil,
-            ncbi + "037/993/035/GCF_037993035.2_T2T-MFA8v1.1/GCF_037993035.2_T2T-MFA8v1.1_genomic.gtf.gz", nil),
+            ncbi + "037/993/035/GCF_037993035.2_T2T-MFA8v1.1/GCF_037993035.2_T2T-MFA8v1.1_genomic.fna.gz",
+            "833c69901acdf5843c8af622295a48c8d211bd9e280cd39edacc3d447c213d9d",
+            ncbi + "037/993/035/GCF_037993035.2_T2T-MFA8v1.1/GCF_037993035.2_T2T-MFA8v1.1_genomic.gtf.gz",
+            "9f61744ec0497390e1d93bd74d098f8a5fd599675318b62217060fbd49fa3758"),
         row("cynomolgus/ensembl-107", "cynomolgus offered", "Macaca fascicularis", "Macaca_fascicularis_6.0", "GCA_011100615.1", "Ensembl", "107",
             ensembl + "release-107/fasta/macaca_fascicularis/dna/Macaca_fascicularis.Macaca_fascicularis_6.0.dna.toplevel.fa.gz",
             "1a7d9bae467018eaf79f622b4fbae849e4f877879144cd1761f3dafac144c535",
