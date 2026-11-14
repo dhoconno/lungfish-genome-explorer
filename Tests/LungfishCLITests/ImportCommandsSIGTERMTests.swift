@@ -112,6 +112,45 @@ final class ImportCommandsSIGTERMTests: XCTestCase {
         XCTAssertEqual(try BundleManifest.load(from: bundle).alignments.count, 0, "and no track in its manifest")
     }
 
+    // MARK: - import rnaseq
+
+    /// The same cancel for an RNA-seq import held at its read of 40 salmon folders of 50,000 transcripts each.
+    /// The command makes the project's Analyses folder after it scoped the cancel, so the signal meets the read.
+    /// A cancelled import publishes no result and leaves no staging folder.
+    func testImportRNASeqTurnsSIGTERMIntoACancelAndLeavesNoStage() async throws {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let folders = try Self.writeLargeSalmonFolders(count: 40, transcripts: 50_000, in: root)
+        let run = try CLISIGTERMHarness.launchCLI(
+            ["import", "rnaseq"] + folders.map(\.path) + ["--project", project.path, "--name", "held", "--format", "json"],
+            workingDirectory: root,
+            testClass: Self.self
+        )
+        defer { run.stop() }
+        let reached = await CLISIGTERMHarness.waitForFile(project.appendingPathComponent("Analyses", isDirectory: true))
+        XCTAssertTrue(reached, "the command never made the Analyses folder")
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(run, record: { Self.recordStatus(in: project) })
+        try Self.assertCancelledEvents(stop.standardOutput)
+        XCTAssertEqual(Self.bundles(in: project, folder: "Analyses"), [], "no result and no stage")
+    }
+
+    /// Salmon folders whose `quant.sf` lists the same transcripts, with the three JSON files of the C1 fixture.
+    private static func writeLargeSalmonFolders(count: Int, transcripts: Int, in root: URL) throws -> [URL] {
+        var quant = "Name\tLength\tEffectiveLength\tTPM\tNumReads\n"
+        for index in 0..<transcripts { quant += "T\(index)\t1000\t850.5\t1.25\t\(index % 97).5\n" }
+        let data = Data(quant.utf8)
+        let fixture = RNASeqFixtures.salmonRun("SRR896663")
+        return try (0..<count).map { index in
+            let folder = root.appendingPathComponent("held\(index)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder.appendingPathComponent("aux_info"), withIntermediateDirectories: true)
+            try data.write(to: folder.appendingPathComponent("quant.sf"))
+            for file in ["cmd_info.json", "lib_format_counts.json", "aux_info/meta_info.json"] {
+                try FileManager.default.copyItem(at: fixture.appendingPathComponent(file), to: folder.appendingPathComponent(file))
+            }
+            return folder
+        }
+    }
+
     // MARK: - What a cancelled import leaves
 
     /// The status of the run record the command wrote in the project, nil when there is none.

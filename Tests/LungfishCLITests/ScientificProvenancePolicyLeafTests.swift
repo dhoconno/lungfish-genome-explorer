@@ -415,6 +415,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "import msa": "cli.import",
         "import nao-mgs": "cli.import",
         "import nvd": "cli.import",
+        "import rnaseq": "cli.import",
         "import sample-metadata": "cli.import",
         "import taxtriage": "cli.import",
         "import tree": "cli.import",
