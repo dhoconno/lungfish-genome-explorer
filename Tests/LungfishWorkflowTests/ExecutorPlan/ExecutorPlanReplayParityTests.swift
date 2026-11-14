@@ -58,10 +58,22 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
     /// values are the `PARITY-FREEZE` lines of the candidate run at db34fb3f3 (gate-20261113-040732-db34fb3f3-63258,
     /// primary and retry the same), where the replay equalled the in-process import at E1 to E3. Before: vsp2 950,309
     /// records and 153,874,043 bases, wastewater 196,598 and 29,517,836, keep-duplicates 1,067,470 and 172,256,541.
+    ///
+    /// Preview 2026.11.8, NEXTERA (ruling BIO-NEXTERA N1, recipe formatVersion 3). The `vsp2-target-enrichment` preset
+    /// names the Nextera pair in its fastp trim (the preset step parameter `adapterKit: nextera`), so the two VSP2 anchors
+    /// moved. The wastewater preset keeps the TruSeq pair and its anchor did not move, as predicted (byte-equal, E1 and E3).
+    /// Predicted by hand from the trim stage alone, before the Deacon and merge steps: bases fall by 19,537 (fused) and
+    /// 18,737 (lone), 11 pairs fewer at the trim, E3 new, and a few cut mates stop merging, so pairs rise and singles fall.
+    /// Measured, from the in-process import of the lane's parity run at 50ae6d026 (gate-20261114-100938-50ae6d026-29699),
+    /// where the replay equalled the in-process import at E1 to E3 in all three cases and E4 was equal in stored order.
+    /// vsp2 moved from 950,381 records and 153,870,033 bases to 950,350 and 153,862,574 (bases -7,459, pairs 100,263 to
+    /// 100,239, singles 749,855 to 749,872), and keep-duplicates from 1,067,574 and 172,252,668 to 1,067,513 and 172,244,624
+    /// (bases -8,044, pairs 107,422 to 107,368, singles 852,730 to 852,777). The bases fall, by less than at the trim stage,
+    /// and pairs fell where the prediction had them rise. Records stay two times pairs plus singles in each case.
     static let frozen: [String: PayloadLevels.Anchor] = [
         "vsp2-target-enrichment": PayloadLevels.Anchor(
-            e1: PayloadLevels.E1(records: 950_381, bases: 153_870_033, pairs: 100_263, singles: 749_855),
-            e3: "1927676a3d7ae507b462b701a69c69b4b85349a4910527cb859e6b52f9f73788"
+            e1: PayloadLevels.E1(records: 950_350, bases: 153_862_574, pairs: 100_239, singles: 749_872),
+            e3: "081fa8fce3612f32937551258aa029b978d36df062efc84f3608622cac090f6e"
         ),
         "wastewater-metagenomics": PayloadLevels.Anchor(
             e1: PayloadLevels.E1(records: 196_603, bases: 29_517_317, pairs: 11_231, singles: 174_141),
@@ -69,8 +81,8 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
         ),
         // C5 lane BF M1. The in-process import with duplicates kept, from a run at the lane base bf9fa9479 (no plan form there) and equal again at the lane head. Predicted before the run: every key above the duplicates-removed anchor, records = 2 x pairs + singles, a different E3.
         "vsp2-target-enrichment-keep-duplicates": PayloadLevels.Anchor(
-            e1: PayloadLevels.E1(records: 1_067_574, bases: 172_252_668, pairs: 107_422, singles: 852_730),
-            e3: "ff9d39152b95c8dd430af12ad8bdae46f58b855cb1ec3db55f7072e194008185"
+            e1: PayloadLevels.E1(records: 1_067_513, bases: 172_244_624, pairs: 107_368, singles: 852_777),
+            e3: "844e13bbec7438194ad335357e7fe0dac13e4de878f3dea6f3cf71d45f04a86e"
         ),
     ]
 
