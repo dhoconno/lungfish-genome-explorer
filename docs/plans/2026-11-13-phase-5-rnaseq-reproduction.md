@@ -132,7 +132,7 @@ CLI lanes start after the trust session closes. GUI lanes start after 5.3 lands.
 | 5.1 | RS-LOCK | sonnet | lock tests, the `smokeTest` arm, salmon 2.11.0 build hfc06a8d_0 and gffread 0.12.9, each with its `nativeToolPolicies` entry | none |
 | 5.1 | RS-REFSET | opus | GR, both layouts | ADJ-SC gse296788 Q2 and its erratum, ADJ-SC-2 items 1 to 3, ADJ-SC-3 item 5 |
 | 5.1 | RS-INDEX | sonnet | GS tier 1 hashes, one rebuild for determinism | ADJ-BULK C1 verdict 1 |
-| 5.1 | RS-QUANT | opus | GS and GC, with the poly-G argument pinned in plan bytes and the record lines for poly-G and duplicates, the import's poly-G state among them | ADJ-BULK C1 Q2, C5 Q1, ADJ-ROUTE items 1 to 3 and 8, ADJ-TAIL item 7 |
+| 5.1 | RS-QUANT | opus | GS and GC, with the poly-G argument pinned in the recorded argv of the trim step and its record line, checked by a CLI test (plan bytes start at 5.3 with EX-PLAN-SALMON) and the record lines for poly-G and duplicates, the import's poly-G state among them | ADJ-BULK C1 Q2, C5 Q1, ADJ-ROUTE items 1 to 3 and 8, ADJ-TAIL item 7 |
 | 5.1 | RS-PREFLIGHT | sonnet | a refusal test | none |
 | 5.2 | RS-SC-IMPORT | opus | GX measures from the STARsolo folders | ADJ-SC tenx Q2 |
 | 5.2 | RS-NOTHOST | opus | GN on GSE183579 and GSE296788, with its four test cases | ADJ-SC gse296788 Q3, gse183579 Q3, ADJ-SC-3 items 1 to 4 (pool ranks and ties, the +1 rate, per-record counts, rRNA words) |
