@@ -101,6 +101,28 @@ class RefcheckTest(unittest.TestCase):
         )
         f = self.facts(fasta=fasta, gtf=gtf, assembly_report=str(report))
         self.assertEqual((f["mito_contig"], f["mito_contig_source"], f["mito_genes"]), ("X999", "assembly report", "1"))
+        self.assertEqual(f["report_mito_records"], "MT/CP2.1/X999/na")  # a short row has no length column
+
+    def test_assembly_report_lists_a_mitochondrion_that_the_files_lack(self):
+        # NCBI's RefSeq T2T sets type a Mitochondrion in the report, give it no RefSeq accession and leave it out of both files.
+        fasta = self.write("g.fa", ">NC_1.1 chromosome 1\nACGT\n")
+        gtf = self.write("g.gtf", row("NC_1.1", "gene", 'gene_id "A";'))
+        report = self.write(
+            "g_assembly_report.txt",
+            "# Sequence-Name\tSequence-Role\tAssigned-Molecule\tAssigned-Molecule-Location/Type\tGenBank-Accn\tRelationship\tRefSeq-Accn\tAssembly-Unit\tSequence-Length\tUCSC-style-name\n"
+            "chr1\tassembled-molecule\t1\tChromosome\tCM1.2\t=\tNC_1.1\tPrimary Assembly\t4\tna\n"
+            "chrMT\tassembled-molecule\tMT\tMitochondrion\tCM2.1\t<>\tna\tnon-nuclear\t16553\tna\n",
+        )
+        f = self.facts(fasta=fasta, gtf=gtf, assembly_report=str(report))
+        self.assertEqual((f["mito_contig"], f["mito_contig_source"], f["mito_genes"]), ("-", "none", "0"))
+        self.assertEqual(f["report_mito_records"], "chrMT/CM2.1/na/16553")
+
+    def test_report_mitochondrion_records_are_a_dash_without_a_report_or_a_mitochondrion(self):
+        self.assertEqual(self.facts()["report_mito_records"], "-")
+        fasta = self.write("g.fa", ">chr1\nACGT\n")
+        gtf = self.write("g.gtf", row("chr1", "gene", 'gene_id "A";'))
+        report = self.write("g_assembly_report.txt", "chr1\tassembled-molecule\t1\tChromosome\tCP1.1\t=\tNC_1.1\n")
+        self.assertEqual(self.facts(fasta=fasta, gtf=gtf, assembly_report=str(report))["report_mito_records"], "-")
 
     def test_fasta_header_naming_a_mitochondrion(self):
         fasta = self.write("g.fa", ">chr1\nACGT\n>NC_9.1 Macaca mitochondrion, complete genome\nACGT\n")
