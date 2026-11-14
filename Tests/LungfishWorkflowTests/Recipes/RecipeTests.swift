@@ -156,12 +156,12 @@ struct RecipeTests {
             }
             """.utf8)
         }
-        for version in [0, 3] {
+        for version in [0, 4] {
             #expect(throws: (any Error).self, "formatVersion \(version) must be refused") {
                 try JSONDecoder().decode(Recipe.self, from: recipeJSON(version: version))
             }
         }
-        for version in [1, 2] {
+        for version in [1, 2, 3] {
             let recipe = try JSONDecoder().decode(Recipe.self, from: recipeJSON(version: version))
             #expect(recipe.formatVersion == version)
         }
