@@ -8,7 +8,12 @@
 #              is built (sparse SA 2, sjdbOverhang 100) under the heavy lock
 # Environment: LOCKS (default <data_dir>/locks, "-" for none), PAR (runs at once, default 2),
 #              ALL_RUNS=1 to also align the twelve 2020 runs whose reads the 2024 runs repeat,
-#              STAGES (default "layout seqhash ref runs matrix compare de claims").
+#              STAGES (default "layout seqhash ref runs matrix compare de claims"; "lge" is never in the default),
+#              LGE_CLI (the lungfish-cli that the lge stage runs).
+# The lge stage (RS-INSTRUMENT) needs the seqhash stage's pairhash.tsv. It imports the 24 twin runs with
+# $LGE_CLI import fastq and no recipe, PAR at a time under the heavy lock, into <work_dir>/lge/RS-INSTRUMENT, and
+# compares each stored pair count and pair hash with pairhash.tsv (lge_check.py). Example:
+#   LGE_CLI=.build/debug/lungfish-cli STAGES=lge bash run.sh <data_dir> <work_dir> <env_dir>
 set -euo pipefail
 DATA=$(cd "$1" && pwd); WORK=$2; ENV=$(cd "$3" && pwd); IDX=${4:-}
 mkdir -p "$WORK"; WORK=$(cd "$WORK" && pwd)
@@ -39,6 +44,16 @@ if has seqhash; then  # do the 2024 runs hold the same read pairs as the 2020 ru
   for r in $(awk -F'\t' 'NR>1 && $9!="NA"{print $1}' "$HERE/samples.tsv"); do
     nice -n 15 "$B/python" -I "$HERE/pairhash.py" "$r" "$(fq "$r" 1)" "$(fq "$r" 2)" "$B/pigz" >> "$WORK/pairhash.tsv"
   done
+fi
+
+if has lge; then      # RS-INSTRUMENT: does the import record the pair count and pair hash that pairhash.py finds?
+  : "${LGE_CLI:?set LGE_CLI to the lungfish-cli the lge stage runs}"
+  [ -s "$WORK/pairhash.tsv" ] || { echo "lge: run the seqhash stage first ($WORK/pairhash.tsv is missing)" >&2; exit 2; }
+  free_gb=$(df -g "$DATA" | awk 'NR==2{print $4}')
+  [ "$free_gb" -ge 200 ] || { echo "lge: $free_gb GB free on $DATA, and 200 GB must stay free (O176)" >&2; exit 2; }
+  mkdir -p "$WORK/lge/RS-INSTRUMENT"
+  "$HERE/heavy.sh" "$LOCKS" "RS-INSTRUMENT import" 900 nice -n 15 "$B/python" -I "$HERE/lge_check.py" \
+    "$LGE_CLI" "$HERE/samples.tsv" "$WORK" "$S"
 fi
 
 GTF=$WORK/ref/genes.gtf
