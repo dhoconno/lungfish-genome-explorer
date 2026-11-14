@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: MIT
 
 import ArgumentParser
+import Foundation
+import LungfishTestSupport
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishWorkflow
@@ -65,5 +67,51 @@ final class RNASeqReferenceSetCommandTests: XCTestCase {
     func testTheGroupIsCanonicalAndTheLeafTakesItsPolicy() {
         XCTAssertTrue(ScientificProvenancePolicy.canonicalCLICommandNames.contains("rnaseq"))
         XCTAssertEqual(ScientificProvenancePolicy.cliCommand(path: ["rnaseq", "reference-set"])?.id, "cli.rnaseq")
+    }
+
+    /// `--storage-root` also names where gffread is found, as `tools --storage-root` does, so a set built under a
+    /// root never takes gffread, or the version in its id, from the configured root. The root holds a stand-in
+    /// gffread that prints 0.12.9 and writes one record a transcript id of the exon lines, and notes each run.
+    func testTheStorageRootNamesWhereGffreadIsFound() async throws {
+        let base = try TestTempDirectory.make(prefix: "refset-cli-root")
+        let savedStorageRoot = ProcessInfo.processInfo.environment["LUNGFISH_STORAGE_ROOT"]
+        await NativeToolRunner.shared.clearCache()
+        defer {
+            if let savedStorageRoot { setenv("LUNGFISH_STORAGE_ROOT", savedStorageRoot, 1) } else { unsetenv("LUNGFISH_STORAGE_ROOT") }
+            TestTempDirectory.cleanup(base)
+        }
+        let root = base.appendingPathComponent("root", isDirectory: true)
+        let bin = root.appendingPathComponent("conda/envs/gffread/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let marker = base.appendingPathComponent("gffread-runs.txt")
+        let script = """
+            #!/bin/sh
+            if [ "$1" = "--version" ]; then echo 0.12.9; exit 0; fi
+            echo "$5" >> '\(marker.path)'
+            awk -F '\\t' '$3 == "exon" && match($9, /transcript_id "[^"]+"/) { id = substr($9, RSTART + 15, RLENGTH - 16); if (!(id in seen)) { seen[id] = 1; printf(">%s\\nACGT\\n", id) } }' "$5" > "$2"
+
+            """
+        let gffread = bin.appendingPathComponent("gffread")
+        try Data(script.utf8).write(to: gffread)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: gffread.path)
+        let genome = base.appendingPathComponent("genome.fa")
+        try Data(">chr1\n\(String(repeating: "ACGTACGTAC", count: 4))\n".utf8).write(to: genome)
+        let annotation = base.appendingPathComponent("genes.gtf")
+        try Data("chr1\tt\texon\t1\t20\t.\t+\t.\tgene_id \"G1\"; transcript_id \"T1\";\n".utf8).write(to: annotation)
+
+        let parsed = try LungfishCLI.parseAsRoot([
+            "rnaseq", "reference-set", "--genome", genome.path, "--annotation", annotation.path, "--species", "S",
+            "--assembly", "A", "--annotation-source", "X", "--annotation-release", "1", "--storage-root", root.path, "--quiet",
+        ])
+        let command = try XCTUnwrap(parsed as? RNASeqCommand.ReferenceSetSubcommand)
+        do {
+            try await command.run()
+        } catch {
+            XCTFail("the build under --storage-root failed: \(error)")
+        }
+        await NativeToolRunner.shared.clearCache()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path), "gffread must come from the --storage-root, not the configured root")
+        let sets = (try? FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("rnaseq-reference-sets").path)) ?? []
+        XCTAssertEqual(sets.filter { $0.hasSuffix(".lungfishrefset") }.count, 1, "\(sets)")
     }
 }
