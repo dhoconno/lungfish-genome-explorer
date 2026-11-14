@@ -180,6 +180,30 @@ final class ReferenceSetOwnerTests: XCTestCase {
         XCTAssertTrue(outcome.url.lastPathComponent.hasPrefix("testus_examplus-T1-testdb7-deposit-GSE1-"), outcome.url.lastPathComponent)
     }
 
+    // MARK: - Inputs given through links
+
+    /// A person's genome is often a relative link into another release's folder (part 3, GR on gse183579). The owner
+    /// reads and copies the file the link names, under the name given, so the set holds no link that points nowhere.
+    func testAnInputGivenAsARelativeLinkIsCopiedAsTheFileItNames() async throws {
+        let otherRoot = root.deletingLastPathComponent().appendingPathComponent("root-direct", isDirectory: true)
+        let direct = try await owner(StandInTranscriptDeriver(), root: otherRoot).build(request())
+        let real = inputs.deletingLastPathComponent().appendingPathComponent("real", isDirectory: true)
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        for name in ["genome.fa", "genes.gtf", "virus.fa"] {
+            try FileManager.default.moveItem(at: inputs.appendingPathComponent(name), to: real.appendingPathComponent(name))
+            try FileManager.default.createSymbolicLink(
+                atPath: inputs.appendingPathComponent(name).path, withDestinationPath: "../real/\(name)")
+        }
+
+        let linked = try await owner(StandInTranscriptDeriver()).build(request())
+        XCTAssertEqual(linked.manifest.id, direct.manifest.id, "a link names the same bytes under the same name, so the same id")
+        for path in ["genome/genome.fa", "annotation/genes.gtf", "extras/virus.fa"] {
+            let kind = try FileManager.default.attributesOfItem(atPath: linked.url.appendingPathComponent(path).path)[.type]
+            XCTAssertEqual(kind as? FileAttributeType, .typeRegular, "\(path) is a copy of the file the link names")
+        }
+        XCTAssertEqual(try String(contentsOf: linked.url.appendingPathComponent("genome/genome.fa"), encoding: .utf8), Self.genome)
+    }
+
     // MARK: - The id
 
     func testTheSameInputsGiveTheSameIDAndAChangedExtraOrLayoutANewOne() async throws {
