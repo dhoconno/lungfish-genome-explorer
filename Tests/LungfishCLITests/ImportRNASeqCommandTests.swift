@@ -93,13 +93,32 @@ final class ImportRNASeqCommandTests: XCTestCase {
         XCTAssertEqual(manifest.origin, .init(kind: .imported, tool: "salmon", toolVersion: "2.11.0"))
         XCTAssertEqual(Set(manifest.counts.map(\.path)), ["counts/genes.counts.tsv", "counts/transcripts.counts.tsv"])
         XCTAssertEqual(Set(manifest.counts.map(\.unit)), [.estimated])
-        let quality = try XCTUnwrap(record(result).options.resolvedDefaults["quality"])
-        guard case .dictionary(let samples) = quality, case .dictionary(let first)? = samples["SRR896663"] else {
-            return XCTFail("the record holds no quality numbers by sample: \(quality)")
+    }
+
+    /// ADJ-ARCH-51 item 3: salmon's own numbers go to the writer's `quality/samples.quality.tsv`, which the manifest
+    /// hashes, and the record holds none of them, so each number has one home.
+    func testSalmonsQualityNumbersAreInTheQualityTableAndNotInTheRecord() async throws {
+        let project = try project("Quality")
+        try await run(try salmonArguments(into: project))
+        let result = try result(in: project)
+        let entry = try XCTUnwrap(try manifest(result).quality, "the manifest lists no quality table")
+        XCTAssertEqual(entry.path, RNASeqQualityTable.path)
+        let bytes = try Data(contentsOf: result.appendingPathComponent(entry.path))
+        XCTAssertEqual(entry.sha256, RNASeqResultBundle.sha256Hex(bytes))
+        XCTAssertEqual(try RNASeqResultBundle.verifyChecksums(of: result), [])
+
+        let quality = try XCTUnwrap(try RNASeqResultBundle.load(from: result).quality)
+        XCTAssertEqual(quality.rows.map(\.sample), RNASeqFixtures.salmonRunIDs)
+        for row in quality.rows {
+            func value(_ column: String) -> String? { quality.columns.firstIndex(of: column).flatMap { row.values[$0] } }
+            let metaURL = RNASeqFixtures.salmonRun(row.sample).appendingPathComponent("aux_info/meta_info.json")
+            let meta = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: metaURL)) as? [String: Any])
+            let processed = try XCTUnwrap(meta["num_processed"] as? NSNumber)
+            XCTAssertEqual(value("library_type"), "IU", row.sample)
+            XCTAssertEqual(value("num_processed"), processed.stringValue, row.sample)
+            XCTAssertEqual(value("salmon_version"), "2.11.0", row.sample)
         }
-        XCTAssertEqual(first["num_processed"], .integer(5_728_703))
-        XCTAssertEqual(first["library_type"], .string("IU"))
-        XCTAssertEqual(first["salmon_version"], .string("2.11.0"))
+        XCTAssertNil(try record(result).options.resolvedDefaults["quality"], "the record holds no quality numbers")
     }
 
     // MARK: - A plain table and what the files do not state
@@ -116,6 +135,7 @@ final class ImportRNASeqCommandTests: XCTestCase {
             XCTAssertEqual(facts[key]?.stringValue, "Not recorded", key)
         }
         XCTAssertNil(try manifest(result).referenceSet)
+        XCTAssertNil(try manifest(result).quality, "a plain table states no quality numbers (ADJ-ARCH-51 item 4)")
         let genes = try RNASeqGeneRecord.records(tsv: Data(contentsOf: result.appendingPathComponent("genes.tsv")), path: "genes.tsv")
         XCTAssertEqual(genes.count, 203)
         XCTAssertTrue(genes.allSatisfy { $0.name == nil && $0.biotype == nil && $0.notHost == nil })
@@ -170,5 +190,53 @@ final class ImportRNASeqCommandTests: XCTestCase {
         let firstCounts = try counts(firstResult)
         XCTAssertEqual(firstCounts.count, 2)
         XCTAssertEqual(try counts(try result(in: second)), firstCounts)
+    }
+
+    // MARK: - The result's provenance folder (ADJ-ARCH-51 items 8 to 10)
+
+    private func rollupURL(_ result: URL) -> URL {
+        result.appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+            .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+    }
+
+    /// The writer writes `provenance/` into the stage, so it arrives with the rename. The import's envelope names no
+    /// output, so the roll-up is the envelope itself, and neither record names the stage.
+    func testTheResultsBundleRecordMatchesItsRootRecordAndNamesNoStage() async throws {
+        let project = try project("Layout")
+        try await run(try salmonArguments(into: project))
+        let result = try result(in: project)
+        let rootURL = result.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let root = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(fromSidecar: rootURL))
+        let rollup = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(fromSidecar: rollupURL(result)), "no roll-up")
+        XCTAssertEqual(rollup.workflowName, root.workflowName)
+        XCTAssertEqual(rollup.argv, root.argv)
+        XCTAssertEqual(Array(root.argv.prefix(3)), [CLICommandIdentity.executableName, "import", "rnaseq"])
+        for url in [rootURL, rollupURL(result)] {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            XCTAssertFalse(text.contains(".creating-"), "\(url.path) names the stage")
+        }
+        XCTAssertEqual(analyses(project).filter { $0.contains(".creating-") }, [], "no stage is left")
+    }
+
+    /// ADJ-ARCH-51 item 10: `provenance verify` on a result whose envelope names no output. The import's own plan and
+    /// envelope go through the writer with a throwaway local key, as a run with a signing key set would sign them.
+    func testProvenanceVerifyPassesOnASignedImportedResult() async throws {
+        let project = try project("Signed")
+        let arguments = try salmonArguments(into: project)
+        let command = try ImportCommand.RNASeqSubcommand.parse(arguments)
+        let plan = ImportCommand.RNASeqSubcommand.Plan(
+            inputs: command.inputPaths.map { URL(fileURLWithPath: $0) }, isTable: false, unit: .estimated,
+            tx2gene: command.tx2genePath.map { URL(fileURLWithPath: $0) }, sheet: nil, name: command.name,
+            command: [CLICommandIdentity.executableName, "import", "rnaseq"] + arguments, explicit: [:])
+        let (request, facts, _) = try plan.request()
+        let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
+        try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
+        let result = analyses.appendingPathComponent("seqc-c1.lungfishrnaseq", isDirectory: true)
+        let signer = LocalProvenanceSigningProvider(privateKey: "rs-bulk-import-throwaway-signing-key")
+        try RNASeqResultWriter(provenanceWriter: ProvenanceWriter(signingProvider: signer))
+            .write(request, to: result, envelope: plan.envelope(facts: facts, startedAt: Date()))
+
+        try await ProvenanceCommand.VerifySubcommand.parse([result.path]).run()
+        try await ProvenanceCommand.VerifySubcommand.parse([rollupURL(result).path]).run()
     }
 }
