@@ -35,7 +35,8 @@ extension SequencerInstrument {
         return nil
     }
 
-    private static func isDigits<S: Sequence>(_ text: S) -> Bool where S.Element == UInt8 {
+    /// `Swift.Sequence` is named in full, since LungfishCore declares a `Sequence` type of its own.
+    private static func isDigits<S: Swift.Sequence>(_ text: S) -> Bool where S.Element == UInt8 {
         var seen = false
         for byte in text {
             guard byte >= 0x30, byte <= 0x39 else { return false }

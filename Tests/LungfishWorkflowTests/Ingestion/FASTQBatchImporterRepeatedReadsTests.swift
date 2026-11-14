@@ -94,9 +94,9 @@ final class FASTQBatchImporterRepeatedReadsTests: XCTestCase {
         let provenanceURL = bundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         let data = PortablePath.resolveJSON(try Data(contentsOf: provenanceURL), forFileAt: provenanceURL)
         let options = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data).options
-        XCTAssertEqual(options.resolved["instrumentIDs"], .array([.string("NS500628")]))
-        XCTAssertEqual(options.resolved["instrumentModelsInferred"], .boolean(true))
-        XCTAssertEqual(options.resolved["readPairHash"], .string(Self.pairhashPySum))
-        XCTAssertEqual(options.resolved["readPairCount"], .integer(100))
+        XCTAssertEqual(options.resolvedDefaults["instrumentIDs"], .array([.string("NS500628")]))
+        XCTAssertEqual(options.resolvedDefaults["instrumentModelsInferred"], .boolean(true))
+        XCTAssertEqual(options.resolvedDefaults["readPairHash"], .string(Self.pairhashPySum))
+        XCTAssertEqual(options.resolvedDefaults["readPairCount"], .integer(100))
     }
 }

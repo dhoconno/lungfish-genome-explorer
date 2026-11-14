@@ -27,7 +27,7 @@ extension FASTQBatchImporter {
             let folder = url.deletingLastPathComponent()
             guard folder.standardizedFileURL.path != own else { continue }
             let reads = folder.appendingPathComponent(String(url.lastPathComponent.dropLast(suffix.count)))
-            guard let other = try? FASTQMetadataStore.load(for: reads),
+            guard let other = FASTQMetadataStore.load(for: reads),
                   let count = other.recordedReadCount, count.pairHash == hash, count.pairedR1 == recorded.pairedR1,
                   let size = (try? FileManager.default.attributesOfItem(atPath: reads.path)[.size] as? NSNumber)?.int64Value,
                   size == count.storedSizeBytes else { continue }
@@ -55,7 +55,7 @@ extension FASTQBatchImporter {
     /// The facts of the stored reads that the import's record carries as resolved parameters (row RS-INSTRUMENT). They
     /// are read back from the sidecar the import just wrote, so the record and the sidecar cannot differ.
     static func scanFactParameters(of storedFASTQ: URL) -> [String: ParameterValue] {
-        guard let metadata = try? FASTQMetadataStore.load(for: storedFASTQ) else { return [:] }
+        guard let metadata = FASTQMetadataStore.load(for: storedFASTQ) else { return [:] }
         var parameters: [String: ParameterValue] = [:]
         if let instrument = metadata.sequencerInstrument {
             parameters["instrumentNameForm"] = .string(instrument.nameForm.rawValue)
