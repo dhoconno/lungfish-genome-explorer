@@ -116,14 +116,20 @@ final class SalmonQuantFolderReaderTests: XCTestCase {
 
     func testTheQualityTableHasOneRowASample() throws {
         let folders = try RNASeqFixtures.salmonRunIDs.map { try SalmonQuantFolderReader.read(folder: RNASeqFixtures.salmonRun($0)) }
-        let lines = String(decoding: SalmonQuantFolderReader.qualityTSV(folders), as: UTF8.self).split(separator: "\n").map(String.init)
-        XCTAssertEqual(lines.count, 3)
-        let header = lines[0].split(separator: "\t").map(String.init)
-        let first = lines[1].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-        XCTAssertEqual(header.first, "sample_id")
-        XCTAssertEqual(first[header.firstIndex(of: "num_processed")!], "5728703")
-        XCTAssertEqual(first[header.firstIndex(of: "library_type")!], "IU")
-        XCTAssertEqual(first[header.firstIndex(of: "salmon_version")!], "2.11.0")
+        let table = SalmonQuantFolderReader.qualityTable(folders)
+        XCTAssertEqual(table.columns, SalmonQuantFolderReader.qualityColumns)
+        XCTAssertEqual(table.rows.map(\.sample), RNASeqFixtures.salmonRunIDs)
+        let first = try XCTUnwrap(table.rows.first)
+        func value(_ column: String) -> String? { table.columns.firstIndex(of: column).flatMap { first.values[$0] } }
+        XCTAssertEqual(value("num_processed"), "5728703")
+        XCTAssertEqual(value("percent_mapped"), "84.30265978180401")
+        XCTAssertEqual(value("library_type"), "IU")
+        XCTAssertEqual(value("salmon_version"), "2.11.0")
+        XCTAssertEqual(value("seq_bias_correct"), "false")
+        XCTAssertEqual(value("index_seq_hash"), "50b7f62d463e1405b746f0b0eb1b46a4a74ee1e4fb4077cc04fc58a24ab09a36")
+        let lines = String(decoding: try table.tsvData(), as: UTF8.self).split(separator: "\n")
+        XCTAssertEqual(lines.count, 3, "a header and one row a sample")
+        XCTAssertEqual(lines.first?.split(separator: "\t").first, "sample_id")
     }
 
     // MARK: - refusals

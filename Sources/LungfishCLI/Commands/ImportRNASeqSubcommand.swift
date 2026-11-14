@@ -159,7 +159,7 @@ extension ImportCommand.RNASeqSubcommand {
         /// Reads the files and returns the writer's request, the record's facts and a summary line.
         func request() throws -> (RNASeqResultWriter.Request, [String: ParameterValue], String) {
             let sheet = try self.sheet.map(RNASeqSampleSheet.read)
-            var facts = RNASeqImportFacts.unstated
+            let facts = RNASeqImportFacts.unstated
             let notRecorded = RNASeqImportFacts.notRecorded
             if isTable {
                 let table = try RNASeqCountTableReader.read(inputs[0])
@@ -189,13 +189,13 @@ extension ImportCommand.RNASeqSubcommand {
                 counts.insert(.init(rows: .gene, column: .default, unit: .estimated, table: genes), at: 0)
                 features = genes.rows.map(\.id)
             }
-            facts["quality"] = SalmonQuantFolderReader.qualityRecord(ordered)
             let route = try SalmonQuantFolderReader.route(ordered, tx2geneName: tx2gene?.lastPathComponent)
             let request = RNASeqResultWriter.Request(
                 name: name, modality: .bulk,
                 origin: .init(kind: .imported, tool: SalmonQuantFolderReader.tool, toolVersion: route.toolVersion),
                 route: route, referenceSet: nil, samples: match.records, genes: .ids(features), counts: counts,
-                sourceFiles: SalmonQuantFolderReader.sourceFiles(ordered), notHost: [])
+                sourceFiles: SalmonQuantFolderReader.sourceFiles(ordered), notHost: [],
+                quality: SalmonQuantFolderReader.qualityTable(ordered))
             return (request, facts, "\(ordered.count) salmon folders and \(features.count) features")
         }
 

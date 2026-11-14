@@ -273,57 +273,34 @@ public enum SalmonQuantFolderReader {
         "index_decoy_seq_hash", "index_decoy_name_hash",
     ]
 
-    /// The quality numbers of `quality` by column, nil where the files state none.
-    static func qualityValues(_ quality: SalmonQuantFolder.Quality) -> [String: ParameterValue?] {
-        var values: [String: ParameterValue?] = [
-            "salmon_version": quality.salmonVersion.map(ParameterValue.string),
-            "num_processed": quality.numProcessed.map(ParameterValue.integer),
-            "num_mapped": quality.numMapped.map(ParameterValue.integer),
-            "percent_mapped": quality.percentMapped.map(ParameterValue.number),
-            "library_type": quality.libraryType.map(ParameterValue.string),
-            "expected_format": quality.expectedFormat.map(ParameterValue.string),
-            "compatible_fragment_ratio": quality.compatibleFragmentRatio.map(ParameterValue.number),
-            "strand_mapping_bias": quality.strandMappingBias.map(ParameterValue.number),
-            "lib_type_option": quality.libTypeOption.map(ParameterValue.string),
-            "seq_bias_correct": quality.seqBiasCorrect.map(ParameterValue.boolean),
-            "gc_bias_correct": quality.gcBiasCorrect.map(ParameterValue.boolean),
-            "pos_bias_correct": quality.posBiasCorrect.map(ParameterValue.boolean),
+    /// The quality cells of `quality` by column as salmon's JSON states them, with no entry where the files state none.
+    static func qualityValues(_ quality: SalmonQuantFolder.Quality) -> [String: String] {
+        let flag = { (value: Bool) in value ? "true" : "false" }
+        var values: [String: String?] = [
+            "salmon_version": quality.salmonVersion,
+            "num_processed": quality.numProcessed.map(String.init),
+            "num_mapped": quality.numMapped.map(String.init),
+            "percent_mapped": quality.percentMapped.map { "\($0)" },
+            "library_type": quality.libraryType,
+            "expected_format": quality.expectedFormat,
+            "compatible_fragment_ratio": quality.compatibleFragmentRatio.map { "\($0)" },
+            "strand_mapping_bias": quality.strandMappingBias.map { "\($0)" },
+            "lib_type_option": quality.libTypeOption,
+            "seq_bias_correct": quality.seqBiasCorrect.map(flag),
+            "gc_bias_correct": quality.gcBiasCorrect.map(flag),
+            "pos_bias_correct": quality.posBiasCorrect.map(flag),
         ]
-        for column in qualityColumns where column.hasPrefix("index_") {
-            values[column] = quality.indexHashes[column].map(ParameterValue.string)
-        }
-        return values
+        for column in qualityColumns where column.hasPrefix("index_") { values[column] = quality.indexHashes[column] }
+        return values.compactMapValues { $0 }
     }
 
-    /// `quality/samples.quality.tsv`: one row a sample, an empty cell where the files state nothing.
-    public static func qualityTSV(_ folders: [SalmonQuantFolder]) -> Data {
-        var lines = [(["sample_id"] + qualityColumns).joined(separator: "\t")]
-        for folder in folders {
+    /// `quality/samples.quality.tsv` for the one writer (`RNASeqResultWriter.Request.quality`), one row a sample and
+    /// nil where the files state nothing, which a reader shows as Not recorded. The writer alone makes its bytes.
+    public static func qualityTable(_ folders: [SalmonQuantFolder]) -> RNASeqQualityTable {
+        RNASeqQualityTable(columns: qualityColumns, rows: folders.map { folder in
             let values = qualityValues(folder.quality)
-            let cells = qualityColumns.map { column -> String in
-                switch values[column] ?? nil {
-                case .string(let text)?: return text
-                case .integer(let number)?: return String(number)
-                case .number(let number)?: return "\(number)"
-                case .boolean(let flag)?: return flag ? "true" : "false"
-                default: return ""
-                }
-            }
-            lines.append(([folder.sample] + cells).joined(separator: "\t"))
-        }
-        return Data((lines.joined(separator: "\n") + "\n").utf8)
-    }
-
-    /// The quality numbers for the record, by sample, with Not recorded where the files state none.
-    public static func qualityRecord(_ folders: [SalmonQuantFolder]) -> ParameterValue {
-        var samples: [String: ParameterValue] = [:]
-        for folder in folders {
-            let values = qualityValues(folder.quality)
-            var row: [String: ParameterValue] = [:]
-            for column in qualityColumns { row[column] = (values[column] ?? nil) ?? .string(RNASeqImportFacts.notRecorded) }
-            samples[folder.sample] = .dictionary(row)
-        }
-        return .dictionary(samples)
+            return .init(sample: folder.sample, values: qualityColumns.map { values[$0] })
+        })
     }
 
     /// The files to keep, each under its sample's folder as salmon wrote it.
