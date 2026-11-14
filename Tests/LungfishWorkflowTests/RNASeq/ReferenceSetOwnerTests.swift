@@ -271,4 +271,78 @@ final class ReferenceSetOwnerTests: XCTestCase {
         let outcome = try await owner(StandInTranscriptDeriver()).build(request())
         XCTAssertEqual(try entries(), [held.lastPathComponent, outcome.url.lastPathComponent, "notes"].sorted())
     }
+
+    // MARK: - Review fixes (RS-REFSET-BIO SF1 and SF2, RS-REFSET-SWIFT SF1 and SF2)
+
+    func testEveryNamedDefaultPinsItsGenomeAndItsGTF() {
+        func pinned(_ value: String?) -> Bool {
+            guard let value else { return false }
+            return value.count == 64 && value.allSatisfy { "0123456789abcdef".contains($0) }
+        }
+        for row in ReferenceSetDefault.all {
+            XCTAssertTrue(pinned(row.genomeSHA256), "\(row.id) pins no genome sha256")
+            XCTAssertTrue(pinned(row.annotationSHA256), "\(row.id) pins no GTF sha256")
+        }
+    }
+
+    /// The id names each mitochondrial contig and the assembly report, so a request that differs only there builds its
+    /// own set and is not reported as reused. BIO's name for this test is testAnotherMitochondrialContigGivesAnotherIdAndNoReuse.
+    func testTwoBuildsThatDifferOnlyInTheNamedMitochondrialContigGetTwoIdsAndNoReuse() async throws {
+        try write("MT\tassembled-molecule\tMT\tMitochondrion\tJ01415.2\t=\tNC_012920.1\tnon-nuclear\t16569\tchrM\n", "report.txt")
+        func variant(_ contigs: [String] = [], report: Bool = false) -> ReferenceSetRequest {
+            var made = request()
+            made.mitochondrialContigs = contigs
+            made.assemblyReport = report ? inputs.appendingPathComponent("report.txt") : nil
+            return made
+        }
+        let plain = try await owner(StandInTranscriptDeriver()).build(request())
+        let mt = try await owner(StandInTranscriptDeriver()).build(variant(["MT"]))
+        let chr1 = try await owner(StandInTranscriptDeriver()).build(variant(["chr1"]))
+        let report = try await owner(StandInTranscriptDeriver()).build(variant(report: true))
+        let ids = [plain, mt, chr1, report].map(\.manifest.id)
+        XCTAssertEqual(Set(ids).count, 4, "a named contig and an assembly report are in the id: \(ids)")
+        XCTAssertEqual([mt, chr1, report].map(\.reused), [false, false, false], "none of them is the first build's set")
+        XCTAssertEqual(chr1.manifest.mitochondrialContigs, ["chr1"], "the choice of this request is the one recorded")
+        let again = try await owner(StandInTranscriptDeriver()).build(variant(["chr1"]))
+        XCTAssertTrue(again.reused, "the same choice is the same set")
+        XCTAssertEqual(again.manifest.id, chr1.manifest.id)
+        XCTAssertEqual(try entries().count, 4)
+    }
+
+    func testANamedMitochondrialContigTheGenomeLacksIsRefused() async throws {
+        var variant = request()
+        variant.mitochondrialContigs = ["chrM"]
+        do {
+            _ = try await owner(StandInTranscriptDeriver()).build(variant)
+            XCTFail("a named contig that neither the genome nor the annotation holds must be refused")
+        } catch let error as ReferenceSetError {
+            guard case .invalidRequest(let words) = error else { return XCTFail("\(error)") }
+            XCTAssertTrue(words.contains("chrM"), words)
+        }
+        XCTAssertEqual(try entries(), [], "the refused build leaves no stage and no set")
+    }
+
+    // MARK: - RS-REFSET-SWIFT SF3 (a): an extra's name is a file name
+
+    func testAnExtraNameThatIsAPathOrIsGivenTwiceIsRefused() async throws {
+        let fasta = inputs.appendingPathComponent("virus.fa")
+        for names in [["../../escape"], ["a/b"], ["virus", "virus"], [""], ["."], [".."], ["a\u{07}b"]] {
+            var variant = request()
+            variant.extras = names.map { ReferenceSetExtraInput(name: $0, kind: .virus, fasta: fasta) }
+            do {
+                _ = try await owner(StandInTranscriptDeriver()).build(variant)
+                XCTFail("the extra names \(names) must be refused")
+            } catch {
+                guard case .invalidRequest(let words)? = error as? ReferenceSetError else {
+                    XCTFail("the extra names \(names) gave \(error), not a refusal in words")
+                    continue
+                }
+                XCTAssertTrue(words.contains("must be one file name"), words)
+            }
+        }
+        XCTAssertEqual(try entries(), [], "a refused build leaves no stage and no set")
+        for escaped in ["rnaseq-reference-sets/escape.fa", "escape.fa"] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(escaped).path), escaped)
+        }
+    }
 }
