@@ -57,7 +57,18 @@ final class RNASeqSampleSheetTests: XCTestCase {
             XCTAssertEqual(error as? RNASeqImportError, .sampleIDsDiffer(onlyInFiles: ["B3"], onlyInSheet: ["X9"]))
             XCTAssertEqual(
                 error.localizedDescription,
-                "The sample ids of the files and the sample sheet differ. Only in the files: B3. Only in the sheet: X9.")
+                "The sample ids of the files and the sample sheet differ. Only in the files: B3. Only in the sheet: X9. "
+                    + "Make the sheet's run or sample column name the same samples as the files, or leave out --samples.")
+        }
+    }
+
+    /// Review SF3 (UX 1): a sheet written with commas says what a sample sheet is, so the person knows what to fix.
+    func testASheetWithNoSampleColumnSaysItIsTabSeparated() throws {
+        let url = root.appendingPathComponent("sheet.csv")
+        try "sample,species\nB1,x\n".write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try RNASeqSampleSheet.read(url)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("tab-separated"), error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("sheet.csv"), error.localizedDescription)
         }
     }
 

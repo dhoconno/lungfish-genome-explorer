@@ -151,6 +151,17 @@ final class SalmonQuantFolderReaderTests: XCTestCase {
         }
     }
 
+    /// Review SF3 (UX 1): a table with no header line says which first line to add.
+    func testATx2GeneWithoutAHeaderSaysWhatToAdd() throws {
+        let url = root.appendingPathComponent("tx2gene.tsv")
+        try "T1\tG1\n".write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try SalmonTx2Gene.read(url)) { error in
+            let words = error.localizedDescription
+            XCTAssertTrue(words.contains("transcript_id") && words.contains("first line"), words)
+            XCTAssertTrue(words.contains("Add a first line with those two names, separated by a tab"), words)
+        }
+    }
+
     func testATranscriptWithoutAGeneIsRefusedInWords() throws {
         let folder = try SalmonQuantFolderReader.read(folder: RNASeqFixtures.salmonRun("SRR896663"))
         let ids = try numReads("SRR896663").map(\.0)

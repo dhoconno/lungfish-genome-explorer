@@ -157,6 +157,77 @@ final class ImportRNASeqCommandTests: XCTestCase {
         XCTAssertEqual(analyses(project).filter { $0.contains(".lungfishrnaseq") }, [], "no result and no stage")
     }
 
+    // MARK: - The files an import leaves out (review SF1)
+
+    /// `docs/formats/rnaseq-bundle.md`, The tool's own files: a file the reader does not read stays out of the result,
+    /// and the record names each one. RAP1_UNINDUCED_REP1 and _REP2 are single-end (SR) and the other three ISR, and a
+    /// second library type is a second route, so the import takes the three ISR folders.
+    func testTheRecordNamesTheSalmonFilesItLeavesOut() async throws {
+        let yeast = RNASeqFixtures.root.appendingPathComponent("nfcore-rnaseq-yeast/salmon", isDirectory: true)
+        let runs = ["WT_REP1", "WT_REP2", "RAP1_IAA_30M_REP1"]
+        let quant = try String(contentsOf: yeast.appendingPathComponent("WT_REP1/quant.sf"), encoding: .utf8)
+        let ids = quant.split(separator: "\n").dropFirst().map { String($0.prefix { $0 != "\t" }) }
+        let tx2gene = root.appendingPathComponent("yeast-tx2gene.tsv")
+        let lines = ["transcript_id\tgene_id"] + ids.map { "\($0)\t\($0)" }
+        try (lines.joined(separator: "\n") + "\n").write(to: tx2gene, atomically: true, encoding: .utf8)
+        let project = try project("LeftOut")
+        try await run(runs.map { yeast.appendingPathComponent($0).path } + ["--project", project.path, "--name", "yeast", "--tx2gene", tx2gene.path])
+
+        let facts = try record(try result(in: project)).options.resolvedDefaults
+        guard case .array(let values)? = facts["filesLeftOut"] else {
+            return XCTFail("the record names no file left out: \(String(describing: facts["filesLeftOut"]))")
+        }
+        let leftOut = values.compactMap(\.stringValue)
+        XCTAssertEqual(leftOut.count, values.count, "each file left out is named by its path")
+        let unread = [
+            "aux_info/ambig_info.tsv", "aux_info/expected_bias.gz", "aux_info/fld.gz", "aux_info/observed_bias.gz",
+            "aux_info/observed_bias_3p.gz", "libParams/flenDist.txt", "logs/salmon_quant.log",
+        ]
+        XCTAssertEqual(leftOut, runs.flatMap { run in unread.map { "\(run)/\($0)" } }, "by sample, then by path")
+        for run in runs {
+            for kept in RNASeqFixtures.salmonFiles + ["quant.genes.sf"] {
+                XCTAssertFalse(leftOut.contains("\(run)/\(kept)"), "\(run)/\(kept) is kept, not left out")
+            }
+        }
+
+        let c1 = try self.project("NothingLeftOut")
+        try await run(try salmonArguments(into: c1))
+        XCTAssertNil(
+            try record(try result(in: c1)).options.resolvedDefaults["filesLeftOut"],
+            "the C1 folders hold only the four files the reader reads")
+    }
+
+    // MARK: - A failed import removes only what it made (review SF2)
+
+    /// The import notes at its start whether its result's name is free, and the writer refuses a name that is taken
+    /// when it publishes (`RNASeqResultWriter.write`). A name taken in between, such as by a result another run
+    /// published while this one read its files, belongs to that other run, and only the writer's own stage is this
+    /// run's (`docs/formats/rnaseq-bundle.md`, The one writer). A link to a folder that does not exist stands in for
+    /// that result without a race: the check at the start follows the link and finds nothing, and the writer's
+    /// exclusive rename then meets the taken name. The failed run must leave the link.
+    func testAFailedImportLeavesWhatAnotherRunPutUnderItsName() async throws {
+        let project = try project("Taken")
+        let folder = project.appendingPathComponent("Analyses", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let taken = folder.appendingPathComponent("c9.lungfishrnaseq")
+        let target = root.appendingPathComponent("another-run.lungfishrnaseq").path
+        try FileManager.default.createSymbolicLink(atPath: taken.path, withDestinationPath: target)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: taken.path), "the start sees a free name")
+
+        do {
+            try await run([RNASeqFixtures.umiCounts.path, "--project", project.path, "--name", "c9", "--unit", "umis"])
+            XCTFail("the name was taken before the writer published, so the import publishes nothing")
+        } catch {
+            // A refusal before the read, or of the files, exits with the input code. The writer's refusal does not.
+            XCTAssertNotNil(error as? ExitCode, "\(error)")
+            XCTAssertNotEqual((error as? ExitCode)?.rawValue, CLIExitCode.inputError.exitCode.rawValue, "the writer refused")
+        }
+        XCTAssertEqual(
+            try? FileManager.default.destinationOfSymbolicLink(atPath: taken.path), target,
+            "a failed import removed a name another run holds")
+        XCTAssertEqual(analyses(project).filter { $0.contains(".creating-") }, [], "no stage is left")
+    }
+
     // MARK: - The recorded command
 
     func testTheRecordedArgvParsesToEqualOptions() async throws {
