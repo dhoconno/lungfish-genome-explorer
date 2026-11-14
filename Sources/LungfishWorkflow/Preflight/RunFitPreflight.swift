@@ -140,6 +140,10 @@ package enum RunFitPreflight {
         linuxRoute: String,
         freeSpace: FreeSpaceReader = RunFitPreflight.volumeFreeSpace
     ) throws {
+        assert(
+            !linuxRoute.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "RunFitPreflight.require needs the sentence that names the Linux route"
+        )
         switch verdict(need: need, host: host, freeSpace: freeSpace) {
         case .enough:
             return
