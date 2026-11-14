@@ -269,4 +269,14 @@ final class RunFitPreflightTests: XCTestCase {
         XCTAssertGreaterThan(answer ?? 0, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: notYet.path), "the check creates nothing")
     }
+
+    /// The Mac's reader asks the volume on every call. A URL answers from the values it kept of an earlier read, so a caller
+    /// that holds one folder URL across two checks must not get the first check's figure.
+    func testTheMacReaderIgnoresValuesAURLKeptFromAnEarlierRead() throws {
+        let root = try TestTempDirectory.make(prefix: "run-fit-preflight-fresh")
+        defer { TestTempDirectory.cleanup(root) }
+        var held = root
+        held.setTemporaryResourceValue(Int64(1), forKey: .volumeAvailableCapacityForImportantUsageKey)
+        XCTAssertNotEqual(RunFitPreflight.volumeFreeSpace(held), 1, "the reader asked the volume and not the URL")
+    }
 }
