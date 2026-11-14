@@ -116,9 +116,17 @@ public enum RNASeqResultBundle {
         listed += manifest.sourceFiles.map { ($0.path, $0.sha256) }
         for matrix in manifest.matrices ?? [] { listed += [matrix.matrix, matrix.features, matrix.barcodes].map { ($0.path, $0.sha256) } }
         if let cells = manifest.cellsSummary { listed.append((cells.path, cells.sha256)) }
-        return try listed.compactMap { path, expected in
+        // A path the manifest lists twice, such as a matrix file under sourceFiles and under matrices, is hashed once.
+        var order: [String] = []
+        var expected: [String: [String]] = [:]
+        for (path, sha) in listed {
+            if expected[path] == nil { order.append(path) }
+            if !(expected[path] ?? []).contains(sha) { expected[path, default: []].append(sha) }
+        }
+        return order.flatMap { path -> [RNASeqResult.ChecksumMismatch] in
             let actual = try? sha256Hex(fileAt: resolve(path, in: bundleURL))
-            return actual == expected ? nil : RNASeqResult.ChecksumMismatch(path: path, expected: expected, actual: actual)
+            return (expected[path] ?? []).filter { $0 != actual }
+                .map { RNASeqResult.ChecksumMismatch(path: path, expected: $0, actual: actual) }
         }
     }
 
