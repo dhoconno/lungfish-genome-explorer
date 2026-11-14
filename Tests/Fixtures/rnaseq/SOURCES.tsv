@@ -19,5 +19,5 @@ tenx/pbmc_1k_v3/pbmc_1k_v3_metrics_summary.csv	992fa10cd3f7e1829c4a666f082f4a0e7
 work/gse163196/matrix/ours_P.tsv	a6296c2cf55fd01f2e852cd4e4057c40162cc7d506e49da53e5e256d3daf095b	umi-table-c9/counts.tsv	header and every 300th gene row from the first, in file order
 work/gse163196/matrix/genes.tsv	d58b49ca0c995d063744253f00c09a3e3472ab0394c83d8ce09a2103638125cd	umi-table-c9/genes.tsv	the rows of the genes counts.tsv keeps, in its order
 work/gse163196/matrix/runs.tsv	b8b148352107fa756712e7a281472294a7333cff6b8c94b4907cdd2cc66d4296	umi-table-c9/runs.tsv	whole
-fixtures/nfcore-yeast/salmon_results.tar.gz	2856ef35ad2e688dd5b08a58fe2d66cb9b90c9f6d37db31ebaa8576158a291a1	nfcore-rnaseq-yeast/salmon	every file, whole
+fixtures/nfcore-yeast/salmon_results.tar.gz	2856ef35ad2e688dd5b08a58fe2d66cb9b90c9f6d37db31ebaa8576158a291a1	nfcore-rnaseq-yeast/salmon	every file, whole, but the four macOS ._flenDist.txt metadata files
 fixtures/nfcore-yeast/LICENSE	1fa2a62f20d23902c7aad04f3d728fbfc9d153df472e8f2ef163322a8c5557c8	nfcore-rnaseq-yeast/LICENSE	whole

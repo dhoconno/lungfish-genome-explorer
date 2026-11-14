@@ -208,8 +208,11 @@ def nfcore(cut):
             name = os.path.normpath(member.name)
             if name.startswith("..") or os.path.isabs(name):
                 die(f"{member.name} leaves the archive")
+            if os.path.basename(name).startswith("._"):
+                continue  # AppleDouble metadata that macOS tar added, no salmon file
             cut.write(f"nfcore-rnaseq-yeast/salmon/{name}", tar.extractfile(member).read())
-    cut.source(NFCORE_TAR, "nfcore-rnaseq-yeast/salmon", "every file, whole")
+    cut.source(NFCORE_TAR, "nfcore-rnaseq-yeast/salmon",
+               "every file, whole, but the four macOS ._flenDist.txt metadata files")
     licence = "fixtures/nfcore-yeast/LICENSE"
     cut.write("nfcore-rnaseq-yeast/LICENSE", cut.read(licence))
     cut.source(licence, "nfcore-rnaseq-yeast/LICENSE", "whole")

@@ -8,7 +8,7 @@ Small RNA-seq results for the reader, import and layout tests of Phase 5. Lane P
 | `starsolo-pbmc_1k_v3` | STARsolo 2.7.11b output of 10x's pbmc_1k_v3, exons only (`Solo.out/Gene`). `filtered/` keeps 200 cells and 1,353 genes, renumbered. `Log.final.out`, `Barcodes.stats`, `Features.stats` and `Summary.csv` are whole | `work/tenx-controls/solo/pbmc_1k_v3/` |
 | `cellranger-pbmc_1k_v3/outs` | 10x's Cell Ranger 3.0.0 `filtered_feature_bc_matrix` of pbmc_1k_v3, cut to the same 200 cells and 1,353 genes, gzip as Cell Ranger writes it, with `metrics_summary.csv` whole | `tenx/pbmc_1k_v3/` |
 | `umi-table-c9` | The scripts' UMI counts of C9 (GEO GSE163196), route P (`umi_tools count --per-gene`), 203 genes by 33 samples, with the gene table of those genes and `runs.tsv` whole | `work/gse163196/matrix/ours_P.tsv` |
-| `nfcore-rnaseq-yeast/salmon` | The salmon folders of one nf-core/rnaseq run of its yeast test profile, five samples, every file whole | nf-core/test-datasets, below |
+| `nfcore-rnaseq-yeast/salmon` | The salmon folders of one nf-core/rnaseq run of its yeast test profile, five samples, every file whole but the four `._flenDist.txt` metadata files of macOS that the archive carries | nf-core/test-datasets, below |
 
 ## How the cut chose rows
 
@@ -22,7 +22,7 @@ Small RNA-seq results for the reader, import and layout tests of Phase 5. Lane P
 
 ## What is not here
 
-No 10x barcode list is here (`docs/plans/2026-10-02-architecture-program.md:103`). STARsolo's `raw/` folder lists the whole list, so the cut leaves out `raw/`, and the `barcodes` files hold only the 200 cells observed in the data. The STARsolo `GeneFull` folders, `UMIperCellSorted.txt`, `molecule_info.h5` and the web summary are left out too.
+No 10x barcode list is here (`docs/plans/2026-10-02-architecture-program.md:103`). STARsolo's `raw/` folder lists the whole list, so the cut leaves out `raw/`, and the `barcodes` files hold only the 200 cells observed in the data. The STARsolo `GeneFull` folders, `UMIperCellSorted.txt`, `molecule_info.h5` and the web summary are left out too. nf-core/rnaseq's merged tables (`salmon.merged.gene_counts.tsv` and the others) and DRAGEN quant files have no fixture here, so RS-BULK-IMPORT's tests for them need their own.
 
 ## Recut and check
 
