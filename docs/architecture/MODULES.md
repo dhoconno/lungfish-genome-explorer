@@ -30,7 +30,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1558 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1570 | LungfishCore, LungfishIO |
 | LungfishWorkflowTwelveS | library | Sources/LungfishWorkflowTwelveS | 38 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
@@ -2671,6 +2671,7 @@ None.
 - `GenotypeReviewableRowCatalogRecoveryError` struct, `Sources/LungfishWorkflow/ONTGenotyping/GenotypeReviewableRowCatalogRecoveryError.swift`
 - `GenotypeWorkbookExport` enum, `Sources/LungfishWorkflow/ViewerExport/GenotypeWorkbookExport.swift`
 - `GFASegmentFASTAWriter` enum, `Sources/LungfishWorkflow/Assembly/GFASegmentFASTAWriter.swift`
+- `GffreadTranscriptDeriver` struct, `Sources/LungfishWorkflow/RNASeq/ReferenceSetOwner.swift`
 - `GUIImportedProvenanceRehydrator` enum, `Sources/LungfishWorkflow/Provenance/GUIImportedProvenanceRehydrator.swift`
 - `GUIImportedProvenanceRehydratorError` enum, `Sources/LungfishWorkflow/Provenance/GUIImportedProvenanceRehydrator.swift`
 - `HaplotypeDefinitionCommandResult` struct, `Sources/LungfishWorkflow/ONTGenotyping/HaplotypeDefinitionCommandService.swift`
@@ -3337,6 +3338,17 @@ None.
 - `ReferenceImportClassification` enum, `Sources/LungfishWorkflow/Bundles/ReferenceBundleImportService.swift`
 - `ReferenceImportWarning` struct, `Sources/LungfishWorkflow/Bundles/ReferenceSourcePreparer.swift`
 - `ReferenceLocator` struct, `Sources/LungfishWorkflow/Mapping/MappingCommandBuilder.swift`
+- `ReferenceSetDefault` struct, `Sources/LungfishWorkflow/RNASeq/ReferenceSetDefaults.swift`
+- `ReferenceSetError` enum, `Sources/LungfishWorkflow/RNASeq/ReferenceSetDefaults.swift`
+- `ReferenceSetExtraInput` struct, `Sources/LungfishWorkflow/RNASeq/ReferenceSetRequest.swift`
+- `ReferenceSetExtraKind` enum, `Sources/LungfishWorkflow/RNASeq/ReferenceSetRequest.swift`
+- `ReferenceSetID` enum, `Sources/LungfishWorkflow/RNASeq/ReferenceSetRequest.swift`
+- `ReferenceSetLayout` enum, `Sources/LungfishWorkflow/RNASeq/ReferenceSetRequest.swift`
+- `ReferenceSetManifest` struct, `Sources/LungfishWorkflow/RNASeq/ReferenceSetManifest.swift`
+- `ReferenceSetOutcome` struct, `Sources/LungfishWorkflow/RNASeq/ReferenceSetOwner.swift`
+- `ReferenceSetOwner` struct, `Sources/LungfishWorkflow/RNASeq/ReferenceSetOwner.swift`
+- `ReferenceSetRequest` struct, `Sources/LungfishWorkflow/RNASeq/ReferenceSetRequest.swift`
+- `ReferenceSetTranscriptDeriving` protocol, `Sources/LungfishWorkflow/RNASeq/ReferenceSetOwner.swift`
 - `ReferenceSourcePreparer` struct, `Sources/LungfishWorkflow/Bundles/ReferenceSourcePreparer.swift`
 - `RefusedRecipeFile` struct, `Sources/LungfishWorkflow/Recipes/RecipeSwitches.swift`
 - `RegionMatchResult` struct, `Sources/LungfishWorkflow/Extraction/ExtractionConfig.swift`
