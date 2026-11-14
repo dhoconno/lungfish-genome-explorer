@@ -6,30 +6,46 @@ import Darwin
 import XCTest
 @testable import LungfishWorkflow
 
-/// A stand-in for gffread. It writes one record a transcript id of the annotation's exon and CDS lines, in
-/// the order the lines give them, plus `ghost` when set, and counts its runs.
+/// A stand-in for gffread. As gffread 0.12.9 does (ADJ-BIO-51 Q1), it writes one record a transcript id on each
+/// contig and strand of the annotation's transcript, exon and CDS lines, in the order the lines give them, so an id
+/// two genes share on two strands gives two records of one name. It adds `ghost` and a second `twice` when set,
+/// counts its runs and keeps the path and text of each GTF it was given.
 final class StandInTranscriptDeriver: ReferenceSetTranscriptDeriving, @unchecked Sendable {
     private let lock = NSLock()
     private var runs = 0
+    private var given: [(path: String, text: String)] = []
     let ghost: String?
+    let twice: String?
 
-    init(ghost: String? = nil) { self.ghost = ghost }
+    init(ghost: String? = nil, twice: String? = nil) {
+        self.ghost = ghost
+        self.twice = twice
+    }
 
     var runCount: Int { lock.withLock { runs } }
+
+    /// Each GTF gffread was given, read before the stage's work folder goes.
+    var annotations: [(path: String, text: String)] { lock.withLock { given } }
 
     func toolVersion() async throws -> String { "0.12.9" }
 
     func writeTranscripts(genome: URL, annotation: URL, to output: URL) async throws {
-        lock.withLock { runs += 1 }
+        let text = try String(contentsOf: annotation, encoding: .utf8)
+        lock.withLock {
+            runs += 1
+            given.append((annotation.path, text))
+        }
         var ids: [String] = []
-        for line in try String(contentsOf: annotation, encoding: .utf8).split(separator: "\n") where !line.hasPrefix("#") {
+        var places = Set<String>()
+        for line in text.split(separator: "\n") where !line.hasPrefix("#") {
             let cells = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard cells.count == 9, cells[2] == "exon" || cells[2] == "CDS",
+            guard cells.count == 9, ["exon", "CDS", "transcript"].contains(cells[2]),
                   let range = cells[8].range(of: #"transcript_id "[^"]+""#, options: .regularExpression) else { continue }
             let id = String(cells[8][range].dropFirst("transcript_id \"".count).dropLast())
-            if !ids.contains(id) { ids.append(id) }
+            if places.insert("\(id)\t\(cells[0])\t\(cells[6])").inserted { ids.append(id) }
         }
         if let ghost { ids.append(ghost) }
+        if let twice { ids.append(twice) }
         try Data(ids.map { ">\($0)\nACGT\n" }.joined().utf8).write(to: output)
     }
 }
