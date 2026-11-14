@@ -13,7 +13,7 @@ import refcheck
 
 FASTA = (
     ">chr1 first contig\nACGTACGTAC\nGTACGTACGT\n"
-    ">MT mitochondrial contig\nACGTAC\n"
+    ">MT small circular contig\nACGTAC\n"
     ">chrU unplaced\nAC\n"
 )
 
@@ -131,6 +131,12 @@ class RefcheckTest(unittest.TestCase):
                 self.assertEqual(f[key], plain[key], (size, key))
             self.assertEqual(f["fasta_sha256"], hashlib.sha256(packed).hexdigest())
             self.assertEqual(f["gtf_sha256"], hashlib.sha256(gtf.read_bytes()).hexdigest())
+
+    def test_the_comment_lines_before_the_first_feature_name_the_build(self):
+        gtf = self.write("g.gtf", "##provider: TEST\n#!genome-build Foo_1\n" + GTF + "# late comment\n")
+        f = self.facts(gtf=gtf)
+        self.assertEqual(f["gtf_header"], "provider: TEST | genome-build Foo_1")
+        self.assertEqual(self.facts()["gtf_header"], "-")
 
     def test_a_fasta_without_a_final_newline(self):
         f = self.facts(fasta=self.write("g.fa", ">chr1\nACGT\nAC"))
