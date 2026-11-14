@@ -262,6 +262,39 @@ class FilterSyncTests(unittest.TestCase):
             workflow_packs - script_packs, set(), "the CI job installs a pack verify.sh does not"
         )
 
+    def test_conformance_packs_cover_every_pack_the_lock_names(self):
+        """Every pack of the lock is installed here or is experimental.
+
+        ToolVersionConformanceTests probes every packTools row of the lock.
+        Under --require-tools a tool whose environment is missing fails as not
+        installed, unless its pack is experimental, because the CLI refuses to
+        install those. A pack that is neither in conformance_packs nor
+        experimental turns tier 1 and the CI conformance job red. The unit
+        tier cannot see that, so this test does.
+        """
+        # The packs that PluginPack.swift marks with isExperimental set to true.
+        experimental = {"gatk-core", "phasing", "wastewater-surveillance"}
+        script = VERIFY.read_text(encoding="utf-8")
+        packs = re.search(
+            r"^conformance_packs=\(\n(.*?)\n\)", script, re.MULTILINE | re.DOTALL
+        )
+        self.assertIsNotNone(packs, "conformance_packs not found in verify.sh")
+        lock = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        lock_packs = {row["packID"] for row in lock["packTools"]}
+        self.assertEqual(
+            lock_packs - set(packs.group(1).split()) - experimental,
+            set(),
+            "the lock names packs that verify.sh and the CI job never install",
+        )
+        registry = (ROOT / "Sources/LungfishWorkflow/Conda/PluginPack.swift").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(
+            len(re.findall(r"isExperimental:\s*true", registry)),
+            len(experimental),
+            "the registry marks a different number of packs experimental, update the set above",
+        )
+
 
 class Tier1FailurePropagationTests(unittest.TestCase):
     def test_cli_build_uses_the_canonical_full_xcode_selection(self):
