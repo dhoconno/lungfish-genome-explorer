@@ -178,7 +178,7 @@ package enum CLIEventContractTable {
         "workflow run": .events(flag: formatJSON, channel: .standardOutput),
     ]
 
-    // MARK: Leaves that print one JSON result (64)
+    // MARK: Leaves that print one JSON result (65)
 
     private static let results: [String: CLIEventContract] = [
         "analyze composition": .result(schemaID: "analyze-composition"),
@@ -240,6 +240,8 @@ package enum CLIEventContractTable {
         "project lock": .result(schemaID: "project-lock"),
         "project migrate": .result(schemaID: "project-migrate"),
         "project unlock": .result(schemaID: "project-unlock"),
+        // Since 5.1 lane RS-REFSET, the set's id, its path and whether a published set was reused.
+        "rnaseq reference-set": .result(schemaID: "rnaseq-reference-set"),
         "search": .result(schemaID: "search"),
         "storage dedupe": .result(schemaID: "storage-dedupe"),
         "storage info": .result(schemaID: "storage-info"),
