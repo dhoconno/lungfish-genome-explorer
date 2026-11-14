@@ -20,7 +20,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishIO | library | Sources/LungfishIO | 667 | LungfishCore |
+| LungfishIO | library | Sources/LungfishIO | 675 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 161 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -30,11 +30,11 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1549 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1551 | LungfishCore, LungfishIO |
 | LungfishWorkflowTwelveS | library | Sources/LungfishWorkflowTwelveS | 38 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
-| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 87 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
+| LungfishTestSupport | library | Tests/Support/LungfishTestSupport | 88 | LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow |
 
 ## Test targets
 
@@ -1480,6 +1480,14 @@ None.
 - `ReferenceSequenceManifest` struct, `Sources/LungfishIO/Bundles/ReferenceSequenceFolder.swift`
 - `ReferenceSequenceScanner` enum, `Sources/LungfishIO/Formats/FASTQ/ReferenceSequenceScanner.swift`
 - `ResultBundleSampleMetadataResolver` enum, `Sources/LungfishIO/Metadata/ResultBundleSampleMetadataResolver.swift`
+- `RNASeqCountTable` struct, `Sources/LungfishIO/Bundles/RNASeqResultTables.swift`
+- `RNASeqGeneRecord` struct, `Sources/LungfishIO/Bundles/RNASeqResultTables.swift`
+- `RNASeqQualityTable` struct, `Sources/LungfishIO/Bundles/RNASeqResultTables.swift`
+- `RNASeqResult` struct, `Sources/LungfishIO/Bundles/RNASeqResultBundle.swift`
+- `RNASeqResultBundle` enum, `Sources/LungfishIO/Bundles/RNASeqResultBundle.swift`
+- `RNASeqResultError` enum, `Sources/LungfishIO/Bundles/RNASeqResultBundle.swift`
+- `RNASeqResultManifest` struct, `Sources/LungfishIO/Bundles/RNASeqResultManifest.swift`
+- `RNASeqSampleRecord` struct, `Sources/LungfishIO/Bundles/RNASeqResultTables.swift`
 - `SAMParser` enum, `Sources/LungfishIO/Formats/SAM/SAMParser.swift`
 - `SampleProvenance` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivedBundleManifest.swift`
 - `SampleRole` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQSampleMetadata.swift`
@@ -2001,6 +2009,7 @@ None.
 | PrimerDesign |
 | Primers |
 | Provenance |
+| RNASeq |
 | ReadPairing |
 | ReadPairing/Capabilities |
 | Recipes |
@@ -3334,6 +3343,8 @@ None.
 - `ResolvedSequenceInputs` struct, `Sources/LungfishWorkflow/Mapping/ResolvedSequenceInputs.swift`
 - `ResolvedSequenceInputsError` enum, `Sources/LungfishWorkflow/Mapping/ResolvedSequenceInputs.swift`
 - `RiboDetectorStep` struct, `Sources/LungfishWorkflow/Recipes/Steps/RiboDetectorStep.swift`
+- `RNASeqResultWriter` struct, `Sources/LungfishWorkflow/RNASeq/RNASeqResultWriter.swift`
+- `RNASeqResultWriterError` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqResultWriter+Files.swift`
 - `RunStatus` enum, `Sources/LungfishWorkflow/Provenance/RunStatus.swift`
 - `SafeZipExtractor` struct, `Sources/LungfishWorkflow/DemoProjects/SafeZipExtractor.swift`
 - `SampleEvidence` struct, `Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingTypes.swift`
@@ -3741,6 +3752,7 @@ None.
 - `ProvenanceCompatSweep` enum, `Tests/Support/LungfishTestSupport/ProvenanceCompatSweep.swift`
 - `ProvenanceCompatSweepReport` struct, `Tests/Support/LungfishTestSupport/ProvenanceCompatSweep.swift`
 - `ReadSetFixtures` struct, `Tests/Support/LungfishTestSupport/ReadSetFixtures.swift`
+- `RNASeqFixtures` enum, `Tests/Support/LungfishTestSupport/RNASeqFixtures.swift`
 - `SavedBlastSearchProject` struct, `Tests/Support/LungfishTestSupport/SavedBlastSearchFixture.swift`
 - `SRAArchivesStandIn` enum, `Tests/Support/LungfishTestSupport/SRAArchivesStandIn.swift`
 - `SRAScriptedArchives` class, `Tests/Support/LungfishTestSupport/SRAScriptedArchives.swift`
