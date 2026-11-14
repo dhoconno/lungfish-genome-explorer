@@ -46,7 +46,10 @@ final class MergedRecipeSliceConformanceTests: XCTestCase {
         let after = try XCTUnwrap((json["summary"] as? [String: Any])?["after_filtering"] as? [String: Any])
         let reads = try XCTUnwrap(after["total_reads"] as? Int)
         let bases = try XCTUnwrap(after["total_bases"] as? Int)
-        XCTAssertEqual(reads, 2 * 869_933, "pairs kept at -w 1")
-        XCTAssertEqual(bases, 242_827_260, "bases kept at -w 1")
+        // Ruling BIO-NEXTERA N1: the vsp2 preset names the Nextera pair, which drops 11 pairs and 19,537 bases on the
+        // slice against the TruSeq pair (869,933 pairs, 242,827,260 bases), the values BIO measured by hand for the
+        // fused call at one thread and this run gave.
+        XCTAssertEqual(reads, 2 * 869_922, "pairs kept at -w 1")
+        XCTAssertEqual(bases, 242_807_723, "bases kept at -w 1")
     }
 }
