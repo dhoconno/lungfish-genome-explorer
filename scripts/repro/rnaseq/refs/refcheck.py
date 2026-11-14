@@ -296,7 +296,8 @@ def resolve(args):
         folder = Path(args.folder)
         if not folder.is_dir():
             raise RefcheckError(f"{folder} is not a folder")
-        files = sorted(p for p in folder.iterdir() if p.is_file())
+        notes = ("readme", "checksums")  # Ensembl keeps README.fasta and CHECKSUMS.gtf beside the data
+        files = sorted(p for p in folder.iterdir() if p.is_file() and not p.name.lower().startswith(notes))
         reports = [p for p in files if p.name.endswith("assembly_report.txt")]
         if fasta is None:
             fasta = only([p for p in files if is_fasta(p.name)], folder, "--fasta")
