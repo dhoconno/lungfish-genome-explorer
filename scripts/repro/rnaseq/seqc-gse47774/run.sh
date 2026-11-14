@@ -121,3 +121,33 @@ if has star; then
   done
   $NICE $PY "$HERE/routes.py" "$WORK" "$HERE/samples.tsv" $STAR_RUNS > "$WORK/logs/routes.log"
 fi
+
+# lge_refset (RS-REFSET, gate GR, not in the default list): lungfish-cli (LGE_CLI) builds Ensembl 100 GRCh38 with
+# ERCC92 as a spike-in under WORK/lge/${LGE_RUN:-RS-REFSET}/root, passed by --storage-root and never exported, and
+# checks it against ref/ (stage ref first), then deletes it and keeps its manifest and tables. The root's
+# conda/envs/gffread is the RNA-seq pack's, or a link to LGE_PACK_ENV, an installed gffread environment.
+if has lge_refset; then
+  LGE=$WORK/lge/${LGE_RUN:-RS-REFSET}; ENS=$DATA/refs/human/ensembl-100; d=$LGE/seqc-lge
+  mkdir -p "$LGE/root/conda/envs" "$LGE/logs"; : > "$LGE/gr.txt"
+  [ -x "$LGE/root/conda/envs/gffread/bin/gffread" ] || ln -sfn "${LGE_PACK_ENV:?no gffread in the root}" "$LGE/root/conda/envs/gffread"
+  gr() { echo "GR seqc-gse47774 $*" | tee -a "$LGE/gr.txt"; }
+  rm -rf "$LGE/root/rnaseq-reference-sets"/*.lungfishrefset
+  heavy /usr/bin/time -l -o "$LGE/logs/seqc-lge.time" $NICE "${LGE_CLI:?}" rnaseq reference-set --storage-root "$LGE/root" \
+    --species "Homo sapiens" --assembly GRCh38 --annotation-source Ensembl --annotation-release 100 \
+    --genome "$ENS/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz" --annotation "$ENS/Homo_sapiens.GRCh38.100.gtf.gz" \
+    --extra "spike-in,ERCC92,$WORK/ref/ercc/ERCC92.fa" > "$LGE/logs/seqc-lge.log" 2>&1 || { gr "build FAIL"; exit 1; }
+  set_dir=$(ls -d "$LGE/root/rnaseq-reference-sets"/*.lungfishrefset)
+  rm -rf "$d"; mkdir -p "$d"; cp "$set_dir/reference-set.json" "$set_dir"/derived/*.tsv "$d/"
+  gr "build $(awk '/real/ {printf "%s s, ", $1} /maximum resident/ {printf "peak %.1f GB", $1 / 2^30}' "$LGE/logs/seqc-lge.time")"
+  if cmp -s "$set_dir/derived/transcripts.fa" <(cat "$WORK/ref/transcripts.fa" "$WORK/ref/ercc/ERCC92.fa"); then
+    gr "transcripts.fa pass byte-equal to ref/transcripts.fa then ERCC92.fa"
+  else
+    gr "transcripts.fa FAIL $(cmp "$set_dir/derived/transcripts.fa" <(cat "$WORK/ref/transcripts.fa" "$WORK/ref/ercc/ERCC92.fa") 2>&1 | head -1)"
+  fi
+  awk -F'\t' '$1 != "transcript_id" { print $1 "\t" $2 }' "$d/transcripts.tsv" | sort -u > "$d/pairs.txt"
+  awk -F'\t' '$1 != "transcript_id" && $1 != "TXNAME" { print $1 "\t" $2 }' "$WORK/ref/tx2gene.tsv" | sort -u > "$LGE/tx2gene_pairs.txt"
+  n=$(wc -l < "$d/pairs.txt" | tr -d ' '); m=$(wc -l < "$LGE/tx2gene_pairs.txt" | tr -d ' ')
+  if cmp -s "$d/pairs.txt" "$LGE/tx2gene_pairs.txt"; then gr "transcripts.tsv pass $n pairs equal tx2gene.tsv as a set"
+  else gr "transcripts.tsv FAIL $n pairs against $m, $(comm -3 "$d/pairs.txt" "$LGE/tx2gene_pairs.txt" | wc -l | tr -d ' ') differ"; fi
+  rm -rf "$set_dir"
+fi

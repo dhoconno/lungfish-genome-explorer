@@ -110,3 +110,42 @@ fi
 if has claims; then
   $NICE $PY "$HERE/claims.py" "$WORK" "$HERE/runs.tsv" "$HERE/claims.tsv" | tee "$WORK/logs/claims.log"
 fi
+
+# lge_refset (RS-REFSET, gate GR, not in the default list): lungfish-cli (LGE_CLI) builds the reference set in
+# each layout under WORK/lge/${LGE_RUN:-RS-REFSET}/root, passed by --storage-root and never exported. Each set
+# is checked against ref/ and deleted, and its manifest and tables stay. The root's conda/envs/gffread is the
+# RNA-seq pack's, or a link to LGE_PACK_ENV, an installed gffread environment.
+if has lge_refset; then
+  LGE=$WORK/lge/${LGE_RUN:-RS-REFSET}; E=$DATA/refs/rhesus/ensembl-100
+  V=$DATA/refs/sars-cov-2/GCF_009858895.2/GCF_009858895.2_ASM985889v3
+  mkdir -p "$LGE/root/conda/envs" "$LGE/logs"; : > "$LGE/gr.txt"
+  [ -x "$LGE/root/conda/envs/gffread/bin/gffread" ] || ln -sfn "${LGE_PACK_ENV:?no gffread in the root}" "$LGE/root/conda/envs/gffread"
+  gr() { echo "GR gse183579 $*" | tee -a "$LGE/gr.txt"; }
+  verdict() { [ "$1" = "$2" ] && echo pass || echo FAIL; }
+  # the 11 viral genes as ref.sh names them, the deposit's names
+  grep '^NC_045512\.2	' "$WORK/ref/genes.gtf" > "$LGE/virus.gtf"
+  cut -f1 "$WORK/ref/genes.tsv" > "$LGE/deposit_genes.txt"
+  for layout in lge deposit; do
+    opts=(--default rhesus/ensembl-100 --genome "$E/Macaca_mulatta.Mmul_10.dna.toplevel.fa.gz"
+      --annotation "$E/Macaca_mulatta.Mmul_10.100.gtf.gz")
+    if [ "$layout" = lge ]; then opts+=(--extra "virus,NC_045512.2,${V}_genomic.fna.gz"); want=35433
+    else opts+=(--layout deposit --study GSE183579 --extra "virus,NC_045512.2,${V}_genomic.fna.gz,$LGE/virus.gtf"); want=35443; fi
+    rm -rf "$LGE/root/rnaseq-reference-sets"/*.lungfishrefset
+    heavy /usr/bin/time -l -o "$LGE/logs/gse183579-$layout.time" $NICE "${LGE_CLI:?}" rnaseq reference-set \
+      --storage-root "$LGE/root" "${opts[@]}" > "$LGE/logs/gse183579-$layout.log" 2>&1 || { gr "$layout build FAIL"; continue; }
+    set_dir=$(ls -d "$LGE/root/rnaseq-reference-sets"/*.lungfishrefset); d=$LGE/gse183579-$layout
+    rm -rf "$d"; mkdir -p "$d"; cp "$set_dir/reference-set.json" "$set_dir"/derived/*.tsv "$d/"
+    grep -v '^gene_id	' "$d/genes.tsv" > "$d/rows.tsv"; cut -f1 "$d/rows.tsv" > "$d/ids.txt"
+    n=$(wc -l < "$d/ids.txt" | tr -d ' ')
+    gr "$layout features $(verdict "$n" "$want") $n of $want ($(awk '/real/ {printf "%s s, ", $1} /maximum resident/ {printf "peak %.1f GB", $1 / 2^30}' "$LGE/logs/gse183579-$layout.time"))"
+    mt=$(awk -F'\t' '$4 == "MT"' "$d/rows.tsv" | wc -l | tr -d ' '); pre=$(awk -F'\t' '$2 ~ /^MT-/' "$d/rows.tsv" | wc -l | tr -d ' ')
+    gr "$layout mito $(verdict "$mt $pre" "37 0") $mt on MT, $pre named MT-"
+    if [ "$layout" = deposit ]; then
+      same=$(cmp -s "$d/ids.txt" "$LGE/deposit_genes.txt" && echo "equal in order" || echo differ)
+      gr "$layout genes $(verdict "$same" "equal in order") $same to ref/genes.tsv"
+      vir=$(awk -F'\t' '$4 == "NC_045512.2" {printf "%s:%s ", $1, $2}' "$d/rows.tsv")
+      gr "$layout virus $(verdict "$(echo "$vir" | wc -w | tr -d ' ')" 11) $vir"
+    fi
+    rm -rf "$set_dir"
+  done
+fi

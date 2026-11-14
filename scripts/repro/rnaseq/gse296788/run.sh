@@ -182,8 +182,69 @@ stage_prune() {
     < "$WORK/compare/pass_libs.txt"
 }
 
+# lge_refset (RS-REFSET, gate GR, not in "all"): lungfish-cli (LGE_CLI) builds the reference set in each
+# layout under WORK/lge/${LGE_RUN:-RS-REFSET}/root, passed by --storage-root and never exported. Each set is
+# checked against the study's reference and deleted, and its manifest and tables stay. The root's
+# conda/envs/gffread is the RNA-seq pack's, or a link to LGE_PACK_ENV, an installed gffread environment.
+LGE=$WORK/lge/${LGE_RUN:-RS-REFSET}
+lge_build() { # <name> <option ...>: one timed build behind the heavy lock, the set left in LGE_SET
+  local name=$1; shift
+  mkdir -p "$LGE/root/conda/envs" "$LGE/logs"
+  [ -x "$LGE/root/conda/envs/gffread/bin/gffread" ] || ln -sfn "${LGE_PACK_ENV:?no gffread in the root}" "$LGE/root/conda/envs/gffread"
+  rm -rf "$LGE/root/rnaseq-reference-sets"/*.lungfishrefset
+  heavy /usr/bin/time -l -o "$LGE/logs/$name.time" $NICE "${LGE_CLI:?}" rnaseq reference-set --storage-root "$LGE/root" "$@" \
+    > "$LGE/logs/$name.log" 2>&1 || { tail -5 "$LGE/logs/$name.log"; return 1; }
+  LGE_SET=$(ls -d "$LGE/root/rnaseq-reference-sets"/*.lungfishrefset)
+  rm -rf "${LGE:?}/$name"; mkdir -p "$LGE/$name"
+  cp "$LGE_SET/reference-set.json" "$LGE_SET"/derived/*.tsv "$LGE/$name/"
+  log "$name $(basename "$LGE_SET") $(awk '/maximum resident/ {printf "peak %.1f GB", $1 / 2^30} /real/ {printf "%s s ", $1}' "$LGE/logs/$name.time")"
+}
+gr() { echo "GR gse296788 $*" | tee -a "$LGE/gr.txt"; } # <check> <pass|FAIL> <numbers>
+verdict() { [ "$1" = "$2" ] && echo pass || echo FAIL; }
+but_two() { awk 'NR > 2 { print two } { two = one; one = $0 }' "$1"; } # every line but the last two
+
+stage_lge_refset() {
+  local feats ids mtb=$LGE/mtb.gtf n layout d
+  stage_truth; mkdir -p "$LGE"; : > "$LGE/gr.txt"
+  feats="$(deposit_of GSM8976774)_features.tsv.gz"
+  gzip -dc "$feats" | cut -f1 > "$LGE/deposit_features.txt"
+  # the deposit's two Mtb features, tb001 and tb002, as ref.py writes them
+  grep -E '^KK33948[78]\.1	' "$WORK/ref/genes.gtf" > "$mtb"
+  for layout in lge deposit; do
+    local opts=(--default cynomolgus/refseq-GCF_000364345.1
+      --genome "$REFSEQ"/GCF_000364345.1_Macaca_fascicularis_5.0_genomic.fna.gz
+      --annotation "$REFSEQ"/GCF_000364345.1_Macaca_fascicularis_5.0_genomic.gtf.gz
+      --assembly-report "$REFSEQ"/GCF_000364345.1_Macaca_fascicularis_5.0_assembly_report.txt)
+    if [ "$layout" = lge ]; then
+      opts+=(--extra "bacterium,mtb,$MTBREF/GCA_000668235.1_Myco_tube_Erdman_V1_genomic.fna.gz")
+    else
+      opts+=(--layout deposit --study GSE296788 --extra "bacterium,mtb,$MTBREF/GCA_000668235.1_Myco_tube_Erdman_V1_genomic.fna.gz,$mtb")
+    fi
+    lge_build "gse296788-$layout" "${opts[@]}" || { gr "$layout build FAIL"; continue; }
+    d=$LGE/gse296788-$layout
+    grep -v '^gene_id	' "$d/genes.tsv" | cut -f1 > "$d/ids.txt"
+    n=$(wc -l < "$d/ids.txt" | tr -d ' ')
+    gr "$layout features $(verdict "$n" 28847) $n of 28847"
+    if [ "$layout" = deposit ]; then ids=$(cmp -s "$d/ids.txt" "$LGE/deposit_features.txt" && echo equal || echo differ)
+    else ids=$(cmp -s <(but_two "$d/ids.txt") <(but_two "$LGE/deposit_features.txt") && echo equal || echo differ); fi
+    gr "$layout order $(verdict "$ids" equal) $ids to the deposit features (LGE's layout without the two Mtb rows)"
+    read -r added kept dropped < <($PY -c 'import json,sys; d=json.load(open(sys.argv[1])).get("derivation") or {}; print(*(len(d.get(k) or []) for k in ("exonsAdded","keptWithoutExon","droppedFeatures")))' "$d/reference-set.json")
+    gr "$layout dropped $(verdict "$dropped" 24) $dropped empty gene_id features listed"
+    local mito zero
+    mito=$(awk -F'\t' '$4 == "NC_012670.1"' "$d/genes.tsv" | wc -l | tr -d ' ')
+    zero=$(awk -F'\t' '$4 == "NC_012670.1" && $5 == 0' "$d/genes.tsv" | wc -l | tr -d ' ')
+    if [ "$layout" = deposit ]; then
+      gr "$layout mito $(verdict "$mito $zero $kept" "13 13 13") $mito on NC_012670.1, $zero at length 0, $kept kept without exon"
+    else
+      gr "$layout mito $(verdict "$mito $zero $added" "13 0 13") $mito on NC_012670.1, $zero at length 0, $added given CDS plus stop"
+    fi
+    rm -rf "$LGE_SET"
+  done
+}
+
 for st in $STAGES; do
   case $st in
+    lge_refset) stage_lge_refset ;;
     ref) stage_ref ;;
     index) stage_index ;;
     solo:*) stage_solo "${st#solo:}" ;;
