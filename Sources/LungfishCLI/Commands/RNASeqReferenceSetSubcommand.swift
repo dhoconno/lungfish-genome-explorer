@@ -75,14 +75,14 @@ extension RNASeqCommand {
 
         func run() async throws {
             let request: ReferenceSetRequest
+            let root: URL
             do {
                 request = try makeRequest()
+                root = try resolvedStorageRoot()
             } catch {
                 FileHandle.standardError.write(Data("Error: \(error.localizedDescription)\n".utf8))
                 throw CLIExitCode.inputError.exitCode
             }
-            let root = storageRoot.map { URL(fileURLWithPath: $0, isDirectory: true) }
-                ?? ManagedStorageConfigStore().currentLocation().rootURL
             do {
                 let outcome = try await ReferenceSetOwner(storageRoot: root).build(request, argv: CommandLine.arguments)
                 if globalOptions.outputFormat == .json {
@@ -97,6 +97,24 @@ extension RNASeqCommand {
                 FileHandle.standardError.write(Data("Error: \(error.localizedDescription)\n".utf8))
                 throw CLIExitCode.inputError.exitCode
             }
+        }
+
+        /// `--storage-root`, else the configured location. As `tools --storage-root` does (`ToolsCommand.swift:189-215`),
+        /// the root is set as `LUNGFISH_STORAGE_ROOT` in this process before anything reads it, so gffread and the
+        /// version in the set's id come from the root the set is written under, never from the configured one.
+        func resolvedStorageRoot() throws -> URL {
+            guard let storageRoot, !storageRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return ManagedStorageConfigStore().currentLocation().rootURL
+            }
+            let requested = URL(fileURLWithPath: storageRoot, isDirectory: true).standardizedFileURL
+            setenv("LUNGFISH_STORAGE_ROOT", requested.path, 1)
+            let resolved = ManagedStorageConfigStore().currentLocation().rootURL
+            guard resolved == requested else {
+                // `currentLocation` falls back to the configured root when the folder is missing or not writable.
+                throw ReferenceSetError.invalidRequest(
+                    "The storage root \(requested.path) is unavailable. It must be a folder you can write to.")
+            }
+            return resolved
         }
 
         /// The request the options name. A named default fills what the options leave out and carries its checksums.
