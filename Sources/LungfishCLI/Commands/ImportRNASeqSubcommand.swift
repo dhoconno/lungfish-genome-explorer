@@ -110,7 +110,8 @@ extension ImportCommand {
             case .failure(let exitCode as ExitCode):
                 throw exitCode
             case .failure(let error):
-                destination.removeIfCreatedByThisRun()
+                // The writer removes its own stage on every throw and never leaves the result's name, so whatever
+                // stands there now is another run's and stays (`docs/formats/rnaseq-bundle.md`, The one writer).
                 emitter.emitFailed(CLIFailureWords.describe(error))
                 throw (error is RNASeqImportError ? CLIExitCode.inputError : CLIExitCode.formatError).exitCode
             }
