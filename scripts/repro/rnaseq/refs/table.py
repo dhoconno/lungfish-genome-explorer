@@ -44,6 +44,16 @@ def header_value(a, key):
     return ""
 
 
+def mito_cell(a):
+    """The mitochondrial contig and its rule, or, when the files hold none, what the assembly report lists."""
+    if a["mito_contig"] != "-":
+        return f"`{a['mito_contig']}` ({a['mito_contig_source']})"
+    records = [r.split("/") for r in a.get("report_mito_records", "-").split(",") if r != "-"]
+    listed = ", ".join(f"{name} ({genbank}, RefSeq {refseq}" + ("" if length == "na" else f", {length} bp") + ")"
+                       for name, genbank, refseq, length in records)
+    return "none in FASTA or GTF" + (f", the report lists {listed}" if listed else "")
+
+
 def file_cell(a, folder, kind, ledger, manifest):
     if a is None:
         for url, dest, _type, md5 in manifest:
@@ -73,7 +83,7 @@ def blocks(out, ledger_path, manifest_path):
             lines.append(f"| `{folder}` | not staged | | | | |")
             continue
         lines.append(f"| `{folder}` | {a['gtf_names_missing_from_fasta']} {a['gtf_missing_names'].replace('-', '')} | {a['genes_with_cds_no_exon']} ({a['genes_with_cds_no_exon_on_mito']}) | "
-                     f"`{a['mito_contig']}` ({a['mito_contig_source']}) | {a['mito_genes']} ({a['mito_genes_with_MT_prefix']}) | {a['empty_gene_id_features']} {a['empty_gene_id_by_type'].replace('-', '')} |")
+                     f"{mito_cell(a)} | {a['mito_genes']} ({a['mito_genes_with_MT_prefix']}) | {a['empty_gene_id_features']} {a['empty_gene_id_by_type'].replace('-', '')} |")
     lines.append("")
     for (folder, *_), a in rows:
         cmd = Path(out, folder.replace("/", "-") + ".cmd")

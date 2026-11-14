@@ -16,6 +16,8 @@ Rows that matter to a reference set
   gtf_names_missing_from_fasta   GTF sequence names with no FASTA record, must be 0
   genes_with_cds_no_exon         genes with a CDS line and no exon line (ADJ-SC gse296788 Q2)
   mito_contig, mito_genes        found by contig, never by a gene name prefix
+  report_mito_records            the assembly report's Mitochondrion rows as name/GenBank/RefSeq/length,
+                                 so a set whose files hold no such contig shows what the report lists
   empty_gene_id_features         GTF lines whose gene_id is empty or absent
 
 The mitochondrial contig comes from --mito-contig, else an assembly report row typed
@@ -211,15 +213,26 @@ def listed(names, limit=MAX_LISTED):
     return ",".join(shown) or "-"
 
 
-def report_candidates(report):
-    """Names an NCBI assembly report gives to the sequences it types Mitochondrion."""
-    names = []
+def report_mito_rows(report):
+    """The fields of each row an NCBI assembly report types Mitochondrion."""
     with open(report, encoding="utf-8", errors="replace") as fh:
         for line in fh:
             f = line.rstrip("\n").split("\t")
             if not line.startswith("#") and len(f) > 6 and f[3] == "Mitochondrion":
-                names += [f[i] for i in (6, 4, 0, 9) if i < len(f) and f[i] != "na"]
+                yield f
+
+
+def report_candidates(report):
+    """Names an NCBI assembly report gives to the sequences it types Mitochondrion."""
+    names = []
+    for f in report_mito_rows(report):
+        names += [f[i] for i in (6, 4, 0, 9) if i < len(f) and f[i] != "na"]
     return names
+
+
+def report_mito_records(report):
+    """Those rows as name/GenBank/RefSeq/length, na where a column is empty or absent."""
+    return ["/".join([f[0]] + [f[i] if i < len(f) and f[i] else "na" for i in (4, 6, 8)]) for f in report_mito_rows(report)]
 
 
 def find_mito(fa, gtf_names, explicit, report):
@@ -245,6 +258,7 @@ def check(fasta, gtf, *, mito_contig=None, assembly_report=None, chunk_size=CHUN
     missing = sorted(set(seqnames) - set(fa.names))
     mito, source = find_mito(fa, set(seqnames), mito_contig, assembly_report)
     mito_set = {m.encode() for m in mito}
+    in_report = report_mito_records(assembly_report) if assembly_report else []
     cds_only = sorted((text(g), text(c)) for g, (flags, c) in gt.genes.items() if flags & 2 and not flags & 1)
     return [
         ("fasta", str(fasta)),
@@ -268,6 +282,7 @@ def check(fasta, gtf, *, mito_contig=None, assembly_report=None, chunk_size=CHUN
         ("genes_with_cds_no_exon_ids", listed([g for g, _ in cds_only], 20)),
         ("mito_contig", ",".join(mito) or "-"),
         ("mito_contig_source", source),
+        ("report_mito_records", ",".join(in_report) or "-"),
         ("mito_genes", str(sum(1 for _, c in gt.genes.values() if c in mito_set))),
         ("mito_genes_with_MT_prefix", str(sum(1 for c in gt.prefixed.values() if c in mito_set))),
         ("genes_with_MT_prefix", str(len(gt.prefixed))),
