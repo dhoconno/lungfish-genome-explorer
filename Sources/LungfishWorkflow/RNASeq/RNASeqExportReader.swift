@@ -1,0 +1,80 @@
+// RNASeqExportReader.swift - Reads each result at export and refuses in words (Phase 5.1 lane RS-HANDOFF)
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// `rnaseq export` reads each result with the reader of RS-KIND after its sha256 values hold, so a replaced `quant.sf` or
+// table is refused in words that name the file. Route and set are read from each result at every export and never cached
+// (`SCR/rulings/ADJ-BULK-5.md:18-20`). A route is the tool, its version and every setting that changes counts.
+
+import Foundation
+import LungfishIO
+
+/// A refusal of the export, which reads as the words a person acts on. It exits 3 before any file is written.
+public struct RNASeqExportRefusal: Error, LocalizedError, Equatable, Sendable {
+    public let message: String
+
+    public init(_ message: String) {
+        self.message = message
+    }
+
+    public var errorDescription: String? { message }
+}
+
+/// One result as read at export.
+public struct RNASeqExportResult: Sendable {
+    public let url: URL
+    public let result: RNASeqResult
+
+    public var manifest: RNASeqResultManifest { result.manifest }
+    /// The folder's name, which the refusals use.
+    public var label: String { url.lastPathComponent }
+}
+
+/// The words of the refusals, so a test and a person read one text.
+public enum RNASeqExportWords {
+    /// A route as a person reads it, such as `salmon-reads (salmon 2.11.0, input reads, mode selective-alignment)`.
+    public static func route(_ route: RNASeqResultManifest.Route) -> String {
+        let notRecorded = RNASeqResultBundle.notRecordedText
+        let tool = route.tool == notRecorded ? "tool \(notRecorded)" : "\(route.tool) \(route.toolVersion)"
+        let settings = route.settings.sorted { $0.key < $1.key }.map { ", \($0.key) \($0.value)" }.joined()
+        return "\(route.id) (\(tool)\(settings))"
+    }
+
+    public static func referenceSet(_ set: RNASeqResultManifest.ReferenceSet?) -> String {
+        set.map { "\($0.id) (\($0.layout.rawValue) layout)" } ?? RNASeqResultBundle.notRecordedText
+    }
+
+    static func samples(_ count: Int) -> String { count == 1 ? "1 sample" : "\(count) samples" }
+
+    static func list(_ names: [String]) -> String {
+        names.count <= 1 ? names.joined() : names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+    }
+}
+
+public enum RNASeqExportReader {
+    /// Reads each folder. A file that differs from the sha256 the manifest lists is refused with its path. A folder that
+    /// is no readable result is refused with the reader's own words. Nothing is written.
+    public static func read(_ urls: [URL]) throws -> [RNASeqExportResult] {
+        guard !urls.isEmpty else {
+            throw RNASeqExportRefusal("Pass at least one RNA-seq result folder to export.")
+        }
+        return try urls.map { url in
+            try Task.checkCancellation()
+            let label = url.lastPathComponent
+            do {
+                let changed = try RNASeqResultBundle.verifyChecksums(of: url)
+                if !changed.isEmpty {
+                    let files = changed.map { $0.actual == nil ? "\($0.path) (missing)" : $0.path }.joined(separator: ", ")
+                    throw RNASeqExportRefusal(
+                        "The RNA-seq result \(label) changed after LGE wrote it. Its file \(files) no longer matches the sha256 the result lists, "
+                            + "so its counts are not the ones LGE recorded. Restore the file from a copy, or import or count the data again.")
+                }
+                return RNASeqExportResult(url: url, result: try RNASeqResultBundle.load(from: url))
+            } catch let refusal as RNASeqExportRefusal {
+                throw refusal
+            } catch let error as RNASeqResultError {
+                throw RNASeqExportRefusal("\(label) cannot be exported. \(error.localizedDescription)")
+            }
+        }
+    }
+}
