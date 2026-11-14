@@ -30,7 +30,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1551 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1558 | LungfishCore, LungfishIO |
 | LungfishWorkflowTwelveS | library | Sources/LungfishWorkflowTwelveS | 38 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
@@ -3344,10 +3344,17 @@ None.
 - `ResolvedSequenceInputs` struct, `Sources/LungfishWorkflow/Mapping/ResolvedSequenceInputs.swift`
 - `ResolvedSequenceInputsError` enum, `Sources/LungfishWorkflow/Mapping/ResolvedSequenceInputs.swift`
 - `RiboDetectorStep` struct, `Sources/LungfishWorkflow/Recipes/Steps/RiboDetectorStep.swift`
+- `RNASeqCountTableReader` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCountTableReader.swift`
+- `RNASeqImportError` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCountTableReader.swift`
+- `RNASeqImportFacts` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCountTableReader.swift`
 - `RNASeqResultWriter` struct, `Sources/LungfishWorkflow/RNASeq/RNASeqResultWriter.swift`
 - `RNASeqResultWriterError` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqResultWriter+Files.swift`
+- `RNASeqSampleSheet` struct, `Sources/LungfishWorkflow/RNASeq/RNASeqSampleSheet.swift`
 - `RunStatus` enum, `Sources/LungfishWorkflow/Provenance/RunStatus.swift`
 - `SafeZipExtractor` struct, `Sources/LungfishWorkflow/DemoProjects/SafeZipExtractor.swift`
+- `SalmonQuantFolder` struct, `Sources/LungfishWorkflow/RNASeq/SalmonQuantFolderReader.swift`
+- `SalmonQuantFolderReader` enum, `Sources/LungfishWorkflow/RNASeq/SalmonQuantFolderReader.swift`
+- `SalmonTx2Gene` struct, `Sources/LungfishWorkflow/RNASeq/SalmonQuantFolderReader.swift`
 - `SampleEvidence` struct, `Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingTypes.swift`
 - `SampleFolderNaming` enum, `Sources/LungfishWorkflow/SampleFolderNaming.swift`
 - `SamplePair` struct, `Sources/LungfishWorkflow/Ingestion/SamplePair.swift`
