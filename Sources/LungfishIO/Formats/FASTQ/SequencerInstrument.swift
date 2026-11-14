@@ -69,7 +69,8 @@ public enum SequencerInstrumentModels {
     public static let source = "Serial-number prefix convention of Illumina instruments and the Element AVITI, as public run "
         + "records use it. A naming convention and not a vendor table, so each model is inferred from the instrument id."
 
-    /// Longer prefixes come first. A row with `digitsOnly` matches an id of the prefix and digits alone.
+    /// Longer prefixes come first. A row with `digitsOnly` matches an id of the prefix and three or more digits alone,
+    /// as PlatformInference+Rules.swift does, so a short lab name reads Unknown.
     private static let rows: [(prefix: String, digitsOnly: Bool, model: String)] = [
         ("HWUSI-", false, "Genome Analyzer"), ("HWI-ST", false, "HiSeq 2000 or 2500"), ("HWI-D", false, "HiSeq 2500"),
         ("SN", true, "HiSeq 2000 or 2500"), ("NS", true, "NextSeq 500"), ("NB", true, "NextSeq 550"),
@@ -83,7 +84,7 @@ public enum SequencerInstrumentModels {
         for row in rows where id.hasPrefix(row.prefix) {
             if !row.digitsOnly { return row.model }
             let rest = id.dropFirst(row.prefix.count)
-            if !rest.isEmpty, rest.utf8.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }) { return row.model }
+            if rest.utf8.count >= 3, rest.utf8.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }) { return row.model }
         }
         return nil
     }
