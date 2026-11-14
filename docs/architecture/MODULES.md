@@ -20,7 +20,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishIO | library | Sources/LungfishIO | 675 | LungfishCore |
+| LungfishIO | library | Sources/LungfishIO | 679 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 161 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -1042,6 +1042,7 @@ None.
 - `FASTQMergeStrictness` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivatives.swift`
 - `FASTQMetadataStore` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQMetadataStore.swift`
 - `FASTQOrientMapFile` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQDerivativeFileIO.swift`
+- `FASTQPairHashAccumulator` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQReadLayoutClassifier+PairHash.swift`
 - `FASTQPairingMetadataHints` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQReadLayoutClassifier.swift`
 - `FASTQPBAAArtifactCompatibility` enum, `Sources/LungfishIO/Formats/FASTQ/FASTQPBAAArtifactStore.swift`
 - `FASTQPBAAArtifactFile` struct, `Sources/LungfishIO/Formats/FASTQ/FASTQPBAAArtifactStore.swift`
@@ -1500,6 +1501,9 @@ None.
 - `SequenceFormat` enum, `Sources/LungfishIO/Formats/Common/SequenceRecord.swift`
 - `SequenceInputResolver` enum, `Sources/LungfishIO/Formats/Common/SequenceInputResolver.swift`
 - `SequenceRecord` protocol, `Sources/LungfishIO/Formats/Common/SequenceRecord.swift`
+- `SequencerInstrument` struct, `Sources/LungfishIO/Formats/FASTQ/SequencerInstrument.swift`
+- `SequencerInstrumentModels` enum, `Sources/LungfishIO/Formats/FASTQ/SequencerInstrument.swift`
+- `SequencerInstrumentScan` struct, `Sources/LungfishIO/Formats/FASTQ/SequencerInstrumentScan.swift`
 - `SequencingPlatform` enum, `Sources/LungfishIO/Formats/FASTQ/SequencingPlatform.swift`
 - `SequencingReadImportSource` enum, `Sources/LungfishIO/Formats/FASTQ/SequencingReadImportSource.swift`
 - `SidebarInspectorTab` enum, `Sources/LungfishIO/Bundles/SidebarKindRegistry.swift`
