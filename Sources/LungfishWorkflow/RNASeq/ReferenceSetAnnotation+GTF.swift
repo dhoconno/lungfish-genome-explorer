@@ -45,6 +45,28 @@ struct ReferenceSetGTFFeature {
         }
         return cells[0..<8].joined(separator: "\t") + "\t" + column
     }
+
+    /// `line` without a `transcript_id ""` attribute, its `;` and the spaces after it, and nothing else changed.
+    /// RefSeq Mmul_10 release 103 and the T2T releases write one on each gene line, and gffread 0.12.9 refuses such a
+    /// line ("no valid ID found for GFF record") but reads a gene line of no `transcript_id` by its `gene_id`, as
+    /// Ensembl and RefSeq Macaca_fascicularis_5.0 write it. The key must start the column or follow a space or `;`.
+    func droppingEmptyTranscriptID(in line: String) -> String {
+        let cells = line.split(separator: "\t", maxSplits: 8, omittingEmptySubsequences: false)
+        var column = String(cells[8])
+        var from = column.startIndex
+        while let range = column.range(of: "transcript_id \"\"", range: from..<column.endIndex) {
+            guard range.lowerBound == column.startIndex || " ;".contains(column[column.index(before: range.lowerBound)]) else {
+                from = range.upperBound
+                continue
+            }
+            var end = range.upperBound
+            if end < column.endIndex, column[end] == ";" { end = column.index(after: end) }
+            while end < column.endIndex, column[end] == " " { end = column.index(after: end) }
+            column.removeSubrange(range.lowerBound..<end)
+            return cells[0..<8].joined(separator: "\t") + "\t" + column
+        }
+        return line
+    }
 }
 
 extension ReferenceSetAnnotationReader {
@@ -101,8 +123,9 @@ extension ReferenceSetAnnotationReader {
 
     /// The second pass writes the GTF that gffread reads. It leaves out each line of empty `gene_id` and each line of a
     /// gene in `leaving`, except the lines with no transcript id of a gene in `keepingGeneLines` (a gene the deposit
-    /// layout keeps without an exon), renames each transcript id by `rename`, and adds one exon line a transcript with
-    /// a CDS of each gene in `addedExons` from its CDS and stop codon span.
+    /// layout keeps without an exon), drops an empty `transcript_id` from each gene line, renames each transcript id
+    /// by `rename`, and adds one exon line a transcript with a CDS of each gene in `addedExons` from its CDS and stop
+    /// codon span.
     static func writeGTF(
         from url: URL, to gtf: URL, leaving: Set<String>, keepingGeneLines: Set<String>,
         rename: (String, String) -> String, addedExons: [(id: String, gene: Gene)]
@@ -114,7 +137,9 @@ extension ReferenceSetAnnotationReader {
             let transcript = feature.transcript
             guard !geneID.isEmpty else { return }
             if leaving.contains(geneID), !(transcript.isEmpty && keepingGeneLines.contains(geneID)) { return }
-            if transcript.isEmpty { return try writer.write(line) }
+            if transcript.isEmpty {
+                return try writer.write(feature.type == "gene" ? feature.droppingEmptyTranscriptID(in: line) : line)
+            }
             let renamed = rename(transcript, geneID)
             try writer.write(renamed == transcript ? line : feature.renamingTranscript(in: line, to: renamed))
         }

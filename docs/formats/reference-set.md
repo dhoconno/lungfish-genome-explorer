@@ -78,6 +78,7 @@ In LGE's layout a not-host sequence counts as one feature a sequence record (`do
 gffread writes the transcript FASTA from the genome and a GTF that LGE writes in the stage (`gffread -w <out> -g <genome> <gtf>`), and never reads the annotation as given. That GTF holds the annotation's feature lines with these changes.
 
 - Each line of empty `gene_id` is left out.
+- A gene line loses a `transcript_id ""` attribute, so gffread reads the gene by its `gene_id`, as it reads the gene lines of Ensembl and of RefSeq Macaca_fascicularis_5.0. RefSeq Mmul_10 release 103 and the two T2T releases write `transcript_id ""` on each gene line, and gffread 0.12.9 refuses such a line with `no valid ID found for GFF record`.
 - Each line of a gene with no exon and no CDS is left out, since gffread 0.12.9 writes a record from a transcript line alone.
 - A `transcript_id` that names more than one `gene_id`, contig or strand becomes `<gene_id>:<transcript_id>` on each line, and `renamedTranscripts` lists each old id, gene and new id. RefSeq gives the tRNA, rRNA and CDS lines of a mitochondrion one id, `unknown_transcript_1`, and gffread 0.12.9 then writes two chimeric records of that one name.
 - In LGE's layout each transcript of a gene given an exon gets one exon line from its CDS and stop codon span.
