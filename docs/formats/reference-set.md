@@ -1,6 +1,6 @@
 # Reference sets and the salmon index cache
 
-A reference set of Lungfish Genome Explorer (LGE) is one named folder with checksums that RNA-seq counting shares across bulk and single cell, the Mac and Linux (`docs/plans/2026-10-02-architecture-program.md:111`). This page gives its kind, where it lives, its one owner, its id, its layout and its deposit layout, how a reference written before Phase 5 still opens, and the salmon index cache beside it. It is written for developers and for the lanes RS-REFSET and RS-INDEX. Phase 5.1 sets the layout, and no code writes it yet. The results that name a set are in [rnaseq-bundle.md](rnaseq-bundle.md).
+A reference set of Lungfish Genome Explorer (LGE) is one named folder with checksums that RNA-seq counting shares across bulk and single cell, the Mac and Linux (`docs/plans/2026-10-02-architecture-program.md:111`). This page gives its kind, where it lives, its one owner, its id, its layout and its deposit layout, how a reference written before Phase 5 still opens, and the salmon index cache beside it. It is written for developers and for the lanes RS-REFSET and RS-INDEX. Phase 5.1 sets the layout, and `ReferenceSetOwner` in `Sources/LungfishWorkflow/RNASeq/` writes it (lane RS-REFSET). The results that name a set are in [rnaseq-bundle.md](rnaseq-bundle.md).
 
 ## A new kind, not a `.lungfishref`
 
@@ -49,6 +49,7 @@ A set's id is `<species>-<assembly>-<annotation source and release>-<layout>-<di
   extras/<name>.fa
   derived/transcripts.fa
   derived/genes.tsv
+  derived/transcripts.tsv
   uses/
 ```
 
@@ -63,9 +64,12 @@ A set's id is `<species>-<assembly>-<annotation source and release>-<layout>-<di
 | `layout` | `lge`, or `deposit` with the study it reproduces |
 | `mitochondrialContigs` | The contigs whose genes are mitochondrial, since a gene is never called mitochondrial by its name (`docs/plans/2026-10-02-architecture-program.md:111`) |
 | `masks` | The features a mask moves out of the default count, such as a pathogen's rRNA genes, with the mask's name (`docs/plans/2026-10-02-architecture-program.md:113`) |
-| `derived` | The transcript FASTA and the gene table, each with its path, sha256, tool and version |
+| `derived` | The transcript FASTA, the gene table and the transcript table, each with its path, sha256, size, tool and version |
+| `derivation` | What the owner changed from the annotation as given: `exonsAdded`, the genes given their CDS and stop codon as an exon (LGE's layout), `keptWithoutExon`, the genes with a CDS and no exon kept as the deposit gave them (the deposit layout), and `droppedFeatures`, each feature of empty `gene_id` as `<contig>\t<type>\t<start>\t<end>` |
 
 In LGE's layout a not-host sequence counts as one feature a sequence record (`docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md:91`). A gene with a CDS and no exon gets its CDS and stop codon as an exon that the record names, or a refusal in words (`docs/plans/2026-10-02-architecture-program.md:111`). A transcript id in one file and not the other is refused with the names listed, and nothing is renamed (`docs/plans/2026-10-02-architecture-program.md:193`).
+
+`derived/genes.tsv` has the columns `gene_id`, `name`, `biotype`, `contig`, `length`, `not_host`, `mask` and `unreliable`, the names the result's reader reads ([rnaseq-bundle.md](rnaseq-bundle.md)). Its genes come in the order of their first exon line, or of their first CDS line for a gene with no exon, as a deposit's feature list reads (`scripts/repro/rnaseq/gse296788/ref.py:4-10`), and each extra's genes come last in the order given. `length` is the gene's exonic length in bases, 0 for a gene kept without an exon. `not_host` is `true` or `false`, and `mask` and `unreliable` are empty in 5.1. A feature of empty `gene_id` is dropped. `derived/transcripts.tsv` has `transcript_id` and `gene_id` first, as `scripts/repro/rnaseq/seqc-gse47774/tx2gene.py:5-6` writes them, one row a record of `derived/transcripts.fa`, so gene sums read it. gffread writes the transcript FASTA from the genome and the annotation (`gffread -w <out> -g <genome> <gtf>`), and each extra's records follow in the order given, as `scripts/repro/rnaseq/seqc-gse47774/ref.sh:30` joins ERCC92. An extra with its own annotation in the deposit layout gives gffread's records of that annotation instead. The mitochondrial contigs are the ones the person names, else the sequence an NCBI assembly report types Mitochondrion, else a FASTA header that says mitochondrion, else a contig named `MT`, `chrM`, `chrMT`, `M` or `Mt`, never a gene name prefix (`scripts/repro/rnaseq/refs/refcheck.py:225`).
 
 ### The deposit layout
 
@@ -108,8 +112,8 @@ Cleanup deletes nothing a record names (`docs/contracts/EXPERT-PANEL.md:51`), an
 
 Two events leave folders that these rules must still reach.
 
-- A crash leaves a staging folder, `.<name>.creating-<UUID>`, in either folder. No record names it, so the owner removes the ones that no running build holds before it starts a build, and removes nothing else.
-- A change of storage root copies `databases` to the new root and runs the tool install there, then removes from the old root only `conda`, `databases` and the receipt, and the root itself when it is then empty (`Sources/LungfishWorkflow/Storage/ManagedStorageCoordinator.swift:43-44,75-76,104-120`). It leaves `rnaseq-reference-sets/` and `rnaseq-index-cache/` at the old root and removes none of them. RS-REFSET and RS-INDEX name the copy that carries them, which checks every sha256 at the new root first, and neither adds a folder to the list at `Sources/LungfishWorkflow/Storage/ManagedStorageCoordinator.swift:104-108` before that copy exists.
+- A crash leaves a staging folder, `.<name>.creating-<UUID>`, in either folder. No record names it, so the owner removes the ones that no running build holds before it starts a build, and removes nothing else. A running build holds its stage with an exclusive `flock` on the folder, so a stage whose lock the owner can take is one a crash left.
+- A change of storage root copies `databases` to the new root and runs the tool install there, then removes from the old root only `conda`, `databases` and the receipt, and the root itself when it is then empty (`Sources/LungfishWorkflow/Storage/ManagedStorageCoordinator.swift:43-44,75-76,104-120`). It leaves `rnaseq-reference-sets/` and `rnaseq-index-cache/` at the old root and removes none of them. The copy that carries them is `ReferenceSetOwner`'s copy of each set to the new root, which checks every sha256 at the new root first and is not built in 5.1, and neither adds a folder to the list at `Sources/LungfishWorkflow/Storage/ManagedStorageCoordinator.swift:104-108` before that copy exists.
 
 ## Where the types live
 
