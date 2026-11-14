@@ -6,16 +6,17 @@ import Darwin
 import XCTest
 @testable import LungfishWorkflow
 
-/// A stand-in for gffread. As gffread 0.12.9 does (ADJ-BIO-51 Q1), it writes one record a transcript id on each
-/// contig and strand of the annotation's transcript, exon and CDS lines, in the order the lines give them, so an id
-/// two genes share on two strands gives two records of one name. It adds `ghost` and a second `twice` when set,
-/// counts its runs and keeps the path and text of each GTF it was given.
 /// What gffread 0.12.9 says and does for a gene or transcript line of `transcript_id ""`: it stops with exit status 1
 /// and writes no record (measured in RS-REFSET part 6 on RefSeq Mmul_10 release 103).
 struct StandInGffreadRefusal: LocalizedError {
     var errorDescription: String? { "gffread stopped with exit status 1: Error: no valid ID found for GFF record" }
 }
 
+/// A stand-in for gffread. As gffread 0.12.9 does (ADJ-BIO-51 Q1), it writes one record a transcript id on each
+/// contig and strand of the annotation's transcript, exon and CDS lines, in the order the lines give them, so an id
+/// two genes share on two strands gives two records of one name. It adds `ghost` and a second `twice` when set,
+/// refuses a gene or transcript line of `transcript_id ""` as gffread does, counts its runs and keeps the path and
+/// text of each GTF it was given.
 final class StandInTranscriptDeriver: ReferenceSetTranscriptDeriving, @unchecked Sendable {
     private let lock = NSLock()
     private var runs = 0
