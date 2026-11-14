@@ -122,6 +122,7 @@ final class CondaManagerTests: XCTestCase {
             "multiple-sequence-alignment",
             "phylogenetics",
             "metagenomics",
+            "rna-seq",
         ])
     }
 
@@ -386,10 +387,11 @@ final class CondaManagerTests: XCTestCase {
     func testRNASeqPack() {
         let pack = PluginPack.builtIn.first { $0.id == "rna-seq" }
         XCTAssertNotNil(pack)
-        XCTAssertTrue(pack!.packages.contains("star"))
-        XCTAssertTrue(pack!.packages.contains("salmon"))
-        XCTAssertTrue(pack!.packages.contains("subread"))
-        XCTAssertTrue(pack!.packages.contains("stringtie"))
+        // ADJ-PACK (Q-A3) holds the pack to the two tools the lock pins, so it names no tool a record could not pin.
+        XCTAssertEqual(pack?.packages, ["salmon", "gffread"])
+        XCTAssertFalse(pack!.packages.contains("star"))
+        XCTAssertFalse(pack!.packages.contains("subread"))
+        XCTAssertFalse(pack!.packages.contains("stringtie"))
     }
 
     func testSingleCellPack() {

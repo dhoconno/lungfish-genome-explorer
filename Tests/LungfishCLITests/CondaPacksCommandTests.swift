@@ -19,6 +19,7 @@ final class CondaPacksCommandTests: XCTestCase {
                 "multiple-sequence-alignment",
                 "phylogenetics",
                 "metagenomics",
+                "rna-seq",
             ]
         )
     }

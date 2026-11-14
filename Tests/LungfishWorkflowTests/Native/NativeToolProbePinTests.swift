@@ -48,10 +48,12 @@ final class NativeToolProbePinTests: XCTestCase {
         "freyja": Row(executable: "freyja", versionArguments: ["--version"], environment: "freyja"),
         "zstd": Row(executable: "zstd", versionArguments: ["--version"], environment: "zstd"),
         "xz": Row(executable: "xz", versionArguments: ["--version"], environment: "xz"),
+        "salmon": Row(executable: "salmon", versionArguments: ["--version"], environment: "salmon"),
+        "gffread": Row(executable: "gffread", versionArguments: ["--version"], environment: "gffread"),
     ]
 
     func testTableKeysEqualTheNativeToolCaseSet() {
-        XCTAssertEqual(Self.table.count, 33)
+        XCTAssertEqual(Self.table.count, 35)
         XCTAssertEqual(Set(NativeTool.allCases.map(\.rawValue)), Set(Self.table.keys))
     }
 

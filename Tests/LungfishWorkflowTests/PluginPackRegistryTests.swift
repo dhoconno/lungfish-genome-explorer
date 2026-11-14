@@ -294,6 +294,88 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertFalse(pack.toolRequirements.contains(where: { $0.id == "hisat2" }))
     }
 
+    /// ADJ-PACK (Q-A3), RS-LOCK row 1. The two lock rows are the builds the RNA-seq reproduction installed, line 5 and
+    /// line 53 of its explicit lock. The literals are written out here and never read back from the lock, so a drift in
+    /// either file shows (docs/release/dependency-sweep.md, step 3).
+    func testRNASeqLockRowsPinTheBuildsOfTheReproExplicitLock() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let explicit = try String(
+            contentsOf: repoRoot.appendingPathComponent("scripts/repro/rnaseq/env/explicit-osx-arm64.txt"),
+            encoding: .utf8
+        )
+        let lines = explicit.split(separator: "\n").map(String.init)
+        let salmonLine = try XCTUnwrap(lines.first { $0.contains("/bioconda/osx-arm64/salmon-") })
+        let gffreadLine = try XCTUnwrap(lines.first { $0.contains("/bioconda/osx-arm64/gffread-") })
+        XCTAssertTrue(
+            salmonLine.hasPrefix("https://conda.anaconda.org/bioconda/osx-arm64/salmon-2.11.0-hfc06a8d_0.conda#"),
+            salmonLine
+        )
+        XCTAssertTrue(
+            gffreadLine.hasPrefix("https://conda.anaconda.org/bioconda/osx-arm64/gffread-0.12.9-h551ac6c_0.conda#"),
+            gffreadLine
+        )
+
+        let manifest = try ManagedToolLock.loadFromBundle()
+        let salmon = try XCTUnwrap(manifest.packTool(packID: "rna-seq", id: "salmon"))
+        XCTAssertEqual(salmon.packageSpec, "bioconda::salmon=2.11.0=hfc06a8d_0")
+        XCTAssertEqual(salmon.version, "2.11.0")
+        XCTAssertEqual(salmon.environment, "salmon")
+        let gffread = try XCTUnwrap(manifest.packTool(packID: "rna-seq", id: "gffread"))
+        XCTAssertEqual(gffread.packageSpec, "bioconda::gffread=0.12.9=h551ac6c_0")
+        XCTAssertEqual(gffread.version, "0.12.9")
+        XCTAssertEqual(gffread.environment, "gffread")
+
+        // Pack tools only. The required set (the lock's tools rows) stays as it was.
+        XCTAssertFalse(manifest.tools.contains { $0.id == "salmon" || $0.id == "gffread" })
+        XCTAssertEqual(manifest.packTools.filter { $0.packID == "rna-seq" }.map(\.toolID), ["salmon", "gffread"])
+    }
+
+    /// ADJ-PACK (Q-A3), RS-LOCK row 2. The pack reaches the packaged CLI, holds the two locked tools and nothing else,
+    /// and each smoke test requires the pinned version in the output.
+    func testRNASeqPackIsActiveAndHoldsOnlySalmonAndGffreadAtTheirPins() throws {
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "rna-seq" }))
+
+        XCTAssertTrue(pack.isActive)
+        XCTAssertFalse(pack.isExperimental)
+        XCTAssertEqual(pack.name, "RNA-Seq Analysis")
+        XCTAssertEqual(
+            pack.description,
+            "Salmon transcript quantification and gffread transcript extraction for bulk RNA-seq on this Mac."
+        )
+        XCTAssertEqual(pack.category, "Transcriptomics")
+        XCTAssertEqual(pack.estimatedSizeMB, 30)
+        XCTAssertEqual(pack.packages, ["salmon", "gffread"])
+        XCTAssertEqual(pack.requirements.map(\.environment), ["salmon", "gffread"])
+        XCTAssertEqual(pack.toolRequirements.map(\.environment), ["salmon", "gffread"])
+        XCTAssertTrue(PluginPack.visibleForCLI.contains { $0.id == "rna-seq" })
+        XCTAssertTrue(PluginPack.visibleForApp(experimentalFeaturesEnabled: false).contains { $0.id == "rna-seq" })
+        XCTAssertFalse(PluginPack.experimentalOptionalPacks.contains { $0.id == "rna-seq" })
+
+        let salmon = try XCTUnwrap(pack.toolRequirements.first { $0.id == "salmon" })
+        XCTAssertEqual(salmon.installPackages, ["bioconda::salmon=2.11.0=hfc06a8d_0"])
+        XCTAssertEqual(salmon.executables, ["salmon"])
+        XCTAssertEqual(salmon.version, "2.11.0")
+        XCTAssertEqual(salmon.smokeTest?.executable, "salmon")
+        XCTAssertEqual(salmon.smokeTest?.arguments, ["--version"])
+        XCTAssertEqual(salmon.smokeTest?.acceptedExitCodes, [0])
+        XCTAssertEqual(salmon.smokeTest?.requiredOutputSubstring, "salmon 2.11.0")
+
+        let gffread = try XCTUnwrap(pack.toolRequirements.first { $0.id == "gffread" })
+        XCTAssertEqual(gffread.installPackages, ["bioconda::gffread=0.12.9=h551ac6c_0"])
+        XCTAssertEqual(gffread.executables, ["gffread"])
+        XCTAssertEqual(gffread.version, "0.12.9")
+        XCTAssertEqual(gffread.smokeTest?.executable, "gffread")
+        XCTAssertEqual(gffread.smokeTest?.arguments, ["--version"])
+        XCTAssertEqual(gffread.smokeTest?.acceptedExitCodes, [0])
+        XCTAssertEqual(gffread.smokeTest?.requiredOutputSubstring, "0.12.9")
+
+        // Neither tool joins the required set, and no requirement of the pack is an unpinned package name.
+        let requiredIDs = Set(PluginPack.requiredSetupPack.toolRequirements.map(\.id))
+        XCTAssertFalse(requiredIDs.contains("salmon") || requiredIDs.contains("gffread"))
+        XCTAssertTrue(pack.toolRequirements.allSatisfy { $0.installPackages.first?.hasPrefix("bioconda::") == true })
+    }
+
     func testReadMappingPackUsesUsageProbeForBwaMem2() throws {
         let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "read-mapping" }))
         let bwaMem2 = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "bwa-mem2" }))
@@ -424,6 +506,7 @@ final class PluginPackRegistryTests: XCTestCase {
             "multiple-sequence-alignment",
             "phylogenetics",
             "metagenomics",
+            "rna-seq",
         ])
     }
 
@@ -567,6 +650,7 @@ final class PluginPackRegistryTests: XCTestCase {
             "phylogenetics",
             "metagenomics",
             "wastewater-surveillance",
+            "rna-seq",
         ])
     }
 
@@ -614,6 +698,7 @@ final class PluginPackRegistryTests: XCTestCase {
             "multiple-sequence-alignment",
             "phylogenetics",
             "metagenomics",
+            "rna-seq",
         ])
     }
 
