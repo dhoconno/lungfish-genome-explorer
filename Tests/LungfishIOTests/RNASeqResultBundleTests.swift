@@ -95,4 +95,34 @@ final class RNASeqResultBundleTests: XCTestCase {
             XCTAssertEqual(path, "../outside.tsv")
         }
     }
+
+    func testAMatrixListedUnderSourceFilesAndMatricesIsReportedOnce() throws {
+        let filtered = "source/pbmc/Solo.out/Gene/filtered"
+        let names = ["matrix.mtx", "features.tsv", "barcodes.tsv"]
+        let listed = names.map { #"{"path": "\#(filtered)/\#($0)", "sha256": "0", "size": 1, "sample": "pbmc", "tool": "STARsolo"}"# }
+            .joined(separator: ", ")
+        let manifest = manifestJSON().replacingOccurrences(of: #""sourceFiles": []"#, with: #""sourceFiles": [\#(listed)]"#)
+        XCTAssertNotEqual(manifest, manifestJSON())
+        let bundle = try makeBundle(manifest: manifest)
+        let directory = bundle.appendingPathComponent(filtered, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for name in names { try Data("x".utf8).write(to: directory.appendingPathComponent(name)) }
+        let mismatches = try RNASeqResultBundle.verifyChecksums(of: bundle)
+        for name in names { XCTAssertEqual(mismatches.filter { $0.path.hasSuffix("/" + name) }.count, 1, name) }
+    }
+
+    func testAGeneTableWithAnUnknownNotHostWordIsRefused() throws {
+        let bundle = try makeBundle(manifest: manifestJSON())
+        let genes = bundle.appendingPathComponent("genes.tsv")
+        for word in ["yes", "1", "T"] {
+            try Data("gene_id\tnot_host\nG1\t\(word)\n".utf8).write(to: genes)
+            XCTAssertThrowsError(try RNASeqResultBundle.load(from: bundle), word) { error in
+                guard case .invalidTable(let path, _)? = error as? RNASeqResultError else { return XCTFail("\(error)") }
+                XCTAssertEqual(path, "genes.tsv")
+                XCTAssertTrue(error.localizedDescription.contains("not_host"), error.localizedDescription)
+            }
+        }
+        try Data("gene_id\tnot_host\nG1\ttrue\nG2\tfalse\nG3\t\n".utf8).write(to: genes)
+        XCTAssertEqual(try RNASeqResultBundle.load(from: bundle).genes.map(\.notHost), [true, false, nil])
+    }
 }
