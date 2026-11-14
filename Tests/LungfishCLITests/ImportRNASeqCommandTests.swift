@@ -23,18 +23,29 @@ final class ImportRNASeqCommandTests: XCTestCase {
     }
 
     /// Each run of three transcripts of the fixture is one gene.
-    private func tx2gene() throws -> URL {
+    private func tx2gene(in folder: URL) throws -> URL {
         let text = try String(contentsOf: RNASeqFixtures.salmonRun("SRR896663").appendingPathComponent("quant.sf"), encoding: .utf8)
         let ids = text.split(separator: "\n").dropFirst().map { String($0.prefix { $0 != "\t" }) }
         let lines = ["transcript_id\tgene_id"] + ids.enumerated().map { "\($1)\tG\($0 / 3)" }
-        let url = root.appendingPathComponent("tx2gene.tsv")
+        let url = folder.appendingPathComponent("tx2gene.tsv")
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
         return url
     }
 
+    /// The fixture's salmon folders and a tx2gene table, put in the project's `Inputs/` folder so the record names
+    /// them by the project's own `@/` paths, which a load resolves. A record names a path outside the project as
+    /// `<external>/<file name>`, which never resolves (`PortablePath`, rule 7), so only inputs in the project replay.
     private func salmonArguments(into project: URL) throws -> [String] {
-        RNASeqFixtures.salmonRunIDs.map { RNASeqFixtures.salmonRun($0).path }
-            + ["--project", project.path, "--name", "seqc-c1", "--tx2gene", try tx2gene().path]
+        let inputs = project.appendingPathComponent("Inputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+        let folders = try RNASeqFixtures.salmonRunIDs.map { run -> URL in
+            let copy = inputs.appendingPathComponent(run, isDirectory: true)
+            if !FileManager.default.fileExists(atPath: copy.path) {
+                try FileManager.default.copyItem(at: RNASeqFixtures.salmonRun(run), to: copy)
+            }
+            return copy
+        }
+        return folders.map(\.path) + ["--project", project.path, "--name", "seqc-c1", "--tx2gene", try tx2gene(in: inputs).path]
     }
 
     private func run(_ arguments: [String]) async throws {
