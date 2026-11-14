@@ -7,15 +7,6 @@ import Foundation
 import LungfishCore
 import LungfishWorkflow
 
-/// The RNA-seq commands. RS-REFSET adds the group (P5-PREMISES Q-A2), and later lanes add their leaves.
-struct RNASeqCommand: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "rnaseq",
-        abstract: "Build RNA-seq reference sets and count RNA-seq reads",
-        subcommands: [ReferenceSetSubcommand.self]
-    )
-}
-
 extension RNASeqCommand {
     /// Builds a reference set under the storage root, or reuses the published set of the same id.
     struct ReferenceSetSubcommand: AsyncParsableCommand {

@@ -5,6 +5,7 @@
 import Darwin
 import Foundation
 import LungfishCore
+import LungfishIO
 
 extension ReferenceSetOwner {
     static let geneColumns = ["gene_id", "name", "biotype", "contig", "length", "not_host", "mask", "unreliable"]
