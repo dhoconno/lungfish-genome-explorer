@@ -93,6 +93,7 @@ extension RNASeqCommand {
                     print("\(outcome.reused ? "Reused" : "Built") reference set \(outcome.manifest.id)")
                     print(outcome.url.path)
                 }
+                for note in outcome.notes { FileHandle.standardError.write(Data("Note: \(note)\n".utf8)) }
             } catch let error as ReferenceSetError {
                 FileHandle.standardError.write(Data("Error: \(error.localizedDescription)\n".utf8))
                 throw CLIExitCode.inputError.exitCode

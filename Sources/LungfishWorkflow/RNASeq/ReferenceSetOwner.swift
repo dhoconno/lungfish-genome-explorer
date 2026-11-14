@@ -44,6 +44,13 @@ public struct ReferenceSetOutcome: Sendable {
     public var manifest: ReferenceSetManifest
     /// True when a published set of the same id was used and nothing was built.
     public var reused: Bool
+
+    /// Words for the person when the set cannot show something, empty when nothing is missing.
+    public var notes: [String] {
+        guard manifest.mitochondrialContigs.isEmpty else { return [] }
+        return ["This set holds no mitochondrial contig, so a sample's mitochondrial reads cannot be counted against it and "
+            + "its mitochondrial share is not measured. If the genome holds one under another name, name it with --mitochondrial-contig."]
+    }
 }
 
 public struct ReferenceSetOwner: Sendable {
