@@ -68,8 +68,14 @@ final class ExecutorPlanReplayParityTests: XCTestCase {
     /// where the replay equalled the in-process import at E1 to E3 in all three cases and E4 was equal in stored order.
     /// vsp2 moved from 950,381 records and 153,870,033 bases to 950,350 and 153,862,574 (bases -7,459, pairs 100,263 to
     /// 100,239, singles 749,855 to 749,872), and keep-duplicates from 1,067,574 and 172,252,668 to 1,067,513 and 172,244,624
-    /// (bases -8,044, pairs 107,422 to 107,368, singles 852,730 to 852,777). The bases fall, by less than at the trim stage,
-    /// and pairs fell where the prediction had them rise. Records stay two times pairs plus singles in each case.
+    /// (bases -8,044, pairs 107,422 to 107,368, singles 852,730 to 852,777). The bases fell by less than at the trim stage,
+    /// because a base cut from one mate of a pair that still merges is covered again by its partner (at the TruSeq naming
+    /// the trim cut 18,394 bases and the fall after the merge was 3,917, FIX-PARITY.md in the trust-session records). Pairs
+    /// fell and singles rose, where the prediction had pairs rise and singles fall. Pairs plus singles fell by 7 in both
+    /// cases, which fits the 11 pairs the Nextera trim drops, and the rest of the pair change went to singles. No run
+    /// traced the cause. The trim stage alone could not give the sign, since the Nextera cuts replace the TruSeq cuts and do
+    /// not add to them (the lone trim changed 7,358 pairs, and Nextera cut 5,059 reads beyond overlap), so merges the TruSeq
+    /// cuts stopped can return. Records stay two times pairs plus singles in each case.
     static let frozen: [String: PayloadLevels.Anchor] = [
         "vsp2-target-enrichment": PayloadLevels.Anchor(
             e1: PayloadLevels.E1(records: 950_350, bases: 153_862_574, pairs: 100_239, singles: 749_872),
