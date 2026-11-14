@@ -134,6 +134,8 @@ package enum CLIEventContractTable {
         "import fastq": .events(flag: formatJSON, channel: .standardOutput),
         "import geneious": .events(flag: formatJSON, channel: .standardOutput),
         "import msa": .events(flag: formatJSON, channel: .standardOutput),
+        // Since 5.1 lane RS-BULK-IMPORT: start, progress, complete and failed through `ImportCLIEventEmitter`, no JSON document.
+        "import rnaseq": .events(flag: formatJSON, channel: .standardOutput),
         "import tree": .events(flag: formatJSON, channel: .standardOutput),
         "import-fastq": .events(flag: formatJSON, channel: .standardOutput),
         "kraken2 classify": .events(flag: formatJSON, channel: .standardOutput),
