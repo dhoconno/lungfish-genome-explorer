@@ -141,6 +141,30 @@ class CallsTests(unittest.TestCase):
         self.assertEqual(self.check('--over', '300'), ['CALLS %s 2/2' % B])
         self.assertEqual(self.check('--over', '900'), ['none'])
 
+    def test_a_parallel_batch_counts_each_call_as_the_ledger_does(self):
+        def use(tid):
+            return {'type': 'tool_use', 'id': tid, 'name': 'Bash', 'input': {}}
+
+        def result(tid):
+            return [{'type': 'tool_result', 'tool_use_id': tid, 'content': 'ok'}]
+
+        script = [('user', 'Stop at 5 calls.', None), ('assistant', [use('a1'), use('a2')], 'm1'),
+                  ('user', result('a1') + result('a2'), None), ('assistant', [use('b1')], 'm2'),
+                  ('user', result('b1'), None), ('assistant', [use('b2')], 'm2'), ('user', result('b2'), None),
+                  ('assistant', [use('b3')], 'm2')]
+        usage = {'input_tokens': 10, 'cache_read_input_tokens': 10_000, 'cache_creation_input_tokens': 0}
+        entries = []
+        for n, (kind, content, mid) in enumerate(script):
+            message = {'role': kind, 'content': content, **({'id': mid, 'usage': usage} if mid else {})}
+            stamp = (START + timedelta(seconds=n)).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            entries.append({'type': kind, 'uuid': 'e%d' % n, 'timestamp': stamp, 'message': message})
+        path = self.session.sub / ('agent-%s.jsonl' % A)
+        path.write_text(''.join(json.dumps(e) + '\n' for e in entries))
+        agents = {}
+        load(LEDGER, 'session_ledger').load_file(str(path), agents, A, 'sub', SID)
+        self.assertEqual(sum(sum(agent.tool_names.values()) for agent in agents.values()), 5)
+        self.assertEqual(self.check(), ['CALLS %s 5/5' % A])
+
 
 class TypeLineTests(unittest.TestCase):
     CASES = [
