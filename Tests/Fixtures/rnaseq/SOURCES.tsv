@@ -1,0 +1,23 @@
+source	sha256	fixture	rule
+work/seqc-gse47774/quant/SRR896663/cmd_info.json	8d3203e25036e1758c40daf2a82047f57b10e3b38c9a016c425204625f5b8114	salmon-c1/SRR896663/cmd_info.json	whole
+work/seqc-gse47774/quant/SRR896663/lib_format_counts.json	4ffe308c1388fda7aeb953049e787a228678ab4a9b525cddc287bc26f4b25da8	salmon-c1/SRR896663/lib_format_counts.json	whole
+work/seqc-gse47774/quant/SRR896663/aux_info/meta_info.json	f4ba7ee70f6e074703c0cd89e4b2606e007a3465462cda6062cffcfb1606266a	salmon-c1/SRR896663/aux_info/meta_info.json	whole
+work/seqc-gse47774/quant/SRR896663/quant.sf	7bef17c6d4a502aa5b5cb1d940b77976e0d91c13fe979c925dd1a47c5dc1240d	salmon-c1/SRR896663/quant.sf	header, every ERCC- row and every 750th other row from the first, in file order
+work/seqc-gse47774/quant/SRR896743/cmd_info.json	c90f0b56b0cb8ffa29f50774a839ca90720a3f0f9aeb66e119b03704245d6a00	salmon-c1/SRR896743/cmd_info.json	whole
+work/seqc-gse47774/quant/SRR896743/lib_format_counts.json	b5c906790f74d3afab8209ec2fc60719c21789bdfb8d44f0b5530d7dc9a1506b	salmon-c1/SRR896743/lib_format_counts.json	whole
+work/seqc-gse47774/quant/SRR896743/aux_info/meta_info.json	a7a9f56a34533f425432641cc53cafddacb7b1484d4cef8a04bcac6b997aa3c2	salmon-c1/SRR896743/aux_info/meta_info.json	whole
+work/seqc-gse47774/quant/SRR896743/quant.sf	9431abd7880ee111459e4da75564fa7d5fddf64ff7e218db26b377b89b7cdbe2	salmon-c1/SRR896743/quant.sf	header, every ERCC- row and every 750th other row from the first, in file order
+work/tenx-controls/solo/pbmc_1k_v3/Solo.out/Gene/filtered/features.tsv	f1a89ff8c58903f1d6e653c868b27dc489be2af39b4faeebb963205ef2dc419e	starsolo-pbmc_1k_v3/Solo.out/Gene/filtered/features.tsv	the 200 cells and the genes kept by the rules at the head of cut.py, renumbered
+work/tenx-controls/solo/pbmc_1k_v3/Solo.out/Gene/filtered/barcodes.tsv	eb06fe10090c5b68ed2644478134083e942ecb60680fa0f5b578136861cb8bd3	starsolo-pbmc_1k_v3/Solo.out/Gene/filtered/barcodes.tsv	the 200 cells and the genes kept by the rules at the head of cut.py, renumbered
+work/tenx-controls/solo/pbmc_1k_v3/Solo.out/Gene/filtered/matrix.mtx	3b73a048f3e1f85bf349f9c8b1a5346d3d27cab3d0c963bb798813d7845d29d2	starsolo-pbmc_1k_v3/Solo.out/Gene/filtered/matrix.mtx	the 200 cells and the genes kept by the rules at the head of cut.py, renumbered
+work/tenx-controls/solo/pbmc_1k_v3/Log.final.out	8997076734db581e928a3dee303201b046257d3c5ca5d7631b780153599ff7f5	starsolo-pbmc_1k_v3/Log.final.out	whole, so it describes all cells
+work/tenx-controls/solo/pbmc_1k_v3/Solo.out/Barcodes.stats	3eadf77c3c822e7b31c2f956baf0fc9e7fffaf24c03dfd721b0142f38a428f67	starsolo-pbmc_1k_v3/Solo.out/Barcodes.stats	whole, so it describes all cells
+work/tenx-controls/solo/pbmc_1k_v3/Solo.out/Gene/Features.stats	c8cef08b38bf7aca5063fd690d5bf0cf05b7354f93bdd6fda439c7d57155a0d2	starsolo-pbmc_1k_v3/Solo.out/Gene/Features.stats	whole, so it describes all cells
+work/tenx-controls/solo/pbmc_1k_v3/Solo.out/Gene/Summary.csv	e830cd34c8b9865bfc6278be5e29e3ae6b8944bbd7dd3d442830916539779982	starsolo-pbmc_1k_v3/Solo.out/Gene/Summary.csv	whole, so it describes all cells
+tenx/pbmc_1k_v3/pbmc_1k_v3_filtered_feature_bc_matrix.tar.gz	9beae9e7852b2514b4449ecdc5d5a762445289dcfbe5ddb70a44866380b673ce	cellranger-pbmc_1k_v3/outs/filtered_feature_bc_matrix	the 200 cells and the genes kept by the rules at the head of cut.py, renumbered, gzip level 9 with no name and time 0
+tenx/pbmc_1k_v3/pbmc_1k_v3_metrics_summary.csv	992fa10cd3f7e1829c4a666f082f4a0e7e6d2c43c646f5c8cbf3991fda8fa172	cellranger-pbmc_1k_v3/outs/metrics_summary.csv	whole, so it describes all cells
+work/gse163196/matrix/ours_P.tsv	a6296c2cf55fd01f2e852cd4e4057c40162cc7d506e49da53e5e256d3daf095b	umi-table-c9/counts.tsv	header and every 300th gene row from the first, in file order
+work/gse163196/matrix/genes.tsv	d58b49ca0c995d063744253f00c09a3e3472ab0394c83d8ce09a2103638125cd	umi-table-c9/genes.tsv	the rows of the genes counts.tsv keeps, in its order
+work/gse163196/matrix/runs.tsv	b8b148352107fa756712e7a281472294a7333cff6b8c94b4907cdd2cc66d4296	umi-table-c9/runs.tsv	whole
+fixtures/nfcore-yeast/salmon_results.tar.gz	2856ef35ad2e688dd5b08a58fe2d66cb9b90c9f6d37db31ebaa8576158a291a1	nfcore-rnaseq-yeast/salmon	every file, whole
+fixtures/nfcore-yeast/LICENSE	1fa2a62f20d23902c7aad04f3d728fbfc9d153df472e8f2ef163322a8c5557c8	nfcore-rnaseq-yeast/LICENSE	whole

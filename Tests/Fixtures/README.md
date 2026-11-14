@@ -113,6 +113,10 @@ An NVD result shape for the Unique Reads count.
 
 The reads are wholly synthetic. `secondary-supplementary/README.md` lists every record. `NvdUniqueReadsFlagsLiveConformanceTests` imports the folder and expects 5 Unique Reads, and `ClassifierExtractionSecondarySupplementaryLiveConformanceTests` extracts from it and expects 5 reads, each once at its primary alignment.
 
+## rnaseq/
+
+RNA-seq results for the Phase 5 readers and imports, laid out as [docs/formats/rnaseq-bundle.md](../../docs/formats/rnaseq-bundle.md) reads them. Two salmon folders of SEQC (C1), a STARsolo folder and a Cell Ranger `outs/` folder of 10x's pbmc_1k_v3 cut to the same 200 cells and 1,353 genes, a UMI count table of C9 cut to 203 genes, and the salmon folders of nf-core/rnaseq's yeast test profile. 90 files and about 530 KB, none over 180 KB, with no 10x barcode list. `scripts/repro/rnaseq/fixtures/cut.sh <data root> <empty folder>` writes every file but `rnaseq/README.md` from sources pinned by sha256. `rnaseq/README.md` gives each cut rule and the licences, with the CC BY 4.0 notice of the 10x data, and `rnaseq/SOURCES.tsv` names each source by path and sha256. A copy with `SHA256SUMS` is at `/Users/Shared/lungfish-golden/cache/rnaseq-fixtures/`.
+
 ## Usage in Tests
 
 ```swift
