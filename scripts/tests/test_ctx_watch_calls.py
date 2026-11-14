@@ -189,13 +189,14 @@ class TypeLineTests(unittest.TestCase):
         session.type_file('lge-y', 'Nothing here.', front='description: Stop at 9 calls.\n')
         self.assertEqual((line('lge-x'), line('lge-y'), line('lge-missing'), line(None)), (12, None, None, None))
 
-    def test_each_repository_type_that_names_a_stop_line_gives_a_whole_number(self):
+    def test_the_line_each_repository_type_names_is_the_number_of_its_stop_sentence(self):
         module = load(SCRIPT, 'ctx_watch')
-        for name in ('lge-lane', 'lge-lane-opus', 'lge-review', 'lge-ruling', 'lge-land', 'lge-planner', 'lge-release',
-                     'lge-walker', 'lge-expert', 'llm-efficiency-monitor'):
+        lines = {'lge-lane': 85, 'lge-lane-opus': 130, 'lge-review': 70, 'lge-ruling': 40, 'lge-land': 150,
+                 'lge-planner': 80, 'lge-release': 100, 'lge-walker': 45, 'lge-expert': 60,
+                 'llm-efficiency-monitor': 80, 'lge-fix': None}
+        for name, expected in lines.items():
             with self.subTest(name):
-                line = module.type_stop_line(name, str(REPO_TYPES))
-                self.assertTrue(isinstance(line, int) and line > 0, line)
+                self.assertEqual(module.type_stop_line(name, str(REPO_TYPES)), expected)
 
     def test_the_default_folder_is_the_one_the_ledger_reads(self):
         folder = Path(load(SCRIPT, 'ctx_watch').default_agents_dir()).resolve()
