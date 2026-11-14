@@ -3,6 +3,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import LungfishTestSupport
 import XCTest
 @testable import LungfishWorkflow
 
@@ -176,6 +177,50 @@ final class ReferenceSetDerivationTests: XCTestCase {
                        "gffread writes a record from a transcript line alone, so the GTF leaves the gene out")
     }
 
+    // MARK: - RS-REFSET part 6: a gene line of empty transcript_id
+
+    /// Two genes of NC_005943.1 of RefSeq Mmul_10 release 103 (GCF_003339765.1), every line as given but its trailing
+    /// space. Each gene line carries `transcript_id ""`, as all 40,307 of that release do, and gffread 0.12.9 refuses
+    /// such a line with "no valid ID found for GFF record".
+    static let mmul10 = """
+        NC_005943.1\tRefSeq\tgene\t3182\t3256\t.\t+\t.\tgene_id "KEG06_t03"; transcript_id ""; db_xref "GeneID:64986588"; gbkey "Gene"; gene_biotype "tRNA"; locus_tag "KEG06_t03";
+        NC_005943.1\tRefSeq\ttranscript\t3182\t3256\t.\t+\t.\tgene_id "KEG06_t03"; transcript_id "unassigned_transcript_1564"; codons "2,3"; gbkey "tRNA"; locus_tag "KEG06_t03"; product "tRNA-Leu"; transcript_biotype "tRNA";
+        NC_005943.1\tRefSeq\texon\t3182\t3256\t.\t+\t.\tgene_id "KEG06_t03"; transcript_id "unassigned_transcript_1564"; codons "2,3"; locus_tag "KEG06_t03"; product "tRNA-Leu"; transcript_biotype "tRNA"; exon_number "1";
+        NC_005943.1\tRefSeq\tgene\t3259\t4213\t.\t+\t.\tgene_id "KEG06_p13"; transcript_id ""; db_xref "GeneID:2846627"; gbkey "Gene"; gene "ND1"; gene_biotype "protein_coding"; locus_tag "KEG06_p13";
+        NC_005943.1\tRefSeq\ttranscript\t3259\t4213\t.\t+\t.\tgene_id "KEG06_p13"; transcript_id "unassigned_transcript_1565"; gbkey "mRNA"; gene "ND1"; locus_tag "KEG06_p13"; transcript_biotype "mRNA";
+        NC_005943.1\tRefSeq\texon\t3259\t4213\t.\t+\t.\tgene_id "KEG06_p13"; transcript_id "unassigned_transcript_1565"; gene "ND1"; locus_tag "KEG06_p13"; transcript_biotype "mRNA"; exon_number "1";
+        NC_005943.1\tRefSeq\tCDS\t3259\t4210\t.\t+\t0\tgene_id "KEG06_p13"; transcript_id "unassigned_transcript_1565"; gbkey "CDS"; gene "ND1"; locus_tag "KEG06_p13"; note "TAA stop codon is completed by the addition of 3' A residues to the mRNA"; product "NADH dehydrogenase subunit 1"; protein_id "YP_026104.1"; transl_except "(pos:4213..4213,aa:TERM)"; transl_table "2"; exon_number "1";
+        NC_005943.1\tRefSeq\tstart_codon\t3259\t3261\t.\t+\t0\tgene_id "KEG06_p13"; transcript_id "unassigned_transcript_1565"; gbkey "CDS"; gene "ND1"; locus_tag "KEG06_p13"; note "TAA stop codon is completed by the addition of 3' A residues to the mRNA"; product "NADH dehydrogenase subunit 1"; protein_id "YP_026104.1"; transl_except "(pos:4213..4213,aa:TERM)"; transl_table "2"; exon_number "1";
+        NC_005943.1\tRefSeq\tstop_codon\t4211\t4213\t.\t+\t0\tgene_id "KEG06_p13"; transcript_id "unassigned_transcript_1565"; gbkey "CDS"; gene "ND1"; locus_tag "KEG06_p13"; note "TAA stop codon is completed by the addition of 3' A residues to the mRNA"; product "NADH dehydrogenase subunit 1"; protein_id "YP_026104.1"; transl_except "(pos:4213..4213,aa:TERM)"; transl_table "2"; exon_number "1";
+
+        """
+
+    /// The two gene lines as gffread should read them: the empty `transcript_id` gone and nothing else changed.
+    static let mmul10GeneLines = [
+        "NC_005943.1\tRefSeq\tgene\t3182\t3256\t.\t+\t.\tgene_id \"KEG06_t03\"; db_xref \"GeneID:64986588\"; gbkey \"Gene\"; gene_biotype \"tRNA\"; locus_tag \"KEG06_t03\";",
+        "NC_005943.1\tRefSeq\tgene\t3259\t4213\t.\t+\t.\tgene_id \"KEG06_p13\"; db_xref \"GeneID:2846627\"; gbkey \"Gene\"; gene \"ND1\"; gene_biotype \"protein_coding\"; locus_tag \"KEG06_p13\";",
+    ]
+
+    /// A stand-in for NC_005943.1, long enough for both genes.
+    static let mmul10Genome = ">NC_005943.1 Macaca mulatta mitochondrion, complete genome\n" + String(repeating: "ACGTACGTAC", count: 440) + "\n"
+
+    func testAGeneLineOfEmptyTranscriptIDReachesGffreadWithoutThatID() async throws {
+        try write(Self.mmul10Genome, "genome.fa")
+        try write(Self.mmul10, "genes.gtf")
+        for (layout, extraGTF) in [(ReferenceSetLayout.lge, false), (.deposit(study: "GSE1"), true)] {
+            let deriver = StandInTranscriptDeriver()
+            let outcome = try await build(request(layout, extraGTF: extraGTF), deriver)
+            let given = try XCTUnwrap(deriver.annotations.first).text
+            XCTAssertFalse(given.contains("transcript_id \"\""), "\(layout)")
+            XCTAssertEqual(given.split(separator: "\n").map(String.init).filter { $0.contains("\tgene\t") }, Self.mmul10GeneLines)
+            XCTAssertEqual(given.split(separator: "\n").count, 9, "every line kept")
+            XCTAssertEqual(Array(try pairs(outcome).prefix(2)), ["unassigned_transcript_1564>KEG06_t03", "unassigned_transcript_1565>KEG06_p13"])
+            XCTAssertEqual(Array(try column(outcome, "genes.tsv", 0).prefix(2)), ["KEG06_t03", "KEG06_p13"])
+            XCTAssertEqual(Array(try column(outcome, "genes.tsv", 4).prefix(2)), ["75", "955"])
+            XCTAssertEqual(try derivation(outcome)["renamedTranscripts"] as? [[String: String]], [])
+        }
+    }
+
     // MARK: - ADJ-ARCH-51 item 6: an extra's GTF is in the id
 
     func testTwoDepositBuildsThatDifferOnlyInAnExtrasGTFGetTwoIdsAndNoReuse() async throws {
@@ -219,5 +264,31 @@ final class ReferenceSetDerivationTests: XCTestCase {
                 + record.steps.flatMap { $0.argv + $0.inputs.map(\.path) + $0.outputs.map(\.path) }
             XCTAssertFalse(paths.contains { $0.contains(".creating-") }, "\(paths)")
         }
+    }
+}
+
+/// The RefSeq Mmul_10 release 103 cut through real gffread, from the conda root (`LUNGFISH_CONDA_ROOT` when it is set,
+/// else the configured root). It skips when no gffread is installed there, and fails under `LUNGFISH_REQUIRE_TOOLS=1`.
+final class ReferenceSetRefSeqGeneLineConformanceTests: XCTestCase {
+    func testGffreadReadsTheGeneLinesLGEWritesAndWritesOneRecordATranscript() async throws {
+        let gffread = try await ToolAvailability.require("gffread", environment: "gffread")
+        print("ReferenceSetRefSeqGeneLineConformanceTests: gffread at \(gffread.path)")
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("refset-mmul10-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let root = base.appendingPathComponent("root", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let genome = base.appendingPathComponent("genome.fa")
+        let annotation = base.appendingPathComponent("genes.gtf")
+        try Data(ReferenceSetDerivationTests.mmul10Genome.utf8).write(to: genome)
+        try Data(ReferenceSetDerivationTests.mmul10.utf8).write(to: annotation)
+        let request = ReferenceSetRequest(
+            name: "Rhesus mitochondrion", species: "Macaca mulatta", assemblyName: "Mmul_10", annotationSource: "RefSeq",
+            annotationRelease: "103", genome: genome, annotation: annotation, layout: .lge)
+        let outcome = try await ReferenceSetOwner(
+            storageRoot: root, deriver: GffreadTranscriptDeriver(), provenanceWriter: ProvenanceWriter(signingProvider: nil)
+        ).build(request)
+        let records = try ReferenceSetAnnotationReader.fastaRecords(outcome.url.appendingPathComponent("derived/transcripts.fa"))
+        XCTAssertEqual(records.map(\.name), ["unassigned_transcript_1564", "unassigned_transcript_1565"])
+        XCTAssertEqual(records.map(\.length), [75, 955])
     }
 }

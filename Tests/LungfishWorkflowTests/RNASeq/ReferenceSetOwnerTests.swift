@@ -10,6 +10,12 @@ import XCTest
 /// contig and strand of the annotation's transcript, exon and CDS lines, in the order the lines give them, so an id
 /// two genes share on two strands gives two records of one name. It adds `ghost` and a second `twice` when set,
 /// counts its runs and keeps the path and text of each GTF it was given.
+/// What gffread 0.12.9 says and does for a gene or transcript line of `transcript_id ""`: it stops with exit status 1
+/// and writes no record (measured in RS-REFSET part 6 on RefSeq Mmul_10 release 103).
+struct StandInGffreadRefusal: LocalizedError {
+    var errorDescription: String? { "gffread stopped with exit status 1: Error: no valid ID found for GFF record" }
+}
+
 final class StandInTranscriptDeriver: ReferenceSetTranscriptDeriving, @unchecked Sendable {
     private let lock = NSLock()
     private var runs = 0
@@ -39,6 +45,9 @@ final class StandInTranscriptDeriver: ReferenceSetTranscriptDeriving, @unchecked
         var places = Set<String>()
         for line in text.split(separator: "\n") where !line.hasPrefix("#") {
             let cells = line.split(separator: "\t", omittingEmptySubsequences: false)
+            if cells.count == 9, ["gene", "transcript"].contains(cells[2]), cells[8].contains("transcript_id \"\"") {
+                throw StandInGffreadRefusal()
+            }
             guard cells.count == 9, ["exon", "CDS", "transcript"].contains(cells[2]),
                   let range = cells[8].range(of: #"transcript_id "[^"]+""#, options: .regularExpression) else { continue }
             let id = String(cells[8][range].dropFirst("transcript_id \"".count).dropLast())
