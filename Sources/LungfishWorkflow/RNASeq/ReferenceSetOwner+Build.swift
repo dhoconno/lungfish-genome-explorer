@@ -14,9 +14,10 @@ extension ReferenceSetOwner {
         let derived = stage.appendingPathComponent("derived", isDirectory: true)
         for folder in [work, derived] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
 
-        let genomeCopy = try copyChecked(hashed.genome, to: "genome/\(hashed.genome.lastPathComponent)", in: stage, sha: hashed.genomeSHA)
+        let genomeCopy = try copyChecked(
+            hashed.genomeSource, to: "genome/\(hashed.genome.lastPathComponent)", in: stage, sha: hashed.genomeSHA)
         let annotationCopy = try copyChecked(
-            request.annotation, to: "annotation/\(request.annotation.lastPathComponent)", in: stage, sha: hashed.annotationSHA)
+            hashed.annotationSource, to: "annotation/\(request.annotation.lastPathComponent)", in: stage, sha: hashed.annotationSHA)
         let plainGenome = try plainCopy(of: genomeCopy, as: work.appendingPathComponent("genome.fa"))
         let genomeRecords = try ReferenceSetAnnotationReader.fastaRecords(plainGenome)
         let genomeNames = Set(genomeRecords.map(\.name))
@@ -35,9 +36,10 @@ extension ReferenceSetOwner {
         try await deriver.writeTranscripts(genome: plainGenome, annotation: gtf, to: transcripts)
 
         var extras: [ReferenceSetManifest.Extra] = []
-        for (index, (extra, sha)) in zip(request.extras, hashed.extraSHAs).enumerated() {
+        for (index, extra) in request.extras.enumerated() {
+            let (sha, source) = (hashed.extraSHAs[index], hashed.extraSources[index])
             let suffix = extra.fasta.isGzipCompressed ? "fa.gz" : "fa"
-            let fasta = try copyChecked(extra.fasta, to: "extras/\(extra.name).\(suffix)", in: stage, sha: sha.fasta)
+            let fasta = try copyChecked(source.fasta, to: "extras/\(extra.name).\(suffix)", in: stage, sha: sha.fasta)
             let plainFASTA = try plainCopy(of: fasta, as: work.appendingPathComponent("extra-\(index).fa"))
             let records = try ReferenceSetAnnotationReader.fastaRecords(plainFASTA)
             let clashes = records.map(\.name).filter(genomeNames.contains)
@@ -47,12 +49,12 @@ extension ReferenceSetOwner {
             }
             var annotationPath: String?
             let extraRead: ReferenceSetAnnotationRead
-            if let annotation = extra.annotation, let annotationSHA = sha.annotation {
+            if let given = extra.annotation, let annotation = source.annotation, let annotationSHA = sha.annotation {
                 guard request.layout != .lge else {
                     throw ReferenceSetError.invalidRequest("LGE's layout counts each record of the extra \(extra.name) as one "
                         + "feature, so the extra takes no annotation. A deposit's own features need the deposit layout.")
                 }
-                let gtfSuffix = annotation.isGzipCompressed ? "gtf.gz" : "gtf"
+                let gtfSuffix = given.isGzipCompressed ? "gtf.gz" : "gtf"
                 annotationPath = "extras/\(extra.name).\(gtfSuffix)"
                 let copied = try copyChecked(annotation, to: annotationPath!, in: stage, sha: annotationSHA)
                 let extraGTF = work.appendingPathComponent("extra-\(index).\(Self.gffreadGTFName)")

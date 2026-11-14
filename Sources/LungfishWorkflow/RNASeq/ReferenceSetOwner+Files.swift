@@ -21,23 +21,28 @@ extension ReferenceSetOwner {
             genome = genome.appendingPathComponent(info.path)
         }
         var descriptors: [ProvenanceFileDescriptor] = []
-        func hash(_ url: URL, expected: String?) throws -> String {
-            guard FileManager.default.isReadableFile(atPath: url.path) else { throw ReferenceSetError.unreadable(url.path) }
-            let sha = try ProvenanceFileHasher.sha256(of: url)
+        // A link is followed once, here, so the file hashed is the file copied. A copy of the link itself would point
+        // nowhere inside the stage. The record names the input as given.
+        func hash(_ given: URL, expected: String?) throws -> (source: URL, sha: String) {
+            let source = given.resolvingSymlinksInPath()
+            guard FileManager.default.isReadableFile(atPath: source.path) else { throw ReferenceSetError.unreadable(given.path) }
+            let sha = try ProvenanceFileHasher.sha256(of: source)
             if let expected, expected != sha {
-                throw ReferenceSetError.checksumMismatch(file: url.lastPathComponent, expected: expected, found: sha)
+                throw ReferenceSetError.checksumMismatch(file: given.lastPathComponent, expected: expected, found: sha)
             }
             descriptors.append(ProvenanceFileDescriptor(
-                path: url.path, checksumSHA256: sha, fileSize: UInt64(max(url.fileSizeBytes, 0)), role: .input))
-            return sha
+                path: given.path, checksumSHA256: sha, fileSize: UInt64(max(source.fileSizeBytes, 0)), role: .input))
+            return (source, sha)
         }
-        let genomeSHA = try hash(genome, expected: request.expected?.genomeSHA256)
-        let annotationSHA = try hash(request.annotation, expected: request.expected?.annotationSHA256)
-        let extraSHAs = try request.extras.map { extra in
+        let genomeRead = try hash(genome, expected: request.expected?.genomeSHA256)
+        let annotationRead = try hash(request.annotation, expected: request.expected?.annotationSHA256)
+        let extraReads = try request.extras.map { extra in
             (fasta: try hash(extra.fasta, expected: nil), annotation: try extra.annotation.map { try hash($0, expected: nil) })
         }
-        return Hashed(genome: genome, genomeSHA: genomeSHA, bundle: bundle, annotationSHA: annotationSHA,
-                      extraSHAs: extraSHAs, descriptors: descriptors)
+        return Hashed(genome: genome, genomeSource: genomeRead.source, genomeSHA: genomeRead.sha, bundle: bundle,
+                      annotationSource: annotationRead.source, annotationSHA: annotationRead.sha,
+                      extraSources: extraReads.map { ($0.fasta.source, $0.annotation?.source) },
+                      extraSHAs: extraReads.map { ($0.fasta.sha, $0.annotation?.sha) }, descriptors: descriptors)
     }
 
     /// Copies `source` to `relativePath` in the stage and checks the copy's sha256 against the first read.

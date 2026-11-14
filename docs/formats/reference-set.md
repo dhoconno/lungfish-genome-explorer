@@ -55,6 +55,8 @@ A set's id is `<species>-<assembly>-<annotation source and release>-<layout>-<di
   uses/
 ```
 
+An input given as a symbolic link is read and copied as the file the link names, under the name given, so a set holds no link.
+
 | Key of `reference-set.json` | Holds |
 | --- | --- |
 | `schemaVersion` | 1. A higher number is refused in words, as a result's is ([rnaseq-bundle.md](rnaseq-bundle.md)) |

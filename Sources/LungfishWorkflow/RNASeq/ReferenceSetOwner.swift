@@ -62,11 +62,16 @@ public struct ReferenceSetOwner: Sendable {
     }
 
     /// The input files after the id is known, each with the sha256 of its first read.
+    /// Each input as given, whose name its copy takes, and the file it names with links followed, which is hashed
+    /// and copied.
     struct Hashed {
         var genome: URL
+        var genomeSource: URL
         var genomeSHA: String
         var bundle: (path: String, md5: String?)?
+        var annotationSource: URL
         var annotationSHA: String
+        var extraSources: [(fasta: URL, annotation: URL?)]
         var extraSHAs: [(fasta: String, annotation: String?)]
         var descriptors: [ProvenanceFileDescriptor]
     }
