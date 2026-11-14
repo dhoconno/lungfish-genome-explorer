@@ -52,10 +52,26 @@ extension FASTQBatchImporter {
             + "imported, so leave one of them out of any comparison or remove one."
     }
 
-    /// The facts of the stored reads that the import's record carries as resolved parameters (row RS-INSTRUMENT). They
-    /// are read back from the sidecar the import just wrote, so the record and the sidecar cannot differ.
-    static func scanFactParameters(of storedFASTQ: URL) -> [String: ParameterValue] {
-        guard let metadata = FASTQMetadataStore.load(for: storedFASTQ) else { return [:] }
+    /// Logs the warning of ``repeatedReadsNotice(sample:bundleURL:metadata:projectDirectory:)`` as a notice of `sample`
+    /// when another bundle of the project holds these reads, and logs nothing otherwise. An import never refuses.
+    static func warnOfRepeatedReads(
+        sample: String,
+        bundleURL: URL,
+        metadata: PersistedFASTQMetadata,
+        projectDirectory: URL,
+        log: (@Sendable (ImportLogEvent) -> Void)?
+    ) {
+        guard let notice = repeatedReadsNotice(
+            sample: sample, bundleURL: bundleURL, metadata: metadata, projectDirectory: projectDirectory
+        ) else { return }
+        log?(.notice(sample: sample, message: notice))
+    }
+
+    /// The facts of the stored reads that the import's record carries as resolved parameters (row RS-INSTRUMENT), with
+    /// the parameters of an adopted run laid over them, since an adopt states what its job measured. The facts are read
+    /// back from the sidecar the import just wrote, so the record and the sidecar cannot differ.
+    static func scanFactParameters(of storedFASTQ: URL, adopted: [String: ParameterValue]) -> [String: ParameterValue] {
+        guard let metadata = FASTQMetadataStore.load(for: storedFASTQ) else { return adopted }
         var parameters: [String: ParameterValue] = [:]
         if let instrument = metadata.sequencerInstrument {
             parameters["instrumentNameForm"] = .string(instrument.nameForm.rawValue)
@@ -71,6 +87,6 @@ extension FASTQBatchImporter {
             parameters["readPairCount"] = .integer(recorded.pairedR1)
             parameters["readPairHash"] = .string(hash)
         }
-        return parameters
+        return parameters.merging(adopted) { _, adopted in adopted }
     }
 }
