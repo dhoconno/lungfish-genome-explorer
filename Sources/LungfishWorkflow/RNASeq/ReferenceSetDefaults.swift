@@ -83,6 +83,7 @@ public struct ReferenceSetDefault: Sendable, Equatable {
 public enum ReferenceSetError: Error, LocalizedError, Equatable, Sendable {
     case namesMissingFromGenome([String])
     case transcriptsDiffer(onlyInAnnotation: [String], onlyInTranscripts: [String])
+    case transcriptsWrittenTwice([String])
     case checksumMismatch(file: String, expected: String, found: String)
     case newerSchema(Int)
     case publishedSetDiffers(id: String, file: String)
@@ -97,6 +98,9 @@ public enum ReferenceSetError: Error, LocalizedError, Equatable, Sendable {
         case .transcriptsDiffer(let annotation, let transcripts):
             return "The transcript FASTA and the annotation name different transcripts. Only in the annotation: "
                 + "\(Self.listed(annotation)). Only in the FASTA: \(Self.listed(transcripts)). Nothing was renamed."
+        case .transcriptsWrittenTwice(let names):
+            return "The transcript FASTA holds more than one record named \(Self.listed(names)). A count could not tell "
+                + "them apart, so the set was not built."
         case .checksumMismatch(let file, let expected, let found):
             return "\(file) has sha256 \(found), not \(expected) as its set names."
         case .newerSchema(let version):

@@ -18,11 +18,13 @@ extension ReferenceSetOwner {
         let annotationCopy = try copyChecked(
             request.annotation, to: "annotation/\(request.annotation.lastPathComponent)", in: stage, sha: hashed.annotationSHA)
         let plainGenome = try plainCopy(of: genomeCopy, as: work.appendingPathComponent("genome.fa"))
-        let plainAnnotation = try plainCopy(of: annotationCopy, as: work.appendingPathComponent("annotation.gtf"))
         let genomeRecords = try ReferenceSetAnnotationReader.fastaRecords(plainGenome)
         let genomeNames = Set(genomeRecords.map(\.name))
 
-        var read = try ReferenceSetAnnotationReader.read(plainAnnotation, addExon: request.layout == .lge, notHost: false)
+        // gffread reads only the GTF that LGE writes here, never the annotation as given.
+        let gtf = work.appendingPathComponent(Self.gffreadGTFName)
+        var read = try ReferenceSetAnnotationReader.read(
+            annotationCopy, addExon: request.layout == .lge, notHost: false, writingGTFTo: gtf)
         let missing = read.sequenceNames.filter { !genomeNames.contains($0) }
         guard missing.isEmpty else { throw ReferenceSetError.namesMissingFromGenome(missing) }
         let mitochondrial = try ReferenceSetAnnotationReader.mitochondrialContigs(
@@ -30,7 +32,7 @@ extension ReferenceSetOwner {
             annotationNames: read.sequenceNames)
 
         let transcripts = derived.appendingPathComponent("transcripts.fa")
-        try await deriver.writeTranscripts(genome: plainGenome, annotation: plainAnnotation, to: transcripts)
+        try await deriver.writeTranscripts(genome: plainGenome, annotation: gtf, to: transcripts)
 
         var extras: [ReferenceSetManifest.Extra] = []
         for (index, (extra, sha)) in zip(request.extras, hashed.extraSHAs).enumerated() {
@@ -53,13 +55,13 @@ extension ReferenceSetOwner {
                 let gtfSuffix = annotation.isGzipCompressed ? "gtf.gz" : "gtf"
                 annotationPath = "extras/\(extra.name).\(gtfSuffix)"
                 let copied = try copyChecked(annotation, to: annotationPath!, in: stage, sha: annotationSHA)
-                let plain = try plainCopy(of: copied, as: work.appendingPathComponent("extra-\(index).gtf"))
-                extraRead = try ReferenceSetAnnotationReader.read(plain, addExon: false, notHost: true)
+                let extraGTF = work.appendingPathComponent("extra-\(index).\(Self.gffreadGTFName)")
+                extraRead = try ReferenceSetAnnotationReader.read(copied, addExon: false, notHost: true, writingGTFTo: extraGTF)
                 let recordNames = Set(records.map(\.name))
                 let absent = extraRead.sequenceNames.filter { !recordNames.contains($0) }
                 guard absent.isEmpty else { throw ReferenceSetError.namesMissingFromGenome(absent) }
                 let piece = work.appendingPathComponent("extra-\(index).transcripts.fa")
-                try await deriver.writeTranscripts(genome: plainFASTA, annotation: plain, to: piece)
+                try await deriver.writeTranscripts(genome: plainFASTA, annotation: extraGTF, to: piece)
                 try append(piece, to: transcripts)
             } else {
                 extraRead = ReferenceSetAnnotationReader.recordFeatures(records, biotype: extra.kind.rawValue)
@@ -68,6 +70,9 @@ extension ReferenceSetOwner {
             read.genes += extraRead.genes
             read.transcriptGenes += extraRead.transcriptGenes
             read.dropped += extraRead.dropped
+            read.keptWithoutExon += extraRead.keptWithoutExon
+            read.renamed += extraRead.renamed
+            read.withoutFeatures += extraRead.withoutFeatures
             extras.append(.init(
                 name: extra.name, kind: extra.kind, path: "extras/\(extra.name).\(suffix)", sha256: sha.fasta,
                 annotationPath: annotationPath, annotationSHA256: annotationPath == nil ? nil : sha.annotation,
@@ -76,7 +81,7 @@ extension ReferenceSetOwner {
         try checkTranscripts(transcripts, against: read.transcriptGenes.map(\.transcript))
         try FileManager.default.removeItem(at: work)
 
-        let tables = try writeTables(read, into: derived, version: version)
+        let (tables, withoutFeatures) = try writeTables(read, into: derived, version: version)
         let manifest = ReferenceSetManifest(
             schemaVersion: ReferenceSetManifest.currentSchemaVersion, id: id, name: request.name, species: request.species,
             assembly: .init(name: request.assemblyName, accession: request.assemblyAccession, sourceURL: request.assemblySourceURL),
@@ -86,7 +91,8 @@ extension ReferenceSetOwner {
                           referenceBundle: hashed.bundle?.path, referenceBundleMD5: hashed.bundle?.md5),
             extras: extras, layout: request.layout.manifestLayout, mitochondrialContigs: mitochondrial, masks: [],
             derived: tables,
-            derivation: .init(exonsAdded: read.exonsAdded, keptWithoutExon: read.keptWithoutExon, droppedFeatures: read.dropped))
+            derivation: .init(exonsAdded: read.exonsAdded, keptWithoutExon: read.keptWithoutExon, droppedFeatures: read.dropped,
+                              renamedTranscripts: read.renamed, genesWithoutFeatures: withoutFeatures))
         try DurableReplace.replace(try manifest.encoded(), named: ReferenceSetManifest.filename, in: stage)
         return manifest
     }

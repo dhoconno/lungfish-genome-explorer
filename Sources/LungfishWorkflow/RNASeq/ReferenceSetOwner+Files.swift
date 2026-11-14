@@ -75,11 +75,16 @@ extension ReferenceSetOwner {
         try handle.synchronize()
     }
 
-    /// Refuses a transcript id that one of the FASTA and the transcript table holds and the other lacks.
+    /// Refuses a name the FASTA or the transcript table holds twice, then a transcript id that one holds and the other
+    /// lacks. It counts names, so two records of one name never pass as one.
     func checkTranscripts(_ fasta: URL, against ids: [String]) throws {
         let written = try ReferenceSetAnnotationReader.fastaRecords(fasta).map(\.name)
-        let writtenSet = Set(written)
-        let idSet = Set(ids)
+        var writtenSet = Set<String>()
+        var idSet = Set<String>()
+        var twice: [String] = []
+        for name in written where !writtenSet.insert(name).inserted && !twice.contains(name) { twice.append(name) }
+        for id in ids where !idSet.insert(id).inserted && !twice.contains(id) { twice.append(id) }
+        guard twice.isEmpty else { throw ReferenceSetError.transcriptsWrittenTwice(twice) }
         let onlyInAnnotation = ids.filter { !writtenSet.contains($0) }
         let onlyInTranscripts = written.filter { !idSet.contains($0) }
         guard onlyInAnnotation.isEmpty, onlyInTranscripts.isEmpty else {

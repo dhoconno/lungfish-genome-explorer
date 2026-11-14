@@ -80,6 +80,24 @@ public struct ReferenceSetManifest: Codable, Sendable, Equatable {
         public var keptWithoutExon: [String]
         /// Each feature of empty `gene_id` as `<contig>\t<type>\t<start>\t<end>`.
         public var droppedFeatures: [String]
+        /// Each transcript id that named more than one gene, contig or strand, and its new id in the GTF gffread read.
+        public var renamedTranscripts: [RenamedTranscript]
+        /// `derived/genes-without-features.tsv`, the genes with no exon line and no CDS line.
+        public var genesWithoutFeatures: ListedFile
+    }
+
+    public struct RenamedTranscript: Codable, Sendable, Equatable {
+        public var transcript: String
+        public var gene: String
+        /// `<gene_id>:<transcript_id>`.
+        public var renamed: String
+    }
+
+    /// A derived list with its path, sha256 and count of rows below the header.
+    public struct ListedFile: Codable, Sendable, Equatable {
+        public var path: String
+        public var sha256: String
+        public var count: Int
     }
 
     public var schemaVersion: Int
@@ -104,6 +122,7 @@ public struct ReferenceSetManifest: Codable, Sendable, Equatable {
             if let path = extra.annotationPath, let sha = extra.annotationSHA256 { files.append((path, sha)) }
         }
         files += [derived.transcripts, derived.genes, derived.transcriptGenes].map { ($0.path, $0.sha256) }
+        files.append((derivation.genesWithoutFeatures.path, derivation.genesWithoutFeatures.sha256))
         return files
     }
 

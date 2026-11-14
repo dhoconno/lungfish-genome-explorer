@@ -9,9 +9,21 @@ import LungfishIO
 
 extension ReferenceSetOwner {
     static let geneColumns = ["gene_id", "name", "biotype", "contig", "length", "not_host", "mask", "unreliable"]
+    /// The GTF that LGE writes in the stage's work folder, the only GTF gffread reads.
+    static let gffreadGTFName = "lge-annotation.gtf"
+    static let withoutFeaturesName = "genes-without-features.tsv"
 
-    /// `derived/genes.tsv` with the columns the result's reader reads, and `derived/transcripts.tsv`.
-    func writeTables(_ read: ReferenceSetAnnotationRead, into derived: URL, version: String) throws -> ReferenceSetManifest.Derived {
+    /// `derived/genes.tsv` with the columns the result's reader reads, `derived/transcripts.tsv`, and
+    /// `derived/genes-without-features.tsv` with each gene that has no exon line and no CDS line.
+    func writeTables(
+        _ read: ReferenceSetAnnotationRead, into derived: URL, version: String
+    ) throws -> (ReferenceSetManifest.Derived, ReferenceSetManifest.ListedFile) {
+        let featureless = "gene_id\tcontig\tbiotype\n" + read.withoutFeatures.map { $0 + "\n" }.joined()
+        try DurableReplace.replace(Data(featureless.utf8), named: Self.withoutFeaturesName, in: derived)
+        let listed = ReferenceSetManifest.ListedFile(
+            path: "derived/\(Self.withoutFeaturesName)",
+            sha256: try ProvenanceFileHasher.sha256(of: derived.appendingPathComponent(Self.withoutFeaturesName)),
+            count: read.withoutFeatures.count)
         var genes = Self.geneColumns.joined(separator: "\t") + "\n"
         for gene in read.genes {
             genes += [gene.id, gene.name, gene.biotype, gene.contig, String(gene.length), gene.notHost ? "true" : "false", "", ""]
@@ -26,10 +38,11 @@ extension ReferenceSetOwner {
             return .init(path: "derived/\(name)", sha256: try ProvenanceFileHasher.sha256(of: url), size: url.fileSizeBytes,
                          tool: tool, version: version)
         }
-        return .init(
+        let tables = ReferenceSetManifest.Derived(
             transcripts: try entry("transcripts.fa", tool: "gffread", version: version),
             genes: try entry("genes.tsv", tool: "lungfish", version: WorkflowRun.currentAppVersion),
             transcriptGenes: try entry("transcripts.tsv", tool: "lungfish", version: WorkflowRun.currentAppVersion))
+        return (tables, listed)
     }
 
     /// Settles a published set: its manifest names this id and every file it names is there at its size.
@@ -50,13 +63,16 @@ extension ReferenceSetOwner {
         _ manifest: ReferenceSetManifest, finalURL: URL, argv: [String], inputs: [ProvenanceFileDescriptor],
         version: String, started: Date
     ) -> ProvenanceEnvelope {
-        let outputs = [manifest.derived.transcripts, manifest.derived.genes, manifest.derived.transcriptGenes].map {
+        var outputs = [manifest.derived.transcripts, manifest.derived.genes, manifest.derived.transcriptGenes].map {
             ProvenanceFileDescriptor(path: finalURL.appendingPathComponent($0.path).path, checksumSHA256: $0.sha256,
                                      fileSize: UInt64(max($0.size, 0)), role: .output)
         }
+        let listed = finalURL.appendingPathComponent(manifest.derivation.genesWithoutFeatures.path)
+        outputs.append(ProvenanceFileDescriptor(
+            path: listed.path, checksumSHA256: manifest.derivation.genesWithoutFeatures.sha256, role: .output))
         let step = ProvenanceStep(
             toolName: "gffread", toolVersion: version,
-            argv: ["gffread", "-w", "derived/transcripts.fa", "-g", "genome.fa", manifest.annotation.path], exitStatus: 0,
+            argv: ["gffread", "-w", "derived/transcripts.fa", "-g", "genome.fa", Self.gffreadGTFName], exitStatus: 0,
             managedToolID: ManagedToolID(rawValue: "gffread"))
         return ProvenanceEnvelope(
             workflowName: "RNA-seq reference set", toolName: "lungfish-cli", toolVersion: WorkflowRun.currentAppVersion,

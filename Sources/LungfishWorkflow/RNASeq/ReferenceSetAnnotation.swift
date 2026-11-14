@@ -16,12 +16,16 @@ struct ReferenceSetGeneRow: Equatable {
 
 struct ReferenceSetAnnotationRead {
     var genes: [ReferenceSetGeneRow] = []
+    /// One pair a record gffread writes from the GTF LGE writes, keyed on the id that GTF gives the transcript.
     var transcriptGenes: [(transcript: String, gene: String)] = []
     /// Every sequence name a feature line gives, in the order first seen.
     var sequenceNames: [String] = []
     var exonsAdded: [String] = []
     var keptWithoutExon: [String] = []
     var dropped: [String] = []
+    var renamed: [ReferenceSetManifest.RenamedTranscript] = []
+    /// Each gene with no exon line and no CDS line as `<gene_id>\t<contig>\t<biotype>`, in the order of its first line.
+    var withoutFeatures: [String] = []
 }
 
 struct ReferenceSetFASTARecord: Equatable {
@@ -31,74 +35,78 @@ struct ReferenceSetFASTARecord: Equatable {
 }
 
 enum ReferenceSetAnnotationReader {
-    private final class Gene {
-        var contig: String
+    final class Gene {
+        let contig: String
+        let firstLine: Int
         var name: String?
         var biotype: String?
         var firstExon: Int?
         var firstCDS: Int?
         var exons: [ClosedRange<Int>] = []
-        /// CDS and stop codon lines by transcript, for a gene the annotation gives no exon.
-        var coding: [String: ClosedRange<Int>] = [:]
-        init(contig: String) { self.contig = contig }
+        /// The CDS and stop codon span of each transcript, with its contig and strand.
+        var coding: [String: (span: ClosedRange<Int>, contig: String, strand: String)] = [:]
+        /// The transcripts with a CDS line, in order, which LGE's layout gives one exon each.
+        var codingOrder: [String] = []
+        init(contig: String, firstLine: Int) {
+            self.contig = contig
+            self.firstLine = firstLine
+        }
     }
 
-    /// Reads a GTF, plain or gzip. With `addExon`, a gene with a CDS and no exon gets its CDS and stop codon as one
-    /// exon a transcript (LGE's layout). Without it the gene keeps no exon and counts 0 (the deposit layout).
-    static func read(_ url: URL, addExon: Bool, notHost: Bool) throws -> ReferenceSetAnnotationRead {
-        var read = ReferenceSetAnnotationRead()
+    /// What the first pass over a GTF found.
+    struct Scan {
         var genes: [String: Gene] = [:]
-        var seenNames = Set<String>()
-        var seenTranscripts = Set<String>()
-        var lineNumber = 0
-        try url.forEachLineAutoDecompressing { line in
-            lineNumber += 1
-            if line.hasPrefix("#") || line.isEmpty { return }
-            let cells = line.split(separator: "\t", maxSplits: 8, omittingEmptySubsequences: false)
-            guard cells.count == 9 else { return }
-            let contig = String(cells[0])
-            if seenNames.insert(contig).inserted { read.sequenceNames.append(contig) }
-            let type = cells[2]
-            let attributes = parseAttributes(cells[8])
-            guard let geneID = attributes["gene_id"], !geneID.isEmpty else {
-                read.dropped.append("\(contig)\t\(type)\t\(cells[3])\t\(cells[4])")
-                return
-            }
-            let gene = genes[geneID] ?? Gene(contig: contig)
-            genes[geneID] = gene
-            if gene.name == nil { gene.name = attributes["gene_name"] ?? attributes["gene"] }
-            if gene.biotype == nil { gene.biotype = attributes["gene_biotype"] ?? attributes["gene_type"] }
-            guard type == "exon" || type == "CDS" || type == "stop_codon",
-                  let start = Int(cells[3]), let end = Int(cells[4]), start <= end else { return }
-            let transcript = attributes["transcript_id"] ?? ""
-            if type == "exon" {
-                gene.firstExon = gene.firstExon ?? lineNumber
-                gene.exons.append(start...end)
-            } else {
-                if type == "CDS" { gene.firstCDS = gene.firstCDS ?? lineNumber }
-                let span = gene.coding[transcript].map { min($0.lowerBound, start)...max($0.upperBound, end) } ?? start...end
-                gene.coding[transcript] = span
-            }
-            if type != "stop_codon", !transcript.isEmpty, seenTranscripts.insert(transcript).inserted {
-                read.transcriptGenes.append((transcript, geneID))
-            }
-        }
-        let ordered = genes.compactMap { id, gene in (gene.firstExon ?? gene.firstCDS).map { ($0, id, gene) } }
+        /// Each transcript id with the distinct genes, contigs and strands its lines name.
+        var owners: [String: [(gene: String, place: String)]] = [:]
+        var transcriptOrder: [String] = []
+        /// Each transcript and gene of a transcript, exon or CDS line, in order, as gffread writes records.
+        var pairs: [(transcript: String, gene: String)] = []
+    }
+
+    /// Reads a GTF, plain or gzip, and writes to `gtf` the one GTF that gffread reads (`docs/formats/reference-set.md`).
+    /// With `addExon` (LGE's layout) a gene with a CDS and no exon gets one exon a transcript from its CDS and stop
+    /// codon span. Without it (the deposit layout) the gene keeps no exon, counts 0 and gives gffread no line.
+    static func read(_ url: URL, addExon: Bool, notHost: Bool, writingGTFTo gtf: URL) throws -> ReferenceSetAnnotationRead {
+        var read = ReferenceSetAnnotationRead()
+        let scan = try scanGTF(url, into: &read)
+        let ordered = scan.genes.compactMap { id, gene in (gene.firstExon ?? gene.firstCDS).map { ($0, id, gene) } }
             .sorted { $0.0 < $1.0 }
+        var leftOut = Set<String>()
+        for (id, gene) in scan.genes.filter({ $0.value.firstExon == nil && $0.value.firstCDS == nil })
+            .sorted(by: { $0.value.firstLine < $1.value.firstLine }) {
+            leftOut.insert(id)
+            read.withoutFeatures.append("\(id)\t\(gene.contig)\t\(gene.biotype ?? "")")
+        }
         for (_, id, gene) in ordered {
             var spans = gene.exons
             if spans.isEmpty {
                 if addExon {
-                    spans = Array(gene.coding.values)
+                    spans = gene.codingOrder.compactMap { gene.coding[$0]?.span }
                     read.exonsAdded.append(id)
                 } else {
                     read.keptWithoutExon.append(id)
+                    leftOut.insert(id)
                 }
             }
             read.genes.append(ReferenceSetGeneRow(
                 id: id, name: gene.name ?? id, biotype: gene.biotype ?? "", contig: gene.contig,
                 length: mergedLength(spans), notHost: notHost))
         }
+        var shared = Set<String>()
+        for transcript in scan.transcriptOrder {
+            let owners = (scan.owners[transcript] ?? []).filter { !leftOut.contains($0.gene) }
+            guard owners.count > 1 else { continue }
+            shared.insert(transcript)
+            var named = Set<String>()
+            for owner in owners where named.insert(owner.gene).inserted {
+                read.renamed.append(.init(transcript: transcript, gene: owner.gene, renamed: "\(owner.gene):\(transcript)"))
+            }
+        }
+        let rename = { (transcript: String, gene: String) in shared.contains(transcript) ? "\(gene):\(transcript)" : transcript }
+        read.transcriptGenes = scan.pairs.filter { !leftOut.contains($0.gene) }
+            .map { (transcript: rename($0.transcript, $0.gene), gene: $0.gene) }
+        let added: [(id: String, gene: Gene)] = addExon ? ordered.filter { $0.2.exons.isEmpty }.map { (id: $0.1, gene: $0.2) } : []
+        try writeGTF(from: url, to: gtf, leaving: leftOut, keepingGeneLines: Set(read.keptWithoutExon), rename: rename, addedExons: added)
         return read
     }
 

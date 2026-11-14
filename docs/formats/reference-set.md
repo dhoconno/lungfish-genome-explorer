@@ -35,7 +35,7 @@ A failed or cancelled build removes its staging folder. A published set changes 
 
 ## The id
 
-A set's id is `<species>-<assembly>-<annotation source and release>-<layout>-<digest>`, such as `macaca_mulatta-Mmul_10-ensembl100-lge-3f9a1c2b7d10`. The digest is the first 12 hex digits of the sha256 of a content list, one line `<role>\t<file name>\t<sha256>` for the genome, the annotation and each extra sequence by name, then `layout\t<layout>` and `derive\tgffread <version>`. A changed byte in any input, a changed extra, a changed layout or a changed gffread makes a new id, so a changed virus sequence makes a new id (`docs/plans/2026-10-02-architecture-program.md:193`). The derived files are not in the list, since they follow from it.
+A set's id is `<species>-<assembly>-<annotation source and release>-<layout>-<digest>`, such as `macaca_mulatta-Mmul_10-ensembl100-lge-3f9a1c2b7d10`. The digest is the first 12 hex digits of the sha256 of a content list, one line `<role>\t<file name>\t<sha256>` for the genome, the annotation and each extra sequence by name, with `extra annotation\t<file name>\t<sha256>` right after its extra's line when that extra brings its own GTF (the deposit layout only), then `layout\t<layout>` and `derive\tgffread <version>`. The lines keep the order given, so each GTF stays tied to its extra, and two sets that differ only in an extra's GTF get two ids. A changed byte in any input, a changed extra, a changed layout or a changed gffread makes a new id, so a changed virus sequence makes a new id (`docs/plans/2026-10-02-architecture-program.md:193`). The derived files are not in the list, since they follow from it.
 
 ## Layout
 
@@ -47,9 +47,11 @@ A set's id is `<species>-<assembly>-<annotation source and release>-<layout>-<di
   genome/<file as given>
   annotation/<file as given>
   extras/<name>.fa
+  extras/<name>.gtf
   derived/transcripts.fa
   derived/genes.tsv
   derived/transcripts.tsv
+  derived/genes-without-features.tsv
   uses/
 ```
 
@@ -60,16 +62,26 @@ A set's id is `<species>-<assembly>-<annotation source and release>-<layout>-<di
 | `assembly` | The assembly name, accession and source URL, such as GRCh38, Mmul_10 or T2T-MFA8v1.1 (`docs/plans/2026-10-02-architecture-program.md:111`) |
 | `annotation` | The GTF's source and release, its path and sha256 |
 | `genome` | The genome FASTA's path and sha256, and the `.lungfishref` it came from with that bundle's `md5_checksum` when it came from one |
-| `extras` | One entry a sequence the person added, with its name, kind (virus, bacterium or spike-in), path, sha256 and records, each flagged not-host (`docs/plans/2026-10-02-architecture-program.md:113`) |
+| `extras` | One entry a sequence the person added, with its name, kind (virus, bacterium or spike-in), path, sha256 and records, and in the deposit layout the path and sha256 of the extra's own GTF (`annotationPath`, `annotationSHA256`, kept as `extras/<name>.gtf`), each flagged not-host (`docs/plans/2026-10-02-architecture-program.md:113`) |
 | `layout` | `lge`, or `deposit` with the study it reproduces |
 | `mitochondrialContigs` | The contigs whose genes are mitochondrial, since a gene is never called mitochondrial by its name (`docs/plans/2026-10-02-architecture-program.md:111`) |
 | `masks` | The features a mask moves out of the default count, such as a pathogen's rRNA genes, with the mask's name (`docs/plans/2026-10-02-architecture-program.md:113`) |
 | `derived` | The transcript FASTA, the gene table and the transcript table, each with its path, sha256, size, tool and version |
-| `derivation` | What the owner changed from the annotation as given: `exonsAdded`, the genes given their CDS and stop codon as an exon (LGE's layout), `keptWithoutExon`, the genes with a CDS and no exon kept as the deposit gave them (the deposit layout), and `droppedFeatures`, each feature of empty `gene_id` as `<contig>\t<type>\t<start>\t<end>` |
+| `derivation` | What the owner changed from the annotation as given: `exonsAdded`, the genes given their CDS and stop codon as an exon (LGE's layout), `keptWithoutExon`, the genes with a CDS and no exon kept as the deposit gave them (the deposit layout), `droppedFeatures`, each feature of empty `gene_id` as `<contig>\t<type>\t<start>\t<end>`, `renamedTranscripts`, each transcript id that named more than one gene, contig or strand with its gene and its new id, and `genesWithoutFeatures`, the path, count and sha256 of `derived/genes-without-features.tsv` |
 
-In LGE's layout a not-host sequence counts as one feature a sequence record (`docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md:91`). A gene with a CDS and no exon gets its CDS and stop codon as an exon that the record names, or a refusal in words (`docs/plans/2026-10-02-architecture-program.md:111`). A transcript id in one file and not the other is refused with the names listed, and nothing is renamed (`docs/plans/2026-10-02-architecture-program.md:193`).
+In LGE's layout a not-host sequence counts as one feature a sequence record (`docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md:91`). A gene with a CDS and no exon gets its CDS and stop codon as an exon that the record names, or a refusal in words (`docs/plans/2026-10-02-architecture-program.md:111`). A transcript id in one file and not the other is refused with the names listed, and nothing is renamed (`docs/plans/2026-10-02-architecture-program.md:193`). A name that `derived/transcripts.fa` holds twice is refused the same way, since a count could not tell the two records apart. The check counts names, not sets of names.
 
-`derived/genes.tsv` has the columns `gene_id`, `name`, `biotype`, `contig`, `length`, `not_host`, `mask` and `unreliable`, the names the result's reader reads ([rnaseq-bundle.md](rnaseq-bundle.md)). Its genes come in the order of their first exon line, or of their first CDS line for a gene with no exon, as a deposit's feature list reads (`scripts/repro/rnaseq/gse296788/ref.py:4-10`), and each extra's genes come last in the order given. `length` is the gene's exonic length in bases, 0 for a gene kept without an exon. `not_host` is `true` or `false`, and `mask` and `unreliable` are empty in 5.1. A feature of empty `gene_id` is dropped. `derived/transcripts.tsv` has `transcript_id` and `gene_id` first, as `scripts/repro/rnaseq/seqc-gse47774/tx2gene.py:5-6` writes them, one row a record of `derived/transcripts.fa`, so gene sums read it. gffread writes the transcript FASTA from the genome and the annotation (`gffread -w <out> -g <genome> <gtf>`), and each extra's records follow in the order given, as `scripts/repro/rnaseq/seqc-gse47774/ref.sh:30` joins ERCC92. An extra with its own annotation in the deposit layout gives gffread's records of that annotation instead. The mitochondrial contigs are the ones the person names, else the sequence an NCBI assembly report types Mitochondrion, else a FASTA header that says mitochondrion, else a contig named `MT`, `chrM`, `chrMT`, `M` or `Mt`, never a gene name prefix (`scripts/repro/rnaseq/refs/refcheck.py:225`).
+`derived/genes.tsv` has the columns `gene_id`, `name`, `biotype`, `contig`, `length`, `not_host`, `mask` and `unreliable`, the names the result's reader reads ([rnaseq-bundle.md](rnaseq-bundle.md)). Its genes come in the order of their first exon line, or of their first CDS line for a gene with no exon, as a deposit's feature list reads (`scripts/repro/rnaseq/gse296788/ref.py:4-10`), and each extra's genes come last in the order given. `length` is the gene's exonic length in bases, 0 for a gene kept without an exon. `not_host` is `true` or `false`, and `mask` and `unreliable` are empty in 5.1. A feature of empty `gene_id` is dropped. `derived/transcripts.tsv` has `transcript_id` and `gene_id` first, as `scripts/repro/rnaseq/seqc-gse47774/tx2gene.py:5-6` writes them, one row a record of `derived/transcripts.fa`, so gene sums read it. A gene with no exon line and no CDS line, such as a pseudogene that RefSeq gives only a gene line, is listed in `derived/genes-without-features.tsv` with the columns `gene_id`, `contig` and `biotype`, in the order of its first line, and stays out of `genes.tsv` and `transcripts.tsv`. The build is not refused, since no read can land on such a gene. Cynomolgus RefSeq 5.0 has 4,523 such genes and rhesus RefSeq Mmul_10 5,664.
+
+gffread writes the transcript FASTA from the genome and a GTF that LGE writes in the stage (`gffread -w <out> -g <genome> <gtf>`), and never reads the annotation as given. That GTF holds the annotation's feature lines with these changes.
+
+- Each line of empty `gene_id` is left out.
+- Each line of a gene with no exon and no CDS is left out, since gffread 0.12.9 writes a record from a transcript line alone.
+- A `transcript_id` that names more than one `gene_id`, contig or strand becomes `<gene_id>:<transcript_id>` on each line, and `renamedTranscripts` lists each old id, gene and new id. RefSeq gives the tRNA, rRNA and CDS lines of a mitochondrion one id, `unknown_transcript_1`, and gffread 0.12.9 then writes two chimeric records of that one name.
+- In LGE's layout each transcript of a gene given an exon gets one exon line from its CDS and stop codon span.
+- In the deposit layout each line of a gene kept without an exon that carries a `transcript_id` is left out, so gffread writes no record for a gene that counts 0.
+
+Each extra's records follow in the order given, as `scripts/repro/rnaseq/seqc-gse47774/ref.sh:30` joins ERCC92. An extra with its own annotation in the deposit layout gives gffread's records of a GTF that LGE writes from that annotation by the same rules. The mitochondrial contigs are the ones the person names, else the sequence an NCBI assembly report types Mitochondrion, else a FASTA header that says mitochondrion, else a contig named `MT`, `chrM`, `chrMT`, `M` or `Mt`, never a gene name prefix (`scripts/repro/rnaseq/refs/refcheck.py:225`).
 
 ### The deposit layout
 
