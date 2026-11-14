@@ -129,7 +129,8 @@ public enum ScientificProvenancePolicy {
         "primers",
         "genotype",
         "haplotypes",
-        "tools"
+        "tools",
+        "rnaseq"
     ]
 
     /// The entry of each top-level command, by its name or an alias. Every leaf below a command takes
@@ -178,6 +179,8 @@ public enum ScientificProvenancePolicy {
         "primer": dataWriting("cli.primers"),
         "genotype": dataWriting("cli.genotype", writer: "AIHaplotypingRevisionPublisher/CLIProvenanceSupport"),
         "haplotypes": dataWriting("cli.haplotypes", writer: "HaplotypeDefinitionCommandService"),
+        // `rnaseq reference-set` writes a set under the storage root with its root record (lane RS-REFSET).
+        "rnaseq": dataWriting("cli.rnaseq", writer: "ReferenceSetOwner/ProvenanceWriter"),
         // `tools update --apply` writes no scientific data, but the tool versions it puts in
         // place are exactly what a later result has to be traceable to, so the run records its
         // own envelope. `--plan` inspects only; the policy is per top-level command, and the

@@ -61,6 +61,7 @@ struct LungfishCLI: AsyncParsableCommand {
             MapCommand.self,
             ImportCommand.self,
             ImportFastqCommand.self,
+            RNASeqCommand.self,
             OpsCommand.self,
             ProvenanceCommand.self,
             BAMCommand.self,
