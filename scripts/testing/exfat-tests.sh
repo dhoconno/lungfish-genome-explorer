@@ -25,7 +25,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
-SIMULATED_SUITES="PortableRename|AnalysesFolder|AnalysisRunRecord|DurableAtomicFileStore|OwnedWorkDirectory|ProjectTempDirectory|ONTGenotypeWorkbook|Provenance|ProjectOperationHistory|ProjectStorageCleanup|GenotypeReviewableRowCatalog|MappingViewerBundle|GenotypingCleanupJournal|FullLengthONTMHC|PrimerAnalysis|Durability"
+SIMULATED_SUITES="PortableRename|AnalysesFolder|AnalysisRunRecord|DurableAtomicFileStore|OwnedWorkDirectory|ProjectTempDirectory|ONTGenotypeWorkbook|Provenance|ProjectOperationHistory|ProjectStorageCleanup|GenotypeReviewableRowCatalog|MappingViewerBundle|GenotypingCleanupJournal|FullLengthONTMHC|PrimerAnalysis|Durability|RNASeqResultWriter"
 
 if [ "${1:-}" = "--simulate" ]; then
     FILTER="${2:-$SIMULATED_SUITES}"
