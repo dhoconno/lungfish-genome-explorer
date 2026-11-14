@@ -319,6 +319,65 @@ class RoleRuleTests(LedgerTestCase):
                          ['lane', 'lane', 'review', 'design', 'lane'])
 
 
+class RoleFromTypeTests(LedgerTestCase):
+    """An agent's role comes from its subagent type when the type is one of ours, and from its description only for
+    general-purpose or a type the ledger does not know (O177 Q9, action 24 of the 5.0 close). The seven lge-ruling agents
+    of that session fell under other and design, since their descriptions held no word that the description rules read as a
+    ruling. The monitor and release rows keep the ledger's names llm and operator, so one kind of agent never splits in two."""
+    ROLES = [('lge-ruling', 'ruling'), ('lge-land', 'landing'), ('lge-review', 'review'), ('lge-fix', 'fix'),
+             ('lge-planner', 'design'), ('lge-expert', 'design'), ('lge-lane', 'lane'), ('lge-lane-opus', 'lane'),
+             ('lge-data', 'data'), ('llm-efficiency-monitor', 'llm'), ('lge-release', 'operator'), ('lge-walker', 'walk')]
+    LABELS = ('Round 3', 'Lane A1 small fixes', 'Questions of the ballot, BIO seat')  # the description rules read other, lane, design
+
+    def test_each_type_gives_its_role_whatever_the_description_says(self):
+        for agent_type, role in self.ROLES:
+            for label in self.LABELS:
+                with self.subTest(agent_type=agent_type, label=label):
+                    self.assertEqual(self.ledger.role_of(label, 'sub', agent_type), role)
+
+    def test_general_purpose_and_unknown_types_keep_the_description_rules(self):
+        for agent_type in ('general-purpose', 'lge-worker', 'unset', '', None):
+            with self.subTest(agent_type=agent_type):
+                self.assertEqual(self.ledger.role_of('Fix agent for lane A6', 'sub', agent_type), 'fix')
+                self.assertEqual(self.ledger.role_of('Swift review of lane S1', 'sub', agent_type), 'review')
+                self.assertEqual(self.ledger.role_of('Round 3', 'sub', agent_type), 'other')
+
+    def test_the_main_session_stays_main_whatever_its_type(self):
+        self.assertEqual(self.ledger.role_of('main: start', 'main', 'lge-lane'), 'main')
+
+    def test_every_lge_type_file_has_a_role(self):
+        names = sorted(p.stem for p in Path(self.ledger.AGENTS_DIR).glob('lge-*.md'))
+        self.assertTrue(names)
+        self.assertEqual([n for n in names if n not in self.ledger.TYPE_ROLES], [])
+
+    def spawned(self, description, spawn_type=None, meta_type=None):
+        """The ledger's session for a manager that spawns agent AID with `spawn_type` (none leaves the key out) and a
+        subagent whose meta file names `meta_type`."""
+        settings = {'subagent_type': spawn_type} if spawn_type else {}
+        self.main.prompt(0, 'start the phase')
+        self.main.turn(5, 'msg_m1', usage(read=30000, write=1000, out=50, w1h=1000),
+                       [agent_call('m1', description, **settings)])
+        self.main.result(6, 'm1', 'launched', tool_use_result={'agentId': AID, 'status': 'async_launched'})
+        self.sub.prompt(7, 'brief')
+        self.sub.turn(10, 'msg_1', usage(read=40000, write=3000, out=20), [], stop='end_turn')
+        meta = dict({'description': description}, **({'agentType': meta_type} if meta_type else {}))
+        (self.root / 'proj' / SID / 'subagents' / ('agent-%s.meta.json' % AID)).write_text(json.dumps(meta))
+        return self.run_ledger()
+
+    def test_the_spawn_type_sets_the_role_in_the_ledger_rows(self):
+        session = self.spawned('Questions of the ballot, BIO seat', spawn_type='lge-ruling')
+        self.assertEqual(self.agent(session, AID)['role'], 'ruling')
+        self.assertIn('ruling', [x['role'] for x in session['by_role_model_effort']])
+
+    def test_the_meta_type_sets_the_role_when_the_spawn_is_not_in_the_transcript(self):
+        session = self.spawned('Batch of five lanes to main', meta_type='lge-land')
+        self.assertEqual(self.agent(session, AID)['role'], 'landing')
+
+    def test_a_general_purpose_spawn_takes_the_role_of_its_description(self):
+        session = self.spawned('Lane A1 small fixes', spawn_type='general-purpose', meta_type='general-purpose')
+        self.assertEqual(self.agent(session, AID)['role'], 'lane')
+
+
 class SpendByRoleModelAndEffortTests(LedgerTestCase):
     """The model and effort each spawn asked for, beside the model its turns ran on, in two tables of the report."""
     LANE = '| lane | claude-sonnet-5-5 | max | 1 | 2 | 30K | 16K | 0 | 53.3 | 0 | 0.91 |'

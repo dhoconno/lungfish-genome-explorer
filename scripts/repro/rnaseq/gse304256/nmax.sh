@@ -149,9 +149,15 @@ nh_counts() {
 }
 # compare.py over every run of runs.tsv (finished runs of earlier chains included).
 compare() {
+  # --nmax K makes C6-1 read "k of n equal on every cell with --outFilterMultimapNmax K" and gives its note the
+  # largest NH of each run (nh_<run>.tsv in $C); the default comparison's runs.tsv, when there is one, lets the note
+  # check that K only moved the pairs over 10 loci.
+  local d=$WORK/compare/runs.tsv
+  [ -s "$d" ] || d=""
   rm -f "$C/exact_runs.txt"
   $NICE "$ENVP/bin/python3" -I "$HERE/compare.py" --tar "$STUDY/geo/GSE304256_RAW.tar" --runs "$HERE/runs.tsv" \
-    --samples "$STUDY/samples.tsv" --star-dir "$S" --genes "$WORK/ref/genes.tsv" --out "$C" && [ -e "$C/exact_runs.txt" ]
+    --samples "$STUDY/samples.tsv" --star-dir "$S" --genes "$WORK/ref/genes.tsv" --out "$C" --nmax "$K" \
+    ${d:+--default-runs "$d"} && [ -e "$C/exact_runs.txt" ]
 }
 verdicts() { awk -F'\t' 'NR>1{printf "%s%s:%s", (NR>2?" ":""), $1, $6} END{print ""}' "$C/runs.tsv"; }
 done_msg() { printf '%s\n' "$@" > "$C/DONE.tmp" && mv "$C/DONE.tmp" "$C/DONE"; }

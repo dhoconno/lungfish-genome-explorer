@@ -46,6 +46,12 @@ CHAIN_CLAIMS = ("S1", "S2", "S3", "T1", "L1", "L2", "M1", "B1", "B2")
 HELD_CLAIMS = ("G1", "G2", "D1")
 HELD_NOTE = ("pending: chain.sh (PID 2431) writes the verdict, finished at work/gse225770/logs/chain.done; "
              "compare.py report on the deposit alone read pass (lanes/REPRO-gse225770.md:119)")
+# B2 reads the deposit's rows, the gene set its band was measured on (rulings/ADJ-TAIL.md Q1). report writes
+# this row's whole note, so the template's older text goes.
+B2_NOTE = ("per sample, our salmon gene counts summed over protein_coding genes on the deposit's rows (G2's "
+           "uniquely named genes) over our featureCounts protein_coding fragments, between 0.68 and 0.76; the "
+           "all-protein_coding and all-gene ratios are reported, not gated (rulings/ADJ-TAIL.md Q1)")
+WHOLE_NOTE = ("B2",)
 
 
 def read_table(path, id_col="gene_id"):
@@ -319,14 +325,20 @@ def biotype_claims(a, samples, deposit, gene_biotype, res):
         if n in sal_cols and our_pc > 0:
             s_pc = sum(v[n] for g, v in sal.items() if gene_biotype.get(g) == "protein_coding")
             s_all = sum(v[n] for v in sal.values())
-            b2_got.append(f"{n} {s_pc / our_pc:.3f} (all genes {s_all / our_pc:.3f})")
-            b2_ok = b2_ok and B2_BAND[0] <= s_pc / our_pc <= B2_BAND[1]
+            # The verdict reads s_dep: the deposit's band sums only the deposit's rows (the uniquely named
+            # genes), so the same sum over our counts is the like-for-like figure (rulings/ADJ-TAIL.md Q1).
+            # The sums over every protein_coding gene and over every gene are reported, not gated.
+            s_dep = sum(v[n] for g, v in sal.items() if g in deposit and gene_biotype.get(g) == "protein_coding")
+            b2_got.append(f"{n} {s_dep / our_pc:.3f} (all protein_coding {s_pc / our_pc:.3f}; "
+                          f"all genes {s_all / our_pc:.3f})")
+            b2_ok = b2_ok and B2_BAND[0] <= s_dep / our_pc <= B2_BAND[1]
     write_tsv(os.path.join(a.out, "biotypes.tsv"), ["sample", "biotype", "ours", "raw", "ratio"], rows)
     res["B1"] = ("ours over RAW: " + "; ".join(got) if got else "not run",
                  "pending" if len(got) < len(samples) else ("pass" if b1_ok else "fail"), "")
     res["B2"] = ("; ".join(b2_got) or "not run",
                  "pending" if len(b2_got) < len(samples) else ("pass" if b2_ok else "fail"),
-                 "deposit's own ratio, xlsx protein_coding over RAW protein_coding: " + "; ".join(dep_ratio))
+                 B2_NOTE + "; deposit's own ratio, xlsx protein_coding over RAW protein_coding: "
+                 + "; ".join(dep_ratio))
     res["D2"] = (f"{raw_files} RAW files read, group option {', '.join(sorted(str(g) for g in groups))}, "
                  f"{', '.join(str(x) for x in sorted(nrows))} rows each", "void", "")
 
@@ -397,7 +409,11 @@ def cmd_report(a):
         if c["claim_id"] in res:
             our, verdict, note = res[c["claim_id"]]
             c["our_value"], c["verdict"] = our, verdict
-            if note:
+            # A rerun reads the table it wrote, so a computed note is set once: whole for WHOLE_NOTE rows,
+            # and otherwise appended only when the note does not already end with it.
+            if note and c["claim_id"] in WHOLE_NOTE:
+                c["note"] = note
+            elif note and not (c["note"] == note or c["note"].endswith("; " + note)):
                 c["note"] = (c["note"] + "; " if c["note"] else "") + note
     out = os.path.join(a.out, "claims.tsv")
     with open(out, "w") as fh:

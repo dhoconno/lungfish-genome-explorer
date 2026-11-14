@@ -129,6 +129,22 @@ claims = [
      "Sample-5 Day-7 LNP-RNA style titles, RCl19-D0 style names", key, key, "exact",
      v("key_ok TRUE" in key), "ENA day equals the file name day on every file, one group an animal"],
 ]
+# C6-6 says which parts of its bar fail, with the counts (days 0 to 2, both designs); nothing when it passes.
+failed = []
+for des, tag in (("day", "~day"), ("animal_day", "~animal + day")):
+    l1, s1 = get("d0-2", LNP, des, "D1_vs_D0"), get("d0-2", SAM, des, "D1_vs_D0")
+    l2, s2 = get("d0-2", LNP, des, "D2_vs_D0"), get("d0-2", SAM, des, "D2_vs_D0")
+    for ok, text, x, y in ((l2[0] > s2[0], "mRNA-LNP up above sam-MDNP up", l2[0], s2[0]),
+                           (l2[1] > s2[1], "mRNA-LNP down above sam-MDNP down", l2[1], s2[1]),
+                           (l2[0] > l2[1], "up above down for mRNA-LNP", l2[0], l2[1]),
+                           (s2[0] > s2[1], "up above down for sam-MDNP", s2[0], s2[1]),
+                           (sum(l2[:2]) < sum(l1[:2]), "day 2 total under day 1 for mRNA-LNP", sum(l2[:2]), sum(l1[:2])),
+                           (sum(s2[:2]) < sum(s1[:2]), "day 2 total under day 1 for sam-MDNP", sum(s2[:2]), sum(s1[:2]))):
+        if not ok:
+            failed.append("%s (%d against %d under %s)" % (text, x, y, tag))
+if failed:
+    c66 = [c for c in claims if c[0] == "C6-6"][0]
+    c66[7] = "failed part: " + ", ".join(failed) + ". " + c66[7]
 with open(os.path.join(d, "claims_de.tsv"), "w") as fh:
     for c in claims:
         fh.write("\t".join(c) + "\n")

@@ -4,10 +4,13 @@
 #              [--no-memwatch]
 #
 # The manager's background wait. Every --interval seconds (default 300) for --rounds rounds (default 9, about 45
-# minutes) it looks for four things. First an agent of the session at or over --ctx-k of context (default 290, and 390
-# for the agent ids listed in RECORDS/opus_ids.txt). Second an agent whose last entry is older than --pending-s seconds
-# (default 900) and not final. Third free space under --disk-min-gb on --disk-path (default 100 and
-# /System/Volumes/Data). Fourth a memwatch alarm in RECORDS/memwatch.alarm. Agent ids in RECORDS/done_ids.txt are
+# minutes) it looks for five things. First an agent of the session at or over --ctx-k of context (default 290, and 390
+# for the agent ids listed in RECORDS/opus_ids.txt). Second a running agent whose tool calls are at or past its stop
+# line, which ctx_watch.py --calls reads from the agent's prompt or else from the file of its agent type and prints as
+# "CALLS ID CALLS/LINE", and the manager then sends "Write your Handoff now and stop." Third an agent whose last entry
+# is older than --pending-s seconds (default 900) and not final. Fourth free space under --disk-min-gb on --disk-path
+# (default 100 and /System/Volumes/Data). Fifth a memwatch alarm in RECORDS/memwatch.alarm. Agent ids in
+# RECORDS/done_ids.txt are
 # ignored. RECORDS defaults to build/llm. After it reports a memwatch alarm the manager touches RECORDS/memwatch.ack,
 # which silences that alarm for --ack-minutes (default 60). It also reports MEMWATCH NOT RUNNING when memwatch.pid names
 # no live memwatch.py and memwatch.stop is not newer than it, unless --no-memwatch is given.
@@ -71,6 +74,8 @@ for ((round = 0; round < rounds; round++)); do
   ctx=$(printf '%s\n%s\n' "$(agents "$ctx_k" '-v -E')" "$(agents "$opus_k" -E)" | grep -v '^$')
   stall=$("$PYTHON" "$HERE/ctx_watch.py" "$project" "$session" --stalled "$stall_s" 2>&1 | grep -v '^none$' |
     grep -v -E "^STALLED (${ignore:-NOBODY})")
+  calls=$("$PYTHON" "$HERE/ctx_watch.py" "$project" "$session" --calls 2>&1 | grep -v '^none$' |
+    grep -v -E "^CALLS (${ignore:-NOBODY})")
   free=$(free_gb)
   disk=""
   if [ -n "$free" ] && [ "$free" -lt "$disk_min" ]; then disk="DISK ${free}Gi free"; fi
@@ -88,9 +93,9 @@ for ((round = 0; round < rounds; round++)); do
     fi
   fi
   mem=${mem# }
-  if [ -n "$ctx$stall$disk$mem" ]; then
+  if [ -n "$ctx$calls$stall$disk$mem" ]; then
     echo "ALARM $(date '+%H:%M')"
-    for part in "$ctx" "$stall" "$disk" "$mem"; do
+    for part in "$ctx" "$calls" "$stall" "$disk" "$mem"; do
       if [ -n "$part" ]; then echo "$part"; fi
     done
     exit 0

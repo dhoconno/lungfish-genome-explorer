@@ -11,8 +11,13 @@ Prints one line a check, then a blank line and a block of "KEY: value" facts:
   PASS <check> (<evidence>)
   ACT <check>: <what to do>
   SKIP <check>: <why it did not run>
-The checks are disk, swap, scratch, processes, load, cwd, main-sync, agents, xcode and
-transcript. The get_usage check is a tool call of the manager and stays with it.
+The checks are disk, swap, scratch, processes, load, cwd, main-sync, agents, xcode,
+transcript and effort. The get_usage check is a tool call of the manager and stays with it.
+The effort check reads the manager's own effort from the main transcript of --session-id,
+the way session_ledger.py does (the most common value of the top-level `effort` field),
+and gives ACT when it is not --manager-effort (default max), PASS when it is and SKIP when
+no transcript or no effort record can be read. Its fact is manager_effort, each value
+with its count.
 The agents check reads the primary checkout, where sessions load typed agents from. It
 gives ACT when the primary's .claude/agents/ lacks a type that main has or holds
 another copy of one. The facts are local_main and origin_main, the primary_head,
@@ -37,12 +42,15 @@ of checks before the first launch and the START prompt.
 from __future__ import annotations
 
 import argparse
+import glob
 import hashlib
+import json
 import os
 import re
 import subprocess
 import sys
 import time
+from collections import Counter
 
 GIB = 1048576.0
 TAG = re.compile(r"^v\d{4}\.\d+\.\d+$")
@@ -293,6 +301,53 @@ def check_transcript(projects, session_id, expected, facts):
     return "PASS", "transcript", "under %s" % folders[0]
 
 
+def manager_effort(paths):
+    """The count of each value of the top-level `effort` field in the main transcripts of one session. It reads as
+    session_ledger.py reads the manager's effort (commit 3bf5c2230). An entry counts once by its uuid, so a transcript copied
+    into two project folders counts once. An entry that names an agent or is a sidechain belongs to a subagent and does not
+    count, and a line that is not JSON, such as the half line a live session leaves at the end of its file, is skipped."""
+    counts, seen = Counter(), set()
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    try:
+                        entry = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(entry, dict) or entry.get("agentId") or entry.get("isSidechain"):
+                        continue
+                    uid = entry.get("uuid")
+                    if uid:
+                        if uid in seen:
+                            continue
+                        seen.add(uid)
+                    if isinstance(entry.get("effort"), str) and entry["effort"]:
+                        counts[entry["effort"]] += 1
+        except OSError:
+            continue
+    return counts
+
+
+def check_effort(projects, session_id, wanted, facts):
+    """ACT when the manager's own effort, the most common value in its main transcript, is not the wanted one."""
+    if not session_id:
+        return "SKIP", "effort", "no --session-id given"
+    base = os.path.abspath(projects)
+    paths = sorted(glob.glob(os.path.join(glob.escape(base), "*", glob.escape(session_id) + ".jsonl")))
+    if not paths:
+        return "SKIP", "effort", "no %s.jsonl under %s/*/ to read the effort from" % (session_id, base)
+    counts = manager_effort(paths)
+    if not counts:
+        return "SKIP", "effort", "the transcript of %s records no effort" % session_id
+    effort, entries = counts.most_common(1)[0][0], sum(counts.values())
+    facts.append(("manager_effort", ", ".join("%s %d" % item for item in counts.most_common())))
+    if effort.strip().lower() != wanted.strip().lower():
+        return ("ACT", "effort", "the manager session runs at effort %s (%d of %d entries), not %s. The owner set %s for managers on "
+                "2026-11-11. Write the effort it runs at into line 1 of the event log and go on." % (effort, counts[effort], entries, wanted, wanted))
+    return "PASS", "effort", "%s, %d of %d entries" % (effort, counts[effort], entries)
+
+
 def channel_of(call, cwd, tag):
     """preview, stable or unknown, from the technical record at the tag."""
     code, out = call(["git", "show", "%s:docs/reports/%s-technical.md" % (tag, tag[1:])], cwd=cwd)
@@ -439,6 +494,8 @@ def main(argv=None, call=run, cwd=None, home=None) -> int:
     parser.add_argument("--expected-project", help="the project folder (its path or its name) that the briefs and helpers name; "
                         "a name that starts with a dash needs the form --expected-project=NAME")
     parser.add_argument("--program-worktree", help="the folder the manager must work in (default: any linked worktree)")
+    parser.add_argument("--manager-effort", default="max", help="the effort the manager session must run at, which the effort "
+                        "check reads from its transcript (default %(default)s)")
     parser.add_argument("--scratch", default="/Volumes/lge_scratch", help="mount point of the scratch disk (default %(default)s)")
     parser.add_argument("--process-pattern", default="xctest|swift-build|swift-test|lungfish-cli", help="regex of leftover processes")
     parser.add_argument("--min-free-gib", type=int, default=100, help="free GiB under ~ below which to act (default %(default)s)")
@@ -485,6 +542,7 @@ def main(argv=None, call=run, cwd=None, home=None) -> int:
         check_agents(call, cwd, facts),
         ("SKIP", "xcode", "--skip-xcode given") if args.skip_xcode else check_xcode(call, args.developer_dir),
         check_transcript(os.path.expanduser(args.projects_dir), args.session_id, args.expected_project, facts),
+        check_effort(os.path.expanduser(args.projects_dir), args.session_id, args.manager_effort, facts),
     ]
     release_facts(call, cwd, args.max_tags, facts)
     machine_facts(call, cwd, args.max_worktrees, facts, hide_agents=bool(start))

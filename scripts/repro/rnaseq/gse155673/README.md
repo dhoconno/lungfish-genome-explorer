@@ -29,6 +29,8 @@ Ruling SC-SUBSET reads one library from reads, cov_10 (GSM4712899, 8 runs, 247,1
 
 `test_small.sh` runs solo, compare and the substituted claims on the first 100,000 spots of SRR12404157 against a chromosome 19 reference, as a light check before the heavy steps.
 
+`fill_claims.py WORK STATE_DIR runs.tsv claims.tsv` (python -I, light) is the only thing that writes the rows of `claims.tsv` that waited on the chain: key_runs, the five `lib_*` rows, deposit_kind and the cohort rows. The chain ran on 2026-11-13 (STARsolo with `BAM=0`, 33.6 min, 18.9 GB resident, 247,189,622 reads, 72.96% uniquely mapped). cov_10 equals its deposit at the close class: 4,509 of the deposit's 4,512 barcodes (Jaccard 0.99934), per-cell UMI r 1.00000, per-gene r 0.99939, median genes 602 against 602 and median UMI 2,446 against 2,435.5. `claims.tsv` holds 15 pass, 2 not settleable and 1 report, no fail. Gate GX's bars are in each note: every bar this deposit can test passes, and valid barcodes, saturation and reads in cells within 1 point cannot be tested because GEO holds no metrics summary.
+
 ## Deviations and assumptions
 
 Counting and cells.

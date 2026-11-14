@@ -26,6 +26,9 @@ recorded and estimated and the turns that kept no final usage), the spawns that 
 or no effort, orchestration facts from the main session (spawns, SendMessage, TaskStop, task
 notifications, quota readings) and the session's own `cost-state` record when present.
 
+An agent's role comes from its subagent type when that is one of TYPE_ROLES (the spawn's `subagent_type`, else the meta
+file's `agentType`), and from the ROLE_RULES that read its description for general-purpose or an unknown type.
+
 The script never prints message text except short signatures of errors, commands and
 agent descriptions. Unknown entry types are counted and otherwise ignored.
 """
@@ -82,6 +85,16 @@ ROLE_RULES = [  # first match wins, so fix agents, rulings, landings and monitor
     ("design", re.compile(r"inventor|expert|design|memo|\bplan\b|planning|panel|question|survey|scope|research|investigat|triage|diagnos|\bbriefs?\b", re.I)),
     ("lane", re.compile(r"\blane\b|\bfix|implement|\bwave\b|writer|\bland|port|migrat|refactor|add |build", re.I)),
 ]
+# The role of an agent whose subagent type is one of ours (O177 Q9). The type decides, so a ruling whose description holds
+# no ruling word is still a ruling. The description rules above apply only to general-purpose and to a type listed nowhere
+# here. The monitor and release steps keep the names llm and operator that those rules, the tests and the monitor's agent
+# file use, so one kind of agent never splits across two rows. `test_every_lge_type_file_has_a_role` holds the table to
+# the lge-*.md files of .claude/agents/.
+TYPE_ROLES = {
+    "lge-ruling": "ruling", "lge-land": "landing", "lge-review": "review", "lge-fix": "fix",
+    "lge-planner": "design", "lge-expert": "design", "lge-lane": "lane", "lge-lane-opus": "lane",
+    "lge-data": "data", "llm-efficiency-monitor": "llm", "lge-release": "operator", "lge-walker": "walk",
+}
 UNSET = "unset"  # a spawn setting that neither the Agent call, the subagent's meta nor its type's file carries
 READ_CMD_RES = [  # group 1: range or command form, group 2: file argument(s)
     re.compile(r"\bsed\s+-n\s+('[^']*'|\"[^\"]*\"|\S+)\s+([^\s|;&<>()]+)"),
@@ -186,10 +199,12 @@ def cost_of(u, model):
 
 
 def role_of(label, kind, agent_type=None):
+    """The role of one agent. The main session is main, an agent of a type in TYPE_ROLES takes that type's role, and any
+    other agent (general-purpose, a type the ledger does not know, or none) takes the role its description reads as."""
     if kind == "main":
         return "main"
-    if agent_type == "llm-efficiency-monitor":
-        return "llm"
+    if agent_type in TYPE_ROLES:
+        return TYPE_ROLES[agent_type]
     for role, rx in ROLE_RULES:
         if rx.search(label or ""):
             return role
@@ -919,7 +934,6 @@ def load_session(arg, root, now, top):
         r = analyze_agent(ag, now, top)
         r["meta"] = {k: ag.meta.get(k) for k in ("agentType", "model", "effort", "spawnedWithWorktree",
                                                    "worktreePath", "spawnDepth")} if ag.meta else {}
-        r["role"] = role_of(r["label"], ag.kind, (ag.meta or {}).get("agentType"))
         results.append(r)
     # map spawn info onto subagents
     main = next((r for r in results if r["kind"] == "main"), None)
@@ -933,6 +947,8 @@ def load_session(arg, root, now, top):
             r["resumes"] = main["sends"].get(r["key"], 0)
     for r in results:
         r["request"] = request_of(r)
+        # the type the spawn named, else the one the subagent's meta file names, as request_of reads it
+        r["role"] = role_of(r["label"], r["kind"], r["request"]["agent_type"])
     results.sort(key=lambda r: (r["kind"] != "main", r["first_ts"] or 0))
     return {"session": sid, "titles": titles, "mains": mains, "subagent_files": len(subs), "agents": results,
             "live": live, "by_role_model_effort": role_model_effort_rows(results),

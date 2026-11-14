@@ -1,7 +1,9 @@
 """Tests of scripts/session/preflight.py. They inject the command runner, so nothing reads the live machine."""
 import importlib.util
 import io
+import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -9,6 +11,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "session" / "preflight.py"
+LEDGER = Path(__file__).resolve().parents[1] / "llm" / "session_ledger.py"
 spec = importlib.util.spec_from_file_location("session_preflight", SCRIPT)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
@@ -94,11 +97,11 @@ class PreflightTests(unittest.TestCase):
     def test_a_healthy_machine_passes_every_check_and_prints_the_facts(self):
         code, lines, _ = self.go(healthy())
         self.assertEqual(code, 0)
-        self.assertEqual([l.split()[0] + " " + l.split()[1].rstrip(":") for l in lines[:10]], [
+        self.assertEqual([l.split()[0] + " " + l.split()[1].rstrip(":") for l in lines[:11]], [
             "PASS disk", "PASS swap", "PASS scratch", "PASS processes", "PASS load", "PASS cwd", "PASS main-sync",
-            "PASS agents", "PASS xcode", "SKIP transcript"])
-        facts = dict(l.split(": ", 1) for l in lines[11:] if l != "worktree: ")
-        self.assertEqual(lines[10], "")
+            "PASS agents", "PASS xcode", "SKIP transcript", "SKIP effort"])
+        facts = dict(l.split(": ", 1) for l in lines[12:] if l != "worktree: ")
+        self.assertEqual(lines[11], "")
         self.assertEqual(facts["primary_head"], "%s claude/x (%s)" % (B, PRIMARY))
         self.assertEqual(facts["local_main"], A)
         self.assertEqual(facts["main_vs_origin"], "ahead 0, behind 0")
@@ -154,10 +157,10 @@ class PreflightTests(unittest.TestCase):
         table = healthy()
         table[("git", "tag", "--list")] = (0, "v2026.11.9\nv2026.11.8\nv2026.11.7\nv2026.11.6\n")
         table[("git", "show", "v2026.11.8:docs/reports/2026.11.8-technical.md")] = (0, "# T\n\nChannel: Preview\n")
-        facts = dict(l.split(": ", 1) for l in self.go(table)[1][11:])
+        facts = dict(l.split(": ", 1) for l in self.go(table)[1][12:])
         self.assertEqual(facts["newest_preview"].split()[0], "v2026.11.8")
         self.assertEqual(facts["newest_stable"], "v2026.11.7 " + B)
-        facts = dict(l.split(": ", 1) for l in self.go(table, "--max-tags", "1")[1][11:])
+        facts = dict(l.split(": ", 1) for l in self.go(table, "--max-tags", "1")[1][12:])
         self.assertEqual(facts["newest_stable"], "not found among the newest 1 tags")
 
     def test_worktree_facts_are_capped(self):
@@ -254,7 +257,7 @@ class StartPromptTests(unittest.TestCase):
         code, out, _, text = self.fill("--scope", "SWEEP-1,PROBES", "--owner", "O171,2.9 O5")
         self.assertEqual(code, 0)
         self.assertIn("START prompt written to out.md (%d of 4096 bytes)" % len(text.encode()), out)
-        for part in ("checks: 9 PASS, 1 SKIP (transcript)", "local_main: " + A, "The plan is plan.md, lanes SWEEP-1, PROBES.",
+        for part in ("checks: 9 PASS, 2 SKIP (transcript, effort)", "local_main: " + A, "The plan is plan.md, lanes SWEEP-1, PROBES.",
                      "- O171 (2026-11-11) Experts decide in the owner's absence", "- 2.9 O5 (2026-10-12) Real tool runs first",
                      "Budget as the Budget line of the plan sets, records " + str(self.dir)):
             self.assertIn(part, text)
@@ -264,7 +267,7 @@ class StartPromptTests(unittest.TestCase):
     def test_an_act_line_is_written_in_full_and_sets_the_exit_code(self):
         code, _, _, text = self.fill("--scope", "PROBES", table={**healthy(), ("df", "-Pk", HOME): df(50, "/")})
         self.assertEqual(code, 1)
-        self.assertIn("checks: 8 PASS, 1 SKIP (transcript), 1 ACT (disk)", text)
+        self.assertIn("checks: 8 PASS, 2 SKIP (transcript, effort), 1 ACT (disk)", text)
         self.assertIn("ACT disk: 50 GiB free", text)
 
     def test_agent_worktrees_are_counted_and_left_out_of_the_facts(self):
@@ -351,6 +354,94 @@ class AgentsCheckTests(unittest.TestCase):
         text = "worktree /p\nHEAD abc\nbranch refs/heads/x/y\n\nworktree /q\nHEAD def\nlocked why\ndetached\n"
         self.assertEqual(module.parse_worktrees(text), [("/p", "abc", "x/y"), ("/q", "def", "detached")])
         self.assertEqual(module.blob_id(b"hello\n"), "ce013625030ba8dba906f756967f9e9ca394464a")
+
+
+class EffortCheckTests(unittest.TestCase):
+    """The effort check reads the manager's own effort from its main transcript as session_ledger.py does (commit
+    3bf5c2230), and gives ACT when it is not max (O177 Q4)."""
+    SID = "11111111-2222-3333-4444-555555555555"
+    STAMP = "2026-11-14T12:00:00.000Z"
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.base = Path(os.path.realpath(tmp.name))
+
+    def entry(self, uuid, effort=None, **fields):
+        row = {"type": "user", "uuid": uuid, "timestamp": self.STAMP, "message": {"role": "user", "content": "x"}}
+        row.update(fields)
+        if effort:
+            row["effort"] = effort
+        return row
+
+    def transcript(self, efforts, folder="proj-a", extra=(), first=0):
+        """Write the main transcript of the session, one entry for each of `efforts` (None leaves the field out) with
+        uuids that count up from `first`, then the `extra` entries."""
+        rows = [self.entry("u%d" % (first + i), effort) for i, effort in enumerate(efforts)] + list(extra)
+        path = self.base / folder / (self.SID + ".jsonl")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        return path
+
+    def check(self, *args, sid=None):
+        """(exit code, the lines of the effort check, all lines) of a run that reads the temporary projects folder."""
+        out = io.StringIO()
+        argv = ["--scratch", SCRATCH, "--projects-dir", str(self.base), "--session-id", sid or self.SID, *args]
+        with redirect_stdout(out):
+            code = module.main(argv, call=Fake(healthy()), cwd=TOP, home=HOME)
+        lines = out.getvalue().splitlines()
+        return code, [l for l in lines if re.match(r"(PASS|ACT|SKIP) effort\b", l)], lines
+
+    def test_a_manager_at_max_passes(self):
+        self.transcript(["max", "max", "max"])
+        code, found, _ = self.check()
+        self.assertEqual((code, len(found)), (0, 1))
+        self.assertTrue(found[0].startswith("PASS effort ("), found)
+        self.assertIn("max", found[0])
+
+    def test_a_manager_below_max_gets_one_act_line_that_names_its_effort(self):
+        self.transcript(["xhigh", "xhigh", "high"])
+        code, found, lines = self.check()
+        self.assertEqual((code, len(found)), (1, 1))
+        self.assertTrue(found[0].startswith("ACT effort: "), found)
+        self.assertIn("xhigh", found[0])
+        self.assertIn("not max", found[0])
+        self.assertIn("manager_effort: xhigh 2, high 1", lines)
+
+    def test_no_effort_record_or_no_transcript_skips(self):
+        self.transcript([None, None])
+        code, found, _ = self.check()
+        self.assertEqual((code, len(found)), (0, 1))
+        self.assertTrue(found[0].startswith("SKIP effort: "), found)
+        code, found, lines = self.check(sid="no-such-session")
+        self.assertEqual(len(found), 1)
+        self.assertTrue(found[0].startswith("SKIP effort: "), found)
+        self.assertEqual([l.split(":")[0] for l in lines if l.startswith("ACT ")], ["ACT transcript"])
+
+    def test_the_wanted_effort_is_an_option(self):
+        self.transcript(["xhigh", "xhigh"])
+        code, found, _ = self.check("--manager-effort", "xhigh")
+        self.assertEqual(code, 0)
+        self.assertTrue(found[0].startswith("PASS effort"), found)
+
+    def test_the_reading_equals_the_ledgers_for_copies_sidechains_and_nested_fields(self):
+        spec = importlib.util.spec_from_file_location("session_ledger", LEDGER)
+        ledger = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ledger)
+        noise = ([self.entry("s%d" % i, "low", isSidechain=True) for i in range(6)] +
+                 [self.entry("a%d" % i, "low", agentId="ab12") for i in range(6)] +
+                 [{"type": "system", "uuid": "n%d" % i, "timestamp": self.STAMP, "output_config": {"effort": "low"}}
+                  for i in range(6)])
+        full = self.transcript(["max", "max", "max", "xhigh", "xhigh"], extra=noise)
+        with open(full, "a") as handle:
+            handle.write('{"effort": "low", "uuid": "cut\n')  # the half line a live session leaves at the end
+        self.transcript(["xhigh", "xhigh"], folder="proj-b", first=3)  # an earlier copy that repeats the two xhigh uuids
+        code, found, lines = self.check()
+        self.assertEqual(code, 0)
+        self.assertTrue(found[0].startswith("PASS effort ("), found)
+        self.assertIn("manager_effort: max 3, xhigh 2", lines)
+        main = next(a for a in ledger.load_session(self.SID, str(self.base), None, 12)["agents"] if a["key"] == "main")
+        self.assertEqual(main["transcript_effort"], "max")
 
 
 if __name__ == "__main__":

@@ -60,6 +60,15 @@ if has de; then
     $NICE "$ENVP/bin/Rscript" "$HERE/de.R" "$D/deposit" "$ENA" "$D/names.tsv" "$D/stepB" $days \
       "$WORK/star" "$WORK/compare/runs.tsv" > "$D/stepB_$days.log" 2>&1
   done
-  $NICE $PY "$HERE/de_claims.py" "$D" "$WORK/compare/label.txt" | tee "$WORK/logs/de.log"
-  { cat "$WORK/compare/claims.tsv"; cat "$D/claims_de.tsv"; } > "$D/claims.tsv"
+fi
+
+# The study's claims table: compare's rows (C6-1 to C6-4) and the DE rows (C6-5 to C6-8) with compare's label,
+# then a copy beside this script, which is the committed claims.tsv. NMAX=1000 takes compare's rows and label
+# from compare_nmax1000 (nmax.sh), the tables aligned with --outFilterMultimapNmax 1000 that C6 pins (ADJ-BULK-4
+# C6 Q1). It follows de, or runs alone to refresh the table and the label from the DE tables already there. Light.
+if has de || has claims; then
+  C=$WORK/compare${NMAX:+_nmax$NMAX}; D=$WORK/de
+  $NICE $PY "$HERE/de_claims.py" "$D" "$C/label.txt" | tee -a "$WORK/logs/de.log"
+  { cat "$C/claims.tsv"; cat "$D/claims_de.tsv"; } > "$D/claims.tsv"
+  cp "$D/claims.tsv" "$HERE/claims.tsv"
 fi

@@ -63,7 +63,7 @@ STUB
   cat > "$BIN/compare.py" <<'STUB'
 import argparse, csv, os
 ap = argparse.ArgumentParser()
-for k in ("--tar", "--runs", "--samples", "--star-dir", "--genes", "--out"):
+for k in ("--tar", "--runs", "--samples", "--star-dir", "--genes", "--out", "--nmax", "--default-runs"):
     ap.add_argument(k)
 a = ap.parse_args()
 rows = list(csv.DictReader(open(a.runs), delimiter="\t"))

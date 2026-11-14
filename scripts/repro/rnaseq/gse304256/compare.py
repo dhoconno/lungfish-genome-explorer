@@ -56,6 +56,40 @@ def md5_of(path):
     return h.hexdigest()
 
 
+def nh_summary(folder, runs):
+    """{run: (pairs with NH over 10, largest NH)} from nh_<run>.tsv of nmax.sh (NH, pairs); a run without a table is left out."""
+    got = {}
+    for run in runs:
+        path = os.path.join(folder, "nh_%s.tsv" % run)
+        if not os.path.exists(path):
+            continue
+        over = big = 0
+        for line in open(path):
+            f = line.split()
+            if len(f) == 2:
+                big = max(big, int(f[0]))
+                over += int(f[1]) if int(f[0]) > 10 else 0
+        got[run] = (over, big)
+    return got
+
+
+def default_gaps(path):
+    """{run: (gap, same)} from the runs.tsv of the default-option comparison. gap is the pairs the default table files under
+    N_unmapped that the deposit files under N_multimapping (None when the three columns or the two rows disagree); same is
+    true when every gene row, N_noFeature and N_ambiguous are equal to the deposit's."""
+    got = {}
+    for r in csv.DictReader(open(path), delimiter="\t"):
+        if r.get("N_unmapped_ours", "NA") == "NA":
+            continue
+        val = {n + s: [int(x) for x in r[n + s].split("/")] for n in ("N_unmapped", "N_multimapping") for s in ("_ours", "_deposited")}
+        up = {o - d for o, d in zip(val["N_unmapped_ours"], val["N_unmapped_deposited"])}
+        dn = {d - o for o, d in zip(val["N_multimapping_ours"], val["N_multimapping_deposited"])}
+        same = (all(r[c + "_gene_n_diff"] == "0" for c in ("col2", "col3", "col4"))
+                and all(r[n + "_ours"] == r[n + "_deposited"] for n in ("N_noFeature", "N_ambiguous")))
+        got[r["run"]] = (up.pop() if len(up) == 1 and up == dn else None, same)
+    return got
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tar", required=True)
@@ -64,6 +98,11 @@ def main():
     ap.add_argument("--star-dir", required=True)
     ap.add_argument("--genes", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--nmax", type=int, help="the --outFilterMultimapNmax the tables in --star-dir were aligned with (nmax.sh "
+                    "passes it): C6-1 then reads 'k of n equal on every cell with --outFilterMultimapNmax K' and its note gives "
+                    "the largest NH of each run, from nh_<run>.tsv in --out")
+    ap.add_argument("--default-runs", help="runs.tsv of the default-option comparison: with --nmax, the note checks that each "
+                    "run's pairs over NH 10 equal the pairs its default table files under N_unmapped instead of N_multimapping")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
 
@@ -148,9 +187,13 @@ def main():
     n_all = sum(1 for name, _ in dep_bytes.values() if re.search(r"-D[012]_ReadsPerGene", name)) or len(dep_bytes)
     n_sub = len(runs)
     k_exact, k_tested = len(exact), len(tested)
+    # Step B (de.R with run.sh's star folder and compare/runs.tsv) swaps the aligned runs' gene rows into the
+    # deposit's table and keeps the deposit's counts for every other sample (lanes/TAIL-C6.md Q2).
     label = ("counts from the GEO deposit %s (md5 %s); LGE equal to it at exact class on %d of %d samples "
-             "(%d tested, runs %s); step B not run on LGE counts, inferred equal for the other %d"
-             % (os.path.basename(a.tar), md5_of(a.tar), k_exact, n_all, k_tested, ",".join(exact) or "none", n_all - k_exact))
+             "(%d tested, runs %s); step B swaps the %d aligned runs' gene rows into the deposit's table and keeps "
+             "the deposit's counts for the other %d samples, inferred equal"
+             % (os.path.basename(a.tar), md5_of(a.tar), k_exact, n_all, k_tested, ",".join(exact) or "none",
+                k_tested, n_all - k_tested))
     with open(os.path.join(a.out, "label.txt"), "w") as fh:
         fh.write(label + "\n")
 
@@ -160,10 +203,32 @@ def main():
     nf_ours = panel.get("N_noFeature_ours", "NA")
     nf_dep = panel.get("N_noFeature_deposited", "NA")
     reads_ok = [r for r in rows if "input_pairs" in r]
+    c1_value = "%d of %d tested runs equal on every cell of all four columns and the four N_ rows" % (k_exact, k_tested)
+    c1_note = label
+    if a.nmax:
+        # Tables aligned with --outFilterMultimapNmax K: the claim is the exact count at that K, and the note keeps the
+        # evidence that K only moves the pairs over 10 loci (nh_<run>.tsv here, the default comparison's runs.tsv).
+        nh = nh_summary(a.out, exact)
+        dk = default_gaps(a.default_runs) if a.default_runs else {}
+        c1_value = "%d of %d equal on every cell with --outFilterMultimapNmax %d" % (k_exact, k_tested, a.nmax)
+        text = ["cause: the deposit files pairs that map to more than 10 loci under N_multimapping, which STAR 2.7.3a does "
+                "with --outFilterMultimapNmax at or above their largest NH (an undocumented step, ADJ-BULK-4 C6 Q1)."]
+        if nh:
+            text.append("Largest NH of a run: %s; K=%d is %s all of them." % (
+                ", ".join("%s %d" % (r, nh[r][1]) for r in exact if r in nh), a.nmax,
+                "above" if all(v[1] < a.nmax for v in nh.values()) else "NOT above"))
+        if nh and dk:
+            same = [r for r in nh if r in dk and dk[r][0] == nh[r][0]]
+            text.append("Pairs over NH 10 equal the pairs that the default table (K=10) files under N_unmapped in place of "
+                        "N_multimapping on %d of %d runs (%s to %s pairs); at the default every gene row in all three columns, "
+                        "N_noFeature and N_ambiguous are equal on %d of %d runs." % (
+                            len(same), len(nh), format(min(v[0] for v in nh.values()), ","),
+                            format(max(v[0] for v in nh.values()), ","), sum(1 for v in dk.values() if v[1]), len(dk)))
+        c1_note = " ".join(text + [label])
     claims = [
         ("C6-1", "GEO series GSE304256, data processing (STAR 2.7.3a, Mmul_10 Ensembl release 100, --quantMode GeneCounts); the 50 deposited ReadsPerGene files",
          "STAR 2.7.3a GeneCounts on Mmul_10, Ensembl 100", "%s, %d files" % (os.path.basename(a.tar), n_all),
-         "%d of %d tested runs equal on every cell of all four columns and the four N_ rows" % (k_exact, k_tested), "exact", done, label),
+         c1_value, "exact", done, c1_note),
         ("C6-2", "R2-STAT C6 claim 2, column 2 (unstranded) is the one to use, GSM9145993", "N_noFeature 5,537,145 in column 2, 22,070,866 and 22,078,509 in columns 3 and 4",
          nf_dep, nf_ours, "exact",
          "pass" if nf_ours == nf_dep == "5537145/22070866/22078509" else ("pending" if not panel.get("input_pairs") else "fail"),
