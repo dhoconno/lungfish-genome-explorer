@@ -72,6 +72,7 @@ A single-cell matrix stays in `source/` as given, with its gzip or without it, a
 | `sourceFiles` | One entry a kept file, with its path, sha256, size, sample and tool |
 | `matrices` | Single cell. One entry a sample, with the paths of its matrix, features and barcodes, each sha256, the format `matrix-market`, whether it is gzip, and its cells, features and entries |
 | `cellsSummary` | Single cell. The path, sha256 and schema version of `cells.sqlite` |
+| `quality` | The path and sha256 of `quality/samples.quality.tsv`, which the writer writes when the caller gives the table. The header is `sample_id` and then the columns the caller names, with one row a sample and an empty cell for a number the tool did not give. The writer refuses a row whose sample is not in `samples.tsv`. A result with no `quality` key reads quality as Not recorded |
 | `notHost` | The ids of the not-host features, each one feature a genome or segment, which stay out of size factors (`docs/plans/2026-10-02-architecture-program.md:113`) |
 
 The run facts stay in the record and the manifest repeats none of them.

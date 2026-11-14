@@ -156,6 +156,8 @@ public struct RNASeqResultManifest: Codable, Equatable, Sendable {
     public var sourceFiles: [SourceFileEntry]
     public var matrices: [MatrixEntry]?
     public var cellsSummary: CellsSummary?
+    /// The path and sha256 of `quality/samples.quality.tsv`. Nil when the result keeps no quality table, which a reader shows as Not recorded.
+    public var quality: FileEntry?
     public var notHost: [String]
 
     public init(
@@ -164,7 +166,7 @@ public struct RNASeqResultManifest: Codable, Equatable, Sendable {
         modality: Modality, name: String, createdAt: String, origin: Origin, route: Route,
         referenceSet: ReferenceSet?, samples: FileEntry, genes: FileEntry, counts: [CountEntry],
         sourceFiles: [SourceFileEntry], matrices: [MatrixEntry]? = nil, cellsSummary: CellsSummary? = nil,
-        notHost: [String] = []
+        quality: FileEntry? = nil, notHost: [String] = []
     ) {
         self.schemaVersion = schemaVersion
         self.kind = kind
@@ -180,12 +182,13 @@ public struct RNASeqResultManifest: Codable, Equatable, Sendable {
         self.sourceFiles = sourceFiles
         self.matrices = matrices
         self.cellsSummary = cellsSummary
+        self.quality = quality
         self.notHost = notHost
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, kind, modality, name, createdAt, origin, route, referenceSet
-        case samples, genes, counts, sourceFiles, matrices, cellsSummary, notHost
+        case samples, genes, counts, sourceFiles, matrices, cellsSummary, quality, notHost
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -204,6 +207,7 @@ public struct RNASeqResultManifest: Codable, Equatable, Sendable {
         try container.encode(sourceFiles, forKey: .sourceFiles)
         try container.encodeIfPresent(matrices, forKey: .matrices)
         try container.encodeIfPresent(cellsSummary, forKey: .cellsSummary)
+        try container.encodeIfPresent(quality, forKey: .quality)
         try container.encode(notHost, forKey: .notHost)
     }
 }

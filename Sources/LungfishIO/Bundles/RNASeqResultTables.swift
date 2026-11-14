@@ -158,6 +158,54 @@ public struct RNASeqGeneRecord: Equatable, Sendable {
     }
 }
 
+/// `quality/samples.quality.tsv`: the quality numbers of the tool's own files, one row a sample. The header is `sample_id` and
+/// then the columns the caller names. A nil value is Not recorded and prints as an empty cell.
+public struct RNASeqQualityTable: Equatable, Sendable {
+    public struct Row: Equatable, Sendable {
+        public var sample: String
+        /// One value for each of the table's columns.
+        public var values: [String?]
+
+        public init(sample: String, values: [String?]) {
+            self.sample = sample
+            self.values = values
+        }
+    }
+
+    public static let path = "quality/samples.quality.tsv"
+
+    public var columns: [String]
+    public var rows: [Row]
+
+    public init(columns: [String], rows: [Row]) {
+        self.columns = columns
+        self.rows = rows
+    }
+
+    public func tsvData() throws -> Data {
+        var lines = [try (["sample_id"] + columns).map(RNASeqTSV.cell).joined(separator: "\t")]
+        for row in rows {
+            guard row.values.count == columns.count else {
+                throw RNASeqResultError.invalidTable(path: Self.path, reason: "the row of \(row.sample) holds \(row.values.count) values for \(columns.count) columns")
+            }
+            lines.append(try ([row.sample] + row.values.map { $0 ?? "" }).map(RNASeqTSV.cell).joined(separator: "\t"))
+        }
+        return Data((lines.joined(separator: "\n") + "\n").utf8)
+    }
+
+    public init(tsv data: Data, path: String) throws {
+        let table = try RNASeqTSV.parse(data, path: path)
+        guard table.header.first == "sample_id" else { throw RNASeqResultError.invalidTable(path: path, reason: "its first column is not sample_id") }
+        columns = Array(table.header.dropFirst())
+        rows = try table.rows.enumerated().map { index, cells in
+            guard cells.count == table.header.count else {
+                throw RNASeqResultError.invalidTable(path: path, reason: "line \(index + 2) holds \(cells.count) cells and the header \(table.header.count)")
+            }
+            return Row(sample: cells[0], values: cells.dropFirst().map { cell -> String? in cell.isEmpty ? nil : cell })
+        }
+    }
+}
+
 /// Tab-separated text, shared by the reader and the writer.
 enum RNASeqTSV {
     struct Table {

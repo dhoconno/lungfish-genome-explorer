@@ -71,13 +71,16 @@ public struct RNASeqResultWriter: Sendable {
         /// Single cell. Each file a matrix names must be among `sourceFiles`, and its hash is taken from that copy.
         public var matrices: [Manifest.MatrixEntry]?
         public var cellsSummary: Manifest.CellsSummary?
+        /// `quality/samples.quality.tsv`, the columns and then one row a sample. A row whose sample is not in `samples`
+        /// is refused. Nil writes no file and no manifest key.
+        public var quality: RNASeqQualityTable?
         public var createdAt: Date
 
         public init(
             name: String, modality: Manifest.Modality, origin: Manifest.Origin, route: Manifest.Route,
             referenceSet: Manifest.ReferenceSet?, samples: [RNASeqSampleRecord], genes: GeneTable, counts: [CountInput],
             sourceFiles: [SourceFile], notHost: [String], matrices: [Manifest.MatrixEntry]? = nil,
-            cellsSummary: Manifest.CellsSummary? = nil, createdAt: Date = Date()
+            cellsSummary: Manifest.CellsSummary? = nil, quality: RNASeqQualityTable? = nil, createdAt: Date = Date()
         ) {
             self.name = name
             self.modality = modality
@@ -91,6 +94,7 @@ public struct RNASeqResultWriter: Sendable {
             self.notHost = notHost
             self.matrices = matrices
             self.cellsSummary = cellsSummary
+            self.quality = quality
             self.createdAt = createdAt
         }
     }
@@ -122,6 +126,7 @@ public struct RNASeqResultWriter: Sendable {
         guard !fileManager.fileExists(atPath: resultURL.path) else {
             throw RNASeqResultWriterError.alreadyExists(resultURL.lastPathComponent)
         }
+        try checkQuality(request)
         let stage = resultURL.deletingLastPathComponent()
             .appendingPathComponent(".\(resultURL.lastPathComponent).creating-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: stage, withIntermediateDirectories: false)
@@ -154,6 +159,7 @@ public struct RNASeqResultWriter: Sendable {
         try DurableReplace.replace(samplesData, named: "samples.tsv", in: stage)
         try DurableReplace.replace(genesData, named: "genes.tsv", in: stage)
         let counts = try writeCounts(request.counts, into: stage)
+        let quality = try writeQuality(request.quality, into: stage)
         try note(.tablesWritten, stage)
 
         let manifest = Manifest(
@@ -164,7 +170,7 @@ public struct RNASeqResultWriter: Sendable {
             genes: .init(path: "genes.tsv", sha256: RNASeqResultBundle.sha256Hex(genesData)),
             counts: counts, sourceFiles: copied.entries,
             matrices: try filled(request.matrices, from: copied.entries), cellsSummary: request.cellsSummary,
-            notHost: request.notHost)
+            quality: quality, notHost: request.notHost)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try DurableReplace.replace(try encoder.encode(manifest), named: Manifest.filename, in: stage)

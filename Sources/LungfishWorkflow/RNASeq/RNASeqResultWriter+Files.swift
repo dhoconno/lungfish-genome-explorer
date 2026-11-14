@@ -164,6 +164,26 @@ extension RNASeqResultWriter {
         }
     }
 
+    /// Refuses a quality row whose sample is not among the request's samples, before anything is staged.
+    func checkQuality(_ request: Request) throws {
+        guard let quality = request.quality else { return }
+        let known = Set(request.samples.map(\.id))
+        if let stray = quality.rows.first(where: { !known.contains($0.sample) }) {
+            throw RNASeqResultError.invalidTable(
+                path: RNASeqQualityTable.path, reason: "the sample \(stray.sample) is not among the result's samples")
+        }
+    }
+
+    /// Writes `quality/samples.quality.tsv` when the request holds a quality table.
+    func writeQuality(_ table: RNASeqQualityTable?, into stage: URL) throws -> Manifest.FileEntry? {
+        guard let table else { return nil }
+        let data = try table.tsvData()
+        let folder = stage.appendingPathComponent("quality", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try DurableReplace.replace(data, named: "samples.quality.tsv", in: folder)
+        return .init(path: RNASeqQualityTable.path, sha256: RNASeqResultBundle.sha256Hex(data))
+    }
+
     /// The matrices with the hashes of the copies, so no caller computes one twice.
     func filled(_ matrices: [Manifest.MatrixEntry]?, from entries: [Manifest.SourceFileEntry]) throws -> [Manifest.MatrixEntry]? {
         guard var matrices else { return nil }

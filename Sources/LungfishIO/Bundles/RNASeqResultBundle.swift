@@ -48,6 +48,8 @@ public struct RNASeqResult: Equatable, Sendable {
     public var samples: [RNASeqSampleRecord]
     public var genes: [RNASeqGeneRecord]
     public var counts: [CountTable]
+    /// Nil when the result keeps no quality table, which a reader shows as Not recorded.
+    public var quality: RNASeqQualityTable?
 }
 
 public enum RNASeqResultBundle {
@@ -105,7 +107,8 @@ public enum RNASeqResultBundle {
             genes: try RNASeqGeneRecord.records(tsv: read(manifest.genes.path), path: manifest.genes.path),
             counts: try manifest.counts.map {
                 RNASeqResult.CountTable(entry: $0, table: try RNASeqCountTable(tsv: read($0.path), path: $0.path))
-            })
+            },
+            quality: try manifest.quality.map { try RNASeqQualityTable(tsv: read($0.path), path: $0.path) })
     }
 
     /// Hashes every file the manifest lists and returns those that differ, which is none for a result as written.
@@ -116,6 +119,7 @@ public enum RNASeqResultBundle {
         listed += manifest.sourceFiles.map { ($0.path, $0.sha256) }
         for matrix in manifest.matrices ?? [] { listed += [matrix.matrix, matrix.features, matrix.barcodes].map { ($0.path, $0.sha256) } }
         if let cells = manifest.cellsSummary { listed.append((cells.path, cells.sha256)) }
+        if let quality = manifest.quality { listed.append((quality.path, quality.sha256)) }
         // A path the manifest lists twice, such as a matrix file under sourceFiles and under matrices, is hashed once.
         var order: [String] = []
         var expected: [String: [String]] = [:]
