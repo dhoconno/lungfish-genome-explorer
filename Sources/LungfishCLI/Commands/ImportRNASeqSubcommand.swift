@@ -159,7 +159,7 @@ extension ImportCommand.RNASeqSubcommand {
         /// Reads the files and returns the writer's request, the record's facts and a summary line.
         func request() throws -> (RNASeqResultWriter.Request, [String: ParameterValue], String) {
             let sheet = try self.sheet.map(RNASeqSampleSheet.read)
-            let facts = RNASeqImportFacts.unstated
+            var facts = RNASeqImportFacts.unstated
             let notRecorded = RNASeqImportFacts.notRecorded
             if isTable {
                 let table = try RNASeqCountTableReader.read(inputs[0])
@@ -181,6 +181,8 @@ extension ImportCommand.RNASeqSubcommand {
             let match = try RNASeqSampleSheet.match(sheet, fileIDs: folders.map(\.sample), byRun: true)
             for index in folders.indices { folders[index].sample = match.sampleIDs[index] }
             let ordered = match.records.compactMap { record in folders.first { $0.sample == record.id } }
+            let leftOut = ordered.flatMap { folder in folder.leftOut.map { ParameterValue.string("\(folder.sample)/\($0)") } }
+            if !leftOut.isEmpty { facts[RNASeqImportFacts.filesLeftOutKey] = .array(leftOut) }
             let transcripts = try SalmonQuantFolderReader.transcriptCounts(ordered)
             var counts = [RNASeqResultWriter.CountInput(rows: .transcript, column: .default, unit: .estimated, table: transcripts)]
             var features = transcripts.rows.map(\.id)

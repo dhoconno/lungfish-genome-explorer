@@ -5,8 +5,8 @@
 // A salmon folder holds `quant.sf`, `cmd_info.json`, `lib_format_counts.json` and `aux_info/meta_info.json`. The reader
 // takes each transcript's count from NumReads as salmon printed it, sums genes only through the transcript-to-gene table
 // the person passes, and reads salmon's own quality numbers. It changes no byte: the one writer keeps each file it read,
-// and nf-core/rnaseq's `quant.genes.sf`, under `source/<sample>/` (`docs/formats/rnaseq-bundle.md`, The tool's own
-// files). RS-QUANT reuses it for the folders LGE's own salmon run writes.
+// and nf-core/rnaseq's `quant.genes.sf`, under `source/<sample>/`, and the record names every other file of the folder
+// (`docs/formats/rnaseq-bundle.md`, The tool's own files). RS-QUANT reuses it for the folders LGE's own salmon run writes.
 
 import Foundation
 import LungfishIO
@@ -46,6 +46,9 @@ public struct SalmonQuantFolder: Sendable, Equatable {
     public var quality: Quality
     /// The files kept under `source/<sample>/`, as paths under the folder.
     public var keptFiles: [String]
+    /// Every other file of the folder, as paths under it sorted with `<`. They stay out of the result, and the record
+    /// names each one (`docs/formats/rnaseq-bundle.md`, The tool's own files).
+    public var leftOut: [String] = []
 }
 
 /// A transcript-to-gene table with `transcript_id` and `gene_id` columns, as `tx2gene.py` writes it.
@@ -168,7 +171,21 @@ public enum SalmonQuantFolderReader {
         quality.posBiasCorrect = meta.posBiasCorrect
         quality.indexHashes = hashes.values
         let kept = readFiles + keptIfPresent.filter { fileManager.fileExists(atPath: folder.appendingPathComponent($0).path) }
-        return SalmonQuantFolder(sample: name, url: folder, transcripts: transcripts, quality: quality, keptFiles: kept)
+        return SalmonQuantFolder(
+            sample: name, url: folder, transcripts: transcripts, quality: quality, keptFiles: kept,
+            leftOut: otherFiles(in: folder, keeping: kept))
+    }
+
+    /// The path under `folder` of every entry that is no folder and not in `kept`, such as salmon's `logs/salmon_quant.log`
+    /// or `aux_info/fld.gz`, sorted with `<`. A link counts as a file and is not followed.
+    static func otherFiles(in folder: URL, keeping kept: [String]) -> [String] {
+        guard let entries = FileManager.default.enumerator(atPath: folder.path) else { return [] }
+        let keptPaths = Set(kept)
+        var other: [String] = []
+        for case let path as String in entries where !keptPaths.contains(path) {
+            if (entries.fileAttributes?[.type] as? FileAttributeType) != .typeDirectory { other.append(path) }
+        }
+        return other.sorted(by: <)
     }
 
     private static func decode<T: Decodable>(_ folder: URL, _ file: String, snakeCase: Bool) throws -> T {

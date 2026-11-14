@@ -52,6 +52,9 @@ public enum RNASeqImportFacts {
     public static let notRecorded = "Not recorded"
     /// The reference set, the instrument, the kit, poly-G trimming and duplicate handling.
     public static let unstatedKeys = ["referenceSet", "instrument", "kit", "polyGTrimming", "duplicates"]
+    /// The key that names each file of a tool's folder the import leaves out, as `<sample>/<path>`, present only when
+    /// the import leaves one out (`docs/formats/rnaseq-bundle.md`, The tool's own files).
+    public static let filesLeftOutKey = "filesLeftOut"
 
     public static var unstated: [String: ParameterValue] {
         Dictionary(uniqueKeysWithValues: unstatedKeys.map { ($0, ParameterValue.string(notRecorded)) })
