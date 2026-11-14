@@ -51,7 +51,9 @@ public struct RNASeqSampleSheet: Sendable, Equatable {
             throw RNASeqImportError.invalidFile(path: name, reason: "it has no header line")
         }
         guard let sampleColumn = header.firstIndex(of: "sample") ?? header.firstIndex(of: "sample_id") else {
-            throw RNASeqImportError.invalidFile(path: name, reason: "its first line names no sample column")
+            throw RNASeqImportError.invalidFile(
+                path: name,
+                reason: "its first line names no sample column. A sample sheet is tab-separated, and its first line names a sample column")
         }
         func cell(_ row: [String], _ column: String) -> String? {
             guard let index = header.firstIndex(of: column), index < row.count, !row[index].isEmpty else { return nil }

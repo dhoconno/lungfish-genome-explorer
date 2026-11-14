@@ -79,7 +79,9 @@ public struct SalmonTx2Gene: Sendable, Equatable {
         let rows = try SalmonQuantFolderReader.tsvRows(Data(contentsOf: url), path: name)
         guard let header = rows.first, let transcriptColumn = header.firstIndex(of: "transcript_id"),
               let geneColumn = header.firstIndex(of: "gene_id") else {
-            throw RNASeqImportError.invalidFile(path: name, reason: "its first line names no transcript_id and gene_id columns")
+            throw RNASeqImportError.invalidFile(
+                path: name,
+                reason: "its first line names no transcript_id and gene_id columns. Add a first line with those two names, separated by a tab")
         }
         var map: [String: String] = [:]
         for (index, row) in rows.dropFirst().enumerated() {

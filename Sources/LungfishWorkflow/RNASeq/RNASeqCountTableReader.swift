@@ -41,7 +41,8 @@ public enum RNASeqImportError: Error, Equatable, LocalizedError, Sendable {
             return "\(name) holds no sample column after its feature ids."
         case .sampleIDsDiffer(let onlyInFiles, let onlyInSheet):
             func list(_ ids: [String]) -> String { ids.isEmpty ? "none" : ids.joined(separator: ", ") }
-            return "The sample ids of the files and the sample sheet differ. Only in the files: \(list(onlyInFiles)). Only in the sheet: \(list(onlyInSheet))."
+            return "The sample ids of the files and the sample sheet differ. Only in the files: \(list(onlyInFiles)). Only in the sheet: \(list(onlyInSheet)). "
+                + "Make the sheet's run or sample column name the same samples as the files, or leave out --samples."
         }
     }
 }
