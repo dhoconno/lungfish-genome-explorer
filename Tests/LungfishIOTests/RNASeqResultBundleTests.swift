@@ -125,4 +125,11 @@ final class RNASeqResultBundleTests: XCTestCase {
         try Data("gene_id\tnot_host\nG1\ttrue\nG2\tfalse\nG3\t\n".utf8).write(to: genes)
         XCTAssertEqual(try RNASeqResultBundle.load(from: bundle).genes.map(\.notHost), [true, false, nil])
     }
+
+    func testAResultWithNoQualityKeyReadsQualityAsNotRecorded() throws {
+        let bundle = try makeBundle(manifest: manifestJSON())
+        let result = try RNASeqResultBundle.load(from: bundle)
+        XCTAssertNil(result.manifest.quality)
+        XCTAssertNil(result.quality)
+    }
 }

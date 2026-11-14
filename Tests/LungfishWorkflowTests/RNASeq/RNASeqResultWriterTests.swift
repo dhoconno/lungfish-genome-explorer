@@ -125,4 +125,45 @@ final class RNASeqResultWriterTests: XCTestCase {
         XCTAssertTrue(error is CancellationError, "\(error)")
         XCTAssertEqual(try names(in: analyses), [])
     }
+
+    func testTheQualityTableIsWrittenAndTheManifestHashesIt() throws {
+        let runs = RNASeqFixtures.salmonRunIDs
+        let table = try quantTable()
+        let writer = RNASeqResultWriter(provenanceWriter: unsigned)
+        let plain = analyses.appendingPathComponent("plain.lungfishrnaseq", isDirectory: true)
+        try writer.write(salmonRequest(table), to: plain, envelope: envelope())
+        XCTAssertNil(try RNASeqResultBundle.load(from: plain).manifest.quality)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: plain.appendingPathComponent("quality").path))
+
+        var request = salmonRequest(table)
+        let quality = RNASeqQualityTable(
+            columns: ["library_type", "num_processed", "percent_mapped"],
+            rows: [
+                RNASeqQualityTable.Row(sample: runs[0], values: ["IU", "1000", nil]),
+                RNASeqQualityTable.Row(sample: runs[1], values: ["IU", "2000", "55.5"]),
+            ])
+        request.quality = quality
+        try writer.write(request, to: resultURL, envelope: envelope())
+        let file = resultURL.appendingPathComponent("quality/samples.quality.tsv")
+        let bytes = try Data(contentsOf: file)
+        XCTAssertEqual(
+            String(decoding: bytes, as: UTF8.self),
+            "sample_id\tlibrary_type\tnum_processed\tpercent_mapped\n\(runs[0])\tIU\t1000\t\n\(runs[1])\tIU\t2000\t55.5\n")
+        let result = try RNASeqResultBundle.load(from: resultURL)
+        XCTAssertEqual(result.manifest.quality, RNASeqResultManifest.FileEntry(path: "quality/samples.quality.tsv", sha256: sha256(bytes)))
+        XCTAssertEqual(result.quality, quality)
+        XCTAssertTrue(try RNASeqResultBundle.verifyChecksums(of: resultURL).isEmpty)
+        try Data("x".utf8).write(to: file)
+        XCTAssertEqual(try RNASeqResultBundle.verifyChecksums(of: resultURL).map(\.path), ["quality/samples.quality.tsv"])
+    }
+
+    func testAQualityRowForASampleThatIsNotInTheResultIsRefusedAndNothingIsWritten() throws {
+        var request = try salmonRequest(quantTable())
+        request.quality = RNASeqQualityTable(
+            columns: ["library_type"], rows: [RNASeqQualityTable.Row(sample: "SRR000000", values: ["IU"])])
+        XCTAssertThrowsError(try RNASeqResultWriter(provenanceWriter: unsigned).write(request, to: resultURL, envelope: envelope())) {
+            XCTAssertTrue($0.localizedDescription.contains("SRR000000"), $0.localizedDescription)
+        }
+        XCTAssertEqual(try names(in: analyses), [])
+    }
 }
