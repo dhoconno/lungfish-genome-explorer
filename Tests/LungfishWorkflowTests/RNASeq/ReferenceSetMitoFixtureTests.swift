@@ -63,6 +63,7 @@ final class ReferenceSetMitoFixtureTests: XCTestCase {
         XCTAssertEqual(outcome.manifest.derivation.keptWithoutExon, [])
         XCTAssertEqual(outcome.manifest.derivation.droppedFeatures.count, 24, "the exons of empty gene_id")
         XCTAssertEqual(outcome.manifest.mitochondrialContigs, ["NC_012670.1"], "found by the assembly report, never by name")
+        XCTAssertEqual(outcome.notes, [], "a set that names a mitochondrial contig has nothing to say")
     }
 
     func testTheDepositLayoutKeepsTheMitochondrialGenesWithoutAnExon() async throws {

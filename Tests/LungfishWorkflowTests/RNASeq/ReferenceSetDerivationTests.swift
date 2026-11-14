@@ -177,6 +177,20 @@ final class ReferenceSetDerivationTests: XCTestCase {
                        "gffread writes a record from a transcript line alone, so the GTF leaves the gene out")
     }
 
+    // MARK: - RS-REFSET-BIO B1: a set with no mitochondrial contig says so
+
+    func testASetWithNoMitochondrialContigSaysSoInItsNotes() async throws {
+        try write(">chr1 test chromosome\n" + String(repeating: "ACGTACGTAC", count: 6) + "\n", "genome.fa")
+        try write("chr1\tt\texon\t1\t10\t.\t+\t.\tgene_id \"G1\"; transcript_id \"T1\";\n", "genes.gtf")
+        let first = try await build(request(), StandInTranscriptDeriver())
+        XCTAssertEqual(first.manifest.mitochondrialContigs, [])
+        XCTAssertEqual(first.notes.count, 1, "\(first.notes)")
+        XCTAssertTrue(first.notes.first?.contains("no mitochondrial contig") ?? false, "\(first.notes)")
+        let again = try await build(request(), StandInTranscriptDeriver())
+        XCTAssertTrue(again.reused)
+        XCTAssertEqual(again.notes, first.notes, "a reused set says the same")
+    }
+
     // MARK: - RS-REFSET part 6: a gene line of empty transcript_id
 
     /// Two genes of NC_005943.1 of RefSeq Mmul_10 release 103 (GCF_003339765.1), every line as given but its trailing
