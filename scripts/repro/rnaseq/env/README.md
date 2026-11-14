@@ -1,6 +1,6 @@
 # RNA-seq reproduction environment
 
-This folder holds the requests for the three conda environments that the RNA-seq reproduction scripts of Lungfish Genome Explorer (LGE) use. The main environment (`env`) holds the aligners, counters and statistics tools. A second, small environment (`env-star273a`) holds STAR 2.7.3a, which the exact-class STAR GeneCounts checks of GSE152418 and GSE304256 need. A third environment (`env-r-sva`) is the main environment with the Bioconductor package sva added, which needs older edgeR and limma releases than the main one holds. The owner approved the main environment as direction O176. All three live on the external drive and stay separate from the tools that LGE manages for itself. Building and using them changes nothing in the base conda environment, in `~/.condarc` or under `~/.lungfish`.
+This folder holds the requests for the four conda environments that the RNA-seq reproduction scripts of Lungfish Genome Explorer (LGE) use. The main environment (`env`) holds the aligners, counters and statistics tools. A second, small environment (`env-star273a`) holds STAR 2.7.3a, which the exact-class STAR GeneCounts checks of GSE152418 and GSE304256 need. A third environment (`env-r-sva`) is the main environment with the Bioconductor package sva added, which needs older edgeR and limma releases than the main one holds. A fourth environment (`env-r-dream`) is a small R environment with the Bioconductor package variancePartition, which brings the dream mixed models. The owner approved the main environment as direction O176. All four live on the external drive and stay separate from the tools that LGE manages for itself. Building and using them changes nothing in the base conda environment, in `~/.condarc` or under `~/.lungfish`.
 
 ## Which environment to use
 
@@ -8,10 +8,13 @@ This folder holds the requests for the three conda environments that the RNA-seq
 | --- | --- | --- |
 | Anything that loads sva, such as `ComBat_seq`, `ComBat`, `sva` or `svaseq` | `env-r-sva` | sva is installed only there. The main environment cannot hold it without moving edgeR and limma |
 | A result that must come from edgeR 4.8.2 and limma 3.66.0 | `env-r-sva` | The main environment holds edgeR 4.10.7 and limma 3.68.5 |
+| Anything that loads variancePartition, such as `dream` or `voomWithDreamWeights`, or a model with a random term such as one animal sampled on several days | `env-r-dream` | variancePartition is installed only there. It holds edgeR 4.8.2 and limma 3.66.0, the releases of `env-r-sva`, and it has no DESeq2 and no sva |
 | STAR 2.7.3a counts and its genome index | `env-star273a` | Call its `bin/STAR` by full path, because the other two environments hold a newer STAR |
 | Everything else, which covers alignment, quantification, counting, DESeq2, edgeR, limma, tximport, apeglm, pROC, rpart and single-cell work | `env` | It is the default. The staging scripts also take `fasterq-dump` from it |
 
 The two R environments hold the same build of every other package, DESeq2 1.50.2, R 4.5.3 and Python 3.11.18 among them, and the same aligners and counters. Only edgeR and limma differ, and `env-r-sva` adds sva and the six packages that sva needs. A script that runs in both environments gives the same DESeq2 result, but an edgeR or limma result can differ between them. Write down which environment made each result.
+
+The R environment with dream is smaller. It holds R 4.5.3, Python 3.11.18, edgeR 4.8.2 and limma 3.66.0 of the same builds as `env-r-sva`, and it holds neither DESeq2 nor an aligner or counter.
 
 ## Files
 
@@ -23,6 +26,9 @@ The two R environments hold the same build of every other package, DESeq2 1.50.2
 | `explicit-star273a-osx-64.txt` | The 3 packages of the STAR 2.7.3a environment as built, with md5 sums |
 | `env-r-sva.yml` | The request for the R environment with sva, which is `environment.yml` plus `bioconductor-sva` |
 | `explicit-r-sva-osx-arm64.txt` | The 429 packages of the R environment with sva as built, with md5 sums |
+| `env-r-dream.yml` | The request for the R environment with dream, which holds R, variancePartition, edgeR, limma and the packages that dream uses for a random term |
+| `explicit-r-dream-osx-arm64.txt` | The 213 packages of the R environment with dream as built, with md5 sums |
+| `check-r-dream.R` | The check of the R environment with dream, which prints package versions, runs the dream example of variancePartition and fits a small count table with a random term |
 | `smoke.sh` | The smoke test, which takes the main environment path and the fixture folder as arguments and finds the STAR 2.7.3a environment and the R environment with sva beside the main one |
 | `README.md` | This file |
 
@@ -33,6 +39,7 @@ The two R environments hold the same build of every other package, DESeq2 1.50.2
 | `/Volumes/lge_scratch/lge/rnaseq/env` | The main environment, 3.4 GB |
 | `/Volumes/lge_scratch/lge/rnaseq/env-star273a` | The STAR 2.7.3a environment, 9 MB |
 | `/Volumes/lge_scratch/lge/rnaseq/env-r-sva` | The R environment with sva, 3.4 GB as listed. About 92,500 of its files are hard links into the package cache, so it adds only about 285 MB on the drive |
+| `/Volumes/lge_scratch/lge/rnaseq/env-r-dream` | The R environment with dream, 1.4 GB as listed. 32,263 of its 33,473 files are hard links into the package cache, so the folder itself adds only about 56 MB. The packages that were new to the cache added about 0.7 GB there, 149 MB of it as downloaded archives |
 | `/Volumes/lge_scratch/lge/rnaseq/conda-pkgs` | The package cache, set with `CONDA_PKGS_DIRS` so the internal disk stays free |
 | `/Volumes/lge_scratch/lge/rnaseq/conda-pkgs-osx64` | A second cache for the STAR 2.7.3a environment, so osx-64 packages never mix with the osx-arm64 ones. Almost all of its 0.9 GB is repodata |
 | `/Volumes/lge_scratch/lge/rnaseq/installer-arm64` | A native arm64 micromamba 2.10.0 that builds the environment |
@@ -130,6 +137,38 @@ Call its R by the full path, and do not put its `bin` folder and the `bin` folde
 ```bash
 /Volumes/lge_scratch/lge/rnaseq/env-r-sva/bin/Rscript --vanilla my_script.R
 ```
+
+## Create the R environment with dream
+
+The edgeR, limma voom and dream template fits a model with a random term, such as one animal sampled on several days, through `dream` of the Bioconductor package variancePartition (ruling ADJ-BIO-51 item 3). No other environment holds it. The bioconda build of variancePartition 1.40.2 for R 4.5 requires limma 3.66.x, while the main environment holds limma 3.68.5. So variancePartition has a folder of its own, as sva has. Its edgeR is 4.8.2, because edgeR 4.10.7 requires limma 3.68.5. The two releases are the ones of `env-r-sva`.
+
+The request is short. It holds R 4.5.3 at the build of the other two R environments, variancePartition, edgeR, limma, the packages that dream uses for a random term (lme4, lmerTest, pbkrtest, BiocParallel and Biobase) and the readers data.table and jsonlite. It has no aligner, counter, DESeq2 or sva. Python 3.11 is in the request for one reason. The nlopt library, which lme4 needs through nloptr, came as a Python 3.15 build in the first solve, and that added Python 3.15.2 and numpy 2.5.4. The solve takes about 6 seconds. The install downloaded 149 MB and took about 1 minute at low priority.
+
+```bash
+export MAMBA_ROOT_PREFIX=/Volumes/lge_scratch/lge/rnaseq/mamba-root
+export CONDA_PKGS_DIRS=/Volumes/lge_scratch/lge/rnaseq/conda-pkgs
+MM=/Volumes/lge_scratch/lge/rnaseq/installer-arm64/bin/micromamba
+
+nice -n 15 $MM create -y -p /Volumes/lge_scratch/lge/rnaseq/env-r-dream \
+  -f scripts/repro/rnaseq/env/env-r-dream.yml \
+  --no-rc --override-channels -c conda-forge -c bioconda \
+  --strict-channel-priority --platform osx-arm64
+```
+
+To get exactly the packages that were built, create from the explicit file. A dry run of this command resolves 213 packages with 0 B to download.
+
+```bash
+$MM create -y -p /Volumes/lge_scratch/lge/rnaseq/env-r-dream \
+  --file scripts/repro/rnaseq/env/explicit-r-dream-osx-arm64.txt --no-rc
+```
+
+Call its R by the full path, and do not put its `bin` folder on `PATH` together with the `bin` folder of another environment, because each of them holds a program named Rscript. Run the check of this environment from the repository root.
+
+```bash
+/Volumes/lge_scratch/lge/rnaseq/env-r-dream/bin/Rscript --vanilla scripts/repro/rnaseq/env/check-r-dream.R
+```
+
+The check prints the version of 12 packages and requires each one to load from the library of this folder. It then runs the example of `dream` from variancePartition, which uses `SnowParam` with 4 socket workers. Last it fits a small count table of 8 animals on 3 days through edgeR, limma voom, `voomWithDreamWeights` and `dream` with a random term for the animal, and it repeats 5 genes with Kenward-Roger degrees of freedom. The last line it prints is `DREAM_ENV_OK`. A pass took 27 seconds with the packages in the file cache and 89 seconds on the first run after the build, at low priority on a busy Mac. The example alone took 11 to 13 seconds. The smoke test does not look at this environment.
 
 ## Use the environment
 
@@ -231,6 +270,31 @@ The R environment with sva holds 429 packages, 247 for osx-arm64 and 182 noarch.
 | r-survival | 3.8_12 | r45hb5b23e3_0 | conda-forge | osx-arm64 | Added, pulled in by sva |
 | r-xtable | 1.8_8 | r45hc72bb7e_0 | conda-forge | noarch | Added, pulled in by sva |
 
+The R environment with dream holds 213 packages, 148 for osx-arm64 and 65 noarch. 140 lines of its explicit file are the same name, version and build as lines of the one of `env-r-sva`. The table lists the packages that dream uses and the two that the request pins.
+
+| Package | Version | Build | Channel | Platform |
+| --- | --- | --- | --- | --- |
+| r-base | 4.5.3 | h35b0bb1_4 | conda-forge | osx-arm64 |
+| python | 3.11.18 | hd05a0c4_0_cpython | conda-forge | osx-arm64 |
+| bioconductor-variancepartition | 1.40.2 | r45hdfd78af_0 | bioconda | noarch |
+| bioconductor-limma | 3.66.0 | r45hcc2f086_0 | bioconda | osx-arm64 |
+| bioconductor-edger | 4.8.2 | r45h6cc0085_1 | bioconda | osx-arm64 |
+| bioconductor-biocparallel | 1.44.0 | r45h97584a2_1 | bioconda | osx-arm64 |
+| bioconductor-biobase | 2.70.0 | r45hcc2f086_0 | bioconda | osx-arm64 |
+| r-lme4 | 2.0_6 | r45h45a6d21_0 | conda-forge | osx-arm64 |
+| r-lmertest | 3.2_1 | r45hc72bb7e_0 | conda-forge | noarch |
+| r-pbkrtest | 0.5.5 | r45hc72bb7e_1 | conda-forge | noarch |
+| r-matrix | 1.7_5 | r45he92e77a_0 | conda-forge | osx-arm64 |
+| r-mass | 7.3_66 | r45h4b407c4_0 | conda-forge | osx-arm64 |
+| r-ggplot2 | 4.0.4 | r45h9cad52b_0 | conda-forge | noarch |
+| r-nloptr | 2.2.1 | r45h9a0c4c3_2 | conda-forge | osx-arm64 |
+| nlopt | 2.11.0 | np2py311h8498a85_2 | conda-forge | osx-arm64 |
+| r-remacor | 0.0.20 | r45h169f911_1 | conda-forge | osx-arm64 |
+| r-data.table | 1.18.6.1 | r45hadbbe95_0 | conda-forge | osx-arm64 |
+| r-jsonlite | 2.0.0 | r45h6168396_1 | conda-forge | osx-arm64 |
+
+Against `env-r-sva`, 23 packages of the same name have another version or build. 21 of them are the compiler and C++ library packages that R brings, at clang 23.1.4 against 22.1.8 in `env-r-sva`. The other two are r-ggplot2 4.0.4 against 4.0.3 and r-matrix 1.7_5 against 1.7_6. 50 packages are new. 43 of them are R and Bioconductor packages, among them variancePartition, lme4, lmerTest, pbkrtest and remaCor, and 7 are compiler packages and nlopt.
+
 The STAR 2.7.3a environment holds 3 packages, all for osx-64.
 
 | Package | Version | Build | Channel | Platform |
@@ -256,4 +320,5 @@ The STAR binary is an x86_64 Mach-O file. `otool -L` lists only the system `libz
 | STAR 2.7.3a speed | It runs under Rosetta 2. On the chromosome 22 pair it built its index in 54 s against 31 s for the native STAR 2.7.11b and aligned in 10 s against 7 s, with 4 threads on a busy Mac. |
 | STAR 2.7.3a counts | On HBR Rep1 (118,571 read pairs) the `ReadsPerGene.out.tab` of STAR 2.7.3a equals the one of STAR 2.7.11b byte for byte, 1,414 lines. This holds for this pair only. The smoke test repeats the comparison. |
 | R extras | rpart, apeglm and pROC were added to the main environment after the first build with `--freeze-installed`. That installed 13 packages and changed no file of the 409 that were there, which includes the sra-tools files that the staging scripts use. sva is not in the main environment. sva 3.58.0 is the only bioconda build for R 4.5 and it needs edgeR 4.8.x and limma 3.66.x, so it lives in `env-r-sva`. |
+| R environment with dream | Its request pins R 4.5.3 to the build of the other two R environments, because the solver takes build 6 without the pin, and it pins Python to 3.11, because the solver took a Python 3.15 build of nlopt without that line. variancePartition 1.40.2 requires limma 3.66.x and edgeR 4.10.7 requires limma 3.68.5, so the environment holds edgeR 4.8.2. The dream example ran with `SnowParam` and 4 socket workers. A `MulticoreParam` that forks was not tried |
 | Adding to the main environment | Install with `--freeze-installed` and read the dry run first (`--dry-run`). A line under Upgrade, Downgrade or Remove means a package would move. bioconda pins the Bioconductor family tightly, so one new package can force several others to change. |

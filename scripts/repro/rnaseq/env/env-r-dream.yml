@@ -1,0 +1,32 @@
+# Request for the third R environment of the RNA-seq reproduction stage (lane DATA-DREAM, ruling ADJ-BIO-51 item 3).
+# It holds R 4.5.3, the R of environment.yml and env-r-sva.yml, with variancePartition, which brings dream
+# and voomWithDreamWeights, beside edgeR and limma. It is small on purpose, with no aligner, no counter and no
+# DESeq2, because it runs only the edgeR, limma voom and dream template (edger-limma-dream.R).
+# The solver may move edgeR and limma to the releases that variancePartition allows, so the explicit file says
+# which ones this environment holds. Use this environment for any script that calls variancePartition.
+# Create it with README.md in this folder. Channels use strict priority.
+name: lge-rnaseq-r-dream
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  # R, at the build that environment.yml and env-r-sva.yml hold, so that all three environments run one R binary.
+  # Without the build the solver takes build 6 of R 4.5.3.
+  - r-base=4.5.3=h35b0bb1_4
+  # nlopt, which lme4 needs through nloptr, came as a Python 3.15 build in the first solve and pulled in
+  # Python 3.15.2 and numpy 2.5.4. This line keeps the Python 3.11 of the other two environments.
+  - python=3.11
+  # The Bioconductor packages of the dream block
+  - bioconductor-variancepartition
+  - bioconductor-limma
+  - bioconductor-edger
+  # What dream needs for a random term such as (1|animal). variancePartition already depends on these,
+  # and they are named here so that the request says what the model fit uses.
+  - r-lme4
+  - r-lmertest
+  - r-pbkrtest
+  - bioconductor-biocparallel
+  - bioconductor-biobase
+  # The table and record readers that the other two R environments hold
+  - r-data.table
+  - r-jsonlite
