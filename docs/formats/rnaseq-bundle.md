@@ -29,6 +29,7 @@ The folder lives in the project's `Analyses/` folder, as the genotype and 12S re
     samples.quality.tsv
   source/
     <sample id>/
+    tables/
   cells.sqlite
 ```
 
@@ -37,7 +38,7 @@ The folder lives in the project's `Analyses/` folder, as the genotype and 12S re
 | `rnaseq-result.json` | The manifest below | Both |
 | `.lungfish-provenance.json`, `provenance/` | The root record and the record folder of the standard rule (`docs/formats/bundle-kinds.md:103`, `Sources/LungfishWorkflow/Provenance/ProvenanceWriter.swift:11-12`). The record holds the run facts, such as `Poly-G trimming: off (LGE default)` and `Duplicates: kept. LGE removes duplicates only with UMIs.` (`docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md:100,103`), the bias flags with the version and the four index hashes (`docs/plans/2026-10-02-architecture-program.md:194-195`) | Both |
 | `samples.tsv` | One row a sample, with the sample id, the animal, species and origin (`docs/plans/2026-10-02-architecture-program.md:111,134`), the group, the run accessions and its folder under `source/` | Both |
-| `genes.tsv` | The reference set's gene table for the result's rows, with the gene id, name, biotype, contig, length, the not-host flag, the mask and the unreliable mark of the MHC, KIR, immunoglobulin and T cell receptor loci (`docs/plans/2026-10-02-architecture-program.md:111,113`). It equals the set's file by sha256, so a result reads without the set | Both |
+| `genes.tsv` | The reference set's gene table for the result's rows, with the gene id, name, biotype, contig, length, the not-host flag, the mask and the unreliable mark of the MHC, KIR, immunoglobulin and T cell receptor loci (`docs/plans/2026-10-02-architecture-program.md:111,113`). When the result keeps every gene of its set, the file equals the set's `derived/genes.tsv` by sha256, so a result reads without the set. A result that keeps fewer genes holds only those rows, and the manifest's `genes` entry holds the file's own sha256. A result whose `referenceSet` is null holds the feature ids of its count tables and leaves every other column empty, which a reader shows as Not recorded | Both |
 | `counts/genes.counts.tsv` | Genes by samples in the route's unit, loaded whole (`docs/plans/2026-10-02-architecture-program.md:115`) | Bulk |
 | `counts/genes.masked.tsv` | The second column of the features a mask moves out of the default count, written only when a mask applies (`docs/plans/2026-10-02-architecture-program.md:113`) | Both |
 | `counts/transcripts.counts.tsv` | Transcript rows, kept and exported (`docs/plans/2026-10-02-architecture-program.md:109`) | Bulk |
@@ -47,7 +48,7 @@ The folder lives in the project's `Analyses/` folder, as the genotype and 12S re
 
 ### The tool's own files
 
-`source/<sample id>/` keeps each file the reader reads in the folder layout the tool wrote. For salmon these are `quant.sf`, `cmd_info.json`, `lib_format_counts.json` and `aux_info/meta_info.json` (`Tests/Fixtures/rnaseq/salmon-c1/`). For Cell Ranger they are `outs/filtered_feature_bc_matrix/` with `metrics_summary.csv` (`Tests/Fixtures/rnaseq/cellranger-pbmc_1k_v3/`), and for STARsolo `Solo.out/Gene/filtered/` with `Summary.csv` and `Log.final.out` (`Tests/Fixtures/rnaseq/starsolo-pbmc_1k_v3/`). The writer copies each file once, hashes it as it reads it (`docs/contracts/EXPERT-PANEL.md:44`) and lists it in the manifest with its sha256 and size. No later step changes a byte under `source/`. A file the reader does not read, such as an HDF5 matrix, `molecule_info.h5` or a web summary, stays out of the bundle, and the record names each one left out, so no fact is lost without a word (`docs/contracts/EXPERT-PANEL.md:57`).
+`source/<sample id>/` keeps each file the reader reads in the folder layout the tool wrote. For salmon these are `quant.sf`, `cmd_info.json`, `lib_format_counts.json` and `aux_info/meta_info.json` (`Tests/Fixtures/rnaseq/salmon-c1/`). For Cell Ranger they are `outs/filtered_feature_bc_matrix/` with `metrics_summary.csv` (`Tests/Fixtures/rnaseq/cellranger-pbmc_1k_v3/`), and for STARsolo `Solo.out/Gene/filtered/` with `Summary.csv` and `Log.final.out` (`Tests/Fixtures/rnaseq/starsolo-pbmc_1k_v3/`). The writer copies each file once, hashes it as it reads it (`docs/contracts/EXPERT-PANEL.md:44`) and lists it in the manifest with its sha256 and size. No later step changes a byte under `source/`. A file the reader does not read, such as an HDF5 matrix, `molecule_info.h5` or a web summary, stays out of the bundle, and the record names each one left out, so no fact is lost without a word (`docs/contracts/EXPERT-PANEL.md:57`). A file that holds several samples, such as a plain count table, one of nf-core/rnaseq's merged tables or a DRAGEN table, is kept as given in `source/tables/<file name>`, and its `sourceFiles` entry leaves `sample` empty. No sample folder is named `tables`. The writer gives such a sample the next free suffix, `tables-2`, as `batchSampleDirectory(named:in:)` does (`docs/formats/analyses-layout.md:28`).
 
 ### Single cell
 

@@ -18,7 +18,7 @@ Sets live in one folder of the LGE storage root, `<storage root>/rnaseq-referenc
 
 - A human set holds the whole GRCh38 genome and its indexes, and C1's decoy-aware salmon index alone took 23.7 GB to build (`docs/plans/2026-10-02-architecture-program.md:174`). A copy in each project would repeat that.
 - Bulk and single cell, the Mac and Linux share one set by its id (`docs/plans/2026-10-02-architecture-program.md:111`).
-- A result keeps what it needs to read without the set. Its `genes.tsv` equals the set's gene table by sha256, and its manifest names the set's id and layout ([rnaseq-bundle.md](rnaseq-bundle.md)). A project moved to a Mac without the set opens every count and shows the set as not on this Mac.
+- A result keeps what it needs to read without the set. Its `genes.tsv` holds the set's gene rows for the result's genes, and equals the set's gene table by sha256 when the result keeps every gene. Its manifest names the set's id and layout ([rnaseq-bundle.md](rnaseq-bundle.md)). A project moved to a Mac without the set opens every count and shows the set as not on this Mac.
 
 The owner derives the folder from `ManagedStorageLocation.rootURL` (`Sources/LungfishCore/Storage/ManagedStorageLocation.swift:35`), so no Core or IO type names it.
 
@@ -31,7 +31,7 @@ One component in `Sources/LungfishWorkflow/RNASeq/` creates, settles and discard
 3. It writes the root record `.lungfish-provenance.json` last through `ProvenanceWriter` (`Sources/LungfishWorkflow/Provenance/ProvenanceWriter.swift:11,113`).
 4. It renames the folder into place with `RENAME_EXCL` through `PortableRename` (`Sources/LungfishIO/Bundles/AnalysesFolder.swift:159`, `AGENTS.md:76`). When a set of the same id is already there, the rename fails, the owner removes its staging folder and uses the published set after it checks the manifest.
 
-A failed or cancelled build removes its staging folder. A published set never changes. Settling means the owner checks the manifest and each file's size before a run, and every sha256 when the person asks for a check, and refuses in words a set whose files differ.
+A failed or cancelled build removes its staging folder. A published set changes only by the files of `uses/`, which the owner adds after the root record and no record names. Settling means the owner checks the manifest and each file's size before a run, and every sha256 when the person asks for a check, and refuses in words a set whose files differ.
 
 ## The id
 
@@ -49,6 +49,7 @@ A set's id is `<species>-<assembly>-<annotation source and release>-<layout>-<di
   extras/<name>.fa
   derived/transcripts.fa
   derived/genes.tsv
+  uses/
 ```
 
 | Key of `reference-set.json` | Holds |
@@ -68,7 +69,7 @@ In LGE's layout a not-host sequence counts as one feature a sequence record (`do
 
 ### The deposit layout
 
-The deposit layout is a named reproduce option, `deposit layout`, and never LGE's default (`docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md:91`). It keeps a deposit's own not-host features, only to check that deposit (`docs/plans/2026-10-02-architecture-program.md:113`). Its id carries `deposit-<study>` where LGE's layout carries `lge`, and its record says which deposit it reproduces. Mmul_10 Ensembl 100 with NC_045512.2 gives 35,443 features in the deposit layout of GSE183579 and 35,433 in LGE's layout (`docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md:91`).
+The deposit layout is a named reproduce option, `deposit layout`, and never LGE's default (`docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md:91`). It keeps a deposit's own not-host features, only to check that deposit (`docs/plans/2026-10-02-architecture-program.md:113`). Its id carries `deposit-<study>` where LGE's layout carries `lge`, and its record says which deposit it reproduces. Mmul_10 Ensembl 100 with NC_045512.2 gives 35,443 features in the deposit layout of GSE183579 and 35,433 in LGE's layout (`docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md:91`). The deposit layout also keeps a gene with a CDS and no exon as the deposit gave it. It adds no exon, so the gene counts 0. In GSE296788's deposit layout the 13 mitochondrial genes keep no exon, as all 15 deposits do, and the quality view reads `mitochondrial share not measured (13 genes without exons)` and never 0% (`docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md:91`). RefSeq Macaca_fascicularis_5.0 release 101 with the two Mtb scaffolds KK339487.1 and KK339488.1, one feature each, gives the deposit's 28,847 features in order in both layouts, and the 24 tRNA and rRNA exons of empty `gene_id` are dropped and listed in the set's record (same line).
 
 ## A reference written before Phase 5
 
@@ -104,6 +105,11 @@ Cleanup deletes nothing a record names (`docs/contracts/EXPERT-PANEL.md:51`), an
 - A result whose record names an index or a set gets one file in that folder's `uses/`, `<sha256 of the result path>.json`, holding the result's path and its record's sha256. The owner creates it once and never rewrites it, so two runs never write one file.
 - Only the owner removes an index or a set, and only when the person asks. It lists the uses and refuses in words while a listed result still exists and its record names that index's hashes or that set's id. A use whose result is gone, or whose record names other hashes, holds nothing.
 - A set stays while an index or a use names it.
+
+Two events leave folders that these rules must still reach.
+
+- A crash leaves a staging folder, `.<name>.creating-<UUID>`, in either folder. No record names it, so the owner removes the ones that no running build holds before it starts a build, and removes nothing else.
+- A change of storage root copies `databases` to the new root and runs the tool install there, then removes from the old root only `conda`, `databases` and the receipt, and the root itself when it is then empty (`Sources/LungfishWorkflow/Storage/ManagedStorageCoordinator.swift:43-44,75-76,104-120`). It leaves `rnaseq-reference-sets/` and `rnaseq-index-cache/` at the old root and removes none of them. RS-REFSET and RS-INDEX name the copy that carries them, which checks every sha256 at the new root first, and neither adds a folder to the list at `Sources/LungfishWorkflow/Storage/ManagedStorageCoordinator.swift:104-108` before that copy exists.
 
 ## Where the types live
 
