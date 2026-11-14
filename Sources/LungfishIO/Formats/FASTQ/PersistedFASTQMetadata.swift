@@ -63,6 +63,10 @@ public struct PersistedFASTQMetadata: Codable, Sendable {
     /// evidence. Nil for bundles imported before platform inference.
     public var platformAssignment: PlatformAssignment?
 
+    /// The instrument, run, flow cell and lanes the read names carry, with the model inferred from the instrument id
+    /// (row RS-INSTRUMENT). Nil for a bundle imported before this field existed, which is never rewritten to add it.
+    public var sequencerInstrument: SequencerInstrument?
+
     public init(
         computedStatistics: FASTQDatasetStatistics? = nil,
         sraRunInfo: SRARunInfo? = nil,
@@ -105,18 +109,24 @@ public struct FASTQRecordedReadCount: Codable, Sendable, Equatable {
     public let unpaired: Int
     /// The size of the stored file the count was taken from.
     public let storedSizeBytes: Int64
+    /// The order-free hash of the adjacent mate pairs, 32 lowercase hex digits (``FASTQPairHashAccumulator``), bound to
+    /// this file as the counts are. Nil for a sidecar written before the hash, for a file with no pairs, and when it
+    /// was not taken. Equal hashes with equal pair counts mean the same pairs in any order (row RS-INSTRUMENT).
+    public let pairHash: String?
 
     enum CodingKeys: String, CodingKey {
         case pairedR1 = "paired_r1"
         case pairedR2 = "paired_r2"
         case unpaired
         case storedSizeBytes
+        case pairHash = "pair_hash"
     }
 
-    public init(pairedR1: Int, pairedR2: Int, unpaired: Int, storedSizeBytes: Int64) {
+    public init(pairedR1: Int, pairedR2: Int, unpaired: Int, storedSizeBytes: Int64, pairHash: String? = nil) {
         self.pairedR1 = pairedR1
         self.pairedR2 = pairedR2
         self.unpaired = unpaired
         self.storedSizeBytes = storedSizeBytes
+        self.pairHash = pairHash
     }
 }

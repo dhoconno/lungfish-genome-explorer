@@ -24,9 +24,11 @@ extension FASTQBatchImporter {
         fromMateFiles: Bool,
         in metadata: inout PersistedFASTQMetadata
     ) throws {
-        let scan: (scannedRecords: Int, matePairs: Int, unpairedRecords: Int, scannedWholeFile: Bool)
+        // One pass takes the counts, the order-free pair hash (ruling ADJ-BULK G5) and the instrument facts of the names
+        // (row RS-INSTRUMENT), so a repeated library is known without a second read of the file.
+        let scan: FASTQReadLayoutClassifier.MateScan
         do {
-            scan = try FASTQReadLayoutClassifier.countMates(in: fastqURL)
+            scan = try FASTQReadLayoutClassifier.scanMates(in: fastqURL)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -38,11 +40,13 @@ extension FASTQBatchImporter {
         }
         // A pair imported from R1 and R2 files records its count like any other file, so a wizard names its layout at
         // once. Row READ-LAYOUT-DOTTED-MATES removed the guard of BIO ruling 2 here, since the scan now reads dotted mates.
+        metadata.sequencerInstrument = scan.instrument
         metadata.recordedReadCount = FASTQRecordedReadCount(
             pairedR1: scan.matePairs,
             pairedR2: scan.matePairs,
             unpaired: scan.unpairedRecords,
-            storedSizeBytes: size
+            storedSizeBytes: size,
+            pairHash: scan.pairHash
         )
         let chosenSingle = pairing.mode == .singleEnd && pairing.source == .explicit
         guard metadata.readClassification == nil, !chosenSingle, scan.matePairs > 0, scan.unpairedRecords > 0 else { return }

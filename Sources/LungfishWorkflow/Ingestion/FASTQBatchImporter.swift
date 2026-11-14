@@ -851,6 +851,12 @@ public enum FASTQBatchImporter {
                 bundleFASTQName: bundleFASTQName
             )
             try Self.recordCount(ofStored: stagingBundleFASTQURL, named: bundleFASTQName, pairing: recordedPairing, fromMateFiles: processingPair.r2 != nil, in: &metadata)
+            // A project that already holds these read pairs under another name gets one warning, never a refusal.
+            if let notice = Self.repeatedReadsNotice(
+                sample: pair.sampleName, bundleURL: bundleURL, metadata: metadata, projectDirectory: config.projectDirectory
+            ) {
+                log?(.notice(sample: pair.sampleName, message: notice))
+            }
             applyPlatformMetadata(to: &metadata, config: config)
             if let recipe = config.newRecipe, !recipeStepResults.isEmpty {
                 metadata.ingestion?.recipeApplied = RecipeAppliedInfo(
@@ -1218,7 +1224,8 @@ public enum FASTQBatchImporter {
                 ingestionResult: ingestionResult,
                 unpairedReads: unpairedReads,
                 inputRecords: adoption?.inputs
-            ).merging(adoption?.resolvedParameters ?? [:]) { _, adopted in adopted }
+            ).merging(Self.scanFactParameters(of: stagingBundleFASTQURL)) { current, _ in current }
+            .merging(adoption?.resolvedParameters ?? [:]) { _, adopted in adopted }
         )
         .runtime(adoption?.runtime ?? ProvenanceRuntimeIdentity())
         if let adoption {

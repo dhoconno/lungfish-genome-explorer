@@ -73,6 +73,22 @@ The store writes the file with ISO 8601 dates, pretty printing and sorted keys b
 
 For a bundle that `source-files.json` describes, the dashboard reads its statistics from a sidecar named after the bundle, `<name>.lungfishfastq.lungfish-meta.json`, which sits beside the bundle in its parent folder (`loadFASTQDatasetInBackground` in `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+GenomicsDisplay.swift`). The deletion planner removes such a sidecar with the bundle ([bundle-kinds.md](bundle-kinds.md)).
 
+### Instrument and read-pair fields
+
+Two fields come from the one pass over the stored reads that records the read count at import. Both are optional, so a sidecar written before them decodes and is never rewritten to add them.
+
+`sequencerInstrument` (`SequencerInstrument` in `Sources/LungfishIO/Formats/FASTQ/SequencerInstrument.swift`) holds what the read names say about the sequencer. Illumina CASAVA 1.8 names, also behind an ENA or SRA accession, give the instrument id, run, flow cell and lane. Names from before CASAVA 1.8 give the instrument id and the lane, and MGI names give the flow cell and the lane. A name that SRA rewrote gives none of these, so `nameForm` reads `notRecorded` and the summary reads Not recorded. The model is never read from the run. `SequencerInstrumentModels` infers it from the instrument id, so `modelsAreInferred` is true, `modelSource` names the table, and an id the table does not list reads Unknown.
+
+| Key | Holds |
+|---|---|
+| `nameForm` | `casava18`, `illuminaBeforeCasava18`, `mgi` or `notRecorded` |
+| `instrumentIDs`, `runNumbers`, `flowcells`, `lanes` | The distinct values in the names, lanes smallest first, at most 16 of each |
+| `models`, `modelsAreInferred`, `modelSource` | The model of each instrument id in the same order, always marked inferred, and the source the table cites |
+| `namedRecords`, `unnamedRecords` | Reads whose name carried the facts and reads whose name did not |
+| `listsTruncated` | True when a list reached its limit |
+
+`recordedReadCount.pair_hash` holds the order-free hash of the adjacent mate pairs (`FASTQPairHashAccumulator` in `Sources/LungfishIO/Formats/FASTQ/FASTQReadLayoutClassifier+PairHash.swift`). For every pair it takes the md5 of the Read 1 sequence, a tab and the Read 2 sequence, reads the digest as a 128-bit number, and adds the numbers modulo 2^128. Names and qualities are left out and the order of the pairs does not matter, so `scripts/repro/rnaseq/gse163196/pairhash.py` gives the same sum for the same pairs. Two bundles with equal hashes and equal pair counts hold the same pairs, up to a chance collision of about 2^-128. An import reads the other sidecars of the project, and on an equal hash and count it warns in words that name both bundles and say a differential expression analysis would count one library twice. It warns and never refuses. The import record carries the same facts as resolved parameters, among them `instrumentIDs`, `instrumentModels`, `readPairCount` and `readPairHash`.
+
 ### Why a view never rewrites it
 
 The sidecar's name is not hidden, so `ProvenanceFileHasher.directoryManifest` in `Sources/LungfishWorkflow/Provenance/ProvenanceFileHasher.swift` covers it in every directory digest of the bundle. The bundle's record also lists it as an output, so the bundle carries `provenance/<reads>.lungfish-meta.json.lungfish-provenance.json` with its SHA-256, as both demo bundles do. A rewrite at view time would make that digest and that record stale.
