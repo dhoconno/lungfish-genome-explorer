@@ -83,6 +83,7 @@ package enum RunFitPreflight {
     /// The Mac's reading: the bytes available for important usage on the volume of the folder, or of the nearest folder
     /// above it that exists, since a run's folder is often made after the check. It counts the space the system can purge,
     /// as the assembly sheet's disk check does. nil when the volume does not answer.
+    /// It reads through a new URL on every call, so a caller that keeps one folder URL never gets an old figure.
     package static let volumeFreeSpace: FreeSpaceReader = { folder in
         var nearest = folder
         var steps = 0
@@ -90,7 +91,8 @@ package enum RunFitPreflight {
             nearest = nearest.deletingLastPathComponent()
             steps += 1
         }
-        let values = try? nearest.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        let fresh = URL(fileURLWithPath: nearest.path)  // a URL answers from the values it kept of an earlier read
+        let values = try? fresh.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         return values?.volumeAvailableCapacityForImportantUsage
     }
 
