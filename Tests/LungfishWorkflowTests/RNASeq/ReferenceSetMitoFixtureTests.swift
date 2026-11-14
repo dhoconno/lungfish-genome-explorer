@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import LungfishTestSupport
 import XCTest
 @testable import LungfishWorkflow
 
@@ -77,15 +78,19 @@ final class ReferenceSetMitoFixtureTests: XCTestCase {
     }
 }
 
-/// The same fixture through real gffread from the configured root. It skips when no gffread is installed there.
+/// The same fixture through real gffread, the RNA-seq pack's, from the conda root (`LUNGFISH_CONDA_ROOT` when it is
+/// set, else the configured root). It skips when no gffread is installed there, and fails under `LUNGFISH_REQUIRE_TOOLS=1`.
 final class ReferenceSetMitoFixtureConformanceTests: XCTestCase {
     func testGffreadWritesEachMitochondrialGeneAtItsCDSAndStopLength() async throws {
+        let gffread = try await ToolAvailability.require("gffread", environment: "gffread")
         let deriver = GffreadTranscriptDeriver()
+        let version: String
         do {
-            _ = try await deriver.toolVersion()
+            version = try await deriver.toolVersion()
         } catch {
-            throw XCTSkip("gffread is not installed in the configured root: \(error.localizedDescription)")
+            try ToolAvailability.skipOrFail("gffread at \(gffread.path) gives no version: \(error.localizedDescription)")
         }
+        print("ReferenceSetMitoFixtureConformanceTests: gffread \(version) at \(gffread.path)")
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("refset-mito-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let (outcome, _, _) = try await ReferenceSetMitoFixture.build(.lge, root: root, deriver: deriver)
