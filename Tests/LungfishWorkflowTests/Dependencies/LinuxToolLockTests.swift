@@ -10,9 +10,10 @@ import XCTest
 /// names. The linux-64 lock carries the Mac lock's tool versions with the build strings of the
 /// linux-64 packages. The Mac lock stays as it is, since every Mac record states its SHA-256.
 final class LinuxToolLockTests: XCTestCase {
-    /// The Mac lock's SHA-256 when the linux-64 lock was added. A deliberate change to the Mac lock
-    /// changes this literal in the same commit, and the linux-64 lock follows for the tools it carries.
-    private static let macLockSHA256 = "586edb75c2f2402e2eb845526051cc39c7542291036d638927ab6289cfc37e26"
+    /// The Mac lock's SHA-256 since RS-LOCK (Phase 5.1) pinned salmon and gffread for the rna-seq pack, which moved it
+    /// from 586edb75. A deliberate change to the Mac lock changes this literal in the same commit, and the linux-64
+    /// lock follows for the tools it carries.
+    private static let macLockSHA256 = "a083cc293b81c85f5ffd7066f10e5f62205506664fb4e945ff730bf7c8df6a67"
 
     /// The SHA-256 of the 87-package explicit file that slice 0's argv replay and deacon check ran on. It is C0's file
     /// with a home path removed from line 2. A change to the tool set is a lane of its own that reruns both (K5.1).
