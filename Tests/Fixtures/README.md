@@ -136,6 +136,8 @@ let ref = TestFixtures.sarscov2.reference
 let reads = TestFixtures.sarscov2.pairedFastq  // (r1: URL, r2: URL)
 ```
 
+The RNA-seq fixtures of Phase 5 (`Tests/Fixtures/rnaseq`) are no bundle resource. `RNASeqFixtures` in `LungfishTestSupport` finds the folder from its own path: `RNASeqFixtures.salmonRun("SRR896663")`, `RNASeqFixtures.umiCounts` and `RNASeqFixtures.starsoloFiltered`.
+
 ## Adding New Fixtures
 
 1. Keep files under 1 MB each (ideally under 50 KB)
