@@ -2005,6 +2005,7 @@ None.
 | ONTGenotyping |
 | Orient |
 | PBAA |
+| Preflight |
 | PrimerAnalysis |
 | PrimerDesign |
 | Primers |
