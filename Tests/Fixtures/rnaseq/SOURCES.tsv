@@ -21,3 +21,10 @@ work/gse163196/matrix/genes.tsv	d58b49ca0c995d063744253f00c09a3e3472ab0394c83d8c
 work/gse163196/matrix/runs.tsv	b8b148352107fa756712e7a281472294a7333cff6b8c94b4907cdd2cc66d4296	umi-table-c9/runs.tsv	whole
 fixtures/nfcore-yeast/salmon_results.tar.gz	2856ef35ad2e688dd5b08a58fe2d66cb9b90c9f6d37db31ebaa8576158a291a1	nfcore-rnaseq-yeast/salmon	every file, whole, but the four macOS ._flenDist.txt metadata files
 fixtures/nfcore-yeast/LICENSE	1fa2a62f20d23902c7aad04f3d728fbfc9d153df472e8f2ef163322a8c5557c8	nfcore-rnaseq-yeast/LICENSE	whole
+refs/cynomolgus/refseq-GCF_000364345.1/GCF_000364345.1_Macaca_fascicularis_5.0_genomic.fna.gz	0c411a03613308bdc537e11f5978536fb3eded44b0e437b240ecca8985c17d26	refset-mito/cynomolgus-mt.fa	the NC_012670.1 record, as given
+refs/rhesus/ensembl-100/Macaca_mulatta.Mmul_10.dna.toplevel.fa.gz	679dd90651c50366858152b62989c26d587340711e60622458815d19b272fd3a	refset-mito/rhesus-mt.fa	the MT record, as given
+refs/sars-cov-2/GCF_009858895.2/GCF_009858895.2_ASM985889v3_genomic.fna.gz	d359795c5b11e9fc9309d5b3edee2dde1040781cd6a13b09aa7f4aaad8f07816	refset-mito/sars-cov-2.fa	the NC_045512.2 record, as given
+refs/cynomolgus/refseq-GCF_000364345.1/GCF_000364345.1_Macaca_fascicularis_5.0_genomic.gtf.gz	43726f01d1ff70520fb02661dd594552dab3b4e53fb8f06c6a4c092d55dfb3c3	refset-mito/cynomolgus-mt.gtf	every NC_012670.1 line, in file order
+refs/rhesus/ensembl-100/Macaca_mulatta.Mmul_10.100.gtf.gz	73ba46e5b962e55d1307b0ceea8aedef33e1aed5b7e29840fc9da28d15e5c7a9	refset-mito/rhesus-mt.gtf	every MT line, in file order
+refs/sars-cov-2/GCF_009858895.2/GCF_009858895.2_ASM985889v3_genomic.gtf.gz	d81943ad8672e04b0ff1030e67c1a81b8544e78bf770c55af542366212e774b8	refset-mito/sars-cov-2-genes.gtf	the 11 gene lines, in file order
+refs/cynomolgus/refseq-GCF_000364345.1/GCF_000364345.1_Macaca_fascicularis_5.0_assembly_report.txt	3500f1303ce6d0adf3834227229aac2313af63d853b8f3f0b22c11587a92b2fc	refset-mito/cynomolgus-mt_assembly_report.txt	the column line and the NC_012670.1 line

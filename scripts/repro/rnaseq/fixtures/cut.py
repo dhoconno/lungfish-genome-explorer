@@ -15,6 +15,9 @@ import os
 import sys
 import tarfile
 
+RS50 = "refs/cynomolgus/refseq-GCF_000364345.1/GCF_000364345.1_Macaca_fascicularis_5.0"
+ENS100 = "refs/rhesus/ensembl-100/Macaca_mulatta.Mmul_10"
+SARS2 = "refs/sars-cov-2/GCF_009858895.2/GCF_009858895.2_ASM985889v3"
 PINS = {
     "work/seqc-gse47774/quant/SRR896663/cmd_info.json": "8d3203e25036e1758c40daf2a82047f57b10e3b38c9a016c425204625f5b8114",
     "work/seqc-gse47774/quant/SRR896663/lib_format_counts.json": "4ffe308c1388fda7aeb953049e787a228678ab4a9b525cddc287bc26f4b25da8",
@@ -38,6 +41,13 @@ PINS = {
     "work/gse163196/matrix/runs.tsv": "b8b148352107fa756712e7a281472294a7333cff6b8c94b4907cdd2cc66d4296",
     "fixtures/nfcore-yeast/salmon_results.tar.gz": "2856ef35ad2e688dd5b08a58fe2d66cb9b90c9f6d37db31ebaa8576158a291a1",
     "fixtures/nfcore-yeast/LICENSE": "1fa2a62f20d23902c7aad04f3d728fbfc9d153df472e8f2ef163322a8c5557c8",
+    f"{RS50}_genomic.fna.gz": "0c411a03613308bdc537e11f5978536fb3eded44b0e437b240ecca8985c17d26",
+    f"{RS50}_genomic.gtf.gz": "43726f01d1ff70520fb02661dd594552dab3b4e53fb8f06c6a4c092d55dfb3c3",
+    f"{RS50}_assembly_report.txt": "3500f1303ce6d0adf3834227229aac2313af63d853b8f3f0b22c11587a92b2fc",
+    f"{ENS100}.dna.toplevel.fa.gz": "679dd90651c50366858152b62989c26d587340711e60622458815d19b272fd3a",
+    f"{ENS100}.100.gtf.gz": "73ba46e5b962e55d1307b0ceea8aedef33e1aed5b7e29840fc9da28d15e5c7a9",
+    f"{SARS2}_genomic.fna.gz": "d359795c5b11e9fc9309d5b3edee2dde1040781cd6a13b09aa7f4aaad8f07816",
+    f"{SARS2}_genomic.gtf.gz": "d81943ad8672e04b0ff1030e67c1a81b8544e78bf770c55af542366212e774b8",
 }
 
 QUANT_RUNS = ("SRR896663", "SRR896743")
@@ -218,6 +228,65 @@ def nfcore(cut):
     cut.source(licence, "nfcore-rnaseq-yeast/LICENSE", "whole")
 
 
+def gz_lines(cut, rel):
+    """The lines of a large gzip source after its sha256 is checked, read as a stream."""
+    digest = hashlib.sha256()
+    with open(os.path.join(cut.data_root, rel), "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 22), b""):
+            digest.update(block)
+    if digest.hexdigest() != PINS[rel]:
+        die(f"{rel} has sha256 {digest.hexdigest()}, pinned {PINS[rel]}. The source changed, so stop.")
+    with gzip.open(os.path.join(cut.data_root, rel), "rb") as handle:
+        yield from handle
+
+
+def fasta_record(cut, rel, name):
+    """The one record whose first word is name, header and sequence lines as given."""
+    kept, inside = [], False
+    for line in gz_lines(cut, rel):
+        if line.startswith(b">"):
+            if inside:
+                break
+            inside = line[1:].split(None, 1)[0] == name
+        if inside:
+            kept.append(line)
+    if not kept:
+        die(f"{rel} has no record {name.decode()}")
+    return b"".join(kept)
+
+
+def refset_mito(cut):
+    """The mitochondrial contig with every GTF line of RefSeq Macaca_fascicularis_5.0 and of Ensembl 100
+    Mmul_10, and SARS-CoV-2 NC_045512.2 with its 11 gene lines, for the reference-set tests."""
+    out = "refset-mito"
+    rules = [
+        (f"{RS50}_genomic.fna.gz", "cynomolgus-mt.fa", "the NC_012670.1 record, as given"),
+        (f"{ENS100}.dna.toplevel.fa.gz", "rhesus-mt.fa", "the MT record, as given"),
+        (f"{SARS2}_genomic.fna.gz", "sars-cov-2.fa", "the NC_045512.2 record, as given"),
+    ]
+    for rel, name, rule in rules:
+        cut.write(f"{out}/{name}", fasta_record(cut, rel, rule.split()[1].encode()))
+        cut.source(rel, f"{out}/{name}", rule)
+    gtfs = [
+        (f"{RS50}_genomic.gtf.gz", "cynomolgus-mt.gtf", b"NC_012670.1\t", None, "every NC_012670.1 line, in file order"),
+        (f"{ENS100}.100.gtf.gz", "rhesus-mt.gtf", b"MT\t", None, "every MT line, in file order"),
+        (f"{SARS2}_genomic.gtf.gz", "sars-cov-2-genes.gtf", b"NC_045512.2\t", b"gene", "the 11 gene lines, in file order"),
+    ]
+    for rel, name, prefix, kind, rule in gtfs:
+        lines = [line for line in gz_lines(cut, rel)
+                 if line.startswith(prefix) and (kind is None or line.split(b"\t")[2] == kind)]
+        cut.write(f"{out}/{name}", b"".join(lines))
+        cut.source(rel, f"{out}/{name}", rule)
+    report = f"{RS50}_assembly_report.txt"
+    lines = cut.read(report).splitlines(keepends=True)
+    header = [line for line in lines if line.startswith(b"# Sequence-Name")]
+    row = [line for line in lines if not line.startswith(b"#") and b"\tNC_012670.1\t" in line]
+    if len(header) != 1 or len(row) != 1:
+        die(f"{report} has {len(header)} column lines and {len(row)} NC_012670.1 lines, not one each")
+    cut.write(f"{out}/cynomolgus-mt_assembly_report.txt", header[0] + row[0])
+    cut.source(report, f"{out}/cynomolgus-mt_assembly_report.txt", "the column line and the NC_012670.1 line")
+
+
 def main(argv):
     if len(argv) != 3:
         die("usage: cut.py <data_root> <out_dir>")
@@ -230,7 +299,8 @@ def main(argv):
     single_cell(cut)
     umi_table(cut)
     nfcore(cut)
-    table = ["source\tsha256\tfixture\trule\n"]
+    refset_mito(cut)
+    table =["source\tsha256\tfixture\trule\n"]
     table += [f"{rel}\t{digest}\t{fixture}\t{rule}\n" for rel, digest, fixture, rule in cut.sources]
     cut.write("SOURCES.tsv", "".join(table).encode())
     sums = "".join(f"{digest}  {rel}\n" for rel, digest in sorted(cut.written.items()))

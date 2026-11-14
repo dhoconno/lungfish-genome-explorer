@@ -1,0 +1,2 @@
+# Sequence-Name	Sequence-Role	Assigned-Molecule	Assigned-Molecule-Location/Type	GenBank-Accn	Relationship	RefSeq-Accn	Assembly-Unit	Sequence-Length	UCSC-style-name
+MT	assembled-molecule	MT	Mitochondrion	na	<>	NC_012670.1	non-nuclear	16575	chrM
