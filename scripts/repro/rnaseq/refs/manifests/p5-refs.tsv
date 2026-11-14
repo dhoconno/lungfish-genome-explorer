@@ -1,0 +1,21 @@
+# P5-REFS, the two T2T macaque reference sets that NCBI RefSeq publishes, found on 2026-11-14.
+# md5 values come from the md5checksums.txt of each NCBI folder, read on 2026-11-14. The annotation hash
+# list, the status files and the folder's own md5checksums.txt carry none and are staged without a source check.
+# Stage with: python3 -I scripts/repro/rnaseq/stage/stage.py scripts/repro/rnaseq/refs/manifests/p5-refs.tsv --staged-by P5-REFS --min-free-bytes 200000000000
+# url	dest_path	checksum_type	checksum	bytes
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/049/350/105/GCF_049350105.2_T2T-MMU8v2.0/GCF_049350105.2_T2T-MMU8v2.0_genomic.fna.gz	refs/rhesus/refseq-GCF_049350105.2/GCF_049350105.2_T2T-MMU8v2.0_genomic.fna.gz	md5	04ea1d98d03d9ff547b1935a246e7ac4
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/049/350/105/GCF_049350105.2_T2T-MMU8v2.0/GCF_049350105.2_T2T-MMU8v2.0_genomic.gtf.gz	refs/rhesus/refseq-GCF_049350105.2/GCF_049350105.2_T2T-MMU8v2.0_genomic.gtf.gz	md5	11059d249d72b2e71067b2e9011db646
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/049/350/105/GCF_049350105.2_T2T-MMU8v2.0/GCF_049350105.2_T2T-MMU8v2.0_assembly_report.txt	refs/rhesus/refseq-GCF_049350105.2/GCF_049350105.2_T2T-MMU8v2.0_assembly_report.txt	md5	033c4b3691875aca039f216d6c255ead
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/049/350/105/GCF_049350105.2_T2T-MMU8v2.0/README_GCF_049350105.2-RS_2025_08	refs/rhesus/refseq-GCF_049350105.2/README_GCF_049350105.2-RS_2025_08	md5	afc92f07ee91d45438302a45dffd231e
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/049/350/105/GCF_049350105.2_T2T-MMU8v2.0/md5checksums.txt	refs/rhesus/refseq-GCF_049350105.2/md5checksums.txt
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/049/350/105/GCF_049350105.2_T2T-MMU8v2.0/annotation_hashes.txt	refs/rhesus/refseq-GCF_049350105.2/annotation_hashes.txt
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/049/350/105/GCF_049350105.2_T2T-MMU8v2.0/assembly_status.txt	refs/rhesus/refseq-GCF_049350105.2/assembly_status.txt
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/049/350/105/GCF_049350105.2_T2T-MMU8v2.0/uncompressed_checksums.txt	refs/rhesus/refseq-GCF_049350105.2/uncompressed_checksums.txt
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/037/993/035/GCF_037993035.2_T2T-MFA8v1.1/GCF_037993035.2_T2T-MFA8v1.1_genomic.fna.gz	refs/cynomolgus/refseq-GCF_037993035.2/GCF_037993035.2_T2T-MFA8v1.1_genomic.fna.gz	md5	f45c58f0028fa3a4ee489d06b95f19ba
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/037/993/035/GCF_037993035.2_T2T-MFA8v1.1/GCF_037993035.2_T2T-MFA8v1.1_genomic.gtf.gz	refs/cynomolgus/refseq-GCF_037993035.2/GCF_037993035.2_T2T-MFA8v1.1_genomic.gtf.gz	md5	42ec43374d4d577cbc5a97094eb04872
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/037/993/035/GCF_037993035.2_T2T-MFA8v1.1/GCF_037993035.2_T2T-MFA8v1.1_assembly_report.txt	refs/cynomolgus/refseq-GCF_037993035.2/GCF_037993035.2_T2T-MFA8v1.1_assembly_report.txt	md5	fce65cfde803b1d26c8f1e4622c5330c
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/037/993/035/GCF_037993035.2_T2T-MFA8v1.1/README_GCF_037993035.2-RS_2025_03	refs/cynomolgus/refseq-GCF_037993035.2/README_GCF_037993035.2-RS_2025_03	md5	9c97de897f6df7b4aa520f0e08061adf
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/037/993/035/GCF_037993035.2_T2T-MFA8v1.1/md5checksums.txt	refs/cynomolgus/refseq-GCF_037993035.2/md5checksums.txt
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/037/993/035/GCF_037993035.2_T2T-MFA8v1.1/annotation_hashes.txt	refs/cynomolgus/refseq-GCF_037993035.2/annotation_hashes.txt
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/037/993/035/GCF_037993035.2_T2T-MFA8v1.1/assembly_status.txt	refs/cynomolgus/refseq-GCF_037993035.2/assembly_status.txt
+https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/037/993/035/GCF_037993035.2_T2T-MFA8v1.1/uncompressed_checksums.txt	refs/cynomolgus/refseq-GCF_037993035.2/uncompressed_checksums.txt
