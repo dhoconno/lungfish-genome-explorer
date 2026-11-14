@@ -10,10 +10,9 @@ import LungfishWorkflow
 
 /// Import files into a Lungfish project.
 ///
-/// Provides subcommands for importing different file types (BAM, VCF, FASTA,
-/// Kraken2 reports, EsViritu results, TaxTriage results, and NAO-MGS results)
-/// into a Lungfish project directory. Each subcommand validates the input,
-/// copies or transforms files into the project structure, and prints a summary.
+/// Provides subcommands for importing file types (BAM, VCF, FASTA, classifier results, bulk RNA-seq counts
+/// and more) into a Lungfish project directory. Each subcommand validates the input, copies or transforms
+/// files into the project structure, and prints a summary.
 ///
 /// ## Examples
 ///
@@ -64,6 +63,7 @@ struct ImportCommand: AsyncParsableCommand {
             NaoMgsSubcommand.self,
             NvdSubcommand.self,
             CzIdSubcommand.self,
+            RNASeqSubcommand.self,
             MetadataSubcommand.self,
         ]
     )
