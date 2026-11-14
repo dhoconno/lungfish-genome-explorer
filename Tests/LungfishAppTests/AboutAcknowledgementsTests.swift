@@ -71,6 +71,18 @@ final class AboutAcknowledgementsTests: XCTestCase {
         XCTAssertEqual(bracken.detail, "3.1")
         XCTAssertEqual(bracken.secondaryDetail, "GPL-3.0")
         XCTAssertEqual(bracken.sourceURL, "https://github.com/jenniferlu717/Bracken")
+
+        // The RNA-seq pack names its two locked tools with the version, license and source the lock records.
+        let rnaSeq = try XCTUnwrap(sections.first(where: { $0.title == "RNA-Seq Analysis" }))
+        XCTAssertEqual(rnaSeq.entries.map(\.id), ["salmon", "gffread"])
+        let salmon = try XCTUnwrap(rnaSeq.entries.first(where: { $0.id == "salmon" }))
+        XCTAssertEqual(salmon.detail, "2.11.0")
+        XCTAssertEqual(salmon.secondaryDetail, "BSD-3-Clause")
+        XCTAssertEqual(salmon.sourceURL, "https://github.com/COMBINE-lab/salmon")
+        let gffread = try XCTUnwrap(rnaSeq.entries.first(where: { $0.id == "gffread" }))
+        XCTAssertEqual(gffread.detail, "0.12.9")
+        XCTAssertEqual(gffread.secondaryDetail, "MIT")
+        XCTAssertEqual(gffread.sourceURL, "https://github.com/gpertea/gffread")
     }
 
     func testPCRDependenciesIdentifyPublicCustomFork() throws {

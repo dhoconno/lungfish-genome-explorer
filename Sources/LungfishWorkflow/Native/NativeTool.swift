@@ -58,6 +58,9 @@ public enum NativeTool: String, CaseIterable, Sendable {
     /// zstd and xz, the compressors a sequence export and a reference import run (Phase 2.13 lane 13.17).
     case zstd
     case xz
+    /// salmon and gffread, the two tools of the `rna-seq` pack (Phase 5.1 lane RS-LOCK, ADJ-PACK).
+    case salmon
+    case gffread
 
     /// The executable name for this tool.
     public var executableName: String {
@@ -95,6 +98,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .freyja: return "freyja"
         case .zstd: return "zstd"
         case .xz: return "xz"
+        case .salmon: return "salmon"
+        case .gffread: return "gffread"
         }
     }
 
@@ -182,6 +187,10 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return .managed(environment: "zstd", executableName: "zstd")
         case .xz:
             return .managed(environment: "xz", executableName: "xz")
+        case .salmon:
+            return .managed(environment: "salmon", executableName: "salmon")
+        case .gffread:
+            return .managed(environment: "gffread", executableName: "gffread")
         }
     }
 
@@ -249,6 +258,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .freyja: return "freyja"
         case .zstd: return "zstd"
         case .xz: return "xz"
+        case .salmon: return "salmon"
+        case .gffread: return "gffread"
         }
     }
 
@@ -310,6 +321,10 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "BSD-3-Clause or GPL-2.0-only (dual)"
         case .xz:
             return "0BSD and LGPL-2.1-or-later and GPL-2.0-or-later"
+        case .salmon:
+            return "BSD-3-Clause"
+        case .gffread:
+            return "MIT License"
         }
     }
 

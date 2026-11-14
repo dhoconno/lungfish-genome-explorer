@@ -657,11 +657,42 @@ public extension PluginPack {
         PluginPack(
             id: "rna-seq",
             name: "RNA-Seq Analysis",
-            description: "Spliced alignment and transcript quantification for bulk RNA sequencing",
+            description: "Salmon transcript quantification and gffread transcript extraction for bulk RNA-seq on this Mac.",
             sfSymbol: "bolt.horizontal",
-            packages: ["star", "salmon", "subread", "stringtie"],
+            packages: ["salmon", "gffread"],
             category: "Transcriptomics",
-            estimatedSizeMB: 600
+            isActive: true,
+            requirements: [
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "rna-seq",
+                    id: "salmon",
+                    displayName: "Salmon",
+                    executables: ["salmon"],
+                    smokeTest: .command(
+                        executable: "salmon",
+                        arguments: ["--version"],
+                        timeoutSeconds: 10,
+                        acceptedExitCodes: [0],
+                        requiredOutputSubstring: "salmon \(ManagedToolLock.bundled.packTool(packID: "rna-seq", id: "salmon")?.version ?? "")"
+                    )
+                ),
+                PackToolRequirement.fromManifest(
+                    ManagedToolLock.bundled,
+                    packID: "rna-seq",
+                    id: "gffread",
+                    displayName: "gffread",
+                    executables: ["gffread"],
+                    smokeTest: .command(
+                        executable: "gffread",
+                        arguments: ["--version"],
+                        timeoutSeconds: 10,
+                        acceptedExitCodes: [0],
+                        requiredOutputSubstring: ManagedToolLock.bundled.packTool(packID: "rna-seq", id: "gffread")?.version ?? ""
+                    )
+                ),
+            ],
+            estimatedSizeMB: 30
         ),
         PluginPack(
             id: "single-cell",

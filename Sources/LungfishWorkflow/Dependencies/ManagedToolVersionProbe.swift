@@ -123,5 +123,9 @@ public struct ManagedToolVersionProbe: Sendable, Hashable {
         // The executable LGE runs. The package also ships ribodetector, the GPU entry point.
         entry("ribodetector", "ribodetector_cpu", ["-v"]),
         entry("freyja", "freyja", ["--version"]),
+        // Prints `salmon 2.11.0` on standard output and nothing on standard error.
+        entry("salmon", "salmon", ["--version"]),
+        // Prints `0.12.9` on standard output and nothing on standard error.
+        entry("gffread", "gffread", ["--version"]),
     ]
 }

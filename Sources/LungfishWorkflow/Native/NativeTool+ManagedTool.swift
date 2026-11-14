@@ -36,6 +36,8 @@ extension NativeTool {
         case .freyja: return ManagedToolID(rawValue: "freyja")
         case .zstd: return ManagedToolID(rawValue: "zstd")
         case .xz: return ManagedToolID(rawValue: "xz")
+        case .salmon: return ManagedToolID(rawValue: "salmon")
+        case .gffread: return ManagedToolID(rawValue: "gffread")
         }
     }
 }

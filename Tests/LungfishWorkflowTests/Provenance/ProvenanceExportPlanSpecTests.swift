@@ -135,7 +135,7 @@ final class ProvenanceExportPlanSpecTests: XCTestCase {
             }
             checked += 1
         }
-        XCTAssertEqual(checked, 44, "19 tools and 27 pack tools, and two of the pack tools have no conda spec")
+        XCTAssertEqual(checked, 46, "19 tools and 29 pack tools, and two of the pack tools have no conda spec")
     }
 
     /// A native pack tool and a conda-run mapper record the lock's spec whatever their probe printed, so a
@@ -403,6 +403,8 @@ final class ProvenanceExportPlanSpecTests: XCTestCase {
             (.freyja, "bioconda::freyja=2.0.3=pyhdfd78af_0"),
             (.ribodetector, "bioconda::ribodetector=0.3.3=pyhdfd78af_0"),
             (.blastn, "bioconda::blast=2.16.0=hb260f6e_5"),
+            (.salmon, "bioconda::salmon=2.11.0=hfc06a8d_0"),
+            (.gffread, "bioconda::gffread=0.12.9=h551ac6c_0"),
         ]
         for (tool, spec) in expected {
             guard case .managed(let environment, let executable) = tool.location else { return XCTFail("\(tool) is not managed") }
