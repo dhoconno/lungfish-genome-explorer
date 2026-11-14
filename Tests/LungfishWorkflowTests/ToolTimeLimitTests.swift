@@ -157,7 +157,7 @@ final class ToolTimeLimitTests: XCTestCase {
         entry("LungfishWorkflow/Conda/ManagedToolLock.swift", helper: 11, "smoke probes"),
         entry("LungfishWorkflow/Conda/ManagedToolSourceInstaller.swift", helper: 2, "runtime probe and install step"),
         entry("LungfishWorkflow/Conda/PackToolSmokeTest.swift", helper: 4, "smoke probes"),
-        entry("LungfishWorkflow/Conda/PluginPack.swift", helper: 20, "smoke probes"),
+        entry("LungfishWorkflow/Conda/PluginPack.swift", helper: 22, "smoke probes"),
         entry("LungfishWorkflow/Conda/PluginPackStatusService.swift", helper: 2, "probe and install hook"),
         entry("LungfishWorkflow/Databases/DatabaseRegistry.swift", helper: 3, "database fetch, index info and version probe"),
         entry("LungfishWorkflow/DemoProjects/DemoProjectArchiveLoader.swift", helper: 1, "network request"),
