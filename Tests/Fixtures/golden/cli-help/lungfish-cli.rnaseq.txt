@@ -1,0 +1,13 @@
+OVERVIEW: Build RNA-seq reference sets and count RNA-seq reads
+
+USAGE: lungfish-cli rnaseq <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  reference-set           Build a reference set from a genome, an annotation
+                          and extra sequences
+
+  See 'lungfish-cli help rnaseq <subcommand>' for detailed help.

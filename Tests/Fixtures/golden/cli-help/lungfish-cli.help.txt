@@ -63,6 +63,7 @@ SUBCOMMANDS:
                           minimap2, BWA-MEM2, Bowtie2, or BBMap
   import                  Import files into a Lungfish project
   import-fastq            Batch-import sequencing reads into a Lungfish project
+  rnaseq                  Build RNA-seq reference sets and count RNA-seq reads
   ops                     Inspect completed operation history and resource usage
   provenance              Inspect provenance recorded in Lungfish bundles
   bam                     Operate on bundle-owned BAM alignment tracks
