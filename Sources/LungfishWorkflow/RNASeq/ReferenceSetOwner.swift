@@ -89,6 +89,7 @@ public struct ReferenceSetOwner: Sendable {
         let started = Date()
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: setsFolder, withIntermediateDirectories: true)
+        try Self.requireOneFileNameEach(request.extras.map(\.name))
         removeAbandonedStages()
 
         let hashed = try hashInputs(request)

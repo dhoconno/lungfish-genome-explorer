@@ -47,6 +47,19 @@ extension ReferenceSetOwner {
                       reportSHA: reportRead?.sha)
     }
 
+    /// An extra's name becomes the file name `extras/<name>.fa`, so each must be one plain name and its own.
+    static func requireOneFileNameEach(_ names: [String]) throws {
+        var seen = Set<String>()
+        for name in names {
+            let plain = !name.isEmpty && name != "." && name != ".."
+                && !name.unicodeScalars.contains { $0 == "/" || $0.properties.generalCategory == .control }
+            guard plain, seen.insert(name).inserted else {
+                throw ReferenceSetError.invalidRequest(
+                    "The extra name \(name) must be one file name with no / and no .., and each extra needs its own name.")
+            }
+        }
+    }
+
     /// Copies `source` to `relativePath` in the stage and checks the copy's sha256 against the first read.
     func copyChecked(_ source: URL, to relativePath: String, in stage: URL, sha: String) throws -> URL {
         let target = stage.appendingPathComponent(relativePath)
