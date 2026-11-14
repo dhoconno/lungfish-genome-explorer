@@ -6,6 +6,7 @@ import Darwin
 import Foundation
 import LungfishCore
 import LungfishIO
+import Synchronization
 
 extension ReferenceSetOwner {
     static let geneColumns = ["gene_id", "name", "biotype", "contig", "length", "not_host", "mask", "unreliable"]
@@ -94,14 +95,15 @@ extension ReferenceSetOwner {
     }
 }
 
-/// A build's stage and the exclusive flock that marks it as held while the build runs.
-final class ReferenceSetStageHold: @unchecked Sendable {
+/// A build's stage and the exclusive flock that marks it as held while the build runs. The descriptor sits in a
+/// `Mutex`, so the type is `Sendable` with no escape hatch and a second `release()` closes nothing.
+final class ReferenceSetStageHold: Sendable {
     let url: URL
-    private var descriptor: Int32
+    private let descriptor: Mutex<Int32>
 
     private init(url: URL, descriptor: Int32) {
         self.url = url
-        self.descriptor = descriptor
+        self.descriptor = Mutex(descriptor)
     }
 
     static func make(in folder: URL, id: String) throws -> ReferenceSetStageHold {
@@ -120,9 +122,11 @@ final class ReferenceSetStageHold: @unchecked Sendable {
     }
 
     func release() {
-        guard descriptor >= 0 else { return }
-        close(descriptor)
-        descriptor = -1
+        descriptor.withLock { descriptor in
+            guard descriptor >= 0 else { return }
+            close(descriptor)
+            descriptor = -1
+        }
     }
 
     deinit { release() }
