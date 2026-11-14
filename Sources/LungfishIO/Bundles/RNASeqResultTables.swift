@@ -145,12 +145,15 @@ public struct RNASeqGeneRecord: Equatable, Sendable {
     public static func records(tsv data: Data, path: String) throws -> [RNASeqGeneRecord] {
         let table = try RNASeqTSV.parse(data, path: path)
         guard table.header.contains("gene_id") else { throw RNASeqResultError.invalidTable(path: path, reason: "it has no gene_id column") }
-        return table.rows.map { row in
-            RNASeqGeneRecord(
+        return try table.rows.enumerated().map { index, row -> RNASeqGeneRecord in
+            let flag = table.value(row, "not_host")?.lowercased()
+            guard flag == nil || flag == "true" || flag == "false" else {
+                throw RNASeqResultError.invalidTable(path: path, reason: "line \(index + 2) holds \"\(flag ?? "")\" in not_host, which is neither true nor false")
+            }
+            return RNASeqGeneRecord(
                 id: table.value(row, "gene_id") ?? "", name: table.value(row, "name"), biotype: table.value(row, "biotype"),
                 contig: table.value(row, "contig"), length: table.value(row, "length").flatMap { Int($0) },
-                notHost: table.value(row, "not_host").map { $0.lowercased() == "true" },
-                mask: table.value(row, "mask"), unreliable: table.value(row, "unreliable"))
+                notHost: flag.map { $0 == "true" }, mask: table.value(row, "mask"), unreliable: table.value(row, "unreliable"))
         }
     }
 }
