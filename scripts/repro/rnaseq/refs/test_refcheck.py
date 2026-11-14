@@ -175,6 +175,8 @@ class RefcheckTest(unittest.TestCase):
         (folder / "x_genomic.gtf.gz").write_bytes(gzip.compress(GTF_NO_Z.encode()))
         (folder / "x_cdna.fa.gz").write_bytes(gzip.compress(b">t\nAC\n"))
         (folder / "README").write_text("not data")
+        for notes in ("README.fasta", "CHECKSUMS.fasta", "README.gtf", "CHECKSUMS.gtf"):
+            (folder / notes).write_text("Ensembl keeps these beside the data and they are not data")
         code, out, _ = self.run_main(str(folder))
         self.assertEqual(code, 0, out)
         self.assertIn("x_genomic.fna.gz", out)
