@@ -126,7 +126,9 @@ public struct Recipe: Codable, Sendable, Identifiable, Equatable {
 
     /// The format versions this build reads. Version 2 adds ``switches`` and ``presets``, which an older build
     /// would ignore and so run every step, so a build refuses a version it does not know (ruling BIO-PRESET P3).
-    public static let supportedFormatVersions: ClosedRange<Int> = 1...2
+    /// Version 3 adds a preset's ``RecipePreset/stepParams``, such as the VSP2 preset's Nextera adapter kit, which a
+    /// version 2 build would ignore and so trim with the TruSeq pair without a word (ruling BIO-NEXTERA N1).
+    public static let supportedFormatVersions: ClosedRange<Int> = 1...3
 
     /// Schema version, one of ``supportedFormatVersions``.
     public let formatVersion: Int
@@ -161,7 +163,7 @@ public struct Recipe: Codable, Sendable, Identifiable, Equatable {
     /// Switches that turn one step each on or off, formatVersion 2 and later.
     public var switches: [RecipeSwitch]
 
-    /// Named sets of switch values, formatVersion 2 and later.
+    /// Named sets of switch values, formatVersion 2 and later, and of step parameters, formatVersion 3 and later.
     public var presets: [RecipePreset]
 
     /// What the name a run passed resolved to, set by ``RecipeResolver`` and nil for a recipe nobody resolved. It is

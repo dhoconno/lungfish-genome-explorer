@@ -21,10 +21,17 @@ public struct FastpTrimStep: FastpFusible {
 
     // MARK: - Parameters
 
-    /// Whether the trim removes the TruSeq adapters by name (`--adapter_sequence`, `--adapter_sequence_r2`) as well as
-    /// by mate overlap, never by fastp's guess from read order (ruling ARCH-BIO-RECIPE-TRIM). The key keeps its name so
-    /// older recipes still open, and `false` trims by mate overlap only.
+    /// Whether the trim removes the adapter pair of ``adapterKit`` by name (`--adapter_sequence`,
+    /// `--adapter_sequence_r2`) as well as by mate overlap, never by fastp's guess from read order (ruling
+    /// ARCH-BIO-RECIPE-TRIM). The key keeps its name so older recipes still open, and `false` trims by mate overlap
+    /// only, whatever the kit.
     public let detectAdapter: Bool
+
+    /// The kit whose adapter pair the trim names, `truseq` (the default) or `nextera`, read from `adapterKit` (ruling
+    /// BIO-NEXTERA N1). A recipe or preset names `nextera` only where the library's kit is fixed, as VSP2's Illumina RNA
+    /// Prep with Enrichment is, since the wrong kit's pair leaves more adapter than either pair removes. Any other value
+    /// is refused.
+    public let adapterKit: String
 
     /// Qualified-base threshold of the read filter (`-q`), read from `qualifiedQuality` or, in older recipes,
     /// `quality`. It is not the window threshold, which is ``cutMeanQuality``.
@@ -61,6 +68,15 @@ public struct FastpTrimStep: FastpFusible {
     /// argv does not move (ruling BIO-PRESET P1).
     public init(params: [String: AnyCodableValue]?) throws {
         detectAdapter      = params?["detectAdapter"]?.boolValue ?? true
+        if let kit = params?["adapterKit"] {
+            guard let name = kit.stringValue, Self.adapterPair(kit: name) != nil else {
+                throw RecipeEngineError.invalidParam(
+                    step: Self.typeID, param: "adapterKit", value: kit.stringValue ?? "\(kit)")
+            }
+            adapterKit = name
+        } else {
+            adapterKit = "truseq"
+        }
         quality            = params?["qualifiedQuality"]?.intValue ?? params?["quality"]?.intValue ?? 20
         unqualifiedPercent = params?["unqualifiedPercent"]?.intValue
         nBaseLimit         = params?["nBaseLimit"]?.intValue
@@ -90,13 +106,22 @@ public struct FastpTrimStep: FastpFusible {
         }
     }
 
+    /// The read 1 and read 2 adapters of a kit the trim can name, nil for a kit it does not know.
+    static func adapterPair(kit: String) -> (r1: String, r2: String)? {
+        switch kit {
+        case "truseq": return (PlatformAdapters.truseqR1, PlatformAdapters.truseqR2)
+        case "nextera": return (PlatformAdapters.nexteraR1, PlatformAdapters.nexteraR2)
+        default: return nil
+        }
+    }
+
     // MARK: - FastpFusible
 
     public func fastpArgs() -> [String] {
         var args: [String] = []
 
-        if detectAdapter {
-            args += ["--adapter_sequence", PlatformAdapters.truseqR1, "--adapter_sequence_r2", PlatformAdapters.truseqR2]
+        if detectAdapter, let pair = Self.adapterPair(kit: adapterKit) {
+            args += ["--adapter_sequence", pair.r1, "--adapter_sequence_r2", pair.r2]
         }
         if trimPolyG {
             args += ["-g", "--poly_g_min_len", "\(polyGMinLength)"]

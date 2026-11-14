@@ -1,5 +1,5 @@
 {
-    "formatVersion": 2,
+    "formatVersion": 3,
     "id": "illumina-paired-cleanup",
     "name": "Illumina paired-end cleanup",
     "description": "Paired-end Illumina reads. Removes duplicate reads, trims adapters and low-quality ends, removes human reads, merges overlapping pairs and drops reads under 50 bases. Keeps ribosomal RNA reads.",
@@ -18,7 +18,8 @@
             "name": "VSP2 target enrichment",
             "description": "Short-insert viral enrichment. Removes duplicate reads, trims adapters and low-quality ends, removes human reads, merges overlapping pairs and drops reads under 50 bases.",
             "aliases": ["vsp2"],
-            "switches": { "removeDuplicates": true, "removeRibosomalRNA": false }
+            "switches": { "removeDuplicates": true, "removeRibosomalRNA": false },
+            "stepParams": { "fastp-trim": { "adapterKit": "nextera" } }
         },
         {
             "id": "wastewater-metagenomics",

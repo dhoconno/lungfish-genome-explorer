@@ -1,4 +1,4 @@
-// RecipeSwitches.swift - The switches and presets of a formatVersion 2 recipe, and the resolver that picks them
+// RecipeSwitches.swift - The switches and presets of a formatVersion 2 or 3 recipe, and the resolver that picks them
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -49,7 +49,8 @@ public struct RecipeSwitch: Codable, Sendable, Equatable {
 // MARK: - RecipePreset
 
 /// A named set of switch values of one ``Recipe``, such as `wastewater-metagenomics`. A switch the preset does not
-/// name keeps the recipe default.
+/// name keeps the recipe default. From formatVersion 3 a preset may also set parameters of a step, which go over the
+/// step's own (``stepParams``).
 public struct RecipePreset: Codable, Sendable, Equatable {
     public let id: String
     public let name: String
@@ -58,17 +59,25 @@ public struct RecipePreset: Codable, Sendable, Equatable {
     public var aliases: [String]
     /// Switch id to value.
     public let switches: [String: Bool]
+    /// Step `type` to the parameters the preset sets on every step of that type, over the step's own, such as
+    /// `fastp-trim` to `adapterKit` `nextera` (formatVersion 3, ruling BIO-NEXTERA N1). Empty for a preset that sets
+    /// none, and then not written.
+    public let stepParams: [String: [String: AnyCodableValue]]
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, description, aliases, switches
+        case id, name, description, aliases, switches, stepParams
     }
 
-    public init(id: String, name: String, description: String? = nil, aliases: [String] = [], switches: [String: Bool]) {
+    public init(
+        id: String, name: String, description: String? = nil, aliases: [String] = [], switches: [String: Bool],
+        stepParams: [String: [String: AnyCodableValue]] = [:]
+    ) {
         self.id = id
         self.name = name
         self.description = description
         self.aliases = aliases
         self.switches = switches
+        self.stepParams = stepParams
     }
 
     public init(from decoder: any Decoder) throws {
@@ -78,6 +87,17 @@ public struct RecipePreset: Codable, Sendable, Equatable {
         description = try container.decodeIfPresent(String.self, forKey: .description)
         aliases = try container.decodeIfPresent([String].self, forKey: .aliases) ?? []
         switches = try container.decodeIfPresent([String: Bool].self, forKey: .switches) ?? [:]
+        stepParams = try container.decodeIfPresent([String: [String: AnyCodableValue]].self, forKey: .stepParams) ?? [:]
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(description, forKey: .description)
+        try container.encode(aliases, forKey: .aliases)
+        try container.encode(switches, forKey: .switches)
+        if !stepParams.isEmpty { try container.encode(stepParams, forKey: .stepParams) }
     }
 }
 
@@ -198,7 +218,8 @@ extension Recipe {
     }
 
     /// Checks the switches and presets a decoded file holds, so a file whose switch names no step, or whose preset
-    /// names no switch, is refused instead of running every step.
+    /// names no switch, is refused instead of running every step. A preset's step parameters need formatVersion 3,
+    /// so no build that would ignore them reads the file, and must name a step the recipe holds.
     func validateSwitches() throws {
         guard formatVersion >= 2 || (switches.isEmpty && presets.isEmpty) else {
             throw RecipeSwitchError("Recipe '\(id)' holds switches or presets, which need formatVersion 2.")
@@ -217,6 +238,18 @@ extension Recipe {
         for preset in presets {
             for switchID in preset.switches.keys.sorted() where !seen.contains(switchID) {
                 throw RecipeSwitchError("Preset '\(preset.id)' of recipe '\(id)' sets unknown switch '\(switchID)'.")
+            }
+            guard !preset.stepParams.isEmpty else { continue }
+            guard formatVersion >= 3 else {
+                throw RecipeSwitchError(
+                    "Preset '\(preset.id)' of recipe '\(id)' sets step parameters, which need formatVersion 3."
+                )
+            }
+            for type in preset.stepParams.keys.sorted() where !steps.contains(where: { $0.type == type }) {
+                throw RecipeSwitchError(
+                    "Preset '\(preset.id)' of recipe '\(id)' sets parameters of step '\(type)', "
+                        + "which the recipe does not hold."
+                )
             }
         }
     }
@@ -274,7 +307,8 @@ public struct RecipeSwitchError: Error, LocalizedError, Equatable {
 /// Resolves a `--recipe` name to a recipe and its switch values (ruling BIO-PRESET P3).
 ///
 /// A name matches by id only, in this order: a recipe's `id`, a preset's `id`, a preset's alias. A recipe's display
-/// name never matches. An explicit switch option beats the preset, which beats the recipe default.
+/// name never matches. An explicit switch option beats the preset, which beats the recipe default. A preset's step
+/// parameters go over the recipe's own for that step, the preset's value winning (ruling BIO-NEXTERA N1).
 public enum RecipeResolver {
 
     /// - Parameters:
@@ -312,6 +346,13 @@ public enum RecipeResolver {
             return RecipeSwitchSetting(id: gate.id, label: gate.label, value: gate.defaultValue, source: .recipeDefault)
         }
         var resolved = recipe
+        if let preset, !preset.stepParams.isEmpty {
+            for index in resolved.steps.indices {
+                guard let values = preset.stepParams[resolved.steps[index].type] else { continue }
+                resolved.steps[index].params = (resolved.steps[index].params ?? [:])
+                    .merging(values) { _, presetValue in presetValue }
+            }
+        }
         resolved.resolution = RecipeResolution(requestedName: requested, preset: preset, switchSettings: settings)
         return resolved
     }
