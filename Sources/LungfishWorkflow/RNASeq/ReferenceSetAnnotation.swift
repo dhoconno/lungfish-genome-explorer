@@ -183,8 +183,15 @@ enum ReferenceSetAnnotationReader {
     static func mitochondrialContigs(
         named: [String], report: URL?, genome: [ReferenceSetFASTARecord], annotationNames: [String]
     ) throws -> [String] {
-        if !named.isEmpty { return named }
         let known = Set(genome.map(\.name)).union(annotationNames)
+        if !named.isEmpty {
+            let absent = named.filter { !known.contains($0) }
+            guard absent.isEmpty else {
+                throw ReferenceSetError.invalidRequest(
+                    "--mitochondrial-contig names \(ReferenceSetError.listed(absent)), which neither the genome nor the annotation holds.")
+            }
+            return named
+        }
         if let report {
             var hits: [String] = []
             try report.forEachLineAutoDecompressing { line in

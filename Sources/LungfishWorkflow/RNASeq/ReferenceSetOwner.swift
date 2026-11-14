@@ -81,6 +81,8 @@ public struct ReferenceSetOwner: Sendable {
         var extraSources: [(fasta: URL, annotation: URL?)]
         var extraSHAs: [(fasta: String, annotation: String?)]
         var descriptors: [ProvenanceFileDescriptor]
+        /// The sha256 of the assembly report when one is given, since the report decides the mitochondrial contigs.
+        var reportSHA: String?
     }
 
     public func build(_ request: ReferenceSetRequest, argv: [String] = []) async throws -> ReferenceSetOutcome {
@@ -100,6 +102,12 @@ public struct ReferenceSetOwner: Sendable {
             if let annotation = extra.annotation, let annotationSHA = sha.annotation {
                 contents.append(.init(role: "extra annotation", fileName: annotation.lastPathComponent, sha256: annotationSHA))
             }
+        }
+        if let report = request.assemblyReport, let reportSHA = hashed.reportSHA {
+            contents.append(.init(role: "assembly report", fileName: report.lastPathComponent, sha256: reportSHA))
+        }
+        for contig in request.mitochondrialContigs {
+            contents.append(.init(role: "mitochondrial contig", fileName: contig, sha256: ""))
         }
         let id = ReferenceSetID.make(
             species: request.species, assembly: request.assemblyName, annotationSource: request.annotationSource,
