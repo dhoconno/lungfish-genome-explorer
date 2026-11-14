@@ -86,4 +86,13 @@ final class SequencerInstrumentTests: XCTestCase {
         XCTAssertEqual(found.models, ["Unknown"])
         XCTAssertEqual(found.summary, "Unknown (instrument id ZZ99999)")
     }
+
+    /// Review RS-INSTRUMENT, fix SF-3. A lab name such as A1 or D22 states no serial number. The Illumina pattern the
+    /// repo already trusts (PlatformInference+Rules.swift) needs three digits, so a short name reads Unknown.
+    func testAShortLabNameIsNotTakenForAnInstrumentModel() {
+        XCTAssertNil(SequencerInstrumentModels.model(forInstrumentID: "A1"))
+        XCTAssertNil(SequencerInstrumentModels.model(forInstrumentID: "D22"))
+        XCTAssertEqual(SequencerInstrumentModels.model(forInstrumentID: "A00488"), "NovaSeq 6000")
+        XCTAssertEqual(SequencerInstrumentModels.model(forInstrumentID: "SN128"), "HiSeq 2000 or 2500")
+    }
 }
