@@ -131,6 +131,53 @@ final class FastpTrimStepTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(checked, 4, "the paired cleanup's four switch settings each plan a trim")
     }
 
+    /// The Nextera pair of Illumina RNA Prep with Enrichment, which the VSP2 preset names (ruling BIO-NEXTERA N1).
+    static let namedNexteraPair = [
+        "--adapter_sequence", "CTGTCTCTTATACACATCTCCGAGCCCACGAGAC",
+        "--adapter_sequence_r2", "CTGTCTCTTATACACATCTGACGCTGCCGACGA",
+    ]
+
+    /// Ruling BIO-NEXTERA N1. VSP2 target enrichment, by its id and by its alias, names the Nextera pair under every
+    /// switch setting, the fused call and the lone trim alike, and names no TruSeq adapter. The wastewater preset and
+    /// the base recipe keep the TruSeq pair.
+    func test_vsp2PresetNamesTheNexteraPair() throws {
+        let builtin = RecipeRegistryV2.builtinRecipes()
+        let truSeqR1 = Self.namedTruSeqPair[1]
+        let nexteraR1 = Self.namedNexteraPair[1]
+        let expected: [(name: String, pair: [String], absent: String)] = [
+            ("vsp2-target-enrichment", Self.namedNexteraPair, truSeqR1),
+            ("vsp2", Self.namedNexteraPair, truSeqR1),
+            ("wastewater-metagenomics", Self.namedTruSeqPair, nexteraR1),
+            ("illumina-paired-cleanup", Self.namedTruSeqPair, nexteraR1),
+        ]
+        for (name, pair, absent) in expected {
+            let switchIDs = try XCTUnwrap(try RecipeResolver.resolve(name, in: builtin), name).switches.map(\.id)
+            XCTAssertEqual(switchIDs.count, 2, name)
+            for mask in 0..<(1 << switchIDs.count) {
+                var options: [String: Bool] = [:]
+                for (bit, id) in switchIDs.enumerated() { options[id] = mask & (1 << bit) != 0 }
+                let resolved = try XCTUnwrap(try RecipeResolver.resolve(name, in: builtin, switchOptions: options))
+                var trims: [[String]] = []
+                for step in try RecipeEngine().plan(recipe: resolved, inputFormat: .pairedR1R2) {
+                    switch step {
+                    case .fusedFastp(let fused, _, _, let components)
+                        where components.contains(where: { $0.typeID == FastpTrimStep.typeID }):
+                        trims.append(fused)
+                    case .singleStep(let trim as FastpTrimStep, _):
+                        trims.append(trim.fastpArgs())
+                    default:
+                        continue
+                    }
+                }
+                XCTAssertEqual(trims.count, 1, "\(name) \(options) plans one trim")
+                for args in trims {
+                    XCTAssertNotNil(args.firstRange(of: pair), "\(name) \(options) names \(pair[1]): \(args)")
+                    XCTAssertFalse(args.contains(absent), "\(name) \(options) names no \(absent): \(args)")
+                }
+            }
+        }
+    }
+
     func test_qualifiedQualityBeatsQuality() throws {
         let step = try FastpTrimStep(params: ["quality": .int(30), "qualifiedQuality": .int(15)])
         XCTAssertEqual(step.quality, 15)

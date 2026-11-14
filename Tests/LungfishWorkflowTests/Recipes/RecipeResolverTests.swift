@@ -189,4 +189,106 @@ struct RecipeResolverTests {
         #expect(bare.turnedOffSteps.map(\.activeStepsBefore) == [0, 2])
         #expect(bare.turnedOffSteps.map(\.setting.source) == [.option, .recipeDefault])
     }
+
+    // MARK: - Preset step parameters (ruling BIO-NEXTERA N1)
+
+    /// A recipe whose first preset sets `stepParams` and whose second sets none. The trim names the TruSeq kit itself.
+    private func kitRecipeJSON(formatVersion: Int, stepParams: String) -> Data {
+        Data("""
+        {"formatVersion": \(formatVersion), "id": "kit", "name": "Kit", "platforms": ["illumina"],
+         "requiredInput": "paired",
+         "switches": [{"id": "removeDuplicates", "label": "Remove duplicate reads", "default": true,
+                       "gates": "fastp-dedup"}],
+         "presets": [
+           {"id": "nextera-kit", "name": "Nextera kit", "switches": {"removeDuplicates": true},
+            "stepParams": \(stepParams)},
+           {"id": "truseq-kit", "name": "TruSeq kit", "switches": {"removeDuplicates": false}}
+         ],
+         "steps": [{"type": "fastp-dedup"},
+                   {"type": "fastp-trim",
+                    "params": {"detectAdapter": true, "adapterKit": "truseq", "qualifiedQuality": 15}}]}
+        """.utf8)
+    }
+
+    /// A trim refuses an adapter kit it does not know, by name, and never falls back to the TruSeq pair, whether the
+    /// step or a preset names the kit.
+    @Test func test_unknownAdapterKitIsRefused() throws {
+        do {
+            _ = try FastpTrimStep(params: ["adapterKit": .string("nexterra")])
+            Issue.record("adapterKit nexterra was accepted")
+        } catch RecipeEngineError.invalidParam(let step, let param, let value) {
+            #expect(step == "fastp-trim")
+            #expect(param == "adapterKit")
+            #expect(value == "nexterra")
+        }
+
+        let recipe = try JSONDecoder().decode(
+            Recipe.self, from: kitRecipeJSON(formatVersion: 3, stepParams: #"{"fastp-trim": {"adapterKit": "nexterra"}}"#)
+        )
+        let resolved = try #require(try RecipeResolver.resolve("nextera-kit", in: [recipe]))
+        do {
+            _ = try RecipeEngine().plan(recipe: resolved, inputFormat: .pairedR1R2)
+            Issue.record("a preset's adapterKit nexterra was planned")
+        } catch RecipeEngineError.invalidParam(_, let param, let value) {
+            #expect(param == "adapterKit")
+            #expect(value == "nexterra")
+        }
+    }
+
+    /// A preset's step parameters go over that step's own, the preset's value winning, and every other value of the
+    /// step stays. The recipe's own id, another preset and a switch option leave them as the preset set them.
+    @Test func test_presetStepParamsBeatTheStep() throws {
+        let recipe = try JSONDecoder().decode(
+            Recipe.self,
+            from: kitRecipeJSON(formatVersion: 3, stepParams: #"{"fastp-trim": {"adapterKit": "nextera", "minLength": 20}}"#)
+        )
+        let nextera = try #require(try RecipeResolver.resolve("nextera-kit", in: [recipe]))
+        let trim = try #require(nextera.steps.first { $0.type == "fastp-trim" })
+        #expect(trim.params?["adapterKit"] == .string("nextera"))
+        #expect(trim.params?["minLength"] == .int(20))
+        #expect(trim.params?["qualifiedQuality"] == .int(15))
+        #expect(trim.params?["detectAdapter"] == .bool(true))
+        #expect(Array(try FastpTrimStep(params: trim.params).fastpArgs().prefix(4)) == [
+            "--adapter_sequence", PlatformAdapters.nexteraR1, "--adapter_sequence_r2", PlatformAdapters.nexteraR2,
+        ])
+        let kept = try #require(try RecipeResolver.resolve(
+            "nextera-kit", in: [recipe], switchOptions: ["removeDuplicates": false]
+        ))
+        #expect(kept.steps.first { $0.type == "fastp-trim" }?.params == trim.params)
+        for name in ["truseq-kit", "kit"] {
+            let other = try #require(try RecipeResolver.resolve(name, in: [recipe]))
+            #expect(other.steps == recipe.steps, "\(name)")
+        }
+
+        let encoded = try JSONEncoder().encode(recipe)
+        #expect(try JSONDecoder().decode(Recipe.self, from: encoded) == recipe)
+        let object = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let presets = try #require(object["presets"] as? [[String: Any]])
+        #expect(presets.map { $0["stepParams"] != nil } == [true, false], "only a preset that sets them writes them")
+    }
+
+    /// A preset may only set parameters of a step the recipe holds.
+    @Test func test_presetStepParamsOfAnAbsentStepAreRefused() throws {
+        let json = kitRecipeJSON(formatVersion: 3, stepParams: #"{"fastp-merge": {"minOverlap": 20}}"#)
+        do {
+            _ = try JSONDecoder().decode(Recipe.self, from: json)
+            Issue.record("a preset set parameters of a step the recipe does not hold")
+        } catch let error as RecipeSwitchError {
+            #expect(error.localizedDescription
+                == "Preset 'nextera-kit' of recipe 'kit' sets parameters of step 'fastp-merge', which the recipe does not hold.")
+        }
+    }
+
+    /// A file at formatVersion 2 whose preset sets step parameters is refused in words, so no build reads the preset
+    /// without them and runs its trim with the TruSeq pair without a word.
+    @Test func test_presetStepParamsNeedFormatVersion3() throws {
+        let json = kitRecipeJSON(formatVersion: 2, stepParams: #"{"fastp-trim": {"adapterKit": "nextera"}}"#)
+        do {
+            _ = try JSONDecoder().decode(Recipe.self, from: json)
+            Issue.record("a formatVersion 2 file with step parameters was read")
+        } catch let error as RecipeSwitchError {
+            #expect(error.localizedDescription
+                == "Preset 'nextera-kit' of recipe 'kit' sets step parameters, which need formatVersion 3.")
+        }
+    }
 }
