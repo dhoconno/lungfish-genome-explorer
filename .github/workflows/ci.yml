@@ -258,6 +258,7 @@ jobs:
           # experimental packs (gatk-core, phasing, wastewater-surveillance)
           # are not installable from the CLI, and their tools are exempt.
           "$LUNGFISH_CLI" conda install --pack pcr-primer-design
+          "$LUNGFISH_CLI" conda install --pack rna-seq
 
       - name: Provision Kraken2 viral DB
         run: '"$LUNGFISH_CLI" conda db download Viral'

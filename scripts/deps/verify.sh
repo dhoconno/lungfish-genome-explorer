@@ -83,6 +83,7 @@ conformance_packs=(
     full-length-mhc-genotyping
     variant-calling
     pcr-primer-design
+    rna-seq
 )
 
 # No experimental pack is installed here. gatk-core (GATK), phasing (WhatsHap) and
