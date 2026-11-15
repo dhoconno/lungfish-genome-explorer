@@ -331,7 +331,10 @@ final class MatrixMarketByteSource {
     func read() throws -> Data {
         if let gzip { return gzip.readChunk(upTo: MatrixMarketReader.chunkSize) }
         do {
-            return try handle?.read(upToCount: MatrixMarketReader.chunkSize) ?? Data()
+            // FileHandle autoreleases each chunk it returns. An import reads the whole matrix in one job that never
+            // returns to a run loop, so the thread's own pool would drain only when the read ends and every chunk would
+            // stay alive until then. Each chunk gets its own pool, as the gzip stream's chunks do.
+            return try autoreleasepool { try handle?.read(upToCount: MatrixMarketReader.chunkSize) ?? Data() }
         } catch {
             throw MatrixMarketError.unreadable(file: name, reason: MatrixMarketReader.describe(error))
         }
