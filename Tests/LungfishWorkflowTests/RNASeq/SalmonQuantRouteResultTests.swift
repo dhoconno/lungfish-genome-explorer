@@ -130,4 +130,24 @@ extension SalmonQuantRouteTests {
         }
         XCTAssertEqual(logLines(), [], "no salmon process started")
     }
+
+    // MARK: - The set's use (`docs/formats/reference-set.md`, Cleanup)
+
+    /// The set's owner writes one `uses/<sha256 of the result path>.json` that names the result and its record's sha256,
+    /// and the set still settles with it.
+    func testTheSetsOwnerWritesOneUseThatNamesTheResultAndItsRecord() async throws {
+        let set = try await makeSetAndIndex()
+        let outcome = try await quant([try pairBundle("A")], set: set)
+        let owner = ReferenceSetOwner(storageRoot: root)
+        let setURL = owner.setsFolder.appendingPathComponent("\(set).\(ReferenceSetManifest.folderExtension)", isDirectory: true)
+        let uses = setURL.appendingPathComponent("uses", isDirectory: true)
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: uses.path)) ?? []).filter { $0.hasSuffix(".json") }
+        XCTAssertEqual(names.count, 1, "the set's owner wrote one use: \(names)")
+        guard let name = names.first else { return }
+        let use = try JSONDecoder().decode(SalmonIndexCache.Use.self, from: Data(contentsOf: uses.appendingPathComponent(name)))
+        XCTAssertEqual(use.resultPath, outcome.resultURL.standardizedFileURL.path)
+        let record = outcome.resultURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        XCTAssertEqual(use.recordSHA256, try ProvenanceFileHasher.sha256(of: record))
+        XCTAssertNoThrow(try owner.settled(setURL, id: set), "a use leaves the set settled")
+    }
 }
