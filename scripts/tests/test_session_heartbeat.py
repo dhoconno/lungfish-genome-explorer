@@ -43,13 +43,13 @@ class HeartbeatTests(unittest.TestCase):
         self.alive = str(os.getpid())
         (self.records / 'memwatch.pid').write_text(self.alive + '\n')
 
-    def agent(self, aid, tokens, age=0, final=False):
+    def agent(self, aid, tokens, age=0, final=False, model=None):
         when = datetime.now(timezone.utc) - timedelta(seconds=age)
         tool = {'type': 'tool_use', 'id': 't', 'name': 'Bash', 'input': {}}
         content = [{'type': 'text', 'text': 'Done.'}] if final else [tool]
         usage = {'input_tokens': 5, 'cache_read_input_tokens': tokens, 'cache_creation_input_tokens': 0}
         entry = {'type': 'assistant', 'uuid': 'u-' + aid, 'timestamp': when.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
-                 'message': {'id': 'm-' + aid, 'content': content, 'usage': usage}}
+                 'message': {'id': 'm-' + aid, 'content': content, 'usage': usage, **({'model': model} if model else {})}}
         (self.sub / ('agent-%s.jsonl' % aid)).write_text(json.dumps(entry) + '\n')
 
     def beat(self, *extra):
@@ -80,15 +80,26 @@ class HeartbeatTests(unittest.TestCase):
         (self.records / 'done_ids.txt').write_text(NEW + '\n')
         self.assertTrue(self.beat().startswith('QUIET'))
 
-    def test_opus_ids_use_the_higher_line(self):
-        (self.records / 'opus_ids.txt').write_text(OLD + '\n')
-        self.agent(OLD, 350_000)
-        self.agent(NEW, 100_000)
+    def test_an_opus_agent_uses_the_higher_line_by_the_model_its_transcript_names(self):
+        opus, sonnet = 'claude-opus-5-5', 'claude-sonnet-5-5'
+        self.agent(OLD, 350_000, model=opus)
+        self.agent(NEW, 100_000, model=sonnet)
         self.assertTrue(self.beat().startswith('QUIET'))
-        self.agent(OLD, 395_000)
+        self.agent(OLD, 395_000, model=opus)
         self.assertIn(OLD, self.beat())
-        self.agent(NEW, 295_000)
-        self.assertIn(NEW, self.beat())
+        self.agent(OLD, 350_000, model=opus)
+        self.agent(NEW, 295_000, model=sonnet)
+        out = self.beat()
+        self.assertEqual((NEW in out, OLD in out), (True, False))
+        self.assertTrue(self.beat('--ctx-k', '300').startswith('QUIET'))
+        out = self.beat('--ctx-k', '300', '--opus-ctx-k', '350')
+        self.assertEqual((NEW in out, OLD in out), (False, True))
+
+    def test_a_list_of_opus_ids_no_longer_sets_a_line(self):
+        (self.records / 'opus_ids.txt').write_text(OLD + '\n')
+        self.agent(OLD, 350_000, model='claude-sonnet-5-5')
+        self.assertIn(OLD, self.beat())
+        self.assertNotIn('opus_ids', SCRIPT.read_text())
 
     def test_stalled_agent_alarms(self):
         self.agent(OLD, 50_000, age=2000)
@@ -123,7 +134,9 @@ class HeartbeatTests(unittest.TestCase):
         self.assertTrue(self.beat().startswith('QUIET'))
 
     def test_bad_arguments_exit_2(self):
-        for extra in ([], ['--project'], ['--bogus', 'x']):
+        base = ['--project', 'p', '--session', 's']
+        for extra in ([], ['--project'], ['--bogus', 'x'], base + ['--near-s', '0'], base + ['--near-s', 'soon'],
+                      base + ['--near-calls', '-1'], base + ['--near-calls', 'many']):
             done = subprocess.run(['bash', str(SCRIPT), *extra], capture_output=True, text=True)
             self.assertEqual(done.returncode, 2)
             self.assertIn('usage: heartbeat.sh', done.stderr)

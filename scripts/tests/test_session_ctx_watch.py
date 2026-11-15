@@ -31,13 +31,13 @@ def stamp(seconds):
     return datetime.fromtimestamp(T0 + seconds, timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
 
-def assistant(n, seconds, mid, tokens=0, tool=None, text=None):
+def assistant(n, seconds, mid, tokens=0, tool=None, text=None, model=None):
     content = [{'type': 'text', 'text': text}] if text else []
     if tool:
         content.append({'type': 'tool_use', 'id': tool, 'name': 'Bash', 'input': {}})
     usage = {'input_tokens': 10, 'cache_read_input_tokens': tokens, 'cache_creation_input_tokens': 0}
-    return {'type': 'assistant', 'uuid': 'u%d' % n, 'timestamp': stamp(seconds),
-            'message': {'id': mid, 'content': content, 'usage': usage}}
+    message = {'id': mid, 'content': content, 'usage': usage, **({'model': model} if model else {})}
+    return {'type': 'assistant', 'uuid': 'u%d' % n, 'timestamp': stamp(seconds), 'message': message}
 
 
 def user(n, seconds):
@@ -110,6 +110,20 @@ class CtxWatchTests(unittest.TestCase):
         self.assertEqual(self.ids('--over', '300'), [B, C])
         self.assertEqual(self.ids('--over', '300', '--busy'), [B])
         self.assertEqual(self.watch('--over', '900')[1], 'none\n')
+
+    def test_an_opus_agent_has_its_own_line_and_the_model_comes_from_its_transcript(self):
+        opus, sonnet = 'claude-opus-5-5', 'claude-sonnet-5-5'
+        for aid, model, tokens in ((A, opus, 350_000), (B, sonnet, 350_000), (C, None, 350_000), ('d' + A[1:], opus, 395_000),
+                                   ('f' + A[1:], 'claude-opus-4-1-20250805', 380_000)):
+            self.agent(aid, [user(1, 0), assistant(2, 10, 'm-' + aid, tokens, tool='t-' + aid, model=model)])
+        # A synthetic entry after the real turns (no id, so its zero usage is not the last turn's) names no model.
+        synthetic = assistant(4, 12, '', 0, text='API Error', model='<synthetic>')
+        synthetic['message'].pop('id')
+        self.agent('e' + A[1:], [user(1, 0), assistant(2, 10, 'm-e', 350_000, tool='t-e', model=opus), user(3, 11), synthetic])
+        self.assertEqual(self.ids('--over', '290', '--opus-over', '390'), [B, C, 'd' + A[1:]])
+        self.assertEqual(self.ids('--over', '300', '--opus-over', '200'), [A, B, C, 'd' + A[1:], 'e' + A[1:], 'f' + A[1:]])
+        self.assertEqual(self.ids('--over', '290'), [A, B, C, 'd' + A[1:], 'e' + A[1:], 'f' + A[1:]])
+        self.assertEqual(self.ids('--over', '900', '--opus-over', '100'), [A, 'd' + A[1:], 'e' + A[1:], 'f' + A[1:]])
 
     def test_stalled_keeps_old_busy_agents_only(self):
         self.busy(A, 50_000, last=10)

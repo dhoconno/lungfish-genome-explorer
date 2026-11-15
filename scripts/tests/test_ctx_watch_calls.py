@@ -23,6 +23,10 @@ SID = '11111111-2222-3333-4444-555555555555'
 A, B, C, D = ('%s0123456789abcdef' % c for c in 'abcd')
 START = datetime(2026, 11, 14, 8, 0, tzinfo=timezone.utc)
 FAKE_DF = '#!/bin/sh\necho "Filesystem 1024-blocks Used Available Capacity Mounted on"\necho "/dev/fake 99 1 $FAKE_DF_KB 1% /"\n'
+# A sleep that returns at once. It logs its argument, and after its Nth call copies the file SLEEP_SWAP/N over SLEEP_TARGET,
+# so a test can move an agent's transcript on while the heartbeat waits.
+FAKE_SLEEP = ('#!/bin/sh\necho "$1" >> "$SLEEP_LOG"\nn=$(wc -l < "$SLEEP_LOG" | tr -d " ")\n'
+              'if [ -f "$SLEEP_SWAP/$n" ]; then cp "$SLEEP_SWAP/$n" "$SLEEP_TARGET"; fi\n')
 
 
 def load(path, name):
@@ -221,6 +225,16 @@ class CallsTests(unittest.TestCase):
         self.assertEqual(self.check(), ['CALLS %s 5/5' % A])
 
 
+    def test_near_adds_a_line_for_each_running_agent_within_n_calls_below_its_line(self):
+        for aid, calls in ((A, 4), (B, 5), (C, 19), (D, 20)):
+            self.session.agent(aid, 'Stop at 20 calls.', calls)
+        self.session.agent('e0123456789abcdef', 'Stop at 20 calls.', 12, final=True)
+        self.session.agent('f0123456789abcdef', 'No line here.', 19)
+        self.assertEqual(self.check(), ['CALLS %s 20/20' % D])
+        self.assertEqual(self.check('--near', '15'), ['NEAR %s 5/20' % B, 'NEAR %s 19/20' % C, 'CALLS %s 20/20' % D])
+        self.assertEqual(self.check('--near', '0'), ['CALLS %s 20/20' % D])
+
+
 class TypeLineTests(unittest.TestCase):
     CASES = [
         ('Write your Handoff at 75 calls and stop at 85 calls or 300K of context. Docs work stops at 60.', 85),
@@ -274,14 +288,22 @@ class HeartbeatCallsTests(unittest.TestCase):
     def setUp(self):
         self.session = Session(self, datetime.now(timezone.utc) - timedelta(minutes=5))
         self.records, self.bin = self.session.root / 'records', self.session.root / 'bin'
-        self.records.mkdir()
-        self.bin.mkdir()
-        (self.bin / 'df').write_text(FAKE_DF)
-        (self.bin / 'df').chmod(0o755)
+        self.swap, self.sleeps = self.session.root / 'swap', self.session.root / 'sleeps.log'
+        for folder in (self.records, self.bin, self.swap):
+            folder.mkdir()
+        for name, text in (('df', FAKE_DF), ('sleep', FAKE_SLEEP)):
+            (self.bin / name).write_text(text)
+            (self.bin / name).chmod(0o755)
+
+    def slept(self):
+        """The seconds each wait of the last beat asked for."""
+        return self.sleeps.read_text().split()
 
     def beat(self, *extra):
+        self.sleeps.write_text('')
         env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ['PATH'], PYTHON=sys.executable,
-                   FAKE_DF_KB=str(500 * 1048576))
+                   FAKE_DF_KB=str(500 * 1048576), SLEEP_LOG=str(self.sleeps), SLEEP_SWAP=str(self.swap),
+                   SLEEP_TARGET=str(self.session.sub / ('agent-%s.jsonl' % A)))
         command = ['bash', str(HEARTBEAT), '--project', str(self.session.project), '--session', SID, '--records',
                    str(self.records), '--interval', '0', '--rounds', '1', '--no-memwatch', *extra]
         done = subprocess.run(command, capture_output=True, text=True, env=env, timeout=60)
@@ -313,6 +335,59 @@ class HeartbeatCallsTests(unittest.TestCase):
         self.session.agent(A, 'Stop at 2 calls.', 2)
         out = self.beat('--rounds', '3')
         self.assertEqual((out.count('ALARM'), 'QUIET' in out), (1, False))
+
+    def test_an_id_in_stop_sent_is_not_alarmed_for_its_calls_and_blank_lines_and_notes_name_nobody(self):
+        self.session.agent(A, 'Stop at 2 calls.', 4)
+        self.session.agent(B, 'Stop at 2 calls.', 4)
+        (self.records / 'stop_sent.txt').write_text('\n# sent 07:22\n' + A + '\n\n')
+        lines = self.beat().splitlines()
+        self.assertEqual((lines[0][:6], lines[1:]), ('ALARM ', ['CALLS %s 4/2' % B]))
+        (self.records / 'stop_sent.txt').write_text(A + '\n' + B + '\n')
+        self.assertTrue(self.beat().startswith('QUIET '))
+
+    def test_a_short_id_in_stop_sent_names_the_agents_whose_ids_start_with_it(self):
+        self.session.agent(A, 'Stop at 2 calls.', 4)
+        (self.records / 'stop_sent.txt').write_text(A[:8] + '\n')
+        self.assertTrue(self.beat().startswith('QUIET '))
+
+    def test_stop_sent_leaves_the_context_line_alone(self):
+        self.session.agent(A, 'Stop at 2 calls.', 4, tokens=350_000)
+        (self.records / 'stop_sent.txt').write_text(A + '\n')
+        out = self.beat()
+        self.assertEqual((out[:6], A in out, 'CALLS' in out), ('ALARM ', True, False))
+
+    def test_the_first_look_comes_before_any_wait_and_a_quiet_run_waits_once_for_each_round(self):
+        self.session.agent(A, 'Stop at 3 calls.', 3)
+        out = self.beat('--interval', '3600')
+        self.assertEqual((out.splitlines()[1:], self.slept()), (['CALLS %s 3/3' % A], []))
+        self.session.agent(A, 'Stop at 80 calls.', 2)
+        self.assertEqual((self.beat('--interval', '300', '--rounds', '3')[:6], self.slept()), ('QUIET ', ['300'] * 3))
+
+    def test_an_agent_within_fifteen_calls_of_its_line_is_checked_every_minute(self):
+        self.session.agent(A, 'Stop at 30 calls.', 14)
+        self.assertEqual((self.beat('--interval', '300')[:6], self.slept()), ('QUIET ', ['300']))
+        self.session.agent(A, 'Stop at 30 calls.', 15)
+        self.assertEqual((self.beat('--interval', '300')[:6], self.slept()), ('QUIET ', ['60'] * 5))
+
+    def test_a_crossing_during_the_wait_ends_it_at_the_next_minute(self):
+        self.session.agent(A, 'Stop at 30 calls.', 20)
+        later = transcript('Stop at 30 calls.', 30, self.session.when, False, 10_000)
+        (self.swap / '2').write_text(''.join(json.dumps(e) + '\n' for e in later))
+        lines = self.beat('--interval', '300').splitlines()
+        self.assertEqual((lines[0][:6], lines[1:], self.slept()), ('ALARM ', ['CALLS %s 30/30' % A], ['60', '60']))
+
+    def test_an_agent_told_to_stop_or_ended_keeps_the_usual_wait_and_the_limits_are_options(self):
+        self.session.agent(A, 'Stop at 30 calls.', 20)
+        self.session.agent(B, 'Stop at 30 calls.', 25)
+        (self.records / 'stop_sent.txt').write_text(A + '\n')
+        (self.records / 'done_ids.txt').write_text(B + '\n')
+        self.assertEqual((self.beat('--interval', '300')[:6], self.slept()), ('QUIET ', ['300']))
+        (self.records / 'stop_sent.txt').write_text('')
+        (self.records / 'done_ids.txt').write_text('')
+        self.assertEqual(self.beat('--interval', '300', '--near-calls', '4')[:6], 'QUIET ')
+        self.assertEqual(self.slept(), ['300'])
+        self.assertEqual(self.beat('--interval', '300', '--near-calls', '10', '--near-s', '100')[:6], 'QUIET ')
+        self.assertEqual(self.slept(), ['100'] * 3)
 
     def test_the_script_has_no_syntax_error(self):
         self.assertEqual(subprocess.run(['bash', '-n', str(HEARTBEAT)], capture_output=True).returncode, 0)
