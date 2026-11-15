@@ -9,5 +9,6 @@ OPTIONS:
 SUBCOMMANDS:
   reference-set           Build a reference set from a genome, an annotation
                           and extra sequences
+  index                   Build or reuse the salmon index of a reference set
 
   See 'lungfish-cli help rnaseq <subcommand>' for detailed help.

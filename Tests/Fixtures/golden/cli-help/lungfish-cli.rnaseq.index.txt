@@ -1,0 +1,34 @@
+OVERVIEW: Build or reuse the salmon index of a reference set
+
+Lungfish writes the set's transcripts and then its genome as decoys into one
+file, runs salmon index with the same options every time, and keeps the index
+under the storage root by set, salmon version, k and decoys. A second request
+of the same index reuses it and starts no salmon.
+
+A build needs about 16.6 GB of memory and 64 GB of free disk. On a Mac with
+less, Lungfish refuses before it starts and says how to build the index on
+Linux.
+
+USAGE: lungfish-cli rnaseq index [<options>] --set <set>
+
+OPTIONS:
+  --set <set>             The id of a reference set under the storage root
+  --k <k>                 k-mer length, an odd number up to 31 (default: 31)
+  --decoys <decoys>       genome (the default) to add the genome as decoys, or
+                          none (default: genome)
+  --storage-root <storage-root>
+                          Managed storage root (default: the configured
+                          location)
+  --format <format>       Output format (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

@@ -16,7 +16,7 @@ extension RNASeqCommand {
 
         static let configuration = CommandConfiguration(
             commandName: "index",
-            abstract: "Build the salmon index of a reference set, or reuse the one already built",
+            abstract: "Build or reuse the salmon index of a reference set",
             discussion: """
                 Lungfish writes the set's transcripts and then its genome as decoys into one file, runs salmon index with the same options every time, and keeps the index under the storage root by set, salmon version, k and decoys. A second request of the same index reuses it and starts no salmon.
 

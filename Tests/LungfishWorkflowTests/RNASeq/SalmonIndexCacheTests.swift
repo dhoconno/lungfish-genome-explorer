@@ -321,7 +321,7 @@ final class SalmonIndexCacheTests: XCTestCase {
                        transcripts + Data(ReferenceSetOwnerTests.genome.utf8))
         XCTAssertEqual(try String(contentsOf: capture.appendingPathComponent("decoys.txt"), encoding: .utf8), "chr1\nMT\n")
         let argv = try XCTUnwrap(log().first).split(separator: " ").map(String.init)
-        XCTAssertEqual(argv.count, 12)
+        XCTAssertEqual(argv.count, 13)
         XCTAssertEqual([argv[0], argv[1], argv[3]], ["index", "-t", "-d"])
         XCTAssertEqual(Array(argv[5...]).dropLast(), ["-k", "31", "-p", "8", "--ramLimit", "4", "-i"])
         XCTAssertFalse(FileManager.default.fileExists(atPath: outcome.url.appendingPathComponent(".work").path))
