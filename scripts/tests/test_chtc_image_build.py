@@ -461,6 +461,24 @@ class StubbedBuildTests(unittest.TestCase):
             manifest_calls[0],
         )
 
+    def test_verify_step_imports_what_umi_tools_dedup_needs_and_prints_the_four_versions(self):
+        # EX-IMAGE-SWIFT should-fix 2. umi_tools has no Linux run, and its pandas is 3.1.1 where 5.0 has 2.3.3. Only
+        # umi_tools/dedup.py imports pandas, which `umi_tools --version` never reaches, so the verify step imports it with
+        # the rnaseq prefix's own python before the conda-meta listing, and tool-versions.txt brings the import result and
+        # the four versions home for BIO to read.
+        harness = Harness(self)
+        self.assertEqual(harness.run().returncode, 0)
+        verifies = [line for line in harness.calls() if line.startswith("apptainer exec ") and " bash -c " in line]
+        self.assertEqual(len(verifies), 1)
+        script = verifies[0]
+        statement = (
+            '/opt/lge/rnaseq/bin/python3 -I -c "import pandas, numpy, scipy, pysam, umi_tools.dedup; '
+            'print(pandas.__version__, numpy.__version__, scipy.__version__, pysam.__version__)"'
+        )
+        self.assertIn(statement, script)
+        self.assertLess(script.index("/opt/lge/rnaseq/bin/umi_tools --version"), script.index(statement))
+        self.assertLess(script.index(statement), script.index("ls /opt/lge/rnaseq/conda-meta"))
+
     def test_executor_is_gone_from_the_sandbox_before_the_sif_is_built(self):
         harness = Harness(self)
         self.assertEqual(harness.run().returncode, 0)
