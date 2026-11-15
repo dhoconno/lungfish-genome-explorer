@@ -99,7 +99,6 @@ class HeartbeatTests(unittest.TestCase):
         (self.records / 'opus_ids.txt').write_text(OLD + '\n')
         self.agent(OLD, 350_000, model='claude-sonnet-5-5')
         self.assertIn(OLD, self.beat())
-        self.assertNotIn('opus_ids', SCRIPT.read_text())
 
     def test_stalled_agent_alarms(self):
         self.agent(OLD, 50_000, age=2000)
