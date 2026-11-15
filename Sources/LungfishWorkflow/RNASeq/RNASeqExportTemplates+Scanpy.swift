@@ -86,6 +86,8 @@ for sample, table in zip(samples["sample_id"], tables):
     print("cells %s %d" % (sample, len(table)))
 print("cells total %d" % len(cells))
 print("not-host features %d" % len(not_host))
+# The AnnData holds every feature type in X, so Antibody Capture rows count with the genes. Subset by var["type"] before normalising.
+print("features %d, of them %d not %s" % (len(ids), int((info["type"] != feature_type).sum()), feature_type))
 try:
     import scanpy as sc
 except ImportError:

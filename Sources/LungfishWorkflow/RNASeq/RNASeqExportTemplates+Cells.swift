@@ -56,6 +56,8 @@ write.table(cells, "seurat-cells.tsv", sep = "\t", quote = FALSE, row.names = FA
 for (i in seq_len(nrow(samples))) cat(sprintf("cells %s %d\n", samples$sample_id[i], nrow(tables[[i]])))
 cat(sprintf("cells total %d\n", nrow(cells)))
 cat(sprintf("not-host features %d\n", length(not_host)))
+# The object holds every feature type in its RNA assay, so Antibody Capture rows count in nCount_RNA. Subset by type before normalising.
+cat(sprintf("features %d, of them %d not %s\n", nrow(combined), sum(info$type != feature_type), feature_type))
 if (requireNamespace("Seurat", quietly = TRUE)) {
   object <- Seurat::CreateSeuratObject(counts = combined, project = "lungfish", meta.data = data.frame(sample = cells$sample, row.names = cells$cell))
   # Seurat writes "-" for "_" in a feature name and takes feature data only as a vector named by its own names, so match by position.

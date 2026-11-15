@@ -17,7 +17,7 @@ public enum RNASeqExportTemplates {
     static func settingsBlock(_ s: RNASeqExportSettings, minimumAnimals: Int? = nil) -> String {
         let terms = s.design.map(rString).joined(separator: ", ")
         let contrasts = s.contrasts.map { "c(\(rString($0.factor)), \(rString($0.numerator)), \(rString($0.denominator)))" }.joined(separator: ", ")
-        let animals = minimumAnimals.map { "min_animals <- \($0)   # fewest animals in each level of the tested factor, the rule of a pseudobulk comparison\n" } ?? ""
+        let animals = minimumAnimals.map { "min_animals <- \($0)   # fewest animals in each level a contrast compares, the rule of a pseudobulk comparison\n" } ?? ""
         return #"""
         # ---- Settings written by the export. Edit them here and run the script again. ----
         padj_cutoff <- \#(s.padjCutoff)   # the adjusted p-value cutoff you picked
@@ -80,18 +80,18 @@ public enum RNASeqExportTemplates {
     }
     """#
 
-    /// The animals rule of a pseudobulk export, in the words of `RNASeqExportDesignCheck.AnimalWords`. Both templates run it right
-    /// after the files are read, so an export edited down to 2 animals in a level stops before anything is fitted.
+    /// The animals rule of a pseudobulk export, in the words of `RNASeqExportDesignCheck.AnimalWords` and on the levels of
+    /// `RNASeqExportDesignCheck.comparedLevels`. Both templates run it right after the files are read, so an export edited down to
+    /// 2 animals in a compared level stops before anything is fitted.
     static var animalsBlock: String {
         typealias Words = RNASeqExportDesignCheck.AnimalWords
         let none = rString(Words.rFormat(Words.none, order: ["columns", "ids", "hold", "sheet"]))
-        let level = rString(Words.rFormat(Words.level, order: ["level", "count", "animals", "names"]))
-        let tooFew = rString(Words.rFormat(Words.tooFew, order: ["min", "factor", "levels"]))
+        let level = rString(Words.rFormat(Words.level, order: ["level", "factor", "count", "animals", "names"]))
+        let tooFew = rString(Words.rFormat(Words.tooFew, order: ["min", "levels"]))
         return #"""
-        check_animals <- function(coldata, design_terms, min_animals) {
+        check_animals <- function(coldata, design_terms, contrasts, min_animals) {
           if (length(design_terms) == 0) return(invisible(NULL))
-          term <- design_terms[length(design_terms)]
-          animal <- if ("animal" %in% colnames(coldata)) trimws(as.character(coldata[["animal"]])) else rep("", nrow(coldata))
+          animal <-if ("animal" %in% colnames(coldata)) trimws(as.character(coldata[["animal"]])) else rep("", nrow(coldata))
           animal[is.na(animal)] <- ""
           missing <- rownames(coldata)[animal == ""]
           n <- length(missing)
@@ -101,22 +101,32 @@ public enum RNASeqExportTemplates {
                      else paste0(paste(missing[-n], collapse = ", "), " and ", missing[n])
             stop(sprintf(\#(none), if (n == 1) "column" else "columns", shown, if (n == 1) "holds" else "hold", "samples.tsv"), call. = FALSE)
           }
-          level <- as.character(coldata[[term]])
+          # Each contrast compares two levels of its own factor, counted in contrast order, the two in code-point order, each once.
+          # A level no contrast names is not counted. With no contrast every level of the last design term is counted.
+          if (length(contrasts) > 0) {
+            pair_factor <- unlist(lapply(contrasts, function(cn) rep(cn[1], 2)))
+            pair_level <- unlist(lapply(contrasts, function(cn) sort(cn[2:3], method = "radix")))
+          } else {
+            term <- design_terms[length(design_terms)]
+            pair_level <- sort(unique(as.character(coldata[[term]])), method = "radix")
+            pair_factor <- rep(term, length(pair_level))
+          }
           found <- character()
-          for (l in sort(unique(level), method = "radix")) {
-            kept <- sort(unique(animal[which(level == l)]), method = "radix")
+          for (i in which(!duplicated(cbind(pair_factor, pair_level)))) {
+            held <- as.character(coldata[[pair_factor[i]]])
+            kept <- sort(unique(animal[which(held == pair_level[i])]), method = "radix")
             if (length(kept) < min_animals) {
-              found <- c(found, sprintf(\#(level), l, length(kept), if (length(kept) == 1) "animal" else "animals", paste(kept, collapse = ", ")))
+              found <- c(found, sprintf(\#(level), pair_level[i], pair_factor[i], length(kept), if (length(kept) == 1) "animal" else "animals", paste(kept, collapse = ", ")))
             }
           }
-          if (length(found) > 0) stop(sprintf(\#(tooFew), min_animals, term, paste(found, collapse = ", and ")), call. = FALSE)
+          if (length(found) > 0) stop(sprintf(\#(tooFew), min_animals, paste(found, collapse = ", and ")), call. = FALSE)
         }
         """#
     }
 
     /// The block and the call a pseudobulk export puts after the files are read, and nothing for a bulk export.
     static func animalsCheck(_ minimumAnimals: Int?) -> String {
-        minimumAnimals == nil ? "" : "\(animalsBlock)\ncheck_animals(coldata, design_terms, min_animals)\n"
+        minimumAnimals == nil ? "" : "\(animalsBlock)\ncheck_animals(coldata, design_terms, contrasts, min_animals)\n"
     }
 
     public static func deseq2(_ s: RNASeqExportSettings, minimumAnimals: Int? = nil) -> String {

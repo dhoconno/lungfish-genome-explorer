@@ -122,15 +122,18 @@ public enum RNASeqExportDesignCheck {
         }
     }
 
-    /// The fewest animals each level of the tested factor may hold in a pseudobulk comparison. A test on single cells takes each cell
-    /// for a replicate and gives false discoveries, so LGE counts the animals of a level and not its cells.
+    /// The fewest animals each compared level may hold in a pseudobulk comparison. A test on single cells takes each cell for a
+    /// replicate and gives false discoveries, so LGE counts the animals of a level and not its cells.
     public static let minimumAnimals = 3
 
-    /// The animals rule of a pseudobulk export. The tested factor is the last `--design` term. A column with no animal is refused
-    /// first, then each level of the factor with columns of fewer than `minimumAnimals` animals. With no design there is no tested
-    /// factor and nothing is counted. `deseq2.R` and `edger-limma-dream.R` run the same rule in the same words before the fit.
+    /// The animals rule of a pseudobulk export. Each contrast compares two levels of its own factor, and those are the levels counted,
+    /// in contrast order, the two of one contrast in code-point order, each once. A level no contrast names is not counted, since
+    /// DESeq2's contrast of two levels does not move with a third. With no contrast every level of the last `--design` term is
+    /// counted. A column with no animal is refused first, then each counted level with columns of fewer than `minimumAnimals`
+    /// animals, and a named level that no column holds counts 0. With no design nothing is counted. `deseq2.R` and
+    /// `edger-limma-dream.R` run the same rule in the same words before the fit.
     public static func checkAnimals(_ settings: RNASeqExportSettings, samples: RNASeqExportSampleTable) throws {
-        guard let factor = settings.design.last else { return }
+        guard let tested = settings.design.last else { return }
         let ids = samples.values(of: "sample_id") ?? samples.rows.map { $0.first ?? "" }
         let animals = (samples.values(of: "animal") ?? ids.map { _ in "" }).map { $0.trimmingCharacters(in: .whitespaces) }
         let missing = ids.indices.filter { animals[$0].isEmpty }.map { ids[$0] }
@@ -140,28 +143,45 @@ public enum RNASeqExportDesignCheck {
                 "columns": missing.count == 1 ? "column" : "columns", "ids": shown, "hold": missing.count == 1 ? "holds" : "hold", "sheet": "--sample-sheet",
             ]))
         }
-        let levels = samples.values(of: factor) ?? []
         var found: [String] = []
-        for level in Array(Set(levels)).sorted() {
+        for (factor, level) in comparedLevels(settings, tested: tested, samples: samples) {
+            let levels = samples.values(of: factor) ?? []
             let names = Array(Set(zip(levels, animals).filter { $0.0 == level }.map(\.1))).sorted()
             guard names.count < minimumAnimals else { continue }
             found.append(AnimalWords.fill(AnimalWords.level, [
-                "level": level, "count": "\(names.count)", "animals": names.count == 1 ? "animal" : "animals", "names": names.joined(separator: ", "),
+                "level": level, "factor": factor, "count": "\(names.count)", "animals": names.count == 1 ? "animal" : "animals",
+                "names": names.joined(separator: ", "),
             ]))
         }
         if !found.isEmpty {
-            throw RNASeqExportRefusal(AnimalWords.fill(AnimalWords.tooFew, ["min": "\(minimumAnimals)", "factor": factor, "levels": found.joined(separator: ", and ")]))
+            throw RNASeqExportRefusal(AnimalWords.fill(AnimalWords.tooFew, ["min": "\(minimumAnimals)", "levels": found.joined(separator: ", and ")]))
         }
+    }
+
+    /// The (factor, level) pairs the animals rule counts: the two levels of each contrast on its own factor, in contrast order and
+    /// in code-point order within a contrast, each once, or with no contrast every level of the tested factor in code-point order.
+    static func comparedLevels(_ settings: RNASeqExportSettings, tested: String, samples: RNASeqExportSampleTable) -> [(factor: String, level: String)] {
+        guard !settings.contrasts.isEmpty else {
+            return Array(Set(samples.values(of: tested) ?? [])).sorted().map { (factor: tested, level: $0) }
+        }
+        var pairs: [(factor: String, level: String)] = []
+        for contrast in settings.contrasts {
+            for level in [contrast.numerator, contrast.denominator].sorted()
+            where !pairs.contains(where: { $0.factor == contrast.factor && $0.level == level }) {
+                pairs.append((factor: contrast.factor, level: level))
+            }
+        }
+        return pairs
     }
 
     /// The words of the animals rule, one text for Swift and R. A field is written `{name}`. The scripts carry each text as an R
     /// `sprintf` format made by `rFormat`, so `deseq2.R` stops with the words of the refusal. Only the sheet differs, which is
     /// `--sample-sheet` here and `samples.tsv` in the script.
     enum AnimalWords {
-        static let tooFew = "A pseudobulk comparison needs columns of at least {min} animals in each level of {factor}, "
+        static let tooFew = "A pseudobulk comparison needs columns of at least {min} animals in each level it compares, "
             + "because tests on single cells give false discoveries, so LGE counts animals and not cells. "
-            + "Here {levels}. Add animals so that each level holds {min} or more, or compare levels that already do."
-        static let level = "the level {level} holds columns of {count} {animals} ({names})"
+            + "Here {levels}. Add animals so that each compared level holds {min} or more, or compare levels that already do."
+        static let level = "the level {level} of {factor} holds columns of {count} {animals} ({names})"
         static let none = "The pseudobulk {columns} {ids} {hold} no animal. LGE counts animals and not cells in a pseudobulk comparison, "
             + "because tests on single cells give false discoveries, so each column needs its animal. "
             + "Give the animal of each column in the animal column of {sheet}."
