@@ -37,12 +37,18 @@ package struct PlanSampleFill: Sendable, Equatable {
     package var sampleSheet: [PlanKeyValue]
     /// Each input's SHA-256 and size, in the order of `originalFilenames`.
     package var inputs: [PlanInputFile]
+    /// Schema 2 only, the sample's instrument, which changes no argv.
+    package var instrument: PlanSampleInstrument?
 
-    package init(sampleName: String, originalFilenames: [String], sampleSheet: [PlanKeyValue] = [], inputs: [PlanInputFile]) {
+    package init(
+        sampleName: String, originalFilenames: [String], sampleSheet: [PlanKeyValue] = [], inputs: [PlanInputFile],
+        instrument: PlanSampleInstrument? = nil
+    ) {
         self.sampleName = sampleName
         self.originalFilenames = originalFilenames
         self.sampleSheet = sampleSheet
         self.inputs = inputs
+        self.instrument = instrument
     }
 }
 
@@ -72,39 +78,58 @@ package struct PlanTemplate: Sendable, Equatable {
     package var imageManifest: PlanImageManifestPin
     package var tools: [PlanToolPin]
     package var recipe: PlanRecipeIdentity?
+    /// Schema 2 only, the chain every sample's plan runs.
+    package var pipeline: PlanPipeline?
     /// The platform the import names for every sample. It is a setting, not a sample value.
     package var platform: String?
-    package var storage: PlanStorageSettings
-    package var clumping: PlanClumpingChoice
+    /// The template's `storage`, which a schema 2 template does not hold.
+    package var storageSettings: PlanStorageSettings?
+    /// The template's `clumping`, which a schema 2 template does not hold.
+    package var clumpingChoice: PlanClumpingChoice?
     package var graceSeconds: Double
     package var steps: [PlanStep]
 
+    /// `schemaVersion` nil writes 2 for a template with a `pipeline` and 1 for every other, as `ExecutionPlan` does.
     package init(
-        schemaVersion: Int = ExecutionPlan.currentSchemaVersion,
+        schemaVersion: Int? = nil,
         entries: [PlanEntry],
         inputs: [PlanInputSlot],
         executor: PlanExecutorBuild,
         imageManifest: PlanImageManifestPin,
         tools: [PlanToolPin],
         recipe: PlanRecipeIdentity?,
+        pipeline: PlanPipeline? = nil,
         platform: String?,
-        storage: PlanStorageSettings,
-        clumping: PlanClumpingChoice,
+        storage: PlanStorageSettings?,
+        clumping: PlanClumpingChoice?,
         graceSeconds: Double,
         steps: [PlanStep]
     ) {
-        self.schemaVersion = schemaVersion
+        self.schemaVersion = schemaVersion ?? ExecutionPlan.schemaVersion(forPipeline: pipeline)
         self.entries = entries
         self.inputs = inputs
         self.executor = executor
         self.imageManifest = imageManifest
         self.tools = tools
         self.recipe = recipe
+        self.pipeline = pipeline
         self.platform = platform
-        self.storage = storage
-        self.clumping = clumping
+        self.storageSettings = storage
+        self.clumpingChoice = clumping
         self.graceSeconds = graceSeconds
         self.steps = steps
+    }
+
+    /// Schema 1's storage settings, `PlanStorageSettings.absent` for a schema 2 template, as `ExecutionPlan.storage`.
+    package var storage: PlanStorageSettings {
+        get { storageSettings ?? .absent }
+        set { storageSettings = newValue }
+    }
+
+    /// Schema 1's clumping choice, `PlanClumpingChoice.absent` for a schema 2 template, as `ExecutionPlan.clumping`.
+    package var clumping: PlanClumpingChoice {
+        get { clumpingChoice ?? .absent }
+        set { clumpingChoice = newValue }
     }
 }
 
@@ -156,16 +181,19 @@ extension PlanTemplate {
             contentsOf: zip(inputs, sample.inputs).map {
                 PlanEntry(role: .input, relativePath: $0.relativePath, sha256: $1.sha256, size: $1.size)
             },
-            at: entries.firstIndex { $0.role == .database } ?? entries.count
+            // Before the first database entry, and in a schema 2 plan before the first reference or barcode list entry,
+            // which follow every other role (executor-plan.md, Which schema a plan states).
+            at: entries.firstIndex { [.database, .reference, .barcodeList].contains($0.role) } ?? entries.count
         )
         let plan = ExecutionPlan(
             schemaVersion: schemaVersion, entries: planEntries, executor: executor, imageManifest: imageManifest,
-            tools: tools, recipe: recipe,
+            tools: tools, recipe: recipe, pipeline: pipeline,
             sample: PlanSampleValues(
                 sampleName: sample.sampleName, originalFilenames: sample.originalFilenames,
-                originalSizeBytes: originalSizeBytes, platform: platform, sampleSheet: sample.sampleSheet
+                originalSizeBytes: originalSizeBytes, platform: platform, sampleSheet: sample.sampleSheet,
+                instrument: sample.instrument
             ),
-            storage: storage, clumping: clumping, graceSeconds: graceSeconds, steps: steps
+            storage: storageSettings, clumping: clumpingChoice, graceSeconds: graceSeconds, steps: steps
         )
         try plan.validate()
         return plan

@@ -38,11 +38,14 @@ package struct ExecutorStepRecord: Codable, Sendable, Equatable {
         package var path: String
         package var bytes: UInt64
         package var sha256: String
+        /// In a run of a schema 2 plan, the policy the step's `outputPolicy` names. Absent in a run of a schema 1 plan.
+        package var policy: PlanOutputPolicy?
 
-        package init(path: String, bytes: UInt64, sha256: String) {
+        package init(path: String, bytes: UInt64, sha256: String, policy: PlanOutputPolicy? = nil) {
             self.path = path
             self.bytes = bytes
             self.sha256 = sha256
+            self.policy = policy
         }
     }
 

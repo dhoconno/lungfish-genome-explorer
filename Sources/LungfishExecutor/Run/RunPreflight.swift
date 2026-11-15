@@ -123,6 +123,76 @@ enum RunFiles {
     }
 }
 
+extension RunFiles {
+    /// Places each barcode list from the image, then checks every entry but the executor's by size and SHA-256 and
+    /// states it in the record's `inputs`. The executor entry was checked as the running binary, and the run never
+    /// reads or runs the folder's copy.
+    static func checkEntries(
+        _ plan: ExecutionPlan, manifest: ImageToolManifest, resolver: PlanResourceResolver, record: inout ExecutorRunRecord
+    ) throws(RunRefusal) {
+        for (index, entry) in plan.entries.enumerated() where entry.isImageBarcodeList {
+            try placeImageFile(entry, field: "entries[\(index)]", manifest: manifest, resolver: resolver)
+        }
+        for (index, entry) in plan.entries.enumerated() where entry.role != .executor {
+            do {
+                _ = try resolver.verify(entry)
+            } catch {
+                // LGE never copies a list the person supplied, so the words say where it goes (BIO-NOTHOST-BARCODE Q2).
+                let supplied = entry.isSuppliedBarcodeList
+                    ? " LGE does not copy a barcode list you supplied. Put the list \(entry.barcodeList?.name ?? "") with SHA-256 \(entry.sha256) at \(entry.relativePath) before the run."
+                    : ""
+                throw RunRefusal(field: "entries[\(index)]", reason: "\(error.localizedDescription)\(supplied) No tool ran.")
+            }
+            record.inputs.append(entry)
+        }
+    }
+
+    /// Copies the file the tool manifest lists in `files` for `entry`'s role and SHA-256 to the entry's path, under
+    /// `barcodes/` only, through a descriptor the resolver opened with no link followed. It neither links to the file
+    /// nor reads it in place. The entry check after it reads the copy's size and SHA-256 (executor-plan.md, The barcode
+    /// list).
+    private static func placeImageFile(
+        _ entry: PlanEntry, field: String, manifest: ImageToolManifest, resolver: PlanResourceResolver
+    ) throws(RunRefusal) {
+        guard let file = manifest.file(role: entry.role, sha256: entry.sha256) else {
+            throw RunRefusal(field: field, reason: "The tool image holds no barcode list with SHA-256 \(entry.sha256), which this plan pins. No tool ran.")
+        }
+        guard entry.relativePath.hasPrefix("barcodes/") else {
+            throw RunRefusal(field: field, reason: "The plan places the image's barcode list at \(entry.relativePath), outside barcodes/. No tool ran.")
+        }
+        let source = open(file.path, O_RDONLY | O_CLOEXEC)
+        guard source >= 0 else {
+            throw RunRefusal(field: field, reason: "The image's barcode list \(file.path) cannot be read. \(String(cString: strerror(errno))) No tool ran.")
+        }
+        defer { close(source) }
+        let output: PlanOutputFile
+        do {
+            output = try resolver.openOutput(entry.relativePath)
+        } catch {
+            throw RunRefusal(field: field, reason: "The executor could not make \(entry.relativePath). \(error.localizedDescription) No tool ran.")
+        }
+        defer { output.closeDescriptor() }
+        var buffer = [UInt8](repeating: 0, count: 1 << 20)
+        while true {
+            let count = buffer.withUnsafeMutableBytes { read(source, $0.baseAddress, $0.count) }
+            if count == 0 { break }
+            if count < 0 {
+                if errno == EINTR { continue }
+                throw RunRefusal(field: field, reason: "The image's barcode list \(file.path) cannot be read. \(String(cString: strerror(errno))) No tool ran.")
+            }
+            var written = 0
+            while written < count {
+                let step = buffer.withUnsafeBytes { write(output.fileDescriptor, $0.baseAddress! + written, count - written) }
+                if step < 0, errno == EINTR { continue }
+                guard step > 0 else {
+                    throw RunRefusal(field: field, reason: "The executor could not write \(entry.relativePath). \(String(cString: strerror(errno))) No tool ran.")
+                }
+                written += step
+            }
+        }
+    }
+}
+
 /// What the executor observes of the machine itself under `root` (empty on a run, a folder in a test), never a
 /// scheduler's variable or a file one names (SWIFT preflight and identity words).
 enum RuntimeObservation {

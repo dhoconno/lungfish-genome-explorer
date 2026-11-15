@@ -248,16 +248,10 @@ enum RunCommand {
         }
 
         // The executor entry was checked as the running binary above. The run never reads or runs the folder's copy.
-        for (index, entry) in plan.entries.enumerated() where entry.role != .executor {
-            do {
-                _ = try resolver.verify(entry)
-            } catch {
-                throw RunRefusal(field: "entries[\(index)]", reason: "\(error.localizedDescription) No tool ran.")
-            }
-            record.inputs.append(entry)
-        }
-        if let refusal = RuntimeObservation.preflightRefusal(
-            heapGB: plan.storage.clumpifyHeapGB, limits: record.runtimeIdentity.observedLimits
+        try RunFiles.checkEntries(plan, manifest: manifest, resolver: resolver, record: &record)
+        // A schema 2 plan has no storage and so no clumpify heap.
+        if let storage = plan.storageSettings, let refusal = RuntimeObservation.preflightRefusal(
+            heapGB: storage.clumpifyHeapGB, limits: record.runtimeIdentity.observedLimits
         ) {
             throw refusal
         }

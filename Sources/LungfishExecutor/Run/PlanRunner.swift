@@ -54,7 +54,7 @@ struct PlanRunner {
     /// runs by it.
     static func runsArgv(_ step: PlanStep) -> Bool {
         switch step.kind {
-        case .recipe, .compress, .statistics: return true
+        case .recipe, .compress, .statistics, .tool: return true
         case .interleave: return !step.arguments.isEmpty
         case .storage, .qualityCount: return false
         }
@@ -127,7 +127,7 @@ struct PlanRunner {
                 countReads(of: step, into: &stepRecord, counted: &readCounts)
             }
             record.steps.append(stepRecord)
-            record.payloads += Self.payloads(of: stepRecord)
+            record.payloads += step.kind == .tool ? Self.homePayloads(of: stepRecord) : Self.payloads(of: stepRecord)
             guard stepRecord.outcome == .succeeded else {
                 record.outcome = stepRecord.outcome == .interrupted ? .interrupted : .failed
                 record.failedStepID = step.id
@@ -220,7 +220,8 @@ struct PlanRunner {
         adoptedSoFar = result.adoptedOrphansReaped
         record.outputs = result.outputs.map { output in
             let path = output.path.hasPrefix(prefix) ? String(output.path.dropFirst(prefix.count)) : output.path
-            return ExecutorStepRecord.Output(path: path, bytes: output.bytes, sha256: output.sha256)
+            // A schema 2 step's output carries the policy its plan names (Self.homePayloads).
+            return ExecutorStepRecord.Output(path: path, bytes: output.bytes, sha256: output.sha256, policy: step.outputPolicy?[path])
         }
         let tail = Self.stderrTail(streams.stderr, workRoot: workRoot)
         record.stderrTail = tail.text

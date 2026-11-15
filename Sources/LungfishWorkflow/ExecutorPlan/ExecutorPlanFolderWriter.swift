@@ -76,7 +76,33 @@ package enum ExecutorPlanFolderWriter {
     package static let signingKeyRefusal = "This plan carries a provenance signing key variable. A plan and the job it describes never hold a signing key, its file or its name."
 
     /// The roles a shared folder never holds, since one copy of each such file per SHA-256 serves every sample.
-    package static let sharedRoles: Set<PlanEntryRole> = [.executor, .database]
+    package static let sharedRoles: Set<PlanEntryRole> = [.executor, .database, .reference]
+
+    /// Whether a folder `write` makes holds `entry`. No folder holds a barcode list. The executor copies one from the
+    /// image, and the person places one they supplied, since LGE never copies a supplied list (BIO-NOTHOST-BARCODE Q2).
+    static func copies(_ entry: PlanEntry, shared: Bool, stagedInputs: Bool) -> Bool {
+        guard entry.role != .barcodeList else { return false }
+        return !shared || !(sharedRoles.contains(entry.role) || (stagedInputs && entry.role == .input))
+    }
+
+    /// Whether `staging.json` names `entry`: every entry a shared folder does not hold, but a barcode list from the
+    /// image, which no staging folder holds.
+    static func stages(_ entry: PlanEntry, stagedInputs: Bool) -> Bool {
+        !entry.isImageBarcodeList && !copies(entry, shared: true, stagedInputs: stagedInputs)
+    }
+
+    /// The words the caller shows the person for each barcode list they supplied: its name, SHA-256 and size and where
+    /// to put it before the run, since no folder LGE writes holds its bytes. A shared folder's list goes in the group's
+    /// staging folder under the name the batch writer's `sharedPath(_:)` gives (ExecutorPlanBatchWriter.swift).
+    package static func placements(of plan: ExecutionPlan, shared: Bool) -> [String] {
+        plan.entries.filter(\.isSuppliedBarcodeList).map { entry in
+            let file = (entry.relativePath as NSString).lastPathComponent
+            let place = shared
+                ? "in the group's staging folder as shared/\(entry.sha256)-\(file)"
+                : "at \(entry.relativePath) in the plan folder"
+            return "This plan pins the barcode list \(entry.barcodeList?.name ?? file) you supplied, SHA-256 \(entry.sha256), \(entry.size) bytes. LGE does not copy a list you supplied, so put the file \(place) before the run."
+        }
+    }
 
     /// Writes `emission` into `folder`, which must not exist yet, and returns the plan file's URL. On any refusal or
     /// failure the folder it created is removed, so no plan file is left behind.
@@ -109,13 +135,13 @@ package enum ExecutorPlanFolderWriter {
         // The node's own decoder, so the Mac refuses a plan with the node's words (tally-r2 K4-13).
         _ = try ExecutionPlan.decode(data)
         func copies(_ entry: PlanEntry) -> Bool {
-            sharedImage == nil || !(sharedRoles.contains(entry.role) || (stagedInputs && entry.role == .input))
+            Self.copies(entry, shared: sharedImage != nil, stagedInputs: stagedInputs)
         }
         var staging: Data?
         if let sharedImage {
             try check(sharedImage)
             staging = try ExecutorPlanStaging(
-                sharedFiles: plan.entries.filter { !copies($0) }.map {
+                sharedFiles: plan.entries.filter { Self.stages($0, stagedInputs: stagedInputs) }.map {
                     ExecutorPlanSharedFile(role: $0.role, relativePath: $0.relativePath, sha256: $0.sha256, size: $0.size)
                 },
                 image: sharedImage

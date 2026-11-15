@@ -11,6 +11,13 @@ package enum PlanEntryRole: String, Codable, Sendable, CaseIterable {
     case database
     case input
     case executor
+    /// Schema 2. A file of a reference set, or of an index built from one, with its `PlanReferenceIdentity`.
+    case reference
+    /// Schema 2. The 10x barcode list a step reads, with its `PlanBarcodeListIdentity`.
+    case barcodeList
+
+    /// The roles schema 2 added, which a version 1 plan never holds.
+    package static let schemaTwoRoles: Set<PlanEntryRole> = [.reference, .barcodeList]
 }
 
 /// The identity a database index file carries beside its digest (C1 lane L5): the fields of the engine's own
@@ -57,14 +64,29 @@ package struct PlanEntry: Codable, Sendable, Equatable {
     package var size: Int64
     /// Present for a `database` entry only.
     package var database: PlanDatabaseIdentity?
+    /// Present for a `reference` entry only (schema 2).
+    package var reference: PlanReferenceIdentity?
+    /// Present for a `barcodeList` entry only (schema 2).
+    package var barcodeList: PlanBarcodeListIdentity?
 
-    package init(role: PlanEntryRole, relativePath: String, sha256: String, size: Int64, database: PlanDatabaseIdentity? = nil) {
+    package init(
+        role: PlanEntryRole, relativePath: String, sha256: String, size: Int64, database: PlanDatabaseIdentity? = nil,
+        reference: PlanReferenceIdentity? = nil, barcodeList: PlanBarcodeListIdentity? = nil
+    ) {
         self.role = role
         self.relativePath = relativePath
         self.sha256 = sha256
         self.size = size
         self.database = database
+        self.reference = reference
+        self.barcodeList = barcodeList
     }
+
+    /// Whether the executor copies the file from the image's tool manifest, so no folder LGE writes holds it.
+    package var isImageBarcodeList: Bool { role == .barcodeList && barcodeList?.source == .image }
+
+    /// Whether the person places the file, a barcode list they supplied, so no folder LGE writes holds it.
+    package var isSuppliedBarcodeList: Bool { role == .barcodeList && barcodeList?.source == .supplied }
 }
 
 /// The SHA-256 and size of the image's tool manifest, with no path (SWIFT ruling Q-K4-1).

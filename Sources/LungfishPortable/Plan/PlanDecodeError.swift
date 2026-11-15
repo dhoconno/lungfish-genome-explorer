@@ -83,6 +83,23 @@ package struct PlanDecodeError: Error, Equatable, Sendable, LocalizedError, Cust
         }
     }
 
+    /// A plan of a version this build does not read, refused before any other key is read.
+    package static func unreadableSchemaVersion(_ version: Int) -> PlanDecodeError {
+        PlanDecodeError(field: "schemaVersion", reason: "This plan has schema version \(version), and this executor reads versions 1 and 2.")
+    }
+
+    /// A version 1 plan that holds `field`, a key, role or kind that schema 2 added. For a role or a kind `field`
+    /// names the key and its value, such as `entries[3].role reference`.
+    package static func schemaTwoContent(field: String, holding: String? = nil) -> PlanDecodeError {
+        let named = holding.map { "\(field) \($0)" } ?? field
+        return PlanDecodeError(field: field, reason: "This plan has schema version 1 and holds \(named), which schema 2 added.")
+    }
+
+    /// A schema 2 plan that holds `key`, which only schema 1 holds.
+    package static func schemaOneKey(_ key: String) -> PlanDecodeError {
+        PlanDecodeError(field: key, reason: "This plan has schema version 2 and holds \(key), which a schema 2 plan does not hold.")
+    }
+
     private static func missing(field: String) -> PlanDecodeError {
         switch field {
         case "storage.clumpingTool", "clumping.resolved":
@@ -98,8 +115,14 @@ package struct PlanDecodeError: Error, Equatable, Sendable, LocalizedError, Cust
 extension ExecutionPlan {
     /// The checks every decoded plan passes before the executor reads any input past it.
     package func validate() throws {
-        guard schemaVersion == Self.currentSchemaVersion else {
-            throw PlanDecodeError(field: "schemaVersion", reason: "This plan has schema version \(schemaVersion), and this executor reads version \(Self.currentSchemaVersion).")
+        guard Self.readableSchemaVersions.contains(schemaVersion) else {
+            throw PlanDecodeError.unreadableSchemaVersion(schemaVersion)
+        }
+        let isSchemaTwo = schemaVersion == Self.pipelineSchemaVersion
+        if isSchemaTwo {
+            try validateSchemaTwoKeys()
+        } else {
+            try refuseSchemaTwoContent()
         }
         try validateEntries()
         try Self.checkDigest(imageManifest.sha256, field: "imageManifest.sha256")
@@ -110,12 +133,15 @@ extension ExecutionPlan {
         for (index, tool) in tools.enumerated() where tool.id.isEmpty || !toolIDs.insert(tool.id).inserted {
             throw PlanDecodeError(field: "tools[\(index)].id", reason: "This plan pins the tool \(tool.id) twice or with no id.")
         }
-        try validateStorage()
-        try validateClumping()
+        if let storage = storageSettings, let clumping = clumpingChoice {
+            try Self.validateStorage(storage)
+            try Self.validateClumping(clumping, storage: storage)
+        }
         guard graceSeconds.isFinite, graceSeconds > 0, graceSeconds <= Self.maximumGraceSeconds else {
             throw PlanDecodeError(field: "graceSeconds", reason: "This plan gives a grace of \(graceSeconds) seconds. A plan's grace is above 0 and at most \(Int(Self.maximumGraceSeconds)) seconds.")
         }
         try validateSteps()
+        if isSchemaTwo { try validateSchemaTwoRules() }
     }
 
     private func validateEntries() throws {
@@ -133,15 +159,18 @@ extension ExecutionPlan {
             guard entry.size >= 0 else {
                 throw PlanDecodeError(field: "\(field).size", reason: "This plan gives \(entry.relativePath) a negative size.")
             }
-            guard (entry.role == .database) == (entry.database != nil) else {
-                throw PlanDecodeError(field: "\(field).database", reason: "A database entry carries its id, version and format, and no other entry does.")
+            // Each role with an identity key of its own carries it, and no other entry does (ARCH ruling Q3 of
+            // EX-SCHEMA).
+            for (role, key, holds) in Self.identityKeys(of: entry) where (entry.role == role) != holds {
+                throw PlanDecodeError(field: "\(field).\(key)", reason: Self.identitySentence[role] ?? "")
             }
             counts[entry.role, default: 0] += 1
         }
         guard counts[.executor, default: 0] == 1 else {
             throw PlanDecodeError(field: "entries", reason: "A plan pins exactly one executor entry.")
         }
-        guard counts[.input, default: 0] >= 1 else {
+        // A schema 2 plan with no input entry, such as an index build, pins a reference instead (Schema 2).
+        guard counts[.input, default: 0] >= 1 || schemaVersion == Self.pipelineSchemaVersion else {
             throw PlanDecodeError(field: "entries", reason: "A plan pins at least one input entry.")
         }
         guard counts[.recipe, default: 0] == (recipe == nil ? 0 : 1) else {
@@ -152,7 +181,7 @@ extension ExecutionPlan {
         }
     }
 
-    private func validateStorage() throws {
+    private static func validateStorage(_ storage: PlanStorageSettings) throws {
         guard storage.threads > 0 else {
             throw PlanDecodeError(field: "storage.threads", reason: "This plan names \(storage.threads) storage threads. A plan must name a positive thread count, since no value may mean every core.")
         }
@@ -179,7 +208,7 @@ extension ExecutionPlan {
         }
     }
 
-    private func validateClumping() throws {
+    private static func validateClumping(_ clumping: PlanClumpingChoice, storage: PlanStorageSettings) throws {
         guard clumping.resolved == storage.clumpingTool else {
             throw PlanDecodeError(field: "clumping.resolved", reason: "This plan's clumping choice resolves to \(clumping.resolved.rawValue), and its storage names \(storage.clumpingTool.rawValue).")
         }
@@ -209,6 +238,9 @@ extension ExecutionPlan {
             let field = "steps[\(index)]"
             guard Self.isStepID(step.id), ids.insert(step.id).inserted else {
                 throw PlanDecodeError(field: "\(field).id", reason: "Step id \(step.id) is repeated or not 1 to 64 letters, digits, dots, underscores or hyphens starting with a letter or digit.")
+            }
+            if schemaVersion == Self.pipelineSchemaVersion {
+                try Self.validateSchemaTwoStep(step, field: field)
             }
             guard step.deadlineSeconds.isFinite, step.deadlineSeconds > 0 else {
                 throw PlanDecodeError(field: "\(field).deadlineSeconds", reason: "Step \(step.id) has no positive deadline.")

@@ -44,6 +44,25 @@ package struct ImageTool: Codable, Sendable, Equatable, Hashable {
     package var pin: PlanToolPin { PlanToolPin(id: id, version: version, build: build) }
 }
 
+/// One data file a manifest lists, which no step runs: a file of the image that serves a plan role, such as the 10x
+/// barcode list a `barcodeList` entry with source `image` pins. The executor copies it into the work root.
+package struct ImageDataFile: Codable, Sendable, Equatable, Hashable {
+    /// Absolute, with no empty, `.` or `..` component, as a tool's path is.
+    package var path: String
+    /// The plan role the file serves, `barcodeList` for every file schema 2 names. Text, so a manifest that lists a
+    /// file of a later role still reads.
+    package var role: String
+    package var sha256: String
+    package var size: Int64
+
+    package init(path: String, role: String, sha256: String, size: Int64) {
+        self.path = path
+        self.role = role
+        self.sha256 = sha256
+        self.size = size
+    }
+}
+
 /// Why a tool manifest cannot be built or read, naming the field.
 package struct ImageToolManifestError: Error, Equatable, CustomStringConvertible {
     package var field: String
@@ -70,11 +89,23 @@ package struct ImageToolManifest: Codable, Sendable, Equatable {
     package var schemaVersion: Int
     package var platform: ImageToolPlatform
     package var tools: [ImageTool]
+    /// Each data file of the image a plan role reads, such as a 10x barcode list, absent in a manifest with none, so
+    /// such a manifest keeps its bytes and `schemaVersion` 1 (docs/formats/executor-plan.md, The barcode list).
+    package var files: [ImageDataFile]?
 
-    package init(schemaVersion: Int = ImageToolManifest.currentSchemaVersion, platform: ImageToolPlatform, tools: [ImageTool]) {
+    package init(
+        schemaVersion: Int = ImageToolManifest.currentSchemaVersion, platform: ImageToolPlatform, tools: [ImageTool],
+        files: [ImageDataFile]? = nil
+    ) {
         self.schemaVersion = schemaVersion
         self.platform = platform
         self.tools = tools
+        self.files = files
+    }
+
+    /// The first file, by path, that serves `role` with the SHA-256 `sha256`.
+    package func file(role: PlanEntryRole, sha256: String) -> ImageDataFile? {
+        (files ?? []).sorted { $0.path < $1.path }.first { $0.role == role.rawValue && $0.sha256 == sha256 }
     }
 
     /// The tool the executor runs for `pin`: the first, by path, of the entries with the same id, version and build.
@@ -101,6 +132,7 @@ package struct ImageToolManifest: Codable, Sendable, Equatable {
     package func encoded() throws -> Data {
         var copy = self
         copy.tools = Self.sorted(tools)
+        copy.files = files?.sorted { $0.path < $1.path }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return try encoder.encode(copy) + Data("\n".utf8)
@@ -141,6 +173,33 @@ package struct ImageToolManifest: Codable, Sendable, Equatable {
             }
             guard seen.insert(tool).inserted else {
                 throw ImageToolManifestError(field: field, reason: "The tool manifest lists \(tool.path) twice.")
+            }
+        }
+        try validateFiles()
+    }
+
+    /// Each data file has an absolute path with no empty, `.` or `..` component, a role, a lowercase hexadecimal SHA-256
+    /// and a size, no path is listed twice, and no file is a tool a step can name.
+    private func validateFiles() throws {
+        let toolPaths = Set(tools.map(\.path))
+        var paths = Set<String>()
+        for (index, file) in (files ?? []).enumerated() {
+            let field = "files[\(index)]"
+            if let reason = Self.refusal(forToolPath: file.path) {
+                throw ImageToolManifestError(field: "\(field).path", reason: reason.replacingOccurrences(of: "The tool path", with: "The file path"))
+            }
+            guard !file.role.isEmpty else {
+                throw ImageToolManifestError(field: "\(field).role", reason: "The file \(file.path) names no role.")
+            }
+            let hex = file.sha256.unicodeScalars.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
+            guard file.sha256.unicodeScalars.count == 64, hex else {
+                throw ImageToolManifestError(field: "\(field).sha256", reason: "The file \(file.path) has no lowercase hexadecimal SHA-256.")
+            }
+            guard file.size >= 0 else {
+                throw ImageToolManifestError(field: "\(field).size", reason: "The file \(file.path) has a negative size.")
+            }
+            guard paths.insert(file.path).inserted, !toolPaths.contains(file.path) else {
+                throw ImageToolManifestError(field: field, reason: "The tool manifest lists \(file.path) twice or as both a tool and a file.")
             }
         }
     }
