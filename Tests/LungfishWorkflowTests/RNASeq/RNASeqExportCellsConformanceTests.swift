@@ -116,6 +116,47 @@ final class RNASeqExportCellsConformanceTests: RNASeqExportTestCase {
         }
     }
 
+    /// Seurat writes "-" for "_" in a feature name. The ids of a Cell Ranger reference of two species carry the genome as a prefix with an
+    /// underscore, so the object has to give each feature its name, type and not-host flag by position and not by the id. The test
+    /// prefixes every id, flags the first feature as not host and has the script print the first and the last row of the feature data.
+    func testSeuratGivesEachFeatureItsOwnDataWhenTheIdsHoldAnUnderscore() throws {
+        let out = try export(try self.result("one"))
+        let folder = try XCTUnwrap(try FileManager.default.contentsOfDirectory(at: out, includingPropertiesForKeys: [.isDirectoryKey])
+            .first { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }, "the export holds a sample folder")
+        let prefix = "GRCh38_"
+        func rows(_ url: URL) throws -> [[String]] {
+            try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
+        }
+        func write(_ rows: [[String]], to url: URL) throws {
+            try Data((rows.map { $0.joined(separator: "\t") }.joined(separator: "\n") + "\n").utf8).write(to: url)
+        }
+        let features = try rows(folder.appendingPathComponent("features.tsv"))
+        try write(features.map { [prefix + $0[0]] + $0.dropFirst() }, to: folder.appendingPathComponent("features.tsv"))
+        var genes = try rows(out.appendingPathComponent("genes.tsv"))
+        let idColumn = try XCTUnwrap(genes[0].firstIndex(of: "gene_id"))
+        let hostColumn = try XCTUnwrap(genes[0].firstIndex(of: "not_host"))
+        for index in genes.indices.dropFirst() { genes[index][idColumn] = prefix + genes[index][idColumn] }
+        let first = try XCTUnwrap(genes.indices.dropFirst().first { genes[$0][idColumn] == prefix + features[0][0] }, "genes.tsv lists the first feature")
+        genes[first][hostColumn] = "true"
+        try write(genes, to: out.appendingPathComponent("genes.tsv"))
+        let script = out.appendingPathComponent("seurat.R")
+        let probe = #"""
+        meta <- object[["RNA"]][[]]; ends <- c(1, nrow(meta))
+        cat(sprintf("meta %s %s %s %s\n", rownames(meta)[ends], meta$name[ends], meta$type[ends], meta$not_host[ends]), sep = "")
+        """#
+        try Data((String(contentsOf: script, encoding: .utf8) + probe + "\n").utf8).write(to: script)
+        func line(_ row: [String], _ flag: String) -> String {
+            let id = (prefix + row[0]).replacingOccurrences(of: "_", with: "-")
+            return "meta \(id) \(row.count > 1 ? row[1] : "") \(row.count > 2 ? row[2] : "Gene Expression") \(flag)"
+        }
+        let ran = try run(rscript, ["--vanilla", "seurat.R"], in: out)
+        XCTAssertEqual(ran.status, 0, ran.output)
+        let printed = Set(ran.output.split(separator: "\n").map(String.init))
+        XCTAssertTrue(printed.contains(line(features[0], "TRUE")), "the first feature keeps its data and its not-host flag:\n\(ran.output)")
+        XCTAssertTrue(printed.contains(line(features[features.count - 1], "FALSE")), "the last feature keeps its data:\n\(ran.output)")
+        XCTAssertTrue(printed.contains("not-host features 1"), ran.output)
+    }
+
     func testSeuratStopsInWordsWhenSeuratIsMissingAfterTheTableIsWritten() throws {
         let plainR = environment("LGE_RNASEQ_ENV", "/Volumes/lge_scratch/lge/rnaseq/env").appendingPathComponent("bin/Rscript")
         let result = try self.result("one")
