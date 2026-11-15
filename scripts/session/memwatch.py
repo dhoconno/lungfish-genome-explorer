@@ -5,9 +5,11 @@
 Watches swap use, the kernel memory pressure level, the memory compressor and the largest processes (top's MEM
 column, which counts compressed memory where ps RSS hides it). It ends nothing and sends no signal. Each round it
 rewrites DIR/memwatch.alarm with one line for each limit that is passed and leaves the file empty when none is. A line
-starts with SWAP, PRESSURE, COMPRESSOR, RUNAWAY or BIGPROC. A process over --proc-gb is RUNAWAY when its command line
-holds a line of the --ours file (one path prefix a line, for the session's worktrees), else BIGPROC. DIR/memwatch.log
-gets a line when the alarm changes and a summary every --log-every seconds, DIR/memwatch.pid holds its PID from the
+starts with SWAP, PRESSURE, COMPRESSOR, RUNAWAY, BIGPROC or OWNER. A process over --proc-gb is RUNAWAY when its command
+line holds a line of the --ours file (one path prefix a line, for the session's worktrees), else BIGPROC. A process that
+runs as uid 0 has OWNER in front of its kind (OWNER BIGPROC or OWNER RUNAWAY), since the manager cannot end it and tells
+the owner instead. DIR/memwatch.log gets a line when the alarm changes and a summary every --log-every seconds,
+DIR/memwatch.pid holds its PID from the
 start, and a file DIR/memwatch.stop made after the start ends the loop. Defaults are DIR build/llm, an interval of 60
 seconds, no round limit (0), swap over 90 percent, kernel pressure level 2 or worse, a compressor over 100 GiB, a
 process over 16 GiB, 12 rows of top and a log summary every 600 seconds.
@@ -108,6 +110,8 @@ def evaluate(reading, args, ours, command_of):
         if proc["mib"] / 1024 > args.proc_gb:
             command = command_of(proc["pid"])
             kind = "RUNAWAY" if any(prefix in command for prefix in ours) else "BIGPROC"
+            if proc["uid"] == 0:
+                kind = "OWNER " + kind
             lines.append("%s %s pid %d uid %d at %.1f GiB | %s" % (
                 kind, proc["name"], proc["pid"], proc["uid"], proc["mib"] / 1024, command[:200]))
     if reading["compressor"] > args.compressor_gb:
