@@ -112,7 +112,7 @@ final class RNASeqExportCellsTests: RNASeqExportTestCase {
         let lines = try String(contentsOf: out.appendingPathComponent("samples.tsv"), encoding: .utf8).split(separator: "\n").map { $0.components(separatedBy: "\t") }
         XCTAssertEqual(lines.count, 2)
         XCTAssertEqual(lines[0], ["sample_id", "animal", "species", "origin", "group", "runs", "donor", "folder", "route", "reference_set"])
-        XCTAssertEqual(lines[1], [id, "A1", "Homo sapiens", "", "PBMC", id, "D1", try listed(result).folder,
+        XCTAssertEqual(lines[1], [id, "A1", "Homo sapiens", "blood", "PBMC", id, "D1", try listed(result).folder,
                                   RNASeqExportWords.route(loaded.manifest.route), RNASeqExportWords.referenceSet(loaded.manifest.referenceSet)])
     }
 

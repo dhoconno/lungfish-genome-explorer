@@ -55,7 +55,14 @@ public enum RNASeqExport {
         guard FileManager.default.fileExists(atPath: folder.deletingLastPathComponent().path, isDirectory: &isDirectory), isDirectory.boolValue else {
             throw RNASeqExportRefusal("No folder at \(folder.deletingLastPathComponent().path) to write the export in. Create it or choose another --output.")
         }
-        let join = try RNASeqExportJoin.make(try RNASeqExportReader.read(urls))
+        let results = try RNASeqExportReader.read(urls)
+        try RNASeqExportReader.refuseMixedModalities(results)
+        // A single-cell result exports its matrices and the Seurat and Scanpy templates by itself, before any join of counts.
+        if let single = results.first, single.manifest.modality == .singleCell {
+            return try RNASeqExportCells.run(
+                single, sheet: sheetURL, settings: settings, sourceURLs: urls, output: folder, argv: argv, runClock: runClock, checkpoint: checkpoint)
+        }
+        let join = try RNASeqExportJoin.make(results)
         let sheet = try sheetURL.map(RNASeqExportSheet.read)
         let samples = try sampleTable(join, sheet: sheet)
         try RNASeqExportDesignCheck.check(settings, samples: samples)

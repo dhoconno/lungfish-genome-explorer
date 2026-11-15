@@ -52,6 +52,23 @@ public enum RNASeqExportWords {
 }
 
 public enum RNASeqExportReader {
+    /// A single-cell result exports by itself, because its export is a folder of matrices and not one table. It is refused
+    /// beside a bulk result, and beside a second single-cell result, in words that name what to do instead.
+    public static func refuseMixedModalities(_ results: [RNASeqExportResult]) throws {
+        let single = results.filter { $0.manifest.modality == .singleCell }
+        guard let first = single.first, results.count > 1 else { return }
+        if let bulk = results.first(where: { $0.manifest.modality != .singleCell }) {
+            throw RNASeqExportRefusal(
+                "The single-cell result \(first.label) cannot share an export with the bulk result \(bulk.label). "
+                    + "The export of a single-cell result writes its matrices and the Seurat and Scanpy templates by itself. "
+                    + "Export it alone, or sum its cells with rnaseq pseudobulk and export that bulk result.")
+        }
+        let names = single.map(\.label)
+        throw RNASeqExportRefusal(
+            "The results \(RNASeqExportWords.list(names)) are \(names.count == 2 ? "both" : "all") single-cell. "
+                + "LGE writes one folder of matrices for one result, so export each by itself, or import the samples into one result.")
+    }
+
     /// Reads each folder. A file that differs from the sha256 the manifest lists is refused with its path. A folder that
     /// is no readable result is refused with the reader's own words. Nothing is written.
     public static func read(_ urls: [URL]) throws -> [RNASeqExportResult] {
