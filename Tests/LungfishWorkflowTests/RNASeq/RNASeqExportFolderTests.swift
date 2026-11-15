@@ -89,6 +89,18 @@ final class RNASeqExportFolderTests: RNASeqExportTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("out").path))
     }
 
+    /// A column named twice is refused in words, and the empty names of trailing tabs (as a spreadsheet saves a sheet) are
+    /// left out. Before the fix both shapes trapped in `Dictionary(uniqueKeysWithValues:)` with no words.
+    func testASheetWithARepeatedOrEmptyColumnNameIsRefusedOrIgnoredNeverACrash() throws {
+        let a = try make(.init(name: "a", samples: ["S1", "S2"], groups: ["S1": "TB", "S2": "HIV"]))
+        XCTAssertThrowsError(try export([a], sheet: try sheet("sample\tday\tday\nS1\tD3\tD5\nS2\tD5\tD3\n"))) {
+            XCTAssertTrue($0.localizedDescription.contains("day"), $0.localizedDescription)
+        }
+        let out = try export([a], sheet: try sheet("sample\tday\t\t\nS1\tD3\t\t\nS2\tD5\t\t\n"), name: "trailing")
+        let header = try lines(out.appendingPathComponent("samples.tsv"))[0].components(separatedBy: "\t")
+        XCTAssertEqual(header, ["sample_id", "animal", "species", "origin", "group", "runs", "day", "route", "reference_set"])
+    }
+
     func testTheRecordNamesTheCutoffAlphaAndTheBar() throws {
         let a = try make(.init(name: "a", samples: ["S1", "S2"], groups: ["S1": "TB", "S2": "HIV"]))
         for (cutoff, bar) in [(0.05, nil), (0.1, 1.4)] as [(Double, Double?)] {

@@ -71,6 +71,18 @@ final class RNASeqExportReadAtExportTests: RNASeqExportTestCase {
         }
     }
 
+    /// BIO SF2. Manifest `notHost` is the authority, and the templates read the `not_host` flags of `genes.tsv`. A result whose
+    /// two disagree is refused, since its size factors would count a not-host row with no word. The `.ids` path writes no flags.
+    func testAResultWhoseGeneFlagsDifferFromItsManifestNotHostIsRefused() throws {
+        let url = try make(.init(name: "split", set: nil, samples: ["S1", "S2"], notHost: ["G4"]))
+        XCTAssertThrowsError(try RNASeqExportReader.read([url])) {
+            let words = $0.localizedDescription
+            XCTAssertTrue(words.contains("split") && words.contains("not-host"), words)
+        }
+        let agreed = try make(.init(name: "agreed", samples: ["S1", "S2"], notHost: ["G4"]))
+        XCTAssertNoThrow(try RNASeqExportReader.read([agreed]))
+    }
+
     func testAFolderThatIsNoResultIsRefusedInWords() throws {
         let empty = root.appendingPathComponent("not-a-result.lungfishrnaseq", isDirectory: true)
         try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)

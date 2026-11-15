@@ -52,7 +52,17 @@ final class RNASeqExportDesignTests: XCTestCase {
                 for needle in ["batch", "X", "group", "g1", step.rawValue] {
                     XCTAssertTrue(words.contains(needle), "\(needle) is missing from \(words)")
                 }
+                // X is 3 samples of g1 and Y is 3 of g1 and 6 of g2, so ~ batch + group has rank 3 of 3 (BIO SF3).
+                XCTAssertFalse(words.contains("full rank"), words)
             }
+        }
+    }
+
+    /// BIO SF3 in R: the template chooses its reason by the rank of the model, as the Swift check does.
+    func testTheTemplateSaysFullRankOnlyWhenTheModelLosesIt() {
+        for text in [RNASeqExportTemplates.deseq2(settings(.sva)), RNASeqExportTemplates.edgerLimmaDream(settings(.sva))] {
+            XCTAssertTrue(text.contains("deficient <- qr(mm)$rank < ncol(mm)"), text)
+            XCTAssertTrue(text.contains("a batch step would remove part of the difference you test"), text)
         }
     }
 
@@ -125,5 +135,23 @@ final class RNASeqExportDesignTests: XCTestCase {
         let text = RNASeqExportTemplates.edgerLimmaDream(settings(.none, batch: nil))
         XCTAssertTrue(text.contains("random_part <- if (length(random_terms) > 0)"), text)
         XCTAssertTrue(text.contains("c(unique(model_terms), random_part)"), text)
+    }
+
+    /// BIO B1. Each edgeR, limma voom and dream line counts the cutoff and the bar together, so it names both when a bar is set.
+    func testTheEdgerLimmaDreamLinesNameTheBarWhenOneIsSet() {
+        var chosen = settings(.none, batch: nil)
+        chosen.lfcBar = 1.4
+        let text = RNASeqExportTemplates.edgerLimmaDream(chosen)
+        XCTAssertTrue(text.contains("paste0(\" and |log2 fold change| >= \", lfc_bar)"), text)
+    }
+
+    /// BIO SF1. When `num.sv` finds no surrogate variable, `svaseq(..., n.sv = 0)$sv` is the number 0 and the old loop stopped
+    /// in R's words. The count has a seed, since "be" permutes, and the model then holds the batch and the design, in words.
+    func testSvaWithNoSurrogateVariableKeepsTheAnalysisRunningInWords() {
+        for text in [RNASeqExportTemplates.deseq2(settings(.sva)), RNASeqExportTemplates.edgerLimmaDream(settings(.sva))] {
+            XCTAssertTrue(text.contains("n_sv <- num.sv(norm, mod, method = \"be\", seed = 1)"), text)
+            XCTAssertTrue(text.contains("if (n_sv > 0) {"), text)
+            XCTAssertTrue(text.contains("sva found no surrogate variables"), text)
+        }
     }
 }
