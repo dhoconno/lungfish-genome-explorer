@@ -1,4 +1,4 @@
-OVERVIEW: Import bulk or single-cell RNA-seq counts into a project
+OVERVIEW: Import bulk RNA-seq counts into a project
 
 USAGE: lungfish-cli import rnaseq [<options>] <input-paths> ... --project <project> --name <name>
 

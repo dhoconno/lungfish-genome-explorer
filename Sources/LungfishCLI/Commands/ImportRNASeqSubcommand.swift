@@ -17,7 +17,7 @@ extension ImportCommand {
     struct RNASeqSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "rnaseq",
-            abstract: "Import bulk or single-cell RNA-seq counts into a project"
+            abstract: "Import bulk RNA-seq counts into a project"
         )
 
         @Argument(help: "salmon quant folders, one count table of genes by samples, or Cell Ranger outs and STARsolo run folders")

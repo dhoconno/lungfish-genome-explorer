@@ -8,6 +8,7 @@
 #   ENV   conda environment with STAR, simpleaf, python (h5py, numpy, scipy, pandas)
 #   STAGE one or more of: unpack refs whitelists index:<ref> solo:<set> pergenome:<set>
 #         simpleaf-index simpleaf:<set> compare all  (default: all)
+#         lge_import  (outside all, needs LGE_CLI, the lane evidence of RS-SC-IMPORT)
 #
 # Optional environment:
 #   THREADS     threads for heavy steps (default 8)
@@ -250,6 +251,37 @@ stage_compare() {
   done
 }
 
+# Lane evidence of RS-SC-IMPORT, outside all: LGE_CLI imports, for each set, the STARsolo run folder solo/<set>
+# and 10x's filtered matrix with its metrics summary copied as an outs folder, each under /usr/bin/time -l, and
+# compare_lge.py reads the two results into lge/<run>/<set>.tsv, whose rows join compare/<set>.tsv by run and
+# measure. hgmm names its two genomes by the id prefix of its genes. A result that exists is not imported again.
+stage_lge_import() {
+  : "${LGE_CLI:?set LGE_CLI to a lungfish-cli}"
+  local out=$WORK/lge/${LGE_RUN:-RS-SC-IMPORT} s side input
+  local -a genomes
+  mkdir -p "$out/project.lungfish"
+  for s in pbmc_1k_v3 sc5p_v2_hs_PBMC_1k hgmm_1k_v3; do
+    [ -d "$WORK/solo/$s/Solo.out/Gene/filtered" ] || continue
+    genomes=()
+    [ "$s" = hgmm_1k_v3 ] && genomes=(--genome hg19 --genome mm10)
+    if [ ! -d "$out/tenx/$s/outs" ]; then
+      mkdir -p "$out/tenx/$s/outs"
+      cp -R "$WORK/truth/$s/filtered_feature_bc_matrix" "$out/tenx/$s/outs/"
+      cp "$DATA/tenx/$s/${s}_metrics_summary.csv" "$out/tenx/$s/outs/metrics_summary.csv"
+    fi
+    for side in solo tenx; do
+      input=$WORK/solo/$s
+      [ "$side" = tenx ] && input=$out/tenx/$s/outs
+      [ -d "$out/project.lungfish/Analyses/$side-$s.lungfishrnaseq" ] && continue
+      /usr/bin/time -l "$LGE_CLI" import rnaseq "$input" --project "$out/project.lungfish" --name "$side-$s" \
+        ${genomes[@]+"${genomes[@]}"} > "$out/$side-$s.log" 2> "$out/$side-$s.time.log"
+    done
+    $PY "$HERE/compare_lge.py" "$s" "$out/project.lungfish/Analyses/solo-$s.lungfishrnaseq" \
+      "$out/project.lungfish/Analyses/tenx-$s.lungfishrnaseq" > "$out/$s.tsv"
+    cat "$out/$s.tsv"
+  done
+}
+
 for st in "${STAGES[@]}"; do
   case $st in
     unpack) stage_unpack ;;
@@ -261,6 +293,7 @@ for st in "${STAGES[@]}"; do
     simpleaf-index) stage_simpleaf_index ;;
     simpleaf:*) stage_simpleaf "${st#simpleaf:}" ;;
     compare) stage_compare ;;
+    lge_import) stage_lge_import ;;
     all)
       stage_unpack; stage_refs; stage_whitelists
       for s in $SETS; do stage_index "$(ref_of "$s")"; stage_solo "$s"; done
