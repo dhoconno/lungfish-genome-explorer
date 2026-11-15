@@ -1842,7 +1842,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 fastqURL: sample.fastqURL,
                 bbmergeURL: bbmergeURL,
                 workingDirectory: mergeDirectory,
-                stem: safeFilenameStem(sample.sampleID),
+                stem: Self.mergeStem(for: sample),
                 threads: threads
             )
             guard outcome.didMerge else { continue }
@@ -2059,6 +2059,19 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         stagingDirectory: URL, readType: AmpliconGenotypingReadType = .illumina
     ) async throws -> [IlluminaSampleInput] {
         try await resolveIlluminaSampleInputs(from: urls, stagingDirectory: stagingDirectory, readType: readType)
+    }
+
+    /// The stem `mergeIlluminaPairsIfNeeded` gives the pair merger for `sample`.
+    /// The merger names every file it writes for the sample after this stem, in
+    /// one folder shared by the run, so no two samples of a run may share one.
+    private static func mergeStem(for sample: IlluminaSampleInput) -> String {
+        safeFilenameStem(sample.sampleID)
+    }
+
+    /// Test seam exposing the merge stem of one sample, so a test can compare it
+    /// with the stem the sample was staged under.
+    static func mergeStemForTesting(for sample: IlluminaSampleInput) -> String {
+        mergeStem(for: sample)
     }
 
     private static func countWeightedFASTQRecords(in sourceURL: URL) async throws -> Int {
