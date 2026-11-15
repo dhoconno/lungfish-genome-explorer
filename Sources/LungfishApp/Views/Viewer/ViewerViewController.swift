@@ -198,6 +198,10 @@ public class ViewerViewController: NSViewController {
         return host
     }()
 
+    /// The words of the affected-results strip for the item the Inspector spoke of last, nil after an empty notice.
+    /// They outlast a clear, so a surface that installs after the notice still gets its strip.
+    var affectedResultsWords: String?
+
     /// The kind whose display method is running, so the clear it runs first leaves that kind to the host's show.
     var surfaceKindBeingDisplayed: SurfaceKind?
 

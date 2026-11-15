@@ -116,6 +116,28 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
         XCTAssertEqual(shown(model), [])
     }
 
+    func testARecordOfPartOfTheShownResultLeavesTheViewersStrip() throws {
+        // A click on a detection loads the record of its alignment evidence into this model. The viewer still shows the
+        // result, so its strip stays: neither the clear nor the end of that lookup tells the viewer.
+        let model = model(build: "Lungfish 2026.10.29 (12045)")
+        var notices = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: .affectedResultsDidChange, object: model, queue: nil
+        ) { _ in notices += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        model.clear(speaksForViewer: false)
+        model.resolvedEnvelope = ProvenanceEnvelope.fixture()
+        model.applyAffectedResults(item: ProvenanceInspectableItem(
+            url: URL(fileURLWithPath: "/tmp/affected-results-test/evidence.bam"), sidebarType: nil,
+            contentMode: .metagenomics, displayName: "evidence"
+        ))
+        XCTAssertEqual(notices, 0, "the evidence's record does not speak for the viewer")
+
+        model.clear()
+        XCTAssertEqual(notices, 1, "the next selection's clear does")
+    }
+
     func testTheKindOfAnItemFollowsItsSidebarType() {
         let kinds: [(SidebarItemType, AffectedResultKind)] = [
             (.taxTriageResult, .taxTriage), (.esvirituResult, .esViritu), (.classificationResult, .kraken2),

@@ -660,10 +660,12 @@ extension InspectorViewController {
         if case .available = capabilities.status, let provenanceURL = capabilities.provenanceSourceURL {
             viewModel.provenanceSectionViewModel.load(
                 item: .init(url: provenanceURL, sidebarType: nil, contentMode: .metagenomics, displayName: capabilities.result),
-                clearWhenUnavailable: true
+                clearWhenUnavailable: true,
+                // The viewer still shows the classifier result, so its affected-results strip stays.
+                speaksForViewer: false
             )
         } else {
-            viewModel.provenanceSectionViewModel.clear()
+            viewModel.provenanceSectionViewModel.clear(speaksForViewer: false)
         }
     }
 

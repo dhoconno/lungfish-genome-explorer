@@ -431,6 +431,10 @@ final class ProvenanceInspectorViewModel {
     @ObservationIgnored var onLineageReady: (() -> Void)?
     /// The item the last ready call was for, so one open of an item makes one call.
     @ObservationIgnored private var lineageReadyPath: String?
+    /// Whether the clear and lookup of the current item tell the viewer's affected-results strip. A load of part of
+    /// the result the viewer shows, such as a classifier detection's alignment evidence, does not, so the strip of
+    /// that result stays while the Inspector shows the part.
+    @ObservationIgnored var speaksForViewer = true
 
     init(
         monitor: ProvenanceCoverageMonitor = ProvenanceCoverageMonitor(),
@@ -445,8 +449,9 @@ final class ProvenanceInspectorViewModel {
     }
 
     /// Empties the record and tells the viewer's strip that no row matches, so a strip never outlives the item it
-    /// spoke for. A load clears first, and its lookup tells the strip again when it ends.
-    func clear() {
+    /// spoke for. A load clears first, and its lookup tells the strip again when it ends. A clear for part of the
+    /// shown result passes `speaksForViewer: false` and leaves the strip.
+    func clear(speaksForViewer: Bool = true) {
         loadGeneration += 1
         lookup?.task.cancel()
         lookup = nil
@@ -467,7 +472,8 @@ final class ProvenanceInspectorViewModel {
         resolvedEnvelope = nil
         resolvedSidecarURL = nil
         searchText = ""
-        postAffectedResults([])
+        self.speaksForViewer = speaksForViewer
+        if speaksForViewer { postAffectedResults([]) }
     }
 
     /// Updates the inspected item and resolves its provenance off the main actor.
@@ -478,14 +484,14 @@ final class ProvenanceInspectorViewModel {
     /// item whose lookup is running, or finished with no sidecar changed since, returns at once.
     /// Any other load cancels the running lookup, whose result the generation check then drops
     /// without a word, as UX ruling Q-S1 sets for a lookup a selection change replaced.
-    func load(item: ProvenanceInspectableItem, clearWhenUnavailable: Bool = false) {
+    func load(item: ProvenanceInspectableItem, clearWhenUnavailable: Bool = false, speaksForViewer: Bool = true) {
         if let lookup, lookup.item == item, currentItem == item,
            lookup.sidecarChanges == lineageResolver.sidecarIndex.changeCount {
             return
         }
         // Clear the previous record before publishing the new target. Copy, raw JSON,
         // and visible lineage must all agree with the currently selected source.
-        clear()
+        clear(speaksForViewer: speaksForViewer)
         let thisGeneration = loadGeneration
         currentItem = item
         isLoading = true
@@ -502,7 +508,7 @@ final class ProvenanceInspectorViewModel {
             guard let self, thisGeneration == self.loadGeneration, let outcome else { return }
             self.isLoading = false
             if clearWhenUnavailable, outcome.resolvedEnvelope == nil {
-                self.clear()
+                self.clear(speaksForViewer: speaksForViewer)
             } else {
                 self.apply(outcome, item: item)
                 self.callLineageReady(for: item, found: outcome.resolvedEnvelope != nil)

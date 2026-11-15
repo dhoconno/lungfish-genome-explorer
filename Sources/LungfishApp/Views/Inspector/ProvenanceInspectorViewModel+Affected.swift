@@ -48,7 +48,8 @@ extension ProvenanceInspectorViewModel {
     }
 
     /// Puts the sentence and what to do of each affected row under the record, in the Warnings, and tells the
-    /// viewer. It runs after the lookup has built the record's rows, and it reads the record that lookup found
+    /// viewer, unless the item is part of the result the viewer shows (``speaksForViewer``). It runs after the lookup
+    /// has built the record's rows, and it reads the record that lookup found
     /// without writing into the project. A record that names an unaffected build, a build with no number or no
     /// record at all adds nothing, and the viewer's strip goes.
     func applyAffectedResults(item: ProvenanceInspectableItem) {
@@ -68,7 +69,7 @@ extension ProvenanceInspectorViewModel {
         if removedRows || !rows.isEmpty, resolvedEnvelope != nil {
             copyableText = buildCopyableText()
         }
-        postAffectedResults(rows)
+        if speaksForViewer { postAffectedResults(rows) }
     }
 
     /// Tells the viewers of this Inspector's window which rows matched, none after a clear. The notice is a window

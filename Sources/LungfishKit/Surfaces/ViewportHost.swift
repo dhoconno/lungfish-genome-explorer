@@ -57,7 +57,8 @@ public final class ViewportHost {
     public let registry: SurfaceRegistry
 
     /// Called after the host installs a surface, with that surface, and after a clear, with nil. The viewer puts back
-    /// what it lays out above the installed surface, such as the strip of a result an earlier build made wrong.
+    /// what it lays out above the installed surface, such as the strip of a result an earlier build made wrong. It
+    /// must not call ``show(kind:input:)`` or ``clear()``, since a load that does not suspend installs inside `show`.
     public var activeViewportDidChange: (@MainActor (_ installed: (any ResultViewport)?) -> Void)?
 
     private var gate = AsyncRequestGate<SurfaceRequest>()

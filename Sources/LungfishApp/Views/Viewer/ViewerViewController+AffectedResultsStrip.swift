@@ -61,12 +61,13 @@ enum AffectedResultsStrip {
     }
 
     /// The words of the strip for `rows`. The first row's sentence and what to do read in full, and any further
-    /// rows are counted and left to the Inspector. Nil when no row matched.
+    /// rows are counted and left to the Inspector's Provenance tab, the one tab with Warnings. Nil when no row matched.
     static func words(for rows: [AffectedResultRow]) -> String? {
         guard let first = rows.first else { return nil }
         guard rows.count > 1 else { return first.words }
         let others = rows.count - 1
-        return first.words + " \(others) more \(others == 1 ? "note is" : "notes are") under Warnings in the Inspector."
+        return first.words
+            + " \(others) more \(others == 1 ? "note is" : "notes are") under Warnings on the Inspector's Provenance tab."
     }
 
     /// Shows `words` in a strip above `surfaceView`, or takes the strip away when `words` is nil or the surface is
@@ -117,23 +118,20 @@ extension ViewerViewController {
         )
     }
 
-    /// Shows the strip for `rows` above the installed surface, or removes it when none matched.
+    /// Keeps the words for `rows` and shows them in a strip above the installed surface, or removes the strip and the
+    /// words when none matched.
     func showAffectedResultsStrip(rows: [AffectedResultRow]) {
-        AffectedResultsStrip.place(
-            words: AffectedResultsStrip.words(for: rows), above: installedSurface?.viewController.view, in: view
-        )
+        affectedResultsWords = AffectedResultsStrip.words(for: rows)
+        AffectedResultsStrip.place(words: affectedResultsWords, above: installedSurface?.viewController.view, in: view)
     }
 
     /// Keeps the strip with the surface the host shows, which the host calls after each install and clear. The
-    /// Inspector's lookup can end before the viewer installs the result it is about, so the notice placed the strip
-    /// above the old surface and the host put the new one over it. The strip moves above the new surface with the
-    /// same words, and a viewer that shows no surface shows no strip. Only a notice changes the words, and the
-    /// Inspector's clear at each selection sends an empty one, so the words never outlive their item.
+    /// Inspector's lookup can end before the viewer installs the result it is about, even before the display that
+    /// clears the viewer first, so the viewer keeps the words and gives them to each surface the host installs. A
+    /// viewer that shows no surface shows no strip. Only a notice changes the words, and the Inspector's clear at each
+    /// selection sends an empty one, so the words never outlive their item.
     func affectedResultsStripFollowSurface(_ installed: (any ResultViewport)?) {
-        guard let strip = AffectedResultsStrip.strip(in: view) else { return }
-        AffectedResultsStrip.place(
-            words: installed == nil ? nil : strip.label.stringValue, above: installed?.viewController.view, in: view
-        )
+        AffectedResultsStrip.place(words: affectedResultsWords, above: installed?.viewController.view, in: view)
     }
 
     @objc private func affectedResultsDidChange(_ notification: Notification) {
