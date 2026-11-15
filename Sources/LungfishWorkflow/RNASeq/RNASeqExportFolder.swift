@@ -6,6 +6,9 @@
 // `not_host`, `samples.tsv` (the results' sample rows, the columns of an optional sheet, and `route` and `reference_set` read
 // from each result), the two R templates and one record that names every file. The folder is staged and renamed into place by
 // `ScientificFileExportProvenance.writeFolderAtomically`, never over an existing folder, and every refusal comes before a write.
+// A single-cell result takes the branch right after the read and goes to `RNASeqExportCells`, which writes each sample's matrix,
+// features and barcodes in a folder of the sample's own beside `genes.tsv`, `samples.tsv`, `seurat.R` and `scanpy.py`, with no
+// table of counts. It is exported alone, and a bulk result or a second single-cell result given with it is refused.
 
 import Foundation
 import LungfishCore

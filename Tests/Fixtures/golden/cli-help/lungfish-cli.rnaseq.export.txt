@@ -5,10 +5,18 @@ Writes counts.tsv, genes.tsv, samples.tsv, deseq2.R, edger-limma-dream.R
 The results must come from one route and one reference set. A route is the
 tool, its version and every setting that changes counts.
 
+A single-cell result exports by itself and writes no table of counts. Its
+matrices, features and barcodes go in one folder a sample, beside genes.tsv,
+samples.tsv, seurat.R and scanpy.py. --design, --contrast, --batch,
+--batch-correction, --lfc-bar and a --padj-cutoff other than 0.05 are refused
+for it, so sum its cells with rnaseq pseudobulk and export that result to
+compare groups.
+
 USAGE: lungfish-cli rnaseq export [<options>] <result-paths> ... --output <output>
 
 ARGUMENTS:
-  <result-paths>          One or more .lungfishrnaseq result folders
+  <result-paths>          One or more .lungfishrnaseq result folders. A
+                          single-cell result is exported alone
 
 OPTIONS:
   --output <output>       The new folder to write. It must not exist

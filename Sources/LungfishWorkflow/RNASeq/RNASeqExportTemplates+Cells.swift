@@ -58,9 +58,12 @@ cat(sprintf("cells total %d\n", nrow(cells)))
 cat(sprintf("not-host features %d\n", length(not_host)))
 if (requireNamespace("Seurat", quietly = TRUE)) {
   object <- Seurat::CreateSeuratObject(counts = combined, project = "lungfish", meta.data = data.frame(sample = cells$sample, row.names = cells$cell))
-  object[["RNA"]][["name"]] <- info$name
-  object[["RNA"]][["type"]] <- info$type
-  object[["RNA"]][["not_host"]] <- ids %in% not_host
+  # Seurat writes "-" for "_" in a feature name and takes feature data only as a vector named by its own names, so match by position.
+  features <- rownames(object[["RNA"]])
+  if (length(features) != length(ids)) stop("Seurat kept ", length(features), " of the ", length(ids), " features, so the feature data cannot be matched by position.", call. = FALSE)
+  object[["RNA"]][["name"]] <- stats::setNames(info$name, features)
+  object[["RNA"]][["type"]] <- stats::setNames(info$type, features)
+  object[["RNA"]][["not_host"]] <- stats::setNames(ids %in% not_host, features)
   print(object)
 } else {
   stop("Seurat is not installed in this R, so the table of cells is written and no Seurat object is made. Install Seurat and run seurat.R again.", call. = FALSE)

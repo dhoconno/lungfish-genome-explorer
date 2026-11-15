@@ -10,6 +10,8 @@ import LungfishWorkflow
 /// Writes the counts of one or more RNA-seq results into a new folder that DESeq2, edgeR, limma voom and dream read, with
 /// `alpha` set to the padj cutoff the person picks. The folder is written through one staged rename, never over an existing
 /// folder. A table whose columns come from more than one route or reference set is refused in words, and no flag overrides it.
+/// A single-cell result exports by itself, as its matrices in one folder a sample and the Seurat and Scanpy templates, and the
+/// flags of a comparison are refused for it.
 struct RNASeqExportSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "export",
@@ -17,9 +19,13 @@ struct RNASeqExportSubcommand: AsyncParsableCommand {
         discussion: "Writes counts.tsv, genes.tsv, samples.tsv, deseq2.R, edger-limma-dream.R (edgeR, limma voom and dream) and a record "
             + "into the new folder --output names. "
             + "The results must come from one route and one reference set. A route is the tool, its version and every setting that changes counts."
+            + "\n\n"
+            + "A single-cell result exports by itself and writes no table of counts. Its matrices, features and barcodes go in one folder a sample, "
+            + "beside genes.tsv, samples.tsv, seurat.R and scanpy.py. --design, --contrast, --batch, --batch-correction, --lfc-bar and a "
+            + "--padj-cutoff other than 0.05 are refused for it, so sum its cells with rnaseq pseudobulk and export that result to compare groups."
     )
 
-    @Argument(help: "One or more .lungfishrnaseq result folders")
+    @Argument(help: "One or more .lungfishrnaseq result folders. A single-cell result is exported alone")
     var resultPaths: [String]
 
     @Option(name: .customLong("output"), help: "The new folder to write. It must not exist")

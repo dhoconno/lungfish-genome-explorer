@@ -147,7 +147,7 @@ Each refusal comes before anything is written, in words that name the file and w
 
 ## The export
 
-`lungfish-cli rnaseq export <result>... --output <new folder>` writes the counts of one or more results into a new folder that DESeq2, edgeR, limma voom and dream read. `RNASeqExport.run` in `Sources/LungfishWorkflow/RNASeq/` does the work and `Sources/LungfishCLI/Commands/RNASeqExportSubcommand.swift` is the leaf, so a later viewer runs the same code. The folder must not exist. The export writes it into a stage and renames it into place through `ScientificFileExportProvenance`, so a refusal, an error or a cancel leaves neither a folder nor a stage. Every refusal comes before the first file is written.
+`lungfish-cli rnaseq export <result>... --output <new folder>` writes the counts of one or more bulk results into a new folder that DESeq2, edgeR, limma voom and dream read. A single-cell result is exported by itself, as its matrices in a new folder that Seurat and Scanpy read (see A single-cell result below). `RNASeqExport.run` in `Sources/LungfishWorkflow/RNASeq/` does the work and `Sources/LungfishCLI/Commands/RNASeqExportSubcommand.swift` is the leaf, so a later viewer runs the same code. The folder must not exist. The export writes it into a stage and renames it into place through `ScientificFileExportProvenance`, so a refusal, an error or a cancel leaves neither a folder nor a stage. Every refusal comes before the first file is written.
 
 ### What the export reads and refuses
 
@@ -170,7 +170,7 @@ No flag overrides a refusal, and the export never joins by a union with zeros or
 | `counts.masked.tsv` | The masked column, written beside `counts.tsv` when every result holds one and never joined to it. A join where only some results hold one is refused |
 | `genes.tsv` | The gene table of the results with its `not_host` flag |
 | `samples.tsv` | One row a sample, with the columns below |
-| `deseq2.R`, `edger-limma-dream.R` | The two scripts, described below |
+| `deseq2.R`, `edger-limma-dream.R` | The two scripts, described below. A pseudobulk export adds the animals rule to each |
 | `.lungfish-provenance.json` | The record |
 
 `samples.tsv` holds `sample_id`, `animal`, `species`, `origin`, `group` and `runs` from the results, then the other columns of the optional `--sample-sheet`, and last `route` and `reference_set`, which the export reads from each result. The sheet is tab-separated and names its samples in a `sample` or `sample_id` column. A value in the sheet replaces the result's value for `animal`, `species`, `origin`, `group` and `runs` when it is not empty. The sample ids of the sheet and of the results must be the same set, and the export refuses a sheet that differs and lists the ids that do. A sheet column named `route` or `reference_set` decides nothing, so a sheet reopened later cannot hide a mix.
@@ -183,13 +183,41 @@ No flag overrides a refusal, and the export never joins by a union with zeros or
 
 The design check runs in Swift before any file is written, and again in each script before its batch step, so a sheet edited after the export is refused in R as well. It refuses `combat-seq` and `sva` when a batch is nested in or equal to a level of a design factor, or holds only whole levels of it, since the batch then cannot be told apart from those levels. The words name the batch, the factor and its levels, and say that `~ batch + design` loses full rank only when it does. A batch that crosses the levels of the factor passes. Batch B of the GSE290671 study holds exactly days 3 and 10 (`scripts/repro/rnaseq/gse290671/de.R:10-12`), so both steps are refused with `~ day`.
 
+### Animals in a pseudobulk comparison
+
+A pseudobulk result sums the cells of each sample and label into one column. A test on single cells gives false discoveries, so a pseudobulk comparison counts animals and not cells. When any result of the export came from `rnaseq pseudobulk` and `--design` is given, the export reads the `animal` column of `samples.tsv` (a `--sample-sheet` can give it) and takes the last `--design` as the tested factor. It refuses a column with no animal. It refuses a level of the factor that holds columns of fewer than 3 animals (`RNASeqExportDesignCheck.minimumAnimals`) in words that name the level, its animals and the way on, which is to add animals or to compare levels that already hold 3. With no `--design` nothing is tested and nothing is refused. A bulk result is not held to this count.
+
+Both scripts of a pseudobulk export carry the same rule, so a `samples.tsv` edited down after the export is refused in R as well. Their settings block holds `min_animals <- 3` and each script calls `check_animals` right after it reads the table, before the fit. A script of a bulk export holds neither.
+
 ### The scripts and the record
 
-`deseq2.R` needs DESeq2, and sva for a batch step. `edger-limma-dream.R` needs edgeR and limma, sva for a batch step and `variancePartition` for the dream part. The dream part runs only when `variancePartition` is installed. Otherwise the script stops in words after edgeR and limma have written their results. Both scripts keep their settings in a block at the top, so a person edits the cutoff or the contrasts there and runs the script again. A script from an export made without `--design` and `--contrast` stops in words before it reads a table.
+`deseq2.R` needs DESeq2, and sva for a batch step. `edger-limma-dream.R` needs edgeR and limma, sva for a batch step and `variancePartition` for the dream part. The dream part runs only when `variancePartition` is installed. Otherwise the script stops in words after edgeR and limma have written their results. Both scripts keep their settings in a block at the top, so a person edits the cutoff or the contrasts there and runs the script again. The scripts of a pseudobulk export also hold `min_animals` there and refuse in R a `samples.tsv` that no longer meets the animals rule above. A script from an export made without `--design` and `--contrast` stops in words before it reads a table.
 
 Both scripts take size factors and normalization factors from the host rows alone and keep the not-host rows in the table and in the results, with a `not_host` column. `deseq2.R` rounds `estimated` counts to whole counts, as DESeq2 needs, and says so in a comment. It writes `deseq2-results/` and `edger-limma-dream.R` writes `edger-limma-dream-results/`, each beside the script.
 
-The record names each result with its route and reference set, the design, the contrasts, the batch step, the padj cutoff, `alpha` and the fold-change bar (`none` by default), and it lists every file of the folder with its sha256. The command it records parses to the options of the run, and a replay writes files of equal sha256 except for the record.
+The record names each result with its route and reference set, the design, the contrasts, the batch step, the padj cutoff, `alpha` and the fold-change bar (`none` by default), and it lists every file of the folder with its sha256. A pseudobulk export also records `minimumAnimals`. The command it records parses to the options of the run, and a replay writes files of equal sha256 except for the record.
+
+### A single-cell result
+
+A single-cell result is exported by itself, because its matrices are not a table of counts that DESeq2 or edgeR read. The export refuses a bulk result or a second single-cell result given with it, in words that name both results, before it writes anything. `RNASeqExportCells` in `Sources/LungfishWorkflow/RNASeq/` does the work right after `RNASeqExportReader.read` and before the join of bulk results.
+
+Each sample's `matrix.mtx`, `features.tsv` (or `genes.tsv` of an older Cell Ranger) and `barcodes.tsv` are copied as they were imported, plain or gzip, into a folder of the sample's own. Each copy is hashed as it is written, and the export refuses and writes nothing when a sha256 differs from the row of the result's manifest.
+
+| File | Holds |
+| --- | --- |
+| `<sample folder>/matrix.mtx`, `features.tsv`, `barcodes.tsv` | The three files of each sample as imported, with `.gz` kept when the import had it |
+| `genes.tsv` | The gene table of the result with its `not_host` flag |
+| `samples.tsv` | One row a sample, with the columns of a bulk `samples.tsv` and last `folder`, `route` and `reference_set` |
+| `seurat.R`, `scanpy.py` | The two templates, described below |
+| `.lungfish-provenance.json` | The record |
+
+`--sample-sheet` works as it does for bulk results, and a sheet column named `folder`, `route` or `reference_set` decides nothing. `--design`, `--contrast`, `--batch`, `--batch-correction`, `--lfc-bar` and a `--padj-cutoff` other than 0.05 do nothing here, so the export refuses each one given in words that point to `lungfish-cli rnaseq pseudobulk`, which sums the cells into a bulk result that those flags apply to.
+
+The record names the result and holds `modality` (`single-cell`), `route`, `referenceSet`, `results` and `matrixFiles`. A record lists flat names only, so the files inside the sample folders are in `matrixFiles` with their path in the export, sha256, size and source path in the result.
+
+`seurat.R` reads each matrix with `Matrix::readMM` and `scanpy.py` with `scipy.io.mmread`, and neither calls `read_10x_mtx`. Both read `samples.tsv` and `genes.tsv`, refuse a matrix whose rows differ in number from its features file or whose columns differ in number from its barcodes file, and print `cells <sample> <n>` for each sample, then `cells total <n>` and `not-host features <n>`. Each writes a table of cells, `seurat-cells.tsv` or `scanpy-cells.tsv`, with the columns `cell`, `sample`, `barcode`, `umis` and `genes`. The `umis` and `genes` count Gene Expression rows only, as `cells.sqlite` does, so the three can be compared. With two samples or more the barcode in `cell` is prefixed with `<sample>_`.
+
+The table is written before Seurat is called, so `seurat.R` in an R without Seurat writes it and stops in words. In an R with Seurat it ends with a Seurat object that holds the `name`, `type` and `not_host` of each feature. Seurat shows a feature id with each `_` written as `-`, and the script matches the rows by position.
 
 ## The one writer
 
