@@ -352,6 +352,76 @@ final class ImportRNASeqCommandTests: XCTestCase {
         XCTAssertEqual(secondManifest.cellsSummary, firstManifest.cellsSummary, "cells.sqlite has the same bytes")
     }
 
+    // MARK: - Not-host RNA (Phase 5.2 lane RS-NOTHOST)
+
+    /// A set folder whose genes table holds ENSMMUG1 and the virus's gene, with one virus extra counted as not host
+    /// when `notHost` is true, and a Cell Ranger `outs/` folder of ENSMMUG1 and two cells beside it.
+    static func writeNotHostInputs(in folder: URL, notHost: Bool) throws -> (set: URL, outs: URL, bam: URL) {
+        let set = folder.appendingPathComponent("rhesus.lungfishrefset", isDirectory: true)
+        let outs = folder.appendingPathComponent("lib1/outs/filtered_feature_bc_matrix", isDirectory: true)
+        for directory in [set.appendingPathComponent("extras"), set.appendingPathComponent("derived"), outs] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        let file = { (path: String) in "{\"path\": \"\(path)\", \"sha256\": \"0\", \"size\": 1, \"tool\": \"lungfish\", \"version\": \"test\"}" }
+        let manifest = """
+            {"schemaVersion": 1, "id": "rhesus-test", "name": "Test set", "species": "Macaca mulatta", "assembly": {"name": "Mmul_10"},
+             "annotation": {"source": "Ensembl", "release": "100", "path": "a.gtf.gz", "sha256": "0"}, "genome": {"path": "g.fa.gz", "sha256": "0"},
+             "extras": [{"name": "NC_045512.2", "kind": "virus", "path": "extras/NC_045512.2.fa", "sha256": "0", "records": ["NC_045512.2"], "notHost": \(notHost)}],
+             "layout": {"kind": "lge"}, "mitochondrialContigs": ["MT"], "masks": [],
+             "derived": {"transcripts": \(file("derived/transcripts.fa")), "genes": \(file("derived/genes.tsv")), "transcriptGenes": \(file("derived/transcripts.tsv"))},
+             "derivation": {"exonsAdded": [], "keptWithoutExon": [], "droppedFeatures": [], "renamedTranscripts": [],
+              "genesWithoutFeatures": {"path": "derived/genes-without-features.tsv", "sha256": "0", "count": 0}}}
+            """
+        let files: [(URL, String)] = [
+            (set.appendingPathComponent(ReferenceSetManifest.filename), manifest),
+            (set.appendingPathComponent("extras/NC_045512.2.fa"), ">NC_045512.2\nACGTACGTAC\n"),
+            (set.appendingPathComponent("derived/genes.tsv"), "gene_id\tname\tbiotype\tcontig\tlength\tnot_host\tmask\tunreliable\n"
+                + "ENSMMUG1\tACTB\tprotein_coding\t1\t1800\tfalse\ngene-GU280_gp10\tN\tprotein_coding\tNC_045512.2\t1260\t\(notHost)\n"),
+            (outs.appendingPathComponent("matrix.mtx"), "%%MatrixMarket matrix coordinate integer general\n1 2 2\n1 1 3\n1 2 6\n"),
+            (outs.appendingPathComponent("features.tsv"), "ENSMMUG1\tACTB\tGene Expression\n"),
+            (outs.appendingPathComponent("barcodes.tsv"), "AAAC-1\nCCCG-1\n"),
+            (folder.appendingPathComponent("lib1.bam"), ""), (folder.appendingPathComponent("lib1.bam.bai"), ""),
+        ]
+        for (url, text) in files { try Data(text.utf8).write(to: url) }
+        return (set, outs.deletingLastPathComponent(), folder.appendingPathComponent("lib1.bam"))
+    }
+
+    func testNotHostRefusalsBeforeAnythingIsRead() {
+        let refusal = ImportCommand.RNASeqSubcommand.notHostRefusal
+        XCTAssertNil(refusal(false, false, []))
+        XCTAssertNil(refusal(true, true, ["outs=/data/lib1.bam"]))
+        XCTAssertEqual(
+            refusal(false, true, []),
+            "--reference-set and --not-host-bam count the not-host RNA of Cell Ranger and STARsolo folders and take no bulk input.")
+        XCTAssertEqual(
+            refusal(true, false, ["outs=/data/lib1.bam"]),
+            "--not-host-bam needs --reference-set, the set whose not-host records the BAM was aligned to.")
+        for bad in ["/data/lib1.bam", "=/data/lib1.bam", "outs="] {
+            XCTAssertEqual(refusal(true, true, [bad]), SingleCellNotHostError.malformedBAMOption(bad).errorDescription, bad)
+            XCTAssertTrue(refusal(true, true, [bad])?.contains(bad) == true, bad)
+        }
+    }
+
+    /// The set's extra is not counted as not host, so the pass has no record to count and needs no samtools, and the
+    /// record still names the set and the BAM by the options the person gave.
+    func testTheRecordedArgvOfANotHostImportParsesToEqualOptions() async throws {
+        let project = try project("NotHostRoundTrip")
+        let inputs = project.appendingPathComponent("Inputs", isDirectory: true)
+        let (set, outs, bam) = try Self.writeNotHostInputs(in: inputs, notHost: false)
+        let arguments = [outs.path, "--project", project.path, "--name", "lib1", "--reference-set", set.path, "--not-host-bam", "lib1=\(bam.path)"]
+        let original = try ImportCommand.RNASeqSubcommand.parse(arguments)
+        try await run(arguments)
+        let result = try result(in: project)
+        let argv = try record(result).argv
+        let replayed = try ImportCommand.RNASeqSubcommand.parse(Array(argv.dropFirst(3)))
+        func standard(_ path: String?) -> String? { path.map { URL(fileURLWithPath: $0).standardizedFileURL.path } }
+        XCTAssertEqual(standard(replayed.referenceSetPath), standard(original.referenceSetPath))
+        XCTAssertEqual(replayed.notHostBAMValues, ["lib1=\(try XCTUnwrap(standard(bam.path)))"])
+        XCTAssertEqual(replayed.inputPaths.map(standard), original.inputPaths.map(standard))
+        XCTAssertEqual(try manifest(result).referenceSet?.id, "rhesus-test")
+        XCTAssertEqual(try record(result).options.resolvedDefaults["notHostReferenceSet"]?.stringValue, "rhesus-test")
+    }
+
     // MARK: - The result's provenance folder (ADJ-ARCH-51 items 8 to 10)
 
     private func rollupURL(_ result: URL) -> URL {

@@ -158,6 +158,31 @@ final class ImportCommandsSIGTERMTests: XCTestCase {
         XCTAssertEqual(Self.bundles(in: project, folder: "Analyses"), [], "no result and no stage")
     }
 
+    /// The same cancel for a single-cell import with `--reference-set` and `--not-host-bam`, held at the pass's
+    /// samtools by a stand-in that writes its process ID and sleeps (RS-NOTHOST). The cancel publishes no result,
+    /// leaves no staging folder and leaves no samtools behind.
+    func testImportRNASeqNotHostTurnsSIGTERMIntoACancelAtSamtoolsAndLeavesNoProcess() async throws {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let (set, outs, bam) = try ImportRNASeqCommandTests.writeNotHostInputs(in: root, notHost: true)
+        let pidFile = root.appendingPathComponent("samtools.pid")
+        let condaRoot = try Self.samtoolsHoldingCondaRoot(in: root, pidFile: pidFile)
+        let run = try CLISIGTERMHarness.launchCLI(
+            ["import", "rnaseq", outs.path, "--project", project.path, "--name", "held", "--reference-set", set.path,
+             "--not-host-bam", "lib1=\(bam.path)", "--format", "json"],
+            environment: ["LUNGFISH_CONDA_ROOT": condaRoot.path],
+            workingDirectory: root,
+            testClass: Self.self
+        )
+        defer { run.stop() }
+        let pid = await CLISIGTERMHarness.waitForProcessID(in: pidFile)
+        XCTAssertNotNil(pid, "the command never reached samtools")
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(run, record: { Self.recordStatus(in: project) })
+        try Self.assertCancelledEvents(stop.standardOutput)
+        XCTAssertEqual(Self.bundles(in: project, folder: "Analyses"), [], "no result and no stage")
+        if let pid { XCTAssertNotEqual(kill(pid, 0), 0, "samtools \(pid) is left running") }
+    }
+
     /// A Cell Ranger `outs/` folder of one feature and one barcode whose `matrix.mtx.gz` repeats the entry `1 1 1`.
     private static func writeLargeCellRangerOuts(in root: URL) throws -> URL {
         let outs = root.appendingPathComponent("held/outs", isDirectory: true)
