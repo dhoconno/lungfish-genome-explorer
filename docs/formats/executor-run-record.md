@@ -93,7 +93,7 @@ A run on Linux whose subreaper cannot be set is refused with `refusedField` `sub
 | `toolPID`, `toolExitCode`, `toolSignal`, `peakResidentBytes` | The tool's process, how it ended and its peak memory |
 | `escalatedToSIGKILL`, `stoppedProcesses`, `adoptedOrphansReaped` | What the end-of-step sweep stopped and reaped |
 | `startedAt`, `endedAt`, `wallSeconds` | The step's times |
-| `outputs` | `path`, `bytes` and `sha256` of each output, written only for a step that succeeded |
+| `outputs` | `path`, `bytes` and `sha256` of each output, written only for a step that succeeded. In a run of a schema 2 plan each output also has `policy`, `home` or `stays` as the step's `outputPolicy` names it ([executor-plan.md](executor-plan.md), Schema 2). A `stays` output keeps its path, bytes and SHA-256 here, although the file never leaves the Linux machine, so a later plan or a person can check a kept copy. Absent in a run of a schema 1 plan |
 | `stderrTail`, `stderrTruncated`, `stderrBytes` | The last 4 MiB of standard error as UTF-8 with replacement, whether it was cut and every byte written. For a step with `storage.launches` the three keys describe the last launch, and each launch's `stderrPath` names its own file |
 | `standardOutput` | `text`, `sha256` and `size` of a kept standard output |
 | `inputFile` | `relativePath`, `sha256` and `size` of the file a `statistics` step read |
@@ -126,6 +126,8 @@ The Q20 and Q30 count is the executor's own code, the counter the Mac uses, so t
 ## Payloads
 
 Each entry of `payloads` has `relativePath`, `sha256` and `size`, with `recordCount` and `recordCountFile` from the storage step that wrote it. The adopt compares `recordCountFile` with the payload's own digest.
+
+In a run of a schema 2 plan, `payloads` lists each `home` output of every step that succeeded, in the order of the steps and of each step's `outputs`, with `relativePath`, `sha256` and `size`. It has no `recordCount` or `recordCountFile`, since such a plan runs no storage step. A `stays` output is never a payload. The record of a schema 2 plan keeps record schema version 1, since `policy` is an optional key, and the plan file that `plan` names states the plan's schema.
 
 ## Storage details
 

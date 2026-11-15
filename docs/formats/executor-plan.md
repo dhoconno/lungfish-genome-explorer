@@ -83,7 +83,7 @@ The plan has no statistics settings. `seqkit stats -a -T <file>` is the call the
 
 ## Steps
 
-Each step has `id` (1 to 64 of `A-Z a-z 0-9 . _ -`, starting with a letter or digit), `title`, `kind`, `tool` (`{id, version, build}`), `arguments`, `environment` (`{name, value}` pairs), `deadlineSeconds`, `inputs`, `outputs` and `standardOutput`. Every path is relative to the work root. The executor builds each tool's environment from nothing, sets `PATH`, `TMPDIR` and `HOME`, and then adds the step's variables, such as `_JAVA_OPTIONS=-Xmx<heap>g` for clumpify. The executor removes `_JAVA_OPTIONS` from every launch of a storage step except clumpify.
+Each step has `id` (1 to 64 of `A-Z a-z 0-9 . _ -`, starting with a letter or digit), `title`, `kind`, `tool` (`{id, version, build}`), `arguments`, `environment` (`{name, value}` pairs), `deadlineSeconds`, `inputs`, `outputs` and `standardOutput`, and in a schema 2 plan `outputPolicy` (Schema 2). Every path is relative to the work root. The executor builds each tool's environment from nothing, sets `PATH`, `TMPDIR` and `HOME`, and then adds the step's variables, such as `_JAVA_OPTIONS=-Xmx<heap>g` for clumpify. The executor removes `_JAVA_OPTIONS` from every launch of a storage step except clumpify.
 
 | `kind` | What runs |
 | --- | --- |
@@ -93,6 +93,7 @@ Each step has `id` (1 to 64 of `A-Z a-z 0-9 . _ -`, starting with a letter or di
 | `compress` | A compressor by the plan's argv |
 | `statistics` | `seqkit stats -a -T` of the payload, whose table is kept in `standardOutput` |
 | `qualityCount` | The executor's own Q20 and Q30 count of the payload. The plan's step names no tool, and the record's step names the executor |
+| `tool` | Schema 2 only. A pinned tool by the plan's argv, as a `recipe` step runs by its argv (Schema 2) |
 
 The storage route `none` runs `reformat.sh` with the plan's binning, or the compressor alone when the plan bins nothing, as the import on the Mac does. This build has no plan form for two files with no binning, which the Mac interleaves in its own process, or for one gzip file with no binning, which the Mac keeps as it is. The decoder refuses both, and a step with more than two files, with field `steps[<i>].inputs`, so the plan writer refuses them before a run and no recipe step runs on the machine first. Nor has it a plan form for a lone trim step when duplicate removal is off, for RiboDetector or for interleaved to paired reads.
 
@@ -124,6 +125,25 @@ A `barcodeList` entry pins the 10x barcode list that a STARsolo step reads, by `
 | `source` | `image` for the list LGE derives from 10x's CC BY 4.0 dataset files and ships with its NOTICE in the tool image, or `supplied` for a list the person gave |
 
 The executor checks the list by SHA-256 before any tool starts (`docs/plans/2026-10-02-architecture-program.md:103`). A `supplied` list is kept once in the staging folder as a `database` entry is, and the executor checks it as it checks every entry. An `image` list is in no plan folder or staging folder, and `staging.json` does not name it. The executor copies the file that the image's tool manifest lists with that SHA-256 to the entry's `relativePath` and checks the copy's size and SHA-256. A manifest that lists no such file refuses the run with field `entries[<i>]` and the sentence "The tool image holds no barcode list with SHA-256 <sha256>, which this plan pins. No tool ran." The run record's `inputs` repeats the entry with its `barcodeList`, so the record says which list ran and where it came from, and the adopt writes "list supplied by the user" for a `supplied` list. LGE's list is never in the git tree or the Mac app, and LGE takes no list from a Cell Ranger install. An entry of another role that holds `barcodeList`, or a `barcodeList` entry without it, is refused with field `entries[<i>].barcodeList`.
+
+### The `tool` step
+
+A `tool` step runs one pinned tool by the plan's argv, as a `recipe` step runs by its argv. Its `tool` is a pin of `tools`, which the image's manifest must list, and the executor runs it by the manifest's absolute path with `arguments` as given. A program the tool starts itself, such as the decompressor that STAR's `--readFilesCommand` names, is pinned in `tools` as well, since `tools` holds every tool a step runs or launches. The step's `environment` is built from nothing as every step's is, and its `deadlineSeconds` keeps the rule of every step. That deadline is the limit the person named, or the longest a plan allows when the person named none, since an analysis tool has no wall-clock limit by default (`docs/contracts/SCOPE-AND-DELIVERY.md`, What the app must do). Each thread count and memory limit a tool takes, such as STAR's `--runThreadN`, sits in the argv as a fixed number that the plan writer's rule sets, and never means every core or the host's memory.
+
+The argv holds every setting that changes counts, with the same value `pipeline` states (The pipeline). Every trimmer call passes the poly-G setting, Trim Galore 2.3.0 `--no_poly_g` by default and `--poly_g` when the person chose it, and never leaves it to the trimmer's own check (`docs/plans/2026-10-02-architecture-program.md:246`). The STAR then salmon step's `alignmentScoring` is `none`, which passes no flag, or `errorModel`, which passes `--errorModel` (`docs/plans/2026-10-02-architecture-program.md:247`).
+
+A `tool` step states no read count, so its record leaves `inputReadCount` and `outputReadCount` absent. Counts come from the tool's own files, such as STAR's `Log.final.out` and salmon's `aux_info/meta_info.json`. Each output is a regular file the tool writes, as for every step. A tool that writes a folder, such as a STAR index or STARsolo's `Solo.out/`, has each file of that folder that the adopt or a later plan reads named as an output. A file the plan does not name is neither hashed nor returned.
+
+### Outputs that come home and outputs that stay
+
+Every step of a schema 2 plan holds `outputPolicy`, an object with one key for each path of its `outputs` and the value `home` or `stays`.
+
+| Policy | Meaning |
+| --- | --- |
+| `home` | The job returns the file to the Mac at its plan path, beside the run record, for the adopt |
+| `stays` | The file stays on the Linux machine, and the run record still states its path, bytes and SHA-256 in the step's `outputs` |
+
+The plan names no place on Linux for a `stays` output. Whether the file outlives the job is the job's choice. An index that later plans read is copied by its job into the group's staging folder, where a later plan pins its files as `reference` entries, and any other `stays` file goes with the job's scratch folder. A STAR index stays on Linux (`docs/plans/2026-10-02-architecture-program.md:245`), and so do STAR's alignments and every read file, since the Mac never holds Linux reads (owner direction O59). The submit side returns the run record and each `home` output and nothing else, as for a schema 1 plan it returns the run record, the payload and the reports (`Sources/LungfishWorkflow/HTCondor/HTCondorSubmitTemplate.swift:73-80`). `standardOutput` takes no policy, since the run record holds its bytes. A step whose `outputPolicy` leaves out one of its outputs, or names a path that is not one of them, is refused with field `steps[<i>].outputPolicy`.
 
 ## Refusals
 
