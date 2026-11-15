@@ -6,6 +6,7 @@ import AppKit
 import XCTest
 import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishTaxonomyUI
 
 @MainActor
 final class AffectedResultsStripTests: XCTestCase {
@@ -78,6 +79,76 @@ final class AffectedResultsStripTests: XCTestCase {
                              "the strip grows past one line, found \(label.frame.height) pt for a line of \(oneLine) pt")
         XCTAssertGreaterThanOrEqual(label.frame.height, needed - 1,
                                     "the strip is tall enough for every line, found \(label.frame.height) pt for \(needed) pt")
+    }
+
+    /// The rows of the walk's result, an EsViritu result made by build 11807, and the strip's words for them.
+    private func walkRows() throws -> (rows: [AffectedResultRow], words: String) {
+        let rows = AffectedResults.rows(forAppVersion: "Lungfish 2026.10.28 (11807)", kind: .esViritu)
+        XCTAssertGreaterThan(rows.count, 1)
+        return (rows, try XCTUnwrap(AffectedResultsStrip.words(for: rows)))
+    }
+
+    func testTheStripsWordsShowBelowTheTitleBarOfAWindowThatDrawsUnderIt() throws {
+        // Walk finding AFFECTED-STRIP-NO-WORDS: the main window draws its content under the title bar and toolbar
+        // (.fullSizeContentView), and the strip took the viewer's top edge, so the bar covered all of its words and
+        // left a 1 to 2 pt line. A surface pinned to that edge keeps its own content below the bar, the strip did not.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
+            styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: true
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let viewer = ViewerViewController()
+        window.contentView = viewer.view
+        _ = try viewer.showSurface(.analysis(.kraken2), input: TaxonomyViewController(), as: Kraken2Surface.self)
+        let surfaceView = try XCTUnwrap(viewer.installedSurface?.viewController.view)
+        let (rows, words) = try walkRows()
+
+        viewer.showAffectedResultsStrip(rows: rows)
+        window.layoutIfNeeded()
+        viewer.view.layoutSubtreeIfNeeded()
+
+        XCTAssertGreaterThan(viewer.view.safeAreaInsets.top, 0, "the viewer runs under the title bar, as in the main window")
+        let label = try XCTUnwrap(AffectedResultsStrip.strip(in: viewer.view)).label
+        XCTAssertEqual(label.stringValue, words)
+        let cell = try XCTUnwrap(label.cell)
+        let oneLine = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: 100_000, height: 10_000)).height
+        XCTAssertGreaterThan(label.frame.height, oneLine * 1.5,
+                             "the words take more than one line, found \(label.frame.height) pt for a line of \(oneLine) pt")
+        let visible = window.contentLayoutRect
+        let labelInWindow = label.convert(label.bounds, to: nil)
+        XCTAssertLessThanOrEqual(labelInWindow.maxY, visible.maxY + 0.5,
+                                 "the words start below the title bar, found \(labelInWindow.maxY) pt against \(visible.maxY) pt")
+        XCTAssertGreaterThanOrEqual(labelInWindow.minY, visible.minY - 0.5)
+        let surfaceInWindow = surfaceView.convert(surfaceView.bounds, to: nil)
+        XCTAssertLessThanOrEqual(surfaceInWindow.maxY, labelInWindow.minY, "the result starts below the words")
+    }
+
+    func testANoticeThatComesBeforeTheNextSurfaceStillShowsItsStripAboveThatSurface() throws {
+        // The Inspector's lookup can end before the viewer installs the result it is about. The strip then sits above
+        // the old surface, and the host puts the new one on top of it, pinned to the same edge.
+        let viewer = ViewerViewController()
+        viewer.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
+        _ = try viewer.showSurface(.analysis(.kraken2), input: TaxonomyViewController(), as: Kraken2Surface.self)
+        let (rows, words) = try walkRows()
+        viewer.showAffectedResultsStrip(rows: rows)
+
+        _ = try viewer.showSurface(.analysis(.kraken2), input: TaxonomyViewController(), as: Kraken2Surface.self)
+
+        let surfaceView = try XCTUnwrap(viewer.installedSurface?.viewController.view)
+        let strip = try XCTUnwrap(AffectedResultsStrip.strip(in: viewer.view))
+        XCTAssertEqual(strip.label.stringValue, words)
+        XCTAssertTrue(strip.surfaceView === surfaceView, "the strip sits above the surface that shows")
+        let order = viewer.view.subviews
+        XCTAssertGreaterThan(try XCTUnwrap(order.firstIndex(of: strip)), try XCTUnwrap(order.firstIndex(of: surfaceView)),
+                             "the strip is in front of the new surface")
+        XCTAssertTrue(viewer.view.constraints.contains {
+            $0.isActive && $0.firstItem === surfaceView && $0.firstAttribute == .top
+                && $0.secondItem === strip && $0.secondAttribute == .bottom
+        }, "the new surface starts below the strip")
+
+        viewer.clearSurface(ifShowing: .analysis(.kraken2))
+        XCTAssertNil(AffectedResultsStrip.strip(in: viewer.view), "a viewer with no result shows no strip")
     }
 
     func testTheStripIsAbsentForARecordOfAnUnaffectedOrDevBuild() {

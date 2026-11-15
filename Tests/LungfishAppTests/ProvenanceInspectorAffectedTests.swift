@@ -97,6 +97,25 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
         XCTAssertEqual(received, [], "a fixture record names a build with no number")
     }
 
+    func testClearingTheRecordTellsTheViewerThatNoRowMatches() throws {
+        // A selection clears the model before its lookup, so a strip of the item before never outlives that item.
+        let model = model(build: "Lungfish 2026.10.29 (12045)")
+        var received: [AffectedResultRow]?
+        let token = NotificationCenter.default.addObserver(
+            forName: .affectedResultsDidChange, object: model, queue: nil
+        ) { note in
+            received = note.userInfo?[ProvenanceInspectorViewModel.affectedResultsRowsKey] as? [AffectedResultRow]
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        model.applyAffectedResults(item: item(.taxTriageResult))
+        XCTAssertFalse(try XCTUnwrap(received).isEmpty)
+
+        model.clear()
+
+        XCTAssertEqual(received, [], "the strip goes with the record it spoke for")
+        XCTAssertEqual(shown(model), [])
+    }
+
     func testTheKindOfAnItemFollowsItsSidebarType() {
         let kinds: [(SidebarItemType, AffectedResultKind)] = [
             (.taxTriageResult, .taxTriage), (.esvirituResult, .esViritu), (.classificationResult, .kraken2),
