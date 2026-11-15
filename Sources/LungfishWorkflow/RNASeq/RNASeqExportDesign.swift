@@ -104,13 +104,17 @@ public enum RNASeqExportDesignCheck {
                     findings.append("The batch \(level) holds exactly the levels \(RNASeqExportWords.list(inside)) of \(factor) and every sample of them")
                 }
             }
+            // A batch nested in one level that also sits in another batch keeps full rank, so the reason follows the rank.
+            let deficient = rank(columns: [batches, levels]) < dummyCount([batches, levels])
             if !findings.isEmpty {
+                let reason = deficient
+                    ? "So \(model) loses full rank, and the batch cannot be told apart from those levels of \(factor). "
+                    : "So the batch cannot be told apart from those levels of \(factor), and a batch step would remove part of the difference you test. "
                 throw RNASeqExportRefusal(
                     "\(step.rawValue) cannot run on the batch column \(batch) with the design \(model). \(findings.joined(separator: ". ")). "
-                        + "So \(model) loses full rank, and the batch cannot be told apart from those levels of \(factor). "
-                        + "Use a batch that crosses the levels of \(factor), or pass --batch-correction none.")
+                        + reason + "Use a batch that crosses the levels of \(factor), or pass --batch-correction none.")
             }
-            if rank(columns: [batches, levels]) < dummyCount([batches, levels]) {
+            if deficient {
                 throw RNASeqExportRefusal(
                     "\(step.rawValue) cannot run on the batch column \(batch) with the design \(model), because \(model) loses full rank. "
                         + "The batch and \(factor) overlap so that no model can separate them. Use a batch that crosses the levels of \(factor), or pass --batch-correction none.")

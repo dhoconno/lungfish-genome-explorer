@@ -62,11 +62,17 @@ public enum RNASeqExportTemplates {
           else if (identical(whole, inside)) found <- c(found, sprintf("The batch %s holds exactly the levels %s of %s and every sample of them", b, paste(inside, collapse = ", "), term))
         }
         mm <- model.matrix(~ b + f, data.frame(b = factor(batch), f = factor(level)))
-        if (!length(found) && qr(mm)$rank < ncol(mm)) found <- sprintf("The batch and %s overlap so that no model can separate them", term)
+        # A batch nested in one level that also sits in another batch keeps full rank, so the reason follows the rank.
+        deficient <- qr(mm)$rank < ncol(mm)
+        if (!length(found) && deficient) found <- sprintf("The batch and %s overlap so that no model can separate them", term)
         if (length(found)) {
+          reason <- if (deficient) {
+            paste0("So the model loses full rank, and the batch cannot be told apart from those levels of ", term, ". ")
+          } else {
+            paste0("So the batch cannot be told apart from those levels of ", term, ", and a batch step would remove part of the difference you test. ")
+          }
           stop(step, " cannot run on the batch column ", batch_column, " with the design ~ ", batch_column, " + ", paste(design_terms, collapse = " + "), ". ",
-               paste(found, collapse = ". "), ". So the model loses full rank, and the batch cannot be told apart from those levels of ", term,
-               ". Use a batch that crosses the levels of ", term, ", or set batch_step to \"none\".", call. = FALSE)
+               paste(found, collapse = ". "), ". ", reason, "Use a batch that crosses the levels of ", term, ", or set batch_step to \"none\".", call. = FALSE)
         }
       }
     }
