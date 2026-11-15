@@ -1,10 +1,10 @@
-OVERVIEW: Import bulk RNA-seq counts into a project
+OVERVIEW: Import bulk or single-cell RNA-seq counts into a project
 
 USAGE: lungfish-cli import rnaseq [<options>] <input-paths> ... --project <project> --name <name>
 
 ARGUMENTS:
-  <input-paths>           salmon quant folders, or one count table of genes by
-                          samples
+  <input-paths>           salmon quant folders, one count table of genes by
+                          samples, or Cell Ranger outs and STARsolo run folders
 
 OPTIONS:
   --project <project>     Lungfish project directory to import into
@@ -14,6 +14,9 @@ OPTIONS:
   --samples <samples>     Sample sheet (sample, run, animal, species, origin,
                           group)
   --unit <unit>           Unit of a count table: reads, pairs, umis or estimated
+  --genome <genome>       Gene id prefix of one genome of a single-cell
+                          reference of two or more, such as hg19 (repeat for
+                          each genome)
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)

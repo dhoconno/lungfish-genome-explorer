@@ -68,9 +68,11 @@ public struct RNASeqResultWriter: Sendable {
         public var counts: [CountInput]
         public var sourceFiles: [SourceFile]
         public var notHost: [String]
-        /// Single cell. Each file a matrix names must be among `sourceFiles`, and its hash is taken from that copy.
-        public var matrices: [Manifest.MatrixEntry]?
-        public var cellsSummary: Manifest.CellsSummary?
+        /// Single cell. Each file a matrix names must be among `sourceFiles` of its sample. The writer reads each matrix
+        /// once from its copy in the stage, writes `cells.sqlite` and fills `matrices` and `cellsSummary` from that pass.
+        public var matrices: [MatrixInput]?
+        /// Single cell. The id prefixes of the genomes of a reference of two or more, such as `hg19` and `mm10`.
+        public var genomes: [String]
         /// `quality/samples.quality.tsv`, the columns and then one row a sample. A row whose sample is not in `samples`
         /// is refused. Nil writes no file and no manifest key.
         public var quality: RNASeqQualityTable?
@@ -79,8 +81,8 @@ public struct RNASeqResultWriter: Sendable {
         public init(
             name: String, modality: Manifest.Modality, origin: Manifest.Origin, route: Manifest.Route,
             referenceSet: Manifest.ReferenceSet?, samples: [RNASeqSampleRecord], genes: GeneTable, counts: [CountInput],
-            sourceFiles: [SourceFile], notHost: [String], matrices: [Manifest.MatrixEntry]? = nil,
-            cellsSummary: Manifest.CellsSummary? = nil, quality: RNASeqQualityTable? = nil, createdAt: Date = Date()
+            sourceFiles: [SourceFile], notHost: [String], matrices: [MatrixInput]? = nil,
+            genomes: [String] = [], quality: RNASeqQualityTable? = nil, createdAt: Date = Date()
         ) {
             self.name = name
             self.modality = modality
@@ -93,9 +95,24 @@ public struct RNASeqResultWriter: Sendable {
             self.sourceFiles = sourceFiles
             self.notHost = notHost
             self.matrices = matrices
-            self.cellsSummary = cellsSummary
+            self.genomes = genomes
             self.quality = quality
             self.createdAt = createdAt
+        }
+    }
+
+    /// One sample's matrix, features and barcodes, as paths under the sample's folder of the tool.
+    public struct MatrixInput: Sendable, Equatable {
+        public var sample: String
+        public var matrix: String
+        public var features: String
+        public var barcodes: String
+
+        public init(sample: String, matrix: String, features: String, barcodes: String) {
+            self.sample = sample
+            self.matrix = matrix
+            self.features = features
+            self.barcodes = barcodes
         }
     }
 
@@ -151,6 +168,7 @@ public struct RNASeqResultWriter: Sendable {
     private func fill(_ stage: URL, request: Request, resultURL: URL, envelope: ProvenanceEnvelope) throws {
         let copied = try copySources(request, into: stage)
         try note(.sourcesCopied, stage)
+        let (matrices, cellsSummary) = try writeCells(request, copied: copied, into: stage)
 
         var samples = request.samples
         for index in samples.indices { samples[index].sourceFolder = copied.folders[samples[index].id] }
@@ -169,7 +187,7 @@ public struct RNASeqResultWriter: Sendable {
             samples: .init(path: "samples.tsv", sha256: RNASeqResultBundle.sha256Hex(samplesData)),
             genes: .init(path: "genes.tsv", sha256: RNASeqResultBundle.sha256Hex(genesData)),
             counts: counts, sourceFiles: copied.entries,
-            matrices: try filled(request.matrices, from: copied.entries), cellsSummary: request.cellsSummary,
+            matrices: matrices, cellsSummary: cellsSummary,
             quality: quality, notHost: request.notHost)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]

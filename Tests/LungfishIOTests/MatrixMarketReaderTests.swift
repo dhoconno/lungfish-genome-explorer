@@ -21,7 +21,7 @@ final class MatrixMarketReaderTests: XCTestCase {
         RNASeqFixtures.root.appendingPathComponent("cellranger-pbmc_1k_v3/outs/filtered_feature_bc_matrix", isDirectory: true)
     }
 
-    private static let integerWords ="and LGE counts whole unique UMIs a cell. Import the folder's integer matrix, such as Solo.out/Gene/filtered/matrix.mtx."
+    private static let integerWords = "and LGE counts whole unique UMIs a cell. Import the folder's integer matrix, such as Solo.out/Gene/filtered/matrix.mtx."
 
     private func write(_ text: String, named name: String = "matrix.mtx") throws -> URL {
         let url = root.appendingPathComponent(name)

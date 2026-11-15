@@ -17,10 +17,10 @@ extension ImportCommand {
     struct RNASeqSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "rnaseq",
-            abstract: "Import bulk RNA-seq counts into a project"
+            abstract: "Import bulk or single-cell RNA-seq counts into a project"
         )
 
-        @Argument(help: "salmon quant folders, or one count table of genes by samples")
+        @Argument(help: "salmon quant folders, one count table of genes by samples, or Cell Ranger outs and STARsolo run folders")
         var inputPaths: [String]
 
         @Option(name: .customLong("project"), help: "Lungfish project directory to import into")
@@ -38,6 +38,9 @@ extension ImportCommand {
         @Option(name: .customLong("unit"), help: "Unit of a count table: reads, pairs, umis or estimated")
         var unit: String?
 
+        @Option(name: .customLong("genome"), help: "Gene id prefix of one genome of a single-cell reference of two or more, such as hg19 (repeat for each genome)")
+        var genomes: [String] = []
+
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
@@ -51,11 +54,13 @@ extension ImportCommand {
 
             let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
             let isTable = inputs.count == 1 && !Self.isDirectory(inputs[0])
+            let isSingleCell = !inputs.isEmpty && inputs.allSatisfy(SingleCellFolderReader.isSingleCellFolder)
             let countUnit: RNASeqResultManifest.CountEntry.Unit? =
                 isTable ? unit.flatMap(RNASeqResultManifest.CountEntry.Unit.init(rawValue:)) : .estimated
             if let refusal = Self.refusal(
                 project: projectURL, files: inputs + [tx2geneURL, sheetURL].compactMap { $0 }, name: trimmedName,
-                isTable: isTable, inputs: inputs, unit: unit, countUnit: countUnit, hasTx2Gene: tx2geneURL != nil
+                isTable: isTable, inputs: inputs, unit: unit, countUnit: countUnit, hasTx2Gene: tx2geneURL != nil,
+                singleCell: (isSingleCell, Self.singleCellRefusal(inputs: inputs, hasTx2Gene: tx2geneURL != nil, unit: unit, genomes: genomes))
             ) {
                 emitter.emitFailed(refusal)
                 throw CLIExitCode.inputError.exitCode
@@ -66,14 +71,16 @@ extension ImportCommand {
             if let tx2geneURL { command += ["--tx2gene", tx2geneURL.path] }
             if let sheetURL { command += ["--samples", sheetURL.path] }
             if isTable, let unit { command += ["--unit", unit] }
-            let explicit: [String: ParameterValue] = [
+            for genome in genomes { command += ["--genome", genome] }
+            var explicit: [String: ParameterValue] = [
                 "inputs": .array(inputs.map(ParameterValue.file)), "project": .file(projectURL), "name": .string(trimmedName),
                 "tx2gene": tx2geneURL.map(ParameterValue.file) ?? .null, "samples": sheetURL.map(ParameterValue.file) ?? .null,
                 "unit": isTable ? unit.map(ParameterValue.string) ?? .null : .null,
             ]
+            if isSingleCell { explicit["genome"] = .array(genomes.map(ParameterValue.string)) }
             let plan = Plan(
                 inputs: inputs, isTable: isTable, unit: countUnit ?? .estimated, tx2gene: tx2geneURL, sheet: sheetURL,
-                name: trimmedName, command: command, explicit: explicit)
+                name: trimmedName, command: command, explicit: explicit, isSingleCell: isSingleCell, genomes: genomes)
 
             let analysesURL = projectURL.appendingPathComponent("Analyses", isDirectory: true)
             let resultURL = AnalysesFolder.batchSampleFileURL(named: trimmedName, extension: "lungfishrnaseq", in: analysesURL)
@@ -83,7 +90,8 @@ extension ImportCommand {
                 // The Analyses folder is made once the cancel is scoped, which the SIGTERM test waits for.
                 try FileManager.default.createDirectory(at: analysesURL, withIntermediateDirectories: true)
                 destination.set(resultURL)
-                emitter.emitProgress(0.1, message: "Reading \(inputs.count == 1 ? inputs[0].lastPathComponent : "\(inputs.count) salmon folders")...")
+                let many = isSingleCell ? "\(inputs.count) single-cell folders" : "\(inputs.count) salmon folders"
+                emitter.emitProgress(0.1, message: "Reading \(inputs.count == 1 ? inputs[0].lastPathComponent : many)...")
                 let (request, facts, summary) = try plan.request()
                 emitter.emitProgress(0.6, message: "Writing \(resultURL.lastPathComponent)...")
                 let envelope = plan.envelope(facts: facts, startedAt: startedAt)
@@ -113,7 +121,8 @@ extension ImportCommand {
                 // The writer removes its own stage on every throw and never leaves the result's name, so whatever
                 // stands there now is another run's and stays (`docs/formats/rnaseq-bundle.md`, The one writer).
                 emitter.emitFailed(CLIFailureWords.describe(error))
-                throw (error is RNASeqImportError ? CLIExitCode.inputError : CLIExitCode.formatError).exitCode
+                let isInput = error is RNASeqImportError || error is SingleCellImportError || error is MatrixMarketError
+                throw (isInput ? CLIExitCode.inputError : CLIExitCode.formatError).exitCode
             }
         }
 
@@ -125,7 +134,7 @@ extension ImportCommand {
         /// The words of a refusal before anything is read, or nil when the command can run.
         private static func refusal(
             project: URL, files: [URL], name: String, isTable: Bool, inputs: [URL], unit: String?,
-            countUnit: RNASeqResultManifest.CountEntry.Unit?, hasTx2Gene: Bool
+            countUnit: RNASeqResultManifest.CountEntry.Unit?, hasTx2Gene: Bool, singleCell: (isSingleCell: Bool, refusal: String?)
         ) -> String? {
             guard isDirectory(project) else { return "Project directory not found: \(project.path)" }
             guard !name.isEmpty else { return "--name cannot be empty" }
@@ -133,6 +142,8 @@ extension ImportCommand {
             if let missing = files.first(where: { !FileManager.default.fileExists(atPath: $0.path) }) {
                 return "Input not found: \(missing.path)"
             }
+            if let words = singleCell.refusal { return words }
+            if singleCell.isSingleCell { return nil }
             if isTable {
                 guard unit != nil, countUnit != nil else { return "A count table states no unit. Pass --unit reads, pairs, umis or estimated." }
                 guard !hasTx2Gene else { return "--tx2gene sums the transcripts of salmon folders and takes no count table." }
@@ -156,10 +167,13 @@ extension ImportCommand.RNASeqSubcommand {
         let name: String
         let command: [String]
         let explicit: [String: ParameterValue]
+        var isSingleCell = false
+        var genomes: [String] = []
 
         /// Reads the files and returns the writer's request, the record's facts and a summary line.
         func request() throws -> (RNASeqResultWriter.Request, [String: ParameterValue], String) {
             let sheet = try self.sheet.map(RNASeqSampleSheet.read)
+            if isSingleCell { return try singleCellRequest(sheet: sheet) }
             var facts = RNASeqImportFacts.unstated
             let notRecorded = RNASeqImportFacts.notRecorded
             if isTable {

@@ -183,21 +183,4 @@ extension RNASeqResultWriter {
         try DurableReplace.replace(data, named: "samples.quality.tsv", in: folder)
         return .init(path: RNASeqQualityTable.path, sha256: RNASeqResultBundle.sha256Hex(data))
     }
-
-    /// The matrices with the hashes of the copies, so no caller computes one twice.
-    func filled(_ matrices: [Manifest.MatrixEntry]?, from entries: [Manifest.SourceFileEntry]) throws -> [Manifest.MatrixEntry]? {
-        guard var matrices else { return nil }
-        func kept(_ entry: Manifest.FileEntry) throws -> Manifest.FileEntry {
-            guard let found = entries.first(where: { $0.path == entry.path }) else {
-                throw RNASeqResultWriterError.matrixFileNotKept(entry.path)
-            }
-            return .init(path: found.path, sha256: found.sha256)
-        }
-        for index in matrices.indices {
-            matrices[index].matrix = try kept(matrices[index].matrix)
-            matrices[index].features = try kept(matrices[index].features)
-            matrices[index].barcodes = try kept(matrices[index].barcodes)
-        }
-        return matrices
-    }
 }
