@@ -18,6 +18,11 @@ extension ONTBarcodeDemuxGenotypingPipeline {
         /// the full-reference-span filter can call the 244 bp DRB amplicons.
         var mappingFASTQURL: URL
         let prefixedFASTQURL: URL
+        /// The file stem that names this sample's staged file and the files the pair merger
+        /// writes for it. `resolveIlluminaSampleInputs` takes it once per run, so no two samples
+        /// of a run share a stem, even when their IDs differ only in case or in repeated
+        /// punctuation (`S-1` and `S--1`). An input built without one gets its sample ID.
+        let stem: String
         /// Mate/record count of
         /// `fastqURL` as imported. For interleaved paired input this counts
         /// EACH mate once (so a 1,000-pair sample reads 2,000 here), matching
@@ -64,13 +69,15 @@ extension ONTBarcodeDemuxGenotypingPipeline {
             readCount: Int,
             readCountSource: String,
             mappingFASTQURL: URL? = nil,
-            mergeOutcome: IlluminaAmpliconPairMerger.Outcome? = nil
+            mergeOutcome: IlluminaAmpliconPairMerger.Outcome? = nil,
+            stem: String? = nil
         ) {
             self.sampleID = sampleID
             self.sourceURL = sourceURL
             self.fastqURL = fastqURL
             self.mappingFASTQURL = mappingFASTQURL ?? fastqURL
             self.prefixedFASTQURL = prefixedFASTQURL
+            self.stem = stem ?? sampleID
             self.readCount = readCount
             self.readCountSource = readCountSource
             self.mergeOutcome = mergeOutcome

@@ -1907,8 +1907,10 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 // "-"), so two distinct sample IDs can still map to an identical stem (e.g.
                 // "Sample-1" and "Sample--1" both yield "Sample-1"). Reusing the same numeric
                 // suffix scheme keeps stems unique so one staged FASTQ never overwrites another.
-                let stem = Self.disambiguatedSampleID(safeFilenameStem(sampleID), existing: assignedStems)
-                assignedStems.insert(stem)
+                // APFS and exFAT fold case, so `assignedStems` holds lowercased stems: "Sample_1" and
+                // "sample_1" would otherwise name one file. The sample ID keeps its spelling.
+                let stem = Self.disambiguatedStem(safeFilenameStem(sampleID), existingLowercased: assignedStems)
+                assignedStems.insert(stem.lowercased())
                 let prefixedFASTQURL = stagingDirectory
                     .appendingPathComponent("\(stem).sample-prefixed.fastq")
                 // Reads stay tagged by the unique `sampleID`; only the filename derives from `stem`.
@@ -1923,7 +1925,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                     fastqURL: fastqURL.standardizedFileURL,
                     prefixedFASTQURL: prefixedFASTQURL.standardizedFileURL,
                     readCount: effectiveReadCount?.count ?? readCount,
-                    readCountSource: effectiveReadCount?.source ?? "fastq-weighted-record-count"
+                    readCountSource: effectiveReadCount?.source ?? "fastq-weighted-record-count",
+                    stem: stem
                 ))
                 samples[samples.count - 1].inputReads = planned
             }
@@ -1936,12 +1939,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         guard firstDuplicateID == nil else {
             throw ONTBarcodeDemuxGenotypingError.duplicateIlluminaSampleID(firstDuplicateID ?? "")
         }
-        let stagedURLs = samples.map(\.prefixedFASTQURL)
-        if Set(stagedURLs).count != samples.count {
-            let firstDuplicateFile = stagedURLs.first { url in stagedURLs.filter { $0 == url }.count > 1 }
-            throw ONTBarcodeDemuxGenotypingError.duplicateIlluminaStagedFile(
-                firstDuplicateFile?.lastPathComponent ?? ""
-            )
+        // Compared by lowercased name, never as URLs: APFS and exFAT make names that differ only in
+        // case one file. The error names the first duplicate in its own spelling.
+        let stagedNames = samples.map { $0.prefixedFASTQURL.lastPathComponent }
+        if Set(stagedNames.map { $0.lowercased() }).count != samples.count {
+            let firstDuplicateFile = stagedNames.first { name in
+                stagedNames.filter { $0.lowercased() == name.lowercased() }.count > 1
+            }
+            throw ONTBarcodeDemuxGenotypingError.duplicateIlluminaStagedFile(firstDuplicateFile ?? "")
         }
         return samples
     }
@@ -2061,11 +2066,27 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         try await resolveIlluminaSampleInputs(from: urls, stagingDirectory: stagingDirectory, readType: readType)
     }
 
-    /// The stem `mergeIlluminaPairsIfNeeded` gives the pair merger for `sample`.
+    /// Returns `base` unless it is taken once case is ignored, otherwise the first `base-N` (N >= 2)
+    /// that is not. `existingLowercased` holds the stems already assigned, each lowercased, because
+    /// APFS and exFAT make two names that differ only in case one file. Sample IDs stay case-sensitive
+    /// and keep `disambiguatedSampleID`.
+    private static func disambiguatedStem(_ base: String, existingLowercased: Set<String>) -> String {
+        guard existingLowercased.contains(base.lowercased()) else { return base }
+        var bump = 2
+        var candidate = "\(base)-\(bump)"
+        while existingLowercased.contains(candidate.lowercased()) {
+            bump += 1
+            candidate = "\(base)-\(bump)"
+        }
+        return candidate
+    }
+
+    /// The stem `mergeIlluminaPairsIfNeeded` gives the pair merger for `sample`: the stem its staged
+    /// file is named with, unique among the samples of a run even when case is ignored.
     /// The merger names every file it writes for the sample after this stem, in
     /// one folder shared by the run, so no two samples of a run may share one.
     private static func mergeStem(for sample: IlluminaSampleInput) -> String {
-        safeFilenameStem(sample.sampleID)
+        sample.stem
     }
 
     /// Test seam exposing the merge stem of one sample, so a test can compare it
