@@ -198,6 +198,106 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
         }
     }
 
+    // MARK: - index-adopt to success
+
+    /// The key folder of the run record below. The adopt reads `--genomeSAindexNbases 2`, which is what `index-plan` gives the
+    /// 60-base genome of `builtSet`, and `--genomeSAsparseD 2` from the STAR step.
+    private static let indexKeyFolder = "star-2.7.11b-sa2-sparse2"
+
+    /// Writes the `run-record.json` of an index run that succeeded into `result`, in the shape the executor writes it and the
+    /// adopt reads it. It names the set's counting GTF by its SHA-256, holds one STAR step with its argv, and gives each of the
+    /// 15 index files as a staged output and the log as a home output. `edited` gives that one staged output another digest.
+    /// The staged outputs come back by plan path with their bytes and SHA-256.
+    @discardableResult
+    private func writeIndexRunRecord(for set: URL, in result: URL, editing edited: String? = nil) throws
+        -> [String: (bytes: UInt64, sha256: String)] {
+        let manifest = try ReferenceSetManifest.load(from: set)
+        let gtf = try manifest.requireCountingGTF()
+        var staged: [String: (bytes: UInt64, sha256: String)] = [:]
+        for (index, name) in STARIndexPlan.indexFiles.enumerated() {
+            let path = "star-index/\(name)"
+            staged[path] = (UInt64(1_000 + index), path == edited ? String(repeating: "e", count: 64) : String(format: "%064llx", index + 1))
+        }
+        var outputs: [[String: Any]] = staged.sorted { $0.key < $1.key }.map {
+            ["path": $0.key, "bytes": $0.value.bytes, "sha256": $0.value.sha256, "policy": "staged"]
+        }
+        outputs.append(["path": "star-index.Log.out", "bytes": 5_000, "sha256": String(repeating: "f", count: 64), "policy": "home"])
+        let argv = ["--runMode", "genomeGenerate", "--genomeDir", "star-index", "--runThreadN", "8",
+                    "--genomeSAindexNbases", "2", "--genomeSAsparseD", "2"]
+        let step: [String: Any] = [
+            "id": "star-index", "outcome": "succeeded", "argv": argv, "outputs": outputs,
+            "tool": ["id": "STAR", "version": "2.7.11b", "build": "h5814d7d_9", "path": "/opt/conda/envs/2.7.11b/bin/STAR"]]
+        let input: [String: Any] = [
+            "role": "reference", "relativePath": "references/\(manifest.id)/\(gtf.path)", "size": 10, "sha256": gtf.sha256,
+            "reference": ["setID": manifest.id, "path": gtf.path]]
+        let record: [String: Any] = [
+            "schemaVersion": ExecutorRunRecord.currentSchemaVersion, "outcome": "succeeded", "inputs": [input], "steps": [step]]
+        try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+            .write(to: result.appendingPathComponent(ExecutorRunRecord.fileName))
+        return staged
+    }
+
+    /// The route a person takes once the job came home. `--set` names the set by its id, so the leaf finds the set folder under
+    /// `--storage-root`, and the record lands under that same root. The record holds the run record's digests and the staging
+    /// path of each file, and the summary of the leaf names the record file.
+    func testAdoptWritesTheRecordOfASucceededRunUnderTheStorageRoot() async throws {
+        let (storage, set) = try await Self.builtSet(in: root)
+        let id = try ReferenceSetManifest.load(from: set).id
+        let result = root.appendingPathComponent("result", isDirectory: true)
+        let staged = try writeIndexRunRecord(for: set, in: result)
+        let arguments = [result.path, "--set", id, "--storage-root", storage.path, "--staging-folder", Self.staging,
+                         "--batch", "idx", "--format", "json"]
+        try await RNASeqIndexAdoptSubcommand.parse(arguments).run()
+        let url = STARIndexRecordStore(storageRoot: storage).url(setID: id, key: Self.indexKeyFolder)
+        // A second adopt of the same run finds the equal record and changes nothing, so its summary is the first one's.
+        let summary = try RNASeqIndexAdoptSubcommand.parse(arguments).adopt()
+        let facts = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(summary.json.utf8)) as? [String: Any])
+        XCTAssertEqual(facts["record"] as? String, url.path)
+        XCTAssertEqual(facts["setID"] as? String, id)
+        XCTAssertEqual(facts["key"] as? String, Self.indexKeyFolder)
+        XCTAssertEqual((facts["files"] as? NSNumber)?.intValue, 15)
+        XCTAssertEqual((facts["bytes"] as? NSNumber)?.uint64Value, staged.values.reduce(UInt64(0)) { $0 + $1.bytes })
+        XCTAssertTrue(summary.lines.contains(url.path), "the text output names the record file: \(summary.lines)")
+        XCTAssertTrue(summary.lines.first?.contains(Self.indexKeyFolder) == true, "\(summary.lines)")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "the record is under --storage-root at \(url.path)")
+        let record = try JSONDecoder().decode(STARIndexRecord.self, from: Data(contentsOf: url))
+        XCTAssertEqual(record.setID, id)
+        XCTAssertEqual(record.key.folderName, Self.indexKeyFolder)
+        XCTAssertEqual(record.tool, PlanToolPin(id: "STAR", version: "2.7.11b", build: "h5814d7d_9"))
+        XCTAssertEqual(record.files.count, 15)
+        XCTAssertEqual(Set(record.files.map(\.planPath)), Set(staged.keys))
+        for file in record.files {
+            XCTAssertEqual(file.stagingPath, "\(Self.staging)/batches/idx/index/staged/\(file.planPath)", file.planPath)
+            XCTAssertEqual(file.sha256, staged[file.planPath]?.sha256, file.planPath)
+            XCTAssertEqual(file.bytes, staged[file.planPath]?.bytes, file.planPath)
+        }
+    }
+
+    /// The family's replay case for the leaf. The same run adopted twice leaves the record file as the first adopt wrote it, and
+    /// a run record that names another digest for the same set and key is refused with the input code and changes nothing.
+    func testAdoptWritesTheRecordOnceAndAReplayChangesNothing() async throws {
+        let (storage, set) = try await Self.builtSet(in: root)
+        let id = try ReferenceSetManifest.load(from: set).id
+        let result = root.appendingPathComponent("result", isDirectory: true)
+        try writeIndexRunRecord(for: set, in: result)
+        let arguments = [result.path, "--set", id, "--storage-root", storage.path, "--staging-folder", Self.staging,
+                         "--batch", "idx", "--quiet"]
+        let url = STARIndexRecordStore(storageRoot: storage).url(setID: id, key: Self.indexKeyFolder)
+        try await RNASeqIndexAdoptSubcommand.parse(arguments).run()
+        let first = try Data(contentsOf: url)
+        try await RNASeqIndexAdoptSubcommand.parse(arguments).run()
+        XCTAssertEqual(try Data(contentsOf: url), first, "the same run adopted again changes nothing")
+        try writeIndexRunRecord(for: set, in: result, editing: "star-index/SA")
+        do {
+            try await RNASeqIndexAdoptSubcommand.parse(arguments).run()
+            XCTFail("a run that names another digest for the same index replaced the record")
+        } catch let code as ExitCode {
+            XCTAssertEqual(code, CLIExitCode.inputError.exitCode)
+        }
+        XCTAssertEqual(try Data(contentsOf: url), first, "and the record of the first run stays as it was")
+    }
+
     // MARK: - A gzip genome and the records folder
 
     /// The bytes of the first member of an uncompressed tar whose name ends with `suffix`.
