@@ -73,6 +73,10 @@ package enum STARIndexAdopt {
         guard let step = run.steps.first(where: { $0.tool?.id == "STAR" }), step.outcome == "succeeded", let tool = step.tool else {
             throw STARIndexError("The run record holds no STAR step that succeeded, so no index was built.")
         }
+        guard STARIndexVersion(rawValue: tool.version) != nil else {
+            throw STARIndexError("The run record names STAR \(tool.version), and this build records "
+                + "\(STARIndexVersion.allCases.map(\.rawValue).joined(separator: " and ")) only, so no record was written.")
+        }
         func value(of flag: String) -> Int? {
             guard let at = step.argv.firstIndex(of: flag), step.argv.indices.contains(at + 1) else { return nil }
             return Int(step.argv[at + 1])

@@ -17,14 +17,26 @@ package struct STARIndexRecordStore: Sendable {
         self.storageRoot = storageRoot
     }
 
-    package func url(setID: String, key: String) -> URL {
-        storageRoot.appendingPathComponent(Self.folderName, isDirectory: true)
-            .appendingPathComponent(setID, isDirectory: true).appendingPathComponent(key, isDirectory: true)
+    /// The record's file. The set id comes from a manifest and the key from a run record, so each must be one plain folder
+    /// name, and any other is refused before a folder is read or made, inside `rnaseq-index-records/` or outside it.
+    package func url(setID: String, key: String) throws -> URL {
+        let set = try Self.folder(setID, "set id", "the set's reference-set.json")
+        let index = try Self.folder(key, "index key", "the STAR version in the run record")
+        return storageRoot.appendingPathComponent(Self.folderName, isDirectory: true)
+            .appendingPathComponent(set, isDirectory: true).appendingPathComponent(index, isDirectory: true)
             .appendingPathComponent(STARIndexRecord.fileName)
     }
 
+    private static func folder(_ name: String, _ what: String, _ source: String) throws -> String {
+        guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\0") else {
+            throw STARIndexError("The \(what) \"\(name)\" is not one plain folder name, so no index record was read or written "
+                + "by it. LGE never writes such a name, so check \(source).")
+        }
+        return name
+    }
+
     package func find(setID: String, key: String) throws -> STARIndexRecord? {
-        let url = url(setID: setID, key: key)
+        let url = try url(setID: setID, key: key)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return try JSONDecoder().decode(STARIndexRecord.self, from: Data(contentsOf: url))
     }
@@ -33,7 +45,7 @@ package struct STARIndexRecordStore: Sendable {
     /// other digests for the same set and key is refused in words, since one key names one index.
     @discardableResult
     package func write(_ record: STARIndexRecord) throws -> URL {
-        let target = url(setID: record.setID, key: record.key.folderName)
+        let target = try url(setID: record.setID, key: record.key.folderName)
         if let existing = try find(setID: record.setID, key: record.key.folderName) {
             guard existing == record else {
                 throw STARIndexError("The index record of \(record.key.folderName) for the set \(record.setID) already names other "
