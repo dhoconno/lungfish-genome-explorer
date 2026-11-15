@@ -49,7 +49,7 @@ extension RNASeqExportTemplates {
           if (!is.null(lfc_bar)) deg <- deg & abs(table[[lfc]]) >= lfc_bar
           table$deg <- deg
           write.table(table, sprintf("edger-limma-dream-results/%s.tsv", name), sep = "\\t", quote = FALSE, row.names = FALSE)
-          cat(sprintf("%s: %d genes pass %s < %s, %d up and %d down\\n", name, sum(deg), p, padj_cutoff, sum(deg & table[[lfc]] > 0), sum(deg & table[[lfc]] < 0)))
+          cat(sprintf("%s: %d genes pass %s < %s%s, %d up and %d down\\n", name, sum(deg), p, padj_cutoff, if (is.null(lfc_bar)) "" else paste0(" and |log2 fold change| >= ", lfc_bar), sum(deg & table[[lfc]] > 0), sum(deg & table[[lfc]] < 0)))
         }
         for (cn in contrasts) {
           cd <- coldata
