@@ -8,7 +8,9 @@ extension TaxTriageDatabase {
     /// Metadata key holding, as a JSON array of sample ids, each sample whose recorded BAM `build-db taxtriage` took
     /// from a scan of `minimap2/` because neither name the pipeline gives a sample's BAM was there (Phase 4 close, row
     /// BUILDDB-BAM-FIT). Every build since then writes it, `[]` when it fitted none. A database of an older build has
-    /// no key, so nothing marks a BAM it fitted, and its recorded paths are read as they are until it is built again.
+    /// no key, so nothing marks a BAM it fitted. Extract Reads refuses a sample of it whose recorded BAM has any name
+    /// but the sample's own two, and reads the other samples as they are, until the database is built again (S1/S2
+    /// sweep, lane BUILDDB-OLDER-DB-CLI).
     public static let fittedBAMSamplesMetadataKey = "fitted_bam_samples"
 
     /// The metadata value for `samples`, a JSON array of the distinct ids in byte order.
