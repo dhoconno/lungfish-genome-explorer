@@ -68,7 +68,7 @@ final class STARIndexPlanTests: XCTestCase {
         let set = try await builtSet()
         let id = set.manifest.id
         let plan = try STARIndexPlan.make(request(set.url)).plan
-        XCTAssertNil(plan.sample, "an index build has no sample")
+        XCTAssertNil(plan.sampleValues, "an index build has no sample")
         XCTAssertFalse(plan.entries.contains { $0.role == .input }, "and no input entry")
         XCTAssertEqual(plan.pipeline?.referenceSet.id, id)
         XCTAssertNil(plan.pipeline?.route)

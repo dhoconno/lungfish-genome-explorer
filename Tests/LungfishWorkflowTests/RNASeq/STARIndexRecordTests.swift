@@ -11,8 +11,9 @@ extension STARIndexPlanTests {
 
     /// The run record of a recorded run of the small set, with the tool, the argv, the reference entries and the outputs
     /// as the executor states them. The adopt reads these and never the plan.
-    func runRecord(setID: String, outcome: String = "succeeded", leaving missing: String? = nil) throws
+    func runRecord(for set: ReferenceSetOutcome, naming claimed: String? = nil, outcome: String = "succeeded", leaving missing: String? = nil) throws
         -> (data: Data, outputs: [[String: Any]]) {
+        let setID = claimed ?? set.manifest.id
         var outputs: [[String: Any]] = STARIndexPlan.indexFiles.enumerated().map { index, file in
             ["path": "star-index/\(file)", "bytes": 1_000 + index, "sha256": String(repeating: String(index % 10), count: 64),
              "policy": "staged"]
@@ -26,14 +27,14 @@ extension STARIndexPlanTests {
             "tool": ["id": "STAR", "version": "2.7.11b", "build": "h0_0", "path": "/opt/lge/rnaseq/bin/STAR"]]
         let input: [String: Any] = [
             "role": "reference", "relativePath": "references/\(setID)/derived/genes.gtf", "size": 10,
-            "sha256": String(repeating: "c", count: 64), "reference": ["setID": setID, "path": "derived/genes.gtf"]]
+            "sha256": set.manifest.derived.countingGTF?.sha256 ?? "", "reference": ["setID": setID, "path": "derived/genes.gtf"]]
         var record: [String: Any] = ["schemaVersion": 1, "outcome": outcome, "inputs": [input], "steps": [step]]
         if outcome != "succeeded" { record["reason"] = "STAR ran out of memory"; record["failedStepID"] = "star-index" }
         return (try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]), outputs)
     }
 
     func adopted(_ set: ReferenceSetOutcome) throws -> (STARIndexRecord, [[String: Any]]) {
-        let (data, outputs) = try runRecord(setID: set.manifest.id)
+        let (data, outputs) = try runRecord(for: set)
         return (try STARIndexAdopt.adopt(runRecord: data, setFolder: set.url, staging: Self.stagingLayout), outputs)
     }
 
@@ -60,11 +61,11 @@ extension STARIndexPlanTests {
         func words(_ made: (data: Data, outputs: [[String: Any]])) -> String {
             refusal { _ = try STARIndexAdopt.adopt(runRecord: made.data, setFolder: set.url, staging: Self.stagingLayout) }
         }
-        let failed = words(try runRecord(setID: set.manifest.id, outcome: "failed"))
+        let failed = words(try runRecord(for: set, outcome: "failed"))
         XCTAssertTrue(failed.contains("reads failed") && failed.contains("STAR ran out of memory") && failed.contains("no index"), failed)
-        let missing = words(try runRecord(setID: set.manifest.id, leaving: "star-index/SA"))
+        let missing = words(try runRecord(for: set, leaving: "star-index/SA"))
         XCTAssertTrue(missing.contains("star-index/SA"), missing)
-        let other = words(try runRecord(setID: "another-set-0001"))
+        let other = words(try runRecord(for: set, naming: "another-set-0001"))
         XCTAssertTrue(other.contains("another-set-0001") && other.contains(set.manifest.id), other)
     }
 
@@ -76,7 +77,7 @@ extension STARIndexPlanTests {
         XCTAssertEqual(try store.find(setID: record.setID, key: record.key.folderName), record)
         XCTAssertEqual(try store.write(record), url, "the same record again changes nothing")
         var other = record
-        other.files[0].sha256 = String(repeating: "0", count: 64)
+        other.files[0].sha256 = String(repeating: "e", count: 64)
         XCTAssertTrue(refusal { _ = try store.write(other) }.contains("already names other digests"))
         XCTAssertNil(try store.find(setID: record.setID, key: "star-2.7.11b-sa1-sparse2"))
     }
