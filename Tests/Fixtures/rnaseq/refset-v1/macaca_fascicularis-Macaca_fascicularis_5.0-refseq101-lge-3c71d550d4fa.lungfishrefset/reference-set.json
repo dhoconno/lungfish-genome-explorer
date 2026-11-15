@@ -1,0 +1,172 @@
+{
+  "annotation" : {
+    "path" : "annotation/cynomolgus-mt.gtf",
+    "release" : "101",
+    "sha256" : "191bc6fc2cb01be49f388ec4b21f0d12e4c8642bba905790103a2a6ed2f4fcfb",
+    "source" : "RefSeq"
+  },
+  "assembly" : {
+    "name" : "Macaca_fascicularis_5.0"
+  },
+  "derivation" : {
+    "droppedFeatures" : [
+      "NC_012670.1\texon\t543\t614",
+      "NC_012670.1\texon\t615\t1562",
+      "NC_012670.1\texon\t1563\t1631",
+      "NC_012670.1\texon\t1632\t3191",
+      "NC_012670.1\texon\t3192\t3266",
+      "NC_012670.1\texon\t4224\t4291",
+      "NC_012670.1\texon\t4289\t4360",
+      "NC_012670.1\texon\t4362\t4429",
+      "NC_012670.1\texon\t5472\t5538",
+      "NC_012670.1\texon\t5546\t5614",
+      "NC_012670.1\texon\t5616\t5688",
+      "NC_012670.1\texon\t5721\t5782",
+      "NC_012670.1\texon\t5783\t5853",
+      "NC_012670.1\texon\t7398\t7469",
+      "NC_012670.1\texon\t7471\t7538",
+      "NC_012670.1\texon\t8297\t8362",
+      "NC_012670.1\texon\t9989\t10057",
+      "NC_012670.1\texon\t10404\t10468",
+      "NC_012670.1\texon\t12137\t12205",
+      "NC_012670.1\texon\t12206\t12264",
+      "NC_012670.1\texon\t12265\t12335",
+      "NC_012670.1\texon\t14676\t14744",
+      "NC_012670.1\texon\t15890\t15953",
+      "NC_012670.1\texon\t15954\t16022"
+    ],
+    "exonsAdded" : [
+      "ND1",
+      "ND2",
+      "COX1",
+      "COX2",
+      "ATP8",
+      "ATP6",
+      "COX3",
+      "ND3",
+      "ND4L",
+      "ND4",
+      "ND5",
+      "ND6",
+      "CYTB"
+    ],
+    "genesWithoutFeatures" : {
+      "count" : 0,
+      "path" : "derived/genes-without-features.tsv",
+      "sha256" : "e64a2ddf793e05c1934375e545cb8d19841c450a9eb06f52a47f14b7121ef5b7"
+    },
+    "keptWithoutExon" : [
+
+    ],
+    "renamedTranscripts" : [
+      {
+        "gene" : "ND1",
+        "renamed" : "ND1:unknown_transcript_1",
+        "transcript" : "unknown_transcript_1"
+      },
+      {
+        "gene" : "ND2",
+        "renamed" : "ND2:unknown_transcript_1",
+        "transcript" : "unknown_transcript_1"
+      },
+      {
+        "gene" : "COX1",
+        "renamed" : "COX1:unknown_transcript_1",
+        "transcript" : "unknown_transcript_1"
+      },
+      {
+        "gene" : "COX2",
+        "renamed" : "COX2:unknown_transcript_1",
+        "transcript" : "unknown_transcript_1"
+      },
+      {
+        "gene" : "ATP8",
+        "renamed" : "ATP8:unknown_transcript_1",
+        "transcript" : "unknown_transcript_1"
+      },
+      {
+        "gene" : "ATP6",
+        "renamed" : "ATP6:unknown_transcript_1",
+        "transcript" : "unknown_transcript_1"
+      },
+      {
+        "gene" : "COX3",
+        "renamed" : "COX3:unknown_transcript_1",
+        "transcript" : "unknown_transcript_1"
+      },
+      {
+        "gene" : "ND3",
+        "renamed" : "ND3:unknown_transcript_1",
+        "transcript" : "unknown_transcript_1"
+      },
+      {
+        "gene" : "ND4L",
+        "renamed" : "ND4L:unknown_transcript_1",
+        "transcript" : "unknown_transcript_1"
+      },
+      {
+        "gene" : "ND4",
+        "renamed" : "ND4:unknown_transcript_1",
+        "transcript" : "unknown_transcript_1"
+      },
+      {
+        "gene" : "ND5",
+        "renamed" : "ND5:unknown_transcript_1",
+        "transcript" : "unknown_transcript_1"
+      },
+      {
+        "gene" : "ND6",
+        "renamed" : "ND6:unknown_transcript_1",
+        "transcript" : "unknown_transcript_1"
+      },
+      {
+        "gene" : "CYTB",
+        "renamed" : "CYTB:unknown_transcript_1",
+        "transcript" : "unknown_transcript_1"
+      }
+    ]
+  },
+  "derived" : {
+    "genes" : {
+      "path" : "derived/genes.tsv",
+      "sha256" : "da4c62fe2aa0a8bb1d0baf489b722bd6f62f4910d17e1f30bf10099eb5797f1f",
+      "size" : 690,
+      "tool" : "lungfish",
+      "version" : "Lungfish 2026.10.10 (dev)"
+    },
+    "transcriptGenes" : {
+      "path" : "derived/transcripts.tsv",
+      "sha256" : "772947d1accdc22e3ac59c374a17cfe0449994bbf478900dc4cd03071f9fdd23",
+      "size" : 413,
+      "tool" : "lungfish",
+      "version" : "Lungfish 2026.10.10 (dev)"
+    },
+    "transcripts" : {
+      "path" : "derived/transcripts.fa",
+      "sha256" : "e87e260ae7eabf82f0641a1c8a0243c47dc2f5439961f8042b0fc8780a3e6a38",
+      "size" : 12041,
+      "tool" : "gffread",
+      "version" : "0.12.9"
+    }
+  },
+  "extras" : [
+
+  ],
+  "genome" : {
+    "path" : "genome/cynomolgus-mt.fa",
+    "sha256" : "6fb5f3b8c66875f38b21499c98a5fdf8f4c6586e54aef73660a1d77967dbdc93"
+  },
+  "id" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-3c71d550d4fa",
+  "layout" : {
+    "kind" : "lge"
+  },
+  "masks" : [
+
+  ],
+  "mitochondrialContigs" : [
+    "NC_012670.1"
+  ],
+  "name" : "Cynomolgus mitochondrion",
+  "schemaVersion" : 1,
+  "species" : "Macaca fascicularis"
+}

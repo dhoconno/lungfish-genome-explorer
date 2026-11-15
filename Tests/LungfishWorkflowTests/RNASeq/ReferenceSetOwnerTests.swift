@@ -42,8 +42,8 @@ final class StandInTranscriptDeriver: ReferenceSetTranscriptDeriving, @unchecked
             runs += 1
             given.append((annotation.path, text))
         }
-        var ids: [String] = []
-        var places = Set<String>()
+        var records: [(id: String, place: String)] = []
+        var exons: [String: [ClosedRange<Int>]] = [:]
         for line in text.split(separator: "\n") where !line.hasPrefix("#") {
             let cells = line.split(separator: "\t", omittingEmptySubsequences: false)
             if cells.count == 9, ["gene", "transcript"].contains(cells[2]), cells[8].contains("transcript_id \"\"") {
@@ -52,11 +52,22 @@ final class StandInTranscriptDeriver: ReferenceSetTranscriptDeriving, @unchecked
             guard cells.count == 9, ["exon", "CDS", "transcript"].contains(cells[2]),
                   let range = cells[8].range(of: #"transcript_id "[^"]+""#, options: .regularExpression) else { continue }
             let id = String(cells[8][range].dropFirst("transcript_id \"".count).dropLast())
-            if places.insert("\(id)\t\(cells[0])\t\(cells[6])").inserted { ids.append(id) }
+            let place = "\(id)\t\(cells[0])\t\(cells[6])"
+            if exons[place] == nil {
+                records.append((id, place))
+                exons[place] = []
+            }
+            if cells[2] == "exon", let start = Int(cells[3]), let end = Int(cells[4]) { exons[place]?.append(start...end) }
         }
-        if let ghost { ids.append(ghost) }
-        if let twice { ids.append(twice) }
-        try Data(ids.map { ">\($0)\nACGT\n" }.joined().utf8).write(to: output)
+        // Each record at its merged exon length, as gffread writes it, and 4 bases for a record of no exon line.
+        func bases(_ length: Int) -> String { String(String(repeating: "ACGT", count: length / 4 + 1).prefix(length)) }
+        var fasta = records.map { record -> String in
+            let length = ReferenceSetAnnotationReader.mergedLength(exons[record.place] ?? [])
+            return ">\(record.id)\n\(bases(length > 0 ? length : 4))\n"
+        }
+        if let ghost { fasta.append(">\(ghost)\nACGT\n") }
+        if let twice { fasta.append(">\(twice)\nACGT\n") }
+        try Data(fasta.joined().utf8).write(to: output)
     }
 }
 
@@ -173,7 +184,8 @@ final class ReferenceSetOwnerTests: XCTestCase {
         XCTAssertEqual(try rows(outcome, "transcripts.tsv").map { $0[0] + ">" + $0[1] },
                        ["transcript_id>gene_id", "T1>G1", "ND1-T>ND1", "T2>G2", "V1>V1", "V2>V2"])
         let transcripts = try String(contentsOf: outcome.url.appendingPathComponent("derived/transcripts.fa"), encoding: .utf8)
-        XCTAssertEqual(transcripts, ">T1\nACGT\n>ND1-T\nACGT\n>T2\nACGT\n" + Self.virus, "gffread's records, then each extra's as given")
+        XCTAssertEqual(transcripts, ">T1\nACGTACGTACGTACGTACGT\n>ND1-T\nACGTACGTACGT\n>T2\nACGTACGTACG\n" + Self.virus,
+                       "gffread's records at their merged exon lengths, then each extra's as given")
         XCTAssertTrue(outcome.url.lastPathComponent.hasPrefix("testus_examplus-T1-testdb7-lge-"), outcome.url.lastPathComponent)
         XCTAssertEqual(try entries(), [outcome.url.lastPathComponent])
     }
@@ -237,7 +249,8 @@ final class ReferenceSetOwnerTests: XCTestCase {
             species: "Macaca mulatta", assembly: "Mmul_10", annotationSource: "Ensembl", annotationRelease: "100",
             layout: .lge, contents: [.init(role: "genome", fileName: "g.fa", sha256: "aa"), .init(role: "annotation", fileName: "a.gtf", sha256: "bb")],
             deriveVersion: "0.12.9")
-        let list = "genome\tg.fa\taa\nannotation\ta.gtf\tbb\nlayout\tlge\nderive\tgffread 0.12.9\n"
+        // ARCH-COUNTING-GTF item 1: the rule version of LGE's own derivation follows gffread's version.
+        let list = "genome\tg.fa\taa\nannotation\ta.gtf\tbb\nlayout\tlge\nderive\tgffread 0.12.9\nderive\tlungfish 2\n"
         XCTAssertEqual(id, "macaca_mulatta-Mmul_10-ensembl100-lge-" + String(ReferenceSetID.sha256Hex(Data(list.utf8)).prefix(12)))
     }
 

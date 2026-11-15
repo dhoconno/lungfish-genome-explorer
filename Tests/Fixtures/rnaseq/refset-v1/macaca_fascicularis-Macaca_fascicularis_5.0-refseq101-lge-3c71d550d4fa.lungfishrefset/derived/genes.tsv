@@ -1,0 +1,14 @@
+gene_id	name	biotype	contig	length	not_host	mask	unreliable
+ND1	ND1	protein_coding	NC_012670.1	955	false		
+ND2	ND2	protein_coding	NC_012670.1	1042	false		
+COX1	COX1	protein_coding	NC_012670.1	1539	false		
+COX2	COX2	protein_coding	NC_012670.1	684	false		
+ATP8	ATP8	protein_coding	NC_012670.1	207	false		
+ATP6	ATP6	protein_coding	NC_012670.1	681	false		
+COX3	COX3	protein_coding	NC_012670.1	784	false		
+ND3	ND3	protein_coding	NC_012670.1	346	false		
+ND4L	ND4L	protein_coding	NC_012670.1	297	false		
+ND4	ND4	protein_coding	NC_012670.1	1378	false		
+ND5	ND5	protein_coding	NC_012670.1	1812	false		
+ND6	ND6	protein_coding	NC_012670.1	528	false		
+CYTB	CYTB	protein_coding	NC_012670.1	1141	false		

@@ -250,14 +250,15 @@ final class ReferenceSetDerivationTests: XCTestCase {
 
     func testTheDigestOfAContentListWithAnExtraAnnotationLineIsPinned() {
         // printf 'genome\tg.fna.gz\taa\nannotation\ta.gtf.gz\tbb\nextra\tmtb\tcc\nextra annotation\tmtb.gtf\tdd\n
-        // layout\tdeposit-GSE296788\nderive\tgffread 0.12.9\n' | shasum -a 256 gives 19059f8d4847...
+        // layout\tdeposit-GSE296788\nderive\tgffread 0.12.9\nderive\tlungfish 2\n' | shasum -a 256 gives 3b7bb7bedebb...
+        // (19059f8d4847 before the line of ARCH-COUNTING-GTF item 1)
         let id = ReferenceSetID.make(
             species: "Macaca fascicularis", assembly: "Macaca_fascicularis_5.0", annotationSource: "RefSeq",
             annotationRelease: "101", layout: .deposit(study: "GSE296788"),
             contents: [.init(role: "genome", fileName: "g.fna.gz", sha256: "aa"), .init(role: "annotation", fileName: "a.gtf.gz", sha256: "bb"),
                        .init(role: "extra", fileName: "mtb", sha256: "cc"), .init(role: "extra annotation", fileName: "mtb.gtf", sha256: "dd")],
             deriveVersion: "0.12.9")
-        XCTAssertEqual(id, "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-deposit-GSE296788-19059f8d4847")
+        XCTAssertEqual(id, "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-deposit-GSE296788-3b7bb7bedebb")
     }
 
     // MARK: - ADJ-ARCH-51 item 8: the provenance folder arrives with the rename

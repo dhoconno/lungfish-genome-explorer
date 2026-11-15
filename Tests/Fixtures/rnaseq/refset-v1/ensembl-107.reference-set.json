@@ -1,0 +1,75 @@
+{
+  "annotation" : {
+    "path" : "annotation/Macaca_fascicularis.Macaca_fascicularis_6.0.107.gtf.gz",
+    "release" : "107",
+    "sha256" : "aef041357910d2757f272db9d30f64a206d388eb0850fa5713f9fd9eb6aee2c0",
+    "source" : "Ensembl"
+  },
+  "assembly" : {
+    "accession" : "GCA_011100615.1",
+    "name" : "Macaca_fascicularis_6.0",
+    "sourceURL" : "https://ftp.ensembl.org/pub/release-107/fasta/macaca_fascicularis/dna/Macaca_fascicularis.Macaca_fascicularis_6.0.dna.toplevel.fa.gz"
+  },
+  "derivation" : {
+    "droppedFeatures" : [
+
+    ],
+    "exonsAdded" : [
+
+    ],
+    "genesWithoutFeatures" : {
+      "count" : 0,
+      "path" : "derived/genes-without-features.tsv",
+      "sha256" : "e64a2ddf793e05c1934375e545cb8d19841c450a9eb06f52a47f14b7121ef5b7"
+    },
+    "keptWithoutExon" : [
+
+    ],
+    "renamedTranscripts" : [
+
+    ]
+  },
+  "derived" : {
+    "genes" : {
+      "path" : "derived/genes.tsv",
+      "sha256" : "94b4bea55b9612adf5526d77a06a32971fb3e71346e385fce4c7ff467669de3d",
+      "size" : 2250742,
+      "tool" : "lungfish",
+      "version" : "Lungfish 2026.10.10 (dev)"
+    },
+    "transcriptGenes" : {
+      "path" : "derived/transcripts.tsv",
+      "sha256" : "8ac58899748095c73499a62a2625b638802541273ca0e75e897065f7f7b239e2",
+      "size" : 2531544,
+      "tool" : "lungfish",
+      "version" : "Lungfish 2026.10.10 (dev)"
+    },
+    "transcripts" : {
+      "path" : "derived/transcripts.fa",
+      "sha256" : "89aaf6114b0b8e026afc4b3e88644888c385b176a27f1ee864560121361d6ea8",
+      "size" : 149888999,
+      "tool" : "gffread",
+      "version" : "0.12.9"
+    }
+  },
+  "extras" : [
+
+  ],
+  "genome" : {
+    "path" : "genome/Macaca_fascicularis.Macaca_fascicularis_6.0.dna.toplevel.fa.gz",
+    "sha256" : "1a7d9bae467018eaf79f622b4fbae849e4f877879144cd1761f3dafac144c535"
+  },
+  "id" : "macaca_fascicularis-Macaca_fascicularis_6.0-ensembl107-lge-a76ad74c82e6",
+  "layout" : {
+    "kind" : "lge"
+  },
+  "masks" : [
+
+  ],
+  "mitochondrialContigs" : [
+    "MT"
+  ],
+  "name" : "Macaca fascicularis Macaca_fascicularis_6.0 Ensembl 107",
+  "schemaVersion" : 1,
+  "species" : "Macaca fascicularis"
+}
