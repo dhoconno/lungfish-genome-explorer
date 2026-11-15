@@ -10,9 +10,15 @@ the one file named by --out and nothing else.
 Prints one line a check, then a blank line and a block of "KEY: value" facts:
   PASS <check> (<evidence>)
   ACT <check>: <what to do>
+  INFO <check>: <what to know>, which asks for no action and leaves the exit code at 0
   SKIP <check>: <why it did not run>
 The checks are disk, swap, scratch, processes, load, cwd, main-sync, agents, xcode,
 transcript and effort. The get_usage check is a tool call of the manager and stays with it.
+The processes check finds the test runners, builds and lungfish-cli runs that match
+--process-pattern. A process older than --old-process-hours (default 12, and an etime
+with a day part is older) gives ACT, since an earlier session left it. A younger one
+gives INFO, since it may be the live work of another session and only the session that
+started a process stops it (E-RUN-18). An etime that cannot be read counts as younger.
 The effort check reads the manager's own effort from the main transcript of --session-id,
 the way session_ledger.py does (the most common value of the top-level `effort` field),
 and gives ACT when it is not --manager-effort (default max), PASS when it is and SKIP when
@@ -144,16 +150,45 @@ def check_scratch(call, scratch, facts):
     return "PASS", "scratch", "%s is mounted, %.0f GiB free" % (scratch, row[0] / GIB)
 
 
-def check_processes(call, pattern, facts):
+OLD_PROCESS_HOURS = 12
+ETIME = re.compile(r"(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)")
+FIND_OWNER = "find its owner in SCR STATE or a Handoff, and stop only a process this session started (E-RUN-18)"
+
+
+def etime_seconds(text):
+    """Seconds in a ps etime, which reads [[dd-]hh:]mm:ss, or None when the text does not read that way."""
+    found = ETIME.fullmatch(text)
+    if not found:
+        return None
+    days, hours, minutes, seconds = (int(part or 0) for part in found.groups())
+    return ((days * 24 + hours) * 60 + minutes) * 60 + seconds
+
+
+def describe(found, limit):
+    """The first `limit` processes of a leftover listing as `pid (etime) command` items."""
+    text = "; ".join("%d (%s) %s" % item for item in found[:limit])
+    return text + (" and %d more" % (len(found) - limit) if len(found) > limit else "")
+
+
+def check_processes(call, pattern, facts, old_hours=OLD_PROCESS_HOURS):
+    """ACT for a matching process older than old_hours, which an earlier session left, and INFO for a younger one, which
+    may be live work of another session. An etime that cannot be read counts as younger, since ACT says to stop the process."""
     code, out = call(["ps", "-axo", "pid=,etime=,command="])
     if code != 0:
         return "ACT", "processes", "ps gave nothing readable. List the test runners and builds by hand."
     found = leftover(out, pattern, os.getpid())
-    if found:
-        listing = "; ".join("%d (%s) %s" % item for item in found[:5])
-        return ("ACT", "processes", "%d process(es) of an earlier day still run: %s. Stop each one by its PID "
-                "before the first build." % (len(found), listing))
-    return "PASS", "processes", "none matches %s" % pattern
+    old = [item for item in found if (etime_seconds(item[1]) or 0) > old_hours * 3600]
+    young = [item for item in found if item not in old]
+    said = []
+    if old:
+        said.append("%d process(es) older than %g hours still run: %s. Stop each one by its PID before the first build."
+                    % (len(old), old_hours, describe(old, 5)))
+    if young:
+        said.append("%d younger process(es) %s: %s. They may be live work, so for each one %s."
+                    % (len(young), "also run" if old else "still run", describe(young, 3), FIND_OWNER))
+    if not said:
+        return "PASS", "processes", "none matches %s" % pattern
+    return "ACT" if old else "INFO", "processes", " ".join(said)
 
 
 def check_load(call, maximum, facts):
@@ -442,13 +477,13 @@ def doctor_facts(call, cwd, timeout, facts):
 
 
 def facts_text(results, facts):
-    """The facts block of a START prompt. The ACT lines come in full and the other checks are counted."""
+    """The facts block of a START prompt. The ACT and INFO lines come in full and the other checks are counted."""
     def names(state):
         return [name for current, name, _ in results if current == state]
     counts = ["%d %s%s" % (len(names(state)), state, " (%s)" % ", ".join(names(state)) if state != "PASS" else "")
-              for state in ("PASS", "SKIP", "ACT") if names(state)]
-    acts = ["ACT %s: %s" % (name, text) for state, name, text in results if state == "ACT"]
-    return "\n".join(["checks: " + ", ".join(counts)] + acts + ["%s: %s" % item for item in facts])
+              for state in ("PASS", "INFO", "SKIP", "ACT") if names(state)]
+    said = ["%s %s: %s" % (state, name, text) for kind in ("ACT", "INFO") for state, name, text in results if state == kind]
+    return "\n".join(["checks: " + ", ".join(counts)] + said + ["%s: %s" % item for item in facts])
 
 
 def fill_start(start, results, facts, taken):
@@ -498,6 +533,8 @@ def main(argv=None, call=run, cwd=None, home=None) -> int:
                         "check reads from its transcript (default %(default)s)")
     parser.add_argument("--scratch", default="/Volumes/lge_scratch", help="mount point of the scratch disk (default %(default)s)")
     parser.add_argument("--process-pattern", default="xctest|swift-build|swift-test|lungfish-cli", help="regex of leftover processes")
+    parser.add_argument("--old-process-hours", type=float, default=OLD_PROCESS_HOURS, help="hours of age above which a leftover process "
+                        "gives ACT, and a younger one gives INFO (default %(default)s)")
     parser.add_argument("--min-free-gib", type=int, default=100, help="free GiB under ~ below which to act (default %(default)s)")
     parser.add_argument("--max-swap-percent", type=int, default=90, help="swap use above which to act (default %(default)s)")
     parser.add_argument("--max-load", type=int, default=40, help="load average above which to act (default %(default)s)")
@@ -535,7 +572,7 @@ def main(argv=None, call=run, cwd=None, home=None) -> int:
         check_disk(call, home, args.min_free_gib, facts),
         check_swap(call, args.max_swap_percent, facts),
         check_scratch(call, args.scratch, facts),
-        check_processes(call, args.process_pattern, facts),
+        check_processes(call, args.process_pattern, facts, args.old_process_hours),
         check_load(call, args.max_load, facts),
         check_cwd(call, cwd, args.program_worktree, facts),
         check_sync(call, cwd, args.fetch, facts),
