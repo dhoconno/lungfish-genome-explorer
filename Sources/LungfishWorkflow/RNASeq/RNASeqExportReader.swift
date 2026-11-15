@@ -69,7 +69,15 @@ public enum RNASeqExportReader {
                         "The RNA-seq result \(label) changed after LGE wrote it. Its file \(files) no longer matches the sha256 the result lists, "
                             + "so its counts are not the ones LGE recorded. Restore the file from a copy, or import or count the data again.")
                 }
-                return RNASeqExportResult(url: url, result: try RNASeqResultBundle.load(from: url))
+                let loaded = try RNASeqResultBundle.load(from: url)
+                // Manifest notHost is the authority, and the templates read the not_host flags of genes.tsv, so the two must agree.
+                let flagged = Set(loaded.genes.filter { $0.notHost == true }.map(\.id))
+                guard flagged == Set(loaded.manifest.notHost) else {
+                    throw RNASeqExportRefusal(
+                        "The RNA-seq result \(label) lists \(loaded.manifest.notHost.count) not-host features in its manifest and flags \(flagged.count) in genes.tsv, "
+                            + "so LGE cannot tell which rows stay out of size factors. Count the reads again with LGE, or import the result again.")
+                }
+                return RNASeqExportResult(url: url, result: loaded)
             } catch let refusal as RNASeqExportRefusal {
                 throw refusal
             } catch let error as RNASeqResultError {
