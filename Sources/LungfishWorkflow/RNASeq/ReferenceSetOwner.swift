@@ -80,6 +80,8 @@ public struct ReferenceSetOwner: Sendable {
         var annotationSHA: String
         var extraSources: [(fasta: URL, annotation: URL?)]
         var extraSHAs: [(fasta: String, annotation: String?)]
+        /// Each extra's mask GTF, the file read and its sha256, nil for an extra with no mask.
+        var masks: [(source: URL, sha: String)?]
         var descriptors: [ProvenanceFileDescriptor]
         /// The sha256 of the assembly report when one is given, since the report decides the mitochondrial contigs.
         var reportSHA: String?
@@ -98,10 +100,13 @@ public struct ReferenceSetOwner: Sendable {
             ReferenceSetID.Content(role: "genome", fileName: hashed.genome.lastPathComponent, sha256: hashed.genomeSHA),
             ReferenceSetID.Content(role: "annotation", fileName: request.annotation.lastPathComponent, sha256: hashed.annotationSHA),
         ]
-        for (extra, sha) in zip(request.extras, hashed.extraSHAs) {
+        for (index, (extra, sha)) in zip(request.extras, hashed.extraSHAs).enumerated() {
             contents.append(.init(role: "extra", fileName: extra.name, sha256: sha.fasta))
             if let annotation = extra.annotation, let annotationSHA = sha.annotation {
                 contents.append(.init(role: "extra annotation", fileName: annotation.lastPathComponent, sha256: annotationSHA))
+            }
+            if let mask = extra.mask, let maskRead = hashed.masks[index] {
+                contents.append(.init(role: "extra mask", fileName: mask.lastPathComponent, sha256: maskRead.sha))
             }
         }
         if let report = request.assemblyReport, let reportSHA = hashed.reportSHA {

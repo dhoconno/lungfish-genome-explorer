@@ -23,12 +23,17 @@ extension SingleCellNotHostPass {
     }
 
     /// Reads the set's manifest, its gene table and the length of each not-host record from the extra's FASTA, which
-    /// the set keeps as given, gzip or plain. A mask of the set's schema 1 holds no intervals, so no extra has a mask
-    /// yet (BIO-NOTHOST-BARCODE item 6).
+    /// the set keeps as given, gzip or plain. An extra's mask is the `masks[]` entry of its name, whose words name the
+    /// extra as the organism, and a bacterium with none reads as not masked (BIO-NOTHOST-BARCODE items 3 and 6).
     public static func readSet(_ url: URL) throws -> ReferenceSet {
         let manifest = try ReferenceSetManifest.load(from: url)
-        let extras = manifest.extras.filter(\.notHost).map {
-            SingleCellNotHostExtra(name: $0.name, kind: $0.kind, records: $0.records, mask: nil)
+        let extras = manifest.extras.filter(\.notHost).map { extra in
+            let mask = manifest.masks.first { $0.name == extra.name }.map { mask in
+                SingleCellNotHostExtra.Mask(
+                    name: "rRNA genes of \(extra.name)", file: mask.path, sha256: mask.sha256, organism: extra.name,
+                    intervals: mask.intervals.map { .init(record: $0.record, start: $0.start, end: $0.end, geneID: $0.geneID) })
+            }
+            return SingleCellNotHostExtra(name: extra.name, kind: extra.kind, records: extra.records, mask: mask)
         }
         var records: [SingleCellNotHostRecord] = []
         for extra in manifest.extras where extra.notHost {
@@ -115,7 +120,10 @@ extension SingleCellNotHostPass {
             "notHostReferenceSet": .string(set.manifest.id),
             "notHostBAMs": .array(bamFacts),
             "notHostRawMatrices": .array(rawFacts),
-            "notHostMasks": .array(set.extras.map { .string("\($0.name) (\($0.kind.rawValue)): " + ($0.maskWords.isEmpty ? "no rRNA mask, none needed" : $0.maskWords)) }),
+            "notHostMasks": .array(set.extras.map { extra in
+                let source = extra.mask.map { ", mask \($0.file) (sha256 \($0.sha256)), \($0.intervals.count) rRNA genes" } ?? ""
+                return .string("\(extra.name) (\(extra.kind.rawValue)): " + (extra.maskWords.isEmpty ? "no rRNA mask, none needed" : extra.maskWords) + source)
+            }),
             "ambientPools": .array(poolFacts),
             "notHostRule": .string("A UMI is a unique (CB, UB) pair of NH 1 primary alignments, kept per record. The pool is ranks 45,000 to 90,000 by raw UMI, ties in barcode-byte order. A cell is flagged at 2 or more UMIs and BH q under 0.001 of the Poisson upper tail at rate (pool not-host UMIs + 1) / pool UMIs."),
             "samtoolsVersion": .string(version),

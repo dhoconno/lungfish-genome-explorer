@@ -36,6 +36,7 @@ extension ReferenceSetOwner {
         try await deriver.writeTranscripts(genome: plainGenome, annotation: gtf, to: transcripts)
 
         var extras: [ReferenceSetManifest.Extra] = []
+        var masks: [ReferenceSetManifest.Mask] = []
         for (index, extra) in request.extras.enumerated() {
             let (sha, source) = (hashed.extraSHAs[index], hashed.extraSources[index])
             let suffix = extra.fasta.isGzipCompressed ? "fa.gz" : "fa"
@@ -79,6 +80,10 @@ extension ReferenceSetOwner {
                 name: extra.name, kind: extra.kind, path: "extras/\(extra.name).\(suffix)", sha256: sha.fasta,
                 annotationPath: annotationPath, annotationSHA256: annotationPath == nil ? nil : sha.annotation,
                 records: records.map(\.name), notHost: true))
+            if let given = extra.mask, let mask = hashed.masks[index] {
+                masks.append(try copyMask(
+                    mask.source, given: given, sha: mask.sha, extra: extra.name, records: records.map(\.name), in: stage))
+            }
         }
         try checkTranscripts(transcripts, against: read.transcriptGenes.map(\.transcript))
         try FileManager.default.removeItem(at: work)
@@ -91,7 +96,7 @@ extension ReferenceSetOwner {
                               path: "annotation/\(request.annotation.lastPathComponent)", sha256: hashed.annotationSHA),
             genome: .init(path: "genome/\(hashed.genome.lastPathComponent)", sha256: hashed.genomeSHA,
                           referenceBundle: hashed.bundle?.path, referenceBundleMD5: hashed.bundle?.md5),
-            extras: extras, layout: request.layout.manifestLayout, mitochondrialContigs: mitochondrial, masks: [],
+            extras: extras, layout: request.layout.manifestLayout, mitochondrialContigs: mitochondrial, masks: masks,
             derived: tables,
             derivation: .init(exonsAdded: read.exonsAdded, keptWithoutExon: read.keptWithoutExon, droppedFeatures: read.dropped,
                               renamedTranscripts: read.renamed, genesWithoutFeatures: withoutFeatures))

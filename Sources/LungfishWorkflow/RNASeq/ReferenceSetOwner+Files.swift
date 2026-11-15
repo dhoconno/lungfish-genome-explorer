@@ -38,13 +38,14 @@ extension ReferenceSetOwner {
         let annotationRead = try hash(request.annotation, expected: request.expected?.annotationSHA256)
         let reportRead = try request.assemblyReport.map { try hash($0, expected: nil) }
         let extraReads = try request.extras.map { extra in
-            (fasta: try hash(extra.fasta, expected: nil), annotation: try extra.annotation.map { try hash($0, expected: nil) })
+            (fasta: try hash(extra.fasta, expected: nil), annotation: try extra.annotation.map { try hash($0, expected: nil) },
+             mask: try extra.mask.map { try hash($0, expected: nil) })
         }
         return Hashed(genome: genome, genomeSource: genomeRead.source, genomeSHA: genomeRead.sha, bundle: bundle,
                       annotationSource: annotationRead.source, annotationSHA: annotationRead.sha,
                       extraSources: extraReads.map { ($0.fasta.source, $0.annotation?.source) },
-                      extraSHAs: extraReads.map { ($0.fasta.sha, $0.annotation?.sha) }, descriptors: descriptors,
-                      reportSHA: reportRead?.sha)
+                      extraSHAs: extraReads.map { ($0.fasta.sha, $0.annotation?.sha) }, masks: extraReads.map(\.mask),
+                      descriptors: descriptors, reportSHA: reportRead?.sha)
     }
 
     /// An extra's name becomes the file name `extras/<name>.fa`, so each must be one plain name and its own.

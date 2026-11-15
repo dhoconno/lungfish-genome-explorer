@@ -51,6 +51,9 @@ extension RNASeqCommand {
         @Option(name: .customLong("extra"), help: "An extra sequence as <kind>,<name>,<fasta>[,<annotation>], in the order given")
         var extras: [String] = []
 
+        @Option(name: .customLong("extra-mask"), help: "An extra's rRNA mask as <name>,<gtf>, the GTF's gene lines of gene_biotype rRNA")
+        var extraMasks: [String] = []
+
         @Option(name: .customLong("layout"), help: "lge (the default) or deposit")
         var layout: String = "lge"
 
@@ -135,7 +138,7 @@ extension RNASeqCommand {
                 name: name ?? "\(species) \(assembly) \(source) \(release)", species: species, assemblyName: assembly,
                 assemblyAccession: assemblyAccession ?? named?.assemblyAccession, assemblySourceURL: named?.genomeURL,
                 annotationSource: source, annotationRelease: release, genome: URL(fileURLWithPath: genomePath),
-                annotation: URL(fileURLWithPath: annotationPath), extras: try extras.map(Self.parseExtra),
+                annotation: URL(fileURLWithPath: annotationPath), extras: try Self.masking(extras.map(Self.parseExtra), with: extraMasks),
                 layout: layout == "deposit" ? .deposit(study: study ?? "") : .lge, mitochondrialContigs: mitochondrialContigs,
                 assemblyReport: assemblyReport.map { URL(fileURLWithPath: $0) }, expected: named)
         }
@@ -149,6 +152,25 @@ extension RNASeqCommand {
             return ReferenceSetExtraInput(
                 name: parts[1], kind: kind, fasta: URL(fileURLWithPath: parts[2]),
                 annotation: parts.count == 4 ? URL(fileURLWithPath: parts[3]) : nil)
+        }
+
+        /// Each `--extra-mask <name>,<gtf>` joins the extra of that name, once an extra.
+        static func masking(_ extras: [ReferenceSetExtraInput], with masks: [String]) throws -> [ReferenceSetExtraInput] {
+            var extras = extras
+            for text in masks {
+                guard let comma = text.firstIndex(of: ","), comma != text.startIndex, text.index(after: comma) != text.endIndex else {
+                    throw ReferenceSetError.invalidRequest("--extra-mask \(text) is not <name>,<gtf>.")
+                }
+                let name = String(text[..<comma])
+                guard let index = extras.firstIndex(where: { $0.name == name }) else {
+                    throw ReferenceSetError.invalidRequest("--extra-mask \(text) names no extra \(name). Give the extra with --extra first.")
+                }
+                guard extras[index].mask == nil else {
+                    throw ReferenceSetError.invalidRequest("The extra \(name) takes one mask, and --extra-mask names it twice.")
+                }
+                extras[index].mask = URL(fileURLWithPath: String(text[text.index(after: comma)...]))
+            }
+            return extras
         }
     }
 }

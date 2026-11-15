@@ -55,9 +55,33 @@ public struct ReferenceSetManifest: Codable, Sendable, Equatable {
         }
     }
 
+    /// An extra's rRNA mask from a GTF the person gave for it, kept as intervals, since its genes are no feature of the
+    /// set (BIO-NOTHOST-BARCODE item 3).
     public struct Mask: Codable, Sendable, Equatable {
+        public struct Interval: Codable, Sendable, Equatable {
+            public var record: String
+            /// 1-based and inclusive, as the GTF gives them.
+            public var start: Int
+            public var end: Int
+            public var geneID: String
+
+            public init(record: String, start: Int, end: Int, geneID: String) {
+                self.record = record
+                self.start = start
+                self.end = end
+                self.geneID = geneID
+            }
+        }
+
+        public static let rRNARule = "the gene lines of gene_biotype \"rRNA\", each by its gene-line span"
+
+        /// The extra's name.
         public var name: String
-        public var features: [String]
+        /// `extras/<name>.mask.gtf`, or `.gtf.gz` when given gzip.
+        public var path: String
+        public var sha256: String
+        public var rule: String
+        public var intervals: [Interval]
     }
 
     public struct DerivedFile: Codable, Sendable, Equatable {
@@ -121,6 +145,7 @@ public struct ReferenceSetManifest: Codable, Sendable, Equatable {
             files.append((extra.path, extra.sha256))
             if let path = extra.annotationPath, let sha = extra.annotationSHA256 { files.append((path, sha)) }
         }
+        files += masks.map { ($0.path, $0.sha256) }
         files += [derived.transcripts, derived.genes, derived.transcriptGenes].map { ($0.path, $0.sha256) }
         files.append((derivation.genesWithoutFeatures.path, derivation.genesWithoutFeatures.sha256))
         return files

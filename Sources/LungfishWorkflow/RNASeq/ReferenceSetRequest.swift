@@ -37,12 +37,16 @@ public struct ReferenceSetExtraInput: Sendable, Equatable {
     public var kind: ReferenceSetExtraKind
     public var fasta: URL
     public var annotation: URL?
+    /// A GTF whose `gene_biotype "rRNA"` gene lines are the extra's rRNA mask, in either layout and never features
+    /// (BIO-NOTHOST-BARCODE items 1 to 5).
+    public var mask: URL?
 
-    public init(name: String, kind: ReferenceSetExtraKind, fasta: URL, annotation: URL? = nil) {
+    public init(name: String, kind: ReferenceSetExtraKind, fasta: URL, annotation: URL? = nil, mask: URL? = nil) {
         self.name = name
         self.kind = kind
         self.fasta = fasta
         self.annotation = annotation
+        self.mask = mask
     }
 }
 

@@ -30,6 +30,9 @@ OPTIONS:
   --extra <extra>         An extra sequence as
                           <kind>,<name>,<fasta>[,<annotation>], in the order
                           given
+  --extra-mask <extra-mask>
+                          An extra's rRNA mask as <name>,<gtf>, the GTF's gene
+                          lines of gene_biotype rRNA
   --layout <layout>       lge (the default) or deposit (default: lge)
   --study <study>         The study whose deposit the deposit layout reproduces
   --mitochondrial-contig <mitochondrial-contig>
