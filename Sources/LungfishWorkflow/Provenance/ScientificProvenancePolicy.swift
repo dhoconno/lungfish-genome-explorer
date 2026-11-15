@@ -226,6 +226,10 @@ public enum ScientificProvenancePolicy {
         "rnaseq export": dataWriting("cli.rnaseq.export", writer: "ScientificFileExportProvenance"),
         // `rnaseq pseudobulk` writes a bulk result through the one writer, root record last (lane RS-PSEUDOBULK).
         "rnaseq pseudobulk": dataWriting("cli.rnaseq.pseudobulk", writer: "RNASeqResultWriter/ProvenanceWriter"),
+        // `rnaseq index-plan` writes a plan folder for a Linux machine, and `rnaseq index-adopt` writes the index record
+        // that later plans pin, through its one owner (lane EX-INDEX).
+        "rnaseq index-plan": dataWriting("cli.rnaseq.index-plan", writer: "STARIndexSubmit/ExecutorPlanBatchWriter"),
+        "rnaseq index-adopt": dataWriting("cli.rnaseq.index-adopt", writer: "STARIndexRecordStore"),
         // The `conda` group holds no entry, because most of its commands maintain the installation.
         // These two write scientific data.
         "conda db download": dataWriting(

@@ -475,7 +475,7 @@ final class CLIEventContractCoverageTests: XCTestCase {
                 "haplotypes-bundle-create", "haplotypes-bundle-install", "haplotypes-bundle-replace-reference",
                 "haplotypes-delete", "haplotypes-export", "haplotypes-list", "haplotypes-validate",
                 "haplotypes-write", "import-sample-metadata", "metadata-import", "metadata-set",
-                "project-migrate", "project-unlock", "rnaseq-index", "rnaseq-quant", "rnaseq-reference-set", "universal-search",
+                "project-migrate", "project-unlock", "rnaseq-index", "rnaseq-index-adopt", "rnaseq-index-plan", "rnaseq-quant", "rnaseq-reference-set", "universal-search",
                 "workflow-validate",
             ]
         ),
