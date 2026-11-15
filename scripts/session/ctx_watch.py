@@ -17,10 +17,12 @@ nor a folder under PROJECT_DIR.
 --calls prints, in place of those lines, one line "CALLS ID CALLS/LINE" for each running agent (last entry not final)
 whose tool calls, counted as in the listing, are at or past its stop line. The line is the number in the first
 "stop at call N" or "stop at N calls" of the agent's prompt, which is the first user entry of its transcript, else the
-first "stop at N" or "stop line is N" in the body of the file DIR/TYPE.md of its agent type, TYPE being the agentType
-of its meta file and DIR the folder of the agent types that the session ledger reads unless --agents-dir names another.
-Case does not matter, and the prompt may also say "about", "tool" or "by" ("Stop at about 60 tool calls") or "stop line
-N calls". An agent with no line is left out, and the other filters still apply.
+same in the first brief file the prompt names that can be read ("Your brief is /p.md.", "brief file /p.md" or
+"Brief: /p.md", with a path from the root or from ~/), else the first "stop at N" or "stop line is N" in the body of the
+file DIR/TYPE.md of its agent type, TYPE being the agentType of its meta file and DIR the folder of the agent types that
+the session ledger reads unless --agents-dir names another. Case does not matter, and a prompt or brief may also say
+"about", "tool" or "by" ("Stop at about 60 tool calls"), "stop line N calls" or "stop by your 120th tool call". An agent
+with no line is left out, and the other filters still apply.
 
 Serves the rows "Lane size" and "Pending tool call" in the End check and heartbeat table of
 docs/contracts/RUNNING-A-PHASE-SESSION.md.
@@ -30,6 +32,7 @@ import importlib.util
 import json
 import os
 import re
+import stat
 import sys
 import time
 from datetime import datetime
@@ -37,12 +40,17 @@ from datetime import datetime
 HERE = os.path.dirname(os.path.abspath(__file__))
 LEDGER = os.path.join(os.path.dirname(HERE), "llm", "session_ledger.py")
 _agents_dir = None
-# The wording of a stop line in a prompt, read without regard to case. The first one in the text sets the line.
+# The wording of a stop line in a prompt or a brief, read without regard to case. The first one in the text sets the line.
 PROMPT_FORMS = (
     re.compile(r"\bstops?\s+(?:at|by)\s+(?:about\s+)?call\s+(\d+)\b", re.IGNORECASE),
     re.compile(r"\bstops?\s+(?:at|by)\s+(?:about\s+)?(\d+)\s+(?:tool\s+)?calls?\b", re.IGNORECASE),
     re.compile(r"\bstop\s+line\s+(?:is\s+)?(\d+)\s+(?:tool\s+)?calls?\b", re.IGNORECASE),
+    re.compile(r"\bstops?\s+by\s+(?:your\s+|the\s+)?(\d+)(?:st|nd|rd|th)\s+(?:tool\s+)?call\b", re.IGNORECASE),
 )
+# A brief file that a prompt names, as "Your brief is /p.md.", "brief file /p.md", "Brief: /p.md" or "the brief `/p.md`".
+# Only a path from the root or from the home folder counts, since a relative one has no known start.
+BRIEF_NAME = re.compile(r"\bbrief(?:\s+file)?(?:\s+(?:is|at)|:)?\s+[`'\"(]*(~?/[^\s`'\")]+)", re.IGNORECASE)
+BRIEF_BYTES = 262144  # a brief is read up to this size
 # The wording of a stop line in the body of a type file. A number with a decimal point ("1.5 times") is no line.
 TYPE_FORM = re.compile(r"\bstops?\s+(?:at|by|line\s+is)\s+(?:about\s+)?(?:call\s+)?(\d+)\b(?!\.\d)", re.IGNORECASE)
 AGENT_TYPE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -155,10 +163,30 @@ def first_prompt(path):
     return ""
 
 
-def prompt_stop_line(text):
-    """The number of the first stop line form in a prompt, or None."""
+def text_stop_line(text):
+    """The number of the first stop line form in a text, or None."""
     found = [(m.start(), int(m.group(1))) for m in (form.search(text) for form in PROMPT_FORMS) if m]
     return min(found)[1] if found else None
+
+
+def brief_text(prompt):
+    """The text, up to BRIEF_BYTES bytes, of the first brief file the prompt names that can be read, else an empty string."""
+    for match in BRIEF_NAME.finditer(prompt):
+        path = os.path.expanduser(match.group(1).rstrip(".,;:!?"))
+        try:
+            if not stat.S_ISREG(os.stat(path).st_mode):  # a folder, or a pipe that would block the read
+                continue
+            with open(path, "rb") as handle:
+                return handle.read(BRIEF_BYTES).decode("utf-8", errors="replace")
+        except (OSError, ValueError):
+            continue
+    return ""
+
+
+def prompt_stop_line(text):
+    """The number of the first stop line form in a prompt, else in the brief file the prompt names, or None."""
+    line = text_stop_line(text)
+    return line if line is not None else text_stop_line(brief_text(text))
 
 
 def type_stop_line(agent_type, agents_dir=None):
@@ -179,7 +207,7 @@ def type_stop_line(agent_type, agents_dir=None):
 
 
 def stop_line(row, agents_dir=None):
-    """The stop line in calls of one agent from its prompt, else from the file of its type, else None."""
+    """The stop line in calls of one agent from its prompt or the brief the prompt names, else from the file of its type, else None."""
     line = prompt_stop_line(first_prompt(row["path"]))
     return line if line is not None else type_stop_line(row["type"], agents_dir)
 
