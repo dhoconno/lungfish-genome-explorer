@@ -97,7 +97,7 @@ final class STARIndexPlanTests: XCTestCase {
         XCTAssertEqual(step.arguments, [
             "--runMode", "genomeGenerate", "--genomeDir", "star-index",
             "--genomeFastaFiles", "references/\(id)/genome/cynomolgus-mt.fa", "references/\(id)/extras/sars-cov-2.fa",
-            "--sjdbGTFfile", "references/\(id)/derived/genes.gtf", "--runThreadN", "8",
+            "--sjdbGTFfile", "references/\(id)/derived/genes.gtf", "--sjdbOverhang", "100", "--runThreadN", "8",
             "--genomeSAindexNbases", "\(saIndexNbases(forBases: bases))", "--limitGenomeGenerateRAM", "32000000000",
             "--genomeSAsparseD", "2", "--outFileNamePrefix", "star-index.",
         ])
