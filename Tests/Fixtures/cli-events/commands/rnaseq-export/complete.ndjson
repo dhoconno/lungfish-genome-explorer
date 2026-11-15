@@ -1,0 +1,2 @@
+{"event":"start","message":"Exporting RNA-seq counts.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Exported 1 RNA-seq result(s) to export","output":"\/work\/export","outputs":["\/work\/export"],"progress":1,"schemaVersion":2}

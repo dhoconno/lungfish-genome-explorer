@@ -28,10 +28,21 @@ final class RNASeqExportCommandTests: XCTestCase {
 
     override func tearDownWithError() throws { TestTempDirectory.cleanup(root) }
 
-    private let salmon = RNASeqResultManifest.Route(id: "salmon-reads", tool: "salmon", toolVersion: "2.11.0", settings: ["input": "reads"])
-    private let set = RNASeqResultManifest.ReferenceSet(id: "human-lge-1", layout: .lge)
+    private static let salmonRoute = RNASeqResultManifest.Route(id: "salmon-reads", tool: "salmon", toolVersion: "2.11.0", settings: ["input": "reads"])
+    private let salmon = RNASeqExportCommandTests.salmonRoute
 
     private func result(_ name: String, route: RNASeqResultManifest.Route, samples: [String], groups: [String: String] = [:]) throws -> URL {
+        try Self.makeResult(name, route: route, samples: samples, groups: groups, in: root)
+    }
+
+    /// A result of three host genes made by RS-KIND's writer under `root/Analyses`, which the transcript capture and
+    /// the SIGTERM test share.
+    static func makeResult(
+        _ name: String, route: RNASeqResultManifest.Route = salmonRoute, samples: [String], groups: [String: String] = [:], in root: URL
+    ) throws -> URL {
+        let set = RNASeqResultManifest.ReferenceSet(id: "human-lge-1", layout: .lge)
+        let analyses = root.appendingPathComponent("Analyses", isDirectory: true)
+        try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
         let genes = ["G1", "G2", "G3"]
         let scratch = root.appendingPathComponent("inputs-\(name)", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)

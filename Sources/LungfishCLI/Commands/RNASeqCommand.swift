@@ -9,6 +9,6 @@ struct RNASeqCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "rnaseq",
         abstract: "Build RNA-seq reference sets and count RNA-seq reads",
-        subcommands: [ReferenceSetSubcommand.self, IndexSubcommand.self]
+        subcommands: [ReferenceSetSubcommand.self, IndexSubcommand.self, RNASeqExportSubcommand.self]
     )
 }

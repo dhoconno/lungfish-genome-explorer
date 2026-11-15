@@ -140,6 +140,8 @@ package enum CLIEventContractTable {
         "import-fastq": .events(flag: formatJSON, channel: .standardOutput),
         "kraken2 classify": .events(flag: formatJSON, channel: .standardOutput),
         "kraken2 export table": .events(flag: formatJSON, channel: .standardOutput),
+        // Since 5.1 lane RS-HANDOFF, through ViewerExportLeaf: start, then complete or failed, no JSON document.
+        "rnaseq export": .events(flag: formatJSON, channel: .standardOutput),
         "map": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate add": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate delete": .events(flag: formatJSON, channel: .standardOutput),

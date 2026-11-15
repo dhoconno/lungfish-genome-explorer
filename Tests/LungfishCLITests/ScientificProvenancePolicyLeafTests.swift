@@ -472,6 +472,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "provenance verify": "cli.provenance",
         "rnaseq index": "cli.rnaseq",
         "rnaseq reference-set": "cli.rnaseq",
+        "rnaseq export": "cli.rnaseq.export",
         "run-headless": "cli.run-headless",
         "search": "cli.search",
         "sequence add-annotation": "cli.sequence.add-annotation",

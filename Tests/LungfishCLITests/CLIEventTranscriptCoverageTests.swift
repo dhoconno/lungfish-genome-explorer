@@ -402,7 +402,8 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         (ImportStreamCapture.cases() + BuildDbStreamCapture.cases() + AlignmentActionStreamCapture.cases()
             + CzIdImportStreamCapture.cases() + ViewerExportStreamCapture.cases() + PrimerExportStreamCapture.cases() + FastqExportStreamCapture.cases()
             + AnnotationGFF3ExportStreamCapture.cases() + AnnotationTableExportStreamCapture.cases()
-            + FastqExportReadsStreamCapture.cases() + BundleExportGraphicStreamCapture.cases()).map { testCase in
+            + FastqExportReadsStreamCapture.cases() + BundleExportGraphicStreamCapture.cases()
+            + RNASeqExportStreamCapture.cases()).map { testCase in
             Capture(leaf: testCase.leaf, name: testCase.name) { _ in
                 let scratch = try ImportStreamCapture.Scratch()
                 defer { scratch.remove() }

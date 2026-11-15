@@ -45,14 +45,14 @@ final class RNASeqExportFolderTests: RNASeqExportTestCase {
     }
 
     func testTheMaskedColumnComesBesideTheDefaultAndIsNeverJoinedToIt() throws {
-        let a = try make(.init(name: "a", samples: ["S1", "S2"], masked: true))
+        let a = try make(.init(name: "a", samples: ["S1", "S2"], groups: ["S1": "TB", "S2": "HIV"], masked: true))
         let out = try export([a])
         XCTAssertEqual(try lines(out.appendingPathComponent("counts.tsv")).map { $0.prefix { $0 != "\t" } }, ["gene_id", "G1", "G2", "G3"])
         XCTAssertEqual(try lines(out.appendingPathComponent("counts.masked.tsv")).map { $0.prefix { $0 != "\t" } }, ["gene_id", "G4"])
     }
 
     func testGenesTsvFlagsTheNotHostIdsAndTheirRowsStayInTheCountTable() throws {
-        let a = try make(.init(name: "a", samples: ["S1", "S2"], notHost: ["G4"]))
+        let a = try make(.init(name: "a", samples: ["S1", "S2"], notHost: ["G4"], groups: ["S1": "TB", "S2": "HIV"]))
         let out = try export([a])
         let genes = try lines(out.appendingPathComponent("genes.tsv"))
         XCTAssertEqual(genes.first, "gene_id\tname\tbiotype\tcontig\tlength\tnot_host\tmask\tunreliable")
@@ -81,7 +81,7 @@ final class RNASeqExportFolderTests: RNASeqExportTestCase {
     }
 
     func testASheetThatNamesOtherSamplesIsRefusedWithBothSidesListed() throws {
-        let a = try make(.init(name: "a", samples: ["S1", "S2"]))
+        let a = try make(.init(name: "a", samples: ["S1", "S2"], groups: ["S1": "TB", "S2": "HIV"]))
         XCTAssertThrowsError(try export([a], sheet: try sheet("sample\tday\nS1\tD3\nS9\tD5\n"))) {
             let words = $0.localizedDescription
             XCTAssertTrue(words.contains("Only in the results: S2") && words.contains("Only in the sheet: S9"), words)
@@ -107,7 +107,7 @@ final class RNASeqExportFolderTests: RNASeqExportTestCase {
     }
 
     func testAnExistingFolderIsNeverOverwrittenAndAMixWritesNothing() throws {
-        let a = try make(.init(name: "a", samples: ["S1", "S2"]))
+        let a = try make(.init(name: "a", samples: ["S1", "S2"], groups: ["S1": "TB", "S2": "HIV"]))
         let c = try make(.init(name: "c", route: Fix.starSalmon, samples: ["U1", "U2"]))
         let taken = root.appendingPathComponent("taken", isDirectory: true)
         try FileManager.default.createDirectory(at: taken, withIntermediateDirectories: true)
@@ -118,7 +118,7 @@ final class RNASeqExportFolderTests: RNASeqExportTestCase {
     }
 
     func testACancelLeavesNoStageAndNoFolder() throws {
-        let a = try make(.init(name: "a", samples: ["S1", "S2"]))
+        let a = try make(.init(name: "a", samples: ["S1", "S2"], groups: ["S1": "TB", "S2": "HIV"]))
         XCTAssertThrowsError(try export([a], checkpoint: { throw CancellationError() })) { XCTAssertTrue($0 is CancellationError) }
         let left = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasPrefix(".") || $0 == "out" }
         XCTAssertEqual(left, [], "a cancelled export leaves no stage and no folder")

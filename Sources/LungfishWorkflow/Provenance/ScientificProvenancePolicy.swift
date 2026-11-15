@@ -222,6 +222,8 @@ public enum ScientificProvenancePolicy {
         "conda classify": dataWriting("cli.kraken2.classify", writer: "ClassifyCommand/ProvenanceRunBuilder"),
         // The viewer export leaf writes its record through the shared export writer, not the classify run builder.
         "kraken2 export table": dataWriting("cli.kraken2.export.table", writer: "ScientificFileExportProvenance"),
+        // `rnaseq export` writes the counts folder and its record in one staged rename (lane RS-HANDOFF).
+        "rnaseq export": dataWriting("cli.rnaseq.export", writer: "ScientificFileExportProvenance"),
         // The `conda` group holds no entry, because most of its commands maintain the installation.
         // These two write scientific data.
         "conda db download": dataWriting(

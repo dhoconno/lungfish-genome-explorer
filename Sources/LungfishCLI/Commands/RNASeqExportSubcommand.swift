@@ -13,8 +13,9 @@ import LungfishWorkflow
 struct RNASeqExportSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "export",
-        abstract: "Export RNA-seq counts for DESeq2, edgeR, limma voom and dream",
-        discussion: "Writes counts.tsv, genes.tsv, samples.tsv, deseq2.R, edger-limma-dream.R and a record into the new folder --output names. "
+        abstract: "Export RNA-seq counts for DESeq2, edgeR and limma",
+        discussion: "Writes counts.tsv, genes.tsv, samples.tsv, deseq2.R, edger-limma-dream.R (edgeR, limma voom and dream) and a record "
+            + "into the new folder --output names. "
             + "The results must come from one route and one reference set. A route is the tool, its version and every setting that changes counts."
     )
 
