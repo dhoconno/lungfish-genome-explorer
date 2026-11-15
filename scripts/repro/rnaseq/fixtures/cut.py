@@ -14,6 +14,7 @@ import io
 import os
 import sys
 import tarfile
+import zipfile
 
 RS50 = "refs/cynomolgus/refseq-GCF_000364345.1/GCF_000364345.1_Macaca_fascicularis_5.0"
 ENS100 = "refs/rhesus/ensembl-100/Macaca_mulatta.Mmul_10"
@@ -48,7 +49,11 @@ PINS = {
     f"{ENS100}.100.gtf.gz": "73ba46e5b962e55d1307b0ceea8aedef33e1aed5b7e29840fc9da28d15e5c7a9",
     f"{SARS2}_genomic.fna.gz": "d359795c5b11e9fc9309d5b3edee2dde1040781cd6a13b09aa7f4aaad8f07816",
     f"{SARS2}_genomic.gtf.gz": "d81943ad8672e04b0ff1030e67c1a81b8544e78bf770c55af542366212e774b8",
+    "studies/GSE47774/truth/ercc/ERCC92.zip": "8d5f23e997248084cc210061f07f1a51c2f1bf49ea07ee08a9f78bf6ff074807",
+    "studies/GSE47774/fastq/SRR896663_1.fastq.gz": "a2d12d0591b79af3f149063be52c1f61260e152cd4e35b72c4537eba25b32692",
+    "studies/GSE47774/fastq/SRR896663_2.fastq.gz": "e3a5b7bd9fec6d3e9db5a746b2194654877135e323a817d644324ad4f1f11efd",
 }
+PROBE_PAIRS = 6000  # the first 6,000 pairs of SRR896663 (RS-QUANT's probe), under 2 MB with ERCC92
 
 QUANT_RUNS = ("SRR896663", "SRR896743")
 QUANT_EVERY = 750   # every 750th transcript that is not an ERCC spike, plus every ERCC row
@@ -287,6 +292,33 @@ def refset_mito(cut):
     cut.source(report, f"{out}/cynomolgus-mt_assembly_report.txt", "the column line and the NC_012670.1 line")
 
 
+def probe(cut):
+    """The truth probe of lane RS-QUANT: ERCC92's sequences and GTF, whole, as the genome and annotation of a set, and
+    the first PROBE_PAIRS pairs of SRR896663 (C1, library A_1), whose mates are checked to share each spot name."""
+    out = "salmon-probe-c1"
+    ercc = "studies/GSE47774/truth/ercc/ERCC92.zip"
+    with zipfile.ZipFile(io.BytesIO(cut.read(ercc))) as archive:
+        for name in ("ERCC92.fa", "ERCC92.gtf"):
+            cut.write(f"{out}/{name}", archive.read(name))
+            cut.source(ercc, f"{out}/{name}", f"{name} of the archive, whole")
+    names = []
+    for mate in ("1", "2"):
+        rel = f"studies/GSE47774/fastq/SRR896663_{mate}.fastq.gz"
+        lines = []
+        for line in gz_lines(cut, rel):
+            lines.append(line)
+            if len(lines) == 4 * PROBE_PAIRS:
+                break
+        if len(lines) != 4 * PROBE_PAIRS or not all(line.startswith(b"@") for line in lines[::4]):
+            die(f"{rel} has no {PROBE_PAIRS} whole records at its head")
+        names.append([line.split()[0] for line in lines[::4]])
+        cut.write(f"{out}/SRR896663_{mate}.fastq.gz", gz(b"".join(lines)))
+        cut.source(rel, f"{out}/SRR896663_{mate}.fastq.gz",
+                   f"the first {PROBE_PAIRS} records, as given, gzip level 9 with no name and time 0")
+    if names[0] != names[1]:
+        die("the two mates of the probe do not name the same spots in the same order")
+
+
 def main(argv):
     if len(argv) != 3:
         die("usage: cut.py <data_root> <out_dir>")
@@ -300,6 +332,7 @@ def main(argv):
     umi_table(cut)
     nfcore(cut)
     refset_mito(cut)
+    probe(cut)
     table =["source\tsha256\tfixture\trule\n"]
     table += [f"{rel}\t{digest}\t{fixture}\t{rule}\n" for rel, digest, fixture, rule in cut.sources]
     cut.write("SOURCES.tsv", "".join(table).encode())
