@@ -4,6 +4,7 @@
 
 import CryptoKit
 import XCTest
+import LungfishCore
 import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
@@ -165,5 +166,53 @@ final class RNASeqResultWriterTests: XCTestCase {
             XCTAssertTrue($0.localizedDescription.contains("SRR000000"), $0.localizedDescription)
         }
         XCTAssertEqual(try names(in: analyses), [])
+    }
+
+    static let chunkTestBytes = 64 << 20
+    static let chunkTestBound: Int64 = 16 << 20
+
+    /// The bytes that `body` adds to this process's footprint while it reads a 64 MiB file, measured inside one test
+    /// method, so nothing drains an autorelease pool between the readings. X5 read 3.4 GB for a 3.2 GB matrix, because
+    /// each 1 MiB chunk that a copy or a hash read lived until its loop ended.
+    func footprintGrowth(reading file: URL, _ body: (URL) throws -> Void) throws -> Int64 {
+        try autoreleasepool { try Data(repeating: 0xA5, count: Self.chunkTestBytes).write(to: file) }
+        let before = try XCTUnwrap(ProcessMemoryShare.currentFootprint())
+        try body(file)
+        let after = try XCTUnwrap(ProcessMemoryShare.currentFootprint())
+        return Int64(after) - Int64(before)
+    }
+
+    func expectedChunkTestHash() -> String { sha256(Data(repeating: 0xA5, count: Self.chunkTestBytes)) }
+
+    func testACopyIntoSourceHoldsAFewChunksOfTheFileAndNotTheWholeFile() throws {
+        let file = tempRoot.appendingPathComponent("matrix.bin")
+        let copy = tempRoot.appendingPathComponent("copy.bin")
+        var copied: (sha256: String, size: Int64)?
+        let growth = try footprintGrowth(reading: file) {
+            copied = try RNASeqResultWriter(provenanceWriter: unsigned).copyHashing($0, to: copy)
+        }
+        XCTAssertLessThan(growth, Self.chunkTestBound, "copyHashing grew the footprint by \(growth) bytes for a 64 MiB file")
+        XCTAssertEqual(copied?.size, Int64(Self.chunkTestBytes))
+        XCTAssertEqual(copied?.sha256, expectedChunkTestHash())
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: copy.path)[.size] as? Int, Self.chunkTestBytes)
+    }
+
+    func testTheHashOfAResultFileHoldsAFewChunksOfTheFileAndNotTheWholeFile() throws {
+        var hash: String?
+        let growth = try footprintGrowth(reading: tempRoot.appendingPathComponent("cells.bin")) {
+            hash = try RNASeqResultBundle.sha256Hex(fileAt: $0)
+        }
+        XCTAssertLessThan(growth, Self.chunkTestBound, "sha256Hex(fileAt:) grew the footprint by \(growth) bytes for a 64 MiB file")
+        XCTAssertEqual(hash, expectedChunkTestHash())
+    }
+
+    func testTheHashOfAnH5FileHoldsAFewChunksOfTheFileAndNotTheWholeFile() throws {
+        var hashed: (String, Int64)?
+        let growth = try footprintGrowth(reading: tempRoot.appendingPathComponent("matrix.h5")) {
+            hashed = try SingleCellFolderReader.hashFile($0)
+        }
+        XCTAssertLessThan(growth, Self.chunkTestBound, "hashFile grew the footprint by \(growth) bytes for a 64 MiB file")
+        XCTAssertEqual(hashed?.0, expectedChunkTestHash())
+        XCTAssertEqual(hashed?.1, Int64(Self.chunkTestBytes))
     }
 }
