@@ -13,6 +13,8 @@ The folder that holds `plan.json` is the run's work root. The Mac writes the fil
 | `recipe/<id>.recipe.json` | The recipe, when the import runs one |
 | `inputs/R1<suffix>`, `inputs/R2<suffix>` | The reads |
 | `databases/<id>/<file>` | Each database a recipe step reads. A shared folder holds none |
+| `references/<set id>/<path>`, `references/<set id>/indexes/<key>/<path>` | Schema 2. Each file of a reference set, and each file of an index built from one, that a step reads. A shared folder holds none |
+| `barcodes/<file>` | Schema 2. The 10x barcode list a step reads. A shared folder holds none |
 | `staging.json` | In a shared folder only, the files kept in the staging folder and the image |
 
 Work files use the stem `sample`. The sample's real name lives only in `sample.sampleName`, so the adopt applies the one name sanitizer.
@@ -25,14 +27,14 @@ The job's `request_disk` is a value of the Mac's sample row that only the submit
 
 ## The shared folder and `staging.json`
 
-A plan folder for CHTC holds no `executor` or `database` entry. Each such file is kept once in the group's staging folder under a name that holds its SHA-256, and the job puts it at the entry's `relativePath`. The folder writer's shared mode copies every other entry, checks each copy with the node's resolver, writes `staging.json` and then writes `plan.json`, whose bytes are those of the per-sample folder. A folder written for a replay on the Mac holds every entry and no `staging.json`.
+A plan folder for CHTC holds no `executor`, `database` or `reference` entry, and no `barcodeList` entry whose list the person supplied. Each such file is kept once in the group's staging folder under a name that holds its SHA-256, and the job puts it at the entry's `relativePath`. With `--staged-reads` the folder holds no `input` entry either, since those reads already sit in the staging folder, and the job places them too. A barcode list from the tool image is in no folder and no staging folder, and the executor places it (Schema 2). The folder writer's shared mode copies every other entry, checks each copy with the node's resolver, writes `staging.json` and then writes `plan.json`, whose bytes are those of the per-sample folder. A folder written for a replay on the Mac holds every entry and no `staging.json`.
 
 `staging.json` is UTF-8 JSON with sorted keys.
 
 | Key | Meaning |
 | --- | --- |
 | `schemaVersion` | 1 |
-| `sharedFiles` | Each entry the folder does not hold, `{role, relativePath, sha256, size}`, in plan order |
+| `sharedFiles` | Each entry the folder does not hold, `{role, relativePath, sha256, size}`, in plan order. For a schema 2 plan it may name the roles `reference` and `barcodeList`, and `schemaVersion` stays 1, since no key changes |
 | `image` | The image the job runs in, `{fileName, sha256, size}`, as the launcher states them. The plan pins the image only by `imageManifest`, the pin the executor checks |
 
 The shared mode refuses an image whose file name is not a plain name (field `staging.image.fileName`), whose SHA-256 is not 64 lowercase hexadecimal digits (`staging.image.sha256`) or whose size is not above 0 (`staging.image.size`).
@@ -41,7 +43,7 @@ The shared mode refuses an image whose file name is not a plain name (field `sta
 
 `lungfish-executor run --plan <file> [--image-manifest <absolute file>] [--site-fact KEY=VALUE]...`
 
-The executor checks, in order, the site facts, the subreaper, the plan, the running binary against the plan's `executor` entry before it reads any other file, the image's tool manifest, each step's kind, tool pin and tool path, the plan's other files and the preflight, and then the manifest's `java` for a plan that runs a tool whose id ends in `.sh`, and a pinned `gzip`, `pigz` or `bgzip` for a plan with a step that reads gzip files. A failed check refuses the run before any tool starts. On Linux it checks the binary the kernel started, read from `/proc/self/exe`. In a replay on the Mac it checks the file that `argv[0]` names through `realpath`, and refuses an `argv[0]` with no `/`. It never uses the copy in `bin/`. `--image-manifest` names a tool manifest in place of the image's own, as in a replay on the Mac.
+The executor checks, in order, the site facts, the subreaper, the plan, the running binary against the plan's `executor` entry before it reads any other file, the image's tool manifest, each step's kind, tool pin and tool path, the plan's other files and the preflight, and then the manifest's `java` for a plan that runs a tool whose id ends in `.sh`, and a pinned `gzip`, `pigz` or `bgzip` for a plan with a step that reads gzip files. A failed check refuses the run before any tool starts. On Linux it checks the binary the kernel started, read from `/proc/self/exe`. In a replay on the Mac it checks the file that `argv[0]` names through `realpath`, and refuses an `argv[0]` with no `/`. It never uses the copy in `bin/`. `--image-manifest` names a tool manifest in place of the image's own, as in a replay on the Mac. In a schema 2 plan the plan's other files include each `reference` and `barcodeList` entry, and the executor places a barcode list from the image before it checks them.
 
 ## Keys
 
@@ -50,7 +52,7 @@ The executor checks, in order, the site facts, the subreaper, the plan, the runn
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `schemaVersion` | integer | 1. A plan from a newer schema is refused |
-| `entries` | array | Each file the plan pins, `{role, relativePath, sha256, size}`. The roles are `executor`, `recipe`, `input` and `database`. A `database` entry also holds `database`, the engine's own database record, `{id, version, format, kmerLength, windowSize, lockPinned, buildSourceSHA256, buildSourceSizeBytes, buildToolVersion}` |
+| `entries` | array | Each file the plan pins, `{role, relativePath, sha256, size}`. The roles are `executor`, `recipe`, `input` and `database`. A `database` entry also holds `database`, the engine's own database record, `{id, version, format, kmerLength, windowSize, lockPinned, buildSourceSHA256, buildSourceSizeBytes, buildToolVersion}`. Schema 2 adds the roles `reference` and `barcodeList`, each with an identity key of its own (Schema 2) |
 | `executor` | object | What built the pinned executor, `lgeVersion`, `lgeCommit`, `targetTriple`, `toolchainID`, `toolchainSHA256`, `staticLinuxSDKID` and `staticLinuxSDKSHA256` |
 | `imageManifest` | object | `sha256` and `size` of the image's tool manifest. The plan names no path for it |
 | `tools` | array | Every tool a step runs or launches, `{id, version, build}`, which the manifest must list. The plan writer pins the compressor for every storage route, and a plan with a `clumpify.sh` or `reformat.sh` storage step pins `bgzip`, which BBTools writes through |
@@ -95,6 +97,33 @@ Each step has `id` (1 to 64 of `A-Z a-z 0-9 . _ -`, starting with a letter or di
 The storage route `none` runs `reformat.sh` with the plan's binning, or the compressor alone when the plan bins nothing, as the import on the Mac does. This build has no plan form for two files with no binning, which the Mac interleaves in its own process, or for one gzip file with no binning, which the Mac keeps as it is. The decoder refuses both, and a step with more than two files, with field `steps[<i>].inputs`, so the plan writer refuses them before a run and no recipe step runs on the machine first. Nor has it a plan form for a lone trim step when duplicate removal is off, for RiboDetector or for interleaved to paired reads.
 
 The deacon scrub step passes no `-a` or `-r`, so its thresholds are the pinned deacon's defaults. The fused fastp report of a plan is `work/sample_fused_fastp_report.json`, where the import on the Mac adds a unique suffix to the name.
+
+## Schema 2
+
+Schema 2 is the plan of a chain of pinned tools, such as the RNA-seq steps on Linux of Phase 5.3 (`docs/plans/2026-10-02-architecture-program.md:233-256`). This page sets it first. No build reads it yet, and `ExecutionPlan.currentSchemaVersion` is 1 (`Sources/LungfishPortable/Plan/ExecutionPlan.swift:15`) until lane EX-TOOL builds it (`docs/plans/2026-10-02-architecture-program.md:242`).
+
+### Reference entries
+
+A `reference` entry pins one file of a reference set ([reference-set.md](reference-set.md)), or one file of an index built from a set, by `sha256` and `size` as every entry does. It also holds `reference`.
+
+| Key | Meaning |
+| --- | --- |
+| `setID` | The set's id, such as `macaca_mulatta-Mmul_10-ensembl100-lge-3f9a1c2b7d10` (reference-set.md, The id) |
+| `path` | The file's path inside the set's folder, such as `genome/<file as given>` or `derived/transcripts.fa`, or inside the index's own folder for an index file |
+| `index` | For an index file only, `{key, tool}`. `key` is the index's folder name, such as `salmon-2.11.0-k31-genome-decoys` (reference-set.md, The salmon index cache), and lane EX-INDEX names a STAR index the same way. `tool` is the `{id, version, build}` that built it. Absent for a file of the set itself |
+
+The entry's `relativePath` is `references/<set id>/<path>` for a file of the set and `references/<set id>/indexes/<key>/<path>` for an index file, so two sets or two indexes never share a path. Every `reference` entry of a plan names the one set that `pipeline.referenceSet` names, so a plan counts on one set. A shared folder holds no `reference` entry. Each is kept once in the staging folder as a `database` entry is, and the executor checks its size and SHA-256 before any tool starts, as it checks every entry. A plan names an index by its files, so a later plan pins an index that an earlier run left on Linux by the digests that run's record states ([executor-run-record.md](executor-run-record.md), Step keys). An entry of another role that holds `reference`, or a `reference` entry without it, is refused with field `entries[<i>].reference`.
+
+### The barcode list
+
+A `barcodeList` entry pins the 10x barcode list that a STARsolo step reads, by `sha256` and `size`, at `barcodes/<file>`. It also holds `barcodeList`.
+
+| Key | Meaning |
+| --- | --- |
+| `name` | The known list whose SHA-256 the file has, `3M-february-2018` or `737K-august-2016`. The plan writer checks the SHA-256 against the known lists before it writes the plan and refuses, in words that name both, a list that is neither |
+| `source` | `image` for the list LGE derives from 10x's CC BY 4.0 dataset files and ships with its NOTICE in the tool image, or `supplied` for a list the person gave |
+
+The executor checks the list by SHA-256 before any tool starts (`docs/plans/2026-10-02-architecture-program.md:103`). A `supplied` list is kept once in the staging folder as a `database` entry is, and the executor checks it as it checks every entry. An `image` list is in no plan folder or staging folder, and `staging.json` does not name it. The executor copies the file that the image's tool manifest lists with that SHA-256 to the entry's `relativePath` and checks the copy's size and SHA-256. A manifest that lists no such file refuses the run with field `entries[<i>]` and the sentence "The tool image holds no barcode list with SHA-256 <sha256>, which this plan pins. No tool ran." The run record's `inputs` repeats the entry with its `barcodeList`, so the record says which list ran and where it came from, and the adopt writes "list supplied by the user" for a `supplied` list. LGE's list is never in the git tree or the Mac app, and LGE takes no list from a Cell Ranger install. An entry of another role that holds `barcodeList`, or a `barcodeList` entry without it, is refused with field `entries[<i>].barcodeList`.
 
 ## Refusals
 
