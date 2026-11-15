@@ -25,12 +25,17 @@ sys.dont_write_bytecode = True
 
 import upgrade_check  # noqa: E402
 
+# The managed tool lock of v2026.11.6 to v2026.11.8, which the stand-in builds use unless a test names another.
+OLD_LOCK = "586edb75c2f2402e2eb845526051cc39c7542291036d638927ab6289cfc37e26"
+
 STAND_IN = '''#!PYTHON
 import hashlib, json, os, sys, time, uuid
 from pathlib import Path
 CHANGE = CHANGE_FLAG
 REWRITE_INPUT = REWRITE_FLAG
 EDIT_EXPORT = EDIT_FLAG
+RESTAMP_COPIES = RESTAMP_FLAG
+LOCK = LOCK_TEXT
 TOOL_DIR = TOOLDIR_TEXT
 TOOL_ROOT = TOOLROOT_TEXT
 TOOL_ENV = TOOLENV_TEXT
@@ -69,6 +74,8 @@ elif args[:2] == ["provenance", "export"]:
     stored = source.read_text().replace("<tool-root>", root).replace("/envs/samtools/", "/envs/" + TOOL_ENV + "/")
     record = json.loads(stored)
     record["cacheDir"] = home + "/Library/Caches/lungfish"
+    if RESTAMP_COPIES:
+        record["runtimeIdentity"]["managedToolLockSHA256"] = LOCK
     if EDIT_EXPORT:
         record["step"] = "edited"
     body = out / "provenance.json"
@@ -81,7 +88,11 @@ elif args[:2] == ["provenance", "export"]:
     (copy / "note.txt").write_text("copied\\n")
     files = [{"role": "input", "path": str(source), "checksumSHA256": digest(source), "fileSize": source.stat().st_size},
              {"role": "output", "path": str(body), "checksumSHA256": digest(body), "fileSize": body.stat().st_size}]
-    (out / "record.json").write_text(json.dumps({"files": files}, indent=2, sort_keys=True) + "\\n")
+    # The export's own record names its own output folder in argv and the lock of the build that exports. Like
+    # Foundation, it puts a space before each colon and no newline after the last brace.
+    own = {"argv": ["lungfish-cli", *args], "files": files,
+           "runtimeIdentity": {"dependencySet": "2026.2", "managedToolLockSHA256": LOCK}}
+    (out / "record.json").write_text(json.dumps(own, indent=2, sort_keys=True, separators=(",", " : ")))
 elif args[0] == "universal-search":
     print("\\n".join(sorted(p.name for p in Path(args[1]).rglob("*") if p.is_dir())))
 elif args[:2] == ["ops", "stats"]:
@@ -94,15 +105,19 @@ else:
 
 def make_cli(folder: Path, change_cell: bool = False, version: str = "2026.1.1", build: str = "12972",
              rewrite_input: bool = False, edit_export: bool = False, tool_dir: str = ".lungfish",
-             tool_root: str | None = None, tool_env: str = "samtools") -> Path:
+             tool_root: str | None = None, tool_env: str = "samtools", lock: str = OLD_LOCK,
+             restamp_copies: bool = False) -> Path:
     """tool_dir is the channel folder under the home folder that the exporter expands <tool-root> to,
-    tool_root names another root outright and tool_env is the tool environment the exported command names."""
+    tool_root names another root outright and tool_env is the tool environment the exported command names.
+    lock is the managed tool lock hash of the build that exports, which its own record names, and
+    restamp_copies writes it into the project record the export copies too."""
     folder.mkdir(parents=True)
     cli = folder / "lungfish-cli"
     cli.write_text(STAND_IN.replace("PYTHON", sys.executable).replace("CHANGE_FLAG", str(change_cell))
                    .replace("REWRITE_FLAG", str(rewrite_input)).replace("EDIT_FLAG", str(edit_export))
                    .replace("TOOLDIR_TEXT", repr(tool_dir)).replace("TOOLROOT_TEXT", repr(tool_root))
-                   .replace("TOOLENV_TEXT", repr(tool_env))
+                   .replace("TOOLENV_TEXT", repr(tool_env)).replace("LOCK_TEXT", repr(lock))
+                   .replace("RESTAMP_FLAG", str(restamp_copies))
                    .replace("VERSION_TEXT", version).replace("BUILD_TEXT", build))
     cli.chmod(cli.stat().st_mode | stat.S_IXUSR)
     return cli
@@ -122,6 +137,7 @@ def make_corpus(root: Path, built_by: Path) -> Path:
         (result / ".lungfish-provenance.json").write_text(json.dumps(
             {"step": "made", "createdAt": "2026-11-01T10:00:00Z", "builtBy": str(built_by),
              "toolVersion": "Lungfish 2026.1.1 (12972)",
+             "runtimeIdentity": {"dependencySet": "2026.2", "managedToolLockSHA256": OLD_LOCK},
              # A real project stores the placeholder <tool-root>, and an export expands it.
              "argv": ["<tool-root>/envs/samtools/bin/samtools", "faidx", "x.fa"],
              "reproducibleCommand": "<tool-root>/envs/samtools/bin/samtools faidx 'x.fa'"}) + "\n")
@@ -207,6 +223,61 @@ class UpgradeCheckTests(unittest.TestCase):
         code, out, err = run_main("--cli", str(self.newer), "--corpus", str(self.corpus))
         self.assertEqual(code, 0, out + err)
         self.assertIn("0 differences", out)
+
+    def test_the_exports_own_lock_hash_may_move_to_this_checkouts_lock(self) -> None:
+        """A build with a new tool lock names it in its export's own record, as 2026.11.9 did on 34 lines (rule 5)."""
+        checkout = upgrade_check.normalize.checkout_lock_sha256()
+        self.assertIsNotNone(checkout)
+        self.assertNotEqual(checkout, OLD_LOCK)
+        candidate = make_cli(self.root / "candidate", version="2026.2.0", build="dev", lock=checkout)
+        code, out, err = run_main("--cli", str(candidate), "--corpus", str(self.corpus))
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("0 differences", out)
+
+    def test_another_lock_hash_in_the_exports_own_record_is_still_a_difference(self) -> None:
+        """Only this checkout's lock is forgiven, so a CLI built from another lock, or an edited hash, shows."""
+        checkout = upgrade_check.normalize.checkout_lock_sha256()
+        for name, lock in (("foreign", hashlib.sha256(b"another lock").hexdigest()), ("uppercase", checkout.upper()),
+                           ("truncated", checkout[:-1])):
+            with self.subTest(name):
+                cli = make_cli(self.root / name, lock=lock)
+                code, out, _ = run_main("--cli", str(cli), "--corpus", str(self.corpus))
+                self.assertEqual(code, 1, out)
+                lines = [line for line in out.splitlines() if "managedToolLockSHA256" in line]
+                self.assertEqual(len(lines), 2, out)  # the export's own record in each of the two export steps
+                self.assertTrue(all(lock in line for line in lines), out)
+
+    def test_a_lock_hash_in_a_record_the_export_copies_is_still_a_difference(self) -> None:
+        """The project's records name the lock of the build that made each result, so their copies stay compared."""
+        checkout = upgrade_check.normalize.checkout_lock_sha256()
+        restamping = make_cli(self.root / "restamping", lock=checkout, restamp_copies=True)
+        code, out, _ = run_main("--cli", str(restamping), "--corpus", str(self.corpus))
+        self.assertEqual(code, 1, out)
+        lines = [line for line in out.splitlines() if "managedToolLockSHA256" in line]
+        self.assertEqual(len(lines), 2, out)  # the copy in each of the two export steps, not the export's own record
+        self.assertTrue(all(OLD_LOCK in line and checkout in line for line in lines), out)
+
+    def test_a_moved_lock_hash_is_a_difference_when_the_checkouts_lock_is_unknown(self) -> None:
+        candidate = make_cli(self.root / "candidate", lock=upgrade_check.normalize.checkout_lock_sha256())
+        with mock.patch.object(upgrade_check.normalize, "checkout_lock_sha256", return_value=None):
+            code, out, _ = run_main("--cli", str(candidate), "--corpus", str(self.corpus))
+        self.assertEqual(code, 1, out)
+        self.assertEqual(len([line for line in out.splitlines() if "managedToolLockSHA256" in line]), 2, out)
+
+    def test_the_exports_own_record_is_the_file_whose_argv_names_the_steps_output_folder(self) -> None:
+        """In the shape the real exporter writes: a space before each colon and the next file right after the brace."""
+        own = ('{\n  "argv" : [\n    "lungfish-cli",\n    "--output",\n    "<RUN_ROOT>/out/003/export"\n  ],\n'
+               '  "runtimeIdentity" : {\n    "managedToolLockSHA256" : "' + OLD_LOCK + '"\n  }\n}')
+        copy = own.replace("<RUN_ROOT>/out/003/export", "@/Reference Sequences/A.lungfishref")
+        record = (f"argv: provenance export\nexit: 0\n--- stdout\n{own}\n--- stderr\n"
+                  f"--- file export/provenance/.lungfish-provenance.json\n{own}"
+                  f"--- file export/provenance/source/.lungfish-provenance.json\n{copy}")
+        masked = upgrade_check.mask_export_locks(record, {OLD_LOCK})
+        own_masked = own.replace(f'"{OLD_LOCK}"', upgrade_check.EXPORT_LOCK_TOKEN)
+        self.assertEqual(masked, record.replace(f".lungfish-provenance.json\n{own}--- file",
+                                                f".lungfish-provenance.json\n{own_masked}--- file"))
+        self.assertEqual(masked.count(OLD_LOCK), 2)  # stdout and the copy keep theirs
+        self.assertEqual(upgrade_check.mask_export_locks(record, {"0" * 64}), record)
 
     def test_an_exported_value_that_changed_is_still_a_difference(self) -> None:
         edited = make_cli(self.root / "edited", edit_export=True)

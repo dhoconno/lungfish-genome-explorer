@@ -14,7 +14,7 @@ compares byte for byte. It prints one line per difference and exits 1 on any.
 Exit 2 means the corpus is missing or damaged. --capture writes expected/ for a
 release with its own CLI and is only for building the corpus.
 
-Four rules of its own keep what a build and a Mac say about themselves out of
+Five rules of its own keep what a build and a Mac say about themselves out of
 the diff, because the checking build is not the build that made the project:
 - the app version of the build that made the project (from expected/_run.json)
   is masked as well as the checking build's, and the build label after a version
@@ -32,7 +32,15 @@ the diff, because the checking build is not the build that made the project:
   build) under the account that runs it, so the root names the install, not the
   result. Only <home>/.lungfish[-channel]/conda is masked: another tool under it,
   a root outside the home folder and every other path stay compared. expected/
-  holds no home path, so the check passes on another Mac.
+  holds no home path, so the check passes on another Mac;
+- the managed tool lock hash in the export's own record, the file the step wrote
+  whose argv names the step's own output folder, becomes <EXPORT-LOCK-SHA256> on
+  both sides where it is the lock that expected/ names there or this checkout's
+  lock (normalize.py L1). A candidate built from this checkout passes after a
+  lock change, a CLI built from any other lock or a malformed hash shows, and
+  the lock hash in each record that the export copies from the project stays
+  compared, since it names the build that made that result. expected/ keeps the
+  hash as captured.
 """
 
 from __future__ import annotations
@@ -154,6 +162,38 @@ def mask_written_files(text: str) -> str:
     return normalize.apply_edits(text, edits)
 
 
+EXPORT_LOCK_TOKEN = '"<EXPORT-LOCK-SHA256>"'
+FILE_SECTION = re.compile(r"--- file [^\n]*\n")
+
+
+def export_lock_spans(record: str) -> list[tuple[int, int, str]]:
+    """The span and value of the managed tool lock hash in each export's own record of a step record.
+
+    A file the step wrote is the export's own record when its argv names the step's own output folder. The records
+    that the export copies from the project name the runs that made each result, so none of them is its own.
+    """
+    marks = list(FILE_SECTION.finditer(record))
+    spans = []
+    for index, mark in enumerate(marks):
+        end = marks[index + 1].start() if index + 1 < len(marks) else len(record)
+        root = normalize.parse_json(record[mark.end():end])
+        argv = root.get("argv") if root is not None and root.kind == "object" else None
+        if argv is None or not any(item.kind == "string" and str(item.value).startswith(WRITTEN_FILE_PREFIX)
+                                   for item in argv.items):
+            continue
+        identity = root.get("runtimeIdentity")
+        node = identity.get(normalize.LOCK_SHA256_KEY) if identity is not None else None
+        if node is not None and node.kind == "string":
+            spans.append((mark.end() + node.start, mark.end() + node.end, str(node.value)))
+    return spans
+
+
+def mask_export_locks(record: str, locks: set[str]) -> str:
+    """Each lock hash of an export's own record that is one of locks becomes a token."""
+    return normalize.apply_edits(record, {(start, end): EXPORT_LOCK_TOKEN
+                                          for start, end, value in export_lock_spans(record) if value in locks})
+
+
 TOOL_ROOT_TOKEN = "<TOOL-ROOT>"
 HOME_TOKEN = "<HOME>"
 TOOL_ROOT_FOLDER = r"/\.lungfish(?:-[A-Za-z0-9]+)*/conda(?![A-Za-z0-9_.-])"
@@ -196,6 +236,7 @@ def run_plan(cli: Path, version: str, project_dir: Path, scratch: Path, other_ve
     (scratch / "tmp").mkdir(parents=True)
     project = scratch / "project" / project_dir.name
     shutil.copytree(project_dir, project, symlinks=True)
+    # L1 stays off, since expected/ holds the hashes as captured and the records the export copies keep their own.
     normalizer = normalize.Normalizer(run_root=str(scratch), app_version=version, lock_sha256=None)
     others = [other for other in other_versions if other != version]
     records: dict[str, str] = {}
@@ -298,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"upgrade-check: {'capture' if args.capture else 'check'} with {cli} (version {version})", flush=True)
     differences: list[str] = []
     steps = 0
+    checkout_lock = normalize.checkout_lock_sha256()
     for label, project_dir, expected_dir in entries:
         began = time.monotonic()
         scratch = Path(os.path.realpath(tempfile.mkdtemp(prefix="upgrade-check-")))
@@ -315,7 +357,11 @@ def main(argv: list[str] | None = None) -> int:
             (expected_dir / "_run.json").write_text(json.dumps({"cliVersion": version, "steps": len(records), "exitZero": zero}) + "\n")
             verdict = f"captured ({zero} exit 0)"
         else:
-            found = compare(label, {p.name: p.read_text() for p in sorted(expected_dir.glob("*.txt"))}, records)
+            expected = {p.name: p.read_text() for p in sorted(expected_dir.glob("*.txt"))}
+            locks = {value for text in expected.values() for _, _, value in export_lock_spans(text)}
+            locks |= {checkout_lock} if checkout_lock else set()
+            found = compare(label, {name: mask_export_locks(text, locks) for name, text in expected.items()},
+                            {name: mask_export_locks(text, locks) for name, text in records.items()})
             differences += found
             verdict = f"{len(found)} differences" if found else "match"
         print(f"[{label}] {len(records)} steps {verdict} in {time.monotonic() - began:.1f} s", flush=True)
