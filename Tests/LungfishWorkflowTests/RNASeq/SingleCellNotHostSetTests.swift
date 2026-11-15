@@ -142,4 +142,56 @@ final class SingleCellNotHostSetTests: XCTestCase {
             XCTAssertTrue(error.errorDescription?.contains("NC_045512.2") == true, error.errorDescription ?? "")
         }
     }
+
+    // MARK: - What the record names
+
+    /// Installs `script` as the managed samtools under this test's own home and returns a runner that resolves it. A
+    /// fresh runner follows each install, as the test above makes one for its second script.
+    private func installStandIn(_ script: String) throws -> NativeToolRunner {
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let samtools = CoreToolLocator.managedExecutableURL(
+            environment: "samtools", executableName: "samtools", homeDirectory: home, appIdentity: .current)
+        XCTAssertTrue(samtools.path.hasPrefix(home.path), "the stand-in stays under the test's home: \(samtools.path)")
+        try FileManager.default.createDirectory(at: samtools.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(script.utf8).write(to: samtools)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtools.path)
+        return NativeToolRunner(toolsDirectory: nil, homeDirectory: home)
+    }
+
+    /// The strings of an array fact, empty when the key is absent or holds another kind.
+    static func strings(_ value: ParameterValue?) -> [String] {
+        guard case .array(let items)? = value else { return [] }
+        return items.compactMap(\.stringValue)
+    }
+
+    /// BIO-NOTHOST-BARCODE item 9, route 2: the BAM is hashed anew at each import, so the record of a second import
+    /// names the BAM that was replaced, not the first one.
+    func testAReplacedBAMGivesANewSHA256InTheNextImportsRecord() async throws {
+        let set = root.appendingPathComponent("set.lungfishrefset")
+        try Self.writeSet(at: set, extraPath: "extras/NC_045512.2.fa.gz", extraBytes: try XCTUnwrap(Data(base64Encoded: Self.gzipFASTA)))
+        let solo = root.appendingPathComponent("GSM1", isDirectory: true)
+        try Self.writeSoloFolder(at: solo)
+        let bam = root.appendingPathComponent("GSM1.NC_045512.2.bam")
+        try Data().write(to: URL(fileURLWithPath: bam.path + ".bai"))
+        let folder = try SingleCellFolderReader.read(folder: solo)
+        let runner = try installStandIn(Self.samtoolsScript(length: 13))
+
+        var records: [String] = []
+        var digests: [String] = []
+        for contents in ["one", "two"] {
+            // The same length, so only the bytes tell the two BAMs apart.
+            try Data(contents.utf8).write(to: bam)
+            let (sha, size) = try SingleCellFolderReader.hashFile(bam)
+            XCTAssertEqual(Int(size), contents.utf8.count)
+            let (_, facts) = try await SingleCellNotHostPass.run(
+                [folder], set: try SingleCellNotHostPass.readSet(set), bams: [folder.sample: bam], runner: runner)
+            let record = try XCTUnwrap(Self.strings(facts["notHostBAMs"]).first, "the record names the BAM")
+            XCTAssertTrue(record.contains("sha256 \(sha)"), "the record names the sha256 of the BAM as it was: \(record)")
+            records.append(record)
+            digests.append(sha)
+        }
+        XCTAssertEqual(records.count, 2)
+        XCTAssertNotEqual(digests.first, digests.last, "the two BAMs differ")
+        XCTAssertNotEqual(records.first, records.last, "a BAM replaced between two imports is named by its new sha256")
+    }
 }

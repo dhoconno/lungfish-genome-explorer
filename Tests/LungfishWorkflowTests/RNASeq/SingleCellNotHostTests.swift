@@ -313,4 +313,49 @@ extension SingleCellNotHostTests {
         XCTAssertEqual(try database.notHostBarcodes().first { $0.barcode == Self.barcode(7) }?.cell, nil)
         XCTAssertEqual(try database.notHostBarcodes().first { $0.barcode == cells[0] }?.cell, 1)
     }
+
+    /// BIO-NOTHOST-BARCODE item 9, route 3. No export code exists, so an export is a copy of the whole result folder
+    /// (`BIO-NOTHOST-BARCODE.md:74`). The masked column is the one the first route does not reach: its virus has no mask.
+    func testAnExportedResultKeepsBothColumnsAndTheFlagWords() throws {
+        let root = try TestTempDirectory.make(prefix: "cells-export")
+        defer { TestTempDirectory.cleanup(root) }
+        let folder = try SingleCellFolderReader.read(folder: RNASeqFixtures.root.appendingPathComponent("starsolo-pbmc_1k_v3", isDirectory: true))
+        let cells = try MatrixMarketReader.textLines(of: folder.url.appendingPathComponent(folder.barcodes))
+        // The raw list is the cells and 50,000 more barcodes at 1 UMI, which puts the cells first and a pool behind.
+        let extraBarcodes = (0..<50_000).map { Self.barcode($0) }
+        let text = (cells + extraBarcodes).joined(separator: "\n") + "\n"
+        let raw = SingleCellRawMatrix(
+            barcodes: SingleCellBarcodeTable(data: Data(text.utf8)), totals: cells.map { _ in 900 } + extraBarcodes.map { _ in 1 })
+        // Six UMIs of the first cell lie outside the mask (default) and three inside it (masked).
+        let outside = (1...6).map { line(cells[0], "O\($0)", record: "KK339487.1", pos: 3000) }
+        let inside = (1...3).map { line(cells[0], "M\($0)", record: "KK339487.1", pos: 1001) }
+        var counter = SingleCellNotHostCounter(extras: [Self.mtb])
+        try counter.add(samText: (outside + inside).joined(separator: "\n") + "\n")
+        let sample = SingleCellNotHostPass.sample(
+            folder.sample, cells: cells, raw: raw, pool: SingleCellAmbientPool(raw), tallies: counter.tallies(), extras: [Self.mtb])
+        var request = try SingleCellFolderReader.request([folder], name: "pbmc", samples: [.init(id: folder.sample)], genomes: [])
+        request.notHostCells = SingleCellNotHostResult(
+            extras: [Self.mtb], records: [.init(name: "KK339487.1", length: 10_000), .init(name: "KK339488.1", length: 10_000)], samples: [sample])
+        let analyses = root.appendingPathComponent("Analyses", isDirectory: true)
+        try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
+        let result = try RNASeqResultWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil)).write(
+            request, to: analyses.appendingPathComponent("pbmc.lungfishrnaseq"),
+            envelope: ProvenanceEnvelope(workflowName: "RNA-seq import", toolName: "lungfish-cli", toolVersion: "test"))
+        let exports = root.appendingPathComponent("Exports", isDirectory: true)
+        try FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true)
+        let exported = exports.appendingPathComponent("pbmc.lungfishrnaseq")
+        try FileManager.default.copyItem(at: result, to: exported)
+        try FileManager.default.removeItem(at: result)
+
+        let database = try RNASeqCellsDatabase(url: exported.appendingPathComponent(RNASeqCellsDatabase.filename))
+        let extra = try XCTUnwrap(try database.notHostExtras().first)
+        XCTAssertEqual(extra.name, "mtb-erdman")
+        XCTAssertEqual(extra.maskWords, "on Mtb Erdman rRNA genes, source not resolved")
+        // Record 0 is the extra's figure over its records: both columns, default and masked, come back.
+        let figure = try XCTUnwrap(try database.notHostCounts().first { $0.barcode == cells[0] && $0.extra == extra.extra && $0.record == 0 })
+        XCTAssertEqual([figure.umis, figure.maskedUMIs], [6, 3])
+        let call = try XCTUnwrap(try database.notHostCalls().first { $0.cell == 1 && $0.extra == extra.extra })
+        XCTAssertEqual(call.flag, "bacterial RNA above ambient")
+        XCTAssertFalse(try database.ambientPoolCounts().filter { $0.extra == extra.extra }.isEmpty, "the pool's figures for the extra come back")
+    }
 }
