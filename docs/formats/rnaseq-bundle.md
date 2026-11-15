@@ -81,6 +81,52 @@ The run facts stay in the record and the manifest repeats none of them.
 
 A result holds the counts of one route on one reference set. A second route, or the same route on a second set, makes a second result. Counts from two routes or two reference sets never join in one table (`docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md:102`, `docs/plans/2026-10-02-architecture-program.md:113`), so the export refuses in words a table whose columns come from more than one route or set (`docs/plans/2026-10-02-architecture-program.md:190`). A not-host feature keeps its count in `counts/genes.counts.tsv`, its flag in `genes.tsv` and its id in `notHost`, and the export leaves it out of size factors (`docs/plans/2026-10-02-architecture-program.md:113`).
 
+## The export
+
+`lungfish-cli rnaseq export <result>... --output <new folder>` writes the counts of one or more results into a new folder that DESeq2, edgeR, limma voom and dream read. `RNASeqExport.run` in `Sources/LungfishWorkflow/RNASeq/` does the work and `Sources/LungfishCLI/Commands/RNASeqExportSubcommand.swift` is the leaf, so a later viewer runs the same code. The folder must not exist. The export writes it into a stage and renames it into place through `ScientificFileExportProvenance`, so a refusal, an error or a cancel leaves neither a folder nor a stage. Every refusal comes before the first file is written.
+
+### What the export reads and refuses
+
+The export reads each result with `RNASeqResultBundle` after `RNASeqResultBundle.verifyChecksums`, so a replaced `quant.sf` or table is refused in words that name the file. It reads the route and the reference set from each result at every export and caches neither, so a copied or moved project exports the same files and refuses the same joins.
+
+A route is the tool, its version and every setting that changes counts (the `route` key above). The same tool at two versions is two routes, and paired and single-end samples counted by one route are one route. The export refuses each of these in words that name the results and their sample counts.
+
+- Results of more than one route.
+- Results counted against more than one reference set, by id or by layout.
+- A join where a reference set reads Not recorded, or where a tool reads Not recorded, since LGE cannot show that the results match. One such result alone exports.
+- Results that list different genes, mark different features as not host, count in different units or hold one sample id twice.
+
+No flag overrides a refusal, and the export never joins by a union with zeros or by an intersection. To compare samples of two routes, count all of them again by one route.
+
+### The folder
+
+| File | Holds |
+| --- | --- |
+| `counts.tsv` | Genes by samples in the default column, with the gene id in the first column and the samples in the order the results are given |
+| `counts.masked.tsv` | The masked column, written beside `counts.tsv` when every result holds one and never joined to it. A join where only some results hold one is refused |
+| `genes.tsv` | The gene table of the results with its `not_host` flag |
+| `samples.tsv` | One row a sample, with the columns below |
+| `deseq2.R`, `edger-limma-dream.R` | The two scripts, described below |
+| `.lungfish-provenance.json` | The record |
+
+`samples.tsv` holds `sample_id`, `animal`, `species`, `origin`, `group` and `runs` from the results, then the other columns of the optional `--sample-sheet`, and last `route` and `reference_set`, which the export reads from each result. The sheet is tab-separated and names its samples in a `sample` or `sample_id` column. A value in the sheet replaces the result's value for `animal`, `species`, `origin`, `group` and `runs` when it is not empty. The sample ids of the sheet and of the results must be the same set, and the export refuses a sheet that differs and lists the ids that do. A sheet column named `route` or `reference_set` decides nothing, so a sheet reopened later cannot hide a mix.
+
+### Design, cutoff and alpha
+
+`--design COLUMN` names a column of `samples.tsv` that enters the model. Repeat it, and the last one is the tested factor. `--contrast FACTOR:NUMERATOR:DENOMINATOR` names a contrast and repeats. `--padj-cutoff` is the adjusted p-value cutoff and is 0.05 unless the person picks another. `deseq2.R` passes the same number as `alpha` to `results()`, so the independent filtering of DESeq2 aims at the cutoff the person reads. `--lfc-bar` is a bar on the absolute log2 fold change and is none by default. The bar applies to the unshrunken (MLE) log2 fold change, with padj beside it. A shrunken value goes into its own column and never decides which genes pass.
+
+`--batch COLUMN` and `--batch-correction none|combat-seq|sva` name an optional batch step, and none is the default. `combat-seq` corrects the counts with `ComBat_seq` and passes the tested factor as the group. `sva` runs `svaseq` with the design as the full model and the batch as the null model and puts the batch and the surrogate variables into the model. A batch without a batch step, and a batch step without `--batch` or `--design`, are refused in words.
+
+The design check runs in Swift before any file is written, and again in each script before its batch step, so a sheet edited after the export is refused in R as well. It refuses `combat-seq` and `sva` when a batch is nested in or equal to a level of a design factor, or holds only whole levels of it, so that `~ batch + design` loses full rank. The words name the batch, the factor and its levels. A batch that crosses the levels of the factor passes. Batch B of the GSE290671 study holds exactly days 3 and 10 (`scripts/repro/rnaseq/gse290671/de.R:10-12`), so both steps are refused with `~ day`.
+
+### The scripts and the record
+
+`deseq2.R` needs DESeq2, and sva for a batch step. `edger-limma-dream.R` needs edgeR and limma, sva for a batch step and `variancePartition` for the dream part. The dream part runs only when `variancePartition` is installed. Otherwise the script stops in words after edgeR and limma have written their results. Both scripts keep their settings in a block at the top, so a person edits the cutoff or the contrasts there and runs the script again. A script from an export made without `--design` and `--contrast` stops in words before it reads a table.
+
+Both scripts take size factors and normalization factors from the host rows alone and keep the not-host rows in the table and in the results, with a `not_host` column. `deseq2.R` rounds `estimated` counts to whole counts, as DESeq2 needs, and says so in a comment. It writes `deseq2-results/` and `edger-limma-dream.R` writes `edger-limma-dream-results/`, each beside the script.
+
+The record names each result with its route and reference set, the design, the contrasts, the batch step, the padj cutoff, `alpha` and the fold-change bar (`none` by default), and it lists every file of the folder with its sha256. The command it records parses to the options of the run, and a replay writes files of equal sha256 except for the record.
+
 ## The one writer
 
 One component in `Sources/LungfishWorkflow/RNASeq/` creates, settles and discards every result, for an import and for a quantification alike, and writes its root record last (`docs/contracts/EXPERT-PANEL.md:49`, `docs/plans/2026-10-02-architecture-program.md:188`). `RNASeqResultWriter` is that component, `RNASeqResultBundle` is its reader and `RNASeqResultManifest` holds the manifest (lane RS-KIND). It works in this order.
