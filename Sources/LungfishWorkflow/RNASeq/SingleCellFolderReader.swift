@@ -38,6 +38,8 @@ public struct SingleCellFolder: Sendable, Equatable {
     /// The folder every path below is under: Cell Ranger's `outs/` or STARsolo's run folder.
     public var url: URL
     public var tool: SingleCellTool
+    /// The version the matrix states, Cell Ranger's from its `%metadata_json:` line, or nil when it states none.
+    public var toolVersion: String?
     public var matrix: String
     public var features: String
     public var barcodes: String
@@ -140,6 +142,7 @@ public enum SingleCellFolderReader {
 
         let reader = try MatrixMarketReader(url: base.appendingPathComponent(matrix))
         let size = reader.size
+        let toolVersion = tool == .cellRanger ? cellRangerVersion(reader.comments) : nil
         reader.close()
         let featureRows = try MatrixMarketReader.textLines(of: base.appendingPathComponent(features)).map {
             $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
@@ -158,11 +161,23 @@ public enum SingleCellFolderReader {
         var hdf5: [SingleCellFolder.LeftOutFile] = []
         try walk(base, prefix: "", kept: Set(kept), leftOut: &leftOut, hdf5: &hdf5)
         return SingleCellFolder(
-            sample: sample, url: base, tool: tool, matrix: matrix, features: features, barcodes: barcodes, keptFiles: kept,
+            sample: sample, url: base, tool: tool, toolVersion: toolVersion, matrix: matrix, features: features, barcodes: barcodes, keptFiles: kept,
             leftOut: leftOut.sorted(), leftOutHDF5: hdf5.sorted { $0.path < $1.path }, size: size,
             featureIDs: featureRows.map { $0.first ?? "" },
             featureTypeOfRow: featureRows.map { $0.count > 2 ? $0[2] : geneExpression },
             qualityColumns: quality.map(\.0), qualityValues: quality.map(\.1))
+    }
+
+    /// Cell Ranger's version from the comment its matrix writes on line 2, `%metadata_json: {"format_version": 2,
+    /// "software_version": "3.0.0"}` (5.0 writes `cellranger-5.0.0`, whose prefix is dropped). Nil when no such line
+    /// names a version.
+    static func cellRangerVersion(_ comments: [String]) -> String? {
+        let key = "%metadata_json:"
+        guard let line = comments.first(where: { $0.hasPrefix(key) }),
+              let object = try? JSONSerialization.jsonObject(with: Data(line.dropFirst(key.count).utf8)) as? [String: Any],
+              let stated = (object["software_version"] as? String)?.trimmingCharacters(in: .whitespaces) else { return nil }
+        let version = stated.hasPrefix("cellranger-") ? String(stated.dropFirst("cellranger-".count)) : stated
+        return version.isEmpty ? nil : version
     }
 
     /// Names each file and folder under `folder` that is not kept, a folder with no kept file as one entry.

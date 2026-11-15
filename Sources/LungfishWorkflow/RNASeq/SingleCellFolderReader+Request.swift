@@ -39,22 +39,26 @@ extension SingleCellFolderReader {
                 folder.qualityColumns.firstIndex(of: column).map { folder.qualityValues[$0] }
             })
         })
-        let notRecorded = RNASeqImportFacts.notRecorded
+        // The same tool at two versions is two routes (`docs/formats/rnaseq-bundle.md`, What the export reads and
+        // refuses), so only a version every folder states is recorded.
+        let version = first.toolVersion.flatMap { stated in folders.allSatisfy { $0.toolVersion == stated } ? stated : nil }
+            ?? RNASeqImportFacts.notRecorded
         return RNASeqResultWriter.Request(
             name: name, modality: .singleCell,
-            origin: .init(kind: .imported, tool: first.tool.rawValue, toolVersion: notRecorded),
-            route: route(first.tool), referenceSet: nil, samples: samples, genes: .ids(first.featureIDs), counts: [],
+            origin: .init(kind: .imported, tool: first.tool.rawValue, toolVersion: version),
+            route: route(first.tool, version: version), referenceSet: nil, samples: samples, genes: .ids(first.featureIDs), counts: [],
             sourceFiles: sourceFiles, notHost: [], matrices: matrices, genomes: genomes, quality: quality)
     }
 
-    /// The route of a tool's filtered matrix. Neither folder states the tool's version, which reads Not recorded.
-    public static func route(_ tool: SingleCellTool) -> RNASeqResultManifest.Route {
+    /// The route of a tool's filtered matrix at `version`. Cell Ranger's matrix states its version and STARsolo's
+    /// folder keeps none, so a STARsolo route reads Not recorded.
+    public static func route(_ tool: SingleCellTool, version: String = RNASeqImportFacts.notRecorded) -> RNASeqResultManifest.Route {
         switch tool {
         case .cellRanger:
-            return .init(id: "cellranger-filtered-matrix", tool: tool.rawValue, toolVersion: RNASeqImportFacts.notRecorded,
+            return .init(id: "cellranger-filtered-matrix", tool: tool.rawValue, toolVersion: version,
                          settings: ["matrix": "filtered_feature_bc_matrix", "counts": "UMIs"])
         case .starsolo:
-            return .init(id: "starsolo-gene-filtered-matrix", tool: tool.rawValue, toolVersion: RNASeqImportFacts.notRecorded,
+            return .init(id: "starsolo-gene-filtered-matrix", tool: tool.rawValue, toolVersion: version,
                          settings: ["features": "Gene", "matrix": "Solo.out/Gene/filtered", "counts": "UMIs"])
         }
     }

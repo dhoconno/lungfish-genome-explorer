@@ -104,6 +104,9 @@ public final class MatrixMarketReader {
     public let url: URL
     public let isGzip: Bool
     public private(set) var size = MatrixMarketSize(rows: 0, columns: 0, entries: 0)
+    /// The `%` comment lines between the header and the size line, trimmed, such as the `%metadata_json:` line in
+    /// which Cell Ranger states its version.
+    public private(set) var comments: [String] = []
 
     private let source: MatrixMarketByteSource
     private var buffer: [UInt8] = []
@@ -244,7 +247,11 @@ public final class MatrixMarketReader {
         while let range = try nextLine() {
             lineNumber += 1
             let line = text(range)
-            if line.isEmpty || line.hasPrefix("%") { continue }
+            if line.isEmpty { continue }
+            if line.hasPrefix("%") {
+                comments.append(line)
+                continue
+            }
             let numbers = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
             guard numbers.count == 3, numbers.allSatisfy({ $0.allSatisfy(\.isASCII) && $0.allSatisfy(\.isNumber) }),
                   let rows = Int(numbers[0]), let columns = Int(numbers[1]), let entries = Int(numbers[2]) else {
