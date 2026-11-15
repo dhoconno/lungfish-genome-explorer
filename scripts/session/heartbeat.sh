@@ -85,7 +85,7 @@ agents() {
 # lines of those within --near-calls calls below it. The ids of done_ids.txt and stop_sent.txt are left out of both.
 call_check() {
   local out
-  ignore=$(paste -sd'|' "$records/done_ids.txt" 2>/dev/null)
+  ignore=$(ids "$records/done_ids.txt")
   stopped=$(ids "$records/stop_sent.txt")
   out=$("$PYTHON" "$HERE/ctx_watch.py" "$project" "$session" --calls --near "$near_calls" 2>&1 | grep -v '^none$')
   calls=$(printf '%s\n' "$out" | grep -v -E '^NEAR ' | grep -v -E "^CALLS (${ignore:-NOBODY}|${stopped:-NOBODY})")
@@ -120,7 +120,7 @@ nap() {
 calls="" near=""
 for ((round = 0; round <= rounds; round++)); do
   if [ "$round" -gt 0 ]; then nap "$interval"; fi
-  ignore=$(paste -sd'|' "$records/done_ids.txt" 2>/dev/null)
+  ignore=$(ids "$records/done_ids.txt")
   ctx=$(agents)
   stall=$("$PYTHON" "$HERE/ctx_watch.py" "$project" "$session" --stalled "$stall_s" 2>&1 | grep -v '^none$' |
     grep -v -E "^STALLED (${ignore:-NOBODY})")
