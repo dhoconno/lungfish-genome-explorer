@@ -135,4 +135,20 @@ final class RunPlanToolStepTests: XCTestCase {
         XCTAssertEqual(ran.outcome, .succeeded, ran.reason ?? "")
         XCTAssertEqual(ran.inputs.last?.barcodeList?.source, .supplied)
     }
+
+    /// The same refusal and the same words for a list that is in place with other bytes (review EX-TOOL SWIFT, fix SF2).
+    /// The other bytes have the list's size, so the size check passes and the SHA-256 check refuses.
+    func testSuppliedListWithOtherBytesIsRefusedWithTheSameWords() throws {
+        let folder = try folder()
+        let manifest = try manifest(folder, files: [folder.listFile])
+        let plan = try writePlan(folder, pin: manifest.pin, source: .supplied)
+        try FileManager.default.createDirectory(atPath: folder.fixture.planFolder + "/barcodes", withIntermediateDirectories: true)
+        try RunPlanFixture.write("AAACCCAAGAAACACX\nAAACCCAAGAAACCAT\n", to: folder.fixture.planFolder + "/barcodes/3M-february-2018.txt")
+        let record = try XCTUnwrap(try folder.fixture.run(plan, ["--image-manifest", manifest.path]).record)
+        XCTAssertEqual(record.outcome, .refused)
+        XCTAssertEqual(record.refusedField, "entries[3]")
+        XCTAssertTrue(record.reason?.hasPrefix("The plan's file barcodes/3M-february-2018.txt has SHA-256 ") == true, record.reason ?? "")
+        XCTAssertTrue(record.reason?.contains("LGE does not copy a barcode list you supplied. Put the list 3M-february-2018 with SHA-256 \(folder.listFile.sha256) at barcodes/3M-february-2018.txt before the run. No tool ran.") == true, record.reason ?? "")
+        XCTAssertTrue(record.steps.isEmpty)
+    }
 }
