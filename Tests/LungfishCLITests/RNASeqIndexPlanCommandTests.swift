@@ -380,6 +380,17 @@ final class RNASeqIndexPlanSIGTERMTests: XCTestCase {
     override func tearDownWithError() throws { TestTempDirectory.cleanup(root) }
 
     func testSIGTERMCancelsThePlanAndLeavesNoFolder() async throws {
+        try await assertCancelLeavesNoFolder(everyCoreBusy: false)
+    }
+
+    /// The same cancel with every core busy, which the grace must still cover, as a debug CLI under load may pass it. The
+    /// siblings have the case too (`RNASeqQuantCommandTests`, `ImportCommandsSIGTERMTests`). The burners start once the leaf
+    /// holds at its checkpoint and before the SIGTERM, so the load covers the cancel and not the start of the process.
+    func testSIGTERMWithEveryCoreBusyStillCancelsThePlanWithinTheGrace() async throws {
+        try await assertCancelLeavesNoFolder(everyCoreBusy: true)
+    }
+
+    private func assertCancelLeavesNoFolder(everyCoreBusy: Bool) async throws {
         let (storage, set) = try await RNASeqIndexPlanCommandTests.builtSet(in: root)
         let files = try RNASeqIndexPlanCommandTests.writeImageFiles(in: root)
         let out = root.appendingPathComponent("idx")
@@ -393,6 +404,8 @@ final class RNASeqIndexPlanSIGTERMTests: XCTestCase {
         let held = await CLISIGTERMHarness.waitForFile(hold)
         XCTAssertTrue(held, "the leaf made the plan and reached the checkpoint")
         XCTAssertFalse(FileManager.default.fileExists(atPath: out.path), "nothing is written while it holds")
+        let burners = try everyCoreBusy ? CLISIGTERMHarness.launchBurners(count: ProcessInfo.processInfo.activeProcessorCount) : []
+        defer { burners.forEach { $0.stop() } }
         let stop = await CLISIGTERMHarness.cancel(run)
         CLISIGTERMHarness.assertCancelledExit(stop)
         CLISIGTERMHarness.assertNoProcessLeft(stop)
