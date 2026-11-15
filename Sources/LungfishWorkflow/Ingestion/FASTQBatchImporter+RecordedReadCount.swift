@@ -17,12 +17,20 @@ extension FASTQBatchImporter {
     /// A person's own Single-end records no roles, so that nothing overrules the choice. It is the workaround the
     /// 2026.10.29 known-issue line gives. A count that cannot be taken never fails an import, since a later run then
     /// scans the file itself. A cancel still stops the import.
+    ///
+    /// Once the count and the pair hash are in `metadata`, a library that another bundle of the project already holds is
+    /// logged as a notice of `sample` (row RS-INSTRUMENT, ``warnOfRepeatedReads(sample:bundleURL:metadata:projectDirectory:log:)``).
+    /// The call sits here so that the importer itself holds no line for it.
     static func recordCount(
         ofStored fastqURL: URL,
         named name: String,
         pairing: RecordedPairing,
         fromMateFiles: Bool,
-        in metadata: inout PersistedFASTQMetadata
+        in metadata: inout PersistedFASTQMetadata,
+        sample: String,
+        bundleURL: URL,
+        projectDirectory: URL,
+        log: (@Sendable (ImportLogEvent) -> Void)?
     ) throws {
         // One pass takes the counts, the order-free pair hash (ruling ADJ-BULK G5) and the instrument facts of the names
         // (row RS-INSTRUMENT), so a repeated library is known without a second read of the file.
@@ -48,6 +56,7 @@ extension FASTQBatchImporter {
             storedSizeBytes: size,
             pairHash: scan.pairHash
         )
+        warnOfRepeatedReads(sample: sample, bundleURL: bundleURL, metadata: metadata, projectDirectory: projectDirectory, log: log)
         let chosenSingle = pairing.mode == .singleEnd && pairing.source == .explicit
         guard metadata.readClassification == nil, !chosenSingle, scan.matePairs > 0, scan.unpairedRecords > 0 else { return }
         metadata.readClassification = ReadClassification(files: [
