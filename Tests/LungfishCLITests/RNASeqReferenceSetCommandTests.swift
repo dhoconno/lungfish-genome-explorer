@@ -46,6 +46,24 @@ final class RNASeqReferenceSetCommandTests: XCTestCase {
         XCTAssertEqual(request.extras.first?.annotation?.path, "/v.gtf")
     }
 
+    func testAnExtraMaskJoinsItsExtraAndAMaskOfNoExtraIsRefused() throws {
+        let named = ["--species", "Macaca fascicularis", "--assembly", "5.0", "--annotation-source", "RefSeq",
+                     "--annotation-release", "101", "--extra", "bacterium,mtb,/m.fa", "--extra", "virus,v,/v.fa"]
+        let request = try leaf(named + ["--extra-mask", "mtb,/erdman.gtf.gz"]).makeRequest()
+        XCTAssertEqual(request.extras.map { $0.mask?.path }, ["/erdman.gtf.gz", nil], "the mask joins the extra it names")
+        XCTAssertNil(request.extras.first?.annotation, "a mask is never the extra's features")
+        let refused: [([String], String)] = [
+            (["--extra-mask", "other,/m.gtf"], "names no extra other"),
+            (["--extra-mask", "mtb"], "is not <name>,<gtf>"),
+            (["--extra-mask", "mtb,/a.gtf", "--extra-mask", "mtb,/b.gtf"], "one mask"),
+        ]
+        for (masks, words) in refused {
+            XCTAssertThrowsError(try leaf(named + masks).makeRequest(), "\(masks)") { error in
+                XCTAssertTrue(error.localizedDescription.contains(words), "\(masks): \(error.localizedDescription)")
+            }
+        }
+    }
+
     func testANamedDefaultFillsTheSetAndCarriesItsChecksums() throws {
         let request = try leaf(["--default", "rhesus/ensembl-100"]).makeRequest()
         XCTAssertEqual(request.species, "Macaca mulatta")
