@@ -36,11 +36,17 @@ final class ExecutorPlanBatchSchemaTwoTests: XCTestCase {
         return (url, PortableDigest.sha256Hex(of: Data(text.utf8)), Int64(text.utf8.count))
     }
 
-    /// The stand-in plan of one sample and the Mac file of each entry a folder copies.
-    private func emission(_ sample: String = "S") throws -> ExecutorPlanEmission {
+    /// The stand-in plan of one sample and the Mac file of each entry a folder copies. The defaults give the plan of the
+    /// first test. The refusal tests change the reference's bytes, leave the chain of pinned tools out, pin another tool
+    /// manifest, or name other outputs, each with the policy it has in the step's own order.
+    private func emission(
+        _ sample: String = "S", referenceText: String = ">t\nA\n", withPipeline: Bool = true, manifest: PlanImageManifestPin? = nil,
+        outputs: [(path: String, policy: PlanOutputPolicy)] = [("out/quant.sf", .home), ("index/ref.idx", .staged), ("out/reads.bam", .stays)]
+    ) throws -> ExecutorPlanEmission {
         let executor = try file("lungfish-executor", "executor stand-in")
         let reads = try file("\(sample)_R1.fastq", "@r\nACGT\n+\nIIII\n")
-        let fasta = try file("transcripts.fa", ">t\nA\n")
+        // One file for each sample, so a second job's other bytes never overwrite the first job's reference.
+        let fasta = try file("\(sample)-transcripts.fa", referenceText)
         let list = PortableDigest.sha256Hex(of: Data("AAACCCAAGAAACACT\n".utf8))
         let tool = PlanToolPin(id: "quant", version: "1.0", build: "t0")
         let settings = ["duplicates": "Duplicates: kept. LGE removes duplicates only with UMIs.", "trimming": "Reads not trimmed"]
@@ -61,8 +67,8 @@ final class ExecutorPlanBatchSchemaTwoTests: XCTestCase {
                 toolchainID: "test", toolchainSHA256: ExecutorPlanTestSupport.digest, staticLinuxSDKID: "test",
                 staticLinuxSDKSHA256: ExecutorPlanTestSupport.digest
             ),
-            imageManifest: image.imageManifest, tools: [tool], recipe: nil,
-            pipeline: PlanPipeline(
+            imageManifest: manifest ?? image.imageManifest, tools: [tool], recipe: nil,
+            pipeline: !withPipeline ? nil : PlanPipeline(
                 id: "stand-in", version: 1, preset: PlanPipelinePreset(id: "bulk", name: "Stand-in"), modality: .bulk,
                 route: PlanPipelineRoute(id: "stand-in", tool: "quant", toolVersion: "1.0", settings: settings),
                 referenceSet: PlanPipelineReferenceSet(id: Self.set, layout: .lge),
@@ -72,17 +78,19 @@ final class ExecutorPlanBatchSchemaTwoTests: XCTestCase {
             storage: nil, clumping: nil, graceSeconds: 5,
             steps: [PlanStep(
                 id: "quant", title: "Count", kind: .tool, tool: tool, arguments: [referencePath, "barcodes/mine.txt", "inputs/R1.fastq"],
-                deadlineSeconds: 60, inputs: ["inputs/R1.fastq"], outputs: ["out/quant.sf", "index/ref.idx", "out/reads.bam"],
-                outputPolicy: ["out/quant.sf": .home, "index/ref.idx": .staged, "out/reads.bam": .stays]
+                deadlineSeconds: 60, inputs: ["inputs/R1.fastq"], outputs: outputs.map(\.path),
+                outputPolicy: Dictionary(uniqueKeysWithValues: outputs.map { ($0.path, $0.policy) })
             )]
         )
         let sources = ["bin/lungfish-executor": executor.url, "inputs/R1.fastq": reads.url, referencePath: fasta.url]
         return ExecutorPlanEmission(plan: plan, sources: sources)
     }
 
-    private func job(_ sample: String = "S", memory: Int64? = 40_960, cpus: Int? = 8, disk: Int? = 30) throws -> ExecutorPlanBatchJob {
+    private func job(
+        _ sample: String = "S", memory: Int64? = 40_960, cpus: Int? = 8, disk: Int? = 30, emission built: ExecutorPlanEmission? = nil
+    ) throws -> ExecutorPlanBatchJob {
         ExecutorPlanBatchJob(
-            emission: try emission(sample),
+            emission: try built ?? emission(sample),
             submit: ExecutorPlanSubmitValues(sampleName: sample, requestDiskGiB: disk, requestMemoryMiB: memory, requestCpus: cpus)
         )
     }
@@ -183,6 +191,111 @@ final class ExecutorPlanBatchSchemaTwoTests: XCTestCase {
             }
             XCTAssertThrowsError(try ExecutorPlanBatchWriter.dryRun([item.job], image: image, layout: layout))
             XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
+        }
+    }
+
+    /// Each node of a batch asks for the memory, CPUs and disk of its own job. Two jobs that differ in their sample and
+    /// their figures write two nodes under one sample.sub, two plan tars, and two rows of jobs.tsv that place the same
+    /// three shared files and the sample's own read (EX-SUBMIT-SWIFT should-fix 1).
+    func testSchemaTwoBatchOfTwoJobsGivesEachNodeItsOwnRequests() throws {
+        let big = try job("S", memory: 40_960, cpus: 8, disk: 30)
+        let small = try job("T", memory: 2_048, cpus: 1, disk: 2)
+        let jobs = [big, small]
+        let folder = root.appendingPathComponent("batch-of-two", isDirectory: true)
+        let batch = try ExecutorPlanBatchWriter.write(jobs, image: image, layout: layout, into: folder)
+        XCTAssertEqual(batch.samples, ["S", "T"])
+        XCTAssertEqual(batch.planTars.map(\.sample), ["S", "T"])
+
+        let base = "\(Self.staging)/batches/batch"
+        let dag = try text(folder, "run.dag").split(separator: "\n").map(String.init)
+        let asked: [(sample: String, pairs: [String])] = [
+            ("S", ["request_memory=\"40960MB\"", "request_cpus=\"8\"", "request_disk=\"30GB\"", "sample_inputs=\"plan.tar, file://\(base)/S/R1.fastq\""]),
+            ("T", ["request_memory=\"2048MB\"", "request_cpus=\"1\"", "request_disk=\"2GB\"", "sample_inputs=\"plan.tar, file://\(base)/T/R1.fastq\""]),
+        ]
+        for item in asked {
+            let vars = try XCTUnwrap(dag.first { $0.hasPrefix("VARS \(item.sample) ") }, "\(dag)")
+            for pair in item.pairs { XCTAssertTrue(vars.contains(pair), "\(pair) in \(vars)") }
+            for other in asked where other.sample != item.sample {
+                XCTAssertFalse(vars.contains(other.pairs[0]), "\(item.sample) takes \(other.sample)'s memory: \(vars)")
+            }
+            let own = "\(base)/\(item.sample)"
+            XCTAssertEqual(dag.filter { $0.hasPrefix("SCRIPT PRE \(item.sample) ") },
+                           ["SCRIPT PRE \(item.sample) /bin/mkdir -p \(own)/result \(own)/result/out \(own)/staged \(own)/staged/index"])
+        }
+
+        let plan = big.emission.plan
+        let shared = [
+            "shared/\(plan.entries[0].sha256)-lungfish-executor=bin/lungfish-executor",
+            "shared/\(plan.entries[2].sha256)-transcripts.fa=references/\(Self.set)/derived/transcripts.fa",
+            "shared/\(plan.entries[4].sha256)-mine.txt=barcodes/mine.txt",
+        ]
+        let rows = try text(folder, "jobs.tsv").split(separator: "\n").map(String.init)
+        XCTAssertEqual(rows.count, 3, "the comment line and one row for each sample")
+        for (index, name) in ["S", "T"].enumerated() {
+            let columns = rows[index + 1].split(separator: "\t").map(String.init)
+            XCTAssertEqual(Array(columns.prefix(3)), [name, "\(name)/plan.tar", batch.planTars[index].sha256])
+            XCTAssertEqual(Array(columns.dropFirst(3)), shared + ["batches/batch/\(name)/R1.fastq=inputs/R1.fastq"])
+            let tar = try DeterministicTarReader.entries(in: folder.appendingPathComponent("\(name)/plan.tar"))
+            XCTAssertEqual(tar["plan/plan.json"], try jobs[index].emission.plan.encoded(), "the tar of \(name) holds the plan of \(name)")
+        }
+        XCTAssertNotEqual(batch.planTars[0].sha256, batch.planTars[1].sha256)
+        XCTAssertEqual(batch.folders.filter { $0.sample == "T" }.map(\.role),
+                       ["result-folder", "result-folder", "staged-folder", "staged-folder"])
+    }
+
+    /// The refusals of `checkJobs` that the test above and the request test leave out, and the submit template's one for two
+    /// outputs of one last name. A batch of no plan, a plan with no chain of pinned tools, a second plan whose reference
+    /// bytes differ from the first's, and a plan that pins another tool manifest than the image are each refused with the
+    /// field and words below, `dryRun` makes the same refusal, and no folder is left. The two returned files of one last name
+    /// are refused while the folder is written, so the writer removes the folder it made (EX-SUBMIT-SWIFT should-fix 1).
+    func testSchemaTwoBatchRefusalsLeaveNoFolder() throws {
+        let another = PlanImageManifestPin(sha256: String(repeating: "9", count: 64), size: 4097)
+        let cases: [(name: String, jobs: [ExecutorPlanBatchJob], field: String, words: String)] = [
+            ("no-job", [], "sample", "holds no plan"),
+            ("no-chain", [try job(emission: try emission(withPipeline: false))], "pipeline", "(schema 2)"),
+            ("other-reference", [try job(), try job("T", emission: try emission("T", referenceText: ">t\nC\n"))], "entries",
+             "a batch of its own"),
+            ("other-manifest", [try job(emission: try emission(manifest: another))], "imageManifest",
+             "pins another tool manifest than the image"),
+        ]
+        for item in cases {
+            let folder = root.appendingPathComponent(item.name, isDirectory: true)
+            var refusal: ExecutorPlanError?
+            XCTAssertThrowsError(try ExecutorPlanBatchWriter.write(item.jobs, image: image, layout: layout, into: folder), item.name) {
+                refusal = $0 as? ExecutorPlanError
+            }
+            XCTAssertEqual(refusal?.field, item.field, item.name)
+            XCTAssertTrue(refusal?.reason.contains(item.words) == true, "\(item.name): \(String(describing: refusal))")
+            XCTAssertThrowsError(try ExecutorPlanBatchWriter.dryRun(item.jobs, image: image, layout: layout), item.name) {
+                XCTAssertEqual($0 as? ExecutorPlanError, refusal, item.name)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), item.name)
+        }
+
+        // `dryRun` makes the refusals of `checkJobs` and renders nothing, so this one shows in the real write alone.
+        let clash = try job(emission: try emission(outputs: [("out/quant.sf", .home), ("index/quant.sf", .staged)]))
+        let folder = root.appendingPathComponent("returned-twice", isDirectory: true)
+        XCTAssertThrowsError(try ExecutorPlanBatchWriter.write([clash], image: image, layout: layout, into: folder)) {
+            XCTAssertEqual($0 as? HTCondorSubmitError, .duplicate(field: "returned file", name: "quant.sf"))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    /// A job's own memory and CPUs reach its node whether or not its plan stages an output, since every node of a schema 2
+    /// batch reads both from `VARS` and a node that left them out would go to HTCondor with an unset macro
+    /// (EX-SUBMIT-SWIFT should-fix 3).
+    func testSchemaTwoBatchWithHomeOutputsOnlyStillGivesEachNodeItsRequests() throws {
+        let only = try job(emission: try emission(outputs: [("out/quant.sf", .home), ("out/reads.bam", .stays)]))
+        let folder = root.appendingPathComponent("home-only", isDirectory: true)
+        let batch = try ExecutorPlanBatchWriter.write([only], image: image, layout: layout, into: folder)
+        XCTAssertEqual(batch.folders.map(\.role), ["result-folder", "result-folder"], "no staged output, so no staged folder")
+        let submit = try text(folder, "sample.sub")
+        XCTAssertEqual(try value(of: "request_memory", in: submit), "$(request_memory)")
+        XCTAssertEqual(try value(of: "request_cpus", in: submit), "$(request_cpus)")
+        let dag = try text(folder, "run.dag").split(separator: "\n").map(String.init)
+        let vars = try XCTUnwrap(dag.first { $0.hasPrefix("VARS S ") }, "\(dag)")
+        for pair in ["request_memory=\"40960MB\"", "request_cpus=\"8\"", "request_disk=\"30GB\""] {
+            XCTAssertTrue(vars.contains(pair), "\(pair) in \(vars)")
         }
     }
 
