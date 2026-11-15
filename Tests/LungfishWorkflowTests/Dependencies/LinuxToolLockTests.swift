@@ -115,6 +115,18 @@ final class LinuxToolLockTests: XCTestCase {
         }
     }
 
+    /// Both STAR rows carry the licence of bioconda's package metadata. The `conda-meta` records of the 5.0 environments
+    /// (`star-2.7.11b-h2e74062_9.json` and `star-2.7.3a-h1f6ca2e_1.json`, EX-IMAGE-SWIFT should-fix 3) both read
+    /// GPL-3.0-or-later, where the rows said MIT.
+    func testStarRowsCarryTheLicenseOfBiocondasPackageMetadata() throws {
+        let linux = try ManagedToolLock.loadLinux64FromBundle()
+        let stars = linux.tools.filter { $0.executables == ["STAR"] }
+        XCTAssertEqual(Set(stars.map(\.id)), ["star", "star273a"])
+        for tool in stars {
+            XCTAssertEqual(tool.license, "GPL-3.0-or-later", "\(tool.id) license")
+        }
+    }
+
     func testMacLockBytesUnchanged() throws {
         let identity = try XCTUnwrap(ManagedToolLock.bundledIdentity)
         XCTAssertEqual(identity.fileSHA256, Self.macLockSHA256,
