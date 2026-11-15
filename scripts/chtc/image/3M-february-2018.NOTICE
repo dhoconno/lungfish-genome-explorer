@@ -1,0 +1,16 @@
+3M-february-2018.txt, the 10x Genomics 3' barcode list
+
+6,794,880 cell barcodes, one barcode a line, 115,512,960 bytes, SHA-256
+843a6f7038db8cb3c06f3dc21cc69d04139ffa10689780518d7a9e42dc2e819b.
+
+Source. The list was extracted from the `barcodes` dataset of pbmc_1k_v3_molecule_info.h5, a file of the dataset
+pbmc_1k_v3 (1k PBMCs from a healthy donor, Chromium v3 chemistry, Cell Ranger 3.0.0) that 10x Genomics created:
+https://cf.10xgenomics.com/samples/cell-exp/3.0.0/pbmc_1k_v3/pbmc_1k_v3_molecule_info.h5
+
+Licence. The dataset is licensed under CC BY 4.0 (Creative Commons Attribution 4.0 International),
+https://creativecommons.org/licenses/by/4.0/ . The licence gives the material as is, with no warranty (section 5 of the legal code).
+
+Changes made. The `barcodes` dataset was read from the file and written as text, one barcode a line. 10x Genomics made no
+change and does not endorse this use. CC BY 4.0 licenses no trademark.
+
+LGE ships this list only in the Linux tool image it builds for CHTC. It is in no repository and in no app.

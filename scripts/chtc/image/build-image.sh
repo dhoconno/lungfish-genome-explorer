@@ -3,12 +3,17 @@
 #
 # It is the executable of a CHTC build job (build-image.sub, +IsBuildJob = true). A build job cannot build from a
 # definition file (C0-SLICE0.md:64), so this is C0's sandbox route. It builds a sandbox from the base image pinned by
-# digest, installs the tools from the two repository locks with no solve, writes the image's tool manifest, and builds
+# digest, installs the tools from the four repository locks with no solve, copies in the barcode list, writes the image's tool manifest, and builds
 # the SIF from the sandbox.
 #
 # Inputs, all in the job's scratch folder (HTCondor flattens the transfer_input_files names there):
 #   lge-tools-linux-64-explicit.txt     Sources/LungfishWorkflow/Resources/ManagedTools/, checked against its pinned SHA-256
 #   trim_galore-linux-64-explicit.txt   the same folder, installed in its own prefix, checked the same way
+#   rnaseq-linux-64-explicit.txt        the same folder: salmon, STAR 2.7.11b, subread and umi_tools in /opt/lge/rnaseq
+#   star273a-linux-64-explicit.txt      the same folder: STAR 2.7.3a in /opt/lge/star273a
+#   3M-february-2018.txt                the 10x barcode list, checked against its pinned SHA-256 and size. It is in no repository.
+#                                       The manager copies it and its NOTICE to /staging (build-image.sub)
+#   3M-february-2018.NOTICE             scripts/chtc/image/3M-february-2018.NOTICE, checked against its pinned SHA-256
 #   lungfish-executor                   the stripped x86-64 Linux executor. It runs `image-manifest` once inside the
 #                                       sandbox and is deleted right after, so it is never baked in (Q-C3-5 A)
 #
@@ -23,7 +28,8 @@
 # lane after it checks the hash, as C0 did.
 #
 # build-image.sh --print-pins prints the pins and the step order and exits, with no build and no network.
-# Test hooks used by scripts/tests/test_chtc_image_build.py are LGE_APPTAINER, LGE_BUILD_DIR and LGE_INPUT_DIR.
+# Test hooks used by scripts/tests/test_chtc_image_build.py are LGE_APPTAINER, LGE_BUILD_DIR and LGE_INPUT_DIR, and
+# LGE_BARCODE_LIST_SHA256 and LGE_BARCODE_LIST_SIZE, which name the pin that a stand-in list meets.
 set -u
 
 # ---- Pins. --print-pins prints these values and the build below reads the same variables. ----
@@ -36,19 +42,39 @@ LOCK_TOOLS="${LOCK_FOLDER}/lge-tools-linux-64-explicit.txt"
 LOCK_TOOLS_SHA256="e76f03ec49a9841e13a5fb97e629752b1402690db86315cc4afe50d06638cbb5"
 LOCK_TRIM="${LOCK_FOLDER}/trim_galore-linux-64-explicit.txt"
 LOCK_TRIM_SHA256="451e1a92edf4b665c8180fb17fedd6caefd40d6ba4de14e78325ad7b40ecec5a"
+# The RNA-seq chain of 5.0 and the older STAR of its exact-class checks. The two locks above stay as they are, so no FASTQ
+# tool's build moves. One environment cannot hold STAR 2.7.3a and 2.7.11b, so each has a prefix.
+LOCK_RNASEQ="${LOCK_FOLDER}/rnaseq-linux-64-explicit.txt"
+LOCK_RNASEQ_SHA256="1b4deb25d1cd575683f4a910ce018cd993e6035602981468ef00228ea104e961"
+LOCK_STAR273A="${LOCK_FOLDER}/star273a-linux-64-explicit.txt"
+LOCK_STAR273A_SHA256="39b60738aca85958f78a365eb27d38c0c7aed18fa983be9e74dd4f8ae351933a"
 # The Trim Galore lock has its own prefix, since it pins libgcc, libgomp and libzlib builds of its own.
 TOOLS_PREFIX="/opt/lge/env"
 TRIM_PREFIX="/opt/lge/trim_galore"
+RNASEQ_PREFIX="/opt/lge/rnaseq"
+STAR273A_PREFIX="/opt/lge/star273a"
+# The STAR of each prefix and the version its manifest row must have.
+STAR_VERSIONS="${RNASEQ_PREFIX}=2.7.11b ${STAR273A_PREFIX}=2.7.3a"
+# The 10x 3' barcode list, derived from 10x's CC BY 4.0 pbmc_1k_v3_molecule_info.h5 (ADJ-SC tenx Q1 item 1). It is in no
+# repository, and the job refuses a list that differs from this pin. 737K-august-2016 is not shipped.
+BARCODE_FOLDER="/opt/lge/barcodes"
+BARCODE_LIST_NAME="3M-february-2018.txt"
+BARCODE_LIST_SHA256="${LGE_BARCODE_LIST_SHA256:-843a6f7038db8cb3c06f3dc21cc69d04139ffa10689780518d7a9e42dc2e819b}"
+BARCODE_LIST_SIZE="${LGE_BARCODE_LIST_SIZE:-115512960}"
+BARCODE_LIST_PATH="${BARCODE_FOLDER}/${BARCODE_LIST_NAME}"
+BARCODE_NOTICE_NAME="3M-february-2018.NOTICE"
+BARCODE_NOTICE_SHA256="d4a8e8c2ac27d15e4483169a3ba7b8af1c2de6207edadeee0ed418c460733403"
+BARCODE_NOTICE_PATH="${BARCODE_FOLDER}/NOTICE"
 MANIFEST_PATH="/opt/lungfish/image-manifest.json"
 EXECUTOR_INPUT_NAME="lungfish-executor"
 EXECUTOR_BUILD_ONLY="/opt/lungfish/lungfish-executor.build-only"
 # The executables of third-party-tools-lock.linux-64.json. A name the manifest does not resolve fails the build.
-REQUIRED_TOOL_IDS="clumpify.sh bbduk.sh bbmerge.sh repair.sh tadpole.sh reformat.sh bbmap.sh mapPacBio.sh java fastp deacon bgzip tabix seqkit trim_galore pigz"
+REQUIRED_TOOL_IDS="clumpify.sh bbduk.sh bbmerge.sh repair.sh tadpole.sh reformat.sh bbmap.sh mapPacBio.sh java fastp deacon bgzip tabix seqkit trim_galore pigz salmon STAR featureCounts umi_tools"
 UTILITIES="dirname basename readlink"
 UTILITY_DIRECTORIES="/usr/bin /bin"
 SIF_SCRATCH_NAME="lge-tools.sif"
 # The order the build runs its steps in. executor_remove follows image_manifest with nothing between them.
-STEPS="inputs sandbox utilities locks install_tools install_trim_galore clean installed_lists executor_copy image_manifest executor_remove manifest_check environment sif verify record"
+STEPS="inputs sandbox utilities locks install_tools install_trim_galore install_rnaseq install_star273a barcodes clean installed_lists executor_copy image_manifest executor_remove manifest_check environment sif verify record"
 
 print_pins() {
   printf '%s\n' \
@@ -62,6 +88,20 @@ print_pins() {
     "lock_trim_galore=$LOCK_TRIM" \
     "lock_trim_galore_sha256=$LOCK_TRIM_SHA256" \
     "lock_trim_galore_prefix=$TRIM_PREFIX" \
+    "lock_rnaseq=$LOCK_RNASEQ" \
+    "lock_rnaseq_sha256=$LOCK_RNASEQ_SHA256" \
+    "lock_rnaseq_prefix=$RNASEQ_PREFIX" \
+    "lock_star273a=$LOCK_STAR273A" \
+    "lock_star273a_sha256=$LOCK_STAR273A_SHA256" \
+    "lock_star273a_prefix=$STAR273A_PREFIX" \
+    "star_versions=$STAR_VERSIONS" \
+    "barcode_list=$BARCODE_LIST_NAME" \
+    "barcode_list_sha256=$BARCODE_LIST_SHA256" \
+    "barcode_list_size=$BARCODE_LIST_SIZE" \
+    "barcode_list_path=$BARCODE_LIST_PATH" \
+    "barcode_notice=$BARCODE_NOTICE_NAME" \
+    "barcode_notice_sha256=$BARCODE_NOTICE_SHA256" \
+    "barcode_notice_path=$BARCODE_NOTICE_PATH" \
     "manifest_path=$MANIFEST_PATH" \
     "executor_input=$EXECUTOR_INPUT_NAME" \
     "executor_build_only_path=$EXECUTOR_BUILD_ONLY" \
@@ -95,8 +135,9 @@ import json
 import os
 import sys
 
-manifest_path, tools_prefix, trim_prefix = sys.argv[1:4]
-required = sys.argv[4:]
+manifest_path, tools_prefix, trim_prefix, rnaseq_prefix, star273a_prefix, list_path, list_sha256, list_size, star_pins = sys.argv[1:10]
+star_versions = dict(pair.rsplit("=", 1) for pair in star_pins.split())
+required = sys.argv[10:]
 with open(manifest_path, "rb") as handle:
     manifest = json.load(handle)
 problems = []
@@ -111,20 +152,36 @@ for name in required:
     rows = by_id.get(name)
     if not rows:
         problems.append("the manifest lists no tool %s" % name)
-    elif len(set((row["version"], row["build"]) for row in rows)) != 1:
+    elif name != "STAR" and len(set((row["version"], row["build"]) for row in rows)) != 1:
         problems.append("the manifest lists %s at more than one version or build" % name)
 folders = set(os.path.dirname(by_id[name][0]["path"]) for name in ("bgzip", "clumpify.sh", "reformat.sh") if name in by_id)
 if len(folders) > 1:
     problems.append("bgzip, clumpify.sh and reformat.sh are not in one folder (%s)" % ", ".join(sorted(folders)))
-for name, prefix in (("java", tools_prefix), ("trim_galore", trim_prefix)):
+for name, prefix in (("java", tools_prefix), ("trim_galore", trim_prefix), ("salmon", rnaseq_prefix),
+                     ("featureCounts", rnaseq_prefix), ("umi_tools", rnaseq_prefix)):
     for row in by_id.get(name, []):
         if not row["path"].startswith(prefix + "/bin/"):
             problems.append("%s is at %s, not under %s/bin" % (name, row["path"], prefix))
+# Two STARs by design: each prefix lists STAR once at its own version, and no STAR is listed anywhere else.
+star_rows = by_id.get("STAR", [])
+for prefix, version in star_versions.items():
+    here = [row for row in star_rows if row["path"] == prefix + "/bin/STAR"]
+    if len(here) != 1:
+        problems.append("STAR is listed %d times under %s, not once" % (len(here), prefix))
+    elif here[0]["version"] != version:
+        problems.append("STAR under %s is version %s, not %s" % (prefix, here[0]["version"], version))
+if len(star_rows) != len(star_versions):
+    problems.append("the manifest lists STAR %d times, not once in each of %d prefixes" % (len(star_rows), len(star_versions)))
+# The one data file of the image is the barcode list at its pin.
+wanted = [{"path": list_path, "role": "barcodeList", "sha256": list_sha256, "size": int(list_size)}]
+if manifest.get("files") != wanted:
+    problems.append("files holds %s, not only the barcode list %s at its pin" % (json.dumps(manifest.get("files")), list_path))
 if problems:
     for problem in problems:
         sys.stderr.write("manifest check failed: " + problem + "\n")
     sys.exit(1)
-print("manifest check ok: %d tools, %d required ids resolve at one version each" % (len(manifest["tools"]), len(required)))
+print("manifest check ok: %d tools, %d required ids resolve at one version each, STAR once in each of %d prefixes, files hold the barcode list %s"
+      % (len(manifest["tools"]), len(required), len(star_versions), list_sha256))
 PY
 
 APPTAINER="${LGE_APPTAINER:-apptainer}"
@@ -168,15 +225,33 @@ check_lock() {
   local file got
   file="$INPUT_DIR/$(basename "$1")"
   if [ ! -s "$file" ]; then
-    echo "ERROR: the lock $(basename "$1") is missing from $INPUT_DIR"
+    echo "ERROR: the ${3:-lock} $(basename "$1") is missing from $INPUT_DIR"
     return 1
   fi
   got=$(sha256_of "$file")
   if [ "$got" != "$2" ]; then
-    echo "ERROR: $(basename "$1") has SHA-256 $got and the script pins $2. Copy the lock from $1 at the lane's commit."
+    echo "ERROR: $(basename "$1") has SHA-256 $got and the script pins $2. Copy the ${3:-lock} from $1 at the lane's commit."
     return 1
   fi
   echo "lock $(basename "$1") sha256 $got matches its pin"
+}
+
+# The barcode list is an input the manager copies to /staging. The repository holds no copy, so its pin is its SHA-256 and
+# size, and a list that differs is refused here and nowhere later.
+check_list() {
+  local file got size
+  file="$INPUT_DIR/$BARCODE_LIST_NAME"
+  if [ ! -s "$file" ]; then
+    echo "ERROR: the barcode list $BARCODE_LIST_NAME is missing from $INPUT_DIR"
+    return 1
+  fi
+  got=$(sha256_of "$file")
+  size=$(size_of "$file")
+  if [ "$got" != "$BARCODE_LIST_SHA256" ] || [ "$size" != "$BARCODE_LIST_SIZE" ]; then
+    echo "ERROR: $BARCODE_LIST_NAME has SHA-256 $got and size $size, and the script pins SHA-256 $BARCODE_LIST_SHA256 and size $BARCODE_LIST_SIZE"
+    return 1
+  fi
+  echo "list $BARCODE_LIST_NAME sha256 $got size $size matches its pin"
 }
 
 step_inputs() {
@@ -187,6 +262,10 @@ step_inputs() {
   fi
   check_lock "$LOCK_TOOLS" "$LOCK_TOOLS_SHA256" || return 1
   check_lock "$LOCK_TRIM" "$LOCK_TRIM_SHA256" || return 1
+  check_lock "$LOCK_RNASEQ" "$LOCK_RNASEQ_SHA256" || return 1
+  check_lock "$LOCK_STAR273A" "$LOCK_STAR273A_SHA256" || return 1
+  check_list || return 1
+  check_lock "scripts/chtc/image/$BARCODE_NOTICE_NAME" "$BARCODE_NOTICE_SHA256" notice || return 1
   if [ ! -s "$executor" ]; then
     echo "ERROR: the executor input $executor is missing or empty"
     return 1
@@ -239,7 +318,8 @@ step_utilities() {
 
 step_locks() {
   mkdir -p "$SANDBOX/opt/lge" "$SANDBOX/opt/lungfish" || return 1
-  cp "$INPUT_DIR/$(basename "$LOCK_TOOLS")" "$INPUT_DIR/$(basename "$LOCK_TRIM")" "$SANDBOX/opt/lge/"
+  cp "$INPUT_DIR/$(basename "$LOCK_TOOLS")" "$INPUT_DIR/$(basename "$LOCK_TRIM")" "$INPUT_DIR/$(basename "$LOCK_RNASEQ")" \
+    "$INPUT_DIR/$(basename "$LOCK_STAR273A")" "$SANDBOX/opt/lge/"
 }
 
 conda_create() {
@@ -255,6 +335,21 @@ step_install_trim_galore() {
   conda_create "$TRIM_PREFIX" "$(basename "$LOCK_TRIM")"
 }
 
+step_install_rnaseq() {
+  conda_create "$RNASEQ_PREFIX" "$(basename "$LOCK_RNASEQ")"
+}
+
+step_install_star273a() {
+  conda_create "$STAR273A_PREFIX" "$(basename "$LOCK_STAR273A")"
+}
+
+# The list and its NOTICE go under /opt/lge/barcodes, where the manifest step lists the list.
+step_barcodes() {
+  mkdir -p "$SANDBOX$BARCODE_FOLDER" || return 1
+  cp "$INPUT_DIR/$BARCODE_LIST_NAME" "$SANDBOX$BARCODE_LIST_PATH" || return 1
+  cp "$INPUT_DIR/$BARCODE_NOTICE_NAME" "$SANDBOX$BARCODE_NOTICE_PATH"
+}
+
 step_clean() {
   "$APPTAINER" exec --writable --no-home --cleanenv --env MAMBA_ROOT_PREFIX=/opt/conda "$SANDBOX" \
     /usr/bin/micromamba clean -a -y
@@ -263,7 +358,7 @@ step_clean() {
 step_installed_lists() {
   local prefix
   : > "$WORK/installed.explicit.txt"
-  for prefix in "$TOOLS_PREFIX" "$TRIM_PREFIX"; do
+  for prefix in "$TOOLS_PREFIX" "$TRIM_PREFIX" "$RNASEQ_PREFIX" "$STAR273A_PREFIX"; do
     echo "# prefix $prefix" >> "$WORK/installed.explicit.txt"
     "$APPTAINER" exec --no-home --cleanenv "$SANDBOX" \
       /usr/bin/micromamba list -p "$prefix" --explicit --md5 >> "$WORK/installed.explicit.txt" || return 1
@@ -281,7 +376,8 @@ step_executor_copy() {
 step_image_manifest() {
   local line sha size
   line=$("$APPTAINER" exec --writable --no-home --cleanenv "$SANDBOX" "$EXECUTOR_BUILD_ONLY" image-manifest \
-    --conda-prefix "$TOOLS_PREFIX" --conda-prefix "$TRIM_PREFIX" --output "$MANIFEST_PATH") || {
+    --conda-prefix "$TOOLS_PREFIX" --conda-prefix "$TRIM_PREFIX" --conda-prefix "$RNASEQ_PREFIX" --conda-prefix "$STAR273A_PREFIX" \
+    --data-file "barcodeList=$BARCODE_LIST_PATH" --output "$MANIFEST_PATH") || {
     echo "ERROR: lungfish-executor image-manifest failed"
     return 1
   }
@@ -322,7 +418,8 @@ step_executor_remove() {
 step_manifest_check() {
   # shellcheck disable=SC2086
   "$APPTAINER" exec --no-home --cleanenv "$SANDBOX" "$TOOLS_PREFIX/bin/python3" -I -c "$MANIFEST_CHECK" \
-    "$MANIFEST_PATH" "$TOOLS_PREFIX" "$TRIM_PREFIX" $REQUIRED_TOOL_IDS
+    "$MANIFEST_PATH" "$TOOLS_PREFIX" "$TRIM_PREFIX" "$RNASEQ_PREFIX" "$STAR273A_PREFIX" "$BARCODE_LIST_PATH" \
+    "$BARCODE_LIST_SHA256" "$BARCODE_LIST_SIZE" "$STAR_VERSIONS" $REQUIRED_TOOL_IDS
 }
 
 step_environment() {
@@ -345,7 +442,7 @@ step_verify() {
     return 1
   fi
   echo "the manifest inside the SIF matches"
-  "$APPTAINER" exec --no-home --cleanenv "$SIF" bash -c 'echo PATH=$PATH; fastp --version 2>&1; deacon --version 2>&1; seqkit version 2>&1; pigz --version 2>&1; java -version 2>&1; bgzip --version 2>&1 | head -1; python3 --version 2>&1; trim_galore --version 2>&1 | head -3; ls /opt/lge/env/conda-meta | grep -E "^(bbmap|openjdk|fastp|deacon|seqkit|pigz|htslib|python)-"; ls /opt/lge/trim_galore/conda-meta | grep -E "^trim-galore-"' > "$WORK/tool-versions.txt" 2>&1 || true
+  "$APPTAINER" exec --no-home --cleanenv "$SIF" bash -c 'echo PATH=$PATH; fastp --version 2>&1; deacon --version 2>&1; seqkit version 2>&1; pigz --version 2>&1; java -version 2>&1; bgzip --version 2>&1 | head -1; python3 --version 2>&1; trim_galore --version 2>&1 | head -3; ls /opt/lge/env/conda-meta | grep -E "^(bbmap|openjdk|fastp|deacon|seqkit|pigz|htslib|python)-"; ls /opt/lge/trim_galore/conda-meta | grep -E "^trim-galore-"; /opt/lge/rnaseq/bin/STAR --version; /opt/lge/star273a/bin/STAR --version; /opt/lge/rnaseq/bin/salmon --version; /opt/lge/rnaseq/bin/featureCounts -v 2>&1 | head -2; /opt/lge/rnaseq/bin/umi_tools --version; ls /opt/lge/rnaseq/conda-meta | grep -E "^(star|salmon|subread|umi_tools|python)-"; ls /opt/lge/star273a/conda-meta | grep -E "^star-"; sha256sum /opt/lge/barcodes/3M-february-2018.txt; ls -l /opt/lge/barcodes' > "$WORK/tool-versions.txt" 2>&1 || true
 }
 
 step_record() {
@@ -363,6 +460,10 @@ step_record() {
     "LGE_IMAGE_BASE=$BASE_IMAGE" \
     "LGE_IMAGE_LOCK_TOOLS_SHA256=$LOCK_TOOLS_SHA256" \
     "LGE_IMAGE_LOCK_TRIM_GALORE_SHA256=$LOCK_TRIM_SHA256" \
+    "LGE_IMAGE_LOCK_RNASEQ_SHA256=$LOCK_RNASEQ_SHA256" \
+    "LGE_IMAGE_LOCK_STAR273A_SHA256=$LOCK_STAR273A_SHA256" \
+    "LGE_IMAGE_BARCODE_LIST_SHA256=$BARCODE_LIST_SHA256" \
+    "LGE_IMAGE_BARCODE_NOTICE_SHA256=$BARCODE_NOTICE_SHA256" \
     "LGE_IMAGE_EXECUTOR_SHA256=$EXECUTOR_SHA256" \
     "LGE_IMAGE_MANIFEST_SHA256=$MANIFEST_SHA256" \
     "LGE_IMAGE_MANIFEST_SIZE=$MANIFEST_SIZE" \

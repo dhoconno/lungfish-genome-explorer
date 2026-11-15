@@ -11,10 +11,17 @@
     { "id": "htslib", "environment": "lge-tools", "packageSpec": "bioconda::htslib=1.24=ha79157c_0", "executables": ["bgzip", "tabix"], "version": "1.24", "license": "MIT", "sourceUrl": "https://github.com/samtools/htslib" },
     { "id": "seqkit", "environment": "lge-tools", "packageSpec": "bioconda::seqkit=2.13.0=he881be0_0", "executables": ["seqkit"], "version": "2.13.0", "license": "MIT", "sourceUrl": "https://github.com/shenwei356/seqkit" },
     { "id": "trim_galore", "environment": "trim_galore", "packageSpec": "bioconda::trim-galore=2.3.0=hf1b6044_0", "executables": ["trim_galore"], "version": "2.3.0", "license": "GPL-3.0-only", "sourceUrl": "https://github.com/FelixKrueger/TrimGalore" },
-    { "id": "pigz", "environment": "lge-tools", "packageSpec": "conda-forge::pigz=2.8=h421ea60_2", "executables": ["pigz"], "version": "2.8", "license": "Zlib", "sourceUrl": "https://github.com/madler/pigz" }
+    { "id": "pigz", "environment": "lge-tools", "packageSpec": "conda-forge::pigz=2.8=h421ea60_2", "executables": ["pigz"], "version": "2.8", "license": "Zlib", "sourceUrl": "https://github.com/madler/pigz" },
+    { "id": "star", "environment": "rnaseq", "packageSpec": "bioconda::star=2.7.11b=h5814d7d_9", "executables": ["STAR"], "version": "2.7.11b", "license": "MIT", "sourceUrl": "https://github.com/alexdobin/STAR" },
+    { "id": "salmon", "environment": "rnaseq", "packageSpec": "bioconda::salmon=2.11.0=hfa8f182_0", "executables": ["salmon"], "version": "2.11.0", "license": "BSD-3-Clause", "sourceUrl": "https://github.com/COMBINE-lab/salmon" },
+    { "id": "subread", "environment": "rnaseq", "packageSpec": "bioconda::subread=2.1.1=h577a1d6_0", "executables": ["featureCounts"], "version": "2.1.1", "license": "GPL-3.0-only", "sourceUrl": "https://subread.sourceforge.net/" },
+    { "id": "umi_tools", "environment": "rnaseq", "packageSpec": "bioconda::umi_tools=1.1.6=py311haab0aaa_0", "executables": ["umi_tools"], "version": "1.1.6", "license": "MIT", "sourceUrl": "https://github.com/CGATOxford/UMI-tools" },
+    { "id": "star273a", "environment": "star273a", "packageSpec": "bioconda::star=2.7.3a=h5ca1c30_1", "executables": ["STAR"], "version": "2.7.3a", "license": "MIT", "sourceUrl": "https://github.com/alexdobin/STAR" }
   ],
   "explicitLocks": [
     { "packID": "lungfish-tools", "id": "lge-tools", "platform": "linux-64", "resource": "lge-tools-linux-64-explicit.txt", "sha256": "e76f03ec49a9841e13a5fb97e629752b1402690db86315cc4afe50d06638cbb5" },
-    { "packID": "lungfish-tools", "id": "trim_galore", "platform": "linux-64", "resource": "trim_galore-linux-64-explicit.txt", "sha256": "451e1a92edf4b665c8180fb17fedd6caefd40d6ba4de14e78325ad7b40ecec5a" }
+    { "packID": "lungfish-tools", "id": "trim_galore", "platform": "linux-64", "resource": "trim_galore-linux-64-explicit.txt", "sha256": "451e1a92edf4b665c8180fb17fedd6caefd40d6ba4de14e78325ad7b40ecec5a" },
+    { "packID": "lungfish-tools", "id": "rnaseq", "platform": "linux-64", "resource": "rnaseq-linux-64-explicit.txt", "sha256": "1b4deb25d1cd575683f4a910ce018cd993e6035602981468ef00228ea104e961" },
+    { "packID": "lungfish-tools", "id": "star273a", "platform": "linux-64", "resource": "star273a-linux-64-explicit.txt", "sha256": "39b60738aca85958f78a365eb27d38c0c7aed18fa983be9e74dd4f8ae351933a" }
   ]
 }

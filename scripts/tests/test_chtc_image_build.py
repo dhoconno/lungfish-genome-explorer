@@ -28,6 +28,19 @@ LINUX_LOCK = TOOLS_FOLDER / "third-party-tools-lock.linux-64.json"
 C0_BASE_DIGEST = "sha256:bba1fff35268813383cb9f92816e862b7580ae2e9493a5ea2d824938c060fe98"
 STAGING_IMAGES = "file:///staging/groups/oconnor_group/32748/lge-chtc-test/images/"
 TIMEOUT_SECONDS = 30
+LOCK_NAMES = (
+    "lge-tools-linux-64-explicit.txt",
+    "trim_galore-linux-64-explicit.txt",
+    "rnaseq-linux-64-explicit.txt",
+    "star273a-linux-64-explicit.txt",
+)
+NOTICE = ROOT / "scripts" / "chtc" / "image" / "3M-february-2018.NOTICE"
+LIST_NAME = "3M-february-2018.txt"
+LIST_SHA256 = "843a6f7038db8cb3c06f3dc21cc69d04139ffa10689780518d7a9e42dc2e819b"
+LIST_SIZE = 115512960
+# The tests never hold the 115 MB list. A stand-in of other bytes takes its place, and the script's two test hooks
+# LGE_BARCODE_LIST_SHA256 and LGE_BARCODE_LIST_SIZE give the pin that the stand-in meets.
+STAND_IN_LIST = b"AAACCCAAGAAACACT\nAAACCCAAGAAACCAC\n"
 
 # A stand-in for apptainer. It keeps the sandbox and the image in plain folders and files, logs each call to
 # $FAKE_STATE/calls.log, and runs the few commands the script gives it. FAKE_MISSING names base image utilities to
@@ -126,9 +139,23 @@ if args[0] == "exec":
         for name in os.environ["FAKE_REQUIRED_IDS"].split():
             if name == os.environ.get("FAKE_MANIFEST_OMIT"):
                 continue
-            prefix = prefixes[-1] if name == "trim_galore" else prefixes[0]
+            if name == "STAR":
+                stars = [(prefixes[2], "2.7.11b"), (prefixes[3], "2.7.3a")]
+                for prefix, version in stars[: 1 if os.environ.get("FAKE_STAR_ONCE") else 2]:
+                    tools.append({"build": "b0", "condaPackage": "star", "id": name, "path": prefix + "/bin/STAR", "version": version})
+                continue
+            prefix = prefixes[{"trim_galore": 1, "salmon": 2, "featureCounts": 2, "umi_tools": 2}.get(name, 0)]
             tools.append({"build": "b0", "condaPackage": "fake", "id": name, "path": prefix + "/bin/" + name, "version": "1.0"})
         document = {"platform": "linux-64", "schemaVersion": 1, "tools": tools}
+        files = []
+        for k, word in enumerate(command):
+            if word == "--data-file":
+                role, _, listed = command[k + 1].partition("=")
+                with open(inside(listed), "rb") as handle:
+                    body = handle.read()
+                files.append({"path": listed, "role": role, "sha256": hashlib.sha256(body).hexdigest(), "size": len(body)})
+        if files and not os.environ.get("FAKE_FILES_OMIT"):
+            document["files"] = files
         data = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
         descriptor = os.open(inside(output), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
         os.write(descriptor, data)
@@ -139,7 +166,7 @@ if args[0] == "exec":
         sys.exit(0)
 
     if program == "/opt/lge/env/bin/python3":
-        mapped = [inside(word) if os.path.isfile(inside(word)) else word for word in command[1:]]
+        mapped = [inside(word) if word == "/opt/lungfish/image-manifest.json" else word for word in command[1:]]
         sys.exit(subprocess.call([sys.executable] + mapped))
 
     if program == "/usr/bin/sha256sum":
@@ -220,8 +247,10 @@ class Harness:
         self.state = self.root / "state"
         for path in (self.work, self.inputs, self.state):
             path.mkdir()
-        shutil.copy(TOOLS_FOLDER / "lge-tools-linux-64-explicit.txt", self.inputs)
-        shutil.copy(TOOLS_FOLDER / "trim_galore-linux-64-explicit.txt", self.inputs)
+        for name in LOCK_NAMES:
+            shutil.copy(TOOLS_FOLDER / name, self.inputs)
+        (self.inputs / LIST_NAME).write_bytes(STAND_IN_LIST)
+        shutil.copy(NOTICE, self.inputs / NOTICE.name)
         (self.inputs / "lungfish-executor").write_bytes(b"\x7fELF a stand-in executor\n")
         self.fake = self.root / "apptainer"
         self.fake.write_text(FAKE_APPTAINER.replace("@PYTHON@", sys.executable))
@@ -236,6 +265,8 @@ class Harness:
             LGE_APPTAINER=str(self.fake),
             FAKE_STATE=str(self.state),
             FAKE_REQUIRED_IDS=pins()["required_tool_ids"],
+            LGE_BARCODE_LIST_SHA256=hashlib.sha256(STAND_IN_LIST).hexdigest(),
+            LGE_BARCODE_LIST_SIZE=str(len(STAND_IN_LIST)),
         )
         if production:
             for source in self.inputs.iterdir():
@@ -358,9 +389,11 @@ class PinTests(unittest.TestCase):
         # The two locks travel by plain name from the submit folder. The executor is over 100 MB, so CHTC's rule is to keep
         # it on /staging and name it by a file:/// path, and it arrives under the last name of that path, which is the name
         # the script reads.
-        locks = {os.path.basename(pins()["lock_tools"]), os.path.basename(pins()["lock_trim_galore"])}
+        locks = set(LOCK_NAMES)
         executor = STAGING_IMAGES + pins()["executor_input"]
-        self.assertEqual(inputs, locks | {executor})
+        staged = {executor, STAGING_IMAGES + LIST_NAME, STAGING_IMAGES + NOTICE.name}
+        self.assertEqual(inputs, locks | staged)
+        self.assertGreaterEqual(int(values["request_disk"].rstrip("GB")), 30, "four environments and a 115 MB list need a larger sandbox")
         self.assertEqual(os.path.basename(executor), pins()["executor_input"])
         self.assertIn(pins()["sif_scratch_name"], transfer_outputs())
         remap = values["transfer_output_remaps"].strip('"')
@@ -381,7 +414,7 @@ class StubbedBuildTests(unittest.TestCase):
         self.assertEqual(record["SIF_NAME"], "lge-tools-" + sif_sha[:12] + ".sif")
         self.assertEqual(record["MANIFEST_SHA256"], hashlib.sha256(manifest.read_bytes()).hexdigest())
         self.assertEqual(record["MANIFEST_SIZE"], str(manifest.stat().st_size))
-        self.assertEqual(record["MANIFEST_TOOLS"], str(len(pins()["required_tool_ids"].split())))
+        self.assertEqual(record["MANIFEST_TOOLS"], str(len(pins()["required_tool_ids"].split()) + 1), "STAR is listed in both of its prefixes")
         self.assertEqual(record["BASE"], pins()["base_image"])
         self.assertEqual(result.stdout.strip().splitlines()[-1], "LGE_IMAGE_STATUS=ok")
         for name in transfer_outputs():
@@ -403,25 +436,27 @@ class StubbedBuildTests(unittest.TestCase):
         self.assertTrue(sandboxes[0].endswith(" " + pins()["base_uri"]), sandboxes[0])
         self.assertEqual(len(harness.sif_builds()), 1)
 
-    def test_tools_install_from_the_two_locks_with_no_solve(self):
+    def test_tools_install_from_the_four_locks_with_no_solve(self):
         harness = Harness(self)
         self.assertEqual(harness.run().returncode, 0)
         creates = [line for line in harness.calls() if "/usr/bin/micromamba create" in line]
-        self.assertEqual(len(creates), 2)
-        self.assertIn("-p /opt/lge/env --file /opt/lge/lge-tools-linux-64-explicit.txt", creates[0])
-        self.assertIn("-p /opt/lge/trim_galore --file /opt/lge/trim_galore-linux-64-explicit.txt", creates[1])
+        self.assertEqual(len(creates), 4)
+        for line, prefix, lock in zip(creates, ("env", "trim_galore", "rnaseq", "star273a"), LOCK_NAMES):
+            self.assertIn("-p /opt/lge/%s --file /opt/lge/%s" % (prefix, lock), line)
         for line in creates:
             for flag in (" -c ", " --channel", " -n ", " --name", " --dry-run", " --override-channels"):
                 self.assertNotIn(flag, line)
 
-    def test_manifest_step_names_both_prefixes_and_the_image_path(self):
+    def test_manifest_step_names_the_four_prefixes_the_list_and_the_image_path(self):
         harness = Harness(self)
         self.assertEqual(harness.run().returncode, 0)
         manifest_calls = [line for line in harness.calls() if "lungfish-executor.build-only image-manifest" in line]
         self.assertEqual(len(manifest_calls), 1)
         self.assertTrue(
             manifest_calls[0].endswith(
-                "image-manifest --conda-prefix /opt/lge/env --conda-prefix /opt/lge/trim_galore --output /opt/lungfish/image-manifest.json"
+                "image-manifest --conda-prefix /opt/lge/env --conda-prefix /opt/lge/trim_galore --conda-prefix /opt/lge/rnaseq"
+                " --conda-prefix /opt/lge/star273a --data-file barcodeList=/opt/lge/barcodes/3M-february-2018.txt"
+                " --output /opt/lungfish/image-manifest.json"
             ),
             manifest_calls[0],
         )
@@ -492,6 +527,80 @@ class StubbedBuildTests(unittest.TestCase):
         self.assertEqual((harness.work / "lge-tools.sif").stat().st_size, 0)
         self.assertNotIn("SIF_SHA256", parse_record(result.stdout))
         self.assertEqual(result.stdout.strip().splitlines()[-1], "LGE_IMAGE_STATUS=failed step=utilities")
+
+
+class ImageInputsPinTests(unittest.TestCase):
+    def test_rnaseq_locks_prefixes_and_the_barcode_list_are_pinned(self):
+        values = pins()
+        entries = {entry["resource"]: entry["sha256"] for entry in json.loads(LINUX_LOCK.read_text())["explicitLocks"]}
+        for key, name, prefix in (("lock_rnaseq", LOCK_NAMES[2], "/opt/lge/rnaseq"), ("lock_star273a", LOCK_NAMES[3], "/opt/lge/star273a")):
+            self.assertEqual(os.path.basename(values[key]), name)
+            self.assertEqual(values[key + "_prefix"], prefix)
+            digest = hashlib.sha256((ROOT / values[key]).read_bytes()).hexdigest()
+            self.assertEqual(values[key + "_sha256"], digest, name + " changed, so rebuild the image")
+            self.assertEqual(entries[name], digest)
+        prefixes = {values[key] for key in ("lock_tools_prefix", "lock_trim_galore_prefix", "lock_rnaseq_prefix", "lock_star273a_prefix")}
+        self.assertEqual(len(prefixes), 4)
+        # Slice 0's environment and Trim Galore's keep their bytes, so no FASTQ tool's build moves.
+        self.assertEqual(values["lock_tools_sha256"], "e76f03ec49a9841e13a5fb97e629752b1402690db86315cc4afe50d06638cbb5")
+        self.assertEqual(values["lock_trim_galore_sha256"], "451e1a92edf4b665c8180fb17fedd6caefd40d6ba4de14e78325ad7b40ecec5a")
+        self.assertEqual(values["star_versions"], "/opt/lge/rnaseq=2.7.11b /opt/lge/star273a=2.7.3a")
+        for name in ("STAR", "salmon", "featureCounts", "umi_tools"):
+            self.assertIn(name, values["required_tool_ids"].split())
+        self.assertEqual((values["barcode_list"], values["barcode_list_sha256"], values["barcode_list_size"]), (LIST_NAME, LIST_SHA256, str(LIST_SIZE)))
+        self.assertEqual(values["barcode_list_path"], "/opt/lge/barcodes/" + LIST_NAME)
+        self.assertEqual(values["barcode_notice_path"], "/opt/lge/barcodes/NOTICE")
+        self.assertEqual(values["barcode_notice_sha256"], hashlib.sha256(NOTICE.read_bytes()).hexdigest())
+
+    def test_notice_carries_the_attribution_of_the_ruling(self):
+        text = NOTICE.read_text()
+        url = "https://cf.10xgenomics.com/samples/cell-exp/3.0.0/pbmc_1k_v3/pbmc_1k_v3_molecule_info.h5"
+        for words in ("10x Genomics", "pbmc_1k_v3", url, "licensed under CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/",
+                      "`barcodes` dataset", "one barcode a line", LIST_SHA256):
+            self.assertIn(words, text)
+
+
+class ImageInputsBuildTests(unittest.TestCase):
+    def test_list_and_notice_enter_the_sandbox_and_the_manifest_names_the_list(self):
+        harness = Harness(self)
+        result = harness.run()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        barcodes = harness.state / "snapshot" / "opt" / "lge" / "barcodes"
+        self.assertEqual((barcodes / LIST_NAME).read_bytes(), STAND_IN_LIST)
+        self.assertEqual((barcodes / "NOTICE").read_bytes(), NOTICE.read_bytes())
+        digest = hashlib.sha256(STAND_IN_LIST).hexdigest()
+        files = json.loads((harness.work / "image-manifest.json").read_text())["files"]
+        self.assertEqual(files, [{"path": "/opt/lge/barcodes/" + LIST_NAME, "role": "barcodeList", "sha256": digest, "size": len(STAND_IN_LIST)}])
+        record = parse_record(result.stdout)
+        self.assertEqual(record["BARCODE_LIST_SHA256"], digest)
+        self.assertEqual(record["LOCK_RNASEQ_SHA256"], pins()["lock_rnaseq_sha256"])
+        self.assertEqual(record["LOCK_STAR273A_SHA256"], pins()["lock_star273a_sha256"])
+
+    def test_an_input_that_differs_from_its_pin_or_is_missing_is_refused_before_any_build(self):
+        for name in (LOCK_NAMES[2], LOCK_NAMES[3], LIST_NAME, NOTICE.name):
+            for missing in (False, True):
+                with self.subTest(name=name, missing=missing):
+                    harness = Harness(self)
+                    path = harness.inputs / name
+                    if missing:
+                        path.unlink()
+                    else:
+                        path.write_bytes(path.read_bytes() + b"edited after the pin\n")
+                    result = harness.run()
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(parse_record(result.stdout)["STATUS"], "failed step=inputs")
+                    self.assertIn(name + (" is missing" if missing else " has SHA-256"), result.stdout)
+                    self.assertFalse(any(line.startswith("apptainer build") for line in harness.calls()))
+
+    def test_a_manifest_without_the_list_or_with_one_star_fails_the_build(self):
+        for hook, words in (("FAKE_FILES_OMIT", "files holds"), ("FAKE_STAR_ONCE", "STAR is listed 0 times under /opt/lge/star273a")):
+            with self.subTest(hook=hook):
+                harness = Harness(self)
+                result = harness.run(**{hook: "1"})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(parse_record(result.stdout)["STATUS"], "failed step=manifest_check")
+                self.assertIn(words, result.stdout)
+                self.assertEqual(harness.sif_builds(), [])
 
 
 if __name__ == "__main__":
