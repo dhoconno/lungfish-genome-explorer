@@ -54,8 +54,10 @@ def limits(**over):
 
 
 def reading(swap=(12288.0, 6000.0, 6288.0), level=1, compressor=10.0, procs=()):
+    """A canned reading. Each process is (pid, GiB) or (pid, GiB, uid), and the uid is 501 when it is left out."""
     return {'swap': swap, 'level': level, 'compressor': compressor,
-            'procs': [{'pid': p, 'uid': 501, 'mib': g * 1024.0, 'name': 'proc%d' % p} for p, g in procs]}
+            'procs': [{'pid': p[0], 'uid': p[2] if len(p) > 2 else 501, 'mib': p[1] * 1024.0, 'name': 'proc%d' % p[0]}
+                      for p in procs]}
 
 
 class ParseAndEvaluateTests(unittest.TestCase):
@@ -99,6 +101,17 @@ class ParseAndEvaluateTests(unittest.TestCase):
         lines = self.m.evaluate(reading(swap=(12288.0, 6144.0, 6144.0), procs=[(401, 8)]),
                                 limits(swap_pct=40, pressure_level=1, proc_gb=4, compressor_gb=5), [], lambda pid: 'x')
         self.assertEqual(self.kinds(lines), ['SWAP', 'PRESSURE', 'BIGPROC', 'COMPRESSOR'])
+
+    def test_a_big_process_of_uid_0_is_marked_owner_since_the_manager_cannot_end_it(self):
+        def command_of(pid):
+            return OURS_COMMAND if pid == 401 else '/usr/sbin/other'
+
+        busy = reading(procs=[(401, 20, 0), (402, 30, 0), (403, 20), (404, 8, 0)])
+        lines = self.m.evaluate(busy, limits(), ['/work/lane-1'], command_of)
+        self.assertEqual([line.split()[:2] for line in lines],
+                         [['OWNER', 'RUNAWAY'], ['OWNER', 'BIGPROC'], ['BIGPROC', 'proc403']])
+        self.assertTrue(lines[1].startswith('OWNER BIGPROC proc402 pid 402 uid 0 at 30.0 GiB | /usr/sbin/other'), lines[1])
+        self.assertNotIn('OWNER', lines[2])
 
 
 class RunTests(unittest.TestCase):
@@ -167,6 +180,15 @@ class RunTests(unittest.TestCase):
         self.run_main(runner_for(), '--rounds', '1', '--ours', str(ours))
         text = (self.dir / 'memwatch.alarm').read_text()
         self.assertIn('RUNAWAY name401 pid 401 uid 501 at 20.0 GiB', text)
+
+    def test_a_uid_0_process_gets_the_owner_mark_in_the_alarm_file_and_the_log(self):
+        top = 'Processes: 5 total\nPID    UID  MEM\n402    0    17G\n403    501  17G\n404    0    2G\n'
+        self.run_main(runner_for(top=top), '--rounds', '1')
+        alarm = (self.dir / 'memwatch.alarm').read_text().splitlines()
+        self.assertEqual(len(alarm), 2, alarm)
+        self.assertIn(' | OWNER BIGPROC name402 pid 402 uid 0 at 17.0 GiB | /usr/sbin/other 402', alarm[0])
+        self.assertIn(' | BIGPROC name403 pid 403 uid 501 at 17.0 GiB | ', alarm[1])
+        self.assertIn(' | ALARM OWNER BIGPROC name402 ', (self.dir / 'memwatch.log').read_text())
 
     def test_only_read_only_commands_run_and_no_signal_exists_in_the_source(self):
         calls = []
