@@ -22,8 +22,13 @@ extension RNASeqExportTemplates {
           norm <- norm[rowMeans(norm) > 1, , drop = FALSE]
           mod  <- model.matrix(as.formula(paste("~", paste(c(batch_column, design_terms), collapse = " + "))), coldata)
           mod0 <- model.matrix(as.formula(paste("~", batch_column)), coldata)
-          sv <- svaseq(norm, mod, mod0, n.sv = num.sv(norm, mod, method = "be"))$sv
-          for (i in seq_len(ncol(sv))) coldata[[paste0("SV", i)]] <- sv[, i]
+          n_sv <- num.sv(norm, mod, method = "be", seed = 1)   # "be" permutes at random, so a seed fixes the count
+          if (n_sv > 0) {
+            sv <- svaseq(norm, mod, mod0, n.sv = n_sv)$sv
+            for (i in seq_len(ncol(sv))) coldata[[paste0("SV", i)]] <- sv[, i]
+          } else {
+            message("sva found no surrogate variables, so the model holds the batch and the design only.")
+          }
           model_terms <- c(batch_column, colnames(coldata)[grepl("^SV[0-9]+$", colnames(coldata))], design_terms)
         }
 

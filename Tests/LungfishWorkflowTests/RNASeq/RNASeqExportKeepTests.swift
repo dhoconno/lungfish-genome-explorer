@@ -18,10 +18,19 @@ final class RNASeqExportKeepTests: RNASeqExportTestCase {
         var groups: [String: String] = [:]
         for (index, sample) in samples.enumerated() { groups[sample] = index < 4 ? "TB" : "HIV" }
         let result = try make(.init(name: "keep", samples: samples, genes: genes, notHost: ["G39", "G40"], groups: groups, noise: 0.4))
+        // RS_HANDOFF_KEEP_BATCH set to combat-seq or sva writes the batch block, with a batch X or Y that crosses the group.
+        let step = ProcessInfo.processInfo.environment["RS_HANDOFF_KEEP_BATCH"].flatMap(RNASeqExportSettings.BatchCorrection.init(rawValue:)) ?? .none
+        var sheet: URL?
+        if step != .none {
+            let url = root.appendingPathComponent("batch-sheet.tsv")
+            try ("sample\tbatch\n" + samples.enumerated().map { "\($1)\t\($0 % 2 == 0 ? "X" : "Y")\n" }.joined()).write(to: url, atomically: true, encoding: .utf8)
+            sheet = url
+        }
         let settings = RNASeqExportSettings(
-            design: ["group"], contrasts: [.init(factor: "group", numerator: "TB", denominator: "HIV")], padjCutoff: 0.1, lfcBar: 1.4)
+            design: ["group"], contrasts: [.init(factor: "group", numerator: "TB", denominator: "HIV")], padjCutoff: 0.1, lfcBar: 1.4,
+            batch: step == .none ? nil : "batch", batchCorrection: step)
         try RNASeqExport.run(
-            results: [result], sheet: nil, settings: settings, output: URL(fileURLWithPath: path),
+            results: [result], sheet: sheet, settings: settings, output: URL(fileURLWithPath: path),
             argv: ["lungfish-cli", "rnaseq", "export"], checkpoint: nil)
         XCTAssertTrue(FileManager.default.fileExists(atPath: URL(fileURLWithPath: path).appendingPathComponent("deseq2.R").path))
     }
