@@ -161,8 +161,12 @@ final class ReferenceSetCountingGTFTests: XCTestCase {
         for version in [2, 3] {
             let set = root.appendingPathComponent("schema-\(version)", isDirectory: true)
             try FileManager.default.createDirectory(at: set, withIntermediateDirectories: true)
-            try Data(text.replacingOccurrences(of: "\"schemaVersion\" : 1", with: "\"schemaVersion\" : \(version)").utf8)
-                .write(to: set.appendingPathComponent(ReferenceSetManifest.filename))
+            // Schema 3's body cannot decode as schema 2 (no id, and `derived` is a string), so only a refusal made
+            // before the decode can name the version.
+            let body = version == 2
+                ? text.replacingOccurrences(of: "\"schemaVersion\" : 1", with: "\"schemaVersion\" : 2")
+                : "{ \"schemaVersion\" : 3, \"derived\" : \"a layout this LGE does not know\" }"
+            try Data(body.utf8).write(to: set.appendingPathComponent(ReferenceSetManifest.filename))
             if version == 2 {
                 XCTAssertEqual(try ReferenceSetManifest.load(from: set).schemaVersion, 2)
             } else {
