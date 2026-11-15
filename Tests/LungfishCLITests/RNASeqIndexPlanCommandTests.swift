@@ -9,6 +9,7 @@
 import ArgumentParser
 import CryptoKit
 import Foundation
+import LungfishCore
 import LungfishPortable
 import LungfishTestSupport
 import XCTest
@@ -38,12 +39,29 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
 
         """
 
-    /// A small set of schema 2 built by the owner under `root/store`, and that storage root.
-    static func builtSet(in root: URL) async throws -> (storage: URL, set: URL) {
+    /// A gzip member of `plain` in one stored block, which a gzip reader unpacks and which needs no tool to write.
+    static func gzipped(_ plain: Data) -> Data {
+        var crc: UInt32 = 0xFFFF_FFFF
+        for byte in plain {
+            crc ^= UInt32(byte)
+            for _ in 0..<8 { crc = (crc >> 1) ^ (0xEDB8_8320 & (0 &- (crc & 1))) }
+        }
+        func little(_ value: UInt32) -> [UInt8] { (0..<4).map { UInt8(truncatingIfNeeded: value >> UInt32(8 * $0)) } }
+        let length = UInt16(plain.count)
+        var out = Data([0x1F, 0x8B, 0x08, 0x00, 0, 0, 0, 0, 0x00, 0xFF, 0x01])
+        out.append(contentsOf: [UInt8(length & 0xFF), UInt8(length >> 8), UInt8(~length & 0xFF), UInt8(~length >> 8)])
+        out.append(plain)
+        out.append(contentsOf: little(~crc) + little(UInt32(plain.count)))
+        return out
+    }
+
+    /// A small set of schema 2 built by the owner under `root/store`, and that storage root. `gzipGenome` gives the owner
+    /// `genome.fa.gz`, which the set keeps as it came.
+    static func builtSet(in root: URL, gzipGenome: Bool = false) async throws -> (storage: URL, set: URL) {
         let inputs = root.appendingPathComponent("inputs", isDirectory: true)
         try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
-        let fasta = inputs.appendingPathComponent("genome.fa"), gtf = inputs.appendingPathComponent("genes.gtf")
-        try Data(genome.utf8).write(to: fasta)
+        let fasta = inputs.appendingPathComponent(gzipGenome ? "genome.fa.gz" : "genome.fa"), gtf = inputs.appendingPathComponent("genes.gtf")
+        try (gzipGenome ? gzipped(Data(genome.utf8)) : Data(genome.utf8)).write(to: fasta)
         try Data(annotation.utf8).write(to: gtf)
         let storage = root.appendingPathComponent("store", isDirectory: true)
         let owner = ReferenceSetOwner(
@@ -175,6 +193,77 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
             }
             XCTAssertFalse(FileManager.default.fileExists(atPath: storage.appendingPathComponent(STARIndexRecordStore.folderName).path), what)
         }
+    }
+
+    // MARK: - A gzip genome and the records folder
+
+    /// The bytes of the first member of an uncompressed tar whose name ends with `suffix`.
+    private static func tarMember(endingWith suffix: String, in tar: Data) -> Data? {
+        var offset = 0
+        while offset + 512 <= tar.count {
+            let header = tar[offset..<(offset + 512)]
+            guard header.contains(where: { $0 != 0 }) else { return nil }
+            let name = String(decoding: header.prefix(100).prefix(while: { $0 != 0 }), as: UTF8.self)
+            let sizeField = tar[(offset + 124)..<(offset + 136)].prefix(while: { $0 != 0 && $0 != 0x20 })
+            guard let size = Int(String(decoding: sizeField, as: UTF8.self), radix: 8) else { return nil }
+            if name.hasSuffix(suffix), offset + 512 + size <= tar.count { return tar[(offset + 512)..<(offset + 512 + size)] }
+            offset += 512 + (size + 511) / 512 * 512
+        }
+        return nil
+    }
+
+    /// A set whose genome is gzip keeps it as it came, so the plan unpacks it with pigz into `unpacked-genome.fa` and STAR reads
+    /// that file, never the `.gz` (`STARIndexPlan.swift`, the unpack step). The plan is read back out of the written `plan.tar`.
+    func testAGzipGenomeGetsAnUnpackStepAndStarReadsTheUnpackedFile() async throws {
+        let (storage, set) = try await Self.builtSet(in: root, gzipGenome: true)
+        let files = try Self.writeImageFiles(in: root)
+        let out = root.appendingPathComponent("out", isDirectory: true).appendingPathComponent("idx")
+        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try await RNASeqIndexPlanSubcommand.parse(Self.planArguments(set: set, storage: storage, output: out, files: files)).run()
+        let walk = try XCTUnwrap(FileManager.default.enumerator(at: out, includingPropertiesForKeys: nil))
+        let tar = try XCTUnwrap(walk.compactMap { $0 as? URL }.first { $0.lastPathComponent == "plan.tar" }, "the sample's plan.tar")
+        let member = try XCTUnwrap(Self.tarMember(endingWith: "plan.json", in: try Data(contentsOf: tar)), "plan.json in plan.tar")
+        let plan = try ExecutionPlan.decode(member)
+        let id = try XCTUnwrap(plan.pipeline?.referenceSet.id)
+        XCTAssertEqual(plan.steps.map(\.id), ["unpack-genome", "star-index"], "the gzip genome is unpacked before STAR reads it")
+        guard plan.steps.count == 2, case let (unpack, star) = (plan.steps[0], plan.steps[1]) else { return }
+        XCTAssertEqual(unpack.tool, PlanToolPin(id: "pigz", version: "2.8", build: "h421ea60_1"))
+        XCTAssertEqual(unpack.arguments, ["-d", "-c", "references/\(id)/genome/genome.fa.gz"])
+        XCTAssertEqual(unpack.standardOutput, "unpacked-genome.fa")
+        XCTAssertTrue(star.inputs.contains("unpacked-genome.fa"), "\(star.inputs)")
+        XCTAssertTrue(star.arguments.contains("unpacked-genome.fa"), "\(star.arguments)")
+        XCTAssertFalse(star.arguments.contains { $0.hasSuffix(".gz") }, "STAR never reads the .gz itself: \(star.arguments)")
+        XCTAssertEqual(plan.tools.map(\.id), ["STAR", "pigz"], "the plan pins pigz since a step runs it")
+    }
+
+    /// No cleanup of LGE reaches `rnaseq-index-records/` (`docs/formats/reference-set.md`, Index records). The one cleanup that
+    /// walks a storage root, `removeOldLocalCopies` after a change of root, takes the old root's `conda` and `databases` and
+    /// leaves everything else, so the record stays where it was.
+    func testTheCleanupAfterAChangeOfStorageRootLeavesTheIndexRecordsFolder() async throws {
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let (oldRoot, newRoot) = (root.appendingPathComponent("old-root", isDirectory: true), root.appendingPathComponent("new-root", isDirectory: true))
+        let configStore = ManagedStorageConfigStore(homeDirectory: home, environmentProvider: { [:] })
+        try configStore.setActiveRoot(oldRoot)
+        guard configStore.currentLocation().rootURL.standardizedFileURL.path.hasPrefix(root.path + "/") else {
+            return XCTFail("the fixture refuses a storage root outside its temporary folder")
+        }
+        let record = oldRoot.appendingPathComponent(STARIndexRecordStore.folderName, isDirectory: true)
+            .appendingPathComponent("set-1/star-2.7.11b-sa2-sparse2", isDirectory: true).appendingPathComponent("index-record.json")
+        let bytes = Data("{\"set\": \"set-1\"}\n".utf8)
+        try FileManager.default.createDirectory(at: record.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try bytes.write(to: record)
+        for managed in ["conda", "databases"] {
+            try FileManager.default.createDirectory(at: oldRoot.appendingPathComponent(managed), withIntermediateDirectories: true)
+        }
+        let coordinator = ManagedStorageCoordinator(
+            configStore: configStore, validator: { ManagedStorageLocation(rootURL: $0) },
+            databaseMigrator: { _, _ in }, toolInstaller: { _ in }, verifier: { _ in })
+        try await coordinator.changeLocation(to: newRoot)
+        try await coordinator.removeOldLocalCopies()
+        for managed in ["conda", "databases"] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: oldRoot.appendingPathComponent(managed).path), "the cleanup took \(managed)")
+        }
+        XCTAssertEqual(try? Data(contentsOf: record), bytes, "and left the index record where it was")
     }
 }
 
