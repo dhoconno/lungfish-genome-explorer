@@ -331,6 +331,19 @@ class HeartbeatCallsTests(unittest.TestCase):
         (self.records / 'done_ids.txt').write_text(B + '\n')
         self.assertTrue(self.beat().startswith('QUIET '))
 
+    def test_a_blank_line_or_a_note_in_done_ids_hides_no_line_of_another_agent(self):
+        """A blank line made an empty alternative in the filter, which matched every context, STALLED and CALLS line."""
+        self.session.agent(A, 'Stop at 2 calls.', 4)
+        self.session.agent(B, 'No line here.', 2, tokens=350_000)
+        self.session.agent(C, 'Stop at 2 calls.', 4, tokens=350_000)
+        (self.records / 'done_ids.txt').write_text(C + '\n\n# a note\n')
+        lines = self.beat('--pending-s', '100').splitlines()
+        self.assertEqual(lines[0][:6], 'ALARM ', lines)
+        self.assertIn('CALLS %s 4/2' % A, lines)
+        self.assertEqual(sorted(line.split()[1] for line in lines if line.startswith('STALLED')), [A, B])
+        self.assertEqual([line.split()[0] for line in lines if line.startswith(B)], [B])
+        self.assertEqual([line for line in lines if C in line], [])
+
     def test_the_wait_ends_at_the_first_round_with_a_finding(self):
         self.session.agent(A, 'Stop at 2 calls.', 2)
         out = self.beat('--rounds', '3')
