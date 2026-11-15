@@ -205,16 +205,20 @@ public enum SingleCellFolderReader {
         }
     }
 
+    /// The sha256 and size of an `.h5` file, read in 1 MiB chunks, each in its own autorelease pool so the hash holds
+    /// one chunk and not the whole file.
     static func hashFile(_ url: URL) throws -> (String, Int64) {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hasher = SHA256()
         var size: Int64 = 0
-        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+        while try autoreleasepool(invoking: { () throws -> Bool in
+            guard let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty else { return false }
             try Task.checkCancellation()
             hasher.update(data: chunk)
             size += Int64(chunk.count)
-        }
+            return true
+        }) {}
         return (RNASeqResultBundle.hex(hasher.finalize()), size)
     }
 }

@@ -96,6 +96,8 @@ extension RNASeqResultWriter {
         return copied
     }
 
+    /// Copies `source` to `destination` in 1 MiB chunks and hashes each as it goes. Each chunk is read in its own
+    /// autorelease pool: without one, every chunk lived until the loop ended, and X5's 3.2 GB matrix took 3.4 GB.
     func copyHashing(_ source: URL, to destination: URL) throws -> (sha256: String, size: Int64) {
         let input = try FileHandle(forReadingFrom: source)
         defer { try? input.close() }
@@ -106,12 +108,14 @@ extension RNASeqResultWriter {
         defer { try? output.close() }
         var hasher = SHA256()
         var size: Int64 = 0
-        while let chunk = try input.read(upToCount: 1 << 20), !chunk.isEmpty {
+        while try autoreleasepool(invoking: { () throws -> Bool in
+            guard let chunk = try input.read(upToCount: 1 << 20), !chunk.isEmpty else { return false }
             try Task.checkCancellation()
             hasher.update(data: chunk)
             try output.write(contentsOf: chunk)
             size += Int64(chunk.count)
-        }
+            return true
+        }) {}
         try output.synchronize()
         return (RNASeqResultBundle.hex(hasher.finalize()), size)
     }

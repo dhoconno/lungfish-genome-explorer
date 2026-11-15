@@ -138,11 +138,17 @@ public enum RNASeqResultBundle {
         hex(SHA256.hash(data: data))
     }
 
+    /// The sha256 of a file read in 1 MiB chunks, each in its own autorelease pool so the hash holds one chunk and not
+    /// the whole file.
     public static func sha256Hex(fileAt url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hasher = SHA256()
-        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty { hasher.update(data: chunk) }
+        while try autoreleasepool(invoking: { () throws -> Bool in
+            guard let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty else { return false }
+            hasher.update(data: chunk)
+            return true
+        }) {}
         return hex(hasher.finalize())
     }
 
