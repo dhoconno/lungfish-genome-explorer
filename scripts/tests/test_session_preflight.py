@@ -378,6 +378,31 @@ class StartPromptTests(unittest.TestCase):
         self.assertNotIn("{{", text)
         self.assertLessEqual(len(text.encode()), 4096)
 
+    def test_a_mix_of_old_and_young_processes_on_a_busy_machine_fits_the_start_limit(self):
+        lanes = ["LANE-%d" % i for i in range(8)]
+        (self.dir / "plan.md").write_text("| Lane | x |\n|---|---|\n" + "".join("| %s | does a thing |\n" % item for item in lanes))
+        binds = "A direction that binds the session, long enough to stand for a real one of about one hundred characters"
+        (self.dir / "owners.md").write_text("| Id | Date | Words | Binds |\n|---|---|---|---|\n" + "".join(
+            "| O%d | 2026-11-11 | \"w\" | %s |\n" % (i, binds) for i in range(3)))
+        rows = "".join("/w/folder-%d/with/a/long/path  %s [a-long-branch-name]\n" % (i, A[:9]) for i in range(20))
+        names = {"lge-t%d.md" % i: b"t" for i in range(9)}
+        doctor = (sys.executable, TOP + "/scripts/release/release.py", "doctor")
+        runner = "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest -XCTest All /w/folder-%d/.build/debug/T.xctest\n"
+        old = "".join(("  80%d 0%d-01:00:00 " + runner) % (i, i, i) for i in range(1, 6))
+        young = "".join(("  %d 00:0%d:00 " + runner) % (700 + i, i, i) for i in range(5))
+        table = {**healthy(), ("git", "worktree", "list"): (0, rows), ("git", "ls-tree", "main", ".claude/agents/"): (0, tree({**AGENT_FILES, **names})),
+                 doctor: (0, "Package readiness: READY\nPublish readiness: NOT READY (no profile)\n"), ("ps", "-axo"): (0, old + young)}
+        code, _, err, text = self.fill("--doctor", "--scope", ",".join(lanes), "--owner", "O0,O1,O2", "--budget", "about $660 and 34 points of the week",
+                                       "--records", "/Users/someone/lungfish-phase-records/a-session-folder", table=table,
+                                       template=str(SCRIPT.parent / "start-template.md"))
+        self.assertEqual((code, err), (1, ""))
+        self.assertLessEqual(len(text.encode()), 4096)
+        said = next(line for line in text.splitlines() if line.startswith("ACT processes: "))
+        self.assertIn("5 process(es) older than 12 hours still run: 801 (01-01:00:00) ", said)
+        self.assertIn("and 2 more. Stop each one by its PID", said)
+        self.assertIn("5 younger process(es) also run: 700 (00:00:00) ", said)
+        self.assertIn("and 3 more. They may be live work", said)
+
 
 class AgentsCheckTests(unittest.TestCase):
     def lines(self, change):
