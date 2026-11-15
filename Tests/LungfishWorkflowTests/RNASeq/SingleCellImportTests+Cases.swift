@@ -87,6 +87,16 @@ extension SingleCellImportTests {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: analyses.path), [], "no stage and no result")
     }
 
+    func testADuplicateBarcodeInOneSampleIsRefusedAndLeavesNoStage() throws {
+        let outs = try tinyOuts(
+            named: "dup", features: ["G1\tG1\tGene Expression"], barcodes: ["AAAC-1", "AAAC-1"], entries: ["1 1 2", "1 2 3"])
+        let folder = try SingleCellFolderReader.read(folder: outs)
+        XCTAssertEqual(
+            refusalWords { try write([folder]) },
+            "The RNA-seq result's table cells.sqlite is not valid: a barcode appears twice in one sample's barcode list, so its cells cannot be told apart. Copy barcodes.tsv again from the tool's output.")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: analyses.path), [], "no stage and no result")
+    }
+
     func testBarcodesUnlikeTheSizeLineAreRefused() throws {
         let outs = try tinyOuts(named: "short", features: ["G1\tG1\tGene Expression"], barcodes: ["AAAC-1", "CCCG-1"], entries: ["1 1 2"])
         try Data("AAAC-1\n".utf8).write(to: outs.appendingPathComponent("filtered_feature_bc_matrix/barcodes.tsv"))
