@@ -11,7 +11,7 @@ import Foundation
 import LungfishIO
 
 /// The barcodes of a raw list, held by index in one buffer.
-public struct SingleCellBarcodeTable: @unchecked Sendable {
+public struct SingleCellBarcodeTable: Sendable {
     private let bytes: Data
     private let starts: [UInt32]
     private let lengths: [UInt8]
