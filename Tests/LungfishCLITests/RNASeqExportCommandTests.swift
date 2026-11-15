@@ -118,10 +118,13 @@ final class RNASeqExportCommandTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasPrefix(".") }, [])
     }
 
+    /// The same call parses with no flag, so each throw below is the unknown flag, never the missing result path (SWIFT S-1).
     func testNoFlagOverridesTheRefusal() throws {
+        let a = try result("a", route: salmon, samples: ["S1", "S2"])
         let out = root.appendingPathComponent("export1", isDirectory: true)
+        XCTAssertNoThrow(try RNASeqExportSubcommand.parse(arguments([a], output: out)), "the same call parses with no flag")
         for flag in ["--allow-mixed-routes", "--force", "--ignore-route"] {
-            XCTAssertThrowsError(try RNASeqExportSubcommand.parse(arguments([], output: out, extra: [flag])), flag)
+            XCTAssertThrowsError(try RNASeqExportSubcommand.parse(arguments([a], output: out, extra: [flag])), flag)
         }
     }
 }
