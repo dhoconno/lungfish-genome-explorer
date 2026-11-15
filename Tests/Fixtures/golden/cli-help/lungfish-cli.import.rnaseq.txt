@@ -17,6 +17,13 @@ OPTIONS:
   --genome <genome>       Gene id prefix of one genome of a single-cell
                           reference of two or more, such as hg19 (repeat for
                           each genome)
+  --reference-set <reference-set>
+                          Reference set folder whose not-host sequences a
+                          single-cell import counts in each cell and in the
+                          ambient pool
+  --not-host-bam <not-host-bam>
+                          A sample's sorted, indexed BAM as <sample>=<path>,
+                          one for each sample with --reference-set (repeat)
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
