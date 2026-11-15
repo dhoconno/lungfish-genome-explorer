@@ -67,10 +67,13 @@ public struct RNASeqExportJoin: Sendable {
                 sampleIDs.append(id)
             }
         }
+        // Each row of each table is found by its id through a map built once for the table, never by a scan of the table for
+        // every gene, which made the time grow with the square of the gene count (3 min 21 s for 60,371 genes).
+        let positions = tables.map { rowPositions($0.gene.table.rows) }
         let rows = ids.indices.map { position -> RNASeqCountTable.Row in
-            RNASeqCountTable.Row(id: ids[position], counts: tables.flatMap { table -> [Double] in
-                let row = table.gene.table.rows.first { $0.id == ids[position] } ?? table.gene.table.rows[position]
-                return row.counts
+            RNASeqCountTable.Row(id: ids[position], counts: tables.indices.flatMap { index -> [Double] in
+                let held = tables[index].gene.table.rows
+                return held[positions[index][ids[position]] ?? position].counts
             })
         }
         let masked = try joinedMasked(tables, results: results, sampleIDs: sampleIDs)
@@ -89,10 +92,19 @@ public struct RNASeqExportJoin: Sendable {
         guard held.count == tables.count, held.allSatisfy({ Set($0.table.rows.map(\.id)) == Set(ids) }) else {
             throw RNASeqExportRefusal("The results do not move the same features into the masked column, so their masked counts cannot share one table.")
         }
+        let positions = held.map { rowPositions($0.table.rows) }
         let rows = ids.map { id in
-            RNASeqCountTable.Row(id: id, counts: held.flatMap { table in table.table.rows.first { $0.id == id }?.counts ?? [] })
+            RNASeqCountTable.Row(id: id, counts: held.indices.flatMap { index in positions[index][id].map { held[index].table.rows[$0].counts } ?? [] })
         }
         return RNASeqCountTable(sampleIDs: sampleIDs, rows: rows)
+    }
+
+    /// The position of each row by its id, built once for a table. A gene listed twice keeps its first row, as a scan finds it.
+    private static func rowPositions(_ rows: [RNASeqCountTable.Row]) -> [String: Int] {
+        var positions: [String: Int] = [:]
+        positions.reserveCapacity(rows.count)
+        for (index, row) in rows.enumerated() where positions[row.id] == nil { positions[row.id] = index }
+        return positions
     }
 
     private static func refuseMixedRoutesAndSets(_ results: [RNASeqExportResult], sizes: [Int]) throws {
