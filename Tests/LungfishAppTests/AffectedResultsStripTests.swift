@@ -151,6 +151,58 @@ final class AffectedResultsStripTests: XCTestCase {
         XCTAssertNil(AffectedResultsStrip.strip(in: viewer.view), "a viewer with no result shows no strip")
     }
 
+    func testANoticeWithNoSurfaceInstalledShowsItsStripWhenTheSurfaceInstalls() throws {
+        // The host removes the old surface as a show begins, so the Inspector's notice can find no surface at all.
+        let viewer = ViewerViewController()
+        viewer.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
+        let (rows, words) = try walkRows()
+        viewer.showAffectedResultsStrip(rows: rows)
+        XCTAssertNil(AffectedResultsStrip.strip(in: viewer.view), "no surface, no strip yet")
+
+        _ = try viewer.showSurface(.analysis(.kraken2), input: TaxonomyViewController(), as: Kraken2Surface.self)
+
+        let strip = try XCTUnwrap(AffectedResultsStrip.strip(in: viewer.view), "the surface that installs gets the strip")
+        XCTAssertEqual(strip.label.stringValue, words)
+        XCTAssertTrue(strip.surfaceView === viewer.installedSurface?.viewController.view)
+    }
+
+    func testANoticeBeforeADisplayThatClearsFirstStillEndsWithTheStrip() throws {
+        // Every display clears the viewer before it installs its own content (clearSurfaceForNewContent), and that
+        // clear takes the strip, so the words must outlast it.
+        let viewer = ViewerViewController()
+        viewer.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
+        _ = try viewer.showSurface(.analysis(.kraken2), input: TaxonomyViewController(), as: Kraken2Surface.self)
+        let (rows, words) = try walkRows()
+        viewer.showAffectedResultsStrip(rows: rows)
+
+        viewer.clearSurfaceForNewContent()
+        XCTAssertNil(AffectedResultsStrip.strip(in: viewer.view), "a viewer with no result shows no strip")
+        _ = try viewer.showSurface(.analysis(.kraken2), input: TaxonomyViewController(), as: Kraken2Surface.self)
+
+        let surfaceView = try XCTUnwrap(viewer.installedSurface?.viewController.view)
+        let strip = try XCTUnwrap(AffectedResultsStrip.strip(in: viewer.view))
+        XCTAssertEqual(strip.label.stringValue, words)
+        XCTAssertTrue(strip.surfaceView === surfaceView)
+        XCTAssertTrue(viewer.view.constraints.contains {
+            $0.isActive && $0.firstItem === surfaceView && $0.firstAttribute == .top
+                && $0.secondItem === strip && $0.secondAttribute == .bottom
+        }, "the result starts below the strip")
+    }
+
+    func testAnEmptyNoticeEndsTheWords() throws {
+        let viewer = ViewerViewController()
+        viewer.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
+        _ = try viewer.showSurface(.analysis(.kraken2), input: TaxonomyViewController(), as: Kraken2Surface.self)
+        viewer.showAffectedResultsStrip(rows: try walkRows().rows)
+        viewer.showAffectedResultsStrip(rows: [])
+        XCTAssertNil(AffectedResultsStrip.strip(in: viewer.view))
+
+        viewer.clearSurfaceForNewContent()
+        _ = try viewer.showSurface(.analysis(.kraken2), input: TaxonomyViewController(), as: Kraken2Surface.self)
+
+        XCTAssertNil(AffectedResultsStrip.strip(in: viewer.view), "the next result gets no strip of the item before")
+    }
+
     func testTheStripIsAbsentForARecordOfAnUnaffectedOrDevBuild() {
         for build in ["Lungfish 2026.11.7 (12972)", "Lungfish 2026.11.7 (dev)"] {
             let (container, surface, top) = container()
@@ -199,7 +251,8 @@ final class AffectedResultsStripTests: XCTestCase {
         XCTAssertGreaterThan(rows.count, 2)
         let words = try XCTUnwrap(AffectedResultsStrip.words(for: rows))
         XCTAssertTrue(words.hasPrefix(rows[0].words))
-        XCTAssertTrue(words.hasSuffix(" \(rows.count - 1) more notes are under Warnings in the Inspector."))
+        XCTAssertTrue(words.hasSuffix(" \(rows.count - 1) more notes are under Warnings on the Inspector's Provenance tab."),
+                      "the Warnings are on the Provenance tab only")
         XCTAssertEqual(AffectedResultsStrip.words(for: [rows[0]]), rows[0].words)
         XCTAssertNil(AffectedResultsStrip.words(for: []))
     }
