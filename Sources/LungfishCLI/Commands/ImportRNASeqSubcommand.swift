@@ -41,6 +41,12 @@ extension ImportCommand {
         @Option(name: .customLong("genome"), help: "Gene id prefix of one genome of a single-cell reference of two or more, such as hg19 (repeat for each genome)")
         var genomes: [String] = []
 
+        @Option(name: .customLong("reference-set"), help: "Reference set folder whose not-host sequences a single-cell import counts in each cell and in the ambient pool")
+        var referenceSetPath: String?
+
+        @Option(name: .customLong("not-host-bam"), help: "A sample's sorted, indexed BAM as <sample>=<path>, one for each sample with --reference-set (repeat)")
+        var notHostBAMValues: [String] = []
+
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
@@ -57,8 +63,14 @@ extension ImportCommand {
             let isSingleCell = !inputs.isEmpty && inputs.allSatisfy(SingleCellFolderReader.isSingleCellFolder)
             let countUnit: RNASeqResultManifest.CountEntry.Unit? =
                 isTable ? unit.flatMap(RNASeqResultManifest.CountEntry.Unit.init(rawValue:)) : .estimated
+            let setURL = referenceSetPath.map { URL(fileURLWithPath: $0).standardizedFileURL }
+            let bams = Self.notHostBAMs(notHostBAMValues)
+            if let words = Self.notHostRefusal(isSingleCell: isSingleCell, hasSet: setURL != nil, bams: notHostBAMValues) {
+                emitter.emitFailed(words)
+                throw CLIExitCode.inputError.exitCode
+            }
             if let refusal = Self.refusal(
-                project: projectURL, files: inputs + [tx2geneURL, sheetURL].compactMap { $0 }, name: trimmedName,
+                project: projectURL, files: inputs + [tx2geneURL, sheetURL, setURL].compactMap { $0 } + bams.map(\.url), name: trimmedName,
                 isTable: isTable, inputs: inputs, unit: unit, countUnit: countUnit, hasTx2Gene: tx2geneURL != nil,
                 singleCell: (isSingleCell, Self.singleCellRefusal(inputs: inputs, hasTx2Gene: tx2geneURL != nil, unit: unit, genomes: genomes))
             ) {
@@ -72,15 +84,22 @@ extension ImportCommand {
             if let sheetURL { command += ["--samples", sheetURL.path] }
             if isTable, let unit { command += ["--unit", unit] }
             for genome in genomes { command += ["--genome", genome] }
+            if let setURL { command += ["--reference-set", setURL.path] }
+            for bam in bams { command += ["--not-host-bam", "\(bam.sample)=\(bam.url.path)"] }
             var explicit: [String: ParameterValue] = [
                 "inputs": .array(inputs.map(ParameterValue.file)), "project": .file(projectURL), "name": .string(trimmedName),
                 "tx2gene": tx2geneURL.map(ParameterValue.file) ?? .null, "samples": sheetURL.map(ParameterValue.file) ?? .null,
                 "unit": isTable ? unit.map(ParameterValue.string) ?? .null : .null,
             ]
             if isSingleCell { explicit["genome"] = .array(genomes.map(ParameterValue.string)) }
+            if let setURL {
+                explicit["referenceSet"] = .file(setURL)
+                explicit["notHostBAM"] = .array(bams.map { .string("\($0.sample)=\($0.url.path)") })
+            }
             let plan = Plan(
                 inputs: inputs, isTable: isTable, unit: countUnit ?? .estimated, tx2gene: tx2geneURL, sheet: sheetURL,
-                name: trimmedName, command: command, explicit: explicit, isSingleCell: isSingleCell, genomes: genomes)
+                name: trimmedName, command: command, explicit: explicit, isSingleCell: isSingleCell, genomes: genomes,
+                referenceSet: setURL, notHostBAMs: bams)
 
             let analysesURL = projectURL.appendingPathComponent("Analyses", isDirectory: true)
             let resultURL = AnalysesFolder.batchSampleFileURL(named: trimmedName, extension: "lungfishrnaseq", in: analysesURL)
@@ -92,7 +111,7 @@ extension ImportCommand {
                 destination.set(resultURL)
                 let many = isSingleCell ? "\(inputs.count) single-cell folders" : "\(inputs.count) salmon folders"
                 emitter.emitProgress(0.1, message: "Reading \(inputs.count == 1 ? inputs[0].lastPathComponent : many)...")
-                let (request, facts, summary) = try plan.request()
+                let (request, facts, summary) = try await plan.fullRequest()
                 emitter.emitProgress(0.6, message: "Writing \(resultURL.lastPathComponent)...")
                 let envelope = plan.envelope(facts: facts, startedAt: startedAt)
                 try RNASeqResultWriter().write(request, to: resultURL, envelope: envelope)
@@ -122,6 +141,7 @@ extension ImportCommand {
                 // stands there now is another run's and stays (`docs/formats/rnaseq-bundle.md`, The one writer).
                 emitter.emitFailed(CLIFailureWords.describe(error))
                 let isInput = error is RNASeqImportError || error is SingleCellImportError || error is MatrixMarketError
+                    || error is SingleCellNotHostError || error is ReferenceSetError
                 throw (isInput ? CLIExitCode.inputError : CLIExitCode.formatError).exitCode
             }
         }
@@ -169,6 +189,8 @@ extension ImportCommand.RNASeqSubcommand {
         let explicit: [String: ParameterValue]
         var isSingleCell = false
         var genomes: [String] = []
+        var referenceSet: URL?
+        var notHostBAMs: [(sample: String, url: URL)] = []
 
         /// Reads the files and returns the writer's request, the record's facts and a summary line.
         func request() throws -> (RNASeqResultWriter.Request, [String: ParameterValue], String) {
