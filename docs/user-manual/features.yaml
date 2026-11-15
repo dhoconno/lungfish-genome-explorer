@@ -1815,6 +1815,10 @@ features:
       When a result's BAM is a link to a file outside the result folder, the
       failure says that LGE extracts reads only from BAM files inside the
       folder and asks for a copy in place of the link.
+      When a TaxTriage result's database was built by a version of LGE before
+      2026.11.6 and records a BAM named for another sample, the command line
+      stops before it writes a read, names the file and gives lungfish-cli
+      build-db taxtriage with --force as the way to build the database again.
       A taxa collection extraction records the lungfish-cli extract
       taxa-collection command that Copy CLI Command copies, and the command
       writes extracted-<collection id>/<name>_taxid<id>.fastq.gz. A
