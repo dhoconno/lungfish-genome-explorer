@@ -22,8 +22,9 @@ extension SingleCellNotHostPass {
         public var notHostFeatures: [String]
     }
 
-    /// Reads the set's manifest, its gene table and the length of each not-host record from the extra's FASTA. A mask
-    /// of the set's schema 1 holds no intervals, so no extra has a mask yet (BIO-NOTHOST-BARCODE item 6).
+    /// Reads the set's manifest, its gene table and the length of each not-host record from the extra's FASTA, which
+    /// the set keeps as given, gzip or plain. A mask of the set's schema 1 holds no intervals, so no extra has a mask
+    /// yet (BIO-NOTHOST-BARCODE item 6).
     public static func readSet(_ url: URL) throws -> ReferenceSet {
         let manifest = try ReferenceSetManifest.load(from: url)
         let extras = manifest.extras.filter(\.notHost).map {
@@ -31,12 +32,12 @@ extension SingleCellNotHostPass {
         }
         var records: [SingleCellNotHostRecord] = []
         for extra in manifest.extras where extra.notHost {
-            guard let data = try? Data(contentsOf: url.appendingPathComponent(extra.path)) else {
+            guard let text = try? MatrixMarketReader.textLines(of: url.appendingPathComponent(extra.path)) else {
                 throw SingleCellNotHostError.extraRecordUnreadable(extra: extra.name, file: extra.path)
             }
             var lengths: [String: Int] = [:]
             var current: String?
-            for line in String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline) {
+            for line in text {
                 if line.hasPrefix(">") {
                     current = String(line.dropFirst().prefix { !$0.isWhitespace })
                 } else if let current {

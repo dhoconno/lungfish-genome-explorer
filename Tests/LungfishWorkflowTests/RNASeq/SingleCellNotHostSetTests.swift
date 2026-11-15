@@ -7,6 +7,7 @@
 // file to check a BAM's header, so it reads a gzip FASTA and a plain one alike.
 
 import XCTest
+import LungfishCore
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
@@ -106,11 +107,20 @@ final class SingleCellNotHostSetTests: XCTestCase {
         try Data().write(to: bam)
         try Data().write(to: URL(fileURLWithPath: bam.path + ".bai"))
         let folder = try SingleCellFolderReader.read(folder: solo)
-        let standIn = try ManagedTestStandIn(prefix: "nothost-samtools")
-        defer { standIn.remove() }
-        let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: standIn.home)
+        // The runner resolves the managed samtools under the test process's app identity, as ManagedMappingPipelineTests
+        // places its stub, so the stand-in goes where the runner looks.
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let samtools = CoreToolLocator.managedExecutableURL(
+            environment: "samtools", executableName: "samtools", homeDirectory: home, appIdentity: .current)
+        XCTAssertTrue(samtools.path.hasPrefix(home.path), "the stand-in stays under the test's home: \(samtools.path)")
+        try FileManager.default.createDirectory(at: samtools.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let install = { (script: String) throws in
+            try Data(script.utf8).write(to: samtools)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtools.path)
+        }
+        let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: home)
 
-        try standIn.install("samtools", script: Self.samtoolsScript(length: 13))
+        try install(Self.samtoolsScript(length: 13))
         let (result, facts) = try await SingleCellNotHostPass.run(
             [folder], set: try SingleCellNotHostPass.readSet(set), bams: [folder.sample: bam], runner: runner)
         let sample = try XCTUnwrap(result.samples.first)
@@ -119,11 +129,11 @@ final class SingleCellNotHostSetTests: XCTestCase {
         XCTAssertEqual(sample.barcodes.map(\.rawUMIs), [52, 30, 1])
         XCTAssertEqual(sample.pool.words, "not computed: 4 barcodes, too few for an ambient pool")
         XCTAssertEqual(sample.calls.map(\.flag), ["not computed: 4 barcodes, too few for an ambient pool", "not computed: 4 barcodes, too few for an ambient pool"])
-        XCTAssertEqual(facts["samtoolsVersion"]?.stringValue, "samtools 1.20")
+        XCTAssertEqual(facts["samtoolsVersion"]?.stringValue, "1.20")
         XCTAssertEqual(facts["notHostReferenceSet"]?.stringValue, "test-set")
 
-        try standIn.install("samtools", script: Self.samtoolsScript(length: 29903))
-        let other = NativeToolRunner(toolsDirectory: nil, homeDirectory: standIn.home)
+        try install(Self.samtoolsScript(length: 29903))
+        let other = NativeToolRunner(toolsDirectory: nil, homeDirectory: home)
         do {
             _ = try await SingleCellNotHostPass.run(
                 [folder], set: try SingleCellNotHostPass.readSet(set), bams: [folder.sample: bam], runner: other)
