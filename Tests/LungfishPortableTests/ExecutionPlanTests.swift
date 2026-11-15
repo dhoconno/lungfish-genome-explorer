@@ -94,7 +94,7 @@ final class ExecutionPlanTests: XCTestCase {
     func testValidPlanRoundTripsAndImageManifestIsNoEntryRole() throws {
         let plan = samplePlan()
         XCTAssertEqual(try ExecutionPlan.decode(plan.encoded()), plan)
-        XCTAssertEqual(PlanEntryRole.allCases.map(\.rawValue), ["recipe", "database", "input", "executor"])
+        XCTAssertEqual(PlanEntryRole.allCases.map(\.rawValue), ["recipe", "database", "input", "executor", "reference", "barcodeList"])
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: plan.encoded()) as? [String: Any])
         var entries = try XCTUnwrap(object["entries"] as? [[String: Any]])
         entries[1]["role"] = "imageManifest"
