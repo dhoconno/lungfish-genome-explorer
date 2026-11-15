@@ -166,6 +166,7 @@ public struct SalmonQuantRoute: Sendable {
             counts: made.counts, started: started)
         try RNASeqResultWriter(provenanceWriter: provenanceWriter).write(made, to: resultURL, envelope: envelope)
         try cache.recordUse(of: index, resultFolder: resultURL)
+        try owner.recordUse(of: setURL, resultFolder: resultURL)
         return SalmonQuantOutcome(resultURL: resultURL, index: index, samples: samples.map(\.id))
     }
 
