@@ -18,7 +18,7 @@ Foundation, Dispatch, Synchronization and LungfishPortable. Glibc, Musl and Darw
 | `RunCommand`, `run --plan <file> [--image-manifest <absolute file>] [--site-fact KEY=VALUE]...` | Sources/LungfishExecutor/RunCommand.swift line 35 |
 | `StepCommand`, `step`, one tool run under the launcher with its record | Sources/LungfishExecutor/StepCommand.swift line 11 |
 | `ReadCommand`, `read-fastq`, one FASTQ read through the portable reader and the launcher | Sources/LungfishExecutor/ReadCommand.swift line 25 |
-| `ImageManifestCommand`, `image-manifest`, the tool manifest of conda environments | Sources/LungfishExecutor/ImageManifestCommand.swift line 25 |
+| `ImageManifestCommand`, `image-manifest --conda-prefix <absolute folder>... [--data-file <role>=<absolute file>]... --output <file>`, the tool manifest of conda environments and the data files of the image | Sources/LungfishExecutor/ImageManifestCommand.swift line 29 |
 | `ExecutorCommand`, the bare probe `lungfish-executor [--version] [<file>]` | Sources/LungfishExecutor/ExecutorCommand.swift line 9 |
 | `PlanRunner`, which runs a checked plan's steps in order through one `StepController` and fills the run record | Sources/LungfishExecutor/Run/PlanRunner.swift line 18 |
 | `RunFiles` (line 17) and `RuntimeObservation` (line 198), the files `run --plan` reads before any tool and what it observes of the machine | Sources/LungfishExecutor/Run/RunPreflight.swift |
