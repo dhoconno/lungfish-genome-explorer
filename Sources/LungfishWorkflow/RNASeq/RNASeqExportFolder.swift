@@ -22,13 +22,18 @@ public struct RNASeqExportSheet: Equatable, Sendable {
         guard let header = lines.first, let key = header.firstIndex(of: "sample") ?? header.firstIndex(of: "sample_id") else {
             throw RNASeqExportRefusal("\(name) could not be read, because its first line names no sample column. A sample sheet is tab-separated, and its first line names a sample column.")
         }
+        // A column of empty name, such as the trailing tabs a spreadsheet saves, is left out, and a name given twice is refused.
+        let named = header.enumerated().filter { !$0.element.isEmpty }
+        if let twice = Dictionary(grouping: named.map(\.element), by: { $0 }).filter({ $0.value.count > 1 }).keys.sorted().first {
+            throw RNASeqExportRefusal("\(name) names the column \(twice) more than once. Each column of a sample sheet is named once, so remove or rename the repeat.")
+        }
         var rows: [String: [String: String]] = [:]
         for (index, line) in lines.dropFirst().enumerated() {
             guard key < line.count, !line[key].isEmpty else { throw RNASeqExportRefusal("\(name) could not be read, because line \(index + 2) names no sample.") }
             guard rows[line[key]] == nil else { throw RNASeqExportRefusal("The sample \(line[key]) appears twice in \(name). Each sample is one row.") }
-            rows[line[key]] = Dictionary(uniqueKeysWithValues: header.enumerated().map { ($1, $0 < line.count ? line[$0] : "") })
+            rows[line[key]] = Dictionary(named.map { ($0.element, $0.offset < line.count ? line[$0.offset] : "") }, uniquingKeysWith: { first, _ in first })
         }
-        return RNASeqExportSheet(columns: header.enumerated().filter { $0.offset != key }.map(\.element), rows: rows)
+        return RNASeqExportSheet(columns: named.filter { $0.offset != key }.map(\.element), rows: rows)
     }
 }
 
