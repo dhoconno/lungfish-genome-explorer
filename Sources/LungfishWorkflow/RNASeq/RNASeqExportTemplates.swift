@@ -13,9 +13,11 @@ public enum RNASeqExportTemplates {
         "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
-    static func settingsBlock(_ s: RNASeqExportSettings) -> String {
+    /// `minimumAnimals` is set for a pseudobulk export only, so the settings of a bulk export stay as they were.
+    static func settingsBlock(_ s: RNASeqExportSettings, minimumAnimals: Int? = nil) -> String {
         let terms = s.design.map(rString).joined(separator: ", ")
         let contrasts = s.contrasts.map { "c(\(rString($0.factor)), \(rString($0.numerator)), \(rString($0.denominator)))" }.joined(separator: ", ")
+        let animals = minimumAnimals.map { "min_animals <- \($0)   # fewest animals in each level of the tested factor, the rule of a pseudobulk comparison\n" } ?? ""
         return #"""
         # ---- Settings written by the export. Edit them here and run the script again. ----
         padj_cutoff <- \#(s.padjCutoff)   # the adjusted p-value cutoff you picked
@@ -24,7 +26,7 @@ public enum RNASeqExportTemplates {
         contrasts <- list(\#(contrasts))   # factor, numerator level, denominator level
         batch_column <- \#(s.batch.map(rString) ?? "NULL")
         batch_step <- "\#(s.batchCorrection.rawValue)"   # none, combat-seq or sva
-        # ---- End of settings ----
+        \#(animals)# ---- End of settings ----
         """#
     }
 
@@ -78,7 +80,46 @@ public enum RNASeqExportTemplates {
     }
     """#
 
-    public static func deseq2(_ s: RNASeqExportSettings) -> String {
+    /// The animals rule of a pseudobulk export, in the words of `RNASeqExportDesignCheck.AnimalWords`. Both templates run it right
+    /// after the files are read, so an export edited down to 2 animals in a level stops before anything is fitted.
+    static var animalsBlock: String {
+        typealias Words = RNASeqExportDesignCheck.AnimalWords
+        let none = rString(Words.rFormat(Words.none, order: ["columns", "ids", "hold", "sheet"]))
+        let level = rString(Words.rFormat(Words.level, order: ["level", "count", "animals", "names"]))
+        let tooFew = rString(Words.rFormat(Words.tooFew, order: ["min", "factor", "levels"]))
+        return #"""
+        check_animals <- function(coldata, design_terms, min_animals) {
+          if (length(design_terms) == 0) return(invisible(NULL))
+          term <- design_terms[length(design_terms)]
+          animal <- if ("animal" %in% colnames(coldata)) trimws(as.character(coldata[["animal"]])) else rep("", nrow(coldata))
+          animal[is.na(animal)] <- ""
+          missing <- rownames(coldata)[animal == ""]
+          n <- length(missing)
+          if (n > 0) {
+            shown <- if (n > 10) paste0(paste(missing[1:10], collapse = ", "), " and ", n - 10, " more")
+                     else if (n == 1) missing
+                     else paste0(paste(missing[-n], collapse = ", "), " and ", missing[n])
+            stop(sprintf(\#(none), if (n == 1) "column" else "columns", shown, if (n == 1) "holds" else "hold", "samples.tsv"), call. = FALSE)
+          }
+          level <- as.character(coldata[[term]])
+          found <- character()
+          for (l in sort(unique(level), method = "radix")) {
+            kept <- sort(unique(animal[which(level == l)]), method = "radix")
+            if (length(kept) < min_animals) {
+              found <- c(found, sprintf(\#(level), l, length(kept), if (length(kept) == 1) "animal" else "animals", paste(kept, collapse = ", ")))
+            }
+          }
+          if (length(found) > 0) stop(sprintf(\#(tooFew), min_animals, term, paste(found, collapse = ", and ")), call. = FALSE)
+        }
+        """#
+    }
+
+    /// The block and the call a pseudobulk export puts after the files are read, and nothing for a bulk export.
+    static func animalsCheck(_ minimumAnimals: Int?) -> String {
+        minimumAnimals == nil ? "" : "\(animalsBlock)\ncheck_animals(coldata, design_terms, min_animals)\n"
+    }
+
+    public static func deseq2(_ s: RNASeqExportSettings, minimumAnimals: Int? = nil) -> String {
         let batch = s.batchCorrection == .none ? "" : """
         \(checkBlock)
         check_batch_design(coldata, design_terms, batch_column, batch_step)
@@ -108,9 +149,9 @@ public enum RNASeqExportTemplates {
         # deseq2.R - written by lungfish-cli rnaseq export. Run it in this folder with Rscript --vanilla deseq2.R
         # Needs DESeq2, and sva for a batch step.
         suppressPackageStartupMessages(library(DESeq2))
-        \(settingsBlock(s))
+        \(settingsBlock(s, minimumAnimals: minimumAnimals))
         \(readBlock)
-        model_terms <- design_terms
+        \(animalsCheck(minimumAnimals))model_terms <- design_terms
         # Estimated counts (salmon's NumReads) are fractional, so they are rounded to whole counts here, as DESeq2 needs,
         # the same step as scripts/repro/rnaseq/gse162164/de.R. Reads, pairs and UMI counts are whole already.
         counts <- round(counts)

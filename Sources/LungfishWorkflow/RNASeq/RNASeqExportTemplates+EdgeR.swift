@@ -9,7 +9,7 @@
 import Foundation
 
 extension RNASeqExportTemplates {
-    public static func edgerLimmaDream(_ s: RNASeqExportSettings) -> String {
+    public static func edgerLimmaDream(_ s: RNASeqExportSettings, minimumAnimals: Int? = nil) -> String {
         let batch = s.batchCorrection == .none ? "" : """
         \(checkBlock)
         check_batch_design(coldata, design_terms, batch_column, batch_step)
@@ -37,10 +37,10 @@ extension RNASeqExportTemplates {
         # edger-limma-dream.R - written by lungfish-cli rnaseq export. Run it in this folder with Rscript --vanilla edger-limma-dream.R
         # Needs edgeR and limma, sva for a batch step, and variancePartition for the dream part.
         suppressPackageStartupMessages({ library(edgeR); library(limma) })
-        \(settingsBlock(s))
+        \(settingsBlock(s, minimumAnimals: minimumAnimals))
         random_terms <- character()   # columns of samples.tsv fitted as random intercepts by dream, such as the animal
         \(readBlock)
-        model_terms <- design_terms
+        \(animalsCheck(minimumAnimals))model_terms <- design_terms
         \(batch)dir.create("edger-limma-dream-results", showWarnings = FALSE)
         y <- DGEList(counts)
         # Library sizes and normalisation factors come from the host rows only, and every row stays in the table.

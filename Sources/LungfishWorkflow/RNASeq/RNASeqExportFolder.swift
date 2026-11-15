@@ -59,16 +59,19 @@ public enum RNASeqExport {
         let sheet = try sheetURL.map(RNASeqExportSheet.read)
         let samples = try sampleTable(join, sheet: sheet)
         try RNASeqExportDesignCheck.check(settings, samples: samples)
+        // A pseudobulk result counts animals and not cells, so each level of its tested factor needs columns of 3 animals.
+        let minimumAnimals = join.results.contains { $0.manifest.origin.kind == .pseudobulk } ? RNASeqExportDesignCheck.minimumAnimals : nil
+        if minimumAnimals != nil { try RNASeqExportDesignCheck.checkAnimals(settings, samples: samples) }
         var files: [(name: String, data: Data)] = [("counts.tsv", Data(countsText(join.counts).utf8))]
         if let masked = join.masked { files.append(("counts.masked.tsv", Data(countsText(masked).utf8))) }
         files += [
             ("genes.tsv", try RNASeqGeneRecord.tsvData(join.genes)),
             ("samples.tsv", Data(([samples.columns] + samples.rows).map { $0.map(cell).joined(separator: "\t") }.joined(separator: "\n").appending("\n").utf8)),
-            ("deseq2.R", Data(RNASeqExportTemplates.deseq2(settings).utf8)),
-            ("edger-limma-dream.R", Data(RNASeqExportTemplates.edgerLimmaDream(settings).utf8)),
+            ("deseq2.R", Data(RNASeqExportTemplates.deseq2(settings, minimumAnimals: minimumAnimals).utf8)),
+            ("edger-limma-dream.R", Data(RNASeqExportTemplates.edgerLimmaDream(settings, minimumAnimals: minimumAnimals).utf8)),
         ]
         let bar = settings.lfcBar.map { "\($0)" } ?? "none"
-        let resolved: [String: ParameterValue] = [
+        var resolved: [String: ParameterValue] = [
             "padjCutoff": .string("\(settings.padjCutoff)"), "alpha": .string("\(settings.padjCutoff)"), "lfcBar": .string(bar),
             "design": .array(settings.design.map(ParameterValue.string)),
             "contrasts": .array(settings.contrasts.map { .string("\($0.factor):\($0.numerator):\($0.denominator)") }),
@@ -79,6 +82,8 @@ public enum RNASeqExport {
                              "referenceSet": .string(RNASeqExportWords.referenceSet(item.manifest.referenceSet)), "samples": .integer(item.result.samples.count)])
             }),
         ]
+        // Only a pseudobulk record names the minimum, so the record of a bulk export is as it was.
+        if let minimumAnimals { resolved["minimumAnimals"] = .integer(minimumAnimals) }
         try Task.checkCancellation()
         try ScientificFileExportProvenance.writeFolderAtomically(.cliLeaf(
             workflowName: "RNA-seq export", sourceURLs: urls + (sheetURL.map { [$0] } ?? []), outputURL: folder, outputFormat: .text, argv: argv,

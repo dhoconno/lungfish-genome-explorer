@@ -122,6 +122,76 @@ public enum RNASeqExportDesignCheck {
         }
     }
 
+    /// The fewest animals each level of the tested factor may hold in a pseudobulk comparison. A test on single cells takes each cell
+    /// for a replicate and gives false discoveries, so LGE counts the animals of a level and not its cells.
+    public static let minimumAnimals = 3
+
+    /// The animals rule of a pseudobulk export. The tested factor is the last `--design` term. A column with no animal is refused
+    /// first, then each level of the factor with columns of fewer than `minimumAnimals` animals. With no design there is no tested
+    /// factor and nothing is counted. `deseq2.R` and `edger-limma-dream.R` run the same rule in the same words before the fit.
+    public static func checkAnimals(_ settings: RNASeqExportSettings, samples: RNASeqExportSampleTable) throws {
+        guard let factor = settings.design.last else { return }
+        let ids = samples.values(of: "sample_id") ?? samples.rows.map { $0.first ?? "" }
+        let animals = (samples.values(of: "animal") ?? ids.map { _ in "" }).map { $0.trimmingCharacters(in: .whitespaces) }
+        let missing = ids.indices.filter { animals[$0].isEmpty }.map { ids[$0] }
+        if !missing.isEmpty {
+            let shown = missing.count > 10 ? missing.prefix(10).joined(separator: ", ") + " and \(missing.count - 10) more" : RNASeqExportWords.list(missing)
+            throw RNASeqExportRefusal(AnimalWords.fill(AnimalWords.none, [
+                "columns": missing.count == 1 ? "column" : "columns", "ids": shown, "hold": missing.count == 1 ? "holds" : "hold", "sheet": "--sample-sheet",
+            ]))
+        }
+        let levels = samples.values(of: factor) ?? []
+        var found: [String] = []
+        for level in Array(Set(levels)).sorted() {
+            let names = Array(Set(zip(levels, animals).filter { $0.0 == level }.map(\.1))).sorted()
+            guard names.count < minimumAnimals else { continue }
+            found.append(AnimalWords.fill(AnimalWords.level, [
+                "level": level, "count": "\(names.count)", "animals": names.count == 1 ? "animal" : "animals", "names": names.joined(separator: ", "),
+            ]))
+        }
+        if !found.isEmpty {
+            throw RNASeqExportRefusal(AnimalWords.fill(AnimalWords.tooFew, ["min": "\(minimumAnimals)", "factor": factor, "levels": found.joined(separator: ", and ")]))
+        }
+    }
+
+    /// The words of the animals rule, one text for Swift and R. A field is written `{name}`. The scripts carry each text as an R
+    /// `sprintf` format made by `rFormat`, so `deseq2.R` stops with the words of the refusal. Only the sheet differs, which is
+    /// `--sample-sheet` here and `samples.tsv` in the script.
+    enum AnimalWords {
+        static let tooFew = "A pseudobulk comparison needs columns of at least {min} animals in each level of {factor}, "
+            + "because tests on single cells give false discoveries, so LGE counts animals and not cells. "
+            + "Here {levels}. Add animals so that each level holds {min} or more, or compare levels that already do."
+        static let level = "the level {level} holds columns of {count} {animals} ({names})"
+        static let none = "The pseudobulk {columns} {ids} {hold} no animal. LGE counts animals and not cells in a pseudobulk comparison, "
+            + "because tests on single cells give false discoveries, so each column needs its animal. "
+            + "Give the animal of each column in the animal column of {sheet}."
+
+        /// Each `{field}` filled in one pass, so a value that holds braces is never read as a field.
+        static func fill(_ text: String, _ fields: [String: String]) -> String {
+            var out = ""
+            var rest = Substring(text)
+            while let open = rest.firstIndex(of: "{") {
+                out += rest[..<open]
+                let after = rest.index(after: open)
+                if let close = rest[after...].firstIndex(of: "}"), let value = fields[String(rest[after..<close])] {
+                    out += value
+                    rest = rest[rest.index(after: close)...]
+                } else {
+                    out += "{"
+                    rest = rest[after...]
+                }
+            }
+            return out + rest
+        }
+
+        /// The text as an R `sprintf` format, each `{field}` as the positional `%n$s` of its place in `order`.
+        static func rFormat(_ text: String, order: [String]) -> String {
+            order.enumerated().reduce(text.replacingOccurrences(of: "%", with: "%%")) {
+                $0.replacingOccurrences(of: "{\($1.element)}", with: "%\($1.offset + 1)$s")
+            }
+        }
+    }
+
     private static func dummyCount(_ factors: [[String]]) -> Int { 1 + factors.reduce(0) { $0 + Set($1).count - 1 } }
 
     /// The rank of the model matrix of an intercept and the treatment dummies of each factor, by elimination.
