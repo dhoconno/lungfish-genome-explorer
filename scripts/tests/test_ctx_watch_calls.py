@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 SCRIPTS = Path(__file__).parents[1]
 SCRIPT, HEARTBEAT = SCRIPTS / 'session' / 'ctx_watch.py', SCRIPTS / 'session' / 'heartbeat.sh'
@@ -113,6 +114,60 @@ class CallsTests(unittest.TestCase):
                 self.session.agent(A, prompt, 9)
                 self.assertEqual(self.check(), ['none'])
 
+    def brief(self, text, name='brief.md'):
+        """The path, as a string, of a brief file with this text in the session's temporary folder."""
+        (self.session.root / name).write_text(text)
+        return str(self.session.root / name)
+
+    def test_a_prompt_with_no_line_takes_the_line_of_the_brief_it_names_in_each_form(self):
+        names = ['Your brief is %s.', 'Lane X, brief file %s', 'Brief: %s', 'Brief %s, order and shared files in w.md.',
+                 'Do the items under the brief `%s`.', 'The brief is "%s".']
+        briefs = ['Stop at 4 tool calls.', 'Stop by your 4th tool call: write a Handoff and end.',
+                  'Rules.\n\n- Stop at call 4. Report to a file.\n']
+        for name in names:
+            for text in briefs:
+                with self.subTest(name, brief=text):
+                    prompt = name % self.brief(text)
+                    self.session.agent(A, prompt, 3)
+                    self.assertEqual(self.check(), ['none'])
+                    self.session.agent(A, prompt, 4)
+                    self.assertEqual(self.check(), ['CALLS %s 4/4' % A])
+
+    def test_the_prompt_line_wins_over_the_brief_and_the_brief_over_the_type_file(self):
+        self.session.type_file('lge-lane', 'Stop at 9 calls.')
+        five = self.brief('Stop at 5 tool calls.')
+        bare = self.brief('Keep to 2 calls. Handoff at 2 calls. Stop at 2 files. Stop at 1.5 times the calls.', 'bare.md')
+        self.session.agent(A, 'Stop at 3 tool calls. Your brief is %s.' % five, 3, 'lge-lane')
+        self.session.agent(B, 'Your brief is %s.' % five, 5, 'lge-lane')
+        self.session.agent(C, 'Your brief is %s.' % bare, 9, 'lge-lane')
+        self.session.agent(D, 'Your brief is %s.' % bare, 8, 'lge-lane')
+        self.assertEqual(self.check(), ['CALLS %s 3/3' % A, 'CALLS %s 5/5' % B, 'CALLS %s 9/9' % C])
+
+    def test_a_brief_that_is_missing_a_folder_or_a_relative_path_leaves_the_type_line(self):
+        self.session.type_file('lge-lane', 'Stop at 2 calls.')
+        (self.session.root / 'folder.md').mkdir()
+        root = self.session.root
+        for prompt in ('Your brief is %s/missing.md.' % root, 'Your brief is %s/folder.md.' % root,
+                       'Your brief is briefs/relative.md.', 'Your brief is the file in the records folder.'):
+            with self.subTest(prompt):
+                self.session.agent(A, prompt, 2, 'lge-lane')
+                self.assertEqual(self.check(), ['CALLS %s 2/2' % A])
+
+    def test_the_first_brief_that_can_be_read_is_used_and_a_path_may_start_at_home(self):
+        late = self.brief('Stop at 3 calls.', 'late.md')
+        self.session.agent(A, 'Brief %s/missing.md, then the brief %s.' % (self.session.root, late), 3)
+        self.session.agent(B, 'Your brief is ~/late.md.', 3)
+        with mock.patch.dict(os.environ, {'HOME': str(self.session.root)}):
+            self.assertEqual(self.check(), ['CALLS %s 3/3' % A, 'CALLS %s 3/3' % B])
+
+    def test_a_line_in_the_form_stop_by_your_nth_tool_call_is_read_as_its_number(self):
+        for text, expected in (('Stop by your 1st tool call.', 1), ('Stop by your 22nd tool call', 22),
+                               ('Lane X. Stop by the 103rd call, then write a Handoff.', 103),
+                               ('STOP BY YOUR 120TH TOOL CALL: write what you have.', 120),
+                               ('Stop by your last tool call.', None), ('Stop by your 2nd file.', None)):
+            with self.subTest(text):
+                self.assertEqual(self.module.prompt_stop_line(text), expected)
+
     def test_a_prompt_without_a_form_takes_the_line_of_its_type_file_and_a_prompt_line_wins(self):
         self.session.type_file('lge-lane', 'Write your Handoff at 2 calls and stop at 5 calls or 300K of context.')
         self.session.agent(A, 'No line here.', 5, 'lge-lane')
@@ -193,10 +248,21 @@ class TypeLineTests(unittest.TestCase):
         module = load(SCRIPT, 'ctx_watch')
         lines = {'lge-lane': 85, 'lge-lane-opus': 130, 'lge-review': 70, 'lge-ruling': 40, 'lge-land': 150,
                  'lge-planner': 80, 'lge-release': 100, 'lge-walker': 45, 'lge-expert': 60,
-                 'llm-efficiency-monitor': 80, 'lge-fix': None}
+                 'llm-efficiency-monitor': 80, 'lge-fix': 60}
         for name, expected in lines.items():
             with self.subTest(name):
                 self.assertEqual(module.type_stop_line(name, str(REPO_TYPES)), expected)
+
+    def test_every_lge_type_and_the_monitor_names_a_stop_line(self):
+        """Seven other type files (the writing and reading helpers) name no line and stay out. A type with no line cannot alarm."""
+        module = load(SCRIPT, 'ctx_watch')
+        names = sorted(path.stem for path in REPO_TYPES.glob('lge-*.md')) + ['llm-efficiency-monitor']
+        self.assertIn('lge-fix', names)
+        for name in names:
+            with self.subTest(name):
+                line = module.type_stop_line(name, str(REPO_TYPES))
+                self.assertIsInstance(line, int, '%s.md names no stop line' % name)
+                self.assertGreater(line, 0)
 
     def test_the_default_folder_is_the_one_the_ledger_reads(self):
         folder = Path(load(SCRIPT, 'ctx_watch').default_agents_dir()).resolve()
