@@ -7,7 +7,8 @@ import LungfishPortable
 
 /// What a later plan builds its `reference` entries with `index` `{key, tool}` from (`docs/formats/executor-plan.md`,
 /// Reference entries): the set id, the key, the tool and each staged file's plan path, staging path, bytes and SHA-256.
-/// Every value comes from the run record and never from the plan.
+/// The tool, the key's STAR values and each file's bytes and SHA-256 come from the run record and never from the plan. The
+/// staging paths come from the adopt's options, and the set id, the FASTA paths and the two set digests from the set folder.
 package struct STARIndexRecord: Codable, Sendable, Equatable {
     package static let fileName = "index-record.json"
 

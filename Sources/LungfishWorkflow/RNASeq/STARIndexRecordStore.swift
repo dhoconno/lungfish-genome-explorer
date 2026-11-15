@@ -41,15 +41,15 @@ package struct STARIndexRecordStore: Sendable {
         return try JSONDecoder().decode(STARIndexRecord.self, from: Data(contentsOf: url))
     }
 
-    /// Writes the record through the durable write path. The same record again changes nothing, and a record that names
-    /// other digests for the same set and key is refused in words, since one key names one index.
+    /// Writes the record through the durable write path. The same record again changes nothing, and another record for the
+    /// same set and key is refused in words that name the record's file and what differs, since one key names one index.
     @discardableResult
     package func write(_ record: STARIndexRecord) throws -> URL {
         let target = try url(setID: record.setID, key: record.key.folderName)
         if let existing = try find(setID: record.setID, key: record.key.folderName) {
             guard existing == record else {
-                throw STARIndexError("The index record of \(record.key.folderName) for the set \(record.setID) already names other "
-                    + "digests, so it was not replaced. Build the index under another key, or remove the old record yourself.")
+                throw STARIndexError("The index record \(target.path) already names " + Self.differences(existing, record)
+                    + ", so it was not replaced. If this run is the one to keep, remove that file and adopt again.")
             }
             return target
         }
@@ -59,5 +59,27 @@ package struct STARIndexRecordStore: Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try DurableReplace.replace(try encoder.encode(record), named: STARIndexRecord.fileName, in: folder)
         return target
+    }
+
+    /// What a new record of the same set and key changes against the one on disk, such as `the same digests with its files
+    /// under <old folder>, where this adopt names <new folder>` when the index was adopted again under another batch.
+    static func differences(_ old: STARIndexRecord, _ new: STARIndexRecord) -> String {
+        let digests = { (record: STARIndexRecord) in Set(record.files.map { "\($0.path) \($0.bytes) \($0.sha256)" }) }
+        let changed = max(digests(new).subtracting(digests(old)).count, digests(old).subtracting(digests(new)).count)
+        let folders = { (record: STARIndexRecord) in
+            Set(record.files.map { ($0.stagingPath as NSString).deletingLastPathComponent }).sorted().joined(separator: " and ")
+        }
+        let (was, now) = (old.key, new.key)
+        let named: [String?] = [
+            folders(old) == folders(new) ? nil : "its files under \(folders(old)), where this adopt names \(folders(new))",
+            old.tool == new.tool && was.star == now.star ? nil : "the STAR build \(old.tool.build), where this run names \(new.tool.build)",
+            was.sjdbOverhang == now.sjdbOverhang ? nil : "--sjdbOverhang \(was.sjdbOverhang), where this run names \(now.sjdbOverhang)",
+            was.genomeFastaFiles == now.genomeFastaFiles ? nil : "other FASTA files",
+            was.countingGTFSHA256 == now.countingGTFSHA256 ? nil : "another SHA-256 of derived/genes.gtf",
+            was.referenceSetSHA256 == now.referenceSetSHA256 ? nil : "another SHA-256 of reference-set.json",
+        ]
+        let others = named.compactMap { $0 }
+        guard changed > 0 else { return "the same digests with " + (others.isEmpty ? ["other values"] : others).joined(separator: " and ") }
+        return (["other digests for \(changed) of \(new.files.count) files"] + others).joined(separator: " and ")
     }
 }
