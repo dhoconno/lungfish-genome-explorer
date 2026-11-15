@@ -82,7 +82,13 @@ final class SalmonQuantRouteProbeConformanceTests: XCTestCase {
             let manifest = try XCTUnwrap(
                 try JSONSerialization.jsonObject(with: Data(contentsOf: result.appendingPathComponent("rnaseq-result.json")))
                     as? [String: Any])
-            let samples = try XCTUnwrap(manifest["samples"] as? [Any], "\(path) lists its samples")
+            // The manifest's `samples` is the file reference {"path": "samples.tsv", "sha256": ...}, one row a sample after the
+            // header. The test read it as an array and stopped on every real result (C1, 2026-11-15, FIX-RS-QUANT-2 item 3).
+            let table = try XCTUnwrap(
+                (manifest["samples"] as? [String: Any])?["path"] as? String, "\(path) names its samples table")
+            let samples = try String(contentsOf: result.appendingPathComponent(table), encoding: .utf8)
+                .split(whereSeparator: \.isNewline).dropFirst()
+            XCTAssertFalse(samples.isEmpty, "\(path) lists its samples")
             XCTAssertEqual(envelope.steps.filter { $0.toolName == "salmon" }.count, samples.count, path)
             XCTAssertFalse(envelope.steps.contains { $0.toolName == "trim_galore" }, path)
         }
