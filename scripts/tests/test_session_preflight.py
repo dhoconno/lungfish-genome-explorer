@@ -20,6 +20,7 @@ GIB = 1024 * 1024
 SCRATCH, HOME, TOP, A, B = "/Volumes/scratch", "/home/t", "/w/wt", "a" * 40, "b" * 40
 AGENT_FILES = {"lge-fix.md": b"fix\n", "lge-lane.md": b"lane\n"}
 PRIMARY, _tmp = "", None
+FIND_OWNER = "find its owner in SCR STATE or a Handoff, and stop only a process this session started (E-RUN-18)"
 
 
 def setUpModule():
@@ -137,6 +138,55 @@ class PreflightTests(unittest.TestCase):
     def test_this_process_and_search_tools_are_not_leftovers(self):
         ps = "%d 00:01 /x/xctest\n 7 00:01 rg xctest\n 8 00:01 /usr/bin/grep swift-build\n 9 00:01 ps -axo xctest\n" % os.getpid()
         self.assertEqual(self.go({**healthy(), ("ps", "-axo"): (0, ps)})[0], 0)
+
+    def processes(self, ps, *args):
+        """(exit code, the lines of the processes check, all lines) of a run whose ps listing is `ps`."""
+        code, lines, _ = self.go({**healthy(), ("ps", "-axo"): (0, ps)}, *args)
+        return code, [l for l in lines if re.match(r"(PASS|INFO|ACT|SKIP) processes\b", l)], lines
+
+    def test_a_process_not_older_than_12_hours_gives_info_and_not_act(self):
+        for etime in ("00:09", "00:03:11", "07:02:00", "11:59:59"):
+            with self.subTest(etime=etime):
+                code, found, lines = self.processes("  600 %s /x/xctest -run\n" % etime)
+                self.assertEqual((code, len(found)), (0, 1))
+                self.assertTrue(found[0].startswith("INFO processes: "), found)
+                self.assertIn("600 (%s) /x/xctest -run" % etime, found[0])
+                self.assertIn(FIND_OWNER, found[0])
+                self.assertNotIn("Stop each one", found[0])
+                self.assertFalse(any(l.startswith("ACT ") for l in lines), lines)
+
+    def test_a_process_with_a_day_part_or_over_12_hours_gives_act(self):
+        for etime in ("12:00:01", "23:59:59", "01-00:00:00", "02-19:28:43"):
+            with self.subTest(etime=etime):
+                code, found, _ = self.processes("  600 %s /x/xctest -run\n" % etime)
+                self.assertEqual((code, len(found)), (1, 1))
+                self.assertTrue(found[0].startswith("ACT processes: "), found)
+                self.assertIn("600 (%s) /x/xctest -run" % etime, found[0])
+                self.assertIn("Stop each one by its PID", found[0])
+                self.assertNotIn("find its owner", found[0])
+
+    def test_an_old_and_a_younger_process_give_one_act_line_that_names_both(self):
+        code, found, _ = self.processes("  600 03-00:00:00 /x/xctest -run\n  601 00:04:00 /x/swift-build\n")
+        self.assertEqual((code, len(found)), (1, 1))
+        self.assertTrue(found[0].startswith("ACT processes: "), found)
+        self.assertIn("600 (03-00:00:00) /x/xctest -run", found[0])
+        self.assertIn("601 (00:04:00) /x/swift-build", found[0])
+        self.assertIn(FIND_OWNER, found[0])
+
+    def test_the_age_line_is_an_option_and_an_age_that_cannot_be_read_counts_as_younger(self):
+        row = "  600 02:00:00 /x/xctest -run\n"
+        self.assertEqual(self.processes(row)[0], 0)
+        code, found, _ = self.processes(row, "--old-process-hours", "1.5")
+        self.assertEqual(code, 1)
+        self.assertTrue(found[0].startswith("ACT processes: "), found)
+        self.assertIn("older than 1.5 hours", found[0])
+        code, found, _ = self.processes("  600 ?? /x/xctest -run\n")
+        self.assertEqual(code, 0)
+        self.assertTrue(found[0].startswith("INFO processes: "), found)
+
+    def test_the_elapsed_time_parser(self):
+        self.assertEqual([module.etime_seconds(text) for text in ("00:10", "19:28:43", "02-19:28:43", "1-00:00:00", "?", "")],
+                         [10, 70123, 242923, 86400, None, None])
 
     def test_the_program_worktree_option(self):
         self.assertEqual(self.go(healthy(), "--program-worktree", TOP)[0], 0)
@@ -270,6 +320,14 @@ class StartPromptTests(unittest.TestCase):
         self.assertIn("checks: 8 PASS, 2 SKIP (transcript, effort), 1 ACT (disk)", text)
         self.assertIn("ACT disk: 50 GiB free", text)
 
+    def test_an_info_line_is_counted_and_written_in_full_and_leaves_the_exit_code_at_0(self):
+        ps = "  600 00:03:11 /x/xctest -run\n  601 00:04:00 /x/swift-build\n"
+        code, _, _, text = self.fill("--scope", "PROBES", table={**healthy(), ("ps", "-axo"): (0, ps)})
+        self.assertEqual(code, 0)
+        self.assertIn("checks: 8 PASS, 1 INFO (processes), 2 SKIP (transcript, effort)", text)
+        self.assertIn("INFO processes: 2 younger process(es) still run: 600 (00:03:11) /x/xctest -run; 601 (00:04:00)", text)
+        self.assertIn(FIND_OWNER, text)
+
     def test_agent_worktrees_are_counted_and_left_out_of_the_facts(self):
         rows = "/w/primary  %s [main]\n/w/wt  %s [x]\n" % (A[:9], B[:9]) + "".join(
             "/w/p/.claude/worktrees/agent-%d  %s [b%d]\n" % (i, A[:9], i) for i in range(3))
@@ -306,13 +364,17 @@ class StartPromptTests(unittest.TestCase):
         rows = "".join("/w/folder-%d/with/a/long/path  %s [a-long-branch-name]\n" % (i, A[:9]) for i in range(20))
         names = {"lge-t%d.md" % i: b"t" for i in range(9)}
         doctor = (sys.executable, TOP + "/scripts/release/release.py", "doctor")
+        young = "".join("  %d 00:0%d:00 /Applications/Xcode.app/Contents/Developer/usr/bin/xctest -XCTest All /w/folder-%d/.build/debug/T.xctest\n"
+                        % (700 + i, i, i) for i in range(5))
         table = {**healthy(), ("git", "worktree", "list"): (0, rows), ("git", "ls-tree", "main", ".claude/agents/"): (0, tree({**AGENT_FILES, **names})),
-                 doctor: (0, "Package readiness: READY\nPublish readiness: NOT READY (no profile)\n")}
+                 doctor: (0, "Package readiness: READY\nPublish readiness: NOT READY (no profile)\n"), ("ps", "-axo"): (0, young)}
         code, _, err, text = self.fill("--doctor", "--scope", ",".join(lanes), "--owner", "O0,O1,O2", "--budget", "about $660 and 34 points of the week",
                                        "--records", "/Users/someone/lungfish-phase-records/a-session-folder", table=table,
                                        template=str(SCRIPT.parent / "start-template.md"))
         self.assertEqual((code, err), (1, ""))
         self.assertIn("ACT agents: ", text)
+        self.assertIn("INFO processes: 5 younger process(es) still run: 700 (00:00:00) ", text)
+        self.assertIn("and 2 more", text)
         self.assertNotIn("{{", text)
         self.assertLessEqual(len(text.encode()), 4096)
 
