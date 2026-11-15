@@ -32,6 +32,15 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
     /// EXTRACT-PREFIX-SCAN-NO-DATABASE). The Extract sheet, the Extract alert and the CLI show the same words.
     case moreThanOneBAMFitsSample(sampleId: String, names: [String])
 
+    /// The database of a TaxTriage result was built by a Lungfish before 2026.11.6, so it holds no `fitted_bam_samples`
+    /// mark, and it records for `sampleId` a BAM whose name is neither `{sample}.bam` nor
+    /// `{sample}.{sample}.dwnld.references.bam`. That build took such a file by a fit of its name when the sample's own
+    /// BAM was gone, and the file can be another sample's, so the resolver reads none and the words give the command that
+    /// builds the database anew (S1/S2 sweep, lane BUILDDB-OLDER-DB-CLI). `fileName` is the recorded BAM's name and
+    /// `resultFolder` the folder that holds `taxtriage.sqlite`. The Extract sheet, the Extract alert and the CLI show the
+    /// same words.
+    case taxTriageBAMBeforeFitMark(sampleId: String, fileName: String, resultFolder: URL)
+
     /// The NAO-MGS BAM of the given sample was made before the strand fix, so it stores the reads that map to the
     /// reverse strand the wrong way round, or it holds no marker that says otherwise. The resolver never reads it,
     /// and the words say to import the same NAO-MGS results file again (Phase 3.1 lane NAO-BAM-STALE, ruling
@@ -115,6 +124,11 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
         case .moreThanOneBAMFitsSample(let sampleId, let names):
             return "More than one BAM file fits sample '\(sampleId)' in minimap2: \(names.joined(separator: ", ")). "
                 + "LGE takes a sample's reads from one BAM. Keep only that sample's file in minimap2 and try again."
+        case .taxTriageBAMBeforeFitMark(let sampleId, let fileName, let resultFolder):
+            return "This result's database was built by a version of Lungfish before 2026.11.6, so the BAM it records for "
+                + "sample '\(sampleId)', \(fileName), may be another sample's. No reads were extracted. "
+                + "Run `lungfish-cli build-db taxtriage \"\(Self.doubleQuoted(resultFolder.path))\" --force`, "
+                + "then extract again."
         case .naoMgsBAMBeforeStrandFix(let sampleId):
             return "The alignment file of sample '\(sampleId)' comes from an earlier NAO-MGS import, which stored reads that map to the reverse strand the wrong way round, so Lungfish does not extract reads from it. "
                 + "Import the same NAO-MGS results file again in the Import Center (NAO-MGS Results), then extract from the new result. "
@@ -195,12 +209,23 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
             + "They were probably trimmed, filtered or basecalled again after the classification. \(nothing) \(next)"
     }
 
+    /// `text` made safe to paste between double quotes in a shell, with a backslash before each `\`, `"`, `$` and backtick.
+    private static func doubleQuoted(_ text: String) -> String {
+        var quoted = ""
+        for character in text {
+            if "\\\"$`".contains(character) { quoted.append("\\") }
+            quoted.append(character)
+        }
+        return quoted
+    }
+
     /// Whether the error is a refusal that the extraction itself would hit again, so a pre-flight estimate that
-    /// ends in it leaves nothing to run. True for exactly the four BAM refusals (Phase 2.12 lane 12.26, U-W2,
-    /// Phase 3.1 lane NAO-BAM-STALE, and Phase 3.4 lane EXTRACT).
+    /// ends in it leaves nothing to run. True for exactly the five BAM refusals (Phase 2.12 lane 12.26, U-W2,
+    /// Phase 3.1 lane NAO-BAM-STALE, Phase 3.4 lane EXTRACT, and S1/S2 sweep lane BUILDDB-OLDER-DB-CLI).
     public var blocksExtraction: Bool {
         switch self {
-        case .bamNotFound, .bamOutsideResult, .moreThanOneBAMFitsSample, .naoMgsBAMBeforeStrandFix:
+        case .bamNotFound, .bamOutsideResult, .moreThanOneBAMFitsSample, .naoMgsBAMBeforeStrandFix,
+             .taxTriageBAMBeforeFitMark:
             return true
         default:
             return false

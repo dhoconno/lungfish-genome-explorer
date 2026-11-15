@@ -20,13 +20,50 @@ extension ClassifierReadResolver {
     /// (``taxTriageNameFits(_:sampleId:)``). One fit is the candidate, and the extraction says so
     /// (``taxTriageScanNotice(tool:sampleId:resultPath:bam:)``). Two or more cannot be told apart, so the lookup
     /// ends in ``ClassifierExtractionError/moreThanOneBAMFitsSample(sampleId:names:)`` and no file is read.
+    ///
+    /// A database with no `fitted_bam_samples` key, which a build before 2026.11.6 made, whose recorded BAM for the sample
+    /// names neither of those two files and exists inside the result, ends the lookup in
+    /// ``ClassifierExtractionError/taxTriageBAMBeforeFitMark(sampleId:fileName:resultFolder:)`` before any file is read
+    /// (``refuseUnmarkedFittedBAM(among:sampleId:resultDir:)``).
     static func taxTriageBAMCandidates(sampleId: String, resultDir: URL) throws -> [URL] {
         let recorded = taxTriageRecordedBAMCandidates(sampleId: sampleId, resultDir: resultDir)
+        try refuseUnmarkedFittedBAM(among: recorded, sampleId: sampleId, resultDir: resultDir)
         let named = taxTriageNamedBAMs(sampleId: sampleId, resultDir: resultDir)
         guard recorded.isEmpty, named.allSatisfy({ checkedBAMCandidate($0, within: resultDir) == .absent }) else {
             return recorded + named
         }
         return try named + taxTriageScanFits(sampleId: sampleId, resultDir: resultDir)
+    }
+
+    /// Refuses `sampleId` when the BAM that the result's database records for it can be another sample's file that a build
+    /// before 2026.11.6 fitted and marked nowhere (S1/S2 sweep, lane BUILDDB-OLDER-DB-CLI, the ruling of BIO). That holds
+    /// when `taxtriage.sqlite` has no `fitted_bam_samples` key and a recorded path names a file that exists inside the
+    /// result under neither `{sample}.bam` nor `{sample}.{sample}.dwnld.references.bam`. It is the per-sample form of
+    /// `TaxTriageDatabase.recordsUnmarkedFittedBAM`, so the database's other samples are asked alone and extract as before.
+    /// A recorded file that is not there, or that leaves the result, keeps the refusal of
+    /// ``firstContainedBAM(among:within:sample:)``, and a key that lists no sample is a key. The check reads the database
+    /// and writes nothing.
+    private static func refuseUnmarkedFittedBAM(among recorded: [URL], sampleId: String, resultDir: URL) throws {
+        let ownNames = ["\(sampleId).bam", "\(sampleId).\(sampleId)\(taxTriageReferencesBAMSuffix)"]
+        let foreign = recorded.first { candidate in
+            guard !ownNames.contains(candidate.lastPathComponent),
+                  case .inside = checkedBAMCandidate(candidate, within: resultDir) else { return false }
+            return true
+        }
+        guard let foreign, taxTriageDatabaseHoldsNoFitMark(resultDir: resultDir) else { return }
+        throw ClassifierExtractionError.taxTriageBAMBeforeFitMark(
+            sampleId: sampleId, fileName: foreign.lastPathComponent, resultFolder: resultDir
+        )
+    }
+
+    /// Whether the metadata of the result's `taxtriage.sqlite` holds no `fitted_bam_samples` key at all, the mark of a
+    /// database that a build before 2026.11.6 made. A key that lists no sample is a key, and a result with no readable
+    /// database holds no mark to miss, so both are false.
+    private static func taxTriageDatabaseHoldsNoFitMark(resultDir: URL) -> Bool {
+        let databaseURL = resultDir.appendingPathComponent("taxtriage.sqlite")
+        guard FileManager.default.fileExists(atPath: databaseURL.path),
+              let metadata = try? TaxTriageDatabase(at: databaseURL).fetchMetadata() else { return false }
+        return metadata[TaxTriageDatabase.fittedBAMSamplesMetadataKey] == nil
     }
 
     /// The two names that the pipeline gives a sample's BAM in `minimap2/`.
