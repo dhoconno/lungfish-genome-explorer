@@ -72,7 +72,17 @@ extension ImportCommand.RNASeqSubcommand.Plan {
         request.notHostCells = result
         facts.merge(notHostFacts) { _, new in new }
         let flagged = result.samples.flatMap(\.calls).filter { SingleCellNotHostFlag.words(for: result.extras[$0.extra].kind) == $0.flag }.count
-        return (request, facts, summary + ", \(flagged) flagged above ambient")
+        return (request, facts, summary + ", \(flagged) flagged above ambient" + Self.notHostLeftOutNote(result.samples))
+    }
+
+    /// The import line's words for each library whose BAM held alignments and counted none, or holds barcodes that the raw
+    /// list lacks, so that a library read as no not-host RNA for want of a count says so (BIO-NOTHOST-BARCODE item 4).
+    static func notHostLeftOutNote(_ samples: [SingleCellNotHostSample]) -> String {
+        samples.filter(\.needsACheck).map { sample -> String in
+            let left = "left out \(sample.alignmentsMultimapped) not at NH 1, \(sample.alignmentsWithoutBarcode) without a CB or UB "
+                + "and \(sample.barcodesNotInRawList) barcodes not in the raw list"
+            return "; \(sample.sample) counted \(sample.alignmentsCounted) alignments, \(left), so check the BAM's tags and barcodes"
+        }.joined()
     }
 
     /// Reads the single-cell folders in the order of the sample sheet.

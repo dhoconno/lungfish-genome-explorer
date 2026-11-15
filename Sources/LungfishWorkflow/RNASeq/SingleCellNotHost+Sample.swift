@@ -42,6 +42,23 @@ public struct SingleCellNotHostSample: Sendable, Equatable {
     public var rates: [Double?]
     /// Barcodes with a not-host UMI that the raw list lacks, left out as both scripts leave them.
     public var barcodesNotInRawList: Int
+    /// The BAM's primary alignments over the set's records that the counter took, those it left out at an NH other than 1
+    /// or with no NH, and those it left out for want of a CB or UB (BIO-NOTHOST-BARCODE item 4: a degraded result says so).
+    public var alignmentsCounted = 0
+    public var alignmentsMultimapped = 0
+    public var alignmentsWithoutBarcode = 0
+
+    /// What the pass counted and left out of this library, in the words of the record.
+    public var leftOutWords: String {
+        "\(sample): \(alignmentsCounted) alignments counted, \(alignmentsMultimapped) not at NH 1 and \(alignmentsWithoutBarcode) without a CB or UB left out, "
+            + "\(barcodesNotInRawList) barcodes not in the raw list left out"
+    }
+
+    /// True when the BAM held alignments and the counter took none, or when barcodes of the BAM are not in the raw list: the
+    /// two ways a library reads as no not-host RNA for want of a count, and not for want of any.
+    public var needsACheck: Bool {
+        (alignmentsCounted == 0 && alignmentsMultimapped + alignmentsWithoutBarcode > 0) || barcodesNotInRawList > 0
+    }
 }
 
 /// The not-host pass of one import: the set's extras and records and each library's rows.

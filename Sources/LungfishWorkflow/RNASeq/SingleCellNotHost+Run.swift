@@ -108,7 +108,9 @@ extension SingleCellNotHostPass {
             let raw = try SingleCellRawMatrix.read(matrix: files.matrix, barcodes: files.barcodes, sample: folder.sample)
             let pool = SingleCellAmbientPool(raw)
             let cells = try MatrixMarketReader.textLines(of: folder.url.appendingPathComponent(folder.barcodes))
-            samples.append(sample(folder.sample, cells: cells, raw: raw, pool: pool, tallies: counter.tallies(), extras: set.extras))
+            var library = sample(folder.sample, cells: cells, raw: raw, pool: pool, tallies: counter.tallies(), extras: set.extras)
+            (library.alignmentsCounted, library.alignmentsMultimapped, library.alignmentsWithoutBarcode) = (counter.counted, counter.multimapped, counter.withoutBarcode)
+            samples.append(library)
             let (bamSHA, bamSize) = try SingleCellFolderReader.hashFile(bam)
             let (rawSHA, _) = try SingleCellFolderReader.hashFile(files.matrix)
             bamFacts.append(.string("\(folder.sample): \(bam.path) (sha256 \(bamSHA), \(bamSize) bytes)"))
@@ -119,6 +121,7 @@ extension SingleCellNotHostPass {
         let facts: [String: ParameterValue] = [
             "notHostReferenceSet": .string(set.manifest.id),
             "notHostBAMs": .array(bamFacts),
+            "notHostAlignments": .array(samples.map { .string($0.leftOutWords) }),
             "notHostRawMatrices": .array(rawFacts),
             "notHostMasks": .array(set.extras.map { extra in
                 let source = extra.mask.map { ", mask \($0.file) (sha256 \($0.sha256)), \($0.intervals.count) rRNA genes" } ?? ""
