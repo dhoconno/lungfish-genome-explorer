@@ -59,13 +59,16 @@ final class SingleCellImportTests: XCTestCase {
         try RNASeqCellsDatabase(url: result.appendingPathComponent(RNASeqCellsDatabase.filename))
     }
 
-    /// A Cell Ranger `outs/` folder of plain files in the temp folder, with the given features, barcodes and entries.
-    func tinyOuts(named name: String, features: [String], barcodes: [String], entries: [String], header: String? = nil) throws -> URL {
+    /// A Cell Ranger `outs/` folder of plain files in the temp folder, with the given features, barcodes and entries,
+    /// and `comment` as the matrix's second line.
+    func tinyOuts(
+        named name: String, features: [String], barcodes: [String], entries: [String], header: String? = nil, comment: String = "%"
+    ) throws -> URL {
         let outs = tempRoot.appendingPathComponent("\(name)/outs", isDirectory: true)
         let matrix = outs.appendingPathComponent("filtered_feature_bc_matrix", isDirectory: true)
         try FileManager.default.createDirectory(at: matrix, withIntermediateDirectories: true)
         let banner = header ?? "%%MatrixMarket matrix coordinate integer general"
-        let text = ([banner, "%", "\(features.count) \(barcodes.count) \(entries.count)"] + entries).joined(separator: "\n") + "\n"
+        let text = ([banner, comment, "\(features.count) \(barcodes.count) \(entries.count)"] + entries).joined(separator: "\n") + "\n"
         try Data(text.utf8).write(to: matrix.appendingPathComponent("matrix.mtx"))
         try Data((features.joined(separator: "\n") + "\n").utf8).write(to: matrix.appendingPathComponent("features.tsv"))
         try Data((barcodes.joined(separator: "\n") + "\n").utf8).write(to: matrix.appendingPathComponent("barcodes.tsv"))
@@ -96,6 +99,8 @@ final class SingleCellImportTests: XCTestCase {
         let result = try write([folder])
         let manifest = try manifest(result)
         XCTAssertEqual(manifest.modality, .singleCell)
+        XCTAssertEqual(manifest.route.toolVersion, "Not recorded", "STARsolo's matrix states no version")
+        XCTAssertEqual(manifest.origin.toolVersion, "Not recorded")
         let matrix = try XCTUnwrap(manifest.matrices?.first)
         XCTAssertEqual([matrix.cellCount, matrix.featureCount, matrix.entryCount], [200, 1_353, 17_692])
         XCTAssertFalse(matrix.isGzip)
@@ -136,6 +141,8 @@ final class SingleCellImportTests: XCTestCase {
         ])
         let result = try write([folder])
         let manifest = try manifest(result)
+        XCTAssertEqual(manifest.route.toolVersion, "3.0.0", "line 2 of matrix.mtx.gz states Cell Ranger's version")
+        XCTAssertEqual(manifest.origin.toolVersion, "3.0.0")
         let matrix = try XCTUnwrap(manifest.matrices?.first)
         XCTAssertEqual([matrix.cellCount, matrix.featureCount, matrix.entryCount], [200, 1_353, 17_708])
         XCTAssertTrue(matrix.isGzip)

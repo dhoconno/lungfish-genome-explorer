@@ -95,6 +95,29 @@ extension SingleCellImportTests {
             "The matrix of short states 2 barcodes in its size line and barcodes.tsv lists 1, so the files do not belong together.")
     }
 
+    func testCellRangerVersionComesFromTheMatrixMetadataLineWithoutItsPrefix() throws {
+        let outs = try tinyOuts(
+            named: "sc5p", features: ["G1\tG1\tGene Expression"], barcodes: ["AAAC-1"], entries: ["1 1 2"],
+            comment: "%metadata_json: {\"software_version\": \"cellranger-5.0.0\", \"format_version\": 2}")
+        let manifest = try manifest(try write([try SingleCellFolderReader.read(folder: outs)]))
+        XCTAssertEqual(manifest.route.toolVersion, "5.0.0")
+        XCTAssertEqual(manifest.origin.toolVersion, "5.0.0")
+    }
+
+    func testCellRangerFoldersOfTwoVersionsRecordNoVersion() throws {
+        let features = ["G1\tG1\tGene Expression"]
+        let old = try tinyOuts(
+            named: "v3", features: features, barcodes: ["AAAC-1"], entries: ["1 1 2"],
+            comment: "%metadata_json: {\"format_version\": 2, \"software_version\": \"3.0.0\"}")
+        let new = try tinyOuts(
+            named: "v5", features: features, barcodes: ["CCCG-1"], entries: ["1 1 4"],
+            comment: "%metadata_json: {\"software_version\": \"cellranger-5.0.0\", \"format_version\": 2}")
+        let folders = [try SingleCellFolderReader.read(folder: old), try SingleCellFolderReader.read(folder: new)]
+        let manifest = try manifest(try write(folders))
+        XCTAssertEqual(manifest.route.toolVersion, "Not recorded", "two versions are two routes, so the result names neither")
+        XCTAssertEqual(manifest.origin.toolVersion, "Not recorded")
+    }
+
     func testCellRangerMultiIsRefusedInWords() throws {
         let outs = tempRoot.appendingPathComponent("multi/outs", isDirectory: true)
         try FileManager.default.createDirectory(at: outs.appendingPathComponent("per_sample_outs/s1/count"), withIntermediateDirectories: true)
