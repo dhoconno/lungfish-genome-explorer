@@ -18,7 +18,7 @@ extension RNASeqCommand {
             commandName: "index",
             abstract: "Build or reuse the salmon index of a reference set",
             discussion: """
-                Lungfish writes the set's transcripts and then its genome as decoys into one file, runs salmon index with the same options every time, and keeps the index under the storage root by set, salmon version, k and decoys. A second request of the same index reuses it and starts no salmon.
+                Lungfish writes the set's transcripts and then its genome as decoys into one file, runs salmon index with the same options every time, and keeps the index under the storage root by set, salmon version, k and decoys. A second request of the same index reuses it and starts no salmon. Every build runs salmon with 8 threads, so --threads does not apply.
 
                 A build needs about 16.6 GB of memory and 64 GB of free disk. On a Mac with less, Lungfish refuses before it starts and says how to build the index on Linux.
                 """
@@ -40,6 +40,10 @@ extension RNASeqCommand {
 
         func validate() throws {
             guard decoys == "genome" || decoys == "none" else { throw ValidationError("--decoys is genome or none, not \(decoys).") }
+            // `-p 8` is fixed (ADJ-SPIKE-BIO item 10), so a thread count is refused in words rather than dropped.
+            guard globalOptions.threads == nil else {
+                throw ValidationError("rnaseq index always runs salmon with 8 threads, so --threads does not apply. Leave it out.")
+            }
         }
 
         func run() async throws {
