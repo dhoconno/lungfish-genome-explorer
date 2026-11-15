@@ -14,6 +14,9 @@ package enum STARIndexPlan {
     package static let genomeDirectory = "star-index"
     package static let logOutput = "star-index.Log.out"
     package static let genomeSAsparseD = 2
+    /// STAR's default, which is read length minus one for 101-base reads and the value of every script of
+    /// `scripts/repro/rnaseq` that sets it. The argv names it so the plan and the key pin it.
+    package static let sjdbOverhang = 100
     /// 8 threads, as `scripts/repro/rnaseq/gse225770/star.sh` runs the build.
     package static let threads = 8
 
@@ -65,7 +68,8 @@ package enum STARIndexPlan {
         steps.append(PlanStep(
             id: "star-index", title: "Build the STAR index, each file its own staged output", kind: .tool, tool: pins.star,
             arguments: ["--runMode", "genomeGenerate", "--genomeDir", genomeDirectory, "--genomeFastaFiles"] + fasta + [
-                "--sjdbGTFfile", gtfPath, "--runThreadN", "\(threads)", "--genomeSAindexNbases", "\(nbases)",
+                "--sjdbGTFfile", gtfPath, "--sjdbOverhang", "\(sjdbOverhang)", "--runThreadN", "\(threads)",
+                "--genomeSAindexNbases", "\(nbases)",
                 "--limitGenomeGenerateRAM", "32000000000", "--genomeSAsparseD", "\(genomeSAsparseD)",
                 "--outFileNamePrefix", "star-index."],
             deadlineSeconds: deadline, inputs: fasta + [gtfPath], outputs: staged + [logOutput], outputPolicy: policy))
@@ -85,7 +89,8 @@ package enum STARIndexPlan {
         let key = STARIndexKey(
             folderName: STARIndexKey.folderName(star: request.star.rawValue, nbases: nbases, sparseD: genomeSAsparseD),
             setID: id, referenceSetSHA256: try ProvenanceFileHasher.sha256(of: request.setFolder.appendingPathComponent(ReferenceSetManifest.filename)),
-            star: pins.star, genomeSAindexNbases: nbases, genomeSAsparseD: genomeSAsparseD, genomeFastaFiles: inputs.map(\.1),
+            star: pins.star, genomeSAindexNbases: nbases, genomeSAsparseD: genomeSAsparseD, sjdbOverhang: sjdbOverhang,
+            genomeFastaFiles: inputs.map(\.1),
             countingGTFSHA256: gtf.sha256)
         return STARIndexPlanOutcome(plan: plan, key: key, sources: sources)
     }

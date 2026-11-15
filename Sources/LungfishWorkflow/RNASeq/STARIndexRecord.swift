@@ -81,9 +81,13 @@ package enum STARIndexAdopt {
             guard let at = step.argv.firstIndex(of: flag), step.argv.indices.contains(at + 1) else { return nil }
             return Int(step.argv[at + 1])
         }
-        guard let nbases = value(of: "--genomeSAindexNbases"), let sparse = value(of: "--genomeSAsparseD") else {
-            throw STARIndexError("The STAR step's recorded argv names no --genomeSAindexNbases or --genomeSAsparseD, so the index has no key.")
+        let flags = ["--genomeSAindexNbases", "--genomeSAsparseD", "--sjdbOverhang"]
+        let values = flags.compactMap { value(of: $0) }
+        guard values.count == flags.count else {
+            let missing = flags.filter { value(of: $0) == nil }.joined(separator: " or ")
+            throw STARIndexError("The STAR step's recorded argv names no \(missing), so the index has no key and no record was written.")
         }
+        let (nbases, sparse, overhang) = (values[0], values[1], values[2])
         let outputs = Dictionary(run.steps.flatMap(\.outputs).filter { $0.policy == .staged }.map { ($0.path, $0) }) { first, _ in first }
         let files = try STARIndexPlan.indexFiles.sorted().map { name -> STARIndexRecord.File in
             let planPath = "\(STARIndexPlan.genomeDirectory)/\(name)"
@@ -98,7 +102,7 @@ package enum STARIndexAdopt {
         let key = STARIndexKey(
             folderName: STARIndexKey.folderName(star: tool.version, nbases: nbases, sparseD: sparse), setID: manifest.id,
             referenceSetSHA256: try ProvenanceFileHasher.sha256(of: setFolder.appendingPathComponent(ReferenceSetManifest.filename)),
-            star: pin, genomeSAindexNbases: nbases, genomeSAsparseD: sparse,
+            star: pin, genomeSAindexNbases: nbases, genomeSAsparseD: sparse, sjdbOverhang: overhang,
             genomeFastaFiles: [manifest.genome.path] + manifest.extras.map(\.path), countingGTFSHA256: gtf.sha256)
         return STARIndexRecord(setID: manifest.id, key: key, tool: pin, files: files)
     }

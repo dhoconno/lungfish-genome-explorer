@@ -31,6 +31,8 @@ package struct STARIndexKey: Codable, Sendable, Equatable {
     /// `--genomeSAindexNbases`, as `scripts/repro/rnaseq/gse225770/star.sh` computes it from the FASTA files' bases.
     package var genomeSAindexNbases: Int
     package var genomeSAsparseD: Int
+    /// `--sjdbOverhang`, the length of genome taken on each side of an annotated junction, which changes the index's bytes.
+    package var sjdbOverhang: Int
     /// The set's genome and then each extra, in the gentrome's order, as paths inside the set.
     package var genomeFastaFiles: [String]
     package var countingGTFSHA256: String
