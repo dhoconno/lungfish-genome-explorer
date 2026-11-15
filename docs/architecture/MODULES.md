@@ -30,7 +30,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1570 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1589 | LungfishCore, LungfishIO |
 | LungfishWorkflowTwelveS | library | Sources/LungfishWorkflowTwelveS | 38 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
@@ -3361,6 +3361,17 @@ None.
 - `ResolvedSequenceInputsError` enum, `Sources/LungfishWorkflow/Mapping/ResolvedSequenceInputs.swift`
 - `RiboDetectorStep` struct, `Sources/LungfishWorkflow/Recipes/Steps/RiboDetectorStep.swift`
 - `RNASeqCountTableReader` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCountTableReader.swift`
+- `RNASeqExport` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqExportFolder.swift`
+- `RNASeqExportDesignCheck` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqExportDesign.swift`
+- `RNASeqExportJoin` struct, `Sources/LungfishWorkflow/RNASeq/RNASeqExportJoin.swift`
+- `RNASeqExportReader` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqExportReader.swift`
+- `RNASeqExportRefusal` struct, `Sources/LungfishWorkflow/RNASeq/RNASeqExportReader.swift`
+- `RNASeqExportResult` struct, `Sources/LungfishWorkflow/RNASeq/RNASeqExportReader.swift`
+- `RNASeqExportSampleTable` struct, `Sources/LungfishWorkflow/RNASeq/RNASeqExportDesign.swift`
+- `RNASeqExportSettings` struct, `Sources/LungfishWorkflow/RNASeq/RNASeqExportDesign.swift`
+- `RNASeqExportSheet` struct, `Sources/LungfishWorkflow/RNASeq/RNASeqExportFolder.swift`
+- `RNASeqExportTemplates` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqExportTemplates.swift`
+- `RNASeqExportWords` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqExportReader.swift`
 - `RNASeqImportError` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCountTableReader.swift`
 - `RNASeqImportFacts` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCountTableReader.swift`
 - `RNASeqResultWriter` struct, `Sources/LungfishWorkflow/RNASeq/RNASeqResultWriter.swift`
@@ -3368,6 +3379,14 @@ None.
 - `RNASeqSampleSheet` struct, `Sources/LungfishWorkflow/RNASeq/RNASeqSampleSheet.swift`
 - `RunStatus` enum, `Sources/LungfishWorkflow/Provenance/RunStatus.swift`
 - `SafeZipExtractor` struct, `Sources/LungfishWorkflow/DemoProjects/SafeZipExtractor.swift`
+- `SalmonIndexCache` struct, `Sources/LungfishWorkflow/RNASeq/SalmonIndexCache.swift`
+- `SalmonIndexDecoys` enum, `Sources/LungfishWorkflow/RNASeq/SalmonIndexCache.swift`
+- `SalmonIndexError` enum, `Sources/LungfishWorkflow/RNASeq/SalmonIndexCache.swift`
+- `SalmonIndexHashes` struct, `Sources/LungfishWorkflow/RNASeq/SalmonIndexCache.swift`
+- `SalmonIndexKey` struct, `Sources/LungfishWorkflow/RNASeq/SalmonIndexCache.swift`
+- `SalmonIndexKeyFile` struct, `Sources/LungfishWorkflow/RNASeq/SalmonIndexCache.swift`
+- `SalmonIndexOutcome` struct, `Sources/LungfishWorkflow/RNASeq/SalmonIndexCache.swift`
+- `SalmonIndexRequest` struct, `Sources/LungfishWorkflow/RNASeq/SalmonIndexCache.swift`
 - `SalmonQuantFolder` struct, `Sources/LungfishWorkflow/RNASeq/SalmonQuantFolderReader.swift`
 - `SalmonQuantFolderReader` enum, `Sources/LungfishWorkflow/RNASeq/SalmonQuantFolderReader.swift`
 - `SalmonTx2Gene` struct, `Sources/LungfishWorkflow/RNASeq/SalmonQuantFolderReader.swift`
