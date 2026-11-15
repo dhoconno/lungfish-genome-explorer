@@ -263,6 +263,95 @@ final class ImportRNASeqCommandTests: XCTestCase {
         XCTAssertEqual(try counts(try result(in: second)), firstCounts)
     }
 
+    // MARK: - Single cell (Phase 5.2 lane RS-SC-IMPORT)
+
+    /// A copy of the Cell Ranger cut as `Inputs/pbmc/outs`, or a two-genome outs folder of plain files as
+    /// `Inputs/hgmm/outs`, in the project, so the record's `@/` paths replay.
+    private func singleCellInput(_ kind: String, in project: URL) throws -> URL {
+        let outs = project.appendingPathComponent("Inputs/\(kind)/outs", isDirectory: true)
+        guard !FileManager.default.fileExists(atPath: outs.path) else { return outs }
+        try FileManager.default.createDirectory(at: outs.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if kind == "pbmc" {
+            try FileManager.default.copyItem(at: RNASeqFixtures.root.appendingPathComponent("cellranger-pbmc_1k_v3/outs"), to: outs)
+            return outs
+        }
+        let matrix = outs.appendingPathComponent("filtered_feature_bc_matrix", isDirectory: true)
+        try FileManager.default.createDirectory(at: matrix, withIntermediateDirectories: true)
+        let files = [
+            "matrix.mtx": "%%MatrixMarket matrix coordinate integer general\n2 2 3\n1 1 3\n2 1 1\n2 2 6\n",
+            "features.tsv": "hg19_A\tA\tGene Expression\nmm10_B\tB\tGene Expression\n", "barcodes.tsv": "AAAC-1\nCCCG-1\n",
+        ]
+        for (name, text) in files { try Data(text.utf8).write(to: matrix.appendingPathComponent(name)) }
+        return outs
+    }
+
+    func testASTARsoloRunFolderImportsAsASingleCellResult() async throws {
+        let project = try project("Solo")
+        let solo = RNASeqFixtures.root.appendingPathComponent("starsolo-pbmc_1k_v3", isDirectory: true)
+        try await run([solo.path, "--project", project.path, "--name", "pbmc-solo"])
+        let result = try result(in: project)
+        let manifest = try manifest(result)
+        XCTAssertEqual(manifest.modality, .singleCell)
+        XCTAssertEqual(manifest.counts, [])
+        XCTAssertEqual(manifest.matrices?.map(\.entryCount), [17_692])
+        XCTAssertNotNil(manifest.cellsSummary)
+        XCTAssertEqual(manifest.route.tool, "STARsolo")
+        let facts = try record(result).options.resolvedDefaults
+        XCTAssertEqual(facts[RNASeqImportFacts.filesLeftOutKey], .array([
+            .string("starsolo-pbmc_1k_v3/Solo.out/Barcodes.stats"), .string("starsolo-pbmc_1k_v3/Solo.out/Gene/Features.stats"),
+        ]))
+        XCTAssertEqual(try RNASeqResultBundle.verifyChecksums(of: result), [])
+    }
+
+    func testSingleCellRefusalsBeforeAnythingIsRead() throws {
+        let solo = RNASeqFixtures.root.appendingPathComponent("starsolo-pbmc_1k_v3", isDirectory: true)
+        let refusal = { (inputs: [URL], tx2gene: Bool, unit: String?, genomes: [String]) in
+            ImportCommand.RNASeqSubcommand.singleCellRefusal(inputs: inputs, hasTx2Gene: tx2gene, unit: unit, genomes: genomes)
+        }
+        XCTAssertEqual(
+            refusal([RNASeqFixtures.salmonRun("SRR896663"), solo], false, nil, []),
+            "Bulk and single-cell inputs cannot share one result. Import the salmon folders or the count table in one run and the Cell Ranger or STARsolo folders in another.")
+        XCTAssertEqual(
+            refusal([RNASeqFixtures.umiCounts, solo], false, nil, []),
+            "Bulk and single-cell inputs cannot share one result. Import the salmon folders or the count table in one run and the Cell Ranger or STARsolo folders in another.")
+        XCTAssertEqual(refusal([solo], true, nil, []), "--tx2gene sums the transcripts of salmon folders and takes no single-cell folder.")
+        XCTAssertEqual(refusal([solo], false, "umis", []), "Cell Ranger and STARsolo state their own unit, so --unit takes only a count table.")
+        XCTAssertEqual(
+            refusal([RNASeqFixtures.salmonRun("SRR896663")], false, nil, ["hg19"]),
+            "--genome names the genomes of a single-cell matrix and takes no bulk input.")
+        XCTAssertNil(refusal([solo], false, nil, ["hg19"]))
+        XCTAssertNil(refusal([RNASeqFixtures.salmonRun("SRR896663")], false, nil, []))
+    }
+
+    func testTheRecordedArgvOfASingleCellImportParsesToEqualOptions() async throws {
+        let project = try project("SingleRoundTrip")
+        let arguments = [try singleCellInput("hgmm", in: project).path, "--project", project.path, "--name", "hgmm", "--genome", "hg19", "--genome", "mm10"]
+        let original = try ImportCommand.RNASeqSubcommand.parse(arguments)
+        try await run(arguments)
+        let argv = try record(try result(in: project)).argv
+        let replayed = try ImportCommand.RNASeqSubcommand.parse(Array(argv.dropFirst(3)))
+        func standard(_ path: String) -> String { URL(fileURLWithPath: path).standardizedFileURL.path }
+        XCTAssertEqual(replayed.inputPaths.map(standard), original.inputPaths.map(standard))
+        XCTAssertEqual(replayed.genomes, ["hg19", "mm10"])
+        XCTAssertEqual(replayed.name, original.name)
+    }
+
+    func testReplayingASingleCellImportGivesMatricesAndCellsOfEqualSha256() async throws {
+        let first = try project("SingleFirst")
+        try await run([try singleCellInput("pbmc", in: first).path, "--project", first.path, "--name", "pbmc"])
+        let firstResult = try result(in: first)
+        var argv = Array(try record(firstResult).argv.dropFirst(3))
+        let second = try project("SingleSecond")
+        let projectIndex = try XCTUnwrap(argv.firstIndex(of: "--project"))
+        argv[projectIndex + 1] = second.path
+        try await run(argv)
+        let firstManifest = try manifest(firstResult)
+        let secondManifest = try manifest(try result(in: second))
+        XCTAssertNotNil(firstManifest.cellsSummary)
+        XCTAssertEqual(secondManifest.matrices, firstManifest.matrices)
+        XCTAssertEqual(secondManifest.cellsSummary, firstManifest.cellsSummary, "cells.sqlite has the same bytes")
+    }
+
     // MARK: - The result's provenance folder (ADJ-ARCH-51 items 8 to 10)
 
     private func rollupURL(_ result: URL) -> URL {

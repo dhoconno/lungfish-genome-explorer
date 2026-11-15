@@ -16,6 +16,7 @@
 // real tool and no network are needed. `ImportCancellationTests` covers the wait-free cancel of a stuck
 // importer on its own.
 
+import Compression
 import Darwin
 import Foundation
 import os
@@ -132,6 +133,62 @@ final class ImportCommandsSIGTERMTests: XCTestCase {
         let stop = await CLISIGTERMHarness.assertSIGTERMCancels(run, record: { Self.recordStatus(in: project) })
         try Self.assertCancelledEvents(stop.standardOutput)
         XCTAssertEqual(Self.bundles(in: project, folder: "Analyses"), [], "no result and no stage")
+    }
+
+    /// The same cancel for a single-cell import held in its pass over a Cell Ranger matrix of about 3.4 GB of text,
+    /// 400 gzip members of one repeated entry in a 3.5 MB file, so the signal meets gzip and the parse. A cancelled
+    /// import publishes no result, leaves no staging folder and leaves no gzip behind (RS-SC-IMPORT).
+    func testImportRNASeqSingleCellTurnsSIGTERMIntoACancelAndLeavesNoStage() async throws {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let outs = try Self.writeLargeCellRangerOuts(in: root)
+        let run = try CLISIGTERMHarness.launchCLI(
+            ["import", "rnaseq", outs.path, "--project", project.path, "--name", "held", "--format", "json"],
+            workingDirectory: root,
+            testClass: Self.self
+        )
+        defer { run.stop() }
+        let reached = await CLISIGTERMHarness.waitForFile(project.appendingPathComponent("Analyses", isDirectory: true))
+        XCTAssertTrue(reached, "the command never made the Analyses folder")
+        let stop = await CLISIGTERMHarness.assertSIGTERMCancels(run, record: { Self.recordStatus(in: project) })
+        try Self.assertCancelledEvents(stop.standardOutput)
+        XCTAssertEqual(Self.bundles(in: project, folder: "Analyses"), [], "no result and no stage")
+    }
+
+    /// A Cell Ranger `outs/` folder of one feature and one barcode whose `matrix.mtx.gz` repeats the entry `1 1 1`.
+    private static func writeLargeCellRangerOuts(in root: URL) throws -> URL {
+        let outs = root.appendingPathComponent("held/outs", isDirectory: true)
+        let folder = outs.appendingPathComponent("filtered_feature_bc_matrix", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let lines = 1_400_000
+        let members = 400
+        var body: [UInt8] = []
+        body.reserveCapacity(6 * lines)
+        for _ in 0..<lines { body.append(contentsOf: [0x31, 0x20, 0x31, 0x20, 0x31, 0x0a]) }
+        var matrix = gzipMember(Array("%%MatrixMarket matrix coordinate integer general\n1 1 \(lines * members)\n".utf8))
+        let member = gzipMember(body)
+        for _ in 0..<members { matrix.append(member) }
+        try matrix.write(to: folder.appendingPathComponent("matrix.mtx.gz"))
+        try gzipMember(Array("G1\tG1\tGene Expression\n".utf8)).write(to: folder.appendingPathComponent("features.tsv.gz"))
+        try gzipMember(Array("AAACCTGAGAAACCAT-1\n".utf8)).write(to: folder.appendingPathComponent("barcodes.tsv.gz"))
+        return outs
+    }
+
+    /// One gzip member (RFC 1952) around the raw DEFLATE of `bytes` that the Compression framework writes.
+    private static func gzipMember(_ bytes: [UInt8]) -> Data {
+        var data = Data([0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff])
+        var deflated = [UInt8](repeating: 0, count: bytes.count + 1_024)
+        let count = compression_encode_buffer(&deflated, deflated.count, bytes, bytes.count, nil, COMPRESSION_ZLIB)
+        data.append(contentsOf: deflated.prefix(count))
+        var crc: UInt32 = 0xffff_ffff
+        let table: [UInt32] = (0..<256).map { index in
+            (0..<8).reduce(UInt32(index)) { value, _ in value & 1 == 1 ? 0xedb8_8320 ^ (value >> 1) : value >> 1 }
+        }
+        for byte in bytes { crc = table[Int((crc ^ UInt32(byte)) & 0xff)] ^ (crc >> 8) }
+        for word in [crc ^ 0xffff_ffff, UInt32(truncatingIfNeeded: bytes.count)] {
+            withUnsafeBytes(of: word.littleEndian) { data.append(contentsOf: $0) }
+        }
+        return data
     }
 
     /// Salmon folders whose `quant.sf` lists the same transcripts, with the three JSON files of the C1 fixture.
