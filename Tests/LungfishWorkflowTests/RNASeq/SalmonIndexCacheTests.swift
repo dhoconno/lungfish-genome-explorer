@@ -20,7 +20,9 @@ final class SalmonIndexCacheTests: XCTestCase {
 
     /// A stand-in for salmon 2.x. `--version` prints the version the test set. `index` logs its arguments, keeps a copy
     /// of the gentrome and the decoy list, and writes `info.json` and two files in the `-i` folder. `badk` makes its
-    /// `info.json` say k 25, and `compete` moves a whole published folder to the final path before it exits.
+    /// `info.json` say k 25, and `compete` moves a whole published folder to the final path before it exits. `die` ends
+    /// it by SIGKILL, as macOS ends a process when the Mac runs out of memory, and `noisy` writes 30 lines to stderr and
+    /// exits 1.
     static func salmonScript(capture: URL) -> String {
         let c = capture.path
         return """
@@ -41,6 +43,8 @@ final class SalmonIndexCacheTests: XCTestCase {
             *) shift ;;
           esac
         done
+        [ -f "\(c)/die" ] && kill -9 $$
+        [ -f "\(c)/noisy" ] && { for n in $(/usr/bin/seq 1 30); do echo "line $n" >&2; done; exit 1; }
         /bin/cp "$t" "\(c)/gentrome.fa"
         /bin/mkdir -p "$i"
         n=0
@@ -288,7 +292,10 @@ final class SalmonIndexCacheTests: XCTestCase {
         } catch let error as RunFitError {
             guard case .insufficientMemory = error else { return XCTFail("\(error)") }
             let words = error.localizedDescription
-            for part in ["16.56 GB", "16 GB", "17 GB", "lungfish-cli import rnaseq"] {
+            // The figure is the footprint measured at --ramLimit 16, and the words say so (BIO SF-1 of RS-INDEX).
+            for part in [
+                "16.56 GB", "16 GB", "17 GB", "lungfish-cli import rnaseq", "measured at --ramLimit 16", "build at --ramLimit 4",
+            ] {
                 XCTAssertTrue(words.contains(part), "\(part) is missing from: \(words)")
             }
         }
@@ -309,6 +316,54 @@ final class SalmonIndexCacheTests: XCTestCase {
         }
         XCTAssertEqual(log(), [])
         XCTAssertEqual(try entries(setFolder(set.manifest.id)), [])
+    }
+
+    /// ADJ-SPIKE-ARCH item 5: a gentrome larger than GRCh38 with ERCC92's is checked again with a need scaled from it.
+    func testTheScaledNeedStartsAboveTheMeasuredGentromeAndMeetsTheFiguresThere() throws {
+        XCTAssertNil(SalmonIndexNeed.scaledNeed(gentromeBytes: 3_522_342_234, diskFolder: root))
+        let edge = try XCTUnwrap(SalmonIndexNeed.scaledNeed(gentromeBytes: 3_522_342_235, diskFolder: root))
+        XCTAssertEqual(edge.peakMemoryBytes, 17_780_281_053)
+        XCTAssertEqual(edge.freeDiskBytes, 63_897_293_213)
+        let larger = try XCTUnwrap(SalmonIndexNeed.scaledNeed(gentromeBytes: 3_700_000_000, diskFolder: root))
+        XCTAssertEqual(larger.peakMemoryBytes, 18_668_569_878)
+        XCTAssertEqual(larger.freeDiskBytes, 67_095_132_983)
+        XCTAssertTrue(larger.memoryBasis.contains("scaled as 5 times the gentrome"), larger.memoryBasis)
+        XCTAssertTrue(larger.diskBasis.contains("scaled as 18 times the gentrome"), larger.diskBasis)
+        XCTAssertEqual(larger.diskFolder, root)
+    }
+
+    // MARK: - A salmon that fails
+
+    func testASalmonTheMacKillsIsWordedAsMemoryAndLeavesNoStage() async throws {
+        let set = try await makeSet()
+        try Data().write(to: capture.appendingPathComponent("die"))
+        do {
+            _ = try await ensure(SalmonIndexRequest(setID: set.manifest.id))
+            XCTFail("a salmon ended by SIGKILL publishes no index")
+        } catch let error as SalmonIndexError {
+            guard case .invalidRequest = error else { return XCTFail("not worded as memory: \(error.localizedDescription)") }
+            let words = error.localizedDescription
+            for part in ["ran out of memory", "run the same command again", "lungfish-cli import rnaseq"] {
+                XCTAssertTrue(words.contains(part), "\(part) is missing from: \(words)")
+            }
+        }
+        XCTAssertEqual(try entries(setFolder(set.manifest.id)), [], "no stage is left")
+    }
+
+    func testAFailedSalmonShowsItsLastTenLines() async throws {
+        let set = try await makeSet()
+        try Data().write(to: capture.appendingPathComponent("noisy"))
+        do {
+            _ = try await ensure(SalmonIndexRequest(setID: set.manifest.id))
+            XCTFail("a salmon that exits 1 publishes no index")
+        } catch let error as SalmonIndexError {
+            guard case .salmonFailed = error else { return XCTFail("\(error.localizedDescription)") }
+            let words = error.localizedDescription
+            XCTAssertTrue(words.contains("line 30"), words)
+            XCTAssertTrue(words.contains("Fix what they name"), words)
+            XCTAssertFalse(words.contains("line 20"), "only the last ten lines: \(words)")
+        }
+        XCTAssertEqual(try entries(setFolder(set.manifest.id)), [], "no stage is left")
     }
 
     // MARK: - What a build writes (not failing first)
@@ -363,5 +418,17 @@ final class SalmonIndexCacheTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("k"), error.localizedDescription)
         }
         XCTAssertEqual(try entries(setFolder(set.manifest.id)), [])
+    }
+
+    /// The genome is read in 1 MiB chunks, so a header may be cut anywhere. A pin, not failing first (SWIFT SF3).
+    func testDecoyNamesDoNotDependOnWhereTheChunksSplit() {
+        let fasta = Data(">chr1 first\nACGT\n>MT\tmito\r\nAC\n;note\n>x\nA\n>last".utf8)
+        let expected = ["chr1", "MT", "x", "last"]
+        for cut in 0...fasta.count {
+            var names = FASTAHeaderNames()
+            names.feed(fasta.prefix(cut))
+            names.feed(fasta.suffix(from: cut))
+            XCTAssertEqual(names.finish(), expected, "split at byte \(cut)")
+        }
     }
 }
