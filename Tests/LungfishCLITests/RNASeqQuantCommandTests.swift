@@ -215,7 +215,7 @@ final class RNASeqQuantCommandTests: XCTestCase {
             let maps = [envelope.options.explicit, envelope.options.resolvedDefaults] + envelope.steps.map(\.resolvedOptions)
             for map in maps {
                 for (key, value) in map where key.lowercased().contains("poly") || key == "trim" || key == "trimming" {
-                    XCTAssertNotEqual(value, .bool(false), key)
+                    XCTAssertNotEqual(value, .boolean(false), key)
                     XCTAssertNotEqual(value, .string("false"), key)
                     XCTAssertNotEqual(value, .string("no"), key)
                 }

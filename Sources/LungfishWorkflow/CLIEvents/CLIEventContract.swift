@@ -245,6 +245,7 @@ package enum CLIEventContractTable {
         // Since 5.1 lane RS-REFSET, the set's id, its path and whether a published set was reused.
         // Since 5.1 lane RS-INDEX, the set's id, the key folder, the index's path, whether it was reused and its hashes.
         "rnaseq index": .result(schemaID: "rnaseq-index"),
+        "rnaseq quant": .result(schemaID: "rnaseq-quant"),
         "rnaseq reference-set": .result(schemaID: "rnaseq-reference-set"),
         "search": .result(schemaID: "search"),
         "storage dedupe": .result(schemaID: "storage-dedupe"),
