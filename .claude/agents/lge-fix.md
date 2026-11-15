@@ -16,6 +16,7 @@ You fix the findings your prompt names (numbered items of a review file, or a li
 
 ## Work
 - Read the review file and the lane report in one message. Change only what the named fixes need, and move no golden, fixture, ratchet baseline or contract unless a fix names it.
+- Your prompt gives each item as path:line and the change. Begin editing by your tenth call.
 - Red first. A code fix commits its test first, shown failing at the base, with the failing line in your report. Then one commit per fix, naming the review and the fix number. A fix that pastes given words needs only the words as given.
 - Never export `LUNGFISH_STORAGE_ROOT` or `LUNGFISH_CONDA_ROOT`. Run a ratchet with `LUNGFISH_RATCHET_READ_ONLY=1` and never commit a `.baseline` file a run wrote. Prose follows `AGENTS.md`, Writing docs.
 
