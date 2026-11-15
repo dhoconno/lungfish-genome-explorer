@@ -9,6 +9,8 @@
 #   STAGE one or more of: unpack refs whitelists index:<ref> solo:<set> pergenome:<set>
 #         simpleaf-index simpleaf:<set> compare all  (default: all)
 #         lge_import  (outside all, needs LGE_CLI, the lane evidence of RS-SC-IMPORT)
+#         lge_sc_handoff  (outside all, needs LGE_CLI and the projects that lge_import left under the same
+#                          LGE_RUN, the lane evidence of RS-SC-HANDOFF, so name lge_import before it)
 #
 # Optional environment:
 #   THREADS     threads for heavy steps (default 8)
@@ -19,6 +21,9 @@
 #   LOCK_OWNER  text written to HEAVY_LOCK/owner
 #   PAUSE_FILE  when this file exists, no heavy step starts
 #   MIN_FREE    least percent of free memory (macOS memory_pressure) to start (default 35)
+#   SEURAT_ENV  environment with R and Seurat for lge_sc_handoff (default: env-r-seurat beside ENV)
+#   LGE_RUN     run folder under WORK/lge (RS-SC-IMPORT for lge_import, RS-SC-HANDOFF for lge_sc_handoff)
+#   LGE_DROP_PROJECT  1 removes the imported projects after lge_sc_handoff when every row is equal
 set -euo pipefail
 
 if [ $# -lt 3 ]; then sed -n '2,20p' "$0"; exit 2; fi
@@ -291,6 +296,51 @@ stage_lge_import() {
   [ "$failed" = 0 ] || { echo "lge_import: a count of LGE's import differs from compare.py's, see the rows marked NO" >&2; exit 1; }
 }
 
+# One run of a template in its export folder. Its output, error text and exit status are kept beside the folder, so a
+# failed run is a row for sc_handoff_check.py and does not end the stage here. $1 folder, $2 path stem, then the command.
+tpl_run() {
+  local dir=$1 stem=$2 rc=0; shift 2
+  ( cd "$dir" && "$@" ) > "$stem.out" 2> "$stem.err" || rc=$?
+  echo "$rc" > "$stem.status"
+}
+
+# Lane evidence of RS-SC-HANDOFF, outside all, after lge_import under the same LGE_RUN: LGE_CLI exports each result that
+# stage left (solo-<set> and tenx-<set>) to WORK/lge/<run>/export/<side>-<set>, the matrix folder of a single-cell result with
+# seurat.R and scanpy.py. In that folder scanpy.py runs in ENV, seurat.R runs in ENV (no Seurat, so it writes its table and
+# stops in words) and in SEURAT_ENV (R with Seurat), each by the full path of its program, since two R environments never go
+# on PATH together. sc_handoff_check.py sets what they printed and wrote against Summary.csv of STARsolo and the metrics
+# summary of Cell Ranger, against cells.sqlite and against each other, and the exported matrix files against the tools' own
+# bytes. The stage ends with status 1 when a row differs. The exports and their sha256 are the evidence, so
+# LGE_DROP_PROJECT=1 removes the imported projects once every row is equal. An export that exists is not made again.
+stage_lge_sc_handoff() {
+  : "${LGE_CLI:?set LGE_CLI to a lungfish-cli}"
+  local out=$WORK/lge/${LGE_RUN:-RS-SC-HANDOFF} seurat_env=${SEURAT_ENV:-$(dirname "$ENV")/env-r-seurat}
+  local s side result dir stem failed=0
+  local -a sets=()
+  [ -x "$seurat_env/bin/Rscript" ] || { echo "lge_sc_handoff: $seurat_env/bin/Rscript is missing, set SEURAT_ENV to the environment that holds Seurat" >&2; exit 1; }
+  mkdir -p "$out/export"
+  for s in pbmc_1k_v3 sc5p_v2_hs_PBMC_1k hgmm_1k_v3; do
+    [ -d "$WORK/solo/$s/Solo.out/Gene/filtered" ] || continue
+    sets+=("$s")
+    for side in solo tenx; do
+      result=$out/project.lungfish/Analyses/$side-$s.lungfishrnaseq; dir=$out/export/$side-$s; stem=$dir
+      [ -d "$result" ] || { echo "lge_sc_handoff: $result is missing, name lge_import with the same LGE_RUN first" >&2; exit 1; }
+      if [ -d "$dir" ]; then echo "reusing $dir, set LGE_RUN for a new export" >&2; else
+        /usr/bin/time -l -o "$stem.export.time" "$LGE_CLI" rnaseq export "$result" --output "$dir" > "$stem.export.log" 2>&1
+      fi
+      tpl_run "$dir" "$stem.scanpy" "$ENV/bin/python" -I scanpy.py
+      tpl_run "$dir" "$stem.seurat-env" "$ENV/bin/Rscript" --vanilla seurat.R
+      if [ -f "$dir/seurat-cells.tsv" ]; then cp "$dir/seurat-cells.tsv" "$stem.seurat-env.cells.tsv"; fi
+      tpl_run "$dir" "$stem.seurat" env PATH="$seurat_env/bin:${PATH#"$ENV/bin:"}" "$seurat_env/bin/Rscript" --vanilla seurat.R
+      ( cd "$dir" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 ) > "$stem.sha256"
+    done
+  done
+  [ ${#sets[@]} -gt 0 ] || { echo "lge_sc_handoff: no STARsolo result under $WORK/solo, run solo:<set> first" >&2; exit 1; }
+  $PY "$HERE/sc_handoff_check.py" "$WORK" "$DATA" "${sets[@]}" | tee "$out/handoff.md" || failed=1
+  [ "$failed" = 0 ] || { echo "lge_sc_handoff: a template differs from the tools' own files, see the rows marked NO" >&2; exit 1; }
+  if [ "${LGE_DROP_PROJECT:-}" = 1 ]; then rm -rf "$out/project.lungfish"; fi
+}
+
 for st in "${STAGES[@]}"; do
   case $st in
     unpack) stage_unpack ;;
@@ -303,6 +353,7 @@ for st in "${STAGES[@]}"; do
     simpleaf:*) stage_simpleaf "${st#simpleaf:}" ;;
     compare) stage_compare ;;
     lge_import) stage_lge_import ;;
+    lge_sc_handoff) stage_lge_sc_handoff ;;
     all)
       stage_unpack; stage_refs; stage_whitelists
       for s in $SETS; do stage_index "$(ref_of "$s")"; stage_solo "$s"; done

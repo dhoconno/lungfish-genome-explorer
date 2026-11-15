@@ -29,18 +29,23 @@ extension RNASeqExportTestCase {
     /// Writes one result of these columns into `analyses` with the one writer, as `RNASeqExportFixture.make` does. The default is
     /// a pseudobulk result, with its origin and the route setting the summing step adds, and `.quantified` makes a bulk result.
     func animalsResult(
-        _ name: String, _ columns: [RNASeqAnimalsColumn], kind: RNASeqResultManifest.Origin.Kind = .pseudobulk
+        _ name: String, _ columns: [RNASeqAnimalsColumn], kind: RNASeqResultManifest.Origin.Kind = .pseudobulk, geneCount: Int = 4
     ) throws -> URL {
         let scratch = analyses.deletingLastPathComponent().appendingPathComponent("inputs-\(name)", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
-        let genes = ["G1", "G2", "G3", "G4"]
+        let genes = (1...geneCount).map { "G\($0)" }
         var genesText = "gene_id\tname\tbiotype\tcontig\tlength\tnot_host\tmask\tunreliable\n"
         for id in genes { genesText += "\(id)\t\(id)\tprotein_coding\tchr1\t1000\tfalse\t\t\n" }
         let genesURL = scratch.appendingPathComponent("genes.tsv")
         try genesText.write(to: genesURL, atomically: true, encoding: .utf8)
         let ids = columns.map(\.id)
         let rows = genes.enumerated().map { gene, id in
-            RNASeqCountTable.Row(id: id, counts: ids.indices.map { Double(10 * (gene + 1) + $0) })
+            RNASeqCountTable.Row(id: id, counts: ids.indices.map { column in
+                guard geneCount > 4 else { return Double(10 * (gene + 1) + column) }
+                // A longer table varies far more than its mean, so DESeq2 can fit a dispersion curve, and the first genes rise in group T.
+                let base = 100 * (gene % 5 + 1)
+                return Double(base * (10 + (gene * 37 + column * 101) % 23) / 10 + (columns[column].group == "T" && gene < 10 ? base : 0))
+            })
         }
         var route = RNASeqExportFixture.salmonReads
         if kind == .pseudobulk { route.settings[RNASeqPseudobulk.routeSetting] = RNASeqPseudobulk.routeSettingValue }
@@ -84,6 +89,18 @@ final class RNASeqExportAnimalsTests: RNASeqExportTestCase {
             XCTAssertTrue(error is RNASeqExportRefusal, "\(error)", file: file, line: line)
             return error.localizedDescription
         }
+    }
+
+    /// The 3 animals and 3 animals export that both R templates run to the end in the lane's own environments. The case is
+    /// skipped unless `RS_SC_HANDOFF_KEEP` names a new folder, so a plain test run writes nothing outside its temporary folder.
+    func testWritesAThreeAndThreeExportForTheRChecksWhenAskedTo() throws {
+        guard let path = ProcessInfo.processInfo.environment["RS_SC_HANDOFF_KEEP"], !path.isEmpty else {
+            throw XCTSkip("RS_SC_HANDOFF_KEEP names no folder")
+        }
+        let result = try animalsResult("keep", animalColumns([("B", ["A1", "A2", "A3"]), ("T", ["A1", "A2", "A3"])]), geneCount: 40)
+        let kept = URL(fileURLWithPath: path)
+        try RNASeqExport.run(results: [result], sheet: nil, settings: byGroup(), output: kept, argv: ["lungfish-cli", "rnaseq", "export"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: kept.appendingPathComponent("deseq2.R").path))
     }
 
     private func nothingWritten(file: StaticString = #filePath, line: UInt = #line) throws {
