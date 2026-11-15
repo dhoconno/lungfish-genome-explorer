@@ -517,8 +517,11 @@ package enum ExecutorPlanBatchWriter {
             case .eachJob:
                 disk = job.submit.requestDiskGiB ?? 0
             }
-            // A schema 2 job's memory and CPUs reach its VARS. A recipe's job asks the one value of sample.sub.
-            let ownRequests = stagedPaths != nil
+            // A schema 2 job's memory and CPUs reach its VARS, whether or not its plan has a `staged` output: the shape of
+            // the batch decides it, since sample.sub reads both from VARS for every schema 2 node. A recipe's job asks the one
+            // value of sample.sub and its node carries neither.
+            let ownRequests: Bool
+            if case .eachJob = shape { ownRequests = true } else { ownRequests = false }
             nodes.append(HTCondorDAGNode(
                 sample: name, requestDiskGB: disk, planTarPath: HTCondorSubmitTemplate.planTarName, reads: reads,
                 resultFolders: made + kept,
