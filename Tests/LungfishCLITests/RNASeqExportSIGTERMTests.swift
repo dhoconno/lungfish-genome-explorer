@@ -52,4 +52,29 @@ final class RNASeqExportSIGTERMTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a cancel publishes no folder")
         XCTAssertEqual(try stages(), [], "a cancel leaves no hidden stage")
     }
+
+    /// A single-cell result takes the other branch of the leaf. It copies each sample's matrix into the stage and then reaches
+    /// the same checkpoint, so it holds with its stage on disk too. It takes no `--design` and no `--contrast`, which a
+    /// single-cell export refuses (RS-SC-HANDOFF-SWIFT, should-fix 1).
+    func testTheSingleCellExportTurnsSIGTERMIntoACancelAndLeavesNeitherFolderNorStage() async throws {
+        let result = try RNASeqPseudobulkCommandTests.makeSingleCellResult(in: root)
+        let output = root.appendingPathComponent("export", isDirectory: true)
+        let hold = root.appendingPathComponent("held")
+        let run = try CLISIGTERMHarness.launchCLI(
+            ["rnaseq", "export", result.path, "--output", output.path, "--format", "json"],
+            environment: [ViewerExportLeaf.holdFileVariable: hold.path], workingDirectory: root, testClass: Self.self)
+        defer { run.stop() }
+        let held = await CLISIGTERMHarness.waitForFile(hold)
+        XCTAssertTrue(held, "the leaf copied the matrices into its stage and reached the checkpoint")
+        let staged = try stages()
+        XCTAssertEqual(staged.count, 1, "the stage is on disk while the leaf holds. \(staged)")
+        let stop = await CLISIGTERMHarness.cancel(run)
+        CLISIGTERMHarness.assertCancelledExit(stop)
+        CLISIGTERMHarness.assertNoProcessLeft(stop)
+        XCTAssertTrue(
+            (stop.standardOutput + stop.standardError).contains(ViewerExportLeaf.cancelledMessage),
+            "the words of a cancel. Standard output: \(stop.standardOutput)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a cancel publishes no folder")
+        XCTAssertEqual(try stages(), [], "a cancel leaves no hidden stage")
+    }
 }
