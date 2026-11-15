@@ -422,6 +422,38 @@ final class ImportRNASeqCommandTests: XCTestCase {
         XCTAssertEqual(try record(result).options.resolvedDefaults["notHostReferenceSet"]?.stringValue, "rhesus-test")
     }
 
+    /// BIO-NOTHOST-BARCODE item 4: the import line names a library whose BAM counted nothing though it held alignments, or
+    /// whose barcodes the raw list lacks, and says nothing of a library that counted its alignments.
+    func testTheImportLineNamesALibraryWhoseBAMCountedNothing() {
+        let raw = SingleCellRawMatrix(barcodes: SingleCellBarcodeTable(data: Data("AAAC\n".utf8)), totals: [1])
+        func library(_ name: String, counted: Int, notAtNH1: Int = 0, withoutBarcode: Int = 0,
+                     tallies: [String: SingleCellNotHostTally] = [:]) -> SingleCellNotHostSample {
+            var sample = SingleCellNotHostPass.sample(name, cells: [], raw: raw, pool: SingleCellAmbientPool(raw), tallies: tallies, extras: [])
+            (sample.alignmentsCounted, sample.alignmentsMultimapped, sample.alignmentsWithoutBarcode) = (counted, notAtNH1, withoutBarcode)
+            return sample
+        }
+        let notInRaw = ["TTTT": SingleCellNotHostTally(genome: [], records: []), "GGGG": SingleCellNotHostTally(genome: [], records: [])]
+        let samples = [
+            library("GSM1", counted: 0, withoutBarcode: 4), library("GSM2", counted: 12, notAtNH1: 3, withoutBarcode: 5),
+            library("GSM3", counted: 0, notAtNH1: 6), library("GSM4", counted: 7, tallies: notInRaw),
+        ]
+        let expected = [
+            "; GSM1 counted 0 alignments, left out 0 not at NH 1, 4 without a CB or UB and 0 barcodes not in the raw list",
+            "; GSM3 counted 0 alignments, left out 6 not at NH 1, 0 without a CB or UB and 0 barcodes not in the raw list",
+            "; GSM4 counted 7 alignments, left out 0 not at NH 1, 0 without a CB or UB and 2 barcodes not in the raw list",
+        ].map { $0 + ", so check the BAM's tags and barcodes" }.joined()
+        XCTAssertEqual(ImportCommand.RNASeqSubcommand.Plan.notHostLeftOutNote(samples), expected)
+        XCTAssertEqual(ImportCommand.RNASeqSubcommand.Plan.notHostLeftOutNote([samples[1]]), "", "a library that counted its alignments adds no words")
+    }
+
+    /// A summary of `0 flagged above ambient` hides a library with no ambient pool and a bacterium with no mask, so the
+    /// line says how many cells had no flag computed.
+    func testTheImportLineNamesTheCellsWhoseFlagWasNotComputed() {
+        let summary = ImportCommand.RNASeqSubcommand.Plan.notHostSummary
+        XCTAssertEqual(summary(4, 0), ", 4 flagged above ambient")
+        XCTAssertEqual(summary(0, 2943), ", 0 flagged above ambient, 2943 cells not computed (no ambient pool or no rRNA mask)")
+    }
+
     // MARK: - The result's provenance folder (ADJ-ARCH-51 items 8 to 10)
 
     private func rollupURL(_ result: URL) -> URL {

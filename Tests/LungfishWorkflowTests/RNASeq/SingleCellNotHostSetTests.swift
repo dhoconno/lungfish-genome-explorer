@@ -81,11 +81,37 @@ final class SingleCellNotHostSetTests: XCTestCase {
         }
     }
 
+    /// BIO-NOTHOST-BARCODE item 4: a BAM whose alignments carry no CB or UB, as STARsolo writes them when
+    /// `--outSAMattributes` leaves the two out, counts nothing, and the record says what the pass left out and why.
+    func testABAMWithNoBarcodeTagsIsNamedInTheRecordAndCountsNothing() async throws {
+        let set = root.appendingPathComponent("set.lungfishrefset")
+        try Self.writeSet(at: set, extraPath: "extras/NC_045512.2.fa.gz", extraBytes: try XCTUnwrap(Data(base64Encoded: Self.gzipFASTA)))
+        let solo = root.appendingPathComponent("GSM1", isDirectory: true)
+        try Self.writeSoloFolder(at: solo)
+        let bam = root.appendingPathComponent("GSM1.NC_045512.2.bam")
+        try Data().write(to: bam)
+        try Data().write(to: URL(fileURLWithPath: bam.path + ".bai"))
+        let folder = try SingleCellFolderReader.read(folder: solo)
+        let runner = try installStandIn(Self.samtoolsScript(length: 13, barcodeTags: false))
+
+        let (result, facts) = try await SingleCellNotHostPass.run(
+            [folder], set: try SingleCellNotHostPass.readSet(set), bams: [folder.sample: bam], runner: runner)
+        let left = try XCTUnwrap(Self.strings(facts["notHostAlignments"]).first, "the record says what the pass left out")
+        XCTAssertTrue(left.hasPrefix("GSM1: "), left)
+        XCTAssertTrue(left.contains("0 alignments counted"), left)
+        XCTAssertTrue(left.contains("4 without a CB or UB"), left)
+        // The pass refuses nothing, since a library with no viral reads is legitimate, and it counts nothing.
+        let sample = try XCTUnwrap(result.samples.first)
+        XCTAssertEqual(sample.barcodes.compactMap { $0.genome.first?.umis }, [0, 0])
+    }
+
     /// samtools's three calls of the pass: the version, the header at `length` and two UMIs of AAAA and one of GGGG.
-    static func samtoolsScript(length: Int) -> String {
+    /// With `barcodeTags` false the alignments carry no CB and no UB.
+    static func samtoolsScript(length: Int, barcodeTags: Bool = true) -> String {
         let tags = "NH:i:1\tnM:i:0"
+        let barcode = { (cb: String, ub: String) in barcodeTags ? "\tCB:Z:\(cb)\tUB:Z:\(ub)" : "" }
         let lines = [("AAAA", "U1", 1), ("AAAA", "U1", 3), ("AAAA", "U2", 2), ("GGGG", "U3", 1)].map { cb, ub, pos in
-            "r\(cb)\(ub)\(pos)\t0\tNC_045512.2\t\(pos)\t255\t5M\t*\t0\t0\t*\t*\t\(tags)\tCB:Z:\(cb)\tUB:Z:\(ub)"
+            "r\(cb)\(ub)\(pos)\t0\tNC_045512.2\t\(pos)\t255\t5M\t*\t0\t0\t*\t*\t\(tags)" + barcode(cb, ub)
         }
         return """
             #!/bin/sh
