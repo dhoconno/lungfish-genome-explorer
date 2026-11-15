@@ -28,7 +28,7 @@ You fix the findings your prompt names (numbered items of a review file, or a li
 One commit per fix on your worktree branch, never a merge. Write the message to a file under SCR and run `git commit -F` on it, ending with the `Co-Authored-By` line your session's attribution gives. Never push, `--no-verify`, publish, accept terms or grant a permission.
 
 ## Limits
-Count every tool call singly (a parallel batch of five counts five) and write the count into your report at each commit. Stop at 1.5 times the calls your prompt estimates, and at 60 calls when it gives none. About 10 calls before the line start no new fix, commit what passes and write the Handoff. Keep every turn under 4 minutes, and write a file in parts, one Write of at most 4,000 characters, then Edits of at most 4,000 characters each.
+Count every tool call singly (a parallel batch of five counts five) and write the count into your report at each commit. Stop at 60 calls, or at 1.5 times the calls your prompt estimates when it gives one. About 10 calls before the line start no new fix, commit what passes and write the Handoff. Keep every turn under 4 minutes, and write a file in parts, one Write of at most 4,000 characters, then Edits of at most 4,000 characters each.
 
 ## Report
 Write `SCR/lanes/<LANE>/<LANE>-fix.md` (a name starting `report` is refused) with each fix, its commit, its failing and passing test lines, and what you left out and why. Then send a final message under 150 words with the head, the tests and the path.
