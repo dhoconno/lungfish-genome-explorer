@@ -253,11 +253,14 @@ stage_compare() {
 
 # Lane evidence of RS-SC-IMPORT, outside all: LGE_CLI imports, for each set, the STARsolo run folder solo/<set>
 # and 10x's filtered matrix with its metrics summary copied as an outs folder, each under /usr/bin/time -l, and
-# compare_lge.py reads the two results into lge/<run>/<set>.tsv, whose rows join compare/<set>.tsv by run and
-# measure. hgmm names its two genomes by the id prefix of its genes. A result that exists is not imported again.
+# compare_lge.py reads the two results into lge/<run>/<set>.tsv. LGE's import of one tool set against its import of
+# the other cannot show a count that is wrong on both sides, so join_lge.py joins each table to compare/<set>.tsv,
+# which compare.py counted from the tools' own matrices, and the stage ends with status 1 when a row differs.
+# hgmm names its two genomes by the id prefix of its genes. A result that exists is not imported again, the stage says
+# so, and a new LGE_RUN imports with the CLI at hand.
 stage_lge_import() {
   : "${LGE_CLI:?set LGE_CLI to a lungfish-cli}"
-  local out=$WORK/lge/${LGE_RUN:-RS-SC-IMPORT} s side input
+  local out=$WORK/lge/${LGE_RUN:-RS-SC-IMPORT} s side input result failed=0
   local -a genomes
   mkdir -p "$out/project.lungfish"
   for s in pbmc_1k_v3 sc5p_v2_hs_PBMC_1k hgmm_1k_v3; do
@@ -272,14 +275,20 @@ stage_lge_import() {
     for side in solo tenx; do
       input=$WORK/solo/$s
       [ "$side" = tenx ] && input=$out/tenx/$s/outs
-      [ -d "$out/project.lungfish/Analyses/$side-$s.lungfishrnaseq" ] && continue
+      result=$out/project.lungfish/Analyses/$side-$s.lungfishrnaseq
+      if [ -d "$result" ]; then
+        echo "reusing $result, set LGE_RUN for a new import" >&2
+        continue
+      fi
       /usr/bin/time -l "$LGE_CLI" import rnaseq "$input" --project "$out/project.lungfish" --name "$side-$s" \
         ${genomes[@]+"${genomes[@]}"} > "$out/$side-$s.log" 2> "$out/$side-$s.time.log"
     done
     $PY "$HERE/compare_lge.py" "$s" "$out/project.lungfish/Analyses/solo-$s.lungfishrnaseq" \
       "$out/project.lungfish/Analyses/tenx-$s.lungfishrnaseq" > "$out/$s.tsv"
     cat "$out/$s.tsv"
+    $PY "$HERE/join_lge.py" "$WORK" "$s" || failed=1
   done
+  [ "$failed" = 0 ] || { echo "lge_import: a count of LGE's import differs from compare.py's, see the rows marked NO" >&2; exit 1; }
 }
 
 for st in "${STAGES[@]}"; do
