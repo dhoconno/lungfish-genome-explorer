@@ -27,22 +27,72 @@ enum ReferenceSetCountingGTF {
         "\(record.name)\tLGE\texon\t1\t\(record.length)\t.\t+\t.\tgene_id \"\(record.name)\"; transcript_id \"\(record.name)\";\n"
     }
 
-    /// Writes `output` as the bytes of `host`, then each extra's part in the order given. A record of no bases gets
-    /// no line, and the check then names it.
+    /// Writes `output` as the bytes of `host` and the exon lines of its CDS-only transcripts, then each extra's part in
+    /// the order given, a deposit extra's GTF followed by its own. A record of no bases gets no line, and the check
+    /// then names it.
     static func write(host: URL, extras: [ExtraPart], to output: URL) throws {
         try FileManager.default.copyItem(at: host, to: output)
         let handle = try FileHandle(forWritingTo: output)
         defer { try? handle.close() }
         try handle.seekToEnd()
+        try handle.write(contentsOf: Data(try cdsExonLines(of: host).joined().utf8))
         for extra in extras {
             switch extra {
             case .records(let records):
                 for record in records where record.length > 0 { try handle.write(contentsOf: Data(recordLine(record).utf8)) }
             case .gtf(let url):
                 try url.forEachChunkAutoDecompressing { chunk in try handle.write(contentsOf: chunk) }
+                try handle.write(contentsOf: Data(try cdsExonLines(of: url).joined().utf8))
             }
         }
         try handle.synchronize()
+    }
+
+    /// One `exon` line a merged span of the CDS and stop codon lines of each transcript in `gtf` that has CDS lines
+    /// and no exon line, in the order of its first such line. gffread 0.12.9 writes that transcript's record from
+    /// those spans, the stop codon joined to the CDS it touches (measured in RS-COUNTING-GTF milestone 2), so its
+    /// record and its exons then agree. RefSeq Macaca_fascicularis_5.0 release 101 has 232 such transcripts, the
+    /// CDS of V_segment and C_region genes under `unknown_transcript_1`, renamed `<gene>:unknown_transcript_1`.
+    static func cdsExonLines(of gtf: URL) throws -> [String] {
+        var withExon = Set<String>()
+        var order: [String] = []
+        var coding: [String: (contig: String, strand: String, gene: String, spans: [ClosedRange<Int>], hasCDS: Bool)] = [:]
+        try gtf.forEachLineAutoDecompressing { line in
+            guard let feature = ReferenceSetGTFFeature(line), ["exon", "CDS", "stop_codon"].contains(feature.type) else { return }
+            let transcript = feature.transcript
+            guard !transcript.isEmpty else { return }
+            if feature.type == "exon" {
+                withExon.insert(transcript)
+                return
+            }
+            guard let start = Int(feature.start), let end = Int(feature.end), start >= 1, start <= end else { return }
+            if coding[transcript] == nil {
+                order.append(transcript)
+                coding[transcript] = (feature.contig, feature.strand, feature.gene, [], false)
+            }
+            coding[transcript]?.spans.append(start...end)
+            if feature.type == "CDS" { coding[transcript]?.hasCDS = true }
+        }
+        return order.flatMap { transcript -> [String] in
+            guard !withExon.contains(transcript), let entry = coding[transcript], entry.hasCDS else { return [] }
+            return joined(entry.spans).map { span in
+                "\(entry.contig)\tLGE\texon\t\(span.lowerBound)\t\(span.upperBound)\t.\t\(entry.strand)\t.\t"
+                    + "gene_id \"\(entry.gene)\"; transcript_id \"\(transcript)\";\n"
+            }
+        }
+    }
+
+    /// `spans` in order of start, with spans that overlap or touch joined into one.
+    static func joined(_ spans: [ClosedRange<Int>]) -> [ClosedRange<Int>] {
+        var result: [ClosedRange<Int>] = []
+        for span in spans.sorted(by: { $0.lowerBound < $1.lowerBound }) {
+            if let last = result.last, span.lowerBound <= last.upperBound + 1 {
+                result[result.count - 1] = last.lowerBound...max(last.upperBound, span.upperBound)
+            } else {
+                result.append(span)
+            }
+        }
+        return result
     }
 
     /// Refuses `gtf` when the transcript ids of its `exon` lines differ from those of `transcriptTable`, or when a
