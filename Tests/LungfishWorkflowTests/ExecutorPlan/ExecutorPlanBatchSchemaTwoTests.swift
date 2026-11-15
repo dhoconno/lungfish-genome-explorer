@@ -185,4 +185,49 @@ final class ExecutorPlanBatchSchemaTwoTests: XCTestCase {
             XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
         }
     }
+
+    /// The plans of an index build have no `input` entry and no `sample`, so the batch holds a DAG node that reads no
+    /// reads. Its row of jobs.tsv names the three shared files and no read, its VARS give the plan tar alone as
+    /// `sample_inputs`, and its `home` and `staged` outputs go where a schema 2 plan's go. This is the default stand-in of
+    /// ``ExecutorPlanBatchLauncherConformanceTests``, which runs the same plan with the real executor.
+    func testIndexShapedPlanWritesANodeWithNoReadsAndReturnsItsStagedIndex() throws {
+        typealias Fixture = ExecutorPlanIndexShapeFixture
+        let executor = try file("lungfish-executor", "executor stand-in")
+        let reference = try file("ref.fa", Fixture.referenceText)
+        let list = try file("ids.txt", Fixture.listText)
+        let job = Fixture.job(
+            executor: try Fixture.Source(executor.url), reference: try Fixture.Source(reference.url),
+            list: try Fixture.Source(list.url), seqkit: PlanToolPin(id: "seqkit", version: "2.13.0", build: "b0"),
+            pigz: PlanToolPin(id: "pigz", version: "2.8", build: "b0"), imageManifest: image.imageManifest
+        )
+        XCTAssertNil(job.emission.plan.sampleValues)
+        XCTAssertFalse(job.emission.plan.entries.contains { $0.role == .input })
+        let folder = root.appendingPathComponent("index-batch", isDirectory: true)
+        let batch = try ExecutorPlanBatchWriter.write([job], image: image, layout: layout, into: folder)
+        XCTAssertEqual(batch.samples, ["index"])
+
+        let shared = "\(Self.staging)/shared"
+        let names = [(executor.sha256, "lungfish-executor"), (reference.sha256, "ref.fa"), (list.sha256, "ids.txt")].map { "\($0.0)-\($0.1)" }
+        let jobs = try text(folder, "jobs.tsv").split(separator: "\n").map(String.init)
+        XCTAssertEqual(jobs.count, 2)
+        XCTAssertEqual(Array(jobs[1].split(separator: "\t").dropFirst(3)), [
+            "shared/\(names[0])=bin/lungfish-executor", "shared/\(names[1])=\(Fixture.referencePath)", "shared/\(names[2])=\(Fixture.listPath)",
+        ])
+        let submit = try text(folder, "sample.sub")
+        XCTAssertEqual(try value(of: "transfer_input_files", in: submit), "$(sample_inputs), " + names.map { "file://\(shared)/\($0)" }.joined(separator: ", "))
+        XCTAssertEqual(try value(of: "transfer_output_files", in: submit),
+                       "plan/run-record.json, plan/logs, plan/\(Fixture.homeOutput), plan/\(Fixture.stagedOutput)")
+        let dag = try text(folder, "run.dag").split(separator: "\n").map(String.init)
+        let vars = try XCTUnwrap(dag.first { $0.hasPrefix("VARS index ") })
+        for pair in ["request_disk=\"2GB\"", "request_memory=\"2048MB\"", "request_cpus=\"1\"", "sample_inputs=\"plan.tar\""] {
+            XCTAssertTrue(vars.contains(pair), "\(pair) in \(vars)")
+        }
+        let base = "\(Self.staging)/batches/batch/index"
+        XCTAssertTrue(dag.contains("SCRIPT PRE index /bin/mkdir -p \(base)/result \(base)/result/out \(base)/staged \(base)/staged/index"), "\(dag)")
+        XCTAssertEqual(batch.files.map(\.role), ["image", "executor", "reference", "barcodeList"])
+        XCTAssertNil(batch.files[3].source, "LGE never copies a list the person supplied")
+        let run = try text(folder, "run-local.sh")
+        XCTAssertTrue(run.contains("for path in run-record.json \(Fixture.homeOutput); do"), run)
+        XCTAssertTrue(run.contains("for path in \(Fixture.stagedOutput); do"), run)
+    }
 }
