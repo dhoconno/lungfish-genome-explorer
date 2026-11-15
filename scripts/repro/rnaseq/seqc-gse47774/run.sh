@@ -6,7 +6,8 @@
 #
 # Usage: run.sh <data_root> <work_dir> <env_prefix> [stage ...]
 #   data_root  holds studies/GSE47774/{fastq,geo,truth} and refs/human/ensembl-100
-#   stages     ref index quant repeat gene de truth claims bias star (default: ref to claims, no repeat)
+#   stages     ref index quant repeat gene de truth claims bias star (default: ref to claims, no repeat),
+#              and outside the default lge_import lge_refset lge_index lge_quant, or lge for the last three
 # Environment:
 #   LOCKS      folder for the shared heavy lock (mkdir LOCKS/heavy around a heavy step);
 #              "-" or unset runs heavy steps at once
@@ -15,6 +16,8 @@
 set -euo pipefail
 DATA=$1; WORK=$2; ENVP=$3; shift 3
 STAGES=${*:-ref index quant gene de truth claims}
+# The word lge runs lge_refset, lge_index and lge_quant in one root, WORK/lge/${LGE_RUN:-LGE} (X1, packaged CLI).
+case " $STAGES " in *" lge "*) STAGES="$STAGES lge_refset lge_index lge_quant"; LGE_RUN=${LGE_RUN:-LGE} ;; esac
 HERE=$(cd "$(dirname "$0")" && pwd)
 STUDY=$DATA/studies/GSE47774
 LOCKS=${LOCKS:--}; THREADS=${THREADS:-8}; QTHREADS=${QTHREADS:-6}
@@ -180,4 +183,96 @@ if has lge_index; then
   if cmp -s "$LGE/quant/SRR896663/quant.sf" "$WORK/quant/SRR896663/quant.sf"; then gi "quant.sf SRR896663 equal"
   else gi "quant.sf SRR896663 DIFFERS, first lines: $(diff "$LGE/quant/SRR896663/quant.sf" "$WORK/quant/SRR896663/quant.sf" | head -3 | tr '\n' ' ')"; fi
   rm -rf "$LGE/quant"
+fi
+
+# lge_quant (RS-QUANT, gate GS, not in the default list): LGE_CLI imports each staged run of samples.tsv as one bundle named
+# <sample>_<library>, reads and order kept (--clumping-tool none --quality-binning none, THREADS), into
+# WORK/lge/${LGE_RUN:-RS-QUANT}/project.lungfish, then counts them all in one rnaseq quant (QTHREADS) on the set and index of
+# lge_index (LGE_INDEX_ROOT, default WORK/lge/${LGE_RUN:-RS-INDEX}/root), at nice 15 with no heavy lock. It waits while
+# LOCKS/PAUSE exists before each import and the quant, and stops when lge_scratch would keep under LGE_KEEP_GB (200) free.
+# gs.txt has a GS line a check: the record lines first (ADJ-TAIL item 7), then each quant.sf cmp'ed with quant/ (the first
+# that differs ends the compare), IU, num_processed and the four index hashes, then the genes at 4 decimals by LGE_COMPARE
+# (RS-BULK-IMPORT's compare_import.py). Then LGE_MEASURE_RUN (default SRR896663, - for none) is imported with the default
+# storage settings and counted alone. The bundles stay for the record checks.
+if has lge_quant; then
+  : "${LGE_CLI:?set LGE_CLI to a lungfish-cli}"
+  LGE=$WORK/lge/${LGE_RUN:-RS-QUANT}; P=$LGE/project.lungfish; IROOT=${LGE_INDEX_ROOT:-$WORK/lge/${LGE_RUN:-RS-INDEX}/root}
+  mkdir -p "$P" "$LGE/logs"; : > "$LGE/gs.txt"
+  gs() { echo "GS seqc-gse47774 $*" | tee -a "$LGE/gs.txt"; }
+  held() { while [ "$LOCKS" != "-" ] && [ -e "$LOCKS/PAUSE" ]; do sleep 60; done; }
+  took() { awk '/real/ {printf "%s s", $1} /maximum resident/ {printf ", peak %.1f GB", $1 / 2^30}' "$1"; }
+  set_id=$(basename "$(ls -d "$IROOT/rnaseq-reference-sets"/*.lungfishrefset | head -1)" .lungfishrefset)
+  key=$(ls "$IROOT/rnaseq-index-cache/$set_id"/salmon-*-k31-genome-decoys/index-key.json) || { gs "no index under $IROOT"; exit 1; }
+  lge_in() { # <run> <label> <project> <log tag> [import options]: one bundle, unless it is there
+    local run=$1 label=$2 proj=$3 tag=$4 need free; shift 4
+    local r1=$STUDY/fastq/${run}_1.fastq.gz r2=$STUDY/fastq/${run}_2.fastq.gz
+    [ -d "$proj/Imports/$label.lungfishfastq" ] && return 0
+    held
+    need=$(( ${LGE_KEEP_GB:-200} + ($(du -k "$r1" "$r2" | awk '{s += $1} END {print s}') >> 19) + 1 ))
+    free=$(df -g "$WORK" | awk 'NR == 2 {print $4}')
+    [ "$free" -ge "$need" ] || { gs "$tag $run stopped, $free GB free and $need GB needed"; exit 1; }
+    /usr/bin/time -l -o "$LGE/logs/$tag-$run.time" $NICE "$LGE_CLI" import fastq "$r1" "$r2" --project "$proj" --name "$label" \
+      --threads "$THREADS" "$@" < /dev/null > "$LGE/logs/$tag-$run.log" 2>&1 || { gs "$tag $run FAIL, see logs/$tag-$run.log"; exit 1; }
+    gs "$tag $run as $label $(took "$LGE/logs/$tag-$run.time")"
+  }
+  printf 'run\tsample\tgroup\n' > "$LGE/sheet.tsv"; bundles=()
+  while IFS=$'\t' read -r run sample library _; do
+    [ "$run" = run ] && continue
+    { [ -s "$STUDY/fastq/${run}_1.fastq.gz" ] && [ -s "$STUDY/fastq/${run}_2.fastq.gz" ]; } || { gs "import $run not staged"; continue; }
+    lge_in "$run" "${sample}_$library" "$P" import --clumping-tool none --quality-binning none
+    printf '%s\t%s_%s\t%s\n' "$run" "$sample" "$library" "$sample" >> "$LGE/sheet.tsv"
+    bundles+=("$P/Imports/${sample}_$library.lungfishfastq")
+  done < "$HERE/samples.tsv"
+  [ "${#bundles[@]}" -gt 0 ] || { gs "no run staged"; exit 1; }
+  held
+  /usr/bin/time -l -o "$LGE/logs/quant.time" $NICE "$LGE_CLI" rnaseq quant "${bundles[@]}" --project "$P" --name seqc-c1 \
+    --set "$set_id" --storage-root "$IROOT" --threads "$QTHREADS" --format json < /dev/null > "$LGE/logs/quant.json" \
+    2> "$LGE/logs/quant.err" || { gs "quant FAIL, see logs/quant.err"; exit 1; }
+  res=$(sed -n 's/.*"result":"\([^"]*\)".*/\1/p' "$LGE/logs/quant.json"); rec=$res/.lungfish-provenance.json
+  gs "quant ${#bundles[@]} runs $(took "$LGE/logs/quant.time"), $res"
+  ok=1; n=${#bundles[@]}
+  for line in "Reads not trimmed" "Poly-G trimming at import: not enabled (no trimmer ran at import)"; do
+    c=$( { grep -oF "$line" "$rec" || true; } | wc -l | tr -d ' ')
+    if [ "$c" -ge "$n" ]; then gs "record \"$line\" $c times for $n runs"; else gs "record \"$line\" FAIL, $c times for $n runs"; ok=0; fi
+  done
+  for b in seqBias gcBias posBias; do grep -qE "\"$b\" *: *\"off\"" "$res/rnaseq-result.json" || { gs "route $b not off"; ok=0; }; done
+  [ "$ok" = 1 ] && gs "route seqBias gcBias posBias off"
+  if [ "$ok" = 1 ]; then
+    while IFS=$'\t' read -r run label _; do
+      [ "$run" = run ] && continue
+      s=$res/source/$label; t=$WORK/quant/$run
+      if ! cmp -s "$s/quant.sf" "$t/quant.sf"; then
+        gs "quant.sf $run DIFFERS, first lines: $(diff "$s/quant.sf" "$t/quant.sf" | head -3 | tr '\n' ' ')"; ok=0; break
+      fi
+      fmt=$(sed -n 's/.*"expected_format": *"\([A-Z]*\)".*/\1/p' "$s/lib_format_counts.json")
+      np=$(sed -n 's/.*"num_processed": *\([0-9]*\).*/\1/p' "$s/aux_info/meta_info.json")
+      npt=$(sed -n 's/.*"num_processed": *\([0-9]*\).*/\1/p' "$t/aux_info/meta_info.json")
+      h=0
+      for k in index_seq_hash index_name_hash index_decoy_seq_hash index_decoy_name_hash; do
+        v=$(sed -n "s/.*\"$k\" *: *\"\([0-9a-f]*\)\".*/\1/p" "$key")
+        if [ -n "$v" ] && grep -qF "\"$k\": \"$v\"" "$s/aux_info/meta_info.json" && grep -qF "$v" "$rec"; then h=$((h + 1)); fi
+      done
+      if [ "$fmt" = IU ] && [ -n "$np" ] && [ "$np" = "$npt" ] && [ "$h" = 4 ]; then
+        gs "run $run quant.sf equal, IU, num_processed $np, 4 index hashes equal in meta_info.json and the record"
+      else gs "run $run FAIL, format $fmt, num_processed $np against $npt, $h of 4 index hashes"; ok=0; fi
+    done < "$LGE/sheet.tsv"
+  fi
+  if [ "$ok" = 1 ] && [ -n "${LGE_COMPARE:-}" ]; then
+    if $NICE $PY "$LGE_COMPARE" --result "$res" --sheet "$LGE/sheet.tsv" --quant "$WORK/quant" \
+        --truth "$WORK/gene/gene_counts.tsv" --decimals 4 --library-type IU --out "$LGE/compare" > "$LGE/logs/compare.log" 2>&1; then
+      gs "genes pass at 4 decimals, genes.counts.tsv sha256 $(sed -n 's/.*"genes_counts_tsv_sha256": "\([0-9a-f]*\)".*/\1/p' "$LGE/compare/summary.json")"
+    else gs "genes FAIL, see compare/summary.json and compare/differences.tsv"; fi
+  else gs "genes not compared (a check above failed, or LGE_COMPARE is unset)"; fi
+  mr=${LGE_MEASURE_RUN:-SRR896663}
+  if [ "$mr" != - ]; then # the default storage settings: clumping and fiveStep
+    D=$LGE/default/project.lungfish; mkdir -p "$D"
+    ml=$(awk -F'\t' -v r="$mr" '$1 == r {print $2 "_" $3}' "$HERE/samples.tsv")
+    if ( lge_in "$mr" "$ml" "$D" default ) && held && /usr/bin/time -l -o "$LGE/logs/default-quant.time" $NICE "$LGE_CLI" \
+        rnaseq quant "$D/Imports/$ml.lungfishfastq" --project "$D" --name seqc-c1-default --set "$set_id" --storage-root "$IROOT" \
+        --threads "$QTHREADS" --format json < /dev/null > "$LGE/logs/default-quant.json" 2> "$LGE/logs/default-quant.err"; then
+      dres=$(sed -n 's/.*"result":"\([^"]*\)".*/\1/p' "$LGE/logs/default-quant.json")
+      if cmp -s "$dres/source/$ml/quant.sf" "$WORK/quant/$mr/quant.sf"; then gs "default storage $mr quant.sf equal"
+      else gs "default storage $mr quant.sf DIFFERS, first lines: $(diff "$dres/source/$ml/quant.sf" "$WORK/quant/$mr/quant.sf" | head -3 | tr '\n' ' ')"; fi
+    else gs "default storage $mr FAIL, see logs/default-*"; fi
+  fi
 fi
