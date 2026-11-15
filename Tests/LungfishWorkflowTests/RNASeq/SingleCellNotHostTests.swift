@@ -170,7 +170,7 @@ extension SingleCellNotHostTests {
         XCTAssertEqual(sample.calls.map(\.flag), ["not computed: 33206 barcodes, too few for an ambient pool"])
         XCTAssertNil(sample.calls[0].q)
         XCTAssertEqual(sample.rates, [nil])
-        XCTAssertEqual(sample.barcodes.first { $0.barcode == Self.barcode(5) }?.genome, [counts(2)])
+        XCTAssertEqual(sample.barcodes.first { $0.barcode == Self.barcode(5) }?.genome, [counts(2, 0, 2)])
     }
 
     func testAPoolWhollyInOneTieTakesTheBarcodesInByteOrder() {
@@ -211,7 +211,7 @@ extension SingleCellNotHostTests {
         // A bacterium counted without its rRNA mask is never flagged (BIO-NOTHOST-BARCODE item 6).
         XCTAssertEqual(sample.calls[1].flag, "not computed: no rRNA mask for mtb-erdman")
         XCTAssertNil(sample.calls[1].q)
-        XCTAssertEqual(sample.barcodes[0].genome, [counts(6), counts(6), counts(6)])
+        XCTAssertEqual(sample.barcodes[0].genome, [counts(6, 0, 6), counts(6, 0, 6), counts(6, 0, 6)])
         XCTAssertEqual(SingleCellNotHostFlag.words(for: .bacterium), "bacterial RNA above ambient")
         XCTAssertNil(SingleCellNotHostFlag.words(for: .spikeIn))
         XCTAssertEqual(Self.mask.maskedWords, "on Mtb Erdman rRNA genes, source not resolved")
@@ -283,7 +283,7 @@ extension SingleCellNotHostTests {
         let raw = SingleCellRawMatrix(
             barcodes: SingleCellBarcodeTable(data: Data(text.utf8)), totals: cells.map { _ in 900 } + extraBarcodes.map { _ in 1 })
         var counter = SingleCellNotHostCounter(extras: [Self.virus])
-        try counter.add(samText: (1...4).map { line(cells[0], "U\($0)") }.joined(separator: "\n") + "\n" + line(Self.barcode(7), "U1"))
+        try counter.add(samText: (1...10).map { line(cells[0], "U\($0)") }.joined(separator: "\n") + "\n" + line(Self.barcode(7), "U1"))
         let sample = SingleCellNotHostPass.sample(
             folder.sample, cells: cells, raw: raw, pool: SingleCellAmbientPool(raw), tallies: counter.tallies(), extras: [Self.virus])
         var request = try SingleCellFolderReader.request([folder], name: "pbmc", samples: [.init(id: folder.sample)], genomes: [])
@@ -309,7 +309,7 @@ extension SingleCellNotHostTests {
         XCTAssertEqual(calls.count, cells.count)
         XCTAssertEqual(calls.first { $0.cell == 1 }?.flag, "viral RNA above ambient")
         let counted = try database.notHostCounts()
-        XCTAssertEqual(counted.filter { $0.barcode == cells[0] }.map { [$0.record, $0.umis, $0.umisNM01] }, [[0, 4, 4], [1, 4, 4]])
+        XCTAssertEqual(counted.filter { $0.barcode == cells[0] }.map { [$0.record, $0.umis, $0.umisNM01] }, [[0, 10, 10], [1, 10, 10]])
         XCTAssertEqual(try database.notHostBarcodes().first { $0.barcode == Self.barcode(7) }?.cell, nil)
         XCTAssertEqual(try database.notHostBarcodes().first { $0.barcode == cells[0] }?.cell, 1)
     }

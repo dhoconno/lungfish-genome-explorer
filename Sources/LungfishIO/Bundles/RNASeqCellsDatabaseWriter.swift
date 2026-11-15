@@ -18,7 +18,74 @@ public final class RNASeqCellsDatabaseWriter {
         "CREATE TABLE features (feature INTEGER PRIMARY KEY, id TEXT NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL, genome INTEGER, total INTEGER NOT NULL, cells INTEGER NOT NULL)",
         "CREATE TABLE genomes (genome INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)",
         "CREATE TABLE cell_genomes (cell INTEGER NOT NULL, genome INTEGER NOT NULL, umis INTEGER NOT NULL, genes INTEGER NOT NULL, PRIMARY KEY (cell, genome)) WITHOUT ROWID",
+        // Schema 2, the not-host pass. A record of 0 is the extra's figure over its records.
+        "CREATE TABLE not_host_extras (extra INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, mask TEXT, mask_words TEXT NOT NULL)",
+        "CREATE TABLE not_host_records (record INTEGER PRIMARY KEY, extra INTEGER NOT NULL, name TEXT NOT NULL UNIQUE, length INTEGER NOT NULL)",
+        "CREATE TABLE ambient_pools (sample INTEGER PRIMARY KEY, barcodes_with_umi INTEGER NOT NULL, pool_barcodes INTEGER NOT NULL, first_rank INTEGER, last_rank INTEGER, umi_min INTEGER, umi_max INTEGER, umis INTEGER NOT NULL, words TEXT NOT NULL)",
+        "CREATE TABLE ambient_pool_counts (sample INTEGER NOT NULL, extra INTEGER NOT NULL, record INTEGER NOT NULL, umis INTEGER NOT NULL, masked_umis INTEGER NOT NULL, rate REAL, PRIMARY KEY (sample, extra, record)) WITHOUT ROWID",
+        "CREATE TABLE not_host_barcodes (sample INTEGER NOT NULL, barcode TEXT NOT NULL, cell INTEGER, raw_umis INTEGER NOT NULL, in_pool INTEGER NOT NULL, PRIMARY KEY (sample, barcode)) WITHOUT ROWID",
+        "CREATE TABLE not_host_counts (sample INTEGER NOT NULL, barcode TEXT NOT NULL, extra INTEGER NOT NULL, record INTEGER NOT NULL, umis INTEGER NOT NULL, masked_umis INTEGER NOT NULL, umis_nm01 INTEGER NOT NULL, masked_umis_nm01 INTEGER NOT NULL, PRIMARY KEY (sample, barcode, extra, record)) WITHOUT ROWID",
+        "CREATE TABLE not_host_calls (sample INTEGER NOT NULL, extra INTEGER NOT NULL, cell INTEGER NOT NULL, p REAL, q REAL, flag TEXT NOT NULL, PRIMARY KEY (sample, extra, cell)) WITHOUT ROWID",
     ]
+
+    public func addNotHostExtras(_ rows: [RNASeqCellsDatabase.NotHostExtra], records: [RNASeqCellsDatabase.NotHostRecord]) throws {
+        try insert("INSERT INTO not_host_extras (extra, name, kind, mask, mask_words) VALUES (?, ?, ?, ?, ?)", rows: rows.count) { statement, index in
+            let row = rows[index]
+            sqlite3_bind_int64(statement, 1, Int64(row.extra))
+            bind(statement, 2, row.name)
+            bind(statement, 3, row.kind)
+            bind(statement, 4, row.mask)
+            bind(statement, 5, row.maskWords)
+        }
+        try insert("INSERT INTO not_host_records (record, extra, name, length) VALUES (?, ?, ?, ?)", rows: records.count) { statement, index in
+            let row = records[index]
+            sqlite3_bind_int64(statement, 1, Int64(row.record))
+            sqlite3_bind_int64(statement, 2, Int64(row.extra))
+            bind(statement, 3, row.name)
+            sqlite3_bind_int64(statement, 4, Int64(row.length))
+        }
+    }
+
+    public func addAmbientPool(_ pool: RNASeqCellsDatabase.AmbientPool, counts: [RNASeqCellsDatabase.AmbientPoolCount]) throws {
+        try insert("INSERT INTO ambient_pools VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows: 1) { statement, _ in
+            for (column, value) in [pool.sample, pool.barcodesWithUMI, pool.poolBarcodes].enumerated() { sqlite3_bind_int64(statement, Int32(column + 1), Int64(value)) }
+            for (column, value) in [pool.firstRank, pool.lastRank, pool.umiMin, pool.umiMax].enumerated() { bind(statement, Int32(column + 4), value) }
+            sqlite3_bind_int64(statement, 8, Int64(pool.umis))
+            bind(statement, 9, pool.words)
+        }
+        try insert("INSERT INTO ambient_pool_counts VALUES (?, ?, ?, ?, ?, ?)", rows: counts.count) { statement, index in
+            let row = counts[index]
+            for (column, value) in [row.sample, row.extra, row.record, row.umis, row.maskedUMIs].enumerated() { sqlite3_bind_int64(statement, Int32(column + 1), Int64(value)) }
+            if let rate = row.rate { sqlite3_bind_double(statement, 6, rate) } else { sqlite3_bind_null(statement, 6) }
+        }
+    }
+
+    public func addNotHostBarcodes(_ rows: [RNASeqCellsDatabase.NotHostBarcode], counts: [RNASeqCellsDatabase.NotHostCount], calls: [RNASeqCellsDatabase.NotHostCall]) throws {
+        try insert("INSERT INTO not_host_barcodes VALUES (?, ?, ?, ?, ?)", rows: rows.count) { statement, index in
+            let row = rows[index]
+            sqlite3_bind_int64(statement, 1, Int64(row.sample))
+            bind(statement, 2, row.barcode)
+            bind(statement, 3, row.cell)
+            sqlite3_bind_int64(statement, 4, Int64(row.rawUMIs))
+            sqlite3_bind_int64(statement, 5, row.inPool ? 1 : 0)
+        }
+        try insert("INSERT INTO not_host_counts VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows: counts.count) { statement, index in
+            let row = counts[index]
+            sqlite3_bind_int64(statement, 1, Int64(row.sample))
+            bind(statement, 2, row.barcode)
+            for (column, value) in [row.extra, row.record, row.umis, row.maskedUMIs, row.umisNM01, row.maskedUMIsNM01].enumerated() {
+                sqlite3_bind_int64(statement, Int32(column + 3), Int64(value))
+            }
+        }
+        try insert("INSERT INTO not_host_calls VALUES (?, ?, ?, ?, ?, ?)", rows: calls.count) { statement, index in
+            let row = calls[index]
+            for (column, value) in [row.sample, row.extra, row.cell].enumerated() { sqlite3_bind_int64(statement, Int32(column + 1), Int64(value)) }
+            for (column, value) in [row.p, row.q].enumerated() {
+                if let value { sqlite3_bind_double(statement, Int32(column + 4), value) } else { sqlite3_bind_null(statement, Int32(column + 4)) }
+            }
+            bind(statement, 6, row.flag)
+        }
+    }
 
     private var db: OpaquePointer?
     private let url: URL
@@ -140,6 +207,14 @@ public final class RNASeqCellsDatabaseWriter {
 
     private func bind(_ statement: OpaquePointer, _ index: Int32, _ text: String) {
         sqlite3_bind_text(statement, index, text, -1, sqliteTransientDestructor)
+    }
+
+    private func bind(_ statement: OpaquePointer, _ index: Int32, _ text: String?) {
+        if let text { bind(statement, index, text) } else { sqlite3_bind_null(statement, index) }
+    }
+
+    private func bind(_ statement: OpaquePointer, _ index: Int32, _ value: Int?) {
+        if let value { sqlite3_bind_int64(statement, index, Int64(value)) } else { sqlite3_bind_null(statement, index) }
     }
 
     private func insert(_ sql: String, rows: Int, _ fill: (OpaquePointer, Int) -> Void) throws {

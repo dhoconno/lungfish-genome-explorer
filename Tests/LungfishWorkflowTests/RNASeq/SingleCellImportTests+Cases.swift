@@ -148,10 +148,10 @@ extension SingleCellImportTests {
         let file = result.appendingPathComponent(RNASeqCellsDatabase.filename)
         var db: OpaquePointer?
         XCTAssertEqual(sqlite3_open_v2(file.path, &db, SQLITE_OPEN_READWRITE, nil), SQLITE_OK)
-        XCTAssertEqual(sqlite3_exec(db, "UPDATE meta SET value = '2' WHERE key = 'schema_version'", nil, nil, nil), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(db, "UPDATE meta SET value = '3' WHERE key = 'schema_version'", nil, nil, nil), SQLITE_OK)
         sqlite3_close(db)
         XCTAssertEqual(
             refusalWords { _ = try database(result) },
-            "This RNA-seq result was written by a newer LGE (schema 2). Open it with that version or a later one.")
+            "This RNA-seq result was written by a newer LGE (schema 3). Open it with that version or a later one.")
     }
 }

@@ -52,24 +52,43 @@ The folder lives in the project's `Analyses/` folder, as the genotype and 12S re
 
 ### Single cell
 
-A single-cell matrix stays in `source/` as given, with its gzip or without it, and is never loaded, rewritten or converted (`docs/plans/2026-10-02-architecture-program.md:115`). LGE reads Matrix Market text and links no HDF5 library (same line). One streaming pass reads each matrix once, from the copy the writer has just hashed under `source/`, and writes `cells.sqlite`. A barcode list of 10x never enters the bundle unless the person supplied it, checked by sha256 (`docs/plans/2026-10-02-architecture-program.md:103`), so an import never copies Cell Ranger's `raw_feature_bc_matrix/` or STARsolo's `raw/`, whose barcodes are the whole list. Cell Ranger states its version on line 2 of its matrix, `%metadata_json: {"format_version": 2, "software_version": "3.0.0"}` (version 5.0 writes `cellranger-5.0.0`, and the prefix is dropped), and the import records it as the tool's version in `origin` and `route` when every folder states the same one. Otherwise, and for STARsolo, whose folder states none, the version reads Not recorded.
+A single-cell matrix stays in `source/` as given, with its gzip or without it, and is never loaded, rewritten or converted (`docs/plans/2026-10-02-architecture-program.md:115`). LGE reads Matrix Market text and links no HDF5 library (same line). One streaming pass reads each matrix once, from the copy the writer has just hashed under `source/`, and writes `cells.sqlite`. A barcode list of 10x never enters the bundle, so an import never copies Cell Ranger's `raw_feature_bc_matrix/` or STARsolo's `raw/`, whose barcodes are the whole list. A list the person supplied enters no LGE folder or bundle either. The person places it, and only its name and sha256 enter the record (`docs/plans/2026-10-02-architecture-program.md:103`, BIO-NOTHOST-BARCODE item 15). The not-host pass below reads the raw matrix by path and names it by sha256. Cell Ranger states its version on line 2 of its matrix, `%metadata_json: {"format_version": 2, "software_version": "3.0.0"}` (version 5.0 writes `cellranger-5.0.0`, and the prefix is dropped), and the import records it as the tool's version in `origin` and `route` when every folder states the same one. Otherwise, and for STARsolo, whose folder states none, the version reads Not recorded.
 
 The pass reads only the header `%%MatrixMarket matrix coordinate integer general`. Before the writer starts, the folder reader refuses in words any other header (`real`, `pattern`, `complex`, `array`, `symmetric`) and a size line whose rows or columns differ from the features or barcodes. While the pass reads the copy in the stage, it refuses in words any value that is not an unsigned decimal integer, such as `1.5` or `-1`, since a rounded count would be a false one, an entry count unlike the size line's, a row or column out of range and a gzip stream that ends early. A refusal in the pass removes the stage, so nothing is published.
 
 Only features of type `Gene Expression` enter a cell's totals, and the record counts the features of each other type. A feature with no type column, as in an older `genes.tsv`, is `Gene Expression`. For a reference of two or more genomes the person names each genome by the id prefix Cell Ranger gives its genes, such as `hg19` for `hg19_ENSG00000223972`, and the record says the genomes were named so. The pass has no mitochondrial column, because those genes are found by contig and never by a name prefix (`docs/plans/2026-10-02-architecture-program.md:111`).
 
-`cells.sqlite` holds these tables in schema 1.
+`cells.sqlite` holds these tables in schema 2. A schema 1 file holds the first six, and the reader reads its not-host tables as empty.
 
 | Table | One row a | Columns |
 | --- | --- | --- |
-| `meta` | fact | `key`, `value`. `schema_version` is `1`, and `sha256:<path>` holds the sha256 of each matrix, features and barcodes file the pass read, by its path in the result |
+| `meta` | fact | `key`, `value`. `schema_version` is `2`, and `sha256:<path>` holds the sha256 of each matrix, features and barcodes file the pass read, by its path in the result |
 | `samples` | sample | `sample` (from 1), `name` as in `samples.tsv`, `matrix` (its path in the result), `cells`, `features`, `entries` |
 | `cells` | barcode | `cell` (from 1 over all samples), `sample`, `column` (the barcode's column in its matrix, from 1), `barcode` as given (STARsolo's bare, 10x's with `-1`), `umis` and `genes` (the `Gene Expression` features with a count). One sample holds a barcode once |
 | `features` | feature | `feature` (its row in the matrix, from 1), `id`, `name`, `type`, `genome` (null unless genomes are named), `total` (its UMIs in every cell) and `cells` (the cells with a count) |
 | `genomes` | named genome | `genome` (from 1) and `name`, the prefix the person gave |
 | `cell_genomes` | cell and genome | `cell`, `genome`, `umis` and `genes` of that genome's features. Written only when genomes are named |
+| `not_host_extras` | not-host extra of the set | `extra` (from 1), `name`, `kind` (`virus`, `bacterium` or `spike-in`), `mask` (its name, file, sha256 and gene count, or null) and `mask_words`, the words of the masked column (`on <organism> rRNA genes, source not resolved`), or `rRNA not masked: no annotation given for <extra>` for a bacterium with no mask |
+| `not_host_records` | not-host sequence record | `record` (from 1, the records of each extra in turn), `extra`, `name` and `length` in bases |
+| `ambient_pools` | sample | `sample`, `barcodes_with_umi`, `pool_barcodes`, `first_rank` and `last_rank`, `umi_min` and `umi_max` (the pool's UMI range), `umis`, and `words`, empty or `not computed: N barcodes, too few for an ambient pool`, when the ranks and range are null |
+| `ambient_pool_counts` | sample, extra and record | `umis` and `masked_umis` of the pool's barcodes, and `rate` on the extra's own row |
+| `not_host_barcodes` | sample and barcode | every cell and every other barcode of the raw list with a not-host UMI, with `cell` (null outside the cells), `raw_umis` and `in_pool` |
+| `not_host_counts` | barcode, extra and record | `umis` and `masked_umis`, the default and masked columns, and `umis_nm01` and `masked_umis_nm01`, those with an alignment at nM 0 or 1. Written only where a count is above 0 |
+| `not_host_calls` | cell and virus or bacterium extra | `p`, `q` and `flag`, the flag's words, empty when the cell is not flagged, or the words that say why no flag was computed, when `p` and `q` are null |
 
-Every sample of a result lists the same features in the same order, or the import is refused, so `features` sums over every sample.
+In `ambient_pool_counts` and `not_host_counts` a `record` of 0 is the extra's own figure over its records. Every sample of a result lists the same features in the same order, or the import is refused, so `features` sums over every sample.
+
+### Not-host RNA
+
+`lungfish-cli import rnaseq` counts not-host RNA in each cell and in the ambient pool when the person names `--reference-set <set folder>` and `--not-host-bam <sample>=<path>` for each sample (gate GN, `docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md:94`). The pass runs at import, so the result and its `cells.sqlite` are written once (BIO-NOTHOST-BARCODE item 8). The result's genes come from the set's `derived/genes.tsv`, an id the set lacks is refused in words, and `notHost` lists the set's not-host features. Each BAM is coordinate-sorted and indexed, and a BAM whose header lacks a not-host record of the set, or holds it at another length, is refused in words. The BAM and the raw matrix (`Solo.out/Gene/raw/` or `outs/raw_feature_bc_matrix/`) are read by path and never copied, so a moved result opens its not-host tables without them.
+
+- One `samtools view` a sample over the set's not-host records gives the alignments. A UMI is a unique (CB, UB) pair among primary alignments at NH 1 that carry both tags, kept per record, and an extra's figure is its unique pairs over its records, so a pair on two records counts once (ADJ-SC-3 item 3).
+- A pair is in the default column when any of its alignments lies outside the extra's rRNA mask, and in the masked column otherwise. An alignment lies in the mask when its reference span overlaps a mask gene by 1 base or more (BIO-NOTHOST-BARCODE item 7).
+- The ambient pool is ranks 45,000 to 90,000 by UMI in the raw matrix among barcodes with a UMI, every feature summed, ties in barcode-byte order. With fewer than 90,000 such barcodes it runs to the last, and with fewer than 45,000 there is none and the counts still show (ADJ-SC-3 item 1).
+- The rate is (pool not-host UMIs + 1) / pool UMIs (ADJ-SC-3 item 2). A cell's p is the Poisson upper tail of its default not-host UMIs at its raw UMIs times the rate, Benjamini-Hochberg runs over the library's cells, and a cell with 2 or more UMIs and q under 0.001 reads `viral RNA above ambient` for a virus and `bacterial RNA above ambient` for a bacterium.
+- A spike-in gets counts and no flag. A bacterium with no rRNA mask reads `not computed: no rRNA mask for <extra>`, since a bacterium counted without its mask gives false flags (BIO-NOTHOST-BARCODE item 6).
+
+The record names the set id, each mask's name and sha256, each BAM's path, sha256 and size, each raw matrix's path and sha256, and the samtools version that ran.
 
 ## The manifest
 

@@ -112,11 +112,11 @@ final class SingleCellImportTests: XCTestCase {
         let summary = try XCTUnwrap(manifest.cellsSummary)
         XCTAssertEqual(summary.path, RNASeqCellsDatabase.filename)
         XCTAssertEqual(summary.sha256, sha256(try Data(contentsOf: cellsFile)))
-        XCTAssertEqual(summary.schemaVersion, 1)
+        XCTAssertEqual(summary.schemaVersion, 2)
         XCTAssertEqual(try RNASeqResultBundle.verifyChecksums(of: result), [])
 
         let db = try database(result)
-        XCTAssertEqual(db.schemaVersion, 1)
+        XCTAssertEqual(db.schemaVersion, 2)
         let cells = try db.cells(offset: 0, limit: 1_000)
         XCTAssertEqual(cells.count, 200)
         XCTAssertEqual(cells.reduce(0) { $0 + $1.umis }, 212_629)

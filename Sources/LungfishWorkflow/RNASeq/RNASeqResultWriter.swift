@@ -76,6 +76,9 @@ public struct RNASeqResultWriter: Sendable {
         /// `quality/samples.quality.tsv`, the columns and then one row a sample. A row whose sample is not in `samples`
         /// is refused. Nil writes no file and no manifest key.
         public var quality: RNASeqQualityTable?
+        /// Single cell. The not-host pass of the import, run before the writer from the BAM and raw matrix by path,
+        /// which the writer puts in `cells.sqlite` beside each sample's cells. Nil writes the tables empty.
+        public var notHostCells: SingleCellNotHostResult?
         public var createdAt: Date
 
         public init(

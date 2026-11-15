@@ -35,7 +35,8 @@ final class SingleCellSummarizer {
     /// Reads one sample's matrix, features and barcodes, each a kept file of the stage, and returns its size line.
     func add(
         sample: String, matrix: RNASeqResultManifest.SourceFileEntry, features: RNASeqResultManifest.SourceFileEntry,
-        barcodes: RNASeqResultManifest.SourceFileEntry, in stage: URL
+        barcodes: RNASeqResultManifest.SourceFileEntry, in stage: URL,
+        notHost: SingleCellNotHostSample? = nil, extras: [SingleCellNotHostExtra] = []
     ) throws -> (size: MatrixMarketSize, isGzip: Bool) {
         let rows = try MatrixMarketReader.textLines(of: stage.appendingPathComponent(features.path)).map {
             $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
@@ -99,8 +100,65 @@ final class SingleCellSummarizer {
             try database.addCellGenomes(firstCell: nextCell, genome: genome + 1, umis: genomeUMIs[genome], genes: genomeGenes[genome])
         }
         for file in [matrix, features, barcodes] { try database.setMeta("sha256:\(file.path)", file.sha256) }
+        if let notHost { try addNotHost(notHost, extras: extras, columns: size.columns) }
         nextCell += size.columns
         return (size, reader.isGzip)
+    }
+
+    /// The not-host extras and records, numbered from 1, the records of each extra in turn.
+    func addNotHostExtras(_ result: SingleCellNotHostResult) throws {
+        let extras = result.extras.enumerated().map { number, extra in
+            RNASeqCellsDatabase.NotHostExtra(
+                extra: number + 1, name: extra.name, kind: extra.kind.rawValue,
+                mask: extra.mask.map { "\($0.name) from \($0.file) (sha256 \($0.sha256)), \($0.intervals.count) rRNA genes" }, maskWords: extra.maskWords)
+        }
+        let records = result.records.enumerated().map { number, record in
+            RNASeqCellsDatabase.NotHostRecord(record: number + 1, extra: (result.extraNumber(ofRecord: record.name) ?? -1) + 1, name: record.name, length: record.length)
+        }
+        try database.addNotHostExtras(extras, records: records)
+    }
+
+    /// One library's pool, its rows a barcode and a record, and each cell's test, joined to the cells just written.
+    private func addNotHost(_ sample: SingleCellNotHostSample, extras: [SingleCellNotHostExtra], columns: Int) throws {
+        guard sample.cellCount == columns else { throw SingleCellNotHostError.cellsDiffer(sample.sample) }
+        var firstRecord: [Int] = []
+        var next = 0
+        for extra in extras {
+            firstRecord.append(next)
+            next += extra.records.count
+        }
+        let pool = sample.pool
+        var poolCounts: [RNASeqCellsDatabase.AmbientPoolCount] = []
+        for (number, extra) in extras.enumerated() {
+            poolCounts.append(.init(sample: sampleNumber, extra: number + 1, record: 0, umis: sample.poolGenome[number].umis,
+                                    maskedUMIs: sample.poolGenome[number].maskedUMIs, rate: sample.rates[number]))
+            for record in firstRecord[number]..<(firstRecord[number] + extra.records.count) {
+                poolCounts.append(.init(sample: sampleNumber, extra: number + 1, record: record + 1, umis: sample.poolRecords[record].umis,
+                                        maskedUMIs: sample.poolRecords[record].maskedUMIs, rate: nil))
+            }
+        }
+        try database.addAmbientPool(.init(
+            sample: sampleNumber, barcodesWithUMI: pool.barcodesWithUMI, poolBarcodes: pool.members.count, firstRank: pool.firstRank,
+            lastRank: pool.lastRank, umiMin: pool.umiRange.map { Int($0.lowerBound) }, umiMax: pool.umiRange.map { Int($0.upperBound) },
+            umis: Int(pool.umis), words: pool.words ?? ""), counts: poolCounts)
+        var rows: [RNASeqCellsDatabase.NotHostBarcode] = []
+        var counts: [RNASeqCellsDatabase.NotHostCount] = []
+        func count(_ barcode: String, _ extra: Int, _ record: Int, _ value: SingleCellNotHostCounts) {
+            guard !value.isEmpty else { return }
+            counts.append(.init(sample: sampleNumber, barcode: barcode, extra: extra + 1, record: record, umis: value.umis,
+                                maskedUMIs: value.maskedUMIs, umisNM01: value.umisNM01, maskedUMIsNM01: value.maskedUMIsNM01))
+        }
+        for row in sample.barcodes {
+            rows.append(.init(sample: sampleNumber, barcode: row.barcode, cell: row.column.map { nextCell + $0 }, rawUMIs: Int(row.rawUMIs), inPool: row.inPool))
+            for (number, extra) in extras.enumerated() {
+                count(row.barcode, number, 0, row.genome[number])
+                for record in firstRecord[number]..<(firstRecord[number] + extra.records.count) { count(row.barcode, number, record + 1, row.records[record]) }
+            }
+        }
+        let calls = sample.calls.map {
+            RNASeqCellsDatabase.NotHostCall(sample: sampleNumber, extra: $0.extra + 1, cell: nextCell + $0.column, p: $0.p, q: $0.q, flag: $0.flag)
+        }
+        try database.addNotHostBarcodes(rows, counts: counts, calls: calls)
     }
 
     /// Writes the features with their totals, builds the barcode index and commits.
@@ -122,6 +180,7 @@ extension RNASeqResultWriter {
         let pass = try SingleCellSummarizer(url: url, genomes: request.genomes)
         var entries: [Manifest.MatrixEntry] = []
         do {
+            if let notHost = request.notHostCells { try pass.addNotHostExtras(notHost) }
             for input in inputs {
                 func kept(_ relative: String) throws -> Manifest.SourceFileEntry {
                     let path = "source/\(copied.folders[input.sample] ?? input.sample)/\(relative)"
@@ -131,7 +190,10 @@ extension RNASeqResultWriter {
                 let matrix = try kept(input.matrix)
                 let features = try kept(input.features)
                 let barcodes = try kept(input.barcodes)
-                let read = try pass.add(sample: input.sample, matrix: matrix, features: features, barcodes: barcodes, in: stage)
+                let notHost = request.notHostCells
+                let read = try pass.add(
+                    sample: input.sample, matrix: matrix, features: features, barcodes: barcodes, in: stage,
+                    notHost: notHost?.samples.first { $0.sample == input.sample }, extras: notHost?.extras ?? [])
                 entries.append(.init(
                     sample: input.sample, matrix: .init(path: matrix.path, sha256: matrix.sha256),
                     features: .init(path: features.path, sha256: features.sha256), barcodes: .init(path: barcodes.path, sha256: barcodes.sha256),
