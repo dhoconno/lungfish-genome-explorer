@@ -10,6 +10,7 @@ SUBCOMMANDS:
   reference-set           Build a reference set from a genome, an annotation
                           and extra sequences
   index                   Build or reuse the salmon index of a reference set
+  quant                   Count bulk RNA-seq reads in a project with salmon
   export                  Export RNA-seq counts for DESeq2, edgeR and limma
 
   See 'lungfish-cli help rnaseq <subcommand>' for detailed help.
