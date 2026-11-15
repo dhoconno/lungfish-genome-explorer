@@ -82,6 +82,8 @@ final class IlluminaMergeStemCollisionTests: XCTestCase {
         XCTAssertEqual(samples.map(\.readCount), [2, 1], "no sample's reads are lost")
         let staged = samples.map { $0.prefixedFASTQURL.lastPathComponent.lowercased() }
         XCTAssertEqual(Set(staged).count, 2, "staged names must differ once case is ignored, got \(staged)")
+        let mergeStems = samples.map { Pipeline.mergeStemForTesting(for: $0).lowercased() }
+        XCTAssertEqual(Set(mergeStems).count, 2, "merge stems must differ once case is ignored, got \(mergeStems)")
     }
 
     /// Case B. The IDs `S-1` and `S--1` stay distinct, and `safeFilenameStem` folds both to `S-1`.
