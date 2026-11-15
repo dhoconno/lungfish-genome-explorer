@@ -84,10 +84,19 @@ package struct ExecutorPlanSubmitValues: Sendable, Equatable {
     package var sampleName: String
     /// The job's `request_disk` in whole GiB, or nil when the row gives none.
     package var requestDiskGiB: Int?
+    /// A schema 2 job's `request_memory` in MiB, which its emitter's rule sets with the plan, the figure its argv holds
+    /// (ruling ARCH-SCHEMA-SPIKE item 4). A schema 1 job leaves it nil and asks its recipe's heap plus
+    /// ``HTCondorSubmitTemplate/memoryMarginBytes``.
+    package var requestMemoryMiB: Int64?
+    /// A schema 2 job's `request_cpus`, which its emitter's rule sets. A schema 1 job leaves it nil and asks its
+    /// recipe's threads.
+    package var requestCpus: Int?
 
-    package init(sampleName: String, requestDiskGiB: Int?) {
+    package init(sampleName: String, requestDiskGiB: Int?, requestMemoryMiB: Int64? = nil, requestCpus: Int? = nil) {
         self.sampleName = sampleName
         self.requestDiskGiB = requestDiskGiB
+        self.requestMemoryMiB = requestMemoryMiB
+        self.requestCpus = requestCpus
     }
 }
 

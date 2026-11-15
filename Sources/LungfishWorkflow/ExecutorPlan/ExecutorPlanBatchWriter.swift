@@ -98,6 +98,9 @@ package struct ExecutorPlanBatchFile: Codable, Sendable, Equatable {
 /// or other launcher.
 package struct ExecutorPlanBatchFolder: Codable, Sendable, Equatable {
     package static let resultRole = "result-folder"
+    /// A schema 2 sample's `batches/<batch>/<sample>/staged/` or the folder of one `staged` output in it, which the
+    /// job's remap writes into and a later plan reads from (lane EX-SUBMIT).
+    package static let stagedRole = "staged-folder"
     package var role: String
     package var sample: String
     package var stagingPath: String
@@ -131,6 +134,26 @@ package struct ExecutorPlanBatch: Sendable, Equatable {
     package var folders: [ExecutorPlanBatchFolder]
     /// Each sample's plan tar in the submit folder, in sample order.
     package var planTars: [ExecutorPlanBatchTar]
+    /// The words the caller shows for each barcode list the person supplied, where to put it in the staging folder
+    /// (``ExecutorPlanFolderWriter/placements(of:shared:)``). A recipe's batch has none.
+    package var placements: [String] = []
+}
+
+/// One job of a batch (lane EX-SUBMIT): the plan its emitter wrote, with the Mac file of each entry, and the values
+/// only the submit side reads. For a schema 2 plan those are the memory in MiB, CPUs and disk in GiB that the emitter's
+/// rule sets with the plan, the same numbers its argv holds, never read back from `plan.json` (ruling
+/// ARCH-SCHEMA-SPIKE item 4). `stagedPaths` are its reads' absolute paths in the staging folder when they are there
+/// already (C6 ruling STAGED), one an input entry in plan order, or nil.
+package struct ExecutorPlanBatchJob: Sendable {
+    package var emission: ExecutorPlanEmission
+    package var submit: ExecutorPlanSubmitValues
+    package var stagedPaths: [String]?
+
+    package init(emission: ExecutorPlanEmission, submit: ExecutorPlanSubmitValues, stagedPaths: [String]? = nil) {
+        self.emission = emission
+        self.submit = submit
+        self.stagedPaths = stagedPaths
+    }
 }
 
 /// Writes the submit folder of one CHTC batch (ARCH Q-C4-8): `run.dag`, `sample.sub`, `lge-job.sh`, `logs/`, one plan
@@ -256,13 +279,18 @@ package enum ExecutorPlanBatchWriter {
     /// the sample sanitizer gives (`SampleFolderNaming`, which TaxTriage and Viral Recon share), with a suffix when two
     /// samples take one name, and it must be a name the DAG can hold. The real run and `--dry-run` make this one check.
     package static func folderNames(for rows: [ExecutorPlanSampleRow]) throws -> [String] {
+        try folderNames(forSamples: rows.map(\.sampleName))
+    }
+
+    /// ``folderNames(for:)`` of each job's sample name, which a schema 2 job takes from its submit values.
+    package static func folderNames(forSamples samples: [String]) throws -> [String] {
         var used = Set<String>()
         var names: [String] = []
-        for row in rows {
-            let name = SampleFolderNaming.uniqueDirectoryName(for: row.sampleName, usedNames: &used)
+        for sample in samples {
+            let name = SampleFolderNaming.uniqueDirectoryName(for: sample, usedNames: &used)
             used.insert(name)
             guard HTCondorDAG.isNodeName(name) else {
-                throw ExecutorPlanError(field: "sample.sampleName", reason: "The sample \(row.sampleName) takes the folder name \(name), which is not an ASCII letter or digit followed by at most 63 ASCII letters, digits, _ or -, or is a word DAGMan keeps, so rename the sample.")
+                throw ExecutorPlanError(field: "sample.sampleName", reason: "The sample \(sample) takes the folder name \(name), which is not an ASCII letter or digit followed by at most 63 ASCII letters, digits, _ or -, or is a word DAGMan keeps, so rename the sample.")
             }
             names.append(name)
         }
@@ -287,48 +315,173 @@ package enum ExecutorPlanBatchWriter {
             throw ExecutorPlanError(field: "folder", reason: "The plan folder \(folder.lastPathComponent) already exists, so name a new folder or remove this one.")
         }
         try fileManager.createDirectory(at: folder, withIntermediateDirectories: false)
+        let jobs = zip(rows, emissions).map { ExecutorPlanBatchJob(emission: $1, submit: $0.split().submit, stagedPaths: $0.stagedPaths) }
+        let shape = BatchShape.recipe(heapBytes: Int64(template.storage.clumpifyHeapGB) * gib, cpus: template.storage.threads,
+                                      workRootFactor: workRootFactor(forPreset: request.recipe?.resolution?.preset?.id))
         do {
-            return try write(template, sources: recipeTemplate.sources, rows: rows, names: names, emissions: emissions,
-                             image: image, layout: layout, requirements: requirements,
-                             workRootFactor: workRootFactor(forPreset: request.recipe?.resolution?.preset?.id), into: folder)
+            return try write(jobs, names: names, shape: shape, image: image, layout: layout, requirements: requirements,
+                             into: folder)
         } catch {
             try? fileManager.removeItem(at: folder)
             throw error
         }
     }
 
+    /// Writes the submit folder of a batch of schema 2 plans, each with the submit values its emitter's rule gave
+    /// (lane EX-SUBMIT). The jobs share one `sample.sub`, so their plans name the same shared files and return the same
+    /// outputs. A schema 2 emitter calls this, or ``dryRun(_:image:layout:requirements:)`` first.
+    @discardableResult
+    package static func write(
+        _ jobs: [ExecutorPlanBatchJob], image: ExecutorPlanImageRecord, layout: ExecutorPlanStagingLayout,
+        requirements: String? = nil, into folder: URL
+    ) throws -> ExecutorPlanBatch {
+        let names = try checkJobs(jobs, image: image, layout: layout, requirements: requirements)
+        let fileManager = FileManager.default
+        guard !fileManager.fileExists(atPath: folder.path) else {
+            throw ExecutorPlanError(field: "folder", reason: "The plan folder \(folder.lastPathComponent) already exists, so name a new folder or remove this one.")
+        }
+        try fileManager.createDirectory(at: folder, withIntermediateDirectories: false)
+        do {
+            return try write(jobs, names: names, shape: .eachJob, image: image, layout: layout, requirements: requirements,
+                             into: folder)
+        } catch {
+            try? fileManager.removeItem(at: folder)
+            throw error
+        }
+    }
+
+    /// The lines a dry run of a schema 2 batch prints after the refusals of the real write: each job's folder and the
+    /// memory, CPUs and disk it asks for, then the words for each barcode list the person supplied.
+    package static func dryRun(
+        _ jobs: [ExecutorPlanBatchJob], image: ExecutorPlanImageRecord, layout: ExecutorPlanStagingLayout,
+        requirements: String? = nil
+    ) throws -> [String] {
+        let names = try checkJobs(jobs, image: image, layout: layout, requirements: requirements)
+        var lines = zip(jobs, names).map { job, name in
+            "  \(job.submit.sampleName) in folder \(name) asks for \(job.submit.requestMemoryMiB ?? 0) MiB of memory, "
+                + "\(job.submit.requestCpus ?? 0) CPUs and \(job.submit.requestDiskGiB ?? 0) GiB of disk."
+        }
+        lines += jobs.first.map { ExecutorPlanFolderWriter.placements(of: $0.emission.plan, shared: true) } ?? []
+        lines.append("This was a dry run, so no plan folder was written.")
+        return lines
+    }
+
+    /// The refusals of a schema 2 batch before anything is written, and each job's folder name.
+    private static func checkJobs(
+        _ jobs: [ExecutorPlanBatchJob], image: ExecutorPlanImageRecord, layout: ExecutorPlanStagingLayout, requirements: String?
+    ) throws -> [String] {
+        try checkLayout(layout)
+        try checkRequirements(requirements)
+        guard let first = jobs.first?.emission.plan else {
+            throw ExecutorPlanError(field: "sample", reason: "The batch holds no plan, so there is no job to write.")
+        }
+        for job in jobs {
+            let plan = job.emission.plan
+            let sample = job.submit.sampleName
+            guard plan.pipeline != nil else {
+                throw ExecutorPlanError(field: "pipeline", reason: "The plan of \(sample) runs no chain of pinned tools (schema 2). A read import writes its plans with import fastq --write-plan.")
+            }
+            try checkRequest(job.submit)
+            guard plan.imageManifest == image.imageManifest else {
+                throw ExecutorPlanError(field: "imageManifest", reason: "The plan of \(sample) pins another tool manifest than the image \(image.sif.fileName), so name the image its plan was written for.")
+            }
+            guard sharedEntries(of: plan) == sharedEntries(of: first), returns(of: plan, shape: .eachJob) == returns(of: first, shape: .eachJob) else {
+                throw ExecutorPlanError(field: "entries", reason: "The jobs of one batch share one sample.sub, so each plan names the same executor, databases, references and barcode lists and returns the same outputs. The plan of \(sample) differs from the first, so write it in a batch of its own.")
+            }
+            let inputs = plan.entries.filter { $0.role == .input }.count
+            if let paths = job.stagedPaths {
+                guard paths.count == inputs else {
+                    throw ExecutorPlanError(field: "stagedPaths", reason: "The sample \(sample) names \(paths.count) reads in the staging folder for its \(inputs) input files.")
+                }
+                for path in paths { try checkStagedRead(path, sample: sample, layout: layout) }
+                try checkStagedReadNames(paths, sample: sample)
+            }
+        }
+        return try folderNames(forSamples: jobs.map(\.submit.sampleName))
+    }
+
+    /// A schema 2 job's memory, CPUs and disk, which only its emitter's rule knows, each present and within the pool's
+    /// bounds: at most ``HTCondorSubmitTemplate/requestMemoryLimitBytes`` of memory and at least 1 CPU.
+    private static func checkRequest(_ submit: ExecutorPlanSubmitValues) throws {
+        let sample = submit.sampleName
+        let missing = [("memory", submit.requestMemoryMiB == nil), ("CPUs", submit.requestCpus == nil), ("disk", submit.requestDiskGiB == nil)]
+            .filter(\.1).map(\.0)
+        guard missing.isEmpty, let memory = submit.requestMemoryMiB, let cpus = submit.requestCpus, let disk = submit.requestDiskGiB else {
+            let named = missing.count > 1 ? missing.dropLast().joined(separator: ", ") + " or " + (missing.last ?? "") : missing.joined()
+            throw ExecutorPlanError(field: "request", reason: "The job of \(sample) runs a chain of pinned tools (schema 2) and has no request \(named). The plan's writer sets each such job's memory in MiB, CPUs and disk in GiB, so write the batch through it.")
+        }
+        let limit = HTCondorSubmitTemplate.requestMemoryLimitBytes >> 20
+        guard (1...limit).contains(memory) else {
+            throw ExecutorPlanError(field: "request", reason: "The job of \(sample) asks for \(memory) MiB of memory, over the limit of \(limit) MiB for the regular pool or under 1 MiB.")
+        }
+        guard cpus >= 1 else {
+            throw ExecutorPlanError(field: "request", reason: "The job of \(sample) asks for \(cpus) CPUs, and a job asks for at least 1.")
+        }
+        guard disk >= 1 else {
+            throw ExecutorPlanError(field: "request", reason: "The job of \(sample) asks for \(disk) GiB of disk, and a job asks for at least 1 GiB.")
+        }
+    }
+
+    /// What every job of a batch asks for and returns: a recipe's one heap, threads and work root factor (schema 1), or
+    /// each job's own submit values and its plan's `outputPolicy` (schema 2).
+    private enum BatchShape {
+        case recipe(heapBytes: Int64, cpus: Int, workRootFactor: Double)
+        case eachJob
+    }
+
+    /// The core of every batch (ruling ARCH-SCHEMA-SPIKE section A item 1): the plans as emitted, each with its submit
+    /// values, into one submit folder. A recipe's front and ``write(_:image:layout:requirements:into:)`` both end here.
     private static func write(
-        _ template: PlanTemplate, sources: [String: URL], rows: [ExecutorPlanSampleRow], names: [String],
-        emissions: [ExecutorPlanEmission], image: ExecutorPlanImageRecord, layout: ExecutorPlanStagingLayout,
-        requirements: String?, workRootFactor factor: Double, into folder: URL
+        _ batchJobs: [ExecutorPlanBatchJob], names: [String], shape: BatchShape, image: ExecutorPlanImageRecord,
+        layout: ExecutorPlanStagingLayout, requirements: String?, into folder: URL
     ) throws -> ExecutorPlanBatch {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: folder.appendingPathComponent(logsFolderName), withIntermediateDirectories: false)
+        guard let first = batchJobs.first?.emission else {
+            throw HTCondorSubmitError.invalidValue(field: "sample list", rule: "is empty.")
+        }
         var files = [ExecutorPlanBatchFile(role: "image", sample: nil, stagingPath: layout.imagePath(image.sif),
                                            size: image.sif.size, sha256: image.sif.sha256, source: nil)]
-        let shared = template.entries.filter { ExecutorPlanFolderWriter.sharedRoles.contains($0.role) }
+        let shared = sharedEntries(of: first.plan)
         for entry in shared {
+            // A list the person supplied has no source: LGE never copies its bytes (BIO-NOTHOST-BARCODE Q2).
             files.append(ExecutorPlanBatchFile(role: entry.role.rawValue, sample: nil, stagingPath: layout.sharedPath(entry),
-                                               size: entry.size, sha256: entry.sha256, source: sources[entry.relativePath]?.path))
+                                               size: entry.size, sha256: entry.sha256, source: first.sources[entry.relativePath]?.path))
         }
         let sharedBytes = shared.reduce(Int64(0)) { $0 + $1.size }
-        // jobs.tsv names the executor first, then each database, then the reads: the order lge-job.sh takes them.
-        let sharedPlacements = (shared.filter { $0.role == .executor } + shared.filter { $0.role == .database })
-            .map { "\(layout.pathBelowFolder(layout.sharedPath($0)))=\($0.relativePath)" }
+        // jobs.tsv names the shared files in the order lge-job.sh takes them, the executor first, then the reads.
+        let sharedPlacements = shared.map { "\(layout.pathBelowFolder(layout.sharedPath($0)))=\($0.relativePath)" }
         var jobs: [LinuxRunJob] = []
-        // The adopt reads each report in the returned folder at its `work/` path, so the job returns the plan's reports
-        // (the recipe outputs no step reads) and no other file of `work/` (AMV2 fix G1), into the sample's result folder.
-        let reports = HTCondorSubmitTemplate.reportRelativePaths(of: template.steps)
-        let resultFolders = HTCondorSubmitTemplate.resultFolders(
-            payloadRelativePath: ExecutorPlanEmitter.payloadPath, reportRelativePaths: reports
-        )
+        let returns = self.returns(of: first.plan, shape: shape)
+        let resultPaths: [String]
+        let resultFolders: [String]
+        var stagedFolders: [String] = []
+        var stagedPaths: [String]?
+        switch returns {
+        case .payload(let payload, let reports):
+            // The adopt reads each report in the returned folder at its `work/` path, so the job returns the plan's
+            // reports (the recipe outputs no step reads) and no other file of `work/` (AMV2 fix G1), into the sample's
+            // result folder.
+            resultPaths = HTCondorSubmitTemplate.resultRelativePaths(payloadRelativePath: payload, reportRelativePaths: reports)
+            resultFolders = HTCondorSubmitTemplate.resultFolders(payloadRelativePath: payload, reportRelativePaths: reports)
+        case .outputs(let home, let staged):
+            resultPaths = [HTCondorSubmitTemplate.runRecordName] + home
+            resultFolders = HTCondorSubmitTemplate.uploadFolders(of: resultPaths, into: HTCondorSubmitTemplate.resultFolderName)
+            stagedPaths = staged
+            if !staged.isEmpty {
+                stagedFolders = HTCondorSubmitTemplate.uploadFolders(of: staged, into: HTCondorSubmitTemplate.stagedFolderName)
+            }
+        }
         var nodes: [HTCondorDAGNode] = []
         var folders: [ExecutorPlanBatchFolder] = []
         var tars: [ExecutorPlanBatchTar] = []
-        for (index, emission) in emissions.enumerated() {
+        for (index, job) in batchJobs.enumerated() {
             let name = names[index]
+            let emission = job.emission
             let made = resultFolders.map { layout.samplePath(name, $0) }
             folders += made.map { ExecutorPlanBatchFolder(role: ExecutorPlanBatchFolder.resultRole, sample: name, stagingPath: $0) }
+            let kept = stagedFolders.map { layout.samplePath(name, $0) }
+            folders += kept.map { ExecutorPlanBatchFolder(role: ExecutorPlanBatchFolder.stagedRole, sample: name, stagingPath: $0) }
             let planFolder = folder.appendingPathComponent(name, isDirectory: true)
             try ExecutorPlanFolderWriter.writeShared(emission, image: image.sif, stagedInputs: true, into: planFolder)
             // The tar holds the plan folder as written, so its entries are read before the tar is written beside them.
@@ -340,39 +493,54 @@ package enum ExecutorPlanBatchWriter {
                                              size: Int64(tarData.count), sha256: DeterministicTarWriter.sha256(tarData)))
             var reads: [HTCondorStagedFile] = []
             var placements = sharedPlacements
+            // The fill names each input entry by its slot's path, so the entry's path is the slot's.
             let inputs = emission.plan.entries.filter { $0.role == .input }
             // A staged read (C6 ruling STAGED) is read where it sits, so it has no Mac file to copy and no sample path.
-            let stagedPaths = rows[index].stagedPaths
-            for (position, (slot, entry)) in zip(template.inputs, inputs).enumerated() {
-                let path = stagedPaths?[position]
-                    ?? layout.samplePath(name, (slot.relativePath as NSString).lastPathComponent)
-                reads.append(HTCondorStagedFile(url: ExecutorPlanStagingLayout.url(path), relativePath: slot.relativePath))
-                placements.append("\(layout.pathBelowFolder(path))=\(slot.relativePath)")
-                let source = stagedPaths == nil ? emission.sources[entry.relativePath]?.path : nil
+            for (position, entry) in inputs.enumerated() {
+                let path = job.stagedPaths?[position]
+                    ?? layout.samplePath(name, (entry.relativePath as NSString).lastPathComponent)
+                reads.append(HTCondorStagedFile(url: ExecutorPlanStagingLayout.url(path), relativePath: entry.relativePath))
+                placements.append("\(layout.pathBelowFolder(path))=\(entry.relativePath)")
+                let source = job.stagedPaths == nil ? emission.sources[entry.relativePath]?.path : nil
                 files.append(ExecutorPlanBatchFile(role: "input", sample: name, stagingPath: path, size: entry.size,
                                                    sha256: entry.sha256, source: source))
             }
             let inputBytes = inputs.reduce(Int64(0)) { $0 + $1.size }
-            // The sheet's request_disk column wins over the rule.
-            let disk = rows[index].requestDiskGiB ?? requestDiskGiB(
-                inputBytes: inputBytes, imageBytes: image.sif.size, planTarBytes: Int64(tarData.count), sharedBytes: sharedBytes,
-                workRootFactor: factor
-            )
+            let disk: Int
+            switch shape {
+            case .recipe(_, _, let factor):
+                // The sheet's request_disk column wins over the rule.
+                disk = job.submit.requestDiskGiB ?? requestDiskGiB(
+                    inputBytes: inputBytes, imageBytes: image.sif.size, planTarBytes: Int64(tarData.count), sharedBytes: sharedBytes,
+                    workRootFactor: factor
+                )
+            case .eachJob:
+                disk = job.submit.requestDiskGiB ?? 0
+            }
+            // A schema 2 job's memory and CPUs reach its VARS. A recipe's job asks the one value of sample.sub.
+            let ownRequests = stagedPaths != nil
             nodes.append(HTCondorDAGNode(
                 sample: name, requestDiskGB: disk, planTarPath: HTCondorSubmitTemplate.planTarName, reads: reads,
-                resultFolders: made
+                resultFolders: made + kept,
+                requestMemoryMiB: ownRequests ? job.submit.requestMemoryMiB : nil,
+                requestCpus: ownRequests ? job.submit.requestCpus : nil
             ))
             jobs.append(LinuxRunJob(sample: name, planTarPath: tars[index].relativePath, planTarSHA256: tars[index].sha256,
                                     placements: placements))
         }
+        guard shared.first?.role == .executor else {
+            throw ExecutorPlanError(field: "entries", reason: "The plan pins no executor, so no job can start it.")
+        }
+        let requests: HTCondorJobRequests
+        switch shape {
+        case .recipe(let heapBytes, let cpus, _): requests = .recipe(heapBytes: heapBytes, cpus: cpus)
+        case .eachJob: requests = .eachJob
+        }
         let submit = try HTCondorSubmitTemplate.render(HTCondorSubmitTemplateInput(
             containerImageURL: ExecutorPlanStagingLayout.url(layout.imagePath(image.sif)),
-            executor: try staged(shared.first { $0.role == .executor }, layout: layout),
-            databases: try shared.filter { $0.role == .database }.map { try staged($0, layout: layout) },
-            heapBytes: Int64(template.storage.clumpifyHeapGB) * gib, requestCpus: template.storage.threads,
-            payloadRelativePath: ExecutorPlanEmitter.payloadPath,
-            resultStagingFolderURL: ExecutorPlanStagingLayout.url(layout.batchFolder),
-            reportRelativePaths: reports, requirements: requirements
+            shared: shared.map { HTCondorStagedFile(url: ExecutorPlanStagingLayout.url(layout.sharedPath($0)), relativePath: $0.relativePath) },
+            requests: requests, returns: returns,
+            resultStagingFolderURL: ExecutorPlanStagingLayout.url(layout.batchFolder), requirements: requirements
         ))
         let dag = try HTCondorDAG.render(nodes, maxJobs: concurrentJobs)
         let encoder = JSONEncoder()
@@ -386,25 +554,46 @@ package enum ExecutorPlanBatchWriter {
         try DurableReplace.replace(Data(dag.utf8), named: HTCondorDAG.fileName, in: folder)
         // The plain launcher returns the same files into result/ as the remaps, and takes run.dag's MAXJOBS as its
         // --jobs default (C5 D13).
-        let resultPaths = HTCondorSubmitTemplate.resultRelativePaths(
-            payloadRelativePath: ExecutorPlanEmitter.payloadPath, reportRelativePaths: reports
-        )
-        let run = LinuxRunScript.text(batch: layout.batch, image: image.sif, resultPaths: resultPaths, maxJobs: concurrentJobs)
-        let readme = ExecutorPlanBatchReadme.text(layout: layout, image: image.sif, maxJobs: concurrentJobs,
-                                                  stagedReads: rows.contains { $0.stagedPaths != nil })
+        let run = LinuxRunScript.text(batch: layout.batch, image: image.sif, resultPaths: resultPaths, stagedPaths: stagedPaths,
+                                      maxJobs: concurrentJobs)
+        let placementWords = ExecutorPlanFolderWriter.placements(of: first.plan, shared: true)
+        let readme: String
+        switch returns {
+        case .payload:
+            readme = ExecutorPlanBatchReadme.text(layout: layout, image: image.sif, maxJobs: concurrentJobs,
+                                                  stagedReads: batchJobs.contains { $0.stagedPaths != nil })
+        case .outputs(let home, let staged):
+            readme = ExecutorPlanBatchReadme.schemaTwoText(layout: layout, image: image.sif, maxJobs: concurrentJobs, home: home,
+                                                           staged: staged, placements: placementWords)
+        }
         try DurableReplace.replace(Data(LinuxRunScript.jobsTable(jobs).utf8), named: LinuxRunScript.jobsFileName, in: folder)
         try DurableReplace.replace(Data(run.utf8), named: LinuxRunScript.fileName, in: folder)
         try fileManager.setAttributes([.posixPermissions: 0o755],
                                       ofItemAtPath: folder.appendingPathComponent(LinuxRunScript.fileName).path)
         try DurableReplace.replace(Data(readme.utf8), named: ExecutorPlanBatchReadme.fileName, in: folder)
-        return ExecutorPlanBatch(folder: folder, samples: names, files: files, folders: folders, planTars: tars)
+        return ExecutorPlanBatch(folder: folder, samples: names, files: files, folders: folders, planTars: tars,
+                                 placements: placementWords)
     }
 
-    private static func staged(_ entry: PlanEntry?, layout: ExecutorPlanStagingLayout) throws -> HTCondorStagedFile {
-        guard let entry else {
-            throw ExecutorPlanError(field: "entries", reason: "The plan pins no executor, so no job can start it.")
+    /// The entries every job of a batch reads from the staging folder's `shared/`, in the order the job wrapper places
+    /// them: the executor, which it starts, then each database, reference and supplied barcode list, each role in plan
+    /// order (ruling ARCH-SCHEMA-SPIKE section A item 2). A list from the image is never placed, since the executor
+    /// copies it from the image.
+    static func sharedEntries(of plan: ExecutionPlan) -> [PlanEntry] {
+        let roles: [PlanEntryRole] = [.executor, .database, .reference]
+        return roles.flatMap { role in plan.entries.filter { $0.role == role } } + plan.entries.filter(\.isSuppliedBarcodeList)
+    }
+
+    /// What a job returns: a recipe's payload and reports, or a schema 2 plan's `home` and `staged` outputs in step
+    /// order, by each step's `outputPolicy`.
+    private static func returns(of plan: ExecutionPlan, shape: BatchShape) -> HTCondorJobReturns {
+        guard case .eachJob = shape else {
+            return .payload(ExecutorPlanEmitter.payloadPath, reports: HTCondorSubmitTemplate.reportRelativePaths(of: plan.steps))
         }
-        return HTCondorStagedFile(url: ExecutorPlanStagingLayout.url(layout.sharedPath(entry)), relativePath: entry.relativePath)
+        func outputs(_ policy: PlanOutputPolicy) -> [String] {
+            plan.steps.flatMap { step in step.outputs.filter { step.outputPolicy?[$0] == policy } }
+        }
+        return .outputs(home: outputs(.home), staged: outputs(.staged))
     }
 
     /// Every regular file of a plan folder under `plan/`, the folder the job wrapper unpacks.

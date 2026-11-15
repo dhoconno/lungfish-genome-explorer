@@ -23,15 +23,25 @@ public struct HTCondorDAGNode: Sendable, Equatable {
     /// URL makes no folder, and a job with no such folder is held when it finishes and starts again from the beginning
     /// when released (fix G3). An empty list renders no script.
     public var resultFolders: [String]
+    /// A schema 2 job's own memory in MiB and CPUs (``HTCondorJobRequests/eachJob``), which its `VARS` give after the
+    /// disk. Nil for a recipe's job, whose `sample.sub` holds one value for every job. Such a job may read no reads, as
+    /// an index build does.
+    public var requestMemoryMiB: Int64?
+    public var requestCpus: Int?
 
     public init(sample: String, requestDiskGB: Int, planTarPath: String, reads: [HTCondorStagedFile],
-                resultFolders: [String] = []) {
+                resultFolders: [String] = [], requestMemoryMiB: Int64? = nil, requestCpus: Int? = nil) {
         self.sample = sample
         self.requestDiskGB = requestDiskGB
         self.planTarPath = planTarPath
         self.reads = reads
         self.resultFolders = resultFolders
+        self.requestMemoryMiB = requestMemoryMiB
+        self.requestCpus = requestCpus
     }
+
+    /// Whether the node carries its own memory and CPUs, as a schema 2 job does.
+    var requestsItsOwn: Bool { requestMemoryMiB != nil || requestCpus != nil }
 }
 
 /// The text of `run.dag`: one `JOB` a sample, every one naming ``HTCondorSubmitTemplate/fileName``, and one `VARS` line
@@ -75,9 +85,14 @@ public enum HTCondorDAG {
             }
             let inputs = ([node.planTarPath] + node.reads.map(\.url)).joined(separator: ", ")
             let placements = node.reads.map(\.placement).joined(separator: " ")
+            let own = [
+                node.requestMemoryMiB.map { (HTCondorSubmitTemplate.requestMemoryVariable, "\($0)MB") },
+                node.requestCpus.map { (HTCondorSubmitTemplate.requestCpusVariable, "\($0)") },
+            ].compactMap { $0 }
             let variables = [
                 (HTCondorSubmitTemplate.sampleVariable, node.sample),
                 (HTCondorSubmitTemplate.requestDiskVariable, "\(node.requestDiskGB)GB"),
+            ] + own + [
                 (HTCondorSubmitTemplate.inputsVariable, inputs),
                 (HTCondorSubmitTemplate.placementsVariable, placements),
             ]
@@ -126,8 +141,21 @@ public enum HTCondorDAG {
                 rule: "does not end in \(HTCondorSubmitTemplate.planTarName), the name the job wrapper unpacks."
             )
         }
-        guard !node.reads.isEmpty else {
+        guard !node.reads.isEmpty || node.requestsItsOwn else {
             throw HTCondorSubmitError.invalidValue(field: "read list of \(node.sample)", rule: "is empty.")
+        }
+        if node.requestsItsOwn {
+            // Both or neither, so `sample.sub` never names a macro the node leaves unset.
+            guard let memory = node.requestMemoryMiB, let cpus = node.requestCpus else {
+                throw HTCondorSubmitError.invalidValue(field: "requests of \(node.sample)", rule: "name memory or CPUs alone.")
+            }
+            let limit = HTCondorSubmitTemplate.requestMemoryLimitBytes >> 20
+            guard (1...limit).contains(memory) else {
+                throw HTCondorSubmitError.requestMemoryOverLimit(requestMiB: memory, limitMiB: limit)
+            }
+            guard cpus >= 1 else {
+                throw HTCondorSubmitError.invalidValue(field: "CPU count of \(node.sample)", rule: "is not a whole number of at least 1.")
+            }
         }
         try HTCondorValueRules.checkStagedFiles(node.reads, field: "read")
         for folder in node.resultFolders {

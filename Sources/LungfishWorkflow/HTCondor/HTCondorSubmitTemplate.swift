@@ -60,30 +60,42 @@ public enum HTCondorSubmitError: Error, Equatable, LocalizedError {
 public struct HTCondorSubmitTemplateInput: Sendable, Equatable {
     /// The image the job runs in, as `file:///staging/...sif`.
     public var containerImageURL: String
-    /// The one shared executor copy, placed at the plan's `executor` path and run from there.
-    public var executor: HTCondorStagedFile
-    /// The shared database copies, each placed at its plan path.
-    public var databases: [HTCondorStagedFile]
-    /// The plan's JVM heap in bytes, one value for every job of the recipe (C4-04).
-    public var heapBytes: Int64
-    /// The plan's thread count.
-    public var requestCpus: Int
-    /// The stored payload's plan path, such as `out/sample.fastq.gz`.
-    public var payloadRelativePath: String
+    /// The shared copies in the order the wrapper places them: the executor first, which it runs from its plan path,
+    /// then each database, reference and supplied barcode list at its plan path (lane EX-SUBMIT). Every job of the
+    /// batch transfers the same copies.
+    public var shared: [HTCondorStagedFile]
+    /// The memory and CPUs a job asks for.
+    package var requests: HTCondorJobRequests
+    /// The files a job returns besides its step logs.
+    package var returns: HTCondorJobReturns
     /// The staging folder under which each sample's job returns its result, `<sample>/result/`: the run record, each
     /// report at its `work/` path and the payload at its `out/` path, so one copy of a sample's `result/` brings it home
-    /// and no payload reaches the home submit folder (C5 D1, CHTC-c4r2 4.6). Only the step logs come home there.
+    /// and no payload reaches the home submit folder (C5 D1, CHTC-c4r2 4.6). Only the step logs come home there. A
+    /// schema 2 job returns each `staged` output to `<sample>/staged/` under the same folder.
     public var resultStagingFolderURL: String
-    /// The plan's reports, each a plan path under `work/` such as `work/sample_fused_fastp_report.json`: the recipe
-    /// outputs that no later step reads (``HTCondorSubmitTemplate/reportRelativePaths(of:)``). Each one goes to the
-    /// sample's result folder at the same path, since the adopt reads it there (``HTCondorSubmitTemplate/render(_:)``).
-    /// Nothing else under `work/` is returned. A recipe with no report passes `[]`.
-    public var reportRelativePaths: [String]
     /// The machines the jobs may run on, one `requirements` expression that replaces the whole default
     /// (``HTCondorSubmitTemplate/requirements``), or nil for the default (C5 D9). It must be one line with no control
     /// character.
     public var requirements: String?
 
+    /// The executor, the first shared copy.
+    public var executor: HTCondorStagedFile {
+        get { shared[0] }
+        set { shared[0] = newValue }
+    }
+
+    /// The shared copies after the executor, a recipe's databases.
+    public var databases: [HTCondorStagedFile] {
+        get { Array(shared.dropFirst()) }
+        set { shared = [executor] + newValue }
+    }
+
+    /// A recipe's input (schema 1): one executor and its databases, the plan's JVM heap in bytes and thread count for
+    /// every job of the recipe (C4-04), the stored payload's plan path such as `out/sample.fastq.gz`, and the plan's
+    /// reports, each a plan path under `work/` such as `work/sample_fused_fastp_report.json`. The reports are the recipe
+    /// outputs that no later step reads (``HTCondorSubmitTemplate/reportRelativePaths(of:)``), and each one goes to the
+    /// sample's result folder at the same path, since the adopt reads it there. Nothing else under `work/` is returned,
+    /// and a recipe with no report passes `[]`.
     public init(
         containerImageURL: String,
         executor: HTCondorStagedFile,
@@ -95,16 +107,42 @@ public struct HTCondorSubmitTemplateInput: Sendable, Equatable {
         reportRelativePaths: [String],
         requirements: String? = nil
     ) {
+        self.init(
+            containerImageURL: containerImageURL, shared: [executor] + databases,
+            requests: .recipe(heapBytes: heapBytes, cpus: requestCpus),
+            returns: .payload(payloadRelativePath, reports: reportRelativePaths),
+            resultStagingFolderURL: resultStagingFolderURL, requirements: requirements
+        )
+    }
+
+    package init(containerImageURL: String, shared: [HTCondorStagedFile], requests: HTCondorJobRequests,
+                 returns: HTCondorJobReturns, resultStagingFolderURL: String, requirements: String? = nil) {
         self.containerImageURL = containerImageURL
-        self.executor = executor
-        self.databases = databases
-        self.heapBytes = heapBytes
-        self.requestCpus = requestCpus
-        self.payloadRelativePath = payloadRelativePath
+        self.shared = shared
+        self.requests = requests
+        self.returns = returns
         self.resultStagingFolderURL = resultStagingFolderURL
-        self.reportRelativePaths = reportRelativePaths
         self.requirements = requirements
     }
+}
+
+/// What every job of one `sample.sub` asks for.
+package enum HTCondorJobRequests: Sendable, Equatable {
+    /// Schema 1: the recipe's heap plus ``HTCondorSubmitTemplate/memoryMarginBytes`` and its threads, one value for
+    /// every job of the recipe.
+    case recipe(heapBytes: Int64, cpus: Int)
+    /// Schema 2: each job's own memory in MiB and CPUs, from its node's `VARS` as its disk is (``HTCondorDAGNode``),
+    /// the values the emitter's rule gave with its plan (ruling ARCH-SCHEMA-SPIKE item 4).
+    case eachJob
+}
+
+/// The files a job returns besides its step logs, each at its plan path.
+package enum HTCondorJobReturns: Sendable, Equatable {
+    /// Schema 1: the run record, the payload and each report, into the sample's `result/`.
+    case payload(String, reports: [String])
+    /// Schema 2, by each step's `outputPolicy`: the run record and each `home` output into the sample's `result/`, and
+    /// each `staged` output into its `staged/`, where it stays on the Linux side. A `stays` output is not returned.
+    case outputs(home: [String], staged: [String])
 }
 
 /// One `--site-fact` the template asks for: the key the run record keeps and the macro HTCondor expands into its value.
@@ -204,6 +242,25 @@ public enum HTCondorSubmitTemplate {
     public static let requestDiskVariable = "request_disk"
     public static let inputsVariable = "sample_inputs"
     public static let placementsVariable = "sample_placements"
+    /// The `VARS` names of a schema 2 job's own memory and CPUs (``HTCondorJobRequests/eachJob``). Each value holds its
+    /// unit as `request_disk`'s does, such as `40960MB`.
+    public static let requestMemoryVariable = "request_memory"
+    public static let requestCpusVariable = "request_cpus"
+
+    /// The folder of the staging side that receives one sample's `staged` outputs, `<sample>/staged/`, where a later
+    /// plan pins each by the SHA-256 and size its run record states (lane EX-SUBMIT).
+    public static let stagedFolderName = "staged"
+
+    /// The folders below a sample's staging folder that an upload of `paths` into `folder` writes into: `folder` itself,
+    /// then the folder of each path, in order and each once, such as `staged` and `staged/index`.
+    package static func uploadFolders(of paths: [String], into folder: String) -> [String] {
+        var folders = [folder]
+        for path in paths {
+            let parent = ("\(folder)/\(path)" as NSString).deletingLastPathComponent
+            if !folders.contains(parent) { folders.append(parent) }
+        }
+        return folders
+    }
 
     /// The memory request in MiB: the heap rounded up to a whole MiB plus ``memoryMarginBytes``, at most
     /// ``requestMemoryLimitBytes``. HTCondor reads the `MB` suffix as MiB.
@@ -257,8 +314,20 @@ public enum HTCondorSubmitTemplate {
     /// `initialdir`, so they name `../logs/`, the submit folder's; `executable` does not.
     public static func render(_ input: HTCondorSubmitTemplateInput) throws -> String {
         try validate(input)
-        let memoryMiB = try requestMemoryMiB(heapBytes: input.heapBytes)
-        let shared = [input.executor] + input.databases
+        let memory: String
+        let cpus: String
+        let header: (shape: String, variables: String)
+        switch input.requests {
+        case .recipe(let heapBytes, let count):
+            memory = "\(try requestMemoryMiB(heapBytes: heapBytes))MB"
+            cpus = "\(count)"
+            header = ("one recipe", "\(requestDiskVariable), \(inputsVariable)")
+        case .eachJob:
+            memory = "$(\(requestMemoryVariable))"
+            cpus = "$(\(requestCpusVariable))"
+            header = ("the plans", "\(requestDiskVariable), \(requestMemoryVariable), \(requestCpusVariable), \(inputsVariable)")
+        }
+        let shared = input.shared
         let sample = "$(\(sampleVariable))"
 
         var arguments = shared.map { quoted($0.placement) }
@@ -278,17 +347,30 @@ public enum HTCondorSubmitTemplate {
         // batch writer names each folder to make before the submit. The adopt reads each report at its `work/` path
         // (`ExecutorRunAdoption.recordedReports`), so the job returns each one and never the work folder, which holds the
         // large intermediates. The step logs are listed with no remap and come home to the submit folder.
-        let payloadListed = "\(plan)/\(input.payloadRelativePath)"
-        try HTCondorValueRules.checkReports(input.reportRelativePaths, payloadRelativePath: input.payloadRelativePath)
-        let reports = input.reportRelativePaths
-        let outputs = ["\(plan)/\(runRecordName)", "\(plan)/\(logsFolderName)", payloadListed] + reports.map { "\(plan)/\($0)" }
+        // A schema 2 job returns its record and each `home` output the same way, and each `staged` output by a remap of
+        // the same form into the sample's `staged/` folder, a path fixed here, since the wrapper `exec`s the executor and
+        // nothing runs on the node after it to rename a file (ruling ARCH-SCHEMA-SPIKE item 5).
         let result = "\(input.resultStagingFolderURL)/\(sample)/\(resultFolderName)"
-        let remaps = resultRelativePaths(payloadRelativePath: input.payloadRelativePath, reportRelativePaths: reports)
-            .map { "\(plan)/\($0) = \(result)/\($0)" }
+        let outputs: [String]
+        let remaps: [String]
+        switch input.returns {
+        case .payload(let payload, let reports):
+            let payloadListed = "\(plan)/\(payload)"
+            try HTCondorValueRules.checkReports(reports, payloadRelativePath: payload)
+            outputs = ["\(plan)/\(runRecordName)", "\(plan)/\(logsFolderName)", payloadListed] + reports.map { "\(plan)/\($0)" }
+            remaps = resultRelativePaths(payloadRelativePath: payload, reportRelativePaths: reports)
+                .map { "\(plan)/\($0) = \(result)/\($0)" }
+        case .outputs(let home, let staged):
+            try HTCondorValueRules.checkOutputs(home: home, staged: staged)
+            let kept = "\(input.resultStagingFolderURL)/\(sample)/\(stagedFolderName)"
+            outputs = ["\(plan)/\(runRecordName)", "\(plan)/\(logsFolderName)"] + (home + staged).map { "\(plan)/\($0)" }
+            remaps = ([runRecordName] + home).map { "\(plan)/\($0) = \(result)/\($0)" }
+                + staged.map { "\(plan)/\($0) = \(kept)/\($0)" }
+        }
 
         let lines = [
-            "# \(fileName) - written by Lungfish for one recipe of an HTCondor batch. run.dag gives each job its sample's",
-            "# \(sampleVariable), \(requestDiskVariable), \(inputsVariable) and "
+            "# \(fileName) - written by Lungfish for \(header.shape) of an HTCondor batch. run.dag gives each job its sample's",
+            "# \(sampleVariable), \(header.variables) and "
                 + "\(placementsVariable) through VARS.",
             "universe = container",
             "container_image = \(input.containerImageURL)",
@@ -301,8 +383,8 @@ public enum HTCondorSubmitTemplate {
             "transfer_output_files = \(outputs.joined(separator: ", "))",
             "transfer_output_remaps = \"\(remaps.joined(separator: "; "))\"",
             "requirements = \(input.requirements ?? requirements)",
-            "request_cpus = \(input.requestCpus)",
-            "request_memory = \(memoryMiB)MB",
+            "request_cpus = \(cpus)",
+            "request_memory = \(memory)",
             "request_disk = $(\(requestDiskVariable))",
             "periodic_release = \(periodicRelease)",
             "kill_sig = \(killSignal)",
@@ -319,14 +401,19 @@ public enum HTCondorSubmitTemplate {
     private static func validate(_ input: HTCondorSubmitTemplateInput) throws {
         try HTCondorValueRules.checkStagingURL(input.containerImageURL, field: "container image URL")
         try HTCondorValueRules.checkStagingFolderURL(input.resultStagingFolderURL, field: "result staging folder URL")
-        try HTCondorValueRules.checkRelativePath(input.payloadRelativePath, field: "payload path")
+        if case .payload(let payload, _) = input.returns {
+            try HTCondorValueRules.checkRelativePath(payload, field: "payload path")
+        }
         if let requirements = input.requirements {
             try HTCondorValueRules.checkRequirements(requirements)
         }
-        guard input.requestCpus >= 1 else {
+        if case .recipe(_, let cpus) = input.requests, cpus < 1 {
             throw HTCondorSubmitError.invalidValue(field: "CPU count", rule: "is not a whole number of at least 1.")
         }
-        try HTCondorValueRules.checkStagedFiles([input.executor] + input.databases, field: "shared file")
+        guard !input.shared.isEmpty else {
+            throw HTCondorSubmitError.invalidValue(field: "shared file list", rule: "names no executor.")
+        }
+        try HTCondorValueRules.checkStagedFiles(input.shared, field: "shared file")
     }
 }
 
@@ -362,6 +449,18 @@ enum HTCondorValueRules {
             let name = lastComponent(report)
             guard names.insert(name).inserted else {
                 throw HTCondorSubmitError.duplicate(field: "returned file", name: name)
+            }
+        }
+    }
+
+    /// A schema 2 job's returned outputs: each a path of names, and no two returned files share a last component, for
+    /// the reason ``checkReports(_:payloadRelativePath:)`` gives. The record and the logs folder are returned beside them.
+    static func checkOutputs(home: [String], staged: [String]) throws {
+        var names: Set<String> = [HTCondorSubmitTemplate.runRecordName, HTCondorSubmitTemplate.logsFolderName]
+        for (path, field) in home.map({ ($0, "home output path") }) + staged.map({ ($0, "staged output path") }) {
+            try checkRelativePath(path, field: field)
+            guard names.insert(lastComponent(path)).inserted else {
+                throw HTCondorSubmitError.duplicate(field: "returned file", name: lastComponent(path))
             }
         }
     }

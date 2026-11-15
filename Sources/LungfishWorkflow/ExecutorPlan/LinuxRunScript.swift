@@ -41,8 +41,34 @@ package enum LinuxRunScript {
     /// SHA-256 once a batch and runs from the data folder's `images/` unless `--image` names another copy. `resultPaths`
     /// are the files a job returns into `result/`, each at its plan path
     /// (``HTCondorSubmitTemplate/resultRelativePaths(payloadRelativePath:reportRelativePaths:)``), and `maxJobs` is the
-    /// default of `--jobs`, the value of `run.dag`'s `MAXJOBS` (C5 D13).
-    package static func text(batch: String, image: ExecutorPlanImageFile, resultPaths: [String], maxJobs: Int) -> String {
+    /// default of `--jobs`, the value of `run.dag`'s `MAXJOBS` (C5 D13). `stagedPaths`, for a batch of schema 2 plans,
+    /// are the `staged` outputs a job leaves in `<sample>/staged/` at its plan path, the path a job of an HTCondor pool
+    /// leaves each in the staging folder (lane EX-SUBMIT), and nil for a recipe's batch.
+    package static func text(batch: String, image: ExecutorPlanImageFile, resultPaths: [String], stagedPaths: [String]? = nil,
+                             maxJobs: Int) -> String {
+        let staged = HTCondorSubmitTemplate.stagedFolderName
+        let returned = stagedPaths == nil
+            ? "each report and the reads and nothing else,"
+            : "each output that comes home and nothing else, <sample>/\(staged)/ with each staged output,"
+        let keepStaged = stagedPaths.map { paths in
+            """
+
+              # Each staged output goes to <sample>/\(staged)/ at its plan path, and only when the run record came back.
+              held=$work/\(staged)
+              mkdir -p "$held"
+              for path in \(paths.joined(separator: " ")); do
+                [ -f "$work/\(HTCondorSubmitTemplate.planFolderName)/$path" ] || continue
+                case $path in
+                  */*) mkdir -p "$held/${path%/*}" ;;
+                esac
+                mv -f "$work/\(HTCondorSubmitTemplate.planFolderName)/$path" "$held/$path"
+              done
+              if [ -f "$kept/\(HTCondorSubmitTemplate.runRecordName)" ]; then
+                rm -rf "$sample/\(staged)"
+                mv "$held" "$sample/\(staged)"
+              fi
+            """
+        } ?? ""
         typealias Fact = HTCondorSubmitTemplate.PlainLauncherFact
         let name = fileName
         let jobsFile = jobsFileName
@@ -66,7 +92,7 @@ package enum LinuxRunScript {
         # staging-files.json lists, each at its path below the staging folder: images/, shared/ and batches/\#(batch)/.
         # Each sample's files are copied, never linked, into its own scratch folder, where \#(wrapper) unpacks the plan
         # and starts the executor as a job of an HTCondor pool does. A sample leaves <sample>/\#(result)/ with the run
-        # record, each report and the reads and nothing else, <sample>/\#(logs)/ with the step logs, and
+        # record, \#(returned) <sample>/\#(logs)/ with the step logs, and
         # \#(logs)/<sample>.out and \#(logs)/<sample>.err with the run's output. A sample with a \#(result)/ folder is
         # skipped. Exit 0 when every sample finished or was skipped, 1 when one did not finish, \#(refused) for a
         # refusal before any sample starts and \#(usage) for a usage error.
@@ -286,7 +312,7 @@ package enum LinuxRunScript {
           if [ -d "$work/\#(plan)/\#(logs)" ]; then
             rm -rf "$sample/\#(logs)"
             mv "$work/\#(plan)/\#(logs)" "$sample/\#(logs)"
-          fi
+          fi\#(keepStaged)
           [ ! -f "$kept/\#(record)" ] || mv "$kept" "$sample/\#(result)"
           rm -rf "$work"
           if [ "$status" -eq 0 ]; then

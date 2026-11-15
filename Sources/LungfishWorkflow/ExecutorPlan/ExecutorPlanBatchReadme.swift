@@ -240,4 +240,107 @@ package enum ExecutorPlanBatchReadme {
 
         """
     }
+
+    /// The `README.txt` of a batch of schema 2 plans (lane EX-SUBMIT): the same two launchers and held-job steps, the
+    /// words of ``ExecutorPlanFolderWriter/placements(of:shared:)`` for each barcode list the person supplied, the files
+    /// that come home and the `staged` outputs that stay in the staging folder. No read import adopts such a batch.
+    package static func schemaTwoText(layout: ExecutorPlanStagingLayout, image: ExecutorPlanImageFile, maxJobs: Int,
+                                      home: [String], staged: [String], placements: [String]) -> String {
+        let batch = layout.batch
+        let staging = layout.folder
+        let returned = "\(layout.batchFolder)/<sample>/\(HTCondorSubmitTemplate.resultFolderName)/"
+        let kept = "\(layout.batchFolder)/<sample>/\(HTCondorSubmitTemplate.stagedFolderName)/"
+        let script = LinuxRunScript.fileName
+        let logs = HTCondorSubmitTemplate.logsFolderName
+        let result = HTCondorSubmitTemplate.resultFolderName
+        let record = HTCondorSubmitTemplate.runRecordName
+        let dag = HTCondorDAG.fileName
+        let list = { (paths: [String]) in paths.isEmpty ? "   (none)" : paths.map { "   \($0)" }.joined(separator: "\n") }
+        let supplied = placements.isEmpty ? "" : "\n\nBarcode lists you supplied\n\n"
+            + placements.map { "\($0) A run of \(script) takes the list from shared/ of its data folder under the same name." }
+                .joined(separator: "\n\n")
+        return """
+        \(fileName) - how to run the batch \(batch) and bring its results back to the Mac. Written by Lungfish.
+
+        This folder holds one plan for each job, in a folder named by the job. Each plan runs a chain of pinned
+        tools in the image \(image.fileName). Use \(dag) on an HTCondor pool, or \(script) on one machine with
+        Apptainer or Docker. \(LinuxRunScript.jobsFileName) lists the jobs, one row each. staging-files.json lists
+        the files the jobs read, each with its size and its SHA-256. Each file other than the image and a barcode
+        list you supplied also has a source, the file on the Mac to copy or link.\(supplied)
+
+
+        What a job returns
+
+        Each job returns its run record and each file that comes home to \(returned)
+        at its plan path, and its step logs to <sample>/\(logs)/ in this folder. The files that come home:
+
+        \(list(home))
+
+        Each staged output stays in the staging folder at \(kept)<path>, where the job
+        puts it. Leave it there and do not rename it. A later plan pins it by the SHA-256 and size that the run
+        record states, and its job checks them before any tool starts. The staged outputs:
+
+        \(list(staged))
+
+        Each job asks for the memory, CPUs and disk that its VARS line in \(dag) gives.
+
+
+        Run on an HTCondor pool
+
+        1. For each file in staging-files.json that has a source, copy or link that source to the file's
+           stagingPath, below \(staging). The name of a file in shared/ starts with its SHA-256, so a file
+           already there with the listed size is the same file. Leave it, and never copy over it, since the
+           jobs of other batches may be reading it.
+
+        2. Copy this folder to the machine you submit from, and run this from inside it:
+
+           condor_submit_dag \(dag)
+
+        \(dag) runs at most \(maxJobs) jobs at once, from its line MAXJOBS lge \(maxJobs). The jobs ask for machines that
+        reach the staging folder, run EL9 or later and are x86-64.
+
+        If a job is held, run condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReason. If the exit
+        code is 0, only sending its files back failed, and HTCondor starts that job again by itself, at most
+        twice. Otherwise read its run record, \(returned)\(record), and its log in <sample>/\(logs)/
+        to see which step stopped. A job that lge-job.sh refuses leaves no record, so read \(logs)/<sample>.err.
+        Then run condor_rm <ClusterId>.<ProcId>, and when the other jobs have finished run condor_submit_dag
+        \(dag) again from this folder to run the rest.
+        \(schemaTwoLocal(staging: staging, script: script, maxJobs: maxJobs, result: result, logs: logs, batch: batch))
+        """
+    }
+
+    /// The local run and the way home of ``schemaTwoText(layout:image:maxJobs:home:staged:placements:)``.
+    private static func schemaTwoLocal(staging: String, script: String, maxJobs: Int, result: String, logs: String,
+                                       batch: String) -> String {
+        let staged = HTCondorSubmitTemplate.stagedFolderName
+        return """
+
+
+        Run on one machine with Apptainer or Docker
+
+        1. Copy this folder to the machine that runs it, a Linux machine or a Mac with Docker.
+
+        2. Make a data folder there and copy or link into it each file staging-files.json lists, at its
+           stagingPath with \(staging)/ taken off the front, a barcode list you supplied too. That gives
+           the folders shared/ and batches/\(batch)/, and images/ for Apptainer. A Docker run reads no images/
+           folder.
+
+        3. Run one of these from inside this folder:
+
+           sh \(script) --runtime apptainer --data <data folder>
+           sh \(script) --runtime docker --image <image> --data <data folder>
+
+        \(script) runs at most \(maxJobs) jobs at once. Each job leaves <sample>/\(result)/ with its run record and
+        each file that comes home, <sample>/\(staged)/ with each staged output at its plan path, and
+        <sample>/\(logs)/ with its step logs. \(script) skips a job that has a \(result)/ folder. Delete that
+        folder to run the job again.
+
+
+        Bring the results back to the Mac
+
+        For every job, copy the files inside \(result)/ into that job's folder on the Mac, next to plan.json.
+        Do not copy \(logs)/ or a plan.json from the Linux side. The staged outputs stay on the Linux side.
+
+        """
+    }
 }
