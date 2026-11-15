@@ -197,4 +197,98 @@ final class ReferenceSetCountingGTFTests: XCTestCase {
             XCTAssertEqual(error as? ReferenceSetError, .publishedSetDiffers(id: outcome.manifest.id, file: "derived/genes.gtf"))
         }
     }
+
+    // MARK: - BIO-COUNTING-GTF item 2: the check
+
+    func testTheCheckRefusesAGTFAndTablesThatDifferInOneIDAndInOneLengthAndNamesBoth() throws {
+        let folder = root.appendingPathComponent("check", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        func exon(_ start: Int, _ end: Int, _ strand: String, _ gene: String, _ transcript: String) -> String {
+            "chr1\tt\texon\t\(start)\t\(end)\t.\t\(strand)\t.\tgene_id \"\(gene)\"; transcript_id \"\(transcript)\";\n"
+        }
+        // T1's exons overlap, so its merged length is 15 + 10 = 25.
+        let gtf = exon(1, 10, "+", "G1", "T1") + exon(21, 30, "+", "G1", "T1") + exon(5, 15, "+", "G1", "T1")
+            + exon(40, 50, "-", "G2", "T2") + exon(60, 63, "+", "G3", "T3-GTF")
+        func check(table third: String, t2 length: Int) throws {
+            try Data(gtf.utf8).write(to: folder.appendingPathComponent("genes.gtf"))
+            try Data("transcript_id\tgene_id\nT1\tG1\nT2\tG2\n\(third)\tG3\n".utf8)
+                .write(to: folder.appendingPathComponent("transcripts.tsv"))
+            let fasta = ">T1\n\(String(repeating: "A", count: 25))\n>T2 two\n\(String(repeating: "C", count: length))\n>\(third)\nGGGG\n"
+            try Data(fasta.utf8).write(to: folder.appendingPathComponent("transcripts.fa"))
+            try ReferenceSetCountingGTF.check(folder.appendingPathComponent("genes.gtf"),
+                                              transcriptTable: folder.appendingPathComponent("transcripts.tsv"),
+                                              transcripts: folder.appendingPathComponent("transcripts.fa"))
+        }
+        XCTAssertThrowsError(try check(table: "T3-FA", t2: 4)) { error in
+            let length = "T2 (11 bases of exons in the GTF, 4 in the FASTA)"
+            XCTAssertEqual(error as? ReferenceSetError,
+                           .countingGTFDiffers(onlyInGTF: ["T3-GTF"], onlyInTable: ["T3-FA"], lengths: [length]))
+            XCTAssertEqual(error.localizedDescription, "The GTF that STAR and featureCounts would read and the transcript "
+                + "FASTA that salmon reads differ, so the set was not built. Only in the GTF's exon lines: T3-GTF. Only in "
+                + "the transcript table: T3-FA. Exon lengths differ for \(length).")
+        }
+        XCTAssertNoThrow(try check(table: "T3-GTF", t2: 11), "the same exons and lengths pass")
+    }
+
+    func testABuildWhoseTranscriptFASTADiffersFromItsCountingGTFIsRefusedAndLeavesNoStage() async throws {
+        do {
+            _ = try await ReferenceSetMitoFixture.build(.lge, root: root, deriver: ShortFirstRecordDeriver())
+            XCTFail("a record shorter than its exons must be refused")
+        } catch let error as ReferenceSetError {
+            guard case .countingGTFDiffers(let onlyInGTF, let onlyInTable, let lengths) = error else { return XCTFail("\(error)") }
+            XCTAssertEqual(onlyInGTF + onlyInTable, [])
+            XCTAssertEqual(lengths, ["ND1:unknown_transcript_1 (955 bases of exons in the GTF, 4 in the FASTA)"])
+        }
+        let sets = root.appendingPathComponent(ReferenceSetOwner.folderName)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: sets.path), [], "the stage goes as for any failed build")
+    }
+
+    // MARK: - ARCH-COUNTING-GTF item 1 and BIO-COUNTING-GTF section 3: the refusal
+
+    func testASetOfSchema1IsRefusedForCountingInWordsThatNameTheRebuildAndWhy() async throws {
+        let id = ReferenceSetV1Fixture.ensembl107ID
+        let rebuild = "Build the set again from the same files. It gets a new id, and \(id) stays for its salmon results."
+        let ensembl = try JSONDecoder().decode(ReferenceSetManifest.self, from: Data(contentsOf: ReferenceSetV1Fixture.ensembl107))
+        XCTAssertNil(ensembl.derived.countingGTF, "a schema 1 manifest decodes with no counting GTF")
+        XCTAssertThrowsError(try ensembl.requireCountingGTF()) { error in
+            XCTAssertEqual(error.localizedDescription,
+                           "The set \(id) was built before LGE kept the GTF that STAR and featureCounts read. \(rebuild)")
+        }
+
+        var withExtra = ensembl
+        withExtra.extras = [.init(name: "ERCC92", kind: .spikeIn, path: "extras/ERCC92.fa", sha256: "aa", annotationPath: nil,
+                                  annotationSHA256: nil, records: ["ERCC-00002"], notHost: true)]
+        XCTAssertThrowsError(try withExtra.requireCountingGTF()) { error in
+            XCTAssertEqual(error.localizedDescription, "The set \(id) was built before LGE kept the GTF that STAR and "
+                + "featureCounts read. The set holds the extra ERCC92, which has no GTF line. \(rebuild)")
+        }
+
+        let mito = try ReferenceSetManifest.load(from: try ReferenceSetV1Fixture.mitoSet())
+        XCTAssertThrowsError(try mito.requireCountingGTF()) { error in
+            XCTAssertEqual(error as? ReferenceSetError, .builtBeforeCountingGTF(id: mito.id, reasons: [
+                "LGE gave 13 genes an exon from their CDS and stop codon (ND1, ND2, COX1 and 10 more), and the set keeps no "
+                    + "GTF with those exons, so STAR would count 0 for them.",
+                "LGE renamed 13 transcripts.", "LGE left out 24 features with no gene_id."]))
+            XCTAssertTrue(error.localizedDescription.hasPrefix("The set \(mito.id) was built before LGE kept the GTF that "
+                + "STAR and featureCounts read. LGE gave 13 genes"), error.localizedDescription)
+        }
+
+        let (outcome, _, _) = try await ReferenceSetMitoFixture.build(.lge, root: root, deriver: StandInTranscriptDeriver())
+        XCTAssertEqual(try outcome.manifest.requireCountingGTF(), outcome.manifest.derived.countingGTF)
+        XCTAssertEqual(try outcome.manifest.requireCountingGTF().path, "derived/genes.gtf")
+    }
+}
+
+/// gffread that writes the first record 4 bases long, whatever its exons.
+struct ShortFirstRecordDeriver: ReferenceSetTranscriptDeriving {
+    let inner = StandInTranscriptDeriver()
+
+    func toolVersion() async throws -> String { try await inner.toolVersion() }
+
+    func writeTranscripts(genome: URL, annotation: URL, to output: URL) async throws {
+        try await inner.writeTranscripts(genome: genome, annotation: annotation, to: output)
+        var lines = try String(contentsOf: output, encoding: .utf8).components(separatedBy: "\n")
+        lines[1] = "ACGT"
+        try Data(lines.joined(separator: "\n").utf8).write(to: output)
+    }
 }

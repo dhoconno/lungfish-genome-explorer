@@ -37,6 +37,7 @@ extension ReferenceSetOwner {
 
         var extras: [ReferenceSetManifest.Extra] = []
         var masks: [ReferenceSetManifest.Mask] = []
+        var countingParts: [ReferenceSetCountingGTF.ExtraPart] = []
         for (index, extra) in request.extras.enumerated() {
             let (sha, source) = (hashed.extraSHAs[index], hashed.extraSources[index])
             let suffix = extra.fasta.isGzipCompressed ? "fa.gz" : "fa"
@@ -66,9 +67,11 @@ extension ReferenceSetOwner {
                 let piece = work.appendingPathComponent("extra-\(index).transcripts.fa")
                 try await deriver.writeTranscripts(genome: plainFASTA, annotation: extraGTF, to: piece)
                 try append(piece, to: transcripts)
+                countingParts.append(.gtf(extraGTF))
             } else {
                 extraRead = ReferenceSetAnnotationReader.recordFeatures(records, biotype: extra.kind.rawValue)
                 try append(plainFASTA, to: transcripts)
+                countingParts.append(.records(records))
             }
             read.genes += extraRead.genes
             read.transcriptGenes += extraRead.transcriptGenes
@@ -86,9 +89,14 @@ extension ReferenceSetOwner {
             }
         }
         try checkTranscripts(transcripts, against: read.transcriptGenes.map(\.transcript))
+        // The GTF that STAR, STARsolo and featureCounts read: the one gffread read, then each extra's lines.
+        try ReferenceSetCountingGTF.write(
+            host: gtf, extras: countingParts, to: derived.appendingPathComponent(ReferenceSetCountingGTF.fileName))
         try FileManager.default.removeItem(at: work)
 
-        let (tables, withoutFeatures) = try writeTables(read, into: derived, version: version)
+        let (written, withoutFeatures) = try writeTables(read, into: derived, version: version)
+        var tables = written
+        tables.countingGTF = try ReferenceSetCountingGTF.checkedEntry(in: derived)
         let manifest = ReferenceSetManifest(
             schemaVersion: ReferenceSetManifest.currentSchemaVersion, id: id, name: request.name, species: request.species,
             assembly: .init(name: request.assemblyName, accession: request.assemblyAccession, sourceURL: request.assemblySourceURL),

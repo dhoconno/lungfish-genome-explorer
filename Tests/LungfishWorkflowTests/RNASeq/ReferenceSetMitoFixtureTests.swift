@@ -99,5 +99,16 @@ final class ReferenceSetMitoFixtureConformanceTests: XCTestCase {
         XCTAssertEqual(records.count, 13, records.map(\.name).joined(separator: " "))
         XCTAssertEqual(records.map { String($0.length) }.sorted(), ReferenceSetMitoFixture.lengths.sorted())
         XCTAssertFalse(records.map(\.name).contains("unknown_transcript_1"))
+
+        // RS-COUNTING-GTF: derived/genes.gtf has 13 exon lines whose merged lengths equal gffread's 13 records.
+        let gtf = try String(contentsOf: outcome.url.appendingPathComponent("derived/genes.gtf"), encoding: .utf8)
+        var exonLengths: [String: Int] = [:]
+        for exon in referenceSetExonLines(gtf) {
+            exonLengths[exon[6], default: 0] += (Int(exon[3]) ?? 0) - (Int(exon[2]) ?? 0) + 1
+        }
+        XCTAssertEqual(referenceSetExonLines(gtf).count, 13)
+        XCTAssertEqual(exonLengths, Dictionary(uniqueKeysWithValues: records.map { ($0.name, $0.length) }))
+        XCTAssertEqual(try outcome.manifest.requireCountingGTF().sha256,
+                       try ProvenanceFileHasher.sha256(of: outcome.url.appendingPathComponent("derived/genes.gtf")))
     }
 }

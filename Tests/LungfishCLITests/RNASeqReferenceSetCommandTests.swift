@@ -115,7 +115,8 @@ final class RNASeqReferenceSetCommandTests: XCTestCase {
         let genome = base.appendingPathComponent("genome.fa")
         try Data(">chr1\n\(String(repeating: "ACGTACGTAC", count: 4))\n".utf8).write(to: genome)
         let annotation = base.appendingPathComponent("genes.gtf")
-        try Data("chr1\tt\texon\t1\t20\t.\t+\t.\tgene_id \"G1\"; transcript_id \"T1\";\n".utf8).write(to: annotation)
+        // The exon is 4 bases, the length of the stand-in's record, since the build checks it (RS-COUNTING-GTF).
+        try Data("chr1\tt\texon\t1\t4\t.\t+\t.\tgene_id \"G1\"; transcript_id \"T1\";\n".utf8).write(to: annotation)
 
         let parsed = try LungfishCLI.parseAsRoot([
             "rnaseq", "reference-set", "--genome", genome.path, "--annotation", annotation.path, "--species", "S",

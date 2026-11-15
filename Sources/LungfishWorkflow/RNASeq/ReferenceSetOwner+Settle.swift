@@ -53,8 +53,7 @@ extension ReferenceSetOwner {
         for file in manifest.namedFiles where !FileManager.default.fileExists(atPath: url.appendingPathComponent(file.path).path) {
             throw ReferenceSetError.publishedSetDiffers(id: id, file: file.path)
         }
-        for file in [manifest.derived.transcripts, manifest.derived.genes, manifest.derived.transcriptGenes]
-        where url.appendingPathComponent(file.path).fileSizeBytes != file.size {
+        for file in manifest.derived.files where url.appendingPathComponent(file.path).fileSizeBytes != file.size {
             throw ReferenceSetError.publishedSetDiffers(id: id, file: file.path)
         }
         return ReferenceSetOutcome(url: url, manifest: manifest, reused: true)
@@ -64,7 +63,7 @@ extension ReferenceSetOwner {
         _ manifest: ReferenceSetManifest, finalURL: URL, argv: [String], inputs: [ProvenanceFileDescriptor],
         version: String, started: Date
     ) -> ProvenanceEnvelope {
-        var outputs = [manifest.derived.transcripts, manifest.derived.genes, manifest.derived.transcriptGenes].map {
+        var outputs = manifest.derived.files.map {
             ProvenanceFileDescriptor(path: finalURL.appendingPathComponent($0.path).path, checksumSHA256: $0.sha256,
                                      fileSize: UInt64(max($0.size, 0)), role: .output)
         }

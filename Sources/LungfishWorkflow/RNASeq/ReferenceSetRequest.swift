@@ -94,6 +94,11 @@ public struct ReferenceSetRequest: Sendable {
 
 /// `<species>-<assembly>-<annotation source and release>-<layout>-<digest>` (`reference-set.md`, section The id).
 public enum ReferenceSetID {
+    /// The version of LGE's own derive rules, the content line `derive\tlungfish <version>` after gffread's. It names
+    /// every rule the owner applies to the annotation and the set's layout, `derived/genes.gtf` included, and a later
+    /// rule change raises it, so a set's id names the rules that wrote it (ARCH-COUNTING-GTF item 1).
+    public static let lungfishDeriveVersion = 2
+
     public struct Content: Sendable, Equatable {
         public var role: String
         public var fileName: String
@@ -111,7 +116,7 @@ public enum ReferenceSetID {
         layout: ReferenceSetLayout, contents: [Content], deriveVersion: String
     ) -> String {
         var list = contents.map { "\($0.role)\t\($0.fileName)\t\($0.sha256)\n" }.joined()
-        list += "layout\t\(layout.idComponent)\nderive\tgffread \(deriveVersion)\n"
+        list += "layout\t\(layout.idComponent)\nderive\tgffread \(deriveVersion)\nderive\tlungfish \(lungfishDeriveVersion)\n"
         let digest = sha256Hex(Data(list.utf8)).prefix(12)
         let parts = [species.lowercased(), assembly, (annotationSource + annotationRelease).lowercased(), layout.idComponent]
         return parts.map(component).joined(separator: "-") + "-" + digest

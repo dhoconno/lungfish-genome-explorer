@@ -94,6 +94,11 @@ public enum ReferenceSetError: Error, LocalizedError, Equatable, Sendable {
     case unreadable(String)
     case invalidRequest(String)
     case toolFailed(String)
+    /// The exons of `derived/genes.gtf` and the records of `derived/transcripts.fa` differ. Each length names a
+    /// transcript with both lengths.
+    case countingGTFDiffers(onlyInGTF: [String], onlyInTable: [String], lengths: [String])
+    /// A set built before it kept `derived/genes.gtf`, with each reason the GTF as given would count wrong.
+    case builtBeforeCountingGTF(id: String, reasons: [String])
 
     public var errorDescription: String? {
         switch self {
@@ -115,12 +120,23 @@ public enum ReferenceSetError: Error, LocalizedError, Equatable, Sendable {
             return "Lungfish could not read \(path)."
         case .invalidRequest(let words), .toolFailed(let words):
             return words
+        case .countingGTFDiffers(let onlyInGTF, let onlyInTable, let lengths):
+            var words = "The GTF that STAR and featureCounts would read and the transcript FASTA that salmon reads differ, "
+                + "so the set was not built."
+            if !onlyInGTF.isEmpty { words += " Only in the GTF's exon lines: \(Self.listed(onlyInGTF, limit: 5))." }
+            if !onlyInTable.isEmpty { words += " Only in the transcript table: \(Self.listed(onlyInTable, limit: 5))." }
+            if !lengths.isEmpty { words += " Exon lengths differ for \(Self.listed(lengths, limit: 5))." }
+            return words
+        case .builtBeforeCountingGTF(let id, let reasons):
+            return (["The set \(id) was built before LGE kept the GTF that STAR and featureCounts read."] + reasons
+                + ["Build the set again from the same files. It gets a new id, and \(id) stays for its salmon results."])
+                .joined(separator: " ")
         }
     }
 
-    static func listed(_ names: [String]) -> String {
+    static func listed(_ names: [String], limit: Int = 50) -> String {
         guard !names.isEmpty else { return "none" }
-        let shown = names.prefix(50).joined(separator: ", ")
-        return names.count > 50 ? "\(shown) and \(names.count - 50) more" : shown
+        let shown = names.prefix(limit).joined(separator: ", ")
+        return names.count > limit ? "\(shown) and \(names.count - limit) more" : shown
     }
 }

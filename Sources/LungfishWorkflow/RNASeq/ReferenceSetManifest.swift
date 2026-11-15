@@ -8,7 +8,9 @@ import Foundation
 
 public struct ReferenceSetManifest: Codable, Sendable, Equatable {
     public static let filename = "reference-set.json"
-    public static let currentSchemaVersion = 1
+    /// 2 adds `derived.countingGTF`. A schema 1 set still loads, settles and counts with salmon, and is never upgraded
+    /// in place (ARCH-COUNTING-GTF item 1).
+    public static let currentSchemaVersion = 2
     public static let folderExtension = "lungfishrefset"
 
     public struct Assembly: Codable, Sendable, Equatable {
@@ -96,6 +98,12 @@ public struct ReferenceSetManifest: Codable, Sendable, Equatable {
         public var transcripts: DerivedFile
         public var genes: DerivedFile
         public var transcriptGenes: DerivedFile
+        /// `derived/genes.gtf`, the only GTF that STAR, STARsolo and featureCounts read. Nil in a set of schema 1,
+        /// which a counting plan refuses through `requireCountingGTF()`.
+        public var countingGTF: DerivedFile?
+
+        /// Every entry the set holds, the counting GTF last when there is one.
+        var files: [DerivedFile] { [transcripts, genes, transcriptGenes] + (countingGTF.map { [$0] } ?? []) }
     }
 
     /// What the owner changed from the annotation as given, which the record names.
@@ -146,7 +154,7 @@ public struct ReferenceSetManifest: Codable, Sendable, Equatable {
             if let path = extra.annotationPath, let sha = extra.annotationSHA256 { files.append((path, sha)) }
         }
         files += masks.map { ($0.path, $0.sha256) }
-        files += [derived.transcripts, derived.genes, derived.transcriptGenes].map { ($0.path, $0.sha256) }
+        files += derived.files.map { ($0.path, $0.sha256) }
         files.append((derivation.genesWithoutFeatures.path, derivation.genesWithoutFeatures.sha256))
         return files
     }
