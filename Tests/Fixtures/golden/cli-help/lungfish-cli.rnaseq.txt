@@ -13,5 +13,9 @@ SUBCOMMANDS:
   quant                   Count bulk RNA-seq reads in a project with salmon
   export                  Export RNA-seq counts for DESeq2, edgeR and limma
   pseudobulk              Sum a single-cell result's UMIs by sample and label
+  index-plan              Write a plan folder that builds the STAR index of a
+                          reference set on a Linux machine
+  index-adopt             Record the STAR index that a run on a Linux machine
+                          built
 
   See 'lungfish-cli help rnaseq <subcommand>' for detailed help.
