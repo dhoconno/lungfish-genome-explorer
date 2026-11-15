@@ -51,7 +51,7 @@ extension ProvenanceInspectorViewModel {
     /// viewer, unless the item is part of the result the viewer shows (``speaksForViewer``). It runs after the lookup
     /// has built the record's rows, and it reads the record that lookup found
     /// without writing into the project. A record that names an unaffected build, a build with no number or no
-    /// record at all adds nothing, and the viewer's strip goes.
+    /// record at all adds nothing, and the viewer's strip goes when the item speaks for the viewer.
     func applyAffectedResults(item: ProvenanceInspectableItem) {
         let rows: [AffectedResultRow]
         if let envelope = resolvedEnvelope, let kind = Self.affectedResultKind(for: item) {

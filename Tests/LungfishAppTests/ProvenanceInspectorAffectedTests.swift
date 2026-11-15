@@ -136,6 +136,9 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
 
         model.clear()
         XCTAssertEqual(notices, 1, "the next selection's clear does")
+        model.resolvedEnvelope = ProvenanceEnvelope.fixture()
+        model.applyAffectedResults(item: item(.taxTriageResult))
+        XCTAssertEqual(notices, 2, "the flag does not stay false into the next selection's lookup")
     }
 
     func testTheKindOfAnItemFollowsItsSidebarType() {
