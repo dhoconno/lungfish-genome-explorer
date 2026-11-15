@@ -11,10 +11,6 @@ import XCTest
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
-private final class RunningProcess: @unchecked Sendable {
-    let process = Process()
-}
-
 final class RNASeqExportAnimalsConformanceTests: RNASeqExportTestCase {
     private var environment: URL {
         URL(fileURLWithPath: ProcessInfo.processInfo.environment["LGE_RNASEQ_ENV"] ?? "/Volumes/lge_scratch/lge/rnaseq/env", isDirectory: true)
@@ -44,22 +40,25 @@ final class RNASeqExportAnimalsConformanceTests: RNASeqExportTestCase {
         FileManager.default.createFile(atPath: log.path, contents: nil)
         let handle = try FileHandle(forWritingTo: log)
         defer { try? handle.close() }
-        let running = RunningProcess()
-        running.process.executableURL = rscript
-        running.process.arguments = ["--vanilla", "deseq2.R"]
-        running.process.currentDirectoryURL = folder
-        running.process.standardOutput = handle
-        running.process.standardError = handle
+        let process = Process()
+        process.executableURL = rscript
+        process.arguments = ["--vanilla", "deseq2.R"]
+        process.currentDirectoryURL = folder
+        process.standardOutput = handle
+        process.standardError = handle
         var variables = ProcessInfo.processInfo.environment
         variables["PATH"] = environment.appendingPathComponent("bin").path + ":" + (variables["PATH"] ?? "/usr/bin:/bin")
-        running.process.environment = variables
-        try running.process.run()
+        process.environment = variables
         // The script stops before the fit. A hung R is ended after the lookup budget, and the exit status then fails the test.
-        let watchdog = DispatchWorkItem { running.process.terminate() }
-        DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(Int(WaitBudget.lookup.duration.components.seconds)), execute: watchdog)
-        running.process.waitUntilExit()
-        watchdog.cancel()
-        return (running.process.terminationStatus, try String(contentsOf: log, encoding: .utf8))
+        // A signal on the termination handler replaces the watchdog and the blocking wait, with no type shared across threads.
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in finished.signal() }
+        try process.run()
+        if finished.wait(timeout: .now() + WaitBudget.lookup.seconds) == .timedOut {
+            process.terminate()
+            _ = finished.wait(timeout: .now() + WaitBudget.standard.seconds)
+        }
+        return (process.terminationStatus, try String(contentsOf: log, encoding: .utf8))
     }
 
     func testDeseq2StopsWithTheWordsWhenALevelHoldsTwoAnimals() throws {
