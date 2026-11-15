@@ -9,6 +9,14 @@ the new block. When its first line is not a "## STATE" heading, the script puts
 "## STATE" above it. A notes file without a STATE block gets the new block under
 its title line.
 
+The block always holds one fixed line, `Spawn form: You run as <type> on <model> at
+effort <level>.`, which is the form that the Spawn row of
+docs/contracts/RUNNING-A-PHASE-SESSION.md gives for the opening line of every agent
+prompt, so a manager that was compacted reads it again. A state file that lacks the
+line gets it under the heading. A state file that holds it keeps it where it stands.
+Any other line that starts with "Spawn form:" becomes the fixed line, and a repeat
+goes. The line counts toward --max-bytes.
+
 Prints "STATE block written, <n> bytes" and exits 0. Exits 2 and leaves the notes
 file as it was when a file cannot be read, the new block is empty, or the block is
 over --max-bytes (default 3072). The notes file is replaced in one step, with its
@@ -35,6 +43,23 @@ def build_block(text: str) -> str:
     if body and not HEADING.match(body.split("\n", 1)[0]):
         body = "## STATE\n" + body
     return body + "\n" if body else ""
+
+
+SPAWN_FORM = "Spawn form: You run as <type> on <model> at effort <level>."
+SPAWN_LINE = re.compile(r"^\s*Spawn form:")
+
+
+def keep_spawn_form(block: str) -> str:
+    """The block with one Spawn form line. The first line that starts with `Spawn form:` becomes the fixed line where it
+    stands and a repeat goes. A block without one gets the line under its heading, which build_block puts on every block."""
+    lines = block.rstrip("\n").split("\n")
+    found = [i for i, line in enumerate(lines) if SPAWN_LINE.match(line)]
+    if found:
+        lines[found[0]] = SPAWN_FORM
+        lines = [line for i, line in enumerate(lines) if i not in found[1:]]
+    else:
+        lines.insert(1, SPAWN_FORM)
+    return "\n".join(lines) + "\n"
 
 
 def replace_block(notes: str, block: str) -> str:
@@ -71,6 +96,8 @@ def main(argv=None) -> int:
         print("put_state: refused: cannot read %s" % error, file=sys.stderr)
         return 2
     block = build_block(state)
+    if block:
+        block = keep_spawn_form(block)
     size = len(block.encode("utf-8"))
     if not block:
         print("put_state: refused: %s holds no text" % args.state, file=sys.stderr)
