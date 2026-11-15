@@ -25,8 +25,10 @@ sys.dont_write_bytecode = True
 
 import upgrade_check  # noqa: E402
 
-# The managed tool lock of v2026.11.6 to v2026.11.8, which the stand-in builds use unless a test names another.
-OLD_LOCK = "586edb75c2f2402e2eb845526051cc39c7542291036d638927ab6289cfc37e26"
+# The managed tool lock of the release that made the corpus (586edb75 for v2026.11.6 to v2026.11.8), which the
+# stand-in builds use unless a test names another. It is made up, so no edit of the lock file can make it this
+# checkout's.
+OLD_LOCK = hashlib.sha256(b"the lock of an older release").hexdigest()
 
 STAND_IN = '''#!PYTHON
 import hashlib, json, os, sys, time, uuid
@@ -183,6 +185,7 @@ class UpgradeCheckTests(unittest.TestCase):
         self.assertEqual(code, 0, out + err)
         self.assertIn("upgrade-check: passed, 1 projects", out)
         self.assertIn("0 differences", out)
+        self.assertNotIn("lock hash", out)
 
     def test_a_changed_cell_exits_one_with_one_line(self) -> None:
         code, out, _ = run_main("--cli", str(self.bad), "--corpus", str(self.corpus))
@@ -233,6 +236,9 @@ class UpgradeCheckTests(unittest.TestCase):
         code, out, err = run_main("--cli", str(candidate), "--corpus", str(self.corpus))
         self.assertEqual(code, 0, out + err)
         self.assertIn("0 differences", out)
+        # The log keeps what was forgiven, as the evidence copy of the 2026.11.9 release did.
+        self.assertIn(f"upgrade-check: rule 5 forgave the export's own lock hash {OLD_LOCK} -> {checkout} on 2 steps\n",
+                      out)
 
     def test_another_lock_hash_in_the_exports_own_record_is_still_a_difference(self) -> None:
         """Only this checkout's lock is forgiven, so a CLI built from another lock, or an edited hash, shows."""
@@ -246,6 +252,8 @@ class UpgradeCheckTests(unittest.TestCase):
                 lines = [line for line in out.splitlines() if "managedToolLockSHA256" in line]
                 self.assertEqual(len(lines), 2, out)  # the export's own record in each of the two export steps
                 self.assertTrue(all(lock in line for line in lines), out)
+                self.assertIn(f"upgrade-check: the export's own lock hash {lock} on 2 steps is neither expected/'s "
+                              f"lock nor this checkout's ({checkout}), so this CLI was not built from this checkout", out)
 
     def test_a_lock_hash_in_a_record_the_export_copies_is_still_a_difference(self) -> None:
         """The project's records name the lock of the build that made each result, so their copies stay compared."""

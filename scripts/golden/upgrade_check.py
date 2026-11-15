@@ -40,7 +40,7 @@ the diff, because the checking build is not the build that made the project:
   lock change, a CLI built from any other lock or a malformed hash shows, and
   the lock hash in each record that the export copies from the project stays
   compared, since it names the build that made that result. expected/ keeps the
-  hash as captured.
+  hash as captured. The log names each hash this rule forgave and each it did not.
 """
 
 from __future__ import annotations
@@ -55,6 +55,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -340,6 +341,8 @@ def main(argv: list[str] | None = None) -> int:
     differences: list[str] = []
     steps = 0
     checkout_lock = normalize.checkout_lock_sha256()
+    moved: Counter[tuple[str, str]] = Counter()
+    foreign: Counter[str] = Counter()
     for label, project_dir, expected_dir in entries:
         began = time.monotonic()
         scratch = Path(os.path.realpath(tempfile.mkdtemp(prefix="upgrade-check-")))
@@ -362,11 +365,21 @@ def main(argv: list[str] | None = None) -> int:
             locks |= {checkout_lock} if checkout_lock else set()
             found = compare(label, {name: mask_export_locks(text, locks) for name, text in expected.items()},
                             {name: mask_export_locks(text, locks) for name, text in records.items()})
+            for name, text in records.items():
+                before = [value for _, _, value in export_lock_spans(expected.get(name, ""))]
+                after = [value for _, _, value in export_lock_spans(text)]
+                moved.update((old, new) for old, new in zip(before, after) if old != new and new in locks)
+                foreign.update(value for value in after if value not in locks)
             differences += found
             verdict = f"{len(found)} differences" if found else "match"
         print(f"[{label}] {len(records)} steps {verdict} in {time.monotonic() - began:.1f} s", flush=True)
     for line in differences:
         print(line)
+    for (old, new), count in sorted(moved.items()):
+        print(f"upgrade-check: rule 5 forgave the export's own lock hash {old} -> {new} on {count} steps")
+    for value, count in sorted(foreign.items()):
+        print(f"upgrade-check: the export's own lock hash {value} on {count} steps is neither expected/'s lock nor "
+              f"this checkout's ({checkout_lock or 'unknown'}), so this CLI was not built from this checkout")
     state = "captured" if args.capture else ("FAILED" if differences else "passed")
     print(f"upgrade-check: {state}, {len(entries)} projects, {steps} steps, {len(differences)} differences "
           f"in {time.monotonic() - started:.1f} s", flush=True)
