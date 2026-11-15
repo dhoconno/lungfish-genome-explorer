@@ -62,14 +62,14 @@ final class RNASeqExportAnimalsConformanceTests: RNASeqExportTestCase {
     }
 
     func testDeseq2StopsWithTheWordsWhenALevelHoldsTwoAnimals() throws {
-        // A3_B takes the animal A1, so the level B holds columns of 2 animals.
+        // A3_B takes the animal A1, so the level B of group holds columns of 2 animals.
         let out = try editedExport { $0.map { $0.hasPrefix("A3_B\t") ? $0.replacingOccurrences(of: "\tA3\t", with: "\tA1\t") : $0 } }
         let run = try runDeseq2(in: out)
         XCTAssertEqual(run.status, 1, run.output)
-        XCTAssertTrue(run.output.contains("A pseudobulk comparison needs columns of at least 3 animals in each level of group, "
+        XCTAssertTrue(run.output.contains("A pseudobulk comparison needs columns of at least 3 animals in each level it compares, "
             + "because tests on single cells give false discoveries, so LGE counts animals and not cells. "
-            + "Here the level B holds columns of 2 animals (A1, A2). "
-            + "Add animals so that each level holds 3 or more, or compare levels that already do."), run.output)
+            + "Here the level B of group holds columns of 2 animals (A1, A2). "
+            + "Add animals so that each compared level holds 3 or more, or compare levels that already do."), run.output)
         XCTAssertFalse(FileManager.default.fileExists(atPath: out.appendingPathComponent("deseq2-results").path), "no fit ran")
     }
 
