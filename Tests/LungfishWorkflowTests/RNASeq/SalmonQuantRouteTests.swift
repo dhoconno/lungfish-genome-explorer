@@ -265,8 +265,9 @@ final class SalmonQuantRouteTests: XCTestCase {
             commandArguments: ["fastp", "--in1", "a", "--out1", "b", "-q", "20"], durationSeconds: 1)])
         let envelope = try record(try await quant([none, galore, fastp], set: set).resultURL)
         let key = "importPolyG"
+        // A sidecar with no recipe and no import record does not say which tools ran (review RS-QUANT BIO B1).
         XCTAssertEqual(salmonLine(envelope, sample: "NoTrimmer", key),
-                       "Poly-G trimming at import: not enabled (no trimmer ran at import)")
+                       "Poly-G trimming at import: Not recorded (the bundle holds no import record that names its tools)")
         XCTAssertEqual(salmonLine(envelope, sample: "Galore", key),
                        "Poly-G trimming at import: left to Trim Galore 2.3.0 auto-detection (not set by LGE), enabled (auto-detected)")
         XCTAssertEqual(salmonLine(envelope, sample: "Fastp", key),

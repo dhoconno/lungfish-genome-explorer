@@ -160,7 +160,8 @@ public struct SalmonQuantRoute: Sendable {
         let analyses = request.projectURL.appendingPathComponent("Analyses", isDirectory: true)
         try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
         let resultURL = AnalysesFolder.batchSampleFileURL(named: name, extension: "lungfishrnaseq", in: analyses)
-        let made = try writerRequest(name: name, folders: folders, set: set, index: index, trim: request.trim, trimVersion: trimVersion)
+        let made = try writerRequest(
+            name: name, folders: folders, set: set, index: index, trim: request.trim, trimVersion: trimVersion, samples: samples)
         let envelope = try envelope(
             request, samples: samples, steps: steps, index: index, salmonBuild: salmon.build, result: resultURL,
             counts: made.counts, started: started)

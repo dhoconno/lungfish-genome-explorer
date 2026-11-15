@@ -21,13 +21,61 @@ public enum SalmonQuantRecordLines {
         }
     }
 
-    /// The import's poly-G state, from the import record in the sidecar of the bundle's reads and, for Trim Galore, a
-    /// trimming report kept in the bundle. Never "off (LGE default)", which only the route's own call can be.
+    public static let noTrimmerAtImport = "Poly-G trimming at import: not enabled (no trimmer ran at import)"
+    public static let importNotRecorded =
+        "Poly-G trimming at import: Not recorded (the bundle holds no import record that names its tools)"
+
+    /// The import's poly-G state, from what the import recorded: the recipe in the sidecar of the bundle's reads and the
+    /// bundle's import record, whose steps name every tool the import ran, its storage tool too. An import with no
+    /// recipe saves no recipe, so "no trimmer ran" comes only from a recipe or an import record that names no trimmer,
+    /// and a bundle with neither reads Not recorded (review RS-QUANT BIO B1). Never "off (LGE default)", which only the
+    /// route's own call can be.
     public static func importPolyG(payloads: [URL], bundle: URL) -> String {
-        let steps = payloads.lazy.compactMap { FASTQMetadataStore.load(for: $0)?.ingestion?.recipeApplied?.stepResults }.first ?? []
-        let trimmers = steps.filter { trimmerName($0.tool) != nil }
-        guard !trimmers.isEmpty else { return "Poly-G trimming at import: not enabled (no trimmer ran at import)" }
-        return "Poly-G trimming at import: " + trimmers.map { describe($0, bundle: bundle) }.joined(separator: "; ")
+        let recipe = payloads.lazy.compactMap { FASTQMetadataStore.load(for: $0)?.ingestion?.recipeApplied?.stepResults }
+            .first { !$0.isEmpty }
+        let record = importRecord(of: bundle)
+        let recorded = (record?.steps ?? []).compactMap(TrimmerCall.init(step:))
+        let fromRecipe = (recipe ?? []).compactMap(TrimmerCall.init(step:))
+        let calls = recorded + fromRecipe.filter { call in !recorded.contains { $0.name == call.name } }
+        guard !calls.isEmpty else { return recipe != nil || record != nil ? noTrimmerAtImport : importNotRecorded }
+        var lines: [String] = []
+        for line in calls.map({ describe($0, bundle: bundle) }) where !lines.contains(line) { lines.append(line) }
+        return "Poly-G trimming at import: " + lines.joined(separator: "; ")
+    }
+
+    /// The bundle's record when the import wrote it, `lungfish import fastq` or the adopt of a job it planned, and nil
+    /// for no record or the record of another operation, whose steps do not name the import's tools.
+    static func importRecord(of bundle: URL) -> ProvenanceEnvelope? {
+        guard let record = (try? ProvenanceEnvelopeReader.loadCanonical(from: bundle)) ?? nil,
+              record.toolName == "lungfish import fastq" else { return nil }
+        return record
+    }
+
+    /// One trimmer call of the import: its name, version and argv and, when the import kept its report, the poly-G
+    /// state the call used (`parameters.poly_g` of a Trim Galore report, which the record's step keeps).
+    struct TrimmerCall {
+        let name: String
+        let version: String?
+        let words: [String]
+        let polyG: Bool?
+
+        init?(step: ProvenanceStep) {
+            guard let name = SalmonQuantRecordLines.trimmerName(step.toolName) else { return nil }
+            self.name = name
+            var reported: String?
+            if case .string(let value)? = step.resolvedOptions["trimGaloreVersion"] { reported = value }
+            version = reported ?? (["", "unknown"].contains(step.toolVersion) ? nil : step.toolVersion)
+            words = step.argv
+            if case .boolean(let flag)? = step.resolvedOptions["poly_g"] { polyG = flag } else { polyG = nil }
+        }
+
+        init?(step: RecipeStepResult) {
+            guard let name = SalmonQuantRecordLines.trimmerName(step.tool) else { return nil }
+            self.name = name
+            version = step.toolVersion
+            words = step.commandArguments ?? (step.commandLine ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+            polyG = nil
+        }
     }
 
     static func trimmerName(_ tool: String) -> String? {
@@ -38,13 +86,34 @@ public enum SalmonQuantRecordLines {
         }
     }
 
-    static func describe(_ step: RecipeStepResult, bundle: URL) -> String {
-        let name = trimmerName(step.tool) ?? step.tool
-        let version = step.toolVersion.map { " \($0)" } ?? ""
-        let words = step.commandArguments ?? (step.commandLine ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
-        let flags = name == "fastp" ? ["-g", "--trim_poly_g", "-G", "--disable_trim_poly_g"] : ["--poly_g", "--no_poly_g"]
-        if let flag = words.first(where: flags.contains) { return "\(name)\(version) \(flag) (passed at import)" }
-        return "left to \(name)\(version) auto-detection (not set by LGE), \(outcome(name, bundle: bundle))"
+    static func describe(_ call: TrimmerCall, bundle: URL) -> String {
+        let version = call.version.map { " \($0)" } ?? ""
+        let flags = call.name == "fastp" ? ["-g", "--trim_poly_g", "-G", "--disable_trim_poly_g"] : ["--poly_g", "--no_poly_g"]
+        if let flag = call.words.first(where: flags.contains) { return "\(call.name)\(version) \(flag) (passed at import)" }
+        let state = call.polyG.map { $0 ? "enabled (auto-detected)" : "not enabled" } ?? outcome(call.name, bundle: bundle)
+        return "left to \(call.name)\(version) auto-detection (not set by LGE), \(state)"
+    }
+
+    /// One sample's duplicates line: the fixed words, or the recipe steps of its import that removed duplicates, which
+    /// LGE does without UMIs (review RS-QUANT BIO SF3).
+    public static func duplicatesLine(payloads: [URL]) -> String {
+        let removed = deduplicatingSteps(payloads: payloads)
+        guard !removed.isEmpty else { return duplicates }
+        return "Duplicates: removed at import by \(removed.joined(separator: " and ")), without UMIs. This count removes none."
+    }
+
+    /// The route's duplicates setting, when `removed` of the run's `total` samples lost duplicates at import.
+    public static func duplicatesSetting(removed: Int, of total: Int) -> String {
+        guard removed > 0 else { return duplicates }
+        return "Duplicates: removed at import for \(removed) of \(total) samples, without UMIs. This count removes none."
+    }
+
+    /// The names of the recipe steps that removed duplicates when the bundle's reads were imported.
+    static func deduplicatingSteps(payloads: [URL]) -> [String] {
+        let steps = payloads.lazy.compactMap { FASTQMetadataStore.load(for: $0)?.ingestion?.recipeApplied?.stepResults }.first ?? []
+        var names: [String] = []
+        for step in steps where step.didApplyDeduplication && !names.contains(step.stepName) { names.append(step.stepName) }
+        return names
     }
 
     /// `parameters.poly_g` of the read 1 Trim Galore report in the bundle, the effective state the call used.
@@ -78,7 +147,7 @@ extension SalmonQuantRoute {
             "trimming": .string(SalmonQuantRecordLines.trimming(trim, version: trimVersion)),
             "importPolyG": .string(SalmonQuantRecordLines.importPolyG(payloads: sample.payloads, bundle: sample.bundle)),
             "instrument": .string(SalmonQuantRecordLines.instrument(payloads: sample.payloads)),
-            "duplicates": .string(SalmonQuantRecordLines.duplicates),
+            "duplicates": .string(SalmonQuantRecordLines.duplicatesLine(payloads: sample.payloads)),
         ]
     }
 
@@ -86,8 +155,9 @@ extension SalmonQuantRoute {
     /// files as written.
     func writerRequest(
         name: String, folders: [SalmonQuantFolder], set: ReferenceSetOutcome, index: SalmonIndexOutcome,
-        trim: SalmonQuantTrim, trimVersion: String?
+        trim: SalmonQuantTrim, trimVersion: String?, samples: [SampleReads]
     ) throws -> RNASeqResultWriter.Request {
+        let deduplicated = samples.filter { !SalmonQuantRecordLines.deduplicatingSteps(payloads: $0.payloads).isEmpty }.count
         let pairs = set.manifest.derived.transcriptGenes.path
         let genes = try SalmonQuantFolderReader.geneCounts(folders, tx2gene: try SalmonTx2Gene.read(set.url.appendingPathComponent(pairs)))
         let transcripts = try SalmonQuantFolderReader.transcriptCounts(folders)
@@ -106,7 +176,7 @@ extension SalmonQuantRoute {
             "k": String(index.key.k), "decoys": index.key.decoys.rawValue, "index": index.key.folderName,
             "seqBias": onOff("seqBiasCorrect"), "gcBias": onOff("gcBiasCorrect"), "posBias": onOff("posBiasCorrect"),
             "trimming": SalmonQuantRecordLines.trimming(trim, version: trimVersion),
-            "duplicates": SalmonQuantRecordLines.duplicates, "counts": "NumReads",
+            "duplicates": SalmonQuantRecordLines.duplicatesSetting(removed: deduplicated, of: samples.count), "counts": "NumReads",
             "geneSums": "NumReads summed by gene through the reference set's \(pairs)",
             "indexSeqHash": index.hashes.seqHash, "indexNameHash": index.hashes.nameHash,
         ]
