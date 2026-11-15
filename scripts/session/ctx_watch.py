@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""ctx_watch.py PROJECT_DIR SID [--over K] [--busy] [--stalled SECONDS] [--calls] [--agents-dir DIR] [--review-k K]
-[--send-k K]
+"""ctx_watch.py PROJECT_DIR SID [--over K] [--opus-over K] [--busy] [--stalled SECONDS] [--calls] [--agents-dir DIR]
+[--review-k K] [--send-k K] [--near N]
 
 Prints one line for each subagent of a Claude Code session, read from PROJECT_DIR/SID/subagents. A line holds the
 agent id, its description, its tool calls so far, the context of its last API turn in K (input plus cache read plus
 cache write), the age of its last entry and "final" when that entry is a message with no tool call or only a
 SubagentHandback call, which is how a subagent ends, else "busy". A
 line at or over --review-k (default 300) ends with REVIEW-STOP and at or over --send-k (default 400) with SEND-STOP.
---over K keeps the agents at or over K. --busy drops the agents whose last entry is final. --stalled SECONDS keeps the
+--over K keeps the agents at or over K, and --opus-over K does so in its place for an agent whose transcript names an
+opus model, the model of its last assistant entry that is not synthetic. --busy drops the agents whose last entry is
+final. --stalled SECONDS keeps the
 agents whose last entry is older than SECONDS and not final, so a tool call may be pending, and starts each such line
 with STALLED. Filters given together must all pass. It prints "none" when no line remains and never prints message text.
 
@@ -22,7 +24,9 @@ same in the first brief file the prompt names that can be read ("Your brief is /
 file DIR/TYPE.md of its agent type, TYPE being the agentType of its meta file and DIR the folder of the agent types that
 the session ledger reads unless --agents-dir names another. Case does not matter, and a prompt or brief may also say
 "about", "tool" or "by" ("Stop at about 60 tool calls"), "stop line N calls" or "stop by your 120th tool call". An agent
-with no line is left out, and the other filters still apply.
+with no line is left out, and the other filters still apply. With --near N each running agent that has a line and is
+below it by at most N calls also gets a line "NEAR ID CALLS/LINE", so that a caller can check more often while an agent
+nears its line.
 
 Serves the rows "Lane size" and "Pending tool call" in the End check and heartbeat table of
 docs/contracts/RUNNING-A-PHASE-SESSION.md.
@@ -65,13 +69,14 @@ def parse_time(text):
 
 
 def last_state(path, handback="SubagentHandback"):
-    """(tool calls, context tokens of the last API turn, last stamp, last entry is final) of one transcript.
+    """(tool calls, context tokens of the last API turn, last stamp, last entry is final, model) of one transcript.
 
     A subagent ends with a call of the tool named handback, answered by a tool result. So an assistant entry whose
-    only tool calls are that one is final, and the result of that call does not undo it.
+    only tool calls are that one is final, and the result of that call does not undo it. The model is that of the
+    last assistant entry that names one other than "<synthetic>", or None.
     """
     seen, calls, usage_by_id, handbacks = set(), set(), {}, set()
-    last_id = last_stamp = None
+    last_id = last_stamp = last_model = None
     final = False
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
@@ -94,6 +99,8 @@ def last_state(path, handback="SubagentHandback"):
                 use = message.get("usage") or {}
                 tokens = sum(use.get(key) or 0 for key in (
                     "input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+                if isinstance(message.get("model"), str) and message["model"] not in ("", "<synthetic>"):
+                    last_model = message["model"]
                 if message.get("id"):
                     usage_by_id[message["id"]] = max(usage_by_id.get(message["id"], 0), tokens)
                     last_id = message["id"]
@@ -109,7 +116,12 @@ def last_state(path, handback="SubagentHandback"):
                 results = [b for b in blocks if isinstance(b, dict) and b.get("type") == "tool_result"]
                 if not (results and all(b.get("tool_use_id") in handbacks for b in results)):
                     final = False
-    return len(calls), usage_by_id.get(last_id, 0), last_stamp, final
+    return len(calls), usage_by_id.get(last_id, 0), last_stamp, final, last_model
+
+
+def is_opus(model):
+    """True when a model name read from a transcript, such as claude-opus-5-5, is an opus model."""
+    return isinstance(model, str) and "opus" in model.lower()
 
 
 def read_meta(sub, name):
@@ -220,12 +232,12 @@ def survey(project, sid, now):
         if not name.endswith(".jsonl"):
             continue
         path = os.path.join(sub, name)
-        calls, tokens, stamp, final = last_state(path)
+        calls, tokens, stamp, final, model = last_state(path)
         seconds = parse_time(stamp) if stamp else None
         agent = name[len("agent-"):] if name.startswith("agent-") else name
         rows.append({"id": agent[:-len(".jsonl")], "desc": describe(sub, name), "calls": calls,
                      "k": tokens // 1000, "final": final, "age": None if seconds is None else now - seconds,
-                     "path": path, "type": read_meta(sub, name).get("agentType")})
+                     "path": path, "type": read_meta(sub, name).get("agentType"), "model": model})
     return rows
 
 
@@ -242,11 +254,13 @@ def main(argv=None, now=None, out=None):
     parser.add_argument("project")
     parser.add_argument("sid")
     parser.add_argument("--over", type=int, default=0, metavar="K")
+    parser.add_argument("--opus-over", type=int, default=None, metavar="K")
     parser.add_argument("--busy", action="store_true")
     parser.add_argument("--stalled", type=int, default=None, metavar="SECONDS")
     parser.add_argument("--review-k", type=int, default=300, metavar="K")
     parser.add_argument("--send-k", type=int, default=400, metavar="K")
     parser.add_argument("--calls", action="store_true")
+    parser.add_argument("--near", type=int, default=None, metavar="N")
     parser.add_argument("--agents-dir", default=None, metavar="DIR")
     args = parser.parse_args(argv)
     out = out or sys.stdout
@@ -256,7 +270,8 @@ def main(argv=None, now=None, out=None):
         return 2
     lines = []
     for row in survey(args.project, args.sid, time.time() if now is None else now):
-        if row["k"] < args.over or (args.busy and row["final"]):
+        over = args.opus_over if args.opus_over is not None and is_opus(row["model"]) else args.over
+        if row["k"] < over or (args.busy and row["final"]):
             continue
         if args.stalled is not None and (row["final"] or row["age"] is None or row["age"] < args.stalled):
             continue
@@ -264,6 +279,8 @@ def main(argv=None, now=None, out=None):
             line = None if row["final"] else stop_line(row, args.agents_dir)
             if line is not None and row["calls"] >= line:
                 lines.append("CALLS %s %d/%d" % (row["id"], row["calls"], line))
+            elif line is not None and args.near is not None and row["calls"] >= line - args.near:
+                lines.append("NEAR %s %d/%d" % (row["id"], row["calls"], line))
             continue
         lines.append(format_line(row, args.review_k, args.send_k, args.stalled is not None))
     out.write("\n".join(lines) + "\n" if lines else "none\n")
