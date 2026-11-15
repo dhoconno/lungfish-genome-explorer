@@ -10,6 +10,7 @@ Small RNA-seq results for the reader, import and layout tests of Phase 5. Lane P
 | `umi-table-c9` | The scripts' UMI counts of C9 (GEO GSE163196), route P (`umi_tools count --per-gene`), 203 genes by 33 samples, with the gene table of those genes and `runs.tsv` whole | `work/gse163196/matrix/ours_P.tsv` |
 | `refset-mito` | For the reference-set tests (lane RS-REFSET). The mitochondrial contig of RefSeq Macaca_fascicularis_5.0, NC_012670.1, with its 76 GTF lines (13 genes with a CDS and no exon, 24 exons of empty `gene_id`) and its assembly report line under the column line. The MT contig of Ensembl 100 Mmul_10 with its 144 GTF lines. SARS-CoV-2 NC_045512.2 with the 11 gene lines of its RefSeq GTF. Each record and line as given, in file order | `refs/cynomolgus/refseq-GCF_000364345.1/`, `refs/rhesus/ensembl-100/`, `refs/sars-cov-2/GCF_009858895.2/` |
 | `salmon-probe-c1` | For the truth probe of `rnaseq quant` (lane RS-QUANT). `ERCC92.fa` and `ERCC92.gtf`, whole, as the genome and annotation of a set, and the first 6,000 pairs of SRR896663 (C1, library A_1), each record as given, in `SRR896663_1.fastq.gz` and `SRR896663_2.fastq.gz`. The cut checks that both mates name the same spots in the same order. 1.1 MB in all | `studies/GSE47774/truth/ercc/ERCC92.zip`, `studies/GSE47774/fastq/` |
+| `pseudobulk-pbmc_1k_v3` | For `rnaseq pseudobulk` (lane RS-PSEUDOBULK). `labels-starsolo.tsv` and `labels-cellranger.tsv` label the 200 cells of each cut in barcode order, rows 1 to 9 `nine`, 10 to 19 `ten`, 20 to 119 `T` and 120 to 170 `B`, and leave the last 30 with no label. `expected-starsolo.tsv` and `expected-cellranger.tsv` are the sums of the `ten`, `T` and `B` groups, written from the matrix text by `scripts/repro/rnaseq/gse183579/pseudobulk_check.py`, not by `cut.sh`. The groups kept, the 9-cell group and the 30 cells with no label hold 172,079, 9,130 and 31,420 UMIs on the STARsolo cut, and 172,164, 9,133 and 31,436 on the Cell Ranger cut | the two cuts above |
 | `nfcore-rnaseq-yeast/salmon` | The salmon folders of one nf-core/rnaseq run of its yeast test profile, five samples, every file whole but the four `._flenDist.txt` metadata files of macOS that the archive carries | nf-core/test-datasets, below |
 
 ## How the cut chose rows
@@ -32,6 +33,8 @@ No 10x barcode list is here (`docs/plans/2026-10-02-architecture-program.md:103`
 bash scripts/repro/rnaseq/fixtures/cut.sh /Volumes/lge_scratch/lge/rnaseq <empty folder>
 diff -r -x README.md Tests/Fixtures/rnaseq <empty folder>
 ```
+
+`cut.sh` does not write `pseudobulk-pbmc_1k_v3` or its four `SHA256SUMS` rows, so the diff lists them. Each pseudobulk file is rewritten from the cuts with `python3 -I scripts/repro/rnaseq/gse183579/pseudobulk_check.py labels <barcodes> <labels.tsv>`, then `expect <matrix folder> <labels.tsv> <sample> <expected.tsv>`, where the sample is the cut's folder name.
 
 The script stops when a source's sha256 differs from its pin in `cut.py`. The gzip bytes of the Cell Ranger cut come from the zlib of `/opt/homebrew/bin/python3`, so another zlib may change those three files and nothing else.
 
