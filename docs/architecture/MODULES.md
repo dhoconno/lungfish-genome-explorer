@@ -30,7 +30,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1589 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1595 | LungfishCore, LungfishIO |
 | LungfishWorkflowTwelveS | library | Sources/LungfishWorkflowTwelveS | 38 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
@@ -3387,8 +3387,14 @@ None.
 - `SalmonIndexKeyFile` struct, `Sources/LungfishWorkflow/RNASeq/SalmonIndexCache.swift`
 - `SalmonIndexOutcome` struct, `Sources/LungfishWorkflow/RNASeq/SalmonIndexCache.swift`
 - `SalmonIndexRequest` struct, `Sources/LungfishWorkflow/RNASeq/SalmonIndexCache.swift`
+- `SalmonQuantError` enum, `Sources/LungfishWorkflow/RNASeq/SalmonQuantRoute.swift`
 - `SalmonQuantFolder` struct, `Sources/LungfishWorkflow/RNASeq/SalmonQuantFolderReader.swift`
 - `SalmonQuantFolderReader` enum, `Sources/LungfishWorkflow/RNASeq/SalmonQuantFolderReader.swift`
+- `SalmonQuantOutcome` struct, `Sources/LungfishWorkflow/RNASeq/SalmonQuantRoute.swift`
+- `SalmonQuantRecordLines` enum, `Sources/LungfishWorkflow/RNASeq/SalmonQuantRoute+Record.swift`
+- `SalmonQuantRequest` struct, `Sources/LungfishWorkflow/RNASeq/SalmonQuantRoute.swift`
+- `SalmonQuantRoute` struct, `Sources/LungfishWorkflow/RNASeq/SalmonQuantRoute.swift`
+- `SalmonQuantTrim` enum, `Sources/LungfishWorkflow/RNASeq/SalmonQuantRoute.swift`
 - `SalmonTx2Gene` struct, `Sources/LungfishWorkflow/RNASeq/SalmonQuantFolderReader.swift`
 - `SampleEvidence` struct, `Sources/LungfishWorkflow/ONTGenotyping/AIHaplotypingTypes.swift`
 - `SampleFolderNaming` enum, `Sources/LungfishWorkflow/SampleFolderNaming.swift`
