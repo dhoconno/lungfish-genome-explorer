@@ -111,6 +111,33 @@ if has claims; then
   $NICE $PY "$HERE/claims.py" "$WORK" "$HERE/runs.tsv" "$HERE/claims.tsv" | tee "$WORK/logs/claims.log"
 fi
 
+# lge_pseudobulk (RS-PSEUDOBULK, not in the default list): lungfish-cli (LGE_CLI) imports the 8 STARsolo libraries with
+# their animals from samples.tsv, then sums them by a label table cut from labels/cells.tsv.gz (pass_qc 1, source ours),
+# under WORK/lge/${LGE_RUN:-RS-PSEUDOBULK}. pseudobulk_check.py sums the same matrix text by the same table and compares
+# every cell of the result's table, and the groups it leaves out are compared with the record's.
+if has lge_pseudobulk; then
+  LGE=$WORK/lge/${LGE_RUN:-RS-PSEUDOBULK}; P=$LGE/project; A=$P/Analyses
+  rm -rf "$P"; mkdir -p "$A" "$LGE/logs"
+  printf 'sample\trun\tanimal\n' > "$LGE/sheet.tsv"; libs=()
+  for d in "$WORK"/solo/GSM*; do
+    g=$(basename "$d"); libs+=("$d")
+    awk -F'\t' -v g="$g" 'NR > 1 && $1 == g {print g "\t" g "\t" $3}' "$WORK/samples.tsv" >> "$LGE/sheet.tsv"
+  done
+  $PY "$HERE/pseudobulk_check.py" cut "$WORK/labels/cells.tsv.gz" "$WORK/solo" "$LGE/labels.tsv" | tee "$LGE/logs/cut.log"
+  /usr/bin/time -l -o "$LGE/logs/import.time" $NICE "${LGE_CLI:?}" import rnaseq "${libs[@]}" --project "$P" \
+    --name gse183579-cells --samples "$LGE/sheet.tsv" > "$LGE/logs/import.log" 2>&1 || die "lge import failed"
+  /usr/bin/time -l -o "$LGE/logs/pseudobulk.time" $NICE "$LGE_CLI" rnaseq pseudobulk "$A/gse183579-cells.lungfishrnaseq" \
+    --labels "$LGE/labels.tsv" --output "$A/gse183579-pseudobulk.lungfishrnaseq" > "$LGE/logs/pseudobulk.log" 2>&1 \
+    || die "lge pseudobulk failed (see $LGE/logs/pseudobulk.log)"
+  $PY "$HERE/pseudobulk_check.py" check "$WORK/solo" "$LGE/labels.tsv" \
+    "$A/gse183579-pseudobulk.lungfishrnaseq/counts/genes.counts.tsv" | tee "$LGE/logs/check.log"
+  grep '^dropped: ' "$LGE/logs/check.log" | sed 's/^dropped: //' | sort > "$LGE/dropped.check.txt"
+  $PY -c 'import json, sys; [print(g["words"]) for g in json.load(open(sys.argv[1]))["options"]["resolvedDefaults"]["groupsLeftOut"]["array"]]' \
+    "$A/gse183579-pseudobulk.lungfishrnaseq/.lungfish-provenance.json" | sort > "$LGE/dropped.record.txt"
+  cmp -s "$LGE/dropped.check.txt" "$LGE/dropped.record.txt" && echo "dropped groups: equal to the record's" \
+    || echo "dropped groups: DIFFER from the record's"
+fi
+
 # lge_refset (RS-REFSET, gate GR, not in the default list): lungfish-cli (LGE_CLI) builds the reference set in
 # each layout under WORK/lge/${LGE_RUN:-RS-REFSET}/root, passed by --storage-root and never exported. Each set
 # is checked against ref/ and deleted, and its manifest and tables stay. The root's conda/envs/gffread is the

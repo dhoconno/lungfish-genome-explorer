@@ -194,7 +194,41 @@ def check(solo_root, labels_path, counts_path):
     return 0 if unequal == 0 and not missing and not extra and len(genes_seen) == len(result) else 1
 
 
+def cut(cells_path, solo_root, out_path):
+    """The label table of the lge_pseudobulk stage: rows of labels/cells.tsv.gz with pass_qc 1 whose source is `ours`
+    (labels.py's run on these STARsolo matrices) and whose barcode the library's filtered matrix holds."""
+    held = {}
+    for gsm in sorted(os.listdir(solo_root)):
+        folder = os.path.join(solo_root, gsm, "Solo.out", "Gene", "filtered")
+        if os.path.isdir(folder):
+            held[gsm] = set(read_folder(folder)[1])
+    rows = lines(cells_path)
+    header = rows[0].split("\t")
+    at = {name: header.index(name) for name in ("source", "gsm", "barcode", "pass_qc", "label")}
+    out = ["sample\tbarcode\tlabel"]
+    kept = {gsm: 0 for gsm in held}
+    not_held = {gsm: 0 for gsm in held}
+    for row in rows[1:]:
+        cells = row.split("\t")
+        gsm = cells[at["gsm"]]
+        if gsm not in held or cells[at["source"]] != "ours" or cells[at["pass_qc"]] != "1" or not cells[at["label"]]:
+            continue
+        if cells[at["barcode"]] not in held[gsm]:
+            not_held[gsm] += 1
+            continue
+        kept[gsm] += 1
+        out.append(f"{gsm}\t{cells[at['barcode']]}\t{cells[at['label']]}")
+    with open(out_path, "w", newline="\n") as handle:
+        handle.write("\n".join(out) + "\n")
+    for gsm in held:
+        print(f"{gsm}: {kept[gsm]} labelled cells of source ours, {not_held[gsm]} not in the filtered matrix, "
+              f"{len(held[gsm]) - kept[gsm]} cells of the matrix with no label")
+
+
 def main(argv):
+    if len(argv) == 5 and argv[1] == "cut":
+        cut(argv[2], argv[3], argv[4])
+        return 0
     if len(argv) == 4 and argv[1] == "labels":
         fixture_labels(argv[2], argv[3])
         return 0
