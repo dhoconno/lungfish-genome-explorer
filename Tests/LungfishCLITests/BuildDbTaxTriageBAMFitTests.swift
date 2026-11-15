@@ -122,9 +122,9 @@ final class BuildDbTaxTriageBAMFitTests: XCTestCase {
         XCTAssertEqual(try fittedSamples(built.database), ["S1", "S1_2"], "neither file has a name the pipeline gives")
     }
 
-    /// A database that an older build made holds no fitted mark. It keeps its recorded path, and the extraction reads
-    /// that path with no sentence, as at P, until the database is built again. Green at P and at the fix.
-    func testADatabaseOfAnOlderBuildKeepsItsPathWithNoSentence() async throws {
+    /// A database that an older build made holds no fitted mark. The lookup refuses S1, whose recorded `S1_2.bam` can be
+    /// another sample's, before any read is taken (lane BUILDDB-OLDER-DB-CLI). At P it read that path with no sentence.
+    func testADatabaseOfAnOlderBuildIsRefusedForAFittedBAM() async throws {
         let result = try makeLoneFitResult()
         _ = try await build(result)
         let databaseURL = result.appendingPathComponent("taxtriage.sqlite")
@@ -133,9 +133,16 @@ final class BuildDbTaxTriageBAMFitTests: XCTestCase {
         XCTAssertEqual(sqlite3_exec(handle, "DELETE FROM metadata WHERE key = 'fitted_bam_samples'", nil, nil, nil), SQLITE_OK)
         sqlite3_close(handle)
 
-        let bam = try await ClassifierReadResolver().testingResolveBAMURL(tool: .taxtriage, sampleId: "S1", resultPath: result)
-        XCTAssertEqual(bam.lastPathComponent, "S1_2.bam", "the recorded path stays")
-        XCTAssertNil(ClassifierReadResolver.taxTriageScanNotice(tool: .taxtriage, sampleId: "S1", resultPath: result, bam: bam))
+        do {
+            let bam = try await ClassifierReadResolver().testingResolveBAMURL(
+                tool: .taxtriage, sampleId: "S1", resultPath: result
+            )
+            XCTFail("the recorded S1_2.bam can be another sample's, so none is read, but \(bam.lastPathComponent) was")
+        } catch let error as ClassifierExtractionError {
+            guard case .taxTriageBAMBeforeFitMark(let sample, let file, _) = error else { return XCTFail("\(error)") }
+            XCTAssertEqual(sample, "S1")
+            XCTAssertEqual(file, "S1_2.bam")
+        }
     }
 
     // MARK: - Fixtures
