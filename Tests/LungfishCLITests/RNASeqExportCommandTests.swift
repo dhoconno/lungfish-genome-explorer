@@ -127,4 +127,43 @@ final class RNASeqExportCommandTests: XCTestCase {
             XCTAssertThrowsError(try RNASeqExportSubcommand.parse(arguments([a], output: out, extra: [flag])), flag)
         }
     }
+
+    /// Every file under `folder` by its path inside it and its sha256, the record left out (Phase 5.2 lane RS-SC-HANDOFF).
+    private func treeHashes(_ folder: URL) throws -> [String: String] {
+        var all: [String: String] = [:]
+        let walker = try XCTUnwrap(FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey]))
+        for case let url as URL in walker where try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
+            let name = String(url.standardizedFileURL.path.dropFirst(folder.standardizedFileURL.path.count + 1))
+            if name != ".lungfish-provenance.json" { all[name] = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined() }
+        }
+        return all
+    }
+
+    func testASingleCellExportParsesItsRecordedArgvAndReplaysToEqualFiles() async throws {
+        let result = try RNASeqPseudobulkCommandTests.makeSingleCellResult(in: root)
+        let first = root.appendingPathComponent("cells1", isDirectory: true)
+        let second = root.appendingPathComponent("cells2", isDirectory: true)
+        try await RNASeqExportSubcommand.parse(arguments([result], output: first)).run()
+        let record = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: first))
+        XCTAssertEqual(Array(record.argv.prefix(3)), ["lungfish-cli", "rnaseq", "export"])
+        XCTAssertEqual(try RNASeqExportSubcommand.parse(Array(record.argv.dropFirst(3))).canonicalArgv(), record.argv)
+        var argv = Array(record.argv.dropFirst(3))
+        argv[try XCTUnwrap(argv.firstIndex(of: "--output")) + 1] = second.path
+        try await RNASeqExportSubcommand.parse(argv + ["--quiet"]).run()
+        XCTAssertEqual(try treeHashes(second), try treeHashes(first))
+        XCTAssertEqual(try treeHashes(first).count, 7, "genes.tsv, samples.tsv, seurat.R, scanpy.py and the three files of the matrix")
+    }
+
+    func testAFlagThatDoesNothingOnASingleCellExportExitsWithTheInputCodeAndWritesNothing() async throws {
+        let result = try RNASeqPseudobulkCommandTests.makeSingleCellResult(in: root)
+        let out = root.appendingPathComponent("cells1", isDirectory: true)
+        do {
+            try await RNASeqExportSubcommand.parse(arguments([result], output: out, extra: ["--design", "group"])).run()
+            XCTFail("a flag that does nothing was accepted")
+        } catch let code as ExitCode {
+            XCTAssertEqual(code, CLIExitCode.inputError.exitCode)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: out.path))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasPrefix(".") }, [])
+    }
 }
