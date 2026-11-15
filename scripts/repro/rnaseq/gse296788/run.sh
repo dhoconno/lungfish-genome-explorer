@@ -242,9 +242,62 @@ stage_lge_refset() {
   done
 }
 
+# lge_nothost (RS-NOTHOST, gate GN, not in "all"): lungfish-cli (LGE_CLI) builds the deposit-layout set of RefSeq
+# Macaca_fascicularis_5.0 release 101 with the two Mtb scaffolds and Erdman's rRNA genes as the extra's mask
+# (--extra-mask) under WORK/lge/RS-NOTHOST/root, kept for a rerun, gffread as in lge_refset. Each library gets a
+# folder of regular files whose Solo.out/Gene/filtered/ is solo/<GSM>/topcells/ (TopCells N with ties kept, the
+# cells mtb.py takes) and whose raw/ and Log.final.out are the original's, with no Summary.csv, since its cell
+# figures are EmptyDrops_CR's (BIO-NOTHOST-BARCODE items 16 to 18). folders/cells-source.tsv names the cells'
+# source. The import takes the five folders with each nonhost_and_mt.bam, and compare_lge_gn.py checks the cells
+# against topcells before it compares cells.sqlite with compare/<GSM>.gn.tsv and gn_summary.tsv.
+stage_lge_nothost() {
+  local nh=$WORK/lge/RS-NOTHOST erdman=$MTBREF/GCA_000668235.1_Myco_tube_Erdman_V1_genomic
+  local set_dir p=$WORK/lge/RS-NOTHOST/project s f n star sums src dst libs=() bams=()
+  stage_truth
+  mkdir -p "$nh/root/conda/envs" "$nh/logs" "$nh/folders"
+  [ -x "$nh/root/conda/envs/gffread/bin/gffread" ] || ln -sfn "${LGE_PACK_ENV:?no gffread in the root}" "$nh/root/conda/envs/gffread"
+  set_dir=$(ls -d "$nh/root/rnaseq-reference-sets"/*.lungfishrefset 2>/dev/null | head -1 || true)
+  if [ -z "$set_dir" ]; then
+    grep -E '^KK33948[78]\.1	' "$WORK/ref/genes.gtf" > "$nh/mtb.gtf"
+    heavy /usr/bin/time -l -o "$nh/logs/refset.time" $NICE "${LGE_CLI:?}" rnaseq reference-set --storage-root "$nh/root" \
+      --default cynomolgus/refseq-GCF_000364345.1 \
+      --genome "$REFSEQ"/GCF_000364345.1_Macaca_fascicularis_5.0_genomic.fna.gz \
+      --annotation "$REFSEQ"/GCF_000364345.1_Macaca_fascicularis_5.0_genomic.gtf.gz \
+      --assembly-report "$REFSEQ"/GCF_000364345.1_Macaca_fascicularis_5.0_assembly_report.txt \
+      --layout deposit --study GSE296788 --extra "bacterium,mtb,$erdman.fna.gz,$nh/mtb.gtf" \
+      --extra-mask "mtb,$erdman.gtf.gz" > "$nh/logs/refset.log" 2>&1 || { tail -5 "$nh/logs/refset.log"; return 1; }
+    set_dir=$(ls -d "$nh/root/rnaseq-reference-sets"/*.lungfishrefset | head -1)
+  fi
+  printf 'library\ttopcells_n\tcells\ttopcells_barcodes_sha256\ttopcells_features_sha256\ttopcells_matrix_sha256\traw_matrix_sha256\tstar\n' \
+    > "$nh/folders/cells-source.tsv"
+  for s in $LIBS; do
+    src=$WORK/solo/$s; dst=$nh/folders/$s
+    rm -rf "$dst"; mkdir -p "$dst/Solo.out/Gene/filtered" "$dst/Solo.out/Gene/raw"
+    for f in barcodes.tsv features.tsv matrix.mtx; do
+      cp "$src/topcells/$f" "$dst/Solo.out/Gene/filtered/$f"
+      cp "$src/Solo.out/Gene/raw/$f" "$dst/Solo.out/Gene/raw/$f"
+    done
+    cp "$src/Log.final.out" "$dst/Log.final.out"
+    ( cd "$src" && shasum -a 256 topcells/* Solo.out/Gene/raw/* Log.final.out ) | sed 's#  topcells/#  Solo.out/Gene/filtered/#' > "$nh/logs/$s.sha256"
+    ( cd "$dst" && shasum -a 256 -c "$nh/logs/$s.sha256" > /dev/null ) || { echo "a copy of $s differs from its source"; return 1; }
+    [ -z "$(find "$dst" -type l)" ] && [ ! -e "$dst/Solo.out/Gene/Summary.csv" ] || { echo "$dst holds a link or a Summary.csv"; return 1; }
+    n=$(gzip -dc "$(deposit_of "$s")_barcodes.tsv.gz" | wc -l | tr -d ' ')
+    star=$(awk '/STAR version/ {print $3}' "$WORK/logs/topcells-$s.log")
+    sums=$(cd "$src" && shasum -a 256 topcells/barcodes.tsv topcells/features.tsv topcells/matrix.mtx Solo.out/Gene/raw/matrix.mtx | awk '{printf "\t%s", $1}')
+    printf '%s\t%s\t%s%s\t%s\n' "$s" "$n" "$(wc -l < "$src/topcells/barcodes.tsv" | tr -d ' ')" "$sums" "$star" >> "$nh/folders/cells-source.tsv"
+    libs+=("$dst"); bams+=(--not-host-bam "$s=$src/nonhost_and_mt.bam")
+  done
+  rm -rf "$p"; mkdir -p "$p"
+  /usr/bin/time -l -o "$nh/logs/import.time" $NICE "${LGE_CLI:?}" import rnaseq "${libs[@]}" --project "$p" \
+    --name gse296788-nothost --reference-set "$set_dir" "${bams[@]}" > "$nh/logs/import.log" 2>&1 \
+    || { tail -5 "$nh/logs/import.log"; return 1; }
+  $PY "$HERE/compare_lge_gn.py" "$p/Analyses/gse296788-nothost.lungfishrnaseq" "$WORK" | tee "$nh/logs/compare.log"
+}
+
 for st in $STAGES; do
   case $st in
     lge_refset) stage_lge_refset ;;
+    lge_nothost) stage_lge_nothost ;;
     ref) stage_ref ;;
     index) stage_index ;;
     solo:*) stage_solo "${st#solo:}" ;;
