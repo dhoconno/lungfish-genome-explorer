@@ -1,6 +1,6 @@
-# Executor plan, schema version 1
+# Executor plan, schema versions 1 and 2
 
-A plan is the file Lungfish Genome Explorer (LGE) writes on the Mac so that `lungfish-executor` can run one sample's import on a Linux machine, such as a CHTC execute node. It fixes every step's argv, tool, deadline and setting before the run, so the machine reads no host memory and resolves no automatic value. The types are `ExecutionPlan` and its parts in `Sources/LungfishPortable/Plan/`, the writer is `ExecutorPlanEmitter` with `ExecutorPlanFolderWriter` in `Sources/LungfishWorkflow/ExecutorPlan/`, and the record a run leaves is described in [executor-run-record.md](executor-run-record.md).
+A plan is the file Lungfish Genome Explorer (LGE) writes on the Mac so that `lungfish-executor` can run one sample's import on a Linux machine, such as a CHTC execute node. It fixes every step's argv, tool, deadline and setting before the run, so the machine reads no host memory and resolves no automatic value. The types are `ExecutionPlan` and its parts in `Sources/LungfishPortable/Plan/`, the writer is `ExecutorPlanEmitter` with `ExecutorPlanFolderWriter` in `Sources/LungfishWorkflow/ExecutorPlan/`, and the record a run leaves is described in [executor-run-record.md](executor-run-record.md). Schema 1 is the plan of a read import. Schema 2 is the plan of a chain of pinned tools ([Schema 2](#schema-2)), and every rule this page does not mark as schema 2 holds for both.
 
 ## The plan folder
 
@@ -21,7 +21,7 @@ Work files use the stem `sample`. The sample's real name lives only in `sample.s
 
 ## The template and the fill
 
-The Mac plans a recipe once for every sample of one input shape. The template, `PlanTemplate` in `Sources/LungfishPortable/Plan/PlanTemplate.swift`, holds every plan key except `sample`, the platform, and one input slot per input, such as `inputs/R1.fastq.gz`, in place of the input entries. `PlanTemplate.fill` takes one sample's name, file names, sample-sheet labels and each input's SHA-256 and size, and gives that sample's plan. It sets `sample` and the input entries' `sha256` and `size` and nothing else. It puts the input entries before the first `database` entry and states the sum of the input sizes as `sample.originalSizeBytes`. It takes no parameter, so a sample cannot change a step, a tool, a setting or a deadline. It refuses a sample with field `entries` when its number of inputs differs from the template's, and with field `sample.originalFilenames` when a file name's FASTQ suffix differs from its slot's, since the steps' argv name the slot. A sample whose files take another suffix needs a template of its own. The Mac's own plan of one sample is the fill of its template, so the two have the same bytes. The fill reads no file, clock, environment or host fact, and it builds for Linux.
+The Mac plans a recipe once for every sample of one input shape. The template, `PlanTemplate` in `Sources/LungfishPortable/Plan/PlanTemplate.swift`, holds every plan key except `sample`, the platform, and one input slot per input, such as `inputs/R1.fastq.gz`, in place of the input entries. `PlanTemplate.fill` takes one sample's name, file names, sample-sheet labels and each input's SHA-256 and size, and gives that sample's plan. It sets `sample` and the input entries' `sha256` and `size` and nothing else. It puts the input entries before the first `database` entry and states the sum of the input sizes as `sample.originalSizeBytes`. It takes no parameter, so a sample cannot change a step, a tool, a setting or a deadline. It refuses a sample with field `entries` when its number of inputs differs from the template's, and with field `sample.originalFilenames` when a file name's FASTQ suffix differs from its slot's, since the steps' argv name the slot. A sample whose files take another suffix needs a template of its own. The Mac's own plan of one sample is the fill of its template, so the two have the same bytes. The fill reads no file, clock, environment or host fact, and it builds for Linux. In a schema 2 plan the fill also sets `sample.instrument`, which changes no argv, and a plan with no `input` entry, such as an index build, has no `sample` and no fill.
 
 The job's `request_disk` is a value of the Mac's sample row that only the submit side reads. It never reaches `plan.json`, an argv or a step's environment, so two sample sheets that differ only in it give the same plan bytes.
 
@@ -51,13 +51,14 @@ The executor checks, in order, the site facts, the subreaper, the plan, the runn
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `schemaVersion` | integer | 1. A plan from a newer schema is refused |
+| `schemaVersion` | integer | 1, or 2 for a plan with a `pipeline` (Schema 2). A plan from a newer schema is refused |
 | `entries` | array | Each file the plan pins, `{role, relativePath, sha256, size}`. The roles are `executor`, `recipe`, `input` and `database`. A `database` entry also holds `database`, the engine's own database record, `{id, version, format, kmerLength, windowSize, lockPinned, buildSourceSHA256, buildSourceSizeBytes, buildToolVersion}`. Schema 2 adds the roles `reference` and `barcodeList`, each with an identity key of its own (Schema 2) |
 | `executor` | object | What built the pinned executor, `lgeVersion`, `lgeCommit`, `targetTriple`, `toolchainID`, `toolchainSHA256`, `staticLinuxSDKID` and `staticLinuxSDKSHA256` |
 | `imageManifest` | object | `sha256` and `size` of the image's tool manifest. The plan names no path for it |
 | `tools` | array | Every tool a step runs or launches, `{id, version, build}`, which the manifest must list. The plan writer pins the compressor for every storage route, and a plan with a `clumpify.sh` or `reformat.sh` storage step pins `bgzip`, which BBTools writes through |
-| `recipe` | object or absent | The recipe's identity as the import on the Mac records it, `id`, `name`, `requestedName`, `formatVersion`, `sourceSHA256`, `presetID`, `presetName`, `switches` of `{id, label, value, source}` and `turnedOffSteps` of `{stepType, label, activeStepsBefore, switchID}`. Its `sourceSHA256` equals the `recipe` entry's SHA-256 |
-| `sample` | object | `sampleName`, `originalFilenames`, `originalSizeBytes`, `platform` and `sampleSheet`, which the adopt takes from the plan |
+| `recipe` | object or absent | The recipe's identity as the import on the Mac records it, `id`, `name`, `requestedName`, `formatVersion`, `sourceSHA256`, `presetID`, `presetName`, `switches` of `{id, label, value, source}` and `turnedOffSteps` of `{stepType, label, activeStepsBefore, switchID}`. Its `sourceSHA256` equals the `recipe` entry's SHA-256. Absent in schema 2 |
+| `pipeline` | object or absent | Schema 2 only. The identity of the chain the plan runs ([The pipeline](#the-pipeline)) |
+| `sample` | object | `sampleName`, `originalFilenames`, `originalSizeBytes`, `platform` and `sampleSheet`, which the adopt takes from the plan. Schema 2 adds `instrument`, and a schema 2 plan with no `input` entry has no `sample` |
 | `storage` | object | The storage settings, below |
 | `clumping` | object | The clumping choice, below |
 | `graceSeconds` | number | Seconds between SIGTERM and SIGKILL for every step, above 0 |
@@ -103,6 +104,25 @@ The deacon scrub step passes no `-a` or `-r`, so its thresholds are the pinned d
 
 Schema 2 is the plan of a chain of pinned tools, such as the RNA-seq steps on Linux of Phase 5.3 (`docs/plans/2026-10-02-architecture-program.md:233-256`). This page sets it first. No build reads it yet, and `ExecutionPlan.currentSchemaVersion` is 1 (`Sources/LungfishPortable/Plan/ExecutionPlan.swift:15`) until lane EX-TOOL builds it (`docs/plans/2026-10-02-architecture-program.md:242`).
 
+### Which schema a plan states
+
+The plan writer writes schema 2 for a plan with a `pipeline` and schema 1 for every other plan, so the plan of a read import keeps its version, its bytes and the meaning of every key (`docs/plans/2026-10-02-architecture-program.md:242,256`). A schema 2 plan keeps every key of schema 1 with its meaning, except as this table says.
+
+| Key | In a schema 2 plan |
+| --- | --- |
+| `pipeline` | Present ([The pipeline](#the-pipeline)) |
+| `recipe` | Absent, with no `recipe` entry |
+| `storage`, `clumping` | Absent, since every step is a `tool` step |
+| `sample` | Present when the plan has an `input` entry, with `instrument` too. Absent for a plan with none, such as an index build, which then pins at least one `reference` entry |
+| `entries` | The roles `executor`, `input`, `database`, `reference` and `barcodeList` |
+| `steps` | Each a `tool` step with `outputPolicy` |
+
+`sample.instrument` is `{model, inferred}`, the instrument the poly-G record line names, where `inferred` is true when LGE read the model from the read names and false when the person or the sample sheet gave it. It is absent when no instrument is known. It changes no argv, since poly-G trimming is off by default whatever the instrument.
+
+A schema 2 executor reads `schemaVersion` before any other key. It refuses any number but 1 and 2 with field `schemaVersion` and the sentence "This plan has schema version <n>, and this executor reads versions 1 and 2." It reads a version 1 plan by the rules of schema 1, and refuses one that holds a key, role or kind schema 2 added with that field and the sentence "This plan has schema version 1 and holds <field>, which schema 2 added."
+
+The executor of schema 1 refuses every schema 2 plan before any tool starts, though not always with the same field, since it decodes the whole plan before it compares the version (`Sources/LungfishPortable/Plan/ExecutionPlan.swift:286,292`). A plan whose keys all decode in schema 1's types is refused with field `schemaVersion` and the sentence "This plan has schema version 2, and this executor reads version 1." (`Sources/LungfishPortable/Plan/PlanDecodeError.swift:102`). Any other plan is refused at the first key it cannot read, such as `entries[<i>].role` for a `reference` entry, with "This plan's entries[<i>].role holds a value this executor does not read." A schema 2 plan pins the executor that reads it, so only a run with an older binary than the plan pins meets this refusal.
+
 ### Reference entries
 
 A `reference` entry pins one file of a reference set ([reference-set.md](reference-set.md)), or one file of an index built from a set, by `sha256` and `size` as every entry does. It also holds `reference`.
@@ -145,6 +165,25 @@ Every step of a schema 2 plan holds `outputPolicy`, an object with one key for e
 
 The plan names no place on Linux for a `stays` output. Whether the file outlives the job is the job's choice. An index that later plans read is copied by its job into the group's staging folder, where a later plan pins its files as `reference` entries, and any other `stays` file goes with the job's scratch folder. A STAR index stays on Linux (`docs/plans/2026-10-02-architecture-program.md:245`), and so do STAR's alignments and every read file, since the Mac never holds Linux reads (owner direction O59). The submit side returns the run record and each `home` output and nothing else, as for a schema 1 plan it returns the run record, the payload and the reports (`Sources/LungfishWorkflow/HTCondor/HTCondorSubmitTemplate.swift:73-80`). `standardOutput` takes no policy, since the run record holds its bytes. A step whose `outputPolicy` leaves out one of its outputs, or names a path that is not one of them, is refused with field `steps[<i>].outputPolicy`.
 
+### The pipeline
+
+`pipeline` is the identity of the chain a schema 2 plan runs, in the words of the result's manifest ([rnaseq-bundle.md](rnaseq-bundle.md), The manifest), so the adopt fills the result's `route`, `modality` and `referenceSet` from the plan and reads no setting from the Mac.
+
+| Key | Meaning |
+| --- | --- |
+| `id`, `version` | The chain the plan writer built, such as STAR then salmon, and the chain's own version, a whole number the plan writer raises when it changes a step, a tool or an argv rule of that chain |
+| `preset` | `{id, name}`, the preset the person chose, with the name the person read, such as "Exons and introns (STARsolo GeneFull_Ex50pAS)" |
+| `modality` | `bulk` or `single-cell`, the result's `modality`. Absent for a plan that makes no counts, such as an index build |
+| `route` | The result's `route` key for key, `{id, tool, toolVersion, settings}`. `tool` and `toolVersion` name the counting tool, and `settings` holds, as text, every setting of the counting step that changes counts, such as `alignmentScoring` (`docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md:103`). Absent for a plan that makes no counts |
+| `referenceSet` | `{id, layout}`, the result's `referenceSet`, the one set that every `reference` entry names |
+| `settings` | Each choice the chain offers, `{id, label, value, source}`, the poly-G setting of the trim step among them, with `option` when the person chose it and `default` when LGE's default set it (Source values). The record reads `Poly-G trimming: off (LGE default)` or `Poly-G trimming: on (chosen)` from it. Each key of `route.settings` has one entry here with the same id and value |
+
+The adopt writes `route` as the plan states it, so counts whose plans differ in a setting of the counting step never join in one table (rnaseq-bundle.md, One table, one route). Each setting of `settings` shows in the argv of the step it changes, such as `--no_poly_g` for poly-G trimming off and no `--errorModel` for `alignmentScoring` `none`, so the argv and the identity never disagree. A plan with `route` and no `modality`, or `modality` and no `route`, is refused with field `pipeline.modality`, a `route.settings` key with no entry of the same id and value in `settings` with field `pipeline.route.settings`, and a `reference` entry of another set with field `entries[<i>].reference.setID`.
+
+### Request figures stay on the submit side
+
+A schema 2 plan holds no request figure. The memory, CPUs and disk a job asks for, which measured figures such as STAR's peak memory, time and disk on a node inform (`docs/plans/2026-10-02-architecture-program.md:235`), are values of the submit side, as `request_disk` is ([The template and the fill](#the-template-and-the-fill)). They never reach `plan.json`, an argv or a step's environment, so a new figure changes no plan byte and no plan key waits on a measurement.
+
 ## Refusals
 
-A plan that breaks a rule is refused before any tool runs. The run record's `refusedField` names the field, such as `schemaVersion`, `entries[<i>]`, `imageManifest.sha256`, `tools[<i>].id`, `recipe.sourceSHA256`, `storage.compressor`, `storage.threads`, `storage.clumpifyHeapGB`, `storage.compressionLevel`, `clumping.resolved`, `clumping.heapBytes`, `clumping.reason`, `graceSeconds`, `steps[<i>].id`, `steps[<i>].kind`, `steps[<i>].tool`, `steps[<i>].deadlineSeconds`, `steps[<i>].inputs`, `steps[<i>].environment` or `tools`. The executor also refuses with `--plan` for a plan file it cannot read, `subreaper` on Linux when the subreaper cannot be set, `--site-fact <n>` for a site fact that breaks a rule, `imageManifest` when the tool manifest is missing, is named by a relative path, is over 1 MiB or differs from the plan's pin in SHA-256 or size, `imageManifest.<field>` when the manifest's own checks fail, and `storage.clumpifyHeapGB` when the preflight sees a heap at or above a limit it observed. A run refused for a pin mismatch still states the `sha256`, `size` and `source` of the manifest it read.
+A plan that breaks a rule is refused before any tool runs. The run record's `refusedField` names the field, such as `schemaVersion`, `entries[<i>]`, `imageManifest.sha256`, `tools[<i>].id`, `recipe.sourceSHA256`, `storage.compressor`, `storage.threads`, `storage.clumpifyHeapGB`, `storage.compressionLevel`, `clumping.resolved`, `clumping.heapBytes`, `clumping.reason`, `graceSeconds`, `steps[<i>].id`, `steps[<i>].kind`, `steps[<i>].tool`, `steps[<i>].deadlineSeconds`, `steps[<i>].inputs`, `steps[<i>].environment` or `tools`, and for a schema 2 plan `pipeline`, `pipeline.modality`, `pipeline.route.settings`, `sample.instrument`, `entries[<i>].reference`, `entries[<i>].reference.setID`, `entries[<i>].barcodeList` or `steps[<i>].outputPolicy`. The executor also refuses with `--plan` for a plan file it cannot read, `subreaper` on Linux when the subreaper cannot be set, `--site-fact <n>` for a site fact that breaks a rule, `imageManifest` when the tool manifest is missing, is named by a relative path, is over 1 MiB or differs from the plan's pin in SHA-256 or size, `imageManifest.<field>` when the manifest's own checks fail, and `storage.clumpifyHeapGB` when the preflight sees a heap at or above a limit it observed. A run refused for a pin mismatch still states the `sha256`, `size` and `source` of the manifest it read.
