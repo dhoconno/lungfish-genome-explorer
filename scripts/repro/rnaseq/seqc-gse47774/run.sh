@@ -149,5 +149,35 @@ if has lge_refset; then
   n=$(wc -l < "$d/pairs.txt" | tr -d ' '); m=$(wc -l < "$LGE/tx2gene_pairs.txt" | tr -d ' ')
   if cmp -s "$d/pairs.txt" "$LGE/tx2gene_pairs.txt"; then gr "transcripts.tsv pass $n pairs equal tx2gene.tsv as a set"
   else gr "transcripts.tsv FAIL $n pairs against $m, $(comm -3 "$d/pairs.txt" "$LGE/tx2gene_pairs.txt" | wc -l | tr -d ' ') differ"; fi
-  rm -rf "$set_dir"
+  has lge_index || rm -rf "$set_dir"
+fi
+
+# lge_index (RS-INDEX, not in the default list): lungfish-cli (LGE_CLI) builds the salmon index of the set that lge_refset
+# left under WORK/lge/${LGE_RUN:-RS-INDEX}/root, at nice 15 under the heavy lock, then reuses it on a second call. It cmp's
+# the index's nine files with C1's salmon_index/ and quant.sf of SRR896663 with C1's (ADJ-SPIKE-BIO items 5 and 6), then
+# removes its quant folder and keeps the root. conda/envs/salmon is the RNA-seq pack's, or a link to LGE_SALMON_ENV
+# (default ENVP). The heavy lock's owner is the run's name, not REPRO-C1.
+if has lge_index; then
+  LGE=$WORK/lge/${LGE_RUN:-RS-INDEX}; mkdir -p "$LGE/root/conda/envs" "$LGE/logs"; : > "$LGE/gi.txt"
+  gi() { echo "GI seqc-gse47774 $*" | tee -a "$LGE/gi.txt"; }
+  [ -x "$LGE/root/conda/envs/salmon/bin/salmon" ] || ln -sfn "${LGE_SALMON_ENV:-$ENVP}" "$LGE/root/conda/envs/salmon"
+  set_id=$(basename "$(ls -d "$LGE/root/rnaseq-reference-sets"/*.lungfishrefset | head -1)" .lungfishrefset)
+  bash "$HERE/heavy.sh" "$LOCKS" "${LGE_RUN:-RS-INDEX}" "${HEAVY_WAIT:-240}" /usr/bin/time -l -o "$LGE/logs/index.time" \
+    nice -n 15 "${LGE_CLI:?}" rnaseq index --storage-root "$LGE/root" --set "$set_id" --format json \
+    > "$LGE/logs/index.json" 2> "$LGE/logs/index.err" || { gi "build FAIL"; exit 1; }
+  gi "build $(awk '/real/ {printf "%s s, ", $1} /maximum resident/ {printf "peak %.1f GB", $1 / 2^30}' "$LGE/logs/index.time")"
+  /usr/bin/time -l -o "$LGE/logs/reuse.time" "$LGE_CLI" rnaseq index --storage-root "$LGE/root" --set "$set_id" \
+    --format json > "$LGE/logs/reuse.json" 2>&1 || { gi "reuse FAIL"; exit 1; }
+  if grep -q '"reused":true' "$LGE/logs/reuse.json"; then gi "reuse pass $(awk '/real/ {print $1 " s"}' "$LGE/logs/reuse.time")"
+  else gi "reuse FAIL, the second call built again"; fi
+  idx=$(sed -n 's/.*"path":"\([^"]*\)".*/\1/p' "$LGE/logs/index.json")
+  for f in index.ctab index.ectab index.refinfo index.ssi index.ssi.mphf info.json refseq.bin refseq_offsets.json \
+    duplicate_clusters.tsv; do
+    if cmp -s "$idx/$f" "$WORK/salmon_index/$f"; then gi "index $f equal"
+    else gi "index $f DIFFERS $(cmp "$idx/$f" "$WORK/salmon_index/$f" 2>&1 | head -1)"; fi
+  done
+  $NICE bash "$HERE/quant.sh" "$idx" "$STUDY/fastq" SRR896663 "$LGE/quant" "$ENVP" "$QTHREADS"
+  if cmp -s "$LGE/quant/SRR896663/quant.sf" "$WORK/quant/SRR896663/quant.sf"; then gi "quant.sf SRR896663 equal"
+  else gi "quant.sf SRR896663 DIFFERS, first lines: $(diff "$LGE/quant/SRR896663/quant.sf" "$WORK/quant/SRR896663/quant.sf" | head -3 | tr '\n' ' ')"; fi
+  rm -rf "$LGE/quant"
 fi
