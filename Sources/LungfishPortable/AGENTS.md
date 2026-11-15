@@ -15,11 +15,11 @@ Foundation. Glibc, Musl and Darwin only inside `#if` blocks. CryptoKit on macOS 
 | Type | Path |
 |---|---|
 | `ExecutionPlan`, the plan the Mac writes for one sample and `lungfish-executor run --plan` follows | Sources/LungfishPortable/Plan/ExecutionPlan.swift line 13 |
-| `PlanStep`, one step of the plan | Sources/LungfishPortable/Plan/ExecutionPlan.swift line 247 |
-| `PlanEntry`, one file the plan pins by role, relative path, SHA-256 and size | Sources/LungfishPortable/Plan/PlanEntry.swift line 52 |
+| `PlanStep`, one step of the plan | Sources/LungfishPortable/Plan/ExecutionPlan.swift line 350 |
+| `PlanEntry`, one file the plan pins by role, relative path, SHA-256 and size | Sources/LungfishPortable/Plan/PlanEntry.swift line 59 |
 | `PlanResourceResolver`, which resolves every plan path under the folder that holds the plan file, reads no environment variable and opens outputs without following links | Sources/LungfishPortable/Plan/PlanResourceResolver.swift line 74 |
 | `PlanDecodeError`, why a plan cannot run, naming the field | Sources/LungfishPortable/Plan/PlanDecodeError.swift line 9 |
-| `ImageToolManifest`, the one source of each tool's version and path on the node | Sources/LungfishPortable/Plan/ImageToolManifest.swift line 63 |
+| `ImageToolManifest`, the one source of each tool's version and path on the node | Sources/LungfishPortable/Plan/ImageToolManifest.swift line 82 |
 | `ExecutorRunRecord`, the `run-record.json` of one run and the only channel from the node to the bundle | Sources/LungfishPortable/RunRecord/ExecutorRunRecord.swift line 13 |
 | `ExecutorStepRecord`, one step's part of the run record | Sources/LungfishPortable/RunRecord/ExecutorStepRecord.swift line 14 |
 | `ExecutorExitCode` and `ExecutorRunOutcome` | Sources/LungfishPortable/RunRecord/ExecutorExitCode.swift lines 8 and 28 |
@@ -48,7 +48,7 @@ Foundation. Glibc, Musl and Darwin only inside `#if` blocks. CryptoKit on macOS 
 
 ## Tests
 
-Target LungfishPortableTests in Tests/LungfishPortableTests, nine files. Run only it with `swift test --skip-update --filter LungfishPortableTests`. Four files in Tests/LungfishWorkflowTests/ExecutorPlan/ import this module and cover the Mac side of the plan.
+Target LungfishPortableTests in Tests/LungfishPortableTests. Run only it with `swift test --skip-update --filter LungfishPortableTests`. The files in Tests/LungfishWorkflowTests/ExecutorPlan/ that import this module cover the Mac side of the plan.
 
 `bash scripts/linux/portable-tier.sh` is the Linux build and test. It cross-builds `lungfish-executor` for aarch64 and x86_64 static musl with the swift.org toolchain and the Static Linux SDK pinned in scripts/linux/toolchain.json, then runs the XCTest targets of this module and of LungfishExecutor on glibc in an arm64 Swift container. The container has its network closed under Docker and keeps the network under Apple container. Its evidence counts only when the last line of its output reads `commit <sha> clean`.
 

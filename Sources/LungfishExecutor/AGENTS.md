@@ -21,7 +21,7 @@ Foundation, Dispatch, Synchronization and LungfishPortable. Glibc, Musl and Darw
 | `ImageManifestCommand`, `image-manifest`, the tool manifest of conda environments | Sources/LungfishExecutor/ImageManifestCommand.swift line 25 |
 | `ExecutorCommand`, the bare probe `lungfish-executor [--version] [<file>]` | Sources/LungfishExecutor/ExecutorCommand.swift line 9 |
 | `PlanRunner`, which runs a checked plan's steps in order through one `StepController` and fills the run record | Sources/LungfishExecutor/Run/PlanRunner.swift line 18 |
-| `RunFiles` (line 17) and `RuntimeObservation` (line 128), the files `run --plan` reads before any tool and what it observes of the machine | Sources/LungfishExecutor/Run/RunPreflight.swift |
+| `RunFiles` (line 17) and `RuntimeObservation` (line 198), the files `run --plan` reads before any tool and what it observes of the machine | Sources/LungfishExecutor/Run/RunPreflight.swift |
 | `RunRecordWriter`, which writes `run-record.json` last by one rename | Sources/LungfishExecutor/Run/RunRecordWriter.swift line 18 |
 | `ExecutorToolLauncher`, the storage step's `PortableToolLauncher` on the node | Sources/LungfishExecutor/Run/ExecutorToolLauncher.swift line 17 |
 | `ExecutorChildLauncher`, the `PortableChildLauncher` for the portable readers | Sources/LungfishExecutor/Process/ExecutorChildLauncher.swift line 59 |
@@ -46,7 +46,7 @@ Foundation, Dispatch, Synchronization and LungfishPortable. Glibc, Musl and Darw
 
 Target LungfishExecutorTests in Tests/LungfishExecutorTests, 20 files. Run only it with `swift test --skip-update --filter LungfishExecutorTests`. The launcher tests start the built `lungfish-executor` as a child.
 
-`bash scripts/linux/portable-tier.sh` runs the target on glibc in an arm64 Swift container, with the network closed under Docker and kept under Apple container. The container builds the product first and names it to the tests through `LUNGFISH_EXECUTOR_BINARY`. The tier then runs ExecutorSignalTests, ExecutorLaunchTests, ExecutorReaderTests, RunPlanTests and ImageManifestCommandTests again against the static musl binary that ships. The reader tests need a pigz, which the tier unpacks from a package pinned in scripts/linux/toolchain.json and passes as `LUNGFISH_PIGZ` with `LUNGFISH_REQUIRE_TOOLS=1`. The tier's evidence counts only when the last line of its output reads `commit <sha> clean`.
+`bash scripts/linux/portable-tier.sh` runs the target on glibc in an arm64 Swift container, with the network closed under Docker and kept under Apple container. The container builds the product first and names it to the tests through `LUNGFISH_EXECUTOR_BINARY`. The full run skips each class whose name holds Conformance, since such a class needs a real tool the container lacks and fails under `LUNGFISH_REQUIRE_TOOLS=1`. The tier then runs ExecutorSignalTests, ExecutorLaunchTests, ExecutorReaderTests, RunPlanTests, RunPlanToolStepTests and ImageManifestCommandTests again against the static musl binary that ships. The reader tests need a pigz, which the tier unpacks from a package pinned in scripts/linux/toolchain.json and passes as `LUNGFISH_PIGZ` with `LUNGFISH_REQUIRE_TOOLS=1`. The tier's evidence counts only when the last line of its output reads `commit <sha> clean`.
 
 ## Known traps
 
