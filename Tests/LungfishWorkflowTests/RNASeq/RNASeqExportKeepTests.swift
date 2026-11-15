@@ -17,7 +17,7 @@ final class RNASeqExportKeepTests: RNASeqExportTestCase {
         let samples = (1...8).map { "S\($0)" }
         var groups: [String: String] = [:]
         for (index, sample) in samples.enumerated() { groups[sample] = index < 4 ? "TB" : "HIV" }
-        let result = try make(.init(name: "keep", samples: samples, genes: genes, notHost: ["G39", "G40"], groups: groups))
+        let result = try make(.init(name: "keep", samples: samples, genes: genes, notHost: ["G39", "G40"], groups: groups, noise: 0.4))
         let settings = RNASeqExportSettings(
             design: ["group"], contrasts: [.init(factor: "group", numerator: "TB", denominator: "HIV")], padjCutoff: 0.1, lfcBar: 1.4)
         try RNASeqExport.run(

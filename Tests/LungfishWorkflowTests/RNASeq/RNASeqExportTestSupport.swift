@@ -30,6 +30,9 @@ enum RNASeqExportFixture {
         var quality: RNASeqQualityTable?
         var shift = 0
         var masked = false
+        /// Zero keeps the counts linear. Above zero each count is scaled by a fixed wave of this size, so DESeq2 has
+        /// dispersions to fit (the not-host R run reads such a folder).
+        var noise = 0.0
     }
 
     /// Writes one result into `analyses` with the one writer and returns its folder. The gene table is the set's own
@@ -50,7 +53,10 @@ enum RNASeqExportFixture {
             sources.append(.init(url: file, relativePath: "quant.sf", sample: id, tool: spec.route.tool))
         }
         let all = spec.genes.enumerated().map { gene, id in
-            RNASeqCountTable.Row(id: id, counts: spec.samples.indices.map { Double(10 * (gene + 1) + $0 + spec.shift) })
+            RNASeqCountTable.Row(id: id, counts: spec.samples.indices.map { sample in
+                let linear = Double(10 * (gene + 1) + sample + spec.shift)
+                return spec.noise == 0 ? linear : (linear * (1 + spec.noise * sin(Double(gene * 31 + sample * 17 + 3)))).rounded()
+            })
         }
         // A mask moves the last gene out of the default count and into the masked column.
         let rows = spec.masked ? Array(all.dropLast()) : all

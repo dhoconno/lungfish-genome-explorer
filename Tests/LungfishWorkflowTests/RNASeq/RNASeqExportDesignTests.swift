@@ -118,4 +118,12 @@ final class RNASeqExportDesignTests: XCTestCase {
         XCTAssertTrue(text.contains("requireNamespace(\"variancePartition\""), text)
         XCTAssertTrue(text.contains("variancePartition is not installed"), text)
     }
+
+    /// In R, `paste0("(1|", character(0), ")")` is `"(1|)"`, so an empty `random_terms` made the formula `~ group + (1|)`, and the
+    /// first GD run of C5 in `env-r-dream` stopped on it. The random part is built only when a column is named.
+    func testTheDreamFormulaHasNoRandomTermWhenNoColumnIsNamed() {
+        let text = RNASeqExportTemplates.edgerLimmaDream(settings(.none, batch: nil))
+        XCTAssertTrue(text.contains("random_part <- if (length(random_terms) > 0)"), text)
+        XCTAssertTrue(text.contains("c(unique(model_terms), random_part)"), text)
+    }
 }

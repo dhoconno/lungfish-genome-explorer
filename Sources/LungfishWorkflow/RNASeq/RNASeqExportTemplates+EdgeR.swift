@@ -71,7 +71,9 @@ extension RNASeqExportTemplates {
                "Install variancePartition from Bioconductor and run this script again.", call. = FALSE)
         }
         suppressPackageStartupMessages(library(variancePartition))
-        dream_formula <- as.formula(paste("~", paste(c(unique(model_terms), paste0("(1|", random_terms, ")")), collapse = " + ")))
+        # paste0 of a zero-length vector gives "(1|)", so the random part is built only when random_terms names a column.
+        random_part <- if (length(random_terms) > 0) paste0("(1|", random_terms, ")") else character()
+        dream_formula <- as.formula(paste("~", paste(c(unique(model_terms), random_part), collapse = " + ")))
         for (cn in contrasts) {
           cd <- coldata
           cd[[cn[1]]] <- relevel(factor(cd[[cn[1]]]), ref = cn[3])
