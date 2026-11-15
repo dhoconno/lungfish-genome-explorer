@@ -104,13 +104,17 @@ public final class RNASeqCellsDatabaseWriter {
         }
     }
 
-    /// Builds the unique index on a sample's barcodes, commits and closes the file.
+    /// Builds the unique index on a sample's barcodes, commits and closes the file. Only SQLite's constraint code reads
+    /// as a duplicate barcode. Any other failure of the index step, such as a full disk, keeps SQLite's own words.
     public func finish() throws {
         do {
             try exec("CREATE UNIQUE INDEX cells_sample_barcode ON cells (sample, barcode)")
         } catch {
+            // The code is read before `abandon()` closes the file. The mask keeps the primary code of an extended one.
+            let duplicate = db.map { (sqlite3_extended_errcode($0) & 0xFF) == SQLITE_CONSTRAINT } ?? false
             abandon()
-            throw RNASeqResultError.invalidTable(path: RNASeqCellsDatabase.filename, reason: "a barcode appears twice in one sample's barcodes")
+            guard duplicate else { throw error }
+            throw RNASeqResultError.invalidTable(path: RNASeqCellsDatabase.filename, reason: "a barcode appears twice in one sample's barcode list, so its cells cannot be told apart. Copy barcodes.tsv again from the tool's output.")
         }
         try exec("COMMIT")
         guard sqlite3_close(db) == SQLITE_OK else { throw Self.failure("SQLite could not close it") }
