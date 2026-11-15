@@ -166,7 +166,7 @@ def etime_seconds(text):
 
 def describe(found, limit):
     """The first `limit` processes of a leftover listing as `pid (etime) command` items."""
-    text = "; ".join("%d (%s) %s" % item for item in found[:limit])
+    text = "; ".join("%d (%s) %s" % (pid, etime, command[:60]) for pid, etime, command in found[:limit])
     return text + (" and %d more" % (len(found) - limit) if len(found) > limit else "")
 
 
@@ -182,10 +182,10 @@ def check_processes(call, pattern, facts, old_hours=OLD_PROCESS_HOURS):
     said = []
     if old:
         said.append("%d process(es) older than %g hours still run: %s. Stop each one by its PID before the first build."
-                    % (len(old), old_hours, describe(old, 5)))
+                    % (len(old), old_hours, describe(old, 3 if young else 5)))
     if young:
         said.append("%d younger process(es) %s: %s. They may be live work, so for each one %s."
-                    % (len(young), "also run" if old else "still run", describe(young, 3), FIND_OWNER))
+                    % (len(young), "also run" if old else "still run", describe(young, 2 if old else 3), FIND_OWNER))
     if not said:
         return "PASS", "processes", "none matches %s" % pattern
     return "ACT" if old else "INFO", "processes", " ".join(said)
