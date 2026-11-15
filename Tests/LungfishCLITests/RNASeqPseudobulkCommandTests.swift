@@ -127,4 +127,65 @@ final class RNASeqPseudobulkCommandTests: XCTestCase {
         let samples = try String(contentsOf: export.appendingPathComponent("samples.tsv"), encoding: .utf8)
         XCTAssertTrue(samples.contains("starsolo-pbmc_1k_v3_ten\tA1\tHomo sapiens\t\tten\t"), samples)
     }
+
+    // MARK: - The record signs when a key is set
+
+    /// Runs `body` with `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` naming a throwaway key under `root`, and puts the two signing
+    /// variables back afterwards. It is the helper of `CancelledRunRecordsPinReplayTests`, made async for the leaf.
+    private func withThrowawayKey<T>(_ body: () async throws -> T) async throws -> T {
+        let keyFile = root.appendingPathComponent("signing-key.txt")
+        try "pseudobulk-pin-throwaway-\(UUID().uuidString)\n".write(to: keyFile, atomically: true, encoding: .utf8)
+        let keyName = ProvenanceSigningConfiguration.signingKeyEnvironmentKey
+        let fileName = ProvenanceSigningConfiguration.signingKeyFileEnvironmentKey
+        let saved = [keyName, fileName].map { ($0, ProcessInfo.processInfo.environment[$0]) }
+        unsetenv(keyName)
+        setenv(fileName, keyFile.path, 1)
+        defer {
+            for (name, value) in saved {
+                if let value { setenv(name, value, 1) } else { unsetenv(name) }
+            }
+        }
+        return try await body()
+    }
+
+    /// The leaf builds `ProvenanceWriter()`, which signs when a key is set, and the writer renames its stage whole, so the
+    /// signature beside the record keeps verifying (docs/contracts/RECORDING-PROVENANCE.md, "A result's own record signs when
+    /// a key is set"). The case follows `RNASeqQuantSigningReplayTests`: a throwaway key, a signature and a public key beside
+    /// the record, `provenance verify` on it, then on a copy with one digit edited, which must not verify, and on an
+    /// unedited copy checked the same way, which must. The leaf signs already, so this pin cannot fail first (review
+    /// RS-PSEUDOBULK SWIFT, fix SF2).
+    func testTheRecordSignsAndVerifiesWhenAKeyIsSet() async throws {
+        let result = try Self.makeSingleCellResult(in: root)
+        let out = output("pb1")
+        try await withThrowawayKey {
+            try await RNASeqPseudobulkSubcommand.parse(arguments(result, output: out)).run()
+        }
+        let record = out.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let signature = ProvenanceSigningConfiguration.signatureURL(for: record)
+        let publicKey = ProvenanceSigningConfiguration.publicKeyURL(for: record)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: record.path), "no record at \(record.path)")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: signature.path), "the record has no signature though a key is set")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: publicKey.path), "the record has no public key though a key is set")
+        try await ProvenanceCommand.VerifySubcommand.parse([out.path]).run()
+
+        let text = try String(contentsOf: record, encoding: .utf8)
+        let digit = try XCTUnwrap(text.firstIndex { $0.isASCII && $0.isNumber }, "the record holds no digit")
+        var edited = text
+        edited.replaceSubrange(digit...digit, with: String(((text[digit].wholeNumberValue ?? 0) + 1) % 10))
+        let tampered = root.appendingPathComponent("tampered", isDirectory: true).appendingPathComponent(record.lastPathComponent)
+        let control = root.appendingPathComponent("control", isDirectory: true).appendingPathComponent(record.lastPathComponent)
+        for copy in [tampered, control] {
+            try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }
+        try edited.write(to: tampered, atomically: true, encoding: .utf8)
+        try FileManager.default.copyItem(at: record, to: control)
+        let against = ["--signature", signature.path, "--public-key", publicKey.path]
+        try await ProvenanceCommand.VerifySubcommand.parse([control.path] + against).run()
+        do {
+            try await ProvenanceCommand.VerifySubcommand.parse([tampered.path] + against).run()
+            XCTFail("a copy of the record with one digit edited still verifies")
+        } catch {
+            // The verifier refuses the edited copy, as it must.
+        }
+    }
 }

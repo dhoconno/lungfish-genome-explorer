@@ -108,4 +108,27 @@ extension RNASeqPseudobulkTests {
         XCTAssertEqual(words(away), "No folder at \(away.deletingLastPathComponent().path) to write the result in. Create it or choose another output.")
         XCTAssertNil(words(root.appendingPathComponent("new.lungfishrnaseq")))
     }
+
+    /// The rows are the `Gene Expression` features only, and the record counts each other type (docs/formats/rnaseq-bundle.md,
+    /// Pseudobulk). Both cuts hold `Gene Expression` alone, so this folder adds an antibody feature of 50 UMIs a cell
+    /// (review RS-PSEUDOBULK BIO, fix SF1).
+    func testAFeatureOfAnotherTypeStaysOutOfTheTableAndTheRecordCountsIt() throws {
+        let outs = root.appendingPathComponent("adt/outs", isDirectory: true)
+        let folder = outs.appendingPathComponent("filtered_feature_bc_matrix", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let barcodes = (1...10).map { String(format: "AAAC%04d-1", $0) }
+        let entries = (1...10).flatMap { ["1 \($0) 2", "2 \($0) 50", "3 \($0) 3"] }
+        let matrix = (["%%MatrixMarket matrix coordinate integer general", "%", "3 10 30"] + entries).joined(separator: "\n") + "\n"
+        try Data(matrix.utf8).write(to: folder.appendingPathComponent("matrix.mtx"))
+        try Data("G1\tG1\tGene Expression\nADT1\tCD3\tAntibody Capture\nG2\tG2\tGene Expression\n".utf8)
+            .write(to: folder.appendingPathComponent("features.tsv"))
+        try Data((barcodes.joined(separator: "\n") + "\n").utf8).write(to: folder.appendingPathComponent("barcodes.tsv"))
+        let result = try Self.singleCellResult([outs], name: "adt", in: root)
+        let outcome = try sum(result, try table("barcode\tlabel\n" + barcodes.map { "\($0)\tT\n" }.joined()))
+        XCTAssertEqual(outcome.request.counts[0].table.rows.map(\.id), ["G1", "G2"])
+        XCTAssertEqual(outcome.request.counts[0].table.rows.map(\.counts), [[20], [30]])
+        XCTAssertEqual(outcome.kept.map(\.umis), [50], "the antibody's 500 UMIs stay out")
+        XCTAssertEqual(outcome.facts["geneExpressionFeatures"], .integer(2))
+        XCTAssertEqual(outcome.facts["featureTypesLeftOut"], .dictionary(["Antibody Capture": .integer(1)]))
+    }
 }
