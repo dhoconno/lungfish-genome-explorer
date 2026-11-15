@@ -90,7 +90,19 @@ extension SalmonIndexCache {
         let decoys = key.decoys == .genome ? work.appendingPathComponent(Self.decoysName) : nil
         let result = try await runner.run(
             .salmon, arguments: Self.salmonArguments(gentrome: gentrome.path, decoys: decoys?.path, k: key.k, index: index.path))
-        guard result.isSuccess else { throw SalmonIndexError.salmonFailed(status: Int(result.exitCode), stderr: result.stderr) }
+        guard result.isSuccess else {
+            // The runner reports a signal as its number, so 9 is a SIGKILL, which macOS sends when the Mac runs out of
+            // memory, and 137 is the same from a wrapper. `ToolProcessMemoryStop` is the one route that words it.
+            if result.exitCode == SIGKILL || result.exitCode == ToolProcessMemoryStop.killedExitCode,
+               let stop = ToolProcessMemoryStop(
+                   tool: "salmon index", exitCode: ToolProcessMemoryStop.killedExitCode,
+                   physicalMemoryBytes: UInt64(max(0, host.physicalMemoryBytes))) {
+                throw SalmonIndexError.invalidRequest(stop.message(nextStep:
+                    "Close other apps and run the same command again, or build the index on a Linux machine. \(linuxRoute)."))
+            }
+            let tail = result.stderr.split(separator: "\n").suffix(10).joined(separator: "\n")
+            throw SalmonIndexError.salmonFailed(status: Int(result.exitCode), stderr: tail)
+        }
         let hashes = try readInfo(of: index, key: key, decoys: decoyNames.count)
         try FileManager.default.removeItem(at: work)
         let file = SalmonIndexKeyFile(

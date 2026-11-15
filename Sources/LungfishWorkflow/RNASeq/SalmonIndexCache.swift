@@ -132,7 +132,8 @@ public enum SalmonIndexError: Error, LocalizedError, Equatable, Sendable {
             return "Lungfish could not read the version of salmon from its environment at \(environment), so it cannot name "
                 + "the index. Install the RNA-seq pack in the Plugin Manager again."
         case .salmonFailed(let status, let stderr):
-            return "salmon index stopped with exit status \(status): \(stderr)"
+            return "salmon index stopped with exit status \(status) and Lungfish published nothing. Its last lines were:\n"
+                + "\(stderr)\nFix what they name and run the same command again."
         case .indexDisagrees(let field, let expected, let found):
             return "salmon wrote an index whose info.json gives \(field) \(found), not \(expected), so Lungfish published nothing."
         case .publishedIndexDiffers(let path):
