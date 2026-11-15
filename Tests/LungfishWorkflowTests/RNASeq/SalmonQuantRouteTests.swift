@@ -155,6 +155,67 @@ final class SalmonQuantRouteTests: XCTestCase {
         return url
     }
 
+    /// The report Trim Galore 2.3.0 wrote for a call on 40 synthetic pairs with LGE's storage options, cut to the fields
+    /// the import's record keeps. Its `parameters.poly_g` is the state auto-detection chose.
+    static func trimGaloreReport(polyG: Bool) -> String {
+        #"{"tool": "Trim Galore", "trim_galore_version": "2.3.0", "mode": "paired-end", "read_number": 1, "#
+            + #""parameters": {"quality_cutoff": 20, "length_cutoff": 20, "poly_a": false, "poly_g": \#(polyG)}, "#
+            + #""read_processing": {"total_reads": 40, "reads_written": 40}}"#
+    }
+
+    /// The step a Trim Galore storage call gets in the import's record, as `NativeToolStorageLauncher.record` builds it:
+    /// the launcher's record name, the storage argv LGE passes and the options the import reads from the call's report.
+    func trimGaloreStorageStep(polyG: Bool) throws -> StepExecution {
+        let folder = base.appendingPathComponent("trim-report-\(polyG)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(Self.trimGaloreReport(polyG: polyG).utf8).write(to: folder.appendingPathComponent("s_R1.fastq_trimming_report.json"))
+        let arguments = FASTQIngestionPipeline.trimGaloreClumpifyArguments(
+            inputFiles: [folder.appendingPathComponent("s_R1.fastq"), folder.appendingPathComponent("s_R2.fastq")],
+            outputDirectory: folder, pairingMode: .pairedEnd, threads: 2, compressionLevel: .balanced, memoryBytes: 1 << 30)
+        return StepExecution(
+            toolName: NativeToolStorageLauncher.recordName(.trimGalore), toolVersion: "2.3.0",
+            command: ["/conda/envs/trim_galore/bin/trim_galore"] + arguments,
+            resolvedOptions: FASTQIngestionPipeline.trimGaloreResolvedOptions(try FASTQIngestionPipeline.readTrimGaloreReport(in: folder)),
+            inputs: [], exitCode: 0, wallTime: 1)
+    }
+
+    /// A copy of the interleaved pair bundle with the files a recipe-less `import fastq` leaves: the sidecar of its reads
+    /// as `FASTQBatchImporter` saves it with no recipe (no `recipeApplied`), and, when `storage` is given, the bundle's
+    /// record written by the import's own writer `FASTQBatchImporter.writeImportProvenance` with that storage step.
+    func importedBundle(_ name: String, clumping: ClumpingTool, storage: StepExecution?) async throws -> URL {
+        let url = fixtures.importsURL.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
+        try FileManager.default.copyItem(at: fixtures.interleavedRoot, to: url)
+        let reads = url.appendingPathComponent("reads.fastq")
+        FASTQMetadataStore.save(PersistedFASTQMetadata(ingestion: IngestionMetadata(
+            isClumpified: clumping == .trimGalore, isCompressed: true, pairingMode: .interleaved, pairingSource: .detected)),
+            for: reads)
+        guard let storage else { return url }
+        let raw = base.appendingPathComponent("raw-\(name)", isDirectory: true)
+        try FileManager.default.createDirectory(at: raw, withIntermediateDirectories: true)
+        let pair = SamplePair(sampleName: name, r1: raw.appendingPathComponent("s_R1.fastq"), r2: raw.appendingPathComponent("s_R2.fastq"))
+        try Data("@p1/1\nACGTACGT\n+\nIIIIIIII\n".utf8).write(to: pair.r1)
+        try Data("@p1/2\nTGCATGCA\n+\nIIIIIIII\n".utf8).write(to: try XCTUnwrap(pair.r2))
+        let label = clumping == .none ? "Compress" : "Optimize storage + Compress"
+        let steps = [ // the storage step the importer appends (FASTQBatchImporter.swift:792-798), then statistics
+            RecipeStepResult(stepName: label, tool: storage.toolName, toolVersion: storage.toolVersion,
+                             commandLine: storage.command.joined(separator: " "), durationSeconds: 1),
+            RecipeStepResult(stepName: "Compute statistics", tool: "seqkit", toolVersion: nil, commandLine: nil, durationSeconds: 1),
+        ]
+        let ingestion = FASTQIngestionResult(
+            outputFile: reads, wasClumpified: clumping == .trimGalore, qualityBinning: .none,
+            originalFilenames: ["s_R1.fastq", "s_R2.fastq"], originalSizeBytes: 64, finalSizeBytes: 64, pairingMode: .interleaved,
+            processingTool: storage.toolName, processingToolVersion: storage.toolVersion, provenanceSteps: [storage])
+        try await FASTQBatchImporter.writeImportProvenance(
+            pair: pair, processingPair: pair, materializationSteps: [], unpairedReads: nil,
+            config: FASTQBatchImporter.ImportConfig(
+                projectDirectory: fixtures.projectURL, platform: .illumina, qualityBinning: QualityBinningScheme.none,
+                optimizeStorage: clumping != .none, clumpingTool: clumping, threads: 2),
+            importedPairing: .init(mode: .interleaved, source: .detected), stagingBundleURL: url, stagingBundleFASTQURL: reads,
+            publishedBundleURL: url, publishedBundleFASTQURL: reads, sourceIngestionOutputURL: reads, ingestionResult: ingestion,
+            recipeStepResults: steps, runClock: ProvenanceRunClock(), statsStartedAt: Date(), statsCompletedAt: Date(), statsError: nil)
+        return url
+    }
+
     func route(host: RunFitHostFacts = SalmonQuantRouteTests.roomy) -> SalmonQuantRoute {
         SalmonQuantRoute(
             storageRoot: root, runner: runner, provenanceWriter: ProvenanceWriter(signingProvider: nil), host: host,
@@ -213,6 +274,65 @@ final class SalmonQuantRouteTests: XCTestCase {
         let lines = envelope.steps.compactMap { text($0, key) }
         XCTAssertEqual(lines.count, 3)
         XCTAssertFalse(lines.contains { $0.contains("off (LGE default)") }, "\(lines)")
+    }
+
+    // MARK: - Review RS-QUANT BIO B1 and SF3, the line follows what the import recorded
+
+    /// `import fastq --clumping-tool trim-galore` with no recipe saves no `recipeApplied`, and its record names the Trim
+    /// Galore call. "No trimmer ran" is read only from a record that names no trimmer, and a bundle with neither says
+    /// Not recorded.
+    func testATrimGaloreImportWithNoRecipeNeverReadsNoTrimmerRan() async throws {
+        let set = try await makeSetAndIndex()
+        let galore = try await importedBundle("Galore", clumping: .trimGalore, storage: try trimGaloreStorageStep(polyG: false))
+        let detected = try await importedBundle("Detected", clumping: .trimGalore, storage: try trimGaloreStorageStep(polyG: true))
+        let plain = try await importedBundle("Plain", clumping: .none, storage: StepExecution(
+            toolName: "bgzip", toolVersion: "1.21", command: ["bgzip", "-c", "-@", "2"], inputs: [], exitCode: 0))
+        let bare = try await importedBundle("Bare", clumping: .none, storage: nil)
+        for bundle in [galore, detected, plain, bare] {
+            let sidecar = FASTQMetadataStore.load(for: bundle.appendingPathComponent("reads.fastq"))
+            XCTAssertNotNil(sidecar?.ingestion, bundle.lastPathComponent)
+            XCTAssertNil(sidecar?.ingestion?.recipeApplied, "a recipe-less import saves no recipe: \(bundle.lastPathComponent)")
+        }
+        XCTAssertEqual(try ProvenanceEnvelopeReader.loadCanonical(from: galore)?.steps.contains { $0.toolName == "trim_galore" }, true)
+        XCTAssertNil(try ProvenanceEnvelopeReader.loadCanonical(from: bare), "the bare bundle holds no record")
+
+        let envelope = try record(try await quant([galore, detected, plain, bare], set: set).resultURL)
+        let key = "importPolyG"
+        XCTAssertEqual(salmonLine(envelope, sample: "Galore", key),
+                       "Poly-G trimming at import: left to Trim Galore 2.3.0 auto-detection (not set by LGE), not enabled")
+        XCTAssertEqual(salmonLine(envelope, sample: "Detected", key),
+                       "Poly-G trimming at import: left to Trim Galore 2.3.0 auto-detection (not set by LGE), enabled (auto-detected)")
+        XCTAssertEqual(salmonLine(envelope, sample: "Plain", key), "Poly-G trimming at import: not enabled (no trimmer ran at import)")
+        XCTAssertEqual(salmonLine(envelope, sample: "Bare", key),
+                       "Poly-G trimming at import: Not recorded (the bundle holds no import record that names its tools)")
+        for sample in ["Galore", "Detected", "Bare"] {
+            XCTAssertFalse(salmonLine(envelope, sample: sample, key)?.contains("no trimmer ran") ?? true, sample)
+        }
+    }
+
+    /// A recipe that removed duplicates at import, without UMIs, is named in that sample's line and in the route's
+    /// setting. A sample whose import kept them keeps the fixed words.
+    func testADeduplicatedImportSaysWhatItRemovedAndAPlainImportKeepsTheFixedWords() async throws {
+        let set = try await makeSetAndIndex()
+        let dedup = try pairBundle("Dedup", importSteps: [
+            RecipeStepResult(
+                stepName: "Remove duplicate reads + Adapter + quality trim", tool: "fastp", toolVersion: "1.0.1",
+                commandArguments: ["fastp", "--dedup", "-i", "a", "-o", "b"], inputReadCount: 10, outputReadCount: 8,
+                durationSeconds: 1),
+            RecipeStepResult(stepName: "Optimize storage + Compress", tool: "clumpify.sh", toolVersion: "39.13", durationSeconds: 1),
+        ])
+        let plain = try pairBundle("Plain")
+        let result = try await quant([dedup, plain], set: set).resultURL
+        let envelope = try record(result)
+        XCTAssertEqual(salmonLine(envelope, sample: "Dedup", "duplicates"),
+                       "Duplicates: removed at import by Remove duplicate reads + Adapter + quality trim, without UMIs. "
+                       + "This count removes none.")
+        XCTAssertEqual(salmonLine(envelope, sample: "Plain", "duplicates"), "Duplicates: kept. LGE removes duplicates only with UMIs.")
+        let manifest = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: result.appendingPathComponent("rnaseq-result.json"))) as? [String: Any])
+        let settings = (manifest["route"] as? [String: Any])?["settings"] as? [String: Any]
+        XCTAssertEqual(settings?["duplicates"] as? String,
+                       "Duplicates: removed at import for 1 of 2 samples, without UMIs. This count removes none.")
     }
 
     // MARK: - Row 2, the route's own trim call
