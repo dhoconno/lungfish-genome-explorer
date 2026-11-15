@@ -5,9 +5,10 @@
 import Foundation
 
 /// Every figure of a salmon index build, so a ruling changes one line. The memory and disk figures and the scaled need are
-/// ADJ-SPIKE-ARCH items 1, 2 and 5, measured in SPIKE-SALMON. The options are ADJ-SPIKE-ARCH item 6 and ADJ-SPIKE-BIO
-/// item 2: every build passes `-p 8 --ramLimit 4`, never chosen by the host's memory or by the person, and neither is part
-/// of the cache key, since neither changes a byte of the index.
+/// ADJ-SPIKE-ARCH items 1, 2 and 5, measured in SPIKE-SALMON. The memory figure is the footprint of the build at
+/// `--ramLimit 16`, which bounds the build at 4 (15,681,106,880 bytes there), and its basis line says so. The options are
+/// ADJ-SPIKE-ARCH item 6 and ADJ-SPIKE-BIO item 2: every build passes `-p 8 --ramLimit 4`, never chosen by the host's
+/// memory or by the person, and neither is part of the cache key, since neither changes a byte of the index.
 enum SalmonIndexNeed {
     /// `-p`. ADJ-SPIKE-BIO item 10: another thread count needs its three-build test first.
     static let threads = 8
@@ -15,8 +16,8 @@ enum SalmonIndexNeed {
     static let ramLimitGiB = 4
 
     static let peakMemoryBytes: Int64 = 17_780_281_048
-    static let memoryBasis = "peak memory footprint of salmon 2.11.0 index -k 31 -p 8 --ramLimit 16 on GRCh38 with ERCC92, "
-        + "SPIKE-SALMON 2026-11-14"
+    static let memoryBasis = "peak memory footprint of salmon 2.11.0 index -k 31 -p 8 on GRCh38 with ERCC92 measured at "
+        + "--ramLimit 16, which bounds the build at --ramLimit 4, SPIKE-SALMON 2026-11-14"
     static let freeDiskBytes: Int64 = 63_897_293_195
     static let diskBasis = "free-disk drop of that build plus its gentrome and the finished index, SPIKE-SALMON 2026-11-14"
 
