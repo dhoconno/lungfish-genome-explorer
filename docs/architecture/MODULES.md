@@ -30,7 +30,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1601 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1614 | LungfishCore, LungfishIO |
 | LungfishWorkflowTwelveS | library | Sources/LungfishWorkflowTwelveS | 38 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
@@ -3444,9 +3444,22 @@ None.
 - `SequenceProcessingOutputNormalizer` enum, `Sources/LungfishWorkflow/SequenceProcessing/SequenceProcessingOutputNormalizer.swift`
 - `SequenceProcessingOutputNormalizerError` enum, `Sources/LungfishWorkflow/SequenceProcessing/SequenceProcessingOutputNormalizer.swift`
 - `SetAsideOutput` struct, `Sources/LungfishWorkflow/Alignment/OutputReplacementCheck.swift`
+- `SingleCellAmbientPool` struct, `Sources/LungfishWorkflow/RNASeq/SingleCellNotHost+Pool.swift`
+- `SingleCellBarcodeTable` struct, `Sources/LungfishWorkflow/RNASeq/SingleCellNotHost+Pool.swift`
 - `SingleCellFolder` struct, `Sources/LungfishWorkflow/RNASeq/SingleCellFolderReader.swift`
 - `SingleCellFolderReader` enum, `Sources/LungfishWorkflow/RNASeq/SingleCellFolderReader.swift`
 - `SingleCellImportError` enum, `Sources/LungfishWorkflow/RNASeq/SingleCellFolderReader.swift`
+- `SingleCellNotHostCounter` struct, `Sources/LungfishWorkflow/RNASeq/SingleCellNotHost+Counter.swift`
+- `SingleCellNotHostCounts` struct, `Sources/LungfishWorkflow/RNASeq/SingleCellNotHost.swift`
+- `SingleCellNotHostError` enum, `Sources/LungfishWorkflow/RNASeq/SingleCellNotHost+Errors.swift`
+- `SingleCellNotHostExtra` struct, `Sources/LungfishWorkflow/RNASeq/SingleCellNotHost.swift`
+- `SingleCellNotHostFlag` enum, `Sources/LungfishWorkflow/RNASeq/SingleCellNotHost+Pool.swift`
+- `SingleCellNotHostPass` enum, `Sources/LungfishWorkflow/RNASeq/SingleCellNotHost+Sample.swift`
+- `SingleCellNotHostRecord` struct, `Sources/LungfishWorkflow/RNASeq/SingleCellNotHost.swift`
+- `SingleCellNotHostResult` struct, `Sources/LungfishWorkflow/RNASeq/SingleCellNotHost+Sample.swift`
+- `SingleCellNotHostSample` struct, `Sources/LungfishWorkflow/RNASeq/SingleCellNotHost+Sample.swift`
+- `SingleCellNotHostTally` struct, `Sources/LungfishWorkflow/RNASeq/SingleCellNotHost.swift`
+- `SingleCellRawMatrix` struct, `Sources/LungfishWorkflow/RNASeq/SingleCellNotHost+Pool.swift`
 - `SingleCellTool` enum, `Sources/LungfishWorkflow/RNASeq/SingleCellFolderReader.swift`
 - `SnakemakeRunner` actor, `Sources/LungfishWorkflow/Engines/SnakemakeRunner.swift`
 - `SourceBuildSpec` struct, `Sources/LungfishWorkflow/Dependencies/DependencyManifestSections.swift`
