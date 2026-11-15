@@ -203,4 +203,19 @@ final class RNASeqExportCellsTests: RNASeqExportTestCase {
             XCTAssertTrue(scanpy.contains(words), "scanpy.py holds \(words)")
         }
     }
+
+    /// The Seurat object and the AnnData hold every feature type in one assay, while the table of cells counts Gene Expression only,
+    /// so both scripts print how many features are of another type. `RNASeqExportCellsConformanceTests` runs the two lines.
+    func testBothTemplatesPrintHowManyFeaturesAreNotGeneExpression() throws {
+        let out = try export([try cells()])
+        let seurat = try String(contentsOf: out.appendingPathComponent("seurat.R"), encoding: .utf8)
+        let scanpy = try String(contentsOf: out.appendingPathComponent("scanpy.py"), encoding: .utf8)
+        XCTAssertTrue(seurat.contains(#"cat(sprintf("features %d, of them %d not %s\n", nrow(combined), sum(info$type != feature_type), feature_type))"#), seurat)
+        XCTAssertTrue(scanpy.contains(#"print("features %d, of them %d not %s" % (len(ids), int((info["type"] != feature_type).sum()), feature_type))"#), scanpy)
+        for (name, text) in [("seurat.R", seurat), ("scanpy.py", scanpy)] {
+            let counted = try XCTUnwrap(text.range(of: "of them %d not"), "\(name) prints the count")
+            let object = try XCTUnwrap(text.range(of: name == "seurat.R" ? "CreateSeuratObject(" : "sc.AnnData("), "\(name) makes its object")
+            XCTAssertTrue(counted.lowerBound < object.lowerBound, "\(name) prints the count before it needs Seurat or Scanpy")
+        }
+    }
 }

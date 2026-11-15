@@ -64,11 +64,20 @@ extension RNASeqExportTestCase {
 }
 
 final class RNASeqExportAnimalsTests: RNASeqExportTestCase {
-    private let intro = "A pseudobulk comparison needs columns of at least 3 animals in each level of"
+    private let intro = "A pseudobulk comparison needs columns of at least 3 animals in each level it compares,"
     private let because = "because tests on single cells give false discoveries, so LGE counts animals and not cells."
+    private let advice = "Add animals so that each compared level holds 3 or more, or compare levels that already do."
 
     private func byGroup(_ factor: String = "group", numerator: String = "T", denominator: String = "B") -> RNASeqExportSettings {
         RNASeqExportSettings(design: [factor], contrasts: [.init(factor: factor, numerator: numerator, denominator: denominator)])
+    }
+
+    /// A sheet that gives each column its day, for a design with a second factor.
+    private func daySheet(_ days: [String: String]) throws -> URL {
+        let sheet = root.appendingPathComponent("sheet.tsv")
+        try (["sample\tday"] + days.sorted { $0.key < $1.key }.map { "\($0.key)\t\($0.value)" }).joined(separator: "\n").appending("\n")
+            .write(to: sheet, atomically: true, encoding: .utf8)
+        return sheet
     }
 
     @discardableResult
@@ -115,16 +124,53 @@ final class RNASeqExportAnimalsTests: RNASeqExportTestCase {
     func testTwoAnimalsInOneLevelAreRefusedWithTheLevelTheAnimalsAndTheReasonAndNothingIsWritten() throws {
         let result = try animalsResult("pb", animalColumns([("B", ["A1", "A2"]), ("T", ["A1", "A2", "A3"])]))
         let text = words([result])
-        XCTAssertTrue(text.hasPrefix("\(intro) group, \(because) Here the level B holds columns of 2 animals (A1, A2)."), text)
+        XCTAssertTrue(text.hasPrefix("\(intro) \(because) Here the level B of group holds columns of 2 animals (A1, A2)."), text)
         XCTAssertFalse(text.contains("level T"), "a level of 3 animals is not named: \(text)")
-        XCTAssertTrue(text.hasSuffix("Add animals so that each level holds 3 or more, or compare levels that already do."), text)
+        XCTAssertTrue(text.hasSuffix(advice), text)
         try nothingWritten()
     }
 
-    func testEachLevelUnderThreeAnimalsIsNamedInCodePointOrder() throws {
-        let result = try animalsResult("pb", animalColumns([("T", ["A1", "A2", "A3"]), ("B", ["A1"]), ("C", ["A2", "A3"])]))
-        let text = words([result])
-        XCTAssertTrue(text.contains("Here the level B holds columns of 1 animal (A1), and the level C holds columns of 2 animals (A2, A3). Add animals"), text)
+    func testEachThinLevelIsNamedOnceInContrastOrderAndInCodePointOrderWithinAContrast() throws {
+        let result = try animalsResult(
+            "pb", animalColumns([("T", ["A1", "A2", "A3"]), ("B", ["A1"]), ("C", ["A2", "A3"]), ("D", ["A1", "A3"])]))
+        // D against C comes first, so C and D come before B. The third contrast names C again, and C is named once.
+        let settings = RNASeqExportSettings(design: ["group"], contrasts: [
+            .init(factor: "group", numerator: "D", denominator: "C"), .init(factor: "group", numerator: "T", denominator: "B"),
+            .init(factor: "group", numerator: "C", denominator: "T"),
+        ])
+        let text = words([result], settings: settings)
+        XCTAssertTrue(text.contains("Here the level C of group holds columns of 2 animals (A2, A3), and the level D of group holds columns of "
+            + "2 animals (A1, A3), and the level B of group holds columns of 1 animal (A1). Add animals"), text)
+    }
+
+    func testAThinLevelThatNoContrastNamesDoesNotBlockTheComparison() throws {
+        let result = try animalsResult("pb", animalColumns([("B", ["A1", "A2", "A3"]), ("T", ["A1", "A2", "A3"]), ("C", ["A1"])]))
+        XCTAssertNoThrow(try export([result]), "group:T:B compares B and T, which hold 3 animals each, and no contrast names C")
+    }
+
+    func testAContrastOnAFactorThatIsNotTheLastDesignTermIsCounted() throws {
+        // B holds A1 twice and A2, and T holds A3, A4 and A5. Each day holds 3 animals, so only the contrast's own factor finds B thin.
+        let columns = [("A1_B", "A1", "B"), ("A1b_B", "A1", "B"), ("A2_B", "A2", "B"), ("A3_T", "A3", "T"), ("A4_T", "A4", "T"), ("A5_T", "A5", "T")]
+            .map { RNASeqAnimalsColumn(id: $0.0, animal: $0.1, group: $0.2) }
+        let result = try animalsResult("pb", columns)
+        let sheet = try daySheet(["A1_B": "D1", "A3_T": "D1", "A4_T": "D1", "A1b_B": "D2", "A2_B": "D2", "A5_T": "D2"])
+        let settings = RNASeqExportSettings(design: ["group", "day"], contrasts: [.init(factor: "group", numerator: "T", denominator: "B")])
+        let text = words([result], sheet: sheet, settings: settings)
+        XCTAssertTrue(text.contains("Here the level B of group holds columns of 2 animals (A1, A2). \(advice)"), text)
+        try nothingWritten()
+    }
+
+    func testANamedLevelNoColumnHoldsReadsZeroAnimals() throws {
+        let result = try animalsResult("pb", animalColumns([("B", ["A1", "A2", "A3"]), ("T", ["A1", "A2", "A3"])]))
+        let text = words([result], settings: byGroup(numerator: "T", denominator: "Z"))
+        XCTAssertTrue(text.contains("Here the level Z of group holds columns of 0 animals (). \(advice)"), text)
+        try nothingWritten()
+    }
+
+    func testWithNoContrastEveryLevelOfTheLastDesignTermIsCounted() throws {
+        let result = try animalsResult("pb", animalColumns([("B", ["A1", "A2", "A3"]), ("T", ["A1", "A2", "A3"]), ("C", ["A1"])]))
+        let text = words([result], settings: RNASeqExportSettings(design: ["group"]))
+        XCTAssertTrue(text.contains("Here the level C of group holds columns of 1 animal (A1). \(advice)"), text)
     }
 
     func testThreeAnimalsInEachLevelPassAndBothScriptsHoldTheRuleBeforeTheFit() throws {
@@ -133,7 +179,7 @@ final class RNASeqExportAnimalsTests: RNASeqExportTestCase {
         for (name, fit) in [("deseq2.R", "DESeqDataSetFromMatrix("), ("edger-limma-dream.R", "DGEList(counts)")] {
             let text = try script(name, in: out)
             XCTAssertTrue(text.contains("min_animals <- 3"), "\(name) holds the minimum")
-            let check = try XCTUnwrap(text.range(of: "check_animals(coldata, design_terms, min_animals)"), "\(name) calls the check")
+            let check = try XCTUnwrap(text.range(of: "check_animals(coldata, design_terms, contrasts, min_animals)"), "\(name) calls the check on the contrasts")
             let fitted = try XCTUnwrap(text.range(of: fit), "\(name) fits")
             XCTAssertTrue(check.lowerBound < fitted.lowerBound, "\(name) checks the animals before the fit")
         }
@@ -175,17 +221,14 @@ final class RNASeqExportAnimalsTests: RNASeqExportTestCase {
         XCTAssertNil(record.options.resolvedDefaults["minimumAnimals"], "a bulk record is as it was")
     }
 
-    func testTheLastDesignTermIsTheTestedFactorAndNoDesignIsNotRefused() throws {
+    func testTheContrastNamesTheFactorItsLevelsAreCountedOnAndNoDesignIsNotRefused() throws {
         let result = try animalsResult("pb", animalColumns([("B", ["A1", "A2", "A3"]), ("T", ["A1", "A2", "A3"])]))
-        // Day D1 holds two animals and day D2 one, so the rule bites when day is the tested factor and not when group is.
-        let days = ["A1_B": "D1", "A2_B": "D1", "A3_B": "D2", "A1_T": "D1", "A2_T": "D1", "A3_T": "D2"]
-        let sheet = root.appendingPathComponent("sheet.tsv")
-        try (["sample\tday"] + days.sorted { $0.key < $1.key }.map { "\($0.key)\t\($0.value)" }).joined(separator: "\n").appending("\n")
-            .write(to: sheet, atomically: true, encoding: .utf8)
+        // Day D1 holds two animals and day D2 one, so the rule bites when a contrast compares days and not when it compares groups.
+        let sheet = try daySheet(["A1_B": "D1", "A2_B": "D1", "A3_B": "D2", "A1_T": "D1", "A2_T": "D1", "A3_T": "D2"])
         let day = RNASeqExportSettings(design: ["group", "day"], contrasts: [.init(factor: "day", numerator: "D2", denominator: "D1")])
         let text = words([result], sheet: sheet, settings: day)
-        XCTAssertTrue(text.hasPrefix("\(intro) day, "), text)
-        XCTAssertTrue(text.contains("the level D1 holds columns of 2 animals (A1, A2), and the level D2 holds columns of 1 animal (A3)."), text)
+        XCTAssertTrue(text.hasPrefix("\(intro) \(because) Here the level D1 of day holds columns of 2 animals (A1, A2), "
+            + "and the level D2 of day holds columns of 1 animal (A3). \(advice)"), text)
         try nothingWritten()
         let group = RNASeqExportSettings(design: ["day", "group"], contrasts: [.init(factor: "group", numerator: "T", denominator: "B")])
         XCTAssertNoThrow(try export([result], sheet: sheet, settings: group, name: "group-last"))
@@ -201,7 +244,8 @@ final class RNASeqExportAnimalsTests: RNASeqExportTestCase {
         let envelope = ProvenanceEnvelope(workflowName: "RNA-seq pseudobulk", toolName: "lungfish-cli", toolVersion: "test")
         try RNASeqResultWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil)).write(outcome.request, to: url, envelope: envelope)
         let text = words([url])
-        for level in ["B", "T", "ten"] { XCTAssertTrue(text.contains("the level \(level) holds columns of 1 animal (A1)"), text) }
+        for level in ["B", "T"] { XCTAssertTrue(text.contains("the level \(level) of group holds columns of 1 animal (A1)"), text) }
+        XCTAssertFalse(text.contains("level ten"), "group:T:B names no level ten: \(text)")
         try nothingWritten()
     }
 }

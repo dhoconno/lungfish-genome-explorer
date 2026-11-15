@@ -157,6 +157,30 @@ final class RNASeqExportCellsConformanceTests: RNASeqExportTestCase {
         XCTAssertTrue(printed.contains("not-host features 1"), ran.output)
     }
 
+    /// A feature-barcode set holds Antibody Capture rows beside Gene Expression (19 of the 36,620 features of sc5p_v2_hs_PBMC_1k). The
+    /// Seurat object and the AnnData keep every type in one assay, so both scripts print how many features are of another type. The
+    /// test types the last two features of the plain cut as Antibody Capture.
+    func testBothScriptsPrintHowManyFeaturesAreNotGeneExpression() throws {
+        let out = try export(try self.result("one"))
+        let folder = try XCTUnwrap(try FileManager.default.contentsOfDirectory(at: out, includingPropertiesForKeys: [.isDirectoryKey])
+            .first { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }, "the export holds a sample folder")
+        let url = folder.appendingPathComponent("features.tsv")
+        var lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
+        for index in lines.indices.suffix(2) {
+            var fields = lines[index].components(separatedBy: "\t")
+            XCTAssertEqual(fields.count, 3, "a STARsolo features row holds id, name and type")
+            fields[fields.count - 1] = "Antibody Capture"
+            lines[index] = fields.joined(separator: "\t")
+        }
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: url)
+        for (tool, arguments) in [(python, ["-I", "scanpy.py"]), (rscript, ["--vanilla", "seurat.R"])] {
+            let ran = try run(tool, arguments, in: out)
+            XCTAssertEqual(ran.status, 0, ran.output)
+            let printed = ran.output.split(separator: "\n").map(String.init)
+            XCTAssertTrue(printed.contains("features \(lines.count), of them 2 not Gene Expression"), ran.output)
+        }
+    }
+
     func testSeuratStopsInWordsWhenSeuratIsMissingAfterTheTableIsWritten() throws {
         let plainR = environment("LGE_RNASEQ_ENV", "/Volumes/lge_scratch/lge/rnaseq/env").appendingPathComponent("bin/Rscript")
         let result = try self.result("one")
