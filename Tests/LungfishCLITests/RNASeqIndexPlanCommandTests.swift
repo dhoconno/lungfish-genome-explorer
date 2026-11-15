@@ -114,10 +114,13 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
     /// Each file below `folder` by its path inside it, with its SHA-256.
     private func tree(_ folder: URL) throws -> [String: String] {
         var files: [String: String] = [:]
-        for case let url as URL in try XCTUnwrap(FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey])) {
+        // `enumerator(atPath:)` gives each path relative to `folder`. The URL enumerator yields `/private/var/...` for a folder
+        // that `resolvingSymlinksInPath()` named `/var/...`, so a cut at `folder.path.count` left the folder's own name in the key.
+        for case let relative as String in try XCTUnwrap(FileManager.default.enumerator(atPath: folder.path)) {
+            let url = folder.appendingPathComponent(relative)
             guard (try url.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile == true else { continue }
             let digest = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
-            files[String(url.path.dropFirst(folder.path.count + 1))] = url.lastPathComponent.hasSuffix(".tar") ? "tar" : digest
+            files[relative] = url.lastPathComponent.hasSuffix(".tar") ? "tar" : digest
         }
         return files
     }
