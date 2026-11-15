@@ -21,9 +21,9 @@ The panel meets once, when a phase plan is written (E-EP-4). A later session of 
 1. Owner direction. The manager records the owner's words with their date in the plan's first section. It asks with the AskUserQuestion tool before the first spawn and in a plain message that ends its turn after it (E-EP-5).
 2. Round 1, inventory. One `lge-expert` for each field (E-EP-1), opus at effort xhigh, writes `SCR/inv/<FIELD>.md` from the last plan's decisions and the backlog's ranked rows, with facts at a named commit, candidate lanes, risks and open questions `Q-<letter><n>`.
 3. Round 2, challenge. One `lge-planner` drafts the plan and the lane briefs. Each field with a row in the draft reads only its rows, opus at effort xhigh, and writes `SCR/challenge/<FIELD>.md` with CORRECT lines (a wrong fact with its `path:line`) and OBJECT lines (scope or severity). The same seats cast every vote at that effort (E-EP-6), only on an OBJECT that a second field opposes.
-4. Review. One fresh `lge-review` agent from the field a lane changes most reviews it, with BIO as well for scientific output and the fact-check for user-facing text. A lane of only documentation or only tests gets no field review. The QA expert reviews every release step before it runs and reads each candidate's evidence (`docs/contracts/VERIFICATION-ORDER.md`, row Evidence read).
+4. Review. One fresh `lge-review` agent from the field a lane changes most reviews it, plus BIO for scientific output and the fact-check for user-facing text. A lane of only documentation or tests gets no field review unless it writes a format or schema page a later lane implements. The QA expert reviews every release step before it runs and reads each candidate's evidence (`docs/contracts/VERIFICATION-ORDER.md`, row Evidence read).
 
-Experts never edit code or build, lanes never decide scope, and lanes are cut only in the plan's cut order.
+Experts never edit code or build, lanes never decide scope and are cut only in the plan's cut order.
 
 ## Rulings and disputes
 

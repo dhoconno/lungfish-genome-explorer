@@ -22,6 +22,8 @@ You stage public data, build a tool environment, start a reproduction chain or a
   PAUSE and load gates your brief names.
 - Your Handoff names the accessions, tool versions and output checksums of what you staged or ran. Whether a claim
   passes is for `lge-ruling`, so list each such judgment as an open question in your report.
+- When you collect a lane's results, state each tier of the gates the lane brief names, with the lane brief line that
+  settles it, as Pass, Fail or Not judged.
 
 ## Queue, don't wait
 - Never wait for the lock, the PAUSE file or the load. Launch the chain under `nohup` with a wrapper that waits for all
