@@ -204,6 +204,13 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
     /// 60-base genome of `builtSet`, and `--genomeSAsparseD 2` from the STAR step.
     private static let indexKeyFolder = "star-2.7.11b-sa2-sparse2"
 
+    /// The record file where the format page puts it, built by hand from its pieces so that the test pins the place and not the
+    /// store's own function. The pieces are the storage root, `rnaseq-index-records`, the set id, the key folder and the file name.
+    private static func indexRecordFile(in storage: URL, setID: String) -> URL {
+        storage.appendingPathComponent("rnaseq-index-records", isDirectory: true).appendingPathComponent(setID, isDirectory: true)
+            .appendingPathComponent(indexKeyFolder, isDirectory: true).appendingPathComponent("index-record.json")
+    }
+
     /// Writes the `run-record.json` of an index run that succeeded into `result`, in the shape the executor writes it and the
     /// adopt reads it. It names the set's counting GTF by its SHA-256, holds one STAR step with its argv, and gives each of the
     /// 15 index files as a staged output and the log as a home output. `edited` gives that one staged output another digest.
@@ -222,7 +229,8 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
             ["path": $0.key, "bytes": $0.value.bytes, "sha256": $0.value.sha256, "policy": "staged"]
         }
         outputs.append(["path": "star-index.Log.out", "bytes": 5_000, "sha256": String(repeating: "f", count: 64), "policy": "home"])
-        let argv = ["--runMode", "genomeGenerate", "--genomeDir", "star-index", "--runThreadN", "8",
+        // The recorded argv names --sjdbOverhang 100, STAR's default, as the plan's STAR step does (FIX-IDX-1).
+        let argv = ["--runMode", "genomeGenerate", "--genomeDir", "star-index", "--runThreadN", "8", "--sjdbOverhang", "100",
                     "--genomeSAindexNbases", "2", "--genomeSAsparseD", "2"]
         let step: [String: Any] = [
             "id": "star-index", "outcome": "succeeded", "argv": argv, "outputs": outputs,
@@ -249,7 +257,7 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
         let arguments = [result.path, "--set", id, "--storage-root", storage.path, "--staging-folder", Self.staging,
                          "--batch", "idx", "--format", "json"]
         try await RNASeqIndexAdoptSubcommand.parse(arguments).run()
-        let url = STARIndexRecordStore(storageRoot: storage).url(setID: id, key: Self.indexKeyFolder)
+        let url = Self.indexRecordFile(in: storage, setID: id)
         // A second adopt of the same run finds the equal record and changes nothing, so its summary is the first one's.
         let summary = try RNASeqIndexAdoptSubcommand.parse(arguments).adopt()
         let facts = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(summary.json.utf8)) as? [String: Any])
@@ -283,7 +291,7 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
         try writeIndexRunRecord(for: set, in: result)
         let arguments = [result.path, "--set", id, "--storage-root", storage.path, "--staging-folder", Self.staging,
                          "--batch", "idx", "--quiet"]
-        let url = STARIndexRecordStore(storageRoot: storage).url(setID: id, key: Self.indexKeyFolder)
+        let url = Self.indexRecordFile(in: storage, setID: id)
         try await RNASeqIndexAdoptSubcommand.parse(arguments).run()
         let first = try Data(contentsOf: url)
         try await RNASeqIndexAdoptSubcommand.parse(arguments).run()
