@@ -1,6 +1,6 @@
 # RNA-seq reproduction environment
 
-This folder holds the requests for the four conda environments that the RNA-seq reproduction scripts of Lungfish Genome Explorer (LGE) use. The main environment (`env`) holds the aligners, counters and statistics tools. A second, small environment (`env-star273a`) holds STAR 2.7.3a, which the exact-class STAR GeneCounts checks of GSE152418 and GSE304256 need. A third environment (`env-r-sva`) is the main environment with the Bioconductor package sva added, which needs older edgeR and limma releases than the main one holds. A fourth environment (`env-r-dream`) is a small R environment with the Bioconductor package variancePartition, which brings the dream mixed models. The owner approved the main environment as direction O176. All four live on the external drive and stay separate from the tools that LGE manages for itself. Building and using them changes nothing in the base conda environment, in `~/.condarc` or under `~/.lungfish`.
+This folder holds the requests for the five conda environments that the RNA-seq reproduction scripts of Lungfish Genome Explorer (LGE) use. The main environment (`env`) holds the aligners, counters and statistics tools. A second, small environment (`env-star273a`) holds STAR 2.7.3a, which the exact-class STAR GeneCounts checks of GSE152418 and GSE304256 need. A third environment (`env-r-sva`) is the main environment with the Bioconductor package sva added, which needs older edgeR and limma releases than the main one holds. A fourth environment (`env-r-dream`) is a small R environment with the Bioconductor package variancePartition, which brings the dream mixed models. A fifth environment (`env-r-seurat`) is a small R environment with Seurat from conda-forge, which the single-cell template of the LGE export calls. The owner approved the main environment as direction O176. All five live on the external drive and stay separate from the tools that LGE manages for itself. Building and using them changes nothing in the base conda environment, in `~/.condarc` or under `~/.lungfish`.
 
 ## Which environment to use
 
@@ -9,12 +9,15 @@ This folder holds the requests for the four conda environments that the RNA-seq 
 | Anything that loads sva, such as `ComBat_seq`, `ComBat`, `sva` or `svaseq` | `env-r-sva` | sva is installed only there. The main environment cannot hold it without moving edgeR and limma |
 | A result that must come from edgeR 4.8.2 and limma 3.66.0 | `env-r-sva` | The main environment holds edgeR 4.10.7 and limma 3.68.5 |
 | Anything that loads variancePartition, such as `dream` or `voomWithDreamWeights`, or a model with a random term such as one animal sampled on several days | `env-r-dream` | variancePartition is installed only there. It holds edgeR 4.8.2 and limma 3.66.0, the releases of `env-r-sva`, and it has no DESeq2 and no sva |
+| Anything that loads Seurat, such as `CreateSeuratObject` in the single-cell template of the export | `env-r-seurat` | Seurat is installed only there. It holds R 4.5.3 and the R Matrix package, which reads the matrix files, and no Bioconductor package, aligner or counter |
 | STAR 2.7.3a counts and its genome index | `env-star273a` | Call its `bin/STAR` by full path, because the other two environments hold a newer STAR |
-| Everything else, which covers alignment, quantification, counting, DESeq2, edgeR, limma, tximport, apeglm, pROC, rpart and single-cell work | `env` | It is the default. The staging scripts also take `fasterq-dump` from it |
+| Everything else, which covers alignment, quantification, counting, DESeq2, edgeR, limma, tximport, apeglm, pROC, rpart and single-cell work other than Seurat | `env` | It is the default. The staging scripts also take `fasterq-dump` from it |
 
 The two R environments hold the same build of every other package, DESeq2 1.50.2, R 4.5.3 and Python 3.11.18 among them, and the same aligners and counters. Only edgeR and limma differ, and `env-r-sva` adds sva and the six packages that sva needs. A script that runs in both environments gives the same DESeq2 result, but an edgeR or limma result can differ between them. Write down which environment made each result.
 
 The R environment with dream is smaller. It holds R 4.5.3, Python 3.11.18, edgeR 4.8.2 and limma 3.66.0 of the same builds as `env-r-sva`, and it holds neither DESeq2 nor an aligner or counter.
+
+The R environment with Seurat is smaller still. It holds R 4.5.3 of the same build as the three other R environments and r-matrix 1.7_6 of the same build as `env` and `env-r-sva`. It has no Python, no Bioconductor package (so no DESeq2, edgeR or limma) and no aligner or counter.
 
 ## Files
 
@@ -29,6 +32,8 @@ The R environment with dream is smaller. It holds R 4.5.3, Python 3.11.18, edgeR
 | `env-r-dream.yml` | The request for the R environment with dream, which holds R, variancePartition, edgeR, limma and the packages that dream uses for a random term |
 | `explicit-r-dream-osx-arm64.txt` | The 213 packages of the R environment with dream as built, with md5 sums |
 | `check-r-dream.R` | The check of the R environment with dream, which prints package versions, runs the dream example of variancePartition and fits a small count table with a random term |
+| `env-r-seurat.yml` | The request for the R environment with Seurat, which holds R, Seurat and the R Matrix package from conda-forge |
+| `explicit-r-seurat-osx-arm64.txt` | The 251 packages of the R environment with Seurat as built, with md5 sums |
 | `smoke.sh` | The smoke test, which takes the main environment path and the fixture folder as arguments and finds the STAR 2.7.3a environment and the R environment with sva beside the main one |
 | `README.md` | This file |
 
@@ -40,6 +45,7 @@ The R environment with dream is smaller. It holds R 4.5.3, Python 3.11.18, edgeR
 | `/Volumes/lge_scratch/lge/rnaseq/env-star273a` | The STAR 2.7.3a environment, 9 MB |
 | `/Volumes/lge_scratch/lge/rnaseq/env-r-sva` | The R environment with sva, 3.4 GB as listed. About 92,500 of its files are hard links into the package cache, so it adds only about 285 MB on the drive |
 | `/Volumes/lge_scratch/lge/rnaseq/env-r-dream` | The R environment with dream, 1.4 GB as listed. 32,263 of its 33,473 files are hard links into the package cache, so the folder itself adds only about 56 MB. The packages that were new to the cache added about 0.7 GB there, 149 MB of it as downloaded archives |
+| `/Volumes/lge_scratch/lge/rnaseq/env-r-seurat` | The R environment with Seurat, 1.5 GB as listed. 31,702 of its 32,260 files are hard links into the package cache, so the folder itself adds only about 35 MB. The 97 packages that were new to the cache added about 0.8 GB there, 202 MB of it as downloaded archives |
 | `/Volumes/lge_scratch/lge/rnaseq/conda-pkgs` | The package cache, set with `CONDA_PKGS_DIRS` so the internal disk stays free |
 | `/Volumes/lge_scratch/lge/rnaseq/conda-pkgs-osx64` | A second cache for the STAR 2.7.3a environment, so osx-64 packages never mix with the osx-arm64 ones. Almost all of its 0.9 GB is repodata |
 | `/Volumes/lge_scratch/lge/rnaseq/installer-arm64` | A native arm64 micromamba 2.10.0 that builds the environment |
@@ -170,6 +176,38 @@ Call its R by the full path, and do not put its `bin` folder on `PATH` together 
 
 The check prints the version of 12 packages and requires each one to load from the library of this folder. It then runs the example of `dream` from variancePartition, which uses `SnowParam` with 4 socket workers. Last it fits a small count table of 8 animals on 3 days through edgeR, limma voom, `voomWithDreamWeights` and `dream` with a random term for the animal, and it repeats 5 genes with Kenward-Roger degrees of freedom. The last line it prints is `DREAM_ENV_OK`. A pass took 27 seconds with the packages in the file cache and 89 seconds on the first run after the build, at low priority on a busy Mac. The example alone took 11 to 13 seconds. The smoke test does not look at this environment.
 
+## Create the R environment with Seurat
+
+The Seurat template that `lungfish-cli rnaseq export` writes for a single-cell result (lane RS-SC-HANDOFF) reads the matrix files with `Matrix::readMM` and then builds its object with Seurat. The main environment holds scanpy and the R Matrix package but no Seurat, and neither does any other environment, so Seurat has a folder of its own (data job D1-SEURAT, session rnaseq-5-1-next).
+
+The request is short. It holds R 4.5.3 at the build of the other R environments, `r-seurat` and `r-matrix`. Its one channel is conda-forge, because Seurat and every package it needs are built there. The R pin was allowed, and the solver took Seurat 5.5.1 and added 248 packages to the three requested ones, among them SeuratObject 5.4.0. It added no Python, so the request has no Python line, which `env-r-dream` needed. The solve takes about 2 seconds. The install downloaded 97 packages, 202 MB, and the whole create took 67 seconds at low priority, while the load average of the Mac rose from 9 to 57.
+
+```bash
+export MAMBA_ROOT_PREFIX=/Volumes/lge_scratch/lge/rnaseq/mamba-root
+export CONDA_PKGS_DIRS=/Volumes/lge_scratch/lge/rnaseq/conda-pkgs
+MM=/Volumes/lge_scratch/lge/rnaseq/installer-arm64/bin/micromamba
+
+nice -n 15 $MM create -y -p /Volumes/lge_scratch/lge/rnaseq/env-r-seurat \
+  -f scripts/repro/rnaseq/env/env-r-seurat.yml \
+  --no-rc --override-channels -c conda-forge \
+  --strict-channel-priority --platform osx-arm64
+```
+
+To get exactly the packages that were built, create from the explicit file. A dry run of this command resolves 251 packages with 0 B to download.
+
+```bash
+$MM create -y -p /Volumes/lge_scratch/lge/rnaseq/env-r-seurat \
+  --file scripts/repro/rnaseq/env/explicit-r-seurat-osx-arm64.txt --no-rc
+```
+
+Call its R by the full path, and do not put its `bin` folder on `PATH` together with the `bin` folder of another environment, because each of them holds a program named Rscript. The smoke of this environment loads Seurat and Matrix and prints the Seurat version.
+
+```bash
+/Volumes/lge_scratch/lge/rnaseq/env-r-seurat/bin/Rscript --vanilla -e 'library(Seurat); library(Matrix); cat(as.character(packageVersion("Seurat")), "\n")'
+```
+
+It prints `5.5.1` on its last line, after the messages that loading Seurat prints. One of them comes from SeuratObject and names Matrix (see Things to know). The smoke test `smoke.sh` does not look at this environment.
+
 ## Use the environment
 
 Scripts can put the environment first on `PATH`, which is what `smoke.sh` does and is enough for every tool in it. To run one command with the full activation, use `micromamba run`.
@@ -295,6 +333,26 @@ The R environment with dream holds 213 packages, 148 for osx-arm64 and 65 noarch
 
 Against `env-r-sva`, 23 packages of the same name have another version or build. 21 of them are the compiler and C++ library packages that R brings, at clang 23.1.4 against 22.1.8 in `env-r-sva`. The other two are r-ggplot2 4.0.4 against 4.0.3 and r-matrix 1.7_5 against 1.7_6. 50 packages are new. 43 of them are R and Bioconductor packages, among them variancePartition, lme4, lmerTest, pbkrtest and remaCor, and 7 are compiler packages and nlopt.
 
+The R environment with Seurat holds 251 packages, 180 for osx-arm64 and 71 noarch, all from conda-forge. 136 lines of its explicit file are the same name, version and build as lines of the one of `env-r-dream`, and 97 of its packages have a name that `env-r-dream` lacks. The table lists the three requested packages and the ones that Seurat loads or calls first.
+
+| Package | Version | Build | Channel | Platform |
+| --- | --- | --- | --- | --- |
+| r-base | 4.5.3 | h35b0bb1_4 | conda-forge | osx-arm64 |
+| r-seurat | 5.5.1 | r45h1380947_0 | conda-forge | osx-arm64 |
+| r-seuratobject | 5.4.0 | r45h1380947_0 | conda-forge | osx-arm64 |
+| r-matrix | 1.7_6 | r45h3f89421_0 | conda-forge | osx-arm64 |
+| r-sp | 2.2_3 | r45h4b407c4_0 | conda-forge | osx-arm64 |
+| r-sctransform | 0.4.3 | r45he67d32b_0 | conda-forge | osx-arm64 |
+| r-igraph | 2.3.4 | r45h32443fb_0 | conda-forge | osx-arm64 |
+| r-irlba | 2.4.1 | r45hc32e2a6_0 | conda-forge | osx-arm64 |
+| r-uwot | 0.2.5 | r45hc1ec562_0 | conda-forge | osx-arm64 |
+| r-rcppannoy | 0.0.23 | r45h1380947_0 | conda-forge | osx-arm64 |
+| r-reticulate | 1.47.0 | r45hc1ec562_0 | conda-forge | osx-arm64 |
+| r-future | 1.82.0 | r45hacb3a79_0 | conda-forge | noarch |
+| r-ggplot2 | 4.0.4 | r45h9cad52b_0 | conda-forge | noarch |
+| r-data.table | 1.18.6.1 | r45hadbbe95_0 | conda-forge | osx-arm64 |
+| r-jsonlite | 2.0.0 | r45h6168396_1 | conda-forge | osx-arm64 |
+
 The STAR 2.7.3a environment holds 3 packages, all for osx-64.
 
 | Package | Version | Build | Channel | Platform |
@@ -321,4 +379,6 @@ The STAR binary is an x86_64 Mach-O file. `otool -L` lists only the system `libz
 | STAR 2.7.3a counts | On HBR Rep1 (118,571 read pairs) the `ReadsPerGene.out.tab` of STAR 2.7.3a equals the one of STAR 2.7.11b byte for byte, 1,414 lines. This holds for this pair only. The smoke test repeats the comparison. |
 | R extras | rpart, apeglm and pROC were added to the main environment after the first build with `--freeze-installed`. That installed 13 packages and changed no file of the 409 that were there, which includes the sra-tools files that the staging scripts use. sva is not in the main environment. sva 3.58.0 is the only bioconda build for R 4.5 and it needs edgeR 4.8.x and limma 3.66.x, so it lives in `env-r-sva`. |
 | R environment with dream | Its request pins R 4.5.3 to the build of the other two R environments, because the solver takes build 6 without the pin, and it pins Python to 3.11, because the solver took a Python 3.15 build of nlopt without that line. variancePartition 1.40.2 requires limma 3.66.x and edgeR 4.10.7 requires limma 3.68.5, so the environment holds edgeR 4.8.2. The dream example ran with `SnowParam` and 4 socket workers. A `MulticoreParam` that forks was not tried |
+| R environment with Seurat | Its request pins R 4.5.3 to the build of the other R environments, which conda-forge's Seurat allows, and names conda-forge as its one channel. The folder has no `python`, so `reticulate` finds no Python in it, and it holds only the packages that Seurat requires. The ones that Seurat only suggests, such as hdf5r, leiden and presto, are not installed. The check of lane D1-SEURAT read the two 200-cell pbmc_1k_v3 cuts of `Tests/Fixtures/rnaseq` with `Matrix::readMM` (gzip for Cell Ranger, plain for STARsolo), built a Seurat object of 200 cells and 1,353 genes from each and ran NormalizeData, FindVariableFeatures, ScaleData, RunPCA, FindNeighbors, FindClusters and RunUMAP (the R-native uwot) with no error. All 110 loaded namespaces came from the library of this folder |
+| Seurat and Matrix | `library(Seurat)` prints a message from SeuratObject 5.4.0. It was built with Matrix 1.7.5, the folder holds Matrix 1.7.6 and the message recommends a reinstall, since the Matrix ABI may have changed. The Matrix release notes (`NEWS.Rd` in the Matrix package folder) list no change of the ABI version in 1.7-6, which went from 1 to 2 in 1.7-0, and the check above ran with no error. A request line `r-matrix=1.7_5` would make the two versions equal. A dry run of that install into the built folder showed one change, a downgrade of r-matrix 1.7_6 to 1.7_5 (build r45he92e77a_0, already in the cache), and the folder was left as built |
 | Adding to the main environment | Install with `--freeze-installed` and read the dry run first (`--dry-run`). A line under Upgrade, Downgrade or Remove means a package would move. bioconda pins the Bioconductor family tightly, so one new package can force several others to change. |

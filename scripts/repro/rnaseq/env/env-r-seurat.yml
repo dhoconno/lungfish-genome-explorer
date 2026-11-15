@@ -1,0 +1,19 @@
+# Request for the fifth environment of the RNA-seq reproduction stage (data job D1-SEURAT of the rnaseq-5-1-next session).
+# It holds the conda-forge build of Seurat beside R 4.5.3, the R of the other R environments, so that the Seurat
+# template that `lungfish-cli rnaseq export` writes for a single-cell result (lane RS-SC-HANDOFF) can run to the end
+# on the pbmc_1k_v3 fixture. No other environment holds Seurat. It is small on purpose, with no aligner, no counter and
+# no Bioconductor package, because it runs only that one template.
+# The request has one channel, conda-forge, since r-seurat and every package it needs are built there. The solver may
+# add packages that Seurat requires, so the explicit file says which ones this environment holds.
+# Create it with README.md in this folder. Channels use strict priority.
+name: lge-rnaseq-r-seurat
+channels:
+  - conda-forge
+dependencies:
+  # R, at the build that environment.yml, env-r-sva.yml and env-r-dream.yml hold, so that all four R environments run
+  # one R binary. Without the build the solver takes build 6 of R 4.5.3.
+  - r-base=4.5.3=h35b0bb1_4
+  # Seurat, the package that the template calls once it has read the counts
+  - r-seurat
+  # Matrix::readMM, which reads the matrix.mtx files before any Seurat call
+  - r-matrix
