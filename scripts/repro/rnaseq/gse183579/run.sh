@@ -198,3 +198,33 @@ if has lge_refset; then
     rm -rf "$set_dir"
   done
 fi
+
+# lge_nothost (RS-NOTHOST, gate GN, not in the default list): lungfish-cli (LGE_CLI) builds the deposit-layout set of
+# Mmul_10 Ensembl 100 with NC_045512.2 under WORK/lge/${LGE_RUN:-RS-NOTHOST}/root (kept for a rerun, gffread as in
+# lge_refset), then imports the 8 STARsolo libraries with --reference-set and each library's viral slice as
+# --not-host-bam. compare_lge_gn.py compares the result's cells.sqlite with virus/<GSM>.barcodes.tsv and
+# virus/summary.tsv, and logs/import.time holds the import's wall time and memory.
+if has lge_nothost; then
+  LGE=$WORK/lge/${LGE_RUN:-RS-NOTHOST}; E=$DATA/refs/rhesus/ensembl-100; P=$LGE/project
+  V=$DATA/refs/sars-cov-2/GCF_009858895.2/GCF_009858895.2_ASM985889v3
+  mkdir -p "$LGE/root/conda/envs" "$LGE/logs"
+  [ -x "$LGE/root/conda/envs/gffread/bin/gffread" ] || ln -sfn "${LGE_PACK_ENV:?no gffread in the root}" "$LGE/root/conda/envs/gffread"
+  set_dir=$(ls -d "$LGE/root/rnaseq-reference-sets"/*.lungfishrefset 2>/dev/null | head -1)
+  if [ -z "$set_dir" ]; then
+    grep '^NC_045512\.2	' "$WORK/ref/genes.gtf" > "$LGE/virus.gtf"
+    heavy /usr/bin/time -l -o "$LGE/logs/refset.time" $NICE "${LGE_CLI:?}" rnaseq reference-set --storage-root "$LGE/root" \
+      --default rhesus/ensembl-100 --genome "$E/Macaca_mulatta.Mmul_10.dna.toplevel.fa.gz" \
+      --annotation "$E/Macaca_mulatta.Mmul_10.100.gtf.gz" --layout deposit --study GSE183579 \
+      --extra "virus,NC_045512.2,${V}_genomic.fna.gz,$LGE/virus.gtf" > "$LGE/logs/refset.log" 2>&1 || die "lge set failed"
+    set_dir=$(ls -d "$LGE/root/rnaseq-reference-sets"/*.lungfishrefset | head -1)
+  fi
+  libs=(); bams=()
+  for d in "$WORK"/solo/GSM*; do
+    g=$(basename "$d"); libs+=("$d"); bams+=(--not-host-bam "$g=$WORK/slices/$g.NC_045512.2.bam")
+  done
+  rm -rf "$P"; mkdir -p "$P"
+  /usr/bin/time -l -o "$LGE/logs/import.time" $NICE "${LGE_CLI:?}" import rnaseq "${libs[@]}" --project "$P" \
+    --name gse183579-nothost --reference-set "$set_dir" "${bams[@]}" > "$LGE/logs/import.log" 2>&1 \
+    || die "lge import failed (see $LGE/logs/import.log)"
+  $PY "$HERE/compare_lge_gn.py" "$P/Analyses/gse183579-nothost.lungfishrnaseq" "$WORK/virus" | tee "$LGE/logs/compare.log"
+fi
