@@ -114,7 +114,9 @@ fi
 # lge_pseudobulk (RS-PSEUDOBULK, not in the default list): lungfish-cli (LGE_CLI) imports the 8 STARsolo libraries with
 # their animals from samples.tsv, then sums them by a label table cut from labels/cells.tsv.gz (pass_qc 1, source ours),
 # under WORK/lge/${LGE_RUN:-RS-PSEUDOBULK}. pseudobulk_check.py sums the same matrix text by the same table and compares
-# every cell of the result's table, and the groups it leaves out are compared with the record's.
+# every cell of the result's table, and the groups it leaves out are compared with the record's. The largest library
+# (LGE_LARGEST) is then imported and summed alone the same way, and logs/figures.txt holds the wall time and memory of
+# the four runs (import and leaf, for all 8 libraries and for the largest).
 if has lge_pseudobulk; then
   LGE=$WORK/lge/${LGE_RUN:-RS-PSEUDOBULK}; P=$LGE/project; A=$P/Analyses
   rm -rf "$P"; mkdir -p "$A" "$LGE/logs"
@@ -132,10 +134,30 @@ if has lge_pseudobulk; then
   $PY "$HERE/pseudobulk_check.py" check "$WORK/solo" "$LGE/labels.tsv" \
     "$A/gse183579-pseudobulk.lungfishrnaseq/counts/genes.counts.tsv" | tee "$LGE/logs/check.log"
   grep '^dropped: ' "$LGE/logs/check.log" | sed 's/^dropped: //' | sort > "$LGE/dropped.check.txt"
-  $PY -c 'import json, sys; [print(g["words"]) for g in json.load(open(sys.argv[1]))["options"]["resolvedDefaults"]["groupsLeftOut"]["array"]]' \
+  # ParameterValue writes every value as {"type": ..., "value": ...}, so a list of groups is {"type": "array", "value": [...]}
+  # and each group's words are g["value"]["words"]["value"] (read from a record the leaf wrote, 2026-11-15).
+  $PY -c 'import json, sys; [print(g["value"]["words"]["value"]) for g in json.load(open(sys.argv[1]))["options"]["resolvedDefaults"]["groupsLeftOut"]["value"]]' \
     "$A/gse183579-pseudobulk.lungfishrnaseq/.lungfish-provenance.json" | sort > "$LGE/dropped.record.txt"
   cmp -s "$LGE/dropped.check.txt" "$LGE/dropped.record.txt" && echo "dropped groups: equal to the record's" \
     || echo "dropped groups: DIFFER from the record's"
+  # The largest library alone (LGE_LARGEST, GSM5560898 holds the biggest matrix.mtx), for the leaf's wall time and memory
+  # on one matrix. Its labels are that library's rows of the same table.
+  big=${LGE_LARGEST:-GSM5560898}; B=$LGE/largest; BA=$B/project/Analyses
+  rm -rf "$B"; mkdir -p "$BA"
+  awk -F'\t' -v g="$big" 'NR == 1 || $1 == g' "$LGE/sheet.tsv" > "$B/sheet.tsv"
+  awk -F'\t' -v g="$big" 'NR == 1 || $1 == g' "$LGE/labels.tsv" > "$B/labels.tsv"
+  /usr/bin/time -l -o "$LGE/logs/largest.import.time" $NICE "$LGE_CLI" import rnaseq "$WORK/solo/$big" --project "$B/project" \
+    --name largest-cells --samples "$B/sheet.tsv" > "$LGE/logs/largest.import.log" 2>&1 || die "lge import of $big failed"
+  /usr/bin/time -l -o "$LGE/logs/largest.pseudobulk.time" $NICE "$LGE_CLI" rnaseq pseudobulk "$BA/largest-cells.lungfishrnaseq" \
+    --labels "$B/labels.tsv" --output "$BA/largest-pseudobulk.lungfishrnaseq" > "$LGE/logs/largest.pseudobulk.log" 2>&1 \
+    || die "lge pseudobulk of $big failed (see $LGE/logs/largest.pseudobulk.log)"
+  $PY "$HERE/pseudobulk_check.py" check "$WORK/solo" "$B/labels.tsv" \
+    "$BA/largest-pseudobulk.lungfishrnaseq/counts/genes.counts.tsv" | tee "$LGE/logs/largest.check.log"
+  for t in import pseudobulk largest.import largest.pseudobulk; do
+    awk -v t="$t" '/real/ {w = $1} /maximum resident/ {m = $1} /peak memory footprint/ {f = $1}
+      END {printf "%s: %s s wall, maximum resident set %.1f MiB, peak memory footprint %.1f MiB\n", t, w, m / 2^20, f / 2^20}' \
+      "$LGE/logs/$t.time"
+  done | tee "$LGE/logs/figures.txt"
 fi
 
 # lge_refset (RS-REFSET, gate GR, not in the default list): lungfish-cli (LGE_CLI) builds the reference set in
