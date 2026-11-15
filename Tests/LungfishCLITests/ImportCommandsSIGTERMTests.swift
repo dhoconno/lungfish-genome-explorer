@@ -137,7 +137,8 @@ final class ImportCommandsSIGTERMTests: XCTestCase {
 
     /// The same cancel for a single-cell import held in its pass over a Cell Ranger matrix of about 3.4 GB of text,
     /// 400 gzip members of one repeated entry in a 3.5 MB file, so the signal meets gzip and the parse. A cancelled
-    /// import publishes no result, leaves no staging folder and leaves no gzip behind (RS-SC-IMPORT).
+    /// import publishes no result, leaves no staging folder and leaves no gzip behind (RS-SC-IMPORT). A burner runs on
+    /// every core when the signal goes, as in the cancel cases of the other imports, so the stop is timed under load.
     func testImportRNASeqSingleCellTurnsSIGTERMIntoACancelAndLeavesNoStage() async throws {
         let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
@@ -150,6 +151,8 @@ final class ImportCommandsSIGTERMTests: XCTestCase {
         defer { run.stop() }
         let reached = await CLISIGTERMHarness.waitForFile(project.appendingPathComponent("Analyses", isDirectory: true))
         XCTAssertTrue(reached, "the command never made the Analyses folder")
+        let burners = try CLISIGTERMHarness.launchBurners(count: ProcessInfo.processInfo.activeProcessorCount)
+        defer { burners.forEach { $0.stop() } }
         let stop = await CLISIGTERMHarness.assertSIGTERMCancels(run, record: { Self.recordStatus(in: project) })
         try Self.assertCancelledEvents(stop.standardOutput)
         XCTAssertEqual(Self.bundles(in: project, folder: "Analyses"), [], "no result and no stage")
