@@ -52,7 +52,24 @@ The folder lives in the project's `Analyses/` folder, as the genotype and 12S re
 
 ### Single cell
 
-A single-cell matrix stays in `source/` as given, with its gzip or without it, and is never loaded, rewritten or converted (`docs/plans/2026-10-02-architecture-program.md:115`). LGE reads Matrix Market text and links no HDF5 library (same line). One streaming pass reads each matrix once and writes `cells.sqlite`, whose table `cells` has one row a barcode with its sample and per-cell totals and whose table `meta` holds its own schema version and the sha256 of every matrix it read. Phase 5.2 sets the columns of `cells` (`docs/plans/2026-10-02-architecture-program.md:113`, the ambient pool and the flag words). A barcode list of 10x never enters the bundle unless the person supplied it, checked by sha256 (`docs/plans/2026-10-02-architecture-program.md:103`).
+A single-cell matrix stays in `source/` as given, with its gzip or without it, and is never loaded, rewritten or converted (`docs/plans/2026-10-02-architecture-program.md:115`). LGE reads Matrix Market text and links no HDF5 library (same line). One streaming pass reads each matrix once, from the copy the writer has just hashed under `source/`, and writes `cells.sqlite`. A barcode list of 10x never enters the bundle unless the person supplied it, checked by sha256 (`docs/plans/2026-10-02-architecture-program.md:103`), so an import never copies Cell Ranger's `raw_feature_bc_matrix/` or STARsolo's `raw/`, whose barcodes are the whole list.
+
+The pass reads only the header `%%MatrixMarket matrix coordinate integer general`. It refuses in words, before anything is written, any other header (`real`, `pattern`, `complex`, `array`, `symmetric`) and any value that is not an unsigned decimal integer, such as `1.5` or `-1`, since a rounded count would be a false one. It also refuses a size line whose rows or columns differ from the features or barcodes, an entry count unlike the size line's, a row or column out of range and a gzip stream that ends early.
+
+Only features of type `Gene Expression` enter a cell's totals, and the record counts the features of each other type. A feature with no type column, as in an older `genes.tsv`, is `Gene Expression`. For a reference of two or more genomes the person names each genome by the id prefix Cell Ranger gives its genes, such as `hg19` for `hg19_ENSG00000223972`, and the record says the genomes were named so. The pass has no mitochondrial column, because those genes are found by contig and never by a name prefix (`docs/plans/2026-10-02-architecture-program.md:111`).
+
+`cells.sqlite` holds these tables in schema 1.
+
+| Table | One row a | Columns |
+| --- | --- | --- |
+| `meta` | fact | `key`, `value`. `schema_version` is `1`, and `sha256:<path>` holds the sha256 of each matrix, features and barcodes file the pass read, by its path in the result |
+| `samples` | sample | `sample` (from 1), `name` as in `samples.tsv`, `matrix` (its path in the result), `cells`, `features`, `entries` |
+| `cells` | barcode | `cell` (from 1 over all samples), `sample`, `column` (the barcode's column in its matrix, from 1), `barcode` as given (STARsolo's bare, 10x's with `-1`), `umis` and `genes` (the `Gene Expression` features with a count). One sample holds a barcode once |
+| `features` | feature | `feature` (its row in the matrix, from 1), `id`, `name`, `type`, `genome` (null unless genomes are named), `total` (its UMIs in every cell) and `cells` (the cells with a count) |
+| `genomes` | named genome | `genome` (from 1) and `name`, the prefix the person gave |
+| `cell_genomes` | cell and genome | `cell`, `genome`, `umis` and `genes` of that genome's features. Written only when genomes are named |
+
+Every sample of a result lists the same features in the same order, or the import is refused, so `features` sums over every sample.
 
 ## The manifest
 
@@ -70,8 +87,8 @@ A single-cell matrix stays in `source/` as given, with its gzip or without it, a
 | `samples`, `genes` | The path and sha256 of `samples.tsv` and `genes.tsv` |
 | `counts` | One entry a count table, with its path, sha256, rows (`gene` or `transcript`), unit (`reads`, `pairs`, `umis` or `estimated`) and column (`default` or `masked`) |
 | `sourceFiles` | One entry a kept file, with its path, sha256, size, sample and tool |
-| `matrices` | Single cell. One entry a sample, with the paths of its matrix, features and barcodes, each sha256, the format `matrix-market`, whether it is gzip, and its cells, features and entries |
-| `cellsSummary` | Single cell. The path, sha256 and schema version of `cells.sqlite` |
+| `matrices` | Single cell. One entry a sample, with `sample`, then `matrix`, `features` and `barcodes`, each a `path` under `source/` and its `sha256`, then `format` (`matrix-market`), `isGzip` (whether the matrix file is gzip), and `cellCount`, `featureCount` and `entryCount` from its size line, which the pass checks |
+| `cellsSummary` | Single cell. The `path` (`cells.sqlite`), `sha256` and `schemaVersion` of `cells.sqlite`, which the writer fills from the file it wrote |
 | `quality` | The path and sha256 of `quality/samples.quality.tsv`, which the writer writes when the caller gives the table. The header is `sample_id` and then the columns the caller names, with one row a sample and an empty cell for a number the tool did not give. The writer refuses a row whose sample is not in `samples.tsv`. A result with no `quality` key reads quality as Not recorded |
 | `notHost` | The ids of the not-host features, each one feature a genome or segment, which stay out of size factors (`docs/plans/2026-10-02-architecture-program.md:113`) |
 
