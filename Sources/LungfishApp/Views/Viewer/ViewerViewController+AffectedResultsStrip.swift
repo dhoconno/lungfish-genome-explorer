@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishKit
 import LungfishWorkflow
 
 /// The strip above a result whose record names a build that a row of ``AffectedResults`` holds. It carries the same
@@ -71,6 +72,11 @@ enum AffectedResultsStrip {
     /// Shows `words` in a strip above `surfaceView`, or takes the strip away when `words` is nil or the surface is
     /// not in `container`. The host pins the surface's top to the container, and the strip takes that place so that
     /// the surface starts below it.
+    ///
+    /// The strip starts at the container's safe area. The main window draws its content under the title bar and
+    /// toolbar (`.fullSizeContentView`), and a surface pinned to the container's top edge keeps its own content below
+    /// them, but the strip has nothing that does. At that edge the bar covered every word and left a 1 to 2 pt line
+    /// (walk finding AFFECTED-STRIP-NO-WORDS, build 13190).
     static func place(words: String?, above surfaceView: NSView?, in container: NSView) {
         remove(from: container)
         guard let words, !words.isEmpty, let surfaceView, surfaceView.superview === container else { return }
@@ -80,11 +86,10 @@ enum AffectedResultsStrip {
         let originalTop = container.constraints.first {
             $0.isActive && $0.firstItem === surfaceView && $0.firstAttribute == .top
         }
-        let stripTop = (originalTop?.secondAnchor as? NSLayoutYAxisAnchor) ?? container.topAnchor
         originalTop?.isActive = false
         strip.replacedTopConstraint = originalTop
         strip.placementConstraints = [
-            strip.topAnchor.constraint(equalTo: stripTop),
+            strip.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
             strip.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             strip.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             surfaceView.topAnchor.constraint(equalTo: strip.bottomAnchor),
@@ -116,6 +121,18 @@ extension ViewerViewController {
     func showAffectedResultsStrip(rows: [AffectedResultRow]) {
         AffectedResultsStrip.place(
             words: AffectedResultsStrip.words(for: rows), above: installedSurface?.viewController.view, in: view
+        )
+    }
+
+    /// Keeps the strip with the surface the host shows, which the host calls after each install and clear. The
+    /// Inspector's lookup can end before the viewer installs the result it is about, so the notice placed the strip
+    /// above the old surface and the host put the new one over it. The strip moves above the new surface with the
+    /// same words, and a viewer that shows no surface shows no strip. Only a notice changes the words, and the
+    /// Inspector's clear at each selection sends an empty one, so the words never outlive their item.
+    func affectedResultsStripFollowSurface(_ installed: (any ResultViewport)?) {
+        guard let strip = AffectedResultsStrip.strip(in: view) else { return }
+        AffectedResultsStrip.place(
+            words: installed == nil ? nil : strip.label.stringValue, above: installed?.viewController.view, in: view
         )
     }
 

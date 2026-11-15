@@ -68,7 +68,12 @@ extension ProvenanceInspectorViewModel {
         if removedRows || !rows.isEmpty, resolvedEnvelope != nil {
             copyableText = buildCopyableText()
         }
-        // The notice is a window event, so it carries the scope of the window that shows this Inspector.
+        postAffectedResults(rows)
+    }
+
+    /// Tells the viewers of this Inspector's window which rows matched, none after a clear. The notice is a window
+    /// event, so it carries the scope of the window that shows this Inspector.
+    func postAffectedResults(_ rows: [AffectedResultRow]) {
         NotificationCenter.default.post(
             name: .affectedResultsDidChange, object: self,
             userInfo: ScopedEventFilter.scopedUserInfo([Self.affectedResultsRowsKey: rows], scope: windowStateScope)

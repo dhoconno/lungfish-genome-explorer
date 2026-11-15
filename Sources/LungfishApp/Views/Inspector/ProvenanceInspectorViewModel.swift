@@ -444,6 +444,8 @@ final class ProvenanceInspectorViewModel {
         audit.status != .notRequired
     }
 
+    /// Empties the record and tells the viewer's strip that no row matches, so a strip never outlives the item it
+    /// spoke for. A load clears first, and its lookup tells the strip again when it ends.
     func clear() {
         loadGeneration += 1
         lookup?.task.cancel()
@@ -465,6 +467,7 @@ final class ProvenanceInspectorViewModel {
         resolvedEnvelope = nil
         resolvedSidecarURL = nil
         searchText = ""
+        postAffectedResults([])
     }
 
     /// Updates the inspected item and resolves its provenance off the main actor.

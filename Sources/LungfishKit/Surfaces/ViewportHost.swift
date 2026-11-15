@@ -56,6 +56,10 @@ public final class ViewportHost {
     /// The factories this host makes surfaces from. A test registers a stand-in here.
     public let registry: SurfaceRegistry
 
+    /// Called after the host installs a surface, with that surface, and after a clear, with nil. The viewer puts back
+    /// what it lays out above the installed surface, such as the strip of a result an earlier build made wrong.
+    public var activeViewportDidChange: (@MainActor (_ installed: (any ResultViewport)?) -> Void)?
+
     private var gate = AsyncRequestGate<SurfaceRequest>()
     private weak var containerView: NSView?
     private weak var parentController: NSViewController?
@@ -105,6 +109,7 @@ public final class ViewportHost {
         requestedKind = nil
         lastOutcome = nil
         removeActiveViewport(replacedBy: nil)
+        activeViewportDidChange?(nil)
     }
 
     /// Whether `token` belongs to the latest show that no clear has ended. An
@@ -144,6 +149,7 @@ public final class ViewportHost {
             view.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
         ])
         activeViewport = viewport
+        activeViewportDidChange?(viewport)
         return true
     }
 

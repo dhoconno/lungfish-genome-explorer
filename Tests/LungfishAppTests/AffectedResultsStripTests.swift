@@ -186,7 +186,12 @@ final class AffectedResultsStripTests: XCTestCase {
         surface.removeFromSuperview()
         AffectedResultsStrip.place(words: nil, above: nil, in: container)
         XCTAssertNil(AffectedResultsStrip.strip(in: container))
-        XCTAssertTrue(container.constraints.filter(\.isActive).isEmpty, "nothing refers to the removed surface")
+        // The container keeps the constraints of its own safe-area guide, which the strip's top is pinned to.
+        XCTAssertFalse(container.constraints.contains { constraint in
+            constraint.isActive && [constraint.firstItem, constraint.secondItem].contains {
+                $0 === surface || $0 is AffectedResultsStripView
+            }
+        }, "nothing refers to the removed surface or to a strip")
     }
 
     func testMoreThanOneRowCountsTheOthersAndLeavesThemToTheInspector() throws {

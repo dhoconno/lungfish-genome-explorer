@@ -190,8 +190,13 @@ public class ViewerViewController: NSViewController {
         GenotypeManualHaplotypeBandDisclosureStore()
     var onGenotypeResultViewWillHide: ((GenotypeResultViewController) -> Void)?
 
-    /// The one result surface slot, with factories from ViewerViewController+Surfaces.swift.
-    lazy var surfaceHost = ViewportHost(registry: makeSurfaceRegistry(), containerView: view, parentController: self)
+    /// The one result surface slot, with factories from ViewerViewController+Surfaces.swift. The affected-results
+    /// strip follows each surface it installs or clears.
+    lazy var surfaceHost: ViewportHost = {
+        let host = ViewportHost(registry: makeSurfaceRegistry(), containerView: view, parentController: self)
+        host.activeViewportDidChange = { [weak self] installed in self?.affectedResultsStripFollowSurface(installed) }
+        return host
+    }()
 
     /// The kind whose display method is running, so the clear it runs first leaves that kind to the host's show.
     var surfaceKindBeingDisplayed: SurfaceKind?

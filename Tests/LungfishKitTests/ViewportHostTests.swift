@@ -164,6 +164,26 @@ final class ViewportHostTests: XCTestCase {
         XCTAssertNil(host.lastOutcome)
     }
 
+    /// The viewer lays its strip out above the installed surface, so the host says when it installs one and when a
+    /// clear leaves none. A show that replaces a surface says nothing until its load commits.
+    func testTheHostSaysWhenItInstallsASurfaceAndWhenAClearLeavesNone() {
+        var calls: [ObjectIdentifier?] = []
+        host.activeViewportDidChange = { installed in
+            calls.append(installed.map { ObjectIdentifier($0 as AnyObject) })
+        }
+
+        host.show(kind: twelveS, input: "read already")
+        XCTAssertEqual(calls, [ObjectIdentifier(stubs.made[0])])
+
+        stubs.holdsLoad = true
+        host.show(kind: kraken2, input: "held")
+        XCTAssertEqual(calls.count, 1, "the old surface is gone, and nothing is installed while the load holds")
+        stubs.made[1].releaseLoad()
+
+        host.clear()
+        XCTAssertEqual(calls.last, .some(nil), "a clear leaves no surface")
+    }
+
     // MARK: - Failures leave no child and carry words
 
     func testAShowOfAnUnregisteredKindFailsWithWordsAndRemovesTheOldChild() async {
