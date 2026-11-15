@@ -81,7 +81,7 @@ Every sample of a result lists the same features in the same order, or the impor
 | `kind` | `rnaseq-result` |
 | `modality` | `bulk` or `single-cell` |
 | `name`, `createdAt` | The display name and an ISO 8601 date |
-| `origin` | `imported` with the tool and version that made the files, or `quantified` when LGE ran the route |
+| `origin` | `imported` with the tool and version that made the files, `quantified` when LGE ran the route, or `pseudobulk` with the tool and version of the single-cell result whose cells LGE summed (Pseudobulk below) |
 | `route` | One route, with its id, the counting tool, its version and every setting that changes counts, such as salmon with selective alignment on reads, STAR GeneCounts and its column, or featureCounts with its `-M`, `-O`, `-s` and `--fraction` settings (`docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md:102`). `lungfish-cli rnaseq quant` writes the id `salmon-selective-alignment-reads` with the settings `mapping`, `libraryType` (`A`), `detectedLibraryType`, `k`, `decoys`, `index` and the index's hashes (`indexSeqHash`, `indexNameHash`, `indexDecoySeqHash`, `indexDecoyNameHash`), `seqBias`, `gcBias` and `posBias` (`off` as LGE runs salmon), `trimming` (`Reads not trimmed` or the poly-G line), `duplicates`, `counts` (`NumReads`) and `geneSums` (`Sources/LungfishWorkflow/RNASeq/SalmonQuantRoute+Record.swift`) |
 | `referenceSet` | The set's `id` and `layout`, `lge` or `deposit` ([reference-set.md](reference-set.md)), or `null` when the imported files state none, which a reader shows as Not recorded (`docs/plans/2026-10-02-architecture-program.md:189`) |
 | `samples`, `genes` | The path and sha256 of `samples.tsv` and `genes.tsv` |
@@ -97,6 +97,34 @@ The run facts stay in the record and the manifest repeats none of them.
 ## One table, one route
 
 A result holds the counts of one route on one reference set. A second route, or the same route on a second set, makes a second result. Counts from two routes or two reference sets never join in one table (`docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md:102`, `docs/plans/2026-10-02-architecture-program.md:113`), so the export refuses in words a table whose columns come from more than one route or set (`docs/plans/2026-10-02-architecture-program.md:190`). A not-host feature keeps its count in `counts/genes.counts.tsv`, its flag in `genes.tsv` and its id in `notHost`, and the export leaves it out of size factors (`docs/plans/2026-10-02-architecture-program.md:113`).
+
+## Pseudobulk
+
+`lungfish-cli rnaseq pseudobulk <result> --labels <table> --output <new result>` sums the raw UMI counts of a single-cell result by sample and by a label table that the analyst exports from Seurat or Scanpy. It writes a bulk result that the export reads, since five benchmarks find that tests on single cells give false discoveries (`docs/plans/2026-10-02-architecture-program.md:107`). `RNASeqPseudobulk` in `Sources/LungfishWorkflow/RNASeq/` reads and sums, and `Sources/LungfishCLI/Commands/RNASeqPseudobulkSubcommand.swift` is the leaf. The leaf writes through the one writer, so a refusal, an error or a cancel leaves no folder.
+
+### The label table
+
+The table is tab-separated with a header, plain or gzip. It holds a `barcode` and a `label` column, and a `sample` column when the result holds two or more samples. Other columns are read past. A barcode matches `cells.barcode` as given, so a STARsolo barcode is bare and a 10x barcode ends in `-1`. A `sample` matches a `sample_id` of `samples.tsv`. A cell that the table does not list has no label.
+
+### Groups and the sum
+
+A group is one sample and one label. After `RNASeqResultBundle.verifyChecksums`, the pass reads each matrix under `source/` once and adds every entry of a labelled cell to its group, in whole numbers and never rounded. The rows are the `Gene Expression` features only, as a cell's totals are, and the record counts the features of each other type. A group of fewer than 10 cells is left out, and standard output and the record say `Group <sample> <label> holds <n> cells, under 10, and is left out.` Cells with no label are left out too, and the same two places give their count in each sample.
+
+### The result
+
+Each group kept is one column of `counts/genes.counts.tsv`, with rows `gene`, unit `umis` and column `default`. The column id is `<sample>_<label>`. The columns follow the order of the samples, and within a sample the code-point order of the labels. Each column's row of `samples.tsv` carries the sample's `animal`, `species`, `origin` and `runs`, with the label as `group`, so the export can count the animals of a group. `genes.tsv` holds the rows of the single-cell result's `genes.tsv` for the `Gene Expression` features. The result keeps the single-cell result's `route` and `referenceSet` and adds the route setting `pseudobulk`, so its counts never join a bulk route in one table. Its `origin` is `pseudobulk`, with the single-cell result's tool and version, and it keeps no file under `source/`.
+
+The record names the single-cell result with the sha256 of its manifest and the label table with its sha256. It lists the groups kept and the groups left out, each with its cells and UMIs, the cells with no label in each sample with their UMIs, and the features of each other type. The UMIs of the groups kept, the groups left out and the cells with no label add up to the `Gene Expression` UMIs of the single-cell result.
+
+### What it refuses
+
+Each refusal comes before anything is written, in words that name the file and what to do.
+
+- A bulk result, and a single-cell result whose files differ from the sha256 values of its manifest.
+- A label table with no `barcode` or `label` column, a table with no `sample` column for a result of two or more samples, and a line whose cells differ in number from the header's.
+- Barcodes that the sample does not hold, with their count and the first 10, a barcode listed twice for one sample, an empty label and a `sample` that the result does not hold.
+- Two groups that would get one column id, such as sample `A_1` with label `T` and sample `A` with label `1_T`, and a table that leaves no group of 10 or more cells.
+- An output that exists, and an output whose name does not end in `.lungfishrnaseq`.
 
 ## The export
 
