@@ -129,6 +129,35 @@ final class TaxTriageUnmarkedFitRefusalTests: XCTestCase {
         }
     }
 
+    /// BIO 5, a pin. With no key, `S1.1` that records its own `S1.1.S1.1.dwnld.references.bam` is read from it, and `S1`
+    /// that records that same file is refused, since the file is `S1.1`'s.
+    func testADottedSampleIdKeepsItsOwnBAMAndTheSampleBeforeTheDotIsRefused() async throws {
+        let recorded = "minimap2/S1.1.S1.1.dwnld.references.bam"
+        let ownRoot = try TestTempDirectory.make(prefix: "TaxTriageUnmarkedFit")
+        defer { TestTempDirectory.cleanup(ownRoot) }
+        let bam = try placeBAM(recorded, in: ownRoot)
+        let ownDatabase = try makeResult(recording: ["S1.1": recorded], metadata: Self.olderBuild, in: ownRoot)
+        let found = try await ClassifierReadResolver().testingResolveBAMURL(
+            tool: .taxtriage, sampleId: "S1.1", resultPath: ownDatabase
+        )
+        XCTAssertEqual(found.resolvingSymlinksInPath().path, bam.resolvingSymlinksInPath().path)
+
+        let siblingRoot = try TestTempDirectory.make(prefix: "TaxTriageUnmarkedFit")
+        defer { TestTempDirectory.cleanup(siblingRoot) }
+        _ = try placeBAM(recorded, in: siblingRoot)
+        let siblingDatabase = try makeResult(recording: ["S1": recorded], metadata: Self.olderBuild, in: siblingRoot)
+        do {
+            let taken = try await ClassifierReadResolver().testingResolveBAMURL(
+                tool: .taxtriage, sampleId: "S1", resultPath: siblingDatabase
+            )
+            XCTFail("S1 records S1.1's BAM, so none is read, but \(taken.lastPathComponent) was")
+        } catch let error as ClassifierExtractionError {
+            guard case .taxTriageBAMBeforeFitMark(let sample, let file, _) = error else { return XCTFail("\(error)") }
+            XCTAssertEqual(sample, "S1")
+            XCTAssertEqual(file, "S1.1.S1.1.dwnld.references.bam")
+        }
+    }
+
     // MARK: - Helpers
 
     /// The refusal's words for `file`, the BAM that the database records for `sample`, and the result folder `folder`.
