@@ -72,7 +72,17 @@ extension ImportCommand.RNASeqSubcommand.Plan {
         request.notHostCells = result
         facts.merge(notHostFacts) { _, new in new }
         let flagged = result.samples.flatMap(\.calls).filter { SingleCellNotHostFlag.words(for: result.extras[$0.extra].kind) == $0.flag }.count
-        return (request, facts, summary + ", \(flagged) flagged above ambient" + Self.notHostLeftOutNote(result.samples))
+        // A cell counts once, though a virus and a bacterium can each have no flag computed for it.
+        let notComputed = result.samples.reduce(0) { total, sample in
+            total + Set(sample.calls.filter { $0.flag.hasPrefix("not computed") }.map(\.column)).count
+        }
+        return (request, facts, summary + Self.notHostSummary(flagged: flagged, notComputed: notComputed) + Self.notHostLeftOutNote(result.samples))
+    }
+
+    /// The import line's clause on the flags: the cells flagged, and the cells with no flag computed for want of an ambient
+    /// pool or an rRNA mask, since `0 flagged above ambient` alone reads as a clean zero (BIO-NOTHOST-BARCODE item 6).
+    static func notHostSummary(flagged: Int, notComputed: Int) -> String {
+        ", \(flagged) flagged above ambient" + (notComputed > 0 ? ", \(notComputed) cells not computed (no ambient pool or no rRNA mask)" : "")
     }
 
     /// The import line's words for each library whose BAM held alignments and counted none, or holds barcodes that the raw
