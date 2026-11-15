@@ -1,0 +1,29 @@
+OVERVIEW: Sum a single-cell result's UMIs by sample and label
+
+Writes a new bulk RNA-seq result with one column for each sample and label of
+the table --labels names. A group under 10 cells is left out and said, and so
+are the cells with no label.
+
+USAGE: lungfish-cli rnaseq pseudobulk <result-path> --labels <labels> --output <output> [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
+
+ARGUMENTS:
+  <result-path>           A single-cell .lungfishrnaseq result
+
+OPTIONS:
+  --labels <labels>       A tab-separated table with barcode and label columns,
+                          and sample for a result of two or more samples
+  --output <output>       The new .lungfishrnaseq folder to write. It must not
+                          exist
+  --format <format>       Output format (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

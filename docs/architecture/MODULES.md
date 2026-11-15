@@ -30,7 +30,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1599 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1601 | LungfishCore, LungfishIO |
 | LungfishWorkflowTwelveS | library | Sources/LungfishWorkflowTwelveS | 38 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
@@ -3380,6 +3380,8 @@ None.
 - `RNASeqExportWords` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqExportReader.swift`
 - `RNASeqImportError` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCountTableReader.swift`
 - `RNASeqImportFacts` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCountTableReader.swift`
+- `RNASeqPseudobulk` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqPseudobulk.swift`
+- `RNASeqPseudobulkRefusal` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqPseudobulkRefusal.swift`
 - `RNASeqResultWriter` struct, `Sources/LungfishWorkflow/RNASeq/RNASeqResultWriter.swift`
 - `RNASeqResultWriterError` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqResultWriter+Files.swift`
 - `RNASeqSampleSheet` struct, `Sources/LungfishWorkflow/RNASeq/RNASeqSampleSheet.swift`

@@ -1,0 +1,4 @@
+{"event":"start","message":"Summing single-cell UMIs by sample and label.","progress":0,"schemaVersion":2}
+{"event":"log","level":"warning","message":"Group starsolo-pbmc_1k_v3 nine holds 9 cells, under 10, and is left out.","schemaVersion":2}
+{"event":"log","level":"warning","message":"30 cells of sample starsolo-pbmc_1k_v3 have no label and are left out.","schemaVersion":2}
+{"event":"complete","message":"Summed 161 cells into 3 groups of pb","output":"\/work\/Analyses\/pb.lungfishrnaseq","outputs":["\/work\/Analyses\/pb.lungfishrnaseq"],"progress":1,"schemaVersion":2}

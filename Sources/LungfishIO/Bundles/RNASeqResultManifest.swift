@@ -16,9 +16,11 @@ public struct RNASeqResultManifest: Codable, Equatable, Sendable {
     public enum Modality: String, Codable, Sendable { case bulk, singleCell = "single-cell" }
 
     public struct Origin: Codable, Equatable, Sendable {
-        public enum Kind: String, Codable, Sendable { case imported, quantified }
+        /// `pseudobulk` is a bulk result whose UMIs LGE summed from a single-cell result by sample and label.
+        public enum Kind: String, Codable, Sendable { case imported, quantified, pseudobulk }
         public var kind: Kind
-        /// The tool and version that made imported files, nil when LGE ran the route.
+        /// The tool and version that made imported files, or those of the single-cell result a pseudobulk summed. Nil
+        /// when LGE ran the route.
         public var tool: String?
         public var toolVersion: String?
 

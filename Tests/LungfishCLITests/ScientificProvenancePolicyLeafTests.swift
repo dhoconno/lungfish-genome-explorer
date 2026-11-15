@@ -474,6 +474,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "rnaseq quant": "cli.rnaseq",
         "rnaseq reference-set": "cli.rnaseq",
         "rnaseq export": "cli.rnaseq.export",
+        "rnaseq pseudobulk": "cli.rnaseq.pseudobulk",
         "run-headless": "cli.run-headless",
         "search": "cli.search",
         "sequence add-annotation": "cli.sequence.add-annotation",

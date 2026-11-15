@@ -224,6 +224,8 @@ public enum ScientificProvenancePolicy {
         "kraken2 export table": dataWriting("cli.kraken2.export.table", writer: "ScientificFileExportProvenance"),
         // `rnaseq export` writes the counts folder and its record in one staged rename (lane RS-HANDOFF).
         "rnaseq export": dataWriting("cli.rnaseq.export", writer: "ScientificFileExportProvenance"),
+        // `rnaseq pseudobulk` writes a bulk result through the one writer, root record last (lane RS-PSEUDOBULK).
+        "rnaseq pseudobulk": dataWriting("cli.rnaseq.pseudobulk", writer: "RNASeqResultWriter/ProvenanceWriter"),
         // The `conda` group holds no entry, because most of its commands maintain the installation.
         // These two write scientific data.
         "conda db download": dataWriting(

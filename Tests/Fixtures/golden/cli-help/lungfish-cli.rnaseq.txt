@@ -12,5 +12,6 @@ SUBCOMMANDS:
   index                   Build or reuse the salmon index of a reference set
   quant                   Count bulk RNA-seq reads in a project with salmon
   export                  Export RNA-seq counts for DESeq2, edgeR and limma
+  pseudobulk              Sum a single-cell result's UMIs by sample and label
 
   See 'lungfish-cli help rnaseq <subcommand>' for detailed help.
