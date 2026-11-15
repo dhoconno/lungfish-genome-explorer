@@ -16,17 +16,28 @@ import Darwin
 /// (ARCH-r3 ruling 3).
 ///
 /// Grammar: `lungfish-executor image-manifest --conda-prefix <absolute folder> [--conda-prefix <absolute folder>]...
-/// --output <file>`. It runs `ImageToolManifest.build(condaPrefixes:)` for this build's platform, so the image build in
+/// [--data-file <role>=<absolute file>]... --output <file>`. A `--data-file` names a file of the image that serves a plan
+/// role, the 10x barcode list as `barcodeList`. The command reads it for its SHA-256 and size and lists it under the
+/// manifest's `files`. A run with no `--data-file` writes the bytes it always wrote, and a missing file, a file that is not
+/// a regular file, a path that is not absolute and a role other than `barcodeList` are refused with exit 2.
+/// It runs `ImageToolManifest.build(condaPrefixes:)` for this build's platform, so the image build in
 /// C4 and the Mac replay write the manifest with the same code, and writes the manifest's bytes to `--output`, a file
 /// that must not exist yet, created with `O_EXCL | O_NOFOLLOW` and synced. It prints one line on stdout,
 /// `sha256 <hex> size <bytes> tools <count>`, the values a plan pins as `imageManifest`. Exit codes are
 /// `ExecutorExitCode`: 0 written, 2 refused (a prefix the builder refuses, an unsupported platform, an output that
 /// exists), 1 failed (a write error) and 64 for a usage error. A refused or failed run leaves no output file.
 enum ImageManifestCommand {
-    static let usage = "usage: lungfish-executor image-manifest --conda-prefix <absolute folder> [--conda-prefix <absolute folder>]... --output <file>\n"
+    static let usage = "usage: lungfish-executor image-manifest --conda-prefix <absolute folder> [--conda-prefix <absolute folder>]... [--data-file <role>=<absolute file>]... --output <file>\n"
+
+    /// One `--data-file <role>=<absolute file>`, split at the first `=`.
+    struct DataFile: Equatable, Sendable {
+        var role: String
+        var path: String
+    }
 
     struct Options: Equatable, Sendable {
         var condaPrefixes: [String] = []
+        var dataFiles: [DataFile] = []
         var output = ""
     }
 
@@ -41,7 +52,7 @@ enum ImageManifestCommand {
         var index = 0
         while index < arguments.count {
             let argument = arguments[index]
-            guard argument == "--conda-prefix" || argument == "--output" else {
+            guard argument == "--conda-prefix" || argument == "--output" || argument == "--data-file" else {
                 return .failure(UsageError(message: "unknown argument \(argument)"))
             }
             guard index + 1 < arguments.count, !arguments[index + 1].isEmpty else {
@@ -50,6 +61,11 @@ enum ImageManifestCommand {
             let value = arguments[index + 1]
             if argument == "--conda-prefix" {
                 options.condaPrefixes.append(value)
+            } else if argument == "--data-file" {
+                guard let equals = value.firstIndex(of: "="), equals != value.startIndex, value.index(after: equals) != value.endIndex else {
+                    return .failure(UsageError(message: "--data-file needs <role>=<absolute file>"))
+                }
+                options.dataFiles.append(DataFile(role: String(value[..<equals]), path: String(value[value.index(after: equals)...])))
             } else {
                 guard output == nil else { return .failure(UsageError(message: "--output is given twice")) }
                 output = value
@@ -73,8 +89,17 @@ enum ImageManifestCommand {
         }
         let data: Data
         do {
-            let manifest = try ImageToolManifest.build(condaPrefixes: options.condaPrefixes.map { URL(fileURLWithPath: $0) })
+            // The data files come first, so a missing list is refused the same way on every host.
+            let files = try options.dataFiles.map(readDataFile)
+            var manifest = try ImageToolManifest.build(condaPrefixes: options.condaPrefixes.map { URL(fileURLWithPath: $0) })
+            if !files.isEmpty {
+                manifest.files = files
+                try manifest.validate()
+            }
             data = try manifest.encoded()
+            guard data.count <= ImageToolManifest.maximumSize else {
+                throw ImageToolManifestError(field: "files", reason: "The tool manifest would be \(data.count) bytes, over the limit of \(ImageToolManifest.maximumSize).")
+            }
         } catch let error as ImageToolManifestError {
             report("lungfish-executor: image-manifest refused, \(error.field): \(error.reason)\n")
             return ExecutorExitCode.refused
@@ -98,6 +123,26 @@ enum ImageManifestCommand {
         let line = "sha256 \(PortableDigest.sha256Hex(of: data)) size \(data.count) tools \(toolCount(data))\n"
         try? FileHandle.standardOutput.write(contentsOf: Data(line.utf8))
         return ExecutorExitCode.succeeded
+    }
+
+    /// The manifest entry of one `--data-file`, with the SHA-256 and size of a regular file at an absolute path. The only role
+    /// an image data file serves today is `barcodeList`.
+    private static func readDataFile(_ file: DataFile) throws -> ImageDataFile {
+        guard file.role == PlanEntryRole.barcodeList.rawValue else {
+            throw ImageToolManifestError(field: "dataFile", reason: "The role \(file.role) is not one an image data file serves. The only role is \(PlanEntryRole.barcodeList.rawValue).")
+        }
+        if let reason = ImageToolManifest.refusal(forToolPath: file.path) {
+            throw ImageToolManifestError(field: "dataFile", reason: reason.replacingOccurrences(of: "The tool path", with: "The data file path"))
+        }
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              let size = (attributes[.size] as? NSNumber)?.int64Value else {
+            throw ImageToolManifestError(field: "dataFile", reason: "The data file \(file.path) is not a regular file that can be read.")
+        }
+        guard let digest = try? PortableDigest.sha256Hex(ofFileAt: URL(fileURLWithPath: file.path)) else {
+            throw ImageToolManifestError(field: "dataFile", reason: "The data file \(file.path) cannot be read.")
+        }
+        return ImageDataFile(path: file.path, role: file.role, sha256: digest, size: size)
     }
 
     /// Writes every byte and syncs, or returns the reason.

@@ -23,6 +23,17 @@ final class LinuxToolLockTests: XCTestCase {
     /// review read. A change reruns that read and FC-B1's experiment inside the image.
     private static let trimGaloreEnvironmentSHA256 = "451e1a92edf4b665c8180fb17fedd6caefd40d6ba4de14e78325ad7b40ecec5a"
 
+    /// The SHA-256 of the RNA-seq environment's explicit file (salmon, STAR, subread and umi_tools, EX-IMAGE part 1). STAR,
+    /// salmon and subread are the linux-64 builds that BIO passed on the LINUX-HOST run. umi_tools had no Linux run.
+    private static let rnaseqEnvironmentSHA256 = "1b4deb25d1cd575683f4a910ce018cd993e6035602981468ef00228ea104e961"
+
+    /// The SHA-256 of the STAR 2.7.3a environment's explicit file. It has a prefix of its own, since one environment cannot
+    /// hold STAR 2.7.3a and 2.7.11b (the index formats do not mix).
+    private static let star273aEnvironmentSHA256 = "39b60738aca85958f78a365eb27d38c0c7aed18fa983be9e74dd4f8ae351933a"
+
+    /// The tools of the RNA-seq chain that the Mac lock's `tools` lack. salmon is the Mac lock's rna-seq pack tool.
+    private static let linuxOnlyTools: Set<String> = ["star", "subread", "umi_tools", "star273a"]
+
     /// The Mac lock's tools the CHTC image does not carry. A tool added to the Mac lock fails the
     /// mirror test until it is named here or added to the linux-64 lock.
     private static let toolsTheImageDoesNotCarry: Set<String> = [
@@ -36,6 +47,32 @@ final class LinuxToolLockTests: XCTestCase {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// The version of a pack tool in the Mac lock's `packTools`, read from the lock file as plain JSON.
+    private func macPackToolVersion(_ id: String) throws -> String {
+        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: ManagedToolLock.resourceURL()))
+        let packTools = try XCTUnwrap((object as? [String: Any])?["packTools"] as? [[String: Any]])
+        return try XCTUnwrap(packTools.first { $0["id"] as? String == id }?["version"] as? String, id)
+    }
+
+    /// A tool of the RNA-seq chain, which the Mac lock lacks (STAR, subread, umi_tools) or holds as a pack tool (salmon).
+    private func checkRNASeqTool(_ tool: ManagedToolLock.ToolSpec, linux: ManagedToolLock, mac: ManagedToolLock) throws {
+        let pinned = try XCTUnwrap(CondaSpec(spec: tool.packageSpec), tool.id)
+        XCTAssertEqual(pinned.version, tool.version, "\(tool.id) pin and version agree")
+        if tool.id == "salmon" {
+            let macSalmon = try macPackToolVersion("salmon")
+            XCTAssertEqual(tool.version, macSalmon, "salmon is the Mac lock's version")
+        } else {
+            XCTAssertNil(mac.tool(named: tool.id), "\(tool.id) is a Linux-only tool")
+        }
+        let build = try XCTUnwrap(pinned.build, "\(tool.id) pins a build")
+        let packages = try XCTUnwrap(linux.explicitLockPackages()[tool.environment], tool.environment)
+        XCTAssertTrue(packages.contains(LockedCondaPackage(name: pinned.name, version: pinned.version, build: build)),
+                      "\(pinned.name) \(pinned.version) \(build) is a package of the \(tool.environment) lock")
+        let lock = try XCTUnwrap(linux.explicitLock(forEnvironment: tool.environment), tool.environment)
+        let text = try String(contentsOf: lock.validatedResourceURL(), encoding: .utf8)
+        XCTAssertTrue(text.contains("/linux-64/\(pinned.name)-\(pinned.version)-\(build)."), "\(tool.id) comes from the linux-64 subdirectory")
+    }
+
     // MARK: - The mirror
 
     func testLinuxLockMirrorsMacLockVersions() throws {
@@ -47,11 +84,16 @@ final class LinuxToolLockTests: XCTestCase {
         let linuxIDs = Set(linux.tools.map(\.id))
         XCTAssertEqual(linux.tools.count, linuxIDs.count, "a tool id appears once in the linux-64 lock")
         XCTAssertTrue(linuxIDs.isDisjoint(with: Self.toolsTheImageDoesNotCarry))
-        XCTAssertEqual(macIDs, linuxIDs.union(Self.toolsTheImageDoesNotCarry),
+        XCTAssertEqual(macIDs, linuxIDs.subtracting(Self.linuxOnlyTools).subtracting(["salmon"]).union(Self.toolsTheImageDoesNotCarry),
                        "every Mac tool is in the linux-64 lock or named as left out of the image")
-        XCTAssertEqual(linuxIDs, ["bbtools", "fastp", "deacon", "htslib", "seqkit", "pigz", "trim_galore"])
+        XCTAssertEqual(linuxIDs, ["bbtools", "fastp", "deacon", "htslib", "seqkit", "pigz", "trim_galore",
+                                  "salmon", "star", "subread", "umi_tools", "star273a"])
 
         for tool in linux.tools {
+            if tool.id == "salmon" || Self.linuxOnlyTools.contains(tool.id) {
+                try checkRNASeqTool(tool, linux: linux, mac: mac)
+                continue
+            }
             let macTool = try XCTUnwrap(mac.tool(named: tool.id), tool.id)
             XCTAssertEqual(tool.version, macTool.version, "\(tool.id) version")
             XCTAssertEqual(tool.executables, macTool.executables, "\(tool.id) executables")
@@ -148,8 +190,24 @@ final class LinuxToolLockTests: XCTestCase {
         XCTAssertEqual(linux.tool(named: "trim_galore")?.environment, "trim_galore")
         XCTAssertEqual(try XCTUnwrap(linux.explicitLock(forEnvironment: "trim_galore")).sha256, Self.trimGaloreEnvironmentSHA256,
                        "a change to the Trim Galore build reruns the K5 review's read of its engine")
-        for tool in linux.tools where tool.id != "trim_galore" {
-            XCTAssertEqual(tool.environment, "lge-tools", tool.id)
+        // EX-IMAGE part 1: the RNA-seq chain adds two prefixes, so the image holds four environments.
+        XCTAssertEqual(Set(linux.explicitLocks.map(\.toolID)), ["lge-tools", "trim_galore", "rnaseq", "star273a"])
+        let rnaseq = try XCTUnwrap(installed["rnaseq"])
+        XCTAssertEqual(try XCTUnwrap(linux.explicitLock(forEnvironment: "rnaseq")).sha256, Self.rnaseqEnvironmentSHA256,
+                       "a change to the RNA-seq environment reruns the LINUX-HOST comparison")
+        for (name, version, build) in [("star", "2.7.11b", "h5814d7d_9"), ("salmon", "2.11.0", "hfa8f182_0"), ("subread", "2.1.1", "h577a1d6_0")] {
+            XCTAssertTrue(rnaseq.contains(LockedCondaPackage(name: name, version: version, build: build)),
+                          "\(name) \(version) \(build) is the build BIO passed on the LINUX-HOST run")
+        }
+        XCTAssertTrue(rnaseq.contains { $0.name == "umi_tools" && $0.version == "1.1.6" })
+        XCTAssertFalse(rnaseq.contains { $0.name == "star" && $0.version == "2.7.3a" }, "one environment never holds both STARs")
+        let star273a = try XCTUnwrap(installed["star273a"])
+        XCTAssertEqual(try XCTUnwrap(linux.explicitLock(forEnvironment: "star273a")).sha256, Self.star273aEnvironmentSHA256)
+        XCTAssertTrue(star273a.contains { $0.name == "star" && $0.version == "2.7.3a" })
+        let own: [String: String] = ["trim_galore": "trim_galore", "star": "rnaseq", "salmon": "rnaseq", "subread": "rnaseq",
+                                     "umi_tools": "rnaseq", "star273a": "star273a"]
+        for tool in linux.tools {
+            XCTAssertEqual(tool.environment, own[tool.id] ?? "lge-tools", tool.id)
         }
     }
 

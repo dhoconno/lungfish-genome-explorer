@@ -155,4 +155,68 @@ final class ImageManifestCommandTests: XCTestCase {
         XCTAssertEqual(tools, [ImageTool(id: "java", version: "25.0.2", build: "h1602c4f_26",
                                          path: "\(prefix)/bin/java", condaPackage: "openjdk")])
     }
+
+    // MARK: - --data-file (lane EX-IMAGE)
+
+    private func writeList() throws -> (path: String, data: Data) {
+        let data = Data("AAACCCAAGAAACACT\nAAACCCAAGAAACCAC\n".utf8)
+        let path = "\(folder)/list.txt"
+        try data.write(to: URL(fileURLWithPath: path))
+        return (path, data)
+    }
+
+    func testDataFileArgumentsSplitAtTheFirstEqualsAndRefuseAMalformedOne() {
+        XCTAssertEqual(
+            ImageManifestCommand.parse(["--conda-prefix", "/a", "--data-file", "barcodeList=/x/a=b.txt", "--data-file", "barcodeList=/y.txt",
+                                        "--output", "/m.json"]),
+            .success(ImageManifestCommand.Options(
+                condaPrefixes: ["/a"],
+                dataFiles: [.init(role: "barcodeList", path: "/x/a=b.txt"), .init(role: "barcodeList", path: "/y.txt")],
+                output: "/m.json")))
+        for bad in ["barcodeList", "=/x.txt", "barcodeList="] {
+            XCTAssertEqual(ImageManifestCommand.parse(["--conda-prefix", "/a", "--data-file", bad, "--output", "/m.json"]),
+                           .failure(.init(message: "--data-file needs <role>=<absolute file>")), bad)
+        }
+    }
+
+    /// A run with no `--data-file` writes today's bytes, and one with a file lists its path, role, SHA-256 and size.
+    func testDataFileFillsFilesAndNoDataFileKeepsTodaysBytes() throws {
+        let prefix = try makePrefix()
+        let list = try writeList()
+        let plain = try runExecutor(["image-manifest", "--conda-prefix", prefix, "--output", "\(folder)/plain.json"], name: "plain")
+        let with = try runExecutor(["image-manifest", "--conda-prefix", prefix, "--data-file", "barcodeList=\(list.path)",
+                                    "--output", "\(folder)/with.json"], name: "with")
+        guard ImageToolPlatform.current != nil else {
+            XCTAssertEqual(with.code, ExecutorExitCode.refused, "a Linux aarch64 test host has no conda platform")
+            return
+        }
+        XCTAssertEqual(plain.code, ExecutorExitCode.succeeded, plain.err)
+        XCTAssertEqual(with.code, ExecutorExitCode.succeeded, with.err)
+        let plainBytes = try Data(contentsOf: URL(fileURLWithPath: "\(folder)/plain.json"))
+        XCTAssertFalse(String(decoding: plainBytes, as: UTF8.self).contains("files"))
+        let withBytes = try Data(contentsOf: URL(fileURLWithPath: "\(folder)/with.json"))
+        let manifest = try ImageToolManifest.decode(withBytes)
+        XCTAssertEqual(manifest.files, [ImageDataFile(path: list.path, role: "barcodeList",
+                                                      sha256: PortableDigest.sha256Hex(of: list.data), size: Int64(list.data.count))])
+        XCTAssertEqual(manifest.tools, try ImageToolManifest.decode(plainBytes).tools)
+        XCTAssertEqual(with.out, "sha256 \(PortableDigest.sha256Hex(of: withBytes)) size \(withBytes.count) tools 1\n")
+    }
+
+    func testDataFileRefusesAMissingFileAnotherRoleARelativePathAFolderAndAFileListedTwice() throws {
+        let prefix = try makePrefix()
+        let list = try writeList()
+        try FileManager.default.createDirectory(atPath: "\(folder)/folder", withIntermediateDirectories: true)
+        for (argument, name) in [("barcodeList=\(folder)/absent.txt", "absent"), ("database=\(list.path)", "role"),
+                                 ("barcodeList=list.txt", "relative"), ("barcodeList=\(folder)/folder", "folder")] {
+            let output = "\(folder)/\(name).json"
+            let run = try runExecutor(["image-manifest", "--conda-prefix", prefix, "--data-file", argument, "--output", output], name: name)
+            XCTAssertEqual(run.code, ExecutorExitCode.refused, "\(name): \(run.err)")
+            XCTAssertTrue(run.err.contains("image-manifest refused, dataFile"), "\(name): \(run.err)")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: output), "\(name) leaves no output")
+        }
+        let twice = try runExecutor(["image-manifest", "--conda-prefix", prefix, "--data-file", "barcodeList=\(list.path)",
+                                     "--data-file", "barcodeList=\(list.path)", "--output", "\(folder)/twice.json"], name: "twice")
+        XCTAssertEqual(twice.code, ExecutorExitCode.refused, twice.err)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "\(folder)/twice.json"))
+    }
 }
