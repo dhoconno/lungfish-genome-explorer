@@ -273,6 +273,16 @@ final class RNASeqQuantCommandTests: XCTestCase {
     /// The app's Cancel, modelled on `ImportCommandsSIGTERMTests`: one SIGTERM while salmon runs ends salmon, the command
     /// exits 125, and it publishes nothing and leaves no stage, no working folder and no `uses/` file.
     func testSIGTERMEndsSalmonPublishesNothingAndLeavesNoStageWorkFolderOrUse() async throws {
+        try await assertCancelLeavesNothing(everyCoreBusy: false)
+    }
+
+    /// The same cancel with every core busy, which the grace must still cover, as a debug CLI under load may pass it
+    /// (`ImportCommandsSIGTERMTests`, review RS-QUANT SWIFT should-fix 1).
+    func testSIGTERMWithEveryCoreBusyStillEndsSalmonWithinTheGrace() async throws {
+        try await assertCancelLeavesNothing(everyCoreBusy: true)
+    }
+
+    func assertCancelLeavesNothing(everyCoreBusy: Bool) async throws {
         let set = try await makeSetAndIndex()
         let bundle = try pairBundle("A"), project = fixtures.projectURL
         try Data().write(to: capture.appendingPathComponent("hold"))
@@ -281,9 +291,15 @@ final class RNASeqQuantCommandTests: XCTestCase {
         defer { run.stop() }
         let pid = await CLISIGTERMHarness.waitForProcessID(in: capture.appendingPathComponent("salmon.pid"))
         XCTAssertNotNil(pid, "the command never reached salmon")
+        let burners = try everyCoreBusy ? CLISIGTERMHarness.launchBurners(count: ProcessInfo.processInfo.activeProcessorCount) : []
+        defer { burners.forEach { $0.stop() } }
         let stop = await CLISIGTERMHarness.cancel(run)
         CLISIGTERMHarness.assertCancelledExit(stop)
         CLISIGTERMHarness.assertNoProcessLeft(stop)
+        // A cancelled quant writes no record: the result's record is published with the result, so nothing here reads
+        // completed or cancelled (review RS-QUANT SWIFT ruling, should-fix 3).
+        XCTAssertTrue(stop.standardError.contains("The quant was cancelled. No result was written."), stop.standardError)
+        XCTAssertNotEqual(ProvenanceRecorder.loadEnvelope(from: project)?.status.rawValue, "completed", "no record reads completed")
         if let pid { XCTAssertNotEqual(kill(pid, 0), 0, "salmon was ended") }
         XCTAssertEqual(results(in: project), [], "a cancelled quant publishes nothing and leaves no stage in Analyses")
         let scratch = ProjectTempDirectory.tempRoot(for: project)
