@@ -10,7 +10,7 @@ import Synchronization
 
 extension SalmonIndexCache {
     public static let usesFolderName = "uses"
-    static let resultRecordName = ".lungfish-provenance.json"
+    static let resultRecordName = ProvenanceRecorder.provenanceFilename
 
     /// One use of an index: the result folder that names it and the sha256 of that folder's record when the use was made.
     public struct Use: Codable, Sendable, Equatable {
