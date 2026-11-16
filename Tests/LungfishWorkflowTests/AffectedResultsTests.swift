@@ -335,6 +335,45 @@ final class AffectedResultsTests: XCTestCase {
                      "a Viral Recon run takes its kind from the Analyses metadata")
     }
 
+    func testATrimThatNamedItsAdapterOrTurnedAdapterTrimmingOffIsNoKind() {
+        typealias Name = AffectedResults.RecordName
+        let adapter = "AGATCGGAAGAGC"
+        /// A trim record whose writer kept `explicit` as its options (`FastqTrimSubcommand.swift:158-166`,
+        /// `FastqAdapterTrimSubcommand.swift:85-89`).
+        func trim(
+            _ workflow: String, _ explicit: [String: ParameterValue], _ steps: [ProvenanceStep] = []
+        ) -> ProvenanceEnvelope {
+            var record = named(workflow, steps)
+            record.options = ProvenanceOptions(explicit: explicit)
+            return record
+        }
+
+        // fastp was handed its adapter, or told to trim none, so it had no adapter to guess.
+        XCTAssertNil(AffectedResults.kind(of: trim(Name.fastqTrim, ["adapterSequence": .string(adapter)])),
+                     "fastq trim with an adapter sequence")
+        XCTAssertNil(AffectedResults.kind(of: trim(Name.fastqTrim, ["adapterTrimming": .boolean(false)])),
+                     "fastq trim with adapter trimming off")
+        XCTAssertNil(AffectedResults.kind(of: trim(Name.fastqAdapterTrim, ["adapter": .string(adapter)])),
+                     "fastq adapter-trim with an adapter")
+
+        // No adapter named and trimming left on, a blank adapter, and a record with no option key leave fastp to guess.
+        let unnamed: [String: ParameterValue] = ["adapterSequence": .null, "adapterTrimming": .boolean(true)]
+        XCTAssertEqual(AffectedResults.kind(of: trim(Name.fastqTrim, unnamed)), .fastqTrim)
+        XCTAssertEqual(AffectedResults.kind(of: trim(Name.fastqAdapterTrim, ["adapter": .null])), .fastqTrim)
+        XCTAssertEqual(AffectedResults.kind(of: trim(Name.fastqTrim, ["adapterSequence": .string("  ")])), .fastqTrim,
+                       "a blank adapter names none")
+        XCTAssertEqual(AffectedResults.kind(of: named(Name.fastqTrim)), .fastqTrim, "a record with no option key")
+
+        // A step that passed the paired guess keeps the rows, whatever the options say.
+        let guess = step("fastp", ["fastp", "-i", "r1.fq", "-I", "r2.fq", "--detect_adapter_for_pe"])
+        XCTAssertEqual(AffectedResults.kind(of: trim(Name.fastqTrim, ["adapterSequence": .string(adapter)], [guess])),
+                       .fastqTrim, "fastp may have guessed")
+
+        // Whether the reads were interleaved never narrows a trim: a mixed file runs its unpaired reads single-end.
+        XCTAssertEqual(AffectedResults.kind(of: trim(Name.fastqTrim, ["interleaved": .boolean(true)])), .fastqTrim)
+        XCTAssertEqual(AffectedResults.kind(of: trim(Name.fastqTrim, ["interleaved": .boolean(false)])), .fastqTrim)
+    }
+
     func testTheRootNamesAreTheNamesTheirWritersRecord() throws {
         // `lungfish fastq trim` wrote the compat fixture's cancelled trim, and the CHTC adoption of 2026.10.25 build 11392
         // wrote the import whose recipe fastp trim passed --detect_adapter_for_pe (fixture README).
