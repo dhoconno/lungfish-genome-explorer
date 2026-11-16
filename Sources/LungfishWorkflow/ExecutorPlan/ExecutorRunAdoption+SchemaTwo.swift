@@ -30,6 +30,8 @@ struct ExecutorAdoptedCountsRun: Sendable {
     let record: ExecutorRunRecord
     /// Every `home` output of the plan, in the order of its steps and of each step's outputs.
     let homeOutputs: [ExecutorAdoptedOutput]
+    /// The indices of the steps that run the route's pin and return a `home` output, as the argv checks read them.
+    let countingSteps: [Int]
     /// The image `staging.json` names, or nil for a folder that holds none.
     let stagingImage: ExecutorAdoptStagingImage?
 }
@@ -52,10 +54,11 @@ extension ExecutorRunAdoption {
         let (pipeline, route) = try countsIdentity(of: plan)
         try checkSteps(record, plan: plan)
         let homeOutputs = try checkOutputs(record, plan: plan, resolver: checked.resolver)
-        try checkSettingsInArgv(record, plan: plan, route: route)
+        let counting = countingStepIndices(of: plan, route: route)
+        try checkSettingsInArgv(record, plan: plan, route: route, counting: counting)
         return ExecutorAdoptedCountsRun(
             folder: URL(fileURLWithPath: checked.resolver.workRoot, isDirectory: true), plan: plan, pipeline: pipeline,
-            route: route, record: record, homeOutputs: homeOutputs, stagingImage: checked.stagingImage
+            route: route, record: record, homeOutputs: homeOutputs, countingSteps: counting, stagingImage: checked.stagingImage
         )
     }
 

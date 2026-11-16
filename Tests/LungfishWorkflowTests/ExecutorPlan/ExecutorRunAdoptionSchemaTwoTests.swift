@@ -122,8 +122,11 @@ struct SchemaTwoReturnedFolder {
     }
 
     /// Writes the plan, each `home` output and a succeeded record true to both into `root/<name>`. Each step's record
-    /// holds the plan's argv after the tool's absolute path, as the executor records it.
-    static func make(root: URL, name: String = "returned-counts", plan: ExecutionPlan = plan()) throws -> SchemaTwoReturnedFolder {
+    /// holds the plan's argv after the tool's absolute path, as the executor records it. `contents` gives an output's
+    /// bytes by its plan path, such as a salmon file the RNA-seq payload reads (lane EX-ADOPT M2).
+    static func make(
+        root: URL, name: String = "returned-counts", plan: ExecutionPlan = plan(), contents: [String: Data] = [:]
+    ) throws -> SchemaTwoReturnedFolder {
         let folder = root.appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let planBytes = try plan.encoded()
@@ -133,7 +136,7 @@ struct SchemaTwoReturnedFolder {
             var outputs: [ExecutorStepRecord.Output] = []
             for path in step.outputs {
                 let policy = step.outputPolicy?[path] ?? .stays
-                let bytes = Data("\(step.id) wrote \(path)\n".utf8)
+                let bytes = contents[path] ?? Data("\(step.id) wrote \(path)\n".utf8)
                 if policy == .home {
                     let url = folder.appendingPathComponent(path)
                     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -234,6 +237,7 @@ final class ExecutorRunAdoptionSchemaTwoTests: XCTestCase {
         XCTAssertEqual(run.homeOutputs.map(\.stepID), ["trim", "quant", "quant", "quant", "quant"])
         XCTAssertEqual(run.homeOutputs.map(\.stepIndex), [0, 1, 1, 1, 1])
         XCTAssertEqual(run.route, plan.pipeline?.route)
+        XCTAssertEqual(run.countingSteps, [1])
         let recorded = returned.record.steps.flatMap(\.outputs).filter { $0.policy == .home }
         XCTAssertEqual(run.homeOutputs.map(\.sha256), recorded.map(\.sha256))
         for output in run.homeOutputs {

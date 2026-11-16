@@ -22,19 +22,25 @@ extension ExecutorRunAdoption {
 
     /// Each setting of `route.settings` that a step's argv carries shows in the recorded argv of that step, so the argv
     /// and the identity never disagree, and a salmon result returns its library type report. Each refusal names the step.
-    /// A counting step runs the pin the route names and returns a `home` output, as the decoder's own rule reads it.
+    /// `counting` is `countingStepIndices(of:route:)`, which the result's files come from too.
     static func checkSettingsInArgv(
-        _ record: ExecutorRunRecord, plan: ExecutionPlan, route: PlanPipelineRoute
+        _ record: ExecutorRunRecord, plan: ExecutionPlan, route: PlanPipelineRoute, counting: [Int]
     ) throws(ExecutorAdoptRefusal) {
         try checkTrimming(record, plan: plan, trimming: route.settings["trimming"] ?? "")
-        let counting = plan.steps.indices.filter { index in
-            let step = plan.steps[index]
-            return step.tool?.id == route.tool && step.tool?.version == route.toolVersion
-                && step.outputPolicy?.values.contains(.home) == true
-        }
         try checkAlignmentScoring(record, plan: plan, counting: counting, route: route)
         if route.tool == salmonToolID {
             try checkLibraryFormatReport(plan, counting: counting)
+        }
+    }
+
+    /// The steps that run the pin `route` names and return a `home` output, as the decoder's own rule reads a counting
+    /// step. The argv checks read these steps, and the result's files come from their `home` outputs, so both take the
+    /// same indices (EX-ADOPT-M1-SWIFT SF3).
+    static func countingStepIndices(of plan: ExecutionPlan, route: PlanPipelineRoute) -> [Int] {
+        plan.steps.indices.filter { index in
+            let step = plan.steps[index]
+            return step.tool?.id == route.tool && step.tool?.version == route.toolVersion
+                && step.outputPolicy?.values.contains(.home) == true
         }
     }
 
