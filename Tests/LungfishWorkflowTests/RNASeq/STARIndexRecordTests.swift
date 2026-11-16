@@ -280,4 +280,56 @@ extension STARIndexPlanTests {
         }
         XCTAssertTrue(crossedWords.hasSuffix("It read \(crossed), so adopt it with --tenx-filter gencode-2020-A."), crossedWords)
     }
+
+    // MARK: - A set that loses a gene tells the unfiltered digest from the made file's (SOLO-PLAN M1 BIO should-fix 2)
+
+    /// `builtSet()` with a tRNA gene added to the annotation, which neither biotype list keeps.
+    func builtSetWithATRNAGene() async throws -> ReferenceSetOutcome {
+        var text = try String(contentsOf: ReferenceSetMitoFixture.folder.appendingPathComponent("cynomolgus-mt.gtf"), encoding: .utf8)
+        if !text.hasSuffix("\n") { text += "\n" }
+        text += "NC_012670.1\tRefSeq\tgene\t100\t160\t.\t+\t.\tgene_id \"TRNA-X\"; gene \"TRNA-X\"; gene_biotype \"tRNA\";\n"
+            + "NC_012670.1\tRefSeq\texon\t100\t160\t.\t+\t.\tgene_id \"TRNA-X\"; transcript_id \"TRNA-X:1\"; gbkey \"tRNA\";\n"
+        let annotation = root.appendingPathComponent("mt-trna.gtf")
+        try text.write(to: annotation, atomically: true, encoding: .utf8)
+        var request = ReferenceSetMitoFixture.request(.lge)
+        request.annotation = annotation
+        request.extras = [ReferenceSetExtraInput(
+            name: "sars-cov-2", kind: .virus,
+            fasta: ReferenceSetMitoFixture.folder.appendingPathComponent("sars-cov-2.fa"), annotation: nil)]
+        let owner = ReferenceSetOwner(
+            storageRoot: root, deriver: StandInTranscriptDeriver(), provenanceWriter: ProvenanceWriter(signingProvider: nil))
+        return try await owner.build(request)
+    }
+
+    /// A swap of `countingGTFSHA256` and the made file's digest passes every row on the plain set, where the two are equal.
+    func testAVariantOfASetThatLosesAGeneKeepsTheUnfilteredDigestAndNamesTheFilteredFile() async throws {
+        let set = try await builtSetWithATRNAGene()
+        let id = set.manifest.id
+        let derived = try XCTUnwrap(set.manifest.derived.countingGTF)
+        let derivedSize = try Data(contentsOf: set.url.appendingPathComponent("derived/genes.gtf")).count
+        var variant = request(set.url)
+        variant.tenxFilter = .mkgtf300
+        variant.planFolder = root.appendingPathComponent("plan-folder", isDirectory: true)
+        let made = try STARIndexPlan.make(variant)
+        let file = try XCTUnwrap(made.made)
+        XCTAssertEqual(file.genesLeftOut, ["TRNA-X"])
+        XCTAssertNotEqual(file.sha256, derived.sha256, "the made file lost the gene's two lines")
+        XCTAssertLessThan(Int(file.size), derivedSize)
+        let path = "references/\(id)/made/tenx1-mkgtf-3.0.0/genes.gtf"
+        let entry = try XCTUnwrap(made.plan.entries.first { $0.relativePath == path })
+        XCTAssertEqual([entry.sha256, "\(entry.size)"], [file.sha256, "\(file.size)"], "the entry names the made file")
+        XCTAssertEqual(made.key.countingGTFSHA256, derived.sha256, "the key keeps the unfiltered file's digest")
+        XCTAssertEqual(made.key.gtfFilter, .init(rule: "tenx", ruleVersion: 1, list: "mkgtf-3.0.0", sha256: file.sha256,
+                                                 size: file.size, genesLeftOut: 1))
+        let record = try STARIndexAdopt.adopt(
+            runRecord: try runRecord(for: set, gtf: (path, file.sha256)).data, setFolder: set.url, staging: Self.stagingLayout,
+            tenxFilter: .mkgtf300)
+        XCTAssertEqual(record.key.gtfFilter, made.key.gtfFilter)
+        XCTAssertEqual(record.key.countingGTFSHA256, derived.sha256)
+        let unfiltered = refusal {
+            _ = try STARIndexAdopt.adopt(runRecord: try runRecord(for: set, gtf: (path, derived.sha256)).data, setFolder: set.url,
+                                         staging: Self.stagingLayout, tenxFilter: .mkgtf300)
+        }
+        XCTAssertTrue(unfiltered.contains("with SHA-256 \(derived.sha256)"), unfiltered)
+    }
 }
