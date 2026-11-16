@@ -12,7 +12,7 @@ import LungfishPortable
 package enum STARIndexPlan {
     package static let sampleName = "index"
     package static let genomeDirectory = "star-index"
-    package static let logOutput = "star-index.Log.out"
+    package static let logOutput = "star-index/Log.out"
     package static let genomeSAsparseD = 2
     /// STAR's default, which is read length minus one for 101-base reads and the value of every script of
     /// `scripts/repro/rnaseq` that sets it. The argv names it so the plan and the key pin it.
@@ -71,7 +71,7 @@ package enum STARIndexPlan {
                 "--sjdbGTFfile", gtfPath, "--sjdbOverhang", "\(sjdbOverhang)", "--runThreadN", "\(threads)",
                 "--genomeSAindexNbases", "\(nbases)",
                 "--limitGenomeGenerateRAM", "32000000000", "--genomeSAsparseD", "\(genomeSAsparseD)",
-                "--outFileNamePrefix", "star-index."],
+                "--outFileNamePrefix", "star-index/"],
             deadlineSeconds: deadline, inputs: fasta + [gtfPath], outputs: staged + [logOutput], outputPolicy: policy))
         let used = [pins.star] + (steps.count > 1 ? [pins.decompressor] : [])
         let plan = ExecutionPlan(
