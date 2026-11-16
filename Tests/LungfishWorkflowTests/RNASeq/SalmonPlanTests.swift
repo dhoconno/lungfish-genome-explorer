@@ -261,7 +261,12 @@ final class SalmonPlanTests: XCTestCase {
         let batch = try SalmonPlanSubmit.write([(made, figures)], image: image, layout: layout, into: folder)
         XCTAssertEqual(batch.samples, ["SRR1"])
         let dag = try String(contentsOf: folder.appendingPathComponent("run.dag"), encoding: .utf8)
-        XCTAssertTrue(dag.contains("9000MB") && dag.contains("30"), dag)
+        let vars = try XCTUnwrap(dag.split(separator: "\n").first { $0.hasPrefix("VARS SRR1 ") }, dag)
+        XCTAssertTrue(vars.contains(#" request_disk="30GB" request_memory="9000MB" request_cpus="4" "#), String(vars))
+        let sub = try String(contentsOf: folder.appendingPathComponent("sample.sub"), encoding: .utf8)
+            .split(separator: "\n").map(String.init)
+        XCTAssertTrue(Set(["request_cpus = $(request_cpus)", "request_memory = $(request_memory)", "request_disk = $(request_disk)"])
+            .isSubset(of: sub), sub.joined(separator: "\n"))
         let planText = String(decoding: try plan.encoded(), as: UTF8.self)
         XCTAssertFalse(planText.contains("9000"), "no request figure in a plan byte")
     }
@@ -344,5 +349,97 @@ final class SalmonPlanTests: XCTestCase {
             XCTAssertTrue(words.contains("The pinned index salmon-2.11.0-k31-genome-decoys is not the index of this plan, "
                 + "salmon-2.11.0-k25-genome-decoys"), words)
         }
+    }
+
+    // MARK: - The instrument words (FIX-SALMON-1 item 3, red first)
+
+    /// A read file whose sidecar holds the instrument ids and their models as the scan writes them.
+    func instrumentPayload(_ name: String, ids: [String], models: [String]) throws -> URL {
+        let url = root.appendingPathComponent("\(name).fastq")
+        try Data("@r\nACGT\n+\nIIII\n".utf8).write(to: url)
+        let json = """
+            {"nameForm": "casava18", "instrumentIDs": \(ids), "runNumbers": [1], "flowcells": ["F1"], "lanes": [1],
+             "models": \(models), "modelsAreInferred": true, "modelSource": "table", "namedRecords": 1,
+             "unnamedRecords": 0, "listsTruncated": false}
+            """
+        var metadata = PersistedFASTQMetadata()
+        metadata.sequencerInstrument = try JSONDecoder().decode(SequencerInstrument.self, from: Data(json.utf8))
+        FASTQMetadataStore.save(metadata, for: url)
+        return url
+    }
+
+    /// Two instruments of one model name it once, and an id the table does not know names no model, so a sidecar of
+    /// unknown ids leaves `sample.instrument` out, as the page says when none is known (SWIFT review should-fix 3).
+    func testTheSidecarsInstrumentNamesEachModelOnceAndAnUnknownModelNone() throws {
+        let twin = try instrumentPayload("twin", ids: ["A00001", "A00002"], models: ["NovaSeq 6000", "NovaSeq 6000"])
+        XCTAssertEqual(SalmonPlan.instrument(payloads: [twin]), PlanSampleInstrument(model: "NovaSeq 6000", inferred: true))
+        let mixed = try instrumentPayload(
+            "mixed", ids: ["A00001", "XYZ", "NB501"], models: ["NovaSeq 6000", "Unknown", "NextSeq 550"])
+        XCTAssertEqual(SalmonPlan.instrument(payloads: [mixed]),
+                       PlanSampleInstrument(model: "NovaSeq 6000 and NextSeq 550", inferred: true))
+        XCTAssertNil(SalmonPlan.instrument(payloads: [try instrumentPayload("unknown", ids: ["XYZ"], models: ["Unknown"])]))
+    }
+
+    // MARK: - The frame's other shapes and refusals (FIX-SALMON-1 item 3)
+
+    func stagedPlan(
+        _ set: ReferenceSetOutcome, pairs: [(String, String)], singles: [String] = []
+    ) throws -> ExecutionPlan {
+        func read(_ name: String) -> SalmonPlanStagedRead {
+            SalmonPlanStagedRead(path: "/staging/groups/lab/reads/\(name)", size: 100, sha256: String(repeating: "e", count: 64))
+        }
+        let sample = SalmonPlan.stagedSample(name: "S", pairs: pairs.map { (read($0.0), read($0.1)) }, singles: singles.map(read))
+        return try SalmonPlan.make(SalmonPlanRequest(
+            setFolder: set.url, storageRoot: storageRoot, sample: sample, pins: pins, trim: .trimGalore(polyG: false))).plan
+    }
+
+    /// Single reads take one `trim-singles` call and `-r`, and two pairs take one call a pair and `-1` and `-2` in pair
+    /// order, each the Mac's argv (`SalmonQuantRoute+Reads.swift`) at the request's default `-p 8` (BIO should-fix 2).
+    func testASingleEndAndATwoPairSampleKeepTheMacsArgv() async throws {
+        let set = try await builtSet()
+        try publishIndex(setID: set.manifest.id)
+        let index = "references/\(set.manifest.id)/indexes/salmon-2.11.0-k31-genome-decoys"
+        let one = try stagedPlan(set, pairs: [], singles: ["SE1.fastq.gz"])
+        XCTAssertEqual(one.steps.map(\.id), ["trim-singles", "salmon-quant"])
+        XCTAssertEqual(one.steps[0].arguments, ["--no_poly_g", "-o", "trim-singles", "inputs/single1.fastq.gz"])
+        XCTAssertEqual(one.steps[0].outputPolicy, [
+            "trim-singles/single1_trimmed.fq.gz": .stays, "trim-singles/single1.fastq.gz_trimming_report.json": .home,
+            "logs/trim-singles.stderr": .home,
+        ])
+        XCTAssertEqual(one.steps[1].arguments, ["quant", "-i", index, "-l", "A", "-r", "trim-singles/single1_trimmed.fq.gz",
+                                                "-p", "8", "-o", "quant"])
+        let two = try stagedPlan(set, pairs: [], singles: ["SE1.fastq.gz", "SE2.fastq.gz"])
+        XCTAssertEqual(two.steps[0].arguments,
+                       ["--no_poly_g", "-o", "trim-singles", "inputs/single1.fastq.gz", "inputs/single2.fastq.gz"])
+        XCTAssertEqual(Array(two.steps[1].arguments[5...7]),
+                       ["-r", "trim-singles/single1_trimmed.fq.gz", "trim-singles/single2_trimmed.fq.gz"])
+        XCTAssertFalse(two.steps[1].arguments.contains("-1"))
+
+        let pairs = try stagedPlan(set, pairs: [("SRR1_1.fastq.gz", "SRR1_2.fastq.gz"), ("SRR2_1.fastq.gz", "SRR2_2.fastq.gz")])
+        XCTAssertEqual(pairs.steps.map(\.id), ["trim-pair1", "trim-pair2", "salmon-quant"])
+        XCTAssertEqual(pairs.entries.filter { $0.role == .input }.map(\.relativePath), [
+            "inputs/pair1_R1.fastq.gz", "inputs/pair1_R2.fastq.gz", "inputs/pair2_R1.fastq.gz", "inputs/pair2_R2.fastq.gz",
+        ])
+        XCTAssertEqual(pairs.steps[1].arguments,
+                       ["--no_poly_g", "--paired", "-o", "trim-pair2", "inputs/pair2_R1.fastq.gz", "inputs/pair2_R2.fastq.gz"])
+        XCTAssertEqual(pairs.steps[2].arguments, [
+            "quant", "-i", index, "-l", "A", "-1", "trim-pair1/pair1_R1_val_1.fq.gz", "trim-pair2/pair2_R1_val_1.fq.gz",
+            "-2", "trim-pair1/pair1_R2_val_2.fq.gz", "trim-pair2/pair2_R2_val_2.fq.gz", "-p", "8", "-o", "quant",
+        ])
+    }
+
+    /// Pairs with single reads, a sample of no reads and CPUs that differ from `-p` are each refused in words that say
+    /// what to do (SWIFT should-fix 3).
+    func testMixedReadsNoReadsAndOtherCPUsAreRefusedInWords() async throws {
+        func words(_ body: () throws -> Void) -> String {
+            do { try body(); return "no refusal" } catch { return error.localizedDescription }
+        }
+        let (set, made) = try await stagedMade(threads: 4)
+        let mixed = words { _ = try self.stagedPlan(set, pairs: [("A_1.fastq.gz", "A_2.fastq.gz")], singles: ["A.fastq.gz"]) }
+        XCTAssertTrue(mixed.contains("holds read pairs and single reads, which one salmon run cannot count as one sample"), mixed)
+        let none = words { _ = try self.stagedPlan(set, pairs: []) }
+        XCTAssertEqual(none, "The sample S holds no reads, so no plan was written.")
+        let cpus = words { _ = try SalmonPlanSubmit.figures(for: set.manifest, made: made, memoryMiB: 9000, cpus: 8, diskGiB: 30) }
+        XCTAssertEqual(cpus, "The job asks for 8 CPUs and its plan runs salmon with -p 4. Write the plan with the CPUs the job asks for.")
     }
 }

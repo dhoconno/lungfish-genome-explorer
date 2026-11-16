@@ -358,4 +358,21 @@ final class SalmonQuantRouteTests: XCTestCase {
         XCTAssertEqual(salmonLine(untrimmed, sample: "A", "trimming"), "Reads not trimmed")
         XCTAssertEqual(logLines("trimlog").count, 2, "Trim Galore ran only when asked")
     }
+
+    /// A trimmed result's route holds the `adapter` setting that a trimmed Linux plan's route holds, so a Mac result and
+    /// an adopted Linux result of the same reads can share a route, and an untrimmed one holds none (BIO review of
+    /// EX-PLAN-SALMON M1, should-fix 1, WAVES-5.1-C Q8).
+    func testATrimmedResultsRouteHoldsTheAdapterSettingAndAnUntrimmedOneHoldsNone() async throws {
+        let set = try await makeSetAndIndex()
+        let bundle = try pairBundle("A")
+        func route(_ result: URL) throws -> [String: String] {
+            let data = try Data(contentsOf: result.appendingPathComponent(RNASeqResultManifest.filename))
+            return try JSONDecoder().decode(RNASeqResultManifest.self, from: data).route.settings
+        }
+        let trimmed = try route(try await quant([bundle], set: set, trim: .trimGalore(polyG: false)).resultURL)
+        XCTAssertEqual(trimmed["adapter"], "Adapter: chosen by Trim Galore 2.3.0 from read 1 (auto-detection)")
+        let untrimmed = try route(try await quant([bundle], set: set).resultURL)
+        XCTAssertNil(untrimmed["adapter"], "no trimmer ran, so no adapter was chosen")
+        XCTAssertEqual(untrimmed["trimming"], "Reads not trimmed")
+    }
 }
