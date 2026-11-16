@@ -188,7 +188,7 @@ final class SeededPairOrderMemoryTests: XCTestCase {
     /// Writes `pairs` records to each of `r1` and `r2` in 8 MiB pieces, so the generator never holds more than that.
     /// Every read is a slice of a random base template at its own offset, with a binned quality line of long runs, so
     /// the text is realistic in size and the bucket files compress about as the reads of a real run do.
-    private static func writeSyntheticPairs(r1: URL, r2: URL, pairs: Int, readLength: Int) throws {
+    static func writeSyntheticPairs(r1: URL, r2: URL, pairs: Int, readLength: Int) throws {
         var state: UInt64 = 0x1234_5678_9ABC_DEF1
         func next() -> UInt64 {
             state = state &+ 0x9E37_79B9_7F4A_7C15
