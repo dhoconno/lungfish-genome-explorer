@@ -12,8 +12,13 @@
 // Memory stays bounded. Pairs are spilled, compressed, to bucket files by
 // the high bits of their key, and each bucket is sorted in memory and
 // written in turn. A bucket holds one range of keys, so the order is the
-// same for any bucket count.
+// same for any bucket count. Every bucket is read and unpacked into the
+// same two buffers, because on macOS a freed block of tens of MiB stays in
+// the footprint for a while: a fresh file buffer and entry array a bucket
+// raised it by about half the staged text (FASTP-STAGING-MEMORY).
 
+import Compression
+import Darwin
 import Foundation
 import LungfishCore
 
@@ -130,15 +135,11 @@ public enum SeededPairOrder {
         var output2 = Output(handle: sink2)
         for bucket in 0..<buckets.count {
             try Task.checkCancellation()
-            // One autorelease pool a bucket. Reading and unpacking a bucket makes Foundation objects (NSData), and a job
-            // that does not return to its run loop drains no pool, so without this every bucket's text stayed held until
-            // the job ended: 10.7 GB at 19.3 M pairs (FASTP-STAGING-MEMORY, ruling BIO-ROWS-1-3).
-            try autoreleasepool {
-                let raw = try buckets.load(bucket)
-                for entry in try entries(in: raw, bucket: bucket, seed: seed) {
-                    try output1.append(raw[entry.r1])
-                    try output2.append(raw[entry.r2])
-                }
+            // The bucket is unpacked into the buffer every bucket shares, read here in place and never copied.
+            let length = try buckets.load(bucket)
+            for entry in try entries(in: buckets.raw, count: length, bucket: bucket, seed: seed) {
+                try output1.append(buckets.raw[entry.r1])
+                try output2.append(buckets.raw[entry.r2])
             }
         }
         try output1.flush()
@@ -187,12 +188,10 @@ public enum SeededPairOrder {
         var output = Output(handle: sink)
         for bucket in 0..<buckets.count {
             try Task.checkCancellation()
-            // One autorelease pool a bucket, as in ``write(_:r1:r2:scratch:seed:bucketCount:)``.
-            try autoreleasepool {
-                let raw = try buckets.load(bucket)
-                for entry in try entries(in: raw, bucket: bucket, seed: seed) {
-                    try output.append(raw[entry.r1])
-                }
+            // The shared buffer, as in ``write(_:r1:r2:scratch:seed:bucketCount:)``.
+            let length = try buckets.load(bucket)
+            for entry in try entries(in: buckets.raw, count: length, bucket: bucket, seed: seed) {
+                try output.append(buckets.raw[entry.r1])
             }
         }
         try output.flush()
@@ -283,23 +282,23 @@ public enum SeededPairOrder {
         let r2: Range<Int>
     }
 
-    /// The pairs of one bucket's bytes, sorted by key, then index.
-    private static func entries(in raw: [UInt8], bucket: Int, seed: UInt64) throws -> [Entry] {
+    /// The pairs of one bucket's bytes, the first `count` of `raw`, sorted by key, then index.
+    private static func entries(in raw: [UInt8], count: Int, bucket: Int, seed: UInt64) throws -> [Entry] {
         var entries: [Entry] = []
         var position = 0
         func field(_ width: Int) throws -> Int {
-            guard position + width <= raw.count else { throw StagingError.scratchDamaged(bucket: bucket) }
+            guard position + width <= count else { throw StagingError.scratchDamaged(bucket: bucket) }
             let value = readInteger(raw, at: position, width: width)
             position += width
             return Int(value)
         }
         func range() throws -> Range<Int> {
             let length = try field(4)
-            guard position + length <= raw.count else { throw StagingError.scratchDamaged(bucket: bucket) }
+            guard position + length <= count else { throw StagingError.scratchDamaged(bucket: bucket) }
             defer { position += length }
             return position..<position + length
         }
-        while position < raw.count {
+        while position < count {
             let index = UInt64(try field(8))
             entries.append(Entry(key: key(of: index, seed: seed), index: index, r1: try range(), r2: try range()))
         }
@@ -313,11 +312,6 @@ public enum SeededPairOrder {
 
     private static func readInteger(_ bytes: [UInt8], at offset: Int, width: Int) -> UInt64 {
         (0..<width).reduce(UInt64(0)) { $0 | UInt64(bytes[offset + $1]) << (8 * UInt64($1)) }
-    }
-
-    /// The little-endian integer at `offset` of a scratch file's bytes, read in place with no copy of the file.
-    private static func readInteger(_ bytes: Data, at offset: Int, width: Int) -> UInt64 {
-        (0..<width).reduce(UInt64(0)) { $0 | UInt64(bytes[bytes.startIndex + offset + $1]) << (8 * UInt64($1)) }
     }
 
     /// Buffered writes of whole records to one staged file.
@@ -339,17 +333,40 @@ public enum SeededPairOrder {
 
     /// The bucket files of one staging. Each is a run of chunks, each chunk
     /// a raw length, a packed length and the LZ4-packed entries.
+    ///
+    /// Packing, file reads and unpacking go through buffers this object keeps
+    /// for the whole staging and makes no Foundation object a chunk. The
+    /// macOS allocator keeps a freed block of tens of MiB in the footprint
+    /// for a while, so a new file buffer and entry array a bucket raised the
+    /// footprint by about half the staged text while what was in use stayed
+    /// at one bucket (FASTP-MEM-b, measured by phase).
     private final class BucketFiles {
         let count: Int
         private let directory: URL
         private var buffers: [[UInt8]]
         private let flushBytes: Int
+        /// One packed chunk, its 8 header bytes first, shared by every flush.
+        private var chunk: [UInt8] = []
+        /// The whole file of the bucket being read, shared by every bucket.
+        private var file: [UInt8] = []
+        /// The unpacked entries of the bucket being read, shared by every bucket. Only the first bytes that
+        /// ``load(_:)`` returns are the bucket's.
+        private(set) var raw: [UInt8] = []
+        private let encodeScratch: UnsafeMutableRawPointer
+        private let decodeScratch: UnsafeMutableRawPointer
 
         init(directory: URL, count: Int) {
             self.directory = directory
             self.count = count
             buffers = Array(repeating: [], count: count)
             flushBytes = max(64 << 10, min(1 << 20, (32 << 20) / count))
+            encodeScratch = .allocate(byteCount: max(1, compression_encode_scratch_buffer_size(COMPRESSION_LZ4)), alignment: 16)
+            decodeScratch = .allocate(byteCount: max(1, compression_decode_scratch_buffer_size(COMPRESSION_LZ4)), alignment: 16)
+        }
+
+        deinit {
+            encodeScratch.deallocate()
+            decodeScratch.deallocate()
         }
 
         private func url(_ bucket: Int) -> URL {
@@ -370,61 +387,131 @@ public enum SeededPairOrder {
             for bucket in 0..<count { try flush(bucket) }
         }
 
-        /// Writes one bucket's buffer as a packed chunk. The objects of the pack and of the file write go back at once.
+        /// Writes one bucket's buffer as a packed chunk: its raw length, its packed length and the LZ4-packed bytes. The
+        /// chunk is packed into a buffer every flush shares and appended to the bucket's file with POSIX calls.
         private func flush(_ bucket: Int) throws {
-            try autoreleasepool { try flushChunk(bucket) }
-        }
-
-        private func flushChunk(_ bucket: Int) throws {
-            guard !buffers[bucket].isEmpty else { return }
-            let packed = try (Data(buffers[bucket]) as NSData).compressed(using: .lz4) as Data
-            var chunk: [UInt8] = []
-            SeededPairOrder.appendInteger(UInt64(buffers[bucket].count), width: 4, to: &chunk)
-            SeededPairOrder.appendInteger(UInt64(packed.count), width: 4, to: &chunk)
-            chunk += packed
-            let file = url(bucket)
-            if !FileManager.default.fileExists(atPath: file.path) {
-                FileManager.default.createFile(atPath: file.path, contents: nil)
+            let rawCount = buffers[bucket].count
+            guard rawCount > 0 else { return }
+            // LZ4 adds at most about 0.4% and a few block headers to bytes it cannot pack, so this room always holds it.
+            let room = rawCount + rawCount / 8 + 4096
+            if chunk.count < 8 + room {
+                chunk = []
+                chunk = Self.zeroed(8 + room + room / 8)
             }
-            let handle = try FileHandle(forWritingTo: file)
-            defer { try? handle.close() }
-            try handle.seekToEnd()
-            try handle.write(contentsOf: chunk)
+            let scratch = encodeScratch
+            let packedCount = buffers[bucket].withUnsafeBufferPointer { source in
+                chunk.withUnsafeMutableBufferPointer { destination in
+                    compression_encode_buffer(
+                        destination.baseAddress! + 8, room, source.baseAddress!, rawCount, scratch, COMPRESSION_LZ4
+                    )
+                }
+            }
+            guard packedCount > 0 else { throw StagingError.scratchDamaged(bucket: bucket) }
+            for shift in 0..<4 {
+                chunk[shift] = UInt8(truncatingIfNeeded: rawCount >> (8 * shift))
+                chunk[4 + shift] = UInt8(truncatingIfNeeded: packedCount >> (8 * shift))
+            }
+            let path = url(bucket).path
+            let descriptor = Darwin.open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0o600)
+            guard descriptor >= 0 else { throw Self.posixError() }
+            defer { Darwin.close(descriptor) }
+            try chunk.withUnsafeBytes { bytes in
+                var offset = 0
+                while offset < 8 + packedCount {
+                    let written = Darwin.write(descriptor, bytes.baseAddress! + offset, 8 + packedCount - offset)
+                    if written < 0 {
+                        if errno == EINTR { continue }
+                        throw Self.posixError()
+                    }
+                    offset += written
+                }
+            }
             buffers[bucket].removeAll(keepingCapacity: true)
         }
 
-        /// The raw entries of `bucket`. Its file is removed once read. The chunk headers say how long the entries are,
-        /// so they are unpacked one chunk at a time into one array of that size. The bucket is never held a second
-        /// time as an array of the file's bytes, and each chunk's Foundation objects go back before the next one.
-        func load(_ bucket: Int) throws -> [UInt8] {
-            let file = url(bucket)
-            guard let data = FileManager.default.contents(atPath: file.path) else { return [] }
-            try? FileManager.default.removeItem(at: file)
+        /// Unpacks `bucket` into ``raw`` and returns how many of its first bytes are the bucket's entries. Its file is
+        /// read whole into a buffer every bucket shares and removed once read, and each chunk is unpacked straight into
+        /// its place in ``raw``. A bucket no pair fell into has no file and no entries.
+        func load(_ bucket: Int) throws -> Int {
+            let path = url(bucket).path
+            let descriptor = Darwin.open(path, O_RDONLY | O_CLOEXEC)
+            guard descriptor >= 0 else {
+                if errno == ENOENT { return 0 }
+                throw StagingError.scratchDamaged(bucket: bucket)
+            }
+            var status = stat()
+            guard fstat(descriptor, &status) == 0 else {
+                Darwin.close(descriptor)
+                throw StagingError.scratchDamaged(bucket: bucket)
+            }
+            let size = Int(status.st_size)
+            if file.count < size {
+                file = []
+                file = Self.zeroed(size + size / 8)
+            }
+            let read = file.withUnsafeMutableBytes { bytes -> Int in
+                var offset = 0
+                while offset < size {
+                    let count = Darwin.read(descriptor, bytes.baseAddress! + offset, size - offset)
+                    if count < 0 && errno == EINTR { continue }
+                    if count <= 0 { break }
+                    offset += count
+                }
+                return offset
+            }
+            Darwin.close(descriptor)
+            unlink(path)
+            guard read == size else { throw StagingError.scratchDamaged(bucket: bucket) }
+
             var expected = 0
             var position = 0
-            while position + 8 <= data.count {
-                let packedCount = Int(SeededPairOrder.readInteger(data, at: position + 4, width: 4))
-                guard position + 8 + packedCount <= data.count else { break }
-                expected += Int(SeededPairOrder.readInteger(data, at: position, width: 4))
+            while position + 8 <= size {
+                let packedCount = Int(SeededPairOrder.readInteger(file, at: position + 4, width: 4))
+                guard position + 8 + packedCount <= size else { break }
+                expected += Int(SeededPairOrder.readInteger(file, at: position, width: 4))
                 position += 8 + packedCount
             }
-            var raw: [UInt8] = []
-            raw.reserveCapacity(expected)
+            if raw.count < expected {
+                raw = []
+                raw = Self.zeroed(expected + expected / 8)
+            }
+            let scratch = decodeScratch
+            var filled = 0
             position = 0
-            while position < data.count {
-                guard position + 8 <= data.count else { throw StagingError.scratchDamaged(bucket: bucket) }
-                let rawCount = Int(SeededPairOrder.readInteger(data, at: position, width: 4))
-                let packedCount = Int(SeededPairOrder.readInteger(data, at: position + 4, width: 4))
-                guard position + 8 + packedCount <= data.count else { throw StagingError.scratchDamaged(bucket: bucket) }
-                try autoreleasepool {
-                    let packed = data.subdata(in: (position + 8)..<(position + 8 + packedCount))
-                    let unpacked = try (packed as NSData).decompressed(using: .lz4) as Data
-                    guard unpacked.count == rawCount else { throw StagingError.scratchDamaged(bucket: bucket) }
-                    raw += unpacked
+            while position < size {
+                guard position + 8 <= size else { throw StagingError.scratchDamaged(bucket: bucket) }
+                let rawCount = Int(SeededPairOrder.readInteger(file, at: position, width: 4))
+                let packedCount = Int(SeededPairOrder.readInteger(file, at: position + 4, width: 4))
+                guard position + 8 + packedCount <= size, filled + rawCount <= expected else {
+                    throw StagingError.scratchDamaged(bucket: bucket)
                 }
-                position += 8 + packedCount
+                let start = position + 8
+                let unpacked = file.withUnsafeBufferPointer { source in
+                    raw.withUnsafeMutableBufferPointer { destination in
+                        compression_decode_buffer(
+                            destination.baseAddress! + filled, rawCount, source.baseAddress! + start, packedCount, scratch,
+                            COMPRESSION_LZ4
+                        )
+                    }
+                }
+                guard unpacked == rawCount else { throw StagingError.scratchDamaged(bucket: bucket) }
+                filled += rawCount
+                position = start + packedCount
             }
-            return raw
+            return filled
+        }
+
+        /// An array of `count` zero bytes, made with one fill rather than a loop of appends.
+        private static func zeroed(_ count: Int) -> [UInt8] {
+            [UInt8](unsafeUninitializedCapacity: count) { buffer, initialized in
+                if let base = buffer.baseAddress { memset(base, 0, count) }
+                initialized = count
+            }
+        }
+
+        /// The error of the POSIX call that just failed, as Foundation words it ("No space left on device").
+        private static func posixError() -> Error {
+            POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
     }
 }
