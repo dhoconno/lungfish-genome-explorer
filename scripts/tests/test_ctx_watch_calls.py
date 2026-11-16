@@ -260,7 +260,7 @@ class TypeLineTests(unittest.TestCase):
 
     def test_the_line_each_repository_type_names_is_the_number_of_its_stop_sentence(self):
         module = load(SCRIPT, 'ctx_watch')
-        lines = {'lge-lane': 85, 'lge-lane-opus': 130, 'lge-review': 70, 'lge-ruling': 40, 'lge-land': 150,
+        lines = {'lge-lane': 85, 'lge-lane-opus': 130, 'lge-review': 100, 'lge-ruling': 40, 'lge-land': 150,
                  'lge-planner': 80, 'lge-release': 100, 'lge-walker': 45, 'lge-expert': 60,
                  'llm-efficiency-monitor': 80, 'lge-fix': 60}
         for name, expected in lines.items():
