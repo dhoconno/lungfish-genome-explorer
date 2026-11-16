@@ -13,7 +13,8 @@ extension STARIndexPlanTests {
     /// as the executor states them. The adopt reads these and never the plan.
     func runRecord(
         for set: ReferenceSetOutcome, naming claimed: String? = nil, outcome: String = "succeeded", leaving missing: String? = nil,
-        version: String = "2.7.11b", overhang: String? = "100", gtf: (path: String, sha256: String)? = nil
+        version: String = "2.7.11b", overhang: String? = "100", gtf: (path: String, sha256: String)? = nil,
+        lgeVersion: String = "dev-e65d22fcaeec"
     ) throws -> (data: Data, outputs: [[String: Any]]) {
         let setID = claimed ?? set.manifest.id
         var outputs: [[String: Any]] = STARIndexPlan.indexFiles.enumerated().map { index, file in
@@ -33,8 +34,20 @@ extension STARIndexPlanTests {
             "sha256": gtf?.sha256 ?? set.manifest.derived.countingGTF?.sha256 ?? "",
             "reference": ["setID": setID, "path": String(gtfPath.dropFirst("references/\(setID)/".count))]]
         var record: [String: Any] = ["schemaVersion": 1, "outcome": outcome, "inputs": [input], "steps": [step]]
+        record["executor"] = Self.executorObject(lgeVersion: lgeVersion)
         if outcome != "succeeded" { record["reason"] = "STAR ran out of memory"; record["failedStepID"] = "star-index" }
         return (try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]), outputs)
+    }
+
+    /// The `executor` of M-INDEX's run record, the cross-build of `dev-e65d22fcaeec`: the running binary's SHA-256 and size, and
+    /// the plan's build pin, as the executor states them (`docs/formats/executor-run-record.md`, the `executor` key).
+    static func executorObject(lgeVersion: String = "dev-e65d22fcaeec") -> [String: Any] {
+        ["sha256": String(repeating: "25d9f5eb", count: 8), "size": 59_025_792,
+         "buildPin": ["lgeVersion": lgeVersion, "lgeCommit": "e65d22fcaeec873520e8d7cab4a02ca419a6807f",
+                      "targetTriple": "x86_64-swift-linux-musl", "toolchainID": "swift-6.4.0-RELEASE",
+                      "toolchainSHA256": String(repeating: "8fd03185", count: 8),
+                      "staticLinuxSDKID": "swift-6.4.0-RELEASE_static-linux-0.1.0",
+                      "staticLinuxSDKSHA256": String(repeating: "47d2fd89", count: 8)]]
     }
 
     func adopted(_ set: ReferenceSetOutcome, staging: ExecutorPlanStagingLayout = STARIndexPlanTests.stagingLayout) throws -> (STARIndexRecord, [[String: Any]]) {
@@ -279,6 +292,41 @@ extension STARIndexPlanTests {
                                          staging: Self.stagingLayout, tenxFilter: .mkgtf300)
         }
         XCTAssertTrue(crossedWords.hasSuffix("It read \(crossed), so adopt it with --tenx-filter gencode-2020-A."), crossedWords)
+    }
+
+    // MARK: - A record of schema 1 still reads, and one above schema 2 is refused (INDEX-PIN, ARCH-5-1-C-3 What binds 9)
+
+    /// Writes `text` where the store keeps the record of `setID` and `key`, by hand, as an earlier build left it.
+    func plant(_ text: String, setID: String = "set-0001", key: String = "star-2.7.11b-sa7-sparse2") throws -> (STARIndexRecordStore, URL) {
+        let store = STARIndexRecordStore(storageRoot: root)
+        let target = try store.url(setID: setID, key: key)
+        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: target)
+        return (store, target)
+    }
+
+    /// A record that EX-INDEX's code wrote (schema 1, no `run`) is found, and the staged index pins it with the entries that
+    /// the record gives, so an index adopted before LGE kept the run still serves a later plan.
+    func testASchemaOneRecordWrittenByHandStillReadsAndPinsTheEntriesTheRecordGives() throws {
+        let (store, _) = try plant(Self.bulkRecordBytes)
+        let record = try XCTUnwrap(try store.find(setID: "set-0001", key: "star-2.7.11b-sa7-sparse2"))
+        XCTAssertEqual(record.schemaVersion, 1)
+        let star = PlanToolPin(id: "STAR", version: "2.7.11b", build: "h0_0")
+        let layout = ExecutorPlanStagingLayout(folder: "/staging/group/project", batch: "star-counts")
+        let pinned = try ExecutorPlanStagedIndex.pin(setID: "set-0001", key: record.key.folderName, store: store, star: star, layout: layout)
+        XCTAssertEqual(pinned.entries, try ExecutorPlanStagedIndex.pin(record, star: star, layout: layout).entries)
+        XCTAssertEqual(pinned.entries.map(\.sha256), [Self.fileSHA])
+        XCTAssertEqual(pinned.record, record)
+    }
+
+    /// A record of a schema above 2 is refused in words before the rest is read, as a set's is (`reference-set.md`, the
+    /// `schemaVersion` row), and the words name the file, the version found and the versions this build reads.
+    func testARecordOfASchemaAboveTwoIsRefusedInWordsThatNameItsFileAndBothVersions() throws {
+        let (store, target) = try plant("{\"schemaVersion\": 3}")
+        let words = refusal { _ = try store.find(setID: "set-0001", key: "star-2.7.11b-sa7-sparse2") }
+        for part in [target.path, "schema version 3", "reads 1 and 2", "Adopt the index again"] {
+            XCTAssertTrue(words.contains(part), "\(part) is missing from: \(words)")
+        }
     }
 
     // MARK: - A set that loses a gene tells the unfiltered digest from the made file's (SOLO-PLAN M1 BIO should-fix 2)

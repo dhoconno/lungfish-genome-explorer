@@ -211,13 +211,27 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
             .appendingPathComponent(indexKeyFolder, isDirectory: true).appendingPathComponent("index-record.json")
     }
 
+    /// The `executor` of M-INDEX's run record, the cross-build of `dev-e65d22fcaeec`: the running binary's SHA-256 and size, and
+    /// the plan's build pin, as the executor states them (`SCR/rulings/ARCH-5-1-C-3.md`, Item 2 and What binds 9).
+    private static func executorObject(lgeVersion: String = "dev-e65d22fcaeec") -> [String: Any] {
+        ["sha256": String(repeating: "25d9f5eb", count: 8), "size": 59_025_792,
+         "buildPin": ["lgeVersion": lgeVersion, "lgeCommit": "e65d22fcaeec873520e8d7cab4a02ca419a6807f",
+                      "targetTriple": "x86_64-swift-linux-musl", "toolchainID": "swift-6.4.0-RELEASE",
+                      "toolchainSHA256": String(repeating: "8fd03185", count: 8),
+                      "staticLinuxSDKID": "swift-6.4.0-RELEASE_static-linux-0.1.0",
+                      "staticLinuxSDKSHA256": String(repeating: "47d2fd89", count: 8)]]
+    }
+
     /// Writes the `run-record.json` of an index run that succeeded into `result`, in the shape the executor writes it and the
     /// adopt reads it. It names the set's counting GTF by its SHA-256, holds one STAR step with its argv, and gives each of the
     /// 15 index files as a staged output and the log as a home output. `edited` gives that one staged output another digest.
+    /// It states the executor as the executor does (`docs/formats/executor-run-record.md`, the `executor` key), with `lgeVersion`
+    /// for the build pin, and leaves out the executor's key `missing` names, or the whole object for `executor`.
     /// The staged outputs come back by plan path with their bytes and SHA-256.
     @discardableResult
     private func writeIndexRunRecord(
-        for set: URL, in result: URL, editing edited: String? = nil, made: (path: String, sha256: String)? = nil
+        for set: URL, in result: URL, editing edited: String? = nil, made: (path: String, sha256: String)? = nil,
+        lgeVersion: String = "dev-e65d22fcaeec", leaving missing: String? = nil
     ) throws -> [String: (bytes: UInt64, sha256: String)] {
         let manifest = try ReferenceSetManifest.load(from: set)
         let gtf = try manifest.requireCountingGTF()
@@ -240,8 +254,11 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
         let input: [String: Any] = [
             "role": "reference", "relativePath": "references/\(manifest.id)/\(read.path)", "size": 10, "sha256": read.sha256,
             "reference": ["setID": manifest.id, "path": read.path]]
-        let record: [String: Any] = [
+        var record: [String: Any] = [
             "schemaVersion": ExecutorRunRecord.currentSchemaVersion, "outcome": "succeeded", "inputs": [input], "steps": [step]]
+        var executor = Self.executorObject(lgeVersion: lgeVersion)
+        if let missing { executor[missing] = nil }
+        if missing != "executor" { record["executor"] = executor }
         try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
         try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
             .write(to: result.appendingPathComponent(ExecutorRunRecord.fileName))
@@ -306,6 +323,140 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
             XCTAssertEqual(code, CLIExitCode.inputError.exitCode)
         }
         XCTAssertEqual(try Data(contentsOf: url), first, "and the record of the first run stays as it was")
+    }
+
+    // MARK: - The run that built the index (INDEX-PIN, SCR/rulings/ARCH-5-1-C-3.md What binds 9)
+
+    /// The bytes of `url`, or nil, so that a file that is not there fails the assertion and not the test.
+    private func bytes(of url: URL) -> Data? { try? Data(contentsOf: url) }
+
+    /// The adopt's arguments for the run record in `result`, and the record's file and the copy beside it.
+    private func adoptParts(_ storage: URL, _ set: URL, _ result: URL) throws
+        -> (arguments: [String], record: URL, copy: URL) {
+        let id = try ReferenceSetManifest.load(from: set).id
+        let record = Self.indexRecordFile(in: storage, setID: id)
+        return ([result.path, "--set", id, "--storage-root", storage.path, "--staging-folder", Self.staging, "--batch", "idx", "--quiet"],
+                record, record.deletingLastPathComponent().appendingPathComponent(ExecutorRunRecord.fileName))
+    }
+
+    /// The record names the run that built the index (the run record's SHA-256 and bytes, the executor as the run record
+    /// states it, and the adopt's batch and sample), and the run record sits beside it byte for byte. The leaf's lines and
+    /// facts name the copy, the run record's SHA-256 and the executor build.
+    func testAdoptNamesTheRunAndTheExecutorBuildAndKeepsTheRunRecordBesideTheRecord() async throws {
+        let (storage, set) = try await Self.builtSet(in: root)
+        let result = root.appendingPathComponent("result", isDirectory: true)
+        try writeIndexRunRecord(for: set, in: result)
+        let runBytes = try Data(contentsOf: result.appendingPathComponent(ExecutorRunRecord.fileName))
+        let digest = PortableDigest.sha256Hex(of: runBytes)
+        let parts = try adoptParts(storage, set, result)
+        let summary = try RNASeqIndexAdoptSubcommand.parse(parts.arguments).adopt()
+        let written = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: parts.record)) as? [String: Any])
+        XCTAssertEqual(written["schemaVersion"] as? Int, 2, "a new adopt writes schema 2")
+        let run = try XCTUnwrap(written["run"] as? [String: Any], "the record names the run that built the index")
+        XCTAssertEqual(run["runRecordSHA256"] as? String, digest)
+        XCTAssertEqual((run["runRecordBytes"] as? NSNumber)?.intValue, runBytes.count)
+        XCTAssertEqual(run["batch"] as? String, "idx")
+        XCTAssertEqual(run["sample"] as? String, STARIndexPlan.sampleName)
+        let executor = try XCTUnwrap(run["executor"] as? [String: Any], "the executor as the run record states it")
+        XCTAssertEqual(NSDictionary(dictionary: executor), NSDictionary(dictionary: Self.executorObject()), "key for key")
+        XCTAssertEqual(bytes(of: parts.copy), runBytes, "the copy beside the record equals the run record by bytes")
+        let facts = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(summary.json.utf8)) as? [String: Any])
+        XCTAssertEqual(facts["runRecordSHA256"] as? String, digest)
+        XCTAssertEqual(facts["executorBuild"] as? String, "dev-e65d22fcaeec")
+        XCTAssertEqual(facts["runRecordCopy"] as? String, parts.copy.path)
+        XCTAssertTrue(summary.lines.contains { $0.contains(parts.copy.path) && $0.contains(digest) && $0.contains("dev-e65d22fcaeec") },
+                      "a line names the copy, the SHA-256 and the executor build: \(summary.lines)")
+    }
+
+    /// The same adopt again changes nothing. A copy that is missing is written again, and so is a damaged one that sits beside
+    /// an equal record, from the bytes the adopt read, since they match the record's digest.
+    func testAMissingOrDamagedCopyIsWrittenAgainAndTheSameAdoptChangesNothingElse() async throws {
+        let (storage, set) = try await Self.builtSet(in: root)
+        let result = root.appendingPathComponent("result", isDirectory: true)
+        try writeIndexRunRecord(for: set, in: result)
+        let runBytes = try Data(contentsOf: result.appendingPathComponent(ExecutorRunRecord.fileName))
+        let parts = try adoptParts(storage, set, result)
+        try await RNASeqIndexAdoptSubcommand.parse(parts.arguments).run()
+        let first = try Data(contentsOf: parts.record)
+        XCTAssertEqual(bytes(of: parts.copy), runBytes, "the first adopt keeps the copy")
+        try await RNASeqIndexAdoptSubcommand.parse(parts.arguments).run()
+        XCTAssertEqual(bytes(of: parts.record), first, "the same adopt again leaves the record as it was")
+        XCTAssertEqual(bytes(of: parts.copy), runBytes, "and the copy")
+        try? FileManager.default.removeItem(at: parts.copy)
+        try await RNASeqIndexAdoptSubcommand.parse(parts.arguments).run()
+        XCTAssertEqual(bytes(of: parts.copy), runBytes, "a missing copy is written again")
+        XCTAssertEqual(bytes(of: parts.record), first, "and the record is as it was")
+        try Data("damaged".utf8).write(to: parts.copy)
+        try await RNASeqIndexAdoptSubcommand.parse(parts.arguments).run()
+        XCTAssertEqual(bytes(of: parts.copy), runBytes, "a damaged copy beside an equal record is written again")
+        XCTAssertEqual(bytes(of: parts.record), first, "and the record is as it was")
+    }
+
+    /// A run record of the same index by digest with another executor build is another run, so it is refused in words that name
+    /// the record's file and the other build, and the record and the copy of the run kept stay as they were.
+    func testAnotherRunOfTheSameIndexBuiltByAnotherExecutorBuildIsRefusedAndBothFilesStay() async throws {
+        let (storage, set) = try await Self.builtSet(in: root)
+        let result = root.appendingPathComponent("result", isDirectory: true)
+        try writeIndexRunRecord(for: set, in: result)
+        let parts = try adoptParts(storage, set, result)
+        try await RNASeqIndexAdoptSubcommand.parse(parts.arguments).run()
+        let (record, copy) = (bytes(of: parts.record), bytes(of: parts.copy))
+        XCTAssertNotNil(copy, "the first adopt keeps the copy")
+        try writeIndexRunRecord(for: set, in: result, lgeVersion: "dev-0123456789ab")
+        XCTAssertThrowsError(try RNASeqIndexAdoptSubcommand.parse(parts.arguments).adopt()) { error in
+            let words = (error as? STARIndexError)?.message ?? "\(error)"
+            for part in [parts.record.path, "executor build dev-e65d22fcaeec", "dev-0123456789ab", "remove that file"] {
+                XCTAssertTrue(words.contains(part), "\(part) is missing from: \(words)")
+            }
+        }
+        XCTAssertEqual(bytes(of: parts.record), record, "a refusal leaves the record as it was")
+        XCTAssertEqual(bytes(of: parts.copy), copy, "and the copy of the run it names")
+    }
+
+    /// A record adopted before LGE kept the run (schema 1) beside the same index is refused in words of its own, and the
+    /// adopt writes no copy beside it, since a copy beside a record that names no run would name a run the record does not.
+    func testASchemaOneRecordOfTheSameIndexIsRefusedInWordsThatSayWhyAndNoCopyIsWritten() async throws {
+        let (storage, set) = try await Self.builtSet(in: root)
+        let result = root.appendingPathComponent("result", isDirectory: true)
+        try writeIndexRunRecord(for: set, in: result)
+        let parts = try adoptParts(storage, set, result)
+        try await RNASeqIndexAdoptSubcommand.parse(parts.arguments).run()
+        // The record as the adopt wrote it before this change: schema 1, no `run`, and no copy.
+        var old = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: parts.record)) as? [String: Any])
+        old["run"] = nil
+        old["schemaVersion"] = 1
+        try JSONSerialization.data(withJSONObject: old, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+            .write(to: parts.record)
+        try? FileManager.default.removeItem(at: parts.copy)
+        let schemaOne = bytes(of: parts.record)
+        XCTAssertThrowsError(try RNASeqIndexAdoptSubcommand.parse(parts.arguments).adopt()) { error in
+            let words = (error as? STARIndexError)?.message ?? "\(error)"
+            for part in [parts.record.path, "before LGE kept the run", "was not replaced", "--storage-root", "remove that file"] {
+                XCTAssertTrue(words.contains(part), "\(part) is missing from: \(words)")
+            }
+            XCTAssertFalse(words.contains("other digests") || words.contains("same digests"), words)
+        }
+        XCTAssertEqual(bytes(of: parts.record), schemaOne, "the schema 1 record stays as it was")
+        XCTAssertNil(bytes(of: parts.copy), "no run-record.json is written beside it")
+    }
+
+    /// A run record whose executor lacks the build pin, the SHA-256 or the size is refused in words that name what it lacks, and
+    /// nothing is written, since a record that cannot name the executor build would be the record this change was made to end.
+    func testARunRecordWithoutTheExecutorsBuildPinSHA256OrSizeIsRefusedInWordsAndWritesNothing() async throws {
+        let (storage, set) = try await Self.builtSet(in: root)
+        let result = root.appendingPathComponent("result", isDirectory: true)
+        let parts = try adoptParts(storage, set, result)
+        for key in ["buildPin", "sha256", "size", "executor"] {
+            try writeIndexRunRecord(for: set, in: result, leaving: key)
+            XCTAssertThrowsError(try RNASeqIndexAdoptSubcommand.parse(parts.arguments).adopt(), key) { error in
+                let words = (error as? STARIndexError)?.message ?? "\(error)"
+                let named = key == "executor" ? ["buildPin", "sha256", "size"] : [key]
+                for part in ["executor"] + named {
+                    XCTAssertTrue(words.contains(part), "\(part) is missing from: \(words)")
+                }
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: storage.appendingPathComponent(STARIndexRecordStore.folderName).path), key)
+        }
     }
 
     // MARK: - The 10x variant (SOLO-PLAN, ARCH-SOLO-GTF items 2 to 4)
