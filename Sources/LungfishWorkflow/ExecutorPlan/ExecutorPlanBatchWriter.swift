@@ -436,6 +436,12 @@ package enum ExecutorPlanBatchWriter {
                 throw ExecutorPlanError(field: "stagedReferencePaths", reason: "The jobs of one batch share one sample.sub, so each reads an index that an earlier run left from the same place in the staging folder. The plan of \(sample) reads one from another place than the first, so write it in a batch of its own.")
             }
             try checkStagedReferences(job, layout: layout)
+            // An index file with no Mac file to upload and no place where an earlier run left it would be listed under
+            // shared/ with no source, and every job would be held at its transfer (EX-PLAN-STAR-M1-SWIFT SF1).
+            for entry in plan.entries where entry.role == .reference && entry.reference?.index != nil
+                && job.stagedReferencePaths[entry.relativePath] == nil && job.emission.sources[entry.relativePath] == nil {
+                throw ExecutorPlanError(field: "stagedReferencePaths", reason: "The plan of \(sample) pins the index file \(entry.relativePath), and the batch has no Mac file for it and no place in the staging folder where an earlier run left it, so no job could read it. Pin a STAR index from its adopted record (lungfish-cli rnaseq index-adopt), which gives each file's place.")
+            }
             let inputs = plan.entries.filter { $0.role == .input }.count
             if let paths = job.stagedPaths {
                 guard paths.count == inputs else {

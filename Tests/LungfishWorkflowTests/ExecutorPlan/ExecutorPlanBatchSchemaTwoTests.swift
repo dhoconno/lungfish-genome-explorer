@@ -406,7 +406,8 @@ final class ExecutorPlanBatchSchemaTwoTests: XCTestCase {
     }
 
     /// Lane EX-PLAN-STAR M1 item 2. A staged index path outside the staging folder, one that names no index file of the
-    /// plan, and two jobs that read the index from different places are refused before anything is written.
+    /// plan, two jobs that read the index from different places, and a plan that pins an index file with no Mac file and no
+    /// staged place (EX-PLAN-STAR-M1-SWIFT SF1) are refused before anything is written.
     func testStagedIndexRefusalsLeaveNoFolder() throws {
         typealias Staged = ExecutorPlanStagedIndexTests
         let genome = Staged.indexPath("Genome")
@@ -417,6 +418,8 @@ final class ExecutorPlanBatchSchemaTwoTests: XCTestCase {
              "stagedReferencePaths", "inputs/R1.fastq, which is no index file of the plan"),
             ("two-places", [try stagedIndexJob(), try stagedIndexJob("T") { $0.merging([genome: "\(Self.staging)/other/Genome"]) { $1 } }],
              "stagedReferencePaths", "a batch of its own"),
+            ("no-place", [try stagedIndexJob { _ in [:] }], "stagedReferencePaths",
+             "pins the index file \(genome), and the batch has no Mac file for it"),
         ]
         for item in cases {
             let folder = root.appendingPathComponent(item.name, isDirectory: true)
