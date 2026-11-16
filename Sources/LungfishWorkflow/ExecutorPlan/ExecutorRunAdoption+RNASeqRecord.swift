@@ -102,12 +102,17 @@ extension ExecutorRunAdoption {
         return adapters
     }
 
+    /// What the adopted record says of the import's poly-G tails. A plan pins its reads by digest and names no import record,
+    /// so the adopt cannot know, and it says so in the words of a plan, as the Mac's line says it for a bundle with no record
+    /// (`SalmonQuantRecordLines.importNotRecorded`, review EX-ADOPT-M2M3-BIO should-fix 2).
+    static let importPolyGNotInPlan = "Poly-G trimming at import: Not recorded (the plan names no import record that names its tools)"
+
     /// The counting step's lines, under the keys of the Mac route's `recordLines`.
     static func countsRecordLines(_ run: ExecutorAdoptedCountsRun, sample: String) -> [String: ParameterValue] {
         let settings = Dictionary(run.pipeline.settings.map { ($0.id, $0.value) }, uniquingKeysWith: { first, _ in first })
         func value(_ id: String) -> String { settings[id] ?? run.route.settings[id] ?? RNASeqImportFacts.notRecorded }
         var lines: [String: ParameterValue] = [
-            "sample": .string(sample), "trimming": .string(value("trimming")),
+            "sample": .string(sample), "trimming": .string(value("trimming")), "importPolyG": .string(importPolyGNotInPlan),
             "instrument": .string(instrumentLine(run.plan.sample.instrument)), "duplicates": .string(value("duplicates")),
         ]
         if let adapter = settings["adapter"] ?? run.route.settings["adapter"] { lines["adapter"] = .string(adapter) }
