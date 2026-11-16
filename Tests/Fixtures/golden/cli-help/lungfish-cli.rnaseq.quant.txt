@@ -12,10 +12,11 @@ salmon's version and every setting that changes counts. --threads is recorded
 and changes no count.
 
 With --write-plan the command writes a plan folder for a run on a Linux machine
-in place of counting here, one plan a sample on the index this Mac published
-for the set, and writes no result in a project. A run you adopt as a result
-takes a true --executor-manifest, the manifest of the executor you built, since
-the plan pins it.
+in place of counting here, one plan a sample, and writes no result in a
+project. Each plan runs salmon on the index this Mac published for the set, or
+with --chain a STAR chain on the STAR index an earlier Linux run built. A run
+you adopt as a result takes a true --executor-manifest, the manifest of the
+executor you built, since the plan pins it.
 
 USAGE: lungfish-cli rnaseq quant [<options>] [<bundles> ...] --set <set>
 
@@ -44,12 +45,27 @@ OPTIONS:
                           this new folder in place of counting here
         The folder is the submit folder of one batch, as import fastq
         --write-plan writes it, with one plan a sample. Each plan runs Trim
-        Galore (with --trim) and then salmon on the index this Mac published
-        for the set, which the plan pins file by file and never builds, so run
-        lungfish-cli rnaseq index first. Nothing runs here and nothing is
-        submitted, so --project is not used. A run you adopt as a result takes
-        the manifest of the executor you built with --executor-manifest, since
-        the plan pins it.
+        Galore (with --trim) and then the chain --chain names. Each plan pins
+        its index file by file and never builds one. Nothing runs here and
+        nothing is submitted, so --project is not used. A run you adopt as a
+        result takes the manifest of the executor you built with
+        --executor-manifest, since the plan pins it.
+  --chain <chain>         With --write-plan, what each plan runs after trimming
+                          (default: salmon) (values: salmon, star-salmon,
+                          star-salmon-errormodel, star-2.7.11b-genecounts,
+                          star-2.7.3a-genecounts, star-2.7.11b-featurecounts)
+        salmon counts the reads with salmon on the index this Mac published for
+        the set, so run lungfish-cli rnaseq index first. star-salmon maps with
+        STAR 2.7.11b --quantMode TranscriptomeSAM GeneCounts and counts STAR's
+        transcriptome alignments with salmon -a, and star-salmon-errormodel
+        adds salmon's --errorModel. star-2.7.11b-genecounts and
+        star-2.7.3a-genecounts count genes with STAR's GeneCounts, and
+        star-2.7.11b-featurecounts counts exons with featureCounts on STAR's
+        alignments. Each STAR chain pins the STAR index of its version that an
+        earlier run built on the Linux machine and left in the staging folder.
+        Plan that index with lungfish-cli rnaseq index-plan --star <version>,
+        run it, and record it with lungfish-cli rnaseq index-adopt. --k and
+        --decoys pick a salmon index, so a STAR chain takes neither.
   --staged-reads <file>   A tab-separated list of reads already in the staging
                           folder, with each read's absolute path, size in bytes
                           and SHA-256, for --write-plan with --samplesheet
@@ -75,8 +91,9 @@ OPTIONS:
                           Memory each job asks for, in MiB. Optional for
                           Macaca_fascicularis_6.0
   --request-cpus <request-cpus>
-                          CPUs each job asks for, and salmon's -p (default: 8).
-                          Optional for Macaca_fascicularis_6.0
+                          CPUs each job asks for, and the threads of salmon and
+                          STAR (default: 8). Optional for
+                          Macaca_fascicularis_6.0
   --request-disk-gib <request-disk-gib>
                           Disk each job asks for, in GiB. Optional for
                           Macaca_fascicularis_6.0

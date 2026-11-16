@@ -44,54 +44,64 @@ extension RNASeqCommand.QuantSubcommand {
         let (setFolder, root) = (try RNASeqIndexPlanSubcommand.setFolder(for: setID, storageRoot: storageRoot),
                                  RNASeqIndexPlanSubcommand.storageRootURL(storageRoot))
         let manifest = try ReferenceSetManifest.load(from: setFolder)
-        let (pins, record) = try imagePins()
-        var samples = try stagedSamples(layout: layout)
-        let trimChoice: SalmonQuantTrim = trim ? .trimGalore(polyG: polyGTrimming == "on") : .none
-        let decoyChoice: SalmonIndexDecoys = decoys == "none" ? .none : .genome
-        // The index is pinned once for every sample, so a missing one is refused before any read is hashed.
-        let pin = try SalmonPlan.pinIndex(setID: manifest.id, storageRoot: root, pins: pins, k: k, decoys: decoyChoice)
-        if samples.isEmpty {
-            let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("rnaseq-quant-plan-\(UUID().uuidString)", isDirectory: true)
-            defer { try? FileManager.default.removeItem(at: scratch) }
-            for bundle in bundles {
-                try Task.checkCancellation()
-                samples.append(try await SalmonPlan.sample(bundle: URL(fileURLWithPath: bundle, isDirectory: true), scratch: scratch))
-            }
+        let image = try imageFiles()
+        let staged = try stagedSamples(layout: layout)
+        let planned: RNASeqQuantPlanJobs
+        if let star = options.chain?.star {
+            planned = try await starPlanJobs(
+                star, setFolder: setFolder, root: root, manifest: manifest, layout: layout, image: image, samples: staged)
+        } else {
+            planned = try await salmonPlanJobs(setFolder: setFolder, root: root, manifest: manifest, image: image, samples: staged)
         }
-        var jobs: [(made: SalmonPlanOutcome, figures: SalmonPlanSubmit.Figures)] = []
-        for sample in samples {
-            try Task.checkCancellation()
-            let made = try SalmonPlan.make(SalmonPlanRequest(
-                setFolder: setFolder, storageRoot: root, sample: sample, pins: pins, trim: trimChoice, k: k, decoys: decoyChoice,
-                threads: options.requestCPUs ?? SalmonPlan.defaultThreads, index: pin))
-            let figures = try SalmonPlanSubmit.figures(
-                for: manifest, made: made, memoryMiB: options.requestMemoryMiB, cpus: options.requestCPUs, diskGiB: options.requestDiskGiB)
-            jobs.append((made, figures))
-        }
-        let key = pin.key.folderName
+        let (key, record) = (planned.key, image.record)
         var lines: [String]
         if options.dryRun {
-            lines = try ExecutorPlanBatchWriter.dryRun(
-                jobs.map { SalmonPlanSubmit.job($0.made, figures: $0.figures) }, image: record, layout: layout, requirements: options.jobRequirements)
-            lines.insert("Planned \(jobs.count) sample(s) of the set \(manifest.id) on the index \(key).", at: 0)
+            lines = try ExecutorPlanBatchWriter.dryRun(planned.jobs, image: record, layout: layout, requirements: options.jobRequirements)
+            lines.insert("Planned \(planned.jobs.count) sample(s) of the set \(manifest.id) on the index \(key).", at: 0)
         } else {
             try ViewerExportLeaf.checkpointAfterStaging()
-            let batch = try SalmonPlanSubmit.write(jobs, image: record, layout: layout, requirements: options.jobRequirements, into: output)
+            let batch = try ExecutorPlanBatchWriter.write(
+                planned.jobs, image: record, layout: layout, requirements: options.jobRequirements, into: output)
             do { try Task.checkCancellation() } catch {
                 try? FileManager.default.removeItem(at: output)
                 throw error
             }
             lines = ["Wrote the plan folder \(batch.folder.path) for \(batch.samples.count) sample(s) of the set \(manifest.id) on the index \(key)."]
             for file in batch.files { lines.append("  \(file.size) bytes  \(file.stagingPath)" + (file.source.map { "  from \($0)" } ?? "")) }
-            for job in jobs {
-                lines.append("The job of \(job.made.sample.name) asks for \(job.figures.memoryMiB) MiB of memory, \(job.figures.cpus) CPUs and \(job.figures.diskGiB) GiB of disk.")
+            for job in planned.samples {
+                lines.append("The job of \(job.name) asks for \(job.figures.memoryMiB) MiB of memory, \(job.figures.cpus) CPUs and \(job.figures.diskGiB) GiB of disk.")
             }
         }
         let facts: [String: Any] = [
-            "setID": manifest.id, "index": key, "output": output.path, "dryRun": options.dryRun, "samples": jobs.map { $0.made.sample.name },
-            "jobs": jobs.map { ["sample": $0.made.sample.name, "memoryMiB": $0.figures.memoryMiB, "cpus": $0.figures.cpus, "diskGiB": $0.figures.diskGiB] as [String: Any] },
+            "setID": manifest.id, "index": key, "output": output.path, "dryRun": options.dryRun, "samples": planned.samples.map(\.name),
+            "jobs": planned.samples.map { ["sample": $0.name, "memoryMiB": $0.figures.memoryMiB, "cpus": $0.figures.cpus, "diskGiB": $0.figures.diskGiB] as [String: Any] },
         ]
         let json = try JSONSerialization.data(withJSONObject: facts, options: [.sortedKeys, .withoutEscapingSlashes])
         return RNASeqIndexPlanSubcommand.PlanSummary(lines: lines, json: String(decoding: json, as: UTF8.self))
+    }
+
+    /// salmon's plan of each sample on the index this Mac published for the set, k and decoys.
+    func salmonPlanJobs(
+        setFolder: URL, root: URL, manifest: ReferenceSetManifest, image: RNASeqQuantImageFiles, samples staged: [SalmonPlanSample]
+    ) async throws -> RNASeqQuantPlanJobs {
+        let options = planOptions
+        let pins = try SalmonPlanPins(
+            executor: image.executor, executorBuild: image.executorBuild, imageManifest: image.pin, toolManifest: image.tools)
+        let trimChoice: SalmonQuantTrim = trim ? .trimGalore(polyG: polyGTrimming == "on") : .none
+        let decoyChoice: SalmonIndexDecoys = decoys == "none" ? .none : .genome
+        // The index is pinned once for every sample, so a missing one is refused before any read is hashed.
+        let pin = try SalmonPlan.pinIndex(setID: manifest.id, storageRoot: root, pins: pins, k: k, decoys: decoyChoice)
+        var result = RNASeqQuantPlanJobs(key: pin.key.folderName, jobs: [], samples: [])
+        for sample in try await bundleSamples(or: staged) {
+            try Task.checkCancellation()
+            let made = try SalmonPlan.make(SalmonPlanRequest(
+                setFolder: setFolder, storageRoot: root, sample: sample, pins: pins, trim: trimChoice, k: k, decoys: decoyChoice,
+                threads: options.requestCPUs ?? SalmonPlan.defaultThreads, index: pin))
+            let figures = try SalmonPlanSubmit.figures(
+                for: manifest, made: made, memoryMiB: options.requestMemoryMiB, cpus: options.requestCPUs, diskGiB: options.requestDiskGiB)
+            result.jobs.append(SalmonPlanSubmit.job(made, figures: figures))
+            result.samples.append((sample.name, figures))
+        }
+        return result
     }
 }

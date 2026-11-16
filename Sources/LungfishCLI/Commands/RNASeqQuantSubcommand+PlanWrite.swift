@@ -33,9 +33,9 @@ extension RNASeqCommand.QuantSubcommand {
         }
     }
 
-    /// The pins and the image record of the files the options name, else the app's, as `rnaseq index-plan` reads them. A tool
-    /// manifest that is not the one `image.json` pins is refused.
-    func imagePins() throws -> (SalmonPlanPins, ExecutorPlanImageRecord) {
+    /// The executor, the tool manifest and the image record of the files the options name, else the app's, as
+    /// `rnaseq index-plan` reads them. A tool manifest that is not the one `image.json` pins is refused.
+    func imageFiles() throws -> RNASeqQuantImageFiles {
         let options = planOptions, defaults = ImportFastqPlanDefaults.bundled()
         guard let manifestPath = options.executorManifest ?? defaults.executorManifest?.path else {
             throw SalmonPlanError(ImportFastqPlanDefaults.noExecutorSentence)
@@ -64,9 +64,18 @@ extension RNASeqCommand.QuantSubcommand {
         guard record.imageManifest == pin else {
             throw SalmonPlanError("The tool manifest \(toolsPath) is not the one \(imagePath) pins, so name the manifest of that image.")
         }
-        let pins = try SalmonPlanPins(
-            executor: executor.sourceFile(besideManifestAt: URL(fileURLWithPath: manifestPath)), executorBuild: executor.build,
-            imageManifest: pin, toolManifest: tools)
-        return (pins, record)
+        return RNASeqQuantImageFiles(
+            executor: try executor.sourceFile(besideManifestAt: URL(fileURLWithPath: manifestPath)), executorBuild: executor.build,
+            pin: pin, tools: tools, record: record)
     }
+}
+
+/// What the image files of a plan give every chain: the executor and its build, the tool manifest with its pin, and the
+/// image record.
+struct RNASeqQuantImageFiles {
+    var executor: ExecutorPlanSourceFile
+    var executorBuild: PlanExecutorBuild
+    var pin: PlanImageManifestPin
+    var tools: ImageToolManifest
+    var record: ExecutorPlanImageRecord
 }

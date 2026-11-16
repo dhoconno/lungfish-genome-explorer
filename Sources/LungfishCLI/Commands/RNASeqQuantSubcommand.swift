@@ -23,7 +23,7 @@ extension RNASeqCommand {
 
                 The result holds transcript counts and gene sums through the set's transcript table, in unit estimated, and its record names the set, the index's hashes, salmon's version and every setting that changes counts. --threads is recorded and changes no count.
 
-                With --write-plan the command writes a plan folder for a run on a Linux machine in place of counting here, one plan a sample on the index this Mac published for the set, and writes no result in a project. A run you adopt as a result takes a true --executor-manifest, the manifest of the executor you built, since the plan pins it.
+                With --write-plan the command writes a plan folder for a run on a Linux machine in place of counting here, one plan a sample, and writes no result in a project. Each plan runs salmon on the index this Mac published for the set, or with --chain a STAR chain on the STAR index an earlier Linux run built. A run you adopt as a result takes a true --executor-manifest, the manifest of the executor you built, since the plan pins it.
                 """
         )
 
@@ -61,6 +61,10 @@ extension RNASeqCommand {
         func validate() throws {
             try planOptions.check(project: project, bundles: bundles, threads: globalOptions.threads)
             guard decoys == "genome" || decoys == "none" else { throw ValidationError("--decoys is genome or none, not \(decoys).") }
+            if let chain = planOptions.chain, chain.star != nil, k != 31 || decoys != "genome" {
+                throw ValidationError("--k and --decoys pick a salmon index of the reads, and the chain \(chain.rawValue) maps on a "
+                    + "STAR index, so leave them out.")
+            }
             if let polyGTrimming {
                 guard polyGTrimming == "on" || polyGTrimming == "off" else {
                     throw ValidationError("--poly-g-trimming is on or off, not \(polyGTrimming).")

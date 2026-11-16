@@ -42,6 +42,11 @@ package enum STARPlan {
             throw STARPlanError("--outFilterMultimapNmax is a number of loci from 1 up, and \(nmax) is not.")
         }
         try check(index, set: manifest, gtfSHA256: gtf.sha256, star: pins.star)
+        guard request.alignmentScoring == .none || request.chain == .starSalmon else {
+            throw STARPlanError("Alignment scoring \(request.alignmentScoring.rawValue) is a setting of the STAR then salmon route, "
+                + "and the chain \(request.chain.rawValue) has no salmon step.")
+        }
+        let salmon = request.chain == .starSalmon ? try checkDefaultRoute(request, setID: id) : nil
         let deadline = request.deadlineSeconds ?? ExecutionPlan.maximumDeadlineSeconds
         let frame = SalmonPlan.readsFrame(sample: sample, trim: request.trim, trimTool: pins.trimGalore, deadline: deadline)
         var sources = frame.sources
@@ -55,26 +60,46 @@ package enum STARPlan {
                 + "through one --readFilesCommand. Give the sample's reads in one form, then write the plan again.")
         }
         let genomeDir = "references/\(id)/indexes/\(index.record.key.folderName)"
-        var arguments = ["--runThreadN", String(request.threads), "--genomeDir", genomeDir, "--readFilesIn"]
-            + mates.map { $0.joined(separator: ",") }
-        if gzip > 0 { arguments += ["--readFilesCommand", pins.decompressor.id, "-d", "-c"] }
-        arguments += ["--outSAMtype", "BAM", "Unsorted", "--quantMode", "GeneCounts", "--outFileNamePrefix", "\(starFolder)/"]
-        if let nmax = request.multimapNmax { arguments += ["--outFilterMultimapNmax", String(nmax)] }
+        let gtfPath = "references/\(id)/\(gtf.path)"
+        var arguments: [String]
+        if salmon != nil {
+            arguments = defaultRouteArguments(request, genomeDir: genomeDir, mates: mates, gzip: gzip > 0, gtfPath: gtfPath)
+        } else {
+            arguments = ["--runThreadN", String(request.threads), "--genomeDir", genomeDir, "--readFilesIn"]
+                + mates.map { $0.joined(separator: ",") }
+            if gzip > 0 { arguments += ["--readFilesCommand", pins.decompressor.id, "-d", "-c"] }
+            arguments += ["--outSAMtype", "BAM", "Unsorted", "--quantMode", "GeneCounts", "--outFileNamePrefix", "\(starFolder)/"]
+            if let nmax = request.multimapNmax { arguments += ["--outFilterMultimapNmax", String(nmax)] }
+        }
+        // The default route's transcriptome BAM stays beside the genome BAM, and salmon reads it in the same work root.
+        let bams = [starBAM] + (salmon == nil ? [] : [transcriptomeBAM])
         var policy = Dictionary(uniqueKeysWithValues: starReports.map { ($0, PlanOutputPolicy.home) })
-        policy[starBAM] = .stays
+        for bam in bams { policy[bam] = .stays }
         var steps = frame.trimSteps
         steps.append(PlanStep(
             id: starStepID, title: "Map the reads with STAR \(pins.star.version) on the index \(index.record.key.folderName)",
             kind: .tool, tool: pins.star, arguments: arguments, deadlineSeconds: deadline,
-            inputs: reads + index.entries.map(\.relativePath), outputs: starReports + [starBAM], outputPolicy: policy))
+            inputs: reads + index.entries.map(\.relativePath) + (salmon == nil ? [] : [gtfPath]), outputs: starReports + bams,
+            outputPolicy: policy))
 
         var references = index.entries
         var used = [pins.star] + (request.trim == .none ? [] : [pins.trimGalore]) + (gzip > 0 ? [pins.decompressor] : [])
-        if request.chain == .featureCounts {
-            let gtfPath = "references/\(id)/\(gtf.path)"
+        if request.chain != .geneCounts {
             references.append(PlanEntry(role: .reference, relativePath: gtfPath, sha256: gtf.sha256, size: gtf.size,
                                         reference: PlanReferenceIdentity(setID: id, path: gtf.path)))
             sources[gtfPath] = request.setFolder.appendingPathComponent(gtf.path)
+        }
+        if let salmon {
+            let transcripts = manifest.derived.transcripts
+            let path = "references/\(id)/\(transcripts.path)"
+            references.append(PlanEntry(role: .reference, relativePath: path, sha256: transcripts.sha256, size: transcripts.size,
+                                        reference: PlanReferenceIdentity(setID: id, path: transcripts.path)))
+            sources[path] = request.setFolder.appendingPathComponent(transcripts.path)
+            steps.append(salmonStep(salmon, transcripts: path, threads: request.threads, scoring: request.alignmentScoring,
+                                    deadline: deadline))
+            used.append(salmon)
+        }
+        if request.chain == .featureCounts {
             steps.append(PlanStep(
                 id: featureCountsStepID, title: "Count the exons of \(gtf.path) with featureCounts \(pins.featureCounts.version)",
                 kind: .tool, tool: pins.featureCounts,
@@ -90,7 +115,8 @@ package enum STARPlan {
                                 size: pins.executor.size)] + frame.inputs + references.sorted { $0.relativePath < $1.relativePath },
             executor: pins.executorBuild, imageManifest: pins.imageManifest,
             tools: used.sorted { ($0.id, $0.version, $0.build) < ($1.id, $1.version, $1.build) }, recipe: nil,
-            pipeline: pipeline(manifest: manifest, request: request, gtf: gtf, paired: paired),
+            pipeline: salmon.map { defaultRoutePipeline(manifest: manifest, request: request, gtf: gtf, salmon: $0) }
+                ?? pipeline(manifest: manifest, request: request, gtf: gtf, paired: paired),
             sample: PlanSampleValues(
                 sampleName: sample.name, originalFilenames: sample.reads.map(\.name),
                 originalSizeBytes: sample.reads.reduce(Int64(0)) { $0 + $1.size }, instrument: sample.instrument),

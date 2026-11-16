@@ -28,6 +28,9 @@ extension STARPlan {
     /// The words of `counts`, which say what a count is.
     static func countsWords(_ chain: STARPlanChain, paired: Bool) -> String {
         switch chain {
+        case .starSalmon:
+            // The default route counts with salmon, whose plan states its counts as the Mac route does (defaultRoutePipeline).
+            return "NumReads"
         case .geneCounts:
             return "STAR GeneCounts in ReadsPerGene.out.tab: a uniquely mapped \(paired ? "pair" : "read") counted for the one gene "
                 + "whose exons it overlaps, in three columns, unstranded, read 1 on the gene's strand and read 2 on the gene's strand"

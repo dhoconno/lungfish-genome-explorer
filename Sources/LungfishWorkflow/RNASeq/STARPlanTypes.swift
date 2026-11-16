@@ -12,12 +12,16 @@ package enum STARPlanChain: String, CaseIterable, Sendable {
     case geneCounts = "star-genecounts"
     /// subread featureCounts on the exons, with STAR's `ReadsPerGene.out.tab` beside it (gate GF, at STAR 2.7.11b).
     case featureCounts = "star-featurecounts-exon"
+    /// LGE's default route on Linux: STAR 2.7.11b `--quantMode TranscriptomeSAM GeneCounts`, then salmon 2.11.0 `-a` on
+    /// `Aligned.toTranscriptome.out.bam` (gate GT, ADJ-ROUTE item 4).
+    case starSalmon = "star-salmon"
 
     /// The name a person reads for the chain.
     package var presetName: String {
         switch self {
         case .geneCounts: return "Bulk counts by STAR GeneCounts on the genome"
         case .featureCounts: return "Bulk exon counts by featureCounts on STAR's alignments"
+        case .starSalmon: return "Bulk counts by salmon on STAR's transcriptome alignments"
         }
     }
 }
@@ -33,10 +37,13 @@ package struct STARPlanPins: Sendable {
     package var trimGalore: PlanToolPin
     package var decompressor: PlanToolPin
     package var featureCounts: PlanToolPin
+    /// salmon, which the STAR then salmon route counts with, or nil for an image that lists no single salmon.
+    package var salmon: PlanToolPin?
 
     package init(
         executor: ExecutorPlanSourceFile, executorBuild: PlanExecutorBuild, imageManifest: PlanImageManifestPin,
-        star: PlanToolPin, trimGalore: PlanToolPin, decompressor: PlanToolPin, featureCounts: PlanToolPin
+        star: PlanToolPin, trimGalore: PlanToolPin, decompressor: PlanToolPin, featureCounts: PlanToolPin,
+        salmon: PlanToolPin? = nil
     ) {
         self.executor = executor
         self.executorBuild = executorBuild
@@ -45,9 +52,11 @@ package struct STARPlanPins: Sendable {
         self.trimGalore = trimGalore
         self.decompressor = decompressor
         self.featureCounts = featureCounts
+        self.salmon = salmon
     }
 
-    /// The pins of STAR `version`, `trim_galore`, `pigz` and `featureCounts`, each listed once in the image's manifest.
+    /// The pins of STAR `version`, `trim_galore`, `pigz` and `featureCounts`, each listed once in the image's manifest, and of
+    /// `salmon` when the manifest lists one.
     package init(
         executor: ExecutorPlanSourceFile, executorBuild: PlanExecutorBuild, imageManifest: PlanImageManifestPin,
         toolManifest: ImageToolManifest, star version: STARIndexVersion
@@ -64,7 +73,21 @@ package struct STARPlanPins: Sendable {
         }
         self.init(executor: executor, executorBuild: executorBuild, imageManifest: imageManifest, star: index.star,
                   trimGalore: try pin("trim_galore"), decompressor: index.decompressor,
-                  featureCounts: try pin("featureCounts"))
+                  featureCounts: try pin("featureCounts"), salmon: try? toolManifest.pin(forToolID: "salmon"))
+    }
+}
+
+/// How salmon scores the transcriptome alignments of the STAR then salmon route (ADJ-ROUTE items 5 and 6). STAR writes no
+/// AS tag to `Aligned.toTranscriptome.out.bam`, so `none` passes no flag and salmon 2.11.0 weighs each alignment equally,
+/// and `errorModel` passes `--errorModel`.
+package enum STARPlanAlignmentScoring: String, CaseIterable, Sendable {
+    case none
+    case errorModel
+
+    /// The record line of ADJ-ROUTE item 5.
+    package var recordLine: String {
+        "Alignment scores: none in the BAM (STAR writes no AS tag to the transcriptome BAM); salmon error model: "
+            + (self == .errorModel ? "on" : "off")
     }
 }
 
@@ -81,12 +104,15 @@ package struct STARPlanRequest: Sendable {
     package var threads: Int
     /// STAR's `--outFilterMultimapNmax` when the person names one, or nil for STAR's default of 10, which passes no flag.
     package var multimapNmax: Int?
+    /// How salmon scores the transcriptome alignments, a setting of the STAR then salmon route only.
+    package var alignmentScoring: STARPlanAlignmentScoring
     /// The limit the person named for each step in seconds, or nil for the longest a plan allows.
     package var deadlineSeconds: Double?
 
     package init(
         setFolder: URL, sample: SalmonPlanSample, pins: STARPlanPins, chain: STARPlanChain, index: ExecutorPlanStagedIndex,
-        trim: SalmonQuantTrim, threads: Int = STARPlan.defaultThreads, multimapNmax: Int? = nil, deadlineSeconds: Double? = nil
+        trim: SalmonQuantTrim, threads: Int = STARPlan.defaultThreads, multimapNmax: Int? = nil,
+        alignmentScoring: STARPlanAlignmentScoring = .none, deadlineSeconds: Double? = nil
     ) {
         self.setFolder = setFolder
         self.sample = sample
@@ -96,6 +122,7 @@ package struct STARPlanRequest: Sendable {
         self.trim = trim
         self.threads = threads
         self.multimapNmax = multimapNmax
+        self.alignmentScoring = alignmentScoring
         self.deadlineSeconds = deadlineSeconds
     }
 }

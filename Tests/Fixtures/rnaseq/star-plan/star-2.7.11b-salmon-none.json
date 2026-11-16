@@ -1,0 +1,409 @@
+{
+  "entries" : [
+    {
+      "relativePath" : "bin/lungfish-executor",
+      "role" : "executor",
+      "sha256" : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size" : 1000
+    },
+    {
+      "relativePath" : "inputs/pair1_R1.fastq",
+      "role" : "input",
+      "sha256" : "007f6f83c2edb13b69d97e9c3e7694d79aac4a3dda172f4671e7c2f7dea334c1",
+      "size" : 236
+    },
+    {
+      "relativePath" : "inputs/pair1_R2.fastq",
+      "role" : "input",
+      "sha256" : "6c2d10ae1b305994ca7b5c21a1158c446bd10df5291937abc7050a83b816ed6a",
+      "size" : 236
+    },
+    {
+      "reference" : {
+        "path" : "derived/genes.gtf",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/derived/genes.gtf",
+      "role" : "reference",
+      "sha256" : "59418328435c67055273327b0421d42540c8e8ca32dd9086de09751a7001d45b",
+      "size" : 13888
+    },
+    {
+      "reference" : {
+        "path" : "derived/transcripts.fa",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/derived/transcripts.fa",
+      "role" : "reference",
+      "sha256" : "0c64e2454766985c58ab74214deb5c81c378b0a31e9140255a51d9e6565f8360",
+      "size" : 11752
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa7-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "Genome",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa7-sparse2/Genome",
+      "role" : "reference",
+      "sha256" : "dfe8197dc450f4941ebb860ac94a42f93ac262128baf3f9b818558f08177b545",
+      "size" : 35
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa7-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "SA",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa7-sparse2/SA",
+      "role" : "reference",
+      "sha256" : "9d43890a4bb7653d25f75ef66ee570004e7349f20b06cfa696cb7c607f45f887",
+      "size" : 31
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa7-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "chrName.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa7-sparse2/chrName.txt",
+      "role" : "reference",
+      "sha256" : "4815bce5a7c8e28ec9b4ed900c1b23d27fabc596d359ef9d90661a70067676c8",
+      "size" : 40
+    }
+  ],
+  "executor" : {
+    "lgeCommit" : "0000000000000000000000000000000000000000",
+    "lgeVersion" : "test",
+    "staticLinuxSDKID" : "test",
+    "staticLinuxSDKSHA256" : "0000000000000000000000000000000000000000000000000000000000000000",
+    "targetTriple" : "x86_64-swift-linux-musl",
+    "toolchainID" : "test",
+    "toolchainSHA256" : "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "graceSeconds" : 60,
+  "imageManifest" : {
+    "sha256" : "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "size" : 4000
+  },
+  "pipeline" : {
+    "id" : "star-salmon",
+    "modality" : "bulk",
+    "preset" : {
+      "id" : "star-salmon",
+      "name" : "Bulk counts by salmon on STAR's transcriptome alignments"
+    },
+    "referenceSet" : {
+      "id" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed",
+      "layout" : "lge"
+    },
+    "route" : {
+      "id" : "star-salmon",
+      "settings" : {
+        "adapter" : "Adapter: chosen by Trim Galore 2.3.0 from read 1 (auto-detection)",
+        "alignmentScores" : "Alignment scores: none in the BAM (STAR writes no AS tag to the transcriptome BAM); salmon error model: off",
+        "alignmentScoring" : "none",
+        "countingGTF" : "derived/genes.gtf of the set macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed, SHA-256 59418328435c67055273327b0421d42540c8e8ca32dd9086de09751a7001d45b",
+        "counts" : "NumReads",
+        "duplicates" : "Duplicates: kept. LGE removes duplicates only with UMIs.",
+        "geneSums" : "NumReads summed by gene through the reference set's derived/transcripts.tsv",
+        "index" : "star-2.7.11b-sa7-sparse2",
+        "libraryType" : "A",
+        "mapping" : "STAR 2.7.11b on the genome, --quantMode TranscriptomeSAM GeneCounts --twopassMode Basic, then salmon 2.11.0 on STAR's transcriptome alignments (-a)",
+        "multimapNmax" : "20 loci, the --outFilterMultimapNmax 20 of nf-core/rnaseq's STAR then salmon route",
+        "transcripts" : "derived/transcripts.fa of the set macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed, SHA-256 0c64e2454766985c58ab74214deb5c81c378b0a31e9140255a51d9e6565f8360",
+        "trimming" : "Poly-G trimming: off (LGE default)"
+      },
+      "tool" : "salmon",
+      "toolVersion" : "2.11.0"
+    },
+    "settings" : [
+      {
+        "id" : "adapter",
+        "label" : "Adapter",
+        "source" : "default",
+        "value" : "Adapter: chosen by Trim Galore 2.3.0 from read 1 (auto-detection)"
+      },
+      {
+        "id" : "alignmentScores",
+        "label" : "Alignment scores",
+        "source" : "default",
+        "value" : "Alignment scores: none in the BAM (STAR writes no AS tag to the transcriptome BAM); salmon error model: off"
+      },
+      {
+        "id" : "alignmentScoring",
+        "label" : "Alignment scoring",
+        "source" : "default",
+        "value" : "none"
+      },
+      {
+        "id" : "countingGTF",
+        "label" : "Genes",
+        "source" : "default",
+        "value" : "derived/genes.gtf of the set macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed, SHA-256 59418328435c67055273327b0421d42540c8e8ca32dd9086de09751a7001d45b"
+      },
+      {
+        "id" : "counts",
+        "label" : "Counts",
+        "source" : "default",
+        "value" : "NumReads"
+      },
+      {
+        "id" : "duplicates",
+        "label" : "Duplicates",
+        "source" : "default",
+        "value" : "Duplicates: kept. LGE removes duplicates only with UMIs."
+      },
+      {
+        "id" : "geneSums",
+        "label" : "Gene sums",
+        "source" : "default",
+        "value" : "NumReads summed by gene through the reference set's derived/transcripts.tsv"
+      },
+      {
+        "id" : "index",
+        "label" : "Index",
+        "source" : "default",
+        "value" : "star-2.7.11b-sa7-sparse2"
+      },
+      {
+        "id" : "libraryType",
+        "label" : "Library type",
+        "source" : "default",
+        "value" : "A"
+      },
+      {
+        "id" : "mapping",
+        "label" : "Mapping",
+        "source" : "default",
+        "value" : "STAR 2.7.11b on the genome, --quantMode TranscriptomeSAM GeneCounts --twopassMode Basic, then salmon 2.11.0 on STAR's transcriptome alignments (-a)"
+      },
+      {
+        "id" : "multimapNmax",
+        "label" : "Loci a read may map to",
+        "source" : "default",
+        "value" : "20 loci, the --outFilterMultimapNmax 20 of nf-core/rnaseq's STAR then salmon route"
+      },
+      {
+        "id" : "transcripts",
+        "label" : "Transcripts",
+        "source" : "default",
+        "value" : "derived/transcripts.fa of the set macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed, SHA-256 0c64e2454766985c58ab74214deb5c81c378b0a31e9140255a51d9e6565f8360"
+      },
+      {
+        "id" : "trimming",
+        "label" : "Trimming",
+        "source" : "default",
+        "value" : "Poly-G trimming: off (LGE default)"
+      }
+    ],
+    "version" : 1
+  },
+  "sample" : {
+    "originalFilenames" : [
+      "sample1_R1.fastq",
+      "sample1_R2.fastq"
+    ],
+    "originalSizeBytes" : 472,
+    "sampleName" : "sample1",
+    "sampleSheet" : [
+
+    ]
+  },
+  "schemaVersion" : 2,
+  "steps" : [
+    {
+      "arguments" : [
+        "--no_poly_g",
+        "--paired",
+        "-o",
+        "trim-pair1",
+        "inputs/pair1_R1.fastq",
+        "inputs/pair1_R2.fastq"
+      ],
+      "deadlineSeconds" : 31622400,
+      "environment" : [
+
+      ],
+      "id" : "trim-pair1",
+      "inputs" : [
+        "inputs/pair1_R1.fastq",
+        "inputs/pair1_R2.fastq"
+      ],
+      "kind" : "tool",
+      "outputPolicy" : {
+        "logs/trim-pair1.stderr" : "home",
+        "trim-pair1/pair1_R1.fastq_trimming_report.json" : "home",
+        "trim-pair1/pair1_R1_val_1.fq" : "stays",
+        "trim-pair1/pair1_R2.fastq_trimming_report.json" : "home",
+        "trim-pair1/pair1_R2_val_2.fq" : "stays"
+      },
+      "outputs" : [
+        "trim-pair1/pair1_R1_val_1.fq",
+        "trim-pair1/pair1_R2_val_2.fq",
+        "trim-pair1/pair1_R1.fastq_trimming_report.json",
+        "trim-pair1/pair1_R2.fastq_trimming_report.json",
+        "logs/trim-pair1.stderr"
+      ],
+      "title" : "Trim the pair with Trim Galore 2.3.0",
+      "tool" : {
+        "build" : "hf1b6044_0",
+        "id" : "trim_galore",
+        "version" : "2.3.0"
+      }
+    },
+    {
+      "arguments" : [
+        "--genomeDir",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa7-sparse2",
+        "--readFilesIn",
+        "trim-pair1/pair1_R1_val_1.fq",
+        "trim-pair1/pair1_R2_val_2.fq",
+        "--runThreadN",
+        "8",
+        "--outFileNamePrefix",
+        "star/",
+        "--outSAMtype",
+        "BAM",
+        "Unsorted",
+        "--sjdbGTFfile",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/derived/genes.gtf",
+        "--outSAMattrRGline",
+        "ID:sample1",
+        "SM:sample1",
+        "--quantMode",
+        "TranscriptomeSAM",
+        "GeneCounts",
+        "--twopassMode",
+        "Basic",
+        "--runRNGseed",
+        "0",
+        "--outFilterMultimapNmax",
+        "20",
+        "--alignSJDBoverhangMin",
+        "1",
+        "--outSAMattributes",
+        "NH",
+        "HI",
+        "AS",
+        "NM",
+        "MD",
+        "--quantTranscriptomeSAMoutput",
+        "BanSingleEnd"
+      ],
+      "deadlineSeconds" : 31622400,
+      "environment" : [
+
+      ],
+      "id" : "star-align",
+      "inputs" : [
+        "trim-pair1/pair1_R1_val_1.fq",
+        "trim-pair1/pair1_R2_val_2.fq",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa7-sparse2/Genome",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa7-sparse2/SA",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa7-sparse2/chrName.txt",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/derived/genes.gtf"
+      ],
+      "kind" : "tool",
+      "outputPolicy" : {
+        "star/Aligned.out.bam" : "stays",
+        "star/Aligned.toTranscriptome.out.bam" : "stays",
+        "star/Log.final.out" : "home",
+        "star/ReadsPerGene.out.tab" : "home"
+      },
+      "outputs" : [
+        "star/Log.final.out",
+        "star/ReadsPerGene.out.tab",
+        "star/Aligned.out.bam",
+        "star/Aligned.toTranscriptome.out.bam"
+      ],
+      "title" : "Map the reads with STAR 2.7.11b on the index star-2.7.11b-sa7-sparse2",
+      "tool" : {
+        "build" : "h5814d7d_9",
+        "id" : "STAR",
+        "version" : "2.7.11b"
+      }
+    },
+    {
+      "arguments" : [
+        "quant",
+        "-l",
+        "A",
+        "-t",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/derived/transcripts.fa",
+        "-a",
+        "star/Aligned.toTranscriptome.out.bam",
+        "-p",
+        "8",
+        "-o",
+        "quant"
+      ],
+      "deadlineSeconds" : 31622400,
+      "environment" : [
+
+      ],
+      "id" : "salmon-quant",
+      "inputs" : [
+        "star/Aligned.toTranscriptome.out.bam",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/derived/transcripts.fa"
+      ],
+      "kind" : "tool",
+      "outputPolicy" : {
+        "quant/aux_info/meta_info.json" : "home",
+        "quant/cmd_info.json" : "home",
+        "quant/lib_format_counts.json" : "home",
+        "quant/quant.sf" : "home"
+      },
+      "outputs" : [
+        "quant/quant.sf",
+        "quant/cmd_info.json",
+        "quant/lib_format_counts.json",
+        "quant/aux_info/meta_info.json"
+      ],
+      "title" : "Count STAR's transcriptome alignments with salmon 2.11.0",
+      "tool" : {
+        "build" : "hfa8f182_0",
+        "id" : "salmon",
+        "version" : "2.11.0"
+      }
+    }
+  ],
+  "tools" : [
+    {
+      "build" : "h5814d7d_9",
+      "id" : "STAR",
+      "version" : "2.7.11b"
+    },
+    {
+      "build" : "hfa8f182_0",
+      "id" : "salmon",
+      "version" : "2.11.0"
+    },
+    {
+      "build" : "hf1b6044_0",
+      "id" : "trim_galore",
+      "version" : "2.3.0"
+    }
+  ]
+}

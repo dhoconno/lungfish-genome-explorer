@@ -112,3 +112,5 @@ d65a4d8ebfccb34093852efda5b1532eb5e1a4b910b9fa0c1bcb23874eeb845b  trim-galore-ad
 bbfd232cb253b9391938d9980ba4121dcf7eb9fc93d44b1e19f16d6c781a2230  umi-table-c9/counts.tsv
 ddb4e3a6342bc80c2502ffe6061ef9f894581719ce13b7eae4bc4f83ccfdb9cb  umi-table-c9/genes.tsv
 b8b148352107fa756712e7a281472294a7333cff6b8c94b4907cdd2cc66d4296  umi-table-c9/runs.tsv
+ff1ba695a8e000f1c3b68f4fd875f176be086655ba7c013ce224e585dd8176d6  star-plan/star-2.7.11b-salmon-none.json
+a786f5a88fb4b75ac1fdf907788259a7079a4fdc221954219412610c2ba956cb  star-plan/star-2.7.11b-salmon-errormodel.json

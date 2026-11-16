@@ -17,12 +17,24 @@ struct RNASeqQuantPlanOptions: ParsableArguments {
         help: ArgumentHelp(
             "Write a plan folder for a run on a Linux machine to this new folder in place of counting here",
             discussion: "The folder is the submit folder of one batch, as import fastq --write-plan writes it, with one plan a sample. "
-                + "Each plan runs Trim Galore (with --trim) and then salmon on the index this Mac published for the set, which the "
-                + "plan pins file by file and never builds, so run lungfish-cli rnaseq index first. Nothing runs here and nothing is "
-                + "submitted, so --project is not used. A run you adopt as a result takes the manifest of the executor you built "
-                + "with --executor-manifest, since the plan pins it.",
+                + "Each plan runs Trim Galore (with --trim) and then the chain --chain names. Each plan pins its index file by file "
+                + "and never builds one. Nothing runs here and nothing is submitted, so --project is not used. A run you adopt as a "
+                + "result takes the manifest of the executor you built with --executor-manifest, since the plan pins it.",
             valueName: "folder"))
     var writePlan: String?
+
+    @Option(name: .customLong("chain"), help: ArgumentHelp(
+        "With --write-plan, what each plan runs after trimming (default: salmon)",
+        discussion: "salmon counts the reads with salmon on the index this Mac published for the set, so run lungfish-cli rnaseq "
+            + "index first. star-salmon maps with STAR 2.7.11b --quantMode TranscriptomeSAM GeneCounts and counts STAR's "
+            + "transcriptome alignments with salmon -a, and star-salmon-errormodel adds salmon's --errorModel. "
+            + "star-2.7.11b-genecounts and star-2.7.3a-genecounts count genes with STAR's GeneCounts, and "
+            + "star-2.7.11b-featurecounts counts exons with featureCounts on STAR's alignments. Each STAR chain pins the STAR "
+            + "index of its version that an earlier run built on the Linux machine and left in the staging folder. Plan that "
+            + "index with lungfish-cli rnaseq index-plan --star <version>, run it, and record it with lungfish-cli rnaseq "
+            + "index-adopt. --k and --decoys pick a salmon index, so a STAR chain takes neither.",
+        valueName: "chain"))
+    var chain: RNASeqQuantPlanChain?
 
     @Option(name: .customLong("staged-reads"), help: ArgumentHelp(
         "A tab-separated list of reads already in the staging folder, with each read's absolute path, size in bytes and SHA-256, "
@@ -57,7 +69,7 @@ struct RNASeqQuantPlanOptions: ParsableArguments {
     @Option(name: .customLong("request-memory-mib"), help: "Memory each job asks for, in MiB. Optional for Macaca_fascicularis_6.0")
     var requestMemoryMiB: Int64?
 
-    @Option(name: .customLong("request-cpus"), help: "CPUs each job asks for, and salmon's -p (default: 8). Optional for Macaca_fascicularis_6.0")
+    @Option(name: .customLong("request-cpus"), help: "CPUs each job asks for, and the threads of salmon and STAR (default: 8). Optional for Macaca_fascicularis_6.0")
     var requestCPUs: Int?
 
     @Option(name: .customLong("request-disk-gib"), help: "Disk each job asks for, in GiB. Optional for Macaca_fascicularis_6.0")
@@ -74,7 +86,7 @@ struct RNASeqQuantPlanOptions: ParsableArguments {
     /// The options of a plan that were given, by name, for the refusal of a plan option with no `--write-plan`.
     var given: [String] {
         let named: [(String, Bool)] = [
-            ("--staged-reads", stagedReads != nil), ("--samplesheet", samplesheet != nil), ("--staging-folder", stagingFolder != nil),
+            ("--chain", chain != nil), ("--staged-reads", stagedReads != nil), ("--samplesheet", samplesheet != nil), ("--staging-folder", stagingFolder != nil),
             ("--executor-manifest", executorManifest != nil), ("--image", image != nil),
             ("--image-tool-manifest", imageToolManifest != nil), ("--request-memory-mib", requestMemoryMiB != nil),
             ("--request-cpus", requestCPUs != nil), ("--request-disk-gib", requestDiskGiB != nil),
