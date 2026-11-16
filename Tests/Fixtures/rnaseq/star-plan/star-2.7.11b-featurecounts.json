@@ -113,7 +113,7 @@
       "settings" : {
         "adapter" : "Adapter: chosen by Trim Galore 2.3.0 from read 1 (auto-detection)",
         "countingGTF" : "derived/genes.gtf of the set macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed, SHA-256 59418328435c67055273327b0421d42540c8e8ca32dd9086de09751a7001d45b",
-        "counts" : "featureCounts exon counts summed by gene_id: a pair counted once (-p --countReadPairs), multimapping alignments counted (-M), no read counted for two genes (no -O), whole counts (no --fraction), unstranded (-s 0, the default)",
+        "counts" : "featureCounts exon counts summed by gene_id, in featurecounts/counts.txt: a pair counted once, for one gene only (-p --countReadPairs), a pair that cannot be given to one gene left uncounted as ambiguous (no -O), each reported alignment of a multimapping read counted (-M), so a read that maps to two genes counts once in each, whole counts (no --fraction), unstranded (-s 0, the default). STAR's own star/ReadsPerGene.out.tab of the same run counts by STAR's rule (unique pairs only, a pair whose reads touch two genes ambiguous) and differs from these counts by design",
         "duplicates" : "Duplicates: kept. LGE removes duplicates only with UMIs.",
         "index" : "star-2.7.11b-sa7-sparse2",
         "mapping" : "STAR 2.7.11b on the genome, --outSAMtype BAM Unsorted --quantMode GeneCounts",
@@ -140,7 +140,7 @@
         "id" : "counts",
         "label" : "Counts",
         "source" : "default",
-        "value" : "featureCounts exon counts summed by gene_id: a pair counted once (-p --countReadPairs), multimapping alignments counted (-M), no read counted for two genes (no -O), whole counts (no --fraction), unstranded (-s 0, the default)"
+        "value" : "featureCounts exon counts summed by gene_id, in featurecounts/counts.txt: a pair counted once, for one gene only (-p --countReadPairs), a pair that cannot be given to one gene left uncounted as ambiguous (no -O), each reported alignment of a multimapping read counted (-M), so a read that maps to two genes counts once in each, whole counts (no --fraction), unstranded (-s 0, the default). STAR's own star/ReadsPerGene.out.tab of the same run counts by STAR's rule (unique pairs only, a pair whose reads touch two genes ambiguous) and differs from these counts by design"
       },
       {
         "id" : "duplicates",

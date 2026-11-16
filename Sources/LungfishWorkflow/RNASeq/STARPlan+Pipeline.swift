@@ -32,10 +32,16 @@ extension STARPlan {
             return "STAR GeneCounts in ReadsPerGene.out.tab: a uniquely mapped \(paired ? "pair" : "read") counted for the one gene "
                 + "whose exons it overlaps, in three columns, unstranded, read 1 on the gene's strand and read 2 on the gene's strand"
         case .featureCounts:
-            let unit = paired ? "a pair counted once (-p --countReadPairs)"
-                : "each read counted once (single reads take no -p --countReadPairs)"
-            return "featureCounts exon counts summed by gene_id: \(unit), multimapping alignments counted (-M), no read counted "
-                + "for two genes (no -O), whole counts (no --fraction), unstranded (-s 0, the default)"
+            // -M counts each reported alignment of a multimapping read, so a read that maps to two genes counts once in each
+            // (the GF rule). No -O means overlap never counts a pair twice, and STAR's GeneCounts differs by design
+            // (EX-PLAN-STAR-M2-BIO SF1).
+            let unit = paired ? "a pair counted once, for one gene only (-p --countReadPairs)"
+                : "each read counted once, for one gene only (single reads take no -p --countReadPairs)"
+            return "featureCounts exon counts summed by gene_id, in featurecounts/counts.txt: \(unit), a \(paired ? "pair" : "read") "
+                + "that cannot be given to one gene left uncounted as ambiguous (no -O), each reported alignment of a multimapping "
+                + "read counted (-M), so a read that maps to two genes counts once in each, whole counts (no --fraction), unstranded "
+                + "(-s 0, the default). STAR's own star/ReadsPerGene.out.tab of the same run counts by STAR's rule (unique pairs "
+                + "only, a pair whose reads touch two genes ambiguous) and differs from these counts by design"
         }
     }
 
