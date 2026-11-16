@@ -273,5 +273,11 @@ extension STARIndexPlanTests {
                                          tenxFilter: .mkgtf300)
         }
         XCTAssertTrue(plain.hasPrefix("The run read no GTF that the 10x filter rule mkgtf-3.0.0 made from the set \(id)"), plain)
+        let crossed = "references/\(id)/made/tenx1-gencode-2020-A/genes.gtf"
+        let crossedWords = refusal {
+            _ = try STARIndexAdopt.adopt(runRecord: try runRecord(for: set, gtf: (crossed, made.sha256)).data, setFolder: set.url,
+                                         staging: Self.stagingLayout, tenxFilter: .mkgtf300)
+        }
+        XCTAssertTrue(crossedWords.hasSuffix("It read \(crossed), so adopt it with --tenx-filter gencode-2020-A."), crossedWords)
     }
 }
