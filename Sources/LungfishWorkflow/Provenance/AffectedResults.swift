@@ -481,13 +481,15 @@ extension AffectedResults {
 
     /// The kind of result `envelope` records, read from its root workflow name and its steps, or nil when no row speaks
     /// about it. A trim is only a record whose root is one of the two trim commands, never a step of that name inside
-    /// another run. A FASTQ import is a recipe import only when a fastp step of its recipe guessed the adapter pair,
-    /// since a recipe's fastp runs on read pairs (`FastpTrimStep.swift:19`) and its dedup and length-filter steps turn
-    /// adapter trimming off. Variant calls count only when iVar called them, which IVAR-CODON-MERGE speaks of.
+    /// another run, and never a trim that named its adapter or turned adapter trimming off
+    /// (`trimLeftNoAdapterToGuess`). A FASTQ import is a recipe import only when a fastp step of its recipe guessed
+    /// the adapter pair, since a recipe's fastp runs on read pairs (`FastpTrimStep.swift:19`) and its dedup and
+    /// length-filter steps turn adapter trimming off. Variant calls count only when iVar called them, which
+    /// IVAR-CODON-MERGE speaks of.
     public static func kind(of envelope: ProvenanceEnvelope) -> AffectedResultKind? {
         switch envelope.workflowName.trimmingCharacters(in: .whitespacesAndNewlines) {
         case RecordName.fastqTrim, RecordName.fastqAdapterTrim:
-            return .fastqTrim
+            return trimLeftNoAdapterToGuess(envelope) ? nil : .fastqTrim
         case RecordName.fastqDemultiplex:
             return .fastqDemultiplex
         case RecordName.fastqImport:
@@ -504,5 +506,19 @@ extension AffectedResults {
     private static func runs(_ tool: String, _ step: ProvenanceStep) -> Bool {
         step.toolName.lowercased() == tool
             || step.argv.first.map { URL(fileURLWithPath: $0).lastPathComponent.lowercased() == tool } == true
+    }
+
+    /// Whether the trim record says fastp was given its adapter (`adapterSequence` of `fastq trim`, `adapter` of
+    /// `fastq adapter-trim`) or told to trim none (`adapterTrimming` false), with no step passing the paired guess.
+    /// Only that positive record clears a trim. A record without such a key, or with the guess flag in a step, keeps
+    /// both trim rows, since fastp may then have guessed. The `interleaved` key never narrows: a mixed file runs its
+    /// unpaired reads single-end, and builds before 15439a5b6 handed fastp one interleaved file as single reads.
+    private static func trimLeftNoAdapterToGuess(_ envelope: ProvenanceEnvelope) -> Bool {
+        let explicit = envelope.options.explicit
+        var cleared = false
+        if case .string(let adapter)? = explicit["adapterSequence"] ?? explicit["adapter"],
+           !adapter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { cleared = true }
+        if case .boolean(false)? = explicit["adapterTrimming"] { cleared = true }
+        return cleared && !envelope.steps.contains { $0.argv.contains(fastpPairedAdapterGuess) }
     }
 }
