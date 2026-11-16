@@ -68,11 +68,16 @@ extension SalmonPlan {
         return recorded ? (SalmonQuantRecordLines.duplicates, .default) : (duplicatesNotRecorded, .default)
     }
 
-    /// The instrument of the reads' sidecar, with `inferred` when LGE read the model from the read names.
+    /// The instrument of the reads' sidecar, with `inferred` when LGE read the model from the read names. The sidecar
+    /// holds one model an instrument id, so each model is named once, and `Unknown`, for an id the table does not know,
+    /// is no model. A sidecar with no known model leaves `instrument` out, as the page says when none is known.
     static func instrument(payloads: [URL]) -> PlanSampleInstrument? {
         guard let found = payloads.lazy.compactMap({ FASTQMetadataStore.load(for: $0)?.sequencerInstrument }).first,
-              found.nameForm != .notRecorded, !found.models.isEmpty else { return nil }
-        return PlanSampleInstrument(model: found.models.joined(separator: " and "), inferred: found.modelsAreInferred)
+              found.nameForm != .notRecorded else { return nil }
+        var seen = Set<String>()
+        let named = found.models.filter { $0 != SequencerInstrument.unknownModel && seen.insert($0).inserted }
+        guard !named.isEmpty else { return nil }
+        return PlanSampleInstrument(model: named.joined(separator: " and "), inferred: found.modelsAreInferred)
     }
 }
 

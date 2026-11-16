@@ -192,6 +192,8 @@ extension SalmonQuantRoute {
         ]
         if let hash = index.hashes.decoySeqHash { settings["indexDecoySeqHash"] = hash }
         if let hash = index.hashes.decoyNameHash { settings["indexDecoyNameHash"] = hash }
+        // The key a trimmed Linux plan's route holds too, so the two results of one library can share a route.
+        if let adapter = SalmonQuantRecordLines.adapter(trim, version: trimVersion) { settings["adapter"] = adapter }
         let genesURL = set.url.appendingPathComponent(set.manifest.derived.genes.path)
         return RNASeqResultWriter.Request(
             name: name, modality: .bulk, origin: .init(kind: .quantified, tool: "salmon", toolVersion: salmon.toolVersion),
