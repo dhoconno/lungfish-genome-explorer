@@ -1,0 +1,15 @@
+# Program:featureCounts v2.1.1; Command:"/opt/lge/rnaseq/bin/featureCounts" "-p" "--countReadPairs" "-M" "-T" "8" "-a" "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/derived/genes.gtf" "-o" "featurecounts/counts.txt" "star/Aligned.out.bam" 
+Geneid	Chr	Start	End	Strand	Length	star/Aligned.out.bam
+ND1	NC_012670.1	3269	4223	+	955	200
+ND2	NC_012670.1	4430	5471	+	1042	200
+COX1	NC_012670.1	5858	7396	+	1539	200
+COX2	NC_012670.1	7540	8223	+	684	200
+ATP8	NC_012670.1	8364	8570	+	207	191
+ATP6	NC_012670.1	8525	9205	+	681	195
+COX3	NC_012670.1	9205	9988	+	784	200
+ND3	NC_012670.1	10058	10403	+	346	200
+ND4L	NC_012670.1	10469	10765	+	297	199
+ND4	NC_012670.1	10759	12136	+	1378	200
+ND5	NC_012670.1	12336	14147	+	1812	200
+ND6	NC_012670.1	14148	14675	-	528	200
+CYTB	NC_012670.1	14749	15889	+	1141	200

@@ -191,6 +191,20 @@ final class ImportRNASeqAdoptTests: XCTestCase {
         XCTAssertTrue(["origin", "route", "referenceSet"].allSatisfy(differing.contains), "\(differing.sorted())")
     }
 
+    // MARK: - M5 item 3, the help
+
+    /// The help of --adopt names the three counts it takes, salmon's, STAR GeneCounts' column and featureCounts' table,
+    /// and the refusal of a STAR or featureCounts table counted on another GTF.
+    func testAdoptHelpNamesSalmonSTARGeneCountsAndFeatureCounts() {
+        let help = ImportCommand.RNASeqSubcommand.helpMessage(columns: 1000)
+        for words in [
+            "The counts are salmon's, STAR GeneCounts' column 2 (unstranded) or featureCounts' table, as the plan's route names.",
+            "a STAR or featureCounts table counted on another GTF is refused.",
+        ] {
+            XCTAssertTrue(help.contains(words), words)
+        }
+    }
+
     // MARK: - M2 item 2, the route
 
     /// A refused adopt writes nothing in the project: here the storage root holds no set the plan names.

@@ -1,0 +1,114 @@
+{
+  "tool": "Trim Galore",
+  "schema_version": 1,
+  "trim_galore_version": "2.3.0",
+  "input_filenames": ["pair1_R1.fastq.gz", "pair1_R2.fastq.gz"],
+  "mode": "paired-end",
+  "read_number": 1,
+  "command_line": "/opt/lge/trim_galore/bin/trim_galore --no_poly_g --paired -o trim-pair1 inputs/pair1_R1.fastq.gz inputs/pair1_R2.fastq.gz",
+  "parameters": {
+    "quality_cutoff": 20,
+    "adapters": [{"name": "Illumina", "sequence": "AGATCGGAAGAGC"}],
+    "adapters_r2": [],
+    "times": 1,
+    "error_rate": 0.1,
+    "stringency": 1,
+    "length_cutoff": 20,
+    "max_length": null,
+    "phred_encoding": 33,
+    "trim_n": false,
+    "nextseq": false,
+    "rrbs": false,
+    "non_directional": false,
+    "poly_a": false,
+    "poly_g": false,
+    "clip_r1": null,
+    "clip_r2": null,
+    "three_prime_clip_r1": null,
+    "three_prime_clip_r2": null,
+    "max_n": null,
+    "discard_untrimmed": false,
+    "consider_already_trimmed": null
+  },
+  "read_processing": {
+    "total_reads": 2600,
+    "reads_with_adapter": 1171,
+    "reads_written": 2600,
+    "reads_too_short": 0,
+    "reads_too_long": 0,
+    "reads_too_many_n": 0,
+    "reads_discarded_untrimmed": 0
+  },
+  "basepair_processing": {
+    "total_bp_processed": 257687,
+    "quality_trimmed_bp": 0,
+    "total_bp_written": 246862
+  },
+  "adapter_trimming": [
+    {
+      "name": "Illumina",
+      "sequence": "AGATCGGAAGAGC",
+      "type": "regular 3'",
+      "length": 13,
+      "times_trimmed": 1171,
+      "length_distribution": {
+        "1": 619,
+        "2": 144,
+        "3": 24,
+        "4": 12,
+        "5": 7,
+        "6": 6,
+        "7": 5,
+        "8": 6,
+        "9": 9,
+        "10": 6,
+        "11": 7,
+        "12": 8,
+        "13": 6,
+        "14": 9,
+        "15": 4,
+        "16": 9,
+        "17": 8,
+        "18": 4,
+        "19": 4,
+        "20": 10,
+        "21": 8,
+        "22": 4,
+        "23": 9,
+        "24": 7,
+        "25": 3,
+        "26": 4,
+        "27": 4,
+        "28": 8,
+        "29": 4,
+        "30": 5,
+        "31": 6,
+        "32": 7,
+        "33": 10,
+        "34": 185
+      }
+    }
+  ],
+  "poly_a_trimming": {
+    "reads_trimmed": 0,
+    "bases_removed": 0
+  },
+  "poly_g_trimming": {
+    "reads_trimmed": 0,
+    "bases_removed": 0
+  },
+  "rrbs": {
+    "trimmed_3prime": 0,
+    "trimmed_5prime": 0,
+    "r2_clipped_5prime": 0
+  },
+  "pair_validation": {
+    "pairs_analyzed": 2600,
+    "pairs_removed": 0,
+    "pairs_removed_n": 0,
+    "pairs_removed_too_long": 0,
+    "r1_unpaired": 0,
+    "r2_unpaired": 0
+  },
+  "passthrough": null
+}

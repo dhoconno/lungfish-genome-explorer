@@ -1,0 +1,576 @@
+{
+  "endedAt" : "2026-11-16T06:11:27.383Z",
+  "executor" : {
+    "buildPin" : {
+      "lgeCommit" : "445a6f89a9c839d72076f37e8dfa3bce1a0366f7",
+      "lgeVersion" : "2026.11.9",
+      "staticLinuxSDKID" : "swift-6.4.0-RELEASE_static-linux-0.1.0",
+      "staticLinuxSDKSHA256" : "47d2fd89eebfdf9eb4d536b6710414297f755c17926cdebc4742c08982b40a9e",
+      "targetTriple" : "x86_64-swift-linux-musl",
+      "toolchainID" : "swift-6.4.0-RELEASE",
+      "toolchainSHA256" : "8fd03185b98fe27f54a54631c2449decf75d5b466ce8e34abbd414141063c6aa"
+    },
+    "sha256" : "25d9f5eb78884c6d089105ddb94a8b8e711ab0b6affc0833589a5d7a0002538e",
+    "size" : 59025792
+  },
+  "executorArguments" : [
+    "run",
+    "--plan",
+    "plan.json",
+    "--site-fact",
+    "Machine=galah.local",
+    "--site-fact",
+    "Arch=arm64",
+    "--site-fact",
+    "ContainerRuntime=Docker",
+    "--site-fact",
+    "ContainerRuntimeVersion=29.9.2",
+    "--site-fact",
+    "ContainerImageID=sha256:4d1027a4dcd93e272ccbcaaf2a4c4e55d1db43b6160284a03de8957f38231560",
+    "--site-fact",
+    "Launcher=run-local.sh/1"
+  ],
+  "exitCode" : 0,
+  "imageManifest" : {
+    "sha256" : "ded88d7fc03e50b0c4624f923314db6d4ed53697fe349d7f39a8070d9c916790",
+    "size" : 87670,
+    "source" : "image"
+  },
+  "inputs" : [
+    {
+      "relativePath" : "inputs/pair1_R1.fastq.gz",
+      "role" : "input",
+      "sha256" : "20d3a79a612e32649029e705fc65eb795331aff205b647952cd1aa380c807e4a",
+      "size" : 31994
+    },
+    {
+      "relativePath" : "inputs/pair1_R2.fastq.gz",
+      "role" : "input",
+      "sha256" : "37386803618e8fc9b5077092b4ba3c129158203a986a9f702aa521b5e8746341",
+      "size" : 31858
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "Genome",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/Genome",
+      "role" : "reference",
+      "sha256" : "d16b7ccf1afaeaa1a3e5d7bdca588c2e2ca3e6572eaf26f33f5d7c89819637de",
+      "size" : 262144
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "SA",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/SA",
+      "role" : "reference",
+      "sha256" : "2fa1bd528e936e357e3aeafa0f9f3cbcde83e4f9536f9c718b71fd433f120828",
+      "size" : 68375
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "SAindex",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/SAindex",
+      "role" : "reference",
+      "sha256" : "89c30c50e6ce8b2bd27d1ee5922242b368101270e802fe31488887e71501b7ab",
+      "size" : 23955
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "chrLength.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/chrLength.txt",
+      "role" : "reference",
+      "sha256" : "adddfda3ffa59b40f84780d4bff8cf5e081b812a59bb37cc0e851e82cfd7c4eb",
+      "size" : 6
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "chrName.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/chrName.txt",
+      "role" : "reference",
+      "sha256" : "b39b6f988608fe86afbaa0031ae2332e9509c03eba5585d876f57f44034fbc73",
+      "size" : 12
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "chrNameLength.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/chrNameLength.txt",
+      "role" : "reference",
+      "sha256" : "378ede83ee2dba4b42c47586cd6b44ca1c76e460558d4650dbbdc87fa3ca4a8a",
+      "size" : 18
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "chrStart.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/chrStart.txt",
+      "role" : "reference",
+      "sha256" : "7952e21f37906b105ebb3890c7c05d403b8d6fb9299b2f8bbd23a90704373c7f",
+      "size" : 9
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "exonGeTrInfo.tab",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/exonGeTrInfo.tab",
+      "role" : "reference",
+      "sha256" : "3a236357aa1f88ebdd003dce0d0d88f2fb98effc72960ea6a092621b7fa679a6",
+      "size" : 229
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "exonInfo.tab",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/exonInfo.tab",
+      "role" : "reference",
+      "sha256" : "90e4bc3b5ca940ebd12a8fbe3660e66fb9d36dd98219235c72e2b573210b8790",
+      "size" : 112
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "geneInfo.tab",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/geneInfo.tab",
+      "role" : "reference",
+      "sha256" : "65063fd5284e32d179e1e13d7d3adfa9ad87bdc355b3a3d4701215a2a2919a8b",
+      "size" : 329
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "genomeParameters.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/genomeParameters.txt",
+      "role" : "reference",
+      "sha256" : "5dfc540539674af204dcb3febe9317bf602f4f2779449ac80d21cf7a91a6c8fd",
+      "size" : 1035
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "sjdbInfo.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/sjdbInfo.txt",
+      "role" : "reference",
+      "sha256" : "ccb7eae74554d9ae10f46ddfe96979d6aa5ab45aa0b647795aa11faa3399da7c",
+      "size" : 6
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "sjdbList.fromGTF.out.tab",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/sjdbList.fromGTF.out.tab",
+      "role" : "reference",
+      "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size" : 0
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "sjdbList.out.tab",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/sjdbList.out.tab",
+      "role" : "reference",
+      "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size" : 0
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa6-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "transcriptInfo.tab",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2/transcriptInfo.tab",
+      "role" : "reference",
+      "sha256" : "d7044e940c8400d9f9fd53a74971ded3b42d23801410ff2cae1b7c1e865fd20a",
+      "size" : 657
+    }
+  ],
+  "outcome" : "succeeded",
+  "payloads" : [
+    {
+      "relativePath" : "trim-pair1/pair1_R1.fastq.gz_trimming_report.json",
+      "sha256" : "aead9515884892c772b204d03c221a0cfc2a5f992ae515a87128d5435e26d453",
+      "size" : 2539
+    },
+    {
+      "relativePath" : "trim-pair1/pair1_R2.fastq.gz_trimming_report.json",
+      "sha256" : "7bda10c31d8270dc0c4d1875bc60e3964b5b76059f660eca5c70f6fa69eaf276",
+      "size" : 2538
+    },
+    {
+      "relativePath" : "logs/trim-pair1.stderr",
+      "sha256" : "dade543e47c7171779174e4fa0043873711c9ee98a0339bcdff1e71cefaa0f91",
+      "size" : 1127
+    },
+    {
+      "relativePath" : "star/Log.final.out",
+      "sha256" : "1edfa1550fd86a8ab7ab2cd775e115a75a205c931e144571ada71b68c7059611",
+      "size" : 1970
+    },
+    {
+      "relativePath" : "star/ReadsPerGene.out.tab",
+      "sha256" : "b56aeb192ca399d813613387d7fa2f6f0b038496f55d73c195a09c7a20eae39d",
+      "size" : 282
+    }
+  ],
+  "plan" : {
+    "relativePath" : "plan.json",
+    "sha256" : "9d18595e09881a7cd21652695c3d56c60ee508dd61ecd1336d05d03cc7793ced",
+    "size" : 19414
+  },
+  "runtimeIdentity" : {
+    "cgroupVersion" : 2,
+    "kernelRelease" : "7.0.14-linuxkit",
+    "machine" : "x86_64",
+    "observedLimits" : [
+      {
+        "name" : "memTotalBytes",
+        "source" : "/proc/meminfo MemTotal",
+        "value" : "33332244480"
+      },
+      {
+        "name" : "cpusAllowedList",
+        "source" : "/proc/self/status Cpus_allowed_list",
+        "value" : "0-19"
+      },
+      {
+        "name" : "cgroupMemoryMaxBytes",
+        "source" : "/sys/fs/cgroup/memory.max"
+      }
+    ],
+    "orphanSweep" : "subreaper",
+    "pidNamespaceDepth" : 1,
+    "subreaper" : {
+      "getterResult" : 0,
+      "getterValue" : 1,
+      "setterResult" : 0,
+      "setterResultName" : "0",
+      "state" : "set"
+    }
+  },
+  "runtimes" : [
+
+  ],
+  "schemaVersion" : 1,
+  "searchPath" : [
+    "/opt/lge/rnaseq/bin",
+    "/opt/lge/env/bin",
+    "/opt/lge/star273a/bin",
+    "/opt/lge/trim_galore/bin",
+    "/usr/bin",
+    "/bin"
+  ],
+  "siteFacts" : [
+    {
+      "key" : "Machine",
+      "value" : "galah.local"
+    },
+    {
+      "key" : "Arch",
+      "value" : "arm64"
+    },
+    {
+      "key" : "ContainerRuntime",
+      "value" : "Docker"
+    },
+    {
+      "key" : "ContainerRuntimeVersion",
+      "value" : "29.9.2"
+    },
+    {
+      "key" : "ContainerImageID",
+      "value" : "sha256:4d1027a4dcd93e272ccbcaaf2a4c4e55d1db43b6160284a03de8957f38231560"
+    },
+    {
+      "key" : "Launcher",
+      "value" : "run-local.sh/1"
+    }
+  ],
+  "startedAt" : "2026-11-16T06:11:26.377Z",
+  "steps" : [
+    {
+      "adoptedOrphansReaped" : 0,
+      "argv" : [
+        "/opt/lge/trim_galore/bin/trim_galore",
+        "--no_poly_g",
+        "--paired",
+        "-o",
+        "trim-pair1",
+        "inputs/pair1_R1.fastq.gz",
+        "inputs/pair1_R2.fastq.gz"
+      ],
+      "deadlineSeconds" : 31622400,
+      "endedAt" : "2026-11-16T06:11:26.950Z",
+      "environmentNames" : [
+        "HOME",
+        "PATH",
+        "TMPDIR"
+      ],
+      "escalatedToSIGKILL" : false,
+      "graceSeconds" : 60,
+      "id" : "trim-pair1",
+      "kind" : "tool",
+      "outcome" : "succeeded",
+      "outputs" : [
+        {
+          "bytes" : 75306,
+          "path" : "trim-pair1/pair1_R1_val_1.fq.gz",
+          "policy" : "stays",
+          "sha256" : "d994435788fc664f50d5db201cf271fd833e18e530ae301f32f5577d4a054ebc"
+        },
+        {
+          "bytes" : 75925,
+          "path" : "trim-pair1/pair1_R2_val_2.fq.gz",
+          "policy" : "stays",
+          "sha256" : "b2f1c4bf6d0d70ce51f14d44d11d0706da35b43829d8e5e875befeff8dbfafc1"
+        },
+        {
+          "bytes" : 2539,
+          "path" : "trim-pair1/pair1_R1.fastq.gz_trimming_report.json",
+          "policy" : "home",
+          "sha256" : "aead9515884892c772b204d03c221a0cfc2a5f992ae515a87128d5435e26d453"
+        },
+        {
+          "bytes" : 2538,
+          "path" : "trim-pair1/pair1_R2.fastq.gz_trimming_report.json",
+          "policy" : "home",
+          "sha256" : "7bda10c31d8270dc0c4d1875bc60e3964b5b76059f660eca5c70f6fa69eaf276"
+        },
+        {
+          "bytes" : 1127,
+          "path" : "logs/trim-pair1.stderr",
+          "policy" : "home",
+          "sha256" : "dade543e47c7171779174e4fa0043873711c9ee98a0339bcdff1e71cefaa0f91"
+        }
+      ],
+      "peakResidentBytes" : 26734592,
+      "startedAt" : "2026-11-16T06:11:26.855Z",
+      "stderrBytes" : 1127,
+      "stderrTail" : "\nTrim Galore v2.3.0\nunknown — linux/x86_64 — built 2026-06-27T16:23:35Z\n==================================================\n\nAuto-detecting adapter type...\nUsing Illumina adapter for trimming (count: 318). Second best hit was Nextera (count: 0).\nAdapter: Illumina (AGATCGGAAGAGC)\n\nPoly-G trimming: DISABLED (user-specified --no_poly_g)\nTrimming (paired-end):\n  R1: inputs/pair1_R1.fastq.gz\n  R2: inputs/pair1_R2.fastq.gz\n  Output R1: trim-pair1/pair1_R1_val_1.fq.gz\n  Output R2: trim-pair1/pair1_R2_val_2.fq.gz\n\n=== Summary (Read 1) ===\n\nTotal reads processed:                 2600\nReads with adapters:                   1171 (45.0%)\n\n=== Summary (Read 2) ===\n\nTotal reads processed:                 2600\nReads with adapters:                   1152 (44.3%)\n\n=== Paired-end validation ===\n\nPairs analyzed:                        2600\nPairs removed:                            0 (0.0%)\nReport: trim-pair1/pair1_R1.fastq.gz_trimming_report.txt\nJSON report: trim-pair1/pair1_R1.fastq.gz_trimming_report.json\nReport: trim-pair1/pair1_R2.fastq.gz_trimming_report.txt\nJSON report: trim-pair1/pair1_R2.fastq.gz_trimming_report.json\n",
+      "stderrTruncated" : false,
+      "stoppedProcesses" : [
+
+      ],
+      "tool" : {
+        "build" : "hf1b6044_0",
+        "id" : "trim_galore",
+        "path" : "/opt/lge/trim_galore/bin/trim_galore",
+        "version" : "2.3.0",
+        "versionSource" : "imageManifest"
+      },
+      "toolExitCode" : 0,
+      "toolPID" : 57,
+      "wallSeconds" : 0.091413166
+    },
+    {
+      "adoptedOrphansReaped" : 2,
+      "argv" : [
+        "/opt/lge/star273a/bin/STAR",
+        "--runThreadN",
+        "8",
+        "--genomeDir",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa6-sparse2",
+        "--readFilesIn",
+        "trim-pair1/pair1_R1_val_1.fq.gz",
+        "trim-pair1/pair1_R2_val_2.fq.gz",
+        "--readFilesCommand",
+        "pigz",
+        "-d",
+        "-c",
+        "--outSAMtype",
+        "BAM",
+        "Unsorted",
+        "--quantMode",
+        "GeneCounts",
+        "--outFileNamePrefix",
+        "star/"
+      ],
+      "deadlineSeconds" : 31622400,
+      "endedAt" : "2026-11-16T06:11:27.383Z",
+      "environmentNames" : [
+        "HOME",
+        "PATH",
+        "TMPDIR"
+      ],
+      "escalatedToSIGKILL" : false,
+      "graceSeconds" : 60,
+      "id" : "star-align",
+      "kind" : "tool",
+      "outcome" : "succeeded",
+      "outputs" : [
+        {
+          "bytes" : 1970,
+          "path" : "star/Log.final.out",
+          "policy" : "home",
+          "sha256" : "1edfa1550fd86a8ab7ab2cd775e115a75a205c931e144571ada71b68c7059611"
+        },
+        {
+          "bytes" : 282,
+          "path" : "star/ReadsPerGene.out.tab",
+          "policy" : "home",
+          "sha256" : "b56aeb192ca399d813613387d7fa2f6f0b038496f55d73c195a09c7a20eae39d"
+        },
+        {
+          "bytes" : 154436,
+          "path" : "star/Aligned.out.bam",
+          "policy" : "stays",
+          "sha256" : "15773c726245a09794d2a88a57def40a05495a9799c919144fcad45d75c61921"
+        }
+      ],
+      "peakResidentBytes" : 1436164096,
+      "startedAt" : "2026-11-16T06:11:26.951Z",
+      "stderrBytes" : 0,
+      "stderrTail" : "",
+      "stderrTruncated" : false,
+      "stoppedProcesses" : [
+
+      ],
+      "tool" : {
+        "build" : "h5ca1c30_1",
+        "id" : "STAR",
+        "path" : "/opt/lge/star273a/bin/STAR",
+        "version" : "2.7.3a",
+        "versionSource" : "imageManifest"
+      },
+      "toolExitCode" : 0,
+      "toolPID" : 59,
+      "wallSeconds" : 0.429392708
+    }
+  ],
+  "wallSeconds" : 1.006689876
+}
