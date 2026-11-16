@@ -145,6 +145,37 @@ final class BuildDbTaxTriageBAMFitTests: XCTestCase {
         }
     }
 
+    /// BIO-WALK-T2-VIEW fixes 1 and 2. S1 has no BAM of its own, and `build-db` fits and marks `minimap2/S1_2.bam`, a file
+    /// that belongs to sample S1_2. The layer that feeds the TaxTriage view, the Inspector and BLAST Verify says so, and
+    /// says so again after a rebuild, which with S1's own BAM still missing fits and marks the same file again. A database
+    /// of an older build, with no key, says so in the words of the refusal's first sentence. Red at the base, which has no
+    /// such layer, so the view showed the file with no words.
+    func testTheViewLayerSaysSoForAFitAfterARebuildAndForAnOlderDatabase() async throws {
+        let result = try makeLoneFitResult()
+        let bam = result.appendingPathComponent("minimap2/S1_2.bam")
+        let databaseURL = result.appendingPathComponent("taxtriage.sqlite")
+        for round in ["first build", "rebuild"] {
+            try? FileManager.default.removeItem(at: databaseURL)
+            let built = try await build(result)
+            XCTAssertEqual(try fittedSamples(built.database), ["S1"], "\(round) marks S1")
+            for resultPath in [result, databaseURL] {
+                XCTAssertEqual(
+                    ClassifierReadResolver.taxTriageRecordedBAMNotice(sampleId: "S1", resultPath: resultPath, bam: bam),
+                    Self.sentence, "\(round), \(resultPath.lastPathComponent)"
+                )
+            }
+        }
+
+        var handle: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(databaseURL.path, &handle), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(handle, "DELETE FROM metadata WHERE key = 'fitted_bam_samples'", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(handle)
+        let older = ClassifierReadResolver.taxTriageRecordedBAMNotice(sampleId: "S1", resultPath: result, bam: bam)
+        let opening = "This result's database was built by a version of Lungfish before 2026.11.6, so the BAM it records "
+            + "for sample 'S1', S1_2.bam, may be another sample's. Run `lungfish-cli build-db taxtriage "
+        XCTAssertTrue(older?.hasPrefix(opening) == true, older ?? "no notice")
+    }
+
     // MARK: - Fixtures
 
     private enum ReportLayout {
