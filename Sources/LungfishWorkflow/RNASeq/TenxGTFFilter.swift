@@ -70,7 +70,9 @@ package enum TenxGTFFilter {
     /// since STAR would then give it no row of `features.tsv` (BIO-SOLO-GTF item 3).
     package static func filter(_ data: Data, list: List, extraRecords: [String], exonsAdded: [String]) throws -> Made {
         let extras = Set(extraRecords)
-        var lines: [(range: Range<Data.Index>, feature: ReferenceSetGTFFeature?)] = []
+        // A line keeps its byte range and the three fields the second pass reads. The parsed feature, whose attribute
+        // dictionary and Substrings hold the line's String, would stay in memory for the whole file.
+        var lines: [(range: Range<Data.Index>, feature: (contig: String, gene: String, type: String)?)] = []
         var order: [String] = [], seen = Set<String>()
         var geneBiotype: [String: String] = [:], transcriptBiotypes: [String: Set<String>] = [:]
         var start = data.startIndex
@@ -79,7 +81,7 @@ package enum TenxGTFFilter {
             var text = String(decoding: data[start..<end], as: UTF8.self)
             while text.hasSuffix("\n") || text.hasSuffix("\r") { text.removeLast() }
             let feature = ReferenceSetGTFFeature(text)
-            lines.append((start..<end, feature))
+            lines.append((start..<end, feature.map { (contig: $0.contig, gene: $0.gene, type: $0.type) }))
             start = end
             guard let feature, !extras.contains(feature.contig), !feature.gene.isEmpty else { continue }
             if seen.insert(feature.gene).inserted { order.append(feature.gene) }
