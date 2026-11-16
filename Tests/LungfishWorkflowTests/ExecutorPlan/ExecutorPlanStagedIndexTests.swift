@@ -138,7 +138,10 @@ final class ExecutorPlanStagedIndexTests: XCTestCase {
             seqkit: PlanToolPin(id: "seqkit", version: "2.13.0", build: "b0"), pigz: PlanToolPin(id: "pigz", version: "2.8", build: "b0"),
             imageManifest: manifest)
         let pinned = try ExecutorPlanStagedIndex.pin(Self.record(), star: Self.star, layout: layout)
-        job.emission.plan.entries += pinned.entries
+        var plan = job.emission.plan
+        // A schema 2 plan lists its reference entries by relativePath, before its barcode lists.
+        plan.entries.insert(contentsOf: pinned.entries, at: plan.entries.firstIndex { $0.role == .barcodeList } ?? plan.entries.endIndex)
+        job.emission = ExecutorPlanEmission(plan: plan, sources: job.emission.sources)
         job.stagedReferencePaths = pinned.stagingPaths
         let sif = Data("stand-in SIF".utf8)
         let image = ExecutorPlanImageRecord(

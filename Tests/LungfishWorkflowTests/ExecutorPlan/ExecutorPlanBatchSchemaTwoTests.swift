@@ -348,10 +348,12 @@ final class ExecutorPlanBatchSchemaTwoTests: XCTestCase {
     /// the batch `m-index` left it (lane EX-PLAN-STAR M1).
     private func stagedIndexJob(_ sample: String = "S", paths: (([String: String]) -> [String: String])? = nil) throws -> ExecutorPlanBatchJob {
         let pinned = try ExecutorPlanStagedIndex.pin(ExecutorPlanStagedIndexTests.record(), star: ExecutorPlanStagedIndexTests.star, layout: layout)
-        var made = try emission(sample)
-        made.plan.entries += pinned.entries
+        let made = try emission(sample)
+        var plan = made.plan
+        // A schema 2 plan lists its reference entries by relativePath, before its barcode lists.
+        plan.entries.insert(contentsOf: pinned.entries, at: plan.entries.firstIndex { $0.role == .barcodeList } ?? plan.entries.endIndex)
         return ExecutorPlanBatchJob(
-            emission: made, submit: ExecutorPlanSubmitValues(sampleName: sample, requestDiskGiB: 30, requestMemoryMiB: 40_960, requestCpus: 8),
+            emission: ExecutorPlanEmission(plan: plan, sources: made.sources), submit: ExecutorPlanSubmitValues(sampleName: sample, requestDiskGiB: 30, requestMemoryMiB: 40_960, requestCpus: 8),
             stagedReferencePaths: paths?(pinned.stagingPaths) ?? pinned.stagingPaths)
     }
 
@@ -396,7 +398,8 @@ final class ExecutorPlanBatchSchemaTwoTests: XCTestCase {
         let words = "The jobs read the 3 files of the index \(Staged.key) (Genome, SA and chrName.txt) where the run that built it "
             + "left them, in \(Staged.indexFolder)/, and nothing copies them. A run of run-local.sh reads them from "
             + "batches/m-index/index/staged/star-index/ below its data folder."
-        XCTAssertTrue(try text(folder, "README.txt").contains(words), try text(folder, "README.txt"))
+        let readme = try text(folder, "README.txt")
+        XCTAssertTrue(readme.contains(words), readme)
         XCTAssertTrue(batch.placements.contains(words), "\(batch.placements)")
         let dryRun = try ExecutorPlanBatchWriter.dryRun([job], image: image, layout: layout)
         XCTAssertTrue(dryRun.contains(words), "\(dryRun)")

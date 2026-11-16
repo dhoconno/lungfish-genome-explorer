@@ -135,7 +135,8 @@ package struct ExecutorPlanBatch: Sendable, Equatable {
     /// Each sample's plan tar in the submit folder, in sample order.
     package var planTars: [ExecutorPlanBatchTar]
     /// The words the caller shows for each barcode list the person supplied, where to put it in the staging folder
-    /// (``ExecutorPlanFolderWriter/placements(of:shared:)``). A recipe's batch has none.
+    /// (``ExecutorPlanFolderWriter/placements(of:shared:)``), then for each index the jobs read where an earlier run left
+    /// it, where that is (``ExecutorPlanStagedIndex/placements(of:stagedReferencePaths:layout:)``). A recipe's batch has none.
     package var placements: [String] = []
 }
 
@@ -143,16 +144,23 @@ package struct ExecutorPlanBatch: Sendable, Equatable {
 /// only the submit side reads. For a schema 2 plan those are the memory in MiB, CPUs and disk in GiB that the emitter's
 /// rule sets with the plan, the same numbers its argv holds, never read back from `plan.json` (ruling
 /// ARCH-SCHEMA-SPIKE item 4). `stagedPaths` are its reads' absolute paths in the staging folder when they are there
-/// already (C6 ruling STAGED), one an input entry in plan order, or nil.
+/// already (C6 ruling STAGED), one an input entry in plan order, or nil. `stagedReferencePaths` maps the `relativePath` of
+/// each index file that an earlier run left in the staging folder to its absolute path there (``ExecutorPlanStagedIndex``,
+/// lane EX-PLAN-STAR), and is empty for a plan that pins no such index.
 package struct ExecutorPlanBatchJob: Sendable {
     package var emission: ExecutorPlanEmission
     package var submit: ExecutorPlanSubmitValues
     package var stagedPaths: [String]?
+    package var stagedReferencePaths: [String: String]
 
-    package init(emission: ExecutorPlanEmission, submit: ExecutorPlanSubmitValues, stagedPaths: [String]? = nil) {
+    package init(
+        emission: ExecutorPlanEmission, submit: ExecutorPlanSubmitValues, stagedPaths: [String]? = nil,
+        stagedReferencePaths: [String: String] = [:]
+    ) {
         self.emission = emission
         self.submit = submit
         self.stagedPaths = stagedPaths
+        self.stagedReferencePaths = stagedReferencePaths
     }
 }
 
@@ -249,6 +257,38 @@ package enum ExecutorPlanBatchWriter {
         }
         guard !path.hasPrefix(layout.batchFolder + "/") else {
             throw ExecutorPlanError(field: "stagedPaths", reason: "The read \(path) of sample \(sample) is inside the folder \(layout.batchFolder), where this batch's jobs write, so keep the reads outside it.")
+        }
+    }
+
+    /// Refuses the staging path of an index file that an earlier run left (lane EX-PLAN-STAR) when it is not a file inside
+    /// the staging folder, has names below it that a transfer line cannot hold, or lies in the batch's own folder, where
+    /// the jobs write. The pin of the index (``ExecutorPlanStagedIndex``) and the batch make this one check.
+    package static func checkStagedReference(_ path: String, of relativePath: String, layout: ExecutorPlanStagingLayout) throws {
+        let prefix = layout.folder + "/"
+        let below = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : ""
+        let names = below.split(separator: "/", omittingEmptySubsequences: false)
+        guard !below.isEmpty, !names.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else {
+            throw ExecutorPlanError(field: "stagedReferencePaths", reason: "The index file \(path) is not inside the staging folder \(layout.folder). A job reads an index file where the run that built it left it, so pass --staging-folder the staging folder of that run.")
+        }
+        do {
+            try HTCondorValueRules.checkRelativePath(below, field: "staged index file")
+        } catch {
+            throw ExecutorPlanError(field: "stagedReferencePaths", reason: "The index file \(path) has a name with a character other than letters, digits, _, . and -, which a job's file transfer cannot hold.")
+        }
+        guard !path.hasPrefix(layout.batchFolder + "/") else {
+            throw ExecutorPlanError(field: "stagedReferencePaths", reason: "The index file \(path) for \(relativePath) is inside the folder \(layout.batchFolder), where this batch's jobs write, so name this batch another folder than the batch that built the index.")
+        }
+    }
+
+    /// Each staged index path of a job, by ``checkStagedReference(_:of:layout:)``, for a `reference` entry of an index in
+    /// its plan.
+    private static func checkStagedReferences(_ job: ExecutorPlanBatchJob, layout: ExecutorPlanStagingLayout) throws {
+        let plan = job.emission.plan
+        for (relativePath, path) in job.stagedReferencePaths.sorted(by: { $0.key < $1.key }) {
+            guard plan.entries.contains(where: { $0.role == .reference && $0.relativePath == relativePath && $0.reference?.index != nil }) else {
+                throw ExecutorPlanError(field: "stagedReferencePaths", reason: "The job of \(job.submit.sampleName) names a place in the staging folder for \(relativePath), which is no index file of the plan. Only an index file that an earlier run left in the staging folder is read where it sits.")
+            }
+            try checkStagedReference(path, of: relativePath, layout: layout)
         }
     }
 
@@ -351,7 +391,8 @@ package enum ExecutorPlanBatchWriter {
     }
 
     /// The lines a dry run of a schema 2 batch prints after the refusals of the real write: each job's folder and the
-    /// memory, CPUs and disk it asks for, then the words for each barcode list the person supplied.
+    /// memory, CPUs and disk it asks for, then the words for each barcode list the person supplied and for each index
+    /// that the jobs read where an earlier run left it.
     package static func dryRun(
         _ jobs: [ExecutorPlanBatchJob], image: ExecutorPlanImageRecord, layout: ExecutorPlanStagingLayout,
         requirements: String? = nil
@@ -362,6 +403,9 @@ package enum ExecutorPlanBatchWriter {
                 + "\(job.submit.requestCpus ?? 0) CPUs and \(job.submit.requestDiskGiB ?? 0) GiB of disk."
         }
         lines += jobs.first.map { ExecutorPlanFolderWriter.placements(of: $0.emission.plan, shared: true) } ?? []
+        lines += jobs.first.map {
+            ExecutorPlanStagedIndex.placements(of: $0.emission.plan, stagedReferencePaths: $0.stagedReferencePaths, layout: layout)
+        } ?? []
         lines.append("This was a dry run, so no plan folder was written.")
         return lines
     }
@@ -388,6 +432,10 @@ package enum ExecutorPlanBatchWriter {
             guard sharedEntries(of: plan) == sharedEntries(of: first), returns(of: plan, shape: .eachJob) == returns(of: first, shape: .eachJob) else {
                 throw ExecutorPlanError(field: "entries", reason: "The jobs of one batch share one sample.sub, so each plan names the same executor, databases, references and barcode lists and returns the same outputs. The plan of \(sample) differs from the first, so write it in a batch of its own.")
             }
+            guard job.stagedReferencePaths == jobs[0].stagedReferencePaths else {
+                throw ExecutorPlanError(field: "stagedReferencePaths", reason: "The jobs of one batch share one sample.sub, so each reads an index that an earlier run left from the same place in the staging folder. The plan of \(sample) reads one from another place than the first, so write it in a batch of its own.")
+            }
+            try checkStagedReferences(job, layout: layout)
             let inputs = plan.entries.filter { $0.role == .input }.count
             if let paths = job.stagedPaths {
                 guard paths.count == inputs else {
@@ -443,14 +491,20 @@ package enum ExecutorPlanBatchWriter {
         var files = [ExecutorPlanBatchFile(role: "image", sample: nil, stagingPath: layout.imagePath(image.sif),
                                            size: image.sif.size, sha256: image.sif.sha256, source: nil)]
         let shared = sharedEntries(of: first.plan)
-        for entry in shared {
-            // A list the person supplied has no source: LGE never copies its bytes (BIO-NOTHOST-BARCODE Q2).
-            files.append(ExecutorPlanBatchFile(role: entry.role.rawValue, sample: nil, stagingPath: layout.sharedPath(entry),
-                                               size: entry.size, sha256: entry.sha256, source: first.sources[entry.relativePath]?.path))
+        // An index file an earlier run left is read where it sits, as a staged read is, and never from shared/ (lane
+        // EX-PLAN-STAR). Every job reads it from one place, which checkJobs holds.
+        let stagedReferences = batchJobs[0].stagedReferencePaths
+        let sharedPaths = shared.map { stagedReferences[$0.relativePath] ?? layout.sharedPath($0) }
+        for (entry, path) in zip(shared, sharedPaths) {
+            // A list the person supplied has no source: LGE never copies its bytes (BIO-NOTHOST-BARCODE Q2). Nor has an
+            // index file an earlier run left, which is in the staging folder already.
+            let source = stagedReferences[entry.relativePath] == nil ? first.sources[entry.relativePath]?.path : nil
+            files.append(ExecutorPlanBatchFile(role: entry.role.rawValue, sample: nil, stagingPath: path,
+                                               size: entry.size, sha256: entry.sha256, source: source))
         }
         let sharedBytes = shared.reduce(Int64(0)) { $0 + $1.size }
         // jobs.tsv names the shared files in the order lge-job.sh takes them, the executor first, then the reads.
-        let sharedPlacements = shared.map { "\(layout.pathBelowFolder(layout.sharedPath($0)))=\($0.relativePath)" }
+        let sharedPlacements = zip(shared, sharedPaths).map { "\(layout.pathBelowFolder($1))=\($0.relativePath)" }
         var jobs: [LinuxRunJob] = []
         let returns = self.returns(of: first.plan, shape: shape)
         let resultPaths: [String]
@@ -541,7 +595,7 @@ package enum ExecutorPlanBatchWriter {
         }
         let submit = try HTCondorSubmitTemplate.render(HTCondorSubmitTemplateInput(
             containerImageURL: ExecutorPlanStagingLayout.url(layout.imagePath(image.sif)),
-            shared: shared.map { HTCondorStagedFile(url: ExecutorPlanStagingLayout.url(layout.sharedPath($0)), relativePath: $0.relativePath) },
+            shared: zip(shared, sharedPaths).map { HTCondorStagedFile(url: ExecutorPlanStagingLayout.url($1), relativePath: $0.relativePath) },
             requests: requests, returns: returns,
             resultStagingFolderURL: ExecutorPlanStagingLayout.url(layout.batchFolder), requirements: requirements
         ))
@@ -560,7 +614,8 @@ package enum ExecutorPlanBatchWriter {
         let run = LinuxRunScript.text(batch: layout.batch, image: image.sif, resultPaths: resultPaths, stagedPaths: stagedPaths,
                                       maxJobs: concurrentJobs)
         let placementWords = ExecutorPlanFolderWriter.placements(of: first.plan, shared: true)
-        let readme: String
+        let indexWords = ExecutorPlanStagedIndex.placements(of: first.plan, stagedReferencePaths: stagedReferences, layout: layout)
+        var readme: String
         switch returns {
         case .payload:
             readme = ExecutorPlanBatchReadme.text(layout: layout, image: image.sif, maxJobs: concurrentJobs,
@@ -569,13 +624,20 @@ package enum ExecutorPlanBatchWriter {
             readme = ExecutorPlanBatchReadme.schemaTwoText(layout: layout, image: image.sif, maxJobs: concurrentJobs, home: home,
                                                            staged: staged, placements: placementWords)
         }
+        if !indexWords.isEmpty {
+            readme += "\n\nIndex files read where an earlier run left them\n\n" + indexWords.joined(separator: "\n\n") + "\n\n"
+                + "staging-files.json lists each of these files with no source, since it is in the staging folder already, so\n"
+                + "nothing copies it to an HTCondor pool. For a run on one machine, copy or link each into the data folder at\n"
+                + "the path above, from the staging folder or from <sample>/staged/ that \(LinuxRunScript.fileName) of the\n"
+                + "batch that built the index left.\n"
+        }
         try DurableReplace.replace(Data(LinuxRunScript.jobsTable(jobs).utf8), named: LinuxRunScript.jobsFileName, in: folder)
         try DurableReplace.replace(Data(run.utf8), named: LinuxRunScript.fileName, in: folder)
         try fileManager.setAttributes([.posixPermissions: 0o755],
                                       ofItemAtPath: folder.appendingPathComponent(LinuxRunScript.fileName).path)
         try DurableReplace.replace(Data(readme.utf8), named: ExecutorPlanBatchReadme.fileName, in: folder)
         return ExecutorPlanBatch(folder: folder, samples: names, files: files, folders: folders, planTars: tars,
-                                 placements: placementWords)
+                                 placements: placementWords + indexWords)
     }
 
     /// The entries every job of a batch reads from the staging folder's `shared/`, in the order the job wrapper places
