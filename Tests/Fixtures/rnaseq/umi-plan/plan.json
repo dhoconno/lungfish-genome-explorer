@@ -53,49 +53,49 @@
       {
         "id" : "umiCheckBars",
         "label" : "UMI layout check bars",
-        "source" : "default",
+        "source" : "preset",
         "value" : "fails when a read name differs between the mates in any pair, when under 90% of the pairs read start within one mismatch of ATCAATC, or when under 50% hold a distinct UMI, and warns when under 90% start with it exactly or under 80% hold a distinct UMI"
       },
       {
         "id" : "umiCheckPairs",
         "label" : "UMI layout check pairs",
-        "source" : "default",
+        "source" : "preset",
         "value" : "1,000 pairs, spread evenly through the file after counting its reads (--choice even)"
       },
       {
         "id" : "umiExtraction",
         "label" : "UMI extraction",
-        "source" : "default",
+        "source" : "preset",
         "value" : "umi_tools extract --extract-method=regex --bc-pattern=^(?P<discard_1>ATCAATC)(?P<umi_1>.{16})"
       },
       {
         "id" : "umiGrouping",
         "label" : "UMI grouping",
-        "source" : "default",
+        "source" : "preset",
         "value" : "umi_tools count --per-gene --gene-tag=XT --assigned-status-tag=XS --method=directional"
       },
       {
         "id" : "umiKit",
         "label" : "UMI kit",
-        "source" : "default",
+        "source" : "preset",
         "value" : "Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1), preset quartz-seq2-x910"
       },
       {
         "id" : "umiLength",
         "label" : "UMI length",
-        "source" : "default",
+        "source" : "preset",
         "value" : "16 bases after the motif"
       },
       {
         "id" : "umiMotif",
         "label" : "UMI motif",
-        "source" : "default",
+        "source" : "preset",
         "value" : "Read 1 starts with ATCAATC"
       },
       {
         "id" : "umiRead",
         "label" : "UMI read",
-        "source" : "default",
+        "source" : "preset",
         "value" : "Read 1 holds the UMI, and only Read 2 is kept, with the UMI in its name"
       }
     ],

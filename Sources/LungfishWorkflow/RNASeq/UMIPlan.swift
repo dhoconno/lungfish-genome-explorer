@@ -43,9 +43,8 @@ package enum UMIPlan {
     package static func checkOutput(pair: Int) -> String { "umi-check/pair\(pair)-layout-check.json" }
     package static func checkStepID(pair: Int) -> String { "umi-layout-check-pair\(pair)" }
 
-    /// The source each preset value enters `pipeline.settings` with. The brief names `preset`, which
-    /// `ImportSettingSource` does not hold yet (EX-UMI report, Findings), so the values read `default` until it does.
-    package static let presetSource = ImportSettingSource.default
+    /// The source each preset value enters `pipeline.settings` with (the brief's item 1, BIO-PLAN-ADAPTER item 6).
+    package static let presetSource = ImportSettingSource.preset
 
     /// C9's kit: a Quartz-Seq2 style primer X910, whose Read 1 starts with ATCAATC and then a 16-nt UMI, with the
     /// transcript on Read 2 (`scripts/repro/rnaseq/gse163196/README.md:9-10`). It names no adapter.

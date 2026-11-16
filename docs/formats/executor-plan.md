@@ -80,6 +80,7 @@ The plan has no statistics settings. `seqkit stats -a -T <file>` is the call the
 | `default` | LGE's default set it |
 | `host` | LGE read it from the Mac it ran on |
 | `recipe` | The recipe set it |
+| `preset` | A UMI kit's preset set it |
 | `plan` | `plan` means the value came from the plan the run followed, which the Mac wrote before the run. |
 
 ## Steps
@@ -121,7 +122,7 @@ A chain that needs `seqkit stats -a -T` runs it as a `tool` step whose `outputs`
 
 `sample.instrument` is `{model, inferred}`, the instrument the poly-G record line names, where `inferred` is true when LGE read the model from the read names and false when the person or the sample sheet gave it. It is absent when no instrument is known. It changes no argv, since poly-G trimming is off by default whatever the instrument. A `model` that is empty, has spaces at either end or holds a control character is refused with field `sample.instrument` and words that say a plan leaves `instrument` out when no instrument is known.
 
-A schema 2 plan that holds `recipe`, `storage` or `clumping` is refused with that key as its field and the sentence "This plan has schema version 2 and holds <key>, which a schema 2 plan does not hold." A schema 2 plan with no `pipeline` is refused with field `pipeline` and "This plan has no pipeline." A `pipeline.settings` entry whose `source` is `host` or `plan` is refused with field `pipeline.settings[<i>].source`, since a plan stores `option`, `default` or, for the `duplicates` entry of deduplicated reads, `recipe`.
+A schema 2 plan that holds `recipe`, `storage` or `clumping` is refused with that key as its field and the sentence "This plan has schema version 2 and holds <key>, which a schema 2 plan does not hold." A schema 2 plan with no `pipeline` is refused with field `pipeline` and "This plan has no pipeline." A `pipeline.settings` entry whose `source` is `host` or `plan` is refused with field `pipeline.settings[<i>].source`, since a plan stores `option`, `default`, `preset` for a value a UMI kit's preset fixes or, for the `duplicates` entry of deduplicated reads, `recipe`.
 
 The executor reads `schemaVersion` alone before any other key. It refuses any number but 1 and 2 with field `schemaVersion` and the sentence "This plan has schema version <n>, and this executor reads versions 1 and 2." It reads a version 1 plan by the rules of schema 1, so one that leaves out `sample`, `storage` or `clumping` is refused at that key with the words of schema 1, such as "This plan has no storage." It refuses a version 1 plan that holds a key, role or kind schema 2 added, with the field that holds it and the sentence "This plan has schema version 1 and holds <field>, which schema 2 added." For a key `<field>` is its path, such as `pipeline` or `steps[2].outputPolicy`, and for a role or a kind it is the path and the value, such as `entries[3].role reference` or `steps[0].kind tool`. No executor before lane EX-TOOL prints either sentence.
 
