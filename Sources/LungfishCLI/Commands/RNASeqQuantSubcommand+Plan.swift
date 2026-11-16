@@ -1,0 +1,109 @@
+// RNASeqQuantSubcommand+Plan.swift - `rnaseq quant --write-plan`: the submit folder of salmon counts on a Linux machine (Phase 5.3 lane EX-PLAN-SALMON)
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import ArgumentParser
+import Foundation
+import LungfishCore
+import LungfishPortable
+import LungfishWorkflow
+
+/// The options of `rnaseq quant --write-plan`, named as `rnaseq index-plan` and `import fastq --write-plan` name them. With
+/// `--write-plan` the command writes the batch of one plan a sample in place of counting, starts no process and opens no
+/// connection, so a person copies the files and submits.
+struct RNASeqQuantPlanOptions: ParsableArguments {
+    @Option(
+        name: .customLong("write-plan"),
+        help: ArgumentHelp(
+            "Write a plan folder for a run on a Linux machine to this new folder in place of counting here",
+            discussion: "The folder is the submit folder of one batch, as import fastq --write-plan writes it, with one plan a sample. "
+                + "Each plan runs Trim Galore (with --trim) and then salmon on the index this Mac published for the set, which the "
+                + "plan pins file by file and never builds, so run lungfish-cli rnaseq index first. Nothing runs here and nothing is "
+                + "submitted, so --project is not used. A run you adopt as a result takes the manifest of the executor you built "
+                + "with --executor-manifest, since the plan pins it.",
+            valueName: "folder"))
+    var writePlan: String?
+
+    @Option(name: .customLong("staged-reads"), help: ArgumentHelp(
+        "A tab-separated list of reads already in the staging folder, with each read's absolute path, size in bytes and SHA-256, "
+            + "for --write-plan with --samplesheet",
+        discussion: "The sample sheet's r1 and r2 name each read by its absolute path in the staging folder, and Lungfish reads none "
+            + "of them. The list's first line names the columns file, bytes and sha256, separated by tabs. The sheet's optional "
+            + "model column names the instrument.", valueName: "file"))
+    var stagedReads: String?
+
+    @Option(name: .customLong("samplesheet"), help: ArgumentHelp(
+        "A comma-separated sample sheet with sample, r1 and r2 columns, for --staged-reads", valueName: "file"))
+    var samplesheet: String?
+
+    @Option(name: .customLong("staging-folder"), help: ArgumentHelp(
+        "The absolute path of the folder on the Linux machine that holds the image, the executor, the index and the reads",
+        valueName: "path"))
+    var stagingFolder: String?
+
+    @Option(name: .customLong("executor-manifest"), help: ArgumentHelp(
+        "The manifest.json beside the Linux lungfish-executor (default: the app's). A run you adopt as a result takes the one you built",
+        valueName: "file"))
+    var executorManifest: String?
+
+    @Option(name: .customLong("image"), help: ArgumentHelp(
+        "The image.json of the container image the jobs run in (default: the app's)", valueName: "file"))
+    var image: String?
+
+    @Option(name: .customLong("image-tool-manifest"), help: ArgumentHelp(
+        "The image's tool manifest, the file image.json pins (default: the app's)", valueName: "file"))
+    var imageToolManifest: String?
+
+    @Option(name: .customLong("request-memory-mib"), help: "Memory each job asks for, in MiB. Optional for Macaca_fascicularis_6.0")
+    var requestMemoryMiB: Int64?
+
+    @Option(name: .customLong("request-cpus"), help: "CPUs each job asks for, and salmon's -p (default: 8). Optional for Macaca_fascicularis_6.0")
+    var requestCPUs: Int?
+
+    @Option(name: .customLong("request-disk-gib"), help: "Disk each job asks for, in GiB. Optional for Macaca_fascicularis_6.0")
+    var requestDiskGiB: Int?
+
+    @Option(name: .customLong("job-requirements"), help: "The machines the jobs may run on, as one HTCondor requirements expression")
+    var jobRequirements: String?
+
+    @Flag(name: .customLong("dry-run"), help: "With --write-plan, make every refusal of the run and write no folder")
+    var dryRun: Bool = false
+
+    var isOn: Bool { writePlan != nil }
+
+    /// The options of a plan that were given, by name, for the refusal of a plan option with no `--write-plan`.
+    var given: [String] {
+        let named: [(String, Bool)] = [
+            ("--staged-reads", stagedReads != nil), ("--samplesheet", samplesheet != nil), ("--staging-folder", stagingFolder != nil),
+            ("--executor-manifest", executorManifest != nil), ("--image", image != nil),
+            ("--image-tool-manifest", imageToolManifest != nil), ("--request-memory-mib", requestMemoryMiB != nil),
+            ("--request-cpus", requestCPUs != nil), ("--request-disk-gib", requestDiskGiB != nil),
+            ("--job-requirements", jobRequirements != nil), ("--dry-run", dryRun),
+        ]
+        return named.filter(\.1).map(\.0)
+    }
+
+    /// The refusals the arguments alone decide. Without `--write-plan` the command counts, so it needs a project and bundles.
+    func check(project: String?, bundles: [String], threads: Int?) throws {
+        guard isOn else {
+            if let first = given.first { throw ValidationError("\(first) is an option of --write-plan, so add --write-plan or leave it out.") }
+            guard project != nil else { throw ValidationError("Missing expected argument '--project <project>'") }
+            guard !bundles.isEmpty else { throw ValidationError("Missing expected argument '<bundles>'") }
+            return
+        }
+        guard project == nil else { throw ValidationError("--write-plan writes no result in a project, so leave out --project.") }
+        guard threads == nil else {
+            throw ValidationError("A plan runs salmon with -p equal to --request-cpus, 8 when you name none, so --threads does not apply. Leave it out.")
+        }
+        guard stagingFolder?.hasPrefix("/") == true else {
+            throw ValidationError("--write-plan needs --staging-folder, the absolute path of the folder on the Linux machine.")
+        }
+        if stagedReads != nil || samplesheet != nil {
+            guard stagedReads != nil, samplesheet != nil, bundles.isEmpty else {
+                throw ValidationError("Reads in the staging folder take --staged-reads with --samplesheet and no bundles, and bundles take neither.")
+            }
+        } else {
+            guard !bundles.isEmpty else { throw ValidationError("Name FASTQ bundles, or --staged-reads with --samplesheet.") }
+        }
+    }
+}

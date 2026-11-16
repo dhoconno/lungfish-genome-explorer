@@ -22,14 +22,16 @@ extension RNASeqCommand {
                 Each FASTQ bundle is one sample. Lungfish runs salmon quant with selective alignment and library type A on the set's own index, which lungfish-cli rnaseq index builds, and never builds one itself. Reads are not trimmed unless you pass --trim, which runs Trim Galore with poly-G trimming off unless you pass --poly-g-trimming on. Duplicates are kept.
 
                 The result holds transcript counts and gene sums through the set's transcript table, in unit estimated, and its record names the set, the index's hashes, salmon's version and every setting that changes counts. --threads is recorded and changes no count.
+
+                With --write-plan the command writes a plan folder for a run on a Linux machine in place of counting here, one plan a sample on the index this Mac published for the set, and writes no result in a project. A run you adopt as a result takes a true --executor-manifest, the manifest of the executor you built, since the plan pins it.
                 """
         )
 
-        @Argument(help: "FASTQ bundles, one sample each")
-        var bundles: [String]
+        @Argument(help: "FASTQ bundles, one sample each. A plan of staged reads names none")
+        var bundles: [String] = []
 
-        @Option(name: .customLong("project"), help: "The project the result is written in")
-        var project: String
+        @Option(name: .customLong("project"), help: "The project the result is written in, required unless --write-plan is given")
+        var project: String?
 
         @Option(name: .customLong("name"), help: "The result's name")
         var name: String = "RNA-seq counts"
@@ -52,9 +54,12 @@ extension RNASeqCommand {
         @Option(name: .customLong("storage-root"), help: "Managed storage root (default: the configured location)")
         var storageRoot: String?
 
+        @OptionGroup var planOptions: RNASeqQuantPlanOptions
+
         @OptionGroup var globalOptions: GlobalOptions
 
         func validate() throws {
+            try planOptions.check(project: project, bundles: bundles, threads: globalOptions.threads)
             guard decoys == "genome" || decoys == "none" else { throw ValidationError("--decoys is genome or none, not \(decoys).") }
             if let polyGTrimming {
                 guard polyGTrimming == "on" || polyGTrimming == "off" else {
@@ -69,12 +74,13 @@ extension RNASeqCommand {
         func makeRequest(argv: [String]) -> SalmonQuantRequest {
             SalmonQuantRequest(
                 bundles: bundles.map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL },
-                projectURL: URL(fileURLWithPath: project, isDirectory: true).standardizedFileURL, name: name, setID: setID,
+                projectURL: URL(fileURLWithPath: project ?? "", isDirectory: true).standardizedFileURL, name: name, setID: setID,
                 k: k, decoys: decoys == "none" ? .none : .genome, threads: globalOptions.threads ?? 6,
                 trim: trim ? .trimGalore(polyG: polyGTrimming == "on") : .none, argv: argv)
         }
 
         func run() async throws {
+            if planOptions.isOn { return try await runPlan() }
             try await execute(argv: CommandLine.arguments)
         }
 
