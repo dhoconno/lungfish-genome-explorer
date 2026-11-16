@@ -121,6 +121,20 @@ final class ProvenanceInspectorViewModelOffMainTests: XCTestCase {
         XCTAssertEqual(shown.count, 2, "the lineage-prefix and read-order rows of Stable 2026.11.7, found \(shown)")
     }
 
+    func testADemultiplexedSampleReadsItsSentenceThroughTheLookup() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try writeEnvelope(workflowName: AffectedResults.RecordName.fastqDemultiplex, to: dir,
+                          appVersion: "Lungfish 2026.11.7 (12972)")
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.load(item: ProvenanceInspectableItem(url: dir, sidebarType: .fastqBundle, contentMode: .fastq,
+                                                       displayName: "Reads"))
+        try await waitUntilLoadCompletes(viewModel)
+        let row = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "DEMUX-GROUPED-DROPS-INPUTS" })
+        let shown = viewModel.warnings.filter { $0.title == ProvenanceInspectorViewModel.affectedResultsWarningTitle }
+        XCTAssertEqual(shown.map(\.message), [row.words], "the lookup typed a demultiplex record from its root name")
+    }
+
     // MARK: - Threading regression (F6)
     //
     // Drives `load(item:)` from an actual `@MainActor` context (as every production call site
