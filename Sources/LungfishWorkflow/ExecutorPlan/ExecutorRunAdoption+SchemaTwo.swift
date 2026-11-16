@@ -41,9 +41,9 @@ extension ExecutorRunAdoption {
     static let indexAdoptCommand = "lungfish-cli rnaseq index-adopt"
 
     /// The checks of a run of a schema 2 plan that makes counts, in order: the checks every run takes, the plan's kind,
-    /// one succeeded step for each planned step in the plan's order, and each output as the plan names it. The step check
-    /// is the FASTQ adopt's own, whose storage and Q20 rows name kinds that no schema 2 plan holds. It reads no `staged`
-    /// or `stays` file and writes nothing.
+    /// one succeeded step for each planned step in the plan's order, each output as the plan names it, and each setting
+    /// in the argv of the step it changes. The step check is the FASTQ adopt's own, whose storage and Q20 rows name kinds
+    /// that no schema 2 plan holds. It reads no `staged` or `stays` file and writes nothing.
     static func checkCounts(
         _ folder: URL, policy: ExecutorAdoptPolicy
     ) throws(ExecutorAdoptRefusal) -> ExecutorAdoptedCountsRun {
@@ -52,6 +52,7 @@ extension ExecutorRunAdoption {
         let (pipeline, route) = try countsIdentity(of: plan)
         try checkSteps(record, plan: plan)
         let homeOutputs = try checkOutputs(record, plan: plan, resolver: checked.resolver)
+        try checkSettingsInArgv(record, plan: plan, route: route)
         return ExecutorAdoptedCountsRun(
             folder: URL(fileURLWithPath: checked.resolver.workRoot, isDirectory: true), plan: plan, pipeline: pipeline,
             route: route, record: record, homeOutputs: homeOutputs, stagingImage: checked.stagingImage
