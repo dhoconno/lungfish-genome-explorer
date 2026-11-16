@@ -9,7 +9,7 @@
 # model). Second a running agent whose tool calls are at or past its stop line, which ctx_watch.py --calls reads from
 # the agent's prompt or else from the file of its agent type and prints as "CALLS ID CALLS/LINE", and the manager then
 # sends "Write your Handoff now and stop." and appends the agent's id to RECORDS/stop_sent.txt, whose ids this check
-# leaves out. While a running agent is within --near-calls calls (default 15) of its stop line the wait goes in slices
+# leaves out. While a running agent is within --near-calls calls (default 75) of its stop line the wait goes in slices
 # of --near-s seconds (default 60) and this check runs after each. Third an agent whose last entry
 # is older than --pending-s seconds (default 900) and not final. Fourth free space under --disk-min-gb on --disk-path
 # (default 100 and /System/Volumes/Data). Fifth a memwatch alarm in RECORDS/memwatch.alarm. Agent ids in
@@ -29,7 +29,7 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 PYTHON=${PYTHON:-python3}
 project="" session="" records=build/llm interval=300 rounds=9 ctx_k=290 opus_k=390 stall_s=900
-disk_min=100 disk_path=/System/Volumes/Data ack_min=60 memwatch=yes near_calls=15 near_s=60
+disk_min=100 disk_path=/System/Volumes/Data ack_min=60 memwatch=yes near_calls=75 near_s=60
 
 usage() {
   echo "usage: heartbeat.sh --project DIR --session SID [--records DIR] [--interval S] [--rounds N] [--ctx-k K]" >&2

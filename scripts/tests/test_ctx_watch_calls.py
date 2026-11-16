@@ -376,10 +376,11 @@ class HeartbeatCallsTests(unittest.TestCase):
         self.session.agent(A, 'Stop at 80 calls.', 2)
         self.assertEqual((self.beat('--interval', '300', '--rounds', '3')[:6], self.slept()), ('QUIET ', ['300'] * 3))
 
-    def test_an_agent_within_fifteen_calls_of_its_line_is_checked_every_minute(self):
-        self.session.agent(A, 'Stop at 30 calls.', 14)
+    def test_an_agent_within_seventy_five_calls_of_its_line_is_checked_every_minute(self):
+        """At 12.7 to 14.9 calls a minute an agent covers about 75 calls in one 5-minute wait (O177 ballot 3 Q2)."""
+        self.session.agent(A, 'Stop at 90 calls.', 14)
         self.assertEqual((self.beat('--interval', '300')[:6], self.slept()), ('QUIET ', ['300']))
-        self.session.agent(A, 'Stop at 30 calls.', 15)
+        self.session.agent(A, 'Stop at 90 calls.', 15)
         self.assertEqual((self.beat('--interval', '300')[:6], self.slept()), ('QUIET ', ['60'] * 5))
 
     def test_a_crossing_during_the_wait_ends_it_at_the_next_minute(self):
