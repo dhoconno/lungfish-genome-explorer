@@ -75,12 +75,14 @@ final class StagingScratchNeedTests: XCTestCase {
     }
 
     /// D1b at 19,279,040 pairs held 7,740,781,880 bytes of text in 604,385,740 bytes of gzip. The trim's work peaked at
-    /// 18,693,724 KB, 2.47 times the text, and the Viral Recon staging at 1,719,860 KB, 0.23 times. The need is three
-    /// times and two fifths of the text, rounded up, so each carries a margin over the measurement.
+    /// 18,693,724 KB, 2.47 times the text, and the Viral Recon staging at 1,719,860 KB, 0.23 times. D1b's reads are 84%
+    /// duplicates with one constant quality line, which LZ4 packs far below ordinary reads: 45,574 real HG002 chr20
+    /// pairs, shuffled as bucket entries and packed with compression_tool, came to 0.644 of the text. The need is three
+    /// times and three quarters of the text, rounded up, so the Viral Recon figure carries a margin of 1.16 over that.
     func testNeedIsTheMeasuredMultipleOfTheText() {
         XCTAssertEqual(StagingScratchNeed.needBytes(textBytes: 7_740_781_880, route: .fastpTrim), 23_222_345_640)
-        XCTAssertEqual(StagingScratchNeed.needBytes(textBytes: 7_740_781_880, route: .viralReconStaging), 3_096_312_752)
-        XCTAssertEqual(StagingScratchNeed.needBytes(textBytes: 3, route: .viralReconStaging), 2, "rounded up")
+        XCTAssertEqual(StagingScratchNeed.needBytes(textBytes: 7_740_781_880, route: .viralReconStaging), 5_805_586_410)
+        XCTAssertEqual(StagingScratchNeed.needBytes(textBytes: 3, route: .viralReconStaging), 3, "rounded up")
         XCTAssertEqual(StagingScratchNeed.needBytes(textBytes: -5, route: .fastpTrim), 0)
         XCTAssertEqual(StagingScratchNeed.needBytes(textBytes: Int64.max, route: .fastpTrim), Int64.max)
         XCTAssertEqual(StagingScratchNeed.needBytes(textBytes: Int64.max, route: .viralReconStaging), Int64.max)
@@ -105,7 +107,7 @@ final class StagingScratchNeedTests: XCTestCase {
         XCTAssertEqual(ReadTextSize.stated(by: d1b), 8_240_007_312)
         XCTAssertNil(ReadTextSize.stated(by: stale))
         XCTAssertEqual(StagingScratchNeed.needBytes(inputFiles: [plain, stated, unstated], route: .fastpTrim), 3 * (1_000 + 3_640 + 400))
-        XCTAssertEqual(StagingScratchNeed.needBytes(inputFiles: [plain, stated, unstated], route: .viralReconStaging), 2_016)
+        XCTAssertEqual(StagingScratchNeed.needBytes(inputFiles: [plain, stated, unstated], route: .viralReconStaging), 3_780)
         XCTAssertEqual(StagingScratchNeed.needBytes(inputFiles: [stale], route: .fastpTrim), 3 * 40_000)
     }
 
