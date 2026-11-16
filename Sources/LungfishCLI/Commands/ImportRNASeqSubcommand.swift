@@ -47,6 +47,8 @@ extension ImportCommand {
         @Option(name: .customLong("not-host-bam"), help: "A sample's sorted, indexed BAM as <sample>=<path>, one for each sample with --reference-set (repeat)")
         var notHostBAMValues: [String] = []
 
+        @OptionGroup var adoptOptions: ImportRNASeqAdoptOptions
+
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
@@ -57,6 +59,11 @@ extension ImportCommand {
             let eventsOn = globalOptions.outputFormat == .json
             let emitter = ImportCLIEventEmitter(enabled: eventsOn, quiet: globalOptions.quiet)
             emitter.emitStart(kind: RNASeqResultManifest.kindName)
+            if adoptOptions.adopt { return try await runAdopt(emitter: emitter, eventsOn: eventsOn) }
+            if let words = adoptOptions.refusalWithoutAdopt {
+                emitter.emitFailed(words)
+                throw CLIExitCode.inputError.exitCode
+            }
 
             let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
             let isTable = inputs.count == 1 && !Self.isDirectory(inputs[0])

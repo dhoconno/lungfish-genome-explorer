@@ -28,8 +28,6 @@ extension ExecutorRunAdoption {
     static func prepareCounts(
         _ folder: URL, storageRoot: URL, name: String, policy: ExecutorAdoptPolicy
     ) throws -> ExecutorCountsAdoption {
-        // Scaffold for the red run of lane EX-ADOPT M2: the payload is not read yet.
-        if !folder.path.isEmpty { throw refusal("scaffold", "The RNA-seq payload is not read yet.") }
         let runs = try checkCountsRuns(folder, policy: policy)
         let first = runs[0]
         try checkOnePipeline(runs)
