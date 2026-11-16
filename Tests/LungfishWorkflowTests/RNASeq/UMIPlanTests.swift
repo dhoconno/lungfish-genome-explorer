@@ -257,6 +257,22 @@ final class UMIPlanTests: XCTestCase {
         }
     }
 
+    /// M2 item 3 (gate G4): one row a sample from the `home` files of the Docker run of `umi_reads.py`'s reads. S1's check
+    /// passed and its 13 genes count 24 UMIs each. S2's Read 1 holds no motif, so its check failed and no later step ran.
+    func testPerSampleReportReadsTheHomeFilesOfTheDockerRun() throws {
+        let home = Self.fixture.deletingLastPathComponent().appendingPathComponent("home", isDirectory: true)
+        let rows = try ["S1", "S2"].map { try UMIPlanReport.row(sample: $0, result: home.appendingPathComponent($0)) }
+        XCTAssertEqual(UMIPlanReport.tsv(rows), [
+            "sample\tcheck\tpairs read\twithin one mismatch %\texact %\tdistinct UMIs %\textraction kept %\tSTAR too short %\tUMI counts\tgenes counted",
+            "S1\tpassed\t364\t100.0\t100.0\t85.7\t100.0\t0.0\t312\t13",
+            "S2\tfailed\t364\t0.0\t0.0\t0.0\tnot run\tnot run\tnot run\tnot run",
+        ].joined(separator: "\n") + "\n")
+        XCTAssertThrowsError(try UMIPlanReport.row(sample: "S3", result: home)) { error in
+            XCTAssertEqual(error.localizedDescription, "The result of S3 holds no umi-check/pair1-layout-check.json, the UMI layout "
+                + "check every sample of the UMI branch runs first, so the report has no row for it. Copy the sample's result folder whole.")
+        }
+    }
+
     /// M2 item 2 and ARCH-ADOPT-ROUTE item 2: the UMI state joins the one writer of the result's `duplicates`, in a form
     /// with no step name and no sample count when every sample shares it. The other forms do not move.
     func testDuplicatesSettingStatesTheUMIStateInTheResultsForm() {

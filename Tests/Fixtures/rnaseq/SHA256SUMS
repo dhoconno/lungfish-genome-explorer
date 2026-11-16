@@ -140,3 +140,9 @@ ddb4e3a6342bc80c2502ffe6061ef9f894581719ce13b7eae4bc4f83ccfdb9cb  umi-table-c9/g
 b8b148352107fa756712e7a281472294a7333cff6b8c94b4907cdd2cc66d4296  umi-table-c9/runs.tsv
 ff1ba695a8e000f1c3b68f4fd875f176be086655ba7c013ce224e585dd8176d6  star-plan/star-2.7.11b-salmon-none.json
 a786f5a88fb4b75ac1fdf907788259a7079a4fdc221954219412610c2ba956cb  star-plan/star-2.7.11b-salmon-errormodel.json
+53291e72ee5ad6ebffe8d03fccf89de0090d9894ea96c2b0e7237bbd38f981e3  umi-plan/home/S1/featurecounts/counts.txt.summary
+5f527e48d128965bdcf4bf22380473cdece5cd7171b06ac416391f735ba9a166  umi-plan/home/S1/star/Log.final.out
+8f0c11ad250edf78b5ff3ebd66cd0c69f308dd86cf5d517baf77da7f95c9c15a  umi-plan/home/S1/umi-check/pair1-layout-check.json
+fa411b59281b78563ca18e2262ed2047b879ac144b9871c24caec36d298a9cdf  umi-plan/home/S1/umi/counts.tsv
+5f0bc9feb9dec744f778864f9150559b3edf18b0a38b6d50339ea50691d791a7  umi-plan/home/S1/umi/pair1-extract.log
+67ab41bbbb1491eb5e7f3843d61c4ce0f8e19ee499f2e23b21b61cdc91171ffc  umi-plan/home/S2/umi-check/pair1-layout-check.json

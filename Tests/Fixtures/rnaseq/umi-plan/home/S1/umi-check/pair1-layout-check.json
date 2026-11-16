@@ -1,0 +1,68 @@
+{
+  "bars" : {
+    "distinctFail" : 50,
+    "distinctWarn" : 80,
+    "exactWarn" : 90,
+    "withinOneMismatchPass" : 90
+  },
+  "choice" : "even",
+  "counts" : {
+    "distinctUMIs" : 312,
+    "exact" : 364,
+    "namesEqual" : 364,
+    "pairsRead" : 364,
+    "pairsRequested" : 1000,
+    "read1Reads" : 364,
+    "read2Reads" : 364,
+    "withinOneMismatch" : 364
+  },
+  "kit" : "Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1)",
+  "motif" : "ATCAATC",
+  "read1" : "inputs/pair1_R1.fastq.gz",
+  "read2" : "inputs/pair1_R2.fastq.gz",
+  "reasons" : [
+
+  ],
+  "schemaVersion" : 1,
+  "shares" : [
+    {
+      "count" : 364,
+      "denominator" : "pairsRead",
+      "id" : "namesEqual",
+      "of" : 364,
+      "percent" : "100.0"
+    },
+    {
+      "count" : 364,
+      "denominator" : "pairsRead",
+      "id" : "withinOneMismatch",
+      "of" : 364,
+      "percent" : "100.0"
+    },
+    {
+      "count" : 364,
+      "denominator" : "pairsRead",
+      "id" : "exact",
+      "of" : 364,
+      "percent" : "100.0"
+    },
+    {
+      "count" : 312,
+      "denominator" : "pairsRead",
+      "id" : "distinctUMIs",
+      "of" : 364,
+      "percent" : "85.7"
+    },
+    {
+      "count" : 312,
+      "denominator" : "exact",
+      "id" : "distinctUMIsAmongExact",
+      "of" : 364,
+      "percent" : "85.7"
+    }
+  ],
+  "umiLength" : 16,
+  "umiRead" : 1,
+  "verdict" : "passed",
+  "words" : "UMI layout check passed: 364 of 364 pairs read (100.0%) start within one mismatch of ATCAATC, 364 (100.0%) exactly, and 312 (85.7%) hold a distinct UMI."
+}

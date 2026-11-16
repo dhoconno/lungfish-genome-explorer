@@ -1,0 +1,82 @@
+{
+  "bars" : {
+    "distinctFail" : 50,
+    "distinctWarn" : 80,
+    "exactWarn" : 90,
+    "withinOneMismatchPass" : 90
+  },
+  "choice" : "even",
+  "counts" : {
+    "distinctUMIs" : 0,
+    "exact" : 0,
+    "namesEqual" : 364,
+    "pairsRead" : 364,
+    "pairsRequested" : 1000,
+    "read1Reads" : 364,
+    "read2Reads" : 364,
+    "withinOneMismatch" : 0
+  },
+  "kit" : "Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1)",
+  "motif" : "ATCAATC",
+  "read1" : "inputs/pair1_R1.fastq.gz",
+  "read2" : "inputs/pair1_R2.fastq.gz",
+  "reasons" : [
+    {
+      "code" : "withinOneMismatchUnderBar",
+      "fails" : true,
+      "words" : "UMI layout check failed: 0 of 364 pairs read (0.0%) start within one mismatch of ATCAATC, under the 90% the Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1) preset needs. These reads may come from another kit, or Read 1 and Read 2 may be swapped. Try: check the sample sheet's kit column, and that the file named Read 1 holds the UMI. This sample gets no UMI counts."
+    },
+    {
+      "code" : "distinctUnderFailBar",
+      "fails" : true,
+      "words" : "UMI layout check failed: 0 of 364 pairs read (0.0%) hold a distinct UMI, under 50%, because only 0 (0.0%) start with ATCAATC exactly while 0 (0.0%) are within one mismatch. The kit's fixed sequence may differ from the preset's by one base. Try: check that the Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1) preset matches the kit. This sample gets no UMI counts."
+    },
+    {
+      "code" : "exactUnderBar",
+      "fails" : false,
+      "words" : "Warning: Read 1 starts with ATCAATC exactly in 0 of 364 pairs read (0.0%), under 90%. UMI extraction keeps only exact matches, so pairs with a one-base error in the motif get no UMI and are left out of the counts. The per-sample report gives the share of the whole run that extraction kept."
+    }
+  ],
+  "schemaVersion" : 1,
+  "shares" : [
+    {
+      "count" : 364,
+      "denominator" : "pairsRead",
+      "id" : "namesEqual",
+      "of" : 364,
+      "percent" : "100.0"
+    },
+    {
+      "count" : 0,
+      "denominator" : "pairsRead",
+      "id" : "withinOneMismatch",
+      "of" : 364,
+      "percent" : "0.0"
+    },
+    {
+      "count" : 0,
+      "denominator" : "pairsRead",
+      "id" : "exact",
+      "of" : 364,
+      "percent" : "0.0"
+    },
+    {
+      "count" : 0,
+      "denominator" : "pairsRead",
+      "id" : "distinctUMIs",
+      "of" : 364,
+      "percent" : "0.0"
+    },
+    {
+      "count" : 0,
+      "denominator" : "exact",
+      "id" : "distinctUMIsAmongExact",
+      "of" : 0,
+      "percent" : "0.0"
+    }
+  ],
+  "umiLength" : 16,
+  "umiRead" : 1,
+  "verdict" : "failed",
+  "words" : "UMI layout check failed: 0 of 364 pairs read (0.0%) start within one mismatch of ATCAATC, under the 90% the Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1) preset needs. These reads may come from another kit, or Read 1 and Read 2 may be swapped. Try: check the sample sheet's kit column, and that the file named Read 1 holds the UMI. This sample gets no UMI counts.\nUMI layout check failed: 0 of 364 pairs read (0.0%) hold a distinct UMI, under 50%, because only 0 (0.0%) start with ATCAATC exactly while 0 (0.0%) are within one mismatch. The kit's fixed sequence may differ from the preset's by one base. Try: check that the Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1) preset matches the kit. This sample gets no UMI counts."
+}
