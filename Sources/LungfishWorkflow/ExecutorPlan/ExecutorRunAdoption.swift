@@ -98,12 +98,13 @@ public enum ExecutorRunAdoption {
     }
 
     /// The reads of the design's section 2 in order, the plan, the record, the plan's digest and each payload, with
-    /// every refusal. It writes nothing.
+    /// every refusal. A schema 2 plan is refused in words that name the command that adopts it. It writes nothing.
     static func check(
         _ folder: URL, name: String? = nil, policy: ExecutorAdoptPolicy
     ) throws(ExecutorAdoptRefusal) -> ExecutorAdoptedRun {
         let checked = try checkShared(folder, policy: policy)
         let (resolver, plan, record) = (checked.resolver, checked.plan, checked.record)
+        try checkReadsPlan(plan)
         try checkSteps(record, plan: plan)
         let (payload, payloadURL) = try checkPayload(record, resolver: resolver)
         let sampleName = SampleFolderNaming.sanitizedDirectoryName(for: name ?? plan.sample.sampleName)
