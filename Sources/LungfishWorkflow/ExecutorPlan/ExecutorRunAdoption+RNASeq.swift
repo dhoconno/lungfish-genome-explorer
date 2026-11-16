@@ -202,7 +202,12 @@ extension ExecutorRunAdoption {
             }
         }
         var folder = try SalmonQuantFolderReader.read(folder: folderURL)
-        folder.sample = SampleFolderNaming.sanitizedDirectoryName(for: sampleName)
+        // The plan's name, as the Mac route labels its result: the writer makes its own `source/<sample>` folder safe, and the
+        // adopt's refusals and the plan say this name too (review EX-ADOPT-M2M3-BIO should-fix 1).
+        guard !sampleName.isEmpty else {
+            throw refusal("sample.sampleName", "The plan of the step \(stepID) names no sample, so the result could not label its counts.")
+        }
+        folder.sample = sampleName
         folder.keptFiles = SalmonQuantFolderReader.readFiles
         folder.leftOut = []
         return folder
