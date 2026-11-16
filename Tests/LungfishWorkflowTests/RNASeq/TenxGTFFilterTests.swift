@@ -112,4 +112,22 @@ final class TenxGTFFilterTests: XCTestCase {
         XCTAssertTrue(both.contains("holds no exon line for the extra record \(records[0]) and for the gene ND1 that LGE gave an "
             + "exon, so STAR would give them no row"), both)
     }
+
+    /// BIO should-fix 1: a GTF that names no biotype on any host gene leaves out every host gene, so the rule is refused in
+    /// words, since STAR would index no gene of the set. A GTF of an extra's lines only has no host gene to refuse.
+    func testARuleThatKeepsNoGeneIsRefusedInWords() throws {
+        let unnamed = "chrM\tUCSC\tgene\t1\t30\t.\t+\t.\tgene_id \"G1\";\n"
+            + "chrM\tLGE\texon\t1\t30\t.\t+\t.\tgene_id \"G1\"; transcript_id \"G1:1\";\n" + gene("T1", "tRNA", start: 40, end: 60)
+        for list in TenxGTFFilter.List.allCases {
+            let words = refusal { _ = try TenxGTFFilter.filter(Data(unnamed.utf8), list: list, extraRecords: [], exonsAdded: []) }
+            XCTAssertEqual(words, "The 10x filter rule \(list.rawValue) keeps none of the 2 genes of derived/genes.gtf, since no gene has a "
+                + "gene_biotype or gene_type on its list, so STAR would index no gene of the set and its matrix would hold none. Index "
+                + "the set without --tenx-filter, or build it from an annotation that names each gene's biotype. No plan or record "
+                + "was written.")
+        }
+        XCTAssertNoThrow(try TenxGTFFilter.filter(
+            Data(gene("COX1", "protein_coding").utf8), list: .mkgtf300, extraRecords: [], exonsAdded: []))
+        let extra = "NC_045512.2\tLGE\texon\t1\t50\t.\t+\t.\tgene_id \"NC_045512.2\"; transcript_id \"NC_045512.2\";\n"
+        XCTAssertNoThrow(try TenxGTFFilter.filter(Data(extra.utf8), list: .mkgtf300, extraRecords: ["NC_045512.2"], exonsAdded: []))
+    }
 }
