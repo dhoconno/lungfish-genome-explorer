@@ -154,6 +154,24 @@ extension SalmonQuantRouteTests {
         XCTAssertEqual(macRoute.settings["duplicates"], SalmonQuantRecordLines.duplicates)
     }
 
+    /// The third state of the one writer (ruling ARCH-ADOPT-ROUTE items 2 and 5, review EX-ADOPT-M2M3-BIO should-fix 3): a
+    /// Mac result of a bundle that holds no import metadata and no import record, and an adopted result of a plan that
+    /// states the Not recorded words with source `default`, share a route and a record line.
+    func testMacAndLinuxResultsOfOneUnrecordedBundleShareARoute() async throws {
+        let (set, salmon) = try await mitoSetIndexAndSalmon()
+        let mac = try await quant([try bareBundle("Bare")], set: set.manifest.id, trim: .trimGalore(polyG: false)).resultURL
+        var unrecorded = try plan(sample: "L1", removed: false)
+        let at = try XCTUnwrap(unrecorded.pipeline?.settings.firstIndex { $0.id == "duplicates" })
+        unrecorded.pipeline?.settings[at].value = Self.notRecordedLine
+        unrecorded.pipeline?.route?.settings["duplicates"] = Self.notRecordedLine
+        XCTAssertEqual(unrecorded.pipeline?.settings[at].source, .default)
+        let linux = try adoptLinux([unrecorded], salmon: salmon)
+        let macRoute = try route(of: mac)
+        XCTAssertEqual(try route(of: linux), macRoute)
+        XCTAssertEqual(macRoute.settings["duplicates"], Self.notRecordedLine)
+        XCTAssertEqual(salmonLine(try record(linux), sample: "L1", "duplicates"), Self.notRecordedLine)
+    }
+
     /// The forms of the route's `duplicates` from its one writer (ruling ARCH-ADOPT-ROUTE item 1): one state names no
     /// step and no sample count, and only a mix counts the samples of each state.
     func testTheRoutesDuplicatesFormsFromItsOneWriter() {
