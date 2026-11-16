@@ -78,10 +78,11 @@ enum ReadTextSize {
 /// - The trim's work holds at most three copies of the text: the R1 and R2 that fastp reads, fastp's two outputs and the
 ///   interleaved output. D1b peaked at 18,693,724 KB, 2.47 times the text. The need is three times the stated text, a
 ///   margin of 1.29 over the measure with the 6% the statement adds.
-/// - The Viral Recon staging holds the LZ4-packed bucket files and the gzip outputs, which take the packed bytes' place
-///   bucket by bucket. D1b peaked at 1,719,860 KB, 0.23 times the text. The need is two fifths of the stated text, a
-///   margin of 1.87, which leaves room for reads that LZ4 packs less well than D1b's clumped ones. A virtual bundle that
-///   the plan materializes first writes its text once more, which this need does not count.
+/// - The Viral Recon staging holds the LZ4-packed bucket files, all of them when the partition ends, and then the gzip
+///   outputs that take their place. D1b's duplicate-rich reads peaked at 0.23 of the text, but real diverse reads
+///   (HG002 chr20, measured with compression_tool) pack to 0.64, so the need is three quarters of the stated text, a
+///   margin of 1.16 over that. A virtual bundle that the plan materializes first writes its text once more, which this
+///   need does not count.
 enum StagingScratchNeed {
 
     /// The two routes that stage reads in the seeded order, each with its own work on disk.
@@ -102,7 +103,7 @@ enum StagingScratchNeed {
     private static func factor(for route: Route) -> (numerator: Int64, denominator: Int64) {
         switch route {
         case .fastpTrim: return (3, 1)
-        case .viralReconStaging: return (2, 5)
+        case .viralReconStaging: return (3, 4)
         }
     }
 
