@@ -93,6 +93,30 @@ final class ExecutorRunAdoptionRNASeqTests: XCTestCase {
         ]
     }
 
+    static var adapterFixtures: URL { RNASeqFixtures.root.appendingPathComponent("trim-galore-adapter", isDirectory: true) }
+
+    /// The pinned plan's trim outputs from the fixtures: both JSON reports, the saved C7 report that names Illumina or,
+    /// when `nextera`, the same report naming Nextera, and the console file `console`, by default the Docker run's.
+    static func trimFiles(console: String = "trim-pair1.stderr", nextera: Bool = false) throws -> [String: Data] {
+        var report = try String(contentsOf: adapterFixtures.appendingPathComponent("c7_1.fq.gz_trimming_report.json"), encoding: .utf8)
+        if nextera {
+            let illumina = #"{"name": "Illumina", "sequence": "AGATCGGAAGAGC"}"#
+            XCTAssertTrue(report.contains(illumina), "the saved report names Illumina")
+            report = report.replacingOccurrences(of: illumina, with: #"{"name": "Nextera", "sequence": "CTGTCTCTTATA"}"#)
+        }
+        return [
+            "trim-pair1/pair1_R1.fastq_trimming_report.json": Data(report.utf8),
+            "trim-pair1/pair1_R2.fastq_trimming_report.json": Data(report.utf8),
+            "logs/trim-pair1.stderr": try Data(contentsOf: adapterFixtures.appendingPathComponent(console)),
+        ]
+    }
+
+    /// A returned run's `home` bytes: salmon's four files and the trim call's reports and console.
+    static func returnedFiles(_ set: ReferenceSetOutcome, scale: Double = 1, console: String = "trim-pair1.stderr", nextera: Bool = false)
+        throws -> [String: Data] {
+        try salmonFiles(set, scale: scale).merging(try trimFiles(console: console, nextera: nextera)) { salmon, _ in salmon }
+    }
+
     private func adopt(_ folder: URL, name: String = "mito") throws -> URL {
         try ExecutorRunAdoption.adoptCounts(
             resultFolder: folder, projectDirectory: project, name: name, storageRoot: storageRoot, policy: .release,
@@ -106,8 +130,8 @@ final class ExecutorRunAdoptionRNASeqTests: XCTestCase {
     func testBatchFolderGivesOneResultOfAllItsSamplesWithThePlansRouteAndTheRunsFacts() async throws {
         let set = try await buildSet()
         let batch = root.appendingPathComponent("batch", isDirectory: true)
-        _ = try Fixture.make(root: batch, name: "sample1", plan: try pinned(), contents: try Self.salmonFiles(set))
-        _ = try Fixture.make(root: batch, name: "sample2", plan: try pinned(sample: "sample2"), contents: try Self.salmonFiles(set, scale: 2))
+        _ = try Fixture.make(root: batch, name: "sample1", plan: try pinned(), contents: try Self.returnedFiles(set))
+        _ = try Fixture.make(root: batch, name: "sample2", plan: try pinned(sample: "sample2"), contents: try Self.returnedFiles(set, scale: 2))
         let result = try adopt(batch)
         let loaded = try RNASeqResultBundle.load(from: result)
         let manifest = loaded.manifest
@@ -161,7 +185,7 @@ final class ExecutorRunAdoptionRNASeqTests: XCTestCase {
         ]
         for (index, (words, source)) in cases.enumerated() {
             let plan = try pinned(sample: "odd", duplicates: words, source: source)
-            let returned = try Fixture.make(root: root.appendingPathComponent("case\(index)"), name: "odd", plan: plan, contents: try Self.salmonFiles(set))
+            let returned = try Fixture.make(root: root.appendingPathComponent("case\(index)"), name: "odd", plan: plan, contents: try Self.returnedFiles(set))
             let refused = refusal(returned.folder) as? ExecutorAdoptRefusal
             XCTAssertEqual(refused?.field, "pipeline.settings", "\(words) \(source)")
             let cause = refused?.cause ?? ""
@@ -177,7 +201,7 @@ final class ExecutorRunAdoptionRNASeqTests: XCTestCase {
         let batch = root.appendingPathComponent("batch", isDirectory: true)
         for (sample, step) in [("sample1", "Remove duplicate reads"), ("sample2", "Deduplicate")] {
             let plan = try pinned(sample: sample, duplicates: Self.removed(by: step), source: .recipe)
-            _ = try Fixture.make(root: batch, name: sample, plan: plan, contents: try Self.salmonFiles(set))
+            _ = try Fixture.make(root: batch, name: sample, plan: plan, contents: try Self.returnedFiles(set))
         }
         let result = try adopt(batch)
         XCTAssertEqual(
@@ -204,9 +228,9 @@ final class ExecutorRunAdoptionRNASeqTests: XCTestCase {
         }
         XCTAssertTrue(plan.steps.contains { $0.arguments.contains("--poly_g") })
         let off = try adopt(try Fixture.make(root: root.appendingPathComponent("off"), name: "off", plan: try pinned(sample: "off"),
-                                             contents: try Self.salmonFiles(set)).folder, name: "off")
+                                             contents: try Self.returnedFiles(set)).folder, name: "off")
         let onResult = try adopt(try Fixture.make(root: root.appendingPathComponent("on"), name: "on", plan: plan,
-                                                  contents: try Self.salmonFiles(set)).folder, name: "on")
+                                                  contents: try Self.returnedFiles(set)).folder, name: "on")
         do {
             _ = try RNASeqExportJoin.make(try RNASeqExportReader.read([off, onResult]))
             XCTFail("A poly-G off result joined a poly-G on result")
@@ -223,12 +247,73 @@ final class ExecutorRunAdoptionRNASeqTests: XCTestCase {
         let set = try await buildSet()
         let batch = root.appendingPathComponent("batch", isDirectory: true)
         let removed = try pinned(sample: "sample1", duplicates: Self.removed(by: "Deduplicate"), source: .recipe)
-        _ = try Fixture.make(root: batch, name: "sample1", plan: removed, contents: try Self.salmonFiles(set))
-        _ = try Fixture.make(root: batch, name: "sample2", plan: try pinned(sample: "sample2"), contents: try Self.salmonFiles(set))
+        _ = try Fixture.make(root: batch, name: "sample1", plan: removed, contents: try Self.returnedFiles(set))
+        _ = try Fixture.make(root: batch, name: "sample2", plan: try pinned(sample: "sample2"), contents: try Self.returnedFiles(set))
         let refused = refusal(batch) as? ExecutorAdoptRefusal
         XCTAssertEqual(refused?.field, "pipeline.route")
         let cause = refused?.cause ?? ""
         XCTAssertTrue(cause.contains("duplicates") && cause.contains("sample1") && cause.contains("two batches"), cause)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: project.path))
+    }
+
+    // MARK: - M4, the adapter of each trim call (ruling BIO-PLAN-ADAPTER items 4 and 8)
+
+    static let illuminaWords = "Trim Galore 2.3.0 auto-detected the Illumina adapter AGATCGGAAGAGC in read 1."
+    static let routeAdapter = "Adapter: chosen by Trim Galore 2.3.0 from read 1 (auto-detection)"
+
+    /// Each trim call's step states, from its JSON reports and the console line the Docker run returned, the adapter's
+    /// name and sequence, the read 2 adapter, the length cutoff and the line. A result of one adapter has no sentence.
+    func testAdoptStatesEachTrimCallsAdapterFromItsReportsAndConsoleLine() async throws {
+        let set = try await buildSet()
+        let returned = try Fixture.make(root: root, name: "S1", plan: try pinned(sample: "S1"), contents: try Self.returnedFiles(set))
+        let record = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: try adopt(returned.folder)))
+        let trim = record.steps[0]
+        XCTAssertEqual(trim.toolName, "trim_galore")
+        XCTAssertEqual(trim.resolvedOptions["adapter"], .string(Self.illuminaWords))
+        XCTAssertEqual(trim.resolvedOptions["adapterName"], .string("Illumina"))
+        XCTAssertEqual(trim.resolvedOptions["adapterSequence"], .string("AGATCGGAAGAGC"))
+        XCTAssertEqual(trim.resolvedOptions["adapterRead2"], .string("none"))
+        XCTAssertEqual(trim.resolvedOptions["lengthCutoff"], .integer(20))
+        XCTAssertEqual(
+            trim.resolvedOptions["adapterDetection"],
+            .string("Using Illumina adapter for trimming (count: 365). Second best hit was Nextera (count: 0)."))
+        XCTAssertEqual(trim.resolvedOptions["polyG"], .string("Poly-G trimming: off (LGE default)"))
+        XCTAssertNil(record.options.resolvedDefaults["adapters"])
+    }
+
+    /// A batch whose samples got different adapters gives one result whose record says so in one sentence. The route
+    /// states how the adapter was chosen, which both samples share, so it keeps the plan's words.
+    func testAdoptedBatchWhoseSamplesGotDifferentAdaptersSaysSoInOneSentence() async throws {
+        let set = try await buildSet()
+        let batch = root.appendingPathComponent("batch", isDirectory: true)
+        _ = try Fixture.make(root: batch, name: "S1", plan: try pinned(sample: "S1"), contents: try Self.returnedFiles(set))
+        _ = try Fixture.make(
+            root: batch, name: "S2", plan: try pinned(sample: "S2"),
+            contents: try Self.returnedFiles(set, console: "cy0721_01-detection.txt", nextera: true))
+        let result = try adopt(batch)
+        let record = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: result))
+        XCTAssertEqual(
+            record.options.resolvedDefaults["adapters"],
+            .string("Trim Galore chose different adapters for the samples of this result, the Illumina adapter AGATCGGAAGAGC "
+                + "for S1 and the Nextera adapter CTGTCTCTTATA for S2."))
+        XCTAssertEqual(record.steps[0].resolvedOptions["adapter"], .string(Self.illuminaWords))
+        XCTAssertEqual(
+            record.steps[2].resolvedOptions["adapter"],
+            .string("Trim Galore 2.3.0 auto-detected the Nextera adapter CTGTCTCTTATA in read 1."))
+        XCTAssertEqual(try RNASeqResultBundle.load(from: result).manifest.route.settings["adapter"], Self.routeAdapter)
+    }
+
+    /// A trim call whose returned JSON report is not a Trim Galore report is refused in words that name the step, the
+    /// report and the adapter, and nothing is written.
+    func testAdoptRefusesATrimCallWhoseReportIsNotATrimGaloreReport() async throws {
+        let set = try await buildSet()
+        let returned = try Fixture.make(root: root, name: "S1", plan: try pinned(sample: "S1"), contents: try Self.salmonFiles(set))
+        let refused = refusal(returned.folder) as? ExecutorAdoptRefusal
+        XCTAssertEqual(refused?.field, "steps[0].outputs")
+        let cause = refused?.cause ?? ""
+        XCTAssertTrue(
+            cause.contains("trim-pair1") && cause.contains("adapter") && cause.contains("trim-pair1/pair1_R1.fastq_trimming_report.json"),
+            cause)
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.path))
     }
 }

@@ -87,12 +87,19 @@ final class ImportRNASeqAdoptTests: XCTestCase {
         try planBytes.write(to: folder.appendingPathComponent("plan.json"))
         let plan = try ExecutionPlan.decode(planBytes)
         let time = "2026-11-15T12:00:00.000Z"
+        // The trim call's JSON reports and console, the saved C7 report and EX-PLAN-SALMON's Docker console (lane EX-ADOPT M4).
+        let adapter = Self.fixtures.appendingPathComponent("trim-galore-adapter", isDirectory: true)
+        let report = try Data(contentsOf: adapter.appendingPathComponent("c7_1.fq.gz_trimming_report.json"))
+        let trim = [
+            "trim-pair1/pair1_R1.fastq_trimming_report.json": report, "trim-pair1/pair1_R2.fastq_trimming_report.json": report,
+            "logs/trim-pair1.stderr": try Data(contentsOf: adapter.appendingPathComponent("trim-pair1.stderr")),
+        ]
         var steps: [ExecutorStepRecord] = []
         for step in plan.steps {
             var outputs: [ExecutorStepRecord.Output] = []
             for path in step.outputs {
                 let policy = step.outputPolicy?[path] ?? .stays
-                let bytes = salmon[path] ?? Data("\(step.id) wrote \(path)\n".utf8)
+                let bytes = salmon[path] ?? trim[path] ?? Data("\(step.id) wrote \(path)\n".utf8)
                 if policy == .home {
                     let url = folder.appendingPathComponent(path)
                     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

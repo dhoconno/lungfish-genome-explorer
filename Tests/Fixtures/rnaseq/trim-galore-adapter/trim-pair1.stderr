@@ -1,0 +1,34 @@
+
+Trim Galore v2.3.0
+unknown — linux/x86_64 — built 2026-06-27T16:23:35Z
+==================================================
+
+Auto-detecting adapter type...
+Using Illumina adapter for trimming (count: 365). Second best hit was Nextera (count: 0).
+Adapter: Illumina (AGATCGGAAGAGC)
+
+Poly-G trimming: DISABLED (user-specified --no_poly_g)
+Trimming (paired-end):
+  R1: inputs/pair1_R1.fastq.gz
+  R2: inputs/pair1_R2.fastq.gz
+  Output R1: trim-pair1/pair1_R1_val_1.fq.gz
+  Output R2: trim-pair1/pair1_R2_val_2.fq.gz
+
+=== Summary (Read 1) ===
+
+Total reads processed:                 3000
+Reads with adapters:                   1377 (45.9%)
+
+=== Summary (Read 2) ===
+
+Total reads processed:                 3000
+Reads with adapters:                   1354 (45.1%)
+
+=== Paired-end validation ===
+
+Pairs analyzed:                        3000
+Pairs removed:                            0 (0.0%)
+Report: trim-pair1/pair1_R1.fastq.gz_trimming_report.txt
+JSON report: trim-pair1/pair1_R1.fastq.gz_trimming_report.json
+Report: trim-pair1/pair1_R2.fastq.gz_trimming_report.txt
+JSON report: trim-pair1/pair1_R2.fastq.gz_trimming_report.json

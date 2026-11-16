@@ -1,0 +1,1 @@
+Using Nextera adapter for trimming (count: 66736). Second best hit was smallRNA (count: 6).

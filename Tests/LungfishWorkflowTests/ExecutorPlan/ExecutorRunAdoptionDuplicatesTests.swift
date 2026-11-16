@@ -83,7 +83,8 @@ extension SalmonQuantRouteTests {
         var folders: [URL] = []
         for plan in plans {
             let sample = try XCTUnwrap(plan.sampleValues?.sampleName)
-            folders.append(try SchemaTwoReturnedFolder.make(root: batch, name: sample, plan: plan, contents: salmon).folder)
+            let contents = salmon.merging(try ExecutorRunAdoptionRNASeqTests.trimFiles()) { salmon, _ in salmon }
+            folders.append(try SchemaTwoReturnedFolder.make(root: batch, name: sample, plan: plan, contents: contents).folder)
         }
         return try ExecutorRunAdoption.adoptCounts(
             resultFolder: plans.count == 1 ? folders[0] : batch,

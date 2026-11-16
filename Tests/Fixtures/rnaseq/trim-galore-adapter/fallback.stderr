@@ -1,0 +1,34 @@
+
+Trim Galore v2.3.0
+unknown — macos/aarch64 — built 2026-06-27T16:16:29Z
+==================================================
+
+Auto-detecting adapter type...
+No adapters detected in the first 200 reads. Defaulting to Illumina adapter.
+Adapter: Illumina (AGATCGGAAGAGC)
+
+Poly-G trimming: DISABLED (user-specified --no_poly_g)
+Trimming (paired-end):
+  R1: p_1.fastq
+  R2: p_2.fastq
+  Output R1: out2/p_1_val_1.fq
+  Output R2: out2/p_2_val_2.fq
+
+=== Summary (Read 1) ===
+
+Total reads processed:                  200
+Reads with adapters:                     73 (36.5%)
+
+=== Summary (Read 2) ===
+
+Total reads processed:                  200
+Reads with adapters:                     70 (35.0%)
+
+=== Paired-end validation ===
+
+Pairs analyzed:                         200
+Pairs removed:                            0 (0.0%)
+Report: out2/p_1.fastq_trimming_report.txt
+JSON report: out2/p_1.fastq_trimming_report.json
+Report: out2/p_2.fastq_trimming_report.txt
+JSON report: out2/p_2.fastq_trimming_report.json
