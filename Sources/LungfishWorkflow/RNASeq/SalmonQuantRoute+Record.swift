@@ -21,6 +21,14 @@ public enum SalmonQuantRecordLines {
         }
     }
 
+    /// The adapter setting of the route's own trim calls, nil when no trimmer runs. No call passes an adapter flag, so
+    /// Trim Galore chooses from read 1, and the adapter it chose is a fact of the run (ruling BIO-PLAN-ADAPTER items 1
+    /// and 3). The Mac record and a Linux plan's `route.settings.adapter` both read it here.
+    public static func adapter(_ trim: SalmonQuantTrim, version: String?) -> String? {
+        guard case .trimGalore = trim else { return nil }
+        return "Adapter: chosen by Trim Galore \(version ?? "2.3.0") from read 1 (auto-detection)"
+    }
+
     public static let noTrimmerAtImport = "Poly-G trimming at import: not enabled (no trimmer ran at import)"
     public static let importNotRecorded =
         "Poly-G trimming at import: Not recorded (the bundle holds no import record that names its tools)"
@@ -142,13 +150,15 @@ public enum SalmonQuantRecordLines {
 extension SalmonQuantRoute {
     /// The lines of one sample's salmon step.
     func recordLines(for sample: SampleReads, trim: SalmonQuantTrim, trimVersion: String?) -> [String: ParameterValue] {
-        [
+        var lines: [String: ParameterValue] = [
             "sample": .string(sample.id), "bundle": .file(sample.bundle),
             "trimming": .string(SalmonQuantRecordLines.trimming(trim, version: trimVersion)),
             "importPolyG": .string(SalmonQuantRecordLines.importPolyG(payloads: sample.payloads, bundle: sample.bundle)),
             "instrument": .string(SalmonQuantRecordLines.instrument(payloads: sample.payloads)),
             "duplicates": .string(SalmonQuantRecordLines.duplicatesLine(payloads: sample.payloads)),
         ]
+        if let adapter = SalmonQuantRecordLines.adapter(trim, version: trimVersion) { lines["adapter"] = .string(adapter) }
+        return lines
     }
 
     /// The writer's request: gene sums by the set's transcript table, the set's genes, its not-host ids and salmon's

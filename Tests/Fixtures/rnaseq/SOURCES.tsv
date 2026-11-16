@@ -28,6 +28,7 @@ refs/cynomolgus/refseq-GCF_000364345.1/GCF_000364345.1_Macaca_fascicularis_5.0_g
 refs/rhesus/ensembl-100/Macaca_mulatta.Mmul_10.100.gtf.gz	73ba46e5b962e55d1307b0ceea8aedef33e1aed5b7e29840fc9da28d15e5c7a9	refset-mito/rhesus-mt.gtf	every MT line, in file order
 refs/sars-cov-2/GCF_009858895.2/GCF_009858895.2_ASM985889v3_genomic.gtf.gz	d81943ad8672e04b0ff1030e67c1a81b8544e78bf770c55af542366212e774b8	refset-mito/sars-cov-2-genes.gtf	the 11 gene lines, in file order
 refs/cynomolgus/refseq-GCF_000364345.1/GCF_000364345.1_Macaca_fascicularis_5.0_assembly_report.txt	3500f1303ce6d0adf3834227229aac2313af63d853b8f3f0b22c11587a92b2fc	refset-mito/cynomolgus-mt_assembly_report.txt	the column line and the NC_012670.1 line
+Tests/LungfishWorkflowTests/RNASeq/SalmonPlanTests.swift	50a6d55e79c3fa8725938d6734eff18e645d1f135ee9e620b1b5a79413371da3	salmon-plan/plan.json	SalmonPlan.make on the refset-mito set, a stand-in index and one bundle with import metadata and no deduplicating step, with --trim, whole
 studies/GSE47774/truth/ercc/ERCC92.zip	8d5f23e997248084cc210061f07f1a51c2f1bf49ea07ee08a9f78bf6ff074807	salmon-probe-c1/ERCC92.fa	ERCC92.fa of the archive, whole
 studies/GSE47774/truth/ercc/ERCC92.zip	8d5f23e997248084cc210061f07f1a51c2f1bf49ea07ee08a9f78bf6ff074807	salmon-probe-c1/ERCC92.gtf	ERCC92.gtf of the archive, whole
 studies/GSE47774/fastq/SRR896663_1.fastq.gz	a2d12d0591b79af3f149063be52c1f61260e152cd4e35b72c4537eba25b32692	salmon-probe-c1/SRR896663_1.fastq.gz	the first 6000 records, as given, gzip level 9 with no name and time 0

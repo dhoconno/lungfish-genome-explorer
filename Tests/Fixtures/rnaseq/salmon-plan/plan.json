@@ -1,0 +1,296 @@
+{
+  "entries" : [
+    {
+      "relativePath" : "bin/lungfish-executor",
+      "role" : "executor",
+      "sha256" : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size" : 1000
+    },
+    {
+      "relativePath" : "inputs/pair1_R1.fastq",
+      "role" : "input",
+      "sha256" : "007f6f83c2edb13b69d97e9c3e7694d79aac4a3dda172f4671e7c2f7dea334c1",
+      "size" : 236
+    },
+    {
+      "relativePath" : "inputs/pair1_R2.fastq",
+      "role" : "input",
+      "sha256" : "6c2d10ae1b305994ca7b5c21a1158c446bd10df5291937abc7050a83b816ed6a",
+      "size" : 236
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "salmon-2.11.0-k31-genome-decoys",
+          "tool" : {
+            "build" : "hfc06a8d_0",
+            "id" : "salmon",
+            "version" : "2.11.0"
+          }
+        },
+        "path" : "info.json",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/salmon-2.11.0-k31-genome-decoys/info.json",
+      "role" : "reference",
+      "sha256" : "5a8abf5fa87ca477679898cfd8a6a215f81b5c299eaad4cc416f3f680d613a20",
+      "size" : 10
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "salmon-2.11.0-k31-genome-decoys",
+          "tool" : {
+            "build" : "hfc06a8d_0",
+            "id" : "salmon",
+            "version" : "2.11.0"
+          }
+        },
+        "path" : "pos.bin",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/salmon-2.11.0-k31-genome-decoys/pos.bin",
+      "role" : "reference",
+      "sha256" : "c511fb17dbf828830df5dac1549041326c5eefb28115b1883df8679d3b3a2fef",
+      "size" : 4
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "salmon-2.11.0-k31-genome-decoys",
+          "tool" : {
+            "build" : "hfc06a8d_0",
+            "id" : "salmon",
+            "version" : "2.11.0"
+          }
+        },
+        "path" : "refseq.bin",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/salmon-2.11.0-k31-genome-decoys/refseq.bin",
+      "role" : "reference",
+      "sha256" : "6332bb89398f7765b9eb993669020bb0b2d714b1017a4ca2d189b6ae58597891",
+      "size" : 7
+    }
+  ],
+  "executor" : {
+    "lgeCommit" : "0000000000000000000000000000000000000000",
+    "lgeVersion" : "test",
+    "staticLinuxSDKID" : "test",
+    "staticLinuxSDKSHA256" : "0000000000000000000000000000000000000000000000000000000000000000",
+    "targetTriple" : "x86_64-swift-linux-musl",
+    "toolchainID" : "test",
+    "toolchainSHA256" : "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "graceSeconds" : 60,
+  "imageManifest" : {
+    "sha256" : "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "size" : 4000
+  },
+  "pipeline" : {
+    "id" : "salmon-quant",
+    "modality" : "bulk",
+    "preset" : {
+      "id" : "salmon-quant",
+      "name" : "Bulk counts by salmon selective alignment on the reads"
+    },
+    "referenceSet" : {
+      "id" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed",
+      "layout" : "lge"
+    },
+    "route" : {
+      "id" : "salmon-selective-alignment-reads",
+      "settings" : {
+        "adapter" : "Adapter: chosen by Trim Galore 2.3.0 from read 1 (auto-detection)",
+        "counts" : "NumReads",
+        "decoys" : "genome-decoys",
+        "duplicates" : "Duplicates: kept. LGE removes duplicates only with UMIs.",
+        "geneSums" : "NumReads summed by gene through the reference set's derived/transcripts.tsv",
+        "index" : "salmon-2.11.0-k31-genome-decoys",
+        "k" : "31",
+        "libraryType" : "A",
+        "mapping" : "selective alignment on reads",
+        "trimming" : "Poly-G trimming: off (LGE default)"
+      },
+      "tool" : "salmon",
+      "toolVersion" : "2.11.0"
+    },
+    "settings" : [
+      {
+        "id" : "adapter",
+        "label" : "Adapter",
+        "source" : "default",
+        "value" : "Adapter: chosen by Trim Galore 2.3.0 from read 1 (auto-detection)"
+      },
+      {
+        "id" : "counts",
+        "label" : "Counts",
+        "source" : "default",
+        "value" : "NumReads"
+      },
+      {
+        "id" : "decoys",
+        "label" : "Decoys",
+        "source" : "default",
+        "value" : "genome-decoys"
+      },
+      {
+        "id" : "duplicates",
+        "label" : "Duplicates",
+        "source" : "default",
+        "value" : "Duplicates: kept. LGE removes duplicates only with UMIs."
+      },
+      {
+        "id" : "geneSums",
+        "label" : "Gene sums",
+        "source" : "default",
+        "value" : "NumReads summed by gene through the reference set's derived/transcripts.tsv"
+      },
+      {
+        "id" : "index",
+        "label" : "Index",
+        "source" : "default",
+        "value" : "salmon-2.11.0-k31-genome-decoys"
+      },
+      {
+        "id" : "k",
+        "label" : "k-mer length",
+        "source" : "default",
+        "value" : "31"
+      },
+      {
+        "id" : "libraryType",
+        "label" : "Library type",
+        "source" : "default",
+        "value" : "A"
+      },
+      {
+        "id" : "mapping",
+        "label" : "Mapping",
+        "source" : "default",
+        "value" : "selective alignment on reads"
+      },
+      {
+        "id" : "trimming",
+        "label" : "Trimming",
+        "source" : "default",
+        "value" : "Poly-G trimming: off (LGE default)"
+      }
+    ],
+    "version" : 1
+  },
+  "sample" : {
+    "originalFilenames" : [
+      "sample1_R1.fastq",
+      "sample1_R2.fastq"
+    ],
+    "originalSizeBytes" : 472,
+    "sampleName" : "sample1",
+    "sampleSheet" : [
+
+    ]
+  },
+  "schemaVersion" : 2,
+  "steps" : [
+    {
+      "arguments" : [
+        "--no_poly_g",
+        "--paired",
+        "-o",
+        "trim-pair1",
+        "inputs/pair1_R1.fastq",
+        "inputs/pair1_R2.fastq"
+      ],
+      "deadlineSeconds" : 31622400,
+      "environment" : [
+
+      ],
+      "id" : "trim-pair1",
+      "inputs" : [
+        "inputs/pair1_R1.fastq",
+        "inputs/pair1_R2.fastq"
+      ],
+      "kind" : "tool",
+      "outputPolicy" : {
+        "logs/trim-pair1.stderr" : "home",
+        "trim-pair1/pair1_R1.fastq_trimming_report.json" : "home",
+        "trim-pair1/pair1_R1_val_1.fq" : "stays",
+        "trim-pair1/pair1_R2.fastq_trimming_report.json" : "home",
+        "trim-pair1/pair1_R2_val_2.fq" : "stays"
+      },
+      "outputs" : [
+        "trim-pair1/pair1_R1_val_1.fq",
+        "trim-pair1/pair1_R2_val_2.fq",
+        "trim-pair1/pair1_R1.fastq_trimming_report.json",
+        "trim-pair1/pair1_R2.fastq_trimming_report.json",
+        "logs/trim-pair1.stderr"
+      ],
+      "title" : "Trim the pair with Trim Galore 2.3.0",
+      "tool" : {
+        "build" : "hf1b6044_0",
+        "id" : "trim_galore",
+        "version" : "2.3.0"
+      }
+    },
+    {
+      "arguments" : [
+        "quant",
+        "-i",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/salmon-2.11.0-k31-genome-decoys",
+        "-l",
+        "A",
+        "-1",
+        "trim-pair1/pair1_R1_val_1.fq",
+        "-2",
+        "trim-pair1/pair1_R2_val_2.fq",
+        "-p",
+        "8",
+        "-o",
+        "quant"
+      ],
+      "deadlineSeconds" : 31622400,
+      "environment" : [
+
+      ],
+      "id" : "salmon-quant",
+      "inputs" : [
+        "trim-pair1/pair1_R1_val_1.fq",
+        "trim-pair1/pair1_R2_val_2.fq",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/salmon-2.11.0-k31-genome-decoys/info.json",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/salmon-2.11.0-k31-genome-decoys/pos.bin",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/salmon-2.11.0-k31-genome-decoys/refseq.bin"
+      ],
+      "kind" : "tool",
+      "outputPolicy" : {
+        "quant/aux_info/meta_info.json" : "home",
+        "quant/cmd_info.json" : "home",
+        "quant/lib_format_counts.json" : "home",
+        "quant/quant.sf" : "home"
+      },
+      "outputs" : [
+        "quant/quant.sf",
+        "quant/cmd_info.json",
+        "quant/lib_format_counts.json",
+        "quant/aux_info/meta_info.json"
+      ],
+      "title" : "Count the reads with salmon 2.11.0 on the index salmon-2.11.0-k31-genome-decoys",
+      "tool" : {
+        "build" : "hfa8f182_0",
+        "id" : "salmon",
+        "version" : "2.11.0"
+      }
+    }
+  ],
+  "tools" : [
+    {
+      "build" : "hfa8f182_0",
+      "id" : "salmon",
+      "version" : "2.11.0"
+    },
+    {
+      "build" : "hf1b6044_0",
+      "id" : "trim_galore",
+      "version" : "2.3.0"
+    }
+  ]
+}
