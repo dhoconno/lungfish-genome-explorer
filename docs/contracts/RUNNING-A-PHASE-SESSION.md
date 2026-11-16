@@ -1,6 +1,6 @@
 # Running a phase session with LLM agents
 
-This contract is for the manager of a Lungfish Genome Explorer (LGE) phase session. `docs/contracts/SCOPE-AND-DELIVERY.md` (SAD) wins over this file. The agent types in `.claude/agents/` set each role's model, effort, stop line and command rules, and a brief or prompt restates none of them (E-RUN-36). A prompt whose stop line differs from the type's says `Stop at N tool calls.` in its own words, never only in a brief (E-RUN-39). A rule here is one sentence that says what to do, and its reason is a tag `(E-RUN-<n>)` that points to `~/lungfish-phase-records/llm/evidence/RUN.md`. The panel meets only when a phase plan is written (`docs/contracts/EXPERT-PANEL.md`, The meeting).
+This contract is for the manager of a Lungfish Genome Explorer (LGE) phase session. `docs/contracts/SCOPE-AND-DELIVERY.md` (SAD) wins over this file. The agent types in `.claude/agents/` set each role's model, effort, stop line and command rules, and a brief or prompt restates none of them (E-RUN-36). A prompt whose stop line differs from the type's says `Stop at N tool calls.` in its own words, never only in a brief (E-RUN-39). A rule here is one sentence that says what to do, tagged `(E-RUN-<n>)` for its reason in `~/lungfish-phase-records/llm/evidence/RUN.md`. The panel meets only when a phase plan is written (`docs/contracts/EXPERT-PANEL.md`, The meeting).
 
 ## Roles
 
@@ -41,8 +41,8 @@ Before the first launch run `python3 scripts/session/preflight.py [--fetch] [--d
 | Quota pacing | Read `get_usage` at every landing. Keep the 5-hour figure under a straight line from the window start (20 points an hour) and hold every spawn at 75%. Project the weekly close from the rows left, each with a low and a high cost, at this week's own dollars a point from two readings about 10 points apart (E-RUN-7). When the projection crosses the stop line, ask the owner which rows move on. Start no new lane past 92% of the week |
 | Disk and snapshots | Remove a finished lane's build folder with `python3 scripts/session/reap_build.py <worktree> --done-ids SCR/llm/done_ids.txt --execute` once its last agent has ended, or write the command into STATE for the owner when the permission mode refuses it. Thin the local snapshots in the same step and at the first reading under about 100 GB with `tmutil thinlocalsnapshots / 400000000000 4` (E-RUN-19). Archives go to `/Volumes/lge_scratch/lge/archive/`, and with that disk missing tell the owner and move none |
 | Confirmed end | Start a review, a landing or a check of an agent's work only when `python3 scripts/session/agent_ended.py TRANSCRIPT.jsonl [--worktree DIR]` prints ENDED (E-RUN-37) |
-| Own processes only | Stop only a process you started, by PID, never by name with `pkill` or `killall` (E-RUN-18). End a hung Lungfish app with `python3 scripts/session/end_hung_app.py --list`, then `end_hung_app.py PID [--execute]` |
-| GUI walk | An `lge-walker` agent runs the packaged walk in background control, and it counts as the packaged walk of `docs/contracts/VERIFICATION-ORDER.md` with or without the owner at the Mac (O126). The other rules are the Walk section of `docs/contracts/MACHINES.md` |
+| Own processes only | Stop only a process you started, by PID, never with `pkill` or `killall` (E-RUN-18). End a hung Lungfish app with `python3 scripts/session/end_hung_app.py --list`, then `end_hung_app.py PID [--execute]` |
+| GUI walk | An `lge-walker` agent in background control runs the packaged walk of `docs/contracts/VERIFICATION-ORDER.md`, with or without the owner at the Mac (O126). The other rules are the Walk section of `docs/contracts/MACHINES.md` |
 
 ## The manager's context budget
 
@@ -55,14 +55,14 @@ Keep `"autoCompactWindow": 600000` in `~/.claude/settings.json`, never in the tr
 
 ## End check and heartbeat
 
-While agents run, keep `bash scripts/session/heartbeat.sh --project DIR --session SID [--records SCR/llm]` in the background and `python3 scripts/session/memwatch.py --dir SCR/llm` for the memory alarm. The heartbeat runs `ctx_watch.py --calls` at its start, every 5 minutes and every minute within 15 calls of an agent's line, and ends its round when an agent's ledger calls reach its stop line, from its prompt, the brief it names or its type (E-RUN-27, E-RUN-43). Add an agent's id to `SCR/llm/stop_sent.txt` in the message that sends its stop, and the heartbeat skips its CALLS line.
+While agents run, keep `bash scripts/session/heartbeat.sh --project DIR --session SID [--records SCR/llm]` in the background and `python3 scripts/session/memwatch.py --dir SCR/llm` for the memory alarm. The heartbeat runs `ctx_watch.py --calls` at its start, every 5 minutes and every minute within 15 calls of an agent's line, and ends its round when an agent's ledger calls reach its stop line, from its prompt, the brief it names or its type (E-RUN-27, E-RUN-43). Relaunch the heartbeat in the message that sends the stop or answers its alarm (E-RUN-45). Add the stopped agent's id to `SCR/llm/stop_sent.txt` in that message, and the heartbeat skips its CALLS line.
 
 | Signal | Threshold | Action |
 |---|---|---|
 | Pending tool call | over 15 minutes (`python3 scripts/session/ctx_watch.py PROJECT_DIR SID [--stalled SECONDS]`) | Ask the agent, and stop it with a Handoff when it hangs |
 | Lane size | past its stop line by the ledger's calls (`--calls`) or its token line (`ctx_watch.py PROJECT_DIR SID [--over K] [--busy]`) | Send "Write your Handoff now and stop." at the line, never a later call number (E-RUN-16) |
 | Refusals, polling, cache | guard rejections over 1% of turns or a new kind, poll-only turns over 10% of spend, any cache rebuild | Fix the command forms, waits and timeouts in the briefs |
-| Burn, load, memory and quota | over about $120 an hour, above the 5-hour line, over 5 building agents, a load average over 40, a `memwatch.alarm` line, or a weekly projection over the stop line | Hold launches and tell the owner of the projection. End the process that a RUNAWAY or BIGPROC alarm line names, by PID. A line marked OWNER names a process of uid 0, so tell the owner and end nothing (E-RUN-44) |
+| Burn, load, memory and quota | over about $120 an hour, above the 5-hour line, over 5 building agents, a load average over 40, a `memwatch.alarm` line, or a weekly projection over the stop line | Hold launches and tell the owner of the projection. End by PID the process a RUNAWAY or BIGPROC alarm line names. An OWNER line names a uid 0 process, so tell the owner and end nothing (E-RUN-44) |
 | Free disk | under about 100 GB | Follow the row Disk and snapshots |
 
 ## End-of-session duty
