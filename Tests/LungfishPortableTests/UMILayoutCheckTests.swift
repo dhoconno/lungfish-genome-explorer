@@ -120,6 +120,43 @@ extension UMILayoutCheckTests {
         """)
     }
 
+    /// BIO-UMI-SHARE item 13, EX-UMI-M1-BIO should-fix 1: the bars applied to the 33 rows of C9's layout.tsv (the counts
+    /// `layout.py` gives on the first 1,000 pairs of each run) pass 32 runs and warn on SRR28155077 (C106), on the exact
+    /// share only. A row is (run, exact, near, distinct), columns 4, 5 and 6 of rnaseq/work/gse163196/layout.tsv.
+    func testC9LayoutRowsGiveTheRulingsVerdicts() {
+        let rows: [(run: String, exact: Int, near: Int, distinct: Int)] = [
+            ("SRR13319534", 958, 970, 929), ("SRR13319535", 942, 968, 919), ("SRR13319536", 942, 959, 920),
+            ("SRR13319537", 945, 975, 881), ("SRR13319538", 947, 965, 900), ("SRR13319539", 933, 956, 913),
+            ("SRR13319540", 924, 963, 878), ("SRR13319541", 945, 972, 886), ("SRR13319542", 941, 967, 890),
+            ("SRR13319543", 935, 963, 892), ("SRR13319544", 945, 967, 887), ("SRR13319545", 946, 969, 895),
+            ("SRR13319546", 946, 978, 899), ("SRR28155078", 933, 956, 913), ("SRR28155079", 924, 963, 878),
+            ("SRR28155080", 945, 972, 886), ("SRR28155081", 941, 967, 890), ("SRR28155082", 935, 963, 892),
+            ("SRR28155083", 946, 969, 895), ("SRR28155084", 946, 978, 899), ("SRR28155085", 958, 970, 929),
+            ("SRR28155086", 942, 968, 919), ("SRR28155087", 942, 959, 920), ("SRR28155088", 945, 975, 881),
+            ("SRR28155089", 947, 965, 900), ("SRR28155066", 945, 964, 903), ("SRR28155069", 948, 970, 886),
+            ("SRR28155070", 907, 951, 860), ("SRR28155071", 907, 958, 870), ("SRR28155072", 911, 971, 865),
+            ("SRR28155073", 933, 947, 910), ("SRR28155074", 958, 981, 910), ("SRR28155077", 879, 938, 840),
+        ]
+        XCTAssertEqual(rows.count, 33)
+        func percent(_ count: Int) -> String { "\(count / 10).\(count % 10)" }
+        var verdicts: [String: Int] = [:]
+        for row in rows {
+            let report = UMILayoutCheck.Report(
+                counts: Self.counts(near: row.near, exact: row.exact, distinct: row.distinct), arguments: Self.arguments())
+            verdicts["\(report.verdict)", default: 0] += 1
+            XCTAssertEqual(Array(report.shares.map(\.percent).prefix(4)),
+                           ["100.0", percent(row.near), percent(row.exact), percent(row.distinct)], row.run)
+            if row.run == "SRR28155077" {
+                XCTAssertEqual(report.verdict, .warned, row.run)
+                XCTAssertEqual(report.reasons.map(\.code), [.exactUnderBar], row.run)
+            } else {
+                XCTAssertEqual(report.verdict, .passed, row.run)
+                XCTAssertTrue(report.reasons.isEmpty, row.run)
+            }
+        }
+        XCTAssertEqual(verdicts, ["passed": 32, "warned": 1])
+    }
+
     func testPassAtTheBarsIsNoWarning() {
         let report = UMILayoutCheck.Report(counts: Self.counts(near: 900, exact: 900, distinct: 800), arguments: Self.arguments())
         XCTAssertEqual(report.verdict, .passed)
