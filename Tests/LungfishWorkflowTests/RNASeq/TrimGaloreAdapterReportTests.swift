@@ -7,6 +7,7 @@
 import XCTest
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
 

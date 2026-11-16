@@ -7,12 +7,13 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
-/// One sample of a counts adopt: its checked run, the salmon folder its counting step returned, read where it lies, and
-/// the duplicates state its plan states.
+/// One sample of a counts adopt: its checked run, the salmon folder its counting step returned, read where it lies, the
+/// duplicates state its plan states, and the adapter of each trim call by step index.
 struct ExecutorCountsAdoptedSample: Sendable {
     let run: ExecutorAdoptedCountsRun
     let folder: SalmonQuantFolder
     let duplicates: SalmonQuantRecordLines.DuplicatesState
+    let adapters: [Int: TrimGaloreAdapterReport]
 }
 
 /// A returned folder or batch whose every sample passed every check, read into the writer's request before any result
@@ -26,7 +27,8 @@ struct ExecutorCountsAdoption: Sendable {
 
 extension ExecutorRunAdoption {
     /// Every check and every read of the counts adopt, with nothing written: each sample's run (`checkCounts`), one
-    /// pipeline for all, the set under `storageRoot`, each salmon folder, then the request `RNASeqResultWriter` takes.
+    /// pipeline for all, the set under `storageRoot`, each salmon folder and each trim call's adapter, then the request
+    /// `RNASeqResultWriter` takes.
     static func prepareCounts(
         _ folder: URL, storageRoot: URL, name: String, policy: ExecutorAdoptPolicy
     ) throws -> ExecutorCountsAdoption {
@@ -38,7 +40,8 @@ extension ExecutorRunAdoption {
         var samples: [ExecutorCountsAdoptedSample] = []
         for (run, state) in zip(runs, duplicates) {
             try Task.checkCancellation()
-            samples.append(ExecutorCountsAdoptedSample(run: run, folder: try salmonFolder(run), duplicates: state))
+            samples.append(ExecutorCountsAdoptedSample(
+                run: run, folder: try salmonFolder(run), duplicates: state, adapters: try trimAdapters(run)))
         }
         let request = try countsRequest(name: name, samples: samples, set: set)
         return ExecutorCountsAdoption(samples: samples, setURL: setURL, request: request)

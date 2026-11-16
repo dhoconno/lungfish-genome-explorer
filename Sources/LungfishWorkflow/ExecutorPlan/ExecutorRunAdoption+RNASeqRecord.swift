@@ -20,17 +20,19 @@ extension ExecutorRunAdoption {
             "folder": .file(resultFolder.standardizedFileURL), "project": .file(projectDirectory.standardizedFileURL),
             "name": .string(adoption.request.name),
         ]
+        let steps = adoption.samples.flatMap(countsSteps)
+        var resolved: [String: ParameterValue] = [
+            "set": .string(first.pipeline.referenceSet.id),
+            "plans": .array(adoption.samples.compactMap { $0.run.record.plan.map { .string($0.sha256) } }),
+        ]
+        // One sentence when the samples got different adapters, as `rnaseq quant` writes it (BIO-PLAN-ADAPTER item 8).
+        if let sentence = TrimGaloreAdapterReport.differentAdapters(in: steps) { resolved["adapters"] = .string(sentence) }
         var builder = ProvenanceRunBuilder(
             workflowName: "RNA-seq adopt", workflowVersion: WorkflowRun.currentAppVersion, toolName: "lungfish-cli",
             toolVersion: WorkflowRun.currentAppVersion)
             .argv(argv)
             .reproducibleCommand(argv.map(SalmonQuantRoute.shellQuoted).joined(separator: " "))
-            .options(
-                explicit: explicit, defaults: [:],
-                resolved: [
-                    "set": .string(first.pipeline.referenceSet.id),
-                    "plans": .array(adoption.samples.compactMap { $0.run.record.plan.map { .string($0.sha256) } }),
-                ])
+            .options(explicit: explicit, defaults: [:], resolved: resolved)
             .runtime(runtimeIdentity(record: first.record, stagingImage: first.stagingImage))
         for sample in adoption.samples {
             for output in sample.run.homeOutputs where sample.run.countingSteps.contains(output.stepIndex) {
@@ -44,13 +46,11 @@ extension ExecutorRunAdoption {
                 path: result.appendingPathComponent("counts/\(name)").path, checksumSHA256: RNASeqResultBundle.sha256Hex(data),
                 fileSize: UInt64(data.count), role: .output))
         }
-        for sample in adoption.samples {
-            for step in countsSteps(sample) { builder = builder.step(step) }
-        }
+        for step in steps { builder = builder.step(step) }
         return try builder.complete(exitStatus: 0, status: .completed, startedAt: started, endedAt: Date())
     }
 
-    /// One sample's steps as its run record states them.
+    /// One sample's steps as its run record states them. A trim step carries the poly-G line and its adapter lines.
     static func countsSteps(_ sample: ExecutorCountsAdoptedSample) -> [ProvenanceStep] {
         let run = sample.run
         let lines = countsRecordLines(run, sample: sample.folder.sample)
@@ -58,8 +58,9 @@ extension ExecutorRunAdoption {
             var options: [String: ParameterValue] = ["sample": .string(sample.folder.sample)]
             if run.countingSteps.contains(index) {
                 options = lines
-            } else if step.tool?.id == trimmerToolID, let trimming = lines["trimming"] {
-                options["polyG"] = trimming
+            } else if step.tool?.id == trimmerToolID {
+                if let trimming = lines["trimming"] { options["polyG"] = trimming }
+                if let adapter = sample.adapters[index] { options.merge(adapter.lines) { _, read in read } }
             }
             return ProvenanceStep(
                 toolName: step.tool?.id ?? step.kind.rawValue, toolVersion: step.tool?.version ?? "unknown", argv: step.argv,
@@ -67,6 +68,38 @@ extension ExecutorRunAdoption {
                 startedAt: date(step.startedAt), completedAt: date(step.endedAt),
                 managedToolID: step.tool.map { ManagedToolID(rawValue: $0.id) })
         }
+    }
+
+    /// Each trim call's adapter by step index, from the JSON reports and the console file the step returned, which the
+    /// output check has read against the record (ruling BIO-PLAN-ADAPTER item 4). A trim step that returns no JSON
+    /// report or no console file, or whose reports are not Trim Galore reports, is refused in words that name the step,
+    /// since the record could not state the adapter it trimmed.
+    static func trimAdapters(_ run: ExecutorAdoptedCountsRun) throws -> [Int: TrimGaloreAdapterReport] {
+        var adapters: [Int: TrimGaloreAdapterReport] = [:]
+        for (index, step) in run.plan.steps.enumerated() where step.tool?.id == trimmerToolID {
+            let outputs = run.homeOutputs.filter { $0.stepIndex == index }
+            let reports = outputs.filter { $0.path.hasSuffix("_trimming_report.json") }
+            let consolePath = SalmonPlan.consolePath(of: step.id)
+            guard let first = reports.first, let console = outputs.first(where: { $0.path == consolePath }) else {
+                throw refusal(
+                    "steps[\(index)].outputPolicy",
+                    "The step \(step.id) returns no JSON trimming report or no \(consolePath) as home, so the record cannot "
+                        + "state the adapter Trim Galore trimmed."
+                )
+            }
+            let adapter = TrimGaloreAdapterReport.read(
+                reports: try reports.map { try Data(contentsOf: $0.url) },
+                console: String(decoding: try Data(contentsOf: console.url), as: UTF8.self))
+            guard adapter.adapters != nil else {
+                throw refusal(
+                    "steps[\(index)].outputs",
+                    "The report \(first.path) of the step \(step.id) is not a Trim Galore JSON report, so the record cannot "
+                        + "state the adapter Trim Galore trimmed."
+                )
+            }
+            adapters[index] = adapter
+        }
+        return adapters
     }
 
     /// The counting step's lines, under the keys of the Mac route's `recordLines`.

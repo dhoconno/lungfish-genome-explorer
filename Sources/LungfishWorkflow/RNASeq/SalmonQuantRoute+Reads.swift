@@ -163,9 +163,14 @@ extension SalmonQuantRoute {
             } else {
                 kept += outputs
             }
+            // The adapter from the call's JSON reports and its console line, read here before `quantify` removes the
+            // trim folder, in the adopt's words (Fix RS-QUANT-ADAPTER, ruling BIO-PLAN-ADAPTER items 4 and 5).
+            var options: [String: ParameterValue] = [
+                "sample": .string(sample), "polyG": .string(SalmonQuantRecordLines.trimming(.trimGalore(polyG: polyG), version: version)),
+            ]
+            options.merge(TrimGaloreAdapterReport.read(folder: out, console: result.stderr).lines) { _, read in read }
             steps.append(ProvenanceStep(
-                toolName: "trim_galore", toolVersion: version, argv: ["trim_galore"] + arguments,
-                resolvedOptions: ["sample": .string(sample), "polyG": .string(SalmonQuantRecordLines.trimming(.trimGalore(polyG: polyG), version: version))],
+                toolName: "trim_galore", toolVersion: version, argv: ["trim_galore"] + arguments, resolvedOptions: options,
                 exitStatus: 0, wallTimeSeconds: Date().timeIntervalSince(started), startedAt: started, completedAt: Date(),
                 managedToolID: ManagedToolID(rawValue: "trim_galore")))
         }

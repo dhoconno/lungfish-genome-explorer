@@ -269,6 +269,8 @@ extension SalmonQuantRoute {
         ]
         if let hash = index.hashes.decoySeqHash { resolved["index_decoy_seq_hash"] = .string(hash) }
         if let hash = index.hashes.decoyNameHash { resolved["index_decoy_name_hash"] = .string(hash) }
+        // One sentence when the samples got different adapters, as the adopt writes it (BIO-PLAN-ADAPTER item 8).
+        if let sentence = TrimGaloreAdapterReport.differentAdapters(in: steps) { resolved["adapters"] = .string(sentence) }
         let trimVersion = steps.first { $0.toolName == "trim_galore" }?.toolVersion
         var builder = ProvenanceRunBuilder(
             workflowName: "RNA-seq salmon quant", workflowVersion: WorkflowRun.currentAppVersion, toolName: "lungfish-cli",
