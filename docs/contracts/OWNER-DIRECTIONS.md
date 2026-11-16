@@ -5,12 +5,12 @@ Each row is a direction of the owner that still binds later sessions, in the own
 | Id | Date | The owner's words | Binds |
 |---|---|---|---|
 | O171 | 2026-11-11 | "Have expert teams make any necessary decisions so this can keep going for the next 10 hours or so in my absence." | Experts decide in the owner's absence, a split takes the manager's pick |
-| O173 | 2026-11-12 | "Let's promote the RNAseq phase to be next. When we are working in a new topic like this, we should be systematic, identifying well done manuscripts whose underlying data is available in SRA ... First we should do the analyses with bash and python scripts ..., then we should implement these analyses in the LGE CLI, and finally we should add the GUI interfaces ..." | RNA-seq is Phase 5 and Biomark X is Phase 6. A new topic first reproduces published analyses on public SRA data with scripts, then builds the CLI, then the GUI |
-| O174 | 2026-11-12 | "Trust session first" | The trust session, without its Biomark lanes, runs before RNA-seq app code |
+| O173 | 2026-11-12 | "Let's promote the RNAseq phase to be next. ... we should be systematic, identifying well done manuscripts whose underlying data is available in SRA ... First we should do the analyses with bash and python scripts ..., then we should implement these analyses in the LGE CLI, and finally we should add the GUI interfaces ..." | RNA-seq is Phase 5 and Biomark X is Phase 6. A new topic first reproduces published analyses on public SRA data with scripts, then builds the CLI, then the GUI |
 | O175 | 2026-11-12 | "... we should have expert teams (including ad hoc RNAseq experts) adjudicate any issues." | Ad hoc RNA-seq experts sit with the panel on RNA-seq questions and decide in the owner's absence as O171 sets |
 | O176 | 2026-11-12, 2026-11-14 | "Up to 1 TB" and "Yes, env on lge_scratch", then "Its fine to use more of the external SSD as needed for RNAseq files." | Open-access SRA, ENA and GEO data and one conda environment on lge_scratch, past 1 TB as needed, keeping 200 GB free on the drive. No controlled-access data |
 | O177 | 2026-11-14 | "Panel decides, I see splits" (monitor actions) | The panel rules on the monitor's open actions, the owner sees splits |
-| O178 | 2026-11-14 | "CHTC, non-human data only" (RNA-seq Linux host) | LINUX-HOST gates run on a CHTC node for non-human studies. Human data never goes to CHTC |
+| O178 | 2026-11-14 | "CHTC, non-human data only" (RNA-seq Linux host) | LINUX-HOST gates run on a CHTC node for non-human studies. Human data never goes to CHTC (narrowed by O179) |
+| O179 | 2026-11-16 | "Human RNA data can go to CHTC as long as there is no PHI. That's a user responsibility. SRA human data and coded human data can go to CHTC." | Narrows O178. Human RNA-seq data with no PHI, such as SRA human or coded human data, may run on CHTC, and keeping PHI out is the user's responsibility. The full-size human gates of 5.3 may run on a CHTC node, replacing the answer "Native on galah" |
 | O105 | 2026-10-31 | "Alerting me is not useful since I'm usually not watching this screen. The agent needs to manage memory pressure ..." | The agent handles memory pressure itself and never alerts the owner |
 | O126 | 2026-11-03 | "Yes, apply and push" | Standing go of SCOPE-AND-DELIVERY, in force when prompt or chat gives it |
 | O159 | 2026-11-07 | "Go without me and also avoid the use of the term 'Stable' unless referencing a stable release, which we won't be building for several weeks." | No stable release without the owner's ask. Say Stable only for one |
@@ -30,7 +30,5 @@ Each row is a direction of the owner that still binds later sessions, in the own
 | O138 | 2026-11-03 | "... we should adjust the tests so they do not rely on predictable BLAST behavior ..." | Tests never count on a third-party service's speed or answer |
 | CHTC O2 | 2026-10-21 | "Yes, we would not use human data, so HIPAA is not an issue." | No restricted read set goes to CHTC, checked for each batch |
 | CHTC O42 | 2026-10-24 | "We also shouldn't be using a 60GB file for testing after we have the Linux tool operational. This would be wasteful." | The Linux tool is tested on small public read sets only |
-
-Replaced directions, each as old by new. O128 by O159, O154 by O171, 2.12 O3 by O168, the docs direction of 2026-10-12 by O168, the panel and monitor direction of 2026-10-11 by O67, and the per-phase standing grants 2.9 O3, 2.10 O1, 2.11 O2, 2.12 O11 and 2.13 O22 by O126.
 
 The full history is in the owner tables of the plans, in git at the commits those plans cite, and in `~/lungfish-phase-records`. A direction not listed above is spent or replaced.
