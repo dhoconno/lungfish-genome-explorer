@@ -312,6 +312,15 @@ public enum FastpPairedRunner {
 
         let fm = FileManager.default
         let outputURL = URL(fileURLWithPath: outputPath)
+        // The work files sit beside the output and peak near forty times the gzip input (D1b, FASTP-STAGING-MEMORY), so the
+        // disk is checked before the scratch folder is made, and a refusal writes nothing.
+        do {
+            try StagingScratchNeed.require(
+                route: .fastpTrim, inputFiles: [inputURL], folder: outputURL.deletingLastPathComponent()
+            )
+        } catch let refusal as StagingScratchNeed.Refusal {
+            throw FastpPairedRunError(refusal.localizedDescription)
+        }
         let scratch = outputURL.deletingLastPathComponent().appendingPathComponent(
             ".fastp-pairs-\(UUID().uuidString)",
             isDirectory: true

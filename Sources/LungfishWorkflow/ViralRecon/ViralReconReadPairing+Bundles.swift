@@ -275,6 +275,8 @@ extension ViralReconReadPairing {
     /// is never in the bundle's order (trust session R2). A partial record
     /// stops the write and removes the file.
     static func writeSeededReads(_ sources: [URL], to destination: URL, scratch: URL) async throws -> Int {
+        // The disk is checked before any file is written, and in this task, so a free-space reader a test sets reaches it.
+        try StagingScratchNeed.require(route: .viralReconStaging, inputFiles: sources, folder: scratch)
         let buckets = scratch.appendingPathComponent(".read-order-\(destination.lastPathComponent)", isDirectory: true)
         let worker = Task.detached(priority: .utility) { () throws -> Int in
             let sink = try GzipFileSink(destination: destination)

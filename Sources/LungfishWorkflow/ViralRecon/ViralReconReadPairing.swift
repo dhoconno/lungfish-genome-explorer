@@ -365,6 +365,13 @@ public enum ViralReconReadPairing {
         r2: URL,
         scratch: URL
     ) async throws -> Int {
+        // The disk is checked before any file is written, and in this task, so a free-space reader a test sets reaches it.
+        let inputFiles: [URL]
+        switch source {
+        case .interleaved(let url): inputFiles = [url]
+        case .separate(let mate1, let mate2): inputFiles = [mate1, mate2]
+        }
+        try StagingScratchNeed.require(route: .viralReconStaging, inputFiles: inputFiles, folder: scratch)
         let buckets = scratch.appendingPathComponent(".pair-order-\(r1.lastPathComponent)", isDirectory: true)
         let worker = Task.detached(priority: .utility) { () throws -> Int in
             let sink1 = try GzipFileSink(destination: r1)
