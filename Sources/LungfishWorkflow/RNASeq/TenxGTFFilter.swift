@@ -91,6 +91,13 @@ package enum TenxGTFFilter {
         let kept = Set(order.filter { gene in
             geneBiotype[gene].map(biotypes.contains) ?? !(transcriptBiotypes[gene] ?? []).isDisjoint(with: biotypes)
         })
+        // A GTF that names no biotype on any host gene keeps none of them, and STAR would index the extras only.
+        guard order.isEmpty || !kept.isEmpty else {
+            throw STARIndexError("The 10x filter rule \(list.rawValue) keeps none of the \(order.count) genes of derived/genes.gtf, "
+                + "since no gene has a gene_biotype or gene_type on its list, so STAR would index no gene of the set and its matrix "
+                + "would hold none. Index the set without --tenx-filter, or build it from an annotation that names each gene's "
+                + "biotype. No plan or record was written.")
+        }
         var output = Data()
         output.reserveCapacity(data.count)
         var exonContigs = Set<String>(), exonGenes = Set<String>()
