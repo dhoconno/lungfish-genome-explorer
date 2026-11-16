@@ -1,0 +1,281 @@
+{
+  "entries" : [
+    {
+      "relativePath" : "bin/lungfish-executor",
+      "role" : "executor",
+      "sha256" : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size" : 1000
+    },
+    {
+      "relativePath" : "inputs/pair1_R1.fastq",
+      "role" : "input",
+      "sha256" : "007f6f83c2edb13b69d97e9c3e7694d79aac4a3dda172f4671e7c2f7dea334c1",
+      "size" : 236
+    },
+    {
+      "relativePath" : "inputs/pair1_R2.fastq",
+      "role" : "input",
+      "sha256" : "6c2d10ae1b305994ca7b5c21a1158c446bd10df5291937abc7050a83b816ed6a",
+      "size" : 236
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa7-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "Genome",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa7-sparse2/Genome",
+      "role" : "reference",
+      "sha256" : "cf3417b4382b8954eb6757683713f366695ad57cd84f00e75c08ab5b4cf35144",
+      "size" : 34
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa7-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "SA",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa7-sparse2/SA",
+      "role" : "reference",
+      "sha256" : "6ae64edfc621830d33aedce576197e4fe67011c1ac2e2f3d1932d537ad202063",
+      "size" : 30
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.3a-sa7-sparse2",
+          "tool" : {
+            "build" : "h5ca1c30_1",
+            "id" : "STAR",
+            "version" : "2.7.3a"
+          }
+        },
+        "path" : "chrName.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa7-sparse2/chrName.txt",
+      "role" : "reference",
+      "sha256" : "854bcc5f8e48020c68a7ad89d897a04089251c9f2f17a1599e8341699404a078",
+      "size" : 39
+    }
+  ],
+  "executor" : {
+    "lgeCommit" : "0000000000000000000000000000000000000000",
+    "lgeVersion" : "test",
+    "staticLinuxSDKID" : "test",
+    "staticLinuxSDKSHA256" : "0000000000000000000000000000000000000000000000000000000000000000",
+    "targetTriple" : "x86_64-swift-linux-musl",
+    "toolchainID" : "test",
+    "toolchainSHA256" : "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "graceSeconds" : 60,
+  "imageManifest" : {
+    "sha256" : "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "size" : 4000
+  },
+  "pipeline" : {
+    "id" : "star-genecounts",
+    "modality" : "bulk",
+    "preset" : {
+      "id" : "star-genecounts",
+      "name" : "Bulk counts by STAR GeneCounts on the genome"
+    },
+    "referenceSet" : {
+      "id" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed",
+      "layout" : "lge"
+    },
+    "route" : {
+      "id" : "star-genecounts",
+      "settings" : {
+        "adapter" : "Adapter: chosen by Trim Galore 2.3.0 from read 1 (auto-detection)",
+        "countingGTF" : "derived/genes.gtf of the set macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed, SHA-256 59418328435c67055273327b0421d42540c8e8ca32dd9086de09751a7001d45b",
+        "counts" : "STAR GeneCounts in ReadsPerGene.out.tab: a uniquely mapped pair counted for the one gene whose exons it overlaps, in three columns, unstranded, read 1 on the gene's strand and read 2 on the gene's strand",
+        "duplicates" : "Duplicates: kept. LGE removes duplicates only with UMIs.",
+        "index" : "star-2.7.3a-sa7-sparse2",
+        "mapping" : "STAR 2.7.3a on the genome, --outSAMtype BAM Unsorted --quantMode GeneCounts",
+        "multimapNmax" : "10 loci, STAR's default (no --outFilterMultimapNmax)",
+        "trimming" : "Poly-G trimming: off (LGE default)"
+      },
+      "tool" : "STAR",
+      "toolVersion" : "2.7.3a"
+    },
+    "settings" : [
+      {
+        "id" : "adapter",
+        "label" : "Adapter",
+        "source" : "default",
+        "value" : "Adapter: chosen by Trim Galore 2.3.0 from read 1 (auto-detection)"
+      },
+      {
+        "id" : "countingGTF",
+        "label" : "Genes",
+        "source" : "default",
+        "value" : "derived/genes.gtf of the set macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed, SHA-256 59418328435c67055273327b0421d42540c8e8ca32dd9086de09751a7001d45b"
+      },
+      {
+        "id" : "counts",
+        "label" : "Counts",
+        "source" : "default",
+        "value" : "STAR GeneCounts in ReadsPerGene.out.tab: a uniquely mapped pair counted for the one gene whose exons it overlaps, in three columns, unstranded, read 1 on the gene's strand and read 2 on the gene's strand"
+      },
+      {
+        "id" : "duplicates",
+        "label" : "Duplicates",
+        "source" : "default",
+        "value" : "Duplicates: kept. LGE removes duplicates only with UMIs."
+      },
+      {
+        "id" : "index",
+        "label" : "Index",
+        "source" : "default",
+        "value" : "star-2.7.3a-sa7-sparse2"
+      },
+      {
+        "id" : "mapping",
+        "label" : "Mapping",
+        "source" : "default",
+        "value" : "STAR 2.7.3a on the genome, --outSAMtype BAM Unsorted --quantMode GeneCounts"
+      },
+      {
+        "id" : "multimapNmax",
+        "label" : "Loci a read may map to",
+        "source" : "default",
+        "value" : "10 loci, STAR's default (no --outFilterMultimapNmax)"
+      },
+      {
+        "id" : "trimming",
+        "label" : "Trimming",
+        "source" : "default",
+        "value" : "Poly-G trimming: off (LGE default)"
+      }
+    ],
+    "version" : 1
+  },
+  "sample" : {
+    "originalFilenames" : [
+      "sample1_R1.fastq",
+      "sample1_R2.fastq"
+    ],
+    "originalSizeBytes" : 472,
+    "sampleName" : "sample1",
+    "sampleSheet" : [
+
+    ]
+  },
+  "schemaVersion" : 2,
+  "steps" : [
+    {
+      "arguments" : [
+        "--no_poly_g",
+        "--paired",
+        "-o",
+        "trim-pair1",
+        "inputs/pair1_R1.fastq",
+        "inputs/pair1_R2.fastq"
+      ],
+      "deadlineSeconds" : 31622400,
+      "environment" : [
+
+      ],
+      "id" : "trim-pair1",
+      "inputs" : [
+        "inputs/pair1_R1.fastq",
+        "inputs/pair1_R2.fastq"
+      ],
+      "kind" : "tool",
+      "outputPolicy" : {
+        "logs/trim-pair1.stderr" : "home",
+        "trim-pair1/pair1_R1.fastq_trimming_report.json" : "home",
+        "trim-pair1/pair1_R1_val_1.fq" : "stays",
+        "trim-pair1/pair1_R2.fastq_trimming_report.json" : "home",
+        "trim-pair1/pair1_R2_val_2.fq" : "stays"
+      },
+      "outputs" : [
+        "trim-pair1/pair1_R1_val_1.fq",
+        "trim-pair1/pair1_R2_val_2.fq",
+        "trim-pair1/pair1_R1.fastq_trimming_report.json",
+        "trim-pair1/pair1_R2.fastq_trimming_report.json",
+        "logs/trim-pair1.stderr"
+      ],
+      "title" : "Trim the pair with Trim Galore 2.3.0",
+      "tool" : {
+        "build" : "hf1b6044_0",
+        "id" : "trim_galore",
+        "version" : "2.3.0"
+      }
+    },
+    {
+      "arguments" : [
+        "--runThreadN",
+        "8",
+        "--genomeDir",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa7-sparse2",
+        "--readFilesIn",
+        "trim-pair1/pair1_R1_val_1.fq",
+        "trim-pair1/pair1_R2_val_2.fq",
+        "--outSAMtype",
+        "BAM",
+        "Unsorted",
+        "--quantMode",
+        "GeneCounts",
+        "--outFileNamePrefix",
+        "star/"
+      ],
+      "deadlineSeconds" : 31622400,
+      "environment" : [
+
+      ],
+      "id" : "star-align",
+      "inputs" : [
+        "trim-pair1/pair1_R1_val_1.fq",
+        "trim-pair1/pair1_R2_val_2.fq",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa7-sparse2/Genome",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa7-sparse2/SA",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.3a-sa7-sparse2/chrName.txt"
+      ],
+      "kind" : "tool",
+      "outputPolicy" : {
+        "star/Aligned.out.bam" : "stays",
+        "star/Log.final.out" : "home",
+        "star/ReadsPerGene.out.tab" : "home"
+      },
+      "outputs" : [
+        "star/Log.final.out",
+        "star/ReadsPerGene.out.tab",
+        "star/Aligned.out.bam"
+      ],
+      "title" : "Map the reads with STAR 2.7.3a on the index star-2.7.3a-sa7-sparse2",
+      "tool" : {
+        "build" : "h5ca1c30_1",
+        "id" : "STAR",
+        "version" : "2.7.3a"
+      }
+    }
+  ],
+  "tools" : [
+    {
+      "build" : "h5ca1c30_1",
+      "id" : "STAR",
+      "version" : "2.7.3a"
+    },
+    {
+      "build" : "hf1b6044_0",
+      "id" : "trim_galore",
+      "version" : "2.3.0"
+    }
+  ]
+}

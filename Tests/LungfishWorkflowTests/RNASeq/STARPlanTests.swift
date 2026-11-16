@@ -160,7 +160,7 @@ final class STARPlanTests: XCTestCase {
             XCTAssertEqual(setting(plan, "adapter")?.value, "Adapter: chosen by Trim Galore 2.3.0 from read 1 (auto-detection)")
             XCTAssertEqual(setting(plan, "countingGTF")?.value,
                            "derived/genes.gtf of the set \(set.manifest.id), SHA-256 \(gtf.sha256)")
-            XCTAssertEqual(plan.pipeline?.referenceSet?.id, set.manifest.id)
+            XCTAssertEqual(plan.pipeline?.referenceSet.id, set.manifest.id)
             for entry in plan.pipeline?.settings ?? [] {
                 XCTAssertEqual(plan.pipeline?.route?.settings[entry.id], entry.value, entry.id)
             }
@@ -237,7 +237,7 @@ final class STARPlanTests: XCTestCase {
         let route = try XCTUnwrap(plan.pipeline?.route)
         XCTAssertEqual([route.id, route.tool, route.toolVersion], ["star-featurecounts-exon", "featureCounts", "2.1.1"])
         XCTAssertEqual(route.settings["mapping"], "STAR 2.7.11b on the genome, --outSAMtype BAM Unsorted --quantMode GeneCounts")
-        XCTAssertEqual(route.settings.keys.sorted(), ["adapter", "counts", "countingGTF", "duplicates", "index", "mapping",
+        XCTAssertEqual(route.settings.keys.sorted(), ["adapter", "countingGTF", "counts", "duplicates", "index", "mapping",
                                                       "multimapNmax", "trimming"])
     }
 
