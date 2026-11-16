@@ -51,7 +51,7 @@ package struct STARIndexRecordStore: Sendable {
         struct Version: Decodable { var schemaVersion: Int }
         if let found = try? JSONDecoder().decode(Version.self, from: data).schemaVersion, found > STARIndexRecord.currentSchemaVersion {
             throw STARIndexError("The index record \(url.path) has schema version \(found), and this build reads 1 and "
-                + "\(STARIndexRecord.currentSchemaVersion). Adopt the index again with this build, or read the record with the LGE that wrote it.")
+                + "\(STARIndexRecord.currentSchemaVersion). Read the record with the LGE that wrote it, or remove that file and adopt the index again with this build.")
         }
         let record = try JSONDecoder().decode(STARIndexRecord.self, from: data)
         if record.schemaVersion >= 2, record.run == nil {

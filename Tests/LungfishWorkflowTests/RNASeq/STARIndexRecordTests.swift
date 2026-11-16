@@ -325,7 +325,7 @@ extension STARIndexPlanTests {
     func testARecordOfASchemaAboveTwoIsRefusedInWordsThatNameItsFileAndBothVersions() throws {
         let (store, target) = try plant("{\"schemaVersion\": 3}")
         let words = refusal { _ = try store.find(setID: "set-0001", key: "star-2.7.11b-sa7-sparse2") }
-        for part in [target.path, "schema version 3", "reads 1 and 2", "Adopt the index again"] {
+        for part in [target.path, "schema version 3", "reads 1 and 2", "remove that file and adopt the index again"] {
             XCTAssertTrue(words.contains(part), "\(part) is missing from: \(words)")
         }
     }

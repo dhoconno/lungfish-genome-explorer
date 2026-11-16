@@ -105,7 +105,7 @@ struct RNASeqQuantPlanOptions: ParsableArguments {
         }
         guard project == nil else { throw ValidationError("--write-plan writes no result in a project, so leave out --project.") }
         guard threads == nil else {
-            throw ValidationError("A plan runs salmon with -p equal to --request-cpus, 8 when you name none, so --threads does not apply. Leave it out.")
+            throw ValidationError("A plan runs its tools with the threads of --request-cpus, 8 when you name none, so --threads does not apply. Leave it out.")
         }
         guard stagingFolder?.hasPrefix("/") == true else {
             throw ValidationError("--write-plan needs --staging-folder, the absolute path of the folder on the Linux machine.")
