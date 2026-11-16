@@ -272,6 +272,27 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertEqual(row.whatToDo, "Import the original sequencer files again with this version.")
     }
 
+    // AFFECTED-KINDS-NOT-MAPPED, plan D5. DEMUX-GROUPED-DROPS-INPUTS holds a demultiplexing result up to Stable
+    // 2026.11.7 (12972), since its fix 367ba1fed is first in v2026.11.8. The defect is older than any build a row names.
+    func testTheGroupedDemultiplexRowHoldsItsBuilds() throws {
+        let row = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "DEMUX-GROUPED-DROPS-INPUTS" })
+        let demultiplex = try XCTUnwrap(AffectedResultKind(rawValue: "fastqDemultiplex"))
+        XCTAssertEqual(row.kinds, [demultiplex])
+        XCTAssertNil(row.firstBuild)
+        XCTAssertEqual(row.lastBuild, 12972, "Stable 2026.11.7, the newest build, lacks the fix")
+        XCTAssertEqual(row.fixCommit, "367ba1fed")
+        XCTAssertEqual(row.sentence, "If you chose Grouped Result for more than one dataset, this demultiplexing run read "
+                       + "only the first dataset, so the reads of the others are in none of the samples.")
+        XCTAssertEqual(row.whatToDo, "If you did, run Demultiplex Barcodes again on all the datasets with this version, "
+                       + "then delete this result.")
+        XCTAssertEqual(ids(4192, demultiplex), ["DEMUX-GROUPED-DROPS-INPUTS"], "2026.8.1, the first published build")
+        XCTAssertEqual(ids(12972, demultiplex), ["DEMUX-GROUPED-DROPS-INPUTS"], "Stable 2026.11.7")
+        XCTAssertEqual(ids(12973, demultiplex), [])
+        for kind in AffectedResultKind.allCases where kind != demultiplex {
+            XCTAssertFalse(ids(12972, kind).contains(row.backlogID), "\(kind)")
+        }
+    }
+
     // MARK: - Records as the app wrote them, with the bare version at the root
 
     private func backlogIDs(_ record: ProvenanceEnvelope, _ kind: AffectedResultKind) -> [String] {

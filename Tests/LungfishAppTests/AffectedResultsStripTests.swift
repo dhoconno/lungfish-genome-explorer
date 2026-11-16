@@ -246,6 +246,43 @@ final class AffectedResultsStripTests: XCTestCase {
         }, "nothing refers to the removed surface or to a strip")
     }
 
+    /// The rows the Inspector tells the viewer after a lookup of `item` found `envelope`.
+    private func postedRows(for item: ProvenanceInspectableItem, record envelope: ProvenanceEnvelope) -> [AffectedResultRow] {
+        let model = ProvenanceInspectorViewModel()
+        model.resolvedEnvelope = envelope
+        var posted: [AffectedResultRow] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .affectedResultsDidChange, object: model, queue: nil
+        ) { note in
+            posted = note.userInfo?[ProvenanceInspectorViewModel.affectedResultsRowsKey] as? [AffectedResultRow] ?? []
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        model.applyAffectedResults(item: item)
+        return posted
+    }
+
+    func testTheStripShowsTheTrimSentenceAboveATrimmedFASTQBundle() throws {
+        // A FASTQ bundle that `lungfish fastq trim` made with Stable 2026.11.7 (AFFECTED-KINDS-NOT-MAPPED).
+        var trim = ProvenanceEnvelope.fixture()
+        trim.workflowName = "lungfish fastq trim"
+        trim.runtimeIdentity = ProvenanceRuntimeIdentity(appVersion: "Lungfish 2026.11.7 (12972)")
+        let bundle = ProvenanceInspectableItem(
+            url: URL(fileURLWithPath: "/tmp/affected-results-test/reads.lungfishfastq"), sidebarType: .fastqBundle,
+            contentMode: .fastq, displayName: "reads"
+        )
+        let (container, surface, _) = container()
+        AffectedResultsStrip.place(
+            words: AffectedResultsStrip.words(for: postedRows(for: bundle, record: trim)), above: surface, in: container
+        )
+
+        let words = try XCTUnwrap(AffectedResultsStrip.strip(in: container), "a trimmed bundle of 2026.11.7 gets the strip")
+            .label.stringValue
+        XCTAssertTrue(words.hasPrefix("The version that made these trimmed reads gave fastp the read pairs in the order "
+                                      + "the import stored them, so fastp could choose the wrong adapter"), words)
+        XCTAssertTrue(words.hasSuffix(" 1 more note is under Warnings on the Inspector's Provenance tab."),
+                      "the single-read row is under Warnings, found \(words)")
+    }
+
     func testMoreThanOneRowCountsTheOthersAndLeavesThemToTheInspector() throws {
         let rows = AffectedResults.rows(forAppVersion: "Lungfish 2026.10.29 (12045)", kind: .taxTriage)
         XCTAssertGreaterThan(rows.count, 2)
