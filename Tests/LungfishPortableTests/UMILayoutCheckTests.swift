@@ -182,6 +182,66 @@ extension UMILayoutCheckTests {
         XCTAssertEqual(report.words, "UMI layout check passed: 400 of 400 pairs read (100.0%) start within one mismatch of ATCAATC, 380 (95.0%) exactly, and 360 (90.0%) hold a distinct UMI.")
     }
 
+    /// Plain FASTQ files start no child, so the launcher of the next test throws if anything starts one.
+    private struct NoChildLauncher: PortableChildLauncher {
+        struct Started: Error {}
+
+        func start(_ request: PortableChildRequest) throws -> any PortableChild { throw Started() }
+    }
+
+    /// EX-UMI-M1-BIO should-fix 2: `measure` on files takes the evenly spaced pairs under `even`, calls mates of unequal
+    /// counts a failure under `even`, and reads to the pairs requested under `first`.
+    func testMeasureTakesTheEvenPairsAndFlagsMatesOfUnequalCounts() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("umi-measure-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        func write(_ name: String, mate: Int, records: Int, _ sequence: (Int) -> String) throws -> URL {
+            let url = folder.appendingPathComponent(name)
+            var text = ""
+            for index in 0..<records {
+                let read = sequence(index)
+                text += "@r\(index)/\(mate) c\n\(read)\n+\n\(String(repeating: "I", count: read.count))\n"
+            }
+            try Data(text.utf8).write(to: url)
+            return url
+        }
+        // Of 20 records, 5 evenly spaced pairs are records 0, 4, 8, 12 and 16: each a motif and its own 16 bases. The
+        // other records are 24 G, so a choice that took the first five would count 2 exact.
+        let read1 = try write("a_1.fastq", mate: 1, records: 20) { index in
+            index % 4 == 0 ? "ATCAATC" + UMILayoutCheckFixture.umi(index) : String(repeating: "G", count: 24)
+        }
+        let read2 = try write("a_2.fastq", mate: 2, records: 20) { _ in String(repeating: "A", count: 30) }
+        let launcher = NoChildLauncher()
+
+        let even = try UMILayoutCheck.measure(Self.arguments(choice: .even, pairs: 5), read1: read1, read2: read2, launcher: launcher)
+        XCTAssertEqual(even.pairsRequested, 5)
+        XCTAssertEqual(even.pairsRead, 5)
+        XCTAssertEqual(even.read1Reads, 20)
+        XCTAssertEqual(even.read2Reads, 20)
+        XCTAssertEqual(even.namesEqual, 5)
+        XCTAssertEqual(even.withinOneMismatch, 5)
+        XCTAssertEqual(even.exact, 5)
+        XCTAssertEqual(even.distinctUMIs, 5)
+
+        // Read 2 of 19 under `even`: no pair is read, both counts are kept, and the report names the short mate.
+        let short = try write("b_2.fastq", mate: 2, records: 19) { _ in String(repeating: "A", count: 30) }
+        let unequal = try UMILayoutCheck.measure(Self.arguments(choice: .even, pairs: 5), read1: read1, read2: short, launcher: launcher)
+        XCTAssertEqual(unequal.pairsRead, 0)
+        XCTAssertEqual(unequal.read1Reads, 20)
+        XCTAssertEqual(unequal.read2Reads, 19)
+        let report = UMILayoutCheck.Report(counts: unequal, arguments: Self.arguments(choice: .even, pairs: 5))
+        XCTAssertEqual(report.verdict, .failed)
+        XCTAssertEqual(report.reasons.map(\.code), [.shortMate])
+        XCTAssertEqual(report.words, "UMI layout check failed: Read 1 holds 20 reads and Read 2 holds 19. The two files are not a whole pair. This sample gets no UMI counts.")
+
+        // Read 2 of 3 under `first`: reading stops at the 5 pairs requested, so Read 1 gives 5 and Read 2 gives 3.
+        let three = try write("c_2.fastq", mate: 2, records: 3) { _ in String(repeating: "A", count: 30) }
+        let first = try UMILayoutCheck.measure(Self.arguments(choice: .first, pairs: 5), read1: read1, read2: three, launcher: launcher)
+        XCTAssertEqual(first.pairsRead, 3)
+        XCTAssertEqual(first.read1Reads, 5)
+        XCTAssertEqual(first.read2Reads, 3)
+    }
+
     func testFailuresSayWhatToTry() {
         let motif = UMILayoutCheck.Report(counts: Self.counts(near: 612, exact: 600, distinct: 590), arguments: Self.arguments())
         XCTAssertEqual(motif.verdict, .failed)
