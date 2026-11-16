@@ -115,14 +115,15 @@ final class ExecutorRunAdoptionSoloTests: XCTestCase {
     }
 
     /// The introns preset counts `GeneFull_Ex50pAS`, and the folder reader reads `Solo.out/Gene`, so its run is refused in
-    /// words that name the matrix and the presets the adopt takes, and nothing is written.
+    /// words that name the matrix, the folder import that keeps the exon matrix the run also returned, and the presets the
+    /// adopt takes, and nothing is written (review SOLO-PLAN-M2-M3-BIO SF1).
     func testTheIntronsPresetIsRefusedInWordsThatNameTheMatrixTheAdoptReads() async throws {
         _ = try await buildSet()
         let plan = try Self.pinned("tenx-3p-v3-introns")
         let returned = try Fixture.make(root: root, name: "S1", plan: plan, contents: Self.soloFiles(feature: "GeneFull_Ex50pAS"))
         let refused = refusal(returned.folder)
         XCTAssertEqual(refused?.field, "pipeline.route")
-        for words in ["GeneFull_Ex50pAS", "Solo.out/Gene", "tenx-3p-v3", "tenx-5p-v2"] {
+        for words in ["GeneFull_Ex50pAS", "Solo.out/Gene", "tenx-3p-v3", "tenx-5p-v2", "lungfish-cli import rnaseq", "/solo"] {
             XCTAssertTrue(refused?.cause.contains(words) == true, "\(words) in \(refused?.cause ?? "")")
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.path))
@@ -132,12 +133,57 @@ final class ExecutorRunAdoptionSoloTests: XCTestCase {
     /// name the step and both SHA-256 values, before any matrix is read.
     func testAPlanCountedOnAnotherGenesGTFIsRefusedNamingTheStepAndBothDigests() async throws {
         let set = try await buildSet()
-        var plan = try Self.pinned("tenx-3p-v3")
+        let plan = try Self.pinned("tenx-3p-v3")
         let gtf = try set.manifest.requireCountingGTF().sha256
         let other = String(repeating: "c", count: 64)
-        // The route and the plan's settings state one value, as the plan writer writes them.
+        let words = try XCTUnwrap(plan.pipeline?.route?.settings["countingGTF"]).replacingOccurrences(of: gtf, with: other)
+        let returned = try Fixture.make(root: root, name: "S1", plan: try Self.planStating(words, in: plan), contents: Self.soloFiles())
+        let refused = refusal(returned.folder)
+        XCTAssertEqual(refused?.field, "pipeline.route.settings")
+        for words in ["starsolo", "S1", other, gtf, set.manifest.id] {
+            XCTAssertTrue(refused?.cause.contains(words) == true, "\(words) in \(refused?.cause ?? "")")
+        }
+    }
+
+    /// The check compares the digest of the set's own `derived/genes.gtf`, which the plan names after `derived/genes.gtf
+    /// (SHA-256 `, and never the made file's. On a set that loses genes under a filter rule the two differ, so a plan whose
+    /// made file differs from the set's file is adopted, and a plan counted on another `derived/genes.gtf` is refused naming
+    /// both digests (review SOLO-PLAN-M2-M3-BIO SF3).
+    func testTheAdoptComparesOnlyTheSetsOwnGTFDigestNotTheMadeFilesOne() async throws {
+        let set = try await buildSet()
+        let plan = try Self.pinned("tenx-3p-v3")
+        let gtf = try set.manifest.requireCountingGTF().sha256
+        let other = String(repeating: "c", count: 64)
+        let words = try XCTUnwrap(plan.pipeline?.route?.settings["countingGTF"])
+        // The pinned plan comes from the plain set, where the made file and `derived/genes.gtf` share one SHA-256.
+        let made = "SHA-256 \(gtf), 13888 bytes, 0 genes left out"
+        XCTAssertTrue(words.contains(made), words)
+
+        // (1) Only the made file's facts differ from the set's file, as when the rule leaves genes out: the adopt takes it.
+        let lossy = words.replacingOccurrences(of: made, with: "SHA-256 \(String(repeating: "e", count: 64)), 13000 bytes, 2 genes left out")
+        let taken = try Fixture.make(root: root, name: "S1", plan: try Self.planStating(lossy, in: plan), contents: Self.soloFiles())
+        let result = try adopt(taken.folder)
+        let record = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: result))
+        let options = try XCTUnwrap(record.steps.first?.resolvedOptions)
+        guard case .string(let stated)? = options["countingGTF"] else { return XCTFail("no countingGTF in \(options)") }
+        XCTAssertTrue(stated.contains("2 genes left out"), stated)
+
+        // (2) Only the set's digest differs: the run is refused in words that name both values.
+        let moved = words.replacingOccurrences(of: "derived/genes.gtf (SHA-256 \(gtf))", with: "derived/genes.gtf (SHA-256 \(other))")
+        XCTAssertNotEqual(moved, words)
+        let named = try Fixture.make(root: root, name: "S2", plan: try Self.planStating(moved, in: plan), contents: Self.soloFiles())
+        let refused = refusal(named.folder)
+        XCTAssertEqual(refused?.field, "pipeline.route.settings")
+        for digest in [other, gtf] {
+            XCTAssertTrue(refused?.cause.contains(digest) == true, "\(digest) in \(refused?.cause ?? "")")
+        }
+    }
+
+    /// The plan with `words` as its `countingGTF`, in the route and in the plan's settings, which state one value as the
+    /// plan writer writes them.
+    private static func planStating(_ words: String, in plan: ExecutionPlan) throws -> ExecutionPlan {
+        var plan = plan
         var pipeline = try XCTUnwrap(plan.pipeline)
-        let words = try XCTUnwrap(pipeline.route?.settings["countingGTF"]).replacingOccurrences(of: gtf, with: other)
         pipeline.route?.settings["countingGTF"] = words
         pipeline.settings = pipeline.settings.map { setting in
             var setting = setting
@@ -145,12 +191,7 @@ final class ExecutorRunAdoptionSoloTests: XCTestCase {
             return setting
         }
         plan.pipeline = pipeline
-        let returned = try Fixture.make(root: root, name: "S1", plan: plan, contents: Self.soloFiles())
-        let refused = refusal(returned.folder)
-        XCTAssertEqual(refused?.field, "pipeline.route.settings")
-        for words in ["starsolo", "S1", other, gtf, set.manifest.id] {
-            XCTAssertTrue(refused?.cause.contains(words) == true, "\(words) in \(refused?.cause ?? "")")
-        }
+        return plan
     }
 }
 

@@ -58,8 +58,10 @@ extension ExecutorRunAdoption {
             throw refusal(
                 "pipeline.route",
                 "This plan counts Solo.out/GeneFull_Ex50pAS (route \(first.route.id)), and the adopt reads the filtered "
-                    + "matrix of Solo.out/Gene only, as import rnaseq reads a STARsolo folder, so its counts are not adopted. "
-                    + "Plan the library with the preset \(SoloPlanPreset.threePrimeV3.rawValue) or "
+                    + "matrix of Solo.out/Gene only, as import rnaseq reads a STARsolo folder, so its counts are not adopted "
+                    + "and nothing was imported. The run also returned the exon matrix Solo.out/Gene, which "
+                    + "lungfish-cli import rnaseq <the sample's result folder>/solo keeps. "
+                    + "To adopt counts, plan the library with the preset \(SoloPlanPreset.threePrimeV3.rawValue) or "
                     + "\(SoloPlanPreset.fivePrimeV2.rawValue), which count Solo.out/Gene."
             )
         }

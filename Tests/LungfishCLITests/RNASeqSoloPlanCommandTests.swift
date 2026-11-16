@@ -145,6 +145,23 @@ final class RNASeqSoloPlanCommandTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: out.path))
     }
 
+    /// The plan of the introns preset says at plan time that `import rnaseq --adopt` reads `Solo.out/Gene` only and will
+    /// refuse the folder the plan returns, since the run takes hours. The plan of an exon preset says nothing of it (review
+    /// SOLO-PLAN-M2-M3-BIO SF1).
+    func testTheIntronsPresetSaysAtPlanTimeThatTheAdoptReadsSoloOutGeneOnly() async throws {
+        let set = try await setWithAdoptedVariant(), files = try writeImageFiles()
+        let out = root.appendingPathComponent("introns")
+        func lines(_ preset: String) async throws -> [String] {
+            try await RNASeqSoloPlanSubcommand.parse(try arguments(set: set, out: out, files: files, preset: preset) + ["--dry-run"]).writePlan().lines
+        }
+        let introns = try await lines("tenx-3p-v3-introns")
+        XCTAssertTrue(
+            introns.contains { $0.contains("import rnaseq --adopt") && $0.contains("Solo.out/Gene") && $0.contains("<result folder>/solo") },
+            "\(introns)")
+        let exons = try await lines("tenx-3p-v3")
+        XCTAssertFalse(exons.contains { $0.contains("import rnaseq --adopt") }, "\(exons)")
+    }
+
     // MARK: - Refusals in words
 
     /// An index of another list, a 5' v2 plan with no list in the image or given, and a cut list are each refused in words

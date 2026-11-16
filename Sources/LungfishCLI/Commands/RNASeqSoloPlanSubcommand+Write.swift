@@ -66,6 +66,13 @@ extension RNASeqSoloPlanSubcommand {
                 lines.append("The job of \(job.name) asks for \(job.figures.memoryMiB) MiB of memory, \(job.figures.cpus) CPUs and \(job.figures.diskGiB) GiB of disk.")
             }
         }
+        // The adopt reads Solo.out/Gene only, so a run of the introns preset (hours on the Linux machine) would be refused.
+        if preset == .threePrimeV3Introns {
+            lines.append(
+                "import rnaseq --adopt reads Solo.out/Gene only, so it refuses the folder this plan returns. Read its "
+                    + "Solo.out/GeneFull_Ex50pAS files from the folder, or keep the exon matrix Solo.out/Gene with "
+                    + "lungfish-cli import rnaseq <result folder>/solo.")
+        }
         let facts: [String: Any] = [
             "setID": manifest.id, "index": key, "preset": preset.rawValue, "output": output.path, "dryRun": dryRun,
             "expectedCells": expectedCells ?? SoloPlan.defaultExpectedCells, "samples": samples.map(\.name),
