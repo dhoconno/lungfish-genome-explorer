@@ -255,6 +255,7 @@ final class ExecutorRunAdoptionSTARTests: XCTestCase {
         XCTAssertEqual(
             refused?.cause,
             "The step star-align ran STAR with --outFilterMultimapNmax 1000, and the plan states multimapNmax as 10 loci, "
-                + "STAR's default (no --outFilterMultimapNmax).")
+                + "STAR's default (no --outFilterMultimapNmax). Make the plan again with this version of Lungfish, run it, and "
+                + "adopt the folder it returns.")
     }
 }

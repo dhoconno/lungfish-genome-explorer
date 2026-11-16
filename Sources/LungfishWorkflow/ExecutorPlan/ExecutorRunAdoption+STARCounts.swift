@@ -90,7 +90,8 @@ extension ExecutorRunAdoption {
             let ran = given.map { "with \(starMultimapFlag) \($0)" } ?? "without \(starMultimapFlag)"
             throw refusal(
                 "steps[\(index)].argv",
-                "The step \(plan.steps[index].id) ran STAR \(ran), and the plan states multimapNmax as \(stated)."
+                "The step \(plan.steps[index].id) ran STAR \(ran), and the plan states multimapNmax as \(stated). "
+                    + "Make the plan again with this version of Lungfish, run it, and adopt the folder it returns."
             )
         }
     }
