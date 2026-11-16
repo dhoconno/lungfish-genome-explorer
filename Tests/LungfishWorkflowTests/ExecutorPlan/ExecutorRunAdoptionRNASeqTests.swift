@@ -133,4 +133,73 @@ final class ExecutorRunAdoptionRNASeqTests: XCTestCase {
         XCTAssertEqual(salmon.resolvedOptions["duplicates"], .string(SalmonQuantRecordLines.duplicates))
         XCTAssertEqual(record.steps[2].resolvedOptions["polyG"], .string("Poly-G trimming: off (LGE default)"))
     }
+
+    // MARK: - M3 item 2, the adopt reads each sample's duplicates entry
+
+    /// The pinned plan of `sample` whose `duplicates` entry and route key read `words` with `source`.
+    private func pinned(sample: String, duplicates words: String, source: ImportSettingSource) throws -> ExecutionPlan {
+        var plan = try pinned(sample: sample)
+        let at = try XCTUnwrap(plan.pipeline?.settings.firstIndex { $0.id == "duplicates" })
+        plan.pipeline?.settings[at].value = words
+        plan.pipeline?.settings[at].source = source
+        plan.pipeline?.route?.settings["duplicates"] = words
+        return plan
+    }
+
+    private static func removed(by step: String) -> String {
+        "Duplicates: removed at import by \(step), without UMIs. This count removes none."
+    }
+
+    /// A `duplicates` entry that is neither the removed words with source `recipe` nor the kept or the Not recorded
+    /// words with source `default` is refused in words that name `duplicates`, the sample and the value, never read as
+    /// kept, and nothing is written.
+    func testAdoptRefusesADuplicatesEntryItCannotReadInWordsThatNameDuplicatesAndTheSample() async throws {
+        let set = try await buildSet()
+        let cases: [(String, ImportSettingSource)] = [
+            ("Duplicates: probably kept", .default), (Self.removed(by: "Deduplicate"), .default),
+            (SalmonQuantRecordLines.duplicates, .option), (SalmonQuantRecordLines.duplicates, .recipe),
+        ]
+        for (index, (words, source)) in cases.enumerated() {
+            let plan = try pinned(sample: "odd", duplicates: words, source: source)
+            let returned = try Fixture.make(root: root.appendingPathComponent("case\(index)"), name: "odd", plan: plan, contents: try Self.salmonFiles(set))
+            let refused = refusal(returned.folder) as? ExecutorAdoptRefusal
+            XCTAssertEqual(refused?.field, "pipeline.settings", "\(words) \(source)")
+            let cause = refused?.cause ?? ""
+            XCTAssertTrue(cause.contains("duplicates") && cause.contains("odd") && cause.contains(words), cause)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: project.path))
+    }
+
+    /// Two samples whose imports removed duplicates by two steps share one state, so the batch gives one result whose
+    /// route says every sample, and each sample's record line names its own step.
+    func testBatchDeduplicatedByTwoStepsGivesOneResultWhoseRouteSaysEverySample() async throws {
+        let set = try await buildSet()
+        let batch = root.appendingPathComponent("batch", isDirectory: true)
+        for (sample, step) in [("sample1", "Remove duplicate reads"), ("sample2", "Deduplicate")] {
+            let plan = try pinned(sample: sample, duplicates: Self.removed(by: step), source: .recipe)
+            _ = try Fixture.make(root: batch, name: sample, plan: plan, contents: try Self.salmonFiles(set))
+        }
+        let result = try adopt(batch)
+        XCTAssertEqual(
+            try RNASeqResultBundle.load(from: result).manifest.route.settings["duplicates"],
+            "Duplicates: removed at import for every sample, without UMIs. This count removes none.")
+        let record = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: result))
+        XCTAssertEqual(record.steps[1].resolvedOptions["duplicates"], .string(Self.removed(by: "Remove duplicate reads")))
+        XCTAssertEqual(record.steps[3].resolvedOptions["duplicates"], .string(Self.removed(by: "Deduplicate")))
+    }
+
+    /// A result adopted from plans holds samples of one duplicates state (`executor-plan.md`, the `duplicates`
+    /// paragraph), so a batch of a deduplicated and a kept sample is refused in words that name `duplicates`.
+    func testBatchOfTwoDuplicatesStatesIsRefusedInWordsThatNameDuplicates() async throws {
+        let set = try await buildSet()
+        let batch = root.appendingPathComponent("batch", isDirectory: true)
+        let removed = try pinned(sample: "sample1", duplicates: Self.removed(by: "Deduplicate"), source: .recipe)
+        _ = try Fixture.make(root: batch, name: "sample1", plan: removed, contents: try Self.salmonFiles(set))
+        _ = try Fixture.make(root: batch, name: "sample2", plan: try pinned(sample: "sample2"), contents: try Self.salmonFiles(set))
+        let refused = refusal(batch) as? ExecutorAdoptRefusal
+        XCTAssertEqual(refused?.field, "pipeline.route")
+        let cause = refused?.cause ?? ""
+        XCTAssertTrue(cause.contains("duplicates") && cause.contains("sample1") && cause.contains("two batches"), cause)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: project.path))
+    }
 }
