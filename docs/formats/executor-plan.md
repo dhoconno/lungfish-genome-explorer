@@ -129,13 +129,13 @@ The executor of schema 1 refuses every schema 2 plan before any tool starts, tho
 
 ### Reference entries
 
-A `reference` entry pins one file of a reference set ([reference-set.md](reference-set.md)), or one file of an index built from a set, by `sha256` and `size` as every entry does. It also holds `reference`.
+A `reference` entry pins one file of a reference set ([reference-set.md](reference-set.md)), or one file of an index built from a set, by `sha256` and `size` as every entry does. It also holds `reference`. A `reference` entry may also pin a file that the plan writer made from one file of the set by a named rule, under `made/`, such as the `made/tenx1-mkgtf-3.0.0/genes.gtf` of a STARsolo index (reference-set.md, STAR indexes on Linux). The plan folder holds that file, and the set never does.
 
 | Key | Meaning |
 | --- | --- |
 | `setID` | The set's id, such as `macaca_mulatta-Mmul_10-ensembl100-lge-3f9a1c2b7d10` (reference-set.md, The id) |
 | `path` | The file's path inside the set's folder, such as `genome/<file as given>` or `derived/transcripts.fa`, or inside the index's own folder for an index file |
-| `index` | For an index file only, `{key, tool}`. `key` is the index's folder name, such as `salmon-2.11.0-k31-genome-decoys` (reference-set.md, The salmon index cache), and a STAR index's key is `star-<version>-sa<n>-sparse<d>` (reference-set.md, STAR indexes on Linux). `tool` is the `{id, version, build}` that built it. Absent for a file of the set itself |
+| `index` | For an index file only, `{key, tool}`. `key` is the index's folder name, such as `salmon-2.11.0-k31-genome-decoys` (reference-set.md, The salmon index cache), and a STAR index's key is `star-<version>-sa<n>-sparse<d>`, with `-tenx<rule version>-<list>` after it for a STARsolo index (reference-set.md, STAR indexes on Linux). `tool` is the `{id, version, build}` that built it. Absent for a file of the set itself |
 
 The entry's `relativePath` is `references/<set id>/<path>` for a file of the set and `references/<set id>/indexes/<key>/<path>` for an index file, so two sets or two indexes never share a path. Every `reference` entry of a plan names the one set that `pipeline.referenceSet` names, so a plan counts on one set. A shared folder holds no `reference` entry. Each is kept once in the staging folder as a `database` entry is, and the executor checks its size and SHA-256 before any tool starts, as it checks every entry. A plan names an index by its files, so a later plan pins an index that an earlier run staged on Linux, with policy `staged`, by the digests that run's record states ([executor-run-record.md](executor-run-record.md), Step keys). An entry of another role that holds `reference`, or a `reference` entry without it, is refused with field `entries[<i>].reference`.
 

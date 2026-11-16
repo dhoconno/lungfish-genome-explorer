@@ -47,8 +47,11 @@ package enum STARIndexAdopt {
 
     /// The index record of a run that succeeded, or a refusal in words: a record that is not `succeeded`, one that names
     /// another set, one with no STAR step and one that lacks a staged file of the index.
+    /// With `tenxFilter` the adopt makes the variant's GTF again from the set and refuses a run that read another, so it
+    /// reads nothing from the plan (ARCH-SOLO-GTF item 4).
     package static func adopt(
-        runRecord data: Data, setFolder: URL, staging: ExecutorPlanStagingLayout, sample: String = STARIndexPlan.sampleName
+        runRecord data: Data, setFolder: URL, staging: ExecutorPlanStagingLayout, sample: String = STARIndexPlan.sampleName,
+        tenxFilter: TenxGTFFilter.List? = nil
     ) throws -> STARIndexRecord {
         let run: Run
         do { run = try JSONDecoder().decode(Run.self, from: data) } catch {
@@ -68,8 +71,23 @@ package enum STARIndexAdopt {
             throw STARIndexError("The run read \(named.isEmpty ? "no reference set" : "the set " + named.sorted().joined(separator: " and ")), "
                 + "not the set \(manifest.id), so it built no index of that set.")
         }
-        guard run.inputs.contains(where: { $0.relativePath == "references/\(manifest.id)/\(gtf.path)" && $0.sha256 == gtf.sha256 }) else {
-            throw STARIndexError("The run did not read the set \(manifest.id)'s \(gtf.path) by its SHA-256, so its index is not that set's.")
+        let made = try tenxFilter.map { try TenxGTFFilter.make(from: setFolder, manifest: manifest, list: $0) }
+        if let made {
+            let path = "references/\(manifest.id)/\(made.list.path)"
+            guard let read = run.inputs.first(where: { $0.relativePath == path }) else {
+                throw STARIndexError("The run read no GTF that the 10x filter rule \(made.list.rawValue) made from the set "
+                    + "\(manifest.id), so its index is not that variant and no record was written. Leave out --tenx-filter for a bulk index.")
+            }
+            guard read.sha256 == made.sha256 else {
+                throw STARIndexError("The run read \(path) with SHA-256 \(read.sha256), and the 10x filter rule \(made.list.rawValue) "
+                    + "makes \(made.sha256) from the set \(manifest.id)'s \(gtf.path), so its index is not that set's under that rule "
+                    + "and no record was written.")
+            }
+        } else if !run.inputs.contains(where: { $0.relativePath == "references/\(manifest.id)/\(gtf.path)" && $0.sha256 == gtf.sha256 }) {
+            let read = Set(run.inputs.map(\.relativePath))
+            let hint = TenxGTFFilter.List.allCases.first { read.contains("references/\(manifest.id)/\($0.path)") }
+                .map { " It read references/\(manifest.id)/\($0.path), so adopt it with --tenx-filter \($0.rawValue)." } ?? ""
+            throw STARIndexError("The run did not read the set \(manifest.id)'s \(gtf.path) by its SHA-256, so its index is not that set's." + hint)
         }
         guard let step = run.steps.first(where: { $0.tool?.id == "STAR" }), step.outcome == "succeeded", let tool = step.tool else {
             throw STARIndexError("The run record holds no STAR step that succeeded, so no index was built.")
@@ -101,10 +119,12 @@ package enum STARIndexAdopt {
         }
         let pin = PlanToolPin(id: tool.id, version: tool.version, build: tool.build)
         let key = STARIndexKey(
-            folderName: STARIndexKey.folderName(star: tool.version, nbases: nbases, sparseD: sparse), setID: manifest.id,
+            folderName: STARIndexKey.folderName(star: tool.version, nbases: nbases, sparseD: sparse, filter: made?.list),
+            setID: manifest.id,
             referenceSetSHA256: try ProvenanceFileHasher.sha256(of: setFolder.appendingPathComponent(ReferenceSetManifest.filename)),
             star: pin, genomeSAindexNbases: nbases, genomeSAsparseD: sparse, sjdbOverhang: overhang,
-            genomeFastaFiles: [manifest.genome.path] + manifest.extras.map(\.path), countingGTFSHA256: gtf.sha256)
+            genomeFastaFiles: [manifest.genome.path] + manifest.extras.map(\.path), countingGTFSHA256: gtf.sha256,
+            gtfFilter: made.map(STARIndexKey.GTFFilter.init))
         return STARIndexRecord(setID: manifest.id, key: key, tool: pin, files: files)
     }
 }

@@ -59,8 +59,23 @@ package enum STARIndexPlan {
                 deadlineSeconds: deadline, inputs: [planPath], outputs: [plain], standardOutput: plain,
                 outputPolicy: [plain: .stays]))
         }
-        references.append(reference(gtf.path, gtf.sha256, gtf.size))
-        let gtfPath = "references/\(id)/\(gtf.path)"
+        // The 10x variant pins the file the rule made from derived/genes.gtf under made/, copied from the plan folder
+        // (ARCH-SOLO-GTF items 1 and 2), and STAR reads it in place of derived/genes.gtf.
+        let made = try request.tenxFilter.map { list -> TenxGTFFilter.Made in
+            guard let folder = request.planFolder else {
+                throw STARIndexError("The 10x filter needs the plan folder that its GTF is written into, and no folder was named.")
+            }
+            let made = try TenxGTFFilter.make(from: request.setFolder, manifest: manifest, list: list)
+            sources["references/\(id)/\(list.path)"] = folder.appendingPathComponent(list.path)
+            return made
+        }
+        if let made {
+            references.append(PlanEntry(role: .reference, relativePath: "references/\(id)/\(made.list.path)", sha256: made.sha256,
+                                        size: made.size, reference: PlanReferenceIdentity(setID: id, path: made.list.path)))
+        } else {
+            references.append(reference(gtf.path, gtf.sha256, gtf.size))
+        }
+        let gtfPath = "references/\(id)/\(made?.list.path ?? gtf.path)"
         let nbases = STARIndexKey.nbases(forBases: bases)
         let staged = indexFiles.map { "\(genomeDirectory)/\($0)" }
         var policy = Dictionary(uniqueKeysWithValues: staged.map { ($0, PlanOutputPolicy.staged) })
@@ -83,15 +98,17 @@ package enum STARIndexPlan {
                 id: "star-index", version: 1, preset: PlanPipelinePreset(id: "star-index", name: "STAR index on Linux"),
                 modality: nil, route: nil,
                 referenceSet: PlanPipelineReferenceSet(id: id, layout: manifest.layout.kind == "deposit" ? .deposit : .lge),
-                settings: []),
+                settings: made.map { [PlanPipelineSetting(
+                    id: "tenxFilter", label: "10x filter rule", value: $0.list.folderName, source: .option)] } ?? []),
             sample: nil, storage: nil, clumping: nil, graceSeconds: 60, steps: steps)
         _ = try ExecutionPlan.decode(try plan.encoded())
         let key = STARIndexKey(
-            folderName: STARIndexKey.folderName(star: request.star.rawValue, nbases: nbases, sparseD: genomeSAsparseD),
+            folderName: STARIndexKey.folderName(
+                star: request.star.rawValue, nbases: nbases, sparseD: genomeSAsparseD, filter: made?.list),
             setID: id, referenceSetSHA256: try ProvenanceFileHasher.sha256(of: request.setFolder.appendingPathComponent(ReferenceSetManifest.filename)),
             star: pins.star, genomeSAindexNbases: nbases, genomeSAsparseD: genomeSAsparseD, sjdbOverhang: sjdbOverhang,
             genomeFastaFiles: inputs.map(\.1),
-            countingGTFSHA256: gtf.sha256)
-        return STARIndexPlanOutcome(plan: plan, key: key, sources: sources)
+            countingGTFSHA256: gtf.sha256, gtfFilter: made.map(STARIndexKey.GTFFilter.init))
+        return STARIndexPlanOutcome(plan: plan, key: key, sources: sources, made: made)
     }
 }

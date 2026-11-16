@@ -216,8 +216,9 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
     /// 15 index files as a staged output and the log as a home output. `edited` gives that one staged output another digest.
     /// The staged outputs come back by plan path with their bytes and SHA-256.
     @discardableResult
-    private func writeIndexRunRecord(for set: URL, in result: URL, editing edited: String? = nil) throws
-        -> [String: (bytes: UInt64, sha256: String)] {
+    private func writeIndexRunRecord(
+        for set: URL, in result: URL, editing edited: String? = nil, made: (path: String, sha256: String)? = nil
+    ) throws -> [String: (bytes: UInt64, sha256: String)] {
         let manifest = try ReferenceSetManifest.load(from: set)
         let gtf = try manifest.requireCountingGTF()
         var staged: [String: (bytes: UInt64, sha256: String)] = [:]
@@ -235,9 +236,10 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
         let step: [String: Any] = [
             "id": "star-index", "outcome": "succeeded", "argv": argv, "outputs": outputs,
             "tool": ["id": "STAR", "version": "2.7.11b", "build": "h5814d7d_9", "path": "/opt/conda/envs/2.7.11b/bin/STAR"]]
+        let read = made ?? (gtf.path, gtf.sha256)
         let input: [String: Any] = [
-            "role": "reference", "relativePath": "references/\(manifest.id)/\(gtf.path)", "size": 10, "sha256": gtf.sha256,
-            "reference": ["setID": manifest.id, "path": gtf.path]]
+            "role": "reference", "relativePath": "references/\(manifest.id)/\(read.path)", "size": 10, "sha256": read.sha256,
+            "reference": ["setID": manifest.id, "path": read.path]]
         let record: [String: Any] = [
             "schemaVersion": ExecutorRunRecord.currentSchemaVersion, "outcome": "succeeded", "inputs": [input], "steps": [step]]
         try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
@@ -304,6 +306,60 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
             XCTAssertEqual(code, CLIExitCode.inputError.exitCode)
         }
         XCTAssertEqual(try Data(contentsOf: url), first, "and the record of the first run stays as it was")
+    }
+
+    // MARK: - The 10x variant (SOLO-PLAN, ARCH-SOLO-GTF items 2 to 4)
+
+    /// The plan writes the made GTF into its own folder only, `staging-files.json` names it from there, and the adopt with
+    /// the same list makes it again from the set, records `gtfFilter` and refuses a run that read another GTF.
+    func testTheTenxVariantWritesItsGTFIntoThePlanFolderOnlyAndTheAdoptChecksIt() async throws {
+        let (storage, set) = try await Self.builtSet(in: root)
+        let id = try ReferenceSetManifest.load(from: set).id
+        let files = try Self.writeImageFiles(in: root)
+        let out = root.appendingPathComponent("tenx/idx")
+        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let setFiles = try tree(set)
+        let base = Self.planArguments(set: set, storage: storage, output: out, files: files)
+        let unknown = try RNASeqIndexPlanSubcommand.parse(base + ["--tenx-filter", "GRCh38"])
+        XCTAssertThrowsError(try unknown.writePlan()) {
+            XCTAssertEqual(($0 as? STARIndexError)?.message, "--tenx-filter is mkgtf-3.0.0 or gencode-2020-A, not GRCh38.")
+        }
+        let command = try RNASeqIndexPlanSubcommand.parse(base + ["--tenx-filter", "mkgtf-3.0.0"])
+        let argv = command.canonicalArgv()
+        XCTAssertEqual(try RNASeqIndexPlanSubcommand.parse(Array(argv.dropFirst(3))).canonicalArgv(), argv)
+        XCTAssertTrue(argv.joined(separator: " ").contains("--tenx-filter mkgtf-3.0.0"), "\(argv)")
+        try await command.run()
+        let made = out.appendingPathComponent("made/tenx1-mkgtf-3.0.0/genes.gtf")
+        let madeBytes = try Data(contentsOf: made)
+        XCTAssertEqual(madeBytes, try Data(contentsOf: set.appendingPathComponent("derived/genes.gtf")), "G1 is protein_coding")
+        XCTAssertEqual(try tree(set), setFiles, "the set is not touched")
+        let listed = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: out.appendingPathComponent("staging-files.json"))) as? [String: Any])
+        let entries = try XCTUnwrap(listed["files"] as? [[String: Any]])
+        let entry = try XCTUnwrap(entries.first { $0["source"] as? String == made.path }, "\(entries)")
+        XCTAssertEqual(entry["sha256"] as? String, PortableDigest.sha256Hex(of: madeBytes))
+        // A shared entry is kept once in the staging folder by its SHA-256, so the made file sits there as any reference does.
+        XCTAssertEqual(entry["stagingPath"] as? String, "\(Self.staging)/shared/\(PortableDigest.sha256Hex(of: madeBytes))-genes.gtf")
+        XCTAssertEqual(entry["role"] as? String, "reference")
+        XCTAssertFalse(entries.contains { ($0["source"] as? String)?.hasSuffix("derived/genes.gtf") == true }, "STAR reads the made file only")
+
+        let result = root.appendingPathComponent("result", isDirectory: true)
+        let path = "made/tenx1-mkgtf-3.0.0/genes.gtf"
+        try writeIndexRunRecord(for: set, in: result, made: (path, PortableDigest.sha256Hex(of: madeBytes)))
+        let adopt = [result.path, "--set", id, "--storage-root", storage.path, "--staging-folder", Self.staging, "--batch", "idx",
+                     "--tenx-filter", "mkgtf-3.0.0", "--format", "json"]
+        let facts = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(try RNASeqIndexAdoptSubcommand.parse(adopt).adopt().json.utf8)) as? [String: Any])
+        XCTAssertEqual(facts["key"] as? String, Self.indexKeyFolder + "-tenx1-mkgtf-3.0.0")
+        XCTAssertEqual(facts["tenxFilter"] as? String, "mkgtf-3.0.0")
+        let recordFile = URL(fileURLWithPath: try XCTUnwrap(facts["record"] as? String))
+        let record = try JSONDecoder().decode(STARIndexRecord.self, from: Data(contentsOf: recordFile))
+        XCTAssertEqual(record.key.gtfFilter?.sha256, PortableDigest.sha256Hex(of: madeBytes))
+        XCTAssertEqual(record.key.gtfFilter?.genesLeftOut, 0)
+        try writeIndexRunRecord(for: set, in: result, made: (path, String(repeating: "d", count: 64)))
+        XCTAssertThrowsError(try RNASeqIndexAdoptSubcommand.parse(adopt).adopt()) {
+            XCTAssertTrue(($0 as? STARIndexError)?.message.contains("with SHA-256 \(String(repeating: "d", count: 64))") == true, "\($0)")
+        }
     }
 
     // MARK: - A gzip genome and the records folder

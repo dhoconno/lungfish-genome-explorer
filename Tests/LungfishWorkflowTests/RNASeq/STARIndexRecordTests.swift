@@ -13,7 +13,7 @@ extension STARIndexPlanTests {
     /// as the executor states them. The adopt reads these and never the plan.
     func runRecord(
         for set: ReferenceSetOutcome, naming claimed: String? = nil, outcome: String = "succeeded", leaving missing: String? = nil,
-        version: String = "2.7.11b", overhang: String? = "100"
+        version: String = "2.7.11b", overhang: String? = "100", gtf: (path: String, sha256: String)? = nil
     ) throws -> (data: Data, outputs: [[String: Any]]) {
         let setID = claimed ?? set.manifest.id
         var outputs: [[String: Any]] = STARIndexPlan.indexFiles.enumerated().map { index, file in
@@ -27,9 +27,11 @@ extension STARIndexPlanTests {
         let step: [String: Any] = [
             "id": "star-index", "outcome": outcome, "argv": argv, "outputs": outputs,
             "tool": ["id": "STAR", "version": version, "build": "h0_0", "path": "/opt/lge/rnaseq/bin/STAR"]]
+        let gtfPath = gtf?.path ?? "references/\(setID)/derived/genes.gtf"
         let input: [String: Any] = [
-            "role": "reference", "relativePath": "references/\(setID)/derived/genes.gtf", "size": 10,
-            "sha256": set.manifest.derived.countingGTF?.sha256 ?? "", "reference": ["setID": setID, "path": "derived/genes.gtf"]]
+            "role": "reference", "relativePath": gtfPath, "size": 10,
+            "sha256": gtf?.sha256 ?? set.manifest.derived.countingGTF?.sha256 ?? "",
+            "reference": ["setID": setID, "path": String(gtfPath.dropFirst("references/\(setID)/".count))]]
         var record: [String: Any] = ["schemaVersion": 1, "outcome": outcome, "inputs": [input], "steps": [step]]
         if outcome != "succeeded" { record["reason"] = "STAR ran out of memory"; record["failedStepID"] = "star-index" }
         return (try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]), outputs)
@@ -152,5 +154,124 @@ extension STARIndexPlanTests {
         XCTAssertTrue(digests.contains("other digests for 1 of 15 files") && digests.contains(url.path), digests)
         XCTAssertFalse(digests.contains("staging") || digests.contains("same digests"), digests)
         XCTAssertEqual(try Data(contentsOf: url), before, "a refusal leaves the record as it was")
+    }
+
+    // MARK: - A bulk key and a bulk record keep their bytes (ARCH-SOLO-GTF items 3 and 7, SOLO-PLAN)
+
+    static let (setSHA, gtfSHA, fileSHA) = (String(repeating: "a", count: 64), String(repeating: "c", count: 64),
+                                            String(repeating: "0", count: 64))
+
+    /// A bulk key of fixed values, made by the memberwise form EX-INDEX's code had.
+    func bulkKey() -> STARIndexKey {
+        STARIndexKey(
+            folderName: "star-2.7.11b-sa7-sparse2", setID: "set-0001", referenceSetSHA256: Self.setSHA,
+            star: PlanToolPin(id: "STAR", version: "2.7.11b", build: "h0_0"), genomeSAindexNbases: 7, genomeSAsparseD: 2,
+            sjdbOverhang: 100, genomeFastaFiles: ["genome/cynomolgus-mt.fa", "extras/sars-cov-2.fa"],
+            countingGTFSHA256: Self.gtfSHA)
+    }
+
+    static let bulkKeyBytes = "{\"countingGTFSHA256\":\"\(gtfSHA)\",\"folderName\":\"star-2.7.11b-sa7-sparse2\","
+        + "\"genomeFastaFiles\":[\"genome/cynomolgus-mt.fa\",\"extras/sars-cov-2.fa\"],\"genomeSAindexNbases\":7,"
+        + "\"genomeSAsparseD\":2,\"referenceSetSHA256\":\"\(setSHA)\",\"setID\":\"set-0001\",\"sjdbOverhang\":100,"
+        + "\"star\":{\"build\":\"h0_0\",\"id\":\"STAR\",\"version\":\"2.7.11b\"}}"
+
+    static let bulkRecordBytes = """
+        {
+          "files" : [
+            {
+              "bytes" : 1000,
+              "path" : "Genome",
+              "planPath" : "star-index/Genome",
+              "sha256" : "\(fileSHA)",
+              "stagingPath" : "/staging/group/project/batches/star-index/index/staged/star-index/Genome"
+            }
+          ],
+          "key" : {
+            "countingGTFSHA256" : "\(gtfSHA)",
+            "folderName" : "star-2.7.11b-sa7-sparse2",
+            "genomeFastaFiles" : [
+              "genome/cynomolgus-mt.fa",
+              "extras/sars-cov-2.fa"
+            ],
+            "genomeSAindexNbases" : 7,
+            "genomeSAsparseD" : 2,
+            "referenceSetSHA256" : "\(setSHA)",
+            "setID" : "set-0001",
+            "sjdbOverhang" : 100,
+            "star" : {
+              "build" : "h0_0",
+              "id" : "STAR",
+              "version" : "2.7.11b"
+            }
+          },
+          "schemaVersion" : 1,
+          "setID" : "set-0001",
+          "tool" : {
+            "build" : "h0_0",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        }
+        """
+
+    /// The bytes EX-INDEX's code wrote for a bulk key and a bulk record, pinned before the 10x variant and kept after it.
+    func testABulkKeyAndABulkRecordKeepTheirBytes() throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        XCTAssertEqual(String(decoding: try encoder.encode(bulkKey()), as: UTF8.self), Self.bulkKeyBytes)
+        let record = STARIndexRecord(
+            setID: "set-0001", key: bulkKey(), tool: PlanToolPin(id: "STAR", version: "2.7.11b", build: "h0_0"),
+            files: [.init(path: "Genome", planPath: "star-index/Genome",
+                          stagingPath: "/staging/group/project/batches/star-index/index/staged/star-index/Genome",
+                          bytes: 1000, sha256: Self.fileSHA)])
+        let url = try STARIndexRecordStore(storageRoot: root).write(record)
+        XCTAssertEqual(String(decoding: try Data(contentsOf: url), as: UTF8.self), Self.bulkRecordBytes)
+        XCTAssertEqual(try STARIndexRecordStore(storageRoot: root).find(setID: "set-0001", key: record.key.folderName), record)
+        XCTAssertNil(bulkKey().gtfFilter, "a bulk key has no filter, so it writes no gtfFilter key")
+    }
+
+    /// ARCH-SOLO-GTF item 3: the variant's key adds `gtfFilter` and the folder suffix, and nothing else of the key moves.
+    func testAVariantKeyAddsGTFFilterAndTheFolderSuffix() throws {
+        XCTAssertEqual(STARIndexKey.folderName(star: "2.7.11b", nbases: 14, sparseD: 2, filter: .mkgtf300),
+                       "star-2.7.11b-sa14-sparse2-tenx1-mkgtf-3.0.0")
+        var key = bulkKey()
+        key.folderName = STARIndexKey.folderName(star: "2.7.11b", nbases: 7, sparseD: 2, filter: .gencode2020A)
+        key.gtfFilter = .init(rule: "tenx", ruleVersion: 1, list: "gencode-2020-A", sha256: Self.fileSHA, size: 2000, genesLeftOut: 1)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let filter = "\"gtfFilter\":{\"genesLeftOut\":1,\"list\":\"gencode-2020-A\",\"rule\":\"tenx\",\"ruleVersion\":1,"
+            + "\"sha256\":\"\(Self.fileSHA)\",\"size\":2000},"
+        XCTAssertEqual(String(decoding: try encoder.encode(key), as: UTF8.self), Self.bulkKeyBytes
+            .replacingOccurrences(of: "star-2.7.11b-sa7-sparse2", with: "star-2.7.11b-sa7-sparse2-tenx1-gencode-2020-A")
+            .replacingOccurrences(of: "\"referenceSetSHA256\"", with: filter + "\"referenceSetSHA256\""))
+    }
+
+    /// ARCH-SOLO-GTF item 4: `index-adopt --tenx-filter` makes the file again from the set and refuses a run record whose
+    /// GTF has another SHA-256, reading nothing from the plan.
+    func testTheVariantAdoptMakesTheFileAgainAndRefusesARunOfAnotherGTFSHA256() async throws {
+        let set = try await builtSet()
+        let id = set.manifest.id
+        let made = try TenxGTFFilter.make(from: set.url, manifest: set.manifest, list: .mkgtf300)
+        let path = "references/\(id)/made/tenx1-mkgtf-3.0.0/genes.gtf"
+        let good = try runRecord(for: set, gtf: (path, made.sha256)).data
+        let record = try STARIndexAdopt.adopt(runRecord: good, setFolder: set.url, staging: Self.stagingLayout, tenxFilter: .mkgtf300)
+        XCTAssertEqual(record.key.folderName, "star-2.7.11b-sa7-sparse2-tenx1-mkgtf-3.0.0")
+        XCTAssertEqual(record.key.gtfFilter, .init(rule: "tenx", ruleVersion: 1, list: "mkgtf-3.0.0", sha256: made.sha256,
+                                                   size: made.size, genesLeftOut: 0))
+        XCTAssertEqual(record.key.countingGTFSHA256, set.manifest.derived.countingGTF?.sha256, "the unfiltered file's")
+        let other = String(repeating: "d", count: 64)
+        let bad = try runRecord(for: set, gtf: (path, other)).data
+        let words = refusal {
+            _ = try STARIndexAdopt.adopt(runRecord: bad, setFolder: set.url, staging: Self.stagingLayout, tenxFilter: .mkgtf300)
+        }
+        XCTAssertEqual(words, "The run read \(path) with SHA-256 \(other), and the 10x filter rule mkgtf-3.0.0 makes \(made.sha256) "
+            + "from the set \(id)'s derived/genes.gtf, so its index is not that set's under that rule and no record was written.")
+        let bulk = refusal { _ = try STARIndexAdopt.adopt(runRecord: good, setFolder: set.url, staging: Self.stagingLayout) }
+        XCTAssertTrue(bulk.hasSuffix("It read \(path), so adopt it with --tenx-filter mkgtf-3.0.0."), bulk)
+        let plain = refusal {
+            _ = try STARIndexAdopt.adopt(runRecord: try runRecord(for: set).data, setFolder: set.url, staging: Self.stagingLayout,
+                                         tenxFilter: .mkgtf300)
+        }
+        XCTAssertTrue(plain.hasPrefix("The run read no GTF that the 10x filter rule mkgtf-3.0.0 made from the set \(id)"), plain)
     }
 }

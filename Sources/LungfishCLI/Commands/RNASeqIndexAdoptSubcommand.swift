@@ -36,6 +36,9 @@ struct RNASeqIndexAdoptSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("sample"), help: "The sample name of the job")
     var sample: String = STARIndexPlan.sampleName
 
+    @Option(name: .customLong("tenx-filter"), help: "The 10x biotype list that index-plan named for a STARsolo index. LGE makes the GTF again from the set and checks its SHA-256")
+    var tenxFilter: String?
+
     @Option(name: .customLong("storage-root"), help: "Managed storage root to write the record under (default: the configured location)")
     var storageRoot: String?
 
@@ -57,6 +60,7 @@ struct RNASeqIndexAdoptSubcommand: AsyncParsableCommand {
 
     /// Reads the run record, refuses what it does not show, and writes the index record through the one owner.
     func adopt() throws -> (lines: [String], json: String) {
+        let list = try RNASeqIndexPlanSubcommand.tenxList(tenxFilter)
         guard stagingFolder.hasPrefix("/") else { throw STARIndexError("--staging-folder must be an absolute path.") }
         let result = URL(fileURLWithPath: resultPath, isDirectory: true).standardizedFileURL
         guard let data = try? Data(contentsOf: result.appendingPathComponent(ExecutorRunRecord.fileName)) else {
@@ -65,15 +69,21 @@ struct RNASeqIndexAdoptSubcommand: AsyncParsableCommand {
         let setFolder = try RNASeqIndexPlanSubcommand.setFolder(for: setReference, storageRoot: storageRoot)
         let record = try STARIndexAdopt.adopt(
             runRecord: data, setFolder: setFolder, staging: ExecutorPlanStagingLayout(folder: stagingFolder, batch: batch),
-            sample: sample)
+            sample: sample, tenxFilter: list)
         let root = RNASeqIndexPlanSubcommand.storageRootURL(storageRoot)
         let written = try STARIndexRecordStore(storageRoot: root).write(record)
         let bytes = record.files.reduce(UInt64(0)) { $0 + $1.bytes }
-        let lines = ["Adopted the STAR index \(record.key.folderName) of the set \(record.setID): \(record.files.count) files, "
+        var lines = ["Adopted the STAR index \(record.key.folderName) of the set \(record.setID): \(record.files.count) files, "
                          + "\(bytes) bytes in the staging folder.", written.path]
-        let facts: [String: Any] = [
+        var facts: [String: Any] = [
             "setID": record.setID, "key": record.key.folderName, "record": written.path, "files": record.files.count, "bytes": bytes,
         ]
+        if let filter = record.key.gtfFilter {
+            lines.insert("Its GTF is the one the 10x filter rule \(filter.list) makes from derived/genes.gtf, SHA-256 \(filter.sha256), "
+                + "with \(filter.genesLeftOut) gene\(filter.genesLeftOut == 1 ? "" : "s") left out.", at: 1)
+            facts["tenxFilter"] = filter.list
+            facts["genesLeftOut"] = filter.genesLeftOut
+        }
         let json = try JSONSerialization.data(withJSONObject: facts, options: [.sortedKeys, .withoutEscapingSlashes])
         return (lines, String(decoding: json, as: UTF8.self))
     }

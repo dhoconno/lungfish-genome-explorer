@@ -35,10 +35,36 @@ package struct STARIndexKey: Codable, Sendable, Equatable {
     package var sjdbOverhang: Int
     /// The set's genome and then each extra, in the gentrome's order, as paths inside the set.
     package var genomeFastaFiles: [String]
+    /// The sha256 of the set's `derived/genes.gtf`, unfiltered, in a variant's key too.
     package var countingGTFSHA256: String
+    /// The GTF that the 10x filter rule made from `derived/genes.gtf` and `--sjdbGTFfile` named, for the STARsolo variant
+    /// only. A bulk key has none, so it writes no `gtfFilter` key and keeps its bytes (ARCH-SOLO-GTF item 3).
+    package var gtfFilter: GTFFilter? = nil
 
-    package static func folderName(star version: String, nbases: Int, sparseD: Int) -> String {
-        "star-\(version)-sa\(nbases)-sparse\(sparseD)"
+    /// The rule, its version and list, the made file's sha256 and size, and the number of genes it left out.
+    package struct GTFFilter: Codable, Sendable, Equatable {
+        package var rule: String
+        package var ruleVersion: Int
+        package var list: String
+        package var sha256: String
+        package var size: Int64
+        package var genesLeftOut: Int
+
+        package init(rule: String, ruleVersion: Int, list: String, sha256: String, size: Int64, genesLeftOut: Int) {
+            (self.rule, self.ruleVersion, self.list) = (rule, ruleVersion, list)
+            (self.sha256, self.size, self.genesLeftOut) = (sha256, size, genesLeftOut)
+        }
+
+        package init(_ made: TenxGTFFilter.Made) {
+            self.init(rule: TenxGTFFilter.rule, ruleVersion: TenxGTFFilter.ruleVersion, list: made.list.rawValue,
+                      sha256: made.sha256, size: made.size, genesLeftOut: made.genesLeftOut.count)
+        }
+    }
+
+    /// `star-<version>-sa<n>-sparse<d>`, and for the 10x variant `-tenx<rule version>-<list>` after it, such as
+    /// `star-2.7.11b-sa14-sparse2-tenx1-mkgtf-3.0.0`, so the bulk and the variant index of one set never share a folder.
+    package static func folderName(star version: String, nbases: Int, sparseD: Int, filter: TenxGTFFilter.List? = nil) -> String {
+        "star-\(version)-sa\(nbases)-sparse\(sparseD)" + (filter.map { "-\($0.folderName)" } ?? "")
     }
 
     /// `min(14, round(log2(bases) / 2 - 1))`, the rule of `star.sh:29`, never below 1.

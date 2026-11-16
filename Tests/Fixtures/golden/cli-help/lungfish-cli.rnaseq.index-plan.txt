@@ -19,6 +19,10 @@ OPTIONS:
                           the path of a set folder
   --star <star>           The STAR version to run, either 2.7.11b or 2.7.3a
                           (default: 2.7.11b)
+  --tenx-filter <tenx-filter>
+                          The 10x biotype list, mkgtf-3.0.0 or gencode-2020-A,
+                          of a STARsolo index. Its filter rule makes the GTF
+                          from derived/genes.gtf into the plan folder
   --output <output>       The new plan folder to write. It must not exist
   --staging-folder <staging-folder>
                           The absolute path of the folder on the Linux machine

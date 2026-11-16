@@ -129,6 +129,42 @@ final class STARIndexPlanTests: XCTestCase {
         XCTAssertEqual(other.folderName, "star-2.7.3a-sa\(nbases)-sparse2", "another STAR is another index")
     }
 
+    // MARK: - The 10x variant pins the made file under made/ and keeps the bulk argv (ARCH-SOLO-GTF items 2 to 4)
+
+    func testTheTenxVariantPinsTheMadeFileUnderMadeAndNamesItInTheBulkArgv() async throws {
+        let set = try await builtSet()
+        let id = set.manifest.id
+        let folder = root.appendingPathComponent("plan-folder", isDirectory: true)
+        var variant = request(set.url)
+        variant.tenxFilter = .mkgtf300
+        variant.planFolder = folder
+        let made = try STARIndexPlan.make(variant)
+        let bulk = try STARIndexPlan.make(request(set.url))
+        let path = "references/\(id)/made/tenx1-mkgtf-3.0.0/genes.gtf"
+        let entry = try XCTUnwrap(made.plan.entries.first { $0.relativePath == path })
+        let file = try XCTUnwrap(made.made)
+        XCTAssertEqual(entry.role, .reference)
+        XCTAssertEqual(entry.reference, PlanReferenceIdentity(setID: id, path: "made/tenx1-mkgtf-3.0.0/genes.gtf"))
+        XCTAssertEqual([entry.sha256, "\(entry.size)"], [file.sha256, "\(file.size)"])
+        XCTAssertFalse(made.plan.entries.contains { $0.relativePath.hasSuffix("derived/genes.gtf") }, "STAR reads only the made file")
+        XCTAssertEqual(made.sources[path], folder.appendingPathComponent("made/tenx1-mkgtf-3.0.0/genes.gtf"), "from the plan folder")
+        let bulkGTF = "references/\(id)/derived/genes.gtf"
+        XCTAssertEqual(made.plan.steps.map(\.arguments), bulk.plan.steps.map { $0.arguments.map { $0 == bulkGTF ? path : $0 } })
+        XCTAssertEqual(made.plan.steps.map(\.inputs), bulk.plan.steps.map { $0.inputs.map { $0 == bulkGTF ? path : $0 } })
+        XCTAssertEqual(made.plan.pipeline?.settings, [PlanPipelineSetting(
+            id: "tenxFilter", label: "10x filter rule", value: "tenx1-mkgtf-3.0.0", source: .option)])
+        XCTAssertEqual(made.key.folderName, bulk.key.folderName + "-tenx1-mkgtf-3.0.0")
+        XCTAssertEqual(made.key.gtfFilter, .init(rule: "tenx", ruleVersion: 1, list: "mkgtf-3.0.0", sha256: file.sha256,
+                                                 size: file.size, genesLeftOut: 0))
+        XCTAssertEqual([made.key.countingGTFSHA256, made.key.referenceSetSHA256],
+                       [bulk.key.countingGTFSHA256, bulk.key.referenceSetSHA256], "the unfiltered file's and the set's")
+        XCTAssertNil(bulk.key.gtfFilter)
+        XCTAssertNil(bulk.made)
+        XCTAssertNoThrow(try ExecutionPlan.decode(try made.plan.encoded()), "the decoder reads a made/ path")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "planning writes no file")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: set.url.appendingPathComponent("made").path), "nor into the set")
+    }
+
     // MARK: - A set of schema 1 is refused through RS-COUNTING-GTF's refusal, and the lane adds none of its own
 
     func refusal(_ body: () throws -> Void) -> String {

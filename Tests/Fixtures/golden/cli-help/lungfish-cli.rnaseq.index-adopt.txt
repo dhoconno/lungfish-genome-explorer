@@ -22,6 +22,10 @@ OPTIONS:
   --batch <batch>         The name of the plan folder, which names the batch in
                           the staging folder
   --sample <sample>       The sample name of the job (default: index)
+  --tenx-filter <tenx-filter>
+                          The 10x biotype list that index-plan named for a
+                          STARsolo index. LGE makes the GTF again from the set
+                          and checks its SHA-256
   --storage-root <storage-root>
                           Managed storage root to write the record under
                           (default: the configured location)

@@ -35,6 +35,9 @@ struct RNASeqIndexPlanSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("star"), help: "The STAR version to run, either 2.7.11b or 2.7.3a")
     var star: String = "2.7.11b"
 
+    @Option(name: .customLong("tenx-filter"), help: "The 10x biotype list, mkgtf-3.0.0 or gencode-2020-A, of a STARsolo index. Its filter rule makes the GTF from derived/genes.gtf into the plan folder")
+    var tenxFilter: String?
+
     @Option(name: .customLong("output"), help: "The new plan folder to write. It must not exist")
     var outputPath: String
 
@@ -81,6 +84,7 @@ struct RNASeqIndexPlanSubcommand: AsyncParsableCommand {
         var argv = [CLICommandIdentity.executableName, "rnaseq", "index-plan", "--set",
                     setReference.contains("/") ? absolute(setReference) : setReference, "--star", star, "--output", outputURL.path,
                     "--staging-folder", stagingFolder]
+        if let tenxFilter { argv += ["--tenx-filter", tenxFilter] }
         for (flag, value) in [("--executor-manifest", executorManifest), ("--image", image),
                               ("--image-tool-manifest", imageToolManifest), ("--storage-root", storageRoot)] {
             if let value { argv += [flag, absolute(value)] }
@@ -90,6 +94,15 @@ struct RNASeqIndexPlanSubcommand: AsyncParsableCommand {
         if let requestDiskGiB { argv += ["--request-disk-gib", "\(requestDiskGiB)"] }
         if let jobRequirements { argv += ["--job-requirements", jobRequirements] }
         return argv
+    }
+
+    /// The list `--tenx-filter` names, nil when it is left out, or a refusal that names both lists.
+    static func tenxList(_ value: String?) throws -> TenxGTFFilter.List? {
+        guard let value else { return nil }
+        guard let list = TenxGTFFilter.List(rawValue: value) else {
+            throw STARIndexError("--tenx-filter is \(TenxGTFFilter.List.allCases.map(\.rawValue).joined(separator: " or ")), not \(value).")
+        }
+        return list
     }
 
     /// `--storage-root`, else the configured location. It sets no environment variable, since no tool runs here.

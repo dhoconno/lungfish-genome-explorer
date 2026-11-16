@@ -76,6 +76,7 @@ package struct STARIndexRecordStore: Sendable {
             was.sjdbOverhang == now.sjdbOverhang ? nil : "--sjdbOverhang \(was.sjdbOverhang), where this run names \(now.sjdbOverhang)",
             was.genomeFastaFiles == now.genomeFastaFiles ? nil : "other FASTA files",
             was.countingGTFSHA256 == now.countingGTFSHA256 ? nil : "another SHA-256 of derived/genes.gtf",
+            was.gtfFilter == now.gtfFilter ? nil : "another GTF made by the 10x filter rule",
             was.referenceSetSHA256 == now.referenceSetSHA256 ? nil : "another SHA-256 of reference-set.json",
         ]
         let others = named.compactMap { $0 }

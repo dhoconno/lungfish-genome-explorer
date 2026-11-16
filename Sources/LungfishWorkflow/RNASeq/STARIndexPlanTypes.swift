@@ -49,12 +49,21 @@ package struct STARIndexPlanRequest: Sendable {
     package var pins: STARIndexPlanPins
     /// The limit the person named for each step in seconds, or nil for the longest a plan allows.
     package var deadlineSeconds: Double?
+    /// The list of the 10x filter rule for the STARsolo variant, or nil for the bulk index.
+    package var tenxFilter: TenxGTFFilter.List?
+    /// The plan folder the person names, which the variant's made GTF is written into and copied from, never the set.
+    package var planFolder: URL?
 
-    package init(setFolder: URL, star: STARIndexVersion, pins: STARIndexPlanPins, deadlineSeconds: Double? = nil) {
+    package init(
+        setFolder: URL, star: STARIndexVersion, pins: STARIndexPlanPins, deadlineSeconds: Double? = nil,
+        tenxFilter: TenxGTFFilter.List? = nil, planFolder: URL? = nil
+    ) {
         self.setFolder = setFolder
         self.star = star
         self.pins = pins
         self.deadlineSeconds = deadlineSeconds
+        self.tenxFilter = tenxFilter
+        self.planFolder = planFolder
     }
 }
 
@@ -63,4 +72,6 @@ package struct STARIndexPlanOutcome: Sendable {
     package var key: STARIndexKey
     /// Each entry's `relativePath` to the Mac file the batch copies there.
     package var sources: [String: URL]
+    /// The variant's made GTF, which the writer puts at `sources` of its entry. Nil for the bulk index.
+    package var made: TenxGTFFilter.Made? = nil
 }

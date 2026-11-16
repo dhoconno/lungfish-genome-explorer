@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishPortable
 import LungfishWorkflow
 
@@ -79,31 +80,50 @@ extension RNASeqIndexPlanSubcommand {
         guard let version = STARIndexVersion(rawValue: star) else {
             throw STARIndexError("--star is \(STARIndexVersion.allCases.map(\.rawValue).joined(separator: " or ")), not \(star).")
         }
+        let list = try Self.tenxList(tenxFilter)
         guard stagingFolder.hasPrefix("/") else { throw STARIndexError("--staging-folder must be an absolute path.") }
         guard !FileManager.default.fileExists(atPath: output.path) else {
             throw STARIndexError("The plan folder \(output.lastPathComponent) already exists, so name a new folder or remove this one.")
         }
         let setFolder = try Self.setFolder(for: setReference, storageRoot: storageRoot)
         let (pins, record) = try imagePins(star: version)
-        let made = try STARIndexPlan.make(STARIndexPlanRequest(setFolder: setFolder, star: version, pins: pins))
+        let made = try STARIndexPlan.make(STARIndexPlanRequest(
+            setFolder: setFolder, star: version, pins: pins, tenxFilter: list, planFolder: output))
         let figures = try STARIndexSubmit.figures(
             for: try ReferenceSetManifest.load(from: setFolder), memoryMiB: requestMemoryMiB, cpus: requestCPUs, diskGiB: requestDiskGiB)
         let layout = ExecutorPlanStagingLayout(folder: stagingFolder, batch: output.lastPathComponent)
         try ViewerExportLeaf.checkpointAfterStaging()
         let batch = try STARIndexSubmit.write(
             made, figures: figures, image: record, layout: layout, requirements: jobRequirements, into: output)
-        do { try Task.checkCancellation() } catch {
+        do {
+            // The variant's GTF goes into the plan folder only, at the path its entry's source names (ARCH-SOLO-GTF item 2).
+            if let file = made.made {
+                let folder = output.appendingPathComponent(file.list.path).deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try DurableReplace.replace(file.bytes, named: "genes.gtf", in: folder)
+            }
+            try Task.checkCancellation()
+        } catch {
             try? FileManager.default.removeItem(at: output)
             throw error
         }
         var lines = ["Wrote the plan folder \(batch.folder.path) for the STAR index \(made.key.folderName) of the set \(made.key.setID)."]
         for file in batch.files { lines.append("  \(file.size) bytes  \(file.stagingPath)" + (file.source.map { "  from \($0)" } ?? "")) }
         lines.append("The job asks for \(figures.memoryMiB) MiB of memory, \(figures.cpus) CPUs and \(figures.diskGiB) GiB of disk.")
-        let facts: [String: Any] = [
+        var facts: [String: Any] = [
             "setID": made.key.setID, "key": made.key.folderName, "star": version.rawValue, "output": output.path,
             "genomeSAindexNbases": made.key.genomeSAindexNbases, "memoryMiB": figures.memoryMiB, "cpus": figures.cpus,
             "diskGiB": figures.diskGiB,
         ]
+        if let file = made.made {
+            let left = file.genesLeftOut.count
+            lines.append("The 10x filter rule \(file.list.rawValue) left out \(left) gene\(left == 1 ? "" : "s") of derived/genes.gtf, "
+                + "and STAR reads the GTF it made, \(file.list.path) in the plan folder (\(file.size) bytes, SHA-256 \(file.sha256)).")
+            facts["tenxFilter"] = file.list.rawValue
+            facts["genesLeftOut"] = left
+            facts["madeGTF"] = output.appendingPathComponent(file.list.path).path
+            facts["madeGTFSHA256"] = file.sha256
+        }
         let json = try JSONSerialization.data(withJSONObject: facts, options: [.sortedKeys, .withoutEscapingSlashes])
         return PlanSummary(lines: lines, json: String(decoding: json, as: UTF8.self))
     }
