@@ -84,6 +84,9 @@ extension ExecutorRunAdoption {
         }
         var settings = route.settings
         for (key, value) in try salmonRunFacts(folders, salmon: salmon) { settings[key] = value }
+        // Each plan states its own sample's words; the route states how the result's samples were counted, with the
+        // one writer `rnaseq quant` uses (ruling ARCH-ADOPT-ROUTE items 1 and 3).
+        settings["duplicates"] = SalmonQuantRecordLines.duplicatesSetting(samples.map(\.duplicates))
         let genesURL = set.url.appendingPathComponent(set.manifest.derived.genes.path)
         let referenceSet = samples[0].run.pipeline.referenceSet
         return RNASeqResultWriter.Request(

@@ -7,10 +7,12 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
-/// One sample of a counts adopt: its checked run and the salmon folder its counting step returned, read where it lies.
+/// One sample of a counts adopt: its checked run, the salmon folder its counting step returned, read where it lies, and
+/// the duplicates state its plan states.
 struct ExecutorCountsAdoptedSample: Sendable {
     let run: ExecutorAdoptedCountsRun
     let folder: SalmonQuantFolder
+    let duplicates: SalmonQuantRecordLines.DuplicatesState
 }
 
 /// A returned folder or batch whose every sample passed every check, read into the writer's request before any result
@@ -30,12 +32,13 @@ extension ExecutorRunAdoption {
     ) throws -> ExecutorCountsAdoption {
         let runs = try checkCountsRuns(folder, policy: policy)
         let first = runs[0]
-        try checkOnePipeline(runs)
+        let duplicates = try runs.map { try duplicatesState($0) }
+        try checkOnePipeline(runs, duplicates: duplicates)
         let (setURL, set) = try countsReferenceSet(first.pipeline.referenceSet, storageRoot: storageRoot)
         var samples: [ExecutorCountsAdoptedSample] = []
-        for run in runs {
+        for (run, state) in zip(runs, duplicates) {
             try Task.checkCancellation()
-            samples.append(ExecutorCountsAdoptedSample(run: run, folder: try salmonFolder(run)))
+            samples.append(ExecutorCountsAdoptedSample(run: run, folder: try salmonFolder(run), duplicates: state))
         }
         let request = try countsRequest(name: name, samples: samples, set: set)
         return ExecutorCountsAdoption(samples: samples, setURL: setURL, request: request)
@@ -63,9 +66,38 @@ extension ExecutorRunAdoption {
         return runs
     }
 
+    /// The duplicates state of one sample's plan entry `duplicates` (ruling ARCH-ADOPT-ROUTE item 2): the removed words
+    /// with source `recipe` are removed, the kept words with source `default` kept, and the Not recorded words with
+    /// source `default` Not recorded. Any other value is refused in words that name it and the sample, never read as kept.
+    static func duplicatesState(_ run: ExecutorAdoptedCountsRun) throws(ExecutorAdoptRefusal) -> SalmonQuantRecordLines.DuplicatesState {
+        let sample = run.plan.sample.sampleName
+        let entry = run.pipeline.settings.first { $0.id == "duplicates" }
+        switch entry?.source {
+        case .default? where entry?.value == SalmonQuantRecordLines.duplicates: return .kept
+        case .default? where entry?.value == SalmonQuantRecordLines.duplicatesNotRecorded: return .notRecorded
+        case .recipe? where entry.map(\.value).map(isRemovedWords) == true: return .removed
+        default:
+            let stated = entry.map { "states duplicates as \"\($0.value)\" with source \($0.source.rawValue)" } ?? "states no duplicates"
+            throw refusal(
+                "pipeline.settings",
+                "The plan of the sample \(sample) \(stated). The adopt reads only the removed words with source recipe, or "
+                    + "the kept or the Not recorded words with source default, so it cannot say what the counted reads lost to duplicate removal."
+            )
+        }
+    }
+
+    /// The words of a sample whose import removed duplicates without UMIs (`SalmonQuantRecordLines.duplicatesLine`).
+    private static func isRemovedWords(_ words: String) -> Bool {
+        words.hasPrefix("Duplicates: removed at import by ") && words.hasSuffix(", without UMIs. This count removes none.")
+    }
+
     /// One result holds one route and one set, so every sample's plan states the same pipeline, and the adopt reads
-    /// salmon's bulk counts.
-    static func checkOnePipeline(_ runs: [ExecutorAdoptedCountsRun]) throws(ExecutorAdoptRefusal) {
+    /// salmon's bulk counts. Route keys other than `duplicates` must be equal. `duplicates` holds each sample's own step
+    /// names, so the samples must share its state instead, as a result adopted from plans holds samples of one state
+    /// (`docs/formats/executor-plan.md`, the `duplicates` paragraph).
+    static func checkOnePipeline(
+        _ runs: [ExecutorAdoptedCountsRun], duplicates: [SalmonQuantRecordLines.DuplicatesState]
+    ) throws(ExecutorAdoptRefusal) {
         let first = runs[0]
         guard first.route.tool == salmonToolID, first.pipeline.modality == .bulk else {
             throw refusal(
@@ -74,8 +106,15 @@ extension ExecutorRunAdoption {
                     + "and import rnaseq --adopt reads the bulk counts of salmon only."
             )
         }
-        for run in runs.dropFirst() {
+        for (run, state) in zip(runs, duplicates).dropFirst() {
             let (one, other) = (first.plan.sample.sampleName, run.plan.sample.sampleName)
+            if state != duplicates[0] {
+                throw refusal(
+                    "pipeline.route",
+                    "The samples \(one) and \(other) differ in duplicates: \(first.route.settings["duplicates"] ?? "none") and "
+                        + "\(run.route.settings["duplicates"] ?? "none"). One result holds samples of one duplicates state, so adopt them as two batches."
+                )
+            }
             if run.pipeline.referenceSet != first.pipeline.referenceSet {
                 throw refusal(
                     "pipeline.referenceSet",
@@ -98,7 +137,8 @@ extension ExecutorRunAdoption {
         if one.id != other.id { return "id" }
         if one.tool != other.tool { return "tool" }
         if one.toolVersion != other.toolVersion { return "toolVersion" }
-        return Set(one.settings.keys).union(other.settings.keys).sorted().first { one.settings[$0] != other.settings[$0] }
+        return Set(one.settings.keys).union(other.settings.keys).subtracting(["duplicates"]).sorted()
+            .first { one.settings[$0] != other.settings[$0] }
     }
 
     /// The set `referenceSet` names in the storage root's sets folder, whose transcript table sums the genes. A missing

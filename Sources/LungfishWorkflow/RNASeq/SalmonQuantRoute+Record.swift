@@ -102,18 +102,56 @@ public enum SalmonQuantRecordLines {
         return "left to \(call.name)\(version) auto-detection (not set by LGE), \(state)"
     }
 
-    /// One sample's duplicates line: the fixed words, or the recipe steps of its import that removed duplicates, which
-    /// LGE does without UMIs (review RS-QUANT BIO SF3).
-    public static func duplicatesLine(payloads: [URL]) -> String {
-        let removed = deduplicatingSteps(payloads: payloads)
-        guard !removed.isEmpty else { return duplicates }
-        return "Duplicates: removed at import by \(removed.joined(separator: " and ")), without UMIs. This count removes none."
+    public static let duplicatesNotRecorded = "Duplicates: Not recorded (the bundle holds no import record that names its steps)"
+
+    /// What one sample's reads lost to duplicate removal at import.
+    package enum DuplicatesState: Sendable, Equatable {
+        case kept, removed, notRecorded
     }
 
-    /// The route's duplicates setting, when `removed` of the run's `total` samples lost duplicates at import.
-    public static func duplicatesSetting(removed: Int, of total: Int) -> String {
-        guard removed > 0 else { return duplicates }
-        return "Duplicates: removed at import for \(removed) of \(total) samples, without UMIs. This count removes none."
+    /// One sample's state: removed when a recipe step of its import removed duplicates, kept when the sidecar of its
+    /// reads holds the import's metadata or `bundle` holds the import's record, and Not recorded when neither says what
+    /// the import did (review FIX-EX-SCHEMA BIO F1). The plan writer reads the same three cases
+    /// (`SalmonPlan.duplicatesWords`), so a Mac result and a plan of one bundle state one state.
+    package static func duplicatesState(payloads: [URL], bundle: URL?) -> DuplicatesState {
+        if !deduplicatingSteps(payloads: payloads).isEmpty { return .removed }
+        let recorded = payloads.contains { FASTQMetadataStore.load(for: $0)?.ingestion != nil }
+            || bundle.map { importRecord(of: $0) != nil } ?? false
+        return recorded ? .kept : .notRecorded
+    }
+
+    /// One sample's duplicates line: the recipe steps of its import that removed duplicates, which LGE does without
+    /// UMIs (review RS-QUANT BIO SF3), the fixed words for an import that kept them, or Not recorded. `bundle` nil reads
+    /// the sidecar alone.
+    public static func duplicatesLine(payloads: [URL], bundle: URL? = nil) -> String {
+        switch duplicatesState(payloads: payloads, bundle: bundle) {
+        case .kept: return duplicates
+        case .notRecorded: return duplicatesNotRecorded
+        case .removed:
+            let removed = deduplicatingSteps(payloads: payloads)
+            return "Duplicates: removed at import by \(removed.joined(separator: " and ")), without UMIs. This count removes none."
+        }
+    }
+
+    /// The route's `duplicates`, the one writer for `rnaseq quant` and the adopt (ruling ARCH-ADOPT-ROUTE item 1), when
+    /// `removed` and `unrecorded` of the result's `total` samples lost duplicates at import or have no record of it. It
+    /// states how the reads were counted, with no step names and no sample count when every sample shares a state, so
+    /// results of one state join whatever their sample counts. Only a result whose samples differ states its counts.
+    public static func duplicatesSetting(removed: Int, unrecorded: Int, of total: Int) -> String {
+        if removed == 0 && unrecorded == 0 { return duplicates }
+        if unrecorded == total { return duplicatesNotRecorded }
+        if removed == total { return "Duplicates: removed at import for every sample, without UMIs. This count removes none." }
+        guard removed > 0 else {
+            return "Duplicates: Not recorded for \(unrecorded) of \(total) samples (the bundle holds no import record that names its steps)"
+        }
+        let unknown = unrecorded > 0 ? " Not recorded for \(unrecorded) of \(total) samples." : ""
+        return "Duplicates: removed at import for \(removed) of \(total) samples, without UMIs. This count removes none.\(unknown)"
+    }
+
+    /// The route's `duplicates` over the states of the result's samples.
+    package static func duplicatesSetting(_ states: [DuplicatesState]) -> String {
+        duplicatesSetting(
+            removed: states.filter { $0 == .removed }.count, unrecorded: states.filter { $0 == .notRecorded }.count, of: states.count)
     }
 
     /// The names of the recipe steps that removed duplicates when the bundle's reads were imported.
@@ -155,7 +193,7 @@ extension SalmonQuantRoute {
             "trimming": .string(SalmonQuantRecordLines.trimming(trim, version: trimVersion)),
             "importPolyG": .string(SalmonQuantRecordLines.importPolyG(payloads: sample.payloads, bundle: sample.bundle)),
             "instrument": .string(SalmonQuantRecordLines.instrument(payloads: sample.payloads)),
-            "duplicates": .string(SalmonQuantRecordLines.duplicatesLine(payloads: sample.payloads)),
+            "duplicates": .string(SalmonQuantRecordLines.duplicatesLine(payloads: sample.payloads, bundle: sample.bundle)),
         ]
         if let adapter = SalmonQuantRecordLines.adapter(trim, version: trimVersion) { lines["adapter"] = .string(adapter) }
         return lines
@@ -167,7 +205,7 @@ extension SalmonQuantRoute {
         name: String, folders: [SalmonQuantFolder], set: ReferenceSetOutcome, index: SalmonIndexOutcome,
         trim: SalmonQuantTrim, trimVersion: String?, samples: [SampleReads]
     ) throws -> RNASeqResultWriter.Request {
-        let deduplicated = samples.filter { !SalmonQuantRecordLines.deduplicatingSteps(payloads: $0.payloads).isEmpty }.count
+        let duplicates = samples.map { SalmonQuantRecordLines.duplicatesState(payloads: $0.payloads, bundle: $0.bundle) }
         let pairs = set.manifest.derived.transcriptGenes.path
         let genes = try SalmonQuantFolderReader.geneCounts(folders, tx2gene: try SalmonTx2Gene.read(set.url.appendingPathComponent(pairs)))
         let transcripts = try SalmonQuantFolderReader.transcriptCounts(folders)
@@ -186,7 +224,7 @@ extension SalmonQuantRoute {
             "k": String(index.key.k), "decoys": index.key.decoys.rawValue, "index": index.key.folderName,
             "seqBias": onOff("seqBiasCorrect"), "gcBias": onOff("gcBiasCorrect"), "posBias": onOff("posBiasCorrect"),
             "trimming": SalmonQuantRecordLines.trimming(trim, version: trimVersion),
-            "duplicates": SalmonQuantRecordLines.duplicatesSetting(removed: deduplicated, of: samples.count), "counts": "NumReads",
+            "duplicates": SalmonQuantRecordLines.duplicatesSetting(duplicates), "counts": "NumReads",
             "geneSums": "NumReads summed by gene through the reference set's \(pairs)",
             "indexSeqHash": index.hashes.seqHash, "indexNameHash": index.hashes.nameHash,
         ]
