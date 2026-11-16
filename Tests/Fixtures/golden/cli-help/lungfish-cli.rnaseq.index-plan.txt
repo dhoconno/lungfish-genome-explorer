@@ -17,8 +17,8 @@ USAGE: lungfish-cli rnaseq index-plan [<options>] --set <set> --output <output> 
 OPTIONS:
   --set <set>             The id of a reference set under the storage root, or
                           the path of a set folder
-  --star <star>           The STAR build the image runs: 2.7.11b (the default)
-                          or 2.7.3a (default: 2.7.11b)
+  --star <star>           The STAR version to run, either 2.7.11b or 2.7.3a
+                          (default: 2.7.11b)
   --output <output>       The new plan folder to write. It must not exist
   --staging-folder <staging-folder>
                           The absolute path of the folder on the Linux machine

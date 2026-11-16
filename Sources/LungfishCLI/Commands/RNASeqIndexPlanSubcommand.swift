@@ -32,7 +32,7 @@ struct RNASeqIndexPlanSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("set"), help: "The id of a reference set under the storage root, or the path of a set folder")
     var setReference: String
 
-    @Option(name: .customLong("star"), help: "The STAR build the image runs: 2.7.11b (the default) or 2.7.3a")
+    @Option(name: .customLong("star"), help: "The STAR version to run, either 2.7.11b or 2.7.3a")
     var star: String = "2.7.11b"
 
     @Option(name: .customLong("output"), help: "The new plan folder to write. It must not exist")

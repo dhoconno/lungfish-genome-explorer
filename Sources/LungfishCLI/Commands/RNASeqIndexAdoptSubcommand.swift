@@ -33,7 +33,7 @@ struct RNASeqIndexAdoptSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("batch"), help: "The name of the plan folder, which names the batch in the staging folder")
     var batch: String
 
-    @Option(name: .customLong("sample"), help: "The sample name of the job (default: index)")
+    @Option(name: .customLong("sample"), help: "The sample name of the job")
     var sample: String = STARIndexPlan.sampleName
 
     @Option(name: .customLong("storage-root"), help: "Managed storage root to write the record under (default: the configured location)")

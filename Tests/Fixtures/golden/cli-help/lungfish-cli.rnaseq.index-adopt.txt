@@ -21,8 +21,7 @@ OPTIONS:
                           machine, as the plan was written with
   --batch <batch>         The name of the plan folder, which names the batch in
                           the staging folder
-  --sample <sample>       The sample name of the job (default: index) (default:
-                          index)
+  --sample <sample>       The sample name of the job (default: index)
   --storage-root <storage-root>
                           Managed storage root to write the record under
                           (default: the configured location)
