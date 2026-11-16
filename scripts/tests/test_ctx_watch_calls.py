@@ -278,6 +278,13 @@ class TypeLineTests(unittest.TestCase):
                 self.assertIsInstance(line, int, '%s.md names no stop line' % name)
                 self.assertGreater(line, 0)
 
+    def test_no_type_sets_its_line_from_an_estimate_the_watcher_cannot_read(self):
+        """lge-fix stopped at 1.5 times an estimate while ctx_watch read its 60, so two fix agents alarmed at 60/60 under
+        lines of 67 (O177 ballot 3 Q4). A line other than the type's goes in the prompt as "Stop at N tool calls."."""
+        for path in sorted(REPO_TYPES.glob('lge-*.md')):
+            with self.subTest(path.stem):
+                self.assertNotRegex(path.read_text(), r'(?i)\bestimates?\b')
+
     def test_the_default_folder_is_the_one_the_ledger_reads(self):
         folder = Path(load(SCRIPT, 'ctx_watch').default_agents_dir()).resolve()
         self.assertEqual(folder, Path(load(LEDGER, 'session_ledger').AGENTS_DIR).resolve())
