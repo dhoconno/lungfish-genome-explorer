@@ -129,7 +129,7 @@ extension ExecutionPlan {
         }
         for (index, setting) in pipeline.settings.enumerated() where setting.source == .host || setting.source == .plan {
             let field = "pipeline.settings[\(index)].source"
-            throw PlanDecodeError(field: field, reason: "This plan gives \(field) as \(setting.source.rawValue). A plan stores option, default or recipe for a setting of its chain.")
+            throw PlanDecodeError(field: field, reason: "This plan gives \(field) as \(setting.source.rawValue). A plan stores option, default, recipe or preset for a setting of its chain.")
         }
         guard let route = pipeline.route else { return }
         for key in ["trimming", "duplicates"] where route.settings[key] == nil {

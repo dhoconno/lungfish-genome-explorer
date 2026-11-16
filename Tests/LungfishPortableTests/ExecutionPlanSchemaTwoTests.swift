@@ -162,7 +162,10 @@ final class ExecutionPlanSchemaTwoTests: XCTestCase {
         try assertRefused(Fixture.plan(pipeline: nil).withVersion(2), field: "pipeline", reason: "This plan has no pipeline.")
         plan = Fixture.plan()
         plan.pipeline?.settings[0].source = .host
-        try assertRefused(plan, field: "pipeline.settings[0].source")
+        // The decoder refuses host and plan and accepts option, default, recipe and preset (a kit preset's settings
+        // carry preset, EX-UMI-M1-BIO ruling 4), so its sentence lists all four.
+        try assertRefused(plan, field: "pipeline.settings[0].source",
+                          reason: "This plan gives pipeline.settings[0].source as host. A plan stores option, default, recipe or preset for a setting of its chain.")
         plan = Fixture.plan()
         plan.pipeline?.route?.settings["trimming"] = "Poly-G trimming: off (LGE default)"
         try assertRefused(plan, field: "pipeline.route.settings")
