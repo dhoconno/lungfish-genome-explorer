@@ -275,11 +275,15 @@ final class ExecutorRunAdoptionSchemaTwoTests: XCTestCase {
         try Data("another count\n".utf8).write(to: quantSF)
         var refusal = countsRefusal(returned.folder)
         XCTAssertEqual(refusal?.field, "steps[1].outputs[0]")
-        XCTAssertEqual(refusal?.cause, "The output quant/quant.sf of the step quant holds 14 bytes, and the run record states \(original.count).")
+        XCTAssertEqual(refusal?.cause, "The output quant/quant.sf of the step quant holds 14 bytes, and the run record states \(original.count). The copy may be incomplete, so copy the result folder again from the machine that ran the plan.")
         try Data(String(decoding: original, as: UTF8.self).uppercased().utf8).write(to: quantSF)
         refusal = countsRefusal(returned.folder)
         XCTAssertEqual(refusal?.field, "steps[1].outputs[0]")
         XCTAssertTrue(refusal?.cause.hasPrefix("The output quant/quant.sf of the step quant has SHA-256 ") == true, refusal?.cause ?? "none")
+        XCTAssertTrue(
+            refusal?.cause.hasSuffix(" The copy may be damaged, so copy the result folder again from the machine that ran the plan.") == true,
+            refusal?.cause ?? "none"
+        )
         try FileManager.default.removeItem(at: quantSF)
         let outside = root.appendingPathComponent("outside-quant.sf")
         try original.write(to: outside)
@@ -290,7 +294,7 @@ final class ExecutorRunAdoptionSchemaTwoTests: XCTestCase {
         try FileManager.default.removeItem(at: quantSF)
         refusal = countsRefusal(returned.folder)
         XCTAssertEqual(refusal?.field, "steps[1].outputs[0]")
-        XCTAssertEqual(refusal?.cause, "The output quant/quant.sf of the step quant is missing from the folder, and the plan returns it home.")
+        XCTAssertEqual(refusal?.cause, "The output quant/quant.sf of the step quant is missing from the folder, and the plan returns it home. Copy the result folder again from the machine that ran the plan, and check that the job finished.")
     }
 
     /// `staged` and `stays` outputs are named in the record with their policy, and the record names no output the plan

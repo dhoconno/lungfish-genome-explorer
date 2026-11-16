@@ -150,11 +150,14 @@ extension ExecutorRunAdoption {
     private static func outputSentence(_ error: PlanResourceRefusal, path: String, step: String) -> String {
         switch error {
         case .digestMismatch(_, let expected, let actual):
-            return "The output \(path) of the step \(step) has SHA-256 \(actual), and the run record states \(expected)."
+            return "The output \(path) of the step \(step) has SHA-256 \(actual), and the run record states \(expected). "
+                + "The copy may be damaged, so copy the result folder again from the machine that ran the plan."
         case .sizeMismatch(_, let expected, let actual):
-            return "The output \(path) of the step \(step) holds \(actual) bytes, and the run record states \(expected)."
+            return "The output \(path) of the step \(step) holds \(actual) bytes, and the run record states \(expected). "
+                + "The copy may be incomplete, so copy the result folder again from the machine that ran the plan."
         case .missing:
-            return "The output \(path) of the step \(step) is missing from the folder, and the plan returns it home."
+            return "The output \(path) of the step \(step) is missing from the folder, and the plan returns it home. "
+                + "Copy the result folder again from the machine that ran the plan, and check that the job finished."
         default:
             return "The output \(path) of the step \(step) cannot be adopted. \(error.reason)"
         }
