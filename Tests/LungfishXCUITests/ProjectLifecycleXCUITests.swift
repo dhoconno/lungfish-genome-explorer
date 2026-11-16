@@ -116,6 +116,14 @@ struct ReleaseAppSmokeRobot {
     }
 
     func launch() throws {
+        // Sparkle asks permission to check for updates on every launch after its first until someone answers, and its
+        // window is app-modal over the welcome window (SMOKE-SPARKLE-PROMPT-LAUNCHES-2-TO-13). This pair answers for
+        // the launched process only and writes nothing to the account's preferences, so a person's launch still meets
+        // the prompt. It goes in here, since an `apply(to:)` of `LungfishUITestLaunchOptions` replaces the whole
+        // array, and only once, since this runs again on the same robot.
+        if !app.launchArguments.contains("-SUEnableAutomaticChecks") {
+            app.launchArguments += ["-SUEnableAutomaticChecks", "NO"]
+        }
         app.launch()
         if let identifier = Bundle(url: candidateURL)?.bundleIdentifier {
             // init refused every copy the smoke did not start, so each copy running now is the smoke's own.
