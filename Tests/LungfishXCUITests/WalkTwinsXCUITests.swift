@@ -204,9 +204,11 @@ final class WalkTwinsXCUITests: XCTestCase {
     }
 
     /// Row 5 of the 2026.11.5 owner list (W-32, S2 if fewer or wrong sequences come out). One project holds two copies of
-    /// an annotated reference that the packaged `lungfish-cli` builds (`bundle create`) from a FASTA and a GFF3 that the
-    /// test writes: 6,000 bases and four genes, HBB the last. The second copy has its sequence file cut after the index
-    /// was written, so that HBB lies past the cut, as it did on the walk's reference (`walk-log.md:316`). Phase 1 selects
+    /// the annotated reference `Tests/Fixtures/annotated-reference-twin/TwinWhole.lungfishref` (6,000 bases and four genes,
+    /// HBB the last), which the packaged `lungfish-cli bundle create` built from a shell. The same CLI inside the gate's
+    /// runner left no annotation database (TWIN-W32-b), so the test builds nothing. The second copy has its sequence file
+    /// cut after the index was written, so that HBB lies past the cut, as it did on the walk's reference
+    /// (`walk-log.md:316`). Phase 1 selects
     /// the four rows of the annotation table of the whole copy, chooses "Extract 4 Sequences…" from the context menu of a
     /// selected row, finishes the Extract Sequence dialog with Save to File… and reads the file, which must hold four
     /// records, each with its own name and its own bases. Phase 2 does the same on the cut copy. The alert must name HBB
@@ -225,7 +227,7 @@ final class WalkTwinsXCUITests: XCTestCase {
             MainActor.assumeIsolated { app.terminate() }
             try? FileManager.default.removeItem(at: folder)
         }
-        try Self.addExtractionReferences(to: project, cli: cli)
+        try Self.addExtractionReferences(to: project)
         try robot.launch()
         robot.openProject(project)
         robot.printLaunchRecord(of: #function)
@@ -264,22 +266,27 @@ final class WalkTwinsXCUITests: XCTestCase {
         String(referenceBases[(gene.start - 1)..<gene.end])
     }
 
-    /// Writes the FASTA and the GFF3, builds the two bundles with the packaged CLI and cuts the sequence file of the
-    /// second one after its index (`genome/sequence.fa.fai`) was written, 3,000 bases in, which is before HBB only.
-    private static func addExtractionReferences(to project: URL, cli: URL) throws {
-        let inputs = project.deletingLastPathComponent().appendingPathComponent("extraction-inputs", isDirectory: true)
-        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
-        let rows = stride(from: 0, to: referenceBases.count, by: 60).map { String(referenceBases[$0..<min($0 + 60, referenceBases.count)]) }
-        let fasta = inputs.appendingPathComponent("reference.fa")
-        try (">chrT twin extraction reference\n" + rows.joined(separator: "\n") + "\n").write(to: fasta, atomically: true, encoding: .utf8)
-        let gff = inputs.appendingPathComponent("genes.gff3")
-        try ("##gff-version 3\n" + genes.enumerated().map { index, gene in
-            "chrT\ttwin\tgene\t\(gene.start)\t\(gene.end)\t.\t+\t.\tID=gene\(index);Name=\(gene.name)\n"
-        }.joined()).write(to: gff, atomically: true, encoding: .utf8)
+    /// Copies the fixture bundle twice into the project, as `TwinWhole` and as `TwinCut` (with a name and an identifier
+    /// of its own in its manifest), and cuts the sequence file of the second one after its index
+    /// (`genome/sequence.fa.fai`) was written, 3,000 bases in, which is before HBB only. The fixture's sequence must be
+    /// the generator's bases, so that the expected bases of each gene come from the file the app reads.
+    private static func addExtractionReferences(to project: URL) throws {
+        let fixture = LungfishFixtureCatalog.fixturesRoot
+            .appendingPathComponent("annotated-reference-twin/TwinWhole.lungfishref", isDirectory: true)
+        let sequence = try String(contentsOf: fixture.appendingPathComponent("genome/sequence.fa"), encoding: .utf8)
+        XCTAssertEqual(fastaRecords(in: sequence).first?.bases, String(referenceBases), "The fixture's sequence is not the generator's bases")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.appendingPathComponent("annotations/genes.db").path),
+                      "The fixture holds no annotation database")
         for bundle in [wholeBundle, cutBundle] {
-            try runCLI(cli, ["bundle", "create", "--fasta", fasta.path, "--annotation", gff.path, "--name", bundle,
-                             "--output-dir", project.path])
+            try FileManager.default.copyItem(at: fixture, to: project.appendingPathComponent("\(bundle).lungfishref", isDirectory: true))
         }
+        let manifestURL = project.appendingPathComponent("\(cutBundle).lungfishref/manifest.json")
+        guard var manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any] else {
+            throw NSError(domain: "WalkTwinsXCUITests", code: 2, userInfo: [NSLocalizedDescriptionKey: "The fixture's manifest is not a JSON object"])
+        }
+        manifest["name"] = cutBundle
+        manifest["identifier"] = "com.lungfish.twincut"
+        try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys]).write(to: manifestURL)
         let genome = project.appendingPathComponent("\(cutBundle).lungfishref/genome", isDirectory: true)
         // The index line reads `chrT <length> <offset> <bases per line> <bytes per line>`.
         let index = try String(contentsOf: genome.appendingPathComponent("sequence.fa.fai"), encoding: .utf8)
@@ -290,22 +297,6 @@ final class WalkTwinsXCUITests: XCTestCase {
         let handle = try FileHandle(forUpdating: genome.appendingPathComponent("sequence.fa"))
         try handle.truncate(atOffset: UInt64(numbers[1] + (3000 / numbers[2]) * numbers[3]))
         try handle.close()
-    }
-
-    private static func runCLI(_ cli: URL, _ arguments: [String]) throws {
-        let process = Process()
-        process.executableURL = cli
-        process.arguments = arguments
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = output
-        try process.run()
-        let text = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw NSError(domain: "WalkTwinsXCUITests", code: Int(process.terminationStatus), userInfo: [
-                NSLocalizedDescriptionKey: "lungfish-cli \(arguments.joined(separator: " ")) failed with status \(process.terminationStatus):\n\(text)"])
-        }
     }
 
     /// The annotation table drawer of the bundle on screen. A drawer that is not open is shown from the View menu, and a

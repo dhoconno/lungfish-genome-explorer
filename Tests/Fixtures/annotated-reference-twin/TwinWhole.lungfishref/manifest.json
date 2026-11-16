@@ -1,0 +1,53 @@
+{
+  "alignments" : [
+
+  ],
+  "annotations" : [
+    {
+      "annotation_type" : "custom",
+      "database_path" : "annotations\/genes.db",
+      "feature_count" : 4,
+      "id" : "genes",
+      "name" : "genes",
+      "path" : "annotations\/genes.db"
+    }
+  ],
+  "created_date" : "2026-11-16T14:56:56Z",
+  "format_version" : "1.0",
+  "genome" : {
+    "chromosomes" : [
+      {
+        "aliases" : [
+
+        ],
+        "fasta_description" : "twin extraction reference",
+        "is_mitochondrial" : false,
+        "is_primary" : true,
+        "length" : 6000,
+        "line_bases" : 60,
+        "line_width" : 61,
+        "name" : "chrT",
+        "offset" : 32
+      }
+    ],
+    "index_path" : "genome\/sequence.fa.fai",
+    "path" : "genome\/sequence.fa",
+    "total_length" : 6000
+  },
+  "identifier" : "com.lungfish.twinwhole",
+  "modified_date" : "2026-11-16T14:56:56Z",
+  "name" : "TwinWhole",
+  "source" : {
+    "assembly" : "Unknown",
+    "organism" : "Unknown"
+  },
+  "tracks" : [
+
+  ],
+  "variants" : [
+
+  ],
+  "warnings" : [
+
+  ]
+}

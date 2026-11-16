@@ -237,7 +237,8 @@ def runner_identity(products):
 
 
 # Fixture folders the smoke tasks read, copied out of the checkout for the runner.
-SMOKE_FIXTURES = ("Tests/Fixtures/analyses", "Tests/Fixtures/kraken2-mini", "Tests/Fixtures/taxtriage-ntc-p")
+SMOKE_FIXTURES = ("Tests/Fixtures/analyses", "Tests/Fixtures/kraken2-mini", "Tests/Fixtures/taxtriage-ntc-p",
+                  "Tests/Fixtures/annotated-reference-twin")
 
 
 def prepare_candidate_workspace(root, workspace, identifiers):
