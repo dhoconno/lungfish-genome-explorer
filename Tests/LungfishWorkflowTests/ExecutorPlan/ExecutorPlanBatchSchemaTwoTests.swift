@@ -243,11 +243,12 @@ final class ExecutorPlanBatchSchemaTwoTests: XCTestCase {
                        ["result-folder", "result-folder", "staged-folder", "staged-folder"])
     }
 
-    /// The refusals of `checkJobs` that the test above and the request test leave out, and the submit template's one for two
-    /// outputs of one last name. A batch of no plan, a plan with no chain of pinned tools, a second plan whose reference
+    /// The refusals of `checkJobs` that the test above and the request test leave out, and the submit template's one for an
+    /// output at the record's path. A batch of no plan, a plan with no chain of pinned tools, a second plan whose reference
     /// bytes differ from the first's, and a plan that pins another tool manifest than the image are each refused with the
-    /// field and words below, `dryRun` makes the same refusal, and no folder is left. The two returned files of one last name
-    /// are refused while the folder is written, so the writer removes the folder it made (EX-SUBMIT-SWIFT should-fix 1).
+    /// field and words below, `dryRun` makes the same refusal, and no folder is left. An output at the record's whole path is
+    /// refused while the folder is written, so the writer removes the folder it made (EX-SUBMIT-SWIFT should-fix 1). Two
+    /// outputs of one last name in different folders pass (ruling ARCH-5-1-C-3 item 1, `HTCondorSubmitTemplateTests`).
     func testSchemaTwoBatchRefusalsLeaveNoFolder() throws {
         let another = PlanImageManifestPin(sha256: String(repeating: "9", count: 64), size: 4097)
         let cases: [(name: String, jobs: [ExecutorPlanBatchJob], field: String, words: String)] = [
@@ -273,10 +274,10 @@ final class ExecutorPlanBatchSchemaTwoTests: XCTestCase {
         }
 
         // `dryRun` makes the refusals of `checkJobs` and renders nothing, so this one shows in the real write alone.
-        let clash = try job(emission: try emission(outputs: [("out/quant.sf", .home), ("index/quant.sf", .staged)]))
+        let clash = try job(emission: try emission(outputs: [("out/quant.sf", .home), ("run-record.json", .staged)]))
         let folder = root.appendingPathComponent("returned-twice", isDirectory: true)
         XCTAssertThrowsError(try ExecutorPlanBatchWriter.write([clash], image: image, layout: layout, into: folder)) {
-            XCTAssertEqual($0 as? HTCondorSubmitError, .duplicate(field: "returned file", name: "quant.sf"))
+            XCTAssertEqual($0 as? HTCondorSubmitError, .duplicate(field: "returned file", name: "run-record.json"))
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
     }

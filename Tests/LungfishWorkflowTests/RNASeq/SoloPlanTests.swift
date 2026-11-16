@@ -322,8 +322,10 @@ final class SoloPlanTests: XCTestCase {
         XCTAssertEqual(job.stagedPaths, made.sample.stagedPaths)
         XCTAssertEqual(job.submit.requestMemoryMiB, 4096)
         XCTAssertFalse(String(decoding: try made.plan.encoded(), as: UTF8.self).contains("4096"))
-        // ExecutorPlanBatchWriter.write refuses this job today, since four home folders return barcodes.tsv, features.tsv
-        // and matrix.mtx and HTCondor names a returned file by its last component (HTCondorSubmitTemplate.checkOutputs).
-        // The lane report files it as a finding, so the batch is not written here.
+        // Four home folders each return barcodes.tsv, features.tsv and matrix.mtx. The submit template remaps each output by
+        // its whole plan path, so the rule the batch writer meets takes the step's outputs (ruling ARCH-5-1-C-3 item 1), and
+        // SoloPlanLauncherConformanceTests writes the batch for the launcher tier.
+        let step = try XCTUnwrap(made.plan.steps.first)
+        XCTAssertNoThrow(try HTCondorValueRules.checkOutputs(home: step.outputs, staged: []))
     }
 }

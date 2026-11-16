@@ -335,13 +335,75 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
         XCTAssertEqual(refusal(["work"]), notUnderWork)
         XCTAssertNotNil(refusal(["work/../out/r.json"]), "a dot component leaves the work folder")
         XCTAssertNotNil(refusal(["work/sample report.json"]), "a space would split the remap")
-        // HTCondor names a returned file after the last component of its path, so two reports, a report and the record,
-        // or a report and the payload that share one would overwrite each other.
+        // Schema 1 keeps the rule of one last name a returned file that its route ran on the pool with (ruling
+        // ARCH-5-1-C-3 item 1). The execute point uploads each remapped file to its file:// URL itself, keyed by the path
+        // transfer_output_files lists (G3 j2, node 593394), so only plan/logs reaches the submit folder by its name, and a
+        // schema 2 job's outputs need only distinct whole paths (testSchemaTwoOutputsMayShareALastNameButNotAWholePath).
         XCTAssertEqual(refusal(["work/a/r.json", "work/b/r.json"]), .duplicate(field: "returned file", name: "r.json"))
         XCTAssertEqual(refusal(["work/r.json", "work/r.json"]), .duplicate(field: "returned file", name: "r.json"))
         XCTAssertEqual(refusal(["work/run-record.json"]), .duplicate(field: "returned file", name: "run-record.json"))
         XCTAssertEqual(refusal(["work/sample.fastq.gz"]), .duplicate(field: "returned file", name: "sample.fastq.gz"))
         XCTAssertNil(refusal(["work/r.json", "work/s.json"]))
+    }
+
+    /// A schema 2 input that returns `home` and `staged`, with each job's own requests from its node.
+    static func schemaTwo(home: [String], staged: [String] = []) -> HTCondorSubmitTemplateInput {
+        var schemaTwo = input()
+        schemaTwo.requests = .eachJob
+        schemaTwo.returns = .outputs(home: home, staged: staged)
+        return schemaTwo
+    }
+
+    /// The pairs of the one `transfer_output_remaps` line, each a key and its target.
+    private func remaps(in text: String) throws -> [(key: String, target: String)] {
+        try value(of: "transfer_output_remaps", in: text).dropFirst().dropLast().components(separatedBy: "; ").map { pair in
+            let parts = pair.components(separatedBy: " = ")
+            return (parts[0], parts.count == 2 ? parts[1] : "")
+        }
+    }
+
+    /// Ruling ARCH-5-1-C-3 items 1 and 2. A schema 2 job remaps its record and each `home` output by the path
+    /// `transfer_output_files` lists it by to a `file://` URL, and the execute point uploads the file there itself (CHTC c4
+    /// G3 j2, node 593394), so only `plan/logs` reaches the submit folder by its name. STARsolo's 15 home outputs repeat
+    /// `barcodes.tsv`, `features.tsv` and `matrix.mtx` four times and `Summary.csv` twice, and with the record they render
+    /// 16 distinct remap keys to 16 distinct URLs, each under the sample's `result/` at its plan path.
+    func testSTARsolosFifteenHomeOutputsRenderSixteenDistinctRemapKeys() throws {
+        let home = SoloPlan.reports
+        XCTAssertEqual(home.count, 15)
+        XCTAssertEqual(Set(home.map(HTCondorValueRules.lastComponent)).count, 5, "the outputs share last names")
+        let text = try HTCondorSubmitTemplate.render(Self.schemaTwo(home: home))
+        let files = try value(of: "transfer_output_files", in: text).components(separatedBy: ", ")
+        let pairs = try remaps(in: text)
+        let result = "\(Self.staging)/h/$(sample)/result/"
+        XCTAssertEqual(pairs.map(\.key), (["run-record.json"] + home).map { "plan/" + $0 })
+        XCTAssertEqual(Set(pairs.map(\.key)).count, 16)
+        XCTAssertEqual(Set(pairs.map(\.target)).count, 16)
+        for pair in pairs {
+            XCTAssertEqual(pair.target, result + pair.key.dropFirst("plan/".count), "\(pair.key) keeps its plan path")
+        }
+        XCTAssertEqual(files.filter { file in !pairs.contains { $0.key == file } }, ["plan/logs"], "only the logs come by name")
+    }
+
+    /// Ruling ARCH-5-1-C-3 item 1. Two outputs may share a last name in different folders, as the pool probe of its item 6
+    /// returns them and as a step's console lines sit under `logs/`. A whole path given twice, as two `home` outputs or as a
+    /// `home` and a `staged` one, would be two remaps of one key, and the record's and the logs folder's paths are ones the
+    /// job already lists. Each is refused with field `returned file` and the whole path.
+    func testSchemaTwoOutputsMayShareALastNameButNotAWholePath() {
+        func refusal(home: [String], staged: [String] = []) -> HTCondorSubmitError? {
+            do {
+                _ = try HTCondorSubmitTemplate.render(Self.schemaTwo(home: home, staged: staged))
+                return nil
+            } catch {
+                return error as? HTCondorSubmitError
+            }
+        }
+        let path = "solo/Solo.out/Gene/raw/barcodes.tsv"
+        XCTAssertEqual(refusal(home: [path, path]), .duplicate(field: "returned file", name: path))
+        XCTAssertEqual(refusal(home: [path], staged: [path]), .duplicate(field: "returned file", name: path))
+        XCTAssertEqual(refusal(home: ["run-record.json"]), .duplicate(field: "returned file", name: "run-record.json"))
+        XCTAssertEqual(refusal(home: [], staged: ["logs"]), .duplicate(field: "returned file", name: "logs"))
+        XCTAssertNil(refusal(home: ["a/x.tsv", "b/x.tsv"], staged: ["s1/y", "s2/y"]))
+        XCTAssertNil(refusal(home: ["logs/trim.stderr", "work/run-record.json"]))
     }
 
     /// The plan's reports are the outputs of its recipe steps that no step reads, in the plan's order, which is the
