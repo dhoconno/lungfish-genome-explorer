@@ -386,26 +386,45 @@ final class WalkTwinsXCUITests: XCTestCase {
             robot.failShowingScreen("The annotation table lists \(rows.count) rows and not the \(genes.count) genes of the reference")
             return nil
         }
+        // Every click on a row goes to a point inside the part of the row that shows (`visiblePoint`).
         let selected = { rows.allElementsBoundByIndex.filter { $0.isSelected }.count }
-        rows.element(boundBy: 0).click()
+        visiblePoint(of: rows.element(boundBy: 0), in: drawer).click()
         app.typeKey("a", modifierFlags: .command)
         if !poll(5, in: app, until: { selected() == genes.count }) {
             // Shift and the down arrow extend a selection that Select All did not make.
-            rows.element(boundBy: 0).click()
+            visiblePoint(of: rows.element(boundBy: 0), in: drawer).click()
             for _ in 1..<genes.count { app.typeKey(.downArrow, modifierFlags: [.shift]) }
         }
         guard poll(5, in: app, until: { selected() == genes.count }) else {
             robot.failShowingScreen("\(selected()) rows of the annotation table are selected and not all \(genes.count)")
             return nil
         }
+        print("TWIN-W32 \(file): all \(genes.count) rows of the annotation table are selected")
 
         let title = "Extract \(genes.count) Sequences\u{2026}"
         let menuItem = { app.menuItems.matching(NSPredicate(format: "title == %@", title)).allElementsBoundByIndex.first { $0.isHittable } }
-        rows.element(boundBy: 0).rightClick()
-        guard poll(10, in: app, until: { menuItem() != nil }), let choice = menuItem() else {
-            robot.failShowingScreen("The context menu of the \(genes.count) selected rows shows no item \"\(title)\"")
+        // "Zoom to Annotation" is in the context menu of every annotation row, so it says that the menu is open.
+        let contextMenuOpen = { app.menuItems.matching(NSPredicate(format: "title == %@", "Zoom to Annotation")).allElementsBoundByIndex
+            .contains { $0.isHittable } }
+        let offered = { app.menuItems.matching(NSPredicate(format: "title BEGINSWITH %@", "Extract")).allElementsBoundByIndex
+            .filter { $0.isHittable }.map { $0.title }.joined(separator: " | ") }
+        var choice: XCUIElement?
+        var seen = "none, no context menu came"
+        for inset in [CGFloat(40), 160] where choice == nil {
+            visiblePoint(of: rows.element(boundBy: 0), in: drawer, inset: inset).rightClick()
+            _ = poll(8, in: app, until: { menuItem() != nil || contextMenuOpen() })
+            choice = menuItem()
+            if choice == nil, contextMenuOpen() {
+                // The menu came without the item (a selection that dropped), so close it before the next try.
+                seen = offered()
+                app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+            }
+        }
+        guard let choice else {
+            robot.failShowingScreen("The context menu of the \(genes.count) selected rows shows no item \"\(title)\" (Extract items it showed: \(seen))")
             return nil
         }
+        print("TWIN-W32 \(file): the context menu offers \"\(title)\"")
         choice.click()
 
         let kept = leftOut ? genes.count - 1 : genes.count
@@ -421,15 +440,16 @@ final class WalkTwinsXCUITests: XCTestCase {
             for said in words {
                 XCTAssertTrue(alert.staticTexts.matching(said).firstMatch.waitForExistence(timeout: 5), "The left-out alert lacks the words \(said)")
             }
+            print("TWIN-W32 \(file): the left-out alert names HBB and says the other \(kept) are in the extraction")
             alert.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
             guard dialog.waitForExistence(timeout: 20) else {
                 robot.failShowingScreen("Closing the left-out alert opened no Extract Sequence dialog (W-32)")
                 return nil
             }
-            // Sheets are not stacked, so the alert's words are gone once the dialog shows.
-            for said in words {
-                XCTAssertTrue(app.staticTexts.matching(said).firstMatch.waitForNonExistence(timeout: 10), "The alert's words \(said) stay beside the dialog")
-            }
+            // Sheets are not stacked, so the alert's sentence is gone once the dialog shows. The word HBB stays: it is
+            // the name of a row of the annotation table behind the dialog.
+            XCTAssertTrue(app.staticTexts.matching(words[1]).firstMatch.waitForNonExistence(timeout: 10),
+                          "The alert's sentence about the other \(kept) stays beside the dialog")
         }
         guard dialog.waitForExistence(timeout: 20) else {
             robot.failShowingScreen("\"\(title)\" opens no Extract Sequence dialog")
@@ -454,19 +474,32 @@ final class WalkTwinsXCUITests: XCTestCase {
         field.typeText(file)
         field.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
-        // The CLI writes the file behind an Operations row, so the file shows when its records are all there.
+        // The CLI writes the file behind an Operations row, so the file shows when its records are all there and two
+        // reads in a row (0.25 s apart) say the same, so that no record is read half written.
         let url = folder.appendingPathComponent(file)
         var text = ""
         let written = poll(90, in: app) {
             guard let held = try? String(contentsOf: url, encoding: .utf8) else { return false }
+            let unchanged = held == text
             text = held
-            return fastaRecords(in: held).count >= kept
+            return unchanged && fastaRecords(in: held).count >= kept
         }
         guard written else {
             robot.failShowingScreen("Save to File… wrote no file \(file) with \(kept) records within 90 s (it holds: \(text))")
             return nil
         }
+        print("TWIN-W32 \(file): the file holds \(fastaRecords(in: text).count) records (headers: \(fastaRecords(in: text).map { $0.header }.joined(separator: " | ")))")
         return text
+    }
+
+    /// A point inside the part of `row` that shows. A row of the annotation table is 1,208 points wide and its table
+    /// shows about half of that, so the middle of the row lies out of view: `rightClick()` on the row scrolled the table
+    /// sideways three times and failed "Not hittable" at the row's middle (gate run 3 of TWIN-W32, `:404`). A point
+    /// `inset` points inside the first column takes the click where a person puts it and scrolls nothing.
+    @MainActor
+    private static func visiblePoint(of row: XCUIElement, in drawer: XCUIElement, inset: CGFloat = 40) -> XCUICoordinate {
+        let hidden = max(0, drawer.frame.minX - row.frame.minX)
+        return row.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5)).withOffset(CGVector(dx: hidden + inset, dy: 0))
     }
 
     /// The records of a FASTA text, each with its header line (without the greater-than sign) and its bases in one line.
