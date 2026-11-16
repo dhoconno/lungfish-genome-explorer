@@ -84,9 +84,10 @@ package enum UMIPlan {
             setting("umiExtraction", "UMI extraction", "umi_tools " + preset.extractArguments.joined(separator: " ")),
             setting("umiGrouping", "UMI grouping", "umi_tools " + preset.countArguments.joined(separator: " ")),
             setting("umiCheckPairs", "UMI layout check pairs", "\(UMILayoutCheck.grouped(preset.checkPairs)) pairs, \(choice)"),
-            setting("umiCheckBars", "UMI layout check bars", "fails when under \(bars.withinOneMismatchPass)% of the pairs read "
-                + "start within one mismatch of \(preset.motif) or under \(bars.distinctFail)% hold a distinct UMI, and warns "
-                + "when under \(bars.exactWarn)% start with it exactly or under \(bars.distinctWarn)% hold a distinct UMI"),
+            setting("umiCheckBars", "UMI layout check bars", "fails when a read name differs between the mates in any pair, "
+                + "when under \(bars.withinOneMismatchPass)% of the pairs read start within one mismatch of \(preset.motif), or "
+                + "when under \(bars.distinctFail)% hold a distinct UMI, and warns when under \(bars.exactWarn)% start with it "
+                + "exactly or under \(bars.distinctWarn)% hold a distinct UMI"),
         ]
         if let adapter = preset.adapter {
             settings.append(setting("adapter", "Adapter", adapter))

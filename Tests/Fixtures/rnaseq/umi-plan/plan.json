@@ -54,7 +54,7 @@
         "id" : "umiCheckBars",
         "label" : "UMI layout check bars",
         "source" : "default",
-        "value" : "fails when under 90% of the pairs read start within one mismatch of ATCAATC or under 50% hold a distinct UMI, and warns when under 90% start with it exactly or under 80% hold a distinct UMI"
+        "value" : "fails when a read name differs between the mates in any pair, when under 90% of the pairs read start within one mismatch of ATCAATC, or when under 50% hold a distinct UMI, and warns when under 90% start with it exactly or under 80% hold a distinct UMI"
       },
       {
         "id" : "umiCheckPairs",
