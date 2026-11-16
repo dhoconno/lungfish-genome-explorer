@@ -85,7 +85,7 @@ final class STARPlanLauncherConformanceTests: XCTestCase {
             let figures = try STARPlanSubmit.figures(for: manifest, made: made, memoryMiB: 4096, cpus: 8, diskGiB: 5)
             let batch = try STARPlanSubmit.write(
                 [(made, figures)], image: image.record, layout: layout, into: out.appendingPathComponent(run.name, isDirectory: true))
-            let readFromStaging = batch.files.filter { $0.stagingPath.contains("/index/staged/") }
+            let readFromStaging = batch.files.filter { $0.stagingPath.range(of: "/index/staged/") != nil }
             XCTAssertEqual(readFromStaging.count, index.entries.count, "each index file is listed once")
             XCTAssertTrue(readFromStaging.allSatisfy { $0.source == nil }, "no index file is uploaded from the Mac")
             print("EX-PLAN-STAR batch: \(batch.folder.path) (\(key), \(run.chain.rawValue))")
