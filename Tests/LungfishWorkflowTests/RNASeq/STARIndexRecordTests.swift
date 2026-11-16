@@ -20,7 +20,7 @@ extension STARIndexPlanTests {
             ["path": "star-index/\(file)", "bytes": 1_000 + index, "sha256": String(repeating: String(index % 10), count: 64),
              "policy": "staged"]
         }
-        outputs.append(["path": "star-index.Log.out", "bytes": 5_000, "sha256": String(repeating: "f", count: 64), "policy": "home"])
+        outputs.append(["path": "star-index/Log.out", "bytes": 5_000, "sha256": String(repeating: "f", count: 64), "policy": "home"])
         outputs.removeAll { $0["path"] as? String == missing }
         let argv = ["--runMode", "genomeGenerate", "--genomeDir", "star-index", "--runThreadN", "8"]
             + (overhang.map { ["--sjdbOverhang", $0] } ?? []) + ["--genomeSAindexNbases", "7", "--genomeSAsparseD", "2"]

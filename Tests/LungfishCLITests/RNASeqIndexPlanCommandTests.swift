@@ -228,7 +228,7 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
         var outputs: [[String: Any]] = staged.sorted { $0.key < $1.key }.map {
             ["path": $0.key, "bytes": $0.value.bytes, "sha256": $0.value.sha256, "policy": "staged"]
         }
-        outputs.append(["path": "star-index.Log.out", "bytes": 5_000, "sha256": String(repeating: "f", count: 64), "policy": "home"])
+        outputs.append(["path": "star-index/Log.out", "bytes": 5_000, "sha256": String(repeating: "f", count: 64), "policy": "home"])
         // The recorded argv names --sjdbOverhang 100, STAR's default, as the plan's STAR step does (FIX-IDX-1).
         let argv = ["--runMode", "genomeGenerate", "--genomeDir", "star-index", "--runThreadN", "8", "--sjdbOverhang", "100",
                     "--genomeSAindexNbases", "2", "--genomeSAsparseD", "2"]

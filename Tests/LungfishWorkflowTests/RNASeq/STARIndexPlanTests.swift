@@ -99,12 +99,12 @@ final class STARIndexPlanTests: XCTestCase {
             "--genomeFastaFiles", "references/\(id)/genome/cynomolgus-mt.fa", "references/\(id)/extras/sars-cov-2.fa",
             "--sjdbGTFfile", "references/\(id)/derived/genes.gtf", "--sjdbOverhang", "100", "--runThreadN", "8",
             "--genomeSAindexNbases", "\(saIndexNbases(forBases: bases))", "--limitGenomeGenerateRAM", "32000000000",
-            "--genomeSAsparseD", "2", "--outFileNamePrefix", "star-index.",
+            "--genomeSAsparseD", "2", "--outFileNamePrefix", "star-index/",
         ])
         XCTAssertEqual(step.tool, PlanToolPin(id: "STAR", version: "2.7.11b", build: "h0_0"))
         XCTAssertEqual(plan.tools.map(\.id), ["STAR"], "only the tools a step runs")
         let policy = try XCTUnwrap(step.outputPolicy)
-        XCTAssertEqual(policy["star-index.Log.out"], .home)
+        XCTAssertEqual(policy["star-index/Log.out"], .home)
         let staged = policy.filter { $0.value == .staged }.keys.sorted()
         XCTAssertEqual(staged, STARIndexPlan.indexFiles.map { "star-index/\($0)" }.sorted())
         XCTAssertEqual(staged.count, 15, "one staged output a file, never a folder (ARCH-M-IMAGE item 3)")
@@ -199,7 +199,7 @@ final class STARIndexPlanTests: XCTestCase {
             XCTAssertTrue(submit.contains("plan/star-index/\(file) = "), file)
             XCTAssertTrue(submit.contains("/staged/star-index/\(file)"), file)
         }
-        XCTAssertTrue(submit.contains("plan/star-index.Log.out"), "the log comes home")
+        XCTAssertTrue(submit.contains("plan/star-index/Log.out"), "the log comes home")
         XCTAssertFalse(String(decoding: try made.plan.encoded(), as: UTF8.self).contains("request_"), "no submit value in a plan byte")
     }
 }
