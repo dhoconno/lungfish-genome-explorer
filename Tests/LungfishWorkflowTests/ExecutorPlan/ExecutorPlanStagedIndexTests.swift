@@ -118,6 +118,25 @@ final class ExecutorPlanStagedIndexTests: XCTestCase {
         XCTAssertTrue(inside.contains("\(Self.staging)/batches/m-index, where this batch's jobs write"), inside)
     }
 
+    /// Item 1. A record file whose set and key differ from the folder it is filed under is refused, in words that name the
+    /// key it holds, the key asked for and the way out (EX-PLAN-STAR-M1-SWIFT SF2).
+    func testARecordFiledUnderAnotherKeyIsRefused() throws {
+        let store = STARIndexRecordStore(storageRoot: root)
+        let other = "star-2.7.11b-sa7-sparse3"
+        let target = try store.url(setID: Self.setID, key: other)
+        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(Self.record()).write(to: target)
+        let words = refusal { _ = try ExecutorPlanStagedIndex.pin(setID: Self.setID, key: other, store: store, star: Self.star, layout: layout) }
+        for part in [Self.key, other, "adopt that index again"] { XCTAssertTrue(words.contains(part), "\(part) in \(words)") }
+    }
+
+    /// Item 1. A staging path with a character that a job's file transfer cannot hold is refused in words that say so
+    /// (EX-PLAN-STAR-M1-SWIFT SF2).
+    func testAStagingPathWithAnUnsafeCharacterIsRefused() {
+        let words = refusal { _ = try ExecutorPlanStagedIndex.pin(Self.record(folder: "\(Self.staging)/batches/m index/index/staged/star-index"), star: Self.star, layout: layout) }
+        XCTAssertTrue(words.contains("a character other than letters, digits, _, . and -"), words)
+    }
+
     /// Item 2. `run-local.sh` places each index file from the same path below its data folder,
     /// `batches/m-index/index/staged/<plan path>`, and the job's wrapper moves it to its plan path, where the executor
     /// reads it. The `docker` and the executor are stand-ins, as ``LinuxRunScriptTests`` runs them.
