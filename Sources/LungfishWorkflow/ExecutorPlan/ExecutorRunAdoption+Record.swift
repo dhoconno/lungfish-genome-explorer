@@ -80,15 +80,20 @@ extension ExecutorRunAdoption {
     /// `staging.json` names in `containerImage` and `containerDigest` (ARCH item 11) and the site facts as the launcher
     /// reported them (C4-02). The tool manifest's digest that the plan pins stays in the run record only.
     static func runtimeIdentity(_ run: ExecutorAdoptedRun) -> ProvenanceRuntimeIdentity {
-        let facts = run.record.siteFacts.map { ProvenanceSiteFact(key: $0.key, value: $0.value) }
-        let node = run.record.runtimeIdentity
+        runtimeIdentity(record: run.record, stagingImage: run.stagingImage)
+    }
+
+    /// The same identity from a run record and the image of its folder, which the counts adopt reads too.
+    static func runtimeIdentity(record: ExecutorRunRecord, stagingImage: ExecutorAdoptStagingImage?) -> ProvenanceRuntimeIdentity {
+        let facts = record.siteFacts.map { ProvenanceSiteFact(key: $0.key, value: $0.value) }
+        let node = record.runtimeIdentity
         return ProvenanceRuntimeIdentity(
-            containerImage: run.stagingImage?.fileName, containerDigest: run.stagingImage?.sha256,
+            containerImage: stagingImage?.fileName, containerDigest: stagingImage?.sha256,
             siteFacts: facts.isEmpty ? nil : facts,
             // Lane U's OQ-1 rows: where the steps ran and with which executor, as the record states them.
             nodeRuntime: ProvenanceNodeRuntime(
                 kernelRelease: node.kernelRelease, machine: node.machine,
-                executorBuild: run.record.executor.buildPin?.lgeCommit, executorSHA256: run.record.executor.sha256,
+                executorBuild: record.executor.buildPin?.lgeCommit, executorSHA256: record.executor.sha256,
                 orphanSweep: node.orphanSweep.rawValue
             )
         )

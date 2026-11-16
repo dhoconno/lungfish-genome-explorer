@@ -150,6 +150,16 @@ extension ExecutorRunAdoption {
             )
     }
 
+    /// The refusal of a sample whose files wait in `result/`, which names the copy to make, and not the job.
+    static func uncopiedResultRefusal(_ sample: ExecutorBatchSampleFolder) -> ExecutorBatchAdoptRefusal {
+        ExecutorBatchAdoptRefusal(
+            sample: sample.name, field: resultFolderName,
+            cause: "The job's files are in the folder result. Copy everything inside result into the folder \(sample.name), "
+                + "next to plan.json.",
+            gap: nil
+        )
+    }
+
     /// Each sample folder of a batch, in the byte order of the names (Swift's `String` order, which no locale changes): a child
     /// folder that holds `plan.json`, or a `result` folder so that a copy the lab never made is named. The adopt reads one
     /// folder a sample, `<sample>/`, with the `plan.json` the Mac wrote and the job's files beside it (ARCH-c5 point 1). The
@@ -250,12 +260,7 @@ extension ExecutorRunAdoption {
             progress(.checking(sample: sample.name, index: index + 1, count: samples.count))
             // The job returned and its files wait in `result/`: name the copy to make, and not the job (BADOPT review fix 2).
             if holdsUncopiedResult(sample.folder) {
-                refusals.append(ExecutorBatchAdoptRefusal(
-                    sample: sample.name, field: resultFolderName,
-                    cause: "The job's files are in the folder result. Copy everything inside result into the folder \(sample.name), "
-                        + "next to plan.json.",
-                    gap: nil
-                ))
+                refusals.append(uncopiedResultRefusal(sample))
                 continue
             }
             do {
