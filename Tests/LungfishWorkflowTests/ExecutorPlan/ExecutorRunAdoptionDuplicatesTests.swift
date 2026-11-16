@@ -143,6 +143,30 @@ extension SalmonQuantRouteTests {
         }
     }
 
+    /// A Mac result and an adopted Linux result of the same kept reads share a route (`SCR/lanes/FIX-EX-SCHEMA.md:70`).
+    func testMacAndLinuxResultsOfOneKeptBundleShareARoute() async throws {
+        let (set, salmon) = try await mitoSetIndexAndSalmon()
+        let mac = try await quant([try pairBundle("Kept")], set: set.manifest.id, trim: .trimGalore(polyG: false)).resultURL
+        let linux = try adoptLinux([try plan(sample: "L1", removed: false)], salmon: salmon)
+        let macRoute = try route(of: mac)
+        XCTAssertEqual(try route(of: linux), macRoute)
+        XCTAssertEqual(macRoute.settings["duplicates"], SalmonQuantRecordLines.duplicates)
+    }
+
+    /// The forms of the route's `duplicates` from its one writer (ruling ARCH-ADOPT-ROUTE item 1): one state names no
+    /// step and no sample count, and only a mix counts the samples of each state.
+    func testTheRoutesDuplicatesFormsFromItsOneWriter() {
+        let write = SalmonQuantRecordLines.duplicatesSetting(removed:unrecorded:of:)
+        let counted = "Duplicates: removed at import for 3 of 4 samples, without UMIs. This count removes none."
+        XCTAssertEqual(write(0, 0, 4), SalmonQuantRecordLines.duplicates)
+        XCTAssertEqual(write(0, 4, 4), Self.notRecordedLine)
+        XCTAssertEqual(write(4, 0, 4), Self.removedForEvery)
+        XCTAssertEqual(write(1, 0, 1), Self.removedForEvery)
+        XCTAssertEqual(write(3, 0, 4), counted)
+        XCTAssertEqual(write(3, 1, 4), counted + " Not recorded for 1 of 4 samples.")
+        XCTAssertEqual(write(0, 1, 4), "Duplicates: Not recorded for 1 of 4 samples (the bundle holds no import record that names its steps)")
+    }
+
     // MARK: - Backlog row RNASEQ-QUANT-DUPLICATES-NO-RECORD
 
     /// Reads whose bundle holds no import metadata and no import record read Not recorded in the line and the route,

@@ -188,6 +188,35 @@ final class ExecutorRunAdoptionRNASeqTests: XCTestCase {
         XCTAssertEqual(record.steps[3].resolvedOptions["duplicates"], .string(Self.removed(by: "Deduplicate")))
     }
 
+    // MARK: - M3 item 3, the poly-G proof
+
+    /// A poly-G off result and a poly-G on result of one chain never join, and the refusal prints both `trimming` words.
+    func testPolyGOffAndPolyGOnResultsOfOneChainRefuseInWordsThatPrintTrimming() async throws {
+        let set = try await buildSet()
+        let on = "Poly-G trimming: on (chosen), Trim Galore 2.3.0 --poly_g"
+        var plan = try pinned(sample: "on")
+        let at = try XCTUnwrap(plan.pipeline?.settings.firstIndex { $0.id == "trimming" })
+        plan.pipeline?.settings[at].value = on
+        plan.pipeline?.settings[at].source = .option
+        plan.pipeline?.route?.settings["trimming"] = on
+        for index in plan.steps.indices where plan.steps[index].tool?.id == "trim_galore" {
+            plan.steps[index].arguments = plan.steps[index].arguments.map { $0 == "--no_poly_g" ? "--poly_g" : $0 }
+        }
+        XCTAssertTrue(plan.steps.contains { $0.arguments.contains("--poly_g") })
+        let off = try adopt(try Fixture.make(root: root.appendingPathComponent("off"), name: "off", plan: try pinned(sample: "off"),
+                                             contents: try Self.salmonFiles(set)).folder, name: "off")
+        let onResult = try adopt(try Fixture.make(root: root.appendingPathComponent("on"), name: "on", plan: plan,
+                                                  contents: try Self.salmonFiles(set)).folder, name: "on")
+        do {
+            _ = try RNASeqExportJoin.make(try RNASeqExportReader.read([off, onResult]))
+            XCTFail("A poly-G off result joined a poly-G on result")
+        } catch let refusal as RNASeqExportRefusal {
+            let words = refusal.errorDescription ?? ""
+            XCTAssertTrue(words.contains(", trimming Poly-G trimming: off (LGE default)"), words)
+            XCTAssertTrue(words.contains(", trimming \(on)"), words)
+        }
+    }
+
     /// A result adopted from plans holds samples of one duplicates state (`executor-plan.md`, the `duplicates`
     /// paragraph), so a batch of a deduplicated and a kept sample is refused in words that name `duplicates`.
     func testBatchOfTwoDuplicatesStatesIsRefusedInWordsThatNameDuplicates() async throws {
