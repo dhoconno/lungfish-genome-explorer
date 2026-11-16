@@ -187,4 +187,16 @@ final class CHTCImageResourceTests: XCTestCase {
         }
         XCTAssertEqual(Set(counts.keys), Set(prefixes.map(\.environment)), "each of the four prefixes lists a tool")
     }
+
+    /// The ids a recipe plan pins by name (`ExecutorPlanEmitter.ToolPins`): the BBTools wrappers and the `java` they
+    /// find through PATH, fastp, deacon, seqkit, the compressors and Trim Galore. Each stays at one version and build
+    /// now that the RNA-seq prefixes are in the image, since the plan writer drops an id listed twice and the plan
+    /// then says the manifest lists no such tool.
+    func testEveryToolIDARecipePlanPinsByNameHasOneVersionAndBuildInTheCHTCImageManifest() throws {
+        let manifest = try ImageToolManifest.decode(bundledBytes("image-manifest.json"))
+        for id in ["clumpify.sh", "reformat.sh", "bbduk.sh", "bbmerge.sh", "repair.sh", "tadpole.sh", "java",
+                   "fastp", "deacon", "seqkit", "pigz", "bgzip", "trim_galore"] {
+            XCTAssertNoThrow(try manifest.pin(forToolID: id), "\(id) has no single version and build in the image manifest")
+        }
+    }
 }
