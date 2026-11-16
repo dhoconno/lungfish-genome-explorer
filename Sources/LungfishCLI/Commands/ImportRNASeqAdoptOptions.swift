@@ -18,11 +18,13 @@ struct ImportRNASeqAdoptOptions: ParsableArguments {
         help: ArgumentHelp(
             "Adopt the counts a Linux run of lungfish-executor returned, as one result",
             discussion: """
-            The one input names the returned plan folder, which holds plan.json, run-record.json and the run's salmon \
-            files, or a returned batch folder, which holds one such folder a sample as <sample>/. A batch gives one \
-            result of all its samples, and when any sample is refused nothing is imported. Gene sums use the table of \
-            the reference set the plan names, in the storage root. The plan fixed every setting, so no option that \
-            sets a count is taken with --adopt. A refused adopt writes nothing.
+            The one input names the returned plan folder, which holds plan.json, run-record.json and the run's count \
+            files, or a returned batch folder, which holds one such folder a sample as <sample>/. The counts are \
+            salmon's, STAR GeneCounts' column 2 (unstranded) or featureCounts' table, as the plan's route names. A \
+            batch gives one result of all its samples, and when any sample is refused nothing is imported. The genes \
+            are those of the reference set the plan names, in the storage root, and a STAR or featureCounts table \
+            counted on another GTF is refused. The plan fixed every setting, so no option that sets a count is taken \
+            with --adopt. A refused adopt writes nothing.
             """
         )
     )
@@ -50,7 +52,7 @@ extension ImportCommand.RNASeqSubcommand {
         return [
             ("--tx2gene", tx2genePath != nil, "the adopt sums genes through the table of the plan's reference set"),
             ("--samples", samplesPath != nil, "the plan names each sample"),
-            ("--unit", unit != nil, "salmon states its own unit"),
+            ("--unit", unit != nil, "the plan's counting tool states its own unit"),
             ("--genome", !genomes.isEmpty, fixed),
             ("--reference-set", referenceSetPath != nil, "the plan names its reference set, which the adopt reads in the storage root"),
             ("--not-host-bam", !notHostBAMValues.isEmpty, fixed),
@@ -92,10 +94,12 @@ extension ImportCommand.RNASeqSubcommand {
             emitter.emitProgress(0.1, message: "Checking \(folder.lastPathComponent)...")
             if dryRun {
                 return try ExecutorRunAdoption.dryRunCounts(
-                    resultFolder: folder, projectDirectory: projectURL, name: trimmedName, storageRoot: storageRoot)
+                    resultFolder: folder, projectDirectory: projectURL, name: trimmedName, storageRoot: storageRoot,
+                    warn: { emitter.emitWarning($0) })
             }
             return try ExecutorRunAdoption.adoptCounts(
-                resultFolder: folder, projectDirectory: projectURL, name: trimmedName, storageRoot: storageRoot, eventsOn: eventsOn
+                resultFolder: folder, projectDirectory: projectURL, name: trimmedName, storageRoot: storageRoot, eventsOn: eventsOn,
+                warn: { emitter.emitWarning($0) }
             ).path
         }
         switch outcome {

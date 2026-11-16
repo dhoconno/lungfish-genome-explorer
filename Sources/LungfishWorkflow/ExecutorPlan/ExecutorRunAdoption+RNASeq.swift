@@ -7,13 +7,32 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
-/// One sample of a counts adopt: its checked run, the salmon folder its counting step returned, read where it lies, the
+/// One sample of a counts adopt: its checked run, the counts its counting step returned, read where they lie, the
 /// duplicates state its plan states, and the adapter of each trim call by step index.
 struct ExecutorCountsAdoptedSample: Sendable {
+    /// salmon's folder, or the table of a STAR chain (lane EX-ADOPT M5).
+    enum Counts: Sendable {
+        case salmon(SalmonQuantFolder)
+        case star(ExecutorSTARCountsSample)
+    }
+
     let run: ExecutorAdoptedCountsRun
-    let folder: SalmonQuantFolder
+    let counts: Counts
     let duplicates: SalmonQuantRecordLines.DuplicatesState
     let adapters: [Int: TrimGaloreAdapterReport]
+
+    /// The plan's sample name, which labels the counts, the kept files and the record.
+    var name: String { run.plan.sample.sampleName }
+    var salmonFolder: SalmonQuantFolder? {
+        if case .salmon(let folder) = counts { return folder }
+        return nil
+    }
+    var starCounts: ExecutorSTARCountsSample? {
+        if case .star(let star) = counts { return star }
+        return nil
+    }
+    /// The counting step's lines the payload adds to the record beside the Mac route's: none for salmon.
+    var payloadLines: [String: ParameterValue] { starCounts?.lines ?? [:] }
 }
 
 /// A returned folder or batch whose every sample passed every check, read into the writer's request before any result
@@ -23,12 +42,15 @@ struct ExecutorCountsAdoption: Sendable {
     /// The set folder under the storage root that `pipeline.referenceSet.id` names.
     let setURL: URL
     let request: RNASeqResultWriter.Request
+
+    /// What the import prints and the record keeps beside the result, such as reads that do not look unstranded.
+    var warnings: [String] { samples.compactMap { $0.starCounts?.warning } }
 }
 
 extension ExecutorRunAdoption {
     /// Every check and every read of the counts adopt, with nothing written: each sample's run (`checkCounts`), one
-    /// pipeline for all, the set under `storageRoot`, each salmon folder and each trim call's adapter, then the request
-    /// `RNASeqResultWriter` takes.
+    /// pipeline for all, the set under `storageRoot`, each salmon folder or STAR chain's table and each trim call's
+    /// adapter, then the request `RNASeqResultWriter` takes.
     static func prepareCounts(
         _ folder: URL, storageRoot: URL, name: String, policy: ExecutorAdoptPolicy
     ) throws -> ExecutorCountsAdoption {
@@ -37,11 +59,17 @@ extension ExecutorRunAdoption {
         let duplicates = try runs.map { try duplicatesState($0) }
         try checkOnePipeline(runs, duplicates: duplicates)
         let (setURL, set) = try countsReferenceSet(first.pipeline.referenceSet, storageRoot: storageRoot)
+        // A STAR chain's two checks come before any table is read: `multimapNmax` in the argv (`checkCounts`), then each
+        // plan's GTF against the set's (lane EX-ADOPT M5).
+        let star = isSTARRoute(first.route)
+        if star { for run in runs { try checkCountingGTF(run, set: set) } }
+        let setGenes = star ? try starSetGenes(set) : []
         var samples: [ExecutorCountsAdoptedSample] = []
         for (run, state) in zip(runs, duplicates) {
             try Task.checkCancellation()
-            samples.append(ExecutorCountsAdoptedSample(
-                run: run, folder: try salmonFolder(run), duplicates: state, adapters: try trimAdapters(run)))
+            let counts: ExecutorCountsAdoptedSample.Counts = star
+                ? .star(try starSample(run, setID: set.manifest.id, setGenes: setGenes)) : .salmon(try salmonFolder(run))
+            samples.append(ExecutorCountsAdoptedSample(run: run, counts: counts, duplicates: state, adapters: try trimAdapters(run)))
         }
         let request = try countsRequest(name: name, samples: samples, set: set)
         return ExecutorCountsAdoption(samples: samples, setURL: setURL, request: request)
@@ -95,18 +123,18 @@ extension ExecutorRunAdoption {
     }
 
     /// One result holds one route and one set, so every sample's plan states the same pipeline, and the adopt reads
-    /// salmon's bulk counts. Route keys other than `duplicates` must be equal. `duplicates` holds each sample's own step
+    /// the bulk counts of salmon, STAR GeneCounts or featureCounts. Route keys other than `duplicates` must be equal. `duplicates` holds each sample's own step
     /// names, so the samples must share its state instead, as a result adopted from plans holds samples of one state
     /// (`docs/formats/executor-plan.md`, the `duplicates` paragraph).
     static func checkOnePipeline(
         _ runs: [ExecutorAdoptedCountsRun], duplicates: [SalmonQuantRecordLines.DuplicatesState]
     ) throws(ExecutorAdoptRefusal) {
         let first = runs[0]
-        guard first.route.tool == salmonToolID, first.pipeline.modality == .bulk else {
+        guard first.route.tool == salmonToolID || isSTARRoute(first.route), first.pipeline.modality == .bulk else {
             throw refusal(
                 "pipeline.route",
                 "This plan counts \(first.pipeline.modality?.rawValue ?? "no") reads with \(first.route.tool) \(first.route.toolVersion), "
-                    + "and import rnaseq --adopt reads the bulk counts of salmon only."
+                    + "and import rnaseq --adopt reads the bulk counts of salmon, STAR GeneCounts and featureCounts only."
             )
         }
         for (run, state) in zip(runs, duplicates).dropFirst() {

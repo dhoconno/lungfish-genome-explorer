@@ -21,8 +21,9 @@ extension ExecutorRunAdoption {
     static let libraryFormatReport = "lib_format_counts.json"
 
     /// Each setting of `route.settings` that a step's argv carries shows in the recorded argv of that step, so the argv
-    /// and the identity never disagree, and a salmon result returns its library type report. Each refusal names the step.
-    /// `counting` is `countingStepIndices(of:route:)`, which the result's files come from too.
+    /// and the identity never disagree, a salmon result returns its library type report, and a STAR chain's STAR step
+    /// shows `multimapNmax`. Each refusal names the step. `counting` is `countingStepIndices(of:route:)`, which the
+    /// result's files come from too.
     static func checkSettingsInArgv(
         _ record: ExecutorRunRecord, plan: ExecutionPlan, route: PlanPipelineRoute, counting: [Int]
     ) throws(ExecutorAdoptRefusal) {
@@ -30,6 +31,9 @@ extension ExecutorRunAdoption {
         try checkAlignmentScoring(record, plan: plan, counting: counting, route: route)
         if route.tool == salmonToolID {
             try checkLibraryFormatReport(plan, counting: counting)
+        }
+        if isSTARRoute(route) {
+            try checkMultimapNmax(record, plan: plan, route: route)
         }
     }
 

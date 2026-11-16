@@ -9,19 +9,21 @@ import LungfishIO
 
 extension ExecutorRunAdoption {
     /// Adopts a returned folder or batch as one RNA-seq result in the project's `Analyses/` and returns its folder.
-    /// `storageRoot` nil reads the configured location. Every refusal comes before any file is written.
+    /// `storageRoot` nil reads the configured location. Every refusal comes before any file is written. `warn` takes each
+    /// warning the record keeps, such as reads that do not look unstranded, once the result is written.
     package static func adoptCounts(
-        resultFolder: URL, projectDirectory: URL, name: String, storageRoot: URL? = nil, eventsOn: Bool = false
+        resultFolder: URL, projectDirectory: URL, name: String, storageRoot: URL? = nil, eventsOn: Bool = false,
+        warn: (String) -> Void = { _ in }
     ) throws -> URL {
         try adoptCounts(
             resultFolder: resultFolder, projectDirectory: projectDirectory, name: name, storageRoot: storageRoot,
-            eventsOn: eventsOn, policy: .release, provenanceWriter: ProvenanceWriter()
+            eventsOn: eventsOn, policy: .release, provenanceWriter: ProvenanceWriter(), warn: warn
         )
     }
 
     static func adoptCounts(
         resultFolder: URL, projectDirectory: URL, name: String, storageRoot: URL?, eventsOn: Bool = false,
-        policy: ExecutorAdoptPolicy, provenanceWriter: ProvenanceWriter
+        policy: ExecutorAdoptPolicy, provenanceWriter: ProvenanceWriter, warn: (String) -> Void = { _ in }
     ) throws -> URL {
         let started = Date()
         let root = storageRoot ?? ManagedStorageConfigStore().currentLocation().rootURL
@@ -37,15 +39,17 @@ extension ExecutorRunAdoption {
         try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
         try RNASeqResultWriter(provenanceWriter: provenanceWriter).write(adoption.request, to: resultURL, envelope: envelope)
         _ = try ReferenceSetOwner(storageRoot: root).recordUse(of: adoption.setURL, resultFolder: resultURL)
+        adoption.warnings.forEach(warn)
         return resultURL
     }
 
     /// Every check and read of the adopt with nothing written (`--dry-run`), and the folder name the result would take.
+    /// `warn` takes each warning the adopt would keep.
     package static func dryRunCounts(
-        resultFolder: URL, projectDirectory: URL, name: String, storageRoot: URL? = nil
+        resultFolder: URL, projectDirectory: URL, name: String, storageRoot: URL? = nil, warn: (String) -> Void = { _ in }
     ) throws -> String {
         let root = storageRoot ?? ManagedStorageConfigStore().currentLocation().rootURL
-        _ = try prepareCounts(resultFolder, storageRoot: root, name: name, policy: .release)
+        try prepareCounts(resultFolder, storageRoot: root, name: name, policy: .release).warnings.forEach(warn)
         let analyses = projectDirectory.appendingPathComponent("Analyses", isDirectory: true)
         return AnalysesFolder.batchSampleFileURL(named: name, extension: "lungfishrnaseq", in: analyses)
             .lastPathComponent
@@ -70,7 +74,8 @@ extension ExecutorRunAdoption {
     static func countsRequest(
         name: String, samples: [ExecutorCountsAdoptedSample], set: ReferenceSetOutcome
     ) throws -> RNASeqResultWriter.Request {
-        let folders = samples.map(\.folder)
+        if samples[0].starCounts != nil { return try starCountsRequest(name: name, samples: samples, set: set) }
+        let folders = samples.compactMap(\.salmonFolder)
         let route = samples[0].run.route
         let pairs = set.manifest.derived.transcriptGenes.path
         let genes = try SalmonQuantFolderReader.geneCounts(folders, tx2gene: try SalmonTx2Gene.read(set.url.appendingPathComponent(pairs)))

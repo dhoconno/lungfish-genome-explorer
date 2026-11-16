@@ -53,9 +53,10 @@ extension ExecutorRunAdoption {
     /// One sample's steps as its run record states them. A trim step carries the poly-G line and its adapter lines.
     static func countsSteps(_ sample: ExecutorCountsAdoptedSample) -> [ProvenanceStep] {
         let run = sample.run
-        let lines = countsRecordLines(run, sample: sample.folder.sample)
+        // A STAR chain's counting step adds its totals, strand share and files left out (lane EX-ADOPT M5).
+        let lines = countsRecordLines(run, sample: sample.name).merging(sample.payloadLines) { _, payload in payload }
         return run.record.steps.enumerated().map { index, step in
-            var options: [String: ParameterValue] = ["sample": .string(sample.folder.sample)]
+            var options: [String: ParameterValue] = ["sample": .string(sample.name)]
             if run.countingSteps.contains(index) {
                 options = lines
             } else if step.tool?.id == trimmerToolID {
