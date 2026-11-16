@@ -362,6 +362,7 @@ final class ExecutorRunAdoptionRNASeqTests: XCTestCase {
         XCTAssertTrue(
             cause.contains("trim-pair1") && cause.contains("adapter") && cause.contains("trim-pair1/pair1_R1.fastq_trimming_report.json"),
             cause)
+        XCTAssertTrue(cause.contains("the sample S1") && cause.contains("Make the plan again"), cause)
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.path))
     }
 }
