@@ -1,0 +1,333 @@
+{
+  "entries" : [
+    {
+      "relativePath" : "bin/lungfish-executor",
+      "role" : "executor",
+      "sha256" : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size" : 1000
+    },
+    {
+      "relativePath" : "inputs/pair1_R1.fastq",
+      "role" : "input",
+      "sha256" : "60e95b4e1d55f6142806a8a1dbbff8c1ce539ddefd46f4467ad2a5d9064b2669",
+      "size" : 6750
+    },
+    {
+      "relativePath" : "inputs/pair1_R2.fastq",
+      "role" : "input",
+      "sha256" : "180cd628b941e3987b327060d4cda3429527abe114e9e11b47ab518d61f10362",
+      "size" : 16422
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "Genome",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0/Genome",
+      "role" : "reference",
+      "sha256" : "d12e06ae07564c2e3042c354110cf9b144227ab1dc2a9801feeefc009d62bb63",
+      "size" : 16
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "SA",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0/SA",
+      "role" : "reference",
+      "sha256" : "e5e8795606b1ca077cd77c9b44389d1cbcb314f7b8e5f8f7477abeb7a3330ba7",
+      "size" : 12
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "SAindex",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0/SAindex",
+      "role" : "reference",
+      "sha256" : "fa8e20aa02446d7602f78830bd74404624fe576a0c2415fb59c2c50a44b967bc",
+      "size" : 17
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "chrName.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0/chrName.txt",
+      "role" : "reference",
+      "sha256" : "ce7c1e49465d39875641c9f7e3d391cf7aee3edd2eb501cce66b39bc1e17872f",
+      "size" : 21
+    },
+    {
+      "barcodeList" : {
+        "name" : "3M-february-2018",
+        "source" : "image"
+      },
+      "relativePath" : "barcodes/3M-february-2018.txt",
+      "role" : "barcodeList",
+      "sha256" : "843a6f7038db8cb3c06f3dc21cc69d04139ffa10689780518d7a9e42dc2e819b",
+      "size" : 115512960
+    }
+  ],
+  "executor" : {
+    "lgeCommit" : "0000000000000000000000000000000000000000",
+    "lgeVersion" : "test",
+    "staticLinuxSDKID" : "test",
+    "staticLinuxSDKSHA256" : "0000000000000000000000000000000000000000000000000000000000000000",
+    "targetTriple" : "x86_64-swift-linux-musl",
+    "toolchainID" : "test",
+    "toolchainSHA256" : "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "graceSeconds" : 60,
+  "imageManifest" : {
+    "sha256" : "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "size" : 4000
+  },
+  "pipeline" : {
+    "id" : "starsolo",
+    "modality" : "single-cell",
+    "preset" : {
+      "id" : "tenx-3p-v3-introns",
+      "name" : "Exons and introns (STARsolo GeneFull_Ex50pAS)"
+    },
+    "referenceSet" : {
+      "id" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed",
+      "layout" : "lge"
+    },
+    "route" : {
+      "id" : "starsolo-genefull-ex50pas",
+      "settings" : {
+        "barcodeList" : "3M-february-2018, SHA-256 843a6f7038db8cb3c06f3dc21cc69d04139ffa10689780518d7a9e42dc2e819b",
+        "cellFilter" : "EmptyDrops_CR with 3000 expected cells, then 0.99 10 45000 90000 500 0.01 20000 0.01 10000",
+        "chemistry" : "10x 3' v3: barcode of 16 nt at 1 and UMI of 12 nt at 17 of read 1, cDNA in read 2 on the gene's strand (--soloStrand Forward), --clipAdapterType CellRanger4 --outFilterScoreMin 30",
+        "countingGTF" : "made/tenx1-mkgtf-3.0.0/genes.gtf, which the 10x filter rule tenx version 1 made with the list mkgtf-3.0.0 from derived/genes.gtf (SHA-256 59418328435c67055273327b0421d42540c8e8ca32dd9086de09751a7001d45b) of the set macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed: SHA-256 59418328435c67055273327b0421d42540c8e8ca32dd9086de09751a7001d45b, 13888 bytes, 0 genes left out. STARsolo reads its genes through the index star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0.",
+        "counts" : "UMIs a cell and gene of Solo.out/GeneFull_Ex50pAS, reads on a gene's exons and introns, which approximates Cell Ranger 7's include-introns counting",
+        "duplicates" : "Duplicates: removed with UMIs by STARsolo 2.7.11b (--soloUMIdedup 1MM_CR, --soloUMIfiltering MultiGeneUMI_CR), one count for each UMI of a cell and gene.",
+        "index" : "star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0",
+        "trimming" : "Reads not trimmed"
+      },
+      "tool" : "STAR",
+      "toolVersion" : "2.7.11b"
+    },
+    "settings" : [
+      {
+        "id" : "barcodeList",
+        "label" : "Barcode list",
+        "source" : "default",
+        "value" : "3M-february-2018, SHA-256 843a6f7038db8cb3c06f3dc21cc69d04139ffa10689780518d7a9e42dc2e819b"
+      },
+      {
+        "id" : "barcodeListSource",
+        "label" : "Barcode list source",
+        "source" : "default",
+        "value" : "list in the tool image"
+      },
+      {
+        "id" : "cellFilter",
+        "label" : "Cell filter",
+        "source" : "default",
+        "value" : "EmptyDrops_CR with 3000 expected cells, then 0.99 10 45000 90000 500 0.01 20000 0.01 10000"
+      },
+      {
+        "id" : "chemistry",
+        "label" : "Chemistry",
+        "source" : "option",
+        "value" : "10x 3' v3: barcode of 16 nt at 1 and UMI of 12 nt at 17 of read 1, cDNA in read 2 on the gene's strand (--soloStrand Forward), --clipAdapterType CellRanger4 --outFilterScoreMin 30"
+      },
+      {
+        "id" : "countingGTF",
+        "label" : "Counting GTF",
+        "source" : "default",
+        "value" : "made/tenx1-mkgtf-3.0.0/genes.gtf, which the 10x filter rule tenx version 1 made with the list mkgtf-3.0.0 from derived/genes.gtf (SHA-256 59418328435c67055273327b0421d42540c8e8ca32dd9086de09751a7001d45b) of the set macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed: SHA-256 59418328435c67055273327b0421d42540c8e8ca32dd9086de09751a7001d45b, 13888 bytes, 0 genes left out. STARsolo reads its genes through the index star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0."
+      },
+      {
+        "id" : "counts",
+        "label" : "Counts",
+        "source" : "option",
+        "value" : "UMIs a cell and gene of Solo.out/GeneFull_Ex50pAS, reads on a gene's exons and introns, which approximates Cell Ranger 7's include-introns counting"
+      },
+      {
+        "id" : "duplicates",
+        "label" : "Duplicates",
+        "source" : "default",
+        "value" : "Duplicates: removed with UMIs by STARsolo 2.7.11b (--soloUMIdedup 1MM_CR, --soloUMIfiltering MultiGeneUMI_CR), one count for each UMI of a cell and gene."
+      },
+      {
+        "id" : "index",
+        "label" : "Index",
+        "source" : "default",
+        "value" : "star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0"
+      },
+      {
+        "id" : "trimming",
+        "label" : "Trimming",
+        "source" : "default",
+        "value" : "Reads not trimmed"
+      }
+    ],
+    "version" : 1
+  },
+  "sample" : {
+    "originalFilenames" : [
+      "S1_S1_L001_R1_001.fastq",
+      "S1_S1_L001_R2_001.fastq"
+    ],
+    "originalSizeBytes" : 23172,
+    "sampleName" : "S1",
+    "sampleSheet" : [
+
+    ]
+  },
+  "schemaVersion" : 2,
+  "steps" : [
+    {
+      "arguments" : [
+        "--runThreadN",
+        "8",
+        "--genomeDir",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0",
+        "--readFilesIn",
+        "inputs/pair1_R2.fastq",
+        "inputs/pair1_R1.fastq",
+        "--soloType",
+        "CB_UMI_Simple",
+        "--soloCBstart",
+        "1",
+        "--soloCBlen",
+        "16",
+        "--soloUMIstart",
+        "17",
+        "--soloCBwhitelist",
+        "barcodes/3M-february-2018.txt",
+        "--soloUMIlen",
+        "12",
+        "--soloStrand",
+        "Forward",
+        "--clipAdapterType",
+        "CellRanger4",
+        "--outFilterScoreMin",
+        "30",
+        "--soloCBmatchWLtype",
+        "1MM_multi_Nbase_pseudocounts",
+        "--soloUMIfiltering",
+        "MultiGeneUMI_CR",
+        "--soloUMIdedup",
+        "1MM_CR",
+        "--soloCellFilter",
+        "EmptyDrops_CR",
+        "3000",
+        "0.99",
+        "10",
+        "45000",
+        "90000",
+        "500",
+        "0.01",
+        "20000",
+        "0.01",
+        "10000",
+        "--soloFeatures",
+        "Gene",
+        "GeneFull",
+        "GeneFull_Ex50pAS",
+        "--outSAMtype",
+        "None",
+        "--outFileNamePrefix",
+        "solo/"
+      ],
+      "deadlineSeconds" : 31622400,
+      "environment" : [
+
+      ],
+      "id" : "starsolo",
+      "inputs" : [
+        "inputs/pair1_R2.fastq",
+        "inputs/pair1_R1.fastq",
+        "barcodes/3M-february-2018.txt",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0/Genome",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0/SA",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0/SAindex",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0/chrName.txt"
+      ],
+      "kind" : "tool",
+      "outputPolicy" : {
+        "solo/Log.final.out" : "home",
+        "solo/Solo.out/Gene/Summary.csv" : "home",
+        "solo/Solo.out/Gene/filtered/barcodes.tsv" : "home",
+        "solo/Solo.out/Gene/filtered/features.tsv" : "home",
+        "solo/Solo.out/Gene/filtered/matrix.mtx" : "home",
+        "solo/Solo.out/Gene/raw/barcodes.tsv" : "home",
+        "solo/Solo.out/Gene/raw/features.tsv" : "home",
+        "solo/Solo.out/Gene/raw/matrix.mtx" : "home",
+        "solo/Solo.out/GeneFull_Ex50pAS/Summary.csv" : "home",
+        "solo/Solo.out/GeneFull_Ex50pAS/filtered/barcodes.tsv" : "home",
+        "solo/Solo.out/GeneFull_Ex50pAS/filtered/features.tsv" : "home",
+        "solo/Solo.out/GeneFull_Ex50pAS/filtered/matrix.mtx" : "home",
+        "solo/Solo.out/GeneFull_Ex50pAS/raw/barcodes.tsv" : "home",
+        "solo/Solo.out/GeneFull_Ex50pAS/raw/features.tsv" : "home",
+        "solo/Solo.out/GeneFull_Ex50pAS/raw/matrix.mtx" : "home"
+      },
+      "outputs" : [
+        "solo/Log.final.out",
+        "solo/Solo.out/Gene/raw/barcodes.tsv",
+        "solo/Solo.out/Gene/raw/features.tsv",
+        "solo/Solo.out/Gene/raw/matrix.mtx",
+        "solo/Solo.out/Gene/filtered/barcodes.tsv",
+        "solo/Solo.out/Gene/filtered/features.tsv",
+        "solo/Solo.out/Gene/filtered/matrix.mtx",
+        "solo/Solo.out/Gene/Summary.csv",
+        "solo/Solo.out/GeneFull_Ex50pAS/raw/barcodes.tsv",
+        "solo/Solo.out/GeneFull_Ex50pAS/raw/features.tsv",
+        "solo/Solo.out/GeneFull_Ex50pAS/raw/matrix.mtx",
+        "solo/Solo.out/GeneFull_Ex50pAS/filtered/barcodes.tsv",
+        "solo/Solo.out/GeneFull_Ex50pAS/filtered/features.tsv",
+        "solo/Solo.out/GeneFull_Ex50pAS/filtered/matrix.mtx",
+        "solo/Solo.out/GeneFull_Ex50pAS/Summary.csv"
+      ],
+      "title" : "Count the cells' UMIs with STARsolo 2.7.11b on the index star-2.7.11b-sa6-sparse2-tenx1-mkgtf-3.0.0",
+      "tool" : {
+        "build" : "h5814d7d_9",
+        "id" : "STAR",
+        "version" : "2.7.11b"
+      }
+    }
+  ],
+  "tools" : [
+    {
+      "build" : "h5814d7d_9",
+      "id" : "STAR",
+      "version" : "2.7.11b"
+    }
+  ]
+}
