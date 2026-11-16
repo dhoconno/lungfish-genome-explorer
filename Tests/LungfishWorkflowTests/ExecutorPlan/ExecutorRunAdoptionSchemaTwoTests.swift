@@ -417,5 +417,12 @@ final class ExecutorRunAdoptionSchemaTwoTests: XCTestCase {
             Fixture.plan(steps: [Fixture.trimStep(), Fixture.quantStep(home: home)]), name: "no-lib-format", field: "steps[1].outputPolicy",
             cause: "The step quant runs salmon and returns no lib_format_counts.json, so the result could not state detectedLibraryType, the library type salmon detected."
         )
+        // A report listed with policy `stays` never comes to the Mac, so it counts as no report (EX-ADOPT-M1-SWIFT SF2).
+        var staysPlan = Fixture.plan()
+        staysPlan.steps[1].outputPolicy?["quant/lib_format_counts.json"] = .stays
+        try assertRefused(
+            staysPlan, name: "lib-format-stays", field: "steps[1].outputPolicy",
+            cause: "The step quant runs salmon and returns no lib_format_counts.json, so the result could not state detectedLibraryType, the library type salmon detected."
+        )
     }
 }
