@@ -428,7 +428,12 @@ final class WalkTwinsXCUITests: XCTestCase {
         choice.click()
 
         let kept = leftOut ? genes.count - 1 : genes.count
+        let count = NSPredicate(format: "label == %@ OR value == %@", "\(kept) selected", "\(kept) selected")
         let dialog = any["extraction-configuration-sheet"].firstMatch
+        let countLabel = app.staticTexts.matching(count).firstMatch
+        // No other test has found the dialog by its identifier on a run, so the dialog shows when its container (by
+        // identifier) or its words "N selected" do.
+        let dialogShows = { dialog.exists || countLabel.exists }
         if leftOut {
             guard let alert = robot.firstOf([app.sheets.firstMatch, app.dialogs.firstMatch], timeout: 20) else {
                 robot.failShowingScreen("\"\(title)\" shows no alert about the annotation that was left out")
@@ -442,7 +447,7 @@ final class WalkTwinsXCUITests: XCTestCase {
             }
             print("TWIN-W32 \(file): the left-out alert names HBB and says the other \(kept) are in the extraction")
             alert.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
-            guard dialog.waitForExistence(timeout: 20) else {
+            guard poll(20, in: app, until: dialogShows) else {
                 robot.failShowingScreen("Closing the left-out alert opened no Extract Sequence dialog (W-32)")
                 return nil
             }
@@ -451,14 +456,26 @@ final class WalkTwinsXCUITests: XCTestCase {
             XCTAssertTrue(app.staticTexts.matching(words[1]).firstMatch.waitForNonExistence(timeout: 10),
                           "The alert's sentence about the other \(kept) stays beside the dialog")
         }
-        guard dialog.waitForExistence(timeout: 20) else {
+        guard poll(20, in: app, until: dialogShows) else {
             robot.failShowingScreen("\"\(title)\" opens no Extract Sequence dialog")
             return nil
         }
-        let count = NSPredicate(format: "label == %@ OR value == %@", "\(kept) selected", "\(kept) selected")
-        XCTAssertTrue(app.staticTexts.matching(count).firstMatch.waitForExistence(timeout: 5), "The dialog does not say \"\(kept) selected\"")
-        any["extraction-destination-file"].firstMatch.click()
-        any["extraction-extract-button"].firstMatch.click()
+        XCTAssertTrue(countLabel.waitForExistence(timeout: 5), "The dialog does not say \"\(kept) selected\"")
+        print("TWIN-W32 \(file): the Extract Sequence dialog shows (container by identifier \(dialog.exists), \"\(kept) selected\" \(countLabel.exists))")
+        // The destination button and the primary button (titled Save for a file) by identifier, then by their words.
+        let named = { (words: String) in NSPredicate(format: "label CONTAINS %@ OR title CONTAINS %@", words, words) }
+        guard let toFile = robot.firstOf([any["extraction-destination-file"].firstMatch,
+                                          app.sheets.buttons.matching(named("Save to File")).firstMatch], timeout: 10, hittable: true) else {
+            robot.failShowingScreen("The Extract Sequence dialog offers no Save to File… destination")
+            return nil
+        }
+        toFile.click()
+        guard let save = robot.firstOf([any["extraction-extract-button"].firstMatch, app.sheets.buttons["Save"].firstMatch],
+                                       timeout: 10, hittable: true) else {
+            robot.failShowingScreen("The Extract Sequence dialog offers no Save button for a file")
+            return nil
+        }
+        save.click()
 
         let nameField = NSPredicate(format: "elementType == %d AND (identifier == %@ OR value BEGINSWITH %@)",
                                     XCUIElement.ElementType.textField.rawValue, "saveAsNameTextField", "selected")
