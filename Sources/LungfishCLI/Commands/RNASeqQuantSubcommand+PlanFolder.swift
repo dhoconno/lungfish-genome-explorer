@@ -22,8 +22,10 @@ extension RNASeqCommand.QuantSubcommand {
             let reads = try staged.inputs(of: pair, files: [pair.r1] + [pair.r2].compactMap { $0 }, layout: layout).map {
                 SalmonPlanStagedRead(path: $0.url.path, size: $0.size, sha256: $0.sha256)
             }
-            let model = pair.metadata.first { $0.key.lowercased() == "model" }?.value
-            return SalmonPlan.stagedSample(name: pair.sampleName, pairs: [(r1: reads[0], r2: reads[1])], model: model)
+            // A sheet cell with no words gives no instrument, since an empty model names nothing.
+            let model = pair.metadata.first { $0.key.lowercased() == "model" }?.value.trimmingCharacters(in: .whitespaces)
+            return SalmonPlan.stagedSample(
+                name: pair.sampleName, pairs: [(r1: reads[0], r2: reads[1])], model: model?.isEmpty == false ? model : nil)
         }
     }
 

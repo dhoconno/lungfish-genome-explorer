@@ -11,13 +11,21 @@ table, in unit estimated, and its record names the set, the index's hashes,
 salmon's version and every setting that changes counts. --threads is recorded
 and changes no count.
 
-USAGE: lungfish-cli rnaseq quant [<options>] <bundles> ... --project <project> --set <set>
+With --write-plan the command writes a plan folder for a run on a Linux machine
+in place of counting here, one plan a sample on the index this Mac published
+for the set, and writes no result in a project. A run you adopt as a result
+takes a true --executor-manifest, the manifest of the executor you built, since
+the plan pins it.
+
+USAGE: lungfish-cli rnaseq quant [<options>] [<bundles> ...] --set <set>
 
 ARGUMENTS:
-  <bundles>               FASTQ bundles, one sample each
+  <bundles>               FASTQ bundles, one sample each. A plan of staged
+                          reads names none
 
 OPTIONS:
-  --project <project>     The project the result is written in
+  --project <project>     The project the result is written in, required unless
+                          --write-plan is given
   --name <name>           The result's name (default: RNA-seq counts)
   --set <set>             The id of a reference set under the storage root
   --k <k>                 k-mer length of the index, an odd number up to 31
@@ -32,6 +40,51 @@ OPTIONS:
   --storage-root <storage-root>
                           Managed storage root (default: the configured
                           location)
+  --write-plan <folder>   Write a plan folder for a run on a Linux machine to
+                          this new folder in place of counting here
+        The folder is the submit folder of one batch, as import fastq
+        --write-plan writes it, with one plan a sample. Each plan runs Trim
+        Galore (with --trim) and then salmon on the index this Mac published
+        for the set, which the plan pins file by file and never builds, so run
+        lungfish-cli rnaseq index first. Nothing runs here and nothing is
+        submitted, so --project is not used. A run you adopt as a result takes
+        the manifest of the executor you built with --executor-manifest, since
+        the plan pins it.
+  --staged-reads <file>   A tab-separated list of reads already in the staging
+                          folder, with each read's absolute path, size in bytes
+                          and SHA-256, for --write-plan with --samplesheet
+        The sample sheet's r1 and r2 name each read by its absolute path in the
+        staging folder, and Lungfish reads none of them. The list's first line
+        names the columns file, bytes and sha256, separated by tabs. The
+        sheet's optional model column names the instrument.
+  --samplesheet <file>    A comma-separated sample sheet with sample, r1 and r2
+                          columns, for --staged-reads
+  --staging-folder <path> The absolute path of the folder on the Linux machine
+                          that holds the image, the executor, the index and the
+                          reads
+  --executor-manifest <file>
+                          The manifest.json beside the Linux lungfish-executor
+                          (default: the app's). A run you adopt as a result
+                          takes the one you built
+  --image <file>          The image.json of the container image the jobs run in
+                          (default: the app's)
+  --image-tool-manifest <file>
+                          The image's tool manifest, the file image.json pins
+                          (default: the app's)
+  --request-memory-mib <request-memory-mib>
+                          Memory each job asks for, in MiB. Optional for
+                          Macaca_fascicularis_6.0
+  --request-cpus <request-cpus>
+                          CPUs each job asks for, and salmon's -p (default: 8).
+                          Optional for Macaca_fascicularis_6.0
+  --request-disk-gib <request-disk-gib>
+                          Disk each job asks for, in GiB. Optional for
+                          Macaca_fascicularis_6.0
+  --job-requirements <job-requirements>
+                          The machines the jobs may run on, as one HTCondor
+                          requirements expression
+  --dry-run               With --write-plan, make every refusal of the run and
+                          write no folder
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
