@@ -102,12 +102,51 @@ final class MainWindowNavigationXCUITests: XCTestCase {
     }
 }
 
+/// A named wait in the manner of `WaitBudget` (LungfishTestSupport). This target does not link that module, so the
+/// name travels in the failure words and one constant holds the seconds.
+private struct SmokeWaitBudget: Sendable {
+    let name: String
+    let seconds: TimeInterval
+}
+
 extension MainWindowNavigationXCUITests {
+    /// How long the second launch is watched for Sparkle's permission window. The window came 3.0 s and 3.2 s after
+    /// launch in the two runs that were diagnosed (SMOKE-SPARKLE-PROMPT-LAUNCHES-2-TO-13), so 8 s is more than twice
+    /// that. A run that has no window waits the whole budget, since nothing else says the window is not coming.
+    private static let sparklePermissionWindow = SmokeWaitBudget(name: "sparkle-permission-window", seconds: 8)
+
+    /// Launches the candidate, quits it and launches it again, because Sparkle asks permission to check for updates
+    /// on every launch after its first until someone answers. Its window is app-modal over the welcome window and
+    /// has stopped gate runs at the open panel and the import button (SMOKE-SPARKLE-PROMPT-LAUNCHES-2-TO-13). The
+    /// first launch ends once `launch()` has seen the app in front and its File menu, which the app answers from its
+    /// main thread. Sparkle's first update cycle, queued on the main queue before the run loop starts, writes
+    /// `SUHasLaunchedBefore` before that (`SPUUpdater.m`, `startUpdater:` and `startUpdateCycle`). No condition
+    /// names the key itself, which lives in the account's preference domain.
+    /// The welcome window must be the app's only window. `isEnabled` would not tell that: the application and every
+    /// window read `Disabled` in the tree with Sparkle's window and in the tree without it, Sparkle's own window
+    /// included (SMOKE-SPARKLE-PROMPT-LAUNCHES-2-TO-13).
     @MainActor
     func testReleaseCandidateLaunchAndChannelIdentity() throws {
         let robot = try ReleaseAppSmokeRobot()
         defer { robot.app.terminate() }
         try robot.launch()
+        robot.app.terminate()
+        try robot.launch()
+
+        let budget = Self.sparklePermissionWindow
+        if robot.app.buttons["Check Automatically"].firstMatch.waitForExistence(timeout: budget.seconds) {
+            robot.failShowingScreen("Sparkle asked permission to check for updates on the second launch, since its Check Automatically button came within \(Int(budget.seconds)) s (\(budget.name))")
+        }
+        let welcome = robot.app.windows.matching(identifier: "welcome-window").firstMatch
+        guard welcome.exists else {
+            robot.failShowingScreen("The second launch shows no welcome window")
+            return
+        }
+        let windowCount = robot.app.windows.count
+        if windowCount != 1 {
+            robot.failShowingScreen("The second launch shows \(windowCount) windows and not the welcome window alone, so a window beside it can cover the welcome window")
+        }
+        XCTAssertTrue(welcome.isHittable, "The welcome window can be clicked")
     }
 
     @MainActor
