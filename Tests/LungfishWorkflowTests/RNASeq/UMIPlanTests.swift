@@ -103,6 +103,20 @@ final class UMIPlanTests: XCTestCase {
             + "exactly or under 80% hold a distinct UMI")
     }
 
+    /// EX-UMI-M1-BIO ruling 4 and S3: each value the kit's preset fixes enters the plan with source `preset`, `trimming`
+    /// (which no preset fixes) keeps `default`, and the executor's decoder accepts the plan.
+    func testPresetValuesEnterThePlanWithSourcePreset() async throws {
+        XCTAssertEqual(ImportSettingSource(rawValue: "preset")?.rawValue, "preset")
+        let plan = try await made().plan
+        let settings = try XCTUnwrap(plan.pipeline?.settings)
+        XCTAssertEqual(settings.map { "\($0.id) \($0.source.rawValue)" }, [
+            "trimming default", "umiCheckBars preset", "umiCheckPairs preset", "umiExtraction preset", "umiGrouping preset",
+            "umiKit preset", "umiLength preset", "umiMotif preset", "umiRead preset",
+        ])
+        let decoded = try ExecutionPlan.decode(try plan.encoded())
+        XCTAssertEqual(decoded.pipeline?.settings.map(\.source.rawValue), settings.map(\.source.rawValue))
+    }
+
     /// The kit column picks the preset by id, and an unknown kit is refused with the kits LGE knows.
     func testUnknownKitIsRefusedWithTheKnownKits() async throws {
         do {
