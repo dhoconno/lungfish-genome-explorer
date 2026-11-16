@@ -20,12 +20,6 @@ extension ProvenanceInspectorViewModel {
     static let affectedResultsWarningTitle = "Affected result"
     static let affectedResultsRowsKey = "affectedResultRows"
 
-    #if DEBUG
-    /// Test-only probe called at the start of ``affectedResultKind(for:envelope:)``, so a test can see the kind, with
-    /// its read of an analysis's metadata, worked out off the main thread. Idiom: ``loadThreadingProbe``.
-    nonisolated(unsafe) static var affectedKindProbe: (@Sendable () -> Void)?
-    #endif
-
     /// The kind of result `item` is, as the rows of ``AffectedResults`` name it, or nil for an item no row speaks about.
     /// A result type of the sidebar names its kind, and a result in the Analyses folder names its tool in its metadata.
     /// A FASTQ bundle, a folder and a track source, which has no sidebar type, take the kind that `envelope`, the record
@@ -34,9 +28,6 @@ extension ProvenanceInspectorViewModel {
     nonisolated static func affectedResultKind(
         for item: ProvenanceInspectableItem, envelope: ProvenanceEnvelope? = nil
     ) -> AffectedResultKind? {
-        #if DEBUG
-        affectedKindProbe?()
-        #endif
         switch item.sidebarType {
         case .taxTriageResult: return .taxTriage
         case .esvirituResult: return .esViritu

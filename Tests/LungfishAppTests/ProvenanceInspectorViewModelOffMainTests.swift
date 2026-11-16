@@ -86,7 +86,6 @@ final class ProvenanceInspectorViewModelOffMainTests: XCTestCase {
     override func tearDown() async throws {
         ProvenanceInspectorViewModel.loadThreadingProbe = nil
         ProvenanceInspectorViewModel.loadFetchGate = nil
-        ProvenanceInspectorViewModel.affectedKindProbe = nil
         try await super.tearDown()
     }
 
@@ -102,7 +101,7 @@ final class ProvenanceInspectorViewModelOffMainTests: XCTestCase {
         try writeEnvelope(workflowName: "Viral Recon", to: dir, appVersion: "Lungfish 2026.11.7 (12972)")
 
         let observation = ThreadObservationBox()
-        ProvenanceInspectorViewModel.affectedKindProbe = { observation.record() }
+        ProvenanceInspectorViewModel.loadThreadingProbe = { observation.record() }
 
         let viewModel = ProvenanceInspectorViewModel()
         viewModel.load(
@@ -111,8 +110,11 @@ final class ProvenanceInspectorViewModelOffMainTests: XCTestCase {
         )
         try await waitUntilLoadCompletes(viewModel)
 
-        XCTAssertTrue(observation.fired, "affectedKindProbe never fired -- the kind was not worked out")
-        XCTAssertEqual(observation.wasMainThread, false, "the kind, and its read of the metadata, ran on the main thread")
+        XCTAssertTrue(observation.fired, "loadThreadingProbe never fired -- the lookup did not run")
+        XCTAssertEqual(
+            observation.wasMainThread, false,
+            "the lookup, which works out the kind and reads the analysis metadata, ran on the main thread"
+        )
         let outcome = await viewModel.lookupTask?.value ?? nil
         XCTAssertEqual(outcome?.affectedResultKind, .viralRecon, "the lookup's outcome carries the kind")
         let shown = viewModel.warnings.filter { $0.title == ProvenanceInspectorViewModel.affectedResultsWarningTitle }
