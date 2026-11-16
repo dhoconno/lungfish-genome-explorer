@@ -58,24 +58,66 @@ final class StagingScratchNeedTests: XCTestCase {
 
     // MARK: - The need
 
-    /// D1b at 19,279,040 pairs: the trim peaked at 31.7 times its 604,385,740 gzip bytes and the Viral Recon staging at
-    /// 2.9 times. The need is 40 times and 4 times, so each carries a margin over the measurement. A plain file counts
-    /// at its size and a gzip file at ten times its size, as D1b's reads expanded.
-    func testNeedIsTheMeasuredMultipleOfTheReads() throws {
-        XCTAssertEqual(StagingScratchNeed.needBytes(plainBytes: 0, gzipBytes: 604_385_740, route: .fastpTrim), 24_175_429_600)
-        XCTAssertEqual(StagingScratchNeed.needBytes(plainBytes: 0, gzipBytes: 604_385_740, route: .viralReconStaging), 2_417_542_960)
-        XCTAssertEqual(StagingScratchNeed.needBytes(plainBytes: 6_000_000_000, gzipBytes: 0, route: .fastpTrim), 24_000_000_000)
-        XCTAssertEqual(StagingScratchNeed.needBytes(plainBytes: 1_000_000_000, gzipBytes: 0, route: .viralReconStaging), 400_000_000)
-        XCTAssertEqual(StagingScratchNeed.needBytes(plainBytes: -5, gzipBytes: -5, route: .fastpTrim), 0)
-        XCTAssertEqual(StagingScratchNeed.needBytes(plainBytes: Int64.max, gzipBytes: 0, route: .fastpTrim), Int64.max)
-        XCTAssertEqual(StagingScratchNeed.needBytes(plainBytes: 0, gzipBytes: Int64.max, route: .viralReconStaging), Int64.max)
+    /// A gzip file whose statistics sidecar states `reads` reads of `bases` bases in all, as an import writes it.
+    private func gzipFile(_ name: String, bytes: Int, statingReads reads: Int?, bases: Int64 = 0) throws -> URL {
+        let url = root.appendingPathComponent(name)
+        try Data(count: bytes).write(to: url)
+        if let reads {
+            let statistics = FASTQDatasetStatistics(
+                readCount: reads, baseCount: bases,
+                meanReadLength: 75, minReadLength: 75, maxReadLength: 76, medianReadLength: 75, n50ReadLength: 75,
+                meanQuality: 30, q20Percentage: 95, q30Percentage: 90, gcContent: 0.4,
+                readLengthHistogram: [75: reads], qualityScoreHistogram: [:], perPositionQuality: []
+            )
+            try FASTQMetadataStore.write(PersistedFASTQMetadata(computedStatistics: statistics), for: url)
+        }
+        return url
+    }
 
+    /// D1b at 19,279,040 pairs held 7,740,781,880 bytes of text in 604,385,740 bytes of gzip. The trim's work peaked at
+    /// 18,693,724 KB, 2.47 times the text, and the Viral Recon staging at 1,719,860 KB, 0.23 times. The need is three
+    /// times and two fifths of the text, rounded up, so each carries a margin over the measurement.
+    func testNeedIsTheMeasuredMultipleOfTheText() {
+        XCTAssertEqual(StagingScratchNeed.needBytes(textBytes: 7_740_781_880, route: .fastpTrim), 23_222_345_640)
+        XCTAssertEqual(StagingScratchNeed.needBytes(textBytes: 7_740_781_880, route: .viralReconStaging), 3_096_312_752)
+        XCTAssertEqual(StagingScratchNeed.needBytes(textBytes: 3, route: .viralReconStaging), 2, "rounded up")
+        XCTAssertEqual(StagingScratchNeed.needBytes(textBytes: -5, route: .fastpTrim), 0)
+        XCTAssertEqual(StagingScratchNeed.needBytes(textBytes: Int64.max, route: .fastpTrim), Int64.max)
+        XCTAssertEqual(StagingScratchNeed.needBytes(textBytes: Int64.max, route: .viralReconStaging), Int64.max)
+    }
+
+    /// The text is what each file states (F2): a plain file its size, a gzip file the reads and bases of its sidecar at two
+    /// bytes a base and 64 a read. D1b's 7,740,781,880 bytes of text stated that way are 8,240,007,312, 6% over. Only a
+    /// gzip file that states nothing is counted at a ratio, four times its size, as ordinary unclumped reads pack, so an
+    /// ordinary run that fits is not refused for a ratio of clumped reads.
+    func testTheTextIsWhatTheFilesState() throws {
         let plain = root.appendingPathComponent("reads.fastq")
-        let packed = root.appendingPathComponent("reads.fastq.gz")
         try Data(repeating: 0x41, count: 1_000).write(to: plain)
-        try Data(repeating: 0x42, count: 100).write(to: packed)
-        XCTAssertEqual(StagingScratchNeed.needBytes(inputFiles: [plain, packed], route: .fastpTrim), 8_000)
-        XCTAssertEqual(StagingScratchNeed.needBytes(inputFiles: [plain, packed], route: .viralReconStaging), 800)
+        let stated = try gzipFile("stated.fastq.gz", bytes: 100, statingReads: 10, bases: 1_500)
+        let unstated = try gzipFile("unstated.fastq.gz", bytes: 100, statingReads: nil)
+        let d1b = try gzipFile("d1b.fastq.gz", bytes: 1_000, statingReads: 38_558_080, bases: 2_886_145_096)
+        // A sidecar that states less text than the gzip file holds bytes describes another file, so it states nothing.
+        let stale = try gzipFile("stale.fastq.gz", bytes: 10_000, statingReads: 1, bases: 10)
+
+        XCTAssertEqual(ReadTextSize.stated(by: plain), 1_000)
+        XCTAssertEqual(ReadTextSize.stated(by: stated), 3_640)
+        XCTAssertNil(ReadTextSize.stated(by: unstated))
+        XCTAssertEqual(ReadTextSize.stated(by: d1b), 8_240_007_312)
+        XCTAssertNil(ReadTextSize.stated(by: stale))
+        XCTAssertEqual(StagingScratchNeed.needBytes(inputFiles: [plain, stated, unstated], route: .fastpTrim), 3 * (1_000 + 3_640 + 400))
+        XCTAssertEqual(StagingScratchNeed.needBytes(inputFiles: [plain, stated, unstated], route: .viralReconStaging), 2_016)
+        XCTAssertEqual(StagingScratchNeed.needBytes(inputFiles: [stale], route: .fastpTrim), 3 * 40_000)
+    }
+
+    /// F1: a gzip bundle file of 1.2 M pairs (12,177,543 bytes, 475,153,254 bytes of text) was counted at four times its
+    /// size, so all its text went into one bucket and the Viral Recon staging peaked at 1.8 GB. The bucket count now
+    /// follows the text the sidecar states, and a gzip file that states nothing counts at forty times its size, as the
+    /// most packed of D1b's inputs held 39 times.
+    func testBucketCountFollowsTheStatedText() throws {
+        let stated = try gzipFile("p1200k.fastq.gz", bytes: 1_000_000, statingReads: 2_400_000, bases: 179_644_531)
+        XCTAssertEqual(SeededPairOrder.bucketCount(for: [stated]), 8, "512,889,062 bytes of stated text in 64 MiB buckets")
+        let unstated = try gzipFile("unstated.fastq.gz", bytes: 2_000_000, statingReads: nil)
+        XCTAssertEqual(SeededPairOrder.bucketCount(for: [unstated]), 2, "80,000,000 bytes at forty times the gzip size")
     }
 
     // MARK: - fastp trim
