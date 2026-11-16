@@ -234,7 +234,8 @@ final class WalkTwinsXCUITests: XCTestCase {
             ReleaseSmokeFixtures.openSidebarItem(containing: bundle, in: app)
             let expected = Self.genes.filter { !leftOut || $0.name != "HBB" }
             for run in 1...2 {
-                guard let text = Self.extractAllSelected(into: folder, as: "\(bundle)-run\(run).fasta", leftOut: leftOut, robot: robot) else {
+                guard let text = Self.extractAllSelected(into: folder, bundleURL: project.appendingPathComponent("\(bundle).lungfishref", isDirectory: true),
+                                                         as: "\(bundle)-run\(run).fasta", leftOut: leftOut, robot: robot) else {
                     return
                 }
                 Self.assertRecords(in: text, equal: expected, describing: "\(phase), run \(run)")
@@ -324,17 +325,73 @@ final class WalkTwinsXCUITests: XCTestCase {
         return drawer
     }
 
+    /// True once the annotation table lists every gene. Gate run 1 of TWIN-W32 on the published 2026.11.9 showed the
+    /// drawer of the opened reference with the count "0 annotations" for 45 s while the inspector said "1 track (4
+    /// features)", so a table that lists none gets what a person would try next, the Focus button of the reference and
+    /// then `type=gene` in the filter field. The `TWIN-W32` lines of the log say which step listed the rows, and what
+    /// the bundle holds on disk when none did.
+    @MainActor
+    private static func listAnnotations(in drawer: XCUIElement, bundleURL: URL, robot: ReleaseAppSmokeRobot) -> Bool {
+        let app = robot.app
+        let rows = drawer.tableRows
+        let count = { () -> String in
+            let label = drawer.staticTexts.matching(NSPredicate(format: "value ENDSWITH %@", " annotations")).firstMatch
+            return label.exists ? "\(label.value ?? "")" : "no count label"
+        }
+        if poll(20, in: app, until: { rows.count == genes.count }) {
+            print("TWIN-W32 the annotation table lists \(rows.count) rows at once (the count says \(count()))")
+            return true
+        }
+        print("TWIN-W32 the annotation table lists \(rows.count) rows after 20 s (the count says \(count())). On disk:\n\(describeBundle(bundleURL))")
+        let focus = app.descendants(matching: .any)["reference-viewport-focus-button"].firstMatch
+        if focus.exists, focus.isHittable {
+            focus.click()
+            if poll(15, in: app, until: { rows.count == genes.count }) {
+                print("TWIN-W32 the Focus button listed \(rows.count) rows (the count says \(count()))")
+                return true
+            }
+            print("TWIN-W32 after Focus the table lists \(rows.count) rows (the count says \(count()))")
+        }
+        let filter = drawer.searchFields.firstMatch
+        if filter.waitForExistence(timeout: 5) {
+            filter.click()
+            filter.typeText("type=gene")
+            filter.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+            if poll(15, in: app, until: { rows.count == genes.count }) {
+                print("TWIN-W32 the filter type=gene listed \(rows.count) rows (the count says \(count()))")
+                return true
+            }
+            print("TWIN-W32 after the filter type=gene the table lists \(rows.count) rows (the count says \(count()))")
+        }
+        return false
+    }
+
+    /// The files of a bundle with their sizes and the annotation entries of its manifest, for the log.
+    private static func describeBundle(_ bundle: URL) -> String {
+        var lines: [String] = []
+        if let walker = FileManager.default.enumerator(at: bundle, includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey]) {
+            for case let url as URL in walker {
+                let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+                if values?.isDirectory == true { continue }
+                lines.append("  \(url.path.replacingOccurrences(of: bundle.path + "/", with: "")) \(values?.fileSize ?? -1) bytes")
+            }
+        }
+        let manifest = (try? Data(contentsOf: bundle.appendingPathComponent("manifest.json")))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        return lines.sorted().joined(separator: "\n") + "\n  manifest annotations: \(String(describing: manifest?["annotations"]))"
+    }
+
     /// Selects every row of the annotation table, chooses "Extract N Sequences…" from the context menu of a selected row,
     /// closes the left-out alert when `leftOut` says one must show, saves the dialog's records through Save to File… as
     /// `file` in `folder` and returns the text of the file once it holds a record for each row it must. Returns nil after
     /// recording the failure when a step does not come.
     @MainActor
-    private static func extractAllSelected(into folder: URL, as file: String, leftOut: Bool, robot: ReleaseAppSmokeRobot) -> String? {
+    private static func extractAllSelected(into folder: URL, bundleURL: URL, as file: String, leftOut: Bool, robot: ReleaseAppSmokeRobot) -> String? {
         let app = robot.app
         let any = app.descendants(matching: .any)
         guard let drawer = annotationDrawer(robot: robot) else { return nil }
         let rows = drawer.tableRows
-        guard poll(30, in: app, until: { rows.count == genes.count }) else {
+        guard listAnnotations(in: drawer, bundleURL: bundleURL, robot: robot) else {
             robot.failShowingScreen("The annotation table lists \(rows.count) rows and not the \(genes.count) genes of the reference")
             return nil
         }
