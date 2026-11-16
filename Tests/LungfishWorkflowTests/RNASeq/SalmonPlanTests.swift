@@ -277,4 +277,72 @@ final class SalmonPlanTests: XCTestCase {
         // 1,100 bytes of reads, 2,200 trimmed, the index's bytes and 1,077,186,560 of salmon's, times 1.25, is 2 GiB, plus 8.
         XCTAssertEqual(figures.diskGiB, 10)
     }
+
+    // MARK: - The frame a later chain builds on (FIX-SALMON-1 item 1, red first)
+
+    /// A chain that counts with another tool, as EX-PLAN-STAR, EX-UMI and SOLO-PLAN add, takes the inputs, their Mac
+    /// files and the trim steps from the frame, and the job builder takes that chain's own outcome. The salmon plan is
+    /// the frame plus its one step, so every chain of one shape names the same `home` paths.
+    func testALaterChainTakesTheReadsFrameAndTheJobBuilderTakesItsOwnOutcome() async throws {
+        let (_, made) = try await made(.trimGalore(polyG: false))
+        let frame = SalmonPlan.readsFrame(
+            sample: made.sample, trim: .trimGalore(polyG: false), trimTool: pins.trimGalore,
+            deadline: ExecutionPlan.maximumDeadlineSeconds)
+        XCTAssertEqual(frame.inputs.map(\.relativePath), ["inputs/pair1_R1.fastq", "inputs/pair1_R2.fastq"])
+        XCTAssertEqual(frame.inputs, made.plan.entries.filter { $0.role == .input })
+        XCTAssertEqual(frame.sources.keys.sorted(), ["inputs/pair1_R1.fastq", "inputs/pair1_R2.fastq"])
+        XCTAssertEqual(frame.sources["inputs/pair1_R2.fastq"], made.sources["inputs/pair1_R2.fastq"])
+        XCTAssertEqual(frame.trimSteps, Array(made.plan.steps.dropLast()))
+        XCTAssertEqual([frame.r1s, frame.r2s, frame.singles], [["trim-pair1/pair1_R1_val_1.fq"], ["trim-pair1/pair1_R2_val_2.fq"], []])
+        let untrimmed = SalmonPlan.readsFrame(sample: made.sample, trim: .none, trimTool: pins.trimGalore, deadline: 60)
+        XCTAssertEqual(untrimmed.trimSteps, [])
+        XCTAssertEqual([untrimmed.r1s, untrimmed.r2s], [["inputs/pair1_R1.fastq"], ["inputs/pair1_R2.fastq"]])
+
+        struct OtherChain: ReadsPlanOutcome {
+            var plan: ExecutionPlan
+            var sample: SalmonPlanSample
+            var sources: [String: URL]
+        }
+        let other = OtherChain(plan: made.plan, sample: made.sample, sources: made.sources)
+        let figures = SalmonPlanSubmit.Figures(memoryMiB: 4096, cpus: 8, diskGiB: 20)
+        let job = SalmonPlanSubmit.job(other, figures: figures)
+        XCTAssertEqual(job.emission.plan, made.plan)
+        XCTAssertEqual(job.emission.sources, made.sources)
+        XCTAssertEqual(job.submit, SalmonPlanSubmit.job(made, figures: figures).submit)
+        XCTAssertEqual(job.submit.requestMemoryMiB, 4096)
+        XCTAssertEqual(job.submit.requestCpus, 8)
+    }
+
+    // MARK: - One read of the index a command (FIX-SALMON-1 item 2, red first)
+
+    /// The index is measured once and its pin serves each sample's plan, so a batch of N samples reads the published
+    /// index once, not N times. The cache folder is gone before the two plans are made, so neither can read it again.
+    func testAnIndexPinnedOnceServesEverySampleWithNoSecondRead() async throws {
+        let set = try await builtSet()
+        try publishIndex(setID: set.manifest.id)
+        let pin = try SalmonPlan.pinIndex(setID: set.manifest.id, storageRoot: storageRoot, pins: pins)
+        XCTAssertEqual(pin.key.folderName, "salmon-2.11.0-k31-genome-decoys")
+        XCTAssertEqual(pin.entries.count, 3)
+        try FileManager.default.removeItem(
+            at: SalmonIndexCache(storageRoot: storageRoot, host: RunFitHostFacts(physicalMemoryBytes: 0)).folder(for: pin.key))
+        func plan(_ name: String, index: SalmonPlanIndexPin?, k: Int = 31) throws -> SalmonPlanOutcome {
+            let sample = SalmonPlan.stagedSample(name: name, pairs: [(
+                SalmonPlanStagedRead(path: "/staging/r/\(name)_1.fastq.gz", size: 5, sha256: String(repeating: "1", count: 64)),
+                SalmonPlanStagedRead(path: "/staging/r/\(name)_2.fastq.gz", size: 6, sha256: String(repeating: "2", count: 64)))])
+            return try SalmonPlan.make(SalmonPlanRequest(
+                setFolder: set.url, storageRoot: storageRoot, sample: sample, pins: pins, trim: .none, k: k, index: index))
+        }
+        let first = try plan("SRR1", index: pin), second = try plan("SRR2", index: pin)
+        XCTAssertEqual(first.plan.entries.filter { $0.role == .reference }, pin.entries)
+        XCTAssertEqual(second.plan.entries.filter { $0.role == .reference }, pin.entries)
+        XCTAssertEqual(second.sources["\(pin.entries[0].relativePath)"], pin.sources[pin.entries[0].relativePath])
+        XCTAssertThrowsError(try plan("SRR3", index: nil)) { error in
+            XCTAssertTrue("\(error.localizedDescription)".contains("never builds one"), error.localizedDescription)
+        }
+        XCTAssertThrowsError(try plan("SRR4", index: pin, k: 25)) { error in
+            let words = error.localizedDescription
+            XCTAssertTrue(words.contains("The pinned index salmon-2.11.0-k31-genome-decoys is not the index of this plan, "
+                + "salmon-2.11.0-k25-genome-decoys"), words)
+        }
+    }
 }
