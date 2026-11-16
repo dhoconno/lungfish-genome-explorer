@@ -26,6 +26,11 @@ final class UMIPlanTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
+    static let staging = "/staging/groups/lab"
+    static let star = PlanToolPin(id: "STAR", version: "2.7.11b", build: "h5814d7d_9")
+
+    /// The image's builds of each tool the chain runs or starts (`Resources/CHTCImage/image-manifest.json`), and python3
+    /// 3.11.18, the interpreter beside umi_tools.
     var pins: UMIPlanPins {
         let zeros = String(repeating: "0", count: 64)
         return UMIPlanPins(
@@ -35,22 +40,49 @@ final class UMIPlanTests: XCTestCase {
                 lgeVersion: "test", lgeCommit: String(repeating: "0", count: 40), targetTriple: "x86_64-swift-linux-musl",
                 toolchainID: "test", toolchainSHA256: zeros, staticLinuxSDKID: "test", staticLinuxSDKSHA256: zeros),
             imageManifest: PlanImageManifestPin(sha256: String(repeating: "b", count: 64), size: 4000),
-            pigz: PlanToolPin(id: "pigz", version: "2.8", build: "h421ea60_1"))
+            pigz: PlanToolPin(id: "pigz", version: "2.8", build: "h421ea60_1"), star: Self.star,
+            featureCounts: PlanToolPin(id: "featureCounts", version: "2.1.1", build: "h577a1d6_0"),
+            samtools: PlanToolPin(id: "samtools", version: "1.24", build: "h9dcdb79_1"),
+            umiTools: PlanToolPin(id: "umi_tools", version: "1.1.6", build: "py311haab0aaa_0"),
+            python: PlanToolPin(id: "python3", version: "3.11.18", build: "h5f976f7_0_cpython"))
     }
 
-    /// One C9 run in the staging folder, as `rnaseq quant --write-plan --samplesheet` names it, with the kit column's
-    /// value.
-    func made(kit: String = "quartz-seq2-x910") async throws -> UMIPlanOutcome {
-        let owner = ReferenceSetOwner(
-            storageRoot: storageRoot, deriver: StandInTranscriptDeriver(), provenanceWriter: ProvenanceWriter(signingProvider: nil))
-        let set = try await owner.build(ReferenceSetMitoFixture.request(.lge))
+    /// One C9 run in the staging folder, as `rnaseq quant --write-plan --samplesheet` names it.
+    func c9Sample() -> SalmonPlanSample {
         func read(_ name: String, _ fill: String) -> SalmonPlanStagedRead {
             SalmonPlanStagedRead(path: "/staging/c9/\(name)", size: 1_234_567, sha256: String(repeating: fill, count: 64))
         }
-        let sample = SalmonPlan.stagedSample(
+        return SalmonPlan.stagedSample(
             name: "SRR28155077", pairs: [(read("SRR28155077_1.fastq.gz", "1"), read("SRR28155077_2.fastq.gz", "2"))],
             model: "HiSeq X Ten")
-        return try UMIPlan.make(UMIPlanRequest(setFolder: set.url, sample: sample, kit: kit, pins: pins))
+    }
+
+    /// A stand-in record of STAR 2.7.11b's index of the set, as `rnaseq index-adopt` writes one, of three files.
+    func pinnedIndex(_ set: ReferenceSetOutcome) throws -> ExecutorPlanStagedIndex {
+        let key = STARIndexKey.folderName(star: "2.7.11b", nbases: 7, sparseD: 2)
+        let files = ["Genome", "SA", "chrName.txt"].map { name -> STARIndexRecord.File in
+            let data = Data("\(name) of \(key)\n".utf8)
+            return STARIndexRecord.File(
+                path: name, planPath: "star-index/\(name)",
+                stagingPath: "\(Self.staging)/batches/m-index/index/staged/star-index/\(name)",
+                bytes: UInt64(data.count), sha256: PortableDigest.sha256Hex(of: data))
+        }
+        let store = STARIndexRecordStore(storageRoot: storageRoot)
+        _ = try store.write(STARIndexRecord(setID: set.manifest.id, key: STARIndexKey(
+            folderName: key, setID: set.manifest.id, referenceSetSHA256: String(repeating: "d", count: 64), star: Self.star,
+            genomeSAindexNbases: 7, genomeSAsparseD: 2, sjdbOverhang: 100, genomeFastaFiles: [set.manifest.genome.path],
+            countingGTFSHA256: set.manifest.derived.countingGTF?.sha256 ?? ""), tool: Self.star, files: files))
+        return try ExecutorPlanStagedIndex.pin(setID: set.manifest.id, key: key, store: store, star: Self.star,
+                                               layout: ExecutorPlanStagingLayout(folder: Self.staging, batch: "umi-counts"))
+    }
+
+    /// The plan of `sample`, the C9 run by default, with the kit column's value, on the set and its pinned index.
+    func made(kit: String = "quartz-seq2-x910", sample: SalmonPlanSample? = nil) async throws -> UMIPlanOutcome {
+        let owner = ReferenceSetOwner(
+            storageRoot: storageRoot, deriver: StandInTranscriptDeriver(), provenanceWriter: ProvenanceWriter(signingProvider: nil))
+        let set = try await owner.build(ReferenceSetMitoFixture.request(.lge))
+        return try UMIPlan.make(UMIPlanRequest(
+            setFolder: set.url, sample: sample ?? c9Sample(), kit: kit, pins: pins, index: try pinnedIndex(set)))
     }
 
     /// Item 3: the plan's bytes with the check step and the preset's settings.
@@ -74,7 +106,7 @@ final class UMIPlanTests: XCTestCase {
         XCTAssertEqual(step.id, "umi-layout-check-pair1")
         XCTAssertEqual(step.kind, .tool)
         XCTAssertEqual(step.tool, PlanToolPin(id: "lungfish-executor", version: "test", build: String(repeating: "0", count: 40)))
-        XCTAssertEqual(plan.tools.map(\.id), ["lungfish-executor", "pigz"])
+        XCTAssertEqual(plan.tools.map(\.id), ["STAR", "featureCounts", "lungfish-executor", "pigz", "python3", "samtools", "umi_tools"])
         let check = try UMILayoutCheck.Arguments(argv: step.arguments)
         XCTAssertEqual(check, UMILayoutCheck.Arguments(
             read1: "inputs/pair1_R1.fastq.gz", read2: "inputs/pair1_R2.fastq.gz", decompressor: "pigz",
@@ -110,6 +142,7 @@ final class UMIPlanTests: XCTestCase {
         let plan = try await made().plan
         let settings = try XCTUnwrap(plan.pipeline?.settings)
         XCTAssertEqual(settings.map { "\($0.id) \($0.source.rawValue)" }, [
+            "countingGTF default", "counts default", "duplicates preset", "index default", "mapping default",
             "trimming default", "umiCheckBars preset", "umiCheckPairs preset", "umiExtraction preset", "umiGrouping preset",
             "umiKit preset", "umiLength preset", "umiMotif preset", "umiRead preset",
         ])
@@ -126,5 +159,115 @@ final class UMIPlanTests: XCTestCase {
             XCTAssertEqual(error.message, "The sample sheet names the kit 10x-3prime-v3, which LGE has no UMI preset for. The kits "
                 + "LGE knows are quartz-seq2-x910 (\(UMIPlan.quartzSeq2X910.label)).")
         }
+    }
+
+    /// M2 item 1: after each pair's check, umi_tools extract keeps Read 2 with the UMI in its name, STAR maps Read 2 alone
+    /// with unique alignments into a coordinate-sorted BAM, featureCounts tags it by the set's genes (`-R BAM -s 0`),
+    /// samtools sorts and indexes the tagged BAM and umi_tools counts per gene (`gse163196/sample.sh:32-67`). Reports
+    /// come home, and reads and BAMs stay.
+    func testChainRunsExtractSTARFeatureCountsSortIndexAndCountAfterTheCheck() async throws {
+        let made = try await made()
+        let plan = made.plan
+        XCTAssertEqual(plan.steps.map(\.id), [
+            "umi-layout-check-pair1", "umi-extract-pair1", "star-align", "featurecounts", "samtools-sort", "samtools-index", "umi-count",
+        ])
+        func step(_ id: String) throws -> PlanStep { try XCTUnwrap(plan.steps.first { $0.id == id }) }
+        let set = try XCTUnwrap(plan.pipeline?.referenceSet.id)
+        let extract = try step("umi-extract-pair1")
+        XCTAssertEqual(extract.tool, pins.umiTools)
+        XCTAssertEqual(extract.arguments, [
+            "extract", "--extract-method=regex", "--bc-pattern=^(?P<discard_1>ATCAATC)(?P<umi_1>.{16})",
+            "-I", "inputs/pair1_R1.fastq.gz", "--read2-in", "inputs/pair1_R2.fastq.gz", "--read2-stdout",
+            "-S", "umi/pair1_R2.umi.fastq.gz", "-L", "umi/pair1-extract.log",
+        ])
+        XCTAssertEqual(extract.outputPolicy, ["umi/pair1_R2.umi.fastq.gz": .stays, "umi/pair1-extract.log": .home])
+        let star = try step("star-align")
+        XCTAssertEqual(star.tool, Self.star)
+        XCTAssertEqual(star.arguments, [
+            "--runThreadN", "8", "--genomeDir", "references/\(set)/indexes/\(made.index.folderName)",
+            "--readFilesIn", "umi/pair1_R2.umi.fastq.gz", "--readFilesCommand", "pigz", "-d", "-c",
+            "--outFilterMultimapNmax", "1", "--outSAMtype", "BAM", "SortedByCoordinate", "--limitBAMsortRAM", "8000000000",
+            "--outFileNamePrefix", "star/",
+        ])
+        XCTAssertEqual(star.outputPolicy, ["star/Log.final.out": .home, "star/Aligned.sortedByCoord.out.bam": .stays])
+        let featureCounts = try step("featurecounts")
+        XCTAssertEqual(featureCounts.arguments, [
+            "-T", "8", "-s", "0", "-a", "references/\(set)/derived/genes.gtf", "-o", "featurecounts/counts.txt",
+            "-R", "BAM", "--Rpath", "featurecounts", "star/Aligned.sortedByCoord.out.bam",
+        ])
+        XCTAssertEqual(featureCounts.outputPolicy, [
+            "featurecounts/counts.txt": .stays, "featurecounts/counts.txt.summary": .home,
+            "featurecounts/Aligned.sortedByCoord.out.bam.featureCounts.bam": .stays,
+        ])
+        XCTAssertEqual(try step("samtools-sort").arguments, [
+            "sort", "-@", "8", "-m", "768M", "-o", "umi/assigned.bam", "featurecounts/Aligned.sortedByCoord.out.bam.featureCounts.bam",
+        ])
+        XCTAssertEqual(try step("samtools-index").arguments, ["index", "umi/assigned.bam"])
+        XCTAssertEqual(try step("samtools-index").outputPolicy, ["umi/assigned.bam.bai": .stays])
+        let count = try step("umi-count")
+        XCTAssertEqual(count.arguments, [
+            "count", "--per-gene", "--gene-tag=XT", "--assigned-status-tag=XS", "--method=directional",
+            "-I", "umi/assigned.bam", "-S", "umi/counts.tsv", "-L", "umi/count.log",
+        ])
+        XCTAssertEqual(count.inputs, ["umi/assigned.bam", "umi/assigned.bam.bai"])
+        XCTAssertEqual(count.outputPolicy, ["umi/counts.tsv": .home, "umi/count.log": .stays])
+        XCTAssertEqual(plan.pipeline?.modality, .bulk)
+        let route = try XCTUnwrap(plan.pipeline?.route)
+        XCTAssertEqual([route.id, route.tool, route.toolVersion], ["umi-counts", "umi_tools", "1.1.6"])
+        XCTAssertEqual(route.settings.keys.sorted(), [
+            "countingGTF", "counts", "duplicates", "index", "mapping", "trimming", "umiExtraction", "umiGrouping", "umiKit",
+            "umiLength", "umiMotif", "umiRead",
+        ], "the check's pairs and bars change no count, so they are no route key")
+        XCTAssertEqual(made.stagedReferencePaths.count, 3, "each index file is read where the index batch left it")
+        _ = try ExecutionPlan.decode(try plan.encoded())
+    }
+
+    static let umiWords = "Duplicates: removed with UMIs by umi_tools 1.1.6 count --per-gene --method=directional. The reads of one "
+        + "gene that carry one UMI count as one molecule, and a UMI one base from a UMI of the gene with at least twice its "
+        + "reads, less one, counts with that UMI. The UMI is the 16 bases after ATCAATC on Read 1 (kit preset quartz-seq2-x910)."
+
+    /// M2 item 2: the entry names the UMI step in words set from the kit preset, with source `preset`, for staged reads,
+    /// whose import is Not recorded, and for an import that kept duplicates. Reads the import deduplicated without UMIs
+    /// are refused in words that say what to do (the lane's proposal, BIO reads it).
+    func testDuplicatesEntryNamesTheUMIStepAndReadsDeduplicatedAtImportAreRefused() async throws {
+        let plan = try await made().plan
+        let entry = try XCTUnwrap(plan.pipeline?.settings.first { $0.id == "duplicates" })
+        XCTAssertEqual(entry.source, .preset)
+        XCTAssertEqual(entry.value, Self.umiWords + " Whether the reads lost duplicates before this step is Not recorded (the "
+            + "bundle holds no import record that names its steps).")
+        XCTAssertEqual(plan.pipeline?.route?.settings["duplicates"], entry.value, "the plan keeps the sample form")
+
+        var kept = c9Sample()
+        kept.duplicates = SalmonQuantRecordLines.duplicates
+        let keptEntry = try await made(sample: kept).plan.pipeline?.settings.first { $0.id == "duplicates" }
+        XCTAssertEqual(keptEntry?.value, Self.umiWords + " The import removed none.")
+        XCTAssertEqual(keptEntry?.source, .preset)
+
+        var removed = c9Sample()
+        removed.duplicates = "Duplicates: removed at import by Deduplicate, without UMIs. This count removes none."
+        removed.duplicatesSource = .recipe
+        do {
+            _ = try await made(sample: removed)
+            XCTFail("reads deduplicated without UMIs wrote a UMI plan")
+        } catch let error as SalmonPlanError {
+            XCTAssertEqual(error.message, "The sample SRR28155077 lost duplicates at import without UMIs (Duplicates: removed at "
+                + "import by Deduplicate, without UMIs. This count removes none.). The UMI step counts each molecule by its UMI "
+                + "and needs every read the sequencer gave, so no plan was written. Import the reads again with duplicates kept, "
+                + "then write the plan again.")
+        }
+    }
+
+    /// M2 item 2 and ARCH-ADOPT-ROUTE item 2: the UMI state joins the one writer of the result's `duplicates`, in a form
+    /// with no step name and no sample count when every sample shares it. The other forms do not move.
+    func testDuplicatesSettingStatesTheUMIStateInTheResultsForm() {
+        let umi = "Duplicates: removed with UMIs, so the reads of one gene that carry one UMI count as one molecule."
+        XCTAssertEqual(SalmonQuantRecordLines.duplicatesSetting([.umi]), umi)
+        XCTAssertEqual(SalmonQuantRecordLines.duplicatesSetting([.umi, .umi, .umi]), umi)
+        XCTAssertEqual(SalmonQuantRecordLines.duplicatesSetting(removed: 0, unrecorded: 0, umi: 4, of: 4), umi)
+        XCTAssertEqual(SalmonQuantRecordLines.duplicatesSetting([.umi, .kept]),
+                       "Duplicates: removed with UMIs for 1 of 2 samples. For the other 1: kept. LGE removes duplicates only with UMIs.")
+        XCTAssertEqual(SalmonQuantRecordLines.duplicatesSetting([.kept, .kept]), SalmonQuantRecordLines.duplicates)
+        XCTAssertEqual(SalmonQuantRecordLines.duplicatesSetting(removed: 1, unrecorded: 0, of: 2),
+                       "Duplicates: removed at import for 1 of 2 samples, without UMIs. This count removes none.")
     }
 }
