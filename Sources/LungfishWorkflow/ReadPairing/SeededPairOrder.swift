@@ -130,10 +130,15 @@ public enum SeededPairOrder {
         var output2 = Output(handle: sink2)
         for bucket in 0..<buckets.count {
             try Task.checkCancellation()
-            let raw = try buckets.load(bucket)
-            for entry in try entries(in: raw, bucket: bucket, seed: seed) {
-                try output1.append(raw[entry.r1])
-                try output2.append(raw[entry.r2])
+            // One autorelease pool a bucket. Reading and unpacking a bucket makes Foundation objects (NSData), and a job
+            // that does not return to its run loop drains no pool, so without this every bucket's text stayed held until
+            // the job ended: 10.7 GB at 19.3 M pairs (FASTP-STAGING-MEMORY, ruling BIO-ROWS-1-3).
+            try autoreleasepool {
+                let raw = try buckets.load(bucket)
+                for entry in try entries(in: raw, bucket: bucket, seed: seed) {
+                    try output1.append(raw[entry.r1])
+                    try output2.append(raw[entry.r2])
+                }
             }
         }
         try output1.flush()
@@ -163,20 +168,31 @@ public enum SeededPairOrder {
             defer { reader.close() }
             let file = url.lastPathComponent
             var number = 0
-            while let record = try FASTQPairInterleaver.readRecord(from: reader, file: file, recordNumber: number + 1) {
-                number += 1
-                try buckets.append(key: key(of: UInt64(reads), seed: seed), index: UInt64(reads), joined(record), [])
-                reads += 1
-                if reads & 0x3FFF == 0 { try Task.checkCancellation() }
+            var finished = false
+            // One autorelease pool a read, as for the pairs of ``write(_:r1:r2:scratch:seed:bucketCount:)``.
+            while !finished {
+                try autoreleasepool {
+                    guard let record = try FASTQPairInterleaver.readRecord(from: reader, file: file, recordNumber: number + 1) else {
+                        finished = true
+                        return
+                    }
+                    number += 1
+                    try buckets.append(key: key(of: UInt64(reads), seed: seed), index: UInt64(reads), joined(record), [])
+                    reads += 1
+                    if reads & 0x3FFF == 0 { try Task.checkCancellation() }
+                }
             }
         }
         try buckets.flushAll()
         var output = Output(handle: sink)
         for bucket in 0..<buckets.count {
             try Task.checkCancellation()
-            let raw = try buckets.load(bucket)
-            for entry in try entries(in: raw, bucket: bucket, seed: seed) {
-                try output.append(raw[entry.r1])
+            // One autorelease pool a bucket, as in ``write(_:r1:r2:scratch:seed:bucketCount:)``.
+            try autoreleasepool {
+                let raw = try buckets.load(bucket)
+                for entry in try entries(in: raw, bucket: bucket, seed: seed) {
+                    try output.append(raw[entry.r1])
+                }
             }
         }
         try output.flush()
@@ -191,22 +207,30 @@ public enum SeededPairOrder {
             defer { reader.close() }
             let file = url.lastPathComponent
             var number = 0
-            while let record1 = try FASTQPairInterleaver.readRecord(from: reader, file: file, recordNumber: number + 1) {
-                number += 1
-                guard let record2 = try FASTQPairInterleaver.readRecord(from: reader, file: file, recordNumber: number + 1) else {
-                    throw FASTQPairInterleaver.InterleaveError.mateCountMismatch(
-                        r1File: file, r1Records: number / 2 + 1, r2File: file, r2Records: number / 2
-                    )
+            var finished = false
+            // One autorelease pool a pair, so the Foundation objects of reading and checking it go back at once.
+            while !finished {
+                try autoreleasepool {
+                    guard let record1 = try FASTQPairInterleaver.readRecord(from: reader, file: file, recordNumber: number + 1) else {
+                        finished = true
+                        return
+                    }
+                    number += 1
+                    guard let record2 = try FASTQPairInterleaver.readRecord(from: reader, file: file, recordNumber: number + 1) else {
+                        throw FASTQPairInterleaver.InterleaveError.mateCountMismatch(
+                            r1File: file, r1Records: number / 2 + 1, r2File: file, r2Records: number / 2
+                        )
+                    }
+                    number += 1
+                    let name1 = FASTQPairInterleaver.headerText(record1[0])
+                    let name2 = FASTQPairInterleaver.headerText(record2[0])
+                    guard FASTQPairInterleaver.recordedMates(name1, name2) == .mates else {
+                        throw FASTQPairInterleaver.InterleaveError.mateNameMismatch(
+                            recordNumber: number / 2, r1File: file, r1Name: name1, r2File: file, r2Name: name2
+                        )
+                    }
+                    try body(joined(record1), joined(record2))
                 }
-                number += 1
-                let name1 = FASTQPairInterleaver.headerText(record1[0])
-                let name2 = FASTQPairInterleaver.headerText(record2[0])
-                guard FASTQPairInterleaver.recordedMates(name1, name2) == .mates else {
-                    throw FASTQPairInterleaver.InterleaveError.mateNameMismatch(
-                        recordNumber: number / 2, r1File: file, r1Name: name1, r2File: file, r2Name: name2
-                    )
-                }
-                try body(joined(record1), joined(record2))
             }
         case .separate(let r1, let r2):
             let reader1 = try FASTQRawLineReader(url: r1)
@@ -220,17 +244,24 @@ public enum SeededPairOrder {
                 if record != nil { count += 1 }
                 return record
             }
-            while true {
-                let record1 = try next(reader1, r1, &count1)
-                let record2 = try next(reader2, r2, &count2)
-                if let record1, let record2 {
-                    try body(joined(record1), joined(record2))
-                    continue
+            var finished = false
+            // One autorelease pool a pair, as for an interleaved file.
+            while !finished {
+                try autoreleasepool {
+                    let record1 = try next(reader1, r1, &count1)
+                    let record2 = try next(reader2, r2, &count2)
+                    if let record1, let record2 {
+                        try body(joined(record1), joined(record2))
+                        return
+                    }
+                    if record1 == nil && record2 == nil {
+                        finished = true
+                        return
+                    }
+                    while try next(reader1, r1, &count1) != nil {}
+                    while try next(reader2, r2, &count2) != nil {}
+                    throw StagingError.mateCountMismatch(r1Records: count1, r2Records: count2)
                 }
-                if record1 == nil && record2 == nil { return }
-                while try next(reader1, r1, &count1) != nil {}
-                while try next(reader2, r2, &count2) != nil {}
-                throw StagingError.mateCountMismatch(r1Records: count1, r2Records: count2)
             }
         }
     }
@@ -284,6 +315,11 @@ public enum SeededPairOrder {
         (0..<width).reduce(UInt64(0)) { $0 | UInt64(bytes[offset + $1]) << (8 * UInt64($1)) }
     }
 
+    /// The little-endian integer at `offset` of a scratch file's bytes, read in place with no copy of the file.
+    private static func readInteger(_ bytes: Data, at offset: Int, width: Int) -> UInt64 {
+        (0..<width).reduce(UInt64(0)) { $0 | UInt64(bytes[bytes.startIndex + offset + $1]) << (8 * UInt64($1)) }
+    }
+
     /// Buffered writes of whole records to one staged file.
     private struct Output {
         let handle: FileHandle
@@ -334,7 +370,12 @@ public enum SeededPairOrder {
             for bucket in 0..<count { try flush(bucket) }
         }
 
+        /// Writes one bucket's buffer as a packed chunk. The objects of the pack and of the file write go back at once.
         private func flush(_ bucket: Int) throws {
+            try autoreleasepool { try flushChunk(bucket) }
+        }
+
+        private func flushChunk(_ bucket: Int) throws {
             guard !buffers[bucket].isEmpty else { return }
             let packed = try (Data(buffers[bucket]) as NSData).compressed(using: .lz4) as Data
             var chunk: [UInt8] = []
@@ -352,23 +393,35 @@ public enum SeededPairOrder {
             buffers[bucket].removeAll(keepingCapacity: true)
         }
 
-        /// The raw entries of `bucket`. Its file is removed once read.
+        /// The raw entries of `bucket`. Its file is removed once read. The chunk headers say how long the entries are,
+        /// so they are unpacked one chunk at a time into one array of that size. The bucket is never held a second
+        /// time as an array of the file's bytes, and each chunk's Foundation objects go back before the next one.
         func load(_ bucket: Int) throws -> [UInt8] {
             let file = url(bucket)
             guard let data = FileManager.default.contents(atPath: file.path) else { return [] }
             try? FileManager.default.removeItem(at: file)
-            let bytes = [UInt8](data)
-            var raw: [UInt8] = []
+            var expected = 0
             var position = 0
-            while position < bytes.count {
-                guard position + 8 <= bytes.count else { throw StagingError.scratchDamaged(bucket: bucket) }
-                let rawCount = Int(SeededPairOrder.readInteger(bytes, at: position, width: 4))
-                let packedCount = Int(SeededPairOrder.readInteger(bytes, at: position + 4, width: 4))
-                guard position + 8 + packedCount <= bytes.count else { throw StagingError.scratchDamaged(bucket: bucket) }
-                let packed = Data(bytes[(position + 8)..<(position + 8 + packedCount)])
-                let unpacked = try (packed as NSData).decompressed(using: .lz4) as Data
-                guard unpacked.count == rawCount else { throw StagingError.scratchDamaged(bucket: bucket) }
-                raw += unpacked
+            while position + 8 <= data.count {
+                let packedCount = Int(SeededPairOrder.readInteger(data, at: position + 4, width: 4))
+                guard position + 8 + packedCount <= data.count else { break }
+                expected += Int(SeededPairOrder.readInteger(data, at: position, width: 4))
+                position += 8 + packedCount
+            }
+            var raw: [UInt8] = []
+            raw.reserveCapacity(expected)
+            position = 0
+            while position < data.count {
+                guard position + 8 <= data.count else { throw StagingError.scratchDamaged(bucket: bucket) }
+                let rawCount = Int(SeededPairOrder.readInteger(data, at: position, width: 4))
+                let packedCount = Int(SeededPairOrder.readInteger(data, at: position + 4, width: 4))
+                guard position + 8 + packedCount <= data.count else { throw StagingError.scratchDamaged(bucket: bucket) }
+                try autoreleasepool {
+                    let packed = data.subdata(in: (position + 8)..<(position + 8 + packedCount))
+                    let unpacked = try (packed as NSData).decompressed(using: .lz4) as Data
+                    guard unpacked.count == rawCount else { throw StagingError.scratchDamaged(bucket: bucket) }
+                    raw += unpacked
+                }
                 position += 8 + packedCount
             }
             return raw
