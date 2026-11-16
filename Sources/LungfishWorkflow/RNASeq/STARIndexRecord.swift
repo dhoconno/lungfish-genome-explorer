@@ -75,8 +75,12 @@ package enum STARIndexAdopt {
         if let made {
             let path = "references/\(manifest.id)/\(made.list.path)"
             guard let read = run.inputs.first(where: { $0.relativePath == path }) else {
+                let paths = Set(run.inputs.map(\.relativePath))
+                let advice = TenxGTFFilter.List.allCases.first { paths.contains("references/\(manifest.id)/\($0.path)") }
+                    .map { "It read references/\(manifest.id)/\($0.path), so adopt it with --tenx-filter \($0.rawValue)." }
+                    ?? "Leave out --tenx-filter for a bulk index."
                 throw STARIndexError("The run read no GTF that the 10x filter rule \(made.list.rawValue) made from the set "
-                    + "\(manifest.id), so its index is not that variant and no record was written. Leave out --tenx-filter for a bulk index.")
+                    + "\(manifest.id), so its index is not that variant and no record was written. " + advice)
             }
             guard read.sha256 == made.sha256 else {
                 throw STARIndexError("The run read \(path) with SHA-256 \(read.sha256), and the 10x filter rule \(made.list.rawValue) "
