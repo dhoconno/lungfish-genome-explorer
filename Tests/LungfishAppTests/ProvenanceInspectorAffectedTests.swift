@@ -16,9 +16,12 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
         ProvenanceInspectableItem(url: url, sidebarType: type, contentMode: .metagenomics, displayName: "result")
     }
 
-    /// Applies the affected rows the way a lookup does, for `item` and the record the model holds.
+    /// Applies the affected rows the way a lookup does, for `item` and the record the model holds: the kind comes from
+    /// both, and the model reads only that kind.
     private func apply(_ model: ProvenanceInspectorViewModel, _ item: ProvenanceInspectableItem) {
-        model.applyAffectedResults(item: item)
+        model.applyAffectedResults(
+            kind: ProvenanceInspectorViewModel.affectedResultKind(for: item, envelope: model.resolvedEnvelope)
+        )
     }
 
     /// A record as its writer names it: the root workflow name, the app version at the root and the steps.

@@ -18,6 +18,9 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     case fastqTrim
     /// A FASTQ bundle made by an import that ran a recipe's fastp step.
     case fastqRecipeImport
+    /// A sample bundle of a demultiplexing run, or the run's folder. A kind of result the record names, never a type of
+    /// the sidebar.
+    case fastqDemultiplex
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -90,7 +93,8 @@ public enum AffectedResults {
     ///
     /// A record the app writes itself, such as a NAO-MGS or NVD import, names `Lungfish <version> (<build>)` at its
     /// root. The root record `AnalysisRunExecutor` writes for a Kraken 2, TaxTriage or EsViritu run, and an
-    /// assembly's record, name only the bare `<version>`. A build is believed when its version's builds hold it
+    /// assembly's record, name only the bare `<version>`, and a `lungfish variants call` record names
+    /// `lungfish-cli <version>`, which counts as the bare version. A build is believed when its version's builds hold it
     /// (``builds(ofVersion:)``). A bare version takes the build a step of the same version names, which the bundled
     /// CLI has written since 2026-09-29, and otherwise every build its version names. `dev`, a number its version's
     /// builds do not hold (an Xcode build stamps 1) and the version every unpackaged process records
@@ -140,11 +144,16 @@ public enum AffectedResults {
         return build
     }
 
-    /// `2026.10.29` and `12045` from `Lungfish 2026.10.29 (12045)`, `2026.10.29` alone from `2026.10.29`, and nil
-    /// for any text that names no release version.
+    /// `2026.10.29` and `12045` from `Lungfish 2026.10.29 (12045)`, `2026.10.29` alone from `2026.10.29` and from
+    /// `lungfish-cli 2026.10.29`, and nil for any text that names no release version.
     static func parts(of text: String) -> (version: String, build: String?)? {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if LungfishAppVersion.isReleaseVersion(text) { return (text, nil) }
+        // `lungfish variants call` puts the CLI's name and version alone at its root (`VariantsCommand.swift:1061`).
+        if text.hasPrefix(commandLineVersionPrefix) {
+            let version = String(text.dropFirst(commandLineVersionPrefix.count))
+            return LungfishAppVersion.isReleaseVersion(version) ? (version, nil) : nil
+        }
         guard text.hasPrefix("Lungfish "), text.hasSuffix(")"), let open = text.lastIndex(of: "(") else { return nil }
         let version = text[text.index(text.startIndex, offsetBy: 9)..<open].trimmingCharacters(in: .whitespaces)
         guard LungfishAppVersion.isReleaseVersion(version) else { return nil }
@@ -383,6 +392,14 @@ public enum AffectedResults {
             whatToDo: "Import the original sequencer files again with this version.",
             fixCommit: "dbadae4f5"
         ),
+        AffectedResultRow(
+            backlogID: "DEMUX-GROUPED-DROPS-INPUTS", kinds: [.fastqDemultiplex], firstBuild: nil, lastBuild: 12972,
+            sentence: "If you chose Grouped Result for more than one dataset, this demultiplexing run read only the first "
+                + "dataset, so the reads of the others are in none of the samples.",
+            whatToDo: "If you did, run Demultiplex Barcodes again on all the datasets with this version, then delete "
+                + "this result.",
+            fixCommit: "367ba1fed"
+        ),
     ]
 
     /// A published release, its version and the build of the commit it was packaged from.
@@ -435,4 +452,57 @@ public enum AffectedResults {
         .init("2026.11.3", 12803), .init("2026.11.4", 12818), .init("2026.11.5", 12859), .init("2026.11.6", 12962),
         .init("2026.11.7", 12972),
     ]
+}
+
+// MARK: - The kind a record names
+
+extension AffectedResults {
+    /// The root workflow names the writers of the kinds below record, each written here once (plan D4). A test holds
+    /// each against a record its writer made.
+    public enum RecordName {
+        /// `lungfish fastq trim` (`FastqTrimSubcommand.swift:151`). Its steps carry the name as a prefix (`:76`).
+        public static let fastqTrim = "lungfish fastq trim"
+        /// `lungfish fastq adapter-trim` (`FastqAdapterTrimSubcommand.swift:78`), whose steps carry it as a prefix.
+        public static let fastqAdapterTrim = "lungfish fastq adapter-trim"
+        /// A FASTQ import, with a recipe's steps as its child steps (`FASTQBatchImporter.swift:1201,1242-1245`).
+        public static let fastqImport = "lungfish import fastq"
+        /// `lungfish variants call` (`VariantsCommand.swift:1060`, `BundleVariantTrackAttachmentService.swift:248`).
+        public static let variantsCall = "lungfish variants call"
+        /// The run folder's record of Demultiplex Barcodes, from the CLI or the window (`FastqCommand.swift:542`).
+        public static let fastqDemultiplex = "lungfish fastq demultiplex"
+    }
+
+    /// The text before the version at the root of a `lungfish variants call` record.
+    static let commandLineVersionPrefix = "lungfish-cli "
+
+    /// The flag with which fastp guesses the adapters of read pairs from the reads it sees first. A recipe's fastp
+    /// trim passed it until dbadae4f5, fused with other fastp steps or alone (`FastpTrimStep.swift`).
+    static let fastpPairedAdapterGuess = "--detect_adapter_for_pe"
+
+    /// The kind of result `envelope` records, read from its root workflow name and its steps, or nil when no row speaks
+    /// about it. A trim is only a record whose root is one of the two trim commands, never a step of that name inside
+    /// another run. A FASTQ import is a recipe import only when a fastp step of its recipe guessed the adapter pair,
+    /// since a recipe's fastp runs on read pairs (`FastpTrimStep.swift:19`) and its dedup and length-filter steps turn
+    /// adapter trimming off. Variant calls count only when iVar called them, which IVAR-CODON-MERGE speaks of.
+    public static func kind(of envelope: ProvenanceEnvelope) -> AffectedResultKind? {
+        switch envelope.workflowName.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case RecordName.fastqTrim, RecordName.fastqAdapterTrim:
+            return .fastqTrim
+        case RecordName.fastqDemultiplex:
+            return .fastqDemultiplex
+        case RecordName.fastqImport:
+            let guessed = envelope.steps.contains { runs("fastp", $0) && $0.argv.contains(fastpPairedAdapterGuess) }
+            return guessed ? .fastqRecipeImport : nil
+        case RecordName.variantsCall:
+            return envelope.steps.contains { runs("ivar", $0) } ? .variantCalls : nil
+        default:
+            return nil
+        }
+    }
+
+    /// Whether `step` ran `tool`, by the tool name a recipe or caller records or the executable of its argv.
+    private static func runs(_ tool: String, _ step: ProvenanceStep) -> Bool {
+        step.toolName.lowercased() == tool
+            || step.argv.first.map { URL(fileURLWithPath: $0).lastPathComponent.lowercased() == tool } == true
+    }
 }

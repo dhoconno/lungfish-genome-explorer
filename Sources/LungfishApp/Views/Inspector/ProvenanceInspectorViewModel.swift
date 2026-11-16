@@ -513,7 +513,7 @@ final class ProvenanceInspectorViewModel {
                 self.apply(outcome, item: item)
                 self.callLineageReady(for: item, found: outcome.resolvedEnvelope != nil)
             }
-            self.applyAffectedResults(item: item)
+            self.applyAffectedResults(kind: outcome.affectedResultKind)
         }
     }
 
@@ -557,7 +557,8 @@ final class ProvenanceInspectorViewModel {
             resolvedSidecarURL: resolved.sidecarURL,
             upstreamRuns: upstream.map { ProvenanceUpstreamRun(envelope: $0.envelope, sidecarURL: $0.sidecarURL) },
             sidecarText: sidecarText(at: resolved.sidecarURL, for: envelope),
-            reading: resolved.reading, toolRoot: PortablePath.defaultManagedRoots.toolRoot
+            reading: resolved.reading, toolRoot: PortablePath.defaultManagedRoots.toolRoot,
+            affectedResultKind: affectedResultKind(for: item, envelope: envelope)
         )
     }
 
@@ -577,6 +578,9 @@ final class ProvenanceInspectorViewModel {
         var reading: ProvenanceEnvelopeReader.Reading? = nil
         var statusWasRecorded: Bool? = nil
         var toolRoot: URL? = nil
+        /// The kind of affected result the item is, from the item and the record, worked out here so that the main actor
+        /// reads no file for it (``ProvenanceInspectorViewModel/applyAffectedResults(kind:)``).
+        var affectedResultKind: AffectedResultKind? = nil
     }
 
     /// Applies a completed off-main lookup's result to published state. Must only be called

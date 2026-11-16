@@ -257,7 +257,7 @@ final class AffectedResultsStripTests: XCTestCase {
             posted = note.userInfo?[ProvenanceInspectorViewModel.affectedResultsRowsKey] as? [AffectedResultRow] ?? []
         }
         defer { NotificationCenter.default.removeObserver(token) }
-        model.applyAffectedResults(item: item)
+        model.applyAffectedResults(kind: ProvenanceInspectorViewModel.affectedResultKind(for: item, envelope: envelope))
         return posted
     }
 

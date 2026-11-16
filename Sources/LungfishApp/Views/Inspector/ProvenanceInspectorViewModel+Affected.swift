@@ -20,8 +20,23 @@ extension ProvenanceInspectorViewModel {
     static let affectedResultsWarningTitle = "Affected result"
     static let affectedResultsRowsKey = "affectedResultRows"
 
+    #if DEBUG
+    /// Test-only probe called at the start of ``affectedResultKind(for:envelope:)``, so a test can see the kind, with
+    /// its read of an analysis's metadata, worked out off the main thread. Idiom: ``loadThreadingProbe``.
+    nonisolated(unsafe) static var affectedKindProbe: (@Sendable () -> Void)?
+    #endif
+
     /// The kind of result `item` is, as the rows of ``AffectedResults`` name it, or nil for an item no row speaks about.
-    nonisolated static func affectedResultKind(for item: ProvenanceInspectableItem) -> AffectedResultKind? {
+    /// A result type of the sidebar names its kind, and a result in the Analyses folder names its tool in its metadata.
+    /// A FASTQ bundle, a folder and a track source, which has no sidebar type, take the kind that `envelope`, the record
+    /// the lookup decoded, names (``AffectedResults/kind(of:)``). The lookup calls it off the main actor, since it can
+    /// read a file.
+    nonisolated static func affectedResultKind(
+        for item: ProvenanceInspectableItem, envelope: ProvenanceEnvelope? = nil
+    ) -> AffectedResultKind? {
+        #if DEBUG
+        affectedKindProbe?()
+        #endif
         switch item.sidebarType {
         case .taxTriageResult: return .taxTriage
         case .esvirituResult: return .esViritu
@@ -32,6 +47,9 @@ extension ProvenanceInspectorViewModel {
             // A result in the Analyses folder names its tool in its metadata.
             guard let url = item.url, let tool = AnalysesFolder.readAnalysisMetadata(from: url)?.tool else { return nil }
             return affectedResultKind(forTool: tool)
+        case .fastqBundle, .folder, nil:
+            // A demultiplexed sample reads its run folder's record, and a track source the record of its track.
+            return envelope.flatMap(AffectedResults.kind(of:))
         default: return nil
         }
     }
@@ -43,18 +61,20 @@ extension ProvenanceInspectorViewModel {
         if name.contains("kraken") { return .kraken2 }
         if name.contains("naomgs") || name.contains("nao-mgs") { return .naoMgs }
         if name.contains("nvd") { return .nvd }
+        if name.contains("viralrecon") { return .viralRecon }
         if ["spades", "megahit", "skesa", "flye", "hifiasm"].contains(where: name.contains) { return .assembly }
         return nil
     }
 
     /// Puts the sentence and what to do of each affected row under the record, in the Warnings, and tells the
     /// viewer, unless the item is part of the result the viewer shows (``speaksForViewer``). It runs after the lookup
-    /// has built the record's rows, and it reads the record that lookup found
-    /// without writing into the project. A record that names an unaffected build, a build with no number or no
-    /// record at all adds nothing, and the viewer's strip goes when the item speaks for the viewer.
-    func applyAffectedResults(item: ProvenanceInspectableItem) {
+    /// has built the record's rows, with the `kind` that lookup worked out off the main actor
+    /// (``LookupOutcome/affectedResultKind``), and it reads the record that lookup found
+    /// without reading a file or writing into the project. A record that names an unaffected build, a build with no
+    /// number or no record at all adds nothing, and the viewer's strip goes when the item speaks for the viewer.
+    func applyAffectedResults(kind: AffectedResultKind?) {
         let rows: [AffectedResultRow]
-        if let envelope = resolvedEnvelope, let kind = Self.affectedResultKind(for: item) {
+        if let envelope = resolvedEnvelope, let kind {
             rows = AffectedResults.rows(for: envelope, kind: kind)
         } else {
             rows = []

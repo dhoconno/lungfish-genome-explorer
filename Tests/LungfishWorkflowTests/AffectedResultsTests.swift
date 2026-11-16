@@ -293,6 +293,83 @@ final class AffectedResultsTests: XCTestCase {
         }
     }
 
+    // MARK: - The kind a record names (AFFECTED-KINDS-NOT-MAPPED, plan D4)
+
+    private func named(_ workflow: String, _ steps: [ProvenanceStep] = []) -> ProvenanceEnvelope {
+        var record = ProvenanceEnvelope.fixture()
+        record.workflowName = workflow
+        record.steps = steps
+        return record
+    }
+
+    private func step(_ tool: String, _ argv: [String], version: String = "1.0") -> ProvenanceStep {
+        ProvenanceStep(toolName: tool, toolVersion: version, argv: argv, exitStatus: 0)
+    }
+
+    /// A record in `Tests/Fixtures`, read as the Inspector's lookup reads it.
+    private func fixtureRecord(_ path: String) throws -> ProvenanceEnvelope {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/\(path)")
+        return try XCTUnwrap(try ProvenanceEnvelopeReader.read(fromSidecar: url), path).envelope
+    }
+
+    func testAKindIsReadFromTheRootNameAndTheSteps() {
+        typealias Name = AffectedResults.RecordName
+        XCTAssertEqual(AffectedResults.kind(of: named(Name.fastqTrim)), .fastqTrim)
+        XCTAssertEqual(AffectedResults.kind(of: named(Name.fastqAdapterTrim)), .fastqTrim)
+        XCTAssertEqual(AffectedResults.kind(of: named(Name.fastqDemultiplex)), .fastqDemultiplex)
+        XCTAssertNil(AffectedResults.kind(of: named("lungfish fastq quality-trim")), "quality-trim trims no adapter")
+        let trimStep = step(Name.fastqTrim, ["fastp", "-i", "in.fq"])
+        XCTAssertNil(AffectedResults.kind(of: named("lungfish.taxtriage.run", [trimStep])), "a trim step of another run")
+
+        let guess = step("fastp", ["/opt/lge/env/bin/fastp", "-i", "r1.fq", "-I", "r2.fq", "--detect_adapter_for_pe"])
+        let dedup = step("fastp", ["fastp", "-i", "r1.fq", "-I", "r2.fq", "-D", "-A", "-G", "-Q", "-L"])
+        XCTAssertEqual(AffectedResults.kind(of: named(Name.fastqImport, [dedup, guess])), .fastqRecipeImport)
+        XCTAssertNil(AffectedResults.kind(of: named(Name.fastqImport, [dedup])), "a fastp step that guesses no adapter")
+        XCTAssertNil(AffectedResults.kind(of: named(Name.fastqImport)), "an import that ran no recipe fastp step")
+        XCTAssertNil(AffectedResults.kind(of: named(Name.fastqTrim + " run", [guess])), "only the exact root name")
+
+        XCTAssertEqual(AffectedResults.kind(of: named(Name.variantsCall, [step("ivar", ["ivar", "variants"])])), .variantCalls)
+        XCTAssertNil(AffectedResults.kind(of: named(Name.variantsCall, [step("lofreq", ["lofreq", "call"])])))
+        XCTAssertNil(AffectedResults.kind(of: named("Viral Recon", [step("ivar", ["ivar", "variants"])])),
+                     "a Viral Recon run takes its kind from the Analyses metadata")
+    }
+
+    func testTheRootNamesAreTheNamesTheirWritersRecord() throws {
+        // `lungfish fastq trim` wrote the compat fixture's cancelled trim, and the CHTC adoption of 2026.10.25 build 11392
+        // wrote the import whose recipe fastp trim passed --detect_adapter_for_pe (fixture README).
+        let trim = try fixtureRecord(
+            "provenance-compat/cases/s1-cancelled-single-step/Analyses/fastq-trim-cancelled/.lungfish-provenance.json"
+        )
+        XCTAssertEqual(trim.workflowName, AffectedResults.RecordName.fastqTrim)
+        XCTAssertEqual(AffectedResults.kind(of: trim), .fastqTrim)
+        let adopted = try fixtureRecord("provenance-adopted-run/Imports/SRR24403534.lungfishfastq/.lungfish-provenance.json")
+        XCTAssertEqual(adopted.workflowName, AffectedResults.RecordName.fastqImport)
+        XCTAssertEqual(AffectedResults.kind(of: adopted), .fastqRecipeImport)
+        XCTAssertEqual(backlogIDs(adopted, .fastqRecipeImport), ["FASTQ-TRIM-RECIPE-READ-ORDER"], "build 11392")
+        XCTAssertEqual(AffectedResults.RecordName.fastqAdapterTrim, "lungfish fastq adapter-trim")
+        XCTAssertEqual(AffectedResults.RecordName.variantsCall, "lungfish variants call")
+        XCTAssertEqual(AffectedResults.RecordName.fastqDemultiplex, "lungfish fastq demultiplex")
+    }
+
+    func testAVariantCallRecordOfTheCLINamesTheBuildOfItsStepsOrItsVersion() {
+        // `lungfish variants call` names `lungfish-cli <version>` at its root (`VariantsCommand.swift:1061`) and the app's
+        // build in its staging steps, as the record of the 2026.9.58 demo project does.
+        var record = named(AffectedResults.RecordName.variantsCall, [
+            step("lungfish reference-staging", ["lungfish-internal"], version: "Lungfish 2026.9.58 (5822)"),
+            step("ivar", ["ivar", "variants"]),
+        ])
+        record.runtimeIdentity = ProvenanceRuntimeIdentity(appVersion: "lungfish-cli 2026.9.58")
+        XCTAssertEqual(AffectedResults.builds(of: record), 5822...5822)
+        XCTAssertEqual(backlogIDs(record, .variantCalls), ["IVAR-CODON-MERGE"])
+        record.steps = [step("ivar", ["ivar", "variants"])]
+        XCTAssertEqual(AffectedResults.builds(of: record), AffectedResults.builds(ofVersion: "2026.9.58"))
+        record.runtimeIdentity = ProvenanceRuntimeIdentity(appVersion: "lungfish-cli \(LungfishAppVersion.developmentBaseline)")
+        XCTAssertNil(AffectedResults.builds(of: record), "an unpackaged CLI names no packaged build")
+        record.runtimeIdentity = ProvenanceRuntimeIdentity(appVersion: "lungfish-cli fixture")
+        XCTAssertNil(AffectedResults.builds(of: record))
+    }
+
     // MARK: - Records as the app wrote them, with the bare version at the root
 
     private func backlogIDs(_ record: ProvenanceEnvelope, _ kind: AffectedResultKind) -> [String] {

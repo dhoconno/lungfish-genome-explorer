@@ -86,7 +86,37 @@ final class ProvenanceInspectorViewModelOffMainTests: XCTestCase {
     override func tearDown() async throws {
         ProvenanceInspectorViewModel.loadThreadingProbe = nil
         ProvenanceInspectorViewModel.loadFetchGate = nil
+        ProvenanceInspectorViewModel.affectedKindProbe = nil
         try await super.tearDown()
+    }
+
+    // MARK: - The kind of an affected result (AFFECTED-KINDS-NOT-MAPPED, plan D2)
+    //
+    // A result in the Analyses folder names its tool in `analysis-metadata.json`. The lookup works the kind out inside
+    // its detached task and carries it in its outcome, so the main actor reads no file for it.
+
+    func testTheKindOfAnAnalysisResultIsResolvedOffTheMainThread() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try AnalysesFolder.writeAnalysisMetadata(.init(tool: "viralrecon", isBatch: false), to: dir)
+        try writeEnvelope(workflowName: "Viral Recon", to: dir, appVersion: "Lungfish 2026.11.7 (12972)")
+
+        let observation = ThreadObservationBox()
+        ProvenanceInspectorViewModel.affectedKindProbe = { observation.record() }
+
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.load(
+            item: ProvenanceInspectableItem(url: dir, sidebarType: .analysisResult, contentMode: .metagenomics,
+                                            displayName: "Viral Recon")
+        )
+        try await waitUntilLoadCompletes(viewModel)
+
+        XCTAssertTrue(observation.fired, "affectedKindProbe never fired -- the kind was not worked out")
+        XCTAssertEqual(observation.wasMainThread, false, "the kind, and its read of the metadata, ran on the main thread")
+        let outcome = await viewModel.lookupTask?.value ?? nil
+        XCTAssertEqual(outcome?.affectedResultKind, .viralRecon, "the lookup's outcome carries the kind")
+        let shown = viewModel.warnings.filter { $0.title == ProvenanceInspectorViewModel.affectedResultsWarningTitle }
+        XCTAssertEqual(shown.count, 2, "the lineage-prefix and read-order rows of Stable 2026.11.7, found \(shown)")
     }
 
     // MARK: - Threading regression (F6)
@@ -244,7 +274,7 @@ final class ProvenanceInspectorViewModelOffMainTests: XCTestCase {
         return url
     }
 
-    private func writeEnvelope(workflowName: String, to dir: URL) throws {
+    private func writeEnvelope(workflowName: String, to dir: URL, appVersion: String? = nil) throws {
         let input = dir.appendingPathComponent("input.fastq")
         let output = dir.appendingPathComponent("output.fastq")
         try Data("@r\nACGT\n+\n!!!!\n".utf8).write(to: input)
@@ -267,7 +297,7 @@ final class ProvenanceInspectorViewModelOffMainTests: XCTestCase {
             toolName: "lungfish-cli",
             toolVersion: "0.4.0",
             argv: ["lungfish-cli", "import", input.path],
-            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+            runtimeIdentity: appVersion.map { ProvenanceRuntimeIdentity(appVersion: $0) } ?? ProvenanceRuntimeIdentity.fixture(),
             files: [inputDescriptor, outputDescriptor],
             output: outputDescriptor,
             outputs: [outputDescriptor],

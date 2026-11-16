@@ -239,7 +239,9 @@ final class WindowEventPosterScopeTests: XCTestCase {
             contentMode: .metagenomics, displayName: "result"
         )
 
-        inspector.provenanceSectionViewModel.applyAffectedResults(item: item)
+        inspector.provenanceSectionViewModel.applyAffectedResults(
+            kind: ProvenanceInspectorViewModel.affectedResultKind(for: item)
+        )
 
         let posted = try XCTUnwrap(recorder.last)
         XCTAssertEqual(posted.windowScope, scope)
