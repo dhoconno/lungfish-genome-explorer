@@ -36,11 +36,15 @@ GLOBS = ("AGENTS.md", "Sources/*/AGENTS.md", ".claude/agents/*.md", "docs/contra
 ROOT_GUIDE_KB = 6
 MODULE_GUIDE_KB = 12
 AGENT_TYPE_KB = 6
+AGENT_TYPE_OWN_KB = {  # raised for the O177 ballot 4 lines, on the owner's word of 2026-11-16
+    "lge-lane.md": 7,
+    "lge-lane-opus.md": 7,
+}
 OTHER_CONTRACT_KB = 20
 CONTRACT_KB = {
     "SCOPE-AND-DELIVERY.md": 10,
     "OWNER-DIRECTIONS.md": 6,
-    "RUNNING-A-PHASE-SESSION.md": 12,
+    "RUNNING-A-PHASE-SESSION.md": 13,  # 12 until the O177 ballot 4 rules, on the owner's word of 2026-11-16
     "VERIFICATION-ORDER.md": 12,
     "EXPERT-PANEL.md": 10,
     "MACHINES.md": 12,
@@ -66,7 +70,7 @@ def cap_of(path: str) -> int:
     if path.startswith("Sources/"):
         return MODULE_GUIDE_KB * KB
     if path.startswith(".claude/agents/"):
-        return AGENT_TYPE_KB * KB
+        return AGENT_TYPE_OWN_KB.get(path.rsplit("/", 1)[-1], AGENT_TYPE_KB) * KB
     return CONTRACT_KB.get(path.rsplit("/", 1)[-1], OTHER_CONTRACT_KB) * KB
 
 

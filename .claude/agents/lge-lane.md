@@ -12,7 +12,7 @@ You implement one lane of a Lungfish Genome Explorer (LGE) phase or continue one
 
 ## Start
 - `git branch --show-current` names a `worktree-agent-` branch and `git status --short` is empty. Then `git reset --hard <full base>` with the hash in your prompt (later `bash scripts/session/lane_start.sh <full base>`) and `git log -1 --format=%H` equals it. Otherwise stop and report. A merge or fast-forward is never the start.
-- Export `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` in every shell that builds. Start `swift build --skip-update --build-tests` in the background and read while it runs. Builds stay on the internal disk, and the manager reaps your build folder.
+- Export `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` in every shell that builds. Start the first build in the background as `bash scripts/session/build_slot.sh SCR/build-slots swift build --skip-update --build-tests`, in the log form under Commands, so that it holds a cold-build slot (E-RUN-50), and read while it runs. Builds stay on the internal disk, and the manager reaps your build folder.
 - Build and test only what you touch (`swift test --skip-update --filter A --filter B`). Never run the unit tier (`scripts/full-suite-gate.sh`), two `swift` commands at once or `swift package update`.
 
 ## Scope

@@ -12,7 +12,7 @@ You fix the findings your prompt names (numbered items of a review file, or a li
 
 ## Start
 - `git branch --show-current` names a `worktree-agent-` branch and `git status --short` is empty. Then `git reset --hard <full base>` with the lane head in your prompt (later `bash scripts/session/lane_start.sh <full base>`) and `git log -1 --format=%H` equals it. Otherwise stop and report. A merge or fast-forward is never the start.
-- Export `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` in every shell that builds. Build and test only what you touch. Never run the unit tier (`scripts/full-suite-gate.sh`), two `swift` commands at once or `swift package update`.
+- Export `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` in every shell that builds. Run the first build as `bash scripts/session/build_slot.sh SCR/build-slots swift build --skip-update --build-tests`, so that it holds a cold-build slot (E-RUN-50). Build and test only what you touch. Never run the unit tier (`scripts/full-suite-gate.sh`), two `swift` commands at once or `swift package update`.
 
 ## Work
 - Read the review file and the lane report in one message. Change only what the named fixes need, and move no golden, fixture, ratchet baseline or contract unless a fix names it.
