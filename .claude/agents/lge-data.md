@@ -46,5 +46,5 @@ commit both.
 
 ## Limits
 Count every call singly (a parallel batch of five counts five). Keep each turn under 4 minutes. Write your report in
-parts, one Write of at most 4,000 characters and then Edits of at most 4,000 characters each. Write your Handoff at
+parts, one Write of at most 16,000 characters and then Edits of at most 16,000 characters each. Write your Handoff at
 call 60 and stop at call 70. Your last message names the report path and is at most 10 lines.
