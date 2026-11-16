@@ -312,8 +312,8 @@ public enum FastpPairedRunner {
 
         let fm = FileManager.default
         let outputURL = URL(fileURLWithPath: outputPath)
-        // The work files sit beside the output and peak near forty times the gzip input (D1b, FASTP-STAGING-MEMORY), so the
-        // disk is checked before the scratch folder is made, and a refusal writes nothing.
+        // The work files sit beside the output and peak near three copies of the reads' text (D1b, FASTP-STAGING-MEMORY), so
+        // the disk is checked before the scratch folder is made, and a refusal writes nothing.
         do {
             try StagingScratchNeed.require(
                 route: .fastpTrim, inputFiles: [inputURL], folder: outputURL.deletingLastPathComponent()

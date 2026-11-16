@@ -5,33 +5,83 @@
 import Foundation
 import os.log
 import LungfishCore
+import LungfishIO
 
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "StagingScratchNeed")
+
+/// The FASTQ text of read files, as each file states it. The scratch need and the bucket count of ``SeededPairOrder``
+/// both start from it (row FASTP-STAGING-MEMORY, findings F1 and F2 of lane FASTP-MEM).
+enum ReadTextSize {
+
+    /// The bytes a read's text holds past its bases and qualities: its header line, the plus line and four newlines.
+    /// D1b's SRA names make about 48 (2,400,000 reads of 179,644,531 bases in 475,153,254 bytes of text), so 64 covers
+    /// them and Illumina names of up to about 60 characters.
+    static let perReadBytes: Int64 = 64
+
+    /// The text bytes `url` states, nil when nothing does. A plain file states its size. A gzip file states its text
+    /// through the reads and bases of its statistics sidecar (``FASTQMetadataStore``), two bytes a base and
+    /// ``perReadBytes`` a read, unless that is less than the gzip file's own size, which says the sidecar describes
+    /// another file. D1b's 19,279,040 pairs stated that way are 8,240,007,312 bytes against 7,740,781,880 counted, 6% over.
+    static func stated(by url: URL) -> Int64? {
+        guard let size = fileSize(url) else { return nil }
+        guard url.pathExtension.lowercased() == "gz" else { return size }
+        let resolved = url.resolvingSymlinksInPath()
+        guard let statistics = (FASTQMetadataStore.load(for: url) ?? FASTQMetadataStore.load(for: resolved))?.computedStatistics,
+              statistics.readCount > 0 else {
+            return nil
+        }
+        let (bases, basesOverflow) = max(0, statistics.baseCount).multipliedReportingOverflow(by: 2)
+        let (names, namesOverflow) = Int64(statistics.readCount).multipliedReportingOverflow(by: perReadBytes)
+        let (text, sumOverflow) = bases.addingReportingOverflow(names)
+        if basesOverflow || namesOverflow || sumOverflow { return Int64.max }
+        return text >= size ? text : nil
+    }
+
+    /// The text of `urls`: each file as it states it, and a gzip file that states nothing at `gzipExpansion` times its
+    /// size. A file that cannot be read counts as zero, and the sum stops at `Int64.max`.
+    static func estimate(of urls: [URL], gzipExpansion: Int64) -> Int64 {
+        var total: Int64 = 0
+        for url in urls {
+            let bytes: Int64
+            if let text = stated(by: url) {
+                bytes = text
+            } else {
+                let (product, overflow) = (fileSize(url) ?? 0).multipliedReportingOverflow(by: max(1, gzipExpansion))
+                bytes = overflow ? Int64.max : product
+            }
+            let (sum, overflow) = total.addingReportingOverflow(bytes)
+            total = overflow ? Int64.max : sum
+        }
+        return total
+    }
+
+    /// The size of a file, a symbolic link counted as the file it names, nil when it cannot be read.
+    private static func fileSize(_ url: URL) -> Int64? {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)
+        return (attributes?[.size] as? NSNumber).map { max(0, $0.int64Value) }
+    }
+}
 
 /// The free disk space the fixed-order staging asks for before it writes anything (row FASTP-STAGING-MEMORY, ruling
 /// BIO-ROWS-1-3, item 6).
 ///
 /// Two routes write the reads out again in the seeded order of ``SeededPairOrder``. The fastp trim (`fastq trim`,
-/// quality-trim, adapter-trim and fixed-trim, and the window's trims, all through ``FastpPairedRunner``) keeps its work
-/// files in a hidden folder beside its output, and the Viral Recon staging keeps its bucket files and its gzip outputs
-/// under the run's split folder. Neither said anything about disk before it started, so a disk that was too small ended
-/// the run part way. Each route now compares the free space of the disk that holds its work with ``needBytes(inputFiles:route:)``
-/// and refuses with ``Refusal`` when the disk has less. A volume that does not answer lets the run go ahead with one log
-/// line, as ``ClumpifyDiskNeed`` does.
+/// quality-trim, adapter-trim and fixed-trim, and the FASTQ window's trims through `FASTQDerivativeService`, all through
+/// ``FastpPairedRunner``) keeps its work files in a hidden folder beside its output, and the Viral Recon staging keeps its
+/// bucket files and its gzip outputs under the run's split folder. Neither said anything about disk before it started, so
+/// a disk that was too small ended the run part way. Each route now compares the free space of the disk that holds its
+/// work with ``needBytes(inputFiles:route:)`` and refuses with ``Refusal`` when the disk has less. A volume that does not
+/// answer lets the run go ahead with one log line, as ``ClumpifyDiskNeed`` does.
 ///
-/// The need comes from D1b, which ran both routes on the same 19,279,040 pairs (604,385,740 bytes of gzip reads, 6.4 GB of
-/// FASTQ text, so a gzip file of those reads holds ten times its size).
-/// - The trim's work folder peaked at 18,693,724 KB, which is 31.7 times the gzip bytes and three copies of the text. At the
-///   peak it holds the seeded R1 and R2, fastp's two outputs and the re-interleaved file. The need is four times the text,
-///   so 40 times a gzip file of D1b's reads, a margin of 1.26 over the measure.
-/// - The Viral Recon staging peaked at 1,719,860 KB, which is 2.9 times the gzip bytes and 0.28 of the text. It holds the
-///   packed bucket files and the two gzip outputs. The need is two fifths of the text, so 4 times a gzip file of D1b's reads,
-///   a margin of 1.37 over the measure. A virtual bundle that the plan materializes first writes its text once more, which
-///   this need does not count.
-///
-/// A plain read file counts at its size and a gzip file at ``gzipExpansion`` times its size. Reads that gzip less than D1b's
-/// clumped reads need less than that says, so the check can refuse a disk that would have held the run. Finding the text
-/// of a gzip file means reading all of it, which the check does not do.
+/// The need is a multiple of the reads' text (``ReadTextSize``), taken from what the scratch holds and from D1b, which ran
+/// both routes on 19,279,040 pairs: 7,740,781,880 bytes of text in 604,385,740 bytes of gzip (`gzip -dc | wc -c`).
+/// - The trim's work holds at most three copies of the text: the R1 and R2 that fastp reads, fastp's two outputs and the
+///   interleaved output. D1b peaked at 18,693,724 KB, 2.47 times the text. The need is three times the stated text, a
+///   margin of 1.29 over the measure with the 6% the statement adds.
+/// - The Viral Recon staging holds the LZ4-packed bucket files and the gzip outputs, which take the packed bytes' place
+///   bucket by bucket. D1b peaked at 1,719,860 KB, 0.23 times the text. The need is two fifths of the stated text, a
+///   margin of 1.87, which leaves room for reads that LZ4 packs less well than D1b's clumped ones. A virtual bundle that
+///   the plan materializes first writes its text once more, which this need does not count.
 enum StagingScratchNeed {
 
     /// The two routes that stage reads in the seeded order, each with its own work on disk.
@@ -42,43 +92,32 @@ enum StagingScratchNeed {
         case viralReconStaging
     }
 
-    /// How many times its size a gzip read file is counted. D1b's gzip reads held 10.6 times their size in text, and the
-    /// whole number below it keeps the need from growing past the measure for reads that gzip less well.
-    static let gzipExpansion: Int64 = 10
+    /// How many times its size a gzip read file that states no text is counted. Reads as a sequencer writes them pack
+    /// about 3 to 5 to 1 in gzip (not measured here) and clumped reads more (D1b's 12.8 to 1), so this never asks an
+    /// ordinary run for more than it needs. A file of clumped reads with no sidecar can be asked for less, which leaves it
+    /// where it was before the check.
+    static let gzipExpansion: Int64 = 4
 
     /// The need as a fraction of the reads' text.
     private static func factor(for route: Route) -> (numerator: Int64, denominator: Int64) {
         switch route {
-        case .fastpTrim: return (4, 1)
+        case .fastpTrim: return (3, 1)
         case .viralReconStaging: return (2, 5)
         }
     }
 
-    /// The free bytes a route needs for plain read files of `plainBytes` and gzip read files of `gzipBytes`, rounded up. A
-    /// negative size counts as zero, and a need past `Int64.max` is `Int64.max`, so a very large input never wraps into a
-    /// small need.
-    static func needBytes(plainBytes: Int64, gzipBytes: Int64, route: Route) -> Int64 {
-        let (expanded, expandOverflow) = max(0, gzipBytes).multipliedReportingOverflow(by: gzipExpansion)
-        let (text, sumOverflow) = expanded.addingReportingOverflow(max(0, plainBytes))
+    /// The free bytes a route needs for reads of `textBytes` bytes of FASTQ text, rounded up. A negative size counts as
+    /// zero, and a need past `Int64.max` is `Int64.max`, so a very large input never wraps into a small need.
+    static func needBytes(textBytes: Int64, route: Route) -> Int64 {
         let scale = factor(for: route)
-        let (product, productOverflow) = text.multipliedReportingOverflow(by: scale.numerator)
-        guard !expandOverflow, !sumOverflow, !productOverflow, product <= Int64.max - (scale.denominator - 1) else {
-            return Int64.max
-        }
+        let (product, overflow) = max(0, textBytes).multipliedReportingOverflow(by: scale.numerator)
+        guard !overflow, product <= Int64.max - (scale.denominator - 1) else { return Int64.max }
         return (product + scale.denominator - 1) / scale.denominator
     }
 
-    /// The free bytes a route needs for these read files, measured now. A symbolic link counts as the file it names, and a
-    /// file that cannot be read counts as zero.
+    /// The free bytes a route needs for these read files, measured now from the text each states.
     static func needBytes(inputFiles: [URL], route: Route) -> Int64 {
-        var plain: Int64 = 0
-        var gzip: Int64 = 0
-        for url in inputFiles {
-            let attributes = try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)
-            let size = max(0, (attributes?[.size] as? NSNumber)?.int64Value ?? 0)
-            if url.pathExtension.lowercased() == "gz" { gzip += size } else { plain += size }
-        }
-        return needBytes(plainBytes: plain, gzipBytes: gzip, route: route)
+        needBytes(textBytes: ReadTextSize.estimate(of: inputFiles, gzipExpansion: gzipExpansion), route: route)
     }
 
     /// Reads the free bytes of the volume that holds a folder, nil when the volume does not answer.

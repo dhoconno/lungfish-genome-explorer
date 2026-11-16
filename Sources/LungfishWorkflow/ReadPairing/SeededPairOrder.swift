@@ -91,14 +91,18 @@ public enum SeededPairOrder {
         Int(((key >> 32) &* UInt64(count)) >> 32)
     }
 
-    /// Enough buckets that one holds about 64 MiB of reads, at most 512.
+    /// How many times its size a gzip file that states no text is counted for the bucket count. The most packed of
+    /// D1b's inputs held 39 times (p1200k, 475,153,254 bytes of text in 12,177,543). Too high a count only makes more,
+    /// smaller buckets; too low a count made one bucket of all 475 MB and a 1.8 GB footprint (F1).
+    static let bucketGzipExpansion: Int64 = 40
+
+    /// Enough buckets that one holds about 64 MiB of reads, at most 512, from the text the files state
+    /// (``ReadTextSize``).
     static func bucketCount(for urls: [URL]) -> Int {
-        let estimate = urls.reduce(0) { total, url in
-            let size = ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int) ?? 0
-            return total + (url.pathExtension.lowercased() == "gz" ? size * 4 : size)
-        }
-        let target = 64 << 20
-        return min(max(1, (estimate + target - 1) / target), 512)
+        let estimate = ReadTextSize.estimate(of: urls, gzipExpansion: bucketGzipExpansion)
+        let target: Int64 = 64 << 20
+        let buckets = estimate / target + (estimate % target == 0 ? 0 : 1)
+        return Int(min(max(1, buckets), 512))
     }
 
     /// Writes every pair of `source` to `sink1` and `sink2` in the seeded
