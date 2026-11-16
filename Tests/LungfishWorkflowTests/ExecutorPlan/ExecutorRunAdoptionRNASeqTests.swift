@@ -154,8 +154,56 @@ final class ExecutorRunAdoptionRNASeqTests: XCTestCase {
         XCTAssertEqual(salmon.resolvedOptions["sample"], .string("sample2"))
         XCTAssertEqual(salmon.resolvedOptions["trimming"], .string("Poly-G trimming: off (LGE default)"))
         XCTAssertEqual(salmon.resolvedOptions["instrument"], .string("Instrument: Not recorded"))
+        // A plan pins its reads by digest and names no import record, so the adopt says what it cannot know, in words.
+        XCTAssertEqual(
+            salmon.resolvedOptions["importPolyG"],
+            .string("Poly-G trimming at import: Not recorded (the plan names no import record that names its tools)"))
         XCTAssertEqual(salmon.resolvedOptions["duplicates"], .string(SalmonQuantRecordLines.duplicates))
         XCTAssertEqual(record.steps[2].resolvedOptions["polyG"], .string("Poly-G trimming: off (LGE default)"))
+    }
+
+    // MARK: - Review EX-ADOPT-M2M3-BIO should-fix 1, the name a sample keeps
+
+    /// A sample whose name holds a space or punctuation keeps that name in the count tables, the samples and the record,
+    /// as the Mac route labels it, since the plan and the adopt's own refusals say that name. The adopt relabelled it
+    /// "Mock_1__rep.2".
+    func testAdoptKeepsTheNameOfASampleWithSpacesAndPunctuation() async throws {
+        let set = try await buildSet()
+        let name = "Mock 1 (rep.2)"
+        let returned = try Fixture.make(
+            root: root.appendingPathComponent("named"), name: "mock-1", plan: try pinned(sample: name),
+            contents: try Self.returnedFiles(set))
+        let result = try adopt(returned.folder)
+        let loaded = try RNASeqResultBundle.load(from: result)
+        let genes = try XCTUnwrap(loaded.counts.first { $0.entry.rows == .gene }).table
+        XCTAssertEqual(genes.sampleIDs, [name])
+        XCTAssertEqual(loaded.samples.map(\.id), [name])
+        let record = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: result))
+        XCTAssertEqual(record.steps[1].resolvedOptions["sample"], .string(name))
+    }
+
+    /// Two samples whose names differ only in characters a folder name cannot hold, "S 1" and "S_1", are two samples of
+    /// one result. The sanitizer made them one name and refused the batch as a repeated sample.
+    func testBatchOfTwoSamplesWhoseNamesSanitizeAlikeGivesOneResultOfBoth() async throws {
+        let set = try await buildSet()
+        let batch = root.appendingPathComponent("batch", isDirectory: true)
+        _ = try Fixture.make(root: batch, name: "first", plan: try pinned(sample: "S 1"), contents: try Self.returnedFiles(set))
+        _ = try Fixture.make(root: batch, name: "second", plan: try pinned(sample: "S_1"), contents: try Self.returnedFiles(set, scale: 2))
+        let loaded = try RNASeqResultBundle.load(from: try adopt(batch))
+        let genes = try XCTUnwrap(loaded.counts.first { $0.entry.rows == .gene }).table
+        XCTAssertEqual(genes.sampleIDs, ["S 1", "S_1"])
+    }
+
+    /// A plan whose sample has no name is refused in words that name the step, since the result could not label its
+    /// counts, and nothing is written.
+    func testAdoptRefusesAPlanWhoseStepNamesNoSample() async throws {
+        let set = try await buildSet()
+        let stepID = try pinned().steps[1].id
+        let returned = try Fixture.make(root: root, name: "nameless", plan: try pinned(sample: ""), contents: try Self.returnedFiles(set))
+        let refused = refusal(returned.folder) as? ExecutorAdoptRefusal
+        XCTAssertEqual(refused?.field, "sample.sampleName")
+        XCTAssertEqual(refused?.cause, "The plan of the step \(stepID) names no sample, so the result could not label its counts.")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: project.path))
     }
 
     // MARK: - M3 item 2, the adopt reads each sample's duplicates entry
