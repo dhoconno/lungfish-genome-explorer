@@ -64,6 +64,16 @@ struct ExecutorAdoptedRun: Sendable {
     let stagingImage: ExecutorAdoptStagingImage?
 }
 
+/// A returned plan folder whose plan and run record passed the checks every run takes, whatever its plan makes (lane
+/// EX-ADOPT). The FASTQ adopt and the adopt of a schema 2 run each add their own checks to it.
+struct ExecutorAdoptCheckedFolder: Sendable {
+    let resolver: PlanResourceResolver
+    let plan: ExecutionPlan
+    let record: ExecutorRunRecord
+    /// The image `staging.json` names, or nil for a folder that holds none.
+    let stagingImage: ExecutorAdoptStagingImage?
+}
+
 /// The adopt: it reads a plan folder that `lungfish-executor run --plan` returned and writes the bundle's sidecar and
 /// envelope from the plan and the run record with the import's own IO code (Q-C3-1 A, V4a).
 public enum ExecutorRunAdoption {
@@ -102,6 +112,23 @@ public enum ExecutorRunAdoption {
     static func check(
         _ folder: URL, name: String? = nil, policy: ExecutorAdoptPolicy
     ) throws(ExecutorAdoptRefusal) -> ExecutorAdoptedRun {
+        let checked = try checkShared(folder, policy: policy)
+        let (resolver, plan, record) = (checked.resolver, checked.plan, checked.record)
+        try checkSteps(record, plan: plan)
+        let (payload, payloadURL) = try checkPayload(record, resolver: resolver)
+        let sampleName = SampleFolderNaming.sanitizedDirectoryName(for: name ?? plan.sample.sampleName)
+        return ExecutorAdoptedRun(
+            folder: URL(fileURLWithPath: resolver.workRoot, isDirectory: true), plan: plan, record: record,
+            payload: payload, payloadURL: payloadURL, sampleName: sampleName, stagingImage: checked.stagingImage
+        )
+    }
+
+    /// The checks every returned plan folder takes, whatever its plan makes, in the order of the design's section 2: the
+    /// folder, the plan and the record read and decoded, the outcome, the plan's digest, the manifest pin, the site facts
+    /// and the staging image with its digest fact (lane EX-ADOPT). It writes nothing.
+    static func checkShared(
+        _ folder: URL, policy: ExecutorAdoptPolicy
+    ) throws(ExecutorAdoptRefusal) -> ExecutorAdoptCheckedFolder {
         let resolver: PlanResourceResolver
         do {
             resolver = try PlanResourceResolver(workRoot: folder)
@@ -142,13 +169,7 @@ public enum ExecutorRunAdoption {
         }
         let image = try stagingImage(in: resolver)
         try checkImageDigestFact(record.siteFacts, image: image)
-        try checkSteps(record, plan: plan)
-        let (payload, payloadURL) = try checkPayload(record, resolver: resolver)
-        let sampleName = SampleFolderNaming.sanitizedDirectoryName(for: name ?? plan.sample.sampleName)
-        return ExecutorAdoptedRun(
-            folder: URL(fileURLWithPath: resolver.workRoot, isDirectory: true), plan: plan, record: record,
-            payload: payload, payloadURL: payloadURL, sampleName: sampleName, stagingImage: image
-        )
+        return ExecutorAdoptCheckedFolder(resolver: resolver, plan: plan, record: record, stagingImage: image)
     }
 
     /// The manifest the run read: present, the image's own unless the policy says otherwise, and the plan's pin.
@@ -177,7 +198,7 @@ public enum ExecutorRunAdoption {
     /// BIO 4 and BIO 6: the record holds one succeeded step for each step of the plan, in the plan's order, with the
     /// storage details, the Q20 and Q30 counts and the times that the bundle's records are built from, so the adapter
     /// invents no size, no clumping state, no outcome and no time.
-    private static func checkSteps(_ record: ExecutorRunRecord, plan: ExecutionPlan) throws(ExecutorAdoptRefusal) {
+    static func checkSteps(_ record: ExecutorRunRecord, plan: ExecutionPlan) throws(ExecutorAdoptRefusal) {
         for (name, text) in [("startedAt", record.startedAt), ("endedAt", record.endedAt)] where date(text) == nil {
             throw refusal(name, "The run record states a \(name) that is not an ISO 8601 time with milliseconds.")
         }
