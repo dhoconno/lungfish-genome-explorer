@@ -35,33 +35,11 @@ package enum SalmonPlan {
         let key = SalmonIndexKey(setID: id, salmonVersion: pins.salmon.version, k: request.k, decoys: request.decoys)
         let index = try indexEntries(key: key, storageRoot: request.storageRoot)
         let deadline = request.deadlineSeconds ?? ExecutionPlan.maximumDeadlineSeconds
-        var sources = [ExecutorPlanEmitter.executorPath: pins.executor.url]
-        var inputs: [PlanEntry] = []
-        func input(_ read: SalmonPlanRead, _ path: String) -> String {
-            inputs.append(PlanEntry(role: .input, relativePath: path, sha256: read.sha256, size: read.size))
-            if let source = read.source { sources[path] = source }
-            return path
-        }
-        func suffix(_ read: SalmonPlanRead) -> String { PlanTemplate.fastqSuffix(of: read.name) }
-        var calls: [(id: String, files: [String], paired: Bool)] = []
-        for (n, pair) in sample.pairs.enumerated() {
-            let r1 = input(pair.r1, "inputs/pair\(n + 1)_R1\(suffix(pair.r1))")
-            let r2 = input(pair.r2, "inputs/pair\(n + 1)_R2\(suffix(pair.r2))")
-            calls.append(("trim-pair\(n + 1)", [r1, r2], true))
-        }
-        let singles = sample.singles.enumerated().map { n, read in input(read, "inputs/single\(n + 1)\(suffix(read))") }
-        if !singles.isEmpty { calls.append(("trim-singles", singles, false)) }
-
-        var steps: [PlanStep] = []
-        var r1s = calls.filter { $0.paired }.map { $0.files[0] }, r2s = calls.filter { $0.paired }.map { $0.files[1] }
-        var counted = singles
-        if case .trimGalore(let polyG) = request.trim {
-            steps = calls.map { trimStep($0.id, files: $0.files, paired: $0.paired, polyG: polyG, tool: pins.trimGalore, deadline: deadline) }
-            func trimmed(_ step: PlanStep) -> [String] { step.outputs.filter { step.outputPolicy?[$0] == .stays } }
-            r1s = steps.filter { $0.id != "trim-singles" }.map { trimmed($0)[0] }
-            r2s = steps.filter { $0.id != "trim-singles" }.map { trimmed($0)[1] }
-            counted = steps.first { $0.id == "trim-singles" }.map(trimmed) ?? []
-        }
+        let frame = readsFrame(sample: sample, trim: request.trim, trimTool: pins.trimGalore, deadline: deadline)
+        var sources = frame.sources
+        sources[ExecutorPlanEmitter.executorPath] = pins.executor.url
+        let (inputs, r1s, r2s, counted) = (frame.inputs, frame.r1s, frame.r2s, frame.singles)
+        var steps = frame.trimSteps
         let indexPath = "references/\(id)/indexes/\(key.folderName)"
         var arguments = ["quant", "-i", indexPath, "-l", "A"]
         arguments += r1s.isEmpty ? ["-r"] + counted : ["-1"] + r1s + ["-2"] + r2s

@@ -61,8 +61,8 @@ package enum SalmonPlanSubmit {
         return Figures(memoryMiB: memoryMiB ?? memory ?? 0, cpus: made.threads, diskGiB: diskGiB ?? disk)
     }
 
-    /// The job of `made` with `figures`, its sample's staged reads read where they sit.
-    package static func job(_ made: SalmonPlanOutcome, figures: Figures) -> ExecutorPlanBatchJob {
+    /// The job of `made`, any chain's plan of one sample, with `figures`, its sample's staged reads read where they sit.
+    package static func job(_ made: some ReadsPlanOutcome, figures: Figures) -> ExecutorPlanBatchJob {
         ExecutorPlanBatchJob(
             emission: ExecutorPlanEmission(plan: made.plan, sources: made.sources),
             submit: ExecutorPlanSubmitValues(
@@ -74,8 +74,8 @@ package enum SalmonPlanSubmit {
     /// Writes the batch folder of the samples' plans through ``ExecutorPlanBatchWriter``, which returns each `home` output
     /// into `<batch>/<sample>/result/`.
     @discardableResult
-    package static func write(
-        _ jobs: [(made: SalmonPlanOutcome, figures: Figures)], image: ExecutorPlanImageRecord, layout: ExecutorPlanStagingLayout,
+    package static func write<Made: ReadsPlanOutcome>(
+        _ jobs: [(made: Made, figures: Figures)], image: ExecutorPlanImageRecord, layout: ExecutorPlanStagingLayout,
         requirements: String? = nil, into folder: URL
     ) throws -> ExecutorPlanBatch {
         try ExecutorPlanBatchWriter.write(

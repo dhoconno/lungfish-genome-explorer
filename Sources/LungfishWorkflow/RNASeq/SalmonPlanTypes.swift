@@ -132,7 +132,16 @@ package struct SalmonPlanRequest: Sendable {
     }
 }
 
-package struct SalmonPlanOutcome: Sendable {
+/// One sample's plan from any chain on the reads frame, salmon's or a later lane's, as the batch takes it: the plan, the
+/// sample whose name and staged reads the job carries, and the Mac file of each entry the batch copies.
+package protocol ReadsPlanOutcome: Sendable {
+    var plan: ExecutionPlan { get }
+    var sample: SalmonPlanSample { get }
+    /// Each entry's `relativePath` to the Mac file the batch copies there.
+    var sources: [String: URL] { get }
+}
+
+package struct SalmonPlanOutcome: ReadsPlanOutcome {
     package var plan: ExecutionPlan
     package var sample: SalmonPlanSample
     package var index: SalmonIndexKey
