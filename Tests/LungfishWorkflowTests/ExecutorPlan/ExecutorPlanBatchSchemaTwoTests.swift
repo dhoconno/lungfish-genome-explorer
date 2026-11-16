@@ -343,4 +343,90 @@ final class ExecutorPlanBatchSchemaTwoTests: XCTestCase {
         XCTAssertTrue(run.contains("for path in run-record.json \(Fixture.homeOutput); do"), run)
         XCTAssertTrue(run.contains("for path in \(Fixture.stagedOutput); do"), run)
     }
+
+    /// The stand-in job with the three files of ``ExecutorPlanStagedIndexTests``'s index record pinned, each read where
+    /// the batch `m-index` left it (lane EX-PLAN-STAR M1).
+    private func stagedIndexJob(_ sample: String = "S", paths: (([String: String]) -> [String: String])? = nil) throws -> ExecutorPlanBatchJob {
+        let pinned = try ExecutorPlanStagedIndex.pin(ExecutorPlanStagedIndexTests.record(), star: ExecutorPlanStagedIndexTests.star, layout: layout)
+        var made = try emission(sample)
+        made.plan.entries += pinned.entries
+        return ExecutorPlanBatchJob(
+            emission: made, submit: ExecutorPlanSubmitValues(sampleName: sample, requestDiskGiB: 30, requestMemoryMiB: 40_960, requestCpus: 8),
+            stagedReferencePaths: paths?(pinned.stagingPaths) ?? pinned.stagingPaths)
+    }
+
+    /// Lane EX-PLAN-STAR M1 item 2. Each file of an index an earlier run staged is read where that run left it, as a staged
+    /// read is: `staging-files.json` names it there with no source, so nothing uploads it, `sample.sub` transfers it from
+    /// there, and `jobs.tsv` places it from the same path below the data folder, never from `shared/<SHA-256>-<name>`. The
+    /// plan tar holds no index file, and the README and the dry run say where each index file is read from.
+    func testAStagedIndexIsReadWhereItsRunLeftItAndNeverUploaded() throws {
+        typealias Staged = ExecutorPlanStagedIndexTests
+        let job = try stagedIndexJob()
+        let folder = root.appendingPathComponent("staged-index", isDirectory: true)
+        let batch = try ExecutorPlanBatchWriter.write([job], image: image, layout: layout, into: folder)
+        let names = Staged.names
+        let paths = names.map(Staged.indexPath)
+
+        let staged = batch.files.filter { $0.stagingPath.hasPrefix(Staged.indexFolder + "/") }
+        XCTAssertEqual(staged.map(\.stagingPath), names.map { "\(Staged.indexFolder)/\($0)" })
+        XCTAssertEqual(staged.map(\.role), ["reference", "reference", "reference"])
+        XCTAssertEqual(staged.map(\.source), [nil, nil, nil], "nothing uploads an index an earlier run staged")
+        XCTAssertEqual(staged.map(\.sha256), Staged.record().files.map(\.sha256))
+        XCTAssertFalse(batch.files.contains { file in names.contains { file.stagingPath.hasSuffix("-\($0)") } }, "\(batch.files)")
+        let list = try JSONDecoder().decode(ExecutorPlanBatchFiles.self, from: Data(contentsOf: folder.appendingPathComponent("staging-files.json")))
+        XCTAssertEqual(list.files, batch.files)
+
+        let row = try text(folder, "jobs.tsv").split(separator: "\n").map(String.init)[1].split(separator: "\t").map(String.init)
+        for (name, path) in zip(names, paths) {
+            XCTAssertTrue(row.contains("batches/m-index/index/staged/star-index/\(name)=\(path)"), "\(row)")
+        }
+        let submit = try text(folder, "sample.sub")
+        let inputs = try value(of: "transfer_input_files", in: submit)
+        let arguments = try value(of: "arguments", in: submit)
+        for (name, path) in zip(names, paths) {
+            XCTAssertTrue(inputs.contains("file://\(Staged.indexFolder)/\(name),") || inputs.hasSuffix("file://\(Staged.indexFolder)/\(name)"), inputs)
+            XCTAssertTrue(arguments.contains("'\(name)=\(path)'"), arguments)
+        }
+        XCTAssertFalse(inputs.contains("shared/\(Staged.record().files[0].sha256)"), inputs)
+
+        let tar = try DeterministicTarReader.entries(in: folder.appendingPathComponent("S/plan.tar"))
+        XCTAssertEqual(tar["plan/plan.json"], try job.emission.plan.encoded())
+        for path in paths { XCTAssertNil(tar["plan/\(path)"]) }
+
+        let words = "The jobs read the 3 files of the index \(Staged.key) (Genome, SA and chrName.txt) where the run that built it "
+            + "left them, in \(Staged.indexFolder)/, and nothing copies them. A run of run-local.sh reads them from "
+            + "batches/m-index/index/staged/star-index/ below its data folder."
+        XCTAssertTrue(try text(folder, "README.txt").contains(words), try text(folder, "README.txt"))
+        XCTAssertTrue(batch.placements.contains(words), "\(batch.placements)")
+        let dryRun = try ExecutorPlanBatchWriter.dryRun([job], image: image, layout: layout)
+        XCTAssertTrue(dryRun.contains(words), "\(dryRun)")
+    }
+
+    /// Lane EX-PLAN-STAR M1 item 2. A staged index path outside the staging folder, one that names no index file of the
+    /// plan, and two jobs that read the index from different places are refused before anything is written.
+    func testStagedIndexRefusalsLeaveNoFolder() throws {
+        typealias Staged = ExecutorPlanStagedIndexTests
+        let genome = Staged.indexPath("Genome")
+        let cases: [(name: String, jobs: [ExecutorPlanBatchJob], field: String, words: String)] = [
+            ("outside", [try stagedIndexJob { $0.merging([genome: "/elsewhere/Genome"]) { $1 } }], "stagedReferencePaths",
+             "/elsewhere/Genome is not inside the staging folder \(Self.staging)"),
+            ("not-an-index", [try stagedIndexJob { $0.merging(["inputs/R1.fastq": "\(Self.staging)/reads/R1.fastq"]) { $1 } }],
+             "stagedReferencePaths", "inputs/R1.fastq, which is no index file of the plan"),
+            ("two-places", [try stagedIndexJob(), try stagedIndexJob("T") { $0.merging([genome: "\(Self.staging)/other/Genome"]) { $1 } }],
+             "stagedReferencePaths", "a batch of its own"),
+        ]
+        for item in cases {
+            let folder = root.appendingPathComponent(item.name, isDirectory: true)
+            var refusal: ExecutorPlanError?
+            XCTAssertThrowsError(try ExecutorPlanBatchWriter.write(item.jobs, image: image, layout: layout, into: folder), item.name) {
+                refusal = $0 as? ExecutorPlanError
+            }
+            XCTAssertEqual(refusal?.field, item.field, item.name)
+            XCTAssertTrue(refusal?.reason.contains(item.words) == true, "\(item.name): \(String(describing: refusal))")
+            XCTAssertThrowsError(try ExecutorPlanBatchWriter.dryRun(item.jobs, image: image, layout: layout), item.name) {
+                XCTAssertEqual($0 as? ExecutorPlanError, refusal, item.name)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), item.name)
+        }
+    }
 }
