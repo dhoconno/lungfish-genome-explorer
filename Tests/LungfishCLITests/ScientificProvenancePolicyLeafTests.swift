@@ -473,6 +473,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "rnaseq index": "cli.rnaseq",
         "rnaseq index-adopt": "cli.rnaseq.index-adopt",
         "rnaseq index-plan": "cli.rnaseq.index-plan",
+        "rnaseq solo-plan": "cli.rnaseq.solo-plan",
         "rnaseq quant": "cli.rnaseq",
         "rnaseq reference-set": "cli.rnaseq",
         "rnaseq export": "cli.rnaseq.export",

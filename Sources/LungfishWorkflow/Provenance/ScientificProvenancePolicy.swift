@@ -230,6 +230,8 @@ public enum ScientificProvenancePolicy {
         // that later plans pin, through its one owner (lane EX-INDEX).
         "rnaseq index-plan": dataWriting("cli.rnaseq.index-plan", writer: "STARIndexSubmit/ExecutorPlanBatchWriter"),
         "rnaseq index-adopt": dataWriting("cli.rnaseq.index-adopt", writer: "STARIndexRecordStore"),
+        // `rnaseq solo-plan` writes the STARsolo plan folder of 10x libraries for a Linux machine (lane SOLO-PLAN M3).
+        "rnaseq solo-plan": dataWriting("cli.rnaseq.solo-plan", writer: "SoloPlanSubmit/ExecutorPlanBatchWriter"),
         // The `conda` group holds no entry, because most of its commands maintain the installation.
         // These two write scientific data.
         "conda db download": dataWriting(

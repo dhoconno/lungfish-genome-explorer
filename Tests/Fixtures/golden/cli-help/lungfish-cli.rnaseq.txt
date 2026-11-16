@@ -17,5 +17,7 @@ SUBCOMMANDS:
                           reference set on a Linux machine
   index-adopt             Record the STAR index that a run on a Linux machine
                           built
+  solo-plan               Write a plan folder that counts 10x libraries with
+                          STARsolo on a Linux machine
 
   See 'lungfish-cli help rnaseq <subcommand>' for detailed help.

@@ -249,6 +249,7 @@ package enum CLIEventContractTable {
         "rnaseq index": .result(schemaID: "rnaseq-index"),
         // Since 5.3 lane EX-INDEX, the plan folder's path, the index key and the figures the job asks for.
         "rnaseq index-plan": .result(schemaID: "rnaseq-index-plan"),
+        "rnaseq solo-plan": .result(schemaID: "rnaseq-solo-plan"),
         // Since 5.3 lane EX-INDEX, the set id, the key, the record's path and its file count and bytes.
         "rnaseq index-adopt": .result(schemaID: "rnaseq-index-adopt"),
         "rnaseq quant": .result(schemaID: "rnaseq-quant"),

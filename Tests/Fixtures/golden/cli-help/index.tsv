@@ -213,6 +213,7 @@ lungfish-cli rnaseq export	shown	0	lungfish-cli.rnaseq.export.txt
 lungfish-cli rnaseq pseudobulk	shown	0	lungfish-cli.rnaseq.pseudobulk.txt
 lungfish-cli rnaseq index-plan	shown	0	lungfish-cli.rnaseq.index-plan.txt
 lungfish-cli rnaseq index-adopt	shown	0	lungfish-cli.rnaseq.index-adopt.txt
+lungfish-cli rnaseq solo-plan	shown	0	lungfish-cli.rnaseq.solo-plan.txt
 lungfish-cli ops	shown	0	lungfish-cli.ops.txt
 lungfish-cli ops stats	shown	0	lungfish-cli.ops.stats.txt
 lungfish-cli provenance	shown	0	lungfish-cli.provenance.txt

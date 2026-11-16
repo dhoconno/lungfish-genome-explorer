@@ -131,7 +131,8 @@ final class RNASeqSoloPlanCommandTests: XCTestCase {
         XCTAssertEqual(argv.firstIndex(of: "--soloCellFilter").map { Array(argv[$0 + 1...$0 + 2]) }, ["EmptyDrops_CR", "1000"])
         let reads = try XCTUnwrap(argv.firstIndex(of: "--readFilesIn").map { Array(argv[$0 + 1...$0 + 2]) })
         XCTAssertEqual(reads.map { $0.components(separatedBy: ",").count }, [2, 2], "each lane's read 2, then each lane's read 1")
-        XCTAssertTrue(reads[0].contains("L001_R2") && reads[1].contains("L002_R1"), "\(reads)")
+        // The frame names each staged read by its lane's pair, in the sheet's order (L001 is pair 1).
+        XCTAssertEqual(reads, ["inputs/pair1_R2.fastq.gz,inputs/pair2_R2.fastq.gz", "inputs/pair1_R1.fastq.gz,inputs/pair2_R1.fastq.gz"])
         let staged = try String(contentsOf: out.appendingPathComponent("staging-files.json"), encoding: .utf8)
         XCTAssertTrue(staged.contains("\(Self.staging)/batches/solo-index/index/staged/star-index/Genome"), staged)
     }

@@ -21,6 +21,7 @@ struct ImportRNASeqAdoptOptions: ParsableArguments {
             The one input names the returned plan folder, which holds plan.json, run-record.json and the run's count \
             files, or a returned batch folder, which holds one such folder a sample as <sample>/. The counts are \
             salmon's, STAR GeneCounts' column 2 (unstranded) or featureCounts' table, as the plan's route names. A \
+            STARsolo plan of rnaseq solo-plan gives the filtered matrix of Solo.out/Gene as one single-cell result. A \
             batch gives one result of all its samples, and when any sample is refused nothing is imported. The genes \
             are those of the reference set the plan names, in the storage root, and a STAR or featureCounts table \
             counted on another GTF is refused. The plan fixed every setting, so no option that sets a count is taken \

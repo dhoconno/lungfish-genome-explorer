@@ -32,7 +32,8 @@ extension ExecutorRunAdoption {
         if route.tool == salmonToolID {
             try checkLibraryFormatReport(plan, counting: counting)
         }
-        if isSTARRoute(route) {
+        // STARsolo's route names STAR too, and its argv is the 5.0 argv with no multimapNmax (lane SOLO-PLAN M3).
+        if isSTARRoute(route), plan.pipeline?.modality != .singleCell {
             try checkMultimapNmax(record, plan: plan, route: route)
         }
     }

@@ -1,0 +1,87 @@
+OVERVIEW: Write a plan folder that counts 10x libraries with STARsolo on a
+Linux machine
+
+Each library gets one plan that runs STAR 2.7.11b in STARsolo mode on its
+staged reads, each lane's read 2 and then each lane's read 1, on the STAR index
+of the set that an earlier Linux run built and left in the staging folder. Plan
+that index with lungfish-cli rnaseq index-plan, with --tenx-filter for a 10x
+biotype list, run it, and record it with lungfish-cli rnaseq index-adopt. The
+plan names no GTF, since STARsolo reads its genes through the index, and it
+states the 10x filter rule, its list, the GTF's SHA-256 and the genes left out,
+read from the index record.
+
+The barcode list is the preset's whole 10x list, checked by SHA-256. With no
+--barcode-list the plan reads the list in the tool image. A list you give is
+checked here and never copied, so place it in the staging folder where the plan
+folder's README says. Adopt what a run returns with lungfish-cli import rnaseq
+<folder> --adopt.
+
+USAGE: lungfish-cli rnaseq solo-plan [<options>] --set <set> --preset <preset> --staged-reads <file> --samplesheet <file> --output <output> --staging-folder <staging-folder>
+
+OPTIONS:
+  --set <set>             The id of a reference set under the storage root, or
+                          the path of a set folder
+  --preset <preset>       The library's chemistry and the matrix counted:
+                          tenx-3p-v3, tenx-5p-v2 or tenx-3p-v3-introns
+        tenx-3p-v3 counts exons of 10x 3' v3 with the 3M-february-2018 list,
+        tenx-5p-v2 counts exons of 10x 5' v2 read 2 with the 737K-august-2016
+        list, and tenx-3p-v3-introns counts exons and introns of 10x 3' v3
+        (STARsolo GeneFull_Ex50pAS) with the 3M list.
+  --barcode-list <file>   The preset's whole 10x barcode list as a file on this
+                          Mac, checked by SHA-256 (default: the list in the
+                          tool image)
+  --tenx-filter <tenx-filter>
+                          The 10x biotype list of the adopted STARsolo index to
+                          map on, mkgtf-3.0.0 or gencode-2020-A. Leave it out
+                          for an index with no 10x filter rule
+  --staged-reads <file>   A tab-separated list of the reads in the staging
+                          folder, with each read's absolute path, size in bytes
+                          and SHA-256
+        The list's first line names the columns file, bytes and sha256,
+        separated by tabs. Lungfish reads none of the reads.
+  --samplesheet <file>    A comma-separated sample sheet with sample, r1 and r2
+                          columns, one row a lane, whose rows of one sample are
+                          one library
+  --output <output>       The new plan folder to write. It must not exist
+  --staging-folder <staging-folder>
+                          The absolute path of the folder on the Linux machine
+                          that holds the image, the executor, the index and the
+                          reads
+  --executor-manifest <executor-manifest>
+                          The manifest.json beside the Linux lungfish-executor
+                          (default: the app's)
+  --image <image>         The image.json of the container image (default: the
+                          app's)
+  --image-tool-manifest <image-tool-manifest>
+                          The image's tool manifest, the file image.json pins
+                          (default: the app's)
+  --expected-cells <expected-cells>
+                          The expected cells of STARsolo's EmptyDrops_CR cell
+                          filter (default: 3000)
+  --request-memory-mib <request-memory-mib>
+                          Memory each job asks for, in MiB
+  --request-cpus <request-cpus>
+                          CPUs each job asks for, and STAR's threads (default:
+                          8)
+  --request-disk-gib <request-disk-gib>
+                          Disk each job asks for, in GiB
+  --job-requirements <job-requirements>
+                          The machines the jobs may run on, as one HTCondor
+                          requirements expression
+  --dry-run               Make every refusal of the run and write no folder
+  --storage-root <storage-root>
+                          Managed storage root that holds the set and the index
+                          records (default: the configured location)
+  --format <format>       Output format (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

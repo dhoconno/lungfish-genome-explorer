@@ -10,10 +10,11 @@ import LungfishIO
 /// One sample of a counts adopt: its checked run, the counts its counting step returned, read where they lie, the
 /// duplicates state its plan states, and the adapter of each trim call by step index.
 struct ExecutorCountsAdoptedSample: Sendable {
-    /// salmon's folder, or the table of a STAR chain (lane EX-ADOPT M5).
+    /// salmon's folder, the table of a STAR chain (lane EX-ADOPT M5), or a STARsolo folder (lane SOLO-PLAN M3).
     enum Counts: Sendable {
         case salmon(SalmonQuantFolder)
         case star(ExecutorSTARCountsSample)
+        case singleCell(ExecutorSoloSample)
     }
 
     let run: ExecutorAdoptedCountsRun
@@ -31,8 +32,12 @@ struct ExecutorCountsAdoptedSample: Sendable {
         if case .star(let star) = counts { return star }
         return nil
     }
+    var soloSample: ExecutorSoloSample? {
+        if case .singleCell(let solo) = counts { return solo }
+        return nil
+    }
     /// The counting step's lines the payload adds to the record beside the Mac route's: none for salmon.
-    var payloadLines: [String: ParameterValue] { starCounts?.lines ?? [:] }
+    var payloadLines: [String: ParameterValue] { starCounts?.lines ?? soloSample?.lines ?? [:] }
 }
 
 /// A returned folder or batch whose every sample passed every check, read into the writer's request before any result
@@ -55,6 +60,8 @@ extension ExecutorRunAdoption {
         _ folder: URL, storageRoot: URL, name: String, policy: ExecutorAdoptPolicy
     ) throws -> ExecutorCountsAdoption {
         let runs = try checkCountsRuns(folder, policy: policy)
+        // A single-cell plan's counts are STARsolo's matrix, which its own payload reads (lane SOLO-PLAN M3).
+        if runs[0].pipeline.modality == .singleCell { return try prepareSingleCell(runs, storageRoot: storageRoot, name: name) }
         let first = runs[0]
         let duplicates = try runs.map { try duplicatesState($0) }
         try checkOnePipeline(runs, duplicates: duplicates)

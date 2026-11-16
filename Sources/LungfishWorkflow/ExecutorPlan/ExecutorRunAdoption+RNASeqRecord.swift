@@ -46,6 +46,15 @@ extension ExecutorRunAdoption {
                 path: result.appendingPathComponent("counts/\(name)").path, checksumSHA256: RNASeqResultBundle.sha256Hex(data),
                 fileSize: UInt64(data.count), role: .output))
         }
+        // A single-cell result writes no count table and keeps each matrix as given, so the matrix is the output the
+        // record names (lane SOLO-PLAN M3).
+        for matrix in adoption.request.matrices ?? [] {
+            guard let file = adoption.request.sourceFiles.first(where: { $0.sample == matrix.sample && $0.relativePath == matrix.matrix }) else { continue }
+            let (sha256, size) = try SingleCellFolderReader.hashFile(file.url)
+            builder = try builder.recordedOutputSnapshot(ProvenanceFileDescriptor(
+                path: result.appendingPathComponent("source/\(matrix.sample)/\(matrix.matrix)").path, checksumSHA256: sha256,
+                fileSize: UInt64(size), role: .output))
+        }
         for step in steps { builder = builder.step(step) }
         return try builder.complete(exitStatus: 0, status: .completed, startedAt: started, endedAt: Date())
     }
