@@ -365,4 +365,18 @@ final class ExecutorRunAdoptionRNASeqTests: XCTestCase {
         XCTAssertTrue(cause.contains("the sample S1") && cause.contains("Make the plan again"), cause)
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.path))
     }
+
+    /// A plan whose trim step does not return its console file as `home` is refused in words that name the sample and
+    /// the file, and nothing is written.
+    func testAdoptRefusesATrimCallThatReturnsNoConsoleFile() async throws {
+        let set = try await buildSet()
+        var plan = try pinned(sample: "S1")
+        plan.steps[0].outputPolicy?["logs/trim-pair1.stderr"] = .stays
+        let returned = try Fixture.make(root: root, name: "S1", plan: plan, contents: try Self.returnedFiles(set))
+        let refused = refusal(returned.folder) as? ExecutorAdoptRefusal
+        XCTAssertEqual(refused?.field, "steps[0].outputPolicy")
+        let cause = refused?.cause ?? ""
+        XCTAssertTrue(cause.contains("the sample S1") && cause.contains("logs/trim-pair1.stderr"), cause)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: project.path))
+    }
 }
