@@ -22,11 +22,32 @@ package struct STARIndexRecord: Codable, Sendable, Equatable {
         package var sha256: String
     }
 
+    /// The run that built the index, from the run record the adopt read, so that a later STAR or STARsolo result can name the
+    /// executor build and the run (`docs/formats/reference-set.md`, STAR indexes on Linux). The run record's byte copy sits
+    /// beside the record as `run-record.json`, and its SHA-256 is `runRecordSHA256` (ARCH-5-1-C-3, What binds 9).
+    package struct Run: Codable, Sendable, Equatable {
+        /// The SHA-256 and the length of the `run-record.json` bytes the adopt read, which the copy beside the record repeats.
+        package var runRecordSHA256: String
+        package var runRecordBytes: UInt64
+        /// The run record's `executor` as it states it, with the binary's `sha256` and `size` and the plan's `buildPin`.
+        package var executor: ExecutorBinaryIdentity
+        /// The adopt's `--batch` and `--sample`, which name the job's folder in the staging folder.
+        package var batch: String
+        package var sample: String
+    }
+
+    /// The schema a new adopt writes. Schema 1 holds no `run` and still reads.
+    package static let currentSchemaVersion = 2
+    /// The byte copy of the run record that sits beside the record.
+    package static let runRecordFileName = ExecutorRunRecord.fileName
+
     package var schemaVersion = 1
     package var setID: String
     package var key: STARIndexKey
     package var tool: PlanToolPin
     package var files: [File]
+    /// The run that built the index, which a record of schema 1 does not hold.
+    package var run: Run?
 }
 
 package enum STARIndexAdopt {
@@ -43,6 +64,8 @@ package enum STARIndexAdopt {
         var failedStepID: String?
         var inputs: [Input]
         var steps: [Step]
+        /// What the run record states of the binary that ran it, which the record keeps and which a run record must hold whole.
+        var executor: ExecutorBinaryIdentity?
     }
 
     /// The index record of a run that succeeded, or a refusal in words: a record that is not `succeeded`, one that names
@@ -129,6 +152,18 @@ package enum STARIndexAdopt {
             star: pin, genomeSAindexNbases: nbases, genomeSAsparseD: sparse, sjdbOverhang: overhang,
             genomeFastaFiles: [manifest.genome.path] + manifest.extras.map(\.path), countingGTFSHA256: gtf.sha256,
             gtfFilter: made.map(STARIndexKey.GTFFilter.init))
-        return STARIndexRecord(setID: manifest.id, key: key, tool: pin, files: files)
+        // The record names the executor build that made the index, so a run record that does not state it whole is refused.
+        let held = run.executor
+        guard let executor = held, executor.buildPin != nil, executor.sha256 != nil, executor.size != nil else {
+            let lacking = [held?.buildPin == nil ? "buildPin" : nil, held?.sha256 == nil ? "sha256" : nil,
+                           held?.size == nil ? "size" : nil].compactMap { $0 }
+            throw STARIndexError("The run record's executor names no \(lacking.joined(separator: ", ")), so the index record could not "
+                + "name the executor build that made the index and no record was written. Adopt the run-record.json that the "
+                + "executor wrote, which states all three.")
+        }
+        return STARIndexRecord(
+            schemaVersion: STARIndexRecord.currentSchemaVersion, setID: manifest.id, key: key, tool: pin, files: files,
+            run: .init(runRecordSHA256: PortableDigest.sha256Hex(of: data), runRecordBytes: UInt64(data.count), executor: executor,
+                       batch: staging.batch, sample: sample))
     }
 }

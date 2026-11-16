@@ -50,14 +50,14 @@ extension STARIndexPlanTests {
                       "staticLinuxSDKSHA256": String(repeating: "47d2fd89", count: 8)]]
     }
 
-    func adopted(_ set: ReferenceSetOutcome, staging: ExecutorPlanStagingLayout = STARIndexPlanTests.stagingLayout) throws -> (STARIndexRecord, [[String: Any]]) {
+    func adopted(_ set: ReferenceSetOutcome, staging: ExecutorPlanStagingLayout = STARIndexPlanTests.stagingLayout) throws -> (STARIndexRecord, [[String: Any]], Data) {
         let (data, outputs) = try runRecord(for: set)
-        return (try STARIndexAdopt.adopt(runRecord: data, setFolder: set.url, staging: staging), outputs)
+        return (try STARIndexAdopt.adopt(runRecord: data, setFolder: set.url, staging: staging), outputs, data)
     }
 
     func testTheAdoptedRecordHoldsTheRunRecordsDigestsAndTheStagingPathOfEachFile() async throws {
         let set = try await builtSet()
-        let (record, outputs) = try adopted(set)
+        let (record, outputs, _) = try adopted(set)
         XCTAssertEqual(record.setID, set.manifest.id)
         XCTAssertEqual(record.key.folderName, "star-2.7.11b-sa7-sparse2")
         XCTAssertEqual(record.key.referenceSetSHA256, try ProvenanceFileHasher.sha256(of: set.url.appendingPathComponent("reference-set.json")))
@@ -87,15 +87,15 @@ extension STARIndexPlanTests {
     }
 
     func testTheRecordIsWrittenOnceInOnePlaceFoundBySetAndKeyAndADifferentDigestIsRefused() async throws {
-        let (record, _) = try adopted(try await builtSet())
+        let (record, _, run) = try adopted(try await builtSet())
         let store = STARIndexRecordStore(storageRoot: root)
-        let url = try store.write(record)
+        let url = try store.write(record, runRecord: run)
         XCTAssertEqual(url.path, root.path + "/rnaseq-index-records/\(record.setID)/\(record.key.folderName)/index-record.json")
         XCTAssertEqual(try store.find(setID: record.setID, key: record.key.folderName), record)
-        XCTAssertEqual(try store.write(record), url, "the same record again changes nothing")
+        XCTAssertEqual(try store.write(record, runRecord: run), url, "the same record again changes nothing")
         var other = record
         other.files[0].sha256 = String(repeating: "e", count: 64)
-        XCTAssertTrue(refusal { _ = try store.write(other) }.contains("already names other digests"))
+        XCTAssertTrue(refusal { _ = try store.write(other, runRecord: run) }.contains("already names other digests"))
         XCTAssertNil(try store.find(setID: record.setID, key: "star-2.7.11b-sa1-sparse2"))
     }
 
@@ -104,7 +104,7 @@ extension STARIndexPlanTests {
     /// SWIFT B2: the set id comes from a manifest and the key's folder name from a run record, so the one owner refuses
     /// any that is not one plain folder name and writes nothing, inside `rnaseq-index-records/` or outside it.
     func testASetIDOrKeyThatIsNotOnePlainFolderNameIsRefusedAndWritesNothing() async throws {
-        let (record, _) = try adopted(try await builtSet())
+        let (record, _, _) = try adopted(try await builtSet())
         let store = STARIndexRecordStore(storageRoot: root.appendingPathComponent("store", isDirectory: true))
         var escaping = record
         escaping.key.folderName = "star-/../../../../escape-sa7-sparse2"
@@ -137,9 +137,9 @@ extension STARIndexPlanTests {
     func testThePlanKeyAndTheRecordNameSjdbOverhangAndARunWithoutItIsRefused() async throws {
         let set = try await builtSet()
         XCTAssertEqual(try encoded(try STARIndexPlan.make(request(set.url)).key)["sjdbOverhang"] as? Int, 100)
-        let (record, _) = try adopted(set)
+        let (record, _, run) = try adopted(set)
         XCTAssertEqual(try encoded(record.key)["sjdbOverhang"] as? Int, 100)
-        let url = try STARIndexRecordStore(storageRoot: root).write(record)
+        let url = try STARIndexRecordStore(storageRoot: root).write(record, runRecord: run)
         let written = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
         XCTAssertEqual((written["key"] as? [String: Any])?["sjdbOverhang"] as? Int, 100, "the record on disk names it")
         let made = try runRecord(for: set, overhang: nil)
@@ -152,10 +152,10 @@ extension STARIndexPlanTests {
     func testAReAdoptAtAnotherStagingPathIsRefusedInWordsThatSayWhatDiffers() async throws {
         let set = try await builtSet()
         let store = STARIndexRecordStore(storageRoot: root)
-        let url = try store.write(try adopted(set).0)
+        let url = try store.write(try adopted(set).0, runRecord: try adopted(set).2)
         let before = try Data(contentsOf: url)
         let moved = ExecutorPlanStagingLayout(folder: "/staging/group/project", batch: "star-index-2")
-        let words = refusal { _ = try store.write(try adopted(set, staging: moved).0) }
+        let words = refusal { _ = try store.write(try adopted(set, staging: moved).0, runRecord: try adopted(set).2) }
         for part in ["the same digests", url.path, "/staging/group/project/batches/star-index/index/staged/star-index,",
                      "/staging/group/project/batches/star-index-2/index/staged/star-index,", "remove that file"] {
             XCTAssertTrue(words.contains(part), "\(part) is missing from: \(words)")
@@ -163,7 +163,7 @@ extension STARIndexPlanTests {
         XCTAssertFalse(words.contains("other digests"), words)
         var changed = try adopted(set).0
         changed.files[3].sha256 = String(repeating: "e", count: 64)
-        let digests = refusal { _ = try store.write(changed) }
+        let digests = refusal { _ = try store.write(changed, runRecord: try adopted(set).2) }
         XCTAssertTrue(digests.contains("other digests for 1 of 15 files") && digests.contains(url.path), digests)
         XCTAssertFalse(digests.contains("staging") || digests.contains("same digests"), digests)
         XCTAssertEqual(try Data(contentsOf: url), before, "a refusal leaves the record as it was")
@@ -311,6 +311,7 @@ extension STARIndexPlanTests {
         let (store, _) = try plant(Self.bulkRecordBytes)
         let record = try XCTUnwrap(try store.find(setID: "set-0001", key: "star-2.7.11b-sa7-sparse2"))
         XCTAssertEqual(record.schemaVersion, 1)
+        XCTAssertNil(record.run, "a record adopted before LGE kept the run names none")
         let star = PlanToolPin(id: "STAR", version: "2.7.11b", build: "h0_0")
         let layout = ExecutorPlanStagingLayout(folder: "/staging/group/project", batch: "star-counts")
         let pinned = try ExecutorPlanStagedIndex.pin(setID: "set-0001", key: record.key.folderName, store: store, star: star, layout: layout)
@@ -327,6 +328,98 @@ extension STARIndexPlanTests {
         for part in [target.path, "schema version 3", "reads 1 and 2", "Adopt the index again"] {
             XCTAssertTrue(words.contains(part), "\(part) is missing from: \(words)")
         }
+    }
+
+    /// A schema 2 file that names no run is not one this build wrote, so it is refused in words that name the file.
+    func testARecordOfSchemaTwoThatNamesNoRunIsRefusedInWords() throws {
+        let (store, target) = try plant(Self.bulkRecordBytes.replacingOccurrences(of: "\"schemaVersion\" : 1", with: "\"schemaVersion\" : 2"))
+        let words = refusal { _ = try store.find(setID: "set-0001", key: "star-2.7.11b-sa7-sparse2") }
+        XCTAssertTrue(words.contains(target.path) && words.contains("names no run"), words)
+    }
+
+    // MARK: - The run: the adopt's record, the copy beside it, and what the store refuses (INDEX-PIN)
+
+    /// The adopt names the run by the bytes it read and the executor as the run record states it, and writes schema 2.
+    func testTheAdoptedRecordNamesTheRunByTheBytesItReadAndTheExecutorAsTheRunRecordStatesIt() async throws {
+        let (record, _, data) = try adopted(try await builtSet())
+        XCTAssertEqual(record.schemaVersion, 2)
+        let run = try XCTUnwrap(record.run)
+        XCTAssertEqual(run.runRecordSHA256, PortableDigest.sha256Hex(of: data))
+        XCTAssertEqual(run.runRecordBytes, UInt64(data.count))
+        XCTAssertEqual(run.batch, "star-index")
+        XCTAssertEqual(run.sample, STARIndexPlan.sampleName)
+        XCTAssertEqual(run.executor.sha256, String(repeating: "25d9f5eb", count: 8))
+        XCTAssertEqual(run.executor.size, 59_025_792)
+        XCTAssertEqual(run.executor.buildPin?.lgeVersion, "dev-e65d22fcaeec")
+        XCTAssertEqual(run.executor.buildPin?.staticLinuxSDKID, "swift-6.4.0-RELEASE_static-linux-0.1.0")
+    }
+
+    /// A record that names a run takes the bytes of its run record with the SHA-256 and the length it names, and one that
+    /// names none takes none. The copy sits beside the record, and one that is damaged or missing beside an equal record is
+    /// written again.
+    func testTheStoreKeepsTheCopyBesideTheRecordAndRefusesBytesThatAreNotTheRunsOrAreGivenToARecordWithNoRun() async throws {
+        let (record, _, data) = try adopted(try await builtSet())
+        let store = STARIndexRecordStore(storageRoot: root)
+        for given in [nil, Data(data.dropLast())] as [Data?] {
+            let words = refusal { _ = try store.write(record, runRecord: given) }
+            XCTAssertTrue(words.contains("nothing was written") && words.contains(record.run?.runRecordSHA256 ?? "-"), words)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.storageRoot.appendingPathComponent("rnaseq-index-records").path))
+        var bare = record
+        bare.run = nil
+        XCTAssertTrue(refusal { _ = try store.write(bare, runRecord: data) }.contains("takes no run record"))
+        let url = try store.write(record, runRecord: data)
+        let copy = try store.runRecordURL(setID: record.setID, key: record.key.folderName)
+        XCTAssertEqual(copy.path, url.deletingLastPathComponent().path + "/run-record.json")
+        XCTAssertEqual(try Data(contentsOf: copy), data)
+        XCTAssertEqual(try store.find(setID: record.setID, key: record.key.folderName)?.run, record.run)
+        try Data("damaged".utf8).write(to: copy)
+        try store.write(record, runRecord: data)
+        XCTAssertEqual(try Data(contentsOf: copy), data, "a damaged copy beside an equal record is written again")
+        try FileManager.default.removeItem(at: copy)
+        try store.write(record, runRecord: data)
+        XCTAssertEqual(try Data(contentsOf: copy), data, "and a missing one")
+    }
+
+    /// Another run of the same index by digest is another record, refused in words that name the run record and the executor
+    /// build, and a refusal writes no copy, so the copy of the run kept is never touched.
+    func testARefusedRecordWritesNoCopyAndTheCopyOfTheRunKeptIsNeverTouched() async throws {
+        let set = try await builtSet()
+        let (record, _, data) = try adopted(set)
+        let store = STARIndexRecordStore(storageRoot: root)
+        let url = try store.write(record, runRecord: data)
+        let copy = try store.runRecordURL(setID: record.setID, key: record.key.folderName)
+        let (kept, before) = (try Data(contentsOf: copy), try Data(contentsOf: url))
+        let made = try runRecord(for: set, lgeVersion: "dev-0123456789ab")
+        let another = try STARIndexAdopt.adopt(runRecord: made.data, setFolder: set.url, staging: Self.stagingLayout)
+        let words = refusal { _ = try store.write(another, runRecord: made.data) }
+        for part in [url.path, "the same digests with another run record", record.run?.runRecordSHA256 ?? "-",
+                     "the executor build dev-e65d22fcaeec, where this run names dev-0123456789ab", "remove that file"] {
+            XCTAssertTrue(words.contains(part), "\(part) is missing from: \(words)")
+        }
+        XCTAssertEqual(try Data(contentsOf: copy), kept)
+        XCTAssertEqual(try Data(contentsOf: url), before)
+    }
+
+    /// A record of schema 1 beside the same index reads with no `run`, and an adopt of the same index is refused in words that
+    /// say it was adopted before LGE kept the run, name the remedy and write no copy.
+    func testASchemaOneRecordBesideTheSameIndexIsRefusedInWordsOfItsOwnAndWritesNoCopy() async throws {
+        let (record, _, data) = try adopted(try await builtSet())
+        var old = record
+        old.schemaVersion = 1
+        old.run = nil
+        let store = STARIndexRecordStore(storageRoot: root)
+        let url = try store.write(old)
+        let before = try Data(contentsOf: url)
+        XCTAssertNil(try store.find(setID: record.setID, key: record.key.folderName)?.run)
+        let words = refusal { _ = try store.write(record, runRecord: data) }
+        for part in [url.path, "was adopted before LGE kept the run", "names no executor build", "it was not replaced", "--storage-root",
+                     "remove that file and adopt again"] {
+            XCTAssertTrue(words.contains(part), "\(part) is missing from: \(words)")
+        }
+        XCTAssertFalse(words.contains("other digests") || words.contains("same digests"), words)
+        XCTAssertEqual(try Data(contentsOf: url), before)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try store.runRecordURL(setID: record.setID, key: record.key.folderName).path))
     }
 
     // MARK: - A set that loses a gene tells the unfiltered digest from the made file's (SOLO-PLAN M1 BIO should-fix 2)

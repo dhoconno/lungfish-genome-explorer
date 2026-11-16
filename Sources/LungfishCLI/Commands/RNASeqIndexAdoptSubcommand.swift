@@ -71,7 +71,8 @@ struct RNASeqIndexAdoptSubcommand: AsyncParsableCommand {
             runRecord: data, setFolder: setFolder, staging: ExecutorPlanStagingLayout(folder: stagingFolder, batch: batch),
             sample: sample, tenxFilter: list)
         let root = RNASeqIndexPlanSubcommand.storageRootURL(storageRoot)
-        let written = try STARIndexRecordStore(storageRoot: root).write(record)
+        let store = STARIndexRecordStore(storageRoot: root)
+        let written = try store.write(record, runRecord: data)
         let bytes = record.files.reduce(UInt64(0)) { $0 + $1.bytes }
         var lines = ["Adopted the STAR index \(record.key.folderName) of the set \(record.setID): \(record.files.count) files, "
                          + "\(bytes) bytes in the staging folder.", written.path]
@@ -83,6 +84,14 @@ struct RNASeqIndexAdoptSubcommand: AsyncParsableCommand {
                 + "with \(filter.genesLeftOut) gene\(filter.genesLeftOut == 1 ? "" : "s") left out.", at: 1)
             facts["tenxFilter"] = filter.list
             facts["genesLeftOut"] = filter.genesLeftOut
+        }
+        if let run = record.run {
+            let copy = try store.runRecordURL(setID: record.setID, key: record.key.folderName)
+            let build = STARIndexRecordStore.build(run)
+            lines.append("The run record, SHA-256 \(run.runRecordSHA256), built by the executor \(build), is kept at \(copy.path).")
+            facts["runRecordSHA256"] = run.runRecordSHA256
+            facts["executorBuild"] = build
+            facts["runRecordCopy"] = copy.path
         }
         let json = try JSONSerialization.data(withJSONObject: facts, options: [.sortedKeys, .withoutEscapingSlashes])
         return (lines, String(decoding: json, as: UTF8.self))
