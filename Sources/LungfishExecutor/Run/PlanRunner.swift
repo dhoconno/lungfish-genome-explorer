@@ -117,6 +117,9 @@ struct PlanRunner {
                 stepRecord = runQualityCount(step, run: record)
             } else if let tool = prepared.tools[step.id] {
                 stepRecord = runStep(step, tool: tool, adoptedSoFar: &adoptedSoFar)
+                if Self.runsExecutor(step) {
+                    stepRecord = Self.selfPinned(stepRecord, build: prepared.plan.executor, sha256: record.executor.sha256)
+                }
             } else {
                 record.outcome = .failed
                 record.failedStepID = step.id

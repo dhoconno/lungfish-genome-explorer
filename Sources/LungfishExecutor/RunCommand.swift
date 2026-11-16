@@ -234,6 +234,11 @@ enum RunCommand {
                     reason: "Step \(step.id) is a \(step.kind.rawValue) step, which this executor build does not run yet. No tool ran."
                 )
             }
+            // A pin of the plan's own executor build is never looked up in the manifest (ARCH-UMI-CHECKER item 5).
+            if PlanRunner.runsExecutor(step) {
+                tools[step.id] = try PlanRunner.selfPinnedTool(step, plan: plan, field: field)
+                continue
+            }
             guard let pin = step.tool, let tool = manifest.tool(matching: pin) else {
                 let named = step.tool.map { "\($0.id) \($0.version) build \($0.build)" } ?? "no tool"
                 throw RunRefusal(
@@ -271,7 +276,9 @@ enum RunCommand {
         // A step the executor reads itself reads gzip files only through a program the plan pins, so the host's
         // /usr/bin/gzip never runs (SWIFT fix 2 of the K4 part B review).
         if prepared.decompressor == nil,
-           let reader = plan.steps.first(where: { $0.kind == .qualityCount || PlanRunner.runsOwnStep($0) }) {
+           let reader = plan.steps.first(where: {
+               $0.kind == .qualityCount || PlanRunner.runsOwnStep($0) || PlanRunner.runsExecutor($0)
+           }) {
             throw RunRefusal(
                 field: "tools",
                 reason: "Step \(reader.id) reads gzip files, and the plan pins no gzip, pigz or bgzip to read them. No tool ran."

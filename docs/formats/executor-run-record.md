@@ -84,7 +84,7 @@ A run on Linux whose subreaper cannot be set is refused with `refusedField` `sub
 | Key | Meaning |
 | --- | --- |
 | `id`, `kind` | The plan step's id and kind |
-| `tool` | `id`, `version`, `build` and `path` of the tool, with `versionSource` and `sha256`. `versionSource` is `imageManifest` for a tool the image's manifest lists, and `planPin` for the executor itself, whose version and build come from the plan. `sha256` is stated only for the executor. Absent for a step refused before its tool was looked up |
+| `tool` | `id`, `version`, `build` and `path` of the tool, with `versionSource` and `sha256`. `versionSource` is `imageManifest` for a tool the image's manifest lists, and `planPin` for the executor itself, in the Q20 and Q30 count and the UMI layout check, whose version and build come from the plan. `sha256` is stated only for the executor. Absent for a step refused before its tool was looked up |
 | `outcome`, `reason` | `succeeded`, `failed`, `refused` or `interrupted`, and why |
 | `signal`, `signalName` | The termination signal that interrupted the step |
 | `argv` | The argv as run, the tool's absolute path first and every other path relative to the work root |
@@ -109,7 +109,7 @@ A `recipe` step counts the reads files among its inputs and its outputs, the nam
 
 A storage step states the records it read and the records it stored. A merged-to-mixed `interleave` step states the records it wrote as `outputReadCount`, with the counts by kind in `storage.mixedLayout`.
 
-A gzip file the executor reads itself, for a count or a merged-to-mixed step, goes through the plan's pinned `gzip`, else its pinned `pigz`, else its pinned `bgzip`. A plan with a `qualityCount` step, a storage step or a merged-to-mixed step that pins none of the three is refused with `refusedField` `tools` and the reason "Step <id> reads gzip files, and the plan pins no gzip, pigz or bgzip to read them. No tool ran." A plan with a `clumpify.sh` or `reformat.sh` storage step and no pinned `bgzip` is refused first, as [executor-plan.md](executor-plan.md) says. The executor never runs a program its tool manifest does not list.
+A gzip file the executor reads itself, for a count or a merged-to-mixed step, goes through the plan's pinned `gzip`, else its pinned `pigz`, else its pinned `bgzip`. A plan with a `qualityCount` step, a storage step or a merged-to-mixed step that pins none of the three is refused with `refusedField` `tools` and the reason "Step <id> reads gzip files, and the plan pins no gzip, pigz or bgzip to read them. No tool ran." A plan with a `clumpify.sh` or `reformat.sh` storage step and no pinned `bgzip` is refused first, as [executor-plan.md](executor-plan.md) says. The executor never runs a program its tool manifest does not list, except itself, which a step pinned to the plan's own executor build runs ([executor-plan.md](executor-plan.md), The UMI layout check).
 
 ## The full passes over the stored payload
 

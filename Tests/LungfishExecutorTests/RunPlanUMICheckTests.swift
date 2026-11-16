@@ -140,7 +140,7 @@ final class RunPlanUMICheckTests: XCTestCase {
         XCTAssertEqual(record.failedStepID, "umi-layout-check")
         let words = "UMI layout check failed: 0 of 1,000 pairs read (0.0%) start within one mismatch of ATCAATC, under the 90% the Test kit preset needs."
         XCTAssertTrue(record.reason?.contains(words) == true, record.reason ?? "")
-        XCTAssertTrue(record.steps.first?.stderrTail?.contains(words) == true, record.steps.first?.stderrTail ?? "")
+        XCTAssertTrue(record.steps.first?.stderrTail.contains(words) == true, record.steps.first?.stderrTail ?? "")
         XCTAssertEqual(record.steps.first?.toolExitCode, ExecutorExitCode.failed)
         XCTAssertEqual(record.steps.map(\.id), ["umi-layout-check"])
         XCTAssertTrue(record.payloads.isEmpty)
@@ -164,6 +164,6 @@ final class RunPlanUMICheckTests: XCTestCase {
         let fixture = try RunPlanFixture()
         let pid = try ExecutorTestSupport.spawn(fixture.binary, ["umi-layout-check", "--read1", "a.fastq"], folder: fixture.root)
         let exit = try XCTUnwrap(ExecutorTestSupport.waitForExit(pid, timeout: 30))
-        XCTAssertEqual(exit.termination, .exited(ExecutorExitCode.usage))
+        XCTAssertEqual(exit.termination, .exited(code: ExecutorExitCode.usage))
     }
 }

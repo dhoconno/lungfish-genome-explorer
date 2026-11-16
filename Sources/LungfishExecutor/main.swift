@@ -14,6 +14,9 @@ if executorArguments.first == "run" {
 if executorArguments.first == "read-fastq" {
     exit(ReadCommand.main(Array(executorArguments.dropFirst())))
 }
+if executorArguments.first == "umi-layout-check" {
+    exit(UMILayoutCheckCommand.main(Array(executorArguments.dropFirst())))
+}
 ExecutorSignals.unblock()
 if executorArguments.first == "image-manifest" {
     exit(ImageManifestCommand.main(Array(executorArguments.dropFirst())))
