@@ -24,6 +24,20 @@ OPTIONS:
   --not-host-bam <not-host-bam>
                           A sample's sorted, indexed BAM as <sample>=<path>,
                           one for each sample with --reference-set (repeat)
+  --adopt                 Adopt the counts a Linux run of lungfish-executor
+                          returned, as one result
+        The one input names the returned plan folder, which holds plan.json,
+        run-record.json and the run's salmon files, or a returned batch folder,
+        which holds one such folder a sample as <sample>/. A batch gives one
+        result of all its samples, and when any sample is refused nothing is
+        imported. Gene sums use the table of the reference set the plan names,
+        in the storage root. The plan fixed every setting, so no option that
+        sets a count is taken with --adopt. A refused adopt writes nothing.
+  --dry-run               With --adopt, run every check and read and write
+                          nothing
+  --storage-root <storage-root>
+                          With --adopt, the storage root that holds the plan's
+                          reference set (default: the configured location)
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)
