@@ -33,7 +33,14 @@ package enum SalmonPlan {
             throw SalmonPlanError("The sample \(sample.name) names \(staged.count) reads in the staging folder for its \(sample.reads.count) read files.")
         }
         let key = SalmonIndexKey(setID: id, salmonVersion: pins.salmon.version, k: request.k, decoys: request.decoys)
-        let index = try indexEntries(key: key, storageRoot: request.storageRoot)
+        let pinned = try request.index
+            ?? pinIndex(setID: id, storageRoot: request.storageRoot, pins: pins, k: request.k, decoys: request.decoys)
+        guard pinned.key == key else {
+            let other = pinned.key.setID == key.setID ? "" : " of the set \(pinned.key.setID)"
+            throw SalmonPlanError("The pinned index \(pinned.key.folderName)\(other) is not the index of this plan, "
+                + "\(key.folderName) of the set \(key.setID), so pin it again for this set, k and decoys.")
+        }
+        let index = (entries: pinned.entries, sources: pinned.sources)
         let deadline = request.deadlineSeconds ?? ExecutionPlan.maximumDeadlineSeconds
         let frame = readsFrame(sample: sample, trim: request.trim, trimTool: pins.trimGalore, deadline: deadline)
         var sources = frame.sources

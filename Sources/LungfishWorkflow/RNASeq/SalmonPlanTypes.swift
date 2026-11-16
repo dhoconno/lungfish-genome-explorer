@@ -114,12 +114,16 @@ package struct SalmonPlanRequest: Sendable {
     package var threads: Int
     /// The limit the person named for each step in seconds, or nil for the longest a plan allows.
     package var deadlineSeconds: Double?
+    /// The index ``SalmonPlan/pinIndex(setID:storageRoot:pins:k:decoys:)`` measured once for every sample of the
+    /// command, or nil to measure it for this plan alone. Its key must be this plan's.
+    package var index: SalmonPlanIndexPin?
 
     package init(
         setFolder: URL, storageRoot: URL, sample: SalmonPlanSample, pins: SalmonPlanPins, trim: SalmonQuantTrim,
         k: Int = 31, decoys: SalmonIndexDecoys = .genome, threads: Int = SalmonPlan.defaultThreads,
-        deadlineSeconds: Double? = nil
+        deadlineSeconds: Double? = nil, index: SalmonPlanIndexPin? = nil
     ) {
+        self.index = index
         self.setFolder = setFolder
         self.storageRoot = storageRoot
         self.sample = sample

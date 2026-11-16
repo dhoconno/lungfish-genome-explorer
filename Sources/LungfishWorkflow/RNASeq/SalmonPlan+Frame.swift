@@ -6,7 +6,33 @@ import Foundation
 import LungfishIO
 import LungfishPortable
 
+/// The published index of one set, salmon version, k and decoys, measured once: its `reference` entries and the Mac file
+/// of each. A command that writes the plans of many samples pins it once and passes the pin with each request, so it
+/// reads and hashes the index's files once a command, not once a sample (the macaque index is 7.9 GB).
+package struct SalmonPlanIndexPin: Sendable, Equatable {
+    package var key: SalmonIndexKey
+    package var entries: [PlanEntry]
+    /// Each entry's `relativePath` to its file in the cache.
+    package var sources: [String: URL]
+
+    package init(key: SalmonIndexKey, entries: [PlanEntry], sources: [String: URL]) {
+        self.key = key
+        self.entries = entries
+        self.sources = sources
+    }
+}
+
 extension SalmonPlan {
+    /// Measures the index `SalmonIndexCache` has published for the set at the image's salmon version, `k` and `decoys`,
+    /// once. A key with no published index is refused in words that name `lungfish-cli rnaseq index`.
+    package static func pinIndex(
+        setID: String, storageRoot: URL, pins: SalmonPlanPins, k: Int = 31, decoys: SalmonIndexDecoys = .genome
+    ) throws -> SalmonPlanIndexPin {
+        let key = SalmonIndexKey(setID: setID, salmonVersion: pins.salmon.version, k: k, decoys: decoys)
+        let index = try indexEntries(key: key, storageRoot: storageRoot)
+        return SalmonPlanIndexPin(key: key, entries: index.entries, sources: index.sources)
+    }
+
     /// Each file under the published index's `index/` as a `reference` entry with `index` `{key, tool}`, where the tool is
     /// the salmon of its `index-key.json` (`docs/formats/executor-plan.md`, Reference entries). A key with no published
     /// index is refused in words that name `lungfish-cli rnaseq index`.
