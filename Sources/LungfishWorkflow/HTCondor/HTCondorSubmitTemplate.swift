@@ -453,14 +453,17 @@ enum HTCondorValueRules {
         }
     }
 
-    /// A schema 2 job's returned outputs: each a path of names, and no two returned files share a last component, for
-    /// the reason ``checkReports(_:payloadRelativePath:)`` gives. The record and the logs folder are returned beside them.
+    /// A schema 2 job's returned outputs: each a path of names, no two the same whole path, and none the path of the
+    /// record or the logs folder, which are returned beside them. Each `home` and `staged` output, and the record, is
+    /// remapped by the path `transfer_output_files` lists it by to a `file://` URL that the execute point uploads itself
+    /// (CHTC c4 G3 j2, node 593394), so only `plan/logs` reaches the submit folder by its name, and two outputs may share
+    /// a last name in different folders, as STARsolo's matrix files do (ruling ARCH-5-1-C-3 item 1).
     static func checkOutputs(home: [String], staged: [String]) throws {
-        var names: Set<String> = [HTCondorSubmitTemplate.runRecordName, HTCondorSubmitTemplate.logsFolderName]
+        var paths: Set<String> = [HTCondorSubmitTemplate.runRecordName, HTCondorSubmitTemplate.logsFolderName]
         for (path, field) in home.map({ ($0, "home output path") }) + staged.map({ ($0, "staged output path") }) {
             try checkRelativePath(path, field: field)
-            guard names.insert(lastComponent(path)).inserted else {
-                throw HTCondorSubmitError.duplicate(field: "returned file", name: lastComponent(path))
+            guard paths.insert(path).inserted else {
+                throw HTCondorSubmitError.duplicate(field: "returned file", name: path)
             }
         }
     }
