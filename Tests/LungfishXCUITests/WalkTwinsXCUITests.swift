@@ -203,6 +203,254 @@ final class WalkTwinsXCUITests: XCTestCase {
         }
     }
 
+    /// Row 5 of the 2026.11.5 owner list (W-32, S2 if fewer or wrong sequences come out). One project holds two copies of
+    /// an annotated reference that the packaged `lungfish-cli` builds (`bundle create`) from a FASTA and a GFF3 that the
+    /// test writes: 6,000 bases and four genes, HBB the last. The second copy has its sequence file cut after the index
+    /// was written, so that HBB lies past the cut, as it did on the walk's reference (`walk-log.md:316`). Phase 1 selects
+    /// the four rows of the annotation table of the whole copy, chooses "Extract 4 Sequences…" from the context menu of a
+    /// selected row, finishes the Extract Sequence dialog with Save to File… and reads the file, which must hold four
+    /// records, each with its own name and its own bases. Phase 2 does the same on the cut copy. The alert must name HBB
+    /// and say "The other 3", closing it must open the dialog (on the walk nothing opened), and three records come out
+    /// with their own names and bases and none for HBB. Each phase runs twice in the method, as the row says.
+    @MainActor
+    func testExtractingFourSelectedAnnotationsGivesFourSequencesAndAfterACutTheOtherThree() throws {
+        let robot = try ReleaseAppSmokeRobot()
+        let cli = robot.candidateURL.appendingPathComponent("Contents/MacOS/lungfish-cli")
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: cli.path), "The candidate embeds lungfish-cli")
+        setenv("LUNGFISH_TEST_CLI", cli.path, 1)
+        let project = try LungfishProjectFixtureBuilder.makeBundleBrowserProject(named: "TwinExtract-\(UUID().uuidString)")
+        let app = robot.app
+        let folder = project.deletingLastPathComponent()
+        addTeardownBlock {
+            MainActor.assumeIsolated { app.terminate() }
+            try? FileManager.default.removeItem(at: folder)
+        }
+        try Self.addExtractionReferences(to: project, cli: cli)
+        try robot.launch()
+        robot.openProject(project)
+        robot.printLaunchRecord(of: #function)
+
+        for (phase, bundle, leftOut) in [("whole reference", Self.wholeBundle, false), ("cut reference", Self.cutBundle, true)] {
+            ReleaseSmokeFixtures.openSidebarItem(containing: bundle, in: app)
+            let expected = Self.genes.filter { !leftOut || $0.name != "HBB" }
+            for run in 1...2 {
+                guard let text = Self.extractAllSelected(into: folder, as: "\(bundle)-run\(run).fasta", leftOut: leftOut, robot: robot) else {
+                    return
+                }
+                Self.assertRecords(in: text, equal: expected, describing: "\(phase), run \(run)")
+            }
+        }
+    }
+
+    private static let wholeBundle = "TwinWhole"
+    private static let cutBundle = "TwinCut"
+
+    /// The four genes of the reference (1-based, inclusive, plus strand). HBB lies past the cut of the second copy.
+    private static let genes: [(name: String, start: Int, end: Int)] = [
+        ("GENEA", 201, 600), ("GENEB", 1001, 1400), ("GENEC", 1801, 2200), ("HBB", 4801, 5200)]
+
+    /// 6,000 bases from a fixed generator, so that each gene holds bases of its own.
+    private static let referenceBases: [Character] = {
+        let alphabet = Array("ACGT")
+        var state: UInt64 = 32
+        return (0..<6000).map { _ in
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return alphabet[Int(state >> 33) % 4]
+        }
+    }()
+
+    private static func expectedBases(of gene: (name: String, start: Int, end: Int)) -> String {
+        String(referenceBases[(gene.start - 1)..<gene.end])
+    }
+
+    /// Writes the FASTA and the GFF3, builds the two bundles with the packaged CLI and cuts the sequence file of the
+    /// second one after its index (`genome/sequence.fa.fai`) was written, 3,000 bases in, which is before HBB only.
+    private static func addExtractionReferences(to project: URL, cli: URL) throws {
+        let inputs = project.deletingLastPathComponent().appendingPathComponent("extraction-inputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+        let rows = stride(from: 0, to: referenceBases.count, by: 60).map { String(referenceBases[$0..<min($0 + 60, referenceBases.count)]) }
+        let fasta = inputs.appendingPathComponent("reference.fa")
+        try (">chrT twin extraction reference\n" + rows.joined(separator: "\n") + "\n").write(to: fasta, atomically: true, encoding: .utf8)
+        let gff = inputs.appendingPathComponent("genes.gff3")
+        try ("##gff-version 3\n" + genes.enumerated().map { index, gene in
+            "chrT\ttwin\tgene\t\(gene.start)\t\(gene.end)\t.\t+\t.\tID=gene\(index);Name=\(gene.name)\n"
+        }.joined()).write(to: gff, atomically: true, encoding: .utf8)
+        for bundle in [wholeBundle, cutBundle] {
+            try runCLI(cli, ["bundle", "create", "--fasta", fasta.path, "--annotation", gff.path, "--name", bundle,
+                             "--output-dir", project.path])
+        }
+        let genome = project.appendingPathComponent("\(cutBundle).lungfishref/genome", isDirectory: true)
+        // The index line reads `chrT <length> <offset> <bases per line> <bytes per line>`.
+        let index = try String(contentsOf: genome.appendingPathComponent("sequence.fa.fai"), encoding: .utf8)
+        let numbers = index.split(whereSeparator: { $0.isWhitespace }).compactMap { Int($0) }
+        guard numbers.count == 4, numbers[2] > 0 else {
+            throw NSError(domain: "WalkTwinsXCUITests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unexpected index of the cut copy:\n\(index)"])
+        }
+        let handle = try FileHandle(forUpdating: genome.appendingPathComponent("sequence.fa"))
+        try handle.truncate(atOffset: UInt64(numbers[1] + (3000 / numbers[2]) * numbers[3]))
+        try handle.close()
+    }
+
+    private static func runCLI(_ cli: URL, _ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = cli
+        process.arguments = arguments
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        let text = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw NSError(domain: "WalkTwinsXCUITests", code: Int(process.terminationStatus), userInfo: [
+                NSLocalizedDescriptionKey: "lungfish-cli \(arguments.joined(separator: " ")) failed with status \(process.terminationStatus):\n\(text)"])
+        }
+    }
+
+    /// The annotation table drawer of the bundle on screen. A drawer that is not open is shown from the View menu, and a
+    /// bundle that opens in its browser first is focused on its sequence.
+    @MainActor
+    private static func annotationDrawer(robot: ReleaseAppSmokeRobot) -> XCUIElement? {
+        let drawer = robot.app.descendants(matching: .any)["annotation-table-drawer"].firstMatch
+        if drawer.waitForExistence(timeout: 15) { return drawer }
+        let focus = robot.app.descendants(matching: .any)["reference-viewport-focus-button"].firstMatch
+        if focus.exists, focus.isHittable { focus.click() }
+        if drawer.waitForExistence(timeout: 10) { return drawer }
+        robot.menu("View", item: "Show Drawer")
+        guard drawer.waitForExistence(timeout: 10) else {
+            robot.failShowingScreen("The reference shows no annotation table drawer")
+            return nil
+        }
+        return drawer
+    }
+
+    /// Selects every row of the annotation table, chooses "Extract N Sequences…" from the context menu of a selected row,
+    /// closes the left-out alert when `leftOut` says one must show, saves the dialog's records through Save to File… as
+    /// `file` in `folder` and returns the text of the file once it holds a record for each row it must. Returns nil after
+    /// recording the failure when a step does not come.
+    @MainActor
+    private static func extractAllSelected(into folder: URL, as file: String, leftOut: Bool, robot: ReleaseAppSmokeRobot) -> String? {
+        let app = robot.app
+        let any = app.descendants(matching: .any)
+        guard let drawer = annotationDrawer(robot: robot) else { return nil }
+        let rows = drawer.tableRows
+        guard poll(30, in: app, until: { rows.count == genes.count }) else {
+            robot.failShowingScreen("The annotation table lists \(rows.count) rows and not the \(genes.count) genes of the reference")
+            return nil
+        }
+        let selected = { rows.allElementsBoundByIndex.filter { $0.isSelected }.count }
+        rows.element(boundBy: 0).click()
+        app.typeKey("a", modifierFlags: .command)
+        if !poll(5, in: app, until: { selected() == genes.count }) {
+            // Shift and the down arrow extend a selection that Select All did not make.
+            rows.element(boundBy: 0).click()
+            for _ in 1..<genes.count { app.typeKey(.downArrow, modifierFlags: [.shift]) }
+        }
+        guard poll(5, in: app, until: { selected() == genes.count }) else {
+            robot.failShowingScreen("\(selected()) rows of the annotation table are selected and not all \(genes.count)")
+            return nil
+        }
+
+        let title = "Extract \(genes.count) Sequences\u{2026}"
+        let menuItem = { app.menuItems.matching(NSPredicate(format: "title == %@", title)).allElementsBoundByIndex.first { $0.isHittable } }
+        rows.element(boundBy: 0).rightClick()
+        guard poll(10, in: app, until: { menuItem() != nil }), let choice = menuItem() else {
+            robot.failShowingScreen("The context menu of the \(genes.count) selected rows shows no item \"\(title)\"")
+            return nil
+        }
+        choice.click()
+
+        let kept = leftOut ? genes.count - 1 : genes.count
+        let dialog = any["extraction-configuration-sheet"].firstMatch
+        if leftOut {
+            guard let alert = robot.firstOf([app.sheets.firstMatch, app.dialogs.firstMatch], timeout: 20) else {
+                robot.failShowingScreen("\"\(title)\" shows no alert about the annotation that was left out")
+                return nil
+            }
+            let words = ["HBB", "The other \(kept) are in the extraction"].map {
+                NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", $0, $0)
+            }
+            for said in words {
+                XCTAssertTrue(alert.staticTexts.matching(said).firstMatch.waitForExistence(timeout: 5), "The left-out alert lacks the words \(said)")
+            }
+            alert.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+            guard dialog.waitForExistence(timeout: 20) else {
+                robot.failShowingScreen("Closing the left-out alert opened no Extract Sequence dialog (W-32)")
+                return nil
+            }
+            // Sheets are not stacked, so the alert's words are gone once the dialog shows.
+            for said in words {
+                XCTAssertTrue(app.staticTexts.matching(said).firstMatch.waitForNonExistence(timeout: 10), "The alert's words \(said) stay beside the dialog")
+            }
+        }
+        guard dialog.waitForExistence(timeout: 20) else {
+            robot.failShowingScreen("\"\(title)\" opens no Extract Sequence dialog")
+            return nil
+        }
+        let count = NSPredicate(format: "label == %@ OR value == %@", "\(kept) selected", "\(kept) selected")
+        XCTAssertTrue(app.staticTexts.matching(count).firstMatch.waitForExistence(timeout: 5), "The dialog does not say \"\(kept) selected\"")
+        any["extraction-destination-file"].firstMatch.click()
+        any["extraction-extract-button"].firstMatch.click()
+
+        let nameField = NSPredicate(format: "elementType == %d AND (identifier == %@ OR value BEGINSWITH %@)",
+                                    XCUIElement.ElementType.textField.rawValue, "saveAsNameTextField", "selected")
+        guard let panel = robot.firstOf([app.sheets.containing(nameField).firstMatch, app.dialogs.containing(nameField).firstMatch,
+                                         app.windows.containing(nameField).firstMatch]) else {
+            robot.failShowingScreen("Save to File… opens no save sheet with a name field")
+            return nil
+        }
+        let field = panel.descendants(matching: .textField).matching(nameField).firstMatch
+        guard field.waitForExistence(timeout: 5), robot.goToFolder(folder.path, in: panel, focusing: field) else { return nil }
+        field.click()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText(file)
+        field.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        // The CLI writes the file behind an Operations row, so the file shows when its records are all there.
+        let url = folder.appendingPathComponent(file)
+        var text = ""
+        let written = poll(90, in: app) {
+            guard let held = try? String(contentsOf: url, encoding: .utf8) else { return false }
+            text = held
+            return fastaRecords(in: held).count >= kept
+        }
+        guard written else {
+            robot.failShowingScreen("Save to File… wrote no file \(file) with \(kept) records within 90 s (it holds: \(text))")
+            return nil
+        }
+        return text
+    }
+
+    /// The records of a FASTA text, each with its header line (without the greater-than sign) and its bases in one line.
+    private static func fastaRecords(in text: String) -> [(header: String, bases: String)] {
+        var records: [(header: String, bases: String)] = []
+        for line in text.split(whereSeparator: { $0.isNewline }) {
+            if line.hasPrefix(">") {
+                records.append((String(line.dropFirst()), ""))
+            } else if !records.isEmpty {
+                records[records.count - 1].bases += line.trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return records
+    }
+
+    /// The file holds one record for each gene in `expected`, each named for its gene and with the bases of its place on
+    /// the reference, and none for a gene that is not in `expected`.
+    private static func assertRecords(in text: String, equal expected: [(name: String, start: Int, end: Int)], describing moment: String) {
+        let records = fastaRecords(in: text)
+        XCTAssertEqual(records.count, expected.count, "\(moment): the file holds \(records.count) records and not \(expected.count):\n\(text)")
+        for gene in genes {
+            let named = records.filter { $0.header.contains(gene.name) }
+            guard let wanted = expected.first(where: { $0.name == gene.name }) else {
+                XCTAssertTrue(named.isEmpty, "\(moment): the file holds a record for \(gene.name), which was left out:\n\(text)")
+                continue
+            }
+            XCTAssertEqual(named.count, 1, "\(moment): \(named.count) records name \(gene.name):\n\(text)")
+            XCTAssertEqual(named.first?.bases, expectedBases(of: wanted),
+                           "\(moment): the bases of \(gene.name) are not the bases of its place on the reference:\n\(text)")
+        }
+    }
+
     /// The `patient` and `NTC_1` folders of `Tests/Fixtures/taxtriage-ntc-p` as one TaxTriage result under Analyses, with
     /// the sidecar of a run whose samples were typed "NTC 1" (a control) and "patient". The app builds the database when
     /// it opens the result, as it does for any result that holds none. The copy leaves each sample's `minimap2`

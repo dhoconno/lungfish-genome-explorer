@@ -280,7 +280,8 @@
         "LungfishXCUITests/SidebarRescanSelectionXCUITests/testClickingAnotherResultRightAfterARescanShowsTheClickedResult",
         "LungfishXCUITests/WalkTwinsXCUITests/testRightClickingAnUnselectedSidebarRowLeavesOneResultOnEverySurface",
         "LungfishXCUITests/WalkTwinsXCUITests/testAnAssemblyWhoseContigsFileHoldsNoContigSaysSoAndShowsNoStoredNumbers",
-        "LungfishXCUITests/WalkTwinsXCUITests/testTheExportsOfABatchWhoseControlHoldsOrganismsAreNeverFalseClean"
+        "LungfishXCUITests/WalkTwinsXCUITests/testTheExportsOfABatchWhoseControlHoldsOrganismsAreNeverFalseClean",
+        "LungfishXCUITests/WalkTwinsXCUITests/testExtractingFourSelectedAnnotationsGivesFourSequencesAndAfterACutTheOtherThree"
       ],
       "nativeXCUITestCommand": [
         "python3",
