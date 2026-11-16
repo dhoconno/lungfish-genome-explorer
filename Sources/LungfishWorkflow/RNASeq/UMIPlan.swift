@@ -38,7 +38,8 @@ package struct UMIKitPreset: Sendable, Equatable {
 
 package enum UMIPlan {
     package static let pipelineID = "umi-counts"
-    package static let pipelineVersion = 1
+    /// 2 since milestone 2 added the chain after the check.
+    package static let pipelineVersion = 2
     /// The `home` file of each pair's check.
     package static func checkOutput(pair: Int) -> String { "umi-check/pair\(pair)-layout-check.json" }
     package static func checkStepID(pair: Int) -> String { "umi-layout-check-pair\(pair)" }

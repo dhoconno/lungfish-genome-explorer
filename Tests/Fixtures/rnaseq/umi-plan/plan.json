@@ -17,6 +17,70 @@
       "role" : "input",
       "sha256" : "2222222222222222222222222222222222222222222222222222222222222222",
       "size" : 1234567
+    },
+    {
+      "reference" : {
+        "path" : "derived/genes.gtf",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/derived/genes.gtf",
+      "role" : "reference",
+      "sha256" : "59418328435c67055273327b0421d42540c8e8ca32dd9086de09751a7001d45b",
+      "size" : 13888
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa7-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "Genome",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa7-sparse2/Genome",
+      "role" : "reference",
+      "sha256" : "dfe8197dc450f4941ebb860ac94a42f93ac262128baf3f9b818558f08177b545",
+      "size" : 35
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa7-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "SA",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa7-sparse2/SA",
+      "role" : "reference",
+      "sha256" : "9d43890a4bb7653d25f75ef66ee570004e7349f20b06cfa696cb7c607f45f887",
+      "size" : 31
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa7-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "chrName.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa7-sparse2/chrName.txt",
+      "role" : "reference",
+      "sha256" : "4815bce5a7c8e28ec9b4ed900c1b23d27fabc596d359ef9d90661a70067676c8",
+      "size" : 40
     }
   ],
   "executor" : {
@@ -35,6 +99,7 @@
   },
   "pipeline" : {
     "id" : "umi-counts",
+    "modality" : "bulk",
     "preset" : {
       "id" : "quartz-seq2-x910",
       "name" : "Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1)"
@@ -43,7 +108,56 @@
       "id" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed",
       "layout" : "lge"
     },
+    "route" : {
+      "id" : "umi-counts",
+      "settings" : {
+        "countingGTF" : "derived/genes.gtf of the set macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed, SHA-256 59418328435c67055273327b0421d42540c8e8ca32dd9086de09751a7001d45b",
+        "counts" : "umi_tools 1.1.6 count per gene in umi/counts.tsv: the UMIs of each gene, after featureCounts 2.1.1 gives each uniquely mapped Read 2 to the one gene whose exons it overlaps (-R BAM, unstranded -s 0, a read on two genes left uncounted as ambiguous, no -O), so a count is molecules and not reads",
+        "duplicates" : "Duplicates: removed with UMIs by umi_tools 1.1.6 count --per-gene --method=directional. The reads of one gene that carry one UMI count as one molecule, and a UMI one base from a UMI of the gene with at least twice its reads, less one, counts with that UMI. The UMI is the 16 bases after ATCAATC on Read 1 (kit preset quartz-seq2-x910). Whether the reads lost duplicates before this step is Not recorded (the bundle holds no import record that names its steps).",
+        "index" : "star-2.7.11b-sa7-sparse2",
+        "mapping" : "STAR 2.7.11b on the genome, Read 2 alone, uniquely mapped reads only (--outFilterMultimapNmax 1), --outSAMtype BAM SortedByCoordinate",
+        "trimming" : "Reads not trimmed",
+        "umiExtraction" : "umi_tools extract --extract-method=regex --bc-pattern=^(?P<discard_1>ATCAATC)(?P<umi_1>.{16})",
+        "umiGrouping" : "umi_tools count --per-gene --gene-tag=XT --assigned-status-tag=XS --method=directional",
+        "umiKit" : "Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1), preset quartz-seq2-x910",
+        "umiLength" : "16 bases after the motif",
+        "umiMotif" : "Read 1 starts with ATCAATC",
+        "umiRead" : "Read 1 holds the UMI, and only Read 2 is kept, with the UMI in its name"
+      },
+      "tool" : "umi_tools",
+      "toolVersion" : "1.1.6"
+    },
     "settings" : [
+      {
+        "id" : "countingGTF",
+        "label" : "Genes",
+        "source" : "default",
+        "value" : "derived/genes.gtf of the set macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed, SHA-256 59418328435c67055273327b0421d42540c8e8ca32dd9086de09751a7001d45b"
+      },
+      {
+        "id" : "counts",
+        "label" : "Counts",
+        "source" : "default",
+        "value" : "umi_tools 1.1.6 count per gene in umi/counts.tsv: the UMIs of each gene, after featureCounts 2.1.1 gives each uniquely mapped Read 2 to the one gene whose exons it overlaps (-R BAM, unstranded -s 0, a read on two genes left uncounted as ambiguous, no -O), so a count is molecules and not reads"
+      },
+      {
+        "id" : "duplicates",
+        "label" : "Duplicates",
+        "source" : "preset",
+        "value" : "Duplicates: removed with UMIs by umi_tools 1.1.6 count --per-gene --method=directional. The reads of one gene that carry one UMI count as one molecule, and a UMI one base from a UMI of the gene with at least twice its reads, less one, counts with that UMI. The UMI is the 16 bases after ATCAATC on Read 1 (kit preset quartz-seq2-x910). Whether the reads lost duplicates before this step is Not recorded (the bundle holds no import record that names its steps)."
+      },
+      {
+        "id" : "index",
+        "label" : "Index",
+        "source" : "default",
+        "value" : "star-2.7.11b-sa7-sparse2"
+      },
+      {
+        "id" : "mapping",
+        "label" : "Mapping",
+        "source" : "default",
+        "value" : "STAR 2.7.11b on the genome, Read 2 alone, uniquely mapped reads only (--outFilterMultimapNmax 1), --outSAMtype BAM SortedByCoordinate"
+      },
       {
         "id" : "trimming",
         "label" : "Trimming",
@@ -99,7 +213,7 @@
         "value" : "Read 1 holds the UMI, and only Read 2 is kept, with the UMI in its name"
       }
     ],
-    "version" : 1
+    "version" : 2
   },
   "sample" : {
     "instrument" : {
@@ -172,9 +286,250 @@
         "id" : "lungfish-executor",
         "version" : "test"
       }
+    },
+    {
+      "arguments" : [
+        "extract",
+        "--extract-method=regex",
+        "--bc-pattern=^(?P<discard_1>ATCAATC)(?P<umi_1>.{16})",
+        "-I",
+        "inputs/pair1_R1.fastq.gz",
+        "--read2-in",
+        "inputs/pair1_R2.fastq.gz",
+        "--read2-stdout",
+        "-S",
+        "umi/pair1_R2.umi.fastq.gz",
+        "-L",
+        "umi/pair1-extract.log"
+      ],
+      "deadlineSeconds" : 31622400,
+      "environment" : [
+
+      ],
+      "id" : "umi-extract-pair1",
+      "inputs" : [
+        "inputs/pair1_R1.fastq.gz",
+        "inputs/pair1_R2.fastq.gz"
+      ],
+      "kind" : "tool",
+      "outputPolicy" : {
+        "umi/pair1-extract.log" : "home",
+        "umi/pair1_R2.umi.fastq.gz" : "stays"
+      },
+      "outputs" : [
+        "umi/pair1_R2.umi.fastq.gz",
+        "umi/pair1-extract.log"
+      ],
+      "title" : "Move the UMI of pair 1 into the names of Read 2 with umi_tools 1.1.6",
+      "tool" : {
+        "build" : "py311haab0aaa_0",
+        "id" : "umi_tools",
+        "version" : "1.1.6"
+      }
+    },
+    {
+      "arguments" : [
+        "--runThreadN",
+        "8",
+        "--genomeDir",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa7-sparse2",
+        "--readFilesIn",
+        "umi/pair1_R2.umi.fastq.gz",
+        "--readFilesCommand",
+        "pigz",
+        "-d",
+        "-c",
+        "--outFilterMultimapNmax",
+        "1",
+        "--outSAMtype",
+        "BAM",
+        "SortedByCoordinate",
+        "--limitBAMsortRAM",
+        "8000000000",
+        "--outFileNamePrefix",
+        "star/"
+      ],
+      "deadlineSeconds" : 31622400,
+      "environment" : [
+
+      ],
+      "id" : "star-align",
+      "inputs" : [
+        "umi/pair1_R2.umi.fastq.gz",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa7-sparse2/Genome",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa7-sparse2/SA",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa7-sparse2/chrName.txt"
+      ],
+      "kind" : "tool",
+      "outputPolicy" : {
+        "star/Aligned.sortedByCoord.out.bam" : "stays",
+        "star/Log.final.out" : "home"
+      },
+      "outputs" : [
+        "star/Log.final.out",
+        "star/Aligned.sortedByCoord.out.bam"
+      ],
+      "title" : "Map Read 2 alone with STAR 2.7.11b, unique alignments only",
+      "tool" : {
+        "build" : "h5814d7d_9",
+        "id" : "STAR",
+        "version" : "2.7.11b"
+      }
+    },
+    {
+      "arguments" : [
+        "-T",
+        "8",
+        "-s",
+        "0",
+        "-a",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/derived/genes.gtf",
+        "-o",
+        "featurecounts/counts.txt",
+        "-R",
+        "BAM",
+        "--Rpath",
+        "featurecounts",
+        "star/Aligned.sortedByCoord.out.bam"
+      ],
+      "deadlineSeconds" : 31622400,
+      "environment" : [
+
+      ],
+      "id" : "featurecounts",
+      "inputs" : [
+        "star/Aligned.sortedByCoord.out.bam",
+        "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/derived/genes.gtf"
+      ],
+      "kind" : "tool",
+      "outputPolicy" : {
+        "featurecounts/Aligned.sortedByCoord.out.bam.featureCounts.bam" : "stays",
+        "featurecounts/counts.txt" : "stays",
+        "featurecounts/counts.txt.summary" : "home"
+      },
+      "outputs" : [
+        "featurecounts/counts.txt",
+        "featurecounts/counts.txt.summary",
+        "featurecounts/Aligned.sortedByCoord.out.bam.featureCounts.bam"
+      ],
+      "title" : "Tag each read with its gene with featureCounts 2.1.1",
+      "tool" : {
+        "build" : "h577a1d6_0",
+        "id" : "featureCounts",
+        "version" : "2.1.1"
+      }
+    },
+    {
+      "arguments" : [
+        "sort",
+        "-@",
+        "8",
+        "-m",
+        "768M",
+        "-o",
+        "umi/assigned.bam",
+        "featurecounts/Aligned.sortedByCoord.out.bam.featureCounts.bam"
+      ],
+      "deadlineSeconds" : 31622400,
+      "environment" : [
+
+      ],
+      "id" : "samtools-sort",
+      "inputs" : [
+        "featurecounts/Aligned.sortedByCoord.out.bam.featureCounts.bam"
+      ],
+      "kind" : "tool",
+      "outputPolicy" : {
+        "umi/assigned.bam" : "stays"
+      },
+      "outputs" : [
+        "umi/assigned.bam"
+      ],
+      "title" : "Sort the tagged reads with samtools 1.24",
+      "tool" : {
+        "build" : "h9dcdb79_1",
+        "id" : "samtools",
+        "version" : "1.24"
+      }
+    },
+    {
+      "arguments" : [
+        "index",
+        "umi/assigned.bam"
+      ],
+      "deadlineSeconds" : 31622400,
+      "environment" : [
+
+      ],
+      "id" : "samtools-index",
+      "inputs" : [
+        "umi/assigned.bam"
+      ],
+      "kind" : "tool",
+      "outputPolicy" : {
+        "umi/assigned.bam.bai" : "stays"
+      },
+      "outputs" : [
+        "umi/assigned.bam.bai"
+      ],
+      "title" : "Index the sorted tagged reads with samtools 1.24",
+      "tool" : {
+        "build" : "h9dcdb79_1",
+        "id" : "samtools",
+        "version" : "1.24"
+      }
+    },
+    {
+      "arguments" : [
+        "count",
+        "--per-gene",
+        "--gene-tag=XT",
+        "--assigned-status-tag=XS",
+        "--method=directional",
+        "-I",
+        "umi/assigned.bam",
+        "-S",
+        "umi/counts.tsv",
+        "-L",
+        "umi/count.log"
+      ],
+      "deadlineSeconds" : 31622400,
+      "environment" : [
+
+      ],
+      "id" : "umi-count",
+      "inputs" : [
+        "umi/assigned.bam",
+        "umi/assigned.bam.bai"
+      ],
+      "kind" : "tool",
+      "outputPolicy" : {
+        "umi/count.log" : "stays",
+        "umi/counts.tsv" : "home"
+      },
+      "outputs" : [
+        "umi/counts.tsv",
+        "umi/count.log"
+      ],
+      "title" : "Count the UMIs of each gene with umi_tools 1.1.6",
+      "tool" : {
+        "build" : "py311haab0aaa_0",
+        "id" : "umi_tools",
+        "version" : "1.1.6"
+      }
     }
   ],
   "tools" : [
+    {
+      "build" : "h5814d7d_9",
+      "id" : "STAR",
+      "version" : "2.7.11b"
+    },
+    {
+      "build" : "h577a1d6_0",
+      "id" : "featureCounts",
+      "version" : "2.1.1"
+    },
     {
       "build" : "0000000000000000000000000000000000000000",
       "id" : "lungfish-executor",
@@ -184,6 +539,21 @@
       "build" : "h421ea60_1",
       "id" : "pigz",
       "version" : "2.8"
+    },
+    {
+      "build" : "h5f976f7_0_cpython",
+      "id" : "python3",
+      "version" : "3.11.18"
+    },
+    {
+      "build" : "h9dcdb79_1",
+      "id" : "samtools",
+      "version" : "1.24"
+    },
+    {
+      "build" : "py311haab0aaa_0",
+      "id" : "umi_tools",
+      "version" : "1.1.6"
     }
   ]
 }

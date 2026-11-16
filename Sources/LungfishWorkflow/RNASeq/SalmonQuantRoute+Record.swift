@@ -104,9 +104,14 @@ public enum SalmonQuantRecordLines {
 
     public static let duplicatesNotRecorded = "Duplicates: Not recorded (the bundle holds no import record that names its steps)"
 
-    /// What one sample's reads lost to duplicate removal at import.
+    /// The result's `duplicates` when every sample's UMI step removed duplicates (lane EX-UMI). Like the other forms it
+    /// names no step and no sample count, and the sample's own line names the UMI step and the kit preset.
+    public static let duplicatesUMI = "Duplicates: removed with UMIs, so the reads of one gene that carry one UMI count as one molecule."
+
+    /// What one sample's reads lost to duplicate removal at import, or `umi` when a UMI step of its chain removed them.
+    /// Only a plan of the UMI branch states `umi`, and its writer refuses reads the import deduplicated.
     package enum DuplicatesState: Sendable, Equatable {
-        case kept, removed, notRecorded
+        case kept, removed, notRecorded, umi
     }
 
     /// One sample's state: removed when a recipe step of its import removed duplicates, kept when the sidecar of its
@@ -127,6 +132,7 @@ public enum SalmonQuantRecordLines {
         switch duplicatesState(payloads: payloads, bundle: bundle) {
         case .kept: return duplicates
         case .notRecorded: return duplicatesNotRecorded
+        case .umi: return duplicatesUMI
         case .removed:
             let removed = deduplicatingSteps(payloads: payloads)
             return "Duplicates: removed at import by \(removed.joined(separator: " and ")), without UMIs. This count removes none."
@@ -148,10 +154,22 @@ public enum SalmonQuantRecordLines {
         return "Duplicates: removed at import for \(removed) of \(total) samples, without UMIs. This count removes none.\(unknown)"
     }
 
+    /// The same with `umi` of the samples' duplicates removed by a UMI step (lane EX-UMI). A result of UMI samples alone
+    /// reads ``duplicatesUMI``. No result mixes them with other samples, since their route differs, and if one did its
+    /// words would give the UMI samples' count and then the others' form.
+    public static func duplicatesSetting(removed: Int, unrecorded: Int, umi: Int, of total: Int) -> String {
+        guard umi > 0 else { return duplicatesSetting(removed: removed, unrecorded: unrecorded, of: total) }
+        guard umi < total else { return duplicatesUMI }
+        let others = duplicatesSetting(removed: removed, unrecorded: unrecorded, of: total - umi)
+        return "Duplicates: removed with UMIs for \(umi) of \(total) samples. For the other \(total - umi): "
+            + others.dropFirst("Duplicates: ".count)
+    }
+
     /// The route's `duplicates` over the states of the result's samples.
     package static func duplicatesSetting(_ states: [DuplicatesState]) -> String {
         duplicatesSetting(
-            removed: states.filter { $0 == .removed }.count, unrecorded: states.filter { $0 == .notRecorded }.count, of: states.count)
+            removed: states.filter { $0 == .removed }.count, unrecorded: states.filter { $0 == .notRecorded }.count,
+            umi: states.filter { $0 == .umi }.count, of: states.count)
     }
 
     /// The names of the recipe steps that removed duplicates when the bundle's reads were imported.
