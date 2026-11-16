@@ -93,6 +93,16 @@ final class UMIPlanTests: XCTestCase {
         XCTAssertEqual(plan.pipeline?.preset, PlanPipelinePreset(id: "quartz-seq2-x910", name: UMIPlan.quartzSeq2X910.label))
     }
 
+    /// EX-UMI-M1-BIO should-fix 3: the plan a person reads states every fail rule the check applies, the names rule among
+    /// them (brief item 2, ADJ-BULK G1).
+    func testCheckBarsSettingStatesTheNamesRule() async throws {
+        let plan = try await made().plan
+        let bars = try XCTUnwrap(plan.pipeline?.settings.first { $0.id == "umiCheckBars" })
+        XCTAssertEqual(bars.value, "fails when a read name differs between the mates in any pair, when under 90% of the pairs read "
+            + "start within one mismatch of ATCAATC, or when under 50% hold a distinct UMI, and warns when under 90% start with it "
+            + "exactly or under 80% hold a distinct UMI")
+    }
+
     /// The kit column picks the preset by id, and an unknown kit is refused with the kits LGE knows.
     func testUnknownKitIsRefusedWithTheKnownKits() async throws {
         do {
