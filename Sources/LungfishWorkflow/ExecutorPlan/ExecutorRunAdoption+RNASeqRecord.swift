@@ -72,10 +72,12 @@ extension ExecutorRunAdoption {
 
     /// Each trim call's adapter by step index, from the JSON reports and the console file the step returned, which the
     /// output check has read against the record (ruling BIO-PLAN-ADAPTER item 4). A trim step that returns no JSON
-    /// report or no console file, or whose reports are not Trim Galore reports, is refused in words that name the step,
-    /// since the record could not state the adapter it trimmed.
+    /// report or no console file, or whose reports are not Trim Galore reports, is refused in words that name the sample
+    /// and the step and say how to go on, since the record could not state the adapter it trimmed (every sample's plan
+    /// has the step id `trim-pair1`, so a batch's refusal needs the sample, review EX-ADOPT-M4-BIO should-fix 1).
     static func trimAdapters(_ run: ExecutorAdoptedCountsRun) throws -> [Int: TrimGaloreAdapterReport] {
         var adapters: [Int: TrimGaloreAdapterReport] = [:]
+        let sample = run.plan.sample.sampleName
         for (index, step) in run.plan.steps.enumerated() where step.tool?.id == trimmerToolID {
             let outputs = run.homeOutputs.filter { $0.stepIndex == index }
             let reports = outputs.filter { $0.path.hasSuffix("_trimming_report.json") }
@@ -83,8 +85,9 @@ extension ExecutorRunAdoption {
             guard let first = reports.first, let console = outputs.first(where: { $0.path == consolePath }) else {
                 throw refusal(
                     "steps[\(index)].outputPolicy",
-                    "The step \(step.id) returns no JSON trimming report or no \(consolePath) as home, so the record cannot "
-                        + "state the adapter Trim Galore trimmed."
+                    "The plan of the sample \(sample) has a step \(step.id) that returns no JSON trimming report or no "
+                        + "\(consolePath) as home, so the record cannot state the adapter Trim Galore trimmed. Make the plan "
+                        + "again with this version of Lungfish, run it, and adopt the folder it returns."
                 )
             }
             let adapter = TrimGaloreAdapterReport.read(
@@ -93,8 +96,9 @@ extension ExecutorRunAdoption {
             guard adapter.adapters != nil else {
                 throw refusal(
                     "steps[\(index)].outputs",
-                    "The report \(first.path) of the step \(step.id) is not a Trim Galore JSON report, so the record cannot "
-                        + "state the adapter Trim Galore trimmed."
+                    "The report \(first.path) that the step \(step.id) of the sample \(sample) returned is not a Trim Galore "
+                        + "JSON report, so the record cannot state the adapter Trim Galore trimmed. Make the plan again with this "
+                        + "version of Lungfish, run it, and adopt the folder it returns."
                 )
             }
             adapters[index] = adapter
