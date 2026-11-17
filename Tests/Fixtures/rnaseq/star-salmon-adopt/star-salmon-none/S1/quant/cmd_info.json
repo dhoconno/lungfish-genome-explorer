@@ -1,0 +1,8 @@
+{
+  "salmon_version": "2.11.0",
+  "alignments": "star/Aligned.toTranscriptome.out.bam",
+  "targets": "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/derived/transcripts.fa",
+  "libType": "A",
+  "output": "quant",
+  "auxDir": "aux_info"
+}

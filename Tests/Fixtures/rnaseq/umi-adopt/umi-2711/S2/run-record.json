@@ -1,0 +1,486 @@
+{
+  "endedAt" : "2026-11-16T13:56:34.786Z",
+  "executor" : {
+    "buildPin" : {
+      "lgeCommit" : "99404904c8e65589c3e75c4a93de0620f12933f2",
+      "lgeVersion" : "2026.11.9",
+      "staticLinuxSDKID" : "swift-6.4.0-RELEASE_static-linux-0.1.0",
+      "staticLinuxSDKSHA256" : "47d2fd89eebfdf9eb4d536b6710414297f755c17926cdebc4742c08982b40a9e",
+      "targetTriple" : "x86_64-swift-linux-musl",
+      "toolchainID" : "swift-6.4.0-RELEASE",
+      "toolchainSHA256" : "8fd03185b98fe27f54a54631c2449decf75d5b466ce8e34abbd414141063c6aa"
+    },
+    "sha256" : "65cedf4332bbeaf2463e609a70ba6f496af6fd058489f0696f06071180a75323",
+    "size" : 59144576
+  },
+  "executorArguments" : [
+    "run",
+    "--plan",
+    "plan.json",
+    "--site-fact",
+    "Machine=galah.local",
+    "--site-fact",
+    "Arch=arm64",
+    "--site-fact",
+    "ContainerRuntime=Docker",
+    "--site-fact",
+    "ContainerRuntimeVersion=29.9.2",
+    "--site-fact",
+    "ContainerImageID=sha256:4d1027a4dcd93e272ccbcaaf2a4c4e55d1db43b6160284a03de8957f38231560",
+    "--site-fact",
+    "Launcher=run-local.sh/1"
+  ],
+  "exitCode" : 1,
+  "failedStepID" : "umi-layout-check-pair1",
+  "imageManifest" : {
+    "sha256" : "ded88d7fc03e50b0c4624f923314db6d4ed53697fe349d7f39a8070d9c916790",
+    "size" : 87670,
+    "source" : "image"
+  },
+  "inputs" : [
+    {
+      "relativePath" : "inputs/pair1_R1.fastq.gz",
+      "role" : "input",
+      "sha256" : "bbc062beae53e2e218ff733224db6554de6771a009500a5428dc4057295896a3",
+      "size" : 5314
+    },
+    {
+      "relativePath" : "inputs/pair1_R2.fastq.gz",
+      "role" : "input",
+      "sha256" : "7c2ff404091e52ce91848452f94b26b801a2766a50ccd0d8cc02659fe1781f2e",
+      "size" : 8345
+    },
+    {
+      "reference" : {
+        "path" : "derived/genes.gtf",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/derived/genes.gtf",
+      "role" : "reference",
+      "sha256" : "59418328435c67055273327b0421d42540c8e8ca32dd9086de09751a7001d45b",
+      "size" : 13888
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "Genome",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/Genome",
+      "role" : "reference",
+      "sha256" : "d16b7ccf1afaeaa1a3e5d7bdca588c2e2ca3e6572eaf26f33f5d7c89819637de",
+      "size" : 262144
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "SA",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/SA",
+      "role" : "reference",
+      "sha256" : "2fa1bd528e936e357e3aeafa0f9f3cbcde83e4f9536f9c718b71fd433f120828",
+      "size" : 68375
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "SAindex",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/SAindex",
+      "role" : "reference",
+      "sha256" : "89c30c50e6ce8b2bd27d1ee5922242b368101270e802fe31488887e71501b7ab",
+      "size" : 23955
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "chrLength.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/chrLength.txt",
+      "role" : "reference",
+      "sha256" : "adddfda3ffa59b40f84780d4bff8cf5e081b812a59bb37cc0e851e82cfd7c4eb",
+      "size" : 6
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "chrName.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/chrName.txt",
+      "role" : "reference",
+      "sha256" : "b39b6f988608fe86afbaa0031ae2332e9509c03eba5585d876f57f44034fbc73",
+      "size" : 12
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "chrNameLength.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/chrNameLength.txt",
+      "role" : "reference",
+      "sha256" : "378ede83ee2dba4b42c47586cd6b44ca1c76e460558d4650dbbdc87fa3ca4a8a",
+      "size" : 18
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "chrStart.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/chrStart.txt",
+      "role" : "reference",
+      "sha256" : "7952e21f37906b105ebb3890c7c05d403b8d6fb9299b2f8bbd23a90704373c7f",
+      "size" : 9
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "exonGeTrInfo.tab",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/exonGeTrInfo.tab",
+      "role" : "reference",
+      "sha256" : "3a236357aa1f88ebdd003dce0d0d88f2fb98effc72960ea6a092621b7fa679a6",
+      "size" : 229
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "exonInfo.tab",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/exonInfo.tab",
+      "role" : "reference",
+      "sha256" : "90e4bc3b5ca940ebd12a8fbe3660e66fb9d36dd98219235c72e2b573210b8790",
+      "size" : 112
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "geneInfo.tab",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/geneInfo.tab",
+      "role" : "reference",
+      "sha256" : "65063fd5284e32d179e1e13d7d3adfa9ad87bdc355b3a3d4701215a2a2919a8b",
+      "size" : 329
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "genomeParameters.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/genomeParameters.txt",
+      "role" : "reference",
+      "sha256" : "6455f11b8deeb8861bf4570318e2e8f6a2100e27d252b14e2e7022cd141c28b3",
+      "size" : 1103
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "sjdbInfo.txt",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/sjdbInfo.txt",
+      "role" : "reference",
+      "sha256" : "ccb7eae74554d9ae10f46ddfe96979d6aa5ab45aa0b647795aa11faa3399da7c",
+      "size" : 6
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "sjdbList.fromGTF.out.tab",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/sjdbList.fromGTF.out.tab",
+      "role" : "reference",
+      "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size" : 0
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "sjdbList.out.tab",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/sjdbList.out.tab",
+      "role" : "reference",
+      "sha256" : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size" : 0
+    },
+    {
+      "reference" : {
+        "index" : {
+          "key" : "star-2.7.11b-sa6-sparse2",
+          "tool" : {
+            "build" : "h5814d7d_9",
+            "id" : "STAR",
+            "version" : "2.7.11b"
+          }
+        },
+        "path" : "transcriptInfo.tab",
+        "setID" : "macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed"
+      },
+      "relativePath" : "references/macaca_fascicularis-Macaca_fascicularis_5.0-refseq101-lge-425be5f343ed/indexes/star-2.7.11b-sa6-sparse2/transcriptInfo.tab",
+      "role" : "reference",
+      "sha256" : "d7044e940c8400d9f9fd53a74971ded3b42d23801410ff2cae1b7c1e865fd20a",
+      "size" : 657
+    }
+  ],
+  "outcome" : "failed",
+  "payloads" : [
+
+  ],
+  "plan" : {
+    "relativePath" : "plan.json",
+    "sha256" : "d632e918a3b81eafe901725b037e8a264fc1561397fe63438f2371e3699e1caf",
+    "size" : 27743
+  },
+  "reason" : "Step umi-layout-check-pair1 (Check the UMI layout of pair 1 for the quartz-seq2-x910 preset) did not succeed. The tool exited with status 1. UMI layout check failed: 0 of 364 pairs read (0.0%) start within one mismatch of ATCAATC, under the 90% the Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1) preset needs. These reads may come from another kit, or Read 1 and Read 2 may be swapped. Try: check the sample sheet's kit column, and that the file named Read 1 holds the UMI. This sample gets no UMI counts.\nUMI layout check failed: 0 of 364 pairs read (0.0%) hold a distinct UMI, under 50%, because only 0 (0.0%) start with ATCAATC exactly while 0 (0.0%) are within one mismatch. The kit's fixed sequence may differ from the preset's by one base. Try: check that the Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1) preset matches the kit. This sample gets no UMI counts.",
+  "runtimeIdentity" : {
+    "cgroupVersion" : 2,
+    "kernelRelease" : "7.0.14-linuxkit",
+    "machine" : "x86_64",
+    "observedLimits" : [
+      {
+        "name" : "memTotalBytes",
+        "source" : "/proc/meminfo MemTotal",
+        "value" : "33332244480"
+      },
+      {
+        "name" : "cpusAllowedList",
+        "source" : "/proc/self/status Cpus_allowed_list",
+        "value" : "0-19"
+      },
+      {
+        "name" : "cgroupMemoryMaxBytes",
+        "source" : "/sys/fs/cgroup/memory.max"
+      }
+    ],
+    "orphanSweep" : "subreaper",
+    "pidNamespaceDepth" : 1,
+    "subreaper" : {
+      "getterResult" : 0,
+      "getterValue" : 1,
+      "setterResult" : 0,
+      "setterResultName" : "0",
+      "state" : "set"
+    }
+  },
+  "runtimes" : [
+
+  ],
+  "schemaVersion" : 1,
+  "searchPath" : [
+    "/opt/lge/rnaseq/bin",
+    "/opt/lge/env/bin",
+    "/opt/lge/star273a/bin",
+    "/opt/lge/trim_galore/bin",
+    "/usr/bin",
+    "/bin"
+  ],
+  "siteFacts" : [
+    {
+      "key" : "Machine",
+      "value" : "galah.local"
+    },
+    {
+      "key" : "Arch",
+      "value" : "arm64"
+    },
+    {
+      "key" : "ContainerRuntime",
+      "value" : "Docker"
+    },
+    {
+      "key" : "ContainerRuntimeVersion",
+      "value" : "29.9.2"
+    },
+    {
+      "key" : "ContainerImageID",
+      "value" : "sha256:4d1027a4dcd93e272ccbcaaf2a4c4e55d1db43b6160284a03de8957f38231560"
+    },
+    {
+      "key" : "Launcher",
+      "value" : "run-local.sh/1"
+    }
+  ],
+  "startedAt" : "2026-11-16T13:56:34.187Z",
+  "steps" : [
+    {
+      "adoptedOrphansReaped" : 0,
+      "argv" : [
+        "/proc/self/exe",
+        "umi-layout-check",
+        "--read1",
+        "inputs/pair1_R1.fastq.gz",
+        "--read2",
+        "inputs/pair1_R2.fastq.gz",
+        "--decompressor",
+        "pigz",
+        "--kit",
+        "Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1)",
+        "--motif",
+        "ATCAATC",
+        "--umi-length",
+        "16",
+        "--umi-read",
+        "1",
+        "--pairs",
+        "1000",
+        "--choice",
+        "even",
+        "--within-one-mismatch-pass",
+        "90",
+        "--exact-warn",
+        "90",
+        "--distinct-fail",
+        "50",
+        "--distinct-warn",
+        "80",
+        "--output",
+        "umi-check/pair1-layout-check.json"
+      ],
+      "deadlineSeconds" : 31622400,
+      "endedAt" : "2026-11-16T13:56:34.784Z",
+      "environmentNames" : [
+        "HOME",
+        "PATH",
+        "TMPDIR"
+      ],
+      "escalatedToSIGKILL" : false,
+      "graceSeconds" : 60,
+      "id" : "umi-layout-check-pair1",
+      "kind" : "tool",
+      "outcome" : "failed",
+      "outputs" : [
+
+      ],
+      "peakResidentBytes" : 27701248,
+      "reason" : "The tool exited with status 1. UMI layout check failed: 0 of 364 pairs read (0.0%) start within one mismatch of ATCAATC, under the 90% the Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1) preset needs. These reads may come from another kit, or Read 1 and Read 2 may be swapped. Try: check the sample sheet's kit column, and that the file named Read 1 holds the UMI. This sample gets no UMI counts.\nUMI layout check failed: 0 of 364 pairs read (0.0%) hold a distinct UMI, under 50%, because only 0 (0.0%) start with ATCAATC exactly while 0 (0.0%) are within one mismatch. The kit's fixed sequence may differ from the preset's by one base. Try: check that the Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1) preset matches the kit. This sample gets no UMI counts.",
+      "startedAt" : "2026-11-16T13:56:34.643Z",
+      "stderrBytes" : 756,
+      "stderrTail" : "UMI layout check failed: 0 of 364 pairs read (0.0%) start within one mismatch of ATCAATC, under the 90% the Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1) preset needs. These reads may come from another kit, or Read 1 and Read 2 may be swapped. Try: check the sample sheet's kit column, and that the file named Read 1 holds the UMI. This sample gets no UMI counts.\nUMI layout check failed: 0 of 364 pairs read (0.0%) hold a distinct UMI, under 50%, because only 0 (0.0%) start with ATCAATC exactly while 0 (0.0%) are within one mismatch. The kit's fixed sequence may differ from the preset's by one base. Try: check that the Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1) preset matches the kit. This sample gets no UMI counts.\n",
+      "stderrTruncated" : false,
+      "stoppedProcesses" : [
+
+      ],
+      "tool" : {
+        "build" : "99404904c8e65589c3e75c4a93de0620f12933f2",
+        "id" : "lungfish-executor",
+        "path" : "/proc/self/exe",
+        "sha256" : "65cedf4332bbeaf2463e609a70ba6f496af6fd058489f0696f06071180a75323",
+        "version" : "2026.11.9",
+        "versionSource" : "planPin"
+      },
+      "toolExitCode" : 1,
+      "toolPID" : 59,
+      "wallSeconds" : 0.137845667
+    }
+  ],
+  "wallSeconds" : 0.598979792
+}

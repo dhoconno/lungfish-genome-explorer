@@ -191,15 +191,20 @@ final class ImportRNASeqAdoptTests: XCTestCase {
         XCTAssertTrue(["origin", "route", "referenceSet"].allSatisfy(differing.contains), "\(differing.sorted())")
     }
 
-    // MARK: - M5 item 3, the help
+    // MARK: - M5 item 3 and M6 item 3, the help
 
-    /// The help of --adopt names the three counts it takes, salmon's, STAR GeneCounts' column and featureCounts' table,
-    /// and the refusal of a STAR or featureCounts table counted on another GTF.
-    func testAdoptHelpNamesSalmonSTARGeneCountsAndFeatureCounts() {
+    /// The help of --adopt names each count it takes, salmon's on the reads or by LGE's default route, STAR GeneCounts'
+    /// column, featureCounts' table, STARsolo's matrix and the UMI branch's UMIs, the refusal of a UMI sample whose check
+    /// failed, and the refusal of a table counted on another GTF.
+    func testAdoptHelpNamesEachRouteItTakes() {
         let help = ImportCommand.RNASeqSubcommand.helpMessage(columns: 1000)
         for words in [
-            "The counts are salmon's, STAR GeneCounts' column 2 (unstranded) or featureCounts' table, as the plan's route names.",
-            "a STAR or featureCounts table counted on another GTF is refused.",
+            "The counts are those the plan's route names, salmon's on the reads or by LGE's default route (STAR, then salmon "
+                + "-a on STAR's transcriptome alignments), STAR GeneCounts' column 2 (unstranded), featureCounts' table, or the "
+                + "UMI branch's count of UMIs per gene from umi_tools.",
+            "A UMI sample whose layout check failed has no counts and is refused in the check's words.",
+            "A STARsolo plan of rnaseq solo-plan gives the filtered matrix of Solo.out/Gene as one single-cell result.",
+            "a STAR, featureCounts or umi_tools table counted on another GTF is refused.",
         ] {
             XCTAssertTrue(help.contains(words), words)
         }

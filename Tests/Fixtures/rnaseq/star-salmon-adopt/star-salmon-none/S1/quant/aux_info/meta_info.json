@@ -1,0 +1,88 @@
+{
+  "salmon_version": "2.11.0",
+  "samp_type": "none",
+  "opt_type": "vb",
+  "quant_errors": [],
+  "num_libraries": 1,
+  "library_types": [
+    "IU"
+  ],
+  "frag_dist_length": 1001,
+  "frag_length_mean": 146.13379469434875,
+  "frag_length_sd": 39.68879575605474,
+  "frag_length_source": "alignments",
+  "seq_bias_correct": false,
+  "gc_bias_correct": false,
+  "pos_bias_correct": false,
+  "num_bias_bins": 0,
+  "mapping_type": "alignment",
+  "index_seq_hash": "",
+  "index_name_hash": "",
+  "index_seq_hash512": "",
+  "index_name_hash512": "",
+  "index_decoy_seq_hash": "",
+  "index_decoy_name_hash": "",
+  "num_valid_targets": 13,
+  "num_decoy_targets": 0,
+  "num_eq_classes": 13,
+  "serialized_eq_classes": false,
+  "eq_class_properties": [
+    "range_factorized",
+    "gzipped"
+  ],
+  "length_classes": [
+    346,
+    681,
+    784,
+    1042,
+    1378
+  ],
+  "num_processed": 2600,
+  "num_mapped": 2600,
+  "num_dovetail_fragments": 0,
+  "num_fragments_filtered_vm": 0,
+  "num_alignments_below_threshold_for_mapped_fragments_vm": 0,
+  "percent_mapped": 100.0,
+  "num_decoy_fragments": 0,
+  "inference_truncated_mass": 0.0,
+  "num_bootstraps": 0,
+  "num_orphan": 0,
+  "range_factorization_bins": 4,
+  "meta_info_complete": false,
+  "incomplete_meta_info_fields": [
+    {
+      "field": "alignment_provenance",
+      "source": "bam",
+      "reason": "the source BAM's header carries no @PG records, so how its alignments were produced is not recorded anywhere in the file"
+    }
+  ],
+  "num_em_iterations": 50,
+  "em_converged": true,
+  "em_components": {
+    "stop_rule": "projected",
+    "num_components": 13,
+    "num_unconverged": 0,
+    "num_at_max_iter": 0,
+    "fraction_reads_at_max_iter": -0.0,
+    "median_iterations": 50
+  },
+  "detected_library_type": "IU",
+  "inference_path": "deterministic",
+  "total_time_seconds": 0.08669895799999999,
+  "peak_rss_kb": 37960,
+  "diagnostics": [
+    {
+      "code": "strand_bias_unstranded",
+      "severity": "warning",
+      "message": "detected a *potential* strand bias > 1% in an unstranded protocol (strand_mapping_bias = 0.5123); see lib_format_counts.json for details"
+    },
+    {
+      "code": "bam_score_tags_unusable",
+      "severity": "warning",
+      "message": "no alignment in this BAM carries an AS tag (5200 records read): scoring falls back to equal weights for every placement of a fragment, so multireads are apportioned by effective length alone; pass --errorModel with -t <transcripts.fa> to score the alignments from their own bases instead"
+    }
+  ],
+  "call": "quant",
+  "start_time": "Mon Nov 16 13:52:31 2026",
+  "end_time": "Mon Nov 16 13:52:32 2026"
+}

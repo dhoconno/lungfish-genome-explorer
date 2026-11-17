@@ -74,10 +74,21 @@ final class ExecutorRunAdoptionSTARTests: XCTestCase {
         }
     }
 
-    private func adopt(_ folder: URL, name: String) throws -> URL {
+    /// Edits the plan of `folder` as JSON and states its new SHA-256 and size in the run record.
+    private func editPlan(_ folder: URL, _ edit: (inout [String: Any]) throws -> Void) throws {
+        let url = folder.appendingPathComponent("plan.json")
+        var object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        try edit(&object)
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        try data.write(to: url)
+        try editRecord(folder) { $0["plan"] = ["relativePath": "plan.json", "sha256": PortableDigest.sha256Hex(of: data), "size": data.count] }
+    }
+
+    /// The adopt, with `warn` taking each warning it prints (review EX-ADOPT-M5-BIO should-fix 1).
+    private func adopt(_ folder: URL, name: String, warn: (String) -> Void = { _ in }) throws -> URL {
         try ExecutorRunAdoption.adoptCounts(
             resultFolder: folder, projectDirectory: project, name: name, storageRoot: storageRoot, policy: .release,
-            provenanceWriter: ProvenanceWriter(signingProvider: nil))
+            provenanceWriter: ProvenanceWriter(signingProvider: nil), warn: warn)
     }
 
     private func refusal(_ folder: URL, line: UInt = #line) -> ExecutorAdoptRefusal? {
@@ -108,7 +119,9 @@ final class ExecutorRunAdoptionSTARTests: XCTestCase {
         for chain in Self.chains {
             let folder = try batch(chain)
             let sample = folder.appendingPathComponent("S1", isDirectory: true)
-            let result = try adopt(folder, name: chain)
+            var printed: [String] = []
+            let result = try adopt(folder, name: chain, warn: { printed.append($0) })
+            XCTAssertEqual(printed, [], chain)
             let loaded = try RNASeqResultBundle.load(from: result)
             let plan = try ExecutionPlan.decode(Data(contentsOf: sample.appendingPathComponent("plan.json")))
             let route = try XCTUnwrap(plan.pipeline?.route)
@@ -166,15 +179,26 @@ final class ExecutorRunAdoptionSTARTests: XCTestCase {
 
     // MARK: - Ruling BIO-ADOPT-M5-Q1 items 6 and 7, reads that do not look unstranded
 
+    /// The hand-made table of the 13 genes at 100, 90 and 10, with its `N_` lines.
+    private static let strandedTable = "N_unmapped\t0\t0\t0\nN_multimapping\t0\t0\t0\nN_noFeature\t3\t30\t40\n"
+        + "N_ambiguous\t5\t2\t1\n" + ReferenceSetMitoFixture.genes.map { "\($0)\t100\t90\t10\n" }.joined()
+
     /// A hand-made table whose column 3 holds 0.9 of columns 3 and 4 still adopts column 2, and the record keeps the
-    /// strand share and the warning in the ruling's words.
+    /// strand share and the warning in the ruling's words, which the dry run and the adopt each print once (review
+    /// EX-ADOPT-M5-BIO should-fix 1).
     func testATableOfStrandedReadsAdoptsColumnTwoWithTheWarning() async throws {
         _ = try await buildSet()
         let sample = try batch("star-2711-genecounts").appendingPathComponent("S1", isDirectory: true)
-        let genes = ReferenceSetMitoFixture.genes.map { "\($0)\t100\t90\t10\n" }.joined()
-        try replace(sample, "star/ReadsPerGene.out.tab", with: "N_unmapped\t0\t0\t0\nN_multimapping\t0\t0\t0\nN_noFeature\t3\t30\t40\n"
-            + "N_ambiguous\t5\t2\t1\n" + genes)
-        let result = try adopt(sample, name: "stranded")
+        try replace(sample, "star/ReadsPerGene.out.tab", with: Self.strandedTable)
+        let warning = "S1's reads do not look unstranded (strand share 0.900, read 1 mostly on the gene's strand). The counts kept "
+            + "are column 2, unstranded, as the plan's chain counts. LGE does not yet count STAR GeneCounts by strand."
+        var dry: [String] = []
+        _ = try ExecutorRunAdoption.dryRunCounts(
+            resultFolder: sample, projectDirectory: project, name: "stranded", storageRoot: storageRoot, warn: { dry.append($0) })
+        XCTAssertEqual(dry, [warning])
+        var printed: [String] = []
+        let result = try adopt(sample, name: "stranded", warn: { printed.append($0) })
+        XCTAssertEqual(printed, [warning])
         let table = try XCTUnwrap(try RNASeqResultBundle.load(from: result).counts.first).table
         XCTAssertEqual(table.rows.map { $0.counts[0] }, Array(repeating: 100, count: 13))
         let counting = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: result)?.steps.last).resolvedOptions
@@ -182,8 +206,57 @@ final class ExecutorRunAdoptionSTARTests: XCTestCase {
             "STAR's N_ lines in column 2, unstranded: N_unmapped 0, N_multimapping 0, N_noFeature 3, N_ambiguous 5"))
         XCTAssertEqual(
             counting["strandShare"], .string("Strand share 0.900 (column 3 over columns 3 and 4): read 1 mostly on the gene's strand"))
+        XCTAssertEqual(counting["strandWarning"], .string(warning))
+    }
+
+    /// A plan whose STAR step maps one read file adopts in reads, with the single-read words of `geneCountsColumn`, the
+    /// strand share and the warning (review EX-ADOPT-M5-BIO should-fix 2).
+    func testAPlanThatMapsOneReadFileAdoptsInReadsWithTheSingleReadWords() async throws {
+        _ = try await buildSet()
+        let sample = try batch("star-2711-genecounts").appendingPathComponent("S1", isDirectory: true)
+        func dropSecondRead(_ list: [String]) throws -> [String] {
+            var list = list
+            list.remove(at: try XCTUnwrap(list.firstIndex(of: "--readFilesIn")) + 2)
+            return list
+        }
+        try editPlan(sample) { plan in
+            var steps = try XCTUnwrap(plan["steps"] as? [[String: Any]])
+            steps[1]["arguments"] = try dropSecondRead(try XCTUnwrap(steps[1]["arguments"] as? [String]))
+            plan["steps"] = steps
+            // The plan's own words, which the adopt does not read, say read too.
+            var pipeline = try XCTUnwrap(plan["pipeline"] as? [String: Any])
+            var route = try XCTUnwrap(pipeline["route"] as? [String: Any])
+            var settings = try XCTUnwrap(route["settings"] as? [String: String])
+            let counts = try XCTUnwrap(settings["counts"]).replacingOccurrences(of: "uniquely mapped pair", with: "uniquely mapped read")
+            settings["counts"] = counts
+            route["settings"] = settings
+            pipeline["route"] = route
+            pipeline["settings"] = try XCTUnwrap(pipeline["settings"] as? [[String: Any]]).map { entry in
+                var entry = entry
+                if entry["id"] as? String == "counts" { entry["value"] = counts }
+                return entry
+            }
+            plan["pipeline"] = pipeline
+        }
+        try editRecord(sample) { record in
+            var steps = try XCTUnwrap(record["steps"] as? [[String: Any]])
+            steps[1]["argv"] = try dropSecondRead(try XCTUnwrap(steps[1]["argv"] as? [String]))
+            record["steps"] = steps
+        }
+        try replace(sample, "star/ReadsPerGene.out.tab", with: Self.strandedTable)
+        let result = try adopt(sample, name: "single")
+        let loaded = try RNASeqResultBundle.load(from: result)
+        XCTAssertEqual(loaded.counts.map(\.entry.unit), [.reads])
+        XCTAssertEqual(
+            loaded.manifest.route.settings["geneCountsColumn"],
+            "Column 2 of STAR's ReadsPerGene.out.tab, unstranded: a read counted for the gene whose exons it overlaps, on "
+                + "either strand. Columns 3 (the read on the gene's strand) and 4 (the read on the other strand) are not counts "
+                + "of this result and stay in source/<sample>/star/ReadsPerGene.out.tab.")
+        let counting = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: result)?.steps.last).resolvedOptions
+        XCTAssertEqual(
+            counting["strandShare"], .string("Strand share 0.900 (column 3 over columns 3 and 4): the read mostly on the gene's strand"))
         XCTAssertEqual(counting["strandWarning"], .string(
-            "S1's reads do not look unstranded (strand share 0.900, read 1 mostly on the gene's strand). The counts kept are "
+            "S1's reads do not look unstranded (strand share 0.900, the read mostly on the gene's strand). The counts kept are "
                 + "column 2, unstranded, as the plan's chain counts. LGE does not yet count STAR GeneCounts by strand."))
     }
 
