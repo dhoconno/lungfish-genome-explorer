@@ -491,6 +491,11 @@ extension AffectedResults {
         /// `lungfish extract reads` (`ExtractReadsCommand.swift:514`). A `--by-classifier` run records the classifier
         /// in its `tool` option (`ExtractReadsCommand.swift:829`).
         public static let extractReads = "lungfish extract reads"
+        /// The bundle record of a classifier read extraction (`ReadExtractionService.swift:978`), written by the Bundle
+        /// destination of the app and by `lungfish extract reads --bundle`.
+        public static let classifierReadExtraction = "Classifier Read Extraction"
+        /// The record of the File destination of the app (`TaxonomyReadExtractionAction.swift:690`).
+        public static let appClassifierReadExtraction = "lungfish app classifier read extraction"
     }
 
     /// The `tool` option of a `lungfish extract reads` record that took its reads from a TaxTriage result, the raw value
