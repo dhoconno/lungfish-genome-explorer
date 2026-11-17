@@ -129,6 +129,37 @@ final class STARIndexPlanTests: XCTestCase {
         XCTAssertEqual(other.folderName, "star-2.7.3a-sa\(nbases)-sparse2", "another STAR is another index")
     }
 
+    // MARK: - The suffix array sparsity is an option, 2 by default (SOLO-PLAN-M1-BIO R3)
+
+    /// A request of 3 puts 3 in STAR's argv and the key and ends the folder name in `-sparse3`, so the index cannot collide
+    /// with a sparse 2 index of the set. A request that names 2 gives the default plan byte for byte, and 0 is refused.
+    func testTheSparsityReachesTheArgvTheKeyAndTheFolderNameAndTheDefaultPlanIsByteEqual() async throws {
+        let set = try await builtSet()
+        let bulk = try STARIndexPlan.make(request(set.url))
+        XCTAssertEqual(request(set.url).genomeSAsparseD, 2, "the default")
+        var three = request(set.url)
+        three.genomeSAsparseD = 3
+        let sparse = try STARIndexPlan.make(three)
+        var expected = try XCTUnwrap(bulk.plan.steps.last?.arguments)
+        let at = try XCTUnwrap(expected.firstIndex(of: "--genomeSAsparseD"))
+        expected[at + 1] = "3"
+        XCTAssertEqual(sparse.plan.steps.last?.arguments, expected, "only the value moves")
+        XCTAssertEqual(sparse.key.genomeSAsparseD, 3)
+        XCTAssertEqual(sparse.key.folderName, bulk.key.folderName.replacingOccurrences(of: "-sparse2", with: "-sparse3"))
+        XCTAssertTrue(sparse.key.folderName.hasSuffix("-sparse3"), sparse.key.folderName)
+        var two = request(set.url)
+        two.genomeSAsparseD = 2
+        XCTAssertEqual(try STARIndexPlan.make(two).plan.encoded(), try bulk.plan.encoded(), "the default plan, byte for byte")
+        var variant = three
+        variant.tenxFilter = .mkgtf300
+        variant.planFolder = root.appendingPathComponent("plan-folder", isDirectory: true)
+        XCTAssertEqual(try STARIndexPlan.make(variant).key.folderName, sparse.key.folderName + "-tenx1-mkgtf-3.0.0")
+        var zero = request(set.url)
+        zero.genomeSAsparseD = 0
+        XCTAssertEqual(refusal { _ = try STARIndexPlan.make(zero) }, "--genomeSAsparseD is the distance between the positions STAR "
+            + "keeps in its suffix array, a whole number from 1, not 0. No plan was written.")
+    }
+
     // MARK: - The 10x variant pins the made file under made/ and keeps the bulk argv (ARCH-SOLO-GTF items 2 to 4)
 
     func testTheTenxVariantPinsTheMadeFileUnderMadeAndNamesItInTheBulkArgv() async throws {

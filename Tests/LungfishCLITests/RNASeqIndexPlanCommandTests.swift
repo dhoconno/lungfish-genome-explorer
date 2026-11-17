@@ -231,7 +231,7 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
     @discardableResult
     private func writeIndexRunRecord(
         for set: URL, in result: URL, editing edited: String? = nil, made: (path: String, sha256: String)? = nil,
-        lgeVersion: String = "dev-e65d22fcaeec", leaving missing: String? = nil
+        lgeVersion: String = "dev-e65d22fcaeec", leaving missing: String? = nil, sparse: Int = 2
     ) throws -> [String: (bytes: UInt64, sha256: String)] {
         let manifest = try ReferenceSetManifest.load(from: set)
         let gtf = try manifest.requireCountingGTF()
@@ -246,7 +246,7 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
         outputs.append(["path": "star-index/Log.out", "bytes": 5_000, "sha256": String(repeating: "f", count: 64), "policy": "home"])
         // The recorded argv names --sjdbOverhang 100, STAR's default, as the plan's STAR step does (FIX-IDX-1).
         let argv = ["--runMode", "genomeGenerate", "--genomeDir", "star-index", "--runThreadN", "8", "--sjdbOverhang", "100",
-                    "--genomeSAindexNbases", "2", "--genomeSAsparseD", "2"]
+                    "--genomeSAindexNbases", "2", "--genomeSAsparseD", "\(sparse)"]
         let step: [String: Any] = [
             "id": "star-index", "outcome": "succeeded", "argv": argv, "outputs": outputs,
             "tool": ["id": "STAR", "version": "2.7.11b", "build": "h5814d7d_9", "path": "/opt/conda/envs/2.7.11b/bin/STAR"]]
@@ -511,6 +511,58 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
         XCTAssertThrowsError(try RNASeqIndexAdoptSubcommand.parse(adopt).adopt()) {
             XCTAssertTrue(($0 as? STARIndexError)?.message.contains("with SHA-256 \(String(repeating: "d", count: 64))") == true, "\($0)")
         }
+    }
+
+    // MARK: - The suffix array sparsity (SOLO-PLAN-M1-BIO R3)
+
+    /// `--genomeSAsparseD 3` reaches STAR's argv in the written plan, the key, the JSON facts and the last line, the
+    /// recorded argv parses to equal options, and the adopt of that run records the plan's `-sparse3` key, since it reads
+    /// the value from the run's argv. Leaving the option out writes the plan of `--genomeSAsparseD 2` byte for byte.
+    func testTheSparsityOptionReachesThePlanTheKeyAndTheLastLineAndTheAdoptRecordsThatKey() async throws {
+        let (storage, set) = try await Self.builtSet(in: root)
+        let id = try ReferenceSetManifest.load(from: set).id
+        let files = try Self.writeImageFiles(in: root)
+        func arguments(_ name: String, _ extra: [String]) -> [String] {
+            Self.planArguments(set: set, storage: storage, output: root.appendingPathComponent("sparse/\(name)/idx"), files: files) + extra
+        }
+        func written(_ name: String, _ extra: [String]) throws -> (lines: [String], facts: [String: Any], plan: Data) {
+            let out = root.appendingPathComponent("sparse/\(name)/idx")
+            try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let summary = try RNASeqIndexPlanSubcommand.parse(arguments(name, extra)).writePlan()
+            let walk = try XCTUnwrap(FileManager.default.enumerator(at: out, includingPropertiesForKeys: nil))
+            let tar = try XCTUnwrap(walk.compactMap { $0 as? URL }.first { $0.lastPathComponent == "plan.tar" }, "the sample's plan.tar")
+            let plan = try XCTUnwrap(Self.tarMember(endingWith: "plan.json", in: try Data(contentsOf: tar)), "plan.json in plan.tar")
+            let facts = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(summary.json.utf8)) as? [String: Any])
+            return (summary.lines, facts, Data(plan))
+        }
+        let three = try written("three", ["--genomeSAsparseD", "3"])
+        let key = Self.indexKeyFolder.replacingOccurrences(of: "-sparse2", with: "-sparse3")
+        let step = try XCTUnwrap(try ExecutionPlan.decode(three.plan).steps.last)
+        let at = try XCTUnwrap(step.arguments.firstIndex(of: "--genomeSAsparseD"))
+        XCTAssertEqual(step.arguments[at + 1], "3")
+        XCTAssertEqual(three.facts["key"] as? String, key)
+        XCTAssertEqual(three.facts["genomeSAsparseD"] as? Int, 3)
+        XCTAssertEqual(three.lines.last, "STAR builds the suffix array with --genomeSAsparseD 3, where LGE's default is 2. A larger "
+            + "value needs less memory and maps more slowly, and the key \(key) holds it.")
+        let (plain, two) = (try written("plain", []), try written("two", ["--genomeSAsparseD", "2"]))
+        XCTAssertEqual(plain.plan, two.plan, "the default plan, byte for byte")
+        XCTAssertEqual(plain.lines.last, "STAR builds the suffix array with --genomeSAsparseD 2, LGE's default.")
+        let argv = try RNASeqIndexPlanSubcommand.parse(arguments("again", ["--genomeSAsparseD", "3"])).canonicalArgv()
+        XCTAssertTrue(argv.joined(separator: " ").contains("--genomeSAsparseD 3"), "\(argv)")
+        XCTAssertEqual(try RNASeqIndexPlanSubcommand.parse(Array(argv.dropFirst(3))).canonicalArgv(), argv)
+        XCTAssertFalse(try RNASeqIndexPlanSubcommand.parse(arguments("again", [])).canonicalArgv().contains("--genomeSAsparseD"))
+        let zero = try RNASeqIndexPlanSubcommand.parse(arguments("zero", ["--genomeSAsparseD", "0"]))
+        XCTAssertThrowsError(try zero.writePlan()) {
+            XCTAssertTrue(($0 as? STARIndexError)?.message.hasPrefix("--genomeSAsparseD is the distance") == true, "\($0)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("sparse/zero/idx").path))
+        let result = root.appendingPathComponent("sparse-result", isDirectory: true)
+        try writeIndexRunRecord(for: set, in: result, sparse: 3)
+        let adopt = [result.path, "--set", id, "--storage-root", storage.path, "--staging-folder", Self.staging, "--batch", "idx",
+                     "--format", "json"]
+        let adopted = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(try RNASeqIndexAdoptSubcommand.parse(adopt).adopt().json.utf8)) as? [String: Any])
+        XCTAssertEqual(adopted["key"] as? String, key, "the record of the value the plan was written with")
     }
 
     // MARK: - A gzip genome and the records folder
