@@ -347,6 +347,13 @@ public enum AffectedResults {
             fixCommit: "3b0f0c233"
         ),
         AffectedResultRow(
+            backlogID: "VIRALRECON-SE-ADAPTER-GUESS", kinds: [.viralRecon], firstBuild: 1618, lastBuild: 13672,
+            sentence: "A single-end Viral Recon run let fastp guess the adapter from the first reads, so the "
+                + "same reads in another stored order could be trimmed differently.",
+            whatToDo: "Run it again.",
+            fixCommit: "78594ad20"
+        ),
+        AffectedResultRow(
             backlogID: "IVAR-CODON-MERGE", kinds: [.variantCalls], firstBuild: 1728, lastBuild: 12972,
             sentence: "The version that made these iVar calls joined two changes in one codon into one record "
                 + "shown at the lower frequency, and could leave low-frequency changes in a shared codon out, "
@@ -450,7 +457,8 @@ public enum AffectedResults {
         .init("2026.10.24", 11265), .init("2026.10.25", 11584), .init("2026.10.26", 11593), .init("2026.10.27", 11609),
         .init("2026.10.28", 11807), .init("2026.10.29", 12045), .init("2026.11.1", 12518), .init("2026.11.2", 12591),
         .init("2026.11.3", 12803), .init("2026.11.4", 12818), .init("2026.11.5", 12859), .init("2026.11.6", 12962),
-        .init("2026.11.7", 12972),
+        .init("2026.11.7", 12972), .init("2026.11.8", 13190), .init("2026.11.9", 13300), .init("2026.11.10", 13603),
+        .init("2026.11.11", 13672),
     ]
 }
 

@@ -118,7 +118,8 @@ final class ProvenanceInspectorViewModelOffMainTests: XCTestCase {
         let outcome = await viewModel.lookupTask?.value ?? nil
         XCTAssertEqual(outcome?.affectedResultKind, .viralRecon, "the lookup's outcome carries the kind")
         let shown = viewModel.warnings.filter { $0.title == ProvenanceInspectorViewModel.affectedResultsWarningTitle }
-        XCTAssertEqual(shown.count, 2, "the lineage-prefix and read-order rows of Stable 2026.11.7, found \(shown)")
+        XCTAssertEqual(shown.count, 3,
+                       "the lineage-prefix, read-order and single-end adapter rows of Stable 2026.11.7, found \(shown)")
     }
 
     func testADemultiplexedSampleReadsItsSentenceThroughTheLookup() async throws {

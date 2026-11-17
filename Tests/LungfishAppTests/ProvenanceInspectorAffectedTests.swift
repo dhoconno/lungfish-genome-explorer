@@ -276,12 +276,14 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
     func testAViralReconResultShowsTheRowsOfItsBuild() throws {
         let folder = try viralReconResultFolder()
         let readOrder = try words("VIRALRECON-READ-ORDER")
+        let singleEnd = try words("VIRALRECON-SE-ADAPTER-GUESS")
         let stable = shownAndPosted(item(.analysisResult, at: folder), record("Viral Recon", app: "Lungfish 2026.11.7 (12972)"))
-        XCTAssertEqual(stable.shown, [try words("VIRALRECON-LINEAGE-PREFIX"), readOrder])
-        XCTAssertEqual(stable.posted?.map(\.backlogID), ["VIRALRECON-LINEAGE-PREFIX", "VIRALRECON-READ-ORDER"])
+        XCTAssertEqual(stable.shown, [try words("VIRALRECON-LINEAGE-PREFIX"), readOrder, singleEnd])
+        XCTAssertEqual(stable.posted?.map(\.backlogID),
+                       ["VIRALRECON-LINEAGE-PREFIX", "VIRALRECON-READ-ORDER", "VIRALRECON-SE-ADAPTER-GUESS"])
         // 5500 is a build of 2026.9.53, after the all-samples fix (to 5442) and before the prefix defect (from 5524).
         let older = shownAndPosted(item(.analysisResult, at: folder), record("Viral Recon", app: "Lungfish 2026.9.53 (5500)"))
-        XCTAssertEqual(older.shown, [readOrder])
+        XCTAssertEqual(older.shown, [readOrder, singleEnd])
     }
 
     func testAnIVarTrackShowsTheCodonMergeRowAndAnotherCallerNothing() throws {
