@@ -258,6 +258,40 @@ final class STARPlanTests: XCTestCase {
         XCTAssertNil(setting(two, "adapter"))
     }
 
+    // MARK: - Single-end GeneCounts (CHTC-QUANT-SINGLE-END milestone 1)
+
+    /// GE C2's plan on one staged single-end read, untrimmed, at STAR's default loci (`scripts/repro/rnaseq/gse152418/star.sh:28-30`).
+    /// The plan records one `input` at `inputs/single1.fastq.gz` with the list's size and SHA-256, that one staged path, the one file
+    /// name and its size, the sheet's instrument, one `--readFilesIn` list and no `--outFilterMultimapNmax`. `counts` names a read,
+    /// and its columns 3 and 4 are the words the adopt writes for single reads (`ExecutorRunAdoption.geneCountsColumnWords`). The
+    /// paired plan's words stay as they were, and the bytes are pinned on `star-2.7.3a-genecounts-single.json`.
+    func testTheSingleEndGeneCountsPlanPinsOneReadFileAndTheReadsStrandWords() async throws {
+        let read = SalmonPlanStagedRead(path: "\(Self.staging)/reads/SE1.fastq.gz", size: 700, sha256: String(repeating: "e", count: 64))
+        let sample = SalmonPlan.stagedSample(name: "SRR1", pairs: [], singles: [read], model: "Illumina NovaSeq 6000")
+        let (_, made) = try await made(.geneCounts, star: "2.7.3a", sample: sample, trim: .none)
+        let plan = made.plan
+        XCTAssertEqual(plan.steps.map(\.id), ["star-align"])
+        XCTAssertEqual(plan.entries.filter { $0.role == .input }.map { [$0.relativePath, $0.sha256, String($0.size)] },
+                       [["inputs/single1.fastq.gz", read.sha256, "700"]])
+        XCTAssertEqual(made.sample.stagedPaths, [read.path])
+        XCTAssertEqual(plan.sample.originalFilenames, ["SE1.fastq.gz"])
+        XCTAssertEqual(plan.sample.originalSizeBytes, 700)
+        XCTAssertEqual(plan.sample.instrument, PlanSampleInstrument(model: "Illumina NovaSeq 6000", inferred: false))
+        let argv = plan.steps[0].arguments
+        XCTAssertEqual(Array(argv[4...9]), ["--readFilesIn", "inputs/single1.fastq.gz", "--readFilesCommand", "pigz", "-d", "-c"])
+        XCTAssertFalse(argv.contains("--outFilterMultimapNmax"))
+        let counts = "STAR GeneCounts in ReadsPerGene.out.tab: a uniquely mapped read counted for the one gene whose exons it "
+            + "overlaps, in three columns, unstranded, the read on the gene's strand and the read on the other strand"
+        XCTAssertEqual(setting(plan, "counts")?.value, counts)
+        XCTAssertEqual(plan.pipeline?.route?.settings["counts"], counts)
+        let adopt = ExecutorRunAdoption.geneCountsColumnWords(paired: false)
+        XCTAssertTrue(adopt.contains("Columns 3 (the read on the gene's strand) and 4 (the read on the other strand)"), adopt)
+        XCTAssertEqual(STARPlan.countsWords(.geneCounts, paired: true),
+                       "STAR GeneCounts in ReadsPerGene.out.tab: a uniquely mapped pair counted for the one gene whose exons it "
+                       + "overlaps, in three columns, unstranded, read 1 on the gene's strand and read 2 on the gene's strand")
+        try assertPinned(plan, "star-2.7.3a-genecounts-single.json")
+    }
+
     // MARK: - Refusals
 
     /// An index of another STAR version or of another GTF, and a sample of gzip and plain reads, are refused in words.
