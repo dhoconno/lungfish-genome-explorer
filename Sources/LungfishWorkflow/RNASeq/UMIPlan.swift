@@ -62,7 +62,8 @@ package enum UMIPlan {
         guard let preset = presets.first(where: { $0.id == named.lowercased() }) else {
             let known = presets.map { "\($0.id) (\($0.label))" }.joined(separator: ", ")
             throw SalmonPlanError("The sample sheet names the kit \(named), which LGE has no UMI preset for. The kits LGE "
-                + "knows are \(known).")
+                + "knows are \(known). LGE reads a column named kit as the UMI kit, so if this column holds something else, "
+                + "such as a library prep kit, rename or remove it.")
         }
         return preset
     }
