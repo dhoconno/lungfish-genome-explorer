@@ -152,4 +152,85 @@ final class RNASeqQuantPlanCommandChainTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - --star-multimap-nmax (milestone 4, F9 of EX-PLAN-STAR-M3-BIO)
+
+    /// Writes the plan of `chain` with `extra` after the usual arguments, in a new folder named `name`, and reads `sample1/plan.json`.
+    func writtenPlan(
+        _ chain: String, set: (storage: URL, id: String), files: (executor: URL, image: URL, tools: URL), name: String, extra: [String] = []
+    ) async throws -> ExecutionPlan {
+        let out = root.appendingPathComponent("out/\(name)")
+        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try await RNASeqCommand.QuantSubcommand.parse(try arguments(chain, set: set, out: out, files: files) + extra).run()
+        return try ExecutionPlan.decode(Data(contentsOf: out.appendingPathComponent("sample1/plan.json")))
+    }
+
+    func multimapSetting(_ plan: ExecutionPlan) throws -> PlanPipelineSetting {
+        try XCTUnwrap(plan.pipeline?.settings.first { $0.id == "multimapNmax" })
+    }
+
+    func starStep(_ plan: ExecutionPlan) throws -> PlanStep { try XCTUnwrap(plan.steps.first { $0.id == "star-align" }) }
+
+    /// C6's plan (gate GE). With `star-2.7.3a-genecounts` and 1000 the STAR argv ends `--outFilterMultimapNmax 1000`, and
+    /// `route.settings.multimapNmax` starts with the words of C6's undocumented step, with source `option`. The same chain with
+    /// no option passes no flag, and its record is STAR's default.
+    func testTheMultimapOptionWritesC6sPlanAndThePlanWithNoOptionKeepsSTARsDefault() async throws {
+        let set = try await setWithAdoptedIndex(star: "2.7.3a"), files = try writeImageFiles()
+        let c6 = try await writtenPlan("star-2.7.3a-genecounts", set: set, files: files, name: "c6", extra: ["--star-multimap-nmax", "1000"])
+        XCTAssertEqual(Array(try starStep(c6).arguments.suffix(2)), ["--outFilterMultimapNmax", "1000"])
+        let loci = try multimapSetting(c6)
+        XCTAssertEqual(loci.source, .option)
+        XCTAssertTrue(loci.value.hasPrefix(
+            "1000 loci, chosen with --outFilterMultimapNmax 1000, the undocumented step of GSE304256 (C6)"), loci.value)
+        XCTAssertEqual(c6.pipeline?.route?.settings["multimapNmax"], loci.value)
+
+        let plain = try await writtenPlan("star-2.7.3a-genecounts", set: set, files: files, name: "plain")
+        XCTAssertFalse(try starStep(plain).arguments.contains("--outFilterMultimapNmax"))
+        let stated = try multimapSetting(plain)
+        XCTAssertEqual(stated.source, .default)
+        XCTAssertEqual(stated.value, "10 loci, STAR's default (no --outFilterMultimapNmax)")
+    }
+
+    /// The two 2.7.11b chains take the number as well, and only 1000 carries the words of C6.
+    func testTheMultimapOptionGoesToTheGeneCountsAndFeatureCountsChainsOf2711bAndOnly1000NamesC6() async throws {
+        let set = try await setWithAdoptedIndex(), files = try writeImageFiles()
+        for chain in ["star-2.7.11b-genecounts", "star-2.7.11b-featurecounts"] {
+            let plan = try await writtenPlan(chain, set: set, files: files, name: chain, extra: ["--star-multimap-nmax", "500"])
+            XCTAssertEqual(Array(try starStep(plan).arguments.suffix(2)), ["--outFilterMultimapNmax", "500"], chain)
+            let loci = try multimapSetting(plan)
+            XCTAssertEqual(loci.source, .option, chain)
+            XCTAssertEqual(loci.value, "500 loci, chosen with --outFilterMultimapNmax 500", chain)
+        }
+    }
+
+    /// The route of `salmon` runs no STAR and the two `star-salmon` chains map at nf-core/rnaseq's 20, so each refuses the number
+    /// in words that name the option and a chain that takes it (the `star-salmon` words name the fixed 20 too). A number below 1
+    /// is no number of loci, and with no `--write-plan` there is no plan to set it in.
+    func testTheMultimapOptionIsRefusedInWordsWithTheSalmonChainsAndWithNoWritePlan() async throws {
+        let set = try await setWithAdoptedIndex(), files = try writeImageFiles()
+        let out = root.appendingPathComponent("refused")
+        let (pick, named) = (["--star-multimap-nmax", "1000"], try arguments("salmon", set: set, out: out, files: files))
+        let unnamed = Array(named.dropLast(Self.figures.count + 2)) + Self.figures
+        let option = "--star-multimap-nmax", taking = "star-2.7.3a-genecounts"
+        let cases: [(String, [String], [String])] = [
+            ("--chain salmon", named + pick, [option, taking]),
+            ("no --chain, which is salmon", unnamed + pick, [option, taking]),
+            ("--chain star-salmon", try arguments("star-salmon", set: set, out: out, files: files) + pick,
+             [option, taking, "--outFilterMultimapNmax 20"]),
+            ("--chain star-salmon-errormodel", try arguments("star-salmon-errormodel", set: set, out: out, files: files) + pick,
+             [option, taking, "--outFilterMultimapNmax 20"]),
+            ("a number below 1", try arguments("star-2.7.3a-genecounts", set: set, out: out, files: files) + [option, "0"],
+             [option, "from 1"]),
+            ("no --write-plan", [try pairBundle().path, "--set", set.id, "--project", root.path] + pick,
+             ["\(option) is an option of --write-plan"]),
+        ]
+        for (what, argv, expected) in cases {
+            XCTAssertThrowsError(try RNASeqCommand.QuantSubcommand.parse(argv), what) { error in
+                let message = RNASeqCommand.QuantSubcommand.message(for: error)
+                XCTAssertFalse(message.contains("Unknown option"), "\(what): the option is not parsed: \(message)")
+                for fragment in expected { XCTAssertTrue(message.contains(fragment), "\(what) lacks \(fragment): \(message)") }
+            }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: out.path), "a refusal writes no folder")
+    }
 }
