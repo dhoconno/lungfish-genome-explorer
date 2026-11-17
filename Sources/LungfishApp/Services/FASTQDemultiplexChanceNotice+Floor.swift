@@ -95,10 +95,23 @@ extension FASTQDemultiplexChanceNotice {
     /// `chanceFloor` block or can be read. A record holds the block only when a barcode beat the floor (a run where none
     /// did throws before it writes one, `DemultiplexChanceFloor+Run.swift`), so the block alone says the run published a
     /// sample, and the manifest is not read. It reads files, so a caller runs it off the main actor.
+    /// A record whose null is `saturated-kit` gives the line that the floor could not check its kit in place of the limit
+    /// (DEMUX-FLOOR-SATURATED-KIT), and a run with records of both says each line once.
     static func floorLimitLine(for result: FASTQOperationExecutionResult) -> String? {
         guard case .derivative(.demultiplex, _, _) = result.resolvedRequest else { return nil }
-        return floorBlocks(for: result).isEmpty ? nil : DemultiplexChanceWords.notInPoolLimit(publishedBarcodes: 1)
+        var lines: [String] = []
+        for (_, floor) in floorBlocks(for: result) {
+            var null = DemultiplexChanceFloor.Null.randomBases
+            if case .string(let raw)? = floor["null"], let named = DemultiplexChanceFloor.Null(rawValue: raw) { null = named }
+            if let line = DemultiplexChanceWords.floorLimit(publishedBarcodes: 1, null: null), !lines.contains(line) {
+                lines.append(line)
+            }
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: " ")
     }
+
+    /// The line under the row's name when the run kept the samples of a kit the floor could not check.
+    static let uncheckedKitRowPrefix = "The chance check could not check this kit. "
 
     /// The run's one warning and its information line, read together so that one call off the main actor serves the row and
     /// the Log. It reads files.
@@ -110,7 +123,9 @@ extension FASTQDemultiplexChanceNotice {
     /// information line is there, else the plain completion detail. The row's warning state is the notice alone.
     static func rowDetail(_ notice: RowNotice?, _ floorLimitLine: String?, _ completionDetail: String) -> String {
         if let notice { return notice.rowDetail(completionDetail) }
-        return (floorLimitLine == nil ? "" : floorLimitRowPrefix) + completionDetail
+        guard let floorLimitLine else { return completionDetail }
+        let unchecked = floorLimitLine.contains(DemultiplexChanceWords.uncheckedKitLine)
+        return (unchecked ? uncheckedKitRowPrefix : floorLimitRowPrefix) + completionDetail
     }
 
     /// The run's chance lines in its Log: the warning at `.warning`, then the information line at `.info`. A `.warning`

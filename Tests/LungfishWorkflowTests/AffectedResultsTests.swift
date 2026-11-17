@@ -279,7 +279,8 @@ final class AffectedResultsTests: XCTestCase {
     func testTheGroupedDemultiplexRowHoldsItsBuilds() throws {
         let row = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "DEMUX-GROUPED-DROPS-INPUTS" })
         let demultiplex = try XCTUnwrap(AffectedResultKind(rawValue: "fastqDemultiplex"))
-        XCTAssertEqual(row.kinds, [demultiplex])
+        // DEMUX-SATKIT: the narrower kind of a kit the floor cannot judge is a demultiplexing result too.
+        XCTAssertEqual(row.kinds, [demultiplex, .fastqDemultiplexSaturatedKit])
         XCTAssertNil(row.firstBuild)
         XCTAssertEqual(row.lastBuild, 12972, "Stable 2026.11.7, the newest build, lacks the fix")
         XCTAssertEqual(row.fixCommit, "367ba1fed")
@@ -290,7 +291,7 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertEqual(ids(4192, demultiplex), ["DEMUX-GROUPED-DROPS-INPUTS"], "2026.8.1, the first published build")
         XCTAssertEqual(ids(12972, demultiplex), ["DEMUX-GROUPED-DROPS-INPUTS"], "Stable 2026.11.7")
         XCTAssertEqual(ids(12973, demultiplex), [])
-        for kind in AffectedResultKind.allCases where kind != demultiplex {
+        for kind in AffectedResultKind.allCases where !row.kinds.contains(kind) {
             XCTAssertFalse(ids(12972, kind).contains(row.backlogID), "\(kind)")
         }
     }

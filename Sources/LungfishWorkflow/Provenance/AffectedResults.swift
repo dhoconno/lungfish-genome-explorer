@@ -24,6 +24,10 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     /// The reads that `lungfish extract reads --by-classifier` took from a TaxTriage result, a FASTQ file or bundle. A
     /// kind of result the record names, never a type of the sidebar.
     case taxTriageReadExtraction
+    /// A demultiplexing run that searched the read bases with Cutadapt and a kit whose barcodes are so short that half of
+    /// all reads or more match one by chance, the kit the chance floor cannot judge (DEMUX-FLOOR-SATURATED-KIT). It is a
+    /// narrower ``fastqDemultiplex``, so every row of that kind names it too.
+    case fastqDemultiplexSaturatedKit
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -418,12 +422,23 @@ public enum AffectedResults {
             fixCommit: "dbadae4f5"
         ),
         AffectedResultRow(
-            backlogID: "DEMUX-GROUPED-DROPS-INPUTS", kinds: [.fastqDemultiplex], firstBuild: nil, lastBuild: 12972,
+            backlogID: "DEMUX-GROUPED-DROPS-INPUTS", kinds: [.fastqDemultiplex, .fastqDemultiplexSaturatedKit],
+            firstBuild: nil, lastBuild: 12972,
             sentence: "If you chose Grouped Result for more than one dataset, this demultiplexing run read only the first "
                 + "dataset, so the reads of the others are in none of the samples.",
             whatToDo: "If you did, run Demultiplex Barcodes again on all the datasets with this version, then delete "
                 + "this result.",
             fixCommit: "367ba1fed"
+        ),
+        // S1 sweep 2026-11-17 lane DEMUX-SATKIT (BIO-DEMUX-THREE section 1). Every build up to the fix, with no floor up to
+        // Stable 2026.10.29 and with the floor of random bases from Preview 2026.11.3, published such a kit's chance matches.
+        AffectedResultRow(
+            backlogID: "DEMUX-FLOOR-SATURATED-KIT", kinds: [.fastqDemultiplexSaturatedKit], firstBuild: nil, lastBuild: 13672,
+            sentence: "This run's barcodes are so short that reads with no barcode match them by chance, so its sample "
+                + "files may hold chance matches.",
+            whatToDo: "Check each sample against your sample sheet, and note that a new run keeps such files only if you "
+                + "choose to.",
+            fixCommit: "4ed138180"
         ),
     ]
 
@@ -533,7 +548,7 @@ extension AffectedResults {
         case RecordName.fastqTrim, RecordName.fastqAdapterTrim:
             return trimLeftNoAdapterToGuess(envelope) ? nil : .fastqTrim
         case RecordName.fastqDemultiplex:
-            return .fastqDemultiplex
+            return searchedWithAKitTheFloorCannotJudge(envelope) ? .fastqDemultiplexSaturatedKit : .fastqDemultiplex
         case RecordName.fastqImport:
             let guessed = envelope.steps.contains { runs("fastp", $0) && $0.argv.contains(fastpPairedAdapterGuess) }
             return guessed ? .fastqRecipeImport : nil

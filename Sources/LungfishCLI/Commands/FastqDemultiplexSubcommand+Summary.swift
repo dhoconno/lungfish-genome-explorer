@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishWorkflow
 
 extension FastqDemultiplexSubcommand {
@@ -36,10 +37,34 @@ extension FastqDemultiplexSubcommand {
         return [
             withinChanceSummary(within, null: chanceFloor?.null ?? .randomBases),
             exactBareChanceSummary(engine, barcodesWithReads: readCounts.filter { $0 > 0 }.count),
+            // A kit the floor could not judge says so in place of the limit (DEMUX-FLOOR-SATURATED-KIT).
             chanceFloor.flatMap {
-                DemultiplexChanceWords.notInPoolLimit(publishedBarcodes: $0.barcodes.filter(\.beatsTheFloor).count)
+                DemultiplexChanceWords.floorLimit(publishedBarcodes: $0.barcodes.filter(\.beatsTheFloor).count, null: $0.null)
             },
         ].compactMap { $0 }
+    }
+
+    /// The help of `--keep-unchecked-samples` (DEMUX-FLOOR-SATURATED-KIT, BIO-DEMUX-THREE item 3).
+    static let keepUncheckedSamplesHelp = "Make sample files even when the kit's barcodes are so short that about half of "
+        + "all reads or more match one of them by chance, which the check for chance matches cannot judge. Without it "
+        + "such a run is refused. Check each sample against your sample sheet"
+
+    /// The record's `chanceFloor` block: what the chance count was measured on, the margin over it and the windows it was
+    /// tallied from (BIO-DEMUX-NULL item 9), the barcodes within chance, and whether the person chose to keep the samples
+    /// of a kit the floor cannot judge (`optIn`, BIO-DEMUX-THREE item 4). It sits here so that `FastqCommand.swift` does not grow.
+    static func chanceFloorParameter(_ floor: DemultiplexChanceFloor.Outcome, optIn: Bool) -> ParameterValue {
+        .dictionary([
+            "kitTail": .number(DemultiplexChanceFloor.kitTail),
+            "chanceTrials": .integer(floor.chanceTrials),
+            "null": .string(floor.null.rawValue),
+            "margin": .number((floor.margin * 100).rounded() / 100),
+            "compositionReads": .integer(floor.compositionReads),
+            "barcodesWithinChance": .dictionary(Dictionary(
+                floor.barcodesWithinChance.map { ($0.barcodeID, ParameterValue.integer($0.readCount)) },
+                uniquingKeysWith: { first, _ in first }
+            )),
+            "optIn": .boolean(optIn),
+        ])
     }
 
     /// The summary line for barcodes at or below BIO's chance floor, or nil when there are none (DEMUXFLOOR-UX SF1).

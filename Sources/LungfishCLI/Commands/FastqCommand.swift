@@ -245,6 +245,9 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
           help: "Discard reads that do not match any barcode")
     var discardUnassigned: Bool = false
 
+    @Flag(name: .customLong("keep-unchecked-samples"), help: ArgumentHelp(FastqDemultiplexSubcommand.keepUncheckedSamplesHelp))
+    var keepUncheckedSamples: Bool = false
+
     @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
     var threads: Int { globalOptions.threads ?? 4 }
 
@@ -357,7 +360,8 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
                 rootBundleURL: fastaInput ? nil : rootBundleURL,
                 rootFASTQFilename: fastaInput ? nil : rootFASTQFilename,
                 inputPairingMode: inputPairingMode,
-                inputSequenceFormat: inputSequenceFormat
+                inputSequenceFormat: inputSequenceFormat,
+                keepsUncheckedSamples: keepUncheckedSamples
             )
         }
 
@@ -433,6 +437,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         if discardUnassigned {
             cliArguments.append("--discard-unassigned")
         }
+        if keepUncheckedSamples { cliArguments.append("--keep-unchecked-samples") }
         if replace {
             cliArguments.append("--replace")
         }
@@ -524,19 +529,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
 
         // Barcodes at or below BIO's chance floor keep their outputs and are named with their counts (L5).
         if let floor = result.chanceFloor {
-            provenanceParameters["chanceFloor"] = .dictionary([
-                "kitTail": .number(DemultiplexChanceFloor.kitTail),
-                "chanceTrials": .integer(floor.chanceTrials),
-                // What the chance count was measured on, the margin over it and the windows it was tallied from
-                // (BIO-DEMUX-NULL item 9).
-                "null": .string(floor.null.rawValue),
-                "margin": .number((floor.margin * 100).rounded() / 100),
-                "compositionReads": .integer(floor.compositionReads),
-                "barcodesWithinChance": .dictionary(Dictionary(
-                    floor.barcodesWithinChance.map { ($0.barcodeID, ParameterValue.integer($0.readCount)) },
-                    uniquingKeysWith: { first, _ in first }
-                )),
-            ])
+            provenanceParameters["chanceFloor"] = Self.chanceFloorParameter(floor, optIn: keepUncheckedSamples)
         }
         let demultiplexEnvelope = try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish fastq demultiplex",
