@@ -31,11 +31,18 @@ extension STARPlan {
             throw STARPlanError("The image's tool manifest lists no single salmon, and the STAR then salmon route counts with it, "
                 + "so name an image that holds salmon with --image-tool-manifest.")
         }
-        guard request.multimapNmax == nil else {
-            throw STARPlanError("The STAR then salmon route maps with --outFilterMultimapNmax \(defaultRouteMultimapNmax), as "
-                + "nf-core/rnaseq's route does, so name no other number of loci.")
-        }
+        guard request.multimapNmax == nil else { throw STARPlanError(defaultRouteMultimapRefusal) }
         return salmon
+    }
+
+    /// The refusal of a number of loci on this route, which maps with nf-core/rnaseq's fixed number. The words name the
+    /// option of `lungfish-cli rnaseq quant` that sets the number on the other STAR chains. The command refuses the option
+    /// with the two `star-salmon` chains in these words before it plans a sample, and a caller of the API reads them here.
+    package static var defaultRouteMultimapRefusal: String {
+        "The STAR then salmon route, --chain star-salmon and star-salmon-errormodel, maps with --outFilterMultimapNmax "
+            + "\(defaultRouteMultimapNmax), as nf-core/rnaseq's route does, so --star-multimap-nmax does not apply to it. "
+            + "Choose star-2.7.11b-genecounts, star-2.7.3a-genecounts or star-2.7.11b-featurecounts to set the number of loci, "
+            + "or leave the option out."
     }
 
     /// The argv of `star.sh align` in its order, with every path relative to the work root, the plan's threads, the

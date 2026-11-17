@@ -36,6 +36,17 @@ struct RNASeqQuantPlanOptions: ParsableArguments {
         valueName: "chain"))
     var chain: RNASeqQuantPlanChain?
 
+    @Option(name: .customLong("star-multimap-nmax"), help: ArgumentHelp(
+        "With --write-plan and a STAR GeneCounts or featureCounts chain, the most loci a read may map to (default: STAR's 10)",
+        discussion: "Sets STAR's --outFilterMultimapNmax, the most loci a read may map to. STAR counts a read with more loci as "
+            + "mapped to too many loci. With no option the plan passes no flag and STAR keeps its default of 10. GSE304256 (C6) "
+            + "was counted with 1000, a step its authors did not document, and its deposited ReadsPerGene files need it. Only "
+            + "star-2.7.11b-genecounts, star-2.7.3a-genecounts and star-2.7.11b-featurecounts take this option. The other chains "
+            + "refuse it, since salmon runs no STAR and star-salmon and star-salmon-errormodel map at the 20 of nf-core/rnaseq's "
+            + "route.",
+        valueName: "n"))
+    var starMultimapNmax: Int?
+
     @Option(name: .customLong("staged-reads"), help: ArgumentHelp(
         "A tab-separated list of reads already in the staging folder, with each read's absolute path, size in bytes and SHA-256, "
             + "for --write-plan with --samplesheet",
@@ -86,7 +97,7 @@ struct RNASeqQuantPlanOptions: ParsableArguments {
     /// The options of a plan that were given, by name, for the refusal of a plan option with no `--write-plan`.
     var given: [String] {
         let named: [(String, Bool)] = [
-            ("--chain", chain != nil), ("--staged-reads", stagedReads != nil), ("--samplesheet", samplesheet != nil), ("--staging-folder", stagingFolder != nil),
+            ("--chain", chain != nil), ("--star-multimap-nmax", starMultimapNmax != nil), ("--staged-reads", stagedReads != nil), ("--samplesheet", samplesheet != nil), ("--staging-folder", stagingFolder != nil),
             ("--executor-manifest", executorManifest != nil), ("--image", image != nil),
             ("--image-tool-manifest", imageToolManifest != nil), ("--request-memory-mib", requestMemoryMiB != nil),
             ("--request-cpus", requestCPUs != nil), ("--request-disk-gib", requestDiskGiB != nil),
@@ -107,6 +118,7 @@ struct RNASeqQuantPlanOptions: ParsableArguments {
         guard threads == nil else {
             throw ValidationError("A plan runs its tools with the threads of --request-cpus, 8 when you name none, so --threads does not apply. Leave it out.")
         }
+        try checkMultimapNmax()
         guard stagingFolder?.hasPrefix("/") == true else {
             throw ValidationError("--write-plan needs --staging-folder, the absolute path of the folder on the Linux machine.")
         }
@@ -116,6 +128,26 @@ struct RNASeqQuantPlanOptions: ParsableArguments {
             }
         } else {
             guard !bundles.isEmpty else { throw ValidationError("Name FASTQ bundles, or --staged-reads with --samplesheet.") }
+        }
+    }
+
+    /// `--star-multimap-nmax` is a whole number of loci from 1 up, and goes only to the chains whose STAR maps at the number
+    /// the person names. `salmon` runs no STAR and the two `star-salmon` chains map at nf-core/rnaseq's 20, so each refuses it
+    /// in words that name the option and the chains that take it, before any file is read.
+    private func checkMultimapNmax() throws {
+        guard let loci = starMultimapNmax else { return }
+        guard loci >= 1 else {
+            throw ValidationError("--star-multimap-nmax is a whole number of loci from 1 up, and \(loci) is not.")
+        }
+        switch chain?.star?.chain {
+        case .geneCounts?, .featureCounts?:
+            return
+        case .starSalmon?:
+            throw ValidationError(STARPlan.defaultRouteMultimapRefusal)
+        case nil:
+            throw ValidationError("The chain salmon, the default, counts the reads with salmon and runs no STAR, so --star-multimap-nmax "
+                + "does not apply to it. Choose --chain star-2.7.11b-genecounts, star-2.7.3a-genecounts or "
+                + "star-2.7.11b-featurecounts to set the number of loci, or leave the option out.")
         }
     }
 }

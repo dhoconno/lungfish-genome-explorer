@@ -84,7 +84,8 @@ extension RNASeqCommand.QuantSubcommand {
             try Task.checkCancellation()
             let made = try STARPlan.make(STARPlanRequest(
                 setFolder: setFolder, sample: sample, pins: pins, chain: star.chain, index: index, trim: trimChoice,
-                threads: options.requestCPUs ?? STARPlan.defaultThreads, alignmentScoring: star.scoring))
+                threads: options.requestCPUs ?? STARPlan.defaultThreads, multimapNmax: options.starMultimapNmax,
+                alignmentScoring: star.scoring))
             let figures = try STARPlanSubmit.figures(
                 for: manifest, made: made, memoryMiB: options.requestMemoryMiB, cpus: options.requestCPUs, diskGiB: options.requestDiskGiB)
             result.jobs.append(STARPlanSubmit.job(made, figures: figures))
