@@ -147,12 +147,18 @@ final class HTCondorSubmitTemplateTests: XCTestCase {
         }
     }
 
-    /// CHTC-3d R1. A job held at code 12 after its run exited 0 is released, twice at most. No line retries a run that
-    /// failed, since a run without every listed output is held and no retry rule sees its exit code.
-    func testOnlyAnUploadHoldOfARunThatPassedIsReleased() throws {
+    /// CHTC-3d R1 and CHTC-INPUT-STALL-HELD (ARCH-CHTC-HOLDS What binds 7). A job held at code 12 after its run exited 0,
+    /// or held at code 13 fetching its input, is released, and one cap of `NumHolds < 3` frees it twice at most across
+    /// both codes. The rule tests no subcode and no `HoldReason` text. No line retries a run that failed, since a run
+    /// without every listed output is held and no retry rule sees its exit code.
+    func testAnOutputHoldAfterExitZeroAndAnInputHoldAreReleasedUnderOneCap() throws {
         let text = try HTCondorSubmitTemplate.render(Self.input())
-        XCTAssertEqual(try value(of: "periodic_release", in: text),
-                       "(HoldReasonCode =?= 12) && (ExitCode =?= 0) && (NumHolds < 3)")
+        let rule = try value(of: "periodic_release", in: text)
+        XCTAssertEqual(rule, "(NumHolds < 3) && (((HoldReasonCode =?= 12) && (ExitCode =?= 0)) || (HoldReasonCode =?= 13))")
+        XCTAssertEqual(rule.components(separatedBy: "NumHolds").count - 1, 1, "one cap covers both codes")
+        XCTAssertFalse(rule.contains("SubCode"), "subcode 256 is the plugin's exit 1 for a slow pull and a missing file alike")
+        XCTAssertFalse(rule.replacingOccurrences(of: "HoldReasonCode", with: "").contains("HoldReason"),
+                       "HTCondor's hold words move between versions")
         let lines = text.split(separator: "\n").map(String.init)
         XCTAssertFalse(lines.contains { $0.hasPrefix("max_retries") || $0.hasPrefix("retry_until") }, text)
         XCTAssertEqual(try value(of: "kill_sig", in: text), "SIGTERM")

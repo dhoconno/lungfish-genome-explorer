@@ -333,7 +333,7 @@ final class LinuxRunScriptTests: XCTestCase {
         let readme = try String(contentsOf: written.folder.appendingPathComponent("README.txt"), encoding: .utf8)
         let lines = [
             "condor_submit_dag run.dag",
-            "condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReason",
+            "condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReasonCode NumHolds HoldReason",
             "To see every sample's state, read run.dag.status.",
             "<sample>/logs/ in this folder, to see which step",
             "condor_rm <ClusterId>.<ProcId>",
@@ -489,7 +489,8 @@ final class LinuxRunScriptTests: XCTestCase {
         let end = try XCTUnwrap(readme.range(of: "Run on one machine with Apptainer or Docker", range: start.upperBound..<readme.endIndex))
         let held = String(readme[start.upperBound..<end.lowerBound])
         let record = "/staging/groups/g/1/lge-test/batches/batch/<sample>/result/run-record.json"
-        let commands = ["condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReason",
+        let commands = ["condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReasonCode NumHolds HoldReason",
+                        "condor_release <ClusterId>.<ProcId>",
                         "cp \(record) <sample>/run-record-<ClusterId>.json", "condor_rm <ClusterId>.<ProcId>",
                         "condor_submit_dag run.dag"]
         let places = try commands.map { try XCTUnwrap(held.range(of: $0), $0).lowerBound }
@@ -500,6 +501,15 @@ final class LinuxRunScriptTests: XCTestCase {
         // HTCondor starts a job again by itself, at most twice, when the exit code is 0.
         let step1 = held[steps[0]..<steps[1]], step2 = held[steps[1]..<steps[2]]
         XCTAssertTrue(step2.contains("at most twice"), String(step2))
+        // CHTC-INPUT-STALL-HELD. Step 1 names the hold's code and count. Step 2 names code 13 beside code 12, the one cap of
+        // two releases, and the release by hand of a job held a third time once the staging folder answers.
+        let flat1 = step1.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let flat2 = step2.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        XCTAssertTrue(flat1.contains("the hold's code, how many times the job has been held and the reason"), flat1)
+        for words in ["the hold's code is 12 and the exit code is 0", "If the code is 13", "held a third time",
+                      "once the staging folder answers", "condor_release <ClusterId>.<ProcId>"] {
+            XCTAssertTrue(flat2.contains(words), "\(words) in \(flat2)")
+        }
         let evicted = try XCTUnwrap(step1.range(of: "Job was evicted"), String(step1)).lowerBound
         let heldLine = try XCTUnwrap(step1.range(of: "Job was held"), String(step1)).lowerBound
         XCTAssertLessThan(evicted, heldLine)

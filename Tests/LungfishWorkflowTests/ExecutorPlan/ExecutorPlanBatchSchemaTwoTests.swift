@@ -169,6 +169,14 @@ final class ExecutorPlanBatchSchemaTwoTests: XCTestCase {
             XCTAssertTrue(readme.contains(words), "README.txt says \(words)")
         }
         XCTAssertFalse(readme.contains("import fastq"), "a schema 2 batch is adopted by no read import")
+        // CHTC-INPUT-STALL-HELD. The short form of the held-job steps names the hold's code and count, code 13 beside code 12,
+        // the one cap of two releases, and the release by hand of a job held a third time once the staging folder answers.
+        let flatReadme = readme.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        for words in ["condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReasonCode NumHolds HoldReason",
+                      "If the code is 12 and the exit code is 0", "If the code is 13", "at most twice",
+                      "held a third time", "condor_release <ClusterId>.<ProcId> once the staging folder answers"] {
+            XCTAssertTrue(flatReadme.contains(words), "README.txt says \(words)")
+        }
         let dryRun = try ExecutorPlanBatchWriter.dryRun([job], image: image, layout: layout)
         XCTAssertTrue(dryRun.contains(batch.placements[0]), "\(dryRun)")
     }
