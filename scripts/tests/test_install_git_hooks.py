@@ -115,6 +115,8 @@ class InstallGitHooksPrePushTagTests(unittest.TestCase):
         root = Path(directory.name)
         self.remote = root / "remote.git"
         self.repo = root / "repo"
+        # A hold the Mac's real release wrote must not refuse these pushes to main.
+        self.no_hold = root / "no-main-hold"
         subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True)
         subprocess.run(["git", "init", "-q", "-b", "main", str(self.repo)], check=True)
         for key, value in (("user.email", "test@example.com"), ("user.name", "Test")):
@@ -135,7 +137,7 @@ class InstallGitHooksPrePushTagTests(unittest.TestCase):
     def git(self, *args, check=True):
         return subprocess.run(
             ["git", "-C", str(self.repo), *args],
-            env={"PATH": "/usr/bin:/bin:/usr/local/bin"},
+            env={"PATH": "/usr/bin:/bin:/usr/local/bin", "LUNGFISH_MAIN_HOLD": str(self.no_hold)},
             text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=check,
         )
 
@@ -179,6 +181,132 @@ class InstallGitHooksPrePushTagTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
 
 
+class InstallGitHooksMainHoldTests(unittest.TestCase):
+    """While the hold file of a packaged candidate stands, the installed pre-push hook refuses a push that
+    moves main, before any check runs, and lets a tag and another branch through (E-RUN-57). Real pushes
+    to a throwaway bare remote, with LUNGFISH_MAIN_HOLD pointing into the temporary folder, so no test
+    writes or reads the real hold. The temporary repository has none of the check scripts, so a push the
+    hold lets through fails at the first check, which shows it passed the hold."""
+
+    PASSED_THE_HOLD = "pre-push: checking the unchecked-operation-start ratchet"
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name).resolve()
+        self.remote = root / "remote.git"
+        self.repo = root / "repo"
+        self.hold = root / "lungfish-release" / "MAIN-HOLD"
+        subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True)
+        subprocess.run(["git", "init", "-q", "-b", "main", str(self.repo)], check=True)
+        for key, value in (("user.email", "test@example.com"), ("user.name", "Test")):
+            self.git("config", key, value)
+        self.git("remote", "add", "origin", str(self.remote))
+        scripts_dir = self.repo / "scripts"
+        scripts_dir.mkdir()
+        (scripts_dir / "install-git-hooks.sh").write_text(SCRIPT.read_text())
+        result = subprocess.run(
+            ["/bin/bash", str(scripts_dir / "install-git-hooks.sh")],
+            cwd=self.repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.candidate = self.commit("packaged")
+        # The candidate's own push went through the gate before its package.
+        self.git("push", "-q", "--no-verify", "origin", "main")
+
+    def git(self, *args, check=True):
+        return subprocess.run(
+            ["git", "-C", str(self.repo), *args],
+            env={"PATH": "/usr/bin:/bin:/usr/local/bin", "LUNGFISH_MAIN_HOLD": str(self.hold),
+                 "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"},
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=check,
+        )
+
+    def commit(self, message, name="file.txt"):
+        (self.repo / name).write_text(message)
+        self.git("add", name)
+        self.git("commit", "-q", "-m", message)
+        return self.git("rev-parse", "HEAD").stdout.strip()
+
+    def hold_main(self):
+        # The form release.py package writes.
+        self.hold.parent.mkdir(parents=True, exist_ok=True)
+        self.hold.write_text(
+            f"commit={self.candidate}\nchannel=preview\nsince=2026-11-16T18:30:00-06:00\n"
+            "writer=release.py package, pid 4242 on galah\n",
+            encoding="utf-8",
+        )
+
+    def remote_main(self):
+        return self.git("ls-remote", "origin", "refs/heads/main").stdout.split()[0]
+
+    def test_without_a_hold_a_push_to_main_reaches_the_checks(self):
+        self.commit("after")
+
+        result = self.git("push", "origin", "main", check=False)
+
+        self.assertIn(self.PASSED_THE_HOLD, result.stdout)
+        self.assertNotIn("main is held", result.stdout)
+
+    def test_a_hold_refuses_a_push_to_main_in_words_that_name_the_candidate_the_file_and_the_void(self):
+        self.hold_main()
+        self.commit("after")
+
+        result = self.git("push", "origin", "main", check=False)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("pre-push: main is held for the packaged candidate " + self.candidate, result.stdout)
+        self.assertIn(str(self.hold), result.stdout)
+        self.assertIn("pid 4242 on galah", result.stdout)
+        self.assertIn("python3 scripts/release/release.py void " + self.candidate, result.stdout)
+        self.assertIn("release.py publish removes", result.stdout)
+        self.assertNotIn(self.PASSED_THE_HOLD, result.stdout, "the hold refuses before any check runs")
+        self.assertEqual(self.remote_main(), self.candidate)
+
+    def test_a_hold_refuses_a_push_to_main_from_a_detached_head(self):
+        # A program worktree pushes HEAD:main from a detached checkout, so the hook reads the remote ref.
+        self.hold_main()
+        self.git("checkout", "-q", "--detach")
+        self.commit("detached")
+
+        result = self.git("push", "origin", "HEAD:refs/heads/main", check=False)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("main is held", result.stdout)
+        self.assertEqual(self.remote_main(), self.candidate)
+
+    def test_a_hold_lets_the_tag_push_of_a_publish_through(self):
+        self.hold_main()
+        self.git("tag", "-a", "v2026.11.11", "-m", "v2026.11.11")
+
+        result = self.git("push", "origin", "v2026.11.11", check=False)
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("skipping checks", result.stdout)
+        self.assertNotIn("main is held", result.stdout)
+
+    def test_a_hold_lets_another_branch_through(self):
+        self.hold_main()
+        self.git("checkout", "-q", "-b", "lane")
+        self.commit("lane work", name="lane.txt")
+
+        result = self.git("push", "origin", "lane", check=False)
+
+        self.assertIn(self.PASSED_THE_HOLD, result.stdout)
+        self.assertNotIn("main is held", result.stdout)
+
+    def test_a_push_to_main_after_the_hold_is_removed_reaches_the_checks(self):
+        self.hold_main()
+        self.commit("after")
+        self.assertIn("main is held", self.git("push", "origin", "main", check=False).stdout)
+        self.hold.unlink()
+
+        result = self.git("push", "origin", "main", check=False)
+
+        self.assertIn(self.PASSED_THE_HOLD, result.stdout)
+        self.assertNotIn("main is held", result.stdout)
+
+
 class InstallGitHooksUnitEvidenceTests(unittest.TestCase):
     """The pre-push hook skips the unit tier only when retained evidence covers
     every pushed commit. Each script the generated hook calls is a stub, so a
@@ -209,6 +337,8 @@ class InstallGitHooksUnitEvidenceTests(unittest.TestCase):
             "STUB_ORDER_LOG": str(self.order_log),
             "STUB_UNIT_MARKER": str(self.unit_marker),
             "STUB_UNIT_ARGUMENTS": str(self.unit_arguments),
+            # A hold the Mac's real release wrote must not refuse these pushes to main.
+            "LUNGFISH_MAIN_HOLD": str(root / "no-main-hold"),
         }
         subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True, env=self.environment)
         subprocess.run(["git", "init", "-q", "-b", "main", str(self.repo)], check=True, env=self.environment)
