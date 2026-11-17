@@ -14,9 +14,11 @@ extension AffectedResults {
     /// measured. Any other record names its kit by the definition file, which the run keeps in its result folder since
     /// a2dcd689f, so the file is read. The share is the floor's (`DemultiplexChanceFloor.isSaturated`) on the lines a kit of
     /// single barcodes searches, `^barcode` at each 5' offset or `barcode$` at each 3' offset, as fragments of two mates when
-    /// the record placed mates. A built-in kit is never that short (`DemultiplexSaturatedKitTests`), and a record that names
-    /// another engine, a dual kit or a file that cannot be read is not such a run. It reads a file, so the Inspector's
-    /// lookup runs it off the main actor.
+    /// the record placed mates. Of the built-in kits only the Fluidigm Access Array kit is such a kit
+    /// (`DemultiplexSaturatedKitTests`). Cutadapt searches its bare 10-base barcodes anywhere in the read and places nearly
+    /// every read in one by chance, so its record is such a run at any error rate (BIO-SATKIT-FLUIDIGM item 5 and Q2). A
+    /// record that names another engine, another built-in kit, a dual kit or a file that cannot be read is not such a run.
+    /// It reads a file, so the Inspector's lookup runs it off the main actor.
     static func searchedWithAKitTheFloorCannotJudge(_ envelope: ProvenanceEnvelope) -> Bool {
         let options = envelope.options.explicit
         if case .string(let engine)? = options["engine"], engine != "cutadapt" { return false }
@@ -24,6 +26,8 @@ extension AffectedResults {
             if null == DemultiplexChanceFloor.Null.saturatedKit.rawValue { return true }
             if null == DemultiplexChanceFloor.Null.startComposition.rawValue { return false }
         }
+        let fluidigm = BarcodeKitRegistry.fluidigmAccessArray.id
+        if ["kit", "resolvedKit"].contains(where: { options[$0] == .string(fluidigm) }) { return true }
         guard case .string(let named)? = options["kit"], BarcodeKitRegistry.kit(byID: named) == nil else { return false }
         let url = URL(fileURLWithPath: named)
         guard let data = try? Data(contentsOf: url),
