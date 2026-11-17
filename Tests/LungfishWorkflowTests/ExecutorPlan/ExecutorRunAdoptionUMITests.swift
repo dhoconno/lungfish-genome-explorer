@@ -110,7 +110,7 @@ final class ExecutorRunAdoptionUMITests: XCTestCase {
             "UMI layout check passed: 364 of 364 pairs read (100.0%) start within one mismatch of ATCAATC, 364 (100.0%) "
                 + "exactly, and 312 (85.7%) hold a distinct UMI."))
         XCTAssertEqual(counting["umiExtraction"], .string(
-            "umi_tools extract kept 364 of 364 reads (100.0%), the reads whose UMI read starts with the motif, in umi/pair1-extract.log"))
+            "umi_tools extract kept 364 of 364 read pairs (100.0%), the pairs whose UMI read starts with the motif, in umi/pair1-extract.log"))
         XCTAssertEqual(counting["duplicates"], .string(try XCTUnwrap(route.settings["duplicates"])))
         XCTAssertEqual(counting["filesLeftOut"], .array(
             ["umi-check/pair1-layout-check.json", "umi/pair1-extract.log", "star/Log.final.out", "featurecounts/counts.txt.summary"]
