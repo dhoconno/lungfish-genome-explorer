@@ -22,7 +22,7 @@ You fix the findings your prompt names (numbered items of a review file, or a li
 
 ## Commands
 - One command a call with literal paths. The guard refuses a `;` or `&&` chain naming a path under the checkout folder, `git -C`, `cd` into another worktree, loops, `$(...)`, a shell variable before a path and `python3 -`. Put loops in a script file and write files with Write or Edit.
-- Pass timeout 270000 on long calls. Run a long job in the background with a relative log that ends in an `exit=<code>` line, and wait with one call, `until rg -q '^exit=' <log>; do sleep 5; done`, repeated on timeout. Never use Monitor or repeated `tail`. Let background commands end before your final message. Wait for a load under 40 with one background until-loop, `until sysctl -n vm.loadavg | awk '{exit $2 >= 40}'; do sleep 10; done`, timeout 240000, never repeated `uptime` calls.
+- Pass timeout 270000 on long calls. Run a long job in the background with a relative log that ends in an `exit=<code>` line, and wait with one call, `until rg -q '^exit=' <log>; do sleep 5; done`, repeated on timeout. Never use Monitor or repeated `tail`. A test that may outlast your line runs under `nohup` with its log path in the Handoff (E-RUN-68), and every other background command ends before your final message. Wait for a load under 40 with one background until-loop, `until sysctl -n vm.loadavg | awk '{exit $2 >= 40}'; do sleep 10; done`, timeout 240000, never repeated `uptime` calls.
 - Stop only a process you started, by PID, never `pkill` or `killall`. Spawn no subagents. A refusal citing the auto mode classifier is a server error, so run the call once more.
 
 ## Commits
