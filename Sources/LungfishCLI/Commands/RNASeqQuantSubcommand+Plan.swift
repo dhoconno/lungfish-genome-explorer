@@ -49,17 +49,24 @@ struct RNASeqQuantPlanOptions: ParsableArguments {
         valueName: "n"))
     var starMultimapNmax: Int?
 
+    /// What the help of `--staged-reads` and `--samplesheet` both say of single-end reads, so the two cannot differ. The four
+    /// chains that take them are the ones whose argv is tested on one read file, and a sample sheet row with no r2 is the form.
+    static let singleEndHelp = "Leave r2 empty for a sample of single-end reads. The chains salmon, star-2.7.3a-genecounts, "
+        + "star-2.7.11b-genecounts and star-2.7.11b-featurecounts take single-end reads, while star-salmon, star-salmon-errormodel "
+        + "and a UMI kit take read pairs only. A plan folder holds samples of one layout, so write the single-end samples and the "
+        + "pairs in two plan folders."
+
     @Option(name: .customLong("staged-reads"), help: ArgumentHelp(
         "A tab-separated list of reads already in the staging folder, with each read's absolute path, size in bytes and SHA-256, "
             + "for --write-plan with --samplesheet",
         discussion: "The sample sheet's r1 and r2 name each read by its absolute path in the staging folder, and Lungfish reads none "
-            + "of them. The list's first line names the columns file, bytes and sha256, separated by tabs. The sheet's optional "
-            + "model column names the instrument.", valueName: "file"))
+            + "of them. " + RNASeqQuantPlanOptions.singleEndHelp + " The list's first line names the columns file, bytes and "
+            + "sha256, separated by tabs. The sheet's optional model column names the instrument.", valueName: "file"))
     var stagedReads: String?
 
     @Option(name: .customLong("samplesheet"), help: ArgumentHelp(
-        "A comma-separated sample sheet with sample, r1 and r2 columns, for --staged-reads",
-        discussion: "The optional kit column names the UMI kit of every sample by its preset, one of "
+        "A comma-separated sample sheet with sample, r1 and r2 columns (r2 stays empty for single-end reads), for --staged-reads",
+        discussion: RNASeqQuantPlanOptions.singleEndHelp + " The optional kit column names the UMI kit of every sample by its preset, one of "
             + UMIPlan.presets.map { "\($0.id) for \($0.label)" }.joined(separator: ", ") + ". A sheet with a kit plans the UMI "
             + "branch, which runs each pair's layout check, umi_tools extract, STAR 2.7.11b on the kept read alone on the set's adopted "
             + "STAR 2.7.11b index, featureCounts' gene tags and umi_tools count per gene, so a count is molecules. The kit's "

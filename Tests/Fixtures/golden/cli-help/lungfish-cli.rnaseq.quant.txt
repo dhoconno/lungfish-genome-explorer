@@ -87,19 +87,30 @@ OPTIONS:
                           folder, with each read's absolute path, size in bytes
                           and SHA-256, for --write-plan with --samplesheet
         The sample sheet's r1 and r2 name each read by its absolute path in the
-        staging folder, and Lungfish reads none of them. The list's first line
-        names the columns file, bytes and sha256, separated by tabs. The
-        sheet's optional model column names the instrument.
+        staging folder, and Lungfish reads none of them. Leave r2 empty for a
+        sample of single-end reads. The chains salmon, star-2.7.3a-genecounts,
+        star-2.7.11b-genecounts and star-2.7.11b-featurecounts take single-end
+        reads, while star-salmon, star-salmon-errormodel and a UMI kit take
+        read pairs only. A plan folder holds samples of one layout, so write
+        the single-end samples and the pairs in two plan folders. The list's
+        first line names the columns file, bytes and sha256, separated by tabs.
+        The sheet's optional model column names the instrument.
   --samplesheet <file>    A comma-separated sample sheet with sample, r1 and r2
-                          columns, for --staged-reads
-        The optional kit column names the UMI kit of every sample by its
-        preset, one of quartz-seq2-x910 for Quartz-Seq2 primer X910 (ATCAATC
-        then a 16-nt UMI on Read 1). A sheet with a kit plans the UMI branch,
-        which runs each pair's layout check, umi_tools extract, STAR 2.7.11b on
-        the kept read alone on the set's adopted STAR 2.7.11b index,
-        featureCounts' gene tags and umi_tools count per gene, so a count is
-        molecules. The kit's preset fixes that chain, so leave out --chain,
-        --trim, --k and --decoys.
+                          columns (r2 stays empty for single-end reads), for
+                          --staged-reads
+        Leave r2 empty for a sample of single-end reads. The chains salmon,
+        star-2.7.3a-genecounts, star-2.7.11b-genecounts and
+        star-2.7.11b-featurecounts take single-end reads, while star-salmon,
+        star-salmon-errormodel and a UMI kit take read pairs only. A plan
+        folder holds samples of one layout, so write the single-end samples and
+        the pairs in two plan folders. The optional kit column names the UMI
+        kit of every sample by its preset, one of quartz-seq2-x910 for
+        Quartz-Seq2 primer X910 (ATCAATC then a 16-nt UMI on Read 1). A sheet
+        with a kit plans the UMI branch, which runs each pair's layout check,
+        umi_tools extract, STAR 2.7.11b on the kept read alone on the set's
+        adopted STAR 2.7.11b index, featureCounts' gene tags and umi_tools
+        count per gene, so a count is molecules. The kit's preset fixes that
+        chain, so leave out --chain, --trim, --k and --decoys.
   --staging-folder <path> The absolute path of the folder on the Linux machine
                           that holds the image, the executor, the index and the
                           reads
