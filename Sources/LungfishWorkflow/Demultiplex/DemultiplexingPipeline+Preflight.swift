@@ -93,9 +93,13 @@ extension DemultiplexingPipeline {
     /// (DEMUX-FLOOR-SATURATED-KIT, BIO-DEMUX-THREE item 2). The unassigned reads of such a kit cannot measure a null, so
     /// the floor fell back to random bases, which real read starts pass, and the run published chance matches as samples.
     /// A run that places mates judges fragments, whose share is larger, so the file's layout is read only for a kit
-    /// that reaches the share as fragments and not as single reads. Only the bare search has the floor. A kit whose lines
-    /// have no anchored side, such as the built-in Fluidigm kit, is refused in words that give that cause and name the
-    /// routes made for it (BIO-SATKIT-FLUIDIGM item 4).
+    /// that reaches the share as fragments and not as single reads. Only the bare search has the floor.
+    ///
+    /// A kit whose lines have no side anchored with `^` or `$` is refused first, at every error rate, since cutadapt
+    /// searches each side anywhere in the read and also counts 3 bases of a side at a read end, which the share does not
+    /// sum (BIO-SATKIT-ANYWHERE items 1 to 3). Bare barcodes, the built-in Fluidigm kit and a definition built on it, get
+    /// words that name the routes made for that kit (BIO-SATKIT-FLUIDIGM item 4). Linked pairs, a custom dual-index
+    /// definition at Both Ends with no sample sheet, get words of their own.
     func requireChanceCheckableKit(config: DemultiplexConfig, adapterFASTA: URL, inputFASTQ: URL) throws {
         try requireChanceCheckableKit(config: config, adapterFASTA: adapterFASTA) {
             try demultiplexReadLayout(config: config, inputFASTQ: inputFASTQ).isPaired
@@ -108,6 +112,13 @@ extension DemultiplexingPipeline {
     func requireChanceCheckableKit(config: DemultiplexConfig, adapterFASTA: URL, holdsMates: () throws -> Bool) throws {
         guard !config.keepsUncheckedSamples, config.demuxAdapterContext is BareAdapterContext else { return }
         let patterns = try chancePatterns(in: adapterFASTA)
+        let kitName = config.barcodeKit.displayName
+        if DemultiplexChanceFloor.hasNoAnchoredSide(patterns: patterns) {
+            if DemultiplexChanceFloor.searchesAnywhere(patterns: patterns) {
+                throw DemultiplexError.chanceCheckCannotJudgeKitSearchedAnywhere(kitName: kitName)
+            }
+            throw DemultiplexError.chanceCheckCannotJudgeKitPairsSearchedAnywhere(kitName: kitName)
+        }
         func saturated(_ unit: Int) -> Bool {
             DemultiplexChanceFloor.isSaturated(
                 patterns: patterns, errorRate: config.effectiveErrorRate, allowsIndels: !config.useNoIndels, unit: unit
@@ -115,10 +126,6 @@ extension DemultiplexingPipeline {
         }
         if !saturated(1) {
             guard saturated(2), try holdsMates() else { return }
-        }
-        let kitName = config.barcodeKit.displayName
-        if DemultiplexChanceFloor.searchesAnywhere(patterns: patterns) {
-            throw DemultiplexError.chanceCheckCannotJudgeKitSearchedAnywhere(kitName: kitName)
         }
         throw DemultiplexError.chanceCheckCannotJudgeKit(kitName: kitName)
     }

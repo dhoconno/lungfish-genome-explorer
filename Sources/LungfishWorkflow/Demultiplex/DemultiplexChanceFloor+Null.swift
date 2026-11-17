@@ -93,14 +93,15 @@ extension DemultiplexChanceFloor {
         uniformKitShare(patterns: patterns, errorRate: errorRate, allowsIndels: allowsIndels, unit: unit) >= saturatedKitShare
     }
 
-    /// Whether no cutadapt line of the kit has a side anchored with `^` or `$`, so that cutadapt searches its barcodes
-    /// anywhere in the read, as it does for the built-in Fluidigm Access Array kit (BIO-SATKIT-FLUIDIGM item 4). The floor
-    /// measures no null for such lines (`decoyIndex`). Preflight reads it to give the cause of its refusal.
+    /// Whether every cutadapt line of the kit is one bare barcode, with no second side and no `^` or `$`, so that cutadapt
+    /// searches each barcode anywhere in the read, as it does for the built-in Fluidigm Access Array kit and a definition
+    /// built on it (BIO-SATKIT-FLUIDIGM item 4). Preflight reads it only to choose the words of its refusal of a kit
+    /// whose lines have no anchored side (BIO-SATKIT-ANYWHERE item 2).
     public static func searchesAnywhere(patterns: [String: [String]]) -> Bool {
         let lines = patterns.values.joined()
         return !lines.isEmpty && lines.allSatisfy { line in
-            (line.split(separator: ";", maxSplits: 1).first.map(String.init) ?? line).components(separatedBy: "...")
-                .allSatisfy { !$0.hasPrefix("^") && !$0.hasSuffix("$") }
+            let sides = adapterSides(of: line)
+            return sides.count == 1 && isUnanchored(sides[0])
         }
     }
 
@@ -111,11 +112,15 @@ extension DemultiplexChanceFloor {
     /// on it, and of a custom dual-index definition at Both Ends with no sample sheet, whose lines are `i7...i5`.
     public static func hasNoAnchoredSide(patterns: [String: [String]]) -> Bool {
         let lines = patterns.values.joined()
-        return !lines.isEmpty && lines.allSatisfy { line in
-            (line.split(separator: ";", maxSplits: 1).first.map(String.init) ?? line).components(separatedBy: "...")
-                .allSatisfy { !$0.hasPrefix("^") && !$0.hasSuffix("$") }
-        }
+        return !lines.isEmpty && lines.allSatisfy { adapterSides(of: $0).allSatisfy(isUnanchored) }
     }
+
+    /// The sides of a cutadapt line, the part before any `;` option split at `...`.
+    private static func adapterSides(of line: String) -> [String] {
+        (line.split(separator: ";", maxSplits: 1).first.map(String.init) ?? line).components(separatedBy: "...")
+    }
+
+    private static func isUnanchored(_ side: String) -> Bool { !side.hasPrefix("^") && !side.hasSuffix("$") }
 
     /// The compositions of the mates searched, the margin the decoys set and the windows tallied.
     struct MeasuredNull {
