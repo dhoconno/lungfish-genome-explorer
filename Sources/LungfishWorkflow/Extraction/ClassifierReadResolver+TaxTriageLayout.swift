@@ -44,16 +44,26 @@ extension ClassifierReadResolver {
     /// ``firstContainedBAM(among:within:sample:)``, and a key that lists no sample is a key. The check reads the database
     /// and writes nothing.
     private static func refuseUnmarkedFittedBAM(among recorded: [URL], sampleId: String, resultDir: URL) throws {
-        let ownNames = ["\(sampleId).bam", "\(sampleId).\(sampleId)\(taxTriageReferencesBAMSuffix)"]
-        let foreign = recorded.first { candidate in
+        guard let foreign = foreignNamedRecordedBAM(among: recorded, sampleId: sampleId, resultDir: resultDir),
+              taxTriageDatabaseHoldsNoFitMark(resultDir: resultDir) else { return }
+        throw ClassifierExtractionError.taxTriageBAMBeforeFitMark(
+            sampleId: sampleId, fileName: foreign.lastPathComponent, resultFolder: resultDir
+        )
+    }
+
+    /// The two names that the pipeline gives a sample's BAM, `{S}.bam` and `{S}.{S}.dwnld.references.bam`.
+    private static func taxTriageOwnBAMNames(of sampleId: String) -> [String] {
+        ["\(sampleId).bam", "\(sampleId).\(sampleId)\(taxTriageReferencesBAMSuffix)"]
+    }
+
+    /// The first recorded BAM that exists inside the result under neither of the sample's own two names, or nil.
+    private static func foreignNamedRecordedBAM(among recorded: [URL], sampleId: String, resultDir: URL) -> URL? {
+        let ownNames = taxTriageOwnBAMNames(of: sampleId)
+        return recorded.first { candidate in
             guard !ownNames.contains(candidate.lastPathComponent),
                   case .inside = checkedBAMCandidate(candidate, within: resultDir) else { return false }
             return true
         }
-        guard let foreign, taxTriageDatabaseHoldsNoFitMark(resultDir: resultDir) else { return }
-        throw ClassifierExtractionError.taxTriageBAMBeforeFitMark(
-            sampleId: sampleId, fileName: foreign.lastPathComponent, resultFolder: resultDir
-        )
     }
 
     /// Whether the metadata of the result's `taxtriage.sqlite` holds no `fitted_bam_samples` key at all, the mark of a
@@ -121,6 +131,40 @@ extension ClassifierReadResolver {
         return "Sample \(sampleId)'s own BAM was not found, so Lungfish read \(scanned.lastPathComponent), "
             + "the one file in the minimap2 folder that fits its name. "
             + "If that file belongs to another sample, put \(sampleId)'s own BAM back and try again."
+    }
+
+    /// The words that the TaxTriage view, the Inspector and BLAST Verify show for sample `sampleId`, whose BAM `bam` the view
+    /// reads, or nil when `bam` is no file that a fit of its name gave the sample (BIO-WALK-T2-VIEW, items 2, 6, 7 and 10).
+    /// A file with one of the sample's own two names has no notice, and no database is opened for it. A database with no
+    /// `fitted_bam_samples` key that records `bam` under neither name gets the notice that opens with the sentence of
+    /// ``ClassifierExtractionError/taxTriageBAMBeforeFitMark(sampleId:fileName:resultFolder:)``. Any other fit gets the words
+    /// of ``taxTriageScanNotice(tool:sampleId:resultPath:bam:)``, which also cover the fit that a rebuild marks again when
+    /// the sample's own BAM is still missing. Extract Reads says the same words, so the four places read one source.
+    /// Nothing is refused and no number changes. The check reads the folder and the database, never a BAM, and writes
+    /// nothing. `resultPath` is the result folder or its database.
+    package static func taxTriageRecordedBAMNotice(sampleId: String, resultPath: URL, bam: URL) -> String? {
+        guard !taxTriageOwnBAMNames(of: sampleId).contains(bam.lastPathComponent) else { return nil }
+        let resultDir = resultPath.hasDirectoryPath ? resultPath : resultPath.deletingLastPathComponent()
+        let recorded = taxTriageRecordedBAMCandidates(sampleId: sampleId, resultDir: resultDir)
+        if let foreign = foreignNamedRecordedBAM(among: recorded, sampleId: sampleId, resultDir: resultDir),
+           foreign.resolvingSymlinksInPath().path == bam.resolvingSymlinksInPath().path,
+           taxTriageDatabaseHoldsNoFitMark(resultDir: resultDir) {
+            return ClassifierExtractionError.taxTriageBAMBeforeFitMarkNotice(
+                sampleId: sampleId, fileName: foreign.lastPathComponent, resultFolder: resultDir
+            )
+        }
+        return taxTriageScanNotice(tool: .taxtriage, sampleId: sampleId, resultPath: resultPath, bam: bam)
+    }
+
+    /// The notice of each sample of `bamsBySample`, the BAM that the view reads for it, with no entry for a sample that has none.
+    package static func taxTriageRecordedBAMNotices(bamsBySample: [String: URL], resultPath: URL) -> [String: String] {
+        var notices: [String: String] = [:]
+        for (sampleId, bam) in bamsBySample {
+            if let notice = taxTriageRecordedBAMNotice(sampleId: sampleId, resultPath: resultPath, bam: bam) {
+                notices[sampleId] = notice
+            }
+        }
+        return notices
     }
 
     /// Whether the metadata of the result's `taxtriage.sqlite` marks `sampleId` as a sample whose recorded BAM

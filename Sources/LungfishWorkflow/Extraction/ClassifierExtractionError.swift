@@ -111,6 +111,30 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
     /// 12.11). The words are the ones the command prints for the same refusal.
     case unsupportedCopyDestination
 
+    // MARK: - The words for a BAM that a build before 2026.11.6 may have fitted
+
+    /// The first sentence of the words of ``taxTriageBAMBeforeFitMark(sampleId:fileName:resultFolder:)``. The Extract sheet,
+    /// the Extract alert and the CLI show it in the refusal, and the TaxTriage view, the Inspector and BLAST Verify show it in
+    /// ``taxTriageBAMBeforeFitMarkNotice(sampleId:fileName:resultFolder:)`` (BIO-WALK-T2-VIEW), so the four read one source.
+    public static func taxTriageBAMBeforeFitMarkSentence(sampleId: String, fileName: String) -> String {
+        "This result's database was built by a version of Lungfish before 2026.11.6, so the BAM it records for "
+            + "sample '\(sampleId)', \(fileName), may be another sample's."
+    }
+
+    /// The words that the TaxTriage view, the Inspector and BLAST Verify show for a sample whose recorded BAM, `fileName`,
+    /// a database with no `fitted_bam_samples` key holds under neither of the sample's own two names. They open with the
+    /// sentence of the refusal. Nothing is extracted there, so they end with the command that builds the database anew and
+    /// not with the refusal's sentence about extracted reads. Nothing is refused and no number changes.
+    public static func taxTriageBAMBeforeFitMarkNotice(sampleId: String, fileName: String, resultFolder: URL) -> String {
+        taxTriageBAMBeforeFitMarkSentence(sampleId: sampleId, fileName: fileName)
+            + " Run \(taxTriageBuildDbCommand(resultFolder: resultFolder)), then open the result again."
+    }
+
+    /// The command that builds the database of `resultFolder` anew, in the quoting that the words above use.
+    private static func taxTriageBuildDbCommand(resultFolder: URL) -> String {
+        "`lungfish-cli build-db taxtriage \"\(doubleQuoted(resultFolder.path))\" --force`"
+    }
+
     // MARK: - LocalizedError
 
     public var errorDescription: String? {
@@ -125,10 +149,8 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
             return "More than one BAM file fits sample '\(sampleId)' in minimap2: \(names.joined(separator: ", ")). "
                 + "LGE takes a sample's reads from one BAM. Keep only that sample's file in minimap2 and try again."
         case .taxTriageBAMBeforeFitMark(let sampleId, let fileName, let resultFolder):
-            return "This result's database was built by a version of Lungfish before 2026.11.6, so the BAM it records for "
-                + "sample '\(sampleId)', \(fileName), may be another sample's. No reads were extracted. "
-                + "Run `lungfish-cli build-db taxtriage \"\(Self.doubleQuoted(resultFolder.path))\" --force`, "
-                + "then extract again."
+            return Self.taxTriageBAMBeforeFitMarkSentence(sampleId: sampleId, fileName: fileName)
+                + " No reads were extracted. Run \(Self.taxTriageBuildDbCommand(resultFolder: resultFolder)), then extract again."
         case .naoMgsBAMBeforeStrandFix(let sampleId):
             return "The alignment file of sample '\(sampleId)' comes from an earlier NAO-MGS import, which stored reads that map to the reverse strand the wrong way round, so Lungfish does not extract reads from it. "
                 + "Import the same NAO-MGS results file again in the Import Center (NAO-MGS Results), then extract from the new result. "

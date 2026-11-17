@@ -1864,7 +1864,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 sample: .init(canonicalID: sampleID),
                 contig: .init(name: resolvedAccession, expectedLength: contigLength),
                 referenceCandidate: reference,
-                presentation: .init(workflowLabel: "TaxTriage", resultLabel: resultURL.lastPathComponent, sampleLabel: sampleID, contigLabel: resolvedAccession)
+                presentation: .init(workflowLabel: "TaxTriage", resultLabel: resultURL.lastPathComponent, sampleLabel: sampleID, contigLabel: resolvedAccession, bamNotice: bamNotice(forSample: sampleID))
             )
             viewer.display(request)
         } catch { viewer.clear(); return false }
@@ -2032,13 +2032,13 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.hideMultiSelectionPlaceholder()
             self.selectedBatchSampleId = row.sample
 
-            // Reveal the miniBAM detail pane ONLY when the selected organism has
-            // BAM alignment data to display. Showing it unconditionally left a
-            // large empty pane for organisms without alignments — including the
-            // top row auto-selected on initial load — which read as a blank
-            // viewport until the user changed the layout.
+            // Reveal the miniBAM detail pane ONLY when the selected organism has BAM alignment data to display.
+            // Showing it unconditionally left a large empty pane for organisms without alignments,
+            // including the top row auto-selected on initial load, which read as a blank viewport
+            // until the user changed the layout.
             let bamURL = row.sample.flatMap { self.bamFilesBySample[$0] }
             let accessions = self.accessions(for: row) ?? []
+            self.showBAMNotice(forSample: row.sample)
             if let bamURL, !accessions.isEmpty {
                 self.revealMiniBAMDetailPaneIfNeeded()
                 self.displayTaxTriageMiniBAM(

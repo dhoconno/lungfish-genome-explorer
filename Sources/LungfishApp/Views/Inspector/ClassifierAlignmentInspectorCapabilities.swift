@@ -79,6 +79,9 @@ struct ClassifierAlignmentInspectorCapabilities: Equatable {
     let referenceSnapshot: ClassifierAlignmentEvidenceFileSnapshot?
     let provenanceID: String?
     let provenanceSourceURL: URL?
+    /// The words that say the BAM above is a file that a fit of its name gave the sample and can be another sample's
+    /// (BIO-WALK-T2-VIEW), nil for a BAM that is the sample's own.
+    var bamNotice: String?
 
     let defaultExcludeFlags: UInt16 = 0xD04
 
@@ -124,7 +127,7 @@ struct ClassifierAlignmentInspectorCapabilities: Equatable {
     }
 
     var inventoryRows: [String] {
-        ["Workflow: \(workflow)", "Result: \(result)", "Sample: \(sample) • Contig: \(contig)", "BAM: \(bamPath)", "Index: \(indexPath)", "Reference: \(referencePath ?? referenceValidation.label)", "Status: \(status.message)", provenanceID.map { "Provenance: \($0)" }, snapshotRow("BAM snapshot", bamSnapshot), snapshotRow("Index snapshot", indexSnapshot), snapshotRow("Reference snapshot", referenceSnapshot), coveragePolicy].compactMap { $0 }
+        ["Workflow: \(workflow)", "Result: \(result)", "Sample: \(sample) • Contig: \(contig)", "BAM: \(bamPath)", bamNotice.map { "BAM note: \($0)" }, "Index: \(indexPath)", "Reference: \(referencePath ?? referenceValidation.label)", "Status: \(status.message)", provenanceID.map { "Provenance: \($0)" }, snapshotRow("BAM snapshot", bamSnapshot), snapshotRow("Index snapshot", indexSnapshot), snapshotRow("Reference snapshot", referenceSnapshot), coveragePolicy].compactMap { $0 }
     }
 
     private func snapshotRow(_ label: String, _ snapshot: ClassifierAlignmentEvidenceFileSnapshot?) -> String? { snapshot.map { "\(label): \($0.size) bytes • \($0.sha256)" } }

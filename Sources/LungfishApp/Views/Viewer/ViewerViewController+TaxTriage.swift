@@ -146,6 +146,12 @@ extension ViewerViewController {
         Self.beginTaxTriageBlastVerificationOperation(taxonName: organism.name) { opID in
             drawer.began?(opID)
             drawer.loading(.submitting)
+            // The reads come from the BAM the view shows. A file that a fit of its name gave the sample can be another
+            // sample's, so the row's log says it in the words the view and the Inspector show (BIO-WALK-T2-VIEW).
+            if let sample = organism.sample,
+               let words = ClassifierReadResolver.taxTriageRecordedBAMNotice(sampleId: sample, resultPath: resultURL, bam: bamURL) {
+                OperationCenter.shared.log(id: opID, level: .warning, message: words)
+            }
             OperationCenter.shared.update(id: opID, progress: 0.1, detail: "Extracting reads for selected accessions…")
             let task = Task { @MainActor in
                 do {

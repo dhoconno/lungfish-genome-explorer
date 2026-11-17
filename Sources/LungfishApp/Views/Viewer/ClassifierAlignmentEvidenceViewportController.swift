@@ -363,7 +363,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
         } else {
             request.referenceCandidate?.expectedSnapshot
         }
-        inspectorCapabilities = .detachedEvidence(
+        var capabilities = ClassifierAlignmentInspectorCapabilities.detachedEvidence(
             workflow: request.presentation.workflowLabel, result: request.presentation.resultLabel,
             sample: request.presentation.sampleLabel, contig: request.presentation.contigLabel,
             bamPath: request.bamURL.path, indexPath: request.index.url.path,
@@ -375,5 +375,7 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
             provenanceID: request.resultIdentity.provenanceID,
             provenanceSourceURL: request.resultIdentity.finalResultURL
         )
+        capabilities.bamNotice = request.presentation.bamNotice
+        inspectorCapabilities = capabilities
     }
 }

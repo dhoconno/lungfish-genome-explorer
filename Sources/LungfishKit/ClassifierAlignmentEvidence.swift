@@ -124,12 +124,18 @@ public struct ClassifierAlignmentEvidencePresentation: Equatable, Sendable {
     public let resultLabel: String
     public let sampleLabel: String
     public let contigLabel: String
+    /// The words that say the BAM is a file that a fit of its name gave the sample and can be another sample's, or nil
+    /// for a BAM that is the sample's own. The Inspector shows them under its BAM line (BIO-WALK-T2-VIEW).
+    public let bamNotice: String?
 
-    public init(workflowLabel: String, resultLabel: String, sampleLabel: String, contigLabel: String) {
+    public init(
+        workflowLabel: String, resultLabel: String, sampleLabel: String, contigLabel: String, bamNotice: String? = nil
+    ) {
         self.workflowLabel = workflowLabel
         self.resultLabel = resultLabel
         self.sampleLabel = sampleLabel
         self.contigLabel = contigLabel
+        self.bamNotice = bamNotice
     }
 }
 
