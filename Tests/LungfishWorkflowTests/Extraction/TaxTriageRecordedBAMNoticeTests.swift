@@ -183,6 +183,37 @@ final class TaxTriageRecordedBAMNoticeTests: XCTestCase {
         }
     }
 
+    // MARK: - Fix 3.2 of FIX-T2-VIEW-BIO
+
+    /// The TaxTriage view and BLAST Verify pass the result FOLDER, where Extract passes the database, and a folder URL that
+    /// carries no trailing slash is still the folder. The layer tells the folder from the database by the disk and not by the
+    /// slash in the URL's text, so no form of the URL switches the words off. Red at the head of the first round, where a
+    /// folder with no slash is taken for a database file, its PARENT folder is searched for `taxtriage.sqlite` and no
+    /// notice comes back.
+    func testAFolderUrlWithNoTrailingSlashIsStillTheFolder() throws {
+        let root = try TestTempDirectory.make(prefix: "TaxTriageBAMNotice")
+        defer { TestTempDirectory.cleanup(root) }
+        let foreign = try placeBAM("minimap2/S1_2.bam", in: root)
+        _ = try placeBAM("minimap2/S1_2.S1_2.dwnld.references.bam", in: root)
+        let bare = URL(fileURLWithPath: root.path, isDirectory: false)
+        XCTAssertFalse(bare.hasDirectoryPath, "the test needs a folder URL that ends with no slash")
+
+        let recorded = ["S1": "minimap2/S1_2.bam", "S1_2": "minimap2/S1_2.S1_2.dwnld.references.bam"]
+        _ = try makeResult(recording: recorded, metadata: Self.olderBuild, in: root)
+        XCTAssertEqual(
+            ClassifierReadResolver.taxTriageRecordedBAMNotice(sampleId: "S1", resultPath: bare, bam: foreign),
+            Self.olderBuildNotice(sample: "S1", file: "S1_2.bam", folder: root.path), "a database with no key"
+        )
+
+        var marked = Self.olderBuild
+        marked[TaxTriageDatabase.fittedBAMSamplesMetadataKey] = TaxTriageDatabase.fittedBAMSamplesMetadataValue(["S1"])
+        _ = try makeResult(recording: recorded, metadata: marked, in: root)
+        XCTAssertEqual(
+            ClassifierReadResolver.taxTriageRecordedBAMNotice(sampleId: "S1", resultPath: bare, bam: foreign),
+            Self.markedNotice, "a marked fit"
+        )
+    }
+
     // MARK: - Helpers
 
     /// Writes a placeholder BAM at `relative` under `root`, with the BGZF magic the other layout tests write.
