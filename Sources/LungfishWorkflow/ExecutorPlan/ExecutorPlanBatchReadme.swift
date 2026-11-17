@@ -307,12 +307,15 @@ package enum ExecutorPlanBatchReadme {
         \(dag) runs at most \(maxJobs) jobs at once, from its line MAXJOBS lge \(maxJobs). The jobs ask for machines that
         reach the staging folder, run EL9 or later and are x86-64.
 
-        If a job is held, run condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReasonCode NumHolds
-        HoldReason. If the code is 12 and the exit code is 0, only sending its files back failed. If the code
-        is 13, the job could not fetch an input file and never ran. HTCondor releases a job held for either
-        reason by itself, at most twice. If a job is held a third time and its reason says the transfer made
-        no progress, run condor_release <ClusterId>.<ProcId> once the staging folder answers. For any other
-        hold, read the job's run record, \(returned)\(record), and its log in <sample>/\(logs)/
+        If a job is held, see which one and why:
+
+           condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReasonCode NumHolds HoldReason
+
+        If the code is 12 and the exit code is 0, only sending its files back failed. If the code is 13, the job
+        could not fetch an input file and never ran. HTCondor releases a job held for either reason by itself,
+        at most twice. If a job is held a third time and its reason says the transfer made no progress, run
+        condor_release <ClusterId>.<ProcId> once the staging folder answers. For any other hold, read the job's
+        run record, \(returned)\(record), and its log in <sample>/\(logs)/
         to see which step stopped. A job that lge-job.sh refuses leaves no record, so read \(logs)/<sample>.err.
         Then run condor_rm <ClusterId>.<ProcId>, and when the other jobs have finished run condor_submit_dag
         \(dag) again from this folder to run the rest.

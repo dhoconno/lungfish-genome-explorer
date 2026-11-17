@@ -177,6 +177,8 @@ final class ExecutorPlanBatchSchemaTwoTests: XCTestCase {
                       "held a third time", "condor_release <ClusterId>.<ProcId> once the staging folder answers"] {
             XCTAssertTrue(flatReadme.contains(words), "README.txt says \(words)")
         }
+        XCTAssertTrue(readme.contains("condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReasonCode NumHolds HoldReason"),
+                      "the command sits on one line, so a person can copy it whole")
         let dryRun = try ExecutorPlanBatchWriter.dryRun([job], image: image, layout: layout)
         XCTAssertTrue(dryRun.contains(batch.placements[0]), "\(dryRun)")
     }
