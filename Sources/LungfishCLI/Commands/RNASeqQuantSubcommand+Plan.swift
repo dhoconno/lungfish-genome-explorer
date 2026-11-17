@@ -39,11 +39,13 @@ struct RNASeqQuantPlanOptions: ParsableArguments {
     @Option(name: .customLong("star-multimap-nmax"), help: ArgumentHelp(
         "With --write-plan and a STAR GeneCounts or featureCounts chain, the most loci a read may map to (default: STAR's 10)",
         discussion: "Sets STAR's --outFilterMultimapNmax, the most loci a read may map to. STAR counts a read with more loci as "
-            + "mapped to too many loci. With no option the plan passes no flag and STAR keeps its default of 10. GSE304256 (C6) "
-            + "was counted with 1000, a step its authors did not document, and its deposited ReadsPerGene files need it. Only "
-            + "star-2.7.11b-genecounts, star-2.7.3a-genecounts and star-2.7.11b-featurecounts take this option. The other chains "
-            + "refuse it, since salmon runs no STAR and star-salmon and star-salmon-errormodel map at the 20 of nf-core/rnaseq's "
-            + "route.",
+            + "mapped to too many loci. With no option the plan passes no flag and STAR keeps its default of 10. The deposited "
+            + "ReadsPerGene files of GSE304256 (C6) need a limit at or above the most loci any of its read pairs maps to, which "
+            + "its authors did not document, and 1000 matched the six runs measured. Only star-2.7.11b-genecounts, "
+            + "star-2.7.3a-genecounts and star-2.7.11b-featurecounts take this option. On star-2.7.11b-featurecounts a larger "
+            + "limit also changes the exon counts, since -M counts each alignment of a read that maps to more loci. The other "
+            + "chains refuse this option, since salmon runs no STAR and star-salmon and star-salmon-errormodel map at the 20 of "
+            + "nf-core/rnaseq's route.",
         valueName: "n"))
     var starMultimapNmax: Int?
 
