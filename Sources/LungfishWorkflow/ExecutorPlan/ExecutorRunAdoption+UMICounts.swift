@@ -147,8 +147,8 @@ extension ExecutorRunAdoption {
         return words.enumerated().map { "Pair \($0.offset + 1): \($0.element)" }.joined(separator: " ")
     }
 
-    /// The share of reads that `umi_tools extract` kept, its `Reads output` over its `Input Reads` summed over the
-    /// pairs' logs and cut down to one decimal (`UMIPlanReport`).
+    /// The share of read pairs that `umi_tools extract` kept, its `Reads output` over its `Input Reads` summed over the
+    /// pairs' logs and cut down to one decimal (`UMIPlanReport`). The UMI branch is paired, so each count is a pair.
     static func umiExtractionWords(_ run: ExecutorAdoptedCountsRun, sample: String) throws -> String {
         let logs = try pairOutputs(run, sample: sample, path: UMIPlan.extractLog(pair:), what: "the share of reads extraction kept")
         let read = try logs.map { log in
@@ -159,7 +159,7 @@ extension ExecutorRunAdoption {
             }
         }
         let (output, input) = (read.map(\.output).reduce(0, +), read.map(\.input).reduce(0, +))
-        return "umi_tools extract kept \(output) of \(input) reads (\(UMIPlanReport.percent(output, of: input))%), the reads "
+        return "umi_tools extract kept \(output) of \(input) read pairs (\(UMIPlanReport.percent(output, of: input))%), the pairs "
             + "whose UMI read starts with the motif, in \(logs.map(\.path).joined(separator: ", "))"
     }
 
