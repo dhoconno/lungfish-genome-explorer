@@ -437,6 +437,42 @@ class HeartbeatCallsTests(unittest.TestCase):
         self.assertTrue(self.beat().startswith('QUIET '))
         self.assertEqual((self.records / 'mismatch_seen.txt').read_text().split(), [A])
 
+    def manager_calls(self, *calls):
+        """The session's main transcript, one assistant entry for each (tool name, call id)."""
+        when = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+        entries = []
+        for n, (name, tid) in enumerate(calls):
+            block = {'type': 'tool_use', 'id': tid, 'name': name, 'input': {}}
+            message = {'id': 'm%d' % n, 'role': 'assistant', 'content': [block]}
+            entries.append(json.dumps({'type': 'assistant', 'uuid': 'a%d' % n, 'timestamp': when, 'message': message}))
+        (self.session.project / (SID + '.jsonl')).write_text('\n'.join(entries) + '\n')
+
+    def test_calls_mismatch_and_act_print_together_and_only_calls_returns_at_a_relaunch(self):
+        line = load(SCRIPT, 'ctx_watch').type_stop_line('lge-ruling', str(REPO_TYPES))
+        brief = self.session.root / 'brief.md'
+        brief.write_text('Stop at %d tool calls.\n' % (line - 10))
+        self.session.agent(A, 'Stop at 2 calls.', 4)
+        self.session.agent(B, 'Your brief is %s.' % brief, 2, 'lge-ruling')
+        self.manager_calls(('mcp__computer-use__request_access', 'toolu_01a'))
+        first = self.beat().splitlines()
+        self.assertEqual([part.split()[0] for part in first[1:]], ['CALLS', 'MISMATCH', 'ACT'])
+        again = self.beat().splitlines()
+        self.assertEqual((again[0][:6], again[1:]), ('ALARM ', ['CALLS %s 4/2' % A]))
+        (self.records / 'stop_sent.txt').write_text(A + '\n')
+        self.assertTrue(self.beat().startswith('QUIET '))
+
+    def test_a_mismatch_found_in_a_one_minute_slice_ends_the_wait_once(self):
+        line = load(SCRIPT, 'ctx_watch').type_stop_line('lge-ruling', str(REPO_TYPES))
+        brief = self.session.root / 'brief.md'
+        brief.write_text('Stop at %d tool calls.\n' % (line - 10))
+        self.session.agent(A, 'Stop at 90 calls.', 15, 'lge-ruling')
+        later = transcript('Your brief is %s.' % brief, 15, self.session.when, False, 10_000)
+        (self.swap / '2').write_text(''.join(json.dumps(e) + '\n' for e in later))
+        lines = self.beat('--interval', '300').splitlines()
+        self.assertEqual((lines[0][:6], lines[1:], self.slept()),
+                         ('ALARM ', ['MISMATCH %s brief %d type %d' % (A, line - 10, line)], ['60', '60']))
+        self.assertTrue(self.beat('--interval', '300').startswith('QUIET '))
+
     def test_the_script_has_no_syntax_error(self):
         self.assertEqual(subprocess.run(['bash', '-n', str(HEARTBEAT)], capture_output=True).returncode, 0)
 
