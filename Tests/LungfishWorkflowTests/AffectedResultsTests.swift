@@ -471,8 +471,8 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertEqual(backlogIDs(record, .esViritu), expected)
         let fixed = try goldenRecord("esviritu", version: "2026.11.7", stepApp: "Lungfish 2026.11.7 (dev)")
         XCTAssertEqual(
-            backlogIDs(fixed, .esViritu), ["ESV-STAGING-SYMBOL-NAMES"],
-            "Stable 2026.11.7 holds every fix but the staging of same-named inputs (FIX-ESV)"
+            backlogIDs(fixed, .esViritu), ["BLAST-ESVIRITU-FIRST-WORD", "ESV-STAGING-SYMBOL-NAMES"],
+            "Stable 2026.11.7 holds every fix but the first-word rule of a BLAST check (BLAST-FIRSTWORD) and the staging of same-named inputs (FIX-ESV)"
         )
     }
 
