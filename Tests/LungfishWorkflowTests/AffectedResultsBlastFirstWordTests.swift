@@ -32,7 +32,7 @@ final class AffectedResultsBlastFirstWordTests: XCTestCase {
             "A BLAST check of an EsViritu row judged by organism names could count a read as supporting "
                 + "when its best match was another virus whose name starts with the same word."
         )
-        XCTAssertEqual(row.fixCommit, "3c943cb8a","the commit of the whole-word verdict fix, the last that changes a verdict")
+        XCTAssertEqual(row.fixCommit, "3c943cb8a", "the commit of the whole-word verdict fix, the last that changes a verdict")
         XCTAssertEqual(row.whatToDo, "Run Verify with BLAST… again.")
     }
 }
