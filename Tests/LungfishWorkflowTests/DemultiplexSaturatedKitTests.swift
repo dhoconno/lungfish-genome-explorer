@@ -127,4 +127,132 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
         XCTAssertEqual(outcome.null, .randomBases, "the kit cannot measure its own null")
         XCTAssertTrue(outcome.anyBarcodeBeatsTheFloor, "reads with no barcode publish as samples")
     }
+
+    // MARK: - The refusal pass (SAD:106, BIO-DEMUX-THREE item 6)
+
+    /// No built-in kit is refused. The refusal reads only a kit searched as its bare barcodes, the search the floor judges.
+    /// On the lines cutadapt searches for such a kit, at error rates 0 and 0.15, at Both Ends and 5' End, its share stays
+    /// under 0.5 even as fragments of two mates, the larger share, and the refusal itself passes every built-in kit. A kit
+    /// searched inside its flanking adapters is never read, and its long lines with many errors are not worked out here.
+    func testEveryBuiltInKitHasAShareUnderTheSaturatedShare() async throws {
+        var shares: [(kit: String, share: Double)] = []
+        var unbuilt: [String] = []
+        var refused: [String] = []
+        let input = folder.appendingPathComponent("reads.fastq")
+        try "@r1\nACGTACGTACGT\n+\nIIIIIIIIIIII\n".write(to: input, atomically: true, encoding: .utf8)
+        for kit in BarcodeKitRegistry.builtinKits() {
+            for errorRate in [0, 0.15] {
+                for location in [BarcodeLocation.bothEnds, .fivePrime] {
+                    let config = DemultiplexConfig(
+                        inputURL: input, barcodeKit: kit, outputDirectory: folder, barcodeLocation: location,
+                        errorRate: errorRate, engine: .cutadapt
+                    )
+                    let work = folder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+                    try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+                    let pipeline = DemultiplexingPipeline()
+                    guard let adapters = try? await pipeline.createAdapterConfiguration(for: config, workDirectory: work) else {
+                        unbuilt.append("\(kit.id) at \(errorRate)")
+                        continue
+                    }
+                    let setting = "\(kit.id) \(location) e\(errorRate)"
+                    do {
+                        try pipeline.requireChanceCheckableKit(
+                            config: config, adapterFASTA: adapters.adapterFASTA, inputFASTQ: input
+                        )
+                    } catch {
+                        refused.append(setting)
+                    }
+                    guard config.demuxAdapterContext is BareAdapterContext else { continue }
+                    let share = DemultiplexChanceFloor.uniformKitShare(
+                        patterns: try pipeline.chancePatterns(in: adapters.adapterFASTA), errorRate: config.effectiveErrorRate,
+                        allowsIndels: true, unit: 2
+                    )
+                    shares.append((setting, share))
+                }
+            }
+        }
+        let largest = shares.max { $0.share < $1.share }
+        print("SATKIT refusal pass: \(shares.count) bare kit settings, largest \(largest.map { "\($0.kit) \($0.share)" } ?? "none"), unbuilt \(Set(unbuilt).sorted())")
+        XCTAssertGreaterThan(shares.count, 20)
+        XCTAssertEqual(refused, [], "the refusal passes every built-in kit")
+        XCTAssertEqual(shares.filter { $0.share >= DemultiplexChanceFloor.saturatedKitShare }.map(\.kit), [])
+    }
+
+    /// The refusal reads the kit and the error rate, never the reads, so QA's 384 kit is refused on the other real starts.
+    func testQAs384KitIsRefusedOnTheNextSeqAndAmpliconStartsToo() async throws {
+        let kit = try Self.definitionKit(Self.qa384Barcodes(), name: "QA 384")
+        for name in ["SRR41594715-R1-first10000-starts12.txt", "SRR36291587-R1-first10000-starts12.txt"] {
+            let files = try project(starts: Self.fixtureStarts(name))
+            do {
+                try await DemultiplexingPipeline().preflight(config: config(kit: kit, files: files))
+                XCTFail("\(name) passed preflight")
+            } catch DemultiplexError.chanceCheckCannotJudgeKit {}
+            try FileManager.default.removeItem(at: files.input.deletingLastPathComponent())
+        }
+    }
+
+    /// A kit of 100 four-base barcodes holds 0.39 of single reads and 0.78 of two-mate fragments. A run that places mates
+    /// judges fragments, so an interleaved file is refused and a file of single reads is not, and the refusal is exact.
+    func testAPairedFileIsJudgedAsFragments() async throws {
+        let fours = Array(Self.qa384Barcodes().prefix(100))
+        let kit = try Self.definitionKit(fours, name: "Short 100")
+        let starts = Array(try Self.fixtureStarts("SRR2584863-R1-first100000-starts12.txt").prefix(2_000))
+        let paired = try project(starts: starts, paired: true)
+        do {
+            try await DemultiplexingPipeline().preflight(config: config(kit: kit, files: paired))
+            XCTFail("an interleaved file passed preflight with a kit that holds 0.78 of fragments")
+        } catch DemultiplexError.chanceCheckCannotJudgeKit {}
+        try FileManager.default.removeItem(at: paired.input.deletingLastPathComponent())
+        let single = try project(starts: starts)
+        try await DemultiplexingPipeline().preflight(config: config(kit: kit, files: single))
+    }
+
+    // MARK: - The opt-in (BIO-DEMUX-THREE items 3 and 5)
+
+    /// With the opt-in the floor gives the base's files, the barcodes the floor of random bases passes, and names the
+    /// null `saturated-kit`. It is the floor the run calls, on the unassigned reads of the real starts.
+    func testTheOptInKeepsTheBasesFilesAndNamesTheSaturatedNull() async throws {
+        let barcodes = Self.qa384Barcodes()
+        let kit = try Self.definitionKit(barcodes, name: "QA 384")
+        let starts = try Self.fixtureStarts("SRR2584863-R1-first100000-starts12.txt")
+        let files = try project(starts: starts)
+        let config = config(kit: kit, files: files, optIn: true)
+        let pipeline = DemultiplexingPipeline()
+        let work = folder.appendingPathComponent("work", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let adapters = try await pipeline.createAdapterConfiguration(for: config, workDirectory: work)
+        let byID = Dictionary(uniqueKeysWithValues: kit.barcodes.map { ($0.i7Sequence.uppercased(), $0.id) })
+        var counts: [String: Int] = [:]
+        var unassignedText = ""
+        for (index, start) in starts.enumerated() {
+            if let id = byID[String(start.prefix(4))] ?? byID[String(start.prefix(5))] {
+                counts[id, default: 0] += 1
+            } else {
+                unassignedText += "@u\(index)\n\(start)\n+\n\(String(repeating: "I", count: start.count))\n"
+            }
+        }
+        let unassignedURL = work.appendingPathComponent("unassigned.fastq")
+        try unassignedText.write(to: unassignedURL, atomically: true, encoding: .utf8)
+        let unassigned = starts.count - counts.values.reduce(0, +)
+        let floor = try await pipeline.requireBarcodesAboveChance(
+            config: config, adapterFASTA: adapters.adapterFASTA, counts: counts, readsSearched: starts.count,
+            unassigned: unassigned, paired: false, unassignedReadsURL: unassignedURL
+        )
+        let outcome = try XCTUnwrap(floor)
+        XCTAssertEqual(outcome.null, .saturatedKit)
+        XCTAssertEqual(outcome.null.rawValue, "saturated-kit")
+        let base = DemultiplexChanceFloor.evaluate(
+            patterns: try pipeline.chancePatterns(in: adapters.adapterFASTA), counts: counts, readsSearched: starts.count,
+            unassigned: unassigned, errorRate: 0.15, allowsIndels: true, pairedFragments: false
+        )
+        XCTAssertEqual(outcome.barcodes, base.barcodes, "the base's floor of random bases, so the base's files")
+        XCTAssertTrue(outcome.anyBarcodeBeatsTheFloor)
+        XCTAssertEqual(
+            DemultiplexChanceWords.floorLimit(publishedBarcodes: 1, null: outcome.null), DemultiplexChanceWords.uncheckedKitLine
+        )
+        XCTAssertEqual(
+            DemultiplexChanceWords.floorLimit(publishedBarcodes: 1, null: .startComposition),
+            DemultiplexChanceWords.notInPoolLimit(publishedBarcodes: 1), "a kit the floor judges keeps its limit line"
+        )
+    }
 }

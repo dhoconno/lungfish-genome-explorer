@@ -21,7 +21,7 @@ extension DemultiplexingPipeline {
     /// its built-in sequences are being checked, a definition whose `# kit:` line
     /// names that kit and whose rows hold a pair of its table, and a search of the
     /// read bases with a dual Illumina-family kit at 5' End or 3' End, which leaves
-    /// one of its two indexes free.
+    /// one of its two indexes free, and a kit the chance floor cannot judge unless the person keeps its unchecked samples.
     /// It runs no tool and writes only a scratch adapter file it removes, and returns the route the run takes.
     @discardableResult
     public func preflight(config: DemultiplexConfig) async throws -> DemultiplexSearchRoute {
@@ -84,7 +84,28 @@ extension DemultiplexingPipeline {
         defer { try? FileManager.default.removeItem(at: scratch) }
         let adapters = try await createAdapterConfiguration(for: config, workDirectory: scratch)
         try requireAdapterSequences(in: adapters.adapterFASTA, kitName: config.barcodeKit.displayName)
+        try requireChanceCheckableKit(config: config, adapterFASTA: adapters.adapterFASTA, inputFASTQ: inputFASTQ)
         return route
+    }
+
+    /// Refuses a search of the read bases whose kit the chance floor cannot judge, a kit whose uniform share on the lines
+    /// cutadapt searches reaches `saturatedKitShare`, unless the person chose to keep the unchecked samples
+    /// (DEMUX-FLOOR-SATURATED-KIT, BIO-DEMUX-THREE item 2). The unassigned reads of such a kit cannot measure a null, so
+    /// the floor fell back to random bases, which real read starts pass, and the run published chance matches as samples.
+    /// A run that places mates judges fragments, whose share is larger, so the file's layout is read only for a kit
+    /// that reaches the share as fragments and not as single reads. Only the bare search has the floor.
+    func requireChanceCheckableKit(config: DemultiplexConfig, adapterFASTA: URL, inputFASTQ: URL) throws {
+        guard !config.keepsUncheckedSamples, config.demuxAdapterContext is BareAdapterContext else { return }
+        let patterns = try chancePatterns(in: adapterFASTA)
+        func saturated(_ unit: Int) -> Bool {
+            DemultiplexChanceFloor.isSaturated(
+                patterns: patterns, errorRate: config.effectiveErrorRate, allowsIndels: !config.useNoIndels, unit: unit
+            )
+        }
+        if !saturated(1) {
+            guard saturated(2), try demultiplexReadLayout(config: config, inputFASTQ: inputFASTQ).isPaired else { return }
+        }
+        throw DemultiplexError.chanceCheckCannotJudgeKit(kitName: config.barcodeKit.displayName)
     }
 
     /// Refuses the kit `idt-ud-indexes`, whose table repeats each i5 every eight rows and holds 24 of 96 pairs, so a run

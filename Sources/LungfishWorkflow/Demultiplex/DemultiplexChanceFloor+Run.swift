@@ -22,6 +22,11 @@ extension DemultiplexChanceFloor {
         /// Uniform random bases, when the run cannot measure its own: too few reads without a barcode, a kit whose barcodes
         /// are too short or too crowded for decoys, a side with three or more errors, or no unassigned reads to read (item 6).
         case randomBases = "random-bases"
+        /// Uniform random bases for a kit whose barcodes are so short that half of all reads or more match one by chance,
+        /// which the person chose to keep (`DemultiplexConfig.keepsUncheckedSamples`). Its unassigned reads cannot measure
+        /// a null, and real read starts pass the floor of random bases, so the floor did not check this kit
+        /// (DEMUX-FLOOR-SATURATED-KIT, BIO-DEMUX-THREE item 3).
+        case saturatedKit = "saturated-kit"
     }
 
     /// The floor of one run of the search of the read bases.
@@ -245,20 +250,12 @@ extension DemultiplexingPipeline {
         guard config.demuxAdapterContext is BareAdapterContext else { return nil }
         // A run that searched no reads has no barcode with reads to name, so the floor has nothing to judge.
         guard readsSearched > 0 else { return nil }
-        var patterns: [String: [String]] = [:]
-        var name = ""
-        for line in try String(contentsOf: adapterFASTA, encoding: .utf8).split(separator: "\n") where !line.isEmpty {
-            if line.hasPrefix(">") {
-                name = canonicalAdapterName(String(line.dropFirst()))
-            } else {
-                patterns[name, default: []].append(String(line))
-            }
-        }
+        let patterns = try chancePatterns(in: adapterFASTA)
         let tallies = try await unassignedStartTallies(
             readsURL: unassignedReadsURL, patterns: patterns, errorRate: config.effectiveErrorRate,
             allowsIndels: !config.useNoIndels, paired: paired
         )
-        let outcome = DemultiplexChanceFloor.evaluate(
+        var outcome = DemultiplexChanceFloor.evaluate(
             patterns: patterns,
             counts: counts,
             readsSearched: readsSearched,
@@ -268,10 +265,32 @@ extension DemultiplexingPipeline {
             pairedFragments: paired,
             unassignedStarts: tallies
         )
+        // A kit the floor cannot judge reaches here only with the person's opt-in, since preflight refuses it otherwise
+        // (`requireChanceCheckableKit`). The run keeps the files the floor of random bases gives, and says it checked none.
+        if DemultiplexChanceFloor.isSaturated(
+            patterns: patterns, errorRate: config.effectiveErrorRate, allowsIndels: !config.useNoIndels, unit: paired ? 2 : 1
+        ) {
+            outcome.null = .saturatedKit
+        }
         guard outcome.anyBarcodeBeatsTheFloor else {
             throw DemultiplexError.noBarcodeAboveChance(kitName: config.barcodeKit.displayName)
         }
         return outcome
+    }
+
+    /// The cutadapt lines of each barcode in `adapterFASTA`, by the barcode's canonical name, the lines the floor and the
+    /// preflight refusal of a kit it cannot judge both read.
+    func chancePatterns(in adapterFASTA: URL) throws -> [String: [String]] {
+        var patterns: [String: [String]] = [:]
+        var name = ""
+        for line in try String(contentsOf: adapterFASTA, encoding: .utf8).split(separator: "\n") where !line.isEmpty {
+            if line.hasPrefix(">") {
+                name = canonicalAdapterName(String(line.dropFirst()))
+            } else {
+                patterns[name, default: []].append(String(line))
+            }
+        }
+        return patterns
     }
 
     /// The start composition of the first unassigned reads and the decoy counts of every one, one tally a mate

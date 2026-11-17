@@ -24,6 +24,9 @@ public enum DemultiplexChanceWords {
         case .randomBases:
             measuredOn = "The chance is worked out as if A, C, G and T were equally likely, because the Unassigned reads "
                 + "could not measure it."
+        case .saturatedKit:
+            measuredOn = "The chance is worked out as if A, C, G and T were equally likely, because this kit's barcodes "
+                + "are too short for the Unassigned reads to measure it."
         }
         return "Could be chance matches: \(named). Reads that carry no barcode match a barcode by chance at this error "
             + "rate, and each of these holds no more reads than chance gives. \(measuredOn) Their files were kept, so "
@@ -41,5 +44,18 @@ public enum DemultiplexChanceWords {
         return "A barcode that is not in your pool can still pass as a sample. For each such barcode this happens in "
             + "about one run in 1,000, and more often in amplicon files. Check samples with few reads against your "
             + "sample sheet."
+    }
+
+    /// The line of a run that kept the sample files of a kit the floor cannot judge. It takes the place of the limit above,
+    /// whose "one run in 1,000" is false for such a kit, which published on 87 of 87 real cuts (BIO-DEMUX-THREE item 3).
+    public static let uncheckedKitLine = "The check for chance matches could not check this kit, because its barcodes "
+        + "are so short that reads with no barcode match them by chance. You chose to keep its sample files, so check "
+        + "each sample against your sample sheet."
+
+    /// The floor's line for a run that published `publishedBarcodes` sample files the floor passed, measured on `null`:
+    /// the unchecked-kit line for a kit the floor could not judge, else the limit of the floor, and nil for none.
+    public static func floorLimit(publishedBarcodes: Int, null: DemultiplexChanceFloor.Null) -> String? {
+        guard publishedBarcodes > 0 else { return nil }
+        return null == .saturatedKit ? uncheckedKitLine : notInPoolLimit(publishedBarcodes: publishedBarcodes)
     }
 }

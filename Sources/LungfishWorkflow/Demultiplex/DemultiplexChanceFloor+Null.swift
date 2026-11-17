@@ -74,6 +74,25 @@ extension DemultiplexChanceFloor {
         )
     }
 
+    /// The share of reads of uniform random bases that match a barcode of the kit by chance, summed over its barcodes, each
+    /// read as a fragment of `unit` mates (`1 - (1 - p)^unit`). The floor and preflight take it from the same cutadapt lines.
+    public static func uniformKitShare(
+        patterns: [String: [String]], errorRate: Double, allowsIndels: Bool, unit: Int
+    ) -> Double {
+        patterns.values.reduce(0.0) { total, lines in
+            let read = chanceProbability(ofLines: lines, errorRate: errorRate, allowsIndels: allowsIndels)
+            return total + (1 - pow(1 - read, Double(unit)))
+        }
+    }
+
+    /// Whether the kit's uniform share reaches `saturatedKitShare`. The floor cannot judge such a kit, since its unassigned
+    /// reads cannot measure a null that tells the pool from reads with no barcode (DEMUX-FLOOR-SATURATED-KIT).
+    public static func isSaturated(
+        patterns: [String: [String]], errorRate: Double, allowsIndels: Bool, unit: Int
+    ) -> Bool {
+        uniformKitShare(patterns: patterns, errorRate: errorRate, allowsIndels: allowsIndels, unit: unit) >= saturatedKitShare
+    }
+
     /// The compositions of the mates searched, the margin the decoys set and the windows tallied.
     struct MeasuredNull {
         let compositions: [[[Double]]]
@@ -93,11 +112,7 @@ extension DemultiplexChanceFloor {
         guard used.count == unit, used.allSatisfy({
             $0.windows >= minimumCompositionWindows && $0.isPackable && $0.windowLength >= required
         }) else { return nil }
-        let uniformKitShare = patterns.values.reduce(0.0) { total, lines in
-            let read = chanceProbability(ofLines: lines, errorRate: errorRate, allowsIndels: allowsIndels)
-            return total + (1 - pow(1 - read, Double(unit)))
-        }
-        guard uniformKitShare < saturatedKitShare else { return nil }
+        guard !isSaturated(patterns: patterns, errorRate: errorRate, allowsIndels: allowsIndels, unit: unit) else { return nil }
         guard let index = decoyIndex(patterns: patterns, errorRate: errorRate, allowsIndels: allowsIndels),
               used.allSatisfy({ $0.decoys?.kit == index.kit }) else { return nil }
         var margin = minimumMargin
