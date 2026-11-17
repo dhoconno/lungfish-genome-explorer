@@ -317,7 +317,7 @@ extension BlastService {
     ///    and "Human gammaherpesvirus 4" share "Human"), which is why hits with
     ///    tax IDs never reach it.
     /// 2. **Containment match** (for virus names that are not binomial): the hit
-    ///    organism contains the queried taxon name or vice versa (case-insensitive).
+    ///    organism holds the queried taxon name as whole words, or the other way round (case-insensitive).
     ///    Example: "Oxbow virus isolate ABC" matches queried "Oxbow virus".
     ///
     /// A match on the first word alone is agreement in the first tier only. The verdict rule counts such a read
@@ -354,8 +354,10 @@ extension BlastService {
         let hitLower = hitOrganism.lowercased()
         let queriedLower = queriedTaxonName.lowercased()
 
-        // Strategy 2: Containment match (handles virus names like "Oxbow virus")
-        if hitLower.contains(queriedLower) || queriedLower.contains(hitLower) {
+        // Strategy 2: Containment match (handles virus names like "Oxbow virus"), on whole words as an accepted name is, so
+        // "Alphapapillomavirus 10" is not "Alphapapillomavirus 1" (BLAST-ESVIRITU-FIRST-WORD, BIO review of BLAST-FIRSTWORD).
+        if BlastTaxonMatching.containsPhrase(hitOrganism, queriedTaxonName)
+            || BlastTaxonMatching.containsPhrase(queriedTaxonName, hitOrganism) {
             return .containment
         }
 
