@@ -44,10 +44,14 @@ extension FastqDemultiplexSubcommand {
         ].compactMap { $0 }
     }
 
-    /// The help of `--keep-unchecked-samples` (DEMUX-FLOOR-SATURATED-KIT, BIO-DEMUX-THREE item 3).
-    static let keepUncheckedSamplesHelp = "Make sample files even when the kit's barcodes are so short that about half of "
-        + "all reads or more match one of them by chance, which the check for chance matches cannot judge. Without it "
-        + "such a run is refused. Check each sample against your sample sheet"
+    /// The help of `--keep-unchecked-samples` (DEMUX-FLOOR-SATURATED-KIT, BIO-DEMUX-THREE item 3). It gives both causes
+    /// and names the routes made for the Fluidigm kit (BIO-SATKIT-FLUIDIGM item 4).
+    static let keepUncheckedSamplesHelp = "Make sample files even when about half of all reads or more match a barcode "
+        + "of the kit by chance, which the check for chance matches cannot judge. This happens when the barcodes are only "
+        + "a few bases long, or when cutadapt searches them anywhere in the read, as it does for the Fluidigm Access Array "
+        + "kit, so that nearly every read matches one. Without this flag such a run is refused. Check each sample against "
+        + "your sample sheet. For Fluidigm barcodes in ONT reads, use fastq ont-fluidigm-samples, and for reads whose "
+        + "index is in their names, use --engine header-index"
 
     /// The record's `chanceFloor` block: what the chance count was measured on, the margin over it and the windows it was
     /// tallied from (BIO-DEMUX-NULL item 9), the barcodes within chance, and whether the person chose to keep the samples

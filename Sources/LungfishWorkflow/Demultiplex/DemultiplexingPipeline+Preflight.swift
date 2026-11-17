@@ -93,7 +93,9 @@ extension DemultiplexingPipeline {
     /// (DEMUX-FLOOR-SATURATED-KIT, BIO-DEMUX-THREE item 2). The unassigned reads of such a kit cannot measure a null, so
     /// the floor fell back to random bases, which real read starts pass, and the run published chance matches as samples.
     /// A run that places mates judges fragments, whose share is larger, so the file's layout is read only for a kit
-    /// that reaches the share as fragments and not as single reads. Only the bare search has the floor.
+    /// that reaches the share as fragments and not as single reads. Only the bare search has the floor. A kit whose lines
+    /// have no anchored side, such as the built-in Fluidigm kit, is refused in words that give that cause and name the
+    /// routes made for it (BIO-SATKIT-FLUIDIGM item 4).
     func requireChanceCheckableKit(config: DemultiplexConfig, adapterFASTA: URL, inputFASTQ: URL) throws {
         guard !config.keepsUncheckedSamples, config.demuxAdapterContext is BareAdapterContext else { return }
         let patterns = try chancePatterns(in: adapterFASTA)
@@ -105,7 +107,11 @@ extension DemultiplexingPipeline {
         if !saturated(1) {
             guard saturated(2), try demultiplexReadLayout(config: config, inputFASTQ: inputFASTQ).isPaired else { return }
         }
-        throw DemultiplexError.chanceCheckCannotJudgeKit(kitName: config.barcodeKit.displayName)
+        let kitName = config.barcodeKit.displayName
+        if DemultiplexChanceFloor.searchesAnywhere(patterns: patterns) {
+            throw DemultiplexError.chanceCheckCannotJudgeKitSearchedAnywhere(kitName: kitName)
+        }
+        throw DemultiplexError.chanceCheckCannotJudgeKit(kitName: kitName)
     }
 
     /// Refuses the kit `idt-ud-indexes`, whose table repeats each i5 every eight rows and holds 24 of 96 pairs, so a run

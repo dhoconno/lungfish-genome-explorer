@@ -93,6 +93,17 @@ extension DemultiplexChanceFloor {
         uniformKitShare(patterns: patterns, errorRate: errorRate, allowsIndels: allowsIndels, unit: unit) >= saturatedKitShare
     }
 
+    /// Whether no cutadapt line of the kit has a side anchored with `^` or `$`, so that cutadapt searches its barcodes
+    /// anywhere in the read, as it does for the built-in Fluidigm Access Array kit (BIO-SATKIT-FLUIDIGM item 4). The floor
+    /// measures no null for such lines (`decoyIndex`). Preflight reads it to give the cause of its refusal.
+    public static func searchesAnywhere(patterns: [String: [String]]) -> Bool {
+        let lines = patterns.values.joined()
+        return !lines.isEmpty && lines.allSatisfy { line in
+            (line.split(separator: ";", maxSplits: 1).first.map(String.init) ?? line).components(separatedBy: "...")
+                .allSatisfy { !$0.hasPrefix("^") && !$0.hasSuffix("$") }
+        }
+    }
+
     /// The compositions of the mates searched, the margin the decoys set and the windows tallied.
     struct MeasuredNull {
         let compositions: [[[Double]]]
