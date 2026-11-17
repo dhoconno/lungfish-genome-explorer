@@ -10,8 +10,9 @@
 # off by the alarm or one that cannot start never reads as a pass. The probe checks the notary credential only, so
 # `release.py setup` runs again after a pass.
 #
-# Prints "round N HH:MM: exit S, <first line of the probe's output>" for each failed round, then "NOTARY-OK HH:MM" with
-# exit 0 at the first pass, or "NOTARY-STILL-DOWN HH:MM" with exit 1 after the last round. Exit 2 is a bad argument.
+# Prints "round N HH:MM: exit S, <first line of the probe's output>" for each failed round, then
+# "NOTARY-OK HH:MM, the notary credential only, so run release.py setup again" with exit 0 at the first pass, or
+# "NOTARY-STILL-DOWN HH:MM" with exit 1 after the last round. Exit 2 is a bad argument.
 # Copied on 2026-11-17 from the manager's script of session rnaseq-5-1-e, which read a probe with no output as a pass.
 set -u
 profile=LungfishNotary keychain="" probe_s=${NOTARY_WAIT_PROBE_S:-90} rounds=5 gap=600
@@ -43,7 +44,7 @@ for ((round = 1; round <= rounds; round++)); do
   out=$(perl -e 'alarm shift; exec @ARGV or die "cannot run $ARGV[0]: $!\n"' "$probe_s" "${probe[@]}" 2>&1)
   status=$?
   if [ "$status" -eq 0 ] && ! [[ $out =~ $error_words ]]; then
-    echo "NOTARY-OK $(date '+%H:%M')"
+    echo "NOTARY-OK $(date '+%H:%M'), the notary credential only, so run release.py setup again"
     exit 0
   fi
   first=${out%%$'\n'*}
