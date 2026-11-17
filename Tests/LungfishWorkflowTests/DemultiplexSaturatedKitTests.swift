@@ -477,7 +477,12 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
             config: config, adapterFASTA: adapters.adapterFASTA, counts: [barcode: 300], readsSearched: 1_000, unassigned: 700,
             paired: false, unassignedReadsURL: nil
         )
-        return try XCTUnwrap(floor)
+        let outcome = try XCTUnwrap(floor)
+        let share = DemultiplexChanceFloor.uniformKitShare(
+            patterns: patterns, errorRate: config.effectiveErrorRate, allowsIndels: !config.useNoIndels, unit: 1
+        )
+        print("SATKIT opt-in floor: \(kit.displayName) at error \(errorRate), null \(outcome.null.rawValue), share \(share)")
+        return outcome
     }
 
     /// A run that keeps the unchecked samples of a kit whose lines have no anchored side says its samples went unchecked,

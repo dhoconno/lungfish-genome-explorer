@@ -266,8 +266,10 @@ extension DemultiplexingPipeline {
             unassignedStarts: tallies
         )
         // A kit the floor cannot judge reaches here only with the person's opt-in, since preflight refuses it otherwise
-        // (`requireChanceCheckableKit`). The run keeps the files the floor of random bases gives, and says it checked none.
-        if DemultiplexChanceFloor.isSaturated(
+        // (`requireChanceCheckableKit`). That is a kit whose share reaches 0.5, and a kit whose lines have no anchored
+        // side, whose share is under 0.5 at error 0 but whose null the floor never measures (`decoyIndex`). The run keeps
+        // the files the floor of random bases gives, and says it checked none.
+        if DemultiplexChanceFloor.hasNoAnchoredSide(patterns: patterns) || DemultiplexChanceFloor.isSaturated(
             patterns: patterns, errorRate: config.effectiveErrorRate, allowsIndels: !config.useNoIndels, unit: paired ? 2 : 1
         ) {
             outcome.null = .saturatedKit
