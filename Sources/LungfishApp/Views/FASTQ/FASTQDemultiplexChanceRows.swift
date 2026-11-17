@@ -5,7 +5,8 @@
 import SwiftUI
 
 /// The engine's explanation, the caption of Exact Bare Barcode, and Keep Unchecked Samples, which shows exactly when
-/// preflight can refuse the chosen kit as one the check for chance matches cannot judge (BIO-SATKIT-FLUIDIGM item 3).
+/// preflight can refuse the chosen kit as one the check for chance matches cannot judge (BIO-SATKIT-FLUIDIGM item 3), or
+/// an Exact Bare Barcode run as one whose read names carry the kit's barcodes (DEMUX-EXACT-BARE-NO-FLOOR).
 /// The rows ask preflight again whenever a setting it reads changes. They sit in their own file because
 /// `FASTQOperationToolPanes.swift` may not grow (file-size ratchet).
 struct FASTQDemultiplexChanceRows: View {
@@ -19,7 +20,7 @@ struct FASTQDemultiplexChanceRows: View {
         if let caption = state.demultiplexEngineChanceCaption { Text(caption).font(.caption).foregroundStyle(.secondary) }
         if state.showsDemultiplexKeepUncheckedSamples {
             Toggle("Keep Unchecked Samples", isOn: $state.demultiplexChanceCheck.keepsUncheckedSamples)
-            Text(FASTQOperationDialogState.demultiplexKeepUncheckedSamplesCaption)
+            Text(state.demultiplexKeepUncheckedSamplesCaptionForEngine)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

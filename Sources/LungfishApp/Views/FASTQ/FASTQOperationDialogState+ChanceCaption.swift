@@ -18,29 +18,33 @@ struct FASTQDemultiplexChanceCheck: Equatable {
         var errorRate: String
         var maxDistanceFrom5Prime: Int
         var maxDistanceFrom3Prime: Int
+        /// The chosen inputs, whose read names the Exact Bare Barcode check reads.
+        var inputPaths: [String] = []
     }
 
     var keepsUncheckedSamples = false
     var answered: Settings?
     var canRefuse = false
 
-    /// Whether preflight can refuse a run with these settings as one the chance check cannot judge. It loads the kit and
-    /// builds the config as the command does, then asks preflight's own predicate. A kit or definition that does not
-    /// load, or whose lines preflight refuses for another reason, is not one the chance check refuses.
-    static func canRefuse(_ settings: Settings, input: URL) async -> Bool {
-        guard settings.engine == .cutadapt else { return false }
-        let kit: BarcodeKitDefinition
-        if let id = settings.kitID, let builtIn = BarcodeKitRegistry.kit(byID: id) {
-            kit = builtIn
-        } else if let path = settings.definitionPath {
-            let url = URL(fileURLWithPath: path)
-            guard let data = try? Data(contentsOf: url),
-                  let loaded = try? BarcodeKitRegistry.loadCustomKit(data: data, name: url.deletingPathExtension().lastPathComponent)
-            else { return false }
-            kit = loaded
-        } else {
+    /// Whether preflight can refuse a run with these settings, with Cutadapt as one the chance check cannot judge, and with
+    /// Exact Bare Barcode as one whose read names carry two or more of the kit's barcodes in some chosen input
+    /// (DEMUX-EXACT-BARE-NO-FLOOR). It loads the kit and builds the config as the command does, then asks preflight's own
+    /// predicate. A kit or definition that does not load, or whose lines preflight refuses for another reason, is not one
+    /// the chance check refuses. The read names are known only once the first names of each input are read, so the box
+    /// shows a moment after the engine is chosen, as it does for a kit.
+    static func canRefuse(_ settings: Settings, inputs: [URL]) async -> Bool {
+        guard let kit = kit(settings) else { return false }
+        if settings.engine == .exactBareBarcode {
+            for input in inputs {
+                let config = DemultiplexConfig(
+                    inputURL: input, barcodeKit: kit, outputDirectory: FileManager.default.temporaryDirectory,
+                    engine: .exactBareBarcode
+                )
+                if await DemultiplexingPipeline().exactBareCanRefuseReadNames(config: config) { return true }
+            }
             return false
         }
+        guard settings.engine == .cutadapt else { return false }
         let location: BarcodeLocation
         switch settings.location {
         case "fiveprime": location = .fivePrime
@@ -48,11 +52,29 @@ struct FASTQDemultiplexChanceCheck: Equatable {
         default: location = .bothEnds
         }
         let config = DemultiplexConfig(
-            inputURL: input, barcodeKit: kit, outputDirectory: FileManager.default.temporaryDirectory,
+            inputURL: inputs.first ?? FileManager.default.temporaryDirectory, barcodeKit: kit,
+            outputDirectory: FileManager.default.temporaryDirectory,
             barcodeLocation: location, errorRate: Double(settings.errorRate),
             maxDistanceFrom5Prime: settings.maxDistanceFrom5Prime, maxDistanceFrom3Prime: settings.maxDistanceFrom3Prime
         )
         return (try? await DemultiplexingPipeline().chanceCheckCanRefuseKit(config: config)) ?? false
+    }
+
+    /// The built-in kit or the definition the settings name, loaded as the command loads it, or nil when it does not load.
+    static func kit(_ settings: Settings) -> BarcodeKitDefinition? {
+        let kit: BarcodeKitDefinition
+        if let id = settings.kitID, let builtIn = BarcodeKitRegistry.kit(byID: id) {
+            kit = builtIn
+        } else if let path = settings.definitionPath {
+            let url = URL(fileURLWithPath: path)
+            guard let data = try? Data(contentsOf: url),
+                  let loaded = try? BarcodeKitRegistry.loadCustomKit(data: data, name: url.deletingPathExtension().lastPathComponent)
+            else { return nil }
+            kit = loaded
+        } else {
+            return nil
+        }
+        return kit
     }
 }
 
@@ -80,6 +102,17 @@ extension FASTQOperationDialogState {
     static let demultiplexKeepUncheckedSamplesCaption =
         "About half of all reads or more match a barcode of this kit by chance, so the check for chance matches cannot judge the samples, and the run is refused. Choose Keep Unchecked Samples to make the sample files anyway, then check each sample against your sample sheet."
 
+    /// The caption under Keep Unchecked Samples with Exact Bare Barcode, when the read names carry the kit's barcodes
+    /// (DEMUX-EXACT-BARE-NO-FLOOR, words for the UX review).
+    static let demultiplexExactBareKeepUncheckedSamplesCaption =
+        "The read names carry barcodes of this kit, so Exact Bare Barcode would find them in the read sequences only by chance, and the run is refused. Choose the engine Read Names to split the reads by their names. Choose Keep Unchecked Samples only if the read sequences carry these barcodes too, then check each sample against your sample sheet."
+
+    /// The caption under Keep Unchecked Samples for the chosen engine.
+    var demultiplexKeepUncheckedSamplesCaptionForEngine: String {
+        demultiplexEngine == .exactBareBarcode
+            ? Self.demultiplexExactBareKeepUncheckedSamplesCaption : Self.demultiplexKeepUncheckedSamplesCaption
+    }
+
     /// The settings the chance check of the chosen kit reads, with the error rate written as the command writes it. The
     /// rows ask again when they change (`FASTQDemultiplexChanceRows`).
     var demultiplexChanceCheckSettings: FASTQDemultiplexChanceCheck.Settings {
@@ -90,14 +123,17 @@ extension FASTQOperationDialogState {
             location: demultiplexLocation,
             errorRate: String(format: "%.2f", demultiplexErrorRate),
             maxDistanceFrom5Prime: demultiplexMaxDistanceFrom5Prime,
-            maxDistanceFrom3Prime: demultiplexMaxDistanceFrom3Prime
+            maxDistanceFrom3Prime: demultiplexMaxDistanceFrom3Prime,
+            inputPaths: selectedInputURLs.map(\.path)
         )
     }
 
     /// Whether the dialog shows Keep Unchecked Samples: with Cutadapt, exactly when preflight's predicate says it can
-    /// refuse the chosen kit (`DemultiplexingPipeline.chanceCheckCanRefuseKit`), and only for the settings it was asked.
+    /// refuse the chosen kit (`DemultiplexingPipeline.chanceCheckCanRefuseKit`), with Exact Bare Barcode, exactly when it
+    /// says the read names of a chosen input carry the kit's barcodes (`exactBareCanRefuseReadNames`), and only for the
+    /// settings it was asked.
     var showsDemultiplexKeepUncheckedSamples: Bool {
-        demultiplexEngine == .cutadapt && demultiplexChanceCheck.canRefuse
+        (demultiplexEngine == .cutadapt || demultiplexEngine == .exactBareBarcode) && demultiplexChanceCheck.canRefuse
             && demultiplexChanceCheck.answered == demultiplexChanceCheckSettings
     }
 
@@ -110,9 +146,9 @@ extension FASTQOperationDialogState {
     /// settings it asked about. An answer that comes after the settings changed is dropped.
     func refreshDemultiplexChanceCheck() async {
         let settings = demultiplexChanceCheckSettings
-        let input = selectedInputURLs.first ?? FileManager.default.temporaryDirectory
+        let inputs = selectedInputURLs
         let canRefuse = await Task.detached(priority: .userInitiated) {
-            await FASTQDemultiplexChanceCheck.canRefuse(settings, input: input)
+            await FASTQDemultiplexChanceCheck.canRefuse(settings, inputs: inputs)
         }.value
         guard !Task.isCancelled, settings == demultiplexChanceCheckSettings else { return }
         demultiplexChanceCheck.answered = settings

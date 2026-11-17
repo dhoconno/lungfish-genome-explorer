@@ -50,19 +50,44 @@ public enum DemultiplexSearchRouteOwner {
     public static func route(for config: DemultiplexConfig, input: URL) async -> DemultiplexSearchRoute {
         if config.engine == .headerIndex { return route(for: config, names: []) }
         guard readsNames(config) else { return .inline(config.demuxAdapterContext) }
+        guard let names = await probedNames(of: input, kit: config.barcodeKit) else { return .inline(config.demuxAdapterContext) }
+        return route(for: config, names: names)
+    }
+
+    /// The first read names of `input`, as the probe reads them: 1,000, read on to 10,000 when exactly one barcode of
+    /// `kit` is present in the first 1,000 (BIO-DEMUX-FLOOR item 2), or nil when the file cannot be read as FASTQ.
+    static func probedNames(of input: URL, kit: BarcodeKitDefinition) async -> [FASTQReadNameIndex]? {
         var names: [FASTQReadNameIndex] = []
         do {
             for try await record in FASTQReader(validateSequence: false).records(from: input) {
                 let raw = record.description.map { "\(record.identifier) \($0)" } ?? record.identifier
                 names.append(FASTQReadNameIndex(rawName: raw))
                 // One barcode present in the first names reads on before the owner chooses (BIO-DEMUX-FLOOR item 2).
-                if names.count == probedReadCount, presentBarcodes(of: probeKit(config.barcodeKit), in: names) != 1 { break }
+                if names.count == probedReadCount, presentBarcodes(of: probeKit(kit), in: names) != 1 { break }
                 if names.count >= readOnCount { break }
             }
         } catch {
-            return .inline(config.demuxAdapterContext)
+            return nil
         }
-        return route(for: config, names: names)
+        return names
+    }
+
+    /// The barcodes of `kit` present in the first read names of `input`, read and counted as the route owner reads and
+    /// counts them, or 0 when the file cannot be read as FASTQ. The Exact Bare Barcode preflight and the dialog ask it,
+    /// since naming that engine skips the probe (DEMUX-EXACT-BARE-NO-FLOOR, BIO-DEMUX-THREE section 2a).
+    public static func presentBarcodes(of kit: BarcodeKitDefinition, inReadNamesOf input: URL) async -> Int {
+        guard let names = await probedNames(of: input, kit: kit) else { return 0 }
+        return presentBarcodes(of: kit, inProbed: names)
+    }
+
+    /// The barcodes of `kit` present in names read by the probe: in the first 1,000, and in the first 10,000 when exactly
+    /// one is present in the first 1,000 and more names were read.
+    static func presentBarcodes(of kit: BarcodeKitDefinition, inProbed names: [FASTQReadNameIndex]) -> Int {
+        var present = presentBarcodes(of: probeKit(kit), in: Array(names.prefix(probedReadCount)))
+        if present == 1, names.count > probedReadCount {
+            present = presentBarcodes(of: probeKit(kit), in: Array(names.prefix(readOnCount)))
+        }
+        return present
     }
 
     /// The route of `config` for read names already read.
@@ -71,11 +96,7 @@ public enum DemultiplexSearchRouteOwner {
         if config.engine == .headerIndex { return collisionWords(for: config.barcodeKit).map { .refuse($0) } ?? .headerIndex }
         guard readsNames(config) else { return .inline(config.demuxAdapterContext) }
         let kit = config.barcodeKit
-        var present = presentBarcodes(of: probeKit(kit), in: Array(names.prefix(probedReadCount)))
-        if present == 1, names.count > probedReadCount {
-            present = presentBarcodes(of: probeKit(kit), in: Array(names.prefix(readOnCount)))
-        }
-        guard present >= 2 else { return .inline(config.demuxAdapterContext) }
+        guard presentBarcodes(of: kit, inProbed: names) >= 2 else { return .inline(config.demuxAdapterContext) }
         if let words = collisionWords(for: kit) { return .refuse(words) }
         return .headerIndex
     }

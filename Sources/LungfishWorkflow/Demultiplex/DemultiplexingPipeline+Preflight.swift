@@ -22,6 +22,8 @@ extension DemultiplexingPipeline {
     /// names that kit and whose rows hold a pair of its table, and a search of the
     /// read bases with a dual Illumina-family kit at 5' End or 3' End, which leaves
     /// one of its two indexes free, and a kit the chance floor cannot judge unless the person keeps its unchecked samples.
+    /// It refuses an Exact Bare Barcode run whose read names carry two or more of the kit's barcodes, unless the person
+    /// keeps the unchecked samples too.
     /// It runs no tool and writes only a scratch adapter file it removes, and returns the route the run takes.
     @discardableResult
     public func preflight(config: DemultiplexConfig) async throws -> DemultiplexSearchRoute {
@@ -73,6 +75,7 @@ extension DemultiplexingPipeline {
             guard supportsExactBareBarcodeDemux(config) else {
                 throw DemultiplexError.exactBareBarcodeUnsupported
             }
+            try await requireBarcodesOutsideReadNames(config: config, inputFASTQ: inputFASTQ)
             return route
         }
         guard ProjectTempDirectory.findProjectRoot(config.outputDirectory) != nil else {
@@ -86,6 +89,32 @@ extension DemultiplexingPipeline {
         try requireAdapterSequences(in: adapters.adapterFASTA, kitName: config.barcodeKit.displayName)
         try requireChanceCheckableKit(config: config, adapterFASTA: adapters.adapterFASTA, inputFASTQ: inputFASTQ)
         return route
+    }
+
+    /// Refuses an Exact Bare Barcode run whose first read names carry two or more of the kit's barcodes, read and counted as
+    /// the route owner reads and counts them, unless the person keeps the unchecked samples (DEMUX-EXACT-BARE-NO-FLOOR,
+    /// BIO-DEMUX-THREE item 7 and section 2a). Naming the engine skips the route owner's probe, and the engine searched the
+    /// read sequences for barcodes that sat in the names, so each barcode it found there by chance got a sample file. One
+    /// library index in the names cannot make two barcodes present, so an inline pool whose names carry it still runs.
+    func requireBarcodesOutsideReadNames(config: DemultiplexConfig, inputFASTQ: URL) async throws {
+        guard !config.keepsUncheckedSamples else { return }
+        let present = await DemultiplexSearchRouteOwner.presentBarcodes(of: config.barcodeKit, inReadNamesOf: inputFASTQ)
+        guard present >= 2 else { return }
+        throw DemultiplexError.exactBareBarcodesInReadNames(kitName: config.barcodeKit.displayName, present: present)
+    }
+
+    /// Whether preflight refuses an Exact Bare Barcode run of `config` because the first read names of its input carry two
+    /// or more of the kit's barcodes. The dialog shows Keep Unchecked Samples with that engine exactly then, for any input
+    /// it was given, so the box reaches every run there that `--keep-unchecked-samples` reaches. A kit the engine cannot
+    /// match is refused for that first, so it is not one this refuses. The caller passes the config without the opt-in.
+    public func exactBareCanRefuseReadNames(config: DemultiplexConfig) async -> Bool {
+        guard supportsExactBareBarcodeDemux(config) else { return false }
+        do {
+            try await requireBarcodesOutsideReadNames(config: config, inputFASTQ: resolveInputFASTQ(config.inputURL))
+            return false
+        } catch {
+            return true
+        }
     }
 
     /// Refuses a search of the read bases whose kit the chance floor cannot judge, a kit whose uniform share on the lines

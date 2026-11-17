@@ -490,6 +490,10 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             provenanceParameters["searchMode"] = .string("whole-read")
             // Exact Bare Barcode does not check for chance matches (DEMUX-EXACT-BARE-NO-FLOOR, UX-EXACT-BARE-WORDS).
             provenanceParameters["chanceCheck"] = .string("none")
+            // Whether the person chose to search the sequences though the read names carry the kit's barcodes, which
+            // preflight refuses without --keep-unchecked-samples (DEMUX-EXACT-BARE-NO-FLOOR, BIO-DEMUX-THREE item 7).
+            provenanceParameters["optIn"] = .boolean(keepUncheckedSamples)
+            provenanceDefaults["optIn"] = .boolean(false)
             provenanceParameters["searchReverseComplement"] = .boolean(true)
             provenanceParameters["trimBarcodes"] = .boolean(false)
             provenanceParameters["threads"] = .integer(threads)
