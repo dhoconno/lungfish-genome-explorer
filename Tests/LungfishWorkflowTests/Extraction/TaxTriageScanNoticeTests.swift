@@ -146,6 +146,8 @@ final class TaxTriageScanNoticeTests: XCTestCase {
                     + "that fits its name. If that file belongs to another sample, put S1.5's own BAM back and try again.",
                 "\(source)"
             )
+            let candidates = try ClassifierReadResolver.taxTriageBAMCandidates(sampleId: "S1", resultDir: root)
+            XCTAssertEqual(candidates.filter { FileManager.default.fileExists(atPath: $0.path) }, [], "\(source)")
         }
     }
 
