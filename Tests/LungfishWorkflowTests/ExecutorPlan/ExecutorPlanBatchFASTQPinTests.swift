@@ -118,9 +118,9 @@ final class ExecutorPlanBatchFASTQPinTests: XCTestCase {
         try assertPinned(folder, Self.staged)
     }
 
-    // The SHA-256 of each file at fb435868034607467d7a7835af0319758691cfc6, from this test's own report of them.
+    // The SHA-256 of each file at fb435868034607467d7a7835af0319758691cfc6, except sample.sub and README.txt (CHTC-INPUT-STALL-HELD).
     private static let plain: [String: String] = [
-        "README.txt": "3259dc1d16f0e40eb2bbe327dd218477cd6d0576f0baf072ba2a2bde3c281fbf",
+        "README.txt": "5cac6a0ad6d40de2fa4d16bea2a2658dbc11f1741066fa06b1eb026a978db680",
         "S1/plan.json": "2f402919567864d3e3b57f0a7789497ba6db5ad40278a1e54f9f0bc6cedbabc0",
         "S1/plan.tar": "e2871b860f0552a875ee068683334cdcce36ae35901f1a6c4a84b4815d67fe7d",
         "S1/staging.json": "98115a002dd73982b0bae6c000605657be24a7fc58ef4a83fb1726c452160a7f",
@@ -135,7 +135,7 @@ final class ExecutorPlanBatchFASTQPinTests: XCTestCase {
         "staging-files.json": "aaf8f39ad8a3e3c118b0dfdfc0bd36bd4aac1f8ee2d62e8a4920f8b8c0044987",
     ]
     private static let database: [String: String] = [
-        "README.txt": "3259dc1d16f0e40eb2bbe327dd218477cd6d0576f0baf072ba2a2bde3c281fbf",
+        "README.txt": "5cac6a0ad6d40de2fa4d16bea2a2658dbc11f1741066fa06b1eb026a978db680",
         "S1/plan.json": "27e23353e03ded992ef3c7ed7230c42e612e0c1d738c01b76c4c98d7903e1b57",
         "S1/plan.tar": "b5841739f0d0ec0b667280a63d4f6b1a7c6054aa58aad0d1b746f28a71c91f6a",
         "S1/recipe/illumina-paired-cleanup.recipe.json": "a6b777604652c79a7a815ad34106b44e5cbefc106808c104ad7c74d558fc6a8c",
@@ -152,7 +152,7 @@ final class ExecutorPlanBatchFASTQPinTests: XCTestCase {
         "staging-files.json": "1277a49c1a8357c37fef2deb453a173a9092090a365e8526f2c42924b98244e4",
     ]
     private static let staged: [String: String] = [
-        "README.txt": "75c8bdd0e5b5f29642e62f8c3bdf5c0e9e53c850688891873fc15f6d87b73429",
+        "README.txt": "6c6f0cbc9b35ccce134a9266e301630b954d4162bfce6e9dabbde5b3fb0a98aa",
         "S1/plan.json": "c35435548681225d1dea64b38e522590bfd8efa121caa92ff3afae737ab1495a",
         "S1/plan.tar": "fdcb69a2199d1c346df0ef9dfd64d5686fb2cea41733959f4684a1ba34ebe394",
         "S1/staging.json": "885b3c6eac5eb422991ba63b7e0480bb40c41423ddcd2e396ac97735e04ef125",

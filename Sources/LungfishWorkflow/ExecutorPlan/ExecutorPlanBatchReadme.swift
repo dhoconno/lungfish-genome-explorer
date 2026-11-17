@@ -138,19 +138,27 @@ package enum ExecutorPlanBatchReadme {
 
         1. See which sample is held, and why:
 
-           condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReason
+           condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReasonCode NumHolds HoldReason
 
-           Each line gives the job's two numbers, the sample's name, the run's exit code and the reason
-           HTCondor gave. To see every sample's state, read \(dag).status. In \(logs)/<sample>.log a hold
+           Each line gives the job's two numbers, the sample's name, the run's exit code, the hold's
+           code, how many times the job has been held and the reason HTCondor gave.
+           To see every sample's state, read \(dag).status. In \(logs)/<sample>.log a hold
            shows as "Job was evicted" and then "Job was held". Both lines are one hold, not a move to
            another machine.
 
-        2. If the exit code is 0, the run finished and only sending its files back failed. HTCondor starts
-           that job again by itself, at most twice, so leave it. Otherwise fix what the reason names. If it
-           says an output file could not be sent back, that sample's job returned no reads. Read its run
-           record, \(returned)\(record), and its log, <sample>/\(logs)/ in this folder, to see which step
-           stopped. A job the executor refuses before its first step leaves only the record. A job that
-           lge-job.sh refuses leaves no record, so read \(logs)/<sample>.err.
+        2. If the hold's code is 12 and the exit code is 0, the run finished and only sending its files
+           back failed. If the code is 13, the job could not fetch one of its input files, so it never
+           ran and its exit code reads undefined. HTCondor releases a job held for either reason by
+           itself, at most twice, so leave it. A job held a third time stays held. If its reason says the
+           transfer made no progress, release the job yourself once the staging folder answers:
+
+           condor_release <ClusterId>.<ProcId>
+
+           For any other hold, fix what the reason names. If it says an output file could not be sent
+           back, that sample's job returned no reads. Read its run record, \(returned)\(record), and its
+           log, <sample>/\(logs)/ in this folder, to see which step stopped. A job the executor refuses
+           before its first step leaves only the record. A job that lge-job.sh refuses leaves no record,
+           so read \(logs)/<sample>.err.
 
         3. Running the sample again replaces its run record, so copy it aside if it is there. Then remove
            the held job. HTCondor counts that sample as failed and goes on with the others:
@@ -299,9 +307,12 @@ package enum ExecutorPlanBatchReadme {
         \(dag) runs at most \(maxJobs) jobs at once, from its line MAXJOBS lge \(maxJobs). The jobs ask for machines that
         reach the staging folder, run EL9 or later and are x86-64.
 
-        If a job is held, run condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReason. If the exit
-        code is 0, only sending its files back failed, and HTCondor starts that job again by itself, at most
-        twice. Otherwise read its run record, \(returned)\(record), and its log in <sample>/\(logs)/
+        If a job is held, run condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReasonCode NumHolds
+        HoldReason. If the code is 12 and the exit code is 0, only sending its files back failed. If the code
+        is 13, the job could not fetch an input file and never ran. HTCondor releases a job held for either
+        reason by itself, at most twice. If a job is held a third time and its reason says the transfer made
+        no progress, run condor_release <ClusterId>.<ProcId> once the staging folder answers. For any other
+        hold, read the job's run record, \(returned)\(record), and its log in <sample>/\(logs)/
         to see which step stopped. A job that lge-job.sh refuses leaves no record, so read \(logs)/<sample>.err.
         Then run condor_rm <ClusterId>.<ProcId>, and when the other jobs have finished run condor_submit_dag
         \(dag) again from this folder to run the rest.
