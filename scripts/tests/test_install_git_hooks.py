@@ -228,11 +228,12 @@ class InstallGitHooksMainHoldTests(unittest.TestCase):
         self.git("commit", "-q", "-m", message)
         return self.git("rev-parse", "HEAD").stdout.strip()
 
-    def hold_main(self):
-        # The form release.py package writes.
+    def hold_main(self, commit=None):
+        # The form release.py package writes. The hold names the commit setUp pushed unless a test packages
+        # another one, such as a candidate ahead of origin main.
         self.hold.parent.mkdir(parents=True, exist_ok=True)
         self.hold.write_text(
-            f"commit={self.candidate}\nchannel=preview\nsince=2026-11-16T18:30:00-06:00\n"
+            f"commit={commit or self.candidate}\nchannel=preview\nsince=2026-11-16T18:30:00-06:00\n"
             "writer=release.py package, pid 4242 on galah\n",
             encoding="utf-8",
         )
@@ -300,6 +301,30 @@ class InstallGitHooksMainHoldTests(unittest.TestCase):
         self.commit("after")
         self.assertIn("main is held", self.git("push", "origin", "main", check=False).stdout)
         self.hold.unlink()
+
+        result = self.git("push", "origin", "main", check=False)
+
+        self.assertIn(self.PASSED_THE_HOLD, result.stdout)
+        self.assertNotIn("main is held", result.stdout)
+
+    def test_a_hold_refuses_main_among_other_refs(self):
+        # Another branch passes alone, but a push that carries main with it moves main, so all of it is refused.
+        self.hold_main()
+        self.commit("after")
+        self.git("branch", "lane")
+
+        result = self.git("push", "origin", "main", "lane", check=False)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("main is held", result.stdout)
+        self.assertEqual(self.git("ls-remote", "origin", "refs/heads/lane").stdout.strip(), "")
+
+    def test_a_hold_lets_the_push_of_the_held_candidate_itself_through(self):
+        # release.py publish pushes `git push --atomic origin main <tag>`. When the candidate was packaged
+        # ahead of origin main, that push moves main to the held commit. It voids nothing, so the hook
+        # must not refuse it in words that send a person to package again.
+        ahead = self.commit("ahead")
+        self.hold_main(ahead)
 
         result = self.git("push", "origin", "main", check=False)
 
