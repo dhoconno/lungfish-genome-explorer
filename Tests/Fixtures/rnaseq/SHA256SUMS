@@ -1,4 +1,4 @@
-6def1f16fd2e2c2607d3295c12b7cc3903fba7f5fcc96ed866d066cc6cb7e980  SOURCES.tsv
+f766395c113ded84d0123ce3b60179312e7bbe4ff7670e5b64ce7b8565c35ca8  SOURCES.tsv
 6b16b9c37c4248a1c36122ff327fd7bb3ad41449f6591ed53c39f98336584b02  cellranger-pbmc_1k_v3/outs/filtered_feature_bc_matrix/barcodes.tsv.gz
 e86e28f431d2e70d3648ba3f8b901b21f242a09cb11eb0bfb60454eb6615f262  cellranger-pbmc_1k_v3/outs/filtered_feature_bc_matrix/features.tsv.gz
 1e74d826e254a10d5ae9d7120c68b9bbec782b3a6c559a6ec96172149e6fa608  cellranger-pbmc_1k_v3/outs/filtered_feature_bc_matrix/matrix.mtx.gz
@@ -182,3 +182,5 @@ d632e918a3b81eafe901725b037e8a264fc1561397fe63438f2371e3699e1caf  umi-adopt/umi-
 5f002d22904af933453fb152683946f2e45ee3cb56c764a35db18385132029d1  umi-adopt/umi-2711/S2/run-record.json
 db405b5a1ade2d1a6597239a3cd26e2505649f5d5bb0ea6e3bf24b84372af7b7  umi-adopt/umi-2711/S2/staging.json
 67ab41bbbb1491eb5e7f3843d61c4ce0f8e19ee499f2e23b21b61cdc91171ffc  umi-adopt/umi-2711/S2/umi-check/pair1-layout-check.json
+fc666d4b398b885cf5b3495de47a79d86e1e167a8189a3ac06667a042dcbba3a  tenx-gtf-gencode/genes.gtf
+f2414d6aae7f05eaad462bcd9d597edfaea44fcb7a61604bf6fadde21edb0183  tenx-gtf-gencode/rule_2020a.gtf

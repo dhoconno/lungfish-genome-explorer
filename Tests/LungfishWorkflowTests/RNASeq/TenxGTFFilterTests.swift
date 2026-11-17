@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import LungfishPortable
+import LungfishTestSupport
 import XCTest
 @testable import LungfishWorkflow
 
@@ -129,5 +130,77 @@ final class TenxGTFFilterTests: XCTestCase {
             Data(gene("COX1", "protein_coding").utf8), list: .mkgtf300, extraRecords: [], exonsAdded: []))
         let extra = "NC_045512.2\tLGE\texon\t1\t50\t.\t+\t.\tgene_id \"NC_045512.2\"; transcript_id \"NC_045512.2\";\n"
         XCTAssertNoThrow(try TenxGTFFilter.filter(Data(extra.utf8), list: .mkgtf300, extraRecords: ["NC_045512.2"], exonsAdded: []))
+    }
+
+    // MARK: - Rule version 2 of gencode-2020-A (SOLO-PLAN-M1-BIO R1)
+
+    /// The GENCODE v32 cut of `Tests/Fixtures/rnaseq/tenx-gtf-gencode/` and the file that 10x's `rule_2020a`
+    /// (`scripts/repro/rnaseq/tenx-controls/tenx_gtf.py gencode-2020-A`) made from it.
+    private func gencodeCut() throws -> (input: Data, expected: String) {
+        let folder = RNASeqFixtures.root.appendingPathComponent("tenx-gtf-gencode", isDirectory: true)
+        return (try Data(contentsOf: folder.appendingPathComponent("genes.gtf")),
+                String(decoding: try Data(contentsOf: folder.appendingPathComponent("rule_2020a.gtf")), as: UTF8.self))
+    }
+
+    /// 10x's move of an Ensembl id's version into `<key>_version` (`tenx_gtf.py:66-71`). LGE's file keeps each id as
+    /// `derived/genes.tsv` names it, so the test makes the move on LGE's lines before it compares them with 10x's.
+    private func movingVersions(_ data: Data) throws -> String {
+        let move = try NSRegularExpression(pattern: #"(gene|transcript|exon)_id "(ENS(?:MUS)?[GTE][0-9]+)\.([0-9]+)";"#)
+        return String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false).map { line in
+            let text = String(line)
+            guard !text.hasPrefix("#") else { return text }
+            return move.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text),
+                                                 withTemplate: #"$1_id "$2"; $1_version "$3";"#)
+        }.joined(separator: "\n")
+    }
+
+    /// Version 2 keeps a gene whole when one of its `transcript` lines has a `gene_type` and a `transcript_type` on the list
+    /// and neither `tag "readthrough_transcript"` nor `tag "PAR"`. On the cut it keeps the lines `rule_2020a` keeps, line
+    /// for line, and it leaves out three genes that version 1 kept, one for each cause.
+    func testRuleVersionTwoOfGencode2020AKeepsTheLinesOfTenxsRuleOnTheGencodeCut() throws {
+        let (input, expected) = try gencodeCut()
+        let made = try TenxGTFFilter.filter(input, list: .gencode2020A, extraRecords: [], exonsAdded: [])
+        XCTAssertEqual(try movingVersions(made.bytes), expected, "rule_2020a's lines, once 10x's version move is made on LGE's")
+        XCTAssertEqual(made.genesLeftOut, ["ENSG00000020219.9", "ENSG00000252690.3", "ENSG00000263126.1", "ENSG00000185203.12_PAR_Y"])
+        let made2 = String(decoding: made.bytes, as: UTF8.self)
+        XCTAssertFalse(made2.contains("_version"), "the ids stay those of derived/genes.gtf, with their versions")
+        XCTAssertTrue(made2.contains("gene_id \"ENSG00000185203.12\";"), "the chrX copy of the PAR gene has no PAR tag and stays")
+        XCTAssertTrue(made2.contains("transcript_type \"processed_pseudogene\""), "a kept gene keeps its transcript of another type")
+        let lines = String(decoding: input, as: UTF8.self).split(separator: "\n")
+        func transcriptLine(_ gene: String) throws -> String {
+            String(try XCTUnwrap(lines.first { $0.contains("\ttranscript\t") && $0.contains("gene_id \"\(gene)\";") }, gene))
+        }
+        // Version 1 keeps a gene whose gene line names a gene_type on the list, and each of the three is lncRNA.
+        let causes = [
+            ("ENSG00000252690.3", "transcript_type \"retained_intron\"", "no transcript of a listed transcript_type"),
+            ("ENSG00000263126.1", "tag \"basic\"; tag \"readthrough_transcript\";", "a readthrough transcript"),
+            ("ENSG00000185203.12_PAR_Y", "tag \"basic\"; tag \"PAR\";", "a PAR transcript"),
+        ]
+        for (gene, words, cause) in causes {
+            let gene1 = try XCTUnwrap(lines.first { $0.contains("\tgene\t") && $0.contains("gene_id \"\(gene)\";") }, gene)
+            let type = try XCTUnwrap(ReferenceSetGTFFeature(String(gene1))?.attributes["gene_type"], gene)
+            XCTAssertTrue(TenxGTFFilter.List.gencode2020A.biotypes.contains(type), "version 1 keeps \(gene) (\(type))")
+            let transcript = try transcriptLine(gene)
+            XCTAssertTrue(transcript.contains(words), "\(gene) is left out for \(cause)")
+            // Each tag follows another tag, so the first value that parseAttributes keeps is never the tag the rule reads.
+            XCTAssertNotEqual(ReferenceSetGTFFeature(transcript)?.attributes["tag"], words.contains("PAR") ? "PAR" : "readthrough_transcript")
+        }
+        XCTAssertEqual(TenxGTFFilter.List.gencode2020A.path, "made/tenx2-gencode-2020-A/genes.gtf")
+        XCTAssertEqual(TenxGTFFilter.List.mkgtf300.path, "made/tenx1-mkgtf-3.0.0/genes.gtf", "mkgtf-3.0.0 stays at version 1")
+    }
+
+    /// Version 2 keeps LGE's `exon` lines of a kept gene and every line of an extra, as version 1 does (BIO-SOLO-GTF items 2
+    /// and 3), and an LGE line of a gene it leaves out goes with that gene.
+    func testRuleVersionTwoKeepsLGEsExonLinesOfAKeptGeneAndEveryExtraLine() throws {
+        let (input, _) = try gencodeCut()
+        let lge = "chr18\tLGE\texon\t47022287\t47023927\t.\t-\t.\tgene_id \"ENSG00000278674.2\"; transcript_id \"ENST00000611323.1\";\n"
+        let gone = "chr16\tLGE\texon\t67882461\t67886367\t.\t+\t.\tgene_id \"ENSG00000263126.1\"; transcript_id \"ENST00000572067.1\";\n"
+        let extra = "NC_045512.2\tLGE\texon\t1\t50\t.\t+\t.\tgene_id \"NC_045512.2\"; transcript_id \"NC_045512.2\";\n"
+        let made = try TenxGTFFilter.filter(input + Data((lge + gone + extra).utf8), list: .gencode2020A,
+                                            extraRecords: ["NC_045512.2"], exonsAdded: ["ENSG00000278674.2"])
+        let text = String(decoding: made.bytes, as: UTF8.self)
+        XCTAssertTrue(text.hasSuffix(lge + extra), text)
+        XCTAssertFalse(text.contains(gone))
+        XCTAssertEqual(made.genesLeftOut.count, 4)
     }
 }
