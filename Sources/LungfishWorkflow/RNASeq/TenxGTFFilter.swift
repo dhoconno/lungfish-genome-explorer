@@ -133,13 +133,14 @@ package enum TenxGTFFilter {
         // A GTF that names no listed biotype on any host gene keeps none of them, and STAR would index the extras only.
         guard order.isEmpty || !kept.isEmpty else {
             let why = ruleVersion == 1 ? "no gene has a gene_biotype or gene_type on its list"
-                : "no transcript line has a gene_type and a transcript_type on its list without the tag readthrough_transcript "
-                    + "or PAR, as 10x's GRCh38-2020-A rule asks"
-            let annotation = ruleVersion == 1 ? "an annotation that names each gene's biotype"
-                : "a GENCODE annotation, whose transcript lines name both"
+                : "no transcript line has a gene_type and a transcript_type on its list and neither the tag readthrough_transcript "
+                    + "nor the tag PAR, as 10x's GRCh38-2020-A rule asks"
+            let next = ruleVersion == 1 ? "or build it from an annotation that names each gene's biotype"
+                : "name --tenx-filter mkgtf-3.0.0 for a set whose genes carry a gene_biotype, as RefSeq and Ensembl sets do, or build it "
+                    + "from a GENCODE annotation, whose transcript lines name both"
             throw STARIndexError("The 10x filter rule \(list.rawValue) keeps none of the \(order.count) genes of derived/genes.gtf, "
                 + "since \(why), so STAR would index no gene of the set and its matrix would hold none. Index the set without "
-                + "--tenx-filter, or build it from \(annotation). No plan or record was written.")
+                + "--tenx-filter, \(next). No plan or record was written.")
         }
         var output = Data()
         output.reserveCapacity(data.count)

@@ -136,7 +136,8 @@ extension RNASeqIndexPlanSubcommand {
         lines.append(sparse == STARIndexPlan.genomeSAsparseD
             ? "STAR builds the suffix array with --genomeSAsparseD \(sparse), LGE's default."
             : "STAR builds the suffix array with --genomeSAsparseD \(sparse), where LGE's default is \(STARIndexPlan.genomeSAsparseD). "
-                + "A larger value needs less memory and maps more slowly, and the key \(made.key.folderName) holds it.")
+                + "A larger value needs less memory and maps more slowly, and it changes which reads map, so counts from indexes "
+                + "of different values are not equal. The key \(made.key.folderName) holds the value.")
         facts["genomeSAsparseD"] = sparse
         let json = try JSONSerialization.data(withJSONObject: facts, options: [.sortedKeys, .withoutEscapingSlashes])
         return PlanSummary(lines: lines, json: String(decoding: json, as: UTF8.self))

@@ -543,7 +543,8 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
         XCTAssertEqual(three.facts["key"] as? String, key)
         XCTAssertEqual(three.facts["genomeSAsparseD"] as? Int, 3)
         XCTAssertEqual(three.lines.last, "STAR builds the suffix array with --genomeSAsparseD 3, where LGE's default is 2. A larger "
-            + "value needs less memory and maps more slowly, and the key \(key) holds it.")
+            + "value needs less memory and maps more slowly, and it changes which reads map, so counts from indexes of different "
+            + "values are not equal. The key \(key) holds the value.")
         let (plain, two) = (try written("plain", []), try written("two", ["--genomeSAsparseD", "2"]))
         XCTAssertEqual(plain.plan, two.plan, "the default plan, byte for byte")
         XCTAssertEqual(plain.lines.last, "STAR builds the suffix array with --genomeSAsparseD 2, LGE's default.")

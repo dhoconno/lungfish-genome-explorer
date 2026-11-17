@@ -130,10 +130,11 @@ final class TenxGTFFilterTests: XCTestCase {
             + "was written.")
         let two = refusal { _ = try TenxGTFFilter.filter(Data(unnamed.utf8), list: .gencode2020A, extraRecords: [], exonsAdded: []) }
         XCTAssertEqual(two, "The 10x filter rule gencode-2020-A keeps none of the 2 genes of derived/genes.gtf, since no transcript "
-            + "line has a gene_type and a transcript_type on its list without the tag readthrough_transcript or PAR, as 10x's "
-            + "GRCh38-2020-A rule asks, so STAR would index no gene of the set and its matrix would hold none. Index the set "
-            + "without --tenx-filter, or build it from a GENCODE annotation, whose transcript lines name both. No plan or record "
-            + "was written.")
+            + "line has a gene_type and a transcript_type on its list and neither the tag readthrough_transcript nor the tag PAR, "
+            + "as 10x's GRCh38-2020-A rule asks, so STAR would index no gene of the set and its matrix would hold none. Index the "
+            + "set without --tenx-filter, name --tenx-filter mkgtf-3.0.0 for a set whose genes carry a gene_biotype, as RefSeq and "
+            + "Ensembl sets do, or build it from a GENCODE annotation, whose transcript lines name both. No plan or record was "
+            + "written.")
         XCTAssertNoThrow(try TenxGTFFilter.filter(
             Data(gene("COX1", "protein_coding").utf8), list: .mkgtf300, extraRecords: [], exonsAdded: []))
         let extra = "NC_045512.2\tLGE\texon\t1\t50\t.\t+\t.\tgene_id \"NC_045512.2\"; transcript_id \"NC_045512.2\";\n"
