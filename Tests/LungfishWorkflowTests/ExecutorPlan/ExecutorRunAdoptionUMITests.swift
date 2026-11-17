@@ -159,4 +159,17 @@ final class ExecutorRunAdoptionUMITests: XCTestCase {
                 + "would read 0 where the reads are. Make the plan again with this version of Lungfish, run it, and adopt the "
                 + "folder it returns.")
     }
+
+    /// Each gene keeps its own count whatever order the table lists the genes in: a table in reverse set order with 1 to 13
+    /// adopts as 1 to 13 in the set's order.
+    func testEachGeneKeepsItsOwnCountWhateverTheOrderOfTheTable() async throws {
+        try await buildSet()
+        let sample = try batch().appendingPathComponent("S1", isDirectory: true)
+        let genes = ReferenceSetMitoFixture.genes
+        let rows = genes.enumerated().reversed().map { "\($0.element)\t\($0.offset + 1)\n" }.joined()
+        try ReturnedFolderEdits.replace(sample, "umi/counts.tsv", with: "gene\tcount\n" + rows)
+        let table = try XCTUnwrap(try RNASeqResultBundle.load(from: try adopt(sample, name: "distinct")).counts.first).table
+        XCTAssertEqual(table.rows.map(\.id), genes)
+        XCTAssertEqual(table.rows.map { $0.counts[0] }, (1...13).map { Double($0) })
+    }
 }
