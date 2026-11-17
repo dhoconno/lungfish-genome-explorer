@@ -141,10 +141,13 @@ extension ClassifierReadResolver {
     /// of ``taxTriageScanNotice(tool:sampleId:resultPath:bam:)``, which also cover the fit that a rebuild marks again when
     /// the sample's own BAM is still missing. Extract Reads says the same words, so the four places read one source.
     /// Nothing is refused and no number changes. The check reads the folder and the database, never a BAM, and writes
-    /// nothing. `resultPath` is the result folder or its database.
+    /// nothing. `resultPath` is the result folder or its database, and the disk tells the two apart, so a folder URL that
+    /// ends with no slash is still the folder (FIX-T2-VIEW-BIO 3.2).
     package static func taxTriageRecordedBAMNotice(sampleId: String, resultPath: URL, bam: URL) -> String? {
         guard !taxTriageOwnBAMNames(of: sampleId).contains(bam.lastPathComponent) else { return nil }
-        let resultDir = resultPath.hasDirectoryPath ? resultPath : resultPath.deletingLastPathComponent()
+        var isFolder: ObjCBool = false
+        let pathIsFolder = FileManager.default.fileExists(atPath: resultPath.path, isDirectory: &isFolder) && isFolder.boolValue
+        let resultDir = pathIsFolder ? resultPath : resultPath.deletingLastPathComponent()
         let recorded = taxTriageRecordedBAMCandidates(sampleId: sampleId, resultDir: resultDir)
         if let foreign = foreignNamedRecordedBAM(among: recorded, sampleId: sampleId, resultDir: resultDir),
            foreign.resolvingSymlinksInPath().path == bam.resolvingSymlinksInPath().path,
@@ -153,7 +156,9 @@ extension ClassifierReadResolver {
                 sampleId: sampleId, fileName: foreign.lastPathComponent, resultFolder: resultDir
             )
         }
-        return taxTriageScanNotice(tool: .taxtriage, sampleId: sampleId, resultPath: resultPath, bam: bam)
+        return taxTriageScanNotice(
+            tool: .taxtriage, sampleId: sampleId, resultPath: resultDir.appendingPathComponent("taxtriage.sqlite"), bam: bam
+        )
     }
 
     /// The notice of each sample of `bamsBySample`, the BAM that the view reads for it, with no entry for a sample that has none.
