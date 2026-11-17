@@ -20,12 +20,14 @@ struct ImportRNASeqAdoptOptions: ParsableArguments {
             discussion: """
             The one input names the returned plan folder, which holds plan.json, run-record.json and the run's count \
             files, or a returned batch folder, which holds one such folder a sample as <sample>/. The counts are \
-            salmon's, STAR GeneCounts' column 2 (unstranded) or featureCounts' table, as the plan's route names. A \
-            STARsolo plan of rnaseq solo-plan gives the filtered matrix of Solo.out/Gene as one single-cell result. A \
-            batch gives one result of all its samples, and when any sample is refused nothing is imported. The genes \
-            are those of the reference set the plan names, in the storage root, and a STAR or featureCounts table \
-            counted on another GTF is refused. The plan fixed every setting, so no option that sets a count is taken \
-            with --adopt. A refused adopt writes nothing.
+            those the plan's route names, salmon's on the reads or by LGE's default route (STAR, then salmon -a on \
+            STAR's transcriptome alignments), STAR GeneCounts' column 2 (unstranded), featureCounts' table, or the UMI \
+            branch's count of UMIs per gene from umi_tools. A UMI sample whose layout check failed has no counts and \
+            is refused in the check's words. A STARsolo plan of rnaseq solo-plan gives the filtered matrix of \
+            Solo.out/Gene as one single-cell result. A batch gives one result of all its samples, and when any sample \
+            is refused nothing is imported. The genes are those of the reference set the plan names, in the storage \
+            root, and a STAR, featureCounts or umi_tools table counted on another GTF is refused. The plan fixed every \
+            setting, so no option that sets a count is taken with --adopt. A refused adopt writes nothing.
             """
         )
     )

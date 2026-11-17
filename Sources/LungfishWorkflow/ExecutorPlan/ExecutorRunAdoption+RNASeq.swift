@@ -10,17 +10,22 @@ import LungfishIO
 /// One sample of a counts adopt: its checked run, the counts its counting step returned, read where they lie, the
 /// duplicates state its plan states, and the adapter of each trim call by step index.
 struct ExecutorCountsAdoptedSample: Sendable {
-    /// salmon's folder, the table of a STAR chain (lane EX-ADOPT M5), or a STARsolo folder (lane SOLO-PLAN M3).
+    /// salmon's folder, the table of a STAR chain (lane EX-ADOPT M5), a STARsolo folder (lane SOLO-PLAN M3), or the UMI
+    /// branch's table (lane EX-ADOPT M6).
     enum Counts: Sendable {
         case salmon(SalmonQuantFolder)
         case star(ExecutorSTARCountsSample)
         case singleCell(ExecutorSoloSample)
+        case umi(ExecutorUMICountsSample)
     }
 
     let run: ExecutorAdoptedCountsRun
     let counts: Counts
     let duplicates: SalmonQuantRecordLines.DuplicatesState
     let adapters: [Int: TrimGaloreAdapterReport]
+    /// The record's lines of a salmon folder of LGE's default route: each other `home` file, STAR's among them, as left
+    /// out (lane EX-ADOPT M6). None for salmon on the reads.
+    var salmonLines: [String: ParameterValue] = [:]
 
     /// The plan's sample name, which labels the counts, the kept files and the record.
     var name: String { run.plan.sample.sampleName }
@@ -36,8 +41,12 @@ struct ExecutorCountsAdoptedSample: Sendable {
         if case .singleCell(let solo) = counts { return solo }
         return nil
     }
-    /// The counting step's lines the payload adds to the record beside the Mac route's: none for salmon.
-    var payloadLines: [String: ParameterValue] { starCounts?.lines ?? soloSample?.lines ?? [:] }
+    var umiCounts: ExecutorUMICountsSample? {
+        if case .umi(let umi) = counts { return umi }
+        return nil
+    }
+    /// The counting step's lines the payload adds to the record beside the Mac route's: none for salmon on the reads.
+    var payloadLines: [String: ParameterValue] { starCounts?.lines ?? soloSample?.lines ?? umiCounts?.lines ?? salmonLines }
 }
 
 /// A returned folder or batch whose every sample passed every check, read into the writer's request before any result
@@ -67,16 +76,25 @@ extension ExecutorRunAdoption {
         try checkOnePipeline(runs, duplicates: duplicates)
         let (setURL, set) = try countsReferenceSet(first.pipeline.referenceSet, storageRoot: storageRoot)
         // A STAR chain's two checks come before any table is read: `multimapNmax` in the argv (`checkCounts`), then each
-        // plan's GTF against the set's (lane EX-ADOPT M5).
-        let star = isSTARRoute(first.route)
+        // plan's GTF against the set's (lane EX-ADOPT M5). The UMI branch's GTF check comes first too (lane EX-ADOPT M6).
+        let (star, umi) = (isSTARRoute(first.route), isUMIRoute(first.route))
         if star { for run in runs { try checkCountingGTF(run, set: set) } }
-        let setGenes = star ? try starSetGenes(set) : []
+        if umi { for run in runs { try checkUMICountingGTF(run, set: set) } }
+        let setGenes = star || umi ? try starSetGenes(set) : []
         var samples: [ExecutorCountsAdoptedSample] = []
         for (run, state) in zip(runs, duplicates) {
             try Task.checkCancellation()
-            let counts: ExecutorCountsAdoptedSample.Counts = star
-                ? .star(try starSample(run, setID: set.manifest.id, setGenes: setGenes)) : .salmon(try salmonFolder(run))
-            samples.append(ExecutorCountsAdoptedSample(run: run, counts: counts, duplicates: state, adapters: try trimAdapters(run)))
+            let counts: ExecutorCountsAdoptedSample.Counts
+            if star {
+                counts = .star(try starSample(run, setID: set.manifest.id, setGenes: setGenes))
+            } else if umi {
+                counts = .umi(try umiSample(run, setID: set.manifest.id, setGenes: setGenes))
+            } else {
+                counts = .salmon(try salmonFolder(run))
+            }
+            var sample = ExecutorCountsAdoptedSample(run: run, counts: counts, duplicates: state, adapters: try trimAdapters(run))
+            sample.salmonLines = defaultRouteLines(run)
+            samples.append(sample)
         }
         let request = try countsRequest(name: name, samples: samples, set: set)
         return ExecutorCountsAdoption(samples: samples, setURL: setURL, request: request)
@@ -85,6 +103,14 @@ extension ExecutorRunAdoption {
     /// One returned folder's run, or each sample's run of a returned batch in the batch's order. A batch is refused
     /// whole, with every sample's refusal, as the FASTQ batch adopt refuses it.
     static func checkCountsRuns(_ folder: URL, policy: ExecutorAdoptPolicy) throws -> [ExecutorAdoptedCountsRun] {
+        // A UMI sample whose layout check failed is refused in words that name the check's verdict (lane EX-ADOPT M6).
+        func checkCounts(_ folder: URL, policy: ExecutorAdoptPolicy) throws(ExecutorAdoptRefusal) -> ExecutorAdoptedCountsRun {
+            do throws(ExecutorAdoptRefusal) {
+                return try ExecutorRunAdoption.checkCounts(folder, policy: policy)
+            } catch {
+                throw umiCheckRefusal(folder, refused: error) ?? error
+            }
+        }
         guard isReturnedBatchFolder(folder) else { return [try checkCounts(folder, policy: policy)] }
         let samples = try sampleFolders(in: folder)
         var runs: [ExecutorAdoptedCountsRun] = []
@@ -105,8 +131,9 @@ extension ExecutorRunAdoption {
     }
 
     /// The duplicates state of one sample's plan entry `duplicates` (ruling ARCH-ADOPT-ROUTE item 2): the removed words
-    /// with source `recipe` are removed, the kept words with source `default` kept, and the Not recorded words with
-    /// source `default` Not recorded. Any other value is refused in words that name it and the sample, never read as kept.
+    /// with source `recipe` are removed, the kept words with source `default` kept, the Not recorded words with source
+    /// `default` Not recorded, and a UMI chain's words with source `preset` removed with UMIs. Any other value is refused
+    /// in words that name it and the sample, never read as kept.
     static func duplicatesState(_ run: ExecutorAdoptedCountsRun) throws(ExecutorAdoptRefusal) -> SalmonQuantRecordLines.DuplicatesState {
         let sample = run.plan.sample.sampleName
         let entry = run.pipeline.settings.first { $0.id == "duplicates" }
@@ -114,12 +141,14 @@ extension ExecutorRunAdoption {
         case .default? where entry?.value == SalmonQuantRecordLines.duplicates: return .kept
         case .default? where entry?.value == SalmonQuantRecordLines.duplicatesNotRecorded: return .notRecorded
         case .recipe? where entry.map(\.value).map(isRemovedWords) == true: return .removed
+        case .preset? where isUMIRoute(run.route) && entry.map({ isUMIWords($0.value, route: run.route) }) == true: return .umi
         default:
             let stated = entry.map { "states duplicates as \"\($0.value)\" with source \($0.source.rawValue)" } ?? "states no duplicates"
             throw refusal(
                 "pipeline.settings",
-                "The plan of the sample \(sample) \(stated). The adopt reads only the removed words with source recipe, or "
-                    + "the kept or the Not recorded words with source default, so it cannot say what the counted reads lost to duplicate removal."
+                "The plan of the sample \(sample) \(stated). The adopt reads only the removed words with source recipe, "
+                    + "the kept or the Not recorded words with source default, or a UMI chain's words with source preset, so it "
+                    + "cannot say what the counted reads lost to duplicate removal."
             )
         }
     }
@@ -130,18 +159,33 @@ extension ExecutorRunAdoption {
     }
 
     /// One result holds one route and one set, so every sample's plan states the same pipeline, and the adopt reads
-    /// the bulk counts of salmon, STAR GeneCounts or featureCounts. Route keys other than `duplicates` must be equal. `duplicates` holds each sample's own step
-    /// names, so the samples must share its state instead, as a result adopted from plans holds samples of one state
-    /// (`docs/formats/executor-plan.md`, the `duplicates` paragraph).
+    /// the bulk counts of salmon, STAR GeneCounts, featureCounts or umi_tools. Route keys other than `duplicates` must be
+    /// equal, and a batch of two salmon scorings is refused in words that name both. `duplicates` holds each sample's own
+    /// step names, so the samples must share its state instead, as a result adopted from plans holds samples of one
+    /// state (`docs/formats/executor-plan.md`, the `duplicates` paragraph).
     static func checkOnePipeline(
         _ runs: [ExecutorAdoptedCountsRun], duplicates: [SalmonQuantRecordLines.DuplicatesState]
     ) throws(ExecutorAdoptRefusal) {
         let first = runs[0]
-        guard first.route.tool == salmonToolID || isSTARRoute(first.route), first.pipeline.modality == .bulk else {
+        let read = first.route.tool == salmonToolID || isSTARRoute(first.route) || isUMIRoute(first.route)
+        guard read, first.pipeline.modality == .bulk else {
             throw refusal(
                 "pipeline.route",
                 "This plan counts \(first.pipeline.modality?.rawValue ?? "no") reads with \(first.route.tool) \(first.route.toolVersion), "
-                    + "and import rnaseq --adopt reads the bulk counts of salmon, STAR GeneCounts and featureCounts only."
+                    + "and import rnaseq --adopt reads the bulk counts of salmon, STAR GeneCounts, featureCounts and umi_tools only."
+            )
+        }
+        let scoring = "alignmentScoring"
+        if let one = first.route.settings[scoring],
+           let other = runs.dropFirst().first(where: { $0.route.settings[scoring].map { $0 != one } == true }),
+           let two = other.route.settings[scoring] {
+            let (withModel, without) = one == "errorModel" ? (first, other) : (other, first)
+            throw refusal(
+                "pipeline.route",
+                "The samples \(first.plan.sample.sampleName) and \(other.plan.sample.sampleName) were planned with two alignment "
+                    + "scorings, \(one) and \(two), so salmon weighed the alignments of \(withModel.plan.sample.sampleName) with its "
+                    + "error model and those of \(without.plan.sample.sampleName) without it. One result holds one route, so adopt "
+                    + "them as two batches."
             )
         }
         for (run, state) in zip(runs, duplicates).dropFirst() {
@@ -246,5 +290,14 @@ extension ExecutorRunAdoption {
         folder.keptFiles = SalmonQuantFolderReader.readFiles
         folder.leftOut = []
         return folder
+    }
+
+    /// The record's lines of LGE's default route, a salmon route whose plan maps with STAR first: each `home` file of a
+    /// step other than salmon's, STAR's `Log.final.out` and `ReadsPerGene.out.tab` among them, as left out, since the
+    /// result keeps salmon's four files only. None for salmon on the reads, whose record has always named none.
+    static func defaultRouteLines(_ run: ExecutorAdoptedCountsRun) -> [String: ParameterValue] {
+        guard run.route.tool == salmonToolID, run.plan.steps.contains(where: { $0.tool?.id == starToolID }) else { return [:] }
+        let leftOut = run.homeOutputs.filter { !run.countingSteps.contains($0.stepIndex) }.map(\.path)
+        return leftOut.isEmpty ? [:] : [RNASeqImportFacts.filesLeftOutKey: .array(leftOut.map { .string($0) })]
     }
 }

@@ -75,6 +75,7 @@ extension ExecutorRunAdoption {
         name: String, samples: [ExecutorCountsAdoptedSample], set: ReferenceSetOutcome
     ) throws -> RNASeqResultWriter.Request {
         if samples[0].starCounts != nil { return try starCountsRequest(name: name, samples: samples, set: set) }
+        if samples[0].umiCounts != nil { return try umiCountsRequest(name: name, samples: samples, set: set) }
         let folders = samples.compactMap(\.salmonFolder)
         let route = samples[0].run.route
         let pairs = set.manifest.derived.transcriptGenes.path
