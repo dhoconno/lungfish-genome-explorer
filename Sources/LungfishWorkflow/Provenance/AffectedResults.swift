@@ -185,7 +185,7 @@ public enum AffectedResults {
             lastBuild: 13672,
             sentence: "An extraction of a TaxTriage sample whose own BAM was missing may hold another sample's reads.",
             whatToDo: "Extract again.",
-            fixCommit: "baa1d58d8"
+            fixCommit: "e9a83bb94"
         ),
         AffectedResultRow(
             backlogID: "TTREADS", kinds: [.taxTriage], firstBuild: nil, lastBuild: 12045,
@@ -323,7 +323,7 @@ public enum AffectedResults {
             sentence: "A BLAST check of an EsViritu row judged by organism names could count a read as supporting "
                 + "when its best match was another virus whose name starts with the same word.",
             whatToDo: "Run Verify with BLAST… again.",
-            fixCommit: "e8d32e30f"
+            fixCommit: "3c943cb8a"
         ),
         AffectedResultRow(
             backlogID: "ASSEMBLY-RECORDED-PATH", kinds: [.assembly], firstBuild: nil, lastBuild: 11807,
@@ -368,7 +368,7 @@ public enum AffectedResults {
             sentence: "A single-end Viral Recon run let fastp guess the adapter from the first reads, so the "
                 + "same reads in another stored order could be trimmed differently.",
             whatToDo: "Run it again.",
-            fixCommit: "78594ad20"
+            fixCommit: "4bf400438"
         ),
         AffectedResultRow(
             backlogID: "IVAR-CODON-MERGE", kinds: [.variantCalls], firstBuild: 1728, lastBuild: 12972,

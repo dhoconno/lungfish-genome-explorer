@@ -47,7 +47,7 @@ final class AffectedResultsVRSEAdaptersTests: XCTestCase {
         XCTAssertEqual(row.sentence, "A single-end Viral Recon run let fastp guess the adapter from the first reads, "
                        + "so the same reads in another stored order could be trimmed differently.")
         XCTAssertEqual(row.whatToDo, "Run it again.")
-        XCTAssertEqual(row.fixCommit, "78594ad20")
+        XCTAssertEqual(row.fixCommit, "4bf400438")
     }
 
     // A record names its build in `Lungfish <version> (<build>)`, and the table believes a build only when its version
