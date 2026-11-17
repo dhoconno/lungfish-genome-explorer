@@ -515,9 +515,11 @@ extension AffectedResults {
     /// (`trimLeftNoAdapterToGuess`). A FASTQ import is a recipe import only when a fastp step of its recipe guessed
     /// the adapter pair, since a recipe's fastp runs on read pairs (`FastpTrimStep.swift:19`) and its dedup and
     /// length-filter steps turn adapter trimming off. Variant calls count only when iVar called them, which
-    /// IVAR-CODON-MERGE speaks of. A read extraction counts only when its `tool` option names TaxTriage, which
-    /// EXTRACT-SCAN-EXTENDED-ID speaks of. That option is in every such record since the scan landed (7fc768ba2), and
-    /// the `bamScanNote` is not, since builds before 03d2d8c3b and every `lungfish extract reads` record lack it.
+    /// IVAR-CODON-MERGE speaks of. A read extraction counts only when it took its reads from a TaxTriage result, which
+    /// EXTRACT-SCAN-EXTENDED-ID speaks of. The `tool` option names the classifier in every `lungfish extract reads` record
+    /// and in the record of the File destination of the app, and the Bundle destination of the app names it as the tool
+    /// of the record instead. The `bamScanNote` is not in every such record, since builds before 03d2d8c3b and every
+    /// `lungfish extract reads` record lack it.
     public static func kind(of envelope: ProvenanceEnvelope) -> AffectedResultKind? {
         switch envelope.workflowName.trimmingCharacters(in: .whitespacesAndNewlines) {
         case RecordName.fastqTrim, RecordName.fastqAdapterTrim:
@@ -529,13 +531,22 @@ extension AffectedResults {
             return guessed ? .fastqRecipeImport : nil
         case RecordName.variantsCall:
             return envelope.steps.contains { runs("ivar", $0) } ? .variantCalls : nil
-        case RecordName.extractReads:
-            guard case .string(let tool)? = envelope.options.explicit["tool"],
-                  tool.trimmingCharacters(in: .whitespacesAndNewlines) == extractReadsTaxTriageTool else { return nil }
-            return .taxTriageReadExtraction
+        case RecordName.extractReads, RecordName.classifierReadExtraction, RecordName.appClassifierReadExtraction:
+            return takesReadsFromTaxTriage(envelope) ? .taxTriageReadExtraction : nil
         default:
             return nil
         }
+    }
+
+    /// Whether a read extraction record took its reads from a TaxTriage result. The command line and the File destination
+    /// of the app name the classifier in the `tool` option. The Bundle destination of the app records it as the tool of
+    /// the record, by display name (`ClassifierTool.taxtriage.displayName`), and writes no `tool` option. The option wins
+    /// when it is present, so a bundle of the command line that names another classifier is no kind.
+    private static func takesReadsFromTaxTriage(_ envelope: ProvenanceEnvelope) -> Bool {
+        if case .string(let tool)? = envelope.options.explicit["tool"] {
+            return tool.trimmingCharacters(in: .whitespacesAndNewlines) == extractReadsTaxTriageTool
+        }
+        return envelope.toolName.trimmingCharacters(in: .whitespacesAndNewlines) == ClassifierTool.taxtriage.displayName
     }
 
     /// Whether `step` ran `tool`, by the tool name a recipe or caller records or the executable of its argv.
