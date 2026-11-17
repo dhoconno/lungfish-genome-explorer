@@ -267,6 +267,90 @@ final class ViewerTaxTriageOperationTests: XCTestCase {
         ) { XCTAssertEqual($0 as? BlastSubmitPlanError, .noProject) }
     }
 
+    // MARK: - The words for a fitted BAM (FIX-T2-VIEW-BIO 3.1, BIO-WALK-T2-VIEW)
+
+    /// The words of `taxTriageScanNotice` for sample S1 and the file `S1_2.bam` of a marked fit.
+    private static let markedNotice = "Sample S1's own BAM was not found when Lungfish built this result's database, so "
+        + "Lungfish read S1_2.bam, a file in the minimap2 folder whose name fits it. "
+        + "If that file belongs to another sample, put S1's own BAM back, delete taxtriage.sqlite in "
+        + "the result folder and select the result again so that Lungfish builds the database anew."
+
+    /// BLAST Verify takes the reads of a sample from the BAM that the view shows. When that file is one that a fit of its
+    /// name gave the sample, the row's log says so once, as a warning, in the words of the action bar and the Inspector.
+    /// A sample whose BAM is its own file gets no such entry.
+    func testBlastVerifyLogsTheFittedBAMNotice() async throws {
+        let fixture = try makeFixture()
+        let bams = try Self.writeFittedBAMResult(into: fixture.result)
+
+        let fitted = try await blastRowLog(sample: "S1", bam: bams.fitted, in: fixture)
+        XCTAssertEqual(
+            fitted.filter { $0.level == .warning }.map(\.message), [Self.markedNotice],
+            "S1 reads a file that a fit of its name gave it, so the row says so once"
+        )
+
+        let own = try await blastRowLog(sample: "S2", bam: bams.own, in: fixture)
+        XCTAssertEqual(own.filter { $0.level == .warning }.map(\.message), [], "S2 reads its own BAM, so the row says nothing")
+    }
+
+    /// Launches BLAST Verify for `sample` on `bam`, reads the row's log while the reads are extracted, and ends the row.
+    private func blastRowLog(sample: String, bam: URL, in fixture: Fixture) async throws -> [OperationLogEntry] {
+        let organism = Self.organism(named: "Influenza A virus (BAM notice \(sample))", sample: sample)
+        let gate = ExtractionGate()
+        addTeardownBlock { await gate.open(with: []) }
+        let spy = DrawerSpy()
+        let viewer = ViewerViewController()
+
+        let launched = viewer.launchTaxTriageBlastSubmit(
+            organism: organism, readCount: 2, accessions: ["NC_026438.1"], bamURL: bam, bamIndexURL: nil,
+            resultURL: fixture.result, controller: nil, drawer: spy.drawer,
+            runner: CLIBlastSubmitRunner(cliURLOverride: fixture.leaf), extractReads: { _, _, _, _ in try await gate.extract() }
+        )
+        let task = try XCTUnwrap(launched, "a project is open, so the search starts")
+        let armed = await waitUntil(timeout: .seconds(10)) { await gate.started }
+        XCTAssertTrue(armed, "the extraction never started")
+        let row = try XCTUnwrap(self.row(titled: "BLAST \(organism.name)"), "no row while the reads are extracted")
+        defer { OperationCenter.shared.clearItem(id: row.id) }
+        let entries = row.logEntries
+
+        OperationCenter.shared.cancel(id: row.id)
+        await gate.open(with: Self.reads)
+        await task.value
+        return entries
+    }
+
+    /// A TaxTriage result in which S1 has no BAM of its own. The database records `minimap2/S1_2.bam` for S1, a file whose
+    /// name fits it and that can belong to another sample, and marks the fit. S2 keeps `minimap2/S2.bam`. The files are
+    /// placeholders, since the words are made from names and the database and no BAM is read.
+    private static func writeFittedBAMResult(into result: URL) throws -> (fitted: URL, own: URL) {
+        let folder = result.appendingPathComponent("minimap2", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let fitted = folder.appendingPathComponent("S1_2.bam")
+        let own = folder.appendingPathComponent("S2.bam")
+        for bam in [fitted, own] { try Data([0x1F, 0x8B]).write(to: bam) }
+        let recorded = [(sample: "S1", path: "minimap2/S1_2.bam"), (sample: "S2", path: "minimap2/S2.bam")]
+        let rows = recorded.map { entry in
+            TaxTriageTaxonomyRow(
+                sample: entry.sample, organism: "Alpha virus", taxId: 1001, status: nil, tassScore: 0.9, readsAligned: 40,
+                uniqueReads: 20, pctReads: nil, pctAlignedReads: nil, coverageBreadth: 50, meanCoverage: nil,
+                meanDepth: nil, confidence: "High", k2Reads: nil, parentK2Reads: nil, giniCoefficient: nil,
+                meanBaseQ: nil, meanMapQ: nil, mapqScore: nil, disparityScore: nil, minhashScore: nil,
+                diamondIdentity: nil, k2DisparityScore: nil, siblingsScore: nil, breadthWeightScore: nil,
+                hhsPercentile: nil, isAnnotated: nil, annClass: nil, microbialCategory: nil, highConsequence: nil,
+                isSpecies: nil, pathogenicSubstrains: nil, sampleType: nil,
+                bamPath: entry.path, bamIndexPath: entry.path + ".bai",
+                primaryAccession: "NC_026438.1", accessionLength: 13_588
+            )
+        }
+        _ = try TaxTriageDatabase.create(
+            at: result.appendingPathComponent("taxtriage.sqlite"), rows: rows,
+            metadata: [
+                "tool": "TaxTriage",
+                TaxTriageDatabase.fittedBAMSamplesMetadataKey: TaxTriageDatabase.fittedBAMSamplesMetadataValue(["S1"]),
+            ]
+        )
+        return (fitted, own)
+    }
+
     // MARK: - Fixtures
 
     /// Three reads of the selected accession, as the BAM extraction gives them.

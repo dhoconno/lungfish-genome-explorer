@@ -330,6 +330,69 @@ final class ClassifierAlignmentInspectorTests: XCTestCase {
         XCTAssertEqual(capabilities.unavailableReasons.count, Set(capabilities.unavailableReasons).count)
     }
 
+    /// FIX-T2-VIEW-BIO 3.1 (BIO-WALK-T2-VIEW). The words that say the BAM is a file a fit of its name gave the sample sit in the
+    /// evidence inventory as the row right under the BAM line, and with no words there is no such row. The presentation's
+    /// default keeps EsViritu, NVD and the other classifiers as they were.
+    func testAFittedBAMNoticeShowsRightUnderTheBAMRow() throws {
+        var capabilities = ClassifierAlignmentInspectorCapabilities.detachedEvidence(
+            workflow: "TaxTriage", result: "r", sample: "S1", contig: "c",
+            bamPath: "/results/minimap2/S1_2.bam", indexPath: "/results/minimap2/S1_2.bam.bai",
+            referenceValidation: .absent, readGroups: []
+        )
+        XCTAssertNil(capabilities.bamNotice)
+        XCTAssertFalse(capabilities.inventoryRows.contains { $0.hasPrefix("BAM note:") }, "no words, no row")
+
+        capabilities.bamNotice = "NOTE"
+        let rows = capabilities.inventoryRows
+        XCTAssertTrue(rows.contains("BAM note: NOTE"), rows.joined(separator: " | "))
+        let bamRow = try XCTUnwrap(rows.firstIndex { $0.hasPrefix("BAM: ") }, "the BAM row is missing")
+        XCTAssertEqual(rows.firstIndex(of: "BAM note: NOTE"), bamRow + 1, "the words sit right under the BAM row")
+
+        let presentation = ClassifierAlignmentEvidencePresentation(
+            workflowLabel: "TaxTriage", resultLabel: "r", sampleLabel: "S1", contigLabel: "c"
+        )
+        XCTAssertNil(presentation.bamNotice, "the default keeps the other classifiers unchanged")
+    }
+
+    /// The words of the request's presentation reach the Inspector's inventory through the viewport, which builds the
+    /// capabilities for every state of the viewer in one place. A request with no words gives no `BAM note:` row.
+    func testTheRequestsBAMNoticeReachesTheInspectorInventoryUnderTheBAMRow() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let bam = directory.appendingPathComponent("S1_2.bam")
+        let index = directory.appendingPathComponent("S1_2.bam.bai")
+        try Data("BAMDATA".utf8).write(to: bam)
+        try Data("INDEXDATA".utf8).write(to: index)
+        func request(notice: String?) throws -> ClassifierAlignmentEvidenceRequest {
+            try ClassifierAlignmentEvidenceRequest(
+                workflow: .taxTriage,
+                resultIdentity: .init(stableID: "result-1", finalResultURL: directory, provenanceID: "provenance-1"),
+                bamURL: bam, index: .init(url: index, kind: .bai), sample: .init(canonicalID: "S1"),
+                contig: .init(name: "virus", expectedLength: 4), referenceCandidate: nil,
+                presentation: .init(
+                    workflowLabel: "TaxTriage", resultLabel: "result-1", sampleLabel: "S1", contigLabel: "virus",
+                    bamNotice: notice
+                )
+            )
+        }
+        let split = MainSplitViewController()
+        split.loadViewIfNeeded() // No user window is required for the composition-root seam.
+        let viewport = split.makeClassifierAlignmentEvidenceViewport()
+
+        viewport.display(try request(notice: "NOTE"))
+        let withWords = try XCTUnwrap(split.inspectorController.readStyleSectionViewModel.classifierEvidenceCapabilities)
+        let rows = withWords.inventoryRows
+        let bamRow = try XCTUnwrap(rows.firstIndex { $0.hasPrefix("BAM: ") }, rows.joined(separator: " | "))
+        XCTAssertEqual(rows.indices.contains(bamRow + 1) ? rows[bamRow + 1] : nil, "BAM note: NOTE")
+        viewport.clear()
+
+        viewport.display(try request(notice: nil))
+        let withoutWords = try XCTUnwrap(split.inspectorController.readStyleSectionViewModel.classifierEvidenceCapabilities)
+        XCTAssertFalse(withoutWords.inventoryRows.contains { $0.hasPrefix("BAM note:") }, "no words, no row")
+        viewport.clear()
+    }
+
     func testValidatedReferenceCapabilityMatrixEnablesReferenceRenderingButNotOutputs() {
         let capabilities = ClassifierAlignmentInspectorCapabilities.detachedEvidence(
             workflow: "TaxTriage",
