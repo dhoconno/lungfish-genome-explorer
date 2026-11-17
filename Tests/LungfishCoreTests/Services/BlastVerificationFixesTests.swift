@@ -284,6 +284,49 @@ final class BlastTaxIdMatchingTests: XCTestCase {
         XCTAssertEqual(rows[0].topHitRelation, .relative)
     }
 
+    /// A name that holds the row's name only as text is another virus. The queried name counts as whole words, as an
+    /// accepted name does, so the read counts neither way (BIO review of BLAST-FIRSTWORD, Finding 1).
+    func testANumberedSiblingCountsNeitherWayOnTheNamesBasis() throws {
+        let pairs: [(row: String, hit: String)] = [
+            ("Alphapapillomavirus 1", "Alphapapillomavirus 10"),
+            ("Alphapapillomavirus 10", "Alphapapillomavirus 1"),
+            ("Human papillomavirus type 1", "Human papillomavirus type 16"),
+            ("Torque teno virus 1", "Torque teno virus 10"),
+        ]
+        for pair in pairs {
+            let result = judgeByNames(
+                [perfectHit(pair.hit, taxId: nil, accession: "KX000001.1")], row: pair.row, names: [pair.row]
+            )
+            let read = try XCTUnwrap(result.readResults.first, pair.row)
+            XCTAssertEqual(read.verdict, .ambiguous, "\(pair.hit) is not \(pair.row)")
+            XCTAssertFalse(read.matchesQueriedTaxon, "\(pair.hit) is not \(pair.row)")
+            XCTAssertEqual(result.supportingCount, 0, "\(pair.hit) for \(pair.row)")
+            XCTAssertEqual(result.contradictingCount, 0, "\(pair.hit) for \(pair.row)")
+        }
+    }
+
+    /// A name that holds the row's letters inside another word has no word in common with it, so it contradicts, and
+    /// that is right, since Pseudocowpox virus is not Cowpox virus. This is the one class where a Contradicted count rises.
+    func testAHitThatHoldsTheRowsLettersInsideAnotherWordContradictsOnTheNamesBasis() throws {
+        let result = judgeByNames(
+            [perfectHit("Pseudocowpox virus", taxId: nil, accession: "KX000002.1")], row: "Cowpox virus", names: ["Cowpox virus"]
+        )
+        let read = try XCTUnwrap(result.readResults.first)
+        XCTAssertEqual(read.verdict, .verified)
+        XCTAssertFalse(read.matchesQueriedTaxon)
+        XCTAssertEqual(result.contradictingCount, 1)
+    }
+
+    /// Green pin. The queried name alone, with no accepted names, still supports as whole words.
+    func testTheQueriedNameStillSupportsAsWholeWordsOnTheNamesBasis() throws {
+        let result = judgeByNames(
+            [perfectHit("Oxbow virus isolate ABC", taxId: nil, accession: "KX000003.1")], row: "Oxbow virus", names: []
+        )
+        XCTAssertEqual(result.readResults.first?.verdict, .verified)
+        XCTAssertEqual(result.readResults.first?.matchesQueriedTaxon, true)
+        XCTAssertEqual(result.supportingCount, 1)
+    }
+
     /// No caller outside the tests reads `hitMatchesQueriedTaxon`, so it follows the verdict rule. A first-word-only
     /// match does not support, while `organismMatchesTaxon` keeps saying that the first words agree.
     func testAFirstWordOnlyMatchIsNoSupportInHitMatchesQueriedTaxon() {
