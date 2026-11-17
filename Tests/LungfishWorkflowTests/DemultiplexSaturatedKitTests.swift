@@ -457,4 +457,50 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
             DemultiplexChanceWords.notInPoolLimit(publishedBarcodes: 1), "a kit the floor judges keeps its limit line"
         )
     }
+
+    // MARK: - The opt-in of a kit with no anchored side (S3 of SATKIT-4, `requireBarcodesAboveChance`)
+
+    /// The floor of a run that kept the unchecked samples of `kit` at `errorRate`: 1,000 reads, 300 of them on one barcode
+    /// and none left over to measure a null from, so a kit that is not saturated keeps the floor of random bases. It is
+    /// the floor the run calls.
+    private func optedInFloor(_ kit: BarcodeKitDefinition, errorRate: Double) async throws -> DemultiplexChanceFloor.Outcome {
+        let files = try project(starts: ["ACGTACGTACGT"])
+        defer { try? FileManager.default.removeItem(at: files.input.deletingLastPathComponent()) }
+        let config = config(kit: kit, files: files, errorRate: errorRate, optIn: true)
+        let pipeline = DemultiplexingPipeline()
+        let work = folder.appendingPathComponent("work-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let adapters = try await pipeline.createAdapterConfiguration(for: config, workDirectory: work)
+        let patterns = try pipeline.chancePatterns(in: adapters.adapterFASTA)
+        let barcode = try XCTUnwrap(patterns.keys.sorted().first)
+        let floor = try await pipeline.requireBarcodesAboveChance(
+            config: config, adapterFASTA: adapters.adapterFASTA, counts: [barcode: 300], readsSearched: 1_000, unassigned: 700,
+            paired: false, unassignedReadsURL: nil
+        )
+        return try XCTUnwrap(floor)
+    }
+
+    /// A run that keeps the unchecked samples of a kit whose lines have no anchored side says its samples went unchecked,
+    /// as a run of a saturated kit does. Preflight refuses these kits at every error rate, so the opt-in is the only way to
+    /// run them. At error 0 their share is under 0.5, so their floor stayed the floor of random bases and named a null
+    /// that was never measured. The built-in Fluidigm kit, a definition built on it and a custom dual kit are checked at
+    /// error 0 and 0.15, and a kit with an anchored side that is under the share keeps its own floor.
+    func testTheOptInOfAKitWithNoAnchoredSideNamesTheSaturatedNull() async throws {
+        let fluidigm = try XCTUnwrap(BarcodeKitRegistry.kit(byID: "fluidigm-access-array"))
+        let plateRows = fluidigm.barcodes.prefix(48).map { "\($0.id),\($0.i7Sequence)" }
+        let plate = try BarcodeKitRegistry.loadCustomKit(
+            text: (["# kit: fluidigm-access-array", "id,sequence"] + plateRows).joined(separator: "\n") + "\n", name: "Fluidigm Plate"
+        )
+        let dualRows = Self.dualPairs().enumerated().map { "D\(String(format: "%02d", $0.offset + 1)),\($0.element.i7),\($0.element.i5)" }
+        let dual = try BarcodeKitRegistry.loadCustomKit(text: dualRows.joined(separator: "\n") + "\n", name: "Dual 96")
+        for (name, kit) in [("Fluidigm", fluidigm), ("Fluidigm Plate", plate), ("Dual 96", dual)] {
+            for errorRate in [0.0, 0.15] {
+                let outcome = try await optedInFloor(kit, errorRate: errorRate)
+                XCTAssertEqual(outcome.null, .saturatedKit, "\(name) at error \(errorRate) with Keep Unchecked Samples")
+            }
+        }
+        let single = try Self.definitionKit(Array(Self.qa384Barcodes().prefix(12)), name: "Single Twelve")
+        let anchored = try await optedInFloor(single, errorRate: 0.15)
+        XCTAssertEqual(anchored.null, .randomBases, "a kit with an anchored side, under the share, keeps its own floor")
+    }
 }
