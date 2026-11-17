@@ -130,14 +130,13 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
 
     // MARK: - The refusal pass (SAD:106, BIO-DEMUX-THREE item 6, BIO-SATKIT-FLUIDIGM items 1 and 2)
 
-    /// The refusal takes one built-in kit, the Fluidigm Access Array kit, at Both Ends and 5' End, at error rates 0.10 and
-    /// 0.15, which each allow 1 error in its 10 bases. Cutadapt searches its 864 barcodes anywhere in the read, and BIO
-    /// keeps the refusal for it (BIO-SATKIT-FLUIDIGM item 1). Its share is pinned at every rate, so a change to the sum shows
-    /// up. At error 0 the share is 0.4943 as fragments, under 0.5, so the share alone passes it. Item 6 would refuse it there
-    /// too, as a kit whose lines have no anchored side, and waits for BIO, since it also takes custom setups
-    /// (`testTheSetupsWhoseLinesHaveNoAnchoredSide`). The refusal reads only a kit searched as its bare barcodes, the search
-    /// the floor judges, so a kit searched inside its flanking adapters is never read, and its long lines with many errors
-    /// are not worked out here.
+    /// The refusal takes one built-in kit, the Fluidigm Access Array kit, at Both Ends and 5' End, at every error rate.
+    /// Cutadapt searches its 864 barcodes anywhere in the read, since no line has a side anchored with `^` or `$`, and BIO
+    /// refuses such a kit at every rate (BIO-SATKIT-FLUIDIGM item 1, BIO-SATKIT-ANYWHERE item 1). Its share is pinned at
+    /// every rate, so a change to the sum shows up. At 0.10 and 0.15, which each allow 1 error in its 10 bases, the share
+    /// alone reaches 0.5. At error 0 the share is 0.4943 as fragments, under 0.5, and its lines with no anchored side refuse
+    /// it. The refusal reads only a kit searched as its bare barcodes, the search the floor judges, so a kit searched inside
+    /// its flanking adapters is never read, and its long lines with many errors are not worked out here.
     func testTheRefusalTakesOnlyTheFluidigmKitOfTheBuiltInKits() async throws {
         var shares: [String: (single: Double, fragments: Double)] = [:]
         var unbuilt: [String] = []
@@ -181,10 +180,10 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
         print("SATKIT refusal pass: \(shares.count) bare kit settings, refused \(refused.sorted()), at the share \(saturated), unbuilt \(Set(unbuilt).sorted())")
         XCTAssertGreaterThan(shares.count, 30)
         let fluidigm = ["bothEnds", "fivePrime"].flatMap { location in
-            ["0.1", "0.15"].map { "fluidigm-access-array \(location) e\($0)" }
+            ["0.0", "0.1", "0.15"].map { "fluidigm-access-array \(location) e\($0)" }
         }.sorted()
-        XCTAssertEqual(refused.sorted(), fluidigm, "the refusal takes only the Fluidigm kit, at the rates that allow an error")
-        XCTAssertEqual(saturated, fluidigm)
+        XCTAssertEqual(refused.sorted(), fluidigm, "the refusal takes only the Fluidigm kit, at every error rate")
+        XCTAssertEqual(saturated, fluidigm.filter { !$0.hasSuffix("e0.0") }, "the share reaches 0.5 at the rates that allow an error")
         for location in ["bothEnds", "fivePrime"] {
             for rate in ["0.1", "0.15"] {
                 let share = try XCTUnwrap(shares["fluidigm-access-array \(location) e\(rate)"])
@@ -197,15 +196,18 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
         }
     }
 
-    /// The setups whose cutadapt lines have no side anchored with `^` or `$`, the lines BIO-SATKIT-FLUIDIGM item 6 would
-    /// refuse at every error rate. Besides the built-in Fluidigm kit, a definition whose `# kit:` line names it keeps its
-    /// bare search, and a custom dual-index definition at Both Ends with no sample sheet is searched as its observed pairs,
-    /// `i7...i5`, with neither side anchored. So the rule would take custom setups, and SATKIT-2 stopped it for BIO. A
-    /// custom single-index definition is anchored at every location.
+    /// The setups whose cutadapt lines have no side anchored with `^` or `$`, which preflight refuses at every error rate
+    /// (BIO-SATKIT-ANYWHERE items 1 and 2). Besides the built-in Fluidigm kit, a definition whose `# kit:` line names it keeps
+    /// its bare search, and a custom dual-index definition at Both Ends with no sample sheet is searched as its observed
+    /// pairs, `i7...i5`, with neither side anchored. Only the first two are searched as bare barcodes, the lines
+    /// `searchesAnywhere` reads to give the Fluidigm words, so the dual kit gets words of its own. A custom single-index
+    /// definition is anchored at every location.
     func testTheSetupsWhoseLinesHaveNoAnchoredSide() async throws {
         let input = folder.appendingPathComponent("reads.fastq")
         try "@r1\nACGTACGTACGT\n+\nIIIIIIIIIIII\n".write(to: input, atomically: true, encoding: .utf8)
-        func anchorless(_ kit: BarcodeKitDefinition, _ location: BarcodeLocation) async throws -> Bool {
+        func assertSearch(
+            _ kit: BarcodeKitDefinition, _ location: BarcodeLocation, noAnchoredSide: Bool, bare: Bool
+        ) async throws {
             let config = DemultiplexConfig(
                 inputURL: input, barcodeKit: kit, outputDirectory: folder, barcodeLocation: location, errorRate: 0,
                 engine: .cutadapt
@@ -214,22 +216,19 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
             try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
             let pipeline = DemultiplexingPipeline()
             let adapters = try await pipeline.createAdapterConfiguration(for: config, workDirectory: work)
-            let lines = try pipeline.chancePatterns(in: adapters.adapterFASTA).values.joined()
-            print("SATKIT lines of \(kit.displayName) at \(location): \(Array(lines.prefix(2)))")
-            return lines.allSatisfy { line in
-                (line.split(separator: ";", maxSplits: 1).first.map(String.init) ?? line).components(separatedBy: "...")
-                    .allSatisfy { !$0.hasPrefix("^") && !$0.hasSuffix("$") }
-            }
+            let patterns = try pipeline.chancePatterns(in: adapters.adapterFASTA)
+            print("SATKIT lines of \(kit.displayName) at \(location): \(Array(patterns.values.joined().prefix(2)))")
+            let setting = "\(kit.displayName) at \(location)"
+            XCTAssertEqual(DemultiplexChanceFloor.hasNoAnchoredSide(patterns: patterns), noAnchoredSide, setting)
+            XCTAssertEqual(DemultiplexChanceFloor.searchesAnywhere(patterns: patterns), bare, setting)
         }
         let fluidigm = try XCTUnwrap(BarcodeKitRegistry.kit(byID: "fluidigm-access-array"))
-        var anchorlessBothEnds = try await anchorless(fluidigm, .bothEnds)
-        XCTAssertTrue(anchorlessBothEnds, "the built-in kit")
+        try await assertSearch(fluidigm, .bothEnds, noAnchoredSide: true, bare: true)
         let rows = fluidigm.barcodes.prefix(2).map { "\($0.id),\($0.i7Sequence)" }
         let derived = try BarcodeKitRegistry.loadCustomKit(
             text: (["# kit: fluidigm-access-array", "id,sequence"] + rows).joined(separator: "\n") + "\n", name: "Fluidigm Two"
         )
-        anchorlessBothEnds = try await anchorless(derived, .bothEnds)
-        XCTAssertTrue(anchorlessBothEnds, "a definition built on the Fluidigm kit")
+        try await assertSearch(derived, .bothEnds, noAnchoredSide: true, bare: true)
         // The kit `loadCustomKit` makes from rows with an i5 and no `# kit:` line.
         let dual = BarcodeKitDefinition(
             id: "custom-dual-two", displayName: "Dual Two", vendor: "custom", isDualIndexed: true, barcodes: [
@@ -237,12 +236,10 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
                 BarcodeEntry(id: "S2", i7Sequence: "TCCGGAGA", i5Sequence: "ATAGAGGC"),
             ]
         )
-        anchorlessBothEnds = try await anchorless(dual, .bothEnds)
-        XCTAssertTrue(anchorlessBothEnds, "a custom dual-index definition at Both Ends with no sample sheet")
+        try await assertSearch(dual, .bothEnds, noAnchoredSide: true, bare: false)
         let single = try Self.definitionKit(Array(Self.qa384Barcodes().prefix(12)), name: "Single Twelve")
         for location in [BarcodeLocation.bothEnds, .fivePrime, .threePrime] {
-            let anchorlessSingle = try await anchorless(single, location)
-            XCTAssertFalse(anchorlessSingle, "\(location)")
+            try await assertSearch(single, location, noAnchoredSide: false, bare: false)
         }
     }
 
@@ -274,6 +271,113 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
         let short = try XCTUnwrap(DemultiplexError.chanceCheckCannotJudgeKit(kitName: "QA 384").errorDescription)
         XCTAssertFalse(short.contains("anywhere"), "a kit of short barcodes keeps its own words")
         try await DemultiplexingPipeline().preflight(config: config(kit: kit, files: files, optIn: true))
+    }
+
+    // MARK: - Kits with no anchored side (BIO-SATKIT-ANYWHERE items 1 to 6)
+
+    /// Preflight's refusal of `kit` at `errorRate`, or nil when it passes. The project holds 200 real starts, which the
+    /// refusal never reads, and preflight must leave its output folder unmade either way.
+    private func refusal(_ kit: BarcodeKitDefinition, errorRate: Double, optIn: Bool = false) async throws -> DemultiplexError? {
+        let files = try project(starts: Array(try Self.fixtureStarts("SRR2584863-R1-first100000-starts12.txt").prefix(200)))
+        defer { try? FileManager.default.removeItem(at: files.input.deletingLastPathComponent()) }
+        var refusal: DemultiplexError?
+        do {
+            try await DemultiplexingPipeline().preflight(config: config(kit: kit, files: files, errorRate: errorRate, optIn: optIn))
+        } catch let error as DemultiplexError {
+            refusal = error
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: files.output.path), "preflight writes nothing")
+        return refusal
+    }
+
+    /// 96 pairs of 8 bases from a fixed seed, as BIO-SATKIT-ANYWHERE Q1 measured them: 3 to 5 G or C, and at least 3
+    /// differences between any two sequences and between a sequence and the reverse complement of any other.
+    static func dualPairs(count: Int = 96) -> [(i7: String, i5: String)] {
+        let letters = Array("ACGT")
+        var state: UInt64 = 0x5A71_2026_1117_0096
+        func reverseComplement(_ bases: [Character]) -> [Character] {
+            bases.reversed().map { base in
+                switch base {
+                case "A": return "T"
+                case "C": return "G"
+                case "G": return "C"
+                default: return "A"
+                }
+            }
+        }
+        func distance(_ first: [Character], _ second: [Character]) -> Int { zip(first, second).filter { $0 != $1 }.count }
+        var chosen: [[Character]] = []
+        while chosen.count < 2 * count {
+            let candidate: [Character] = (0..<8).map { _ in
+                state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+                return letters[Int((state >> 33) & 3)]
+            }
+            let reverse = reverseComplement(candidate)
+            guard (3...5).contains(candidate.filter { $0 == "G" || $0 == "C" }.count), distance(candidate, reverse) >= 3,
+                  chosen.allSatisfy({ distance($0, candidate) >= 3 && distance($0, reverse) >= 3 }) else { continue }
+            chosen.append(candidate)
+        }
+        return (0..<count).map { (i7: String(chosen[2 * $0]), i5: String(chosen[2 * $0 + 1])) }
+    }
+
+    /// A custom dual-index definition of 96 fixed pairs of 8 bases at Both Ends with no sample sheet, the default location.
+    /// Cutadapt searches each pair as `i7...i5` with neither side anchored, so each side is found anywhere in the read, and
+    /// 3 bases of a side at a read end also count. On real reads that carry no such barcodes it placed 8.1% and 11.3% of
+    /// the reads at error 0, and 74.0% and 82.2% at 0.15, where the floor's sum is 0.0040 (BIO-SATKIT-ANYWHERE Q1). At the
+    /// base error 0 passed and 0.15 was refused in the Fluidigm words. Both are refused in words of their own, which name
+    /// no Fluidigm route, and with the opt-in both run (items 3, 4 and 6, tests iii and v).
+    func testACustomDualKitAtBothEndsWithNoSampleSheetIsRefusedAtEveryErrorRate() async throws {
+        let rows = Self.dualPairs().enumerated().map { "D\(String(format: "%02d", $0.offset + 1)),\($0.element.i7),\($0.element.i5)" }
+        let kit = try BarcodeKitRegistry.loadCustomKit(text: rows.joined(separator: "\n") + "\n", name: "Dual 96")
+        XCTAssertEqual(kit.barcodes.count, 96)
+        XCTAssertEqual(Set(kit.barcodes.compactMap(\.i5Sequence).map(\.count)), [8])
+        XCTAssertEqual(kit.pairingMode, .fixedDual)
+        XCTAssertNil(kit.sourceKitID)
+        for errorRate in [0, 0.15] {
+            let error = try await refusal(kit, errorRate: errorRate)
+            guard case .chanceCheckCannotJudgeKitPairsSearchedAnywhere(let kitName)? = error else {
+                XCTFail("error \(errorRate): the dual kit was refused as \(String(describing: error)), not as pairs searched anywhere")
+                continue
+            }
+            XCTAssertEqual(kitName, "Dual 96")
+        }
+        let words = try XCTUnwrap(DemultiplexError.chanceCheckCannotJudgeKitPairsSearchedAnywhere(kitName: "Dual 96").errorDescription)
+        for phrase in ["\"Dual 96\"", "anywhere in the read", "3 bases", "nothing was run", "Read Names", "--engine header-index",
+                       "Keep Unchecked Samples", "--keep-unchecked-samples"] {
+            XCTAssertTrue(words.contains(phrase), "\(phrase): \(words)")
+        }
+        for phrase in ["Fluidigm", "ont-fluidigm-samples", "sample sheet", "short"] {
+            XCTAssertFalse(words.contains(phrase), "\(phrase): \(words)")
+        }
+        for errorRate in [0, 0.15] {
+            let kept = try await refusal(kit, errorRate: errorRate, optIn: true)
+            XCTAssertNil(kept, "error \(errorRate) with Keep Unchecked Samples")
+        }
+    }
+
+    /// A definition whose `# kit:` line names the Fluidigm kit keeps the kit's bare search, its barcodes anywhere in the
+    /// read (`BarcodeKitRegistry+DefinitionLayout.swift:55-65`). At error 0 the share of 48 of its barcodes is far under 0.5,
+    /// so at the base it passed. It is refused in the Fluidigm words at every rate, and with the opt-in it runs (items 1 and
+    /// 6, tests ii and v).
+    func testADefinitionBuiltOnTheFluidigmKitIsRefusedAtEveryErrorRate() async throws {
+        let fluidigm = try XCTUnwrap(BarcodeKitRegistry.kit(byID: "fluidigm-access-array"))
+        let rows = fluidigm.barcodes.prefix(48).map { "\($0.id),\($0.i7Sequence)" }
+        let kit = try BarcodeKitRegistry.loadCustomKit(
+            text: (["# kit: fluidigm-access-array", "id,sequence"] + rows).joined(separator: "\n") + "\n", name: "Fluidigm Plate"
+        )
+        XCTAssertEqual(kit.sourceKitID, fluidigm.id)
+        for errorRate in [0, 0.15] {
+            let error = try await refusal(kit, errorRate: errorRate)
+            guard case .chanceCheckCannotJudgeKitSearchedAnywhere(let kitName)? = error else {
+                XCTFail("error \(errorRate): the definition was refused as \(String(describing: error)), not as a kit searched anywhere")
+                continue
+            }
+            XCTAssertEqual(kitName, "Fluidigm Plate")
+        }
+        for errorRate in [0, 0.15] {
+            let kept = try await refusal(kit, errorRate: errorRate, optIn: true)
+            XCTAssertNil(kept, "error \(errorRate) with Keep Unchecked Samples")
+        }
     }
 
     /// The refusal reads the kit and the error rate, never the reads, so QA's 384 kit is refused on the other real starts.

@@ -104,6 +104,19 @@ extension DemultiplexChanceFloor {
         }
     }
 
+    /// Whether no cutadapt line of the kit has a side anchored with `^` or `$`, so that cutadapt searches each side
+    /// anywhere in the read and also counts 3 bases of a side at a read end (BIO-SATKIT-ANYWHERE Q1). The floor measures no
+    /// null for such lines (`decoyIndex`), so preflight refuses them at every error rate unless the person keeps the
+    /// unchecked samples (items 1 to 3). They are the lines of the built-in Fluidigm Access Array kit, of a definition built
+    /// on it, and of a custom dual-index definition at Both Ends with no sample sheet, whose lines are `i7...i5`.
+    public static func hasNoAnchoredSide(patterns: [String: [String]]) -> Bool {
+        let lines = patterns.values.joined()
+        return !lines.isEmpty && lines.allSatisfy { line in
+            (line.split(separator: ";", maxSplits: 1).first.map(String.init) ?? line).components(separatedBy: "...")
+                .allSatisfy { !$0.hasPrefix("^") && !$0.hasSuffix("$") }
+        }
+    }
+
     /// The compositions of the mates searched, the margin the decoys set and the windows tallied.
     struct MeasuredNull {
         let compositions: [[[Double]]]

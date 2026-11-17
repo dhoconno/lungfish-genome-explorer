@@ -110,8 +110,12 @@ final class AffectedResultsDEMUXSATKITTests: XCTestCase {
 
     /// A record of `lungfish fastq demultiplex` as `FastqCommand.swift` builds it, with the options it records for each
     /// engine, written by `ProvenanceWriter` and read back from the file.
-    private func writtenRecord(kit: String, engine: String?, errorRate: Double?) throws -> ProvenanceEnvelope {
-        var explicit: [String: ParameterValue] = ["kit": .string(kit), "resolvedKit": .string(kit), "customBarcodeKit": .null]
+    private func writtenRecord(
+        kit: String, resolvedKit: String? = nil, engine: String?, errorRate: Double?
+    ) throws -> ProvenanceEnvelope {
+        var explicit: [String: ParameterValue] = [
+            "kit": .string(kit), "resolvedKit": .string(resolvedKit ?? kit), "customBarcodeKit": .null,
+        ]
         if let engine {
             explicit["engine"] = .string(engine)
             explicit["indexSource"] = .string(engine == "header-index" ? "read-names" : "read-sequences")
@@ -157,5 +161,31 @@ final class AffectedResultsDEMUXSATKITTests: XCTestCase {
         }
         XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(kit: "ont-nbd114", engine: "cutadapt", errorRate: 0.15)),
                        .fastqDemultiplex, "another built-in kit")
+    }
+
+    /// A definition whose `# kit:` line names the Fluidigm kit is searched as the kit is, its bare barcodes anywhere in the
+    /// read, so its record is the narrower kind at any rate, error 0 included (BIO-SATKIT-ANYWHERE item 5, test iv). The
+    /// record names the definition file and the custom kit's id, not the Fluidigm id, and the kit the file loads is not a
+    /// kit of single barcodes, so at the base it was never the kind. A definition built on another kit is not such a run.
+    func testARecordOfADefinitionBuiltOnTheFluidigmKitNamesTheNarrowerKind() throws {
+        func definition(on kit: BarcodeKitDefinition, name: String) throws -> String {
+            let rows = kit.barcodes.prefix(48).map { "\($0.id),\($0.i7Sequence)" }
+            let url = folder.appendingPathComponent(name)
+            try (["# kit: \(kit.id)", "id,sequence"] + rows).joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+            return url.path
+        }
+        let plate = try definition(on: BarcodeKitRegistry.fluidigmAccessArray, name: "fluidigm-plate.csv")
+        for errorRate in [0, 0.15] {
+            let record = try writtenRecord(kit: plate, resolvedKit: "custom-fluidigm-plate", engine: "cutadapt", errorRate: errorRate)
+            XCTAssertEqual(AffectedResults.kind(of: record), .fastqDemultiplexSaturatedKit, "error \(errorRate)")
+        }
+        let older = try writtenRecord(kit: plate, resolvedKit: "custom-fluidigm-plate", engine: nil, errorRate: 0)
+        XCTAssertEqual(AffectedResults.kind(of: older), .fastqDemultiplexSaturatedKit, "a record before --engine")
+        let names = try writtenRecord(kit: plate, resolvedKit: "custom-fluidigm-plate", engine: "header-index", errorRate: nil)
+        XCTAssertEqual(AffectedResults.kind(of: names), .fastqDemultiplex, "the split by the read names")
+        let ont = try XCTUnwrap(BarcodeKitRegistry.kit(byID: "ont-nbd114"))
+        let other = try definition(on: ont, name: "ont-plate.csv")
+        let record = try writtenRecord(kit: other, resolvedKit: "custom-ont-plate", engine: "cutadapt", errorRate: 0)
+        XCTAssertEqual(AffectedResults.kind(of: record), .fastqDemultiplex, "a definition built on another kit")
     }
 }

@@ -37,6 +37,11 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     /// Access Array kit. Cutadapt searches its barcodes anywhere in the read, so nearly every read matches one, and the words
     /// name the routes made for such a kit (BIO-SATKIT-FLUIDIGM item 4).
     case chanceCheckCannotJudgeKitSearchedAnywhere(kitName: String)
+    /// The same refusal for a kit searched as linked pairs, `i7...i5`, with neither side anchored, the lines of a custom
+    /// dual-index definition at Both Ends with no sample sheet. Cutadapt searches each side anywhere in the read and also
+    /// counts 3 bases of a side at a read end, so reads that carry no barcode match a pair by chance (BIO-SATKIT-ANYWHERE
+    /// items 3 and 4). The words name no Fluidigm route, and no sample-sheet route, which BIO did not check.
+    case chanceCheckCannotJudgeKitPairsSearchedAnywhere(kitName: String)
     /// The split by the read names read reads and found an index of the kit in none of their names (UX SF3).
     case noReadNameIndex(kitName: String)
     /// Detect Barcodes read the first read names of a file for an Illumina or Element kit and found no index (L9).
@@ -54,6 +59,8 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
             return "The barcodes of the kit \"\(kitName)\" are so short that about half of all reads or more match one of them by chance, so the check for chance matches cannot tell this pool from reads that carry no barcode, and nothing was run. If the reads carry these barcodes, run it again with Keep Unchecked Samples (on the command line, --keep-unchecked-samples), then check each sample against your sample sheet."
         case .chanceCheckCannotJudgeKitSearchedAnywhere(let kitName):
             return "Cutadapt searches each barcode of the kit \"\(kitName)\" anywhere in the read, so nearly every read matches one of them by chance. The check for chance matches cannot tell this pool from reads that carry no barcode, and nothing was run. For Fluidigm barcodes in ONT reads, use ONT Fluidigm Sample Split (on the command line, fastq ont-fluidigm-samples). For reads whose index is in the read names, choose the engine Read Names (on the command line, --engine header-index). To run this search anyway, run it again with Keep Unchecked Samples (on the command line, --keep-unchecked-samples), then check each sample against your sample sheet."
+        case .chanceCheckCannotJudgeKitPairsSearchedAnywhere(let kitName):
+            return "Cutadapt searches each pair of barcodes of the kit \"\(kitName)\" anywhere in the read, and as few as 3 bases of a barcode at the start or end of a read also count as a match, so many reads that carry no barcode match a pair by chance. The check for chance matches cannot tell these reads from reads that carry the barcodes, and nothing was run. If the indexes are in the read names, choose the engine Read Names (on the command line, --engine header-index). To run this search anyway, run it again with Keep Unchecked Samples (on the command line, --keep-unchecked-samples), then check each sample before you use it."
         case .searchRouteRefused(let words):
             return words
         case .inputFileNotFound(let url):
