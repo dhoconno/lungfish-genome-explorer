@@ -279,8 +279,9 @@ final class AffectedResultsTests: XCTestCase {
     func testTheGroupedDemultiplexRowHoldsItsBuilds() throws {
         let row = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "DEMUX-GROUPED-DROPS-INPUTS" })
         let demultiplex = try XCTUnwrap(AffectedResultKind(rawValue: "fastqDemultiplex"))
-        // DEMUX-SATKIT: the narrower kind of a kit the floor cannot judge is a demultiplexing result too.
-        XCTAssertEqual(row.kinds, [demultiplex, .fastqDemultiplexSaturatedKit])
+        // DEMUX-SATKIT: the narrower kind of a kit the floor cannot judge is a demultiplexing result too, and so is the
+        // narrower kind of an Exact Bare run on barcodes in the read names (DEMUX-EXACTBARE-NAMES).
+        XCTAssertEqual(row.kinds, [demultiplex, .fastqDemultiplexSaturatedKit, .fastqDemultiplexExactBareNames])
         XCTAssertNil(row.firstBuild)
         XCTAssertEqual(row.lastBuild, 12972, "Stable 2026.11.7, the newest build, lacks the fix")
         XCTAssertEqual(row.fixCommit, "367ba1fed")

@@ -74,5 +74,11 @@ final class DemultiplexExactBareNamesCLITests: XCTestCase {
         XCTAssertEqual(record.options.explicit["engine"], .string("exact-bare"))
         XCTAssertEqual(record.options.explicit["chanceCheck"], .string("none"))
         XCTAssertEqual(record.options.explicit["optIn"], .boolean(true), "\(record.options.explicit.keys.sorted())")
+        XCTAssertEqual(AffectedResults.kind(of: record), .fastqDemultiplexExactBareNames, "the record of a run kept by choice")
+        var unchosen = record
+        var explicit = record.options.explicit
+        explicit["optIn"] = nil
+        unchosen.options = ProvenanceOptions(explicit: explicit)
+        XCTAssertEqual(AffectedResults.kind(of: unchosen), .fastqDemultiplexExactBareNames, "read from the input's names")
     }
 }

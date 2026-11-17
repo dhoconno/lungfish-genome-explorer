@@ -28,6 +28,10 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     /// all reads or more match one by chance, the kit the chance floor cannot judge (DEMUX-FLOOR-SATURATED-KIT). It is a
     /// narrower ``fastqDemultiplex``, so every row of that kind names it too.
     case fastqDemultiplexSaturatedKit
+    /// A demultiplexing run of Exact Bare Barcode whose input's read names carry two or more of the kit's barcodes, so it
+    /// searched the read sequences for barcodes that sat in the names (DEMUX-EXACT-BARE-NO-FLOOR, the names case). It is a
+    /// narrower ``fastqDemultiplex``, so every row of that kind names it too.
+    case fastqDemultiplexExactBareNames
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -422,7 +426,8 @@ public enum AffectedResults {
             fixCommit: "dbadae4f5"
         ),
         AffectedResultRow(
-            backlogID: "DEMUX-GROUPED-DROPS-INPUTS", kinds: [.fastqDemultiplex, .fastqDemultiplexSaturatedKit],
+            backlogID: "DEMUX-GROUPED-DROPS-INPUTS",
+            kinds: [.fastqDemultiplex, .fastqDemultiplexSaturatedKit, .fastqDemultiplexExactBareNames],
             firstBuild: nil, lastBuild: 12972,
             sentence: "If you chose Grouped Result for more than one dataset, this demultiplexing run read only the first "
                 + "dataset, so the reads of the others are in none of the samples.",
@@ -439,6 +444,16 @@ public enum AffectedResults {
             whatToDo: "Check each sample against your sample sheet, and note that a new run keeps such files only if you "
                 + "choose to.",
             fixCommit: "4ed138180"
+        ),
+        // S1 sweep 2026-11-17 lane DEMUX-EXACTBARE-NAMES (BIO-DEMUX-THREE item 11, section 2a). Every build with Exact Bare
+        // Barcode, from its landing in 4389cd101, searched the read sequences of reads whose barcodes sat in their names.
+        AffectedResultRow(
+            backlogID: "DEMUX-EXACT-BARE-NO-FLOOR", kinds: [.fastqDemultiplexExactBareNames], firstBuild: 2135,
+            lastBuild: 13672,
+            sentence: "This run searched the read sequences for barcodes that sit in the read names, so its sample files "
+                + "may hold chance matches.",
+            whatToDo: "Run it again with the barcodes read from the read names.",
+            fixCommit: "89a0a5096"
         ),
     ]
 
@@ -548,6 +563,7 @@ extension AffectedResults {
         case RecordName.fastqTrim, RecordName.fastqAdapterTrim:
             return trimLeftNoAdapterToGuess(envelope) ? nil : .fastqTrim
         case RecordName.fastqDemultiplex:
+            if searchedReadNameBarcodesWithExactBare(envelope) { return .fastqDemultiplexExactBareNames }
             return searchedWithAKitTheFloorCannotJudge(envelope) ? .fastqDemultiplexSaturatedKit : .fastqDemultiplex
         case RecordName.fastqImport:
             let guessed = envelope.steps.contains { runs("fastp", $0) && $0.argv.contains(fastpPairedAdapterGuess) }
