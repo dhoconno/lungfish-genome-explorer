@@ -285,6 +285,122 @@ final class RNASeqQuantPlanCommandTests: XCTestCase {
         XCTAssertTrue(summary.lines.first?.contains("Planned 1 sample(s) of the set \(set.id)") == true, "\(summary.lines)")
     }
 
+    // MARK: - Sheets of single-end reads (CHTC-QUANT-SINGLE-END milestone 2)
+
+    /// The image of `writeImageFiles` with both STARs, pigz and featureCounts in its tool manifest, as the chain tests write it.
+    private func writeSTARImageFiles() throws -> (executor: URL, image: URL, tools: URL) {
+        let files = try Self.writeImageFiles(in: root)
+        let tools = [("STAR", "2.7.11b", "h5814d7d_9"), ("STAR", "2.7.3a", "h5ca1c30_1"), ("pigz", "2.8", "h421ea60_1"),
+                     ("salmon", "2.11.0", "hfa8f182_0"), ("trim_galore", "2.3.0", "hf1b6044_0"), ("featureCounts", "2.1.1", "h577a1d6_0")]
+        let manifest = try ImageToolManifest(platform: .linux64, tools: tools.map {
+            ImageTool(id: $0.0, version: $0.1, build: $0.2, path: "/opt/conda/envs/\($0.0)-\($0.1)/bin/\($0.0)", condaPackage: $0.0.lowercased())
+        }).encoded()
+        try manifest.write(to: files.tools)
+        let image: [String: Any] = [
+            "schemaVersion": 1,
+            "sif": ["fileName": "lge-tools-test.sif", "sha256": String(repeating: "e", count: 64), "size": 396_402_688],
+            "imageManifest": ["sha256": PortableDigest.sha256Hex(of: manifest), "size": manifest.count],
+        ]
+        try JSONSerialization.data(withJSONObject: image, options: [.sortedKeys]).write(to: files.image)
+        return files
+    }
+
+    /// The small set, a stand-in record of the STAR `version` index that `rnaseq index-adopt` wrote for it, and the published salmon
+    /// index, so every chain can plan what the sheet names and only the sheet is refused.
+    private func setWithSTARIndex(star version: String) async throws -> (storage: URL, id: String) {
+        let (storage, setFolder) = try await RNASeqIndexPlanCommandTests.builtSet(in: root)
+        let manifest = try ReferenceSetManifest.load(from: setFolder)
+        let star = PlanToolPin(id: "STAR", version: version, build: version == "2.7.3a" ? "h5ca1c30_1" : "h5814d7d_9")
+        let key = STARIndexKey.folderName(star: version, nbases: 4, sparseD: 2)
+        let files = ["Genome", "SA", "chrName.txt"].map { name -> STARIndexRecord.File in
+            let data = Data("\(name) of \(key)\n".utf8)
+            return STARIndexRecord.File(path: name, planPath: "star-index/\(name)",
+                                        stagingPath: "\(Self.staging)/batches/m-index/index/staged/star-index/\(name)",
+                                        bytes: UInt64(data.count), sha256: PortableDigest.sha256Hex(of: data))
+        }
+        let record = STARIndexRecord(setID: manifest.id, key: STARIndexKey(
+            folderName: key, setID: manifest.id, referenceSetSHA256: String(repeating: "d", count: 64), star: star,
+            genomeSAindexNbases: 4, genomeSAsparseD: 2, sjdbOverhang: 100, genomeFastaFiles: [manifest.genome.path],
+            countingGTFSHA256: manifest.derived.countingGTF?.sha256 ?? ""), tool: star, files: files)
+        _ = try STARIndexRecordStore(storageRoot: storage).write(record)
+        try publish(storage: storage, id: manifest.id)
+        return (storage, manifest.id)
+    }
+
+    /// Records what `import fastq` reports as failed, since the Mac import reads a sheet through the same reader.
+    private final class FailureRecorder: FASTQImportReporting, @unchecked Sendable {
+        private let lock = NSLock()
+        private var failures: [String] = []
+        var failed: [String] { lock.withLock { failures } }
+        func text(_ line: String) {}
+        func pairingNotice(sample: String, message: String) {}
+        func log(_ event: ImportLogEvent) {}
+        func fail(_ message: String, detail: String?, exitCode: CLIExitCode) -> ExitCode {
+            lock.withLock { failures.append(message) }
+            return exitCode.exitCode
+        }
+        func failedEvent(_ message: String) {}
+    }
+
+    /// The three sheets this route still cannot take are each refused before any plan, with the input code and no folder, in words
+    /// that name the single-end form: a sheet with no r2 column says to leave r2 empty, an empty r1 cell says to name the read in r1,
+    /// and a sheet that mixes one read file and a read pair says to write two plan folders. The mix is refused whatever `--trim`
+    /// says and on every chain (SE-M1-BIO R2), so the untrimmed mix, which the batch writer lets through, is a case, and so is the
+    /// salmon chain. `import fastq` still refuses an empty r2 cell in the words it always had.
+    func testThePlanRouteSheetRefusalsNameTheSingleEndForm() async throws {
+        let set = try await setWithSTARIndex(star: "2.7.3a"), files = try writeSTARImageFiles()
+        let list = try writeStagedFiles().list
+        let reads = Self.stagedReads.map(\.path)
+        func refused(_ name: String, _ rows: [String], chain: String = "star-2.7.3a-genecounts", trim: Bool = false) async throws
+            -> (words: String, sheet: URL) {
+            let sheet = root.appendingPathComponent("\(name).csv")
+            try (rows.joined(separator: "\n") + "\n").write(to: sheet, atomically: true, encoding: .utf8)
+            let out = root.appendingPathComponent("refused-\(name)")
+            let extra = Self.figures + ["--staged-reads", list.path, "--samplesheet", sheet.path, "--chain", chain] + (trim ? ["--trim"] : [])
+            let words = try await refusal(arguments(reads: [], set: set, out: out, files: files, extra: extra), out: out)
+            return (words, sheet)
+        }
+        let noR2 = try await refused("no-r2", ["sample,r1,model", "S1,\(reads[0]),NovaSeq 6000"])
+        XCTAssertEqual(noR2.words, "The sample sheet \(noR2.sheet.path) needs the columns sample, r1 and r2, written comma-separated. "
+                       + "Leave r2 empty for a sample of single-end reads.")
+        let noR1 = try await refused("empty-r1", ["sample,r1,r2", "S1,,\(reads[1])"])
+        XCTAssertEqual(noR1.words, "Sample sheet line 2 has an empty r1 value. Name a sample's read file in r1, and leave r2 empty for "
+                       + "single-end reads.")
+        let mix = "The sample sheet gives S2 one read file and S1 a read pair. A plan folder holds samples of one layout, so write the "
+            + "single-end samples and the pairs in two plan folders."
+        for (name, chain, trim) in [("mixed-untrimmed", "star-2.7.3a-genecounts", false), ("mixed-trimmed", "star-2.7.3a-genecounts", true),
+                                    ("mixed-salmon", "salmon", false)] {
+            let mixed = try await refused(name, ["sample,r1,r2", "S1,\(reads[0]),\(reads[1])", "S2,\(reads[2]),"], chain: chain, trim: trim)
+            XCTAssertEqual(mixed.words, mix, name)
+        }
+        let emptyR2 = root.appendingPathComponent("empty-r2.csv")
+        try "sample,r1,r2\nS1,\(reads[0]),\n".write(to: emptyR2, atomically: true, encoding: .utf8)
+        let recorder = FailureRecorder()
+        do {
+            _ = try await FASTQImportRun(input: [], samplesheet: emptyR2.path, project: root.appendingPathComponent("P.lungfish").path)
+                .run(reporter: recorder, cancellation: .followsCallingTask)
+            XCTFail("import fastq took a sheet with an empty r2 cell")
+        } catch is ExitCode {}
+        XCTAssertEqual(recorder.failed, ["Could not parse sample sheet: Sample sheet line 2 has an empty r2 value."])
+    }
+
+    /// The staging-folder front of the refusal in `STARPlan.checkDefaultRoute`: a sheet of single-end reads on either STAR then
+    /// salmon chain is refused before any plan, in the route's words, with the input code and no folder written.
+    func testASingleEndSheetOnTheStarSalmonChainsIsRefusedBeforeAnyPlan() async throws {
+        let set = try await setWithSTARIndex(star: "2.7.11b"), files = try writeSTARImageFiles()
+        let list = try writeStagedFiles().list
+        let sheet = root.appendingPathComponent("single-end.csv")
+        try "sample,r1,r2\nS1,\(Self.stagedReads[0].path),\n".write(to: sheet, atomically: true, encoding: .utf8)
+        for chain in ["star-salmon", "star-salmon-errormodel"] {
+            let out = root.appendingPathComponent("refused-\(chain)")
+            let extra = Self.figures + ["--staged-reads", list.path, "--samplesheet", sheet.path, "--chain", chain]
+            let words = try await refusal(arguments(reads: [], set: set, out: out, files: files, extra: extra), out: out)
+            XCTAssertTrue(words.hasPrefix("The STAR then salmon route, --chain star-salmon and star-salmon-errormodel, was measured on "
+                                          + "read pairs only"), "\(chain): \(words)")
+            XCTAssertTrue(words.contains("the sample S1 holds single-end reads"), "\(chain): \(words)")
+        }
+    }
+
     // MARK: - Cancel
 
     func testSIGTERMCancelsThePlanAndLeavesNoFolder() async throws {

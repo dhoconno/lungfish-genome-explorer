@@ -136,4 +136,27 @@ extension STARPlanTests {
         let scoring = words { try plan(.geneCounts, nmax: nil, scoring: .errorModel) }
         XCTAssertTrue(scoring.contains("STAR then salmon"), scoring)
     }
+
+    // MARK: - Single-end reads (CHTC-QUANT-SINGLE-END milestone 2)
+
+    /// Gate GT measured the STAR then salmon route on read pairs only (`BIO-GT.md` item 9), so a sample of single-end reads is
+    /// refused under `star-salmon` and under `star-salmon-errormodel` before any plan, whichever front made the sample. The
+    /// words say what was measured, name the sample and name the four chains that take single-end reads (SE-M1-BIO R1). A read
+    /// pair still plans.
+    func testTheDefaultRouteRefusesSingleEndReadsInWords() async throws {
+        let expected = "The STAR then salmon route, --chain star-salmon and star-salmon-errormodel, was measured on read pairs only "
+            + "(its gate GT), so Lungfish does not plan it for single-end reads, and the sample SRR1 holds single-end reads. "
+            + "For single-end reads choose salmon, star-2.7.3a-genecounts, star-2.7.11b-genecounts or star-2.7.11b-featurecounts."
+        for scoring in [STARPlanAlignmentScoring.none, .errorModel] {
+            var words = "no refusal"
+            do {
+                _ = try await madeDefaultRoute(scoring: scoring, sample: stagedSample(pairs: 0, singles: 1))
+            } catch {
+                words = error.localizedDescription
+            }
+            XCTAssertEqual(words, expected, "scoring \(scoring.rawValue)")
+        }
+        let paired = try await madeDefaultRoute(sample: stagedSample(pairs: 1))
+        XCTAssertEqual(paired.made.plan.steps.map(\.id), ["trim-pair1", "star-align", "salmon-quant"], "read pairs still plan")
+    }
 }
