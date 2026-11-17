@@ -372,7 +372,7 @@ final class BlastTaxIdMatchingTests: XCTestCase {
     func testTheNamesBasisWordsSayThatAFirstWordOnlyMatchCountsNeitherWay() {
         let words = BlastTaxonomyContext.Basis.names.judgedAtWords ?? ""
         XCTAssertTrue(words.hasPrefix("Judged by organism names, because LGE could not look up the species of this row."), words)
-        XCTAssertTrue(words.contains("shares only the first word"), words)
+        XCTAssertTrue(words.contains("starts with the same word as the row's name"), words)
         XCTAssertTrue(words.contains("counts neither for nor against this row"), words)
         XCTAssertFalse(words.contains("happens to share"), "the sentence that said a shared name counts either way")
     }
