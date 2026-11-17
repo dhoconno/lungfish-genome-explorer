@@ -463,7 +463,7 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
     /// The floor of a run that kept the unchecked samples of `kit` at `errorRate`: 1,000 reads, 300 of them on one barcode
     /// and none left over to measure a null from, so a kit that is not saturated keeps the floor of random bases. It is
     /// the floor the run calls.
-    private func optedInFloor(_ kit: BarcodeKitDefinition, errorRate: Double) async throws -> DemultiplexChanceFloor.Outcome {
+    private func optedInFloor(_ kit: BarcodeKitDefinition, errorRate: Double) async throws -> (outcome: DemultiplexChanceFloor.Outcome, byShare: Bool, unanchored: Bool) {
         let files = try project(starts: ["ACGTACGTACGT"])
         defer { try? FileManager.default.removeItem(at: files.input.deletingLastPathComponent()) }
         let config = config(kit: kit, files: files, errorRate: errorRate, optIn: true)
@@ -482,7 +482,7 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
             patterns: patterns, errorRate: config.effectiveErrorRate, allowsIndels: !config.useNoIndels, unit: 1
         )
         print("SATKIT opt-in floor: \(kit.displayName) at error \(errorRate), null \(outcome.null.rawValue), share \(share)")
-        return outcome
+        return (outcome, share >= DemultiplexChanceFloor.saturatedKitShare, DemultiplexChanceFloor.hasNoAnchoredSide(patterns: patterns))
     }
 
     /// A run that keeps the unchecked samples of a kit whose lines have no anchored side says its samples went unchecked,
@@ -500,12 +500,16 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
         let dual = try BarcodeKitRegistry.loadCustomKit(text: dualRows.joined(separator: "\n") + "\n", name: "Dual 96")
         for (name, kit) in [("Fluidigm", fluidigm), ("Fluidigm Plate", plate), ("Dual 96", dual)] {
             for errorRate in [0.0, 0.15] {
-                let outcome = try await optedInFloor(kit, errorRate: errorRate)
-                XCTAssertEqual(outcome.null, .saturatedKit, "\(name) at error \(errorRate) with Keep Unchecked Samples")
+                let run = try await optedInFloor(kit, errorRate: errorRate)
+                XCTAssertEqual(run.outcome.null, .saturatedKit, "\(name) at error \(errorRate) with Keep Unchecked Samples")
+                XCTAssertEqual(run.byShare, errorRate > 0, "\(name) at error \(errorRate): the share reaches 0.5 only when an error is allowed")
+                XCTAssertTrue(run.unanchored, "\(name) at error \(errorRate): no side of its lines is anchored")
             }
         }
         let single = try Self.definitionKit(Array(Self.qa384Barcodes().prefix(12)), name: "Single Twelve")
         let anchored = try await optedInFloor(single, errorRate: 0.15)
-        XCTAssertEqual(anchored.null, .randomBases, "a kit with an anchored side, under the share, keeps its own floor")
+        XCTAssertEqual(anchored.outcome.null, .randomBases, "a kit with an anchored side, under the share, keeps its own floor")
+        XCTAssertFalse(anchored.byShare)
+        XCTAssertFalse(anchored.unanchored)
     }
 }
