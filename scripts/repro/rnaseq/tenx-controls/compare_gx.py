@@ -43,6 +43,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TWO_PREFIX_SETS = {"hgmm_1k_v3": ("hg19", "mm10")}
 STAR_VERSION = "2.7.11b"
 CELL_FILTER = ["--soloCellFilter", "EmptyDrops_CR", "1000", "0.99", "10", "45000", "90000", "500", "0.01", "20000", "0.01", "10000"]
+INTRONS_GATED_SETS = {"SC3pv3_GEX_Human_PBMC"}  # repro:86 gates the introns preset on the Cell Ranger 7.0.1 set only (BIO-GXFH-GEC6 item 8)
 
 
 class StepError(Exception):
@@ -158,7 +159,7 @@ SPECIES_BARS = [
 SPECIES_ALSO = ["cells_union", "observed_cross_species_multiplets", "inferred_gems_gt1_cell"]
 
 
-def bars_table(label, rows, bars=None, also=None):
+def bars_table(label, rows, bars=None, also=None, gated=True):
     bars = BARS if bars is None else bars
     also = ALSO if also is None else also
     print("  %-52s %-42s %14s %14s %12s  %-12s %s" % ("bar", "comparer row", "LGE", "10x", "statistic", "bar", "figure"))
@@ -178,7 +179,7 @@ def bars_table(label, rows, bars=None, also=None):
             stat, text, ok = a, "%g to %g" % bar, bar[0] <= a <= bar[1]
         else:
             stat, text, ok = a - b, "|diff| <= %g" % bar, abs(a - b) <= bar
-        print("  %-52s %-42s %14s %14s %12.5f  %-16s %s" % (name, measure, ours, tenx, stat, text, "meets" if ok else "MISSES"))
+        print("  %-52s %-42s %14s %14s %12.5f  %-16s %s" % (name, measure, ours, tenx, stat, text, ("meets" if ok else "MISSES") if gated else "not gated"))
     for measure in also:
         if measure in rows.get(label, {}):
             ours, tenx, note = rows[label][measure]
@@ -306,8 +307,10 @@ def main(argv):
     print("BARS of the GX gate for %s, exon-only preset (STARsolo_Gene):" % set_name)
     bars_table("STARsolo_Gene", rows)
     if "STARsolo_GeneFull_Ex50pAS" in rows:
-        print("Same rows for STARsolo_GeneFull_Ex50pAS (the introns preset's agreement pins are gated on the Cell Ranger 7.0.1 set only):")
-        bars_table("STARsolo_GeneFull_Ex50pAS", rows)
+        gated = set_name in INTRONS_GATED_SETS
+        print("Same rows for STARsolo_GeneFull_Ex50pAS (the introns preset's agreement pins are gated on the Cell Ranger 7.0.1 set only%s):"
+              % ("" if gated else "; this set's table gives no verdict (BIO-GXFH-GEC6 item 8)"))
+        bars_table("STARsolo_GeneFull_Ex50pAS", rows, gated=gated)
     if two_prefix:
         print("BARS of the species mix for %s (STARsolo_Gene:pergenome, per-genome cells called by this step, as 5.0's stage_pergenome "
               "calls them, from LGE's returned Gene/raw):" % set_name)
