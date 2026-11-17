@@ -175,6 +175,138 @@ final class BlastTaxIdMatchingTests: XCTestCase {
         ), "no clade tax IDs: the name rule decides")
     }
 
+    // MARK: - A first-word-only match counts neither way (BLAST-ESVIRITU-FIRST-WORD, BIO-THREE-ROWS items 1 to 3)
+
+    /// One read of 76 bases, all aligned at E 1e-50, so the alignment alone makes the verdict `.verified`.
+    private func perfectHit(_ organism: String, taxId: Int?, accession: String) -> BlastHit {
+        BlastHit(
+            accession: accession,
+            title: "\(organism), complete genome",
+            organism: organism,
+            taxId: taxId,
+            hsps: [BlastHSP(bitScore: 140, evalue: 1e-50, identity: 76, alignLength: 76, queryFrom: 1, queryTo: 76)]
+        )
+    }
+
+    /// A row as EsViritu sends it when no lineage can be read, names and no tax IDs
+    /// (`ViralDetection.blastTaxonomyContext`), so the name rule judges the first record.
+    private func judgeByNames(
+        _ hits: [BlastHit], row: String = "Rotavirus A", names: [String] = ["Rotavirus A"]
+    ) -> BlastVerificationResult {
+        let context = BlastTaxonomyContext(cladeNames: names, basis: .names)
+        let rows = service.assignVerdicts(
+            searchResults: [BlastSearchResult(queryId: "r1", queryLength: 76, hits: hits)],
+            eValueThreshold: 1e-10,
+            queriedTaxonName: row,
+            acceptedTaxIds: context.cladeTaxIds,
+            acceptedTaxonNames: context.cladeNames
+        )
+        return BlastVerificationResult(
+            taxonName: row, taxId: 0, readResults: rows, submittedAt: Date(), completedAt: Date(),
+            rid: "R", blastProgram: "blastn", database: "core_nt"
+        )
+    }
+
+    /// Rotavirus C is another species, and "Rotavirus" is the first word of both names. The read counts as neither
+    /// supporting nor contradicting, as a read that cannot be placed does (`listEndedInTheTie`).
+    func testAFirstWordOnlyMatchCountsNeitherWayOnTheNamesBasis() throws {
+        let result = judgeByNames([perfectHit("Rotavirus C", taxId: 36427, accession: "KX362457.1")])
+        let row = try XCTUnwrap(result.readResults.first)
+        XCTAssertEqual(row.verdict, .ambiguous, "a best match that shares only the first word cannot say")
+        XCTAssertFalse(row.matchesQueriedTaxon)
+        XCTAssertNil(row.topHitRelation, "no tax ID in the context, so the name rule decided")
+        XCTAssertEqual(result.supportingCount, 0)
+        XCTAssertEqual(result.contradictingCount, 0)
+    }
+
+    /// The same holds for a host-prefixed name. RSV is one species of the genus that the row names `Human orthopneumovirus`,
+    /// and no name is shared past "Human", so the read loses its Supported and does not become Contradicted.
+    func testAHostWordAloneCountsNeitherWayOnTheNamesBasis() throws {
+        let result = judgeByNames(
+            [perfectHit("Human respiratory syncytial virus A", taxId: 12814, accession: "MZ515573.1")],
+            row: "Human orthopneumovirus", names: ["Human orthopneumovirus"]
+        )
+        let row = try XCTUnwrap(result.readResults.first)
+        XCTAssertEqual(row.verdict, .ambiguous)
+        XCTAssertFalse(row.matchesQueriedTaxon)
+        XCTAssertEqual(result.supportingCount, 0)
+        XCTAssertEqual(result.contradictingCount, 0)
+    }
+
+    /// Green pins. A name that holds the row's name, or one of its accepted names, still supports.
+    func testAHitThatHoldsTheRowsNameStillSupportsOnTheNamesBasis() throws {
+        let strain = judgeByNames([perfectHit("Rotavirus A strain X", taxId: 28875, accession: "KX362458.1")])
+        XCTAssertEqual(strain.readResults.first?.verdict, .verified)
+        XCTAssertEqual(strain.readResults.first?.matchesQueriedTaxon, true)
+        XCTAssertEqual(strain.supportingCount, 1)
+
+        let species = judgeByNames(
+            [perfectHit("Betacoronavirus 1", taxId: nil, accession: "NC_006213.1")],
+            row: "Human coronavirus OC43", names: ["Human coronavirus OC43", "Betacoronavirus 1"]
+        )
+        XCTAssertEqual(species.readResults.first?.verdict, .verified, "the species name is an accepted name")
+        XCTAssertEqual(species.supportingCount, 1)
+    }
+
+    /// Green pins. A hit with no name in common still contradicts, and a weak alignment is still ambiguous.
+    func testNoNameInCommonStillContradictsAndAWeakAlignmentStaysAmbiguous() throws {
+        let vector = judgeByNames([perfectHit("Expression vector pHR_SFFV", taxId: 3464302, accession: "PX372844.1")])
+        XCTAssertEqual(vector.readResults.first?.verdict, .verified)
+        XCTAssertEqual(vector.readResults.first?.matchesQueriedTaxon, false)
+        XCTAssertEqual(vector.contradictingCount, 1)
+
+        let belowThresholds = BlastHit(
+            accession: "KX362457.1", title: "Rotavirus C", organism: "Rotavirus C", taxId: 36427,
+            hsps: [BlastHSP(bitScore: 40, evalue: 1e-4, identity: 30, alignLength: 40, queryFrom: 1, queryTo: 40)]
+        )
+        let result = judgeByNames([belowThresholds])
+        XCTAssertEqual(result.readResults.first?.verdict, .ambiguous)
+        XCTAssertEqual(result.readResults.first?.matchesQueriedTaxon, false)
+    }
+
+    /// Green pin. With a clade tax ID the tax ID rule decides, so Rotavirus C is a relative that contradicts, as before.
+    func testTheSpeciesBasisStillJudgesRotavirusCByItsTaxId() throws {
+        let context = BlastTaxonomyContext(
+            cladeTaxIds: [28875], cladeNames: ["Rotavirus A"], relatedNames: ["Rotavirus"], basis: .species
+        )
+        let rows = service.assignVerdicts(
+            searchResults: [BlastSearchResult(
+                queryId: "r1", queryLength: 76, hits: [perfectHit("Rotavirus C", taxId: 36427, accession: "KX362457.1")]
+            )],
+            eValueThreshold: 1e-10,
+            queriedTaxonName: "Rotavirus A",
+            acceptedTaxIds: context.cladeTaxIds,
+            acceptedTaxonNames: context.cladeNames,
+            relatedTaxonNames: context.relatedNames
+        )
+        XCTAssertEqual(rows[0].verdict, .verified)
+        XCTAssertFalse(rows[0].matchesQueriedTaxon)
+        XCTAssertEqual(rows[0].topHitRelation, .relative)
+    }
+
+    /// No caller outside the tests reads `hitMatchesQueriedTaxon`, so it follows the verdict rule. A first-word-only
+    /// match does not support, while `organismMatchesTaxon` keeps saying that the first words agree.
+    func testAFirstWordOnlyMatchIsNoSupportInHitMatchesQueriedTaxon() {
+        XCTAssertFalse(BlastService.hitMatchesQueriedTaxon(
+            hitOrganism: "Rotavirus C", hitTaxId: nil, queriedTaxonName: "Rotavirus A",
+            acceptedTaxIds: [], acceptedTaxonNames: ["Rotavirus A"]
+        ))
+        XCTAssertTrue(BlastService.hitMatchesQueriedTaxon(
+            hitOrganism: "Rotavirus A strain X", hitTaxId: nil, queriedTaxonName: "Rotavirus A",
+            acceptedTaxIds: [], acceptedTaxonNames: ["Rotavirus A"]
+        ))
+        XCTAssertTrue(BlastService.organismMatchesTaxon(hitOrganism: "Rotavirus C", queriedTaxonName: "Rotavirus A"))
+    }
+
+    /// The `.names` line says what the verdict rule does with a shared first word. UX sets the final words.
+    func testTheNamesBasisWordsSayThatAFirstWordOnlyMatchCountsNeitherWay() {
+        let words = BlastTaxonomyContext.Basis.names.judgedAtWords ?? ""
+        XCTAssertTrue(words.hasPrefix("Judged by organism names, because LGE could not look up the species of this row."), words)
+        XCTAssertTrue(words.contains("shares only the first word"), words)
+        XCTAssertTrue(words.contains("counts neither for nor against this row"), words)
+        XCTAssertFalse(words.contains("happens to share"), "the sentence that said a shared name counts either way")
+    }
+
     func testRequestCarriesRelatedTaxa() {
         let request = BlastVerificationRequest(
             taxonName: "Simplexvirus humanalpha1",
