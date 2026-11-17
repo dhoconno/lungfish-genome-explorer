@@ -30,6 +30,9 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     case searchRouteRefused(String)
     /// No barcode of a search of the read bases beat BIO's chance floor (L5, 3.3 tally).
     case noBarcodeAboveChance(kitName: String)
+    /// A search of the read bases with a kit whose barcodes are so short that half of all reads or more match one by
+    /// chance, which the floor cannot tell from reads with no barcode, and no opt-in (DEMUX-FLOOR-SATURATED-KIT).
+    case chanceCheckCannotJudgeKit(kitName: String)
     /// The split by the read names read reads and found an index of the kit in none of their names (UX SF3).
     case noReadNameIndex(kitName: String)
     /// Detect Barcodes read the first read names of a file for an Illumina or Element kit and found no index (L9).
@@ -43,6 +46,8 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
             return "No read name carried an index of \(kitName), so Demultiplex Barcodes made no sample files. The reads may carry no index in their names, the index may belong to another kit, or the reads may already be split into one file per sample. Choose the kit the library was made with, search the read sequences with Cutadapt, or import this file as one sample."
         case .noBarcodeAboveChance(let kitName):
             return "No barcode of \(kitName) matched more reads than chance alone gives, so Demultiplex Barcodes made no sample files. The index in the read names may match no barcode of this kit, the index may sit in index reads that are not in this file, the reads may already be split into one file per sample, or a barcode may be on too few reads to stand above chance. Choose the kit the library was made with, check the barcode sequences and the end of the read you chose for a Custom Definition, or import this file as one sample."
+        case .chanceCheckCannotJudgeKit(let kitName):
+            return "The barcodes of the kit \"\(kitName)\" are so short that about half of all reads or more match one of them by chance, so the check for chance matches cannot tell this pool from reads that carry no barcode, and nothing was run. If the reads carry these barcodes, run it again with Keep Unchecked Samples (on the command line, --keep-unchecked-samples), then check each sample against your sample sheet."
         case .searchRouteRefused(let words):
             return words
         case .inputFileNotFound(let url):

@@ -169,6 +169,11 @@ public struct DemultiplexConfig: Sendable {
     /// Set by multi-step pipelines for non-final steps.
     public let captureTrimsForChaining: Bool
 
+    /// The person's choice to make sample files from a search of the read bases whose kit the chance check cannot judge,
+    /// a kit whose barcodes are so short that half of all reads or more match one by chance. Without it preflight
+    /// refuses such a kit (DEMUX-FLOOR-SATURATED-KIT, `lungfish-cli fastq demultiplex --keep-unchecked-samples`).
+    public let keepsUncheckedSamples: Bool
+
     public init(
         inputURL: URL,
         sourceBundleURL: URL? = nil,
@@ -195,7 +200,8 @@ public struct DemultiplexConfig: Sendable {
         inputSequenceFormat: SequenceFormat? = nil,
         minimumInsert: Int = 2000,
         useNoIndels: Bool = false,
-        captureTrimsForChaining: Bool = false
+        captureTrimsForChaining: Bool = false,
+        keepsUncheckedSamples: Bool = false
     ) {
         self.inputURL = inputURL
         if let sourceBundleURL {
@@ -243,5 +249,6 @@ public struct DemultiplexConfig: Sendable {
         self.minimumInsert = minimumInsert
         self.useNoIndels = useNoIndels
         self.captureTrimsForChaining = captureTrimsForChaining
+        self.keepsUncheckedSamples = keepsUncheckedSamples
     }
 }
