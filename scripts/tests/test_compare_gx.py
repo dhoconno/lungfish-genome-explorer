@@ -136,9 +136,10 @@ class StarVersionTests(PergenomeCase):
         self.assertEqual(compare_gx.check_star(self.fake_star()), "2.7.11b")
 
     def test_another_star_or_a_missing_one_is_refused(self):
-        with self.assertRaises(compare_gx.StepError):
+        # FIX-GXPG-BIO S2: the words of the refusal name the next step, --star PATH.
+        with self.assertRaisesRegex(compare_gx.StepError, "--star PATH"):
             compare_gx.check_star(self.fake_star(version="2.7.3a"))
-        with self.assertRaises(compare_gx.StepError):
+        with self.assertRaisesRegex(compare_gx.StepError, "--star PATH"):
             compare_gx.check_star(str(self.tmp / "no-such-STAR"))
 
 
@@ -175,6 +176,29 @@ class SpeciesBarTests(unittest.TestCase):
     def test_a_row_the_comparer_did_not_write_prints_no_row(self):
         rows = {self.LABEL: {"hg19_cells": ("502", "504", "")}}
         self.assertEqual(self.table(rows).count("no row"), 4)
+
+
+class IntronsTableTests(unittest.TestCase):
+    """FIX-GXPG-BIO S1 (BIO-GXFH-GEC6 item 8): the GeneFull_Ex50pAS table gives a verdict only on the set that gates it."""
+    LABEL = "STARsolo_GeneFull_Ex50pAS"
+    # GX H's per-gene r and GX P's cell Jaccard on the introns preset: one row misses its bar, one meets it
+    ROWS = {LABEL: {"gene_total_pearson_log1p_ge10": ("0.87208", "1.00000", ""), "jaccard": ("0.99141", "1.00000", "")}}
+
+    def table(self, gated):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            compare_gx.bars_table(self.LABEL, self.ROWS, gated=gated)
+        return out.getvalue()
+
+    def test_a_set_that_does_not_gate_the_introns_table_gets_no_verdict(self):
+        text = self.table(gated=False)
+        self.assertNotIn("MISSES", text)
+        self.assertNotIn("meets", text)
+        self.assertEqual(text.count("not gated"), 2, text)
+        gated = self.table(gated=True)
+        self.assertEqual(gated.count("MISSES"), 1, gated)
+        self.assertEqual(gated.count("meets"), 1, gated)
+        self.assertEqual(compare_gx.INTRONS_GATED_SETS, {"SC3pv3_GEX_Human_PBMC"})
 
 
 if __name__ == "__main__":
