@@ -92,6 +92,14 @@ OPTIONS:
         sheet's optional model column names the instrument.
   --samplesheet <file>    A comma-separated sample sheet with sample, r1 and r2
                           columns, for --staged-reads
+        The optional kit column names the UMI kit of every sample by its
+        preset, one of quartz-seq2-x910 for Quartz-Seq2 primer X910 (ATCAATC
+        then a 16-nt UMI on Read 1). A sheet with a kit plans the UMI branch,
+        which runs each pair's layout check, umi_tools extract, STAR 2.7.11b on
+        the kept read alone on the set's adopted STAR 2.7.11b index,
+        featureCounts' gene tags and umi_tools count per gene, so a count is
+        molecules. The kit's preset fixes that chain, so leave out --chain,
+        --trim, --k and --decoys.
   --staging-folder <path> The absolute path of the folder on the Linux machine
                           that holds the image, the executor, the index and the
                           reads
