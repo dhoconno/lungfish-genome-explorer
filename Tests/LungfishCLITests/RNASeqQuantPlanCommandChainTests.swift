@@ -233,4 +233,68 @@ final class RNASeqQuantPlanCommandChainTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: out.path), "a refusal writes no folder")
     }
+
+    // MARK: - Single-end reads (CHTC-QUANT-SINGLE-END milestone 1)
+
+    /// Two single-end read files already in the staging folder, as the 14 runs of GSE152418 are for GE C2.
+    static let singleReads: [(path: String, size: Int64, sha256: String)] = [
+        ("\(staging)/input/SE1.fastq.gz", 7_000_000, String(repeating: "a", count: 64)),
+        ("\(staging)/input/SE2.fastq.gz", 8_000_000, String(repeating: "b", count: 64)),
+    ]
+
+    /// The `--staged-reads` list and the sheet `sample,r1,r2,model` in GE C2's form, with r2 empty. S1 names its model.
+    func writeSingleEndFiles() throws -> (list: URL, sheet: URL) {
+        let (list, sheet) = (root.appendingPathComponent("single-end.tsv"), root.appendingPathComponent("single-end.csv"))
+        let lines = ["file\tbytes\tsha256"] + Self.singleReads.map { "\($0.path)\t\($0.size)\t\($0.sha256)" }
+        try (lines.joined(separator: "\n") + "\n").write(to: list, atomically: true, encoding: .utf8)
+        let rows = ["sample,r1,r2,model", "S1,\(Self.singleReads[0].path),,Illumina NovaSeq 6000", "S2,\(Self.singleReads[1].path),,"]
+        try (rows.joined(separator: "\n") + "\n").write(to: sheet, atomically: true, encoding: .utf8)
+        return (list, sheet)
+    }
+
+    /// GE C2's plan (gate GE, `scripts/repro/rnaseq/gse152418/star.sh:28-30`). A sheet row with an empty r2 cell is one sample
+    /// with one read file: exit 0, one plan a sample, one `input` entry at `inputs/single1.fastq.gz` with the list's SHA-256 and
+    /// size, and STAR's argv holds one `--readFilesIn` file, then `--readFilesCommand pigz -d -c`, with no
+    /// `--outFilterMultimapNmax`. At the base the sheet is refused with "Sample sheet line 2 has an empty r2 value."
+    func testASingleEndSheetWritesTheSTAR273aPlanWithOneReadFile() async throws {
+        let set = try await setWithAdoptedIndex(star: "2.7.3a"), files = try writeImageFiles()
+        let staged = try writeSingleEndFiles()
+        let out = root.appendingPathComponent("out/single")
+        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let given = ["--set", set.id, "--storage-root", set.storage.path, "--write-plan", out.path, "--staging-folder", Self.staging,
+                     "--executor-manifest", files.executor.path, "--image", files.image.path, "--image-tool-manifest", files.tools.path,
+                     "--quiet", "--chain", "star-2.7.3a-genecounts", "--staged-reads", staged.list.path, "--samplesheet", staged.sheet.path]
+            + Self.figures
+        let command = try RNASeqCommand.QuantSubcommand.parse(given)
+        do {
+            try await command.run()
+        } catch let code as ExitCode {
+            var words = ""
+            do { _ = try await command.writePlanFolder() } catch { words = CLIFailureWords.describe(error) }
+            XCTFail("the sheet with an empty r2 cell exited with \(code): \(words)")
+            return
+        }
+        for (sample, read) in [("S1", Self.singleReads[0]), ("S2", Self.singleReads[1])] {
+            let plan = try ExecutionPlan.decode(Data(contentsOf: out.appendingPathComponent("\(sample)/plan.json")))
+            let inputs = plan.entries.filter { $0.role == .input }
+            XCTAssertEqual(inputs.map(\.relativePath), ["inputs/single1.fastq.gz"], sample)
+            XCTAssertEqual(inputs.map(\.sha256), [read.sha256], sample)
+            XCTAssertEqual(inputs.map(\.size), [read.size], sample)
+            XCTAssertEqual(plan.sample.originalFilenames, [(read.path as NSString).lastPathComponent], sample)
+            XCTAssertEqual(plan.sample.originalSizeBytes, read.size, sample)
+            XCTAssertEqual(plan.steps.map(\.id), ["star-align"], "\(sample): the reads are not trimmed")
+            let argv = try starStep(plan).arguments
+            let list = try XCTUnwrap(argv.firstIndex(of: "--readFilesIn"), sample)
+            XCTAssertEqual(Array(argv[list...].prefix(6)),
+                           ["--readFilesIn", "inputs/single1.fastq.gz", "--readFilesCommand", "pigz", "-d", "-c"], sample)
+            XCTAssertFalse(argv.contains("--outFilterMultimapNmax"), sample)
+        }
+        let instrument = { (sample: String) throws -> PlanSampleInstrument? in
+            try ExecutionPlan.decode(Data(contentsOf: out.appendingPathComponent("\(sample)/plan.json"))).sample.instrument
+        }
+        XCTAssertEqual(try instrument("S1"), PlanSampleInstrument(model: "Illumina NovaSeq 6000", inferred: false))
+        XCTAssertNil(try instrument("S2"), "a sheet cell with no model gives no instrument")
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: out.path).filter { $0.contains(".fastq") }.isEmpty,
+                      "a staged read is never copied")
+    }
 }
