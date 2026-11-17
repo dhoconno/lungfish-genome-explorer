@@ -31,7 +31,8 @@ extension BlastTaxonomyContext {
                     + "If NCBI Taxonomy is not installed, install it in the Databases tab of the Plugin Manager and run Verify with BLAST… again."
             case .names:
                 return "Judged by organism names, because LGE could not look up the species of this row. "
-                    + "A read can count for or against this row by a name it happens to share. "
+                    + "A read whose best match shares only the first word of the row's name, such as Rotavirus C for Rotavirus A, "
+                    + "counts neither for nor against this row. "
                     + "If NCBI Taxonomy is not installed, install it in the Databases tab of the Plugin Manager and run Verify with BLAST… again."
             }
         }

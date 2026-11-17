@@ -159,11 +159,16 @@ extension BlastService {
             queriedTaxonName: queriedTaxonName,
             context: context
         )
-        let matchesQueriedTaxon = tie?.holdsClade ?? Self.legacyNameMatchesQueriedTaxon(
+        // With no tax ID in play the name rule judges the first record. It agrees by name or by first word only.
+        let nameAgreement = tie == nil ? Self.legacyNameAgreement(
             hitOrganism: hitOrganism, queriedTaxonName: queriedTaxonName, acceptedTaxonNames: context.cladeNames
-        )
+        ) : nil
+        let matchesQueriedTaxon = tie?.holdsClade ?? (nameAgreement == .name)
         // A list full of ties with no clade record cannot say that none ties, so the read counts neither way.
         let listEndedInTheTie = tie.map { $0.summary.runsPastList && !$0.holdsClade } ?? false
+        // A best match that shares only the first word of the name cannot be placed either ("Rotavirus C" for
+        // "Rotavirus A", or two "Human ..." viruses), so the read counts neither way (BLAST-ESVIRITU-FIRST-WORD).
+        let sharesOnlyTheFirstWord = nameAgreement == .firstWordOnly
         // Shared: a supporting read whose tie also holds a record that is not in the clade. A record below the best
         // score is no conflict. The name rule keeps its first-word comparison of the first five.
         let hasLCADisagreement = tie.map { verdict == .verified && $0.holdsClade && $0.summary.outside > 0 }
@@ -171,7 +176,7 @@ extension BlastService {
 
         return BlastReadResult(
             id: result.queryId,
-            verdict: listEndedInTheTie ? .ambiguous : verdict,
+            verdict: listEndedInTheTie || sharesOnlyTheFirstWord ? .ambiguous : verdict,
             topHitOrganism: hitOrganism,
             topHitAccession: topHit.accession,
             percentIdentity: pctIdentity,
@@ -200,6 +205,9 @@ extension BlastService {
     /// renamed many virus species to binomials: Kraken 2 may report
     /// "Simplexvirus humanalpha1" while nt records name the same virus
     /// "Human alphaherpesvirus 1".
+    ///
+    /// A match on the first word alone is no support, since "Rotavirus C" is not "Rotavirus A"
+    /// (BLAST-ESVIRITU-FIRST-WORD). The verdict rule counts such a read neither way.
     static nonisolated func hitMatchesQueriedTaxon(
         hitOrganism: String,
         hitTaxId: Int?,
@@ -230,16 +238,41 @@ extension BlastService {
         )
     }
 
+    /// How far a hit's organism name agrees with the queried taxon when no tax ID decides (BLAST-ESVIRITU-FIRST-WORD).
+    private enum NameAgreement: Equatable {
+        /// No tier of the name rule matched.
+        case noMatch
+        /// Only the first word of the two names is the same, as it is for "Rotavirus C" and "Rotavirus A", or for two
+        /// "Human ..." viruses. The first word cannot tell one species from another, so the read counts neither way.
+        case firstWordOnly
+        /// The hit's name holds the queried name, or the other way round, or holds an accepted name whole.
+        case name
+    }
+
     /// The name rule, used only for hits without a tax ID.
+    private static nonisolated func legacyNameAgreement(
+        hitOrganism: String,
+        queriedTaxonName: String,
+        acceptedTaxonNames: [String]
+    ) -> NameAgreement {
+        if acceptedTaxonNames.contains(where: { BlastTaxonMatching.containsPhrase(hitOrganism, $0) }) {
+            return .name
+        }
+        guard let tier = organismNameTier(hitOrganism: hitOrganism, queriedTaxonName: queriedTaxonName) else {
+            return .noMatch
+        }
+        return tier == .containment ? .name : .firstWordOnly
+    }
+
+    /// Whether the name rule counts the hit as supporting. A match on the first word alone does not.
     private static nonisolated func legacyNameMatchesQueriedTaxon(
         hitOrganism: String,
         queriedTaxonName: String,
         acceptedTaxonNames: [String]
     ) -> Bool {
-        if organismMatchesTaxon(hitOrganism: hitOrganism, queriedTaxonName: queriedTaxonName) {
-            return true
-        }
-        return acceptedTaxonNames.contains { BlastTaxonMatching.containsPhrase(hitOrganism, $0) }
+        legacyNameAgreement(
+            hitOrganism: hitOrganism, queriedTaxonName: queriedTaxonName, acceptedTaxonNames: acceptedTaxonNames
+        ) == .name
     }
 
     /// Builds an array of ``BlastHitSummary`` from up to `maxCount` hits.
@@ -287,6 +320,9 @@ extension BlastService {
     ///    organism contains the queried taxon name or vice versa (case-insensitive).
     ///    Example: "Oxbow virus isolate ABC" matches queried "Oxbow virus".
     ///
+    /// A match on the first word alone is agreement in the first tier only. The verdict rule counts such a read
+    /// neither way, and `organismNameTier` tells the two tiers apart (BLAST-ESVIRITU-FIRST-WORD).
+    ///
     /// - Parameters:
     ///   - hitOrganism: The organism name from the BLAST hit.
     ///   - queriedTaxonName: The taxon name from the Kraken2 classification.
@@ -295,24 +331,42 @@ extension BlastService {
         hitOrganism: String,
         queriedTaxonName: String
     ) -> Bool {
-        guard !hitOrganism.isEmpty, !queriedTaxonName.isEmpty else { return false }
+        organismNameTier(hitOrganism: hitOrganism, queriedTaxonName: queriedTaxonName) != nil
+    }
+
+    /// The tier of the name rule that matched a hit organism to the queried name.
+    private enum OrganismNameTier: Equatable {
+        /// The first word of the two names is the same.
+        case firstWord
+        /// One name contains the other.
+        case containment
+    }
+
+    /// Which tier of the name rule matches a hit organism to the queried taxon, or `nil` when none does. A pair that
+    /// holds one name in the other counts as `.containment` even when the first words are the same too, since that is
+    /// agreement on the name and not on its first word alone.
+    private static nonisolated func organismNameTier(
+        hitOrganism: String,
+        queriedTaxonName: String
+    ) -> OrganismNameTier? {
+        guard !hitOrganism.isEmpty, !queriedTaxonName.isEmpty else { return nil }
 
         let hitLower = hitOrganism.lowercased()
         let queriedLower = queriedTaxonName.lowercased()
+
+        // Strategy 2: Containment match (handles virus names like "Oxbow virus")
+        if hitLower.contains(queriedLower) || queriedLower.contains(hitLower) {
+            return .containment
+        }
 
         // Strategy 1: Genus-level match (first word of binomial name)
         let hitGenus = hitLower.split(separator: " ").first.map(String.init) ?? hitLower
         let queriedGenus = queriedLower.split(separator: " ").first.map(String.init) ?? queriedLower
 
         if hitGenus == queriedGenus && !hitGenus.isEmpty {
-            return true
+            return .firstWord
         }
 
-        // Strategy 2: Containment match (handles virus names like "Oxbow virus")
-        if hitLower.contains(queriedLower) || queriedLower.contains(hitLower) {
-            return true
-        }
-
-        return false
+        return nil
     }
 }
