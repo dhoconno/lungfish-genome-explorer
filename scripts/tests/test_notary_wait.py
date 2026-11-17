@@ -4,6 +4,7 @@ Each test runs the script with a stand-in for xcrun and one for sleep first on P
 The stand-in sleep logs the seconds asked for, and each stand-in xcrun logs its arguments, one line a probe.
 """
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
@@ -92,6 +93,7 @@ class NotaryWaitTests(unittest.TestCase):
         done = self.wait()
         self.assertEqual((done.returncode, done.stdout.split()[0]), (0, 'NOTARY-OK'), done.stdout + done.stderr)
         self.assertEqual((len(self.probed()), self.slept()), (1, []))
+        self.assertIn('release.py setup', done.stdout)
 
     def test_a_pass_after_a_401_round_reports_ok(self):
         self.xcrun('if [ -f "$FLAG" ]; then echo "Successfully received submission history."; exit 0; fi\n'
@@ -117,6 +119,10 @@ class NotaryWaitTests(unittest.TestCase):
                 self.assertEqual(done.returncode, 2, done.stdout)
                 self.assertIn('usage: notary_wait.sh', done.stderr)
         self.assertEqual(self.probed(), [])
+
+    def test_the_script_can_be_started_by_its_path(self):
+        """lge-release.md:17 tells the release agent to start scripts/release/notary_wait.sh by its path."""
+        self.assertTrue(os.access(SCRIPT, os.X_OK), 'chmod 755 %s' % SCRIPT)
 
 
 if __name__ == '__main__':
