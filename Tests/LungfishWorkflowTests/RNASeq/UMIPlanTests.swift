@@ -157,7 +157,29 @@ final class UMIPlanTests: XCTestCase {
             XCTFail("an unknown kit wrote a plan")
         } catch let error as SalmonPlanError {
             XCTAssertEqual(error.message, "The sample sheet names the kit 10x-3prime-v3, which LGE has no UMI preset for. The kits "
-                + "LGE knows are quartz-seq2-x910 (\(UMIPlan.quartzSeq2X910.label)).")
+                + "LGE knows are quartz-seq2-x910 (\(UMIPlan.quartzSeq2X910.label)). LGE reads a column named kit as the UMI kit, "
+                + "so if this column holds something else, such as a library prep kit, rename or remove it.")
+        }
+    }
+
+    /// EX-UMI-M3-BIO blocker 1 (S1): STAR cuts a read's name at the first character `--readNameSeparator` lists, and
+    /// `umi_tools count` takes the UMI from the end of the name, so a cut name loses its UMI and every read of a gene carries
+    /// one. The value `none` lists no character, so each first word a lab's own FASTQ holds stays whole: a MiSeq flowcell id's
+    /// dash, an old Illumina `HWUSI-`, an SRA `.`, and the slash and dash of `run/lane-1/read<n>`.
+    func testTheSeparatorKeepsEveryFirstWordWholeSoTheUMIAtItsEndSurvives() async throws {
+        let plan = try await made().plan
+        let star = try XCTUnwrap(plan.steps.first { $0.id == "star-align" })
+        let at = try XCTUnwrap(star.arguments.firstIndex(of: "--readNameSeparator"))
+        let separator = star.arguments[at + 1]
+        XCTAssertEqual(separator, "none")
+        // STAR 2.7.11b as the BIO probe ran it: the value lists the characters at which a name is cut, and `none` lists none.
+        func kept(_ name: String) -> Bool { separator == "none" || !name.contains { separator.contains($0) } }
+        for firstWord in [
+            "SRR1.7", "M00123:45:000000000-A1B2C:1:1101:15589:1333", "ST-E00123:45:HXXXXXXX:1:1101:1000:7",
+            "HWI-ST1234:123:C0ABCACXX:1:1101:7:2000", "HWUSI-EAS100R:6:73:941:1973#0/1", "run/lane-1/read7", "run/lane1/read7",
+        ] {
+            // umi_tools extract ends the name's first word with `_<UMI>`.
+            XCTAssertTrue(kept(firstWord + "_ATCAATCGGTACCATTGGAC"), "STAR would cut the UMI off \(firstWord)")
         }
     }
 
@@ -183,18 +205,20 @@ final class UMIPlanTests: XCTestCase {
         XCTAssertEqual(extract.outputPolicy, ["umi/pair1_R2.umi.fastq.gz": .stays, "umi/pair1-extract.log": .home])
         let star = try step("star-align")
         XCTAssertEqual(star.tool, Self.star)
+        // "none", never a character: STAR cuts a name at its first separator character, and "-" cut every MiSeq name at its
+        // flowcell id (EX-UMI-M3-BIO blocker 1, which amends EX-UMI-M2-BIO ruling 1 (a)).
         XCTAssertEqual(star.arguments, [
             "--runThreadN", "8", "--genomeDir", "references/\(set)/indexes/\(made.index.folderName)",
             "--readFilesIn", "umi/pair1_R2.umi.fastq.gz", "--readFilesCommand", "pigz", "-d", "-c",
-            "--outFilterMultimapNmax", "1", "--readNameSeparator", "-", "--outSAMtype", "BAM", "SortedByCoordinate",
+            "--outFilterMultimapNmax", "1", "--readNameSeparator", "none", "--outSAMtype", "BAM", "SortedByCoordinate",
             "--limitBAMsortRAM", "8000000000", "--outFileNamePrefix", "star/",
         ])
         XCTAssertEqual(star.outputPolicy, ["star/Log.final.out": .home, "star/Aligned.sortedByCoord.out.bam": .stays])
-        // EX-UMI-M2-BIO ruling 1 (a): STAR keeps each read's whole first word, so a slash in it never cuts the UMI off, and
-        // the mapping words name the flag, so the argv and the identity agree.
+        // STAR keeps each read's whole first word, so neither a slash nor a dash in it cuts the UMI off, and the mapping
+        // words name the flag, so the argv and the identity agree.
         XCTAssertEqual(plan.pipeline?.route?.settings["mapping"], "STAR 2.7.11b on the genome, Read 2 alone, uniquely mapped "
             + "reads only (--outFilterMultimapNmax 1), each read named by the whole first word of its name with the UMI at its "
-            + "end (--readNameSeparator -), --outSAMtype BAM SortedByCoordinate")
+            + "end (--readNameSeparator none), --outSAMtype BAM SortedByCoordinate")
         let featureCounts = try step("featurecounts")
         XCTAssertEqual(featureCounts.arguments, [
             "-T", "8", "-s", "0", "-a", "references/\(set)/derived/genes.gtf", "-o", "featurecounts/counts.txt",

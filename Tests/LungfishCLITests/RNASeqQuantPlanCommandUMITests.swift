@@ -112,7 +112,8 @@ final class RNASeqQuantPlanCommandUMITests: XCTestCase {
             XCTAssertEqual(made.pipeline?.route?.id, "umi-counts", sample)
             XCTAssertEqual(made.pipeline?.preset.id, "quartz-seq2-x910", sample)
             let star = try XCTUnwrap(made.steps.first { $0.id == "star-align" }?.arguments)
-            XCTAssertEqual(star.firstIndex(of: "--readNameSeparator").map { star[$0 + 1] }, "-", sample)
+            // "none", never a character (EX-UMI-M3-BIO blocker 1): a one-character separator cuts a MiSeq name at its flowcell id.
+            XCTAssertEqual(star.firstIndex(of: "--readNameSeparator").map { star[$0 + 1] }, "none", sample)
             XCTAssertEqual(star.firstIndex(of: "--runThreadN").map { star[$0 + 1] }, "2", "STAR's threads equal --request-cpus")
         }
         let stagedFiles = try String(contentsOf: out.appendingPathComponent("staging-files.json"), encoding: .utf8)
