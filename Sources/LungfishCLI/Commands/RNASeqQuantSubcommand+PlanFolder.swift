@@ -16,7 +16,11 @@ extension RNASeqCommand.QuantSubcommand {
         do {
             pairs = try FASTQSampleSheet.samplePairsAllowingSingleEnd(url: URL(fileURLWithPath: sheetPath))
         } catch FASTQSampleSheetError.missingRequiredColumns {
-            throw SalmonPlanError("The sample sheet \(sheetPath) needs the columns sample, r1 and r2, written comma-separated.")
+            throw SalmonPlanError("The sample sheet \(sheetPath) needs the columns sample, r1 and r2, written comma-separated. "
+                + "Leave r2 empty for a sample of single-end reads.")
+        } catch FASTQSampleSheetError.emptyValue(column: "r1", line: let line) {
+            throw SalmonPlanError("Sample sheet line \(line) has an empty r1 value. Name a sample's read file in r1, and leave r2 empty "
+                + "for single-end reads.")
         }
         return try pairs.map { pair in
             let reads = try staged.inputs(of: pair, files: [pair.r1] + [pair.r2].compactMap { $0 }, layout: layout).map {
@@ -32,6 +36,16 @@ extension RNASeqCommand.QuantSubcommand {
                 : SalmonPlan.stagedSample(name: pair.sampleName, pairs: [(r1: reads[0], r2: reads[1])], model: instrument)
             return (sample, kit?.isEmpty == false ? kit : nil)
         }
+    }
+
+    /// Refuses a staged sheet whose rows mix one read file and a read pair, before any plan, on every chain and with or without
+    /// `--trim`. The batch writer refuses such a mix only when the trim steps differ, and then in its generic words, and an
+    /// untrimmed mix would write a batch whose samples no adopt can take together (SE-M1-BIO R2). It is the plan route's rule
+    /// for a batch, and it names the first sample of each layout, as the kit rule below names the first of each kind.
+    static func checkOneLayout(_ samples: [SalmonPlanSample]) throws {
+        guard let single = samples.first(where: { $0.pairs.isEmpty }), let pair = samples.first(where: { !$0.pairs.isEmpty }) else { return }
+        throw SalmonPlanError("The sample sheet gives \(single.name) one read file and \(pair.name) a read pair. A plan folder holds "
+            + "samples of one layout, so write the single-end samples and the pairs in two plan folders.")
     }
 
     /// The UMI branch's plan of each sample, on the set's adopted STAR 2.7.11b index, with the request rule of a UMI job.
@@ -88,6 +102,8 @@ extension RNASeqCommand.QuantSubcommand {
         let manifest = try ReferenceSetManifest.load(from: setFolder)
         let image = try imageFiles()
         let staged = try stagedSamples(layout: layout)
+        // A sheet with a kit goes to the UMI branch, whose planner refuses a single-end sample in its own words.
+        if staged.allSatisfy({ $0.kit == nil }) { try Self.checkOneLayout(staged.map(\.sample)) }
         let planned: RNASeqQuantPlanJobs
         var rule: String?
         if staged.contains(where: { $0.kit != nil }) {
