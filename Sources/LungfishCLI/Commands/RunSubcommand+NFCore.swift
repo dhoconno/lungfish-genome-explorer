@@ -310,13 +310,55 @@ extension RunSubcommand {
         // process.resourceLimits instead of --max_cpus / --max_memory.
         let resourcePlan = try NFCoreResourceLimits.plan(for: stagedRequest, in: launchScratch)
         let plannedRequest = resourcePlan.request
+        // VIRALRECON-SE-ADAPTER-GUESS (ruling BIO-THREE-ROWS). A run with a single-end sample names fastp's adapters in
+        // one more -c config, so the order the reads are stored in no longer picks them. The app runs this command, so
+        // it gets the same config. A list of known adapters that is missing refuses the run in words.
+        let fastpConfig: ViralReconFastpConfig.Written?
+        do {
+            fastpConfig = try ViralReconFastpConfig.writeIfNeeded(
+                readPairing: pairingDecisions, params: plannedRequest.params,
+                launchFolder: launchScratch, stagingRoot: stagingRoot.root
+            )
+        } catch {
+            try NFCoreRunBundleStore.write(
+                request.manifest(
+                    createdAt: bundleClock.startedAt,
+                    executionStatus: .failed,
+                    startedAt: processClock.startedAt,
+                    completedAt: processClock.now,
+                    exitCode: 1
+                ),
+                to: runBundleURL
+            )
+            try writeRunBundleProvenance(
+                request: request,
+                bundleURL: runBundleURL,
+                prepareOnly: false,
+                status: .failed,
+                exitCode: 1,
+                wallTime: processClock.elapsed,
+                stderr: error.localizedDescription,
+                readPairing: pairingDecisions,
+                effectiveSamplesheetURL: effectiveSamplesheetURL,
+                stagedAnnotation: stagedAnnotation
+            )
+            throw CLIError.workflowFailed(reason: error.localizedDescription)
+        }
+        defer {
+            if let fastpConfig, fastpConfig.isFallback, !Task.isCancelled {
+                try? FileManager.default.removeItem(at: fastpConfig.adapterFolder)
+            }
+        }
         // The Viral Recon descriptor writes the launch's argv, the one samplesheet as --input and the
         // -c files before run (N1). The request holds the one samplesheet this route built above.
         guard let engineSamplesheetURL = plannedRequest.inputURLs.first else {
             throw CLIError.workflowFailed(reason: "nf-core/viralrecon launches with one samplesheet")
         }
         let launchArguments = NextflowWorkflowDescriptor.viralRecon.nextflowArguments(
-            for: plannedRequest.viralReconLaunch(samplesheet: engineSamplesheetURL, configFiles: resourcePlan.configFiles))
+            for: plannedRequest.viralReconLaunch(
+                samplesheet: engineSamplesheetURL,
+                configFiles: resourcePlan.configFiles + (fastpConfig.map { [$0.configURL] } ?? [])
+            ))
         // From here the manifest records the command the engine got, never the request's preview (Q33 fix 8).
         let launchCommand = NFCoreRunCommandBuilder.commandPreview(nextflowArguments: launchArguments)
         output.info(launchCommand)
@@ -346,7 +388,8 @@ extension RunSubcommand {
                 effectiveSamplesheetURL: effectiveSamplesheetURL,
                 stagedAnnotation: stagedAnnotation,
                 launchCommand: launchCommand,
-                engine: ViralReconEngineFacts.read(launchFolder: launchScratch, consoleLog: logFile, probe: versionProbe)
+                engine: ViralReconEngineFacts.read(launchFolder: launchScratch, consoleLog: logFile, probe: versionProbe),
+                fastpAdapters: fastpConfig?.adapters
             )
             throw CancellationError()
         }
@@ -378,7 +421,8 @@ extension RunSubcommand {
             readPairing: pairingDecisions,
             effectiveSamplesheetURL: effectiveSamplesheetURL,
             stagedAnnotation: stagedAnnotation,
-            engine: ViralReconEngineFacts.read(launchFolder: launchScratch, consoleLog: logFile, probe: versionProbe)
+            engine: ViralReconEngineFacts.read(launchFolder: launchScratch, consoleLog: logFile, probe: versionProbe),
+            fastpAdapters: fastpConfig?.adapters
         )
         if processResult.exitCode != 0 {
             throw CLIError.workflowFailed(
@@ -464,7 +508,8 @@ extension RunSubcommand {
         effectiveSamplesheetURL: URL?,
         stagedAnnotation: ViralReconStagedAnnotation?,
         launchCommand: String? = nil,
-        engine: ViralReconEngineFacts? = nil
+        engine: ViralReconEngineFacts? = nil,
+        fastpAdapters: FastpPairedRunner.SingleReadAdapters? = nil
     ) {
         let message = "Workflow cancelled"
         let exitCode = CLIExitCode.cancelled.rawValue
@@ -500,10 +545,11 @@ extension RunSubcommand {
                 readPairing: readPairing,
                 effectiveSamplesheetURL: effectiveSamplesheetURL,
                 stagedAnnotation: stagedAnnotation,
-                engine: engine
+                engine: engine,
+                fastpAdapters: fastpAdapters
             )
         } catch {
-            FileHandle.standardError.write(Data("Could not record the cancelled run: \(error.localizedDescription)\n".utf8))
+            FileHandle.standardError.write(Data("Could not record the cancelled run:\(error.localizedDescription)\n".utf8))
         }
     }
 
@@ -524,7 +570,8 @@ extension RunSubcommand {
         readPairing: [ViralReconReadPairingDecision] = [],
         effectiveSamplesheetURL: URL? = nil,
         stagedAnnotation: ViralReconStagedAnnotation? = nil,
-        engine: ViralReconEngineFacts? = nil
+        engine: ViralReconEngineFacts? = nil,
+        fastpAdapters: FastpPairedRunner.SingleReadAdapters? = nil
     ) throws {
         let command = [CLICommandIdentity.executableName] + request.cliArguments(
             bundlePath: bundleURL,
@@ -560,6 +607,11 @@ extension RunSubcommand {
         }
         if let stagedAnnotation {
             parameters[ViralReconAnnotationStaging.provenanceKey] = stagedAnnotation.provenanceValue
+        }
+        // The adapters a run with a single-end sample named for viralrecon's fastp (ruling BIO-THREE-ROWS, BIO 4), under
+        // the key the single-read trims use. A run whose samples all ran paired has no key.
+        if let fastpAdapters {
+            parameters["singleReadAdapters"] = fastpAdapters.provenanceValue
         }
 
         // The run's real window, as the manifest written just before holds it, in place of the moment of writing.
