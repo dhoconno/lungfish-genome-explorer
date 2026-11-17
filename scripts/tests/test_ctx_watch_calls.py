@@ -145,7 +145,8 @@ class CallsTests(unittest.TestCase):
         self.session.agent(B, 'Your brief is %s.' % five, 5, 'lge-lane')
         self.session.agent(C, 'Your brief is %s.' % bare, 9, 'lge-lane')
         self.session.agent(D, 'Your brief is %s.' % bare, 8, 'lge-lane')
-        self.assertEqual(self.check(), ['CALLS %s 3/3' % A, 'CALLS %s 5/5' % B, 'CALLS %s 9/9' % C])
+        self.assertEqual(self.check(), ['CALLS %s 3/3' % A, 'CALLS %s 5/5' % B, 'MISMATCH %s brief 5 type 9' % B,
+                                        'CALLS %s 9/9' % C])
 
     def test_a_brief_that_is_missing_a_folder_or_a_relative_path_leaves_the_type_line(self):
         self.session.type_file('lge-lane', 'Stop at 2 calls.')
@@ -233,6 +234,22 @@ class CallsTests(unittest.TestCase):
         self.assertEqual(self.check(), ['CALLS %s 20/20' % D])
         self.assertEqual(self.check('--near', '15'), ['NEAR %s 5/20' % B, 'NEAR %s 19/20' % C, 'CALLS %s 20/20' % D])
         self.assertEqual(self.check('--near', '0'), ['CALLS %s 20/20' % D])
+
+    def test_mismatch_when_the_prompt_names_no_line_and_its_brief_one_other_than_the_type_s(self):
+        """IDX a33a5e09 had "past call 55" in its prompt, 40 in its brief and 70 in its type (O177 ballot 6 Q4, E-RUN-66).
+        An ended agent and an agent whose type names no line get no MISMATCH line."""
+        self.session.type_file('lge-data', 'Stop at 70 calls.')
+        forty = self.brief('Stop at 40 tool calls a part.', 'forty.md')
+        seventy = self.brief('Stop at 70 tool calls.', 'seventy.md')
+        self.session.agent(A, 'Your brief is %s.' % forty, 5, 'lge-data')
+        self.session.agent(B, 'Your brief is %s.' % seventy, 5, 'lge-data')
+        self.session.agent(C, 'Stop at 40 tool calls. Your brief is %s.' % forty, 5, 'lge-data')
+        self.session.agent(D, 'Work past call 55, then hand off. Your brief is %s.' % forty, 5, 'lge-data')
+        self.session.agent('e0123456789abcdef', 'Your brief is %s.' % forty, 5, 'lge-data', final=True)
+        self.session.agent('f0123456789abcdef', 'Your brief is %s.' % forty, 5)
+        self.assertEqual(self.check(), ['MISMATCH %s brief 40 type 70' % A, 'MISMATCH %s brief 40 type 70' % D])
+        self.session.agent(A, 'Your brief is %s.' % forty, 40, 'lge-data')
+        self.assertEqual(self.check()[:2], ['CALLS %s 40/40' % A, 'MISMATCH %s brief 40 type 70' % A])
 
 
 class TypeLineTests(unittest.TestCase):
@@ -409,6 +426,16 @@ class HeartbeatCallsTests(unittest.TestCase):
         self.assertEqual(self.slept(), ['300'])
         self.assertEqual(self.beat('--interval', '300', '--near-calls', '10', '--near-s', '100')[:6], 'QUIET ')
         self.assertEqual(self.slept(), ['100'] * 3)
+
+    def test_a_mismatch_ends_the_round_once_for_each_agent(self):
+        line = load(SCRIPT, 'ctx_watch').type_stop_line('lge-ruling', str(REPO_TYPES))
+        brief = self.session.root / 'brief.md'
+        brief.write_text('Stop at %d tool calls.\n' % (line - 10))
+        self.session.agent(A, 'Your brief is %s.' % brief, 2, 'lge-ruling')
+        lines = self.beat().splitlines()
+        self.assertEqual((lines[0][:6], lines[1:]), ('ALARM ', ['MISMATCH %s brief %d type %d' % (A, line - 10, line)]))
+        self.assertTrue(self.beat().startswith('QUIET '))
+        self.assertEqual((self.records / 'mismatch_seen.txt').read_text().split(), [A])
 
     def test_the_script_has_no_syntax_error(self):
         self.assertEqual(subprocess.run(['bash', '-n', str(HEARTBEAT)], capture_output=True).returncode, 0)

@@ -132,6 +132,55 @@ class HeartbeatTests(unittest.TestCase):
         os.utime(stop, (later, later))
         self.assertTrue(self.beat().startswith('QUIET'))
 
+    def manager(self, *blocks, **fields):
+        """A main transcript of the session, a prompt that names a computer-use tool, then one assistant entry for each
+        block. FIELDS go on every assistant entry."""
+        when = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+        prompt = {'role': 'user', 'content': 'Never call mcp__computer-use__request_access here.'}
+        lines = [json.dumps({'type': 'user', 'uuid': 'p', 'timestamp': when, 'message': prompt})]
+        for n, block in enumerate(blocks):
+            message = {'id': 'm%d' % n, 'role': 'assistant', 'content': [block]}
+            lines.append(json.dumps({'type': 'assistant', 'uuid': 'a%d' % n, 'timestamp': when, 'message': message,
+                                     **fields}))
+        (self.project / (SID + '.jsonl')).write_text('\n'.join(lines) + '\n')
+
+    @staticmethod
+    def use(name, tid, **given):
+        return {'type': 'tool_use', 'id': tid, 'name': name, 'input': given}
+
+    def test_a_computer_use_call_in_the_manager_s_transcript_acts_once(self):
+        """E-RUN-59 bars computer-use in the manager, which still loaded it and called request_access twice at 21:29:34
+        and 23:10:27 on 2026-11-16 (O177 ballot 6 Q2, E-RUN-64)."""
+        self.manager(self.use('ToolSearch', 'toolu_01search', query='computer-use'),
+                     self.use('mcp__computer-use__request_access', 'toolu_01access', apps=['Lungfish']))
+        lines = self.beat().splitlines()
+        self.assertTrue(lines[0].startswith('ALARM '), lines)
+        acts = [line for line in lines if line.startswith('ACT ')]
+        self.assertEqual(len(acts), 1, lines)
+        self.assertIn(' mcp__computer-use__request_access ', acts[0])
+        self.assertTrue(acts[0].endswith(' toolu_01access'), acts[0])
+        self.assertTrue(self.beat().startswith('QUIET'))
+        self.manager(self.use('mcp__computer-use__request_access', 'toolu_01access'),
+                     self.use('mcp__computer-use__screenshot', 'toolu_02shot'))
+        acts = [line for line in self.beat().splitlines() if line.startswith('ACT ')]
+        self.assertEqual([line.split()[-1] for line in acts], ['toolu_02shot'])
+        self.assertEqual((self.records / 'act_seen.txt').read_text().split(), ['toolu_01access', 'toolu_02shot'])
+
+    def test_no_act_for_other_tools_a_mention_or_a_subagent_s_computer_use(self):
+        self.manager(self.use('Bash', 'toolu_01bash', command='echo mcp__computer-use__request_access'),
+                     self.use('mcp__Claude_in_Chrome__navigate', 'toolu_01chrome'),
+                     self.use('mcp__Claude_Browser__click', 'toolu_01browser'))
+        self.assertTrue(self.beat().startswith('QUIET'))
+        self.manager(self.use('mcp__computer-use__request_access', 'toolu_01side'), isSidechain=True)
+        self.assertTrue(self.beat().startswith('QUIET'))
+        self.manager(self.use('mcp__computer-use__request_access', 'toolu_01agent'), agentId='a1')
+        self.assertTrue(self.beat().startswith('QUIET'))
+        walker = {'type': 'assistant', 'uuid': 's', 'message': {
+            'id': 's', 'content': [self.use('mcp__computer-use__request_access', 'toolu_01walker')]}}
+        (self.sub / ('agent-%s.jsonl' % NEW)).write_text(json.dumps(walker) + '\n')
+        self.manager()
+        self.assertTrue(self.beat().startswith('QUIET'))
+
     def test_bad_arguments_exit_2(self):
         base = ['--project', 'p', '--session', 's']
         for extra in ([], ['--project'], ['--bogus', 'x'], base + ['--near-s', '0'], base + ['--near-s', 'soon'],
