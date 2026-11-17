@@ -90,6 +90,63 @@ public struct FASTQSampleSheet: Sendable, Equatable {
         }
     }
 
+    /// The sample pairs of a sheet for the one route that plans single-end reads, `rnaseq quant --write-plan` with
+    /// `--staged-reads` (CHTC-QUANT-SINGLE-END). The sheet is read as ``parse(csv:sourceURL:)`` reads it, with the columns
+    /// sample, r1 and r2 required and the sample and r1 cells never empty, except that an empty r2 cell makes a sample of one
+    /// read file, `r2: nil`. ``parse(url:)``, ``parse(csv:sourceURL:)`` and ``samplePairs()`` still refuse an empty r2
+    /// cell, since `import fastq`, `rnaseq solo-plan` and the app take read pairs only.
+    public static func samplePairsAllowingSingleEnd(url: URL) throws -> [SamplePair] {
+        let csv = try String(contentsOf: url, encoding: .utf8)
+        return try samplePairsAllowingSingleEnd(csv: csv, sourceURL: url)
+    }
+
+    /// ``samplePairsAllowingSingleEnd(url:)`` on the sheet's text, with `sourceURL` naming the sheet, whose folder holds
+    /// the files a relative path names.
+    public static func samplePairsAllowingSingleEnd(csv: String, sourceURL: URL) throws -> [SamplePair] {
+        let records = parseCSVRecords(csv)
+            .filter { row in row.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } }
+        guard let header = records.first else { throw FASTQSampleSheetError.emptyFile }
+
+        let normalized = header.map(normalizeHeader)
+        guard let sampleIndex = normalized.firstIndex(of: "sample"),
+              let r1Index = normalized.firstIndex(of: "r1"),
+              let r2Index = normalized.firstIndex(of: "r2") else {
+            throw FASTQSampleSheetError.missingRequiredColumns
+        }
+
+        var pairs: [SamplePair] = []
+        let baseDirectory = sourceURL.deletingLastPathComponent()
+        for (offset, row) in records.dropFirst().enumerated() {
+            let line = offset + 2
+            let sample = value(in: row, at: sampleIndex).trimmingCharacters(in: .whitespacesAndNewlines)
+            let r1Text = value(in: row, at: r1Index).trimmingCharacters(in: .whitespacesAndNewlines)
+            let r2Text = value(in: row, at: r2Index).trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard !sample.isEmpty else { throw FASTQSampleSheetError.emptyValue(column: "sample", line: line) }
+            guard !r1Text.isEmpty else { throw FASTQSampleSheetError.emptyValue(column: "r1", line: line) }
+
+            var metadata: [String: String] = [:]
+            for (index, rawHeader) in header.enumerated() {
+                guard index != sampleIndex, index != r1Index, index != r2Index else { continue }
+                let key = rawHeader.trimmingCharacters(in: .whitespacesAndNewlines)
+                let field = value(in: row, at: index).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !key.isEmpty, !field.isEmpty {
+                    metadata[key] = field
+                }
+            }
+
+            pairs.append(SamplePair(
+                sampleName: sample,
+                r1: resolvePath(r1Text, relativeTo: baseDirectory),
+                r2: r2Text.isEmpty ? nil : resolvePath(r2Text, relativeTo: baseDirectory),
+                metadata: metadata,
+                sampleSheetURL: sourceURL
+            ))
+        }
+        guard !pairs.isEmpty else { throw FASTQSampleSheetError.emptyFile }
+        return pairs
+    }
+
     private static func normalizeHeader(_ header: String) -> String {
         header.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }

@@ -14,7 +14,7 @@ extension RNASeqCommand.QuantSubcommand {
         let staged = try ImportFastqStagedReads.read(list)
         let pairs: [SamplePair]
         do {
-            pairs = try FASTQSampleSheet.parse(url: URL(fileURLWithPath: sheetPath)).samplePairs()
+            pairs = try FASTQSampleSheet.samplePairsAllowingSingleEnd(url: URL(fileURLWithPath: sheetPath))
         } catch FASTQSampleSheetError.missingRequiredColumns {
             throw SalmonPlanError("The sample sheet \(sheetPath) needs the columns sample, r1 and r2, written comma-separated.")
         }
@@ -25,9 +25,12 @@ extension RNASeqCommand.QuantSubcommand {
             // A sheet cell with no words gives no instrument, since an empty model names nothing.
             let model = pair.metadata.first { $0.key.lowercased() == "model" }?.value.trimmingCharacters(in: .whitespaces)
             let kit = pair.metadata.first { $0.key.lowercased() == "kit" }?.value.trimmingCharacters(in: .whitespaces)
-            return (SalmonPlan.stagedSample(
-                name: pair.sampleName, pairs: [(r1: reads[0], r2: reads[1])], model: model?.isEmpty == false ? model : nil),
-                    kit?.isEmpty == false ? kit : nil)
+            let instrument = model?.isEmpty == false ? model : nil
+            // A row with an empty r2 cell is one sample with one read file, which the plan takes as a single read.
+            let sample = pair.r2 == nil
+                ? SalmonPlan.stagedSample(name: pair.sampleName, pairs: [], singles: [reads[0]], model: instrument)
+                : SalmonPlan.stagedSample(name: pair.sampleName, pairs: [(r1: reads[0], r2: reads[1])], model: instrument)
+            return (sample, kit?.isEmpty == false ? kit : nil)
         }
     }
 
