@@ -32,8 +32,12 @@ extension STARPlan {
             // The default route counts with salmon, whose plan states its counts as the Mac route does (defaultRoutePipeline).
             return "NumReads"
         case .geneCounts:
+            // Columns 3 and 4 count by strand, in the words the adopt writes for the same columns
+            // (`ExecutorRunAdoption.geneCountsColumnWords`): the two mates of a pair, or the one read of a single read file.
+            let strands = paired ? "read 1 on the gene's strand and read 2 on the gene's strand"
+                : "the read on the gene's strand and the read on the other strand"
             return "STAR GeneCounts in ReadsPerGene.out.tab: a uniquely mapped \(paired ? "pair" : "read") counted for the one gene "
-                + "whose exons it overlaps, in three columns, unstranded, read 1 on the gene's strand and read 2 on the gene's strand"
+                + "whose exons it overlaps, in three columns, unstranded, \(strands)"
         case .featureCounts:
             // -M counts each reported alignment of a multimapping read, so a read that maps to two genes counts once in each
             // (the GF rule). No -O means overlap never counts a pair twice, and STAR's GeneCounts differs by design
