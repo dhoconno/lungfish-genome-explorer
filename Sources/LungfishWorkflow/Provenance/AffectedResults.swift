@@ -168,8 +168,9 @@ public enum AffectedResults {
         return version.split(separator: ".").compactMap { Int($0) }
     }
 
-    /// The table. The newest published builds are `Lungfish 2026.11.7 (12972)` and, before it, 12962 (2026.11.6),
-    /// 12859, 12818, 12803, 12591, 12518 (2026.11.1), 12045 (2026.10.29), 11807 (2026.10.28) and 11609 (2026.10.27).
+    /// The table. The newest published builds are `Lungfish 2026.11.11 (13672)` and, before it, 13603 (2026.11.10),
+    /// 13300 (2026.11.9), 13190 (2026.11.8), 12972 (2026.11.7), 12962 (2026.11.6), 12859, 12818, 12803, 12591, 12518
+    /// (2026.11.1), 12045 (2026.10.29), 11807 (2026.10.28) and 11609 (2026.10.27).
     public static let rows: [AffectedResultRow] = [
         AffectedResultRow(
             backlogID: "BUILDDB-BAM-FIT", kinds: [.taxTriage], firstBuild: 2979, lastBuild: 12859,
