@@ -57,7 +57,9 @@ final class TenxGTFFilterTests: XCTestCase {
         XCTAssertEqual(three.genesLeftOut, ["TRNA1", "LNC1"], "lncRNA is on gencode-2020-A only")
         XCTAssertEqual(three.size, Int64(three.bytes.count))
         XCTAssertEqual(three.sha256, PortableDigest.sha256Hex(of: three.bytes))
-        let twenty = try TenxGTFFilter.filter(Data(input.utf8), list: .gencode2020A, extraRecords: ["NC_045512.2"], exonsAdded: [])
+        // Version 1 with the 2020-A biotypes, which only a measurement names, since that list is read by version 2.
+        let twenty = try TenxGTFFilter.filter(
+            Data(input.utf8), list: .gencode2020A, ruleVersion: 1, extraRecords: ["NC_045512.2"], exonsAdded: [])
         XCTAssertEqual(twenty.genesLeftOut, ["TRNA1"])
         XCTAssertTrue(String(decoding: twenty.bytes, as: UTF8.self).contains(viaTranscript))
         XCTAssertEqual(TenxGTFFilter.List.mkgtf300.biotypes.count, 17)
@@ -65,17 +67,19 @@ final class TenxGTFFilterTests: XCTestCase {
         XCTAssertEqual(TenxGTFFilter.List.mkgtf300.path, "made/tenx1-mkgtf-3.0.0/genes.gtf")
     }
 
-    /// ARCH-SOLO-GTF item 7: the plain set keeps all its lines, so its made file is `derived/genes.gtf` byte for byte.
-    func testThePlainSetsMadeFileEqualsDerivedGenesGTFByteForByteUnderBothLists() async throws {
+    /// ARCH-SOLO-GTF item 7: the plain set keeps all its lines under mkgtf-3.0.0, so its made file is `derived/genes.gtf`
+    /// byte for byte. Its RefSeq lines name gene_biotype and no gene_type or transcript_type, so version 2 of
+    /// gencode-2020-A keeps none of its 13 genes and is refused in words, as 10x's rule_2020a would keep none.
+    func testThePlainSetsMadeFileEqualsDerivedGenesGTFByteForByteUnderMkgtfAndGencodeIsRefused() async throws {
         let set = try await builtSet()
         let derived = try Data(contentsOf: set.url.appendingPathComponent("derived/genes.gtf"))
         XCTAssertEqual(lge(derived), 14, "13 genes and the extra")
-        for list in TenxGTFFilter.List.allCases {
-            let made = try TenxGTFFilter.make(from: set.url, manifest: set.manifest, list: list)
-            XCTAssertEqual(made.bytes, derived, list.rawValue)
-            XCTAssertEqual(made.sha256, set.manifest.derived.countingGTF?.sha256, list.rawValue)
-            XCTAssertEqual(made.genesLeftOut, [], list.rawValue)
-        }
+        let made = try TenxGTFFilter.make(from: set.url, manifest: set.manifest, list: .mkgtf300)
+        XCTAssertEqual(made.bytes, derived)
+        XCTAssertEqual(made.sha256, set.manifest.derived.countingGTF?.sha256)
+        XCTAssertEqual(made.genesLeftOut, [])
+        let words = refusal { _ = try TenxGTFFilter.make(from: set.url, manifest: set.manifest, list: .gencode2020A) }
+        XCTAssertTrue(words.hasPrefix("The 10x filter rule gencode-2020-A keeps none of the 13 genes of derived/genes.gtf"), words)
     }
 
     /// ARCH-SOLO-GTF item 7: a gene of a biotype on neither list is left out, and LGE's 14 lines stay.
@@ -119,13 +123,17 @@ final class TenxGTFFilterTests: XCTestCase {
     func testARuleThatKeepsNoGeneIsRefusedInWords() throws {
         let unnamed = "chrM\tUCSC\tgene\t1\t30\t.\t+\t.\tgene_id \"G1\";\n"
             + "chrM\tLGE\texon\t1\t30\t.\t+\t.\tgene_id \"G1\"; transcript_id \"G1:1\";\n" + gene("T1", "tRNA", start: 40, end: 60)
-        for list in TenxGTFFilter.List.allCases {
-            let words = refusal { _ = try TenxGTFFilter.filter(Data(unnamed.utf8), list: list, extraRecords: [], exonsAdded: []) }
-            XCTAssertEqual(words, "The 10x filter rule \(list.rawValue) keeps none of the 2 genes of derived/genes.gtf, since no gene has a "
-                + "gene_biotype or gene_type on its list, so STAR would index no gene of the set and its matrix would hold none. Index "
-                + "the set without --tenx-filter, or build it from an annotation that names each gene's biotype. No plan or record "
-                + "was written.")
-        }
+        let one = refusal { _ = try TenxGTFFilter.filter(Data(unnamed.utf8), list: .mkgtf300, extraRecords: [], exonsAdded: []) }
+        XCTAssertEqual(one, "The 10x filter rule mkgtf-3.0.0 keeps none of the 2 genes of derived/genes.gtf, since no gene has a "
+            + "gene_biotype or gene_type on its list, so STAR would index no gene of the set and its matrix would hold none. Index "
+            + "the set without --tenx-filter, or build it from an annotation that names each gene's biotype. No plan or record "
+            + "was written.")
+        let two = refusal { _ = try TenxGTFFilter.filter(Data(unnamed.utf8), list: .gencode2020A, extraRecords: [], exonsAdded: []) }
+        XCTAssertEqual(two, "The 10x filter rule gencode-2020-A keeps none of the 2 genes of derived/genes.gtf, since no transcript "
+            + "line has a gene_type and a transcript_type on its list without the tag readthrough_transcript or PAR, as 10x's "
+            + "GRCh38-2020-A rule asks, so STAR would index no gene of the set and its matrix would hold none. Index the set "
+            + "without --tenx-filter, or build it from a GENCODE annotation, whose transcript lines name both. No plan or record "
+            + "was written.")
         XCTAssertNoThrow(try TenxGTFFilter.filter(
             Data(gene("COX1", "protein_coding").utf8), list: .mkgtf300, extraRecords: [], exonsAdded: []))
         let extra = "NC_045512.2\tLGE\texon\t1\t50\t.\t+\t.\tgene_id \"NC_045512.2\"; transcript_id \"NC_045512.2\";\n"
@@ -187,6 +195,8 @@ final class TenxGTFFilterTests: XCTestCase {
         }
         XCTAssertEqual(TenxGTFFilter.List.gencode2020A.path, "made/tenx2-gencode-2020-A/genes.gtf")
         XCTAssertEqual(TenxGTFFilter.List.mkgtf300.path, "made/tenx1-mkgtf-3.0.0/genes.gtf", "mkgtf-3.0.0 stays at version 1")
+        let one = try TenxGTFFilter.filter(input, list: .gencode2020A, ruleVersion: 1, extraRecords: [], exonsAdded: [])
+        XCTAssertEqual(one.genesLeftOut, ["ENSG00000020219.9"], "version 1 of the list keeps the three")
     }
 
     /// Version 2 keeps LGE's `exon` lines of a kept gene and every line of an extra, as version 1 does (BIO-SOLO-GTF items 2
@@ -202,5 +212,34 @@ final class TenxGTFFilterTests: XCTestCase {
         XCTAssertTrue(text.hasSuffix(lge + extra), text)
         XCTAssertFalse(text.contains(gone))
         XCTAssertEqual(made.genesLeftOut.count, 4)
+    }
+}
+
+/// The rule on a whole GTF outside the repository, which a lane runs by hand to measure it (SOLO-PLAN M4, Check). Set
+/// `LUNGFISH_TENX_GTF_IN` to a plain GTF and `LUNGFISH_TENX_GTF_OUT` to an empty folder. For each list and each rule version
+/// it writes the made file as `<version>-<list>.gtf`, or the refusal as `<version>-<list>.refused`, and a line of counts to
+/// `counts.tsv`. With neither set the test is skipped, and the default tier never sets them.
+final class TenxGTFFilterConformanceTests: XCTestCase {
+    func testTheRuleOnTheGTFTheEnvironmentNames() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let input = environment["LUNGFISH_TENX_GTF_IN"], let output = environment["LUNGFISH_TENX_GTF_OUT"] else {
+            throw XCTSkip("LUNGFISH_TENX_GTF_IN and LUNGFISH_TENX_GTF_OUT name no GTF to measure.")
+        }
+        let data = try Data(contentsOf: URL(fileURLWithPath: input))
+        let folder = URL(fileURLWithPath: output, isDirectory: true)
+        var counts = "version\tlist\tgenesLeftOut\tbytes\tsha256\n"
+        let runs: [(TenxGTFFilter.List, Int)] = [(.mkgtf300, 1), (.gencode2020A, 1), (.gencode2020A, 2)]
+        for (list, version) in runs {
+            let name = "\(version)-\(list.rawValue)"
+            do {
+                let made = try TenxGTFFilter.filter(data, list: list, ruleVersion: version, extraRecords: [], exonsAdded: [])
+                try made.bytes.write(to: folder.appendingPathComponent("\(name).gtf"))
+                counts += "\(version)\t\(list.rawValue)\t\(made.genesLeftOut.count)\t\(made.size)\t\(made.sha256)\n"
+            } catch let error as STARIndexError {
+                try Data(error.message.utf8).write(to: folder.appendingPathComponent("\(name).refused"))
+                counts += "\(version)\t\(list.rawValue)\trefused\t\t\n"
+            }
+        }
+        try Data(counts.utf8).write(to: folder.appendingPathComponent("counts.tsv"))
     }
 }

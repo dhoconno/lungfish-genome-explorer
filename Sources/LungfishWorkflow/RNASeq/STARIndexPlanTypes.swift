@@ -53,10 +53,13 @@ package struct STARIndexPlanRequest: Sendable {
     package var tenxFilter: TenxGTFFilter.List?
     /// The plan folder the person names, which the variant's made GTF is written into and copied from, never the set.
     package var planFolder: URL?
+    /// `--genomeSAsparseD`, the distance between the positions STAR keeps in its suffix array, a whole number from 1. It is
+    /// 2 unless the person names another, such as the value of the script an index reproduces (SOLO-PLAN-M1-BIO R3).
+    package var genomeSAsparseD: Int
 
     package init(
         setFolder: URL, star: STARIndexVersion, pins: STARIndexPlanPins, deadlineSeconds: Double? = nil,
-        tenxFilter: TenxGTFFilter.List? = nil, planFolder: URL? = nil
+        tenxFilter: TenxGTFFilter.List? = nil, planFolder: URL? = nil, genomeSAsparseD: Int = STARIndexPlan.genomeSAsparseD
     ) {
         self.setFolder = setFolder
         self.star = star
@@ -64,6 +67,7 @@ package struct STARIndexPlanRequest: Sendable {
         self.deadlineSeconds = deadlineSeconds
         self.tenxFilter = tenxFilter
         self.planFolder = planFolder
+        self.genomeSAsparseD = genomeSAsparseD
     }
 }
 

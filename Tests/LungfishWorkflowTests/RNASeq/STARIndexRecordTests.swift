@@ -249,13 +249,13 @@ extension STARIndexPlanTests {
                        "star-2.7.11b-sa14-sparse2-tenx1-mkgtf-3.0.0")
         var key = bulkKey()
         key.folderName = STARIndexKey.folderName(star: "2.7.11b", nbases: 7, sparseD: 2, filter: .gencode2020A)
-        key.gtfFilter = .init(rule: "tenx", ruleVersion: 1, list: "gencode-2020-A", sha256: Self.fileSHA, size: 2000, genesLeftOut: 1)
+        key.gtfFilter = .init(rule: "tenx", ruleVersion: 2, list: "gencode-2020-A", sha256: Self.fileSHA, size: 2000, genesLeftOut: 1)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let filter = "\"gtfFilter\":{\"genesLeftOut\":1,\"list\":\"gencode-2020-A\",\"rule\":\"tenx\",\"ruleVersion\":1,"
+        let filter = "\"gtfFilter\":{\"genesLeftOut\":1,\"list\":\"gencode-2020-A\",\"rule\":\"tenx\",\"ruleVersion\":2,"
             + "\"sha256\":\"\(Self.fileSHA)\",\"size\":2000},"
         XCTAssertEqual(String(decoding: try encoder.encode(key), as: UTF8.self), Self.bulkKeyBytes
-            .replacingOccurrences(of: "star-2.7.11b-sa7-sparse2", with: "star-2.7.11b-sa7-sparse2-tenx1-gencode-2020-A")
+            .replacingOccurrences(of: "star-2.7.11b-sa7-sparse2", with: "star-2.7.11b-sa7-sparse2-tenx2-gencode-2020-A")
             .replacingOccurrences(of: "\"referenceSetSHA256\"", with: filter + "\"referenceSetSHA256\""))
     }
 
@@ -286,7 +286,7 @@ extension STARIndexPlanTests {
                                          tenxFilter: .mkgtf300)
         }
         XCTAssertTrue(plain.hasPrefix("The run read no GTF that the 10x filter rule mkgtf-3.0.0 made from the set \(id)"), plain)
-        let crossed = "references/\(id)/made/tenx1-gencode-2020-A/genes.gtf"
+        let crossed = "references/\(id)/made/tenx2-gencode-2020-A/genes.gtf"
         let crossedWords = refusal {
             _ = try STARIndexAdopt.adopt(runRecord: try runRecord(for: set, gtf: (crossed, made.sha256)).data, setFolder: set.url,
                                          staging: Self.stagingLayout, tenxFilter: .mkgtf300)

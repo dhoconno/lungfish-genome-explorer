@@ -6,15 +6,19 @@
 import Foundation
 import LungfishPortable
 
-/// The 10x filter rule, version 1 (BIO-SOLO-GTF items 2 and 3, ARCH-SOLO-GTF items 1 and 2). It reads a gene's biotype
-/// from its `gene` line, or from its `transcript` lines when its gene line names none, and keeps every line of a gene
-/// whose biotype is on the list, LGE's `exon` lines among them. It never tests a line's own `gene_biotype`, which LGE's
-/// lines lack, so 10x's own scripts would drop them. Every line on an extra's record passes whatever its biotype. The Mac
-/// makes the file from the bytes of `derived/genes.gtf` each time it needs it, so neither the set nor the storage root
-/// holds it, and the index plan writes it into its own folder only.
+/// The 10x filter rule (BIO-SOLO-GTF items 2 and 3, ARCH-SOLO-GTF items 1 and 2) in two versions, one for each list.
+/// Version 1, the rule of `mkgtf-3.0.0`, reads a gene's biotype from its `gene` line, or from its `transcript` lines when
+/// its gene line names none. Version 2, the rule of `gencode-2020-A` (SOLO-PLAN-M1-BIO R1), keeps a gene when one of its
+/// `transcript` lines has a `gene_type` and a `transcript_type` on the list and its text holds neither
+/// `tag "readthrough_transcript"` nor `tag "PAR"`, as 10x's GRCh38-2020-A reference does (`tenx_gtf.py:85-109`). It reads
+/// the tags from the line's text, since `parseAttributes` keeps only the first value of a repeated key. It keeps each id
+/// as the set names it and leaves out 10x's move of an id's version into `gene_version`, so the index's gene ids stay
+/// those of `derived/genes.tsv`. Both versions keep every line of a kept gene, LGE's `exon` lines among them, and never
+/// test a line's own `gene_biotype`, which LGE's lines lack, so 10x's own scripts would drop them. Every line on an extra's
+/// record passes whatever its biotype. The Mac makes the file from the bytes of `derived/genes.gtf` each time it needs it,
+/// so neither the set nor the storage root holds it, and the index plan writes it into its own folder only.
 package enum TenxGTFFilter {
     package static let rule = "tenx"
-    package static let ruleVersion = 1
 
     /// The two biotype lists of `scripts/repro/rnaseq/tenx-controls/tenx_gtf.py:33-47`, named by the 10x reference
     /// generation that used each.
@@ -35,8 +39,12 @@ package enum TenxGTFFilter {
             }
         }
 
+        /// The version of the rule that reads the list, 1 for `mkgtf-3.0.0` and 2 for `gencode-2020-A`. No record of
+        /// `gencode-2020-A` under version 1 was ever written, so there is none to refuse (SOLO-PLAN-M1-BIO R1).
+        package var ruleVersion: Int { self == .mkgtf300 ? 1 : 2 }
+
         /// `tenx<rule version>-<list>`, the folder of the made file and the suffix of the index key's folder name.
-        package var folderName: String { "\(TenxGTFFilter.rule)\(TenxGTFFilter.ruleVersion)-\(rawValue)" }
+        package var folderName: String { "\(TenxGTFFilter.rule)\(ruleVersion)-\(rawValue)" }
         /// `made/tenx<rule version>-<list>/genes.gtf`, the path a `reference` entry carries (ARCH-SOLO-GTF item 2).
         package var path: String { "made/\(folderName)/genes.gtf" }
     }
@@ -69,12 +77,20 @@ package enum TenxGTFFilter {
     /// made file is refused in words when an extra's record, or a kept gene that LGE gave an exon, has no `exon` line,
     /// since STAR would then give it no row of `features.tsv` (BIO-SOLO-GTF item 3).
     package static func filter(_ data: Data, list: List, extraRecords: [String], exonsAdded: [String]) throws -> Made {
+        try filter(data, list: list, ruleVersion: list.ruleVersion, extraRecords: extraRecords, exonsAdded: exonsAdded)
+    }
+
+    /// The rule of `ruleVersion` with the biotypes of `list`. Only a test or a measurement names a version that is not the
+    /// list's own, such as version 1 of `gencode-2020-A`, whose figures BIO's review still compares.
+    static func filter(_ data: Data, list: List, ruleVersion: Int, extraRecords: [String], exonsAdded: [String]) throws -> Made {
         let extras = Set(extraRecords)
+        let biotypes = list.biotypes
         // A line keeps its byte range and the three fields the second pass reads. The parsed feature, whose attribute
         // dictionary and Substrings hold the line's String, would stay in memory for the whole file.
         var lines: [(range: Range<Data.Index>, feature: (contig: String, gene: String, type: String)?)] = []
         var order: [String] = [], seen = Set<String>()
         var geneBiotype: [String: String] = [:], transcriptBiotypes: [String: Set<String>] = [:]
+        var listedTranscript = Set<String>()
         var start = data.startIndex
         while start < data.endIndex {
             let end = data[start...].firstIndex(of: 0x0A).map { $0 + 1 } ?? data.endIndex
@@ -85,20 +101,28 @@ package enum TenxGTFFilter {
             start = end
             guard let feature, !extras.contains(feature.contig), !feature.gene.isEmpty else { continue }
             if seen.insert(feature.gene).inserted { order.append(feature.gene) }
+            if feature.type == "transcript", let geneType = feature.attributes["gene_type"],
+               let transcriptType = feature.attributes["transcript_type"], biotypes.contains(geneType),
+               biotypes.contains(transcriptType), !text.contains("tag \"readthrough_transcript\""), !text.contains("tag \"PAR\"") {
+                listedTranscript.insert(feature.gene)
+            }
             guard let biotype = feature.attributes["gene_biotype"] ?? feature.attributes["gene_type"] else { continue }
             if feature.type == "gene", geneBiotype[feature.gene] == nil { geneBiotype[feature.gene] = biotype }
             if feature.type == "transcript" { transcriptBiotypes[feature.gene, default: []].insert(biotype) }
         }
-        let biotypes = list.biotypes
-        let kept = Set(order.filter { gene in
+        let kept = ruleVersion == 1 ? Set(order.filter { gene in
             geneBiotype[gene].map(biotypes.contains) ?? !(transcriptBiotypes[gene] ?? []).isDisjoint(with: biotypes)
-        })
-        // A GTF that names no biotype on any host gene keeps none of them, and STAR would index the extras only.
+        }) : listedTranscript
+        // A GTF that names no listed biotype on any host gene keeps none of them, and STAR would index the extras only.
         guard order.isEmpty || !kept.isEmpty else {
+            let why = ruleVersion == 1 ? "no gene has a gene_biotype or gene_type on its list"
+                : "no transcript line has a gene_type and a transcript_type on its list without the tag readthrough_transcript "
+                    + "or PAR, as 10x's GRCh38-2020-A rule asks"
+            let annotation = ruleVersion == 1 ? "an annotation that names each gene's biotype"
+                : "a GENCODE annotation, whose transcript lines name both"
             throw STARIndexError("The 10x filter rule \(list.rawValue) keeps none of the \(order.count) genes of derived/genes.gtf, "
-                + "since no gene has a gene_biotype or gene_type on its list, so STAR would index no gene of the set and its matrix "
-                + "would hold none. Index the set without --tenx-filter, or build it from an annotation that names each gene's "
-                + "biotype. No plan or record was written.")
+                + "since \(why), so STAR would index no gene of the set and its matrix would hold none. Index the set without "
+                + "--tenx-filter, or build it from \(annotation). No plan or record was written.")
         }
         var output = Data()
         output.reserveCapacity(data.count)

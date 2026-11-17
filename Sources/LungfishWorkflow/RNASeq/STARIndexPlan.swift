@@ -13,6 +13,8 @@ package enum STARIndexPlan {
     package static let sampleName = "index"
     package static let genomeDirectory = "star-index"
     package static let logOutput = "star-index/Log.out"
+    /// LGE's default `--genomeSAsparseD`, the value of `scripts/repro/rnaseq/gse225770/star.sh`. A request names another
+    /// whole number from 1 with `rnaseq index-plan --genomeSAsparseD`, and the key and its folder name hold the value.
     package static let genomeSAsparseD = 2
     /// STAR's default, which is read length minus one for 101-base reads and the value of every script of
     /// `scripts/repro/rnaseq` that sets it. The argv names it so the plan and the key pin it.
@@ -30,7 +32,11 @@ package enum STARIndexPlan {
     package static func make(_ request: STARIndexPlanRequest) throws -> STARIndexPlanOutcome {
         let manifest = try ReferenceSetManifest.load(from: request.setFolder)
         let gtf = try manifest.requireCountingGTF()
-        let (id, pins) = (manifest.id, request.pins)
+        let (id, pins, sparse) = (manifest.id, request.pins, request.genomeSAsparseD)
+        guard sparse >= 1 else {
+            throw STARIndexError("--genomeSAsparseD is the distance between the positions STAR keeps in its suffix array, a whole "
+                + "number from 1, not \(sparse). No plan was written.")
+        }
         let deadline = request.deadlineSeconds ?? ExecutionPlan.maximumDeadlineSeconds
         let inputs = [("genome", manifest.genome.path, manifest.genome.sha256)] + manifest.extras.map { ($0.name, $0.path, $0.sha256) }
         var references: [PlanEntry] = []
@@ -85,7 +91,7 @@ package enum STARIndexPlan {
             arguments: ["--runMode", "genomeGenerate", "--genomeDir", genomeDirectory, "--genomeFastaFiles"] + fasta + [
                 "--sjdbGTFfile", gtfPath, "--sjdbOverhang", "\(sjdbOverhang)", "--runThreadN", "\(threads)",
                 "--genomeSAindexNbases", "\(nbases)",
-                "--limitGenomeGenerateRAM", "32000000000", "--genomeSAsparseD", "\(genomeSAsparseD)",
+                "--limitGenomeGenerateRAM", "32000000000", "--genomeSAsparseD", "\(sparse)",
                 "--outFileNamePrefix", "star-index/"],
             deadlineSeconds: deadline, inputs: fasta + [gtfPath], outputs: staged + [logOutput], outputPolicy: policy))
         let used = [pins.star] + (steps.count > 1 ? [pins.decompressor] : [])
@@ -104,9 +110,9 @@ package enum STARIndexPlan {
         _ = try ExecutionPlan.decode(try plan.encoded())
         let key = STARIndexKey(
             folderName: STARIndexKey.folderName(
-                star: request.star.rawValue, nbases: nbases, sparseD: genomeSAsparseD, filter: made?.list),
+                star: request.star.rawValue, nbases: nbases, sparseD: sparse, filter: made?.list),
             setID: id, referenceSetSHA256: try ProvenanceFileHasher.sha256(of: request.setFolder.appendingPathComponent(ReferenceSetManifest.filename)),
-            star: pins.star, genomeSAindexNbases: nbases, genomeSAsparseD: genomeSAsparseD, sjdbOverhang: sjdbOverhang,
+            star: pins.star, genomeSAindexNbases: nbases, genomeSAsparseD: sparse, sjdbOverhang: sjdbOverhang,
             genomeFastaFiles: inputs.map(\.1),
             countingGTFSHA256: gtf.sha256, gtfFilter: made.map(STARIndexKey.GTFFilter.init))
         return STARIndexPlanOutcome(plan: plan, key: key, sources: sources, made: made)

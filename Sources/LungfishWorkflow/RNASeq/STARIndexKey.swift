@@ -56,13 +56,14 @@ package struct STARIndexKey: Codable, Sendable, Equatable {
         }
 
         package init(_ made: TenxGTFFilter.Made) {
-            self.init(rule: TenxGTFFilter.rule, ruleVersion: TenxGTFFilter.ruleVersion, list: made.list.rawValue,
+            self.init(rule: TenxGTFFilter.rule, ruleVersion: made.list.ruleVersion, list: made.list.rawValue,
                       sha256: made.sha256, size: made.size, genesLeftOut: made.genesLeftOut.count)
         }
     }
 
     /// `star-<version>-sa<n>-sparse<d>`, and for the 10x variant `-tenx<rule version>-<list>` after it, such as
-    /// `star-2.7.11b-sa14-sparse2-tenx1-mkgtf-3.0.0`, so the bulk and the variant index of one set never share a folder.
+    /// `star-2.7.11b-sa14-sparse2-tenx1-mkgtf-3.0.0` or `star-2.7.11b-sa14-sparse3-tenx2-gencode-2020-A`, so the bulk and the
+    /// variant index of one set, or two indexes of another `--genomeSAsparseD`, never share a folder.
     package static func folderName(star version: String, nbases: Int, sparseD: Int, filter: TenxGTFFilter.List? = nil) -> String {
         "star-\(version)-sa\(nbases)-sparse\(sparseD)" + (filter.map { "-\($0.folderName)" } ?? "")
     }

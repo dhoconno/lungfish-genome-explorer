@@ -88,7 +88,8 @@ extension RNASeqIndexPlanSubcommand {
         let setFolder = try Self.setFolder(for: setReference, storageRoot: storageRoot)
         let (pins, record) = try imagePins(star: version)
         let made = try STARIndexPlan.make(STARIndexPlanRequest(
-            setFolder: setFolder, star: version, pins: pins, tenxFilter: list, planFolder: output))
+            setFolder: setFolder, star: version, pins: pins, tenxFilter: list, planFolder: output,
+            genomeSAsparseD: genomeSAsparseD ?? STARIndexPlan.genomeSAsparseD))
         let figures = try STARIndexSubmit.figures(
             for: try ReferenceSetManifest.load(from: setFolder), memoryMiB: requestMemoryMiB, cpus: requestCPUs, diskGiB: requestDiskGiB)
         let layout = ExecutorPlanStagingLayout(folder: stagingFolder, batch: output.lastPathComponent)
@@ -124,6 +125,13 @@ extension RNASeqIndexPlanSubcommand {
             facts["madeGTF"] = output.appendingPathComponent(file.list.path).path
             facts["madeGTFSHA256"] = file.sha256
         }
+        // The last line states the suffix array sparsity, which the key and its folder name hold (SOLO-PLAN-M1-BIO R3).
+        let sparse = made.key.genomeSAsparseD
+        lines.append(sparse == STARIndexPlan.genomeSAsparseD
+            ? "STAR builds the suffix array with --genomeSAsparseD \(sparse), LGE's default."
+            : "STAR builds the suffix array with --genomeSAsparseD \(sparse), where LGE's default is \(STARIndexPlan.genomeSAsparseD). "
+                + "A larger value needs less memory and maps more slowly, and the key \(made.key.folderName) holds it.")
+        facts["genomeSAsparseD"] = sparse
         let json = try JSONSerialization.data(withJSONObject: facts, options: [.sortedKeys, .withoutEscapingSlashes])
         return PlanSummary(lines: lines, json: String(decoding: json, as: UTF8.self))
     }
