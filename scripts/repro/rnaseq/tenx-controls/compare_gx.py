@@ -44,6 +44,7 @@ TWO_PREFIX_SETS = {"hgmm_1k_v3": ("hg19", "mm10")}
 STAR_VERSION = "2.7.11b"
 CELL_FILTER = ["--soloCellFilter", "EmptyDrops_CR", "1000", "0.99", "10", "45000", "90000", "500", "0.01", "20000", "0.01", "10000"]
 INTRONS_GATED_SETS = {"SC3pv3_GEX_Human_PBMC"}  # repro:86 gates the introns preset on the Cell Ranger 7.0.1 set only (BIO-GXFH-GEC6 item 8)
+STAR_HINT = "run it with the 5.0 environment's python, which has STAR beside it, or name a STAR %s with --star PATH" % STAR_VERSION
 
 
 class StepError(Exception):
@@ -191,11 +192,12 @@ def check_star(star):
     try:
         done = subprocess.run([star, "--version"], capture_output=True, text=True)
     except OSError as error:
-        raise StepError("STAR %s cannot be run: %s" % (star, error))
+        raise StepError("STAR %s cannot be run: %s; %s" % (star, error, STAR_HINT))
     lines = done.stdout.strip().splitlines()
     version = lines[0].strip() if lines else ""
     if done.returncode != 0 or version != STAR_VERSION:
-        raise StepError("STAR %s reports %r, and the 5.0 environment's is %s" % (star, version or done.stderr.strip()[:200], STAR_VERSION))
+        raise StepError("STAR %s reports %r, and the 5.0 environment's is %s; %s"
+                        % (star, version or done.stderr.strip()[:200], STAR_VERSION, STAR_HINT))
     return version
 
 
