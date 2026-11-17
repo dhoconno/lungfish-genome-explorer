@@ -22,7 +22,7 @@ enum FASTQDemultiplexChanceNotice {
     /// The words of Exact Bare Barcode when the run made a sample file, or nil. A run whose manifest cannot be read
     /// may have made sample files, so it gets the words (the safe side).
     static func notice(for result: FASTQOperationExecutionResult) -> String? {
-        guard case .derivative(.demultiplex(_, _, _, _, _, _, _, let engine, _, _, _), _, _) = result.resolvedRequest,
+        guard case .derivative(.demultiplex(_, _, _, _, _, _, _, let engine, _, _, _, _), _, _) = result.resolvedRequest,
               engine == .exactBareBarcode else { return nil }
         let manifests = (result.importedURLs + [result.groupedContainerURL].compactMap { $0 })
             .compactMap { DemultiplexManifest.load(from: $0) }

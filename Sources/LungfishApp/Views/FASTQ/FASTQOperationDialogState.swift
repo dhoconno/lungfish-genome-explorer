@@ -138,6 +138,7 @@ final class FASTQOperationDialogState {
         didSet { normalizeDemultiplexSelectionForCurrentEngine() }
     }
     var demultiplexTrimBarcodes: Bool
+    var demultiplexChanceCheck = FASTQDemultiplexChanceCheck()
 
     var mafftAdvancedOptionsExpanded: Bool
     var mafftStrategy: MAFFTAlignmentStrategy
@@ -479,7 +480,7 @@ final class FASTQOperationDialogState {
                     engine: demultiplexEngine,
                     trimBarcodes: demultiplexEngine == .exactBareBarcode ? false : demultiplexTrimBarcodes,
                     sampleAssignments: nil,
-                    kitOverride: nil
+                    kitOverride: nil, keepUncheckedSamples: demultiplexKeepUncheckedSamplesForRun
                 ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
@@ -1095,16 +1096,6 @@ final class FASTQOperationDialogState {
         let kits = BarcodeKitRegistry.builtinKits()
         guard demultiplexEngine == .exactBareBarcode else { return kits }
         return kits.filter(Self.isExactBareBarcodeCompatible(_:))
-    }
-
-    /// True when the cutadapt engine will search the selected built-in kit as
-    /// the platform's full adapter+barcode construct, so the Location picker
-    /// and the 5'/3' Distance fields have no effect and are hidden.
-    var demultiplexKitUsesPlatformConstruct: Bool {
-        guard demultiplexEngine == .cutadapt,
-              demultiplexBarcodeSource == .builtinKit,
-              let kit = BarcodeKitRegistry.kit(byID: demultiplexKitID) else { return false }
-        return kit.searchesFullPlatformConstruct
     }
 
     /// Caption shown in place of the Location and Distance controls for kits

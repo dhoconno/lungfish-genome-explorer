@@ -632,7 +632,8 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             let engine,
             let trimBarcodes,
             let sampleAssignments,
-            let kitOverride
+            let kitOverride,
+            _
         ):
             guard sampleAssignments?.isEmpty ?? true else {
                 throw FASTQOperationExecutionError.unsupportedDemultiplex("sampleAssignments are not encodable")

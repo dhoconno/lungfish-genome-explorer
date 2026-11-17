@@ -62,7 +62,10 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         engine: DemultiplexEngine,
         trimBarcodes: Bool,
         sampleAssignments: [FASTQSampleBarcodeAssignment]?,
-        kitOverride: BarcodeKitDefinition?
+        kitOverride: BarcodeKitDefinition?,
+        /// The person's Keep Unchecked Samples, `lungfish-cli fastq demultiplex --keep-unchecked-samples`, true only when
+        /// ticked while the dialog showed it (DEMUX-FLOOR-SATURATED-KIT). Nil is the run without it.
+        keepUncheckedSamples: Bool? = nil
     )
 
     // Orient sequences against a reference
@@ -290,7 +293,7 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
             return [:]
         case .translate(let frameOffset):
             return ["frame": "\(frameOffset + 1)"]
-        case .demultiplex(let kitID, _, let location, _, _, _, let errorRate, let engine, let trimBarcodes, _, _):
+        case .demultiplex(let kitID, _, let location, _, _, _, let errorRate, let engine, let trimBarcodes, _, _, _):
             if engine == .headerIndex { return ["kitID": kitID, "engine": engine.rawValue, "indexMismatches": "\(DemultiplexSearchRouteOwner.indexMismatches)"] }
             if engine == .exactBareBarcode {
                 return [
