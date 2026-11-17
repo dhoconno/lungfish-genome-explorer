@@ -186,10 +186,15 @@ final class UMIPlanTests: XCTestCase {
         XCTAssertEqual(star.arguments, [
             "--runThreadN", "8", "--genomeDir", "references/\(set)/indexes/\(made.index.folderName)",
             "--readFilesIn", "umi/pair1_R2.umi.fastq.gz", "--readFilesCommand", "pigz", "-d", "-c",
-            "--outFilterMultimapNmax", "1", "--outSAMtype", "BAM", "SortedByCoordinate", "--limitBAMsortRAM", "8000000000",
-            "--outFileNamePrefix", "star/",
+            "--outFilterMultimapNmax", "1", "--readNameSeparator", "-", "--outSAMtype", "BAM", "SortedByCoordinate",
+            "--limitBAMsortRAM", "8000000000", "--outFileNamePrefix", "star/",
         ])
         XCTAssertEqual(star.outputPolicy, ["star/Log.final.out": .home, "star/Aligned.sortedByCoord.out.bam": .stays])
+        // EX-UMI-M2-BIO ruling 1 (a): STAR keeps each read's whole first word, so a slash in it never cuts the UMI off, and
+        // the mapping words name the flag, so the argv and the identity agree.
+        XCTAssertEqual(plan.pipeline?.route?.settings["mapping"], "STAR 2.7.11b on the genome, Read 2 alone, uniquely mapped "
+            + "reads only (--outFilterMultimapNmax 1), each read named by the whole first word of its name with the UMI at its "
+            + "end (--readNameSeparator -), --outSAMtype BAM SortedByCoordinate")
         let featureCounts = try step("featurecounts")
         XCTAssertEqual(featureCounts.arguments, [
             "-T", "8", "-s", "0", "-a", "references/\(set)/derived/genes.gtf", "-o", "featurecounts/counts.txt",
@@ -271,6 +276,63 @@ final class UMIPlanTests: XCTestCase {
             XCTAssertEqual(error.localizedDescription, "The result of S3 holds no umi-check/pair1-layout-check.json, the UMI layout "
                 + "check every sample of the UMI branch runs first, so the report has no row for it. Copy the sample's result folder whole.")
         }
+    }
+
+    /// EX-UMI-M2-BIO should-fix 1: a lane-split sample runs both checks, then both extractions, then one STAR run on both
+    /// extracted files.
+    func testTwoPairsRunBothChecksThenBothExtractionsAndOneSTARRun() async throws {
+        func read(_ name: String, _ fill: String) -> SalmonPlanStagedRead {
+            SalmonPlanStagedRead(path: "/staging/c9/\(name)", size: 1_234_567, sha256: String(repeating: fill, count: 64))
+        }
+        let sample = SalmonPlan.stagedSample(name: "SRR28155077", pairs: [
+            (read("SRR28155077_L1_1.fastq.gz", "1"), read("SRR28155077_L1_2.fastq.gz", "2")),
+            (read("SRR28155077_L2_1.fastq.gz", "3"), read("SRR28155077_L2_2.fastq.gz", "4")),
+        ], model: "HiSeq X Ten")
+        let plan = try await made(sample: sample).plan
+        XCTAssertEqual(plan.steps.map(\.id), [
+            "umi-layout-check-pair1", "umi-layout-check-pair2", "umi-extract-pair1", "umi-extract-pair2", "star-align",
+            "featurecounts", "samtools-sort", "samtools-index", "umi-count",
+        ])
+        let extract = try XCTUnwrap(plan.steps.first { $0.id == "umi-extract-pair2" })
+        XCTAssertEqual(Array(extract.arguments.suffix(9)), [
+            "-I", "inputs/pair2_R1.fastq.gz", "--read2-in", "inputs/pair2_R2.fastq.gz", "--read2-stdout",
+            "-S", "umi/pair2_R2.umi.fastq.gz", "-L", "umi/pair2-extract.log",
+        ])
+        let star = try XCTUnwrap(plan.steps.first { $0.id == "star-align" }?.arguments)
+        XCTAssertEqual(star.firstIndex(of: "--readFilesIn").map { star[$0 + 1] }, "umi/pair1_R2.umi.fastq.gz,umi/pair2_R2.umi.fastq.gz")
+    }
+
+    /// A copy of the Docker run's S1 `home` files as a sample of two pairs, with pair 2's check and, when `extracted`, its
+    /// extract log, each a copy of pair 1's.
+    func twoPairResult(extracted: Bool) throws -> URL {
+        let home = Self.fixture.deletingLastPathComponent().appendingPathComponent("home/S1", isDirectory: true)
+        let copy = root.appendingPathComponent("two-pairs-\(extracted)/S1", isDirectory: true)
+        try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: home, to: copy)
+        try FileManager.default.copyItem(at: copy.appendingPathComponent("umi-check/pair1-layout-check.json"),
+                                         to: copy.appendingPathComponent("umi-check/pair2-layout-check.json"))
+        if extracted {
+            try FileManager.default.copyItem(at: copy.appendingPathComponent("umi/pair1-extract.log"),
+                                             to: copy.appendingPathComponent("umi/pair2-extract.log"))
+        }
+        return copy
+    }
+
+    /// EX-UMI-M2-BIO should-fix 1: the row of a sample of two pairs gives each check's shares pair by pair and the share
+    /// both extractions kept.
+    func testTwoPairReportGivesBothChecksAndTheShareBothExtractionsKept() throws {
+        let row = try UMIPlanReport.row(sample: "S1", result: try twoPairResult(extracted: true))
+        XCTAssertEqual(row.pairsRead, "364 / 364")
+        XCTAssertEqual(row.exact, "100.0 / 100.0")
+        XCTAssertEqual(row.extractionKept, "100.0")
+    }
+
+    /// EX-UMI-M2-BIO should-fix 3: when pair 1's extraction ran and pair 2's did not, the share reads `not run`, never pair
+    /// 1's share alone as the sample's.
+    func testAPartialExtractionReadsNotRun() throws {
+        let row = try UMIPlanReport.row(sample: "S1", result: try twoPairResult(extracted: false))
+        XCTAssertEqual(row.pairsRead, "364 / 364")
+        XCTAssertEqual(row.extractionKept, "not run")
     }
 
     /// M2 item 2 and ARCH-ADOPT-ROUTE item 2: the UMI state joins the one writer of the result's `duplicates`, in a form

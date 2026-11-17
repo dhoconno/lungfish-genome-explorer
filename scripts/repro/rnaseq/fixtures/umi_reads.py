@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reads for the Docker run of the UMI chain (lane EX-UMI, milestone 2), from the cynomolgus mitochondrion fixture.
+"""Reads for the Docker runs of the UMI chain (lane EX-UMI, milestones 2 and 3), from the cynomolgus mitochondrion fixture.
 
   umi_reads.py <genome.fa> <genes.gtf> <out folder> <staging folder>
 
@@ -7,8 +7,11 @@ Sample S1: Read 1 is ATCAATC, a 16-nt UMI and seven T, and Read 2 is 100 bases o
 feature lies, so featureCounts gives it to that gene alone. Each gene gets 24 UMIs, 4 of them on two reads at other
 places, so 28 pairs a gene. UMIs of one gene differ in at least 3 bases, so umi_tools' directional method joins none,
 and each gene's count is 24. Sample S2 has the same Read 2 layout and a Read 1 with no motif, so its check fails.
-Writes S1_1/S1_2/S2_1/S2_2.fastq.gz (gzip with mtime 0), truth.tsv (gene, pairs, distinct UMIs) and staged.tsv
-(the staged path, bytes and SHA-256 of each file, as the Conformance writer reads it)."""
+Samples S3 and S4 hold S1's pairs under other names (milestone 3, EX-UMI-M2-BIO ruling 1). S3's mates share the first
+word run/lane1/read<n>, whose slashes STAR keeps with --readNameSeparator -, so each gene's count is 24 again. S4's
+mates are named S4.<n>/1 and S4.<n>/2, which umi_tools reads as two names, so its check fails on the names.
+Writes S<k>_1/S<k>_2.fastq.gz for k 1 to 4 (gzip with mtime 0), truth.tsv (gene, pairs, distinct UMIs, for S1 and S3)
+and staged.tsv (the staged path, bytes and SHA-256 of each file, as the Conformance writer reads it)."""
 import gzip, hashlib, os, random, re, sys
 
 COMP = str.maketrans("ACGT", "TGCA")
@@ -78,10 +81,17 @@ def main(fa, gtf, out, staging):
             pairs["S1"].append((MOTIF + u + "TTTTTTT", r2))
             pairs["S2"].append((base(len(MOTIF) + UMI + 7), r2))
         rows.append("%s\t%d\t%d" % (gene, UMIS + SHARED, UMIS))
+    pairs["S3"] = pairs["S4"] = pairs["S1"]
+    names = {
+        "S1": lambda i, mate: "S1.%d %d" % (i, mate),
+        "S2": lambda i, mate: "S2.%d %d" % (i, mate),
+        "S3": lambda i, mate: "run/lane1/read%d %d:N:0" % (i, mate),
+        "S4": lambda i, mate: "S4.%d/%d" % (i, mate),
+    }
     lines = ["file\tbytes\tsha256"]
-    for sample in ("S1", "S2"):
+    for sample in ("S1", "S2", "S3", "S4"):
         for mate in (0, 1):
-            recs = ["@%s.%d %d\n%s\n+\n%s\n" % (sample, i + 1, mate + 1, p[mate], "I" * len(p[mate]))
+            recs = ["@%s\n%s\n+\n%s\n" % (names[sample](i + 1, mate + 1), p[mate], "I" * len(p[mate]))
                     for i, p in enumerate(pairs[sample])]
             name = "%s_%d.fastq.gz" % (sample, mate + 1)
             path = os.path.join(out, name)

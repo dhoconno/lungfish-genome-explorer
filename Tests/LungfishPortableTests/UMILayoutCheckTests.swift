@@ -74,12 +74,50 @@ final class UMILayoutCheckTests: XCTestCase {
         XCTAssertTrue(report.words.contains("Warning: 600 of 1,000 pairs read (60.0%) hold a distinct UMI, under 80%. Among the 870 pairs with the exact motif, 68.9% of UMIs are distinct, so many reads share a UMI."), report.words)
     }
 
-    /// The name is the header's first word cut at the first `/`, so `/1` and `/2` and a comment never differ.
-    func testNamesCompareTheFirstWordCutAtTheSlash() {
+    /// EX-UMI-M2-BIO ruling 1 (b): the name is the header's whole first word, as `umi_tools extract` compares the mates, so
+    /// `/1` and `/2` at the end of the first word differ, while a slash both mates share, a mate number after the space and
+    /// a comment never do.
+    func testNamesCompareTheWholeFirstWordAsUMIToolsReadsIt() {
         var tally = UMILayoutCheck.Tally(motif: "ATCAATC", umiLength: 16)
         tally.add(header1: Array("@r1/1 1:N:0:A".utf8), umiRead: Array("ATCAATC".utf8), header2: Array("@r1/2 2:N:0:A".utf8))
         tally.add(header1: Array("@r2 x".utf8), umiRead: Array("ATCAATC".utf8), header2: Array("@r3 x".utf8))
-        XCTAssertEqual(tally.namesEqual, 1)
+        tally.add(header1: Array("@run/lane1/read1 1:N:0".utf8), umiRead: Array("ATCAATC".utf8),
+                  header2: Array("@run/lane1/read1 2:N:0".utf8))
+        tally.add(header1: Array("@SRR1.1 E00513:1:2:3:4:1/1".utf8), umiRead: Array("ATCAATC".utf8),
+                  header2: Array("@SRR1.1 E00513:1:2:3:4:1/2".utf8))
+        XCTAssertEqual(tally.pairsRead, 4)
+        XCTAssertEqual(tally.namesEqual, 2, "only the shared slash and the SRA name agree")
+    }
+
+    /// EX-UMI-M2-BIO ruling 1 (b): mates named `x/1` and `x/2` fail the check in LGE's words, which say that the mates carry
+    /// `/1` and `/2` in the first word and that umi_tools needs one name for both, and so get no counts.
+    func testMatesNamedSlashOneAndSlashTwoFailInWordsThatNameTheSuffix() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("umi-names-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        func write(_ name: String, _ header: (Int) -> String, _ read: (Int) -> String) throws -> URL {
+            let url = folder.appendingPathComponent(name)
+            let text = (0..<5).map { "@\(header($0))\n\(read($0))\n+\n\(String(repeating: "I", count: read($0).count))\n" }.joined()
+            try Data(text.utf8).write(to: url)
+            return url
+        }
+        let umi = { (index: Int) in "ATCAATC" + UMILayoutCheckFixture.umi(index) + "TTTTTTT" }
+        let r2 = { (_: Int) in String(repeating: "A", count: 30) }
+        let arguments = Self.arguments(choice: .even, pairs: 5)
+        let slashed = try UMILayoutCheck.measure(
+            arguments, read1: try write("s_1.fastq", { "x\($0)/1" }, umi), read2: try write("s_2.fastq", { "x\($0)/2" }, r2),
+            launcher: NoChildLauncher())
+        let report = UMILayoutCheck.Report(counts: slashed, arguments: arguments)
+        XCTAssertEqual(report.verdict, .failed)
+        XCTAssertEqual(report.reasons.map(\.code), [.namesDiffer])
+        XCTAssertEqual(report.words, "UMI layout check failed: read names differ between Read 1 and Read 2 in 5 of 5 pairs read. "
+            + "In 5 of them the mates carry /1 and /2 at the end of the name's first word, and umi_tools needs one name for both "
+            + "mates. Try: rename the reads so that both mates share the first word of their name, with the mate number after a "
+            + "space as SRA and ENA files have it, then stage the pair again. This sample gets no UMI counts.")
+        let shared = try UMILayoutCheck.measure(
+            arguments, read1: try write("t_1.fastq", { "run/lane1/read\($0) 1:N:0" }, umi),
+            read2: try write("t_2.fastq", { "run/lane1/read\($0) 2:N:0" }, r2), launcher: NoChildLauncher())
+        XCTAssertEqual(UMILayoutCheck.Report(counts: shared, arguments: arguments).verdict, .passed)
     }
 
     /// BIO-UMI-SHARE item 6: a 20-base Read 1 that holds the motif counts within one mismatch, as `layout.py` does, but
@@ -200,7 +238,7 @@ extension UMILayoutCheckTests {
             var text = ""
             for index in 0..<records {
                 let read = sequence(index)
-                text += "@r\(index)/\(mate) c\n\(read)\n+\n\(String(repeating: "I", count: read.count))\n"
+                text += "@r\(index) \(mate):N c\n\(read)\n+\n\(String(repeating: "I", count: read.count))\n"
             }
             try Data(text.utf8).write(to: url)
             return url
