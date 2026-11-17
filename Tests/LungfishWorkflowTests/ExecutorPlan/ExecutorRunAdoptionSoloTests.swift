@@ -129,6 +129,21 @@ final class ExecutorRunAdoptionSoloTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: project.path))
     }
 
+    /// The 5' v2 plan's list is supplied, so its words reach the record's `barcodeListSource`, with the list's name and
+    /// SHA-256 in `barcodeList`. The adopt copies the plan's words with no check of its own, so this pins the supplied form
+    /// that only the conformance case adopted before (review SOLO-PLAN-M2-M3-BIO SF2, BIO-SOLO-GTF item 9).
+    func testASuppliedBarcodeListsSourceWordsReachTheRecord() async throws {
+        _ = try await buildSet()
+        let plan = try Self.pinned("tenx-5p-v2")
+        let returned = try Fixture.make(root: root, name: "S1", plan: plan, contents: Self.soloFiles())
+        let result = try adopt(returned.folder)
+        let record = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: result))
+        let options = try XCTUnwrap(record.steps.first?.resolvedOptions)
+        XCTAssertEqual(options["barcodeListSource"], .string("list supplied by the user"))
+        XCTAssertEqual(options["barcodeList"],
+                       .string("737K-august-2016, SHA-256 b0dda4b114d8fc7ea8def94fb472e6205c1831a72e3ac245ed13cc332d9f20d1"))
+    }
+
     /// A plan whose index read another `derived/genes.gtf` than the set's under the storage root is refused in words that
     /// name the step and both SHA-256 values, before any matrix is read.
     func testAPlanCountedOnAnotherGenesGTFIsRefusedNamingTheStepAndBothDigests() async throws {
