@@ -102,10 +102,12 @@ SAW_REF=0
 PUSHED_COMMITS=()
 UNRESOLVED=0
 PUSHES_MAIN=0
+MAIN_PUSH_SHA=""
 while read -r local_ref local_sha remote_ref remote_sha; do
     SAW_REF=1
     if [ "$remote_ref" = "refs/heads/main" ]; then
         PUSHES_MAIN=1
+        MAIN_PUSH_SHA="$local_sha"
     fi
     case "$remote_ref" in
         refs/tags/*) ;;
@@ -139,14 +141,20 @@ fi
 # A packaged candidate holds main from its package to its publish or void:
 # publish needs origin main to be an ancestor of the candidate, so a push
 # that moves main voids it. release.py package writes the hold file and
-# publish or void removes it. The tag push of publish passed above.
+# publish or void removes it. The tag push of publish passed above, and so
+# does a push that leaves main at the held candidate, which voids nothing:
+# release.py publish makes it as `git push --atomic origin main <tag>` when
+# the candidate was packaged ahead of origin main. A delete of main has an
+# all-zero local sha, so it is refused.
 MAIN_HOLD="${LUNGFISH_MAIN_HOLD:-/Users/Shared/lungfish-release/MAIN-HOLD}"
 if [ "$PUSHES_MAIN" -eq 1 ] && [ -e "$MAIN_HOLD" ]; then
     HELD_COMMIT="$(sed -n 's/^commit=//p' "$MAIN_HOLD" | head -n 1)"
-    HELD_SINCE="$(sed -n 's/^since=//p' "$MAIN_HOLD" | head -n 1)"
-    HELD_BY="$(sed -n 's/^writer=//p' "$MAIN_HOLD" | head -n 1)"
-    echo "pre-push: main is held for the packaged candidate ${HELD_COMMIT:-(the file names no commit)}, since ${HELD_SINCE:-an unknown time} by ${HELD_BY:-an unknown writer}, in the file $MAIN_HOLD. A push that moves main now voids that candidate, so this push is refused. release.py publish removes the hold when the candidate is published. To push to main before then, void the candidate with: python3 scripts/release/release.py void ${HELD_COMMIT:-<commit>} (it removes the file), then push and package again from the new head." >&2
-    exit 1
+    if [ -z "$HELD_COMMIT" ] || [ "$MAIN_PUSH_SHA" != "$HELD_COMMIT" ]; then
+        HELD_SINCE="$(sed -n 's/^since=//p' "$MAIN_HOLD" | head -n 1)"
+        HELD_BY="$(sed -n 's/^writer=//p' "$MAIN_HOLD" | head -n 1)"
+        echo "pre-push: main is held for the packaged candidate ${HELD_COMMIT:-(the file names no commit)}, since ${HELD_SINCE:-an unknown time} by ${HELD_BY:-an unknown writer}, in the file $MAIN_HOLD. A push that moves main now voids that candidate, so this push is refused. release.py publish removes the hold when the candidate is published. To push to main before then, void the candidate with: python3 scripts/release/release.py void ${HELD_COMMIT:-<commit>} (it removes the file), then push and package again from the new head." >&2
+        exit 1
+    fi
 fi
 
 echo "pre-push: checking the unchecked-operation-start ratchet (use --no-verify to skip)..."
