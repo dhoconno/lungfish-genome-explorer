@@ -633,7 +633,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             let trimBarcodes,
             let sampleAssignments,
             let kitOverride,
-            _
+            let keepUncheckedSamples
         ):
             guard sampleAssignments?.isEmpty ?? true else {
                 throw FASTQOperationExecutionError.unsupportedDemultiplex("sampleAssignments are not encodable")
@@ -645,14 +645,16 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 throw FASTQOperationExecutionError.unsupportedDemultiplex("kitOverride is not encodable")
             }
             // A picked Exact Bare Barcode or Read Names engine searches no base with cutadapt, so it takes none of
-            // cutadapt's options, and its engine is written so the run takes the route the person chose.
+            // cutadapt's options, and its engine is written so the run takes the route the person chose. The person's Keep
+            // Unchecked Samples is written for either, so the recorded command reproduces the run (DEMUX-FLOOR-SATURATED-KIT).
+            let keepArguments = keepUncheckedSamples == true ? ["--keep-unchecked-samples"] : []
             if engine != .cutadapt {
                 return [
                     "demultiplex", inputURL.path,
                     "--kit", customCSVPath ?? kitID,
                     "-o", outputTarget,
                     "--engine", engine.rawValue,
-                ]
+                ] + keepArguments
             }
             var arguments = [
                 "demultiplex", inputURL.path,
@@ -666,7 +668,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             // The dialog's default engine writes no --engine, so the run asks the route owner, which reads the read
             // names before it searches the bases (L4 of the 3.3 tally). A picked other engine is written above.
             if !trimBarcodes { arguments.append("--no-trim") }
-            return arguments
+            return arguments + keepArguments
         case .orient(let referenceURL, let wordLength, let dbMask, let saveUnoriented, let extraArguments):
             guard !saveUnoriented else {
                 throw FASTQOperationExecutionError.unsupportedOrient("saveUnoriented is not encodable")

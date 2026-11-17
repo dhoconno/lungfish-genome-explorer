@@ -664,8 +664,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 }
                 .pickerStyle(.segmented)
                 .lungfishHelp(LungfishHelpContent.fastqDemultiplexEngine)
-                Text(state.demultiplexEngine.explanation).font(.caption).foregroundStyle(.secondary)
-                if let caption = state.demultiplexEngineChanceCaption { Text(caption).font(.caption).foregroundStyle(.secondary) }
+                FASTQDemultiplexChanceRows(state: state, explanation: state.demultiplexEngine.explanation)
                 if state.demultiplexEngine == .cutadapt {
                     if state.demultiplexKitUsesPlatformConstruct {
                         Text(FASTQOperationDialogState.demultiplexPlatformConstructCaption)

@@ -97,6 +97,15 @@ extension DemultiplexingPipeline {
     /// have no anchored side, such as the built-in Fluidigm kit, is refused in words that give that cause and name the
     /// routes made for it (BIO-SATKIT-FLUIDIGM item 4).
     func requireChanceCheckableKit(config: DemultiplexConfig, adapterFASTA: URL, inputFASTQ: URL) throws {
+        try requireChanceCheckableKit(config: config, adapterFASTA: adapterFASTA) {
+            try demultiplexReadLayout(config: config, inputFASTQ: inputFASTQ).isPaired
+        }
+    }
+
+    /// The refusal above, with the file's layout asked through `holdsMates`, which is called only for a kit that reaches
+    /// the share as fragments and not as single reads. Preflight reads the input file, and the dialog answers yes
+    /// (``chanceCheckCanRefuseKit(config:)``).
+    func requireChanceCheckableKit(config: DemultiplexConfig, adapterFASTA: URL, holdsMates: () throws -> Bool) throws {
         guard !config.keepsUncheckedSamples, config.demuxAdapterContext is BareAdapterContext else { return }
         let patterns = try chancePatterns(in: adapterFASTA)
         func saturated(_ unit: Int) -> Bool {
@@ -105,13 +114,34 @@ extension DemultiplexingPipeline {
             )
         }
         if !saturated(1) {
-            guard saturated(2), try demultiplexReadLayout(config: config, inputFASTQ: inputFASTQ).isPaired else { return }
+            guard saturated(2), try holdsMates() else { return }
         }
         let kitName = config.barcodeKit.displayName
         if DemultiplexChanceFloor.searchesAnywhere(patterns: patterns) {
             throw DemultiplexError.chanceCheckCannotJudgeKitSearchedAnywhere(kitName: kitName)
         }
         throw DemultiplexError.chanceCheckCannotJudgeKit(kitName: kitName)
+    }
+
+    /// Whether preflight can refuse a Cutadapt search of the read bases with this kit as one the chance floor cannot
+    /// judge, on some input: a file that holds mates, whose share is the larger. The dialog shows Keep Unchecked Samples
+    /// exactly then, so it reaches every run that `--keep-unchecked-samples` reaches (BIO-SATKIT-FLUIDIGM item 3). It
+    /// builds the adapter lines preflight builds and calls preflight's own checks on them, so a change to the refusal
+    /// reaches the dialog. A kit whose lines preflight refuses for another reason first is not one the chance check
+    /// refuses. The caller passes the config without the opt-in, and no read is read.
+    public func chanceCheckCanRefuseKit(config: DemultiplexConfig) async throws -> Bool {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-demux-chance-check-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let adapters = try await createAdapterConfiguration(for: config, workDirectory: scratch)
+        try requireAdapterSequences(in: adapters.adapterFASTA, kitName: config.barcodeKit.displayName)
+        do {
+            try requireChanceCheckableKit(config: config, adapterFASTA: adapters.adapterFASTA) { true }
+            return false
+        } catch DemultiplexError.chanceCheckCannotJudgeKit, DemultiplexError.chanceCheckCannotJudgeKitSearchedAnywhere {
+            return true
+        }
     }
 
     /// Refuses the kit `idt-ud-indexes`, whose table repeats each i5 every eight rows and holds 24 of 96 pairs, so a run
