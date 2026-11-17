@@ -701,6 +701,110 @@ def run_debug(root: Path, *, portable: bool = False, jobs: int | None = None, li
     return 0
 
 
+MAIN_HOLD_ENV = "LUNGFISH_MAIN_HOLD"
+MAIN_HOLD_DEFAULT = Path("/Users/Shared/lungfish-release/MAIN-HOLD")
+# The hold file this run of main() writes and removes. A direct call of run_package or run_publish, as
+# the unit tests make, leaves it None and holds nothing, so no test can write the Mac's real hold.
+_MAIN_HOLD: Path | None = None
+
+
+def main_hold_path(environment: Any = None) -> Path:
+    """Where the main hold lives: LUNGFISH_MAIN_HOLD when set, else the one file every session on the
+    Mac shares, which the pre-push hook of scripts/install-git-hooks.sh reads."""
+    configured = (os.environ if environment is None else environment).get(MAIN_HOLD_ENV, "")
+    return Path(configured) if configured else MAIN_HOLD_DEFAULT
+
+
+def read_main_hold(path: Path) -> dict[str, str] | None:
+    """The hold's key=value lines, or None when no hold stands."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    fields: dict[str, str] = {}
+    for line in text.splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            fields.setdefault(key.strip(), value.strip())
+    return fields
+
+
+def write_main_hold(path: Path, commit: str, channel: str) -> None:
+    """Hold origin main at a packaged candidate until its publish or void (E-RUN-57).
+
+    A push that moves main after the package voids the candidate, since publish needs origin main to be
+    an ancestor of it. The shared pre-push hook refuses such a push while this file stands. The file is
+    written whole by a rename, so the hook never reads half of it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    previous = read_main_hold(path)
+    if previous is not None and previous.get("commit") != commit:
+        print(f"Main hold: replaces the hold for {previous.get('commit') or 'no commit'}.")
+    since = datetime.now().astimezone().isoformat(timespec="seconds")
+    text = (f"commit={commit}\nchannel={channel}\nsince={since}\n"
+            f"writer=release.py package, pid {os.getpid()} on {os.uname().nodename}\n")
+    descriptor, temporary = tempfile.mkstemp(prefix=".MAIN-HOLD-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+    print(f"Main hold: {path} holds main at {commit} until its publish or void.")
+
+
+def clear_main_hold(path: Path, commit: str) -> bool:
+    """Remove the hold when it names commit, and say whether one was removed. Another commit's hold stays."""
+    hold = read_main_hold(path)
+    if hold is None or hold.get("commit") != commit:
+        return False
+    path.unlink(missing_ok=True)
+    return True
+
+
+def run_void(commit: str) -> int:
+    """Remove the main hold of a candidate that will not be published, so pushes to main pass again."""
+    path = _MAIN_HOLD or main_hold_path()
+    hold = read_main_hold(path)
+    if hold is None:
+        print(f"No main hold stands at {path}, so pushes to main pass.")
+        return 0
+    held = hold.get("commit", "")
+    if held != commit:
+        raise ReleaseError(
+            f"the main hold {path} names {held or 'no commit'}, not {commit}. Run void with the commit it names, "
+            "or remove the file by hand when it names none."
+        )
+    path.unlink(missing_ok=True)
+    print(f"Voided {commit}: removed the main hold {path}. Push to main, then package again from origin/main's head.")
+    return 0
+
+
+def _package_candidate(operations: Any, request: ReleaseRequest) -> CandidateIdentity:
+    if request.receipt.is_file():
+        operations.verify_package_source(request)
+        identity = operations.verify_candidate_receipt(request)
+        print(f"Reused verified exact candidate: {identity.receipt}")
+        return identity
+
+    def stop(signum: int, _frame: Any) -> None:
+        raise SystemExit(128 + signum)
+
+    # A signal the caller ignores (nohup ignores SIGHUP) stays ignored.
+    previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGHUP)
+                if signal.getsignal(sig) is not signal.SIG_IGN}
+    try:
+        # The executor ships inside the app (QC18), so a new candidate builds it first and the builder places it.
+        operations.build_linux_executor(request)
+        return ReleaseCoordinator(operations).package(request)
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
 def run_package(root: Path, channel: str) -> int:
     environment = sanitized_package_environment(os.environ.copy())
     commit = _head_commit(root, environment)
@@ -721,24 +825,26 @@ def run_package(root: Path, channel: str) -> int:
         environment,
         credentialless=True,
     )
-    if request.receipt.is_file():
-        operations.verify_package_source(request)
-        identity = operations.verify_candidate_receipt(request)
-        print(f"Reused verified exact candidate: {identity.receipt}")
-    else:
-        def stop(signum: int, _frame: Any) -> None:
-            raise SystemExit(128 + signum)
-
-        # A signal the caller ignores (nohup ignores SIGHUP) stays ignored.
-        previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGTERM, signal.SIGHUP)
-                    if signal.getsignal(sig) is not signal.SIG_IGN}
-        try:
-            # The executor ships inside the app (QC18), so a new candidate builds it first and the builder places it.
-            operations.build_linux_executor(request)
-            identity = ReleaseCoordinator(operations).package(request)
-        finally:
-            for sig, handler in previous.items():
-                signal.signal(sig, handler)
+    hold = _MAIN_HOLD
+    if hold is not None:
+        # Only publish needs main, so a reviewable branch candidate holds no push.
+        branch = operations.runner.text(["git", "branch", "--show-current"]).strip()
+        if branch != request.main_branch:
+            hold = None
+    if hold is None:
+        identity = _package_candidate(operations, request)
+        print(f"Package candidate: {identity.receipt}")
+        return 0
+    # Hold first, then make publish's check of origin main, so a push that reached main before the
+    # hold ends the package now instead of at the publish.
+    write_main_hold(hold, commit, channel)
+    try:
+        operations.verify_source_history(request)
+        identity = _package_candidate(operations, request)
+    except BaseException:
+        if clear_main_hold(hold, commit):
+            print(f"Main hold: removed {hold}, since the package of {commit} did not end well.", file=sys.stderr)
+        raise
     print(f"Package candidate: {identity.receipt}")
     return 0
 
@@ -915,6 +1021,9 @@ def run_publish(root: Path, channel: str, profile_path: Path | None, evidence_re
     print(
         f"Release complete: channel={channel} tag={result.tag} commit={result.commit}"
     )
+    # The package's hold ends with its publish, so the record push to main that follows passes (E-RUN-57).
+    if _MAIN_HOLD is not None and clear_main_hold(_MAIN_HOLD, commit):
+        print(f"Main hold: removed {_MAIN_HOLD}, so pushes to main pass again.")
     return 0
 
 
@@ -2913,6 +3022,13 @@ def _parser() -> argparse.ArgumentParser:
              "(docs/contracts/VERIFICATION-ORDER.md, row Evidence read)",
     )
 
+    void = commands.add_parser(
+        "void",
+        help="remove the main hold of a packaged candidate that will not be published, so pushes to main pass",
+    )
+    void.add_argument("commit", help="the full commit the hold names (the pre-push hook's refusal prints it)")
+    void.add_argument("--repo", type=Path, default=PROJECT_ROOT)
+
     doctor = commands.add_parser(
         "doctor", help="report package and optional publish readiness"
     )
@@ -2961,11 +3077,13 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    global _METRICS_PATH
+    global _METRICS_PATH, _MAIN_HOLD
     args = _parser().parse_args(argv)
     started = time.monotonic()
     result_status = None
     try:
+        if args.command in ("package", "publish", "void"):
+            _MAIN_HOLD = main_hold_path()
         root = args.repo.expanduser().resolve(strict=True)
         metrics_dir = root / ".build/release-metrics"
         metrics_dir.mkdir(parents=True, exist_ok=True)
@@ -2991,6 +3109,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "publish":
             result_status = run_publish(root, args.channel, args.profile, args.evidence_read)
             return result_status
+        if args.command == "void":
+            result_status = run_void(args.commit)
+            return result_status
         if args.command == "doctor":
             result_status = run_doctor(root, args.profile)
             return result_status
@@ -3011,6 +3132,7 @@ def main(argv: list[str] | None = None) -> int:
         result_status = 1
         return 1
     finally:
+        _MAIN_HOLD = None
         _record_timing("total:" + args.command, time.monotonic() - started, result_status)
         if _METRICS_PATH:
             print(f"Phase timings: {_METRICS_PATH}")

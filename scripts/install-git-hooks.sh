@@ -2,7 +2,10 @@
 # install-git-hooks.sh - Install opt-in local git hooks for the developer iteration loop.
 #
 # Installs:
-#   - a pre-push hook that first runs the unchecked-operation-start ratchet
+#   - a pre-push hook that first refuses a push that moves main while a
+#     packaged candidate holds it (the file /Users/Shared/lungfish-release/MAIN-HOLD,
+#     or LUNGFISH_MAIN_HOLD, which release.py package writes and publish or
+#     void removes), then runs the unchecked-operation-start ratchet
 #     (scripts/ratchets/unchecked-operation-start.sh), which fails the push if
 #     a new caller passes a bundle target to the deprecated
 #     OperationCenter.start(...) instead of begin(...), then checks that every
@@ -98,8 +101,12 @@ SAW_REF=0
 # skipped only when retained evidence covers every one of them.
 PUSHED_COMMITS=()
 UNRESOLVED=0
+PUSHES_MAIN=0
 while read -r local_ref local_sha remote_ref remote_sha; do
     SAW_REF=1
+    if [ "$remote_ref" = "refs/heads/main" ]; then
+        PUSHES_MAIN=1
+    fi
     case "$remote_ref" in
         refs/tags/*) ;;
         *)
@@ -127,6 +134,19 @@ done
 if [ "$SAW_REF" -eq 1 ] && [ "$TAGS_ONLY" -eq 1 ]; then
     echo "pre-push: only tags on commits already on $REMOTE; skipping checks (they ran when those commits were pushed)."
     exit 0
+fi
+
+# A packaged candidate holds main from its package to its publish or void:
+# publish needs origin main to be an ancestor of the candidate, so a push
+# that moves main voids it. release.py package writes the hold file and
+# publish or void removes it. The tag push of publish passed above.
+MAIN_HOLD="${LUNGFISH_MAIN_HOLD:-/Users/Shared/lungfish-release/MAIN-HOLD}"
+if [ "$PUSHES_MAIN" -eq 1 ] && [ -e "$MAIN_HOLD" ]; then
+    HELD_COMMIT="$(sed -n 's/^commit=//p' "$MAIN_HOLD" | head -n 1)"
+    HELD_SINCE="$(sed -n 's/^since=//p' "$MAIN_HOLD" | head -n 1)"
+    HELD_BY="$(sed -n 's/^writer=//p' "$MAIN_HOLD" | head -n 1)"
+    echo "pre-push: main is held for the packaged candidate ${HELD_COMMIT:-(the file names no commit)}, since ${HELD_SINCE:-an unknown time} by ${HELD_BY:-an unknown writer}, in the file $MAIN_HOLD. A push that moves main now voids that candidate, so this push is refused. release.py publish removes the hold when the candidate is published. To push to main before then, void the candidate with: python3 scripts/release/release.py void ${HELD_COMMIT:-<commit>} (it removes the file), then push and package again from the new head." >&2
+    exit 1
 fi
 
 echo "pre-push: checking the unchecked-operation-start ratchet (use --no-verify to skip)..."
@@ -330,7 +350,7 @@ fi
 HOOK_EOF
 chmod +x "$PRE_PUSH_HOOK"
 echo "Installed pre-push hook at $PRE_PUSH_HOOK"
-echo "It runs the unchecked-operation-start, shared-slider-control, file-size, concurrency-hatches, durable-writes, volume-portability, source-text-assertions, cli-parity-gaps, process-spawn, portable-imports, provenance-writers, path-helpers, tool-identity and native-tool-runner-in-app ratchets, the features.yaml entry-point, embedded-Python compile, doc-path-references, working-memory-staleness, audit-tags, module-map-current, features-yaml-sources and duplicate-public-types checks, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
+echo "It refuses a push to main while a packaged candidate holds it (${LUNGFISH_MAIN_HOLD:-/Users/Shared/lungfish-release/MAIN-HOLD}). It runs the unchecked-operation-start, shared-slider-control, file-size, concurrency-hatches, durable-writes, volume-portability, source-text-assertions, cli-parity-gaps, process-spawn, portable-imports, provenance-writers, path-helpers, tool-identity and native-tool-runner-in-app ratchets, the features.yaml entry-point, embedded-Python compile, doc-path-references, working-memory-staleness, audit-tags, module-map-current, features-yaml-sources and duplicate-public-types checks, then scripts/full-suite-gate.sh --tier unit, before each push (bypass with: git push --no-verify)."
 
 cat > "$PRE_COMMIT_HOOK" << 'HOOK_EOF'
 #!/bin/bash
