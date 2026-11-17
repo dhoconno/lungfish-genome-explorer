@@ -549,7 +549,7 @@ extension RunSubcommand {
                 fastpAdapters: fastpAdapters
             )
         } catch {
-            FileHandle.standardError.write(Data("Could not record the cancelled run:\(error.localizedDescription)\n".utf8))
+            FileHandle.standardError.write(Data("Could not record the cancelled run: \(error.localizedDescription)\n".utf8))
         }
     }
 
