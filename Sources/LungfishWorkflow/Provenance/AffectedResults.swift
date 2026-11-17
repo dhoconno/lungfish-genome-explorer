@@ -319,6 +319,13 @@ public enum AffectedResults {
             fixCommit: "0721d9182"
         ),
         AffectedResultRow(
+            backlogID: "BLAST-ESVIRITU-FIRST-WORD", kinds: [.esViritu], firstBuild: 511, lastBuild: 13672,
+            sentence: "A BLAST check of an EsViritu row judged by organism names could count a read as supporting "
+                + "when its best match was another virus whose name starts with the same word.",
+            whatToDo: "Run Verify with BLAST… again.",
+            fixCommit: "085761c69"
+        ),
+        AffectedResultRow(
             backlogID: "ASSEMBLY-RECORDED-PATH", kinds: [.assembly], firstBuild: nil, lastBuild: 11807,
             sentence: "The version that made this result read its contigs from the folder named in "
                 + "assembly-result.json, so after the result was moved, renamed or copied, BLAST Contig, "
