@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """ctx_watch.py PROJECT_DIR SID [--over K] [--opus-over K] [--busy] [--stalled SECONDS] [--calls] [--agents-dir DIR]
-[--review-k K] [--send-k K] [--near N]
+[--review-k K] [--send-k K] [--near N] [--manager-tool PREFIX]
 
 Prints one line for each subagent of a Claude Code session, read from PROJECT_DIR/SID/subagents. A line holds the
 agent id, its description, its tool calls so far, the context of its last API turn in K (input plus cache read plus
@@ -26,7 +26,15 @@ the session ledger reads unless --agents-dir names another. Case does not matter
 "about", "tool" or "by" ("Stop at about 60 tool calls"), "stop line N calls" or "stop by your 120th tool call". An agent
 with no line is left out, and the other filters still apply. With --near N each running agent that has a line and is
 below it by at most N calls also gets a line "NEAR ID CALLS/LINE", so that a caller can check more often while an agent
-nears its line.
+nears its line. A running agent whose prompt names no line, while the brief it names gives one and the file of its type
+another, also gets a line "MISMATCH ID brief N type M", since its prompt should have said "Stop at N tool calls."
+(E-RUN-39, E-RUN-66).
+
+--manager-tool PREFIX prints, in place of every other line, one line "ACT HH:MM:SS NAME ID" in local time for each tool
+call whose tool name starts with PREFIX in the session's main transcript PROJECT_DIR/SID.jsonl, the manager's own. As
+preflight.py reads that transcript, an entry that names an agent or is a sidechain is a subagent's and does not count,
+and an entry counts once by its uuid. heartbeat.sh gives mcp__computer-use__, which the manager never loads (E-RUN-59,
+E-RUN-64).
 
 Serves the rows "Lane size" and "Pending tool call" in the End check and heartbeat table of
 docs/contracts/RUNNING-A-PHASE-SESSION.md.
@@ -224,6 +232,59 @@ def stop_line(row, agents_dir=None):
     return line if line is not None else type_stop_line(row["type"], agents_dir)
 
 
+def mismatch(row, agents_dir=None):
+    """(brief line, type line) of an agent whose prompt names no stop line while the brief it names gives one and the
+    file of its type another, else None."""
+    prompt = first_prompt(row["path"])
+    if text_stop_line(prompt) is not None:
+        return None
+    brief, kind = text_stop_line(brief_text(prompt)), type_stop_line(row["type"], agents_dir)
+    return (brief, kind) if brief is not None and kind is not None and brief != kind else None
+
+
+def clock(stamp):
+    """The local time HH:MM:SS of a transcript stamp, or --:--:-- when it cannot be read."""
+    seconds = parse_time(stamp) if isinstance(stamp, str) else None
+    return "--:--:--" if seconds is None else datetime.fromtimestamp(seconds).strftime("%H:%M:%S")
+
+
+def manager_tool_uses(path, prefix):
+    """(local time, tool name, tool call id) of each tool call of the main transcript at path whose tool name starts
+    with prefix, in file order. An entry that names an agent or is a sidechain is skipped, as preflight.py's
+    manager_effort skips it, an entry counts once by its uuid and a call once by its id. A missing file has none."""
+    found, seen, calls = [], set(), set()
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                if prefix not in line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(entry, dict) or entry.get("type") != "assistant":
+                    continue
+                if entry.get("agentId") or entry.get("isSidechain"):
+                    continue
+                uid = entry.get("uuid")
+                if uid is not None:
+                    if uid in seen:
+                        continue
+                    seen.add(uid)
+                message = entry.get("message")
+                content = message.get("content") if isinstance(message, dict) else None
+                for block in content if isinstance(content, list) else []:
+                    if not isinstance(block, dict) or block.get("type") != "tool_use":
+                        continue
+                    name, call = block.get("name"), str(block.get("id"))
+                    if isinstance(name, str) and name.startswith(prefix) and call not in calls:
+                        calls.add(call)
+                        found.append((clock(entry.get("timestamp")), name, call))
+    except OSError:
+        pass
+    return found
+
+
 def survey(project, sid, now):
     """One dict for each subagent transcript, in file name order. Empty when there is no subagents folder."""
     sub = os.path.join(project, sid, "subagents")
@@ -262,12 +323,17 @@ def main(argv=None, now=None, out=None):
     parser.add_argument("--calls", action="store_true")
     parser.add_argument("--near", type=int, default=None, metavar="N")
     parser.add_argument("--agents-dir", default=None, metavar="DIR")
+    parser.add_argument("--manager-tool", default=None, metavar="PREFIX")
     args = parser.parse_args(argv)
     out = out or sys.stdout
     root = os.path.join(args.project, args.sid)
     if not os.path.isdir(root) and not os.path.isfile(root + ".jsonl"):
         sys.stderr.write("ctx_watch.py, no transcript or folder for session %s under %s\n" % (args.sid, args.project))
         return 2
+    if args.manager_tool is not None:
+        found = manager_tool_uses(root + ".jsonl", args.manager_tool)
+        out.write("".join("ACT %s %s %s\n" % use for use in found) if found else "none\n")
+        return 0
     lines = []
     for row in survey(args.project, args.sid, time.time() if now is None else now):
         over = args.opus_over if args.opus_over is not None and is_opus(row["model"]) else args.over
@@ -281,6 +347,9 @@ def main(argv=None, now=None, out=None):
                 lines.append("CALLS %s %d/%d" % (row["id"], row["calls"], line))
             elif line is not None and args.near is not None and row["calls"] >= line - args.near:
                 lines.append("NEAR %s %d/%d" % (row["id"], row["calls"], line))
+            found = None if row["final"] else mismatch(row, args.agents_dir)
+            if found:
+                lines.append("MISMATCH %s brief %d type %d" % (row["id"], found[0], found[1]))
             continue
         lines.append(format_line(row, args.review_k, args.send_k, args.stalled is not None))
     out.write("\n".join(lines) + "\n" if lines else "none\n")

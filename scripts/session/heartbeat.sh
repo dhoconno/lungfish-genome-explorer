@@ -4,7 +4,7 @@
 #              [--near-calls N] [--near-s SECONDS] [--no-memwatch]
 #
 # The manager's background wait. It looks at its start and again after each of --rounds waits (default 9) of --interval
-# seconds (default 300), so a round is about 45 minutes. Each look is for five things. First an agent of the session at
+# seconds (default 300), so a round is about 45 minutes. Each look is for seven things. First an agent of the session at
 # or over --ctx-k of context (default 290, and --opus-ctx-k, default 390, for an agent whose transcript names an opus
 # model). Second a running agent whose tool calls are at or past its stop line, which ctx_watch.py --calls reads from
 # the agent's prompt or else from the file of its agent type and prints as "CALLS ID CALLS/LINE", and the manager then
@@ -12,8 +12,12 @@
 # leaves out. While a running agent is within --near-calls calls (default 75) of its stop line the wait goes in slices
 # of --near-s seconds (default 60) and this check runs after each. Third an agent whose last entry
 # is older than --pending-s seconds (default 900) and not final. Fourth free space under --disk-min-gb on --disk-path
-# (default 100 and /System/Volumes/Data). Fifth a memwatch alarm in RECORDS/memwatch.alarm. Agent ids in
-# RECORDS/done_ids.txt are
+# (default 100 and /System/Volumes/Data). Fifth a memwatch alarm in RECORDS/memwatch.alarm. Sixth a MISMATCH line
+# of ctx_watch.py --calls, a running agent whose prompt names no stop line while its brief names one other than its
+# type's (E-RUN-66), checked with the call check. Seventh an ACT line of ctx_watch.py --manager-tool for each call of a
+# mcp__computer-use__ tool in the manager's main transcript, which E-RUN-59 bars (E-RUN-64). The heartbeat prints each
+# MISMATCH and ACT line once, since it notes the agent id in RECORDS/mismatch_seen.txt and the tool call id in
+# RECORDS/act_seen.txt as it prints them. Agent ids in RECORDS/done_ids.txt are
 # ignored. RECORDS defaults to build/llm. After it reports a memwatch alarm the manager touches RECORDS/memwatch.ack,
 # which silences that alarm for --ack-minutes (default 60). It also reports MEMWATCH NOT RUNNING when memwatch.pid names
 # no live memwatch.py and memwatch.stop is not newer than it, unless --no-memwatch is given.
@@ -81,18 +85,38 @@ agents() {
     grep -v '^none$' | grep -v -E "^(${ignore:-NOBODY})"
 }
 
-# The call check. It sets calls to the CALLS lines of running agents at or past their stop line, and near to the NEAR
-# lines of those within --near-calls calls below it. The ids of done_ids.txt and stop_sent.txt are left out of both.
+# The call check. It sets calls to the CALLS lines of running agents at or past their stop line, near to the NEAR
+# lines of those within --near-calls calls below it, and mismatch to the MISMATCH lines not printed before. The ids of
+# done_ids.txt and stop_sent.txt are left out of all three.
 call_check() {
-  local out
+  local out shown
   ignore=$(ids "$records/done_ids.txt")
   stopped=$(ids "$records/stop_sent.txt")
+  shown=$(ids "$records/mismatch_seen.txt")
   out=$("$PYTHON" "$HERE/ctx_watch.py" "$project" "$session" --calls --near "$near_calls" 2>&1 | grep -v '^none$')
-  calls=$(printf '%s\n' "$out" | grep -v -E '^NEAR ' | grep -v -E "^CALLS (${ignore:-NOBODY}|${stopped:-NOBODY})")
+  calls=$(printf '%s\n' "$out" | grep -v -E '^(NEAR|MISMATCH) ' | grep -v -E "^CALLS (${ignore:-NOBODY}|${stopped:-NOBODY})")
   near=$(printf '%s\n' "$out" | grep -E '^NEAR ' | grep -v -E "^NEAR (${ignore:-NOBODY}|${stopped:-NOBODY})")
+  mismatch=$(printf '%s\n' "$out" | grep -E '^MISMATCH ' |
+    grep -v -E "^MISMATCH (${ignore:-NOBODY}|${stopped:-NOBODY}|${shown:-NOBODY})")
+}
+
+# The ACT lines of the manager's calls of computer-use tools whose ids act_seen.txt does not hold.
+act_check() {
+  local seen
+  seen=$(ids "$records/act_seen.txt")
+  act=$("$PYTHON" "$HERE/ctx_watch.py" "$project" "$session" --manager-tool mcp__computer-use__ 2>&1 |
+    grep -v '^none$' | grep -v -E " (${seen:-NOBODY})\$")
+}
+
+# Notes the ids of the MISMATCH and ACT lines about to be printed, so that no later look prints them again.
+remember() {
+  mkdir -p "$records" 2>/dev/null
+  if [ -n "$mismatch" ]; then printf '%s\n' "$mismatch" | awk '{ print $2 }' >> "$records/mismatch_seen.txt"; fi
+  if [ -n "$act" ]; then printf '%s\n' "$act" | awk '$1 == "ACT" { print $NF }' >> "$records/act_seen.txt"; fi
 }
 
 alarm() {
+  remember
   echo "ALARM $(date '+%H:%M')"
   for part in "$@"; do
     if [ -n "$part" ]; then echo "$part"; fi
@@ -113,11 +137,11 @@ nap() {
     left=$((left - slice))
     [ "$left" -gt 0 ] || return 0
     call_check
-    if [ -n "$calls" ]; then alarm "$calls"; fi
+    if [ -n "$calls$mismatch" ]; then alarm "$calls" "$mismatch"; fi
   done
 }
 
-calls="" near=""
+calls="" near="" mismatch="" act=""
 for ((round = 0; round <= rounds; round++)); do
   if [ "$round" -gt 0 ]; then nap "$interval"; fi
   ignore=$(ids "$records/done_ids.txt")
@@ -125,6 +149,7 @@ for ((round = 0; round <= rounds; round++)); do
   stall=$("$PYTHON" "$HERE/ctx_watch.py" "$project" "$session" --stalled "$stall_s" 2>&1 | grep -v '^none$' |
     grep -v -E "^STALLED (${ignore:-NOBODY})")
   call_check
+  act_check
   free=$(free_gb)
   disk=""
   if [ -n "$free" ] && [ "$free" -lt "$disk_min" ]; then disk="DISK ${free}Gi free"; fi
@@ -142,6 +167,8 @@ for ((round = 0; round <= rounds; round++)); do
     fi
   fi
   mem=${mem# }
-  if [ -n "$ctx$calls$stall$disk$mem" ]; then alarm "$ctx" "$calls" "$stall" "$disk" "$mem"; fi
+  if [ -n "$ctx$calls$mismatch$stall$disk$mem$act" ]; then
+    alarm "$ctx" "$calls" "$mismatch" "$stall" "$disk" "$mem" "$act"
+  fi
 done
 echo "QUIET $(date '+%H:%M') disk $(free_gb)Gi"
