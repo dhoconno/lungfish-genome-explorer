@@ -179,10 +179,13 @@ package enum UMILayoutCheck {
         package var exact: Int
         /// Distinct UMIs, counted among the pairs that hold the exact motif and the whole UMI.
         package var distinctUMIs: Int
+        /// The pairs whose names differ only as `<name>/1` and `<name>/2`, a share of those not in `namesEqual`. Nil in a
+        /// check file written before milestone 3, which cut names at `/`.
+        package var mateSuffixPairs: Int?
 
         package init(
             pairsRequested: Int, pairsRead: Int, read1Reads: Int, read2Reads: Int, namesEqual: Int, withinOneMismatch: Int,
-            exact: Int, distinctUMIs: Int
+            exact: Int, distinctUMIs: Int, mateSuffixPairs: Int? = nil
         ) {
             self.pairsRequested = pairsRequested
             self.pairsRead = pairsRead
@@ -192,6 +195,7 @@ package enum UMILayoutCheck {
             self.withinOneMismatch = withinOneMismatch
             self.exact = exact
             self.distinctUMIs = distinctUMIs
+            self.mateSuffixPairs = mateSuffixPairs
         }
     }
 
@@ -203,6 +207,7 @@ package enum UMILayoutCheck {
         package private(set) var namesEqual = 0
         package private(set) var withinOneMismatch = 0
         package private(set) var exact = 0
+        package private(set) var mateSuffixPairs = 0
         private var umis = Set<[UInt8]>()
 
         package init(motif: String, umiLength: Int) {
@@ -215,7 +220,13 @@ package enum UMILayoutCheck {
         /// One pair: both header lines and the sequence of the read that holds the motif and the UMI.
         package mutating func add(header1: [UInt8], umiRead: [UInt8], header2: [UInt8]) {
             pairsRead += 1
-            if Self.name(header1) == Self.name(header2) { namesEqual += 1 }
+            let (name1, name2) = (Self.name(header1), Self.name(header2))
+            if name1 == name2 {
+                namesEqual += 1
+            } else if name1.count == name2.count, name1.suffix(2).elementsEqual("/1".utf8),
+                      name2.suffix(2).elementsEqual("/2".utf8), name1.dropLast(2).elementsEqual(name2.dropLast(2)) {
+                mateSuffixPairs += 1
+            }
             var sequence = umiRead[...]
             while let last = sequence.last, last == 0x0D || last == 0x20 { sequence.removeLast() }
             guard sequence.count >= motif.count else { return }
@@ -228,9 +239,10 @@ package enum UMILayoutCheck {
             umis.insert(Array(sequence[start..<(start + umiLength)]))
         }
 
-        /// A read's name, the header's first word cut at the first `/`, as `layout.py` reads it.
+        /// A read's name, the header's whole first word, as `umi_tools extract` compares the mates (EX-UMI-M2-BIO ruling 1
+        /// (b)). `layout.py` cut it at the first `/` as well, which let `x/1` and `x/2` pass here and stop extraction.
         static func name(_ header: [UInt8]) -> ArraySlice<UInt8> {
-            let end = header.firstIndex { $0 == 0x20 || $0 == 0x09 || $0 == 0x0D || $0 == 0x2F } ?? header.endIndex
+            let end = header.firstIndex { $0 == 0x20 || $0 == 0x09 || $0 == 0x0D } ?? header.endIndex
             return header[..<end]
         }
     }

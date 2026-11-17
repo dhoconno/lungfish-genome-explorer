@@ -17,9 +17,7 @@ extension UMILayoutCheck {
         func share(_ count: Int) -> String { "\(grouped(count)) (\(percent(count, of: pairs))%)" }
         var reasons: [Reason] = []
         if counts.namesEqual < pairs {
-            reasons.append(Reason(code: .namesDiffer, fails: true, words: "UMI layout check failed: read names differ between Read 1 "
-                + "and Read 2 in \(grouped(pairs - counts.namesEqual)) of \(grouped(pairs)) pairs read. The two files are not mates "
-                + "in the same order. Try: import the pair again from its source. \(noCounts)"))
+            reasons.append(Reason(code: .namesDiffer, fails: true, words: namesWords(counts, noCounts: noCounts)))
         }
         if counts.read1Reads != counts.read2Reads {
             let whole = arguments.choice == .even
@@ -70,5 +68,31 @@ extension UMILayoutCheck {
                 + "distinct UMI, under \(bars.distinctWarn)%\(why)"))
         }
         return reasons
+    }
+
+    /// The names failure. Mates named `<name>/1` and `<name>/2` are mates that umi_tools reads as two names, so the words
+    /// say so and how to rename them (EX-UMI-M2-BIO ruling 1 (b)). Other differing names mean the files are not mates in
+    /// the same order.
+    static func namesWords(_ counts: Counts, noCounts: String) -> String {
+        let pairs = counts.pairsRead
+        let differ = pairs - counts.namesEqual
+        let suffixed = Swift.min(counts.mateSuffixPairs ?? 0, differ)
+        var words = "UMI layout check failed: read names differ between Read 1 and Read 2 in \(grouped(differ)) of "
+            + "\(grouped(pairs)) pairs read."
+        var tries: [String] = []
+        if suffixed > 0 {
+            words += " In \(grouped(suffixed)) of them the mates carry /1 and /2 at the end of the name's first word, and "
+                + "umi_tools needs one name for both mates."
+            tries.append("rename the reads so that both mates share the first word of their name, with the mate number after "
+                + "a space as SRA and ENA files have it, then stage the pair again")
+        }
+        if suffixed < differ {
+            words += suffixed > 0
+                ? " In the other \(grouped(differ - suffixed)) the names differ in more than that, so the two files are not "
+                    + "mates in the same order."
+                : " The two files are not mates in the same order."
+            tries.insert("import the pair again from its source", at: 0)
+        }
+        return words + " Try: \(tries.joined(separator: ", and ")). \(noCounts)"
     }
 }

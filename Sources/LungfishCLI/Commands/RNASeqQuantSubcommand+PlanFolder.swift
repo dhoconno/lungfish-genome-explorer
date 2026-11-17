@@ -7,9 +7,9 @@ import LungfishPortable
 import LungfishWorkflow
 
 extension RNASeqCommand.QuantSubcommand {
-    /// One sample a row of the sample sheet, from the staged-reads list. The sheet's `model` column names the instrument, and
-    /// no read is opened.
-    func stagedSamples(layout: ExecutorPlanStagingLayout) throws -> [SalmonPlanSample] {
+    /// One sample a row of the sample sheet, from the staged-reads list, with the UMI kit its `kit` column names. The sheet's
+    /// `model` column names the instrument, and no read is opened.
+    func stagedSamples(layout: ExecutorPlanStagingLayout) throws -> [(sample: SalmonPlanSample, kit: String?)] {
         guard let list = planOptions.stagedReads, let sheetPath = planOptions.samplesheet else { return [] }
         let staged = try ImportFastqStagedReads.read(list)
         let pairs: [SamplePair]
@@ -24,9 +24,48 @@ extension RNASeqCommand.QuantSubcommand {
             }
             // A sheet cell with no words gives no instrument, since an empty model names nothing.
             let model = pair.metadata.first { $0.key.lowercased() == "model" }?.value.trimmingCharacters(in: .whitespaces)
-            return SalmonPlan.stagedSample(
-                name: pair.sampleName, pairs: [(r1: reads[0], r2: reads[1])], model: model?.isEmpty == false ? model : nil)
+            let kit = pair.metadata.first { $0.key.lowercased() == "kit" }?.value.trimmingCharacters(in: .whitespaces)
+            return (SalmonPlan.stagedSample(
+                name: pair.sampleName, pairs: [(r1: reads[0], r2: reads[1])], model: model?.isEmpty == false ? model : nil),
+                    kit?.isEmpty == false ? kit : nil)
         }
+    }
+
+    /// The UMI branch's plan of each sample, on the set's adopted STAR 2.7.11b index, with the request rule of a UMI job.
+    /// The kit's preset fixes the chain, so a sheet that names a kit for some samples only, and --chain, --trim, --k or
+    /// --decoys beside a kit, are refused.
+    func umiPlanJobs(
+        setFolder: URL, root: URL, manifest: ReferenceSetManifest, layout: ExecutorPlanStagingLayout, image: RNASeqQuantImageFiles,
+        samples: [(sample: SalmonPlanSample, kit: String?)]
+    ) throws -> RNASeqQuantPlanJobs {
+        let options = planOptions
+        if let none = samples.first(where: { $0.kit == nil }), let named = samples.first(where: { $0.kit != nil }) {
+            throw SalmonPlanError("The sample sheet names a UMI kit for \(named.sample.name) and none for \(none.sample.name). A "
+                + "plan folder counts its samples one way, so write the samples with a kit and those without in two plan folders.")
+        }
+        let fixed = "The sample sheet's kit column picks the UMI branch, whose steps the kit's preset fixes"
+        guard options.chain == nil else { throw SalmonPlanError("\(fixed), so leave out --chain.") }
+        guard !trim else { throw SalmonPlanError("\(fixed) with the reads untrimmed, so leave out --trim.") }
+        guard k == 31, decoys == "genome" else {
+            throw SalmonPlanError("\(fixed) on a STAR index, and --k and --decoys pick a salmon index, so leave out --k and --decoys.")
+        }
+        let pins = try UMIPlanPins(
+            executor: image.executor, executorBuild: image.executorBuild, imageManifest: image.pin, toolManifest: image.tools,
+            star: .v2_7_11b)
+        // The index is pinned once for every sample, so a missing one is refused before any plan is made.
+        let index = try Self.adoptedIndex(setID: manifest.id, version: .v2_7_11b, storageRoot: root, star: pins.star, layout: layout)
+        var result = RNASeqQuantPlanJobs(key: index.record.key.folderName, jobs: [], samples: [])
+        for (sample, kit) in samples {
+            try Task.checkCancellation()
+            let made = try UMIPlan.make(UMIPlanRequest(
+                setFolder: setFolder, sample: sample, kit: kit ?? "", pins: pins, index: index,
+                threads: options.requestCPUs ?? STARPlan.defaultThreads))
+            let figures = try UMIPlanSubmit.figures(
+                for: manifest, made: made, memoryMiB: options.requestMemoryMiB, cpus: options.requestCPUs, diskGiB: options.requestDiskGiB)
+            result.jobs.append(UMIPlan.job(made, figures: figures))
+            result.samples.append((sample.name, figures))
+        }
+        return result
     }
 
     /// Refuses, plans and writes the batch. With `--dry-run` it makes the same refusals and writes nothing. A cancel before
@@ -47,11 +86,16 @@ extension RNASeqCommand.QuantSubcommand {
         let image = try imageFiles()
         let staged = try stagedSamples(layout: layout)
         let planned: RNASeqQuantPlanJobs
-        if let star = options.chain?.star {
+        var rule: String?
+        if staged.contains(where: { $0.kit != nil }) {
+            planned = try umiPlanJobs(setFolder: setFolder, root: root, manifest: manifest, layout: layout, image: image, samples: staged)
+            rule = UMIPlanSubmit.words(for: manifest, threads: options.requestCPUs ?? STARPlan.defaultThreads)
+        } else if let star = options.chain?.star {
             planned = try await starPlanJobs(
-                star, setFolder: setFolder, root: root, manifest: manifest, layout: layout, image: image, samples: staged)
+                star, setFolder: setFolder, root: root, manifest: manifest, layout: layout, image: image, samples: staged.map(\.sample))
         } else {
-            planned = try await salmonPlanJobs(setFolder: setFolder, root: root, manifest: manifest, image: image, samples: staged)
+            planned = try await salmonPlanJobs(
+                setFolder: setFolder, root: root, manifest: manifest, image: image, samples: staged.map(\.sample))
         }
         let (key, record) = (planned.key, image.record)
         var lines: [String]
@@ -72,6 +116,7 @@ extension RNASeqCommand.QuantSubcommand {
                 lines.append("The job of \(job.name) asks for \(job.figures.memoryMiB) MiB of memory, \(job.figures.cpus) CPUs and \(job.figures.diskGiB) GiB of disk.")
             }
         }
+        if let rule { lines.append(rule) }
         let facts: [String: Any] = [
             "setID": manifest.id, "index": key, "output": output.path, "dryRun": options.dryRun, "samples": planned.samples.map(\.name),
             "jobs": planned.samples.map { ["sample": $0.name, "memoryMiB": $0.figures.memoryMiB, "cpus": $0.figures.cpus, "diskGiB": $0.figures.diskGiB] as [String: Any] },

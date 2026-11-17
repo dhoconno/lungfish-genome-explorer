@@ -58,7 +58,13 @@ struct RNASeqQuantPlanOptions: ParsableArguments {
     var stagedReads: String?
 
     @Option(name: .customLong("samplesheet"), help: ArgumentHelp(
-        "A comma-separated sample sheet with sample, r1 and r2 columns, for --staged-reads", valueName: "file"))
+        "A comma-separated sample sheet with sample, r1 and r2 columns, for --staged-reads",
+        discussion: "The optional kit column names the UMI kit of every sample by its preset, one of "
+            + UMIPlan.presets.map { "\($0.id) for \($0.label)" }.joined(separator: ", ") + ". A sheet with a kit plans the UMI "
+            + "branch, which runs each pair's layout check, umi_tools extract, STAR 2.7.11b on the kept read alone on the set's adopted "
+            + "STAR 2.7.11b index, featureCounts' gene tags and umi_tools count per gene, so a count is molecules. The kit's "
+            + "preset fixes that chain, so leave out --chain, --trim, --k and --decoys.",
+        valueName: "file"))
     var samplesheet: String?
 
     @Option(name: .customLong("staging-folder"), help: ArgumentHelp(

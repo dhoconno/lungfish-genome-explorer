@@ -63,6 +63,7 @@ extension UMILayoutCheck {
         counts.withinOneMismatch = tally.withinOneMismatch
         counts.exact = tally.exact
         counts.distinctUMIs = tally.distinctUMIs
+        counts.mateSuffixPairs = tally.mateSuffixPairs
         return counts
     }
 

@@ -118,6 +118,18 @@ final class UMILayoutCheckTests: XCTestCase {
             arguments, read1: try write("t_1.fastq", { "run/lane1/read\($0) 1:N:0" }, umi),
             read2: try write("t_2.fastq", { "run/lane1/read\($0) 2:N:0" }, r2), launcher: NoChildLauncher())
         XCTAssertEqual(UMILayoutCheck.Report(counts: shared, arguments: arguments).verdict, .passed)
+        // Some pairs with the suffix and some named otherwise: both causes, and both ways out.
+        var both = Self.counts(names: 990, near: 1000, exact: 1000, distinct: 990)
+        both.mateSuffixPairs = 6
+        XCTAssertEqual(UMILayoutCheck.Report(counts: both, arguments: Self.arguments()).words, "UMI layout check failed: read "
+            + "names differ between Read 1 and Read 2 in 10 of 1,000 pairs read. In 6 of them the mates carry /1 and /2 at the "
+            + "end of the name's first word, and umi_tools needs one name for both mates. In the other 4 the names differ in "
+            + "more than that, so the two files are not mates in the same order. Try: import the pair again from its source, "
+            + "and rename the reads so that both mates share the first word of their name, with the mate number after a space "
+            + "as SRA and ENA files have it, then stage the pair again. This sample gets no UMI counts.")
+        XCTAssertEqual(slashed.mateSuffixPairs, 5)
+        XCTAssertNil(try JSONDecoder().decode(UMILayoutCheck.Counts.self, from: Data(#"{"pairsRequested":1,"pairsRead":1,"read1Reads":1,"read2Reads":1,"namesEqual":1,"withinOneMismatch":1,"exact":1,"distinctUMIs":1}"#.utf8)).mateSuffixPairs,
+                     "a check file of milestone 2 still reads")
     }
 
     /// BIO-UMI-SHARE item 6: a 20-base Read 1 that holds the motif counts within one mismatch, as `layout.py` does, but

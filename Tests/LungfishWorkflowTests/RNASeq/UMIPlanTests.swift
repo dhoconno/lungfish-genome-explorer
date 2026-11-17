@@ -302,6 +302,32 @@ final class UMIPlanTests: XCTestCase {
         XCTAssertEqual(star.firstIndex(of: "--readFilesIn").map { star[$0 + 1] }, "umi/pair1_R2.umi.fastq.gz,umi/pair2_R2.umi.fastq.gz")
     }
 
+    /// EX-UMI-M2-BIO ruling 1 (c): a UMI job's memory holds STAR's measured peak, its sort buffer of 8,000,000,000 bytes and
+    /// samtools sort's 768 MiB a thread, times 1.25: 47,104 MiB for 50 M cynomolgus pairs at 8 threads, where a STAR job
+    /// that sorts nothing asks for 29,696. Disk is a STAR job's, the person's values win, and an unmeasured genome needs them.
+    func testTheRequestRuleHoldsSTARsPeakAndBothSortBuffers() async throws {
+        let owner = ReferenceSetOwner(
+            storageRoot: storageRoot, deriver: StandInTranscriptDeriver(), provenanceWriter: ProvenanceWriter(signingProvider: nil))
+        let set = try await owner.build(ReferenceSetMitoFixture.request(.lge))
+        let made = try UMIPlan.make(UMIPlanRequest(
+            setFolder: set.url, sample: c9Sample(), kit: "quartz-seq2-x910", pins: pins, index: try pinnedIndex(set)))
+        let manifest = set.manifest
+        var macaque = manifest
+        macaque.assembly.name = "Macaca_fascicularis_6.0"
+        XCTAssertEqual(try UMIPlanSubmit.figures(for: macaque, made: made, millionPairs: 50),
+                       SalmonPlanSubmit.Figures(memoryMiB: 47_104, cpus: 8, diskGiB: 60))
+        XCTAssertEqual(try UMIPlanSubmit.figures(for: macaque, made: made, millionPairs: 50, memoryMiB: 65_536).memoryMiB, 65_536)
+        XCTAssertThrowsError(try UMIPlanSubmit.figures(for: manifest, made: made, memoryMiB: 9000)) { error in
+            let words = (error as? STARPlanError)?.message ?? "\(error)"
+            XCTAssertTrue(words.contains("8,000,000,000 bytes (--limitBAMsortRAM)") && words.hasSuffix(
+                "Give --request-cpus, --request-disk-gib."), words)
+        }
+        XCTAssertEqual(UMIPlanSubmit.words(for: macaque, threads: 8), "Each UMI job's memory, unless --request-memory-mib "
+            + "names it, is 1.25 times the sum of STAR's measured peak on Macaca_fascicularis_6.0 (23.7 GB and 0.023 GB a "
+            + "million pairs), STAR's sort buffer of 8,000,000,000 bytes (--limitBAMsortRAM) and samtools sort's 768 MiB for "
+            + "each of 8 threads (-m 768M), rounded up to a whole GiB, and its disk is a STAR job's.")
+    }
+
     /// A copy of the Docker run's S1 `home` files as a sample of two pairs, with pair 2's check and, when `extracted`, its
     /// extract log, each a copy of pair 1's.
     func twoPairResult(extracted: Bool) throws -> URL {

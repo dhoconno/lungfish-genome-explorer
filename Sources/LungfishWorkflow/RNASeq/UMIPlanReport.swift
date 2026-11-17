@@ -67,7 +67,9 @@ package enum UMIPlanReport {
             sample: sample, check: verdict.rawValue, pairsRead: checks.map { String($0.counts.pairsRead) }.joined(separator: " / "),
             withinOneMismatch: share("withinOneMismatch"), exact: share("exact"), distinctUMIs: share("distinctUMIs"),
             extractionKept: notRun, starTooShort: notRun, umiCounts: notRun, genesCounted: notRun)
-        if !logs.isEmpty {
+        // A share of some pairs only would read as the sample's, so a partial extraction reads `not run` (EX-UMI-M2-BIO
+        // should-fix 3).
+        if logs.count == checks.count {
             let read = try logs.map { try extractCounts(String(decoding: Data(contentsOf: $0), as: UTF8.self)) }
             row.extractionKept = percent(read.map(\.output).reduce(0, +), of: read.map(\.input).reduce(0, +))
         }
