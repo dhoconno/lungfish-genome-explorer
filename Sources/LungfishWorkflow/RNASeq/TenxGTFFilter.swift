@@ -39,14 +39,31 @@ package enum TenxGTFFilter {
             }
         }
 
-        /// The version of the rule that reads the list, 1 for `mkgtf-3.0.0` and 2 for `gencode-2020-A`. No record of
-        /// `gencode-2020-A` under version 1 was ever written, so there is none to refuse (SOLO-PLAN-M1-BIO R1).
+        /// The version of the rule that reads the list, 1 for `mkgtf-3.0.0` and 2 for `gencode-2020-A`. Version 1 of
+        /// `gencode-2020-A` shipped in Preview 2026.11.10 (`git tag --contains e122924b3`), so a plan of that build names
+        /// ``TenxGTFFilter/gencodeVersionOnePath``. This build cannot make that file, and the adopt refuses such a run in
+        /// words that name both versions (``TenxGTFFilter/olderRuleRefusal(read:setID:)``, BIO-SOLO-M4 item 4).
         package var ruleVersion: Int { self == .mkgtf300 ? 1 : 2 }
 
         /// `tenx<rule version>-<list>`, the folder of the made file and the suffix of the index key's folder name.
         package var folderName: String { "\(TenxGTFFilter.rule)\(ruleVersion)-\(rawValue)" }
         /// `made/tenx<rule version>-<list>/genes.gtf`, the path a `reference` entry carries (ARCH-SOLO-GTF item 2).
         package var path: String { "made/\(folderName)/genes.gtf" }
+    }
+
+    /// `made/tenx1-gencode-2020-A/genes.gtf`, the file rule version 1 of `gencode-2020-A` made in Preview 2026.11.10.
+    package static let gencodeVersionOnePath = "made/\(rule)1-\(List.gencode2020A.rawValue)/genes.gtf"
+
+    /// The refusal of a run that read a file of rule version 1 of `gencode-2020-A`, or nil. The adopt asks before it makes
+    /// the file again, so the words are the same with any list or none (BIO-SOLO-M4 item 4).
+    package static func olderRuleRefusal(read paths: Set<String>, setID: String) -> STARIndexError? {
+        let path = "references/\(setID)/\(gencodeVersionOnePath)"
+        guard paths.contains(path) else { return nil }
+        let list = List.gencode2020A
+        return STARIndexError("The run read \(path), which rule version 1 of the 10x filter rule \(list.rawValue) made in an "
+            + "earlier LGE. This build makes that list's GTF by rule version \(list.ruleVersion), which follows 10x's "
+            + "GRCh38-2020-A rule, so it records no index of rule version 1 and no record was written. Plan the index again "
+            + "with index-plan --tenx-filter \(list.rawValue) and run that plan.")
     }
 
     /// The file the rule made, which the plan pins and the index key names.

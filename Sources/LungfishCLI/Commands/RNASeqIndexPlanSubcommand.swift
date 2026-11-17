@@ -38,7 +38,7 @@ struct RNASeqIndexPlanSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("tenx-filter"), help: "The 10x biotype list, mkgtf-3.0.0 or gencode-2020-A, of a STARsolo index. Its filter rule makes the GTF from derived/genes.gtf into the plan folder")
     var tenxFilter: String?
 
-    @Option(name: .customLong("genomeSAsparseD"), help: "The distance between the positions STAR keeps in its suffix array, a whole number from 1 (default: 2). A larger value needs less memory and maps more slowly, and the key holds it")
+    @Option(name: .customLong("genomeSAsparseD"), help: "The distance between the positions STAR keeps in its suffix array, a whole number from 1 (default: 2). A larger value needs less memory and maps more slowly, and the key holds it. A value of 1 needs --request-memory-mib")
     var genomeSAsparseD: Int?
 
     @Option(name: .customLong("output"), help: "The new plan folder to write. It must not exist")

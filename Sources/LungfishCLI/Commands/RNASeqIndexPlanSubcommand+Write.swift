@@ -81,6 +81,12 @@ extension RNASeqIndexPlanSubcommand {
             throw STARIndexError("--star is \(STARIndexVersion.allCases.map(\.rawValue).joined(separator: " or ")), not \(star).")
         }
         let list = try Self.tenxList(tenxFilter)
+        // LGE's request figures were measured at the default of 2, and 1 keeps every suffix (BIO-SOLO-M4 item 10). A value
+        // below 1 is refused by the plan in its own words, and one above 2 keeps the figures, which then ask for more.
+        if genomeSAsparseD == 1, requestMemoryMiB == nil {
+            throw STARIndexError("--genomeSAsparseD 1 keeps every suffix and needs about twice the suffix-array memory of 2, "
+                + "and LGE's request figures were measured at 2. Give --request-memory-mib. No plan was written.")
+        }
         guard stagingFolder.hasPrefix("/") else { throw STARIndexError("--staging-folder must be an absolute path.") }
         guard !FileManager.default.fileExists(atPath: output.path) else {
             throw STARIndexError("The plan folder \(output.lastPathComponent) already exists, so name a new folder or remove this one.")

@@ -94,6 +94,10 @@ package enum STARIndexAdopt {
             throw STARIndexError("The run read \(named.isEmpty ? "no reference set" : "the set " + named.sorted().joined(separator: " and ")), "
                 + "not the set \(manifest.id), so it built no index of that set.")
         }
+        // A run of rule version 1 of gencode-2020-A is refused before the file is made again (BIO-SOLO-M4 item 4).
+        if let refusal = TenxGTFFilter.olderRuleRefusal(read: Set(run.inputs.map(\.relativePath)), setID: manifest.id) {
+            throw refusal
+        }
         let made = try tenxFilter.map { try TenxGTFFilter.make(from: setFolder, manifest: manifest, list: $0) }
         if let made {
             let path = "references/\(manifest.id)/\(made.list.path)"
