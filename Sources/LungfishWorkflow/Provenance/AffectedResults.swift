@@ -181,7 +181,7 @@ public enum AffectedResults {
             fixCommit: "a77b7dd43"
         ),
         AffectedResultRow(
-            backlogID: "EXTRACT-SCAN-EXTENDED-ID", kinds: [.taxTriageReadExtraction], firstBuild: 12824,
+            backlogID: "EXTRACT-SCAN-EXTENDED-ID", kinds: [.taxTriageReadExtraction], firstBuild: 1085,
             lastBuild: 13672,
             sentence: "An extraction of a TaxTriage sample whose own BAM was missing may hold another sample's reads.",
             whatToDo: "Extract again.",
