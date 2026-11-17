@@ -131,11 +131,13 @@ extension DemultiplexingPipeline {
     }
 
     /// Whether preflight can refuse a Cutadapt search of the read bases with this kit as one the chance floor cannot
-    /// judge, on some input: a file that holds mates, whose share is the larger. The dialog shows Keep Unchecked Samples
-    /// exactly then, so it reaches every run that `--keep-unchecked-samples` reaches (BIO-SATKIT-FLUIDIGM item 3). It
-    /// builds the adapter lines preflight builds and calls preflight's own checks on them, so a change to the refusal
-    /// reaches the dialog. A kit whose lines preflight refuses for another reason first is not one the chance check
-    /// refuses. The caller passes the config without the opt-in, and no read is read.
+    /// judge, on some input: a kit whose lines have no anchored side, which it refuses on every input, or a kit that
+    /// reaches the share as fragments of a file that holds mates, whose share is the larger. The dialog shows Keep
+    /// Unchecked Samples exactly then, so it reaches every run that `--keep-unchecked-samples` reaches
+    /// (BIO-SATKIT-FLUIDIGM item 3). It builds the adapter lines preflight builds and calls preflight's own checks on
+    /// them, so a change to the refusal reaches the dialog, and each of the three refusals of the chance check is caught
+    /// here. A kit whose lines preflight refuses for another reason first is not one the chance check refuses. The caller
+    /// passes the config without the opt-in, and no read is read.
     public func chanceCheckCanRefuseKit(config: DemultiplexConfig) async throws -> Bool {
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-demux-chance-check-\(UUID().uuidString)", isDirectory: true)
@@ -146,7 +148,8 @@ extension DemultiplexingPipeline {
         do {
             try requireChanceCheckableKit(config: config, adapterFASTA: adapters.adapterFASTA) { true }
             return false
-        } catch DemultiplexError.chanceCheckCannotJudgeKit, DemultiplexError.chanceCheckCannotJudgeKitSearchedAnywhere {
+        } catch DemultiplexError.chanceCheckCannotJudgeKit, DemultiplexError.chanceCheckCannotJudgeKitSearchedAnywhere,
+                DemultiplexError.chanceCheckCannotJudgeKitPairsSearchedAnywhere {
             return true
         }
     }
