@@ -327,6 +327,33 @@ final class BlastTaxIdMatchingTests: XCTestCase {
         XCTAssertEqual(result.supportingCount, 1)
     }
 
+    /// Green pin. The row-tax-ID basis judges Rotavirus C by its tax ID, so it contradicts, as before.
+    func testTheRowTaxIdBasisStillJudgesRotavirusCByItsTaxId() throws {
+        let rows = service.assignVerdicts(
+            searchResults: [BlastSearchResult(
+                queryId: "r1", queryLength: 76, hits: [perfectHit("Rotavirus C", taxId: 36427, accession: "KX362457.1")]
+            )],
+            eValueThreshold: 1e-10, queriedTaxonName: "Rotavirus A", acceptedTaxIds: [28875], acceptedTaxonNames: ["Rotavirus A"]
+        )
+        XCTAssertEqual(rows[0].verdict, .verified)
+        XCTAssertFalse(rows[0].matchesQueriedTaxon)
+        XCTAssertEqual(rows[0].topHitRelation, .outside)
+    }
+
+    /// A top hit with no tax ID in a context that holds clade tax IDs is judged by the name rule, so a first-word-only
+    /// match counts neither way there too (ruling item 1, "wherever the name rule decides a read").
+    func testAFirstWordOnlyHitWithNoTaxIdInARowTaxIdContextCountsNeitherWay() throws {
+        let rows = service.assignVerdicts(
+            searchResults: [BlastSearchResult(
+                queryId: "r1", queryLength: 76, hits: [perfectHit("Rotavirus C", taxId: nil, accession: "KX362457.1")]
+            )],
+            eValueThreshold: 1e-10, queriedTaxonName: "Rotavirus A", acceptedTaxIds: [28875], acceptedTaxonNames: ["Rotavirus A"]
+        )
+        XCTAssertEqual(rows[0].verdict, .ambiguous)
+        XCTAssertFalse(rows[0].matchesQueriedTaxon)
+        XCTAssertNil(rows[0].topHitRelation, "no tax ID on the hit, so the name rule decided")
+    }
+
     /// No caller outside the tests reads `hitMatchesQueriedTaxon`, so it follows the verdict rule. A first-word-only
     /// match does not support, while `organismMatchesTaxon` keeps saying that the first words agree.
     func testAFirstWordOnlyMatchIsNoSupportInHitMatchesQueriedTaxon() {
