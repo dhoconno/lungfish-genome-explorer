@@ -17,7 +17,10 @@ extension AffectedResults {
     /// the record placed mates. Of the built-in kits only the Fluidigm Access Array kit is such a kit
     /// (`DemultiplexSaturatedKitTests`). Cutadapt searches its bare 10-base barcodes anywhere in the read and places nearly
     /// every read in one by chance, so its record is such a run at any error rate (BIO-SATKIT-FLUIDIGM item 5 and Q2). A
-    /// record that names another engine, another built-in kit, a dual kit or a file that cannot be read is not such a run.
+    /// definition whose `# kit:` line names that kit is searched as the kit is, so its record is such a run at any rate too
+    /// (BIO-SATKIT-ANYWHERE item 5). A record that names another engine, another built-in kit, a definition built on
+    /// another kit, a dual kit or a file that cannot be read is not such a run. A custom dual kit at Both Ends with no
+    /// sample sheet is searched anywhere as well, and its records wait for row DEMUX-DUAL-UNANCHORED (item 7).
     /// It reads a file, so the Inspector's lookup runs it off the main actor.
     static func searchedWithAKitTheFloorCannotJudge(_ envelope: ProvenanceEnvelope) -> Bool {
         let options = envelope.options.explicit
@@ -31,8 +34,10 @@ extension AffectedResults {
         guard case .string(let named)? = options["kit"], BarcodeKitRegistry.kit(byID: named) == nil else { return false }
         let url = URL(fileURLWithPath: named)
         guard let data = try? Data(contentsOf: url),
-              let kit = try? BarcodeKitRegistry.loadCustomKit(data: data, name: url.deletingPathExtension().lastPathComponent),
-              kit.pairingMode == .singleEnd else { return false }
+              let kit = try? BarcodeKitRegistry.loadCustomKit(data: data, name: url.deletingPathExtension().lastPathComponent)
+        else { return false }
+        if kit.sourceKitID == fluidigm { return true }
+        guard kit.pairingMode == .singleEnd else { return false }
         func number(_ key: String) -> Double? {
             switch options[key] {
             case .number(let value)?: return value
