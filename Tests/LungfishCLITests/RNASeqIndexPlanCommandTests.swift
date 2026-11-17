@@ -565,6 +565,28 @@ final class RNASeqIndexPlanCommandTests: XCTestCase {
         XCTAssertEqual(adopted["key"] as? String, key, "the record of the value the plan was written with")
     }
 
+    /// BIO-SOLO-M4 item 10: LGE's request figures were measured at `--genomeSAsparseD 2`, so a value below 2 without
+    /// `--request-memory-mib` is refused in words and writes nothing, whatever other figure is given. With the memory figure
+    /// the plan is written.
+    func testSparsityOneWithoutAMemoryRequestIsRefusedInWords() async throws {
+        let (storage, set) = try await Self.builtSet(in: root)
+        let files = try Self.writeImageFiles(in: root)
+        let words = "--genomeSAsparseD 1 keeps every suffix and needs about twice the suffix-array memory of 2, and LGE's request "
+            + "figures were measured at 2. Give --request-memory-mib. No plan was written."
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("sparse-one"), withIntermediateDirectories: true)
+        let out = root.appendingPathComponent("sparse-one/idx")
+        for figures in [[], ["--request-cpus", "2", "--request-disk-gib", "20"]] {
+            let command = try RNASeqIndexPlanSubcommand.parse(
+                Self.planArguments(set: set, storage: storage, output: out, files: files, figures: figures) + ["--genomeSAsparseD", "1"])
+            XCTAssertThrowsError(try command.writePlan()) { XCTAssertEqual(($0 as? STARIndexError)?.message, words, "\(figures)") }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: out.path), "\(figures)")
+        }
+        let given = try RNASeqIndexPlanSubcommand.parse(
+            Self.planArguments(set: set, storage: storage, output: out, files: files) + ["--genomeSAsparseD", "1"]).writePlan()
+        XCTAssertTrue(given.lines.last?.hasPrefix("STAR builds the suffix array with --genomeSAsparseD 1, where") == true, "\(given.lines)")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: out.path), "with --request-memory-mib the plan is written")
+    }
+
     // MARK: - A gzip genome and the records folder
 
     /// The bytes of the first member of an uncompressed tar whose name ends with `suffix`.

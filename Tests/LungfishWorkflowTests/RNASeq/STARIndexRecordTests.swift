@@ -294,6 +294,27 @@ extension STARIndexPlanTests {
         XCTAssertTrue(crossedWords.hasSuffix("It read \(crossed), so adopt it with --tenx-filter gencode-2020-A."), crossedWords)
     }
 
+    /// BIO-SOLO-M4 item 4: rule version 1 of `gencode-2020-A` shipped in Preview 2026.11.10, so a plan of that build names
+    /// `made/tenx1-gencode-2020-A/genes.gtf`. This build makes the list's file by rule version 2 only, so the adopt of such a
+    /// run, with the list or without it, is refused in words that name both versions and say to plan the index again.
+    func testARunOfRuleVersionOneOfGencode2020AIsRefusedInWordsThatNameBothVersions() async throws {
+        let set = try await builtSet()
+        let id = set.manifest.id
+        let path = "references/\(id)/made/tenx1-gencode-2020-A/genes.gtf"
+        let run = try runRecord(for: set, gtf: (path, String(repeating: "d", count: 64))).data
+        let expected = "The run read \(path), which rule version 1 of the 10x filter rule gencode-2020-A made in an earlier LGE. "
+            + "This build makes that list's GTF by rule version 2, which follows 10x's GRCh38-2020-A rule, so it records no index "
+            + "of rule version 1 and no record was written. Plan the index again with index-plan --tenx-filter gencode-2020-A "
+            + "and run that plan."
+        let listed = refusal {
+            _ = try STARIndexAdopt.adopt(runRecord: run, setFolder: set.url, staging: Self.stagingLayout, tenxFilter: .gencode2020A)
+        }
+        XCTAssertEqual(listed, expected)
+        let bulk = refusal { _ = try STARIndexAdopt.adopt(runRecord: run, setFolder: set.url, staging: Self.stagingLayout) }
+        XCTAssertEqual(bulk, expected, "an adopt without --tenx-filter gives the same words")
+        XCTAssertEqual(TenxGTFFilter.List.gencode2020A.path, "made/tenx2-gencode-2020-A/genes.gtf", "the path this build writes")
+    }
+
     // MARK: - A record of schema 1 still reads, and one above schema 2 is refused (INDEX-PIN, ARCH-5-1-C-3 What binds 9)
 
     /// Writes `text` where the store keeps the record of `setID` and `key`, by hand, as an earlier build left it.
