@@ -34,8 +34,10 @@ extension UMIPlan {
 
     /// The steps after the checks: each pair's extraction, then STAR on the kept reads, featureCounts' tags, samtools sort
     /// and index, and umi_tools count per gene (`gse163196/sample.sh:31-68`, routes R and P). Reports come home, and
-    /// reads and BAMs stay. STAR's `--readNameSeparator -` keeps each name's whole first word, which ends in the UMI, where
-    /// its default would cut a name such as `run/lane1/read1_<UMI>` at the first `/` (EX-UMI-M2-BIO ruling 1 (a)).
+    /// reads and BAMs stay. STAR's `--readNameSeparator none` keeps each name's whole first word, which ends in the UMI,
+    /// where its default would cut a name such as `run/lane1/read1_<UMI>` at the first `/`, and a one-character separator
+    /// such as `-` would cut a MiSeq name at its flowcell id's dash (EX-UMI-M3-BIO blocker 1, which amends EX-UMI-M2-BIO
+    /// ruling 1 (a)).
     static func chainSteps(
         _ preset: UMIKitPreset, r1s: [String], r2s: [String], genomeDir: String, gtfPath: String, indexPaths: [String],
         pins: UMIPlanPins, threads: Int, deadline: Double
@@ -63,7 +65,7 @@ extension UMIPlan {
         steps.append(step(
             starStepID, "Map Read \(preset.keptRead) alone with STAR \(pins.star.version), unique alignments only", pins.star,
             ["--runThreadN", cpus, "--genomeDir", genomeDir, "--readFilesIn", kept.joined(separator: ","),
-             "--readFilesCommand", pins.pigz.id, "-d", "-c", "--outFilterMultimapNmax", "1", "--readNameSeparator", "-",
+             "--readFilesCommand", pins.pigz.id, "-d", "-c", "--outFilterMultimapNmax", "1", "--readNameSeparator", "none",
              "--outSAMtype", "BAM", "SortedByCoordinate", "--limitBAMsortRAM", bamSortRAM, "--outFileNamePrefix", "star/"],
             inputs: kept + indexPaths, [starLog: .home, starBAM: .stays]))
         steps.append(step(
@@ -96,7 +98,7 @@ extension UMIPlan {
         var settings = settings(preset) + [
             setting("mapping", "Mapping", "STAR \(pins.star.version) on the genome, Read \(preset.keptRead) alone, uniquely mapped "
                 + "reads only (--outFilterMultimapNmax 1), each read named by the whole first word of its name with the UMI at "
-                + "its end (--readNameSeparator -), --outSAMtype BAM SortedByCoordinate"),
+                + "its end (--readNameSeparator none), --outSAMtype BAM SortedByCoordinate"),
             setting("index", "Index", index),
             setting("countingGTF", "Genes", "\(gtf.path) of the set \(manifest.id), SHA-256 \(gtf.sha256)"),
             setting("counts", "Counts", "umi_tools \(pins.umiTools.version) count per gene in \(countTable): the UMIs of each gene, "

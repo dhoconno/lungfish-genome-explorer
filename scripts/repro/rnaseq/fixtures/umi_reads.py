@@ -8,7 +8,7 @@ feature lies, so featureCounts gives it to that gene alone. Each gene gets 24 UM
 places, so 28 pairs a gene. UMIs of one gene differ in at least 3 bases, so umi_tools' directional method joins none,
 and each gene's count is 24. Sample S2 has the same Read 2 layout and a Read 1 with no motif, so its check fails.
 Samples S3 and S4 hold S1's pairs under other names (milestone 3, EX-UMI-M2-BIO ruling 1). S3's mates share the first
-word run/lane1/read<n>, whose slashes STAR keeps with --readNameSeparator -, so each gene's count is 24 again. S4's
+word run/lane-1/read<n>, whose slash and dash STAR keeps with --readNameSeparator none, so each gene's count is 24 again. S4's
 mates are named S4.<n>/1 and S4.<n>/2, which umi_tools reads as two names, so its check fails on the names.
 Writes S<k>_1/S<k>_2.fastq.gz for k 1 to 4 (gzip with mtime 0), truth.tsv (gene, pairs, distinct UMIs, for S1 and S3)
 and staged.tsv (the staged path, bytes and SHA-256 of each file, as the Conformance writer reads it)."""
@@ -85,7 +85,7 @@ def main(fa, gtf, out, staging):
     names = {
         "S1": lambda i, mate: "S1.%d %d" % (i, mate),
         "S2": lambda i, mate: "S2.%d %d" % (i, mate),
-        "S3": lambda i, mate: "run/lane1/read%d %d:N:0" % (i, mate),
+        "S3": lambda i, mate: "run/lane-1/read%d %d:N:0" % (i, mate),
         "S4": lambda i, mate: "S4.%d/%d" % (i, mate),
     }
     lines = ["file\tbytes\tsha256"]
