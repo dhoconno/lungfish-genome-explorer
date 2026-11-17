@@ -18,8 +18,17 @@ extension STARPlan {
     /// nf-core/rnaseq's `--outFilterMultimapNmax` for its STAR then salmon route, which `star.sh` passes.
     package static let defaultRouteMultimapNmax = 20
 
-    /// The salmon pin, after the refusals of this route: another STAR, no salmon in the image, and another number of loci.
+    /// The salmon pin, after the refusals of this route: single-end reads, another STAR, no salmon in the image, and another
+    /// number of loci. The single-end refusal comes first, since no index or image makes the route take them. Gate GT measured
+    /// the route on read pairs only (`BIO-GT.md` item 9), and no run has read its argv on single reads, so the plan is refused
+    /// for the sample of a bundle and for the sample of a staged sheet alike (SE-M1-BIO R1).
     static func checkDefaultRoute(_ request: STARPlanRequest, setID: String) throws -> PlanToolPin {
+        guard request.sample.singles.isEmpty else {
+            throw STARPlanError("The STAR then salmon route, --chain star-salmon and star-salmon-errormodel, was measured on read pairs "
+                + "only (its gate GT), so Lungfish does not plan it for single-end reads, and the sample \(request.sample.name) holds "
+                + "single-end reads. For single-end reads choose salmon, star-2.7.3a-genecounts, star-2.7.11b-genecounts or "
+                + "star-2.7.11b-featurecounts.")
+        }
         let record = request.index.record
         guard record.tool.version == defaultRouteSTAR else {
             throw STARPlanError("The STAR then salmon route maps with STAR \(defaultRouteSTAR), the version its gate GT measured, "
