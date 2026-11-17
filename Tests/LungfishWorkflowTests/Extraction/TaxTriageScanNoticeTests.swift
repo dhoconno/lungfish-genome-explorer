@@ -151,6 +151,35 @@ final class TaxTriageScanNoticeTests: XCTestCase {
         }
     }
 
+    /// Deviation 4 of the lane, kept by BIO review SF-1. A fit that belongs to a longer listed sample is dropped before the
+    /// fits are counted, so S1 with `S1_2.bam` and `S1-x.bam` in `minimap2/` and a list that names S1 and S1_2 takes
+    /// `S1-x.bam`, the one file that no listed sample owns, and the scan says so. With no list written the two fits still
+    /// refuse, as at the base. Green at the base of the fix round, kept so that the take cannot change unseen.
+    func testS1TakesTheOnlyFitThatNoListedSampleOwnsWithTheNotice() async throws {
+        for source in SampleList.allCases {
+            let root = try makeResult(placing: ["S1_2.bam", "S1-x.bam"])
+            defer { TestTempDirectory.cleanup(root) }
+            try list(["S1", "S1_2"], as: source, in: root)
+            let bam = try await locate(sample: "S1", in: root)
+            XCTAssertEqual(bam.lastPathComponent, "S1-x.bam", "\(source)")
+            XCTAssertEqual(
+                ClassifierReadResolver.taxTriageScanNotice(tool: .taxtriage, sampleId: "S1", resultPath: root, bam: bam),
+                "Sample S1's own BAM was not found, so Lungfish read S1-x.bam, the one file in the minimap2 folder "
+                    + "that fits its name. If that file belongs to another sample, put S1's own BAM back and try again.",
+                "\(source)"
+            )
+        }
+
+        let unlisted = try makeResult(placing: ["S1_2.bam", "S1-x.bam"])
+        defer { TestTempDirectory.cleanup(unlisted) }
+        do {
+            let bam = try await locate(sample: "S1", in: unlisted)
+            XCTFail("a result with no list and two fits gave S1 \(bam.lastPathComponent)")
+        } catch ClassifierExtractionError.moreThanOneBAMFitsSample(let sample, _) {
+            XCTAssertEqual(sample, "S1")
+        }
+    }
+
     /// Where a result lists its samples (BIO-THREE-ROWS item 5).
     private enum SampleList: CaseIterable {
         /// The samples of `taxtriage.sqlite`, here a database whose build recorded no BAM for any sample.
