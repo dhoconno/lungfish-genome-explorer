@@ -105,4 +105,57 @@ final class AffectedResultsDEMUXSATKITTests: XCTestCase {
         let eight = try definition(eights, name: "eight.csv")
         XCTAssertEqual(AffectedResults.kind(of: record(["kit": .string(eight), "errorRate": .number(0.3)])), .fastqDemultiplex)
     }
+
+    // MARK: - The built-in Fluidigm kit (BIO-SATKIT-FLUIDIGM item 5 and Q2)
+
+    /// A record of `lungfish fastq demultiplex` as `FastqCommand.swift` builds it, with the options it records for each
+    /// engine, written by `ProvenanceWriter` and read back from the file.
+    private func writtenRecord(kit: String, engine: String?, errorRate: Double?) throws -> ProvenanceEnvelope {
+        var explicit: [String: ParameterValue] = ["kit": .string(kit), "resolvedKit": .string(kit), "customBarcodeKit": .null]
+        if let engine {
+            explicit["engine"] = .string(engine)
+            explicit["indexSource"] = .string(engine == "header-index" ? "read-names" : "read-sequences")
+        }
+        if let errorRate {
+            explicit["location"] = .string("bothends")
+            explicit["errorRate"] = .number(errorRate)
+            explicit["maxDistanceFrom5Prime"] = .integer(0)
+        }
+        let output = folder.appendingPathComponent("demultiplex-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let manifest = output.appendingPathComponent("manifest.json")
+        try Data("{}\n".utf8).write(to: manifest)
+        let now = Date()
+        let built = try ProvenanceRunBuilder(
+            workflowName: AffectedResults.RecordName.fastqDemultiplex, workflowVersion: "2026.11.11",
+            toolName: engine == "cutadapt" || engine == nil ? "cutadapt" : "lungfish", toolVersion: "5.0"
+        )
+        .argv(["lungfish-cli", "fastq", "demultiplex", "reads.fastq", "--kit", kit] + (engine.map { ["--engine", $0] } ?? []))
+        .runtime(ProvenanceRuntimeIdentity(appVersion: "Lungfish 2026.11.11 (13672)"))
+        .options(explicit: explicit, defaults: ["engine": .null, "errorRate": .number(0.15)], resolved: [:])
+        .output(manifest, role: .output)
+        .complete(exitStatus: 0, status: .completed, startedAt: now, endedAt: now)
+        let sidecar = try ProvenanceWriter().write(built, to: output)
+        return try ProvenanceEnvelopeReader.decode(Data(contentsOf: sidecar))
+    }
+
+    /// Cutadapt searches the 864 bare 10-base barcodes of the built-in kit anywhere in the read and places nearly every read
+    /// in one by chance, at every error rate (BIO-SATKIT-FLUIDIGM Q2: 46.7% of real shotgun reads at error 0). So a Cutadapt
+    /// record of the kit is the narrower kind at any rate, and a record of another engine or another built-in kit is not.
+    func testACutadaptRecordOfTheFluidigmKitNamesTheNarrowerKindAtAnyErrorRate() throws {
+        let fluidigm = "fluidigm-access-array"
+        for errorRate in [0, 0.1, 0.15] {
+            let record = try writtenRecord(kit: fluidigm, engine: "cutadapt", errorRate: errorRate)
+            XCTAssertEqual(record.workflowName, AffectedResults.RecordName.fastqDemultiplex)
+            XCTAssertEqual(AffectedResults.kind(of: record), .fastqDemultiplexSaturatedKit, "error \(errorRate)")
+        }
+        XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(kit: fluidigm, engine: nil, errorRate: nil)),
+                       .fastqDemultiplexSaturatedKit, "a record before --engine, when Cutadapt was the one engine")
+        for engine in ["header-index", "exact-bare"] {
+            XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(kit: fluidigm, engine: engine, errorRate: nil)),
+                           .fastqDemultiplex, engine)
+        }
+        XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(kit: "ont-nbd114", engine: "cutadapt", errorRate: 0.15)),
+                       .fastqDemultiplex, "another built-in kit")
+    }
 }
