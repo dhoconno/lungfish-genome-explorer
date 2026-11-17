@@ -43,6 +43,17 @@ final class FASTQDialogKeepUncheckedSamplesTests: XCTestCase {
         return url
     }
 
+    /// A custom dual-index definition of two pairs of 8 bases (`DemultiplexSaturatedKitTests.dualPairs` in the Workflow
+    /// tests holds 96, which this target cannot see). With Both Ends and no sample sheet cutadapt searches each pair as
+    /// `i7...i5` with neither side anchored, so preflight refuses it whatever the number of pairs.
+    private func dualDefinition() throws -> URL {
+        let folder = try TestTempDirectory.make(prefix: "dialog-keep-unchecked-dual")
+        addTeardownBlock { TestTempDirectory.cleanup(folder) }
+        let url = folder.appendingPathComponent("Dual Two.csv")
+        try "S1,ATTACTCG,TATAGCCT\nS2,TCCGGAGA,ATAGAGGC\n".write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
     /// The request Run builds, the choice it carries, and the arguments `lungfish-cli` is given.
     private func launch(_ state: FASTQOperationDialogState) throws -> (keep: Bool?, arguments: [String]) {
         state.prepareForRun()
@@ -57,9 +68,10 @@ final class FASTQDialogKeepUncheckedSamplesTests: XCTestCase {
         return (keep, invocation.arguments)
     }
 
-    /// The box shows for the built-in Fluidigm Access Array kit at the default 0.15 and for QA's 384 definition, which
-    /// preflight refuses, and not for ONT Native Barcoding 24 (id `ont-nbd104-114`), which it never refuses. An answer
-    /// for other settings is never shown, so a changed kit hides the box until its own answer comes.
+    /// The box shows for the built-in Fluidigm Access Array kit at the default 0.15 and at error 0, for QA's 384 definition,
+    /// and for a custom dual-index definition at Both Ends with no sample sheet at error 0 and 0.15, which preflight
+    /// refuses, and not for ONT Native Barcoding 24 (id `ont-nbd104-114`), which it never refuses. An answer for other
+    /// settings is never shown, so a changed kit hides the box until its own answer comes.
     func testTheBoxShowsExactlyForTheKitsPreflightCanRefuse() async throws {
         let state = dialog()
         XCTAssertEqual(state.demultiplexEngine, .cutadapt)
@@ -81,6 +93,30 @@ final class FASTQDialogKeepUncheckedSamplesTests: XCTestCase {
         state.setAuxiliaryInput(try qa384Definition(), for: .barcodeDefinition)
         await state.refreshDemultiplexChanceCheck()
         XCTAssertTrue(state.showsDemultiplexKeepUncheckedSamples, "QA's 384 definition shows no box")
+
+        // A kit whose lines have no anchored side is refused at every error rate (BIO-SATKIT-ANYWHERE items 1 to 3), though
+        // its share is under 0.5 at error 0. The Fluidigm kit gets the words of a kit searched anywhere, the dual definition
+        // the words of pairs searched anywhere, and the box shows for both.
+        state.demultiplexBarcodeSource = .builtinKit
+        state.demultiplexKitID = "fluidigm-access-array"
+        state.demultiplexErrorRate = 0
+        await state.refreshDemultiplexChanceCheck()
+        XCTAssertTrue(
+            state.showsDemultiplexKeepUncheckedSamples,
+            "fluidigm-access-array at error 0 shows no box, so the dialog refuses a run the CLI can make"
+        )
+
+        state.demultiplexBarcodeSource = .customDefinition
+        state.setAuxiliaryInput(try dualDefinition(), for: .barcodeDefinition)
+        XCTAssertEqual(state.demultiplexLocation, "bothends")
+        for errorRate in [0.0, 0.15] {
+            state.demultiplexErrorRate = errorRate
+            await state.refreshDemultiplexChanceCheck()
+            XCTAssertTrue(
+                state.showsDemultiplexKeepUncheckedSamples,
+                "a custom dual definition at Both Ends with no sample sheet shows no box at error \(errorRate)"
+            )
+        }
 
         state.demultiplexEngine = .exactBareBarcode
         await state.refreshDemultiplexChanceCheck()
