@@ -47,6 +47,40 @@ final class ExtractReadsSampleListRefusalTests: XCTestCase {
         XCTAssertEqual(written, [], "A refusal writes no output")
     }
 
+    /// BIO-THREE-ROWS item 7, the kind of the AFFECTED row. The record of an extraction from a TaxTriage result, made as
+    /// `recordProvenance` makes it (`ExtractReadsCommand.swift:513-528`) from the command's own options and argv, is the
+    /// kind `taxTriageReadExtraction`, and the record of an EsViritu extraction is no kind. A finished run needs samtools,
+    /// so the case builds the record from the command's parts with the recorder its run calls.
+    func testTheRecordOfATaxTriageExtractionIsTheKindOfItsAffectedRow() async throws {
+        let root = try TestTempDirectory.make(prefix: "ExtractSampleListRecord")
+        defer { TestTempDirectory.cleanup(root) }
+        let cases: [(tool: String, kind: AffectedResultKind?)] = [("taxtriage", .taxTriageReadExtraction), ("esviritu", nil)]
+        for (tool, kind) in cases {
+            let output = root.appendingPathComponent("\(tool)-out.fastq")
+            let argv = [
+                "--by-classifier", "--tool", tool, "--result", root.path,
+                "--sample", "S1", "--accession", "NC_001", "-o", output.path,
+            ]
+            var cmd = try ExtractReadsSubcommand.parse(argv)
+            cmd.testingRawArgs = argv
+            let folder = root.appendingPathComponent(tool, isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data("@r1\nACGT\n+\nIIII\n".utf8).write(to: output)
+            let record = try await CLIProvenanceSupport.recordSingleStepRun(
+                name: "lungfish extract reads",
+                parameters: cmd.strategyParameterValues(alignmentIndexURL: nil),
+                toolName: "lungfish extract reads",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: cmd.provenanceCommand(outputURL: output),
+                inputs: [], outputs: [ProvenanceRecorder.fileRecord(url: output, role: .output)],
+                exitCode: 0, wallTime: 0, stderr: nil, status: .completed,
+                outputDirectory: folder, writeFileSidecars: false
+            )
+            XCTAssertEqual(record.workflowName, AffectedResults.RecordName.extractReads, tool)
+            XCTAssertEqual(AffectedResults.kind(of: record), kind, tool)
+        }
+    }
+
     // MARK: - Fixtures
 
     /// A TaxTriage result in `result` with no database, a `samplesheet.csv` that names S1 and S1_2 as a run of LGE writes

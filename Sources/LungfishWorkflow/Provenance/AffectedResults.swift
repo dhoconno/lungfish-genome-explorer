@@ -21,6 +21,9 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     /// A sample bundle of a demultiplexing run, or the run's folder. A kind of result the record names, never a type of
     /// the sidebar.
     case fastqDemultiplex
+    /// The reads that `lungfish extract reads --by-classifier` took from a TaxTriage result, a FASTQ file or bundle. A
+    /// kind of result the record names, never a type of the sidebar.
+    case taxTriageReadExtraction
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -176,6 +179,13 @@ public enum AffectedResults {
             whatToDo: "Open the result in a project you can edit, which builds its database again, or on the "
                 + "command line run lungfish-cli build-db taxtriage <result folder> --force.",
             fixCommit: "a77b7dd43"
+        ),
+        AffectedResultRow(
+            backlogID: "EXTRACT-SCAN-EXTENDED-ID", kinds: [.taxTriageReadExtraction], firstBuild: 12824,
+            lastBuild: 13672,
+            sentence: "An extraction of a TaxTriage sample whose own BAM was missing may hold another sample's reads.",
+            whatToDo: "Extract again.",
+            fixCommit: "baa1d58d8"
         ),
         AffectedResultRow(
             backlogID: "TTREADS", kinds: [.taxTriage], firstBuild: nil, lastBuild: 12045,
@@ -478,7 +488,14 @@ extension AffectedResults {
         public static let variantsCall = "lungfish variants call"
         /// The run folder's record of Demultiplex Barcodes, from the CLI or the window (`FastqCommand.swift:542`).
         public static let fastqDemultiplex = "lungfish fastq demultiplex"
+        /// `lungfish extract reads` (`ExtractReadsCommand.swift:514`). A `--by-classifier` run records the classifier
+        /// in its `tool` option (`ExtractReadsCommand.swift:829`).
+        public static let extractReads = "lungfish extract reads"
     }
+
+    /// The `tool` option of a `lungfish extract reads` record that took its reads from a TaxTriage result, the raw value
+    /// of `ClassifierTool.taxtriage` that `--tool` takes.
+    static let extractReadsTaxTriageTool = "taxtriage"
 
     /// The text before the version at the root of a `lungfish variants call` record.
     static let commandLineVersionPrefix = "lungfish-cli "
@@ -493,7 +510,9 @@ extension AffectedResults {
     /// (`trimLeftNoAdapterToGuess`). A FASTQ import is a recipe import only when a fastp step of its recipe guessed
     /// the adapter pair, since a recipe's fastp runs on read pairs (`FastpTrimStep.swift:19`) and its dedup and
     /// length-filter steps turn adapter trimming off. Variant calls count only when iVar called them, which
-    /// IVAR-CODON-MERGE speaks of.
+    /// IVAR-CODON-MERGE speaks of. A read extraction counts only when its `tool` option names TaxTriage, which
+    /// EXTRACT-SCAN-EXTENDED-ID speaks of. That option is in every such record since the scan landed (7fc768ba2), and
+    /// the `bamScanNote` is not, since builds before 03d2d8c3b and every `lungfish extract reads` record lack it.
     public static func kind(of envelope: ProvenanceEnvelope) -> AffectedResultKind? {
         switch envelope.workflowName.trimmingCharacters(in: .whitespacesAndNewlines) {
         case RecordName.fastqTrim, RecordName.fastqAdapterTrim:
@@ -505,6 +524,10 @@ extension AffectedResults {
             return guessed ? .fastqRecipeImport : nil
         case RecordName.variantsCall:
             return envelope.steps.contains { runs("ivar", $0) } ? .variantCalls : nil
+        case RecordName.extractReads:
+            guard case .string(let tool)? = envelope.options.explicit["tool"],
+                  tool.trimmingCharacters(in: .whitespacesAndNewlines) == extractReadsTaxTriageTool else { return nil }
+            return .taxTriageReadExtraction
         default:
             return nil
         }
