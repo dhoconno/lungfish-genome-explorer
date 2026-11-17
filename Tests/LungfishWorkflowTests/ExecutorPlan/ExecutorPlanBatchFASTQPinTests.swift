@@ -131,7 +131,7 @@ final class ExecutorPlanBatchFASTQPinTests: XCTestCase {
         "lge-job.sh": "7f3773bc974b135e0dc60f43eb1d4c0ec04ea6cc0a9fed47b45f9b1399064d1c",
         "run-local.sh": "f25f0ea06e193bec4e90d44323960188ebd0bd8ab86067728633c9e96268f188",
         "run.dag": "ec34faf91a75ed53e70561b7f29f5bf99a53cec36ca7b0c90dd85d4daad9a248",
-        "sample.sub": "b607c8dd97bd3f7a21acdff24bca004a86bb9c8e87dc42cae2b028f6f6c01910",
+        "sample.sub": "a5e908a9e313206dd39a4690de4dfa996615c5d8889510f067a00099f75706da",
         "staging-files.json": "aaf8f39ad8a3e3c118b0dfdfc0bd36bd4aac1f8ee2d62e8a4920f8b8c0044987",
     ]
     private static let database: [String: String] = [
@@ -148,7 +148,7 @@ final class ExecutorPlanBatchFASTQPinTests: XCTestCase {
         "lge-job.sh": "7f3773bc974b135e0dc60f43eb1d4c0ec04ea6cc0a9fed47b45f9b1399064d1c",
         "run-local.sh": "7b1b2cc45690db7c52853cf16eda97391b579f746242aca4a68d0dd4e223e959",
         "run.dag": "c5045f5c06e761c50157df2e86009dc67cb4e1bc9daa55533c3af528801cd552",
-        "sample.sub": "60fa84fc64c946c63ebed410c895bc76c4f8d24a4296584477dc389864406fbc",
+        "sample.sub": "daf28ac072bd420aa4ec0ce8af9e89cfa6595e737c490745cedf76ad4c1014f8",
         "staging-files.json": "1277a49c1a8357c37fef2deb453a173a9092090a365e8526f2c42924b98244e4",
     ]
     private static let staged: [String: String] = [
@@ -160,7 +160,7 @@ final class ExecutorPlanBatchFASTQPinTests: XCTestCase {
         "lge-job.sh": "7f3773bc974b135e0dc60f43eb1d4c0ec04ea6cc0a9fed47b45f9b1399064d1c",
         "run-local.sh": "f25f0ea06e193bec4e90d44323960188ebd0bd8ab86067728633c9e96268f188",
         "run.dag": "9ca159d1726a8b609ab72bb29c6737ff84f1a83a3116ea184d96c3844108fd29",
-        "sample.sub": "b607c8dd97bd3f7a21acdff24bca004a86bb9c8e87dc42cae2b028f6f6c01910",
+        "sample.sub": "a5e908a9e313206dd39a4690de4dfa996615c5d8889510f067a00099f75706da",
         "staging-files.json": "e87cb07a08364ca86ff7e26228d6c86ca1055573cd8e1580d1c730e8cd80b4c9",
     ]
 }

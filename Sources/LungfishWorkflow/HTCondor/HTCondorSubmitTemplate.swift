@@ -207,9 +207,19 @@ public enum HTCondorSubmitTemplate {
     public static let requirements =
         #"(TARGET.HasCHTCStaging == true) && (TARGET.OpSysMajorVer >= 9) && (TARGET.Arch == "X86_64")"#
 
-    /// Releases, at most twice, a job held sending its files back (code 12) after its run exited 0, such as a stalled
-    /// upload (C-FAIL P). A run without every listed output is held, so no retry rule sees its exit code (CHTC-3d R1).
-    public static let periodicRelease = "(HoldReasonCode =?= 12) && (ExitCode =?= 0) && (NumHolds < 3)"
+    /// Releases a held job, twice at most across both codes, in these two cases and no other.
+    ///
+    /// - Code 12, held sending its files back, after its run exited 0, such as an upload that stopped making progress
+    ///   (C-FAIL P). A run without every listed output is held, so no retry rule sees its exit code (CHTC-3d R1).
+    /// - Code 13, held fetching its input files, such as a staged file whose pull stopped with "Aborted due to lack of
+    ///   progress". The job never ran, so it has no `ExitCode`, and a release costs no run (CHTC-INPUT-STALL-HELD).
+    ///
+    /// One cap, `NumHolds < 3`, covers both codes. A job held a third time waits for a person, who releases it with
+    /// `condor_release` once the staging folder answers. The rule tests no subcode, since the plugin gives a pull that
+    /// stopped and a missing file the same one, and no `HoldReason` text, since HTCondor's words move between versions
+    /// (ARCH-CHTC-HOLDS What binds 7).
+    public static let periodicRelease =
+        "(NumHolds < 3) && (((HoldReasonCode =?= 12) && (ExitCode =?= 0)) || (HoldReasonCode =?= 13))"
 
     /// The signal a vacate or removal sends. The wrapper `exec`s the executor, so it reaches the executor directly.
     public static let killSignal = "SIGTERM"
