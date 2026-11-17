@@ -16,8 +16,8 @@ extension ClassifierReadResolver {
     /// The paths that the result's database records come first, read only from inside the result root (decision C4).
     /// Then come the two names the pipeline gives a sample's BAM in `minimap2/`, `{S}.bam` and
     /// `{S}.{S}.dwnld.references.bam`. The folder is scanned only when nothing is recorded and neither name exists, and
-    /// the scan reads the listing sorted by name for the files whose names fit the sample
-    /// (``taxTriageNameFits(_:sampleId:)``). One fit is the candidate, and the extraction says so
+    /// the scan reads the listing sorted by name for the files whose names fit the sample and no longer sample id that
+    /// the result lists (``taxTriageNameFits(_:sampleId:amongSampleIds:)``). One fit is the candidate, and the extraction says so
     /// (``taxTriageScanNotice(tool:sampleId:resultPath:bam:)``). Two or more cannot be told apart, so the lookup
     /// ends in ``ClassifierExtractionError/moreThanOneBAMFitsSample(sampleId:names:)`` and no file is read.
     ///
@@ -86,10 +86,14 @@ extension ClassifierReadResolver {
     }
 
     /// The files of `minimap2/` whose names fit the sample and that exist, none or one. Two or more end in
-    /// ``ClassifierExtractionError/moreThanOneBAMFitsSample(sampleId:names:)``.
+    /// ``ClassifierExtractionError/moreThanOneBAMFitsSample(sampleId:names:)``. A file whose name also fits a longer
+    /// sample id that the result lists (``taxTriageResultSampleIds(resultDir:)``) belongs to that sample and is no fit,
+    /// so sample `S1` of a result that lists `S1_2` never takes `S1_2.bam` and ends in the missing-BAM refusal
+    /// (EXTRACT-SCAN-EXTENDED-ID, BIO-THREE-ROWS item 5). A result that lists no sample keeps every fit.
     private static func taxTriageScanFits(sampleId: String, resultDir: URL) throws -> [URL] {
+        let sampleIds = taxTriageResultSampleIds(resultDir: resultDir)
         let fits = listedFiles(in: resultDir.appendingPathComponent("minimap2"), within: resultDir)
-            .filter { taxTriageNameFits($0.lastPathComponent, sampleId: sampleId) }
+            .filter { taxTriageNameFits($0.lastPathComponent, sampleId: sampleId, amongSampleIds: sampleIds) }
             .filter { checkedBAMCandidate($0, within: resultDir) != .absent }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
         guard fits.count < 2 else {
@@ -100,11 +104,44 @@ extension ClassifierReadResolver {
         return fits
     }
 
+    /// The sample ids that a TaxTriage result lists for itself, read in turn from the samples of its `taxtriage.sqlite`,
+    /// the `samplesheet.csv` that LGE writes into a run's folder (`TaxTriageConfig.samplesheetURL`) and the samples of
+    /// the run's `taxtriage-result.json`. Each place that reads adds its ids, since the database holds no sample whose
+    /// reports found nothing. The two files of a run keep each name as a person typed it, so each also gives the name
+    /// the pipeline writes for it (``TaxTriageSample/pipelineName(of:)``), which the BAM files carry. The set is empty
+    /// when the result lists no sample. The reader writes nothing.
+    private static func taxTriageResultSampleIds(resultDir: URL) -> Set<String> {
+        var ids = Set<String>()
+        let databaseURL = resultDir.appendingPathComponent("taxtriage.sqlite")
+        if FileManager.default.fileExists(atPath: databaseURL.path),
+           let samples = try? TaxTriageDatabase(at: databaseURL).fetchSamples() {
+            ids.formUnion(samples.map(\.sample))
+        }
+        var typed: [String] = []
+        let samplesheetURL = resultDir.appendingPathComponent("samplesheet.csv")
+        if FileManager.default.fileExists(atPath: samplesheetURL.path),
+           let entries = try? TaxTriageSamplesheet.parse(url: samplesheetURL) {
+            typed += entries.map(\.sampleId)
+        }
+        if FileManager.default.fileExists(atPath: resultDir.appendingPathComponent("taxtriage-result.json").path),
+           let run = try? TaxTriageResult.load(from: resultDir) {
+            typed += run.config.samples.map(\.sampleId)
+        }
+        for name in typed {
+            ids.insert(name)
+            ids.insert(TaxTriageSample.pipelineName(of: name))
+        }
+        ids.remove("")
+        return ids
+    }
+
     /// The words that say which file a fit of its name gave a sample, or nil when `bam` came from anywhere else, one of
     /// the two names the pipeline gives or a path the database records with no fitted mark (EXTRACT-SCAN-EXTENDED-ID).
     /// The fit is the scan's when nothing is recorded, or the build's when the database records a path and its
     /// metadata marks the sample as fitted (BUILDDB-BAM-FIT, ``TaxTriageDatabase/fittedBAMSamplesMetadataKey``). A file
-    /// such as `S1_2.bam` fits sample `S1` and can belong to another sample, so the extraction names the file, prints
+    /// such as `S1_2.bam` fits sample `S1` and can belong to another sample. The scan's fits are those of
+    /// ``taxTriageScanFits(sampleId:resultDir:)``, so a file of a longer sample that the result lists is never one, and
+    /// a result that lists no sample can still give `S1` the file `S1_2.bam`. The extraction names the file, prints
     /// the words as a progress line (the CLI line and the Operations Panel Log) and records them with the extraction.
     static func taxTriageScanNotice(tool: ClassifierTool, sampleId: String?, resultPath: URL, bam: URL) -> String? {
         guard tool == .taxtriage, let sampleId else { return nil }
@@ -211,6 +248,16 @@ extension ClassifierReadResolver {
               let boundary = name.dropFirst(sampleId.count).first, ".-_".contains(boundary) else { return false }
         guard let owner = taxTriageReferencesBAMOwner(of: name) else { return true }
         return owner == sampleId
+    }
+
+    /// Whether the file name `name` fits `sampleId` (``taxTriageNameFits(_:sampleId:)``) and fits no longer id of
+    /// `sampleIds`, the samples of the same result. A name that fits two ids, such as `S1_2.bam` for S1 and S1_2 or
+    /// `S1.5.dedup.bam` for S1 and S1.5, belongs to the longer one, so S1 never takes the other sample's file and the
+    /// other sample keeps its own. With no ids the rule is ``taxTriageNameFits(_:sampleId:)`` alone. `build-db
+    /// taxtriage` (BUILDDB-BAM-FIT) and the extract scan (EXTRACT-SCAN-EXTENDED-ID) read this one rule.
+    package static func taxTriageNameFits(_ name: String, sampleId: String, amongSampleIds sampleIds: Set<String>) -> Bool {
+        taxTriageNameFits(name, sampleId: sampleId)
+            && !sampleIds.contains { $0.count > sampleId.count && taxTriageNameFits(name, sampleId: $0) }
     }
 
     /// The sample X that the nf-core name `{X}.{X}.dwnld.references.bam` belongs to, or nil for any other name.

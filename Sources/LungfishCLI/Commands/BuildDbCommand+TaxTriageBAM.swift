@@ -72,8 +72,13 @@ extension BuildDbCommand.TaxTriageSubcommand {
         }
         guard !candidates.isEmpty else { return nil }
 
+        // The extract scan's rule (`ClassifierReadResolver.taxTriageNameFits(_:sampleId:amongSampleIds:)`): the id at the
+        // start followed by `.`, `_` or `-`, the pipeline's `{X}.{X}.dwnld.references.bam` for sample X alone, and no
+        // fit of a longer sample id of the same result, so S1 never takes S1_2's `S1_2.bam` and S1_2 keeps its own.
         let scored = candidates.compactMap { candidate -> (url: URL, score: Int)? in
-            guard Self.taxTriageBAMNameFits(candidate.lastPathComponent, sample: sample, samples: samples) else {
+            guard ClassifierReadResolver.taxTriageNameFits(
+                candidate.lastPathComponent, sampleId: sample, amongSampleIds: samples
+            ) else {
                 return nil
             }
             return (candidate, taxTriageBAMCandidateScore(filename: candidate.lastPathComponent, sample: sample))
@@ -87,16 +92,6 @@ extension BuildDbCommand.TaxTriageSubcommand {
             return nil
         }
         return best.url
-    }
-
-    /// Whether the file name `name` fits `sample` by the extract scan's rule
-    /// (``ClassifierReadResolver/taxTriageNameFits(_:sampleId:)``: case-sensitive, the id at the start followed by `.`,
-    /// `_` or `-`, and the pipeline's `{X}.{X}.dwnld.references.bam` for sample X alone) and fits no longer sample id
-    /// of the same result. A name that fits two ids, such as `S1_2.bam` for S1 and S1_2, belongs to the longer one, so
-    /// S1 never takes S1_2's file and S1_2 keeps its own.
-    static func taxTriageBAMNameFits(_ name: String, sample: String, samples: Set<String>) -> Bool {
-        ClassifierReadResolver.taxTriageNameFits(name, sampleId: sample)
-            && !samples.contains { $0.count > sample.count && ClassifierReadResolver.taxTriageNameFits(name, sampleId: $0) }
     }
 
     private func taxTriageBAMCandidateScore(filename: String, sample: String) -> Int {
