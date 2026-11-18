@@ -73,17 +73,63 @@ final class RNASeqExportDialogStateTests: XCTestCase {
         XCTAssertEqual(state.readinessText, "Enter a name for the export folder.")
         state.outputName = "de"
         state.rnaSeqExport.cutoffText = "five percent"
-        XCTAssertEqual(state.readinessText, "The cutoff is a number such as 0.05.")
+        XCTAssertEqual(state.readinessText, "Enter the cutoff as a number above 0 and at most 1, such as 0.05.")
         state.rnaSeqExport.cutoffText = "0.1"
         state.rnaSeqExport.lfcBarText = "one"
-        XCTAssertEqual(state.readinessText, "The fold-change bar is a number such as 1, or empty for none.")
+        XCTAssertEqual(state.readinessText, "Enter the fold-change bar as 0 or more, such as 1, or leave it empty for none.")
         state.rnaSeqExport.lfcBarText = ""
         XCTAssertEqual(state.readinessText, "Ready to run.", "an empty bar means none")
-        // The design, the contrast, the batch and the animals are the CLI's to refuse, in its own words on the row.
+        // The design, the batch and the animals are the CLI's to refuse, in its own words on the row, and so are the levels of a
+        // contrast. The pane checks only the three arguments the CLI answers in terminal text (the cutoff range, the sign of the
+        // bar and the shape of a contrast), which testTheReadinessAgreesWithTheCLIsArgumentCheck holds against the CLI.
         state.rnaSeqExport.designText = "no-such-column"
-        state.rnaSeqExport.contrastsText = "nonsense"
+        state.rnaSeqExport.contrastsText = "group:TB:HIV"
         state.rnaSeqExport.batchCorrection = .sva
         XCTAssertEqual(state.readinessText, "Ready to run.")
+    }
+
+    /// The pane and the CLI refuse the same typing. `RNASeqExportSubcommand.validate()` checks the range of the cutoff, the sign of the
+    /// fold-change bar and the shape of each contrast, and the CLI answers a refusal in terminal text on the Operations row, so the
+    /// readiness words mirror the three. Each row is what is typed, then the option the CLI names when it refuses it, `nil` when it
+    /// accepts. The request of each row is built from the row and not from the pane, so the CLI side does not share the pane's parsing.
+    func testTheReadinessAgreesWithTheCLIsArgumentCheck() throws {
+        let rows: [(cutoff: String, bar: String, contrasts: [String], refusedBy: String?)] = [
+            ("0.05", "", ["group:TB:HIV"], nil),
+            ("1", "0", ["a:b:c"], nil),
+            ("0.05", "0.5", ["group:TB:HIV", "group:HIV:ctl"], nil),
+            ("0", "", [], "--padj-cutoff"),
+            ("1.5", "", [], "--padj-cutoff"),
+            ("-0.05", "", [], "--padj-cutoff"),
+            ("0.05", "-1", [], "--lfc-bar"),
+            ("0.05", "", ["TB:HIV"], "--contrast"),
+            ("0.05", "", ["TB vs HIV"], "--contrast"),
+            ("0.05", "", ["group:TB:"], "--contrast"),
+            ("0.05", "", ["group:TB:HIV:ctl"], "--contrast"),
+            ("0.05", "", ["group:TB:HIV", "TB:HIV"], "--contrast"),
+        ]
+        let state = makeState(projectURL: scratch)
+        state.rnaSeqExport.resultURLs = [first]
+        state.outputName = "de"
+        for row in rows {
+            state.rnaSeqExport.cutoffText = row.cutoff
+            state.rnaSeqExport.lfcBarText = row.bar
+            state.rnaSeqExport.contrastsText = row.contrasts.joined(separator: "\n")
+            let request = RNASeqExportRunRequest(
+                resultURLs: [first], outputURL: scratch.appendingPathComponent("de", isDirectory: true),
+                contrasts: row.contrasts, padjCutoff: try XCTUnwrap(Double(row.cutoff)), lfcBar: Double(row.bar))
+            XCTAssertEqual(
+                state.readinessText == WorkflowOperationDialogState.rnaSeqReadyText, row.refusedBy == nil,
+                "the pane for \(row) reads: \(state.readinessText)")
+            do {
+                _ = try RNASeqExportSubcommand.parse(Array(request.argv.dropFirst(2)))
+                XCTAssertNil(row.refusedBy, "the CLI accepted \(row)")
+            } catch {
+                let words = RNASeqExportSubcommand.message(for: error)
+                XCTAssertTrue(
+                    row.refusedBy.map { words.contains($0) } ?? false,
+                    "the CLI refused \(row) in words that do not name its option: \(words)")
+            }
+        }
     }
 
     func testWithoutAProjectTheOutputDirectoryIsAskedFor() {
