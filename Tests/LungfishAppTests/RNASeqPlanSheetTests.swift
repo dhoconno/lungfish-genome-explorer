@@ -60,6 +60,10 @@ final class RNASeqPlanSheetTests: XCTestCase {
             let fromImage = model.barcodeListWords
             XCTAssertTrue(fromImage.contains(preset.barcodeList.name), fromImage)
             XCTAssertTrue(fromImage.contains(SoloPlanBarcodes.fromImage), "a list from the image names its source: \(fromImage)")
+            // EX-APP-UX SF-2. The sheet cannot know the image of a chosen manifest, and the app's own image holds one list of
+            // the two, so it states the rule of the command and not a fact about the image.
+            XCTAssertTrue(fromImage.contains("refuses in words when the image holds none"), fromImage)
+            XCTAssertFalse(fromImage.contains("Source: the"), "the sheet does not claim the list is in the image: \(fromImage)")
             model.barcodeList = URL(fileURLWithPath: "/data/my-whole-list.txt")
             let supplied = model.barcodeListWords
             XCTAssertTrue(supplied.contains("my-whole-list.txt"), supplied)
@@ -68,8 +72,11 @@ final class RNASeqPlanSheetTests: XCTestCase {
             XCTAssertTrue(supplied.contains(SoloPlanBarcodes.supplied), supplied)
             XCTAssertTrue(supplied.contains("never copies"), supplied)
             XCTAssertFalse(supplied.contains(SoloPlanBarcodes.fromImage), "a supplied list is not called the image's: \(supplied)")
-            for words in [model.presetWords, fromImage, supplied] {
-                XCTAssertNil(words.range(of: "match", options: .caseInsensitive), "no preset is called a match: \(words)")
+            // ADJ-SC-2 forbids four phrases for the introns preset (R1), so the rule is pinned on every text of the sheet.
+            for forbidden in ["match", "equivalent", "compatible", "same counts as"] {
+                for words in [model.presetWords, fromImage, supplied, model.introduction, RNASeqPlanWords.introsAdopt] {
+                    XCTAssertNil(words.range(of: forbidden, options: .caseInsensitive), "no preset is called \"\(forbidden)\": \(words)")
+                }
             }
         }
         model.preset = .threePrimeV3Introns
@@ -117,5 +124,11 @@ final class RNASeqPlanSheetTests: XCTestCase {
             return XCTFail("the adopt card asks for the returned folder first")
         }
         XCTAssertTrue(panel.canChooseDirectories && !panel.canChooseFiles && !panel.allowsMultipleSelection)
+        // EX-APP-UX SF-3. A batch returns one folder a sample, and each needs the files inside result/ copied next to its
+        // plan.json before the adopt takes it. The FASTQ card says so, and the adopt card says so before a refusal does.
+        let adopt = try XCTUnwrap(cards.first { $0.id == "rnaseq-linux-run-result" })
+        let hint = try XCTUnwrap(adopt.fileHint)
+        XCTAssertTrue(hint.contains("copy the files inside result/"), hint)
+        XCTAssertTrue(hint.contains("next to plan.json"), hint)
     }
 }

@@ -251,6 +251,16 @@ final class FASTQLinuxRunOperationTests: XCTestCase {
         XCTAssertEqual(written, .written(RNASeqPlanSheetFixtures.plans))
         XCTAssertEqual(checked, .checked)
         XCTAssertEqual(reporter.items.map(\.state), [.completed, .completed])
+
+        // EX-APP-UX SF-1. A passed Check says that every check passed and that no folder was written, and never that the
+        // command "made every refusal", which reads as a refusal. The sheet, its caption and the row say it alike.
+        model.finish(checked)
+        XCTAssertEqual(model.note, "Checked. Every check passed and no folder was written. Choose Write Plan to write the plan.")
+        XCTAssertEqual(reporter.items.last?.detail, "Checked plan-1. Every check passed and no folder was written.")
+        XCTAssertEqual(RNASeqPlanWords.checkLine, "Check runs every check that Write Plan runs, and writes no folder.")
+        for words in [model.note ?? "", reporter.items.last?.detail ?? "", RNASeqPlanWords.checkLine] {
+            XCTAssertNil(words.range(of: "refusal", options: .caseInsensitive), "a passed check does not read as a refusal: \(words)")
+        }
     }
 
     func testTheRNASeqPlanCommandsWordsAreTheStandardErrorWithoutItsErrorPrefix() {
