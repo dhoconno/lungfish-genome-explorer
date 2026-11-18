@@ -263,6 +263,7 @@ final class DemultiplexingPipelineTests: XCTestCase {
 
         let pipeline = DemultiplexingPipeline()
         let result = try await pipeline.run(
+            // A custom dual kit at Both Ends with no sample sheet writes unanchored i7...i5 lines, which preflight refuses unless the person keeps unchecked samples (BIO-SATKIT-ANYWHERE item 1, BIO-DUAL-TESTS).
             config: DemultiplexConfig(
                 inputURL: inputFASTQ,
                 barcodeKit: kit,
@@ -271,7 +272,8 @@ final class DemultiplexingPipelineTests: XCTestCase {
                 errorRate: 0.0,
                 minimumOverlap: 8,
                 trimBarcodes: true,
-                threads: 1
+                threads: 1,
+                keepsUncheckedSamples: true
             ),
             progress: { _, _ in }
         )
@@ -316,6 +318,7 @@ final class DemultiplexingPipelineTests: XCTestCase {
         )
 
         let result = try await DemultiplexingPipeline().run(
+            // A custom dual kit at Both Ends with no sample sheet writes unanchored i7...i5 lines, which preflight refuses unless the person keeps unchecked samples (BIO-SATKIT-ANYWHERE item 1, BIO-DUAL-TESTS).
             config: DemultiplexConfig(
                 inputURL: inputFASTQ,
                 barcodeKit: kit,
@@ -324,7 +327,8 @@ final class DemultiplexingPipelineTests: XCTestCase {
                 errorRate: 0.0,
                 minimumOverlap: 16,
                 trimBarcodes: true,
-                threads: 1
+                threads: 1,
+                keepsUncheckedSamples: true
             ),
             progress: { _, _ in }
         )
