@@ -111,6 +111,31 @@ final class CrossProjectItemCopierBasePinTests: XCTestCase {
         }
     }
 
+    /// The registry keeps an RNA-seq result under `Analyses`, copied whole as the 12S result is. The copier decides the
+    /// kind from the registry, so the folder a drop lands in is the registry's folder and every file of the result arrives.
+    func testAnRNASeqResultCopiesWholeAndLandsWhereTheRegistryKeepsIt() throws {
+        let source = try makeBundle(
+            "Analyses/run.lungfishrnaseq",
+            files: ["rnaseq-result.json": "{\"schemaVersion\":1}", "samples.tsv": "id\nS1\n"])
+        let counts = source.appendingPathComponent("counts", isDirectory: true)
+        try fm.createDirectory(at: counts, withIntermediateDirectories: true)
+        try "id\tS1\nG1\t10\n".write(to: counts.appendingPathComponent("genes.counts.tsv"), atomically: true, encoding: .utf8)
+
+        let descriptor = try XCTUnwrap(BundleKindRegistry.descriptor(for: .rnaseqResult))
+        guard case .copied(let registryFolder, _) = descriptor.copy else { return XCTFail("the registry row copies") }
+        let kind = try XCTUnwrap(CrossProjectItemCopier.kind(of: source))
+        XCTAssertEqual(kind.defaultRelativeFolder, registryFolder, "a drop that names no folder lands where the registry keeps the kind")
+
+        let outcome = try CrossProjectItemCopier.copy(itemAt: source, intoProject: targetProject, now: fixedNow, identity: .neutral)
+        XCTAssertEqual(relativePath(of: outcome.destinationURL, in: targetProject), "Analyses/run.lungfishrnaseq")
+        for relative in ["rnaseq-result.json", "samples.tsv", "counts/genes.counts.tsv"] {
+            XCTAssertEqual(
+                try Data(contentsOf: outcome.destinationURL.appendingPathComponent(relative)),
+                try Data(contentsOf: source.appendingPathComponent(relative)), relative)
+        }
+        XCTAssertNotNil(ProjectItemCopyRecord.load(from: outcome.destinationURL))
+    }
+
     func testUniqueNameSkipsTakenCountersAndKeepsInnerDots() throws {
         let folder = try XCTUnwrap(targetProject?.appendingPathComponent("Reference Sequences", isDirectory: true))
         try fm.createDirectory(at: folder.appendingPathComponent("sample.v2.lungfishref"), withIntermediateDirectories: true)
