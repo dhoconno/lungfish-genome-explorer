@@ -43,8 +43,10 @@ final class RNASeqSingleCellViewTests: XCTestCase {
         XCTAssertEqual(text["rnaseq-sc-tool"], result.manifest.origin.tool)
         XCTAssertEqual(text["rnaseq-sc-tool-version"], "3.0.0")
         let quality = try XCTUnwrap(result.quality, "the Cell Ranger import keeps metrics_summary.csv's numbers")
-        for (column, value) in quality.rows[0].values.enumerated() {
-            XCTAssertEqual(text["rnaseq-sc-quality-0-\(column + 1)"], value ?? "", quality.columns[column])
+        // One row for each metric: the metric's name is column 0 and the first sample's value is column 1.
+        for (metric, value) in quality.rows[0].values.enumerated() {
+            XCTAssertEqual(text["rnaseq-sc-quality-\(metric)-0"], quality.columns[metric])
+            XCTAssertEqual(text["rnaseq-sc-quality-\(metric)-1"], value ?? RNASeqResultBundle.notRecordedText, quality.columns[metric])
         }
         XCTAssertEqual(text["rnaseq-sc-rank-words"], RNASeqSingleCellWords.rankPlot)
         XCTAssertEqual(text["rnaseq-sc-no-not-host"], RNASeqSingleCellWords.noNotHost, "with no not-host table the third histogram says so")

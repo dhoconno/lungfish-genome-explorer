@@ -147,10 +147,12 @@ public final class RNASeqSingleCellViewController: NSViewController {
 
         summaryStack.addArrangedSubview(Self.heading("Quality"))
         if let quality = summary.quality {
-            summaryStack.addArrangedSubview(Self.grid(
-                header: ["Sample"] + quality.columns,
-                rows: quality.rows.map { [$0.sample] + $0.values.map { $0 ?? "" } },
-                id: "rnaseq-sc-quality"))
+            // One row for each metric and one column for each sample. Side by side, the 20 metrics of a Cell Ranger run
+            // are 3,834 pt wide and this pane does not scroll sideways. A value the file leaves null reads Not recorded.
+            let metrics: [[String]] = quality.columns.enumerated().map { index, name in
+                [name] + quality.rows.map { row in (index < row.values.count ? row.values[index] : nil) ?? RNASeqResultBundle.notRecordedText }
+            }
+            summaryStack.addArrangedSubview(Self.grid(header: ["Metric"] + quality.rows.map(\.sample), rows: metrics, id: "rnaseq-sc-quality"))
         } else {
             summaryStack.addArrangedSubview(Self.text(RNASeqSingleCellWords.noQuality, id: "rnaseq-sc-quality-none", wraps: true))
         }
