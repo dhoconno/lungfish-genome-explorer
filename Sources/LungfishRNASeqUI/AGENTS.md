@@ -15,8 +15,8 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 | Type | Path |
 |---|---|
 | `RNASeqResultSurface`, its factory, `RNASeqResultFacts` and `RNASeqResultViewController` | Sources/LungfishRNASeqUI/RNASeqResultSurface.swift |
-| The bulk view (RS-BULK-VIEW-M2 fills it) | Sources/LungfishRNASeqUI/Bulk/RNASeqBulkViewController.swift |
-| The single-cell view (RS-SC-VIEW fills it) | Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellViewController.swift |
+| The bulk view: its controller, its model (`RNASeqBulkModel`) and the correlation plot | Sources/LungfishRNASeqUI/Bulk/RNASeqBulkViewController.swift, Sources/LungfishRNASeqUI/Bulk/RNASeqBulkModel.swift, Sources/LungfishRNASeqUI/Bulk/RNASeqCorrelationPlotView.swift |
+| The single-cell view: its controller, the summary and the pages (`RNASeqSingleCellSummary`), the charts and the cells table | Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellViewController.swift, Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellSummary.swift, Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCharts.swift, Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCellsTable.swift, and the reads of `cells.sqlite` in Sources/LungfishIO/Bundles/RNASeqCellsDatabase+Bins.swift |
 | App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+RNASeq.swift, the registration line in ViewerViewController+Surfaces.swift, and `updateRNASeqResultDocument` in InspectorViewController+PublicAPI.swift |
 
 ## Contracts this module owns
