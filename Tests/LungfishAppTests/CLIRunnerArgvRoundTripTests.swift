@@ -156,6 +156,11 @@ final class CLIRunnerArgvRoundTripTests: XCTestCase {
     @MainActor
     func testRNASeqSingleCellCardArgvParsesThroughImportRNASeqSubcommand() throws {
         let inputs = try makeRNASeqCardInputs(folders: ["S1/outs", "S2"])
+        // The single-cell sheet takes only what the command reads as a Cell Ranger or STARsolo folder (RS-GLUE-UX SF-1).
+        try FileManager.default.createDirectory(
+            at: inputs.folders[0].appendingPathComponent("filtered_feature_bc_matrix", isDirectory: true), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: inputs.folders[1].appendingPathComponent("Solo.out", isDirectory: true), withIntermediateDirectories: true)
         let model = RNASeqImportSheetModel(kind: .singleCell, inputs: inputs.folders, projectURL: inputs.project)
         XCTAssertEqual(model.sampleIDs, ["S1", "S2"])
         model.name = "mixed species"
