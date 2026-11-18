@@ -494,7 +494,7 @@ public enum AffectedResults {
             fixCommit: "713276a94"
         ),
         // Lane DEMUX-DUAL-FORM (BIO-DUAL-FORM item 5). Every build read the secondary sequence of a custom dual-index
-        // definition at Both Ends with no sample sheet only as written. b10e3a8a4 is the first commit that reads it the
+        // definition at Both Ends with no sample sheet only as written. 95021de8b is the first commit that reads it the
         // way the reads carry it, or stops in words.
         AffectedResultRow(
             backlogID: "DEMUX-DUAL-FORM", kinds: [.fastqDemultiplexDualFormSwap], firstBuild: nil, lastBuild: 13764,
@@ -504,7 +504,7 @@ public enum AffectedResults {
                 + "samples hold each other's reads.",
             whatToDo: "Run Demultiplex Barcodes again with this version, which reads the secondary sequence the way your "
                 + "reads carry it or stops and says why.",
-            fixCommit: "b10e3a8a4"
+            fixCommit: "95021de8b"
         ),
         // S1 sweep 2026-11-17 lane DEMUX-EXACTBARE-NAMES (BIO-DEMUX-THREE item 11, section 2a). Every build with Exact Bare
         // Barcode, from its landing in 4389cd101, searched the read sequences of reads whose barcodes sat in their names.

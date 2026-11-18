@@ -42,7 +42,7 @@ final class AffectedResultsDEMUXDUALFORMTests: XCTestCase {
         XCTAssertEqual(row.kinds, [swap])
         XCTAssertNil(row.firstBuild, "the writer of the column as written is older than any build a row names")
         XCTAssertEqual(row.lastBuild, 13764, "Preview 2026.11.12, the newest published build, lacks the fix")
-        XCTAssertEqual(row.fixCommit, "b10e3a8a4", "the choice of form, the first commit that reads the column as the reads carry it")
+        XCTAssertEqual(row.fixCommit, "95021de8b", "the choice of form, the first commit that reads the column as the reads carry it")
         XCTAssertTrue(AffectedResults.publishedReleases.contains(.init("2026.11.12", 13764)))
         XCTAssertEqual(row.sentence, "This run read the secondary sequence of each row of your Custom Definition as written, and "
                        + "two of its rows have first barcodes that match and secondary sequences that are reverse complements of "
