@@ -1427,7 +1427,22 @@ extension DemultiplexingPipeline {
                     )
                 }
                 guard !entries.isEmpty else { throw DemultiplexError.noBarcodes }
-                try writeObservedLinkedAdapterFASTA(entries: entries, to: adapterFASTA)
+                // Each pair of 5' and 3' distances is a line of its own on each strand, and cutadapt spends a fixed time
+                // a run that grows with the lines before it reads the first read (BIO-DUAL-ANCHOR item 5, Q3).
+                let lines = (config.maxDistanceFrom5Prime + 1) * (config.maxDistanceFrom3Prime + 1) * 2 * entries.count
+                guard lines <= Self.observedPairLineCap else {
+                    throw DemultiplexError.tooManySearchLines(
+                        kitName: config.barcodeKit.displayName, pairs: entries.count,
+                        maxDistanceFrom5Prime: config.maxDistanceFrom5Prime,
+                        maxDistanceFrom3Prime: config.maxDistanceFrom3Prime, lines: lines
+                    )
+                }
+                try writeObservedLinkedAdapterFASTA(
+                    entries: entries,
+                    maxDistanceFrom5Prime: config.maxDistanceFrom5Prime,
+                    maxDistanceFrom3Prime: config.maxDistanceFrom3Prime,
+                    to: adapterFASTA
+                )
                 try validateAdapterFASTA(at: adapterFASTA, kitName: config.barcodeKit.displayName)
                 return AdapterConfiguration(adapterFASTA: adapterFASTA, adapterFlag: "-g")
             }
@@ -1558,24 +1573,39 @@ extension DemultiplexingPipeline {
         try content.write(to: outputURL, atomically: true, encoding: .utf8)
     }
 
+    /// The lines of a custom dual-index definition at Both Ends with no sample sheet: `^N{a}i7...i5N{b}$` for the strand
+    /// as written and `^N{a}rc(i5)...rc(i7)N{b}$` for the other strand, for every `a` up to the 5' distance and `b` up to
+    /// the 3' distance (BIO-DUAL-ANCHOR items 1 and 2). Cutadapt then needs both barcodes whole at the read ends, at those
+    /// distances, and counts no N toward the error rate. A pair whose other strand reads as the pair itself writes one
+    /// strand. The swap `^i5...i7$` that `writeLinkedAdapterFASTA` writes is not a strand of the molecule and is not used.
     private func writeObservedLinkedAdapterFASTA(
         entries: [(name: String, first: String, second: String)],
+        maxDistanceFrom5Prime: Int,
+        maxDistanceFrom3Prime: Int,
         to outputURL: URL
     ) throws {
+        let fivePrimeOffsets = 0...max(0, maxDistanceFrom5Prime)
+        let threePrimeOffsets = 0...max(0, maxDistanceFrom3Prime)
         var lines: [String] = []
-        lines.reserveCapacity(max(1, entries.count * 4))
+        lines.reserveCapacity(max(1, entries.count * fivePrimeOffsets.count * threePrimeOffsets.count * 4))
 
         for entry in entries {
             let first = entry.first.uppercased()
             let second = entry.second.uppercased()
-            lines.append(">\(observedOrientationAdapterName(entry.name, suffix: Self.observedForwardOrientationSuffix))")
-            lines.append("\(first)...\(second)")
-
+            var strands = [(suffix: Self.observedForwardOrientationSuffix, front: first, back: second)]
             let reverseFirst = PlatformAdapters.reverseComplement(second)
             let reverseSecond = PlatformAdapters.reverseComplement(first)
             if reverseFirst != first || reverseSecond != second {
-                lines.append(">\(observedOrientationAdapterName(entry.name, suffix: Self.observedReverseComplementOrientationSuffix))")
-                lines.append("\(reverseFirst)...\(reverseSecond)")
+                strands.append((Self.observedReverseComplementOrientationSuffix, reverseFirst, reverseSecond))
+            }
+            for strand in strands {
+                let name = observedOrientationAdapterName(entry.name, suffix: strand.suffix)
+                for offset5 in fivePrimeOffsets {
+                    for offset3 in threePrimeOffsets {
+                        lines.append(">\(name)")
+                        lines.append("^\(wildcardExact(offset5))\(strand.front)...\(strand.back)\(wildcardExact(offset3))$")
+                    }
+                }
             }
         }
 

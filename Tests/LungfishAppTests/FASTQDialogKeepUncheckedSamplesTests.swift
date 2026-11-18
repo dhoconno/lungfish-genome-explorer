@@ -45,7 +45,7 @@ final class FASTQDialogKeepUncheckedSamplesTests: XCTestCase {
 
     /// A custom dual-index definition of two pairs of 8 bases (`DemultiplexSaturatedKitTests.dualPairs` in the Workflow
     /// tests holds 96, which this target cannot see). With Both Ends and no sample sheet cutadapt searches each pair as
-    /// `i7...i5` with neither side anchored, so preflight refuses it whatever the number of pairs.
+    /// `^i7...i5$`, anchored at both read ends, so preflight does not refuse it (BIO-DUAL-ANCHOR items 1 to 3).
     private func dualDefinition() throws -> URL {
         let folder = try TestTempDirectory.make(prefix: "dialog-keep-unchecked-dual")
         addTeardownBlock { TestTempDirectory.cleanup(folder) }
@@ -95,8 +95,8 @@ final class FASTQDialogKeepUncheckedSamplesTests: XCTestCase {
         XCTAssertTrue(state.showsDemultiplexKeepUncheckedSamples, "QA's 384 definition shows no box")
 
         // A kit whose lines have no anchored side is refused at every error rate (BIO-SATKIT-ANYWHERE items 1 to 3), though
-        // its share is under 0.5 at error 0. The Fluidigm kit gets the words of a kit searched anywhere, the dual definition
-        // the words of pairs searched anywhere, and the box shows for both.
+        // its share is under 0.5 at error 0, and the box shows for it. A custom dual definition at Both Ends with no sample
+        // sheet is searched at the read ends, so preflight does not refuse it and the box stays hidden (BIO-DUAL-ANCHOR).
         state.demultiplexBarcodeSource = .builtinKit
         state.demultiplexKitID = "fluidigm-access-array"
         state.demultiplexErrorRate = 0
@@ -112,9 +112,9 @@ final class FASTQDialogKeepUncheckedSamplesTests: XCTestCase {
         for errorRate in [0.0, 0.15] {
             state.demultiplexErrorRate = errorRate
             await state.refreshDemultiplexChanceCheck()
-            XCTAssertTrue(
+            XCTAssertFalse(
                 state.showsDemultiplexKeepUncheckedSamples,
-                "a custom dual definition at Both Ends with no sample sheet shows no box at error \(errorRate)"
+                "a custom dual definition at Both Ends with no sample sheet shows the box at error \(errorRate)"
             )
         }
 
@@ -153,7 +153,8 @@ final class FASTQDialogKeepUncheckedSamplesTests: XCTestCase {
     /// The caption under the box says what the refusal says, since a person who ticks the box never reads the refusal
     /// (WORDS-UX W11, ruling R1). The built-in Fluidigm Access Array kit, which cutadapt searches anywhere in the read, gets
     /// a caption that names the two routes made for it, ONT Fluidigm Sample Split and the engine Read Names. Every other
-    /// kit, a custom dual definition and QA's 384 definition here, gets the first caption, which names no Fluidigm tool.
+    /// kit, QA's 384 definition here, gets the first caption, which names no Fluidigm tool. A custom dual definition at Both
+    /// Ends with no sample sheet shows no box since BIO-DUAL-ANCHOR, so no caption.
     func testTheFluidigmKitGetsTheCaptionThatNamesItsRoutes() async throws {
         let state = dialog()
         state.demultiplexBarcodeSource = .builtinKit
@@ -168,10 +169,7 @@ final class FASTQDialogKeepUncheckedSamplesTests: XCTestCase {
         state.demultiplexBarcodeSource = .customDefinition
         state.setAuxiliaryInput(try dualDefinition(), for: .barcodeDefinition)
         await state.refreshDemultiplexChanceCheck()
-        XCTAssertTrue(state.showsDemultiplexKeepUncheckedSamples, "a custom dual definition shows no box")
-        let dual = state.demultiplexKeepUncheckedSamplesCaptionForEngine
-        XCTAssertEqual(dual, FASTQOperationDialogState.demultiplexKeepUncheckedSamplesCaption)
-        XCTAssertFalse(dual.contains("Fluidigm"), dual)
+        XCTAssertFalse(state.showsDemultiplexKeepUncheckedSamples, "a custom dual definition shows the box")
 
         state.setAuxiliaryInput(try qa384Definition(), for: .barcodeDefinition)
         await state.refreshDemultiplexChanceCheck()

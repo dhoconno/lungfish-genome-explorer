@@ -50,7 +50,7 @@ extension FastqDemultiplexSubcommand {
     static let keepUncheckedSamplesHelp = "Make sample files even when the check for chance matches cannot judge the "
         + "kit, because many reads that carry no barcode would match its barcodes by chance. This happens when the "
         + "barcodes are only a few bases long, or when cutadapt searches them anywhere in the read, as it does for the "
-        + "Fluidigm Access Array kit and for a custom dual-index kit at both ends with no sample sheet. With --engine "
+        + "Fluidigm Access Array kit. With --engine "
         + "exact-bare, make sample files even when the read names carry the kit's barcodes, which that engine finds in "
         + "the read sequences only by chance. Without this flag such a run is refused. Check each sample against your "
         + "sample sheet. For Fluidigm barcodes in ONT reads, use fastq ont-fluidigm-samples, and for reads whose index "

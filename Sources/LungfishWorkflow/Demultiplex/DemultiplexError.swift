@@ -37,8 +37,9 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     /// Access Array kit. Cutadapt searches its barcodes anywhere in the read, so nearly every read matches one, and the words
     /// name the routes made for such a kit (BIO-SATKIT-FLUIDIGM item 4).
     case chanceCheckCannotJudgeKitSearchedAnywhere(kitName: String)
-    /// The same refusal for a kit searched as linked pairs, `i7...i5`, with neither side anchored, the lines of a custom
-    /// dual-index definition at Both Ends with no sample sheet. Cutadapt searches each side anywhere in the read and also
+    /// The same refusal for a kit searched as linked pairs with neither side anchored, the lines of a dual kit with a sample
+    /// sheet in the bare context (BIO-DUAL-ANCHOR item 8). A custom dual-index definition at Both Ends with no sample sheet
+    /// wrote such lines until BIO-DUAL-ANCHOR anchored them. Cutadapt searches each side anywhere in the read and also
     /// counts 3 bases of a side at a read end, so reads that carry no barcode match a pair by chance (BIO-SATKIT-ANYWHERE
     /// items 3 and 4). The words name no Fluidigm route, and no sample-sheet route, which BIO did not check.
     case chanceCheckCannotJudgeKitPairsSearchedAnywhere(kitName: String)

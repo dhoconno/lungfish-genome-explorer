@@ -199,10 +199,10 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
     }
 
     /// The setups whose cutadapt lines have no side anchored with `^` or `$`, which preflight refuses at every error rate
-    /// (BIO-SATKIT-ANYWHERE items 1 and 2). Besides the built-in Fluidigm kit, a definition whose `# kit:` line names it keeps
-    /// its bare search, and a custom dual-index definition at Both Ends with no sample sheet is searched as its observed
-    /// pairs, `i7...i5`, with neither side anchored. Only the first two are searched as bare barcodes, the lines
-    /// `searchesAnywhere` reads to give the Fluidigm words, so the dual kit gets words of its own. A custom single-index
+    /// (BIO-SATKIT-ANYWHERE items 1 and 2). They are the built-in Fluidigm kit and a definition whose `# kit:` line names it,
+    /// which keeps its bare search, the lines `searchesAnywhere` reads to give the Fluidigm words. A custom dual-index
+    /// definition at Both Ends with no sample sheet was searched as `i7...i5` with neither side anchored until
+    /// BIO-DUAL-ANCHOR, and is now searched as `^i7...i5$`, so it is not such a setup (items 1 to 3). A custom single-index
     /// definition is anchored at every location.
     func testTheSetupsWhoseLinesHaveNoAnchoredSide() async throws {
         let input = folder.appendingPathComponent("reads.fastq")
@@ -238,7 +238,7 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
                 BarcodeEntry(id: "S2", i7Sequence: "TCCGGAGA", i5Sequence: "ATAGAGGC"),
             ]
         )
-        try await assertSearch(dual, .bothEnds, noAnchoredSide: true, bare: false)
+        try await assertSearch(dual, .bothEnds, noAnchoredSide: false, bare: false)
         let single = try Self.definitionKit(Array(Self.qa384Barcodes().prefix(12)), name: "Single Twelve")
         for location in [BarcodeLocation.bothEnds, .fivePrime, .threePrime] {
             try await assertSearch(single, location, noAnchoredSide: false, bare: false)
@@ -327,25 +327,22 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
     }
 
     /// A custom dual-index definition of 96 fixed pairs of 8 bases at Both Ends with no sample sheet, the default location.
-    /// Cutadapt searches each pair as `i7...i5` with neither side anchored, so each side is found anywhere in the read, and
-    /// 3 bases of a side at a read end also count. On real reads that carry no such barcodes it placed 8.1% and 11.3% of
-    /// the reads at error 0, and 74.0% and 82.2% at 0.15, where the floor's sum is 0.0040 (BIO-SATKIT-ANYWHERE Q1). At the
-    /// base error 0 passed and 0.15 was refused in the Fluidigm words. Both are refused in words of their own, which name
-    /// no Fluidigm route, and with the opt-in both run (items 3, 4 and 6, tests iii and v).
-    func testACustomDualKitAtBothEndsWithNoSampleSheetIsRefusedAtEveryErrorRate() async throws {
-        let rows = Self.dualPairs().enumerated().map { "D\(String(format: "%02d", $0.offset + 1)),\($0.element.i7),\($0.element.i5)" }
-        let kit = try BarcodeKitRegistry.loadCustomKit(text: rows.joined(separator: "\n") + "\n", name: "Dual 96")
+    /// Cutadapt searched each pair as `i7...i5` with neither side anchored, so each side was found anywhere in the read, and
+    /// 3 bases of a side at a read end also counted. On real reads that carry no such barcodes it placed 8.1% and 11.3% of
+    /// the reads at error 0, and 74.0% and 82.2% at 0.15 (BIO-SATKIT-ANYWHERE Q1), so SATKIT-4 refused it at every rate
+    /// unless the person kept the unchecked samples. It is now searched as `^i7...i5$` and `^rc(i5)...rc(i7)$`, which placed
+    /// 1 read in 54,000 on the same reads, so it runs at every rate with the opt-in and without it (BIO-DUAL-ANCHOR items 1
+    /// to 3, Q2). The words of pairs searched anywhere stay for the lines a dual kit with a sample sheet writes (item 8), and
+    /// name no Fluidigm route.
+    func testACustomDualKitAtBothEndsWithNoSampleSheetRunsAtEveryErrorRate() async throws {
+        let kit = try Self.dualKit()
         XCTAssertEqual(kit.barcodes.count, 96)
         XCTAssertEqual(Set(kit.barcodes.compactMap(\.i5Sequence).map(\.count)), [8])
         XCTAssertEqual(kit.pairingMode, .fixedDual)
         XCTAssertNil(kit.sourceKitID)
         for errorRate in [0, 0.15] {
             let error = try await refusal(kit, errorRate: errorRate)
-            guard case .chanceCheckCannotJudgeKitPairsSearchedAnywhere(let kitName)? = error else {
-                XCTFail("error \(errorRate): the dual kit was refused as \(String(describing: error)), not as pairs searched anywhere")
-                continue
-            }
-            XCTAssertEqual(kitName, "Dual 96")
+            XCTAssertNil(error, "error \(errorRate) with no opt-in")
         }
         let words = try XCTUnwrap(DemultiplexError.chanceCheckCannotJudgeKitPairsSearchedAnywhere(kitName: "Dual 96").errorDescription)
         for phrase in ["\"Dual 96\"", "anywhere in the read", "A few bases", "nothing was run", "Read Names", "--engine header-index",
@@ -494,17 +491,16 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
     /// A run that keeps the unchecked samples of a kit whose lines have no anchored side says its samples went unchecked,
     /// as a run of a saturated kit does. Preflight refuses these kits at every error rate, so the opt-in is the only way to
     /// run them. At error 0 their share is under 0.5, so their floor stayed the floor of random bases and named a null
-    /// that was never measured. The built-in Fluidigm kit, a definition built on it and a custom dual kit are checked at
-    /// error 0 and 0.15, and a kit with an anchored side that is under the share keeps its own floor.
+    /// that was never measured. The built-in Fluidigm kit and a definition built on it are checked at error 0 and 0.15. A
+    /// kit with an anchored side that is under the share keeps its own floor, and so does a custom dual kit at Both Ends with
+    /// no sample sheet, whose lines are anchored at both read ends since BIO-DUAL-ANCHOR (items 1 and 4).
     func testTheOptInOfAKitWithNoAnchoredSideNamesTheSaturatedNull() async throws {
         let fluidigm = try XCTUnwrap(BarcodeKitRegistry.kit(byID: "fluidigm-access-array"))
         let plateRows = fluidigm.barcodes.prefix(48).map { "\($0.id),\($0.i7Sequence)" }
         let plate = try BarcodeKitRegistry.loadCustomKit(
             text: (["# kit: fluidigm-access-array", "id,sequence"] + plateRows).joined(separator: "\n") + "\n", name: "Fluidigm Plate"
         )
-        let dualRows = Self.dualPairs().enumerated().map { "D\(String(format: "%02d", $0.offset + 1)),\($0.element.i7),\($0.element.i5)" }
-        let dual = try BarcodeKitRegistry.loadCustomKit(text: dualRows.joined(separator: "\n") + "\n", name: "Dual 96")
-        for (name, kit) in [("Fluidigm", fluidigm), ("Fluidigm Plate", plate), ("Dual 96", dual)] {
+        for (name, kit) in [("Fluidigm", fluidigm), ("Fluidigm Plate", plate)] {
             for errorRate in [0.0, 0.15] {
                 let run = try await optedInFloor(kit, errorRate: errorRate)
                 XCTAssertEqual(run.outcome.null, .saturatedKit, "\(name) at error \(errorRate) with Keep Unchecked Samples")
@@ -517,6 +513,13 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
         XCTAssertEqual(anchored.outcome.null, .randomBases, "a kit with an anchored side, under the share, keeps its own floor")
         XCTAssertFalse(anchored.byShare)
         XCTAssertFalse(anchored.unanchored)
+        let dual = try Self.dualKit()
+        for errorRate in [0.0, 0.15] {
+            let run = try await optedInFloor(dual, errorRate: errorRate)
+            XCTAssertEqual(run.outcome.null, .randomBases, "Dual 96 at error \(errorRate) keeps its own floor")
+            XCTAssertFalse(run.byShare, "Dual 96 at error \(errorRate)")
+            XCTAssertFalse(run.unanchored, "Dual 96 at error \(errorRate): both sides of its lines are anchored")
+        }
     }
 
     // MARK: - A custom dual kit searched at the read ends (BIO-DUAL-ANCHOR items 1 to 5, tests i, iv and v)

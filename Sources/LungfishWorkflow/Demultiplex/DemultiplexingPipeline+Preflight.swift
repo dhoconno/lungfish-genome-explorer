@@ -127,8 +127,10 @@ extension DemultiplexingPipeline {
     /// A kit whose lines have no side anchored with `^` or `$` is refused first, at every error rate, since cutadapt
     /// searches each side anywhere in the read and also counts 3 bases of a side at a read end, which the share does not
     /// sum (BIO-SATKIT-ANYWHERE items 1 to 3). Bare barcodes, the built-in Fluidigm kit and a definition built on it, get
-    /// words that name the routes made for that kit (BIO-SATKIT-FLUIDIGM item 4). Linked pairs, a custom dual-index
-    /// definition at Both Ends with no sample sheet, get words of their own.
+    /// words that name the routes made for that kit (BIO-SATKIT-FLUIDIGM item 4). Linked pairs with no anchored side, the
+    /// lines of a dual kit with a sample sheet in the bare context, get words of their own (BIO-DUAL-ANCHOR item 8). A
+    /// custom dual-index definition at Both Ends with no sample sheet is searched anchored at both read ends, so the share
+    /// judges it (BIO-DUAL-ANCHOR item 3).
     func requireChanceCheckableKit(config: DemultiplexConfig, adapterFASTA: URL, inputFASTQ: URL) throws {
         try requireChanceCheckableKit(config: config, adapterFASTA: adapterFASTA) {
             try demultiplexReadLayout(config: config, inputFASTQ: inputFASTQ).isPaired
