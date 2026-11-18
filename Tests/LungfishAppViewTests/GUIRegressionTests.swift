@@ -34,7 +34,7 @@ final class GUIRegressionTests: XCTestCase {
 
         // The categories lead the menu in the order of the enum, which is the
         // order of the layout. Separators between the groups are not titles.
-        XCTAssertEqual(toolsMenu.items.filter { !$0.isSeparatorItem }.prefix(13).map(\.title), [
+        XCTAssertEqual(toolsMenu.items.filter { !$0.isSeparatorItem }.prefix(14).map(\.title), [
             "QC & Reporting",
             "Demultiplexing",
             "Trimming & Filtering",
@@ -47,10 +47,11 @@ final class GUIRegressionTests: XCTestCase {
             "Clustering",
             "Classification",
             "Genotyping",
+            "RNA-seq",
             "Alignment & Phylogenetics",
         ])
         XCTAssertEqual(
-            toolsMenu.items.filter { !$0.isSeparatorItem }.prefix(13).map(\.title),
+            toolsMenu.items.filter { !$0.isSeparatorItem }.prefix(14).map(\.title),
             FASTQOperationCategoryID.allCases.map(\.displayName)
         )
         XCTAssertNil(toolsMenu.items.first { $0.title == "FASTQ/FASTA Operations" })
@@ -82,6 +83,7 @@ final class GUIRegressionTests: XCTestCase {
             "Clustering",
             "Classification",
             "Genotyping",
+            "RNA-seq",
             "Alignment & Phylogenetics",
             "PCR Primer Design",
             "Workflows",

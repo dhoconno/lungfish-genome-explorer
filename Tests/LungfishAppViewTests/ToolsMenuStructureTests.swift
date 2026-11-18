@@ -116,7 +116,7 @@ final class ToolsMenuStructureTests: XCTestCase {
                 "QC & Reporting", "Demultiplexing", "Trimming & Filtering", "Decontamination", "Read Processing", "Search & Subsetting",
                 "-",
                 // Read analysis
-                "Mapping", "Variant Calling", "Assembly", "Clustering", "Classification", "Genotyping",
+                "Mapping", "Variant Calling", "Assembly", "Clustering", "Classification", "Genotyping", "RNA-seq",
                 "-",
                 // Sequences and alignments
                 "Alignment & Phylogenetics", "PCR Primer Design",
@@ -517,6 +517,7 @@ final class ToolsMenuStructureTests: XCTestCase {
             + submenu("Clustering", [tool(.savont), tool(.pbaa)])
             + submenu("Classification", [tool(.kraken2), tool(.esViritu), tool(.taxTriage), "---", classificationWorkflow])
             + submenu("Genotyping", genotyping + ["---", "MHC Haplotype Definitions\u{2026}"])
+            + submenu("RNA-seq", [tool(.rnaSeqQuant)])
             + separator
             + submenu("Alignment & Phylogenetics", [tool(.mafft), "---", "Build Tree with IQ-TREE\u{2026}"])
             + submenu("PCR Primer Design", PrimerDesignEngine.allCases.map { "\($0.rawValue)\u{2026}" })
