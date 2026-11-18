@@ -15,6 +15,8 @@ Each row is one barcode. The fields are split by commas, by tabs, or by runs of 
 
 A header line may name the columns instead. Its first two names are an ID name such as `id` and a sequence name such as `sequence`, and later names such as `sample_name` or `secondary_sequence` place those columns. So `id,sequence,sample_name` puts the sample names in the third column. A sequence column holds nucleotide letters only, and a row whose sequence cell is empty is skipped.
 
+At Both Ends with no sample sheet, the secondary sequence may be written as it appears at the end of the read or as the i5 primer's barcode, since the run reads it the way the first 10,000 reads carry it, and the Operations Panel and the run's log say which. Every other route, and Detect Barcodes, reads it as the i5 primer's barcode.
+
 ## Quoted fields
 
 A field may be quoted as RFC 4180 quotes a CSV field. A field that starts with `"` runs to the next lone `"`, two quotes inside it read as one quote, and a comma or a tab inside it is part of the field. So the row `NTC_1,TCCGGAGA,"NTC, 1"` names the sample `NTC, 1`. A field cannot hold a line break.

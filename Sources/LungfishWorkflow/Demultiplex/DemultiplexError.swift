@@ -32,7 +32,9 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     /// ``DemultiplexSearchRouteOwner`` refused the run, for the reason the words give.
     case searchRouteRefused(String)
     /// No barcode of a search of the read bases beat BIO's chance floor (L5, 3.3 tally).
-    case noBarcodeAboveChance(kitName: String)
+    /// On the route that reads a custom dual-index definition's secondary sequence both ways, the words say the way the
+    /// column is written is not the cause (DEMUX-DUAL-FORM, UX-WORDS-2 section 3 (b)).
+    case noBarcodeAboveChance(kitName: String, readsSecondaryBothWays: Bool = false)
     /// A search of the read bases with a kit whose barcodes are so short that half of all reads or more match one by
     /// chance, which the floor cannot tell from reads with no barcode, and no opt-in (DEMUX-FLOOR-SATURATED-KIT).
     case chanceCheckCannotJudgeKit(kitName: String)
@@ -104,8 +106,10 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
             return "Detect Barcodes read the first \(namesRead) read names and found no index in them, so it counted no barcode of \(kitName). It counts Illumina and Element kits from the index that bcl2fastq or BCL Convert writes in each read name, and names such as those SRA gives by default carry none. For barcodes inside the reads, run Demultiplex Barcodes with a Custom Definition of their sequences (on the command line, fastq demultiplex --kit with your barcode file)."
         case .noReadNameIndex(let kitName):
             return "No read name carried an index of \(kitName), so Demultiplex Barcodes made no sample files. The reads may carry no index in their names, the index may belong to another kit, or the reads may already be split into one file per sample. Choose the kit the library was made with, search the read sequences with Cutadapt, or import this file as one sample."
-        case .noBarcodeAboveChance(let kitName):
-            return "No barcode of \(kitName) matched more reads than chance alone gives, so Demultiplex Barcodes made no sample files. The index in the read names may match no barcode of this kit, the index may sit in index reads that are not in this file, the reads may already be split into one file per sample, or a barcode may be on too few reads to stand above chance. Choose the kit the library was made with, check the barcode sequences and the end of the read you chose for a Custom Definition, or import this file as one sample."
+        case .noBarcodeAboveChance(let kitName, let readsSecondaryBothWays):
+            let form = readsSecondaryBothWays
+                ? " The run looked for the secondary sequence of each row both as written and reverse complemented, so the way the secondary sequences are written is not the cause." : ""
+            return "No barcode of \(kitName) matched more reads than chance alone gives, so Demultiplex Barcodes made no sample files. The index in the read names may match no barcode of this kit, the index may sit in index reads that are not in this file, the reads may already be split into one file per sample, or a barcode may be on too few reads to stand above chance.\(form) Choose the kit the library was made with, check the barcode sequences and the end of the read you chose for a Custom Definition, or import this file as one sample."
         case .chanceCheckCannotJudgeKit(let kitName):
             return "The barcodes of the kit \"\(kitName)\" are so short that about half of all reads or more match one of them by chance, so the check for chance matches cannot tell this pool from reads that carry no barcode, and nothing was run. If the reads carry these barcodes, run it again with Keep Unchecked Samples (on the command line, --keep-unchecked-samples), then check each sample against your sample sheet."
         case .chanceCheckCannotJudgeKitSearchedAnywhere(let kitName):
@@ -147,7 +151,7 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
             // A built-in kit's indexes sit at the read ends. The barcodes of a definition the person wrote can sit some
             // bases in, which the two distances name at Both Ends (BIO-BARE-REVERSE item 1, UX).
             guard !BarcodeKitRegistry.builtinKits().contains(where: { $0.displayName == kitName }) else { return words }
-            return words + " If your barcodes sit some bases in from the read ends, also set 5' Distance and 3' Distance to that many bases (on the command line, --max-distance-5prime and --max-distance-3prime). Both Ends looks for the secondary sequence of each row as it appears at the end of the read, which is the reverse complement of the barcode in the second primer. If a run of this file at 5' End or 3' End in an earlier version placed a large share of the reads in samples, often about half, the file holds the second primer's barcode, so change each secondary sequence to its reverse complement before you run it at Both Ends. If that run left nearly all reads in Unassigned, keep the file as it is."
+            return words + " If your barcodes sit some bases in from the read ends, also set 5' Distance and 3' Distance to that many bases (on the command line, --max-distance-5prime and --max-distance-3prime)."
         case .binCountExceeded(let count, let limit):
             return "Bin count (\(count)) exceeds maximum (\(limit)). Reduce the number of barcode combinations or use fewer demux steps."
         case .exactBareBarcodeUnsupported:

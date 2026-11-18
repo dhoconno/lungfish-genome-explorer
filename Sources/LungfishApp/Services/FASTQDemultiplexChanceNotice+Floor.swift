@@ -115,17 +115,54 @@ extension FASTQDemultiplexChanceNotice {
 
     /// The run's one warning and its information line, read together so that one call off the main actor serves the row and
     /// the Log. It reads files.
+    /// The run's information lines are the floor's limit, then the line of the form it read (DEMUX-DUAL-FORM).
     static func rowWords(for result: FASTQOperationExecutionResult) -> (notice: RowNotice?, floorLimitLine: String?) {
-        (rowNotice(for: result), floorLimitLine(for: result))
+        let lines = [floorLimitLine(for: result), secondaryFormLine(for: result)].compactMap { $0 }
+        return (rowNotice(for: result), lines.isEmpty ? nil : lines.joined(separator: " "))
+    }
+
+    /// The start of every line of ``secondaryFormLine(for:)``, which no line of the floor holds.
+    static let secondaryFormLinePrefix = "The run read each secondary sequence "
+
+    /// The way a run of a Custom Definition of dual indexes at Both Ends with no sample sheet read the secondary sequence,
+    /// from the `secondaryForm` and `secondaryFormVotes` of its run folders' records, each line once, or nil when no record
+    /// names it (DEMUX-DUAL-FORM, UX-WORDS-2 section 3 (c)). It is a line of information and no warning. It reads files.
+    static func secondaryFormLine(for result: FASTQOperationExecutionResult) -> String? {
+        guard case .derivative(.demultiplex, _, _) = result.resolvedRequest else { return nil }
+        var lines: [String] = []
+        for folder in runFolders(for: result) {
+            guard let envelope = try? ProvenanceEnvelopeReader.loadCanonical(from: folder),
+                  case .string(let form)? = envelope.options.explicit["secondaryForm"] else { continue }
+            var votes: [String: Int] = [:]
+            if case .dictionary(let recorded)? = envelope.options.explicit["secondaryFormVotes"] {
+                for (key, value) in recorded { if case .integer(let count) = value { votes[key] = count } }
+            }
+            if let line = DemultiplexingPipeline.SecondaryFormChoice(recordedForm: form, votes: votes)?.line,
+               !lines.contains(line) {
+                lines.append(line)
+            }
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: " ")
+    }
+
+    /// The information line of ``rowWords(for:)`` split into the floor's limit and the line of the form, which comes last.
+    static func informationParts(_ line: String?) -> (floorLimit: String?, form: String?) {
+        guard let line else { return (nil, nil) }
+        guard let start = line.range(of: secondaryFormLinePrefix)?.lowerBound else { return (line, nil) }
+        let limit = line[..<start].trimmingCharacters(in: .whitespaces)
+        return (limit.isEmpty ? nil : limit, String(line[start...]))
     }
 
     /// The detail of the finished row: the warning's own prefix when there is a warning, else the check when only the
     /// information line is there, else the plain completion detail. The row's warning state is the notice alone.
     static func rowDetail(_ notice: RowNotice?, _ floorLimitLine: String?, _ completionDetail: String) -> String {
-        if let notice { return notice.rowDetail(completionDetail) }
-        guard let floorLimitLine else { return completionDetail }
-        let unchecked = floorLimitLine.contains(DemultiplexChanceWords.uncheckedKitLine)
-        return (unchecked ? uncheckedKitRowPrefix : floorLimitRowPrefix) + completionDetail
+        // The line of the form stands before the completion detail, after any prefix (UX-WORDS-2 section 3 (c)).
+        let (limit, form) = informationParts(floorLimitLine)
+        let detail = form.map { $0 + " " + completionDetail } ?? completionDetail
+        if let notice { return notice.rowDetail(detail) }
+        guard let limit else { return detail }
+        let unchecked = limit.contains(DemultiplexChanceWords.uncheckedKitLine)
+        return (unchecked ? uncheckedKitRowPrefix : floorLimitRowPrefix) + detail
     }
 
     /// The run's chance lines in its Log: the warning at `.warning`, then the information line at `.info`. A `.warning`
@@ -134,6 +171,8 @@ extension FASTQDemultiplexChanceNotice {
     @MainActor
     static func log(_ notice: RowNotice?, _ floorLimitLine: String?, id: UUID, in center: OperationCenter) {
         if let notice { center.log(id: id, level: .warning, message: notice.message) }
-        if let floorLimitLine { center.log(id: id, level: .info, message: floorLimitLine) }
+        let (limit, form) = informationParts(floorLimitLine)
+        if let limit { center.log(id: id, level: .info, message: limit) }
+        if let form { center.log(id: id, level: .info, message: form) }
     }
 }

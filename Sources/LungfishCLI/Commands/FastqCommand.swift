@@ -176,6 +176,10 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
               FLD0001<TAB>GTATCGTCGT
             A header line may name the columns instead, so id,sequence,sample_name
             puts sample names in the third column.
+            With --location bothends and no sample sheet, secondary_sequence may
+            be written as it appears at the end of the read or as the i5 primer's
+            barcode, since the run reads it the way the first 10,000 reads carry
+            it, and the run's log says which.
 
             Long-read kits (ONT native, rapid, PCR and 16S barcoding, PacBio) are
             searched as the platform's full adapter and barcode construct at both

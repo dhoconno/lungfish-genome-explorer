@@ -175,6 +175,23 @@ extension DemultiplexingPipeline {
             disputed: disputed, rowsCarrying: carrying
         )
     }
+
+    /// ``requireBarcodesAboveChance(config:adapterFASTA:counts:readsSearched:unassigned:paired:unassignedReadsURL:)`` for a
+    /// run that chose `secondaryForm`, whose refusal says the way the column is written is not the cause, since the run
+    /// looked for it both ways (UX-WORDS-2 section 3 (b)). The floor itself is unchanged.
+    func requireBarcodesAboveChance(
+        config: DemultiplexConfig, adapterFASTA: URL, counts: [String: Int], readsSearched: Int, unassigned: Int,
+        paired: Bool, unassignedReadsURL: URL?, secondaryForm: SecondaryFormChoice?
+    ) async throws -> DemultiplexChanceFloor.Outcome? {
+        do {
+            return try await requireBarcodesAboveChance(
+                config: config, adapterFASTA: adapterFASTA, counts: counts, readsSearched: readsSearched,
+                unassigned: unassigned, paired: paired, unassignedReadsURL: unassignedReadsURL
+            )
+        } catch DemultiplexError.noBarcodeAboveChance(let kitName, _) where secondaryForm != nil {
+            throw DemultiplexError.noBarcodeAboveChance(kitName: kitName, readsSecondaryBothWays: true)
+        }
+    }
 }
 
 /// One row of a custom dual-index definition as the choice of form tests it.

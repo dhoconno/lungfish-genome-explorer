@@ -653,7 +653,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     }
                     .lungfishHelp(LungfishHelpContent.fastqBarcodeKit)
                 } else {
-                    Text("Select a barcode definition CSV, TSV, or whitespace-delimited text file in the Inputs section. Columns: id,sequence[,secondary_sequence][,sample_name], or a header line naming the columns (id,sequence,sample_name).")
+                    Text("Select a barcode definition CSV, TSV, or whitespace-delimited text file in the Inputs section. Columns: id,sequence[,secondary_sequence][,sample_name], or a header line naming the columns (id,sequence,sample_name). At Both Ends with no sample sheet, the secondary sequence may be written as it appears at the end of the read or as the i5 primer's barcode, since the run reads it the way the first 10,000 reads carry it, and the Operations Panel says which.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

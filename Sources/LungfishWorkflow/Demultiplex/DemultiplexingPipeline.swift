@@ -147,6 +147,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             for: config,
             workDirectory: workDir
         )
+        if let choice = adapterConfig.secondaryForm { progress(0.02, choice.line) }
 
         try requireAdapterSequences(in: adapterConfig.adapterFASTA, kitName: config.barcodeKit.displayName)
 
@@ -889,7 +890,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             config: config, adapterFASTA: adapterConfig.adapterFASTA,
             counts: Dictionary(barcodeResults.map { ($0.barcodeID, $0.readCount) }, uniquingKeysWith: +),
             readsSearched: assignedReadCount + unassignedReadCount, unassigned: unassignedReadCount, paired: placesMates,
-            unassignedReadsURL: unassignedReadsURL
+            unassignedReadsURL: unassignedReadsURL, secondaryForm: adapterConfig.secondaryForm
         )
         if config.unassignedDisposition != .keep { bundleResults.filter(\.isUnassigned).forEach { try? fm.removeItem(at: $0.bundleURL) } }
         let manifest = DemultiplexManifest(
