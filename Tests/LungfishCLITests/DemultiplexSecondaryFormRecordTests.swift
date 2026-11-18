@@ -124,5 +124,48 @@ final class DemultiplexSecondaryFormRecordTests: XCTestCase {
         let other = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: singleOutput))
         XCTAssertNil(other.options.explicit["secondaryForm"])
         XCTAssertNil(other.options.explicit["secondaryFormVotes"])
+        // Neither run sets a distance, so neither record counts reads that two rows fit (DEMUX-DUAL-OFFSET-SHIFT).
+        XCTAssertNil(record.options.explicit["ambiguousReads"])
+        XCTAssertNil(other.options.explicit["ambiguousReads"])
+    }
+
+    /// At 3/3 the record of this route counts the reads that two rows fit at their fewest errors as `ambiguousReads`, and
+    /// the Unassigned count holds them (DEMUX-DUAL-OFFSET-SHIFT, BIO-OFFSET-SHIFT item 4). X-1 and X-5 share the first
+    /// barcode, and the two reads `X-1|seen|F0|9` and `R0|9` of BIO-OFFSET-SHIFT Q1 fit both rows with no error.
+    func testTheRecordCountsTheReadsTwoRowsFitWhenTheRunSetsADistance() async throws {
+        try await requireTools()
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let definitions = project.appendingPathComponent("Barcode Definitions", isDirectory: true)
+        try FileManager.default.createDirectory(at: definitions, withIntermediateDirectories: true)
+        let rows = [("X-1", "TGGGCGAA", "AGGAGTTA"), ("X-5", "TGGGCGAA", "GTAAGGAG")]
+        var reads = [
+            ("X-1|seen|F0|9", "TGGGCGAATTGCAGATACCTCTGCTTCTTAAATGTCGGCCAGCGTTTGAAGCTAAAGTCTCAGTCCACCCGGCCGAGGGCAGTATCTGAGTTACCTGTGTGTCGTGTAAGGAGTTA"),
+            ("X-1|seen|R0|9", "TAACTCCTTACACGACACACAGGTAACTCAGATACTGCCCTCGGCCGGGTGGACTGAGACTTTAGCTTCAAACGCTGGCCGACATTTAAGAAGCAGAGGTATCTGCAATTCGCCCA"),
+        ]
+        // Ten reads of each row with its pair 3 bases in behind CCC, which only their own row fits.
+        var bases = Bases()
+        for (id, first, second) in rows {
+            for index in 0..<5 {
+                let forward = "CCC" + first + String((0..<60).map { _ in bases.next() }) + second + "CCC"
+                reads += [("\(id)|F3-\(index)", forward), ("\(id)|R3-\(index)", reverseComplement(forward))]
+            }
+        }
+        let input = project.appendingPathComponent("shift.fastq")
+        try reads.map { "@\($0.0)\n\($0.1)\n+\n\(String(repeating: "I", count: $0.1.count))\n" }.joined()
+            .write(to: input, atomically: true, encoding: .utf8)
+        let csv = definitions.appendingPathComponent("shift.csv")
+        try ("id,sequence,secondary_sequence\n" + rows.map { "\($0.0),\($0.1),\($0.2)\n" }.joined())
+            .write(to: csv, atomically: true, encoding: .utf8)
+        let output = project.appendingPathComponent("Analyses/shift", isDirectory: true)
+        try await run([
+            input.path, "--kit", csv.path, "--location", "bothends", "--max-distance-5prime", "3",
+            "--max-distance-3prime", "3", "--error-rate", "0", "-o", output.path,
+        ])
+
+        let record = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: output))
+        XCTAssertEqual(record.options.explicit["ambiguousReads"], .integer(2))
+        XCTAssertEqual(record.options.explicit["secondaryForm"], .string("as-written"))
+        let manifest = try XCTUnwrap(DemultiplexManifest.load(from: output))
+        XCTAssertEqual(manifest.unassigned.readCount, 2, "the Unassigned count holds the two reads")
     }
 }

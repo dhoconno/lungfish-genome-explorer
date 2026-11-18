@@ -103,7 +103,9 @@ final class FASTQDemultiplexChanceNoticeTests: XCTestCase {
 
     /// The record of a Cutadapt run in its own folder under the test's folder, with the two fields the command writes for a
     /// Custom Definition of dual indexes at Both Ends with no sample sheet (BIO-DUAL-FORM item 2), and the result of the run.
-    private func dualFormResult(form: String?, votes: [String: Int]) throws -> FASTQOperationExecutionResult {
+    private func dualFormResult(
+        form: String?, votes: [String: Int], ambiguousReads: Int? = nil
+    ) throws -> FASTQOperationExecutionResult {
         let run = folder.appendingPathComponent("run-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: run, withIntermediateDirectories: true)
         let output = run.appendingPathComponent("reads.fastq")
@@ -113,6 +115,7 @@ final class FASTQDemultiplexChanceNoticeTests: XCTestCase {
             parameters["secondaryForm"] = .string(form)
             parameters["secondaryFormVotes"] = .dictionary(votes.mapValues { ParameterValue.integer($0) })
         }
+        if let ambiguousReads { parameters["ambiguousReads"] = .integer(ambiguousReads) }
         let argv = ["lungfish-cli", "fastq", "demultiplex", "reads.fastq", "--output", run.path]
         let envelope = try ProvenanceRunBuilder(
             workflowName: "lungfish fastq demultiplex", workflowVersion: "2026.11",
@@ -174,5 +177,39 @@ final class FASTQDemultiplexChanceNoticeTests: XCTestCase {
         let none = FASTQDemultiplexChanceNotice.rowWords(for: try dualFormResult(form: nil, votes: [:]))
         XCTAssertNil(none.notice)
         XCTAssertNil(none.floorLimitLine, "a record of any other route has no line")
+    }
+
+    // MARK: - DEMUX-DUAL-OFFSET-SHIFT, reads that two rows fit (BIO-OFFSET-SHIFT item 4)
+
+    /// A run with a distance above 0 that sent reads two rows fit to Unassigned says so in the ruling's two sentences, after
+    /// the line of the form, in the row's detail and the Log, read from the record's `ambiguousReads`. A count of 0 says
+    /// nothing, and the line adds no warning.
+    @MainActor
+    func testReadsThatTwoRowsFitAreCountedInTheRowAndItsLog() throws {
+        let votes = ["readsRead": 480, "asWritten": 0, "reverseComplemented": 412, "disputed": 0, "rowsCarrying": 12]
+        let form = "The run read each secondary sequence reverse complemented, as the i5 primer's barcode, since 412 of the "
+            + "first 480 reads carry it that way."
+        let words = "1,204 reads fit the barcodes of two samples within the 5' and 3' Distance and went to Unassigned. Set "
+            + "each distance only as far as your barcodes sit in from the read ends."
+        let center = OperationCenter()
+        let result = FASTQDemultiplexChanceNotice.rowWords(
+            for: try dualFormResult(form: "reverse-complemented", votes: votes, ambiguousReads: 1_204)
+        )
+        XCTAssertNil(result.notice)
+        XCTAssertEqual(FASTQDemultiplexChanceNotice.rowDetail(result.notice, result.floorLimitLine, "Done in 12.3s"),
+                       form + " " + words + " Done in 12.3s")
+        let id = try XCTUnwrap(center.begin(
+            title: "Demultiplex Barcodes", detail: "", operationType: .fastqOperation, cliCommand: "lungfish fastq demultiplex"
+        ).startedID)
+        FASTQDemultiplexChanceNotice.log(result.notice, result.floorLimitLine, id: id, in: center)
+        let item = try XCTUnwrap(center.items.first { $0.id == id })
+        XCTAssertEqual(item.logEntries.map(\.message), [form, words])
+        XCTAssertEqual(item.logEntries.map(\.level), [.info, .info])
+        XCTAssertFalse(item.hasWarnings, "the line adds no warning")
+
+        let zero = FASTQDemultiplexChanceNotice.rowWords(
+            for: try dualFormResult(form: "reverse-complemented", votes: votes, ambiguousReads: 0)
+        )
+        XCTAssertEqual(zero.floorLimitLine, form, "a count of 0 says nothing")
     }
 }
