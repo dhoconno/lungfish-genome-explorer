@@ -241,9 +241,25 @@ private final class DemuxDialogDriver {
         return true
     }
 
-    /// Tools > Demultiplexing > Demultiplex Barcodes… on the bundle selected in the sidebar.
+    /// Closes the Operations window if it shows. It is a normal window that lies in front of the main window, and the dialog is a
+    /// sheet of the main window that is 980 by 700 points, so the window covers the dialog's controls and XCUI finds them but never
+    /// as hittable. Run new-2 opened the dialog a second time after the first run had shown the window, and the tree at the
+    /// failure holds the Custom Definition button at {933, 305} under the window at {830, 123} that is 900 by 682, so the control
+    /// run found no hittable Custom Definition in 10 s. Closing the window keeps every row, and `showOperations` shows it again.
+    func closeOperationsWindow() -> Bool {
+        let window = app.windows.matching(NSPredicate(format: "title == %@", "Operations")).firstMatch
+        guard window.exists else { return true }
+        window.buttons[XCUIIdentifierCloseWindow].firstMatch.click()
+        guard window.waitForNonExistence(timeout: 10) else {
+            robot.failShowingScreen("The Operations window stays 10 s after its close button")
+            return false
+        }
+        return true
+    }
+
+    /// Tools > Demultiplexing > Demultiplex Barcodes… on the bundle selected in the sidebar, with no window over the dialog.
     func open() -> Bool {
-        guard dismissUpdateToolsSheet(waiting: 0) else { return false }
+        guard closeOperationsWindow(), dismissUpdateToolsSheet(waiting: 0) else { return false }
         let tools = app.menuBars.menuBarItems["Tools"]
         guard tools.waitForExistence(timeout: 5) else { robot.failShowingScreen("The menu bar has no Tools menu"); return false }
         tools.click()
