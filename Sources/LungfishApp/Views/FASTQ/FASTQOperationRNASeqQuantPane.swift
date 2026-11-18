@@ -102,7 +102,7 @@ final class RNASeqQuantDialogModel {
         if !bundles.allSatisfy(Self.isFASTQBundle) {
             return "Quantification counts FASTQ bundles, one sample each. Import the reads as a FASTQ bundle first."
         }
-        if availableSets.isEmpty { return "No reference set is installed under the storage root. Make one with lungfish-cli rnaseq reference-set, then reopen this dialog." }
+        if availableSets.isEmpty { return "No reference set is installed under the storage root. Make one with lungfish-cli rnaseq reference-set and its index with lungfish-cli rnaseq index, then reopen this dialog." }
         if referenceSetID == nil { return "Choose a reference set." }
         if !kIsValid { return "k is an odd number up to 31." }
         return nil
