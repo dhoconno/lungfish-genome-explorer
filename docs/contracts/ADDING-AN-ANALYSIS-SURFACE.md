@@ -71,7 +71,7 @@ Since Phase 3.2 a new surface adds no viewer slot, no drawer arm and no hide met
 
 | Touch point | File | What to add |
 |---|---|---|
-| Sidebar kind | `Sources/LungfishIO/Bundles/SidebarKindRegistry.swift` | one `SidebarKindDescriptor`, added with `SidebarKindRegistry.register` as a `.registeredBundle` row. A built-in row type instead adds a `SidebarRowType` case, its `SidebarItemType` case in `Sources/LungfishApp/Views/Sidebar/SidebarItem.swift` and that case's arms in the color and grouping switches there |
+| Sidebar kind | `Sources/LungfishIO/Bundles/SidebarKindRegistry.swift` | one `SidebarKindDescriptor`, added with `SidebarKindRegistry.register` as a `.registeredBundle` row. A bundle kind needs its `BundleKindID` case and `BundleKindRegistry` row first, since `SidebarKindRegistry` stops with a precondition without them, and its row in `docs/formats/bundle-kinds.md`. The kind joins `ViewSwitchKinds.swift` and its copy in `ReleaseCandidateSmokeXCUITests.swift`, and a kind kept under `Analyses/` takes an arm in `CrossProjectItemCopier.kind(of:)`, since the default arm copies to the project root. A built-in row type instead adds a `SidebarRowType` case, its `SidebarItemType` case in `Sources/LungfishApp/Views/Sidebar/SidebarItem.swift` and that case's arms in the color and grouping switches there |
 | Content routing | `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+SidebarKindRoute.swift` | nothing for a `.registeredBundle` kind, which opens the viewport its descriptor names through `surfaceHost`. A built-in row type adds its arm in `displaySidebarKind` |
 | Classifier routing, if the result is a classifier | `Sources/LungfishApp/Views/MainWindow/MainSplitViewController+ClassifierDisplay.swift` and `Sources/LungfishApp/Views/MainWindow/ClassifierDatabaseRouter.swift` | a `routeClassifierDisplay(url:)` arm and a `toolDefinitions` row naming the analysis id and its database file. The router reads the display name and `buildDatabaseToken` from the descriptor |
 | Universal search, if the result is indexed | `Sources/LungfishIO/Search/ProjectUniversalSearchModels.swift` | a `ProjectUniversalSearchResultKind` case with its stored kind, analysis id, CLI group and sidecar file, so `type:` queries and folder recognition find it |
@@ -106,7 +106,7 @@ This section dates from 2026-10-02 and no longer binds. The route, the stages an
 
 ### Targets and commands
 
-RNA-seq code belongs in a domain target, LungfishRNASeq, and a leaf on LungfishKit, LungfishRNASeqUI. Neither exists today. SwiftPM wants a source file in every target, so each is created with its first code in it. LungfishRNASeq holds request types, pipelines, the count-matrix builder and the DE runner, with no AppKit. LungfishRNASeqUI holds the viewports, Inspector sections and row commands. The CLI gets one command group with a subcommand per stage (index, align, quant, count, de). Each subcommand is a complete operation under `docs/contracts/ADDING-AN-OPERATION.md`, so a user can rerun any stage from the copied command.
+The RNA-seq domain is the folder `Sources/LungfishWorkflow/RNASeq/`, which is no target of its own, and its leaf is `LungfishRNASeqUI`. The commands are `lungfish-cli import rnaseq` and the `rnaseq` group, and each is a complete operation under `docs/contracts/ADDING-AN-OPERATION.md`. The route is set at `docs/plans/2026-10-02-architecture-program.md:101-115`.
 
 ### Stage 1. Reference index build
 
@@ -153,6 +153,6 @@ The viewer adds a junction track built from the aligner's junction output or fro
 - Every stage writes a provenance envelope that names its inputs by checksum, so a DE result traces back through the matrix and BAMs to the FASTQ, FASTA and GTF.
 - The CLI and the GUI produce identical output trees and provenance, with timestamps masked, on the same fixture.
 
-### Open decisions for the owner
+### Decisions
 
-The aligner (STAR or HISAT2), the quantifier (salmon or kallisto) and the DE engine (DESeq2 or edgeR in R, or a native method) are open. The choice sets the resource classes, the activation profiles and the lock entries, so Phase 5 does not start until the owner decides. This contract holds for any of those choices.
+The route at `docs/plans/2026-10-02-architecture-program.md:101-115` sets the tools of each stage, so no stage waits for the owner. This contract holds for the choices made there.

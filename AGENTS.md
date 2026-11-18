@@ -41,7 +41,7 @@ Modules form a stack. Each row imports only rows above it.
 | 3a | LungfishWorkflowTwelveS and each later Workflow domain target (each imports only Core, IO and Workflow) |
 | 4 | LungfishOperations |
 | 5 | LungfishKit |
-| 6 | The ten leaves (LungfishAlignmentUI, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI) |
+| 6 | The eleven leaves (LungfishAlignmentUI, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishRNASeqUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI) |
 | 7 | LungfishApp |
 | 8 | Lungfish (app executable) |
 
@@ -87,8 +87,8 @@ Build and test one change at a time. SwiftPM holds one `.build/.lock` per checko
 swift build --skip-update
 swift test --skip-update --filter LungfishIOTests      # one test target
 bash scripts/test-surface.sh VCF                       # one surface by name filter
-python3 scripts/release/gate_evidence.py unit-evidence --root . --commit HEAD   # does unit-tier evidence already cover HEAD?
-bash scripts/full-suite-gate.sh --tier unit --quiet    # the gate the pre-push hook runs when no evidence covers the push
+python3 scripts/release/gate_evidence.py unit-evidence --root . --commit HEAD   # does unit evidence cover HEAD?
+bash scripts/full-suite-gate.sh --tier unit --quiet    # the pre-push gate when no evidence covers the push
 python3 scripts/index/generate-module-map.py           # regenerate MODULES.md
 python3 scripts/checks/module-map-current.py           # fails when MODULES.md is stale
 python3 scripts/refactoring/verify_pure_move.py . HEAD~1 HEAD   # a move commit changes no line

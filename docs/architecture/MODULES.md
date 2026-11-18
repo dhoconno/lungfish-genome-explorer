@@ -12,7 +12,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | CLungfishExecutor | library | Sources/CLungfishExecutor | 0 | none |
 | Lungfish | executable | Sources/Lungfish | 0 | LungfishApp, LungfishCore |
 | LungfishAlignmentUI | library | Sources/LungfishAlignmentUI | 18 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishApp | library | Sources/LungfishApp | 158 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI, LungfishWorkflow, LungfishWorkflowTwelveS |
+| LungfishApp | library | Sources/LungfishApp | 158 | LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishRNASeqUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI, LungfishWorkflow, LungfishWorkflowTwelveS |
 | LungfishAssemblyUI | library | Sources/LungfishAssemblyUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishCLI | library | Sources/LungfishCLI | 1 | LungfishCore, LungfishIO, LungfishWorkflow, LungfishWorkflowTwelveS |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 0 | LungfishCLI |
@@ -27,6 +27,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
+| LungfishRNASeqUI | library | Sources/LungfishRNASeqUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
@@ -58,6 +59,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishOperationsTests | Tests/LungfishOperationsTests | LungfishCore, LungfishIO, LungfishOperations, LungfishTestSupport, LungfishWorkflow |
 | LungfishPhylogeneticsUITests | Tests/LungfishPhylogeneticsUITests | LungfishIO, LungfishKit, LungfishPhylogeneticsUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishPortableTests | Tests/LungfishPortableTests | LungfishPortable |
+| LungfishRNASeqUITests | Tests/LungfishRNASeqUITests | LungfishIO, LungfishKit, LungfishRNASeqUI, LungfishTestSupport, LungfishWorkflow |
 | LungfishTaxTriageUITests | Tests/LungfishTaxTriageUITests | LungfishKit, LungfishTaxTriageUI, LungfishTestSupport |
 | LungfishTwelveSUITests | Tests/LungfishTwelveSUITests | LungfishKit, LungfishTestSupport, LungfishTwelveSUI |
 | LungfishWorkflowTests | Tests/LungfishWorkflowTests | LungfishIO, LungfishTestSupport, LungfishWorkflow, LungfishWorkflowTwelveS |
@@ -129,7 +131,7 @@ None.
 
 - Kind. library
 - Path. Sources/LungfishApp
-- Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI, LungfishWorkflow, LungfishWorkflowTwelveS
+- Depends on. LungfishAlignmentUI, LungfishAssemblyUI, LungfishCore, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishRNASeqUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI, LungfishWorkflow, LungfishWorkflowTwelveS
 - External products. none
 - Used by. Lungfish
 - Test target. LungfishAppTests (also tested by LungfishAppViewTests, LungfishAppWorkflowTests, LungfishIntegrationTests)
@@ -395,7 +397,7 @@ None.
 - Path. Sources/LungfishCore
 - Depends on. LungfishPortable
 - External products. Algorithms (swift-algorithms), Collections (swift-collections)
-- Used by. Lungfish, LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflow, LungfishWorkflowTwelveS
+- Used by. Lungfish, LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishIO, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishRNASeqUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflow, LungfishWorkflowTwelveS
 - Test target. LungfishCoreTests (also tested by LungfishIntegrationTests, LungfishKitTests, LungfishOperationsTests)
 
 ### Subdirectories
@@ -883,8 +885,8 @@ None.
 - Path. Sources/LungfishIO
 - Depends on. LungfishCore
 - External products. AsyncAlgorithms (swift-async-algorithms), SystemPackage (swift-system)
-- Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflow, LungfishWorkflowTwelveS
-- Test target. LungfishIOTests (also tested by LungfishAlignmentUITests, LungfishCLITests, LungfishIntegrationTests, LungfishOperationsTests, LungfishPhylogeneticsUITests, LungfishWorkflowTests)
+- Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishRNASeqUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflow, LungfishWorkflowTwelveS
+- Test target. LungfishIOTests (also tested by LungfishAlignmentUITests, LungfishCLITests, LungfishIntegrationTests, LungfishOperationsTests, LungfishPhylogeneticsUITests, LungfishRNASeqUITests, LungfishWorkflowTests)
 
 ### Subdirectories
 
@@ -1610,8 +1612,8 @@ None.
 - Path. Sources/LungfishKit
 - Depends on. LungfishCore, LungfishIO, LungfishWorkflow
 - External products. none
-- Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI
-- Test target. LungfishKitTests (also tested by LungfishAlignmentUITests, LungfishAppTests, LungfishAppViewTests, LungfishAssemblyUITests, LungfishEsVirituUITests, LungfishGenotypeUITests, LungfishNaoMgsUITests, LungfishNvdUITests, LungfishPhylogeneticsUITests, LungfishTaxTriageUITests, LungfishTwelveSUITests)
+- Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishPhylogeneticsUI, LungfishRNASeqUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTwelveSUI
+- Test target. LungfishKitTests (also tested by LungfishAlignmentUITests, LungfishAppTests, LungfishAppViewTests, LungfishAssemblyUITests, LungfishEsVirituUITests, LungfishGenotypeUITests, LungfishNaoMgsUITests, LungfishNvdUITests, LungfishPhylogeneticsUITests, LungfishRNASeqUITests, LungfishTaxTriageUITests, LungfishTwelveSUITests)
 
 ### Subdirectories
 
@@ -1903,6 +1905,31 @@ None.
 - `QualityEncoding` enum, `Sources/LungfishPortable/FASTQ/QualityEncoding.swift`
 - `ReadPair` struct, `Sources/LungfishPortable/FASTQ/ReadPair.swift`
 
+## LungfishRNASeqUI
+
+- Kind. library
+- Path. Sources/LungfishRNASeqUI
+- Depends on. LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow
+- External products. none
+- Used by. LungfishApp
+- Test target. LungfishRNASeqUITests
+
+### Subdirectories
+
+| Subdirectory |
+|---|
+| Bulk |
+| SingleCell |
+
+### Public types
+
+- `RNASeqBulkViewController` class, `Sources/LungfishRNASeqUI/Bulk/RNASeqBulkViewController.swift`
+- `RNASeqResultFacts` struct, `Sources/LungfishRNASeqUI/RNASeqResultSurface.swift`
+- `RNASeqResultLoadOutcome` enum, `Sources/LungfishRNASeqUI/RNASeqResultSurface.swift`
+- `RNASeqResultSurface` class, `Sources/LungfishRNASeqUI/RNASeqResultSurface.swift`
+- `RNASeqResultViewController` class, `Sources/LungfishRNASeqUI/RNASeqResultSurface.swift`
+- `RNASeqSingleCellViewController` class, `Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellViewController.swift`
+
 ## LungfishTaxTriageUI
 
 - Kind. library
@@ -1978,8 +2005,8 @@ None.
 - Path. Sources/LungfishWorkflow
 - Depends on. LungfishCore, LungfishIO
 - External products. Containerization (containerization), ContainerizationArchive (containerization), ContainerizationExtras (containerization), ContainerizationOCI (containerization)
-- Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflowTwelveS
-- Test target. LungfishWorkflowTests (also tested by LungfishAppWorkflowTests, LungfishIntegrationTests, LungfishOperationsTests, LungfishPhylogeneticsUITests)
+- Used by. LungfishAlignmentUI, LungfishApp, LungfishAssemblyUI, LungfishCLI, LungfishEsVirituUI, LungfishGenotypeUI, LungfishKit, LungfishKitTestSupport, LungfishNaoMgsUI, LungfishNvdUI, LungfishOperations, LungfishPhylogeneticsUI, LungfishRNASeqUI, LungfishTaxTriageUI, LungfishTaxonomyUI, LungfishTestSupport, LungfishTwelveSUI, LungfishWorkflowTwelveS
+- Test target. LungfishWorkflowTests (also tested by LungfishAppWorkflowTests, LungfishIntegrationTests, LungfishOperationsTests, LungfishPhylogeneticsUITests, LungfishRNASeqUITests)
 
 ### Subdirectories
 
@@ -3758,7 +3785,7 @@ None.
 - Depends on. LungfishCore, LungfishIO, LungfishPortable, LungfishTestObserverBootstrap, LungfishWorkflow
 - External products. none
 - Used by. LungfishKitTestSupport
-- Test target. none named LungfishTestSupportTests, tested by LungfishAlignmentUITests, LungfishAppTests, LungfishAppViewTests, LungfishAppWorkflowTests, LungfishAssemblyUITests, LungfishCLITests, LungfishCoreTests, LungfishEsVirituUITests, LungfishGenotypeUITests, LungfishIOTests, LungfishIntegrationTests, LungfishKitTests, LungfishNaoMgsUITests, LungfishNvdUITests, LungfishOperationsTests, LungfishPhylogeneticsUITests, LungfishTaxTriageUITests, LungfishTwelveSUITests, LungfishWorkflowTests
+- Test target. none named LungfishTestSupportTests, tested by LungfishAlignmentUITests, LungfishAppTests, LungfishAppViewTests, LungfishAppWorkflowTests, LungfishAssemblyUITests, LungfishCLITests, LungfishCoreTests, LungfishEsVirituUITests, LungfishGenotypeUITests, LungfishIOTests, LungfishIntegrationTests, LungfishKitTests, LungfishNaoMgsUITests, LungfishNvdUITests, LungfishOperationsTests, LungfishPhylogeneticsUITests, LungfishRNASeqUITests, LungfishTaxTriageUITests, LungfishTwelveSUITests, LungfishWorkflowTests
 
 ### Public types
 
