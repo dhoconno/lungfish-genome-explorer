@@ -21,6 +21,7 @@
 // It launches the built lungfish-cli, so its name ends in ReplayTests, which sends it to the
 // integration tier. It needs no real tool.
 
+import CryptoKit
 import Darwin
 import Foundation
 import XCTest
@@ -446,11 +447,14 @@ final class FastqIngestCancelReplayTests: XCTestCase {
     //
     // The adopt card runs `lungfish-cli import rnaseq <folder> --adopt` through `AppDelegate.startRNASeqAdopt`, on the runner of
     // the import cards. The returned folder is `Tests/Fixtures/rnaseq/star-adopt/star-2711-genecounts`, whose plan names the
-    // reference set of `refset-mito` and sums its genes, so each side's root holds a storage root with that set (built once).
+    // reference set of `refset-mito` and sums its genes, so the three sides name one storage root that holds that set (built once,
+    // outside every side's root), and each side's project holds a copy of the folder in `Inputs/returned`.
     //
     // - Parity. The sheet's argv runs on side A as a script runs it, on side C as the card runs it and on side C' as the
     //   command side C's row recorded. The three whole trees agree after the Masks row of docs/contracts/CLI-EQUIVALENCE.md,
-    //   with the clock of the result's record masked as the import cards' cases mask it, and no difference is declared.
+    //   with the clock of the result's record masked as the import cards' cases mask it, and no difference is declared. The
+    //   storage root is no part of a compared tree. The adopt adds a use record to the set there, named by the side's own
+    //   result path, and that record is not scientific content, so it is left out and no mask is added for it.
     // - Refusal. A storage root that holds no set is refused in the command's words on the row and in the sheet (X5), and
     //   the project holds nothing.
 
@@ -484,7 +488,8 @@ final class FastqIngestCancelReplayTests: XCTestCase {
     }
 
     /// The `refset-mito` set of the LGE layout under `storage`, the set the returned plans of `star-adopt/` name.
-    nonisolated private static func buildMitoSet(in storage: URL) async throws {
+    @discardableResult
+    nonisolated private static func buildMitoSet(in storage: URL) async throws -> ReferenceSetOutcome {
         let mito = RNASeqFixtures.root.appendingPathComponent("refset-mito", isDirectory: true)
         let request = ReferenceSetRequest(
             name: "Cynomolgus mitochondrion", species: "Macaca fascicularis", assemblyName: "Macaca_fascicularis_5.0",
@@ -493,35 +498,32 @@ final class FastqIngestCancelReplayTests: XCTestCase {
             assemblyReport: mito.appendingPathComponent("cynomolgus-mt_assembly_report.txt"))
         let owner = ReferenceSetOwner(
             storageRoot: storage, deriver: AdoptStandInDeriver(), provenanceWriter: ProvenanceWriter(signingProvider: nil))
-        _ = try await owner.build(request)
+        return try await owner.build(request)
     }
 
-    /// A side's root before the run: an empty project, a copy of the returned folder, and a storage root that is a copy of
-    /// `storage` or an empty folder when there is none.
-    nonisolated private static func writeAdoptRoot(_ root: URL, storage seed: URL?) throws {
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(at: root.appendingPathComponent("Project.lungfish", isDirectory: true), withIntermediateDirectories: true)
-        let returned = root.appendingPathComponent("returned", isDirectory: true)
-        try fileManager.createDirectory(at: returned, withIntermediateDirectories: true)
-        try fileManager.copyItem(
+    /// A side's root before the run: an empty project that holds a copy of the returned folder in `Inputs/returned`, where
+    /// RS-GLUE's inputs sit, so the result's record names the folder `@/Inputs/...` on every side and no side's record holds
+    /// its own root. The storage root is not a part of a side's root (see `adoptSheet`).
+    nonisolated private static func writeAdoptRoot(_ root: URL) throws {
+        let returned = root.appendingPathComponent("Project.lungfish/Inputs/returned", isDirectory: true)
+        try FileManager.default.createDirectory(at: returned, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
             at: RNASeqFixtures.root.appendingPathComponent("star-adopt/\(adoptFolder)", isDirectory: true),
             to: returned.appendingPathComponent(adoptFolder, isDirectory: true)
         )
-        let storage = root.appendingPathComponent("storage", isDirectory: true)
-        if let seed {
-            try fileManager.copyItem(at: seed, to: storage)
-        } else {
-            try fileManager.createDirectory(at: storage, withIntermediateDirectories: true)
-        }
     }
 
-    /// The adopt sheet of a side's root, with the values a person would give.
-    private static func adoptSheet(in root: URL) -> RNASeqAdoptSheetModel {
+    /// The adopt sheet of a side's root, with the values a person would give. All three sides name the one `storage` root,
+    /// which sits outside every side's root, so `--storage-root` reads the same on each side and the use record the adopt adds
+    /// to the set (`uses/<sha256 of the result path>.json`, named by the side's own result path) sits in no compared tree.
+    /// That record is not scientific content, so the comparison leaves it out and adds no mask for it
+    /// (docs/contracts/CLI-EQUIVALENCE.md, section Same result).
+    private static func adoptSheet(in root: URL, storage: URL) -> RNASeqAdoptSheetModel {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
         let model = RNASeqAdoptSheetModel(
-            folder: root.appendingPathComponent("returned/\(adoptFolder)", isDirectory: true),
-            projectURL: root.appendingPathComponent("Project.lungfish", isDirectory: true)
+            folder: project.appendingPathComponent("Inputs/returned/\(adoptFolder)", isDirectory: true), projectURL: project
         )
-        model.storageRoot = root.appendingPathComponent("storage", isDirectory: true)
+        model.storageRoot = storage
         return model
     }
 
@@ -550,21 +552,21 @@ final class FastqIngestCancelReplayTests: XCTestCase {
         let cli = try rnaSeqCLI()
         let scratch = try TestTempDirectory.make(prefix: "rnaseq-adopt-parity")
         defer { TestTempDirectory.cleanup(scratch) }
-        let seed = scratch.appendingPathComponent("seed-storage", isDirectory: true)
-        try await Self.buildMitoSet(in: seed)
+        let storage = scratch.appendingPathComponent("seed-storage", isDirectory: true)
+        try await Self.buildMitoSet(in: storage)
         let harness = RouteParityHarness(cliBinary: cli, kind: .bundle, masks: .rnaSeqImport, replayTimeout: .seconds(120))
         let result = try await harness.assertParity(
             "adopt",
             declared: [],
             in: scratch.appendingPathComponent("adopt", isDirectory: true),
-            fixture: { root in try Self.writeAdoptRoot(root, storage: seed) },
+            fixture: { root in try Self.writeAdoptRoot(root) },
             sideA: { root in
-                let request = try XCTUnwrap(Self.adoptSheet(in: root).request(dryRun: false))
+                let request = try XCTUnwrap(Self.adoptSheet(in: root, storage: storage).request(dryRun: false))
                 let run = await RouteParityHarness.runCLI(cli, arguments: request.arguments, timeout: .seconds(120))
                 return RouteParitySideOutcome(end: run.end, detail: run.detail)
             },
             sideC: { root in
-                let request = try XCTUnwrap(Self.adoptSheet(in: root).request(dryRun: false))
+                let request = try XCTUnwrap(Self.adoptSheet(in: root, storage: storage).request(dryRun: false))
                 return await self.adoptSideC(request)
             }
         )
@@ -584,13 +586,14 @@ final class FastqIngestCancelReplayTests: XCTestCase {
         _ = try rnaSeqCLI()
         let root = try TestTempDirectory.make(prefix: "rnaseq-adopt-refused")
         defer { TestTempDirectory.cleanup(root) }
-        try Self.writeAdoptRoot(root, storage: nil)
-        let model = Self.adoptSheet(in: root)
+        try Self.writeAdoptRoot(root)
+        let empty = root.appendingPathComponent("storage", isDirectory: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        let model = Self.adoptSheet(in: root, storage: empty)
         let expected: String
         do {
             _ = try ExecutorRunAdoption.dryRunCounts(
-                resultFolder: model.folder, projectDirectory: model.projectURL, name: Self.adoptFolder,
-                storageRoot: root.appendingPathComponent("storage", isDirectory: true)
+                resultFolder: model.folder, projectDirectory: model.projectURL, name: Self.adoptFolder, storageRoot: empty
             )
             return XCTFail("the adopt took a folder whose set the storage root lacks")
         } catch let refusal as ExecutorAdoptRefusal {
@@ -616,6 +619,167 @@ final class FastqIngestCancelReplayTests: XCTestCase {
         XCTAssertEqual(row?.detail, expected, "the Operations row shows the command's words")
         let analyses = root.appendingPathComponent("Project.lungfish/Analyses", isDirectory: true)
         XCTAssertEqual((try? FileManager.default.contentsOfDirectory(atPath: analyses.path)) ?? [], [], "a refusal writes nothing")
+    }
+
+    // MARK: - rnaseq quant --write-plan (Phase 5.4 lane EX-APP)
+    //
+    // The bulk plan sheet runs `lungfish-cli rnaseq quant --write-plan` through `AppDelegate.startRNASeqPlan` on
+    // `CLIRNASeqPlanRunner`. The sheet passes no `--storage-root`, so each side's command reads the one storage root through
+    // `LUNGFISH_STORAGE_ROOT`, set on the child process only. The storage root and the image files sit outside every side's
+    // root and are shared, the way the adopt's storage root is. The plan folder is `out/q` of each root, which does not exist
+    // before the run. The sheet's argv runs on side A as a script runs it, on side C as the sheet's Write Plan runs it and on
+    // side C' as the command side C's row recorded. The three whole trees agree after the Masks row of
+    // docs/contracts/CLI-EQUIVALENCE.md and no difference is declared.
+
+    nonisolated private static let planStaging = "/staging/groups/g/1/lge"
+
+    nonisolated private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The executor's `manifest.json`, an image whose tool manifest holds both STARs, pigz, salmon, Trim Galore and
+    /// featureCounts, and the `image.json` that pins it, as `RNASeqQuantPlanCommandChainTests` writes them.
+    nonisolated private static func writePlanImageFiles(in folder: URL) throws -> (executor: URL, image: URL, tools: URL) {
+        let executorFolder = folder.appendingPathComponent("executor", isDirectory: true)
+        try FileManager.default.createDirectory(at: executorFolder, withIntermediateDirectories: true)
+        let executor = Data("executor stand-in".utf8)
+        try executor.write(to: executorFolder.appendingPathComponent("lungfish-executor"))
+        let digest = String(repeating: "b", count: 64)
+        let manifest: [String: Any] = [
+            "sha256": sha256Hex(executor), "size": executor.count, "lgeVersion": "dev-0123456789ab",
+            "lgeCommit": String(repeating: "1", count: 40), "targetTriple": "x86_64-swift-linux-musl", "toolchainID": "swift-6.2",
+            "toolchainSHA256": digest, "staticLinuxSDKID": "swift-6.2-static-linux", "staticLinuxSDKSHA256": digest,
+        ]
+        let executorURL = executorFolder.appendingPathComponent("manifest.json")
+        try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]).write(to: executorURL)
+        let tools = [("STAR", "2.7.11b", "h5814d7d_9"), ("STAR", "2.7.3a", "h5ca1c30_1"), ("pigz", "2.8", "h421ea60_1"),
+                     ("salmon", "2.11.0", "hfa8f182_0"), ("trim_galore", "2.3.0", "hf1b6044_0"), ("featureCounts", "2.1.1", "h577a1d6_0")]
+        let toolManifest = try ImageToolManifest(platform: .linux64, tools: tools.map {
+            ImageTool(id: $0.0, version: $0.1, build: $0.2, path: "/opt/conda/envs/\($0.0)-\($0.1)/bin/\($0.0)", condaPackage: $0.0.lowercased())
+        }).encoded()
+        let toolsURL = folder.appendingPathComponent("image-manifest.json")
+        try toolManifest.write(to: toolsURL)
+        let image: [String: Any] = [
+            "schemaVersion": 1,
+            "sif": ["fileName": "lge-tools-test.sif", "sha256": String(repeating: "e", count: 64), "size": 396_402_688],
+            "imageManifest": ["sha256": sha256Hex(toolManifest), "size": toolManifest.count],
+        ]
+        let imageURL = folder.appendingPathComponent("image.json")
+        try JSONSerialization.data(withJSONObject: image, options: [.sortedKeys]).write(to: imageURL)
+        return (executorURL, imageURL, toolsURL)
+    }
+
+    /// The record of a STAR 2.7.11b index that `rnaseq index-adopt` wrote for `set`, whose three files an index batch left in
+    /// the staging folder, as `RNASeqQuantPlanCommandChainTests.setWithAdoptedIndex` writes it.
+    nonisolated private static func writeSTARRecord(for set: ReferenceSetOutcome, storage: URL) throws {
+        let version = "2.7.11b"
+        let star = PlanToolPin(id: "STAR", version: version, build: "h5814d7d_9")
+        let key = STARIndexKey.folderName(star: version, nbases: 4, sparseD: 2)
+        let files = ["Genome", "SA", "chrName.txt"].map { name -> STARIndexRecord.File in
+            let data = Data("\(name) of \(key)\n".utf8)
+            return STARIndexRecord.File(
+                path: name, planPath: "star-index/\(name)", stagingPath: "\(planStaging)/batches/m-index/index/staged/star-index/\(name)",
+                bytes: UInt64(data.count), sha256: sha256Hex(data))
+        }
+        let record = STARIndexRecord(setID: set.manifest.id, key: STARIndexKey(
+            folderName: key, setID: set.manifest.id, referenceSetSHA256: String(repeating: "d", count: 64), star: star,
+            genomeSAindexNbases: 4, genomeSAsparseD: 2, sjdbOverhang: 100, genomeFastaFiles: [set.manifest.genome.path],
+            countingGTFSHA256: set.manifest.derived.countingGTF?.sha256 ?? ""), tool: star, files: files)
+        _ = try STARIndexRecordStore(storageRoot: storage).write(record)
+    }
+
+    /// A side's root before the run: a paired FASTQ bundle in the project's `Inputs`, and the folder `out` that the plan
+    /// folder `out/q` goes in, which does not exist yet.
+    private static func writePlanRoot(_ root: URL) throws {
+        let bundle = root.appendingPathComponent("Project.lungfish/Inputs/sample1.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        for mate in [1, 2] {
+            let text = (1...4).map { "@r\($0) \(mate):N:0:1\nACGTACGTACGTACGTACGT\n+\nIIIIIIIIIIIIIIIIIIII\n" }.joined()
+            try Data(text.utf8).write(to: bundle.appendingPathComponent("sample1_R\(mate).fastq"))
+        }
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(ingestion: IngestionMetadata(pairingMode: .pairedEnd, pairingSource: .detected, recipeApplied: nil)),
+            for: bundle.appendingPathComponent("sample1_R1.fastq"))
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("out", isDirectory: true), withIntermediateDirectories: true)
+    }
+
+    /// The bulk plan sheet of a side's root, with the values a person would give.
+    private static func planSheet(
+        in root: URL, setID: String, files: (executor: URL, image: URL, tools: URL)
+    ) -> RNASeqPlanSheetModel {
+        let model = RNASeqPlanSheetModel(kind: .bulk, appHasFiles: true)
+        model.setID = setID
+        model.bundles = [root.appendingPathComponent("Project.lungfish/Inputs/sample1.lungfishfastq", isDirectory: true)]
+        model.chain = "star-2.7.11b-genecounts"
+        model.stagingFolder = planStaging
+        // The command has no measured figures for this genome and asks for them, as the CLI cases give them.
+        model.requestMemoryMiB = "4096"
+        model.requestCPUs = "2"
+        model.requestDiskGiB = "20"
+        model.executorManifest = files.executor
+        model.image = files.image
+        model.imageToolManifest = files.tools
+        model.planFolder = root.appendingPathComponent("out/q", isDirectory: true)
+        return model
+    }
+
+    /// Side C. The sheet's row and run on the app's runner, and the command the row recorded.
+    private func planSideC(_ request: RNASeqPlanRequest, cli: URL, environment: [String: String]) async -> RouteParitySideOutcome {
+        var operationID: UUID?
+        let outcome: RNASeqPlanOutcome = await withCheckedContinuation { continuation in
+            operationID = AppDelegate.startRNASeqPlan(
+                request: request, routeContext: nil,
+                runner: CLIRNASeqPlanRunner(cliURLProvider: { cli }, environmentAdditions: environment)
+            ) { continuation.resume(returning: $0) }
+            if operationID == nil { continuation.resume(returning: .refused("the row was refused")) }
+        }
+        let command = OperationCenter.shared.items.first { $0.id == operationID }?.cliCommand
+        switch outcome {
+        case .written(let folder):
+            return RouteParitySideOutcome(end: .completed, detail: "Wrote \(folder.lastPathComponent)", recordedCommand: command)
+        case .checked:
+            return RouteParitySideOutcome(end: .completed, detail: "Checked", recordedCommand: command)
+        case .refused(let words):
+            return RouteParitySideOutcome(end: .failed, detail: words, recordedCommand: command)
+        case .cancelled:
+            return RouteParitySideOutcome(end: .cancelled, detail: "cancelled", recordedCommand: command)
+        }
+    }
+
+    func testTheBulkPlanSheetWritesWhatTheCLIWritesForTheSameValues() async throws {
+        OperationCenter.useTemporaryFailureReportsForTesting()
+        let cli = try rnaSeqCLI()
+        let scratch = try TestTempDirectory.make(prefix: "rnaseq-plan-parity")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let storage = scratch.appendingPathComponent("plan-storage", isDirectory: true)
+        let set = try await Self.buildMitoSet(in: storage)
+        try Self.writeSTARRecord(for: set, storage: storage)
+        let files = try Self.writePlanImageFiles(in: scratch.appendingPathComponent("plan-image", isDirectory: true))
+        let environment = ["LUNGFISH_STORAGE_ROOT": storage.path]
+        let harness = RouteParityHarness(
+            cliBinary: cli, kind: .files, replayTimeout: .seconds(120), environment: { _ in environment }
+        )
+        let result = try await harness.assertParity(
+            "plan",
+            declared: [],
+            in: scratch.appendingPathComponent("plan", isDirectory: true),
+            fixture: { root in try Self.writePlanRoot(root) },
+            sideA: { root in
+                let request = try XCTUnwrap(Self.planSheet(in: root, setID: set.manifest.id, files: files).request(dryRun: false))
+                let run = await RouteParityHarness.runCLI(cli, arguments: request.arguments, timeout: .seconds(120), environment: environment)
+                return RouteParitySideOutcome(end: run.end, detail: run.detail)
+            },
+            sideC: { root in
+                let request = try XCTUnwrap(Self.planSheet(in: root, setID: set.manifest.id, files: files).request(dryRun: false))
+                return await self.planSideC(request, cli: cli, environment: environment)
+            }
+        )
+        for run in result.runs.all {
+            XCTAssertEqual(run.outcome.end, .completed, "\(run.side): \(run.outcome.detail)")
+            let plan = run.root.appendingPathComponent("out/q", isDirectory: true)
+            let made = (try? FileManager.default.contentsOfDirectory(atPath: plan.path)) ?? []
+            XCTAssertFalse(made.isEmpty, "side \(run.side) wrote the plan folder")
+        }
     }
 }
 
