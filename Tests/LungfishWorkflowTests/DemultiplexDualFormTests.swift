@@ -196,6 +196,13 @@ final class DemultiplexDualFormTests: XCTestCase {
                 )
                 print("DUALFORM \(label): \(outcome.form)")
                 XCTAssertTrue(outcome.form.hasPrefix("reverse-complemented "), "\(label): \(outcome.form)")
+                XCTAssertEqual(
+                    outcome.form,
+                    distance == 0
+                        ? "reverse-complemented readsRead 30 asWritten 0 reverseComplemented 30 disputed 0 rowsCarrying 3"
+                        : "reverse-complemented readsRead 60 asWritten 0 reverseComplemented 60 disputed 0 rowsCarrying 3",
+                    label
+                )
                 assertEveryReadInItsOwnRow(Self.threePairs, outcome, perRow: 10 * offsets.count, label)
             }
         }
@@ -212,6 +219,13 @@ final class DemultiplexDualFormTests: XCTestCase {
             let outcome = try await run(Self.swap, Self.reads(Self.swap, primer: true), errorRate: errorRate)
             print("DUALFORM \(label): \(outcome.form)")
             XCTAssertTrue(outcome.form.hasPrefix("reverse-complemented "), "\(label): \(outcome.form)")
+            XCTAssertEqual(
+                outcome.form,
+                errorRate == 0
+                    ? "reverse-complemented readsRead 120 asWritten 0 reverseComplemented 80 disputed 40 rowsCarrying 8"
+                    : "reverse-complemented readsRead 120 asWritten 0 reverseComplemented 40 disputed 80 rowsCarrying 4",
+                label
+            )
             assertEveryReadInItsOwnRow(Self.swap, outcome, perRow: 10, label)
         }
     }
@@ -301,6 +315,13 @@ final class DemultiplexDualFormTests: XCTestCase {
                 )
                 print("DUALFORM \(label): \(outcome.form)")
                 XCTAssertFalse(outcome.form.hasPrefix("reverse-complemented"), "\(label): \(outcome.form)")
+                XCTAssertEqual(
+                    outcome.form,
+                    distance == 0
+                        ? "as-written readsRead 30 asWritten 30 reverseComplemented 0 disputed 0 rowsCarrying 3"
+                        : "as-written readsRead 60 asWritten 60 reverseComplemented 0 disputed 0 rowsCarrying 3",
+                    label
+                )
                 assertEveryReadInItsOwnRow(Self.threePairs, outcome, perRow: 10 * offsets.count, label)
             }
         }
@@ -334,6 +355,9 @@ final class DemultiplexDualFormTests: XCTestCase {
             let outcome = try await run(Self.selfReverse, Self.reads(Self.selfReverse, primer: primer), errorRate: 0.15)
             print("DUALFORM \(label): \(outcome.form)")
             XCTAssertFalse(outcome.form.hasPrefix("reverse-complemented"), "\(label): \(outcome.form)")
+            XCTAssertEqual(
+                outcome.form, "as-written readsRead 10 asWritten 0 reverseComplemented 0 disputed 0 rowsCarrying 0", label
+            )
             assertEveryReadInItsOwnRow(Self.selfReverse, outcome, perRow: 10, label)
         }
     }
