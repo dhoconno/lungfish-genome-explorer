@@ -1601,6 +1601,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "square.stack.3d.up"
         case .genotyping:
             return "person.text.rectangle"
+        case .rnaSeq:
+            return "tablecells"
         }
     }
 
@@ -1632,6 +1634,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "Open the FASTQ/FASTA operations dialog with classification tools selected."
         case .genotyping:
             return "Open the FASTQ/FASTA operations dialog with genotyping tools selected."
+        case .rnaSeq:
+            return "Open the FASTQ/FASTA operations dialog with RNA-seq tools selected."
         }
     }
 

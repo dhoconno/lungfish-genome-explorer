@@ -64,6 +64,7 @@ enum ToolsMenuLayout {
             .category(.clustering),
             .category(.classification),
             .category(.genotyping, trailing: [.haplotypeDefinitions]),
+            .category(.rnaSeq),
         ],
         [
             .category(.alignment, trailing: [.buildTree]),

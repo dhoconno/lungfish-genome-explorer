@@ -9,6 +9,8 @@ struct FASTQOperationToolPanes: View {
 
     var body: some View {
         switch state.selectedToolID {
+        case .rnaSeqQuant:
+            RNASeqQuantPane(state: state)
         case .minimap2, .bwaMem2, .bowtie2, .bbmap:
             MappingWizardSheet(
                 inputFiles: state.selectedInputURLs,
@@ -324,6 +326,8 @@ private struct FASTQOperationPrimarySettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             switch state.selectedToolID {
+            case .rnaSeqQuant:
+                EmptyView()
             case .refreshQCSummary:
                 Text("No additional primary settings are required for this QC summary refresh.")
                     .foregroundStyle(.secondary)
@@ -822,6 +826,8 @@ private struct FASTQOperationAdvancedSettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             switch state.selectedToolID {
+            case .rnaSeqQuant:
+                EmptyView()
             case .fastpTrim:
                 Text("fastp will run adapter detection/removal and quality trimming together in one pass.")
                     .foregroundStyle(.secondary)

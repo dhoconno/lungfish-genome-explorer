@@ -19,6 +19,7 @@ enum FASTQOperationCategoryID: String, CaseIterable, Sendable {
     case clustering
     case classification
     case genotyping
+    case rnaSeq
     case alignment
 
     /// The one name for this category wherever a user sees it. The Tools menu,
@@ -38,6 +39,7 @@ enum FASTQOperationCategoryID: String, CaseIterable, Sendable {
         case .clustering: return "Clustering"
         case .classification: return "Classification"
         case .genotyping: return "Genotyping"
+        case .rnaSeq: return "RNA-seq"
         case .alignment: return "Alignment & Phylogenetics"
         }
     }
@@ -51,6 +53,9 @@ enum FASTQOperationCategoryID: String, CaseIterable, Sendable {
         switch self {
         case .qcReporting, .demultiplexing, .trimmingFiltering, .decontamination, .readProcessing, .searchSubsetting, .clustering, .genotyping:
             return []
+        case .rnaSeq:
+            // salmon comes from this pack (PluginPack.swift, packID "rna-seq").
+            return ["rna-seq"]
         case .alignment:
             return ["multiple-sequence-alignment"]
         case .mapping:
@@ -92,6 +97,8 @@ enum FASTQOperationCategoryID: String, CaseIterable, Sendable {
             return .kraken2
         case .genotyping:
             return .ontGenotyping
+        case .rnaSeq:
+            return .rnaSeqQuant
         case .alignment:
             return .mafft
         }

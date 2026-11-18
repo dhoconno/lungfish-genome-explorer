@@ -212,6 +212,11 @@ extension AppDelegate {
                     return
                 }
 
+                if let request = state.pendingRNASeqQuantRequest {
+                    RNASeqQuantRoute.launch(request, routeContext: routeContext)
+                    return
+                }
+
                 if let request = state.pendingLaunchRequest,
                    state.pendingClassificationConfigs.isEmpty,
                    state.pendingEsVirituConfigs.isEmpty,

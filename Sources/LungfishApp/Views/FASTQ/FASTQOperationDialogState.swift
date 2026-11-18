@@ -52,6 +52,9 @@ final class FASTQOperationDialogState {
     var pendingEsVirituConfigs: [EsVirituConfig]
     var pendingTaxTriageConfig: TaxTriageConfig?
     var pendingViralReconRequest: ViralReconRunRequest?
+    /// The quantify row's settings, and the request its Run captured for `lungfish-cli rnaseq quant`.
+    let rnaSeqQuant = RNASeqQuantDialogModel()
+    var pendingRNASeqQuantRequest: RNASeqQuantRunRequest?
     /// Set fresh by each Kraken2, EsViritu or TaxTriage capture, the dialog's run trigger for those panes.
     private(set) var embeddedClassifierCapture: UUID?
 
@@ -445,6 +448,12 @@ final class FASTQOperationDialogState {
         pendingEsVirituConfigs = []
         pendingTaxTriageConfig = nil
         pendingViralReconRequest = nil
+        pendingRNASeqQuantRequest = nil
+        if selectedToolID == .rnaSeqQuant {
+            pendingRNASeqQuantRequest = rnaSeqQuant.makeRequest(inputs: selectedInputURLs, projectURL: projectURL)
+            pendingLaunchRequest = nil
+            return
+        }
         if selectedToolID == .mafft {
             guard selectedToolConfigurationIsReady else {
                 pendingLaunchRequest = nil
@@ -837,7 +846,8 @@ final class FASTQOperationDialogState {
             }
             return .ontGenotyping(request: request)
 
-        case .mafft, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
+        case .mafft, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage,
+             .rnaSeqQuant:
             return nil
         }
     }
@@ -1065,7 +1075,7 @@ final class FASTQOperationDialogState {
              .removeDuplicates, .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate,
              .orientReads, .correctSequencingErrors, .subsampleByProportion, .subsampleByCount, .extractReadsByID,
              .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .mafft, .minimap2, .bwaMem2, .bowtie2,
-             .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
+             .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage, .rnaSeqQuant:
             return selectedToolID.requiredInputKinds
         }
     }
@@ -1161,6 +1171,8 @@ final class FASTQOperationDialogState {
 
     var selectedToolSummary: String {
         switch selectedToolID {
+        case .rnaSeqQuant:
+            return "Count bulk RNA-seq reads with salmon on the index of a reference set, one sample for each FASTQ bundle."
         case .refreshQCSummary:
             return "Recompute the QC summary for the selected FASTQ datasets."
         case .demultiplexBarcodes:
@@ -1295,6 +1307,8 @@ final class FASTQOperationDialogState {
             return [.kraken2, .esViritu, .taxTriage]
         case .genotyping:
             return [.ontGenotyping]
+        case .rnaSeq:
+            return [.rnaSeqQuant]
         }
     }
 
@@ -1319,6 +1333,8 @@ final class FASTQOperationDialogState {
 
     private var selectedToolConfigurationReadinessText: String? {
         switch selectedToolID {
+        case .rnaSeqQuant:
+            return rnaSeqQuant.blockingMessage(inputs: selectedInputURLs, projectURL: projectURL)
         case .fastpTrim:
             guard qualityTrimThreshold > 0, qualityTrimWindowSize > 0 else {
                 return "Enter a positive quality threshold and window size."
@@ -1587,6 +1603,7 @@ final class FASTQOperationDialogState {
         embeddedToolReadinessDetail = nil
         embeddedRunTrigger = 0
         pendingLaunchRequest = nil
+        pendingRNASeqQuantRequest = nil
         pendingMappingRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []
@@ -1922,6 +1939,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     case kraken2
     case esViritu
     case taxTriage
+    case rnaSeqQuant
 
     var title: String {
         switch self {
@@ -1967,6 +1985,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .kraken2: return "Kraken2"
         case .esViritu: return "EsViritu"
         case .taxTriage: return "TaxTriage"
+        case .rnaSeqQuant: return "Quantify RNA-seq Reads"
         }
     }
 
@@ -2014,6 +2033,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .kraken2: return "Classify reads taxonomically."
         case .esViritu: return "Detect viruses and report coverage."
         case .taxTriage: return "Run the TaxTriage pathogen workflow."
+        case .rnaSeqQuant: return "Count bulk RNA-seq reads with salmon on the index of a reference set."
         }
     }
 
@@ -2046,6 +2066,8 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return .classification
         case .ontGenotyping:
             return .genotyping
+        case .rnaSeqQuant:
+            return .rnaSeq
         }
     }
 
@@ -2060,7 +2082,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .removeDuplicates, .mergeOverlappingPairs, .repairPairedEndFiles,
              .reverseComplement, .translate, .correctSequencingErrors, .subsampleByProportion, .subsampleByCount,
              .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence, .mafft, .viralRecon,
-             .spades, .megahit, .skesa, .flye, .hifiasm:
+             .spades, .megahit, .skesa, .flye, .hifiasm, .rnaSeqQuant:
             return [.fastqDataset]
         case .primerTrimming:
             return [.fastqDataset, .primerSource]
@@ -2094,6 +2116,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         if self == .savont || self == .pbaa { return .perInput }
         if self == .ontFluidigmSampleSplit { return .fixedBatch }
         if self == .ontGenotyping { return .fixedBatch }
+        if self == .rnaSeqQuant { return .fixedBatch }
         return categoryID == .classification ? .fixedBatch : .perInput
     }
 
@@ -2117,7 +2140,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .removeRibosomalRNA, .removeContaminants, .removeLowComplexityReads, .removeDuplicates,
              .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads,
              .correctSequencingErrors, .subsampleByProportion, .subsampleByCount, .extractReadsByID,
-             .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .ontGenotyping, .mafft:
+             .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .ontGenotyping, .mafft, .rnaSeqQuant:
             return false
         }
     }
@@ -2127,6 +2150,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         if self == .savont || self == .pbaa { return false }
         if self == .ontFluidigmSampleSplit { return false }
         if self == .ontGenotyping { return false }
+        if self == .rnaSeqQuant { return false }
         return categoryID != .classification && self != .removeRibosomalRNA
     }
 
@@ -2147,7 +2171,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .removeRibosomalRNA, .removeContaminants, .removeLowComplexityReads, .removeDuplicates,
              .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads,
              .correctSequencingErrors, .subsampleByProportion, .subsampleByCount, .extractReadsByID,
-             .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .ontGenotyping, .mafft:
+             .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .ontGenotyping, .mafft, .rnaSeqQuant:
             return true
         }
     }
@@ -2167,7 +2191,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .removeRibosomalRNA, .removeContaminants, .removeLowComplexityReads, .removeDuplicates,
              .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads,
              .correctSequencingErrors, .subsampleByProportion, .subsampleByCount, .extractReadsByID,
-             .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .ontGenotyping, .mafft:
+             .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .ontGenotyping, .mafft, .rnaSeqQuant:
             return "Complete the required tool settings to continue."
         }
     }
@@ -2185,7 +2209,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads,
              .correctSequencingErrors, .subsampleByProportion, .subsampleByCount, .extractReadsByID,
              .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .ontGenotyping, .mafft, .minimap2,
-             .bwaMem2, .bowtie2, .bbmap, .viralRecon, .kraken2, .esViritu, .taxTriage: return nil
+             .bwaMem2, .bowtie2, .bbmap, .viralRecon, .kraken2, .esViritu, .taxTriage, .rnaSeqQuant: return nil
         }
     }
 
@@ -2201,7 +2225,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads,
              .correctSequencingErrors, .subsampleByProportion, .subsampleByCount, .extractReadsByID,
              .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .ontGenotyping, .mafft, .viralRecon,
-             .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage: return nil
+             .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage, .rnaSeqQuant: return nil
         }
     }
 
@@ -2217,7 +2241,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return true
         case .refreshQCSummary, .ontFluidigmSampleSplit, .fastpTrim, .qualityTrim, .savont, .pbaa, .ontGenotyping, .mergeOverlappingPairs,
-             .repairPairedEndFiles, .correctSequencingErrors, .viralRecon:
+             .repairPairedEndFiles, .correctSequencingErrors, .viralRecon, .rnaSeqQuant:
             return false
         }
     }
