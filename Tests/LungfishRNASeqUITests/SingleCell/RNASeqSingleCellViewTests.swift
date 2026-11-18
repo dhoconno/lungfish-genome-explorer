@@ -73,6 +73,28 @@ final class RNASeqSingleCellViewTests: XCTestCase {
         XCTAssertEqual(source.text(row: last + 1, column: "barcode"), "", "a row past the cells shows nothing")
     }
 
+    func testRowsPastTheFirstPageAreTheRowsOfTheCellsTable() throws {
+        // The fixtures hold 200 cells, one page, so this file of ten pages and 37 cells reaches the later pages.
+        let url = root.appendingPathComponent(RNASeqCellsDatabase.filename)
+        let writer = try RNASeqCellsDatabaseWriter(url: url)
+        let count = RNASeqSingleCellPages.pageSize * 10 + 37
+        try writer.addSample(1, name: "S1", matrix: "m", size: MatrixMarketSize(rows: 1, columns: count, entries: count))
+        try writer.addCells(sample: 1, firstCell: 1, barcodes: (1...count).map { "BC\($0)" },
+                            umis: (1...count).map { UInt64($0) }, genes: (1...count).map { UInt32($0 % 7) })
+        try writer.finish()
+        let pages = try RNASeqSingleCellPages(cellsURL: url)
+        let database = try RNASeqCellsDatabase(url: url)
+        XCTAssertEqual(pages.count, count)
+        for row in [0, 199, 200, 201, 1999, 2000, count - 1] {
+            XCTAssertEqual(pages.row(row)?.cell, try database.cells(offset: row, limit: 1).first, "row \(row)")
+        }
+        XCTAssertNil(pages.row(count))
+        XCTAssertEqual(try pages.page(10).count, 37)
+        XCTAssertEqual(try pages.page(11), [])
+        pages.close()
+        XCTAssertNil(pages.row(0), "a closed table reads nothing")
+    }
+
     @MainActor
     func testTheFlagColumnReadsTheFlagWordsForAVirusAndABacterium() async throws {
         for (notHost, words, umis, masked, near) in [
