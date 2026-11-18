@@ -184,15 +184,17 @@ private final class DemuxDialogDriver {
         self.project = project
     }
 
-    /// Launches the candidate with the account's tool store (it runs with an empty home, and Cutadapt is a managed tool),
-    /// makes the project with the input and selects the bundle.
+    /// Launches the candidate, makes the project with the input and selects the bundle. A test that runs Cutadapt launches it
+    /// with the account's tool store (the smoke's launch home is empty, and Cutadapt is a managed tool). The Fluidigm test runs
+    /// no tool and keeps the empty home that the base runs of the smoke use, where the app plans no tool update.
     func start(needsCutadapt: Bool) throws {
         if needsCutadapt {
             XCTAssertTrue(FileManager.default.isExecutableFile(atPath: DemuxDualAnchorFixture.cutadaptURL().path),
                           "Cutadapt is installed at \(DemuxDualAnchorFixture.cutadaptURL().path). A run with no Cutadapt fails and is never skipped")
+            app.launchEnvironment["LUNGFISH_STORAGE_ROOT"] = DemuxDualAnchorFixture.accountToolRoot().path
         }
-        app.launchEnvironment["LUNGFISH_STORAGE_ROOT"] = DemuxDualAnchorFixture.accountToolRoot().path
         try robot.launch()
+        if needsCutadapt { guard dismissUpdateToolsSheet(waiting: 15) else { return } }
         try robot.openWritableProject(project) { try DemuxDualAnchorFixture.add(to: $0) }
         XCTAssertEqual(try ExactBareFixture.readCount(ofFASTQAt: DemuxDualAnchorFixture.readsURL(in: project)),
                        DemuxDualAnchorFixture.readTotal, "The input holds 270 reads")
@@ -203,8 +205,34 @@ private final class DemuxDialogDriver {
         }
     }
 
+    /// The Update Tools sheet, which the app puts over the Welcome window after the launch when the tool store it was given is
+    /// older than its own list of tools (`AppDelegate+DependencyReconciliation.swift:44-99`). A store with no receipt and
+    /// nothing installed gets none, which is why the smoke's empty home never met it. Run new-1 launched with the account's
+    /// `~/.lungfish`, whose Kraken2 Standard-16 database is older than the build's, and all three tests failed on it: File > New
+    /// Project opened its panel as a sheet of that sheet, so `goToFolder` took the panel's name field for its own Go to Folder
+    /// field (`ProjectLifecycleXCUITests.swift:233-245`) and typed into a field with no keyboard focus. An optional update
+    /// offers Later, which this clicks. Later downloads nothing and records the deferral in the launch home. A required update
+    /// offers Quit and no Later, and then the test fails with the words, since a smoke run installs no tool. The app plans
+    /// the update after the launch, so the sheet is waited for `seconds`. It took under 5 s in run new-1.
+    func dismissUpdateToolsSheet(waiting seconds: TimeInterval) -> Bool {
+        let heading = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@ OR value BEGINSWITH %@", "Update tools to", "Update tools to")).firstMatch
+        guard heading.waitForExistence(timeout: seconds) else { return true }
+        let later = app.buttons.matching(NSPredicate(format: "label == %@ OR title == %@", "Later", "Later")).firstMatch
+        guard later.waitForExistence(timeout: 5) else {
+            robot.failShowingScreen("The app offers to update the tools of the account's store and shows no Later button, so the update is required. Update the tools in the app and run again")
+            return false
+        }
+        later.click()
+        guard heading.waitForNonExistence(timeout: 15) else {
+            robot.failShowingScreen("The Update Tools sheet stays 15 s after Later")
+            return false
+        }
+        return true
+    }
+
     /// Tools > Demultiplexing > Demultiplex Barcodes… on the bundle selected in the sidebar.
     func open() -> Bool {
+        guard dismissUpdateToolsSheet(waiting: 0) else { return false }
         let tools = app.menuBars.menuBarItems["Tools"]
         guard tools.waitForExistence(timeout: 5) else { robot.failShowingScreen("The menu bar has no Tools menu"); return false }
         tools.click()
