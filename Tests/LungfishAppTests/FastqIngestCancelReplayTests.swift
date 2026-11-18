@@ -322,7 +322,10 @@ final class FastqIngestCancelReplayTests: XCTestCase {
         let cli = try rnaSeqCLI()
         let scratch = try TestTempDirectory.make(prefix: "rnaseq-card-parity")
         defer { TestTempDirectory.cleanup(scratch) }
-        let harness = RouteParityHarness(cliBinary: cli, kind: .bundle, masks: .standard, replayTimeout: .seconds(120))
+        // The three sides run the command at three seconds, and the record states its second in `createdAt`. That one
+        // wall-clock key of rnaseq-result.json is masked and nothing else is, and the difference is never declared
+        // (`OutputEquivalence.MaskPolicy.rnaSeqImport` below).
+        let harness = RouteParityHarness(cliBinary: cli, kind: .bundle, masks: .rnaSeqImport, replayTimeout: .seconds(120))
         let result = try await harness.assertParity(
             card.rawValue,
             declared: [],
@@ -436,5 +439,42 @@ final class FastqIngestCancelReplayTests: XCTestCase {
         XCTAssertEqual(row?.detail, words, "the Operations row shows the command's words")
         let analyses = root.appendingPathComponent("Project.lungfish/Analyses", isDirectory: true)
         XCTAssertEqual((try? FileManager.default.contentsOfDirectory(atPath: analyses.path)) ?? [], [], "a refusal writes nothing")
+    }
+}
+
+// MARK: - The clock of rnaseq-result.json (Phase 5.4 lane RS-GLUE)
+
+extension OutputEquivalence.Masks {
+    /// The second `import rnaseq` wrote its record, set to `<TIMESTAMP>` in the top-level `createdAt` of a
+    /// `rnaseq-result.json` whose `kind` is `rnaseq-result`, and only when the value is an ISO 8601 date-time.
+    ///
+    /// Sides A, C and C' of a parity case run the same command at three different seconds, so no two records agree in
+    /// that one key. It is a wall-clock time, which the Masks row of `docs/contracts/CLI-EQUIVALENCE.md` already masks
+    /// ("Wall-clock times"), so this adds no row to that table (the manager's ruling on lane RS-GLUE, 2026-11-18). The
+    /// same key in another document or one level down, a value that is no date-time, a record of another kind and every
+    /// other value of the record are compared as written, and `MaskPolicy.standard` is not changed.
+    static let rnaSeqResultCreatedAt = OutputEquivalence.Mask(name: "rnaSeqResultCreatedAt") { text, context in
+        guard context.recordName == RNASeqResultManifest.filename,
+              let data = text.data(using: .utf8),
+              var record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              record["kind"] as? String == RNASeqResultManifest.kindName,
+              let stamp = record["createdAt"] as? String,
+              ISO8601DateFormatter().date(from: stamp) != nil
+        else { return text }
+        record["createdAt"] = "<TIMESTAMP>"
+        guard let encoded = try? JSONSerialization.data(
+            withJSONObject: record, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]
+        ), let masked = String(data: encoded, encoding: .utf8) else { return text }
+        return masked
+    }
+}
+
+extension OutputEquivalence.MaskPolicy {
+    /// The standard masks and the clock of `rnaseq-result.json` in payload text, which only the parity cases of
+    /// `import rnaseq` ask for. A declared difference is never the answer to a clock.
+    static var rnaSeqImport: OutputEquivalence.MaskPolicy {
+        var policy = OutputEquivalence.MaskPolicy.standard
+        policy.payloads.append(OutputEquivalence.Masks.rnaSeqResultCreatedAt)
+        return policy
     }
 }

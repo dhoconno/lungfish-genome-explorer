@@ -260,6 +260,87 @@ final class CLIImportRunnerTests: XCTestCase {
         )
     }
 
+    // MARK: - The clock of rnaseq-result.json in the parity cases
+    //
+    // Sides A, C and C' of the parity cases in FastqIngestCancelReplayTests run `import rnaseq` at three different seconds,
+    // and the record states its second in `createdAt`. The cases mask that one key of that one file, a wall-clock time
+    // that the Masks row of docs/contracts/CLI-EQUIVALENCE.md already masks. These hold what the mask hides and what it
+    // leaves as written.
+
+    private static func rnaSeqResultText(
+        kind: String = RNASeqResultManifest.kindName, name: String = "SEQC pair", createdAt: String? = "2026-11-18T18:49:00Z",
+        originTime: String? = nil
+    ) -> String {
+        var lines = ["{", "  \"schemaVersion\" : 1,", "  \"kind\" : \"\(kind)\",", "  \"name\" : \"\(name)\","]
+        if let createdAt { lines.append("  \"createdAt\" : \"\(createdAt)\",") }
+        let nested = originTime.map { ", \"createdAt\" : \"\($0)\"" } ?? ""
+        lines += ["  \"origin\" : { \"kind\" : \"imported\"\(nested) },", "  \"notHost\" : []", "}"]
+        return lines.joined(separator: "\n")
+    }
+
+    private static func maskedRNASeqResult(_ text: String, named file: String = RNASeqResultManifest.filename) -> String {
+        let context = OutputEquivalence.MaskContext(
+            rootA: URL(fileURLWithPath: "/a", isDirectory: true), rootB: URL(fileURLWithPath: "/b", isDirectory: true), recordName: file
+        )
+        return OutputEquivalence.Masks.rnaSeqResultCreatedAt(text, context: context)
+    }
+
+    func testTheRNASeqClockMaskHidesTheCreatedAtOfTheResultRecordAndNothingElse() {
+        let first = Self.maskedRNASeqResult(Self.rnaSeqResultText(createdAt: "2026-11-18T18:49:00Z"))
+        let second = Self.maskedRNASeqResult(Self.rnaSeqResultText(createdAt: "2026-11-18T18:49:01Z"))
+        XCTAssertEqual(first, second, "two seconds of one import read the same")
+        XCTAssertTrue(first.contains("\"createdAt\" : \"<TIMESTAMP>\""), first)
+        XCTAssertNotEqual(first, Self.maskedRNASeqResult(Self.rnaSeqResultText(name: "another")), "every other value is compared as written")
+        let both = Self.maskedRNASeqResult(Self.rnaSeqResultText(originTime: "2026-11-18T18:49:00Z"))
+        XCTAssertTrue(both.contains("\"createdAt\" : \"<TIMESTAMP>\""), "the top-level time is masked")
+        XCTAssertTrue(both.contains("\"createdAt\" : \"2026-11-18T18:49:00Z\""), "a time one level down stays beside it")
+    }
+
+    func testTheRNASeqClockMaskLeavesAnythingThatIsNotThatClockAsWritten() {
+        let record = Self.rnaSeqResultText()
+        XCTAssertEqual(Self.maskedRNASeqResult(record, named: "esviritu-result.json"), record, "another file")
+        XCTAssertEqual(Self.maskedRNASeqResult(record, named: "rnaseq-result.json.bak"), record, "another file")
+        let other = Self.rnaSeqResultText(kind: "classification-result")
+        XCTAssertEqual(Self.maskedRNASeqResult(other), other, "another kind of record")
+        for value in ["", "yesterday", "2026-11-18", "18:49:00"] {
+            let text = Self.rnaSeqResultText(createdAt: value)
+            XCTAssertEqual(Self.maskedRNASeqResult(text), text, "\"\(value)\" is no date-time")
+        }
+        let nested = Self.rnaSeqResultText(createdAt: nil, originTime: "2026-11-18T18:49:00Z")
+        XCTAssertEqual(Self.maskedRNASeqResult(nested), nested, "a time one level down, with none at the top")
+        let notJSON = "createdAt: 2026-11-18T18:49:00Z"
+        XCTAssertEqual(Self.maskedRNASeqResult(notJSON), notJSON, "text that is no JSON")
+    }
+
+    /// The parity cases compare whole folders, so this runs the comparison itself on two folders that differ in the clock
+    /// alone. The standard masks leave it, the policy of the parity cases hides it, and a changed name still differs.
+    func testTheRNASeqParityPolicyHidesTheClockAndNoOtherDifference() throws {
+        let root = try makeTemporaryDirectory()
+        func side(_ folder: String, _ text: String) throws -> URL {
+            let side = root.appendingPathComponent(folder, isDirectory: true)
+            let result = side.appendingPathComponent("Project.lungfish/Analyses/SEQC_pair.lungfishrnaseq", isDirectory: true)
+            try FileManager.default.createDirectory(at: result, withIntermediateDirectories: true)
+            try text.write(to: result.appendingPathComponent(RNASeqResultManifest.filename), atomically: true, encoding: .utf8)
+            return side
+        }
+        let a = try side("a", Self.rnaSeqResultText(createdAt: "2026-11-18T18:49:00Z"))
+        let b = try side("b", Self.rnaSeqResultText(createdAt: "2026-11-18T18:49:01Z"))
+        let renamed = try side("c", Self.rnaSeqResultText(name: "another", createdAt: "2026-11-18T18:49:01Z"))
+
+        XCTAssertFalse(try OutputEquivalence.differences(a, b, kind: .bundle).isEmpty, "the standard masks leave the second as it is")
+        XCTAssertEqual(try OutputEquivalence.differences(a, b, kind: .bundle, masks: .rnaSeqImport), [])
+        XCTAssertFalse(
+            try OutputEquivalence.differences(a, renamed, kind: .bundle, masks: .rnaSeqImport).isEmpty,
+            "a changed name still differs under the parity policy"
+        )
+        let standard = OutputEquivalence.MaskPolicy.standard
+        let policy = OutputEquivalence.MaskPolicy.rnaSeqImport
+        XCTAssertEqual(policy.payloads.map(\.name), standard.payloads.map(\.name) + ["rnaSeqResultCreatedAt"])
+        XCTAssertEqual(policy.provenance.map(\.name), standard.provenance.map(\.name))
+        XCTAssertEqual(policy.records.map(\.name), standard.records.map(\.name))
+        XCTAssertEqual(policy.names.map(\.name), standard.names.map(\.name))
+    }
+
     /// A refusal of the command reaches the Operations row and the outcome in the command's own words (X5). The
     /// stand-in prints what `lungfish-cli import rnaseq` prints when the sheet's ids differ from the folders, and the
     /// real command's words are held in `FastqIngestCancelReplayTests`.
