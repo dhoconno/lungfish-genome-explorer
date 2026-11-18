@@ -20,8 +20,8 @@ extension DemultiplexingPipeline {
     /// one side, or two barcodes that share one line), the IDT UD kit while
     /// its built-in sequences are being checked, a definition whose `# kit:` line
     /// names that kit and whose rows hold a pair of its table, and a search of the
-    /// read bases with a dual Illumina-family kit at 5' End or 3' End, which leaves
-    /// one of its two indexes free, and a kit the chance floor cannot judge unless the person keeps its unchecked samples.
+    /// read bases at 5' End or 3' End with a dual kit and no sample sheet, or with a dual Illumina-family kit, which leaves
+    /// one of its two barcodes free, and a kit the chance floor cannot judge unless the person keeps its unchecked samples.
     /// It refuses an Exact Bare Barcode run whose read names carry two or more of the kit's barcodes, unless the person
     /// keeps the unchecked samples too.
     /// It runs no tool and writes only a scratch adapter file it removes, and returns the route the run takes.
@@ -46,11 +46,14 @@ extension DemultiplexingPipeline {
         case .refuse(let words): throw DemultiplexError.searchRouteRefused(words)
         case .inline: break
         }
-        // A search of the bases with a dual Illumina-family kit finds its first index at the start of the read and its
-        // second at the end. Only Both Ends anchors both, so 5' End or 3' End leaves one index free and counts chance
-        // matches as pairs. The split by the read names above searches no base, so the location does not bind it.
-        if config.barcodeKit.platform.indexesInSeparateReads,
-           config.barcodeKit.pairingMode == .fixedDual,
+        // A search of the bases with a dual kit finds the first barcode of each pair at the start of the read and the
+        // second at the end. Only Both Ends anchors both, so 5' End or 3' End leaves one barcode free and counts chance
+        // matches as pairs, which put 263 of 1,000 amplicon reads in one sample of a random 96-pair kit (BIO-BARE-REVERSE
+        // item 1, Q4). So a dual kit with no sample sheet, a custom definition included, runs only at Both Ends, and a
+        // dual Illumina-family kit does with a sample sheet too. The split by the read names above searches no base, so the
+        // location does not bind it.
+        if config.barcodeKit.pairingMode == .fixedDual,
+           config.barcodeKit.platform.indexesInSeparateReads || config.sampleAssignments.isEmpty,
            config.barcodeLocation != .bothEnds {
             throw DemultiplexError.dualKitNeedsBothEnds(kitName: config.barcodeKit.displayName)
         }

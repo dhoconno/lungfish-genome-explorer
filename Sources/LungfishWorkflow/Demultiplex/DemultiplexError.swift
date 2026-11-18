@@ -22,6 +22,9 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     /// A custom definition names a built-in kit whose sequences are being checked in its `# kit:` line and holds a pair
     /// of that kit's table, as the Demux tab's Demultiplex button wrote it in builds 2026.11.3 to 2026.11.7.
     case definitionHoldsKitSequencesUnderCheck(kitName: String)
+    /// A search of the read bases at 5' End or 3' End with a dual kit and no sample sheet, or with a dual Illumina-family
+    /// kit, which leaves one barcode of each pair free (BIO-BARE-REVERSE item 1). The words of a kit that is not built in,
+    /// a custom definition, also name the 5' and 3' distances.
     case dualKitNeedsBothEnds(kitName: String)
     case binCountExceeded(count: Int, limit: Int)
     case exactBareBarcodeUnsupported
@@ -102,7 +105,11 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
         case .definitionHoldsKitSequencesUnderCheck(let kitName):
             return "This definition holds LGE's built-in sequences for \"\(kitName)\", which are being checked, so nothing was run. Enter the i7 and i5 sequences from your index sheet in a Custom Definition (on the command line, pass --kit with your own barcode file)."
         case .dualKitNeedsBothEnds(let kitName):
-            return "The kit \"\(kitName)\" has its first index at the start of a read and its second at the end, so it can be searched only at Both Ends, and nothing was run. Choose Both Ends (on the command line, --location bothends) and run it again."
+            let words = "The kit \"\(kitName)\" has its first index at the start of a read and its second at the end, so it can be searched only at Both Ends, and nothing was run. Choose Both Ends (on the command line, --location bothends) and run it again."
+            // A built-in kit's indexes sit at the read ends. The barcodes of a definition the person wrote can sit some
+            // bases in, which the two distances name at Both Ends (BIO-BARE-REVERSE item 1, UX).
+            guard !BarcodeKitRegistry.builtinKits().contains(where: { $0.displayName == kitName }) else { return words }
+            return words + " If your barcodes sit some bases in from the read ends, set 5' Distance and 3' Distance (on the command line, --max-distance-5prime and --max-distance-3prime)."
         case .binCountExceeded(let count, let limit):
             return "Bin count (\(count)) exceeds maximum (\(limit)). Reduce the number of barcode combinations or use fewer demux steps."
         case .exactBareBarcodeUnsupported:
