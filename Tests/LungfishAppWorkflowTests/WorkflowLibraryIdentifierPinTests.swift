@@ -33,13 +33,13 @@ final class WorkflowLibraryIdentifierPinTests: XCTestCase {
     // MARK: - Built-in groups
 
     /// Ordered as the panel lists them. There is no core Genotyping group, because both genotyping
-    /// workflows are specialized.
+    /// workflows are specialized. The RNA-seq group holds the quantify tool.
     func testCoreGroupIDsAreTheLowercasedCategoryNames() throws {
         let core = try XCTUnwrap(WorkflowLibraryCatalog.builtInSections.first { $0.kind == .core })
         XCTAssertEqual(core.groups.map(\.id), [
             "alignment-&-phylogenetics", "assembly", "classification", "clustering",
             "decontamination", "demultiplexing", "mapping", "qc-&-reporting",
-            "read-processing", "search-&-subsetting", "trimming-&-filtering", "variant-calling",
+            "read-processing", "rna-seq", "search-&-subsetting", "trimming-&-filtering", "variant-calling",
         ])
     }
 
@@ -62,6 +62,7 @@ final class WorkflowLibraryIdentifierPinTests: XCTestCase {
             .clustering: ("Clustering", "clustering"),
             .classification: ("Classification", "classification"),
             .genotyping: ("Genotyping", "genotyping"),
+            .rnaSeq: ("RNA-seq", "rna-seq"),
             .alignment: ("Alignment & Phylogenetics", "alignment-&-phylogenetics"),
         ]
         XCTAssertEqual(Set(expected.keys), Set(FASTQOperationCategoryID.allCases), "a category has no row")
