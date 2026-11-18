@@ -1510,6 +1510,26 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertEqual(lines.map { $0.text }, ["^\(forward)...\(rcReverse)$", "^\(reverse)...\(rcForward)$"])
     }
 
+    /// A sheet pair whose two barcodes are the same sequence reads `F ... rc(F)` on both strands, so its other strand is
+    /// its forward line and one line is written (BIO-BARE-REVERSE item 2, the skip of `writeLinkedAdapterFASTA`). At the
+    /// base the second line was the swap `^rc(F)...F$`.
+    func testASheetPairThatIsItsOwnOtherStrandWritesOneLine() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        let barcode = Self.anchorI7
+        XCTAssertNotEqual(PlatformAdapters.reverseComplement(barcode), barcode, "the barcode is not a palindrome")
+        let lines = try await adapterLines(DemultiplexConfig(
+            inputURL: dir.appendingPathComponent("reads.fastq"),
+            barcodeKit: BarcodeKitRegistry.truseqSingleA,
+            outputDirectory: dir.appendingPathComponent("demux-out", isDirectory: true),
+            barcodeLocation: .bothEnds,
+            symmetryMode: .asymmetric,
+            threads: 1,
+            sampleAssignments: [FASTQSampleBarcodeAssignment(sampleID: "S1", forwardSequence: barcode, reverseSequence: barcode)]
+        ), in: dir)
+        XCTAssertEqual(lines.map { $0.text }, ["^\(barcode)...\(PlatformAdapters.reverseComplement(barcode))$"])
+    }
+
     /// With the lines of `nextera-xt-v2` at Both Ends, reads of `N701-S502` on either strand are placed in its sample and a
     /// read with the pair swapped, which is no strand of the molecule, stays unassigned (BIO-BARE-REVERSE item 5 (iv), Q3).
     /// At the base cutadapt left both reverse-strand reads unassigned and placed the swapped read.
