@@ -12,8 +12,8 @@ public struct RNASeqSampleCorrelation: Equatable, Sendable {
     public static let measure = "Pearson r"
     public static let transform = "log2(CPM + 1)"
     /// The genes and the CPM the measure runs on. A gene of 0 in every sample adds only a point at the origin.
-    public static let genesRule = "host genes of the default count table with a count above 0 in at least one sample, "
-        + "with CPM on each sample's sum over host genes"
+    public static let genesRule = "features of the default count table that the manifest does not list under notHost and that have "
+        + "a count above 0 in at least one sample, with CPM on each sample's sum over those features"
 
     public var name: String
     public var countTable: String
@@ -83,8 +83,8 @@ public struct RNASeqSampleCorrelation: Equatable, Sendable {
 
     /// The line the text form prints before the table, which names the measure and the transform.
     public var caption: String {
-        "Sample correlation of \(name): \(Self.measure) of \(Self.transform) over \(geneCount) host genes of \(countTable) "
-            + "with a count above 0 in a sample."
+        "Sample correlation of \(name): \(Self.measure) of \(Self.transform) over \(geneCount) features of \(countTable) "
+            + "that the manifest does not list under notHost, with a count above 0 in a sample."
     }
 
     public func document() -> RNASeqQualityDocument {

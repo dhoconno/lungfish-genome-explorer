@@ -3,10 +3,12 @@ RNA-seq result
 
 Checks each file of the result against the sha256 its manifest lists, then
 prints one table and writes nothing. --table samples gives each sample's
-library size, mapping rate and library type, and the shares on rRNA genes,
-not-host features and globin genes. --table correlation gives Pearson r of
-log2(CPM + 1) between the samples, on host genes only. --format tsv prints the
-table alone, json one document, and text a line that names the table first.
+library size, mapping rate and library type, and the shares on rRNA genes and
+not-host features. The globin share reads Not recorded, since LGE names no
+globin genes yet. --table correlation gives Pearson r of log2(CPM + 1) between
+the samples, on the features that the manifest does not list under notHost.
+--format tsv prints the table alone, json one document, and text a line that
+names the table first.
 
 USAGE: lungfish-cli rnaseq quality <result-path> [--table <table>] [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
 

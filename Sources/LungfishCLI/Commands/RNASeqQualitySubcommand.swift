@@ -15,9 +15,10 @@ struct RNASeqQualitySubcommand: AsyncParsableCommand {
         commandName: "quality",
         abstract: "Print the quality numbers and the sample correlation of a bulk RNA-seq result",
         discussion: "Checks each file of the result against the sha256 its manifest lists, then prints one table and writes nothing. "
-            + "--table samples gives each sample's library size, mapping rate and library type, and the shares on rRNA genes, "
-            + "not-host features and globin genes. --table correlation gives Pearson r of log2(CPM + 1) between the samples, "
-            + "on host genes only. --format tsv prints the table alone, json one document, and text a line that names the table first."
+            + "--table samples gives each sample's library size, mapping rate and library type, and the shares on rRNA genes "
+            + "and not-host features. The globin share reads Not recorded, since LGE names no globin genes yet. "
+            + "--table correlation gives Pearson r of log2(CPM + 1) between the samples, on the features that the manifest does not "
+            + "list under notHost. --format tsv prints the table alone, json one document, and text a line that names the table first."
     )
 
     enum Table: String, ExpressibleByArgument, CaseIterable {
