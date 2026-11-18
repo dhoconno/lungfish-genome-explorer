@@ -29,6 +29,8 @@
 		A7C3E91F4D2B6058E1F0A3B1 /* SidebarRescanSelectionXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C3E91F4D2B6058E1F0A3B2 /* SidebarRescanSelectionXCUITests.swift */; };
 		C8E4A1B27D5F3609B1C2D3E1 /* WalkTwinsXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8E4A1B27D5F3609B1C2D3E2 /* WalkTwinsXCUITests.swift */; };
 		B4D2F6A81C3E5079A2B4C6D1 /* ExactBareWordsXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4D2F6A81C3E5079A2B4C6D2 /* ExactBareWordsXCUITests.swift */; };
+		D7E1A4C2905B3F68A1C2E3D1 /* DemuxDualAnchorXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E1A4C2905B3F68A1C2E3D2 /* DemuxDualAnchorXCUITests.swift */; };
+		D7E1A4C2905B3F68A1C2E3D3 /* DemuxDualAnchorFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E1A4C2905B3F68A1C2E3D4 /* DemuxDualAnchorFixture.swift */; };
 		F1E2D3C4B5A6978877665587 /* MainWindowNavigationXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665595 /* MainWindowNavigationXCUITests.swift */; };
 		F1E2D3C4B5A6978877665588 /* LungfishUITestLaunchOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665596 /* LungfishUITestLaunchOptions.swift */; };
 		F1E2D3C4B5A6978877665589 /* LungfishFixtureCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665597 /* LungfishFixtureCatalog.swift */; };
@@ -63,6 +65,8 @@
 		A7C3E91F4D2B6058E1F0A3B2 /* SidebarRescanSelectionXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/SidebarRescanSelectionXCUITests.swift; sourceTree = SOURCE_ROOT; };
 		C8E4A1B27D5F3609B1C2D3E2 /* WalkTwinsXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/WalkTwinsXCUITests.swift; sourceTree = SOURCE_ROOT; };
 		B4D2F6A81C3E5079A2B4C6D2 /* ExactBareWordsXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/ExactBareWordsXCUITests.swift; sourceTree = SOURCE_ROOT; };
+		D7E1A4C2905B3F68A1C2E3D2 /* DemuxDualAnchorXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/DemuxDualAnchorXCUITests.swift; sourceTree = SOURCE_ROOT; };
+		D7E1A4C2905B3F68A1C2E3D4 /* DemuxDualAnchorFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/DemuxDualAnchorFixture.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A6978877665595 /* MainWindowNavigationXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/MainWindowNavigationXCUITests.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A6978877665596 /* LungfishUITestLaunchOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/TestSupport/LungfishUITestLaunchOptions.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A6978877665597 /* LungfishFixtureCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/TestSupport/LungfishFixtureCatalog.swift; sourceTree = SOURCE_ROOT; };
@@ -157,6 +161,8 @@
 				A7C3E91F4D2B6058E1F0A3B2 /* SidebarRescanSelectionXCUITests.swift */,
 				C8E4A1B27D5F3609B1C2D3E2 /* WalkTwinsXCUITests.swift */,
 				B4D2F6A81C3E5079A2B4C6D2 /* ExactBareWordsXCUITests.swift */,
+				D7E1A4C2905B3F68A1C2E3D2 /* DemuxDualAnchorXCUITests.swift */,
+				D7E1A4C2905B3F68A1C2E3D4 /* DemuxDualAnchorFixture.swift */,
 				F1E2D3C4B5A69788776655AB /* VariantCallingAutoConfirmXCUITests.swift */,
 				F1E2D3C4B5A69788776655AF /* ViralReconXCUITests.swift */,
 				F1E2D3C4B5A6978877665579 /* TestSupport */,
@@ -403,6 +409,8 @@
 				A7C3E91F4D2B6058E1F0A3B1 /* SidebarRescanSelectionXCUITests.swift in Sources */,
 				C8E4A1B27D5F3609B1C2D3E1 /* WalkTwinsXCUITests.swift in Sources */,
 				B4D2F6A81C3E5079A2B4C6D1 /* ExactBareWordsXCUITests.swift in Sources */,
+				D7E1A4C2905B3F68A1C2E3D1 /* DemuxDualAnchorXCUITests.swift in Sources */,
+				D7E1A4C2905B3F68A1C2E3D3 /* DemuxDualAnchorFixture.swift in Sources */,
 				F1E2D3C4B5A6978877665592 /* ProjectLifecycleRobot.swift in Sources */,
 				F1E2D3C4B5A6978877665593 /* SystemPanelRobot.swift in Sources */,
 				F1E2D3C4B5A69788776655AC /* VariantCallingAutoConfirmXCUITests.swift in Sources */,
