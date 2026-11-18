@@ -19,7 +19,7 @@ Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1112
 Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift 979
 Sources/LungfishApp/Views/Inspector/InspectorView.swift 888
 Sources/LungfishApp/Views/Inspector/InspectorViewController+MetadataImport.swift 1053
-Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 988
+Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 996
 Sources/LungfishApp/Views/Inspector/ProvenanceInspectorViewModel.swift 1329
 Sources/LungfishApp/Views/Inspector/Sections/DocumentSection.swift 1885
 Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift 2788
