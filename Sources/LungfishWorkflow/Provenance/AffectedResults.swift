@@ -443,7 +443,7 @@ public enum AffectedResults {
                 + "files may hold chance matches.",
             whatToDo: "Check each sample against your sample sheet, and note that a new run keeps such files only if you "
                 + "choose to.",
-            fixCommit: "4ed138180"
+            fixCommit: "f0103d9f4"
         ),
         // S1 sweep 2026-11-17 lane DEMUX-EXACTBARE-NAMES (BIO-DEMUX-THREE item 11, section 2a). Every build with Exact Bare
         // Barcode, from its landing in 4389cd101, searched the read sequences of reads whose barcodes sat in their names.
@@ -453,7 +453,7 @@ public enum AffectedResults {
             sentence: "This run searched the read sequences for barcodes that sit in the read names, so its sample files "
                 + "may hold chance matches.",
             whatToDo: "Run it again with the barcodes read from the read names.",
-            fixCommit: "89a0a5096"
+            fixCommit: "eba5464b1"
         ),
     ]
 
