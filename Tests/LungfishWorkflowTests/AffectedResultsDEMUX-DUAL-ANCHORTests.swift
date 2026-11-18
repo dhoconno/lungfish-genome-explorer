@@ -145,11 +145,12 @@ final class AffectedResultsDEMUXDUALANCHORTests: XCTestCase {
                                      name: "truseq-plate.csv", sourceKit: truseq.id)
         XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(kit: builtOn.path, kept: builtOn)), .fastqDemultiplex,
                        "a definition built on a built-in dual kit")
+        // A custom dual definition at one read end names the kind of DEMUX-DUAL-BARE-REVERSE (BIO-BARE-REVERSE item 6).
         XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(
             kit: path.path, kept: path, location: "5prime", resolvedLocation: "fivePrime"
-        )), .fastqDemultiplex, "5' End")
+        )), .fastqDemultiplexDualOneEnd, "5' End")
         XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(kit: path.path, kept: path, resolvedLocation: "threePrime")),
-                       .fastqDemultiplex, "the resolved location decides")
+                       .fastqDemultiplexDualOneEnd, "the resolved location decides")
         for engine in ["header-index", "exact-bare"] {
             XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(kit: path.path, kept: path, engine: engine)),
                            .fastqDemultiplex, engine)

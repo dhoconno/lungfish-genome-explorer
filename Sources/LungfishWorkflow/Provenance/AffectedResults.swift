@@ -37,6 +37,11 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     /// (DEMUX-DUAL-UNANCHORED, BIO-DUAL-ANCHOR items 7 and 12). It is a narrower ``fastqDemultiplex``, so every row of that
     /// kind names it too.
     case fastqDemultiplexDualSearchedAnywhere
+    /// A demultiplexing run that searched the two barcodes of a custom dual-index definition with no sample sheet at 5' End
+    /// or 3' End with Cutadapt, so one barcode of each pair was free and the other strand was searched as the swapped pair,
+    /// and reads from the reverse strand were left unassigned (DEMUX-DUAL-BARE-REVERSE, BIO-BARE-REVERSE items 5 and 6). It
+    /// is a narrower ``fastqDemultiplex``, so every row of that kind names it too.
+    case fastqDemultiplexDualOneEnd
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -435,7 +440,7 @@ public enum AffectedResults {
             backlogID: "DEMUX-GROUPED-DROPS-INPUTS",
             kinds: [
                 .fastqDemultiplex, .fastqDemultiplexSaturatedKit, .fastqDemultiplexExactBareNames,
-                .fastqDemultiplexDualSearchedAnywhere,
+                .fastqDemultiplexDualSearchedAnywhere, .fastqDemultiplexDualOneEnd,
             ],
             firstBuild: nil, lastBuild: 12972,
             sentence: "If you chose Grouped Result for more than one dataset, this demultiplexing run read only the first "
@@ -467,6 +472,16 @@ public enum AffectedResults {
                 + "ends, set 5' Distance and 3' Distance to that many bases (on the command line, --max-distance-5prime "
                 + "and --max-distance-3prime).",
             fixCommit: "413bdd7a1"
+        ),
+        // Lane DEMUX-DUAL-BARE-REVERSE (BIO-BARE-REVERSE items 1, 2, 5 and 6, Q3 and Q4). Every build searched a custom
+        // dual-index definition at 5' End or 3' End with no sample sheet with one barcode of each pair free and the swapped
+        // pair as its other strand. The refusal 46e6376f8 is the first commit that stops such a run.
+        AffectedResultRow(
+            backlogID: "DEMUX-DUAL-BARE-REVERSE", kinds: [.fastqDemultiplexDualOneEnd], firstBuild: nil, lastBuild: 13764,
+            sentence: "This demultiplexing searched a dual-index definition at one read end only, so reads from the "
+                + "reverse strand were left unassigned and chance matches could fill a sample.",
+            whatToDo: "Run it again at Both Ends.",
+            fixCommit: "46e6376f8"
         ),
         // S1 sweep 2026-11-17 lane DEMUX-EXACTBARE-NAMES (BIO-DEMUX-THREE item 11, section 2a). Every build with Exact Bare
         // Barcode, from its landing in 4389cd101, searched the read sequences of reads whose barcodes sat in their names.
@@ -530,7 +545,7 @@ public enum AffectedResults {
         .init("2026.10.28", 11807), .init("2026.10.29", 12045), .init("2026.11.1", 12518), .init("2026.11.2", 12591),
         .init("2026.11.3", 12803), .init("2026.11.4", 12818), .init("2026.11.5", 12859), .init("2026.11.6", 12962),
         .init("2026.11.7", 12972), .init("2026.11.8", 13190), .init("2026.11.9", 13300), .init("2026.11.10", 13603),
-        .init("2026.11.11", 13672),
+        .init("2026.11.11", 13672), .init("2026.11.12", 13764),
     ]
 }
 
@@ -589,6 +604,7 @@ extension AffectedResults {
         case RecordName.fastqDemultiplex:
             if searchedReadNameBarcodesWithExactBare(envelope) { return .fastqDemultiplexExactBareNames }
             if searchedCustomDualPairsAnywhere(envelope) { return .fastqDemultiplexDualSearchedAnywhere }
+            if searchedCustomDualPairsAtOneEnd(envelope) { return .fastqDemultiplexDualOneEnd }
             return searchedWithAKitTheFloorCannotJudge(envelope) ? .fastqDemultiplexSaturatedKit : .fastqDemultiplex
         case RecordName.fastqImport:
             let guessed = envelope.steps.contains { runs("fastp", $0) && $0.argv.contains(fastpPairedAdapterGuess) }

@@ -85,6 +85,24 @@ extension AffectedResults {
             && kit.sourceKitID == nil
     }
 
+    /// Whether a `lungfish fastq demultiplex` record is a Cutadapt search of a custom dual-index definition at 5' End or 3'
+    /// End with no sample sheet. Every published build up to Preview 2026.11.12 searched one barcode of each pair free and
+    /// the other strand as the swapped pair, so reads from the reverse strand were left unassigned and chance matches
+    /// could fill a sample (DEMUX-DUAL-BARE-REVERSE, BIO-BARE-REVERSE items 5 (v) and 6, Q3 and Q4). The record names the
+    /// engine `cutadapt` or no engine, the resolved location, else the location, in a spelling `--location` takes for 5'
+    /// End or 3' End, and a definition that loads as the one of ``searchedCustomDualPairsAnywhere(_:)``, the kept copy
+    /// first. The floor does not matter, since no null finds the reads of the reverse strand. The CLI has no sample sheet.
+    /// It reads a file, so the Inspector's lookup runs it off the main actor.
+    static func searchedCustomDualPairsAtOneEnd(_ envelope: ProvenanceEnvelope) -> Bool {
+        let options = envelope.options.explicit
+        if case .string(let engine)? = options["engine"], engine != "cutadapt" { return false }
+        guard case .string(let named)? = options["resolvedLocation"] ?? options["location"],
+              ["5prime", "five-prime", "fiveprime", "3prime", "three-prime", "threeprime"].contains(named.lowercased()),
+              let kit = recordedCustomKit(options) else { return false }
+        return kit.isDualIndexed && kit.pairingMode == .fixedDual && kit.kitType == .custom && kit.platform == .unknown
+            && kit.sourceKitID == nil
+    }
+
     /// The custom definition a demultiplexing record names: the copy the run kept in its result folder, else the file `kit`
     /// names when it is no built-in kit id, or nil when neither can be read.
     private static func recordedCustomKit(_ options: [String: ParameterValue]) -> BarcodeKitDefinition? {

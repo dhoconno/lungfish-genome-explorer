@@ -41,6 +41,7 @@ final class AffectedResultsDEMUXDUALBAREREVERSETests: XCTestCase {
         XCTAssertEqual(row.kinds, [oneEnd])
         XCTAssertNil(row.firstBuild, "the one-end lines are older than any build a row names")
         XCTAssertEqual(row.lastBuild, 13764, "Preview 2026.11.12, the newest published build, lacks the fix")
+        XCTAssertEqual(row.fixCommit, "46e6376f8", "the refusal, the first commit that stops such a run")
         XCTAssertTrue(AffectedResults.publishedReleases.contains(.init("2026.11.12", 13764)))
         XCTAssertEqual(row.sentence, "This demultiplexing searched a dual-index definition at one read end only, so reads from "
                        + "the reverse strand were left unassigned and chance matches could fill a sample.")
