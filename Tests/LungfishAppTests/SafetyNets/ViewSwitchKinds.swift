@@ -86,6 +86,7 @@ enum ViewSwitchKinds {
             "Mapping result", "ReferenceBundleViewportController (mapping result) in mapping",
             "analyses/minimap2 mapping with a viewer bundle", "k22-mapping"
         ),
+        kind("RNA-seq", "RNASeqResultViewController in genomics", "bundles/RNA-seq result", "k23-rnaseq"),
     ]
 
     private static func kind(
