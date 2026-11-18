@@ -84,6 +84,11 @@ final class RNASeqQuantDialogTests: XCTestCase {
         XCTAssertEqual(item.operationType, .rnaSeqQuantification)
         XCTAssertEqual(item.cliCommand, (["lungfish-cli"] + made.argv).map(shellEscape).joined(separator: " "))
         XCTAssertEqual(item.cliCommand, made.cliCommand)
+        // The command the row shows parses through the shipped binary's own entry point, as a script would run it.
+        let recorded = try RecordedCLICommand.parse(item.cliCommand, as: RNASeqCommand.QuantSubcommand.self)
+        XCTAssertEqual(recorded.bundles, made.bundleURLs.map(\.path))
+        XCTAssertEqual(recorded.setID, made.setID)
+        XCTAssertEqual(recorded.k, made.k)
         await task.value
         XCTAssertEqual(center.items.first?.state, .completed)
     }

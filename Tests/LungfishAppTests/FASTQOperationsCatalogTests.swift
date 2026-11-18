@@ -52,6 +52,7 @@ final class FASTQOperationsCatalogTests: XCTestCase {
                 "CLUSTERING",
                 "CLASSIFICATION",
                 "GENOTYPING",
+                "RNA-SEQ",
                 "ALIGNMENT & PHYLOGENETICS",
             ]
         )
@@ -75,6 +76,7 @@ final class FASTQOperationsCatalogTests: XCTestCase {
                 "clustering",
                 "classification",
                 "genotyping",
+                "rnaSeq",
                 "alignment",
             ]
         )
@@ -99,6 +101,7 @@ final class FASTQOperationsCatalogTests: XCTestCase {
                 "Clustering",
                 "Classification",
                 "Genotyping",
+                "RNA-seq",
                 "Alignment & Phylogenetics",
             ]
         )

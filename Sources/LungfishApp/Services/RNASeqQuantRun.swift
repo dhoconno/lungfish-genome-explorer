@@ -5,6 +5,7 @@
 import Foundation
 import LungfishCore
 import LungfishKit
+import os
 
 /// What the quantify pane asks for, in the words of `lungfish-cli rnaseq quant`.
 ///
@@ -88,9 +89,16 @@ struct CLIRNASeqQuantRunner: RNASeqQuantCommandRunning {
     static let terminationGracePeriod = CLIProcessLauncher.operationGrace
 
     private let cliURLProvider: @Sendable () -> URL?
+    private let environmentAdditions: [String: String]
 
-    init(cliURLProvider: @escaping @Sendable () -> URL? = { LungfishCLIRunner.findCLI() }) {
+    /// `environmentAdditions` are laid over the app's subprocess environment, empty in the app. A test names the storage
+    /// folder and the tool folder of its own root there, so the CLI finds a set the row never writes a flag for.
+    init(
+        cliURLProvider: @escaping @Sendable () -> URL? = { LungfishCLIRunner.findCLI() },
+        environmentAdditions: [String: String] = [:]
+    ) {
         self.cliURLProvider = cliURLProvider
+        self.environmentAdditions = environmentAdditions
     }
 
     func run(
@@ -103,13 +111,14 @@ struct CLIRNASeqQuantRunner: RNASeqQuantCommandRunning {
             executableURL: cliURL,
             arguments: argv,
             terminationGracePeriod: Self.terminationGracePeriod,
-            drainGracePeriod: CLIProcessLauncher.operationDrain
+            drainGracePeriod: CLIProcessLauncher.operationDrain,
+            environmentAdditions: environmentAdditions
         )
-        let summary = SummaryLines()
+        let summary = OSAllocatedUnfairLock<[String]>(initialState: [])
         let outcome = await CLIProcessLauncher.run(
             spec,
             cancellation: cancellation,
-            onStdoutLine: { summary.append($0) },
+            onStdoutLine: { line in summary.withLock { $0.append(line) } },
             onStderrLine: { log($0) }
         )
         switch outcome {
@@ -126,7 +135,7 @@ struct CLIRNASeqQuantRunner: RNASeqQuantCommandRunning {
                     message: message.isEmpty ? "The quantification stopped with status \(exit.status)." : message
                 )
             }
-            return try Self.outcome(fromStdout: summary.lines)
+            return try Self.outcome(fromStdout: summary.withLock { $0 })
         }
     }
 
@@ -140,23 +149,6 @@ struct CLIRNASeqQuantRunner: RNASeqQuantCommandRunning {
             resultURL: URL(fileURLWithPath: result, isDirectory: true),
             samples: (object["samples"] as? [String]) ?? []
         )
-    }
-
-    private final class SummaryLines: @unchecked Sendable {
-        private let lock = NSLock()
-        private var stored: [String] = []
-
-        func append(_ line: String) {
-            lock.lock()
-            stored.append(line)
-            lock.unlock()
-        }
-
-        var lines: [String] {
-            lock.lock()
-            defer { lock.unlock() }
-            return stored
-        }
     }
 }
 
