@@ -431,7 +431,7 @@ final class FastqIngestCancelReplayTests: XCTestCase {
         XCTAssertTrue(refused, "the run ended in a refusal")
         let words = RNASeqImportError.sampleIDsDiffer(onlyInFiles: ["SRR896663", "SRR896743"], onlyInSheet: ["A", "B"]).errorDescription
         XCTAssertEqual(model.failure, words, "the sheet shows the command's words")
-        XCTAssertTrue(model.failure?.contains("Only in the files: SRR896663, SRR896743. Only in the sheet: A, B.") == true)
+        XCTAssertTrue((model.failure?.range(of: "Only in the files: SRR896663, SRR896743. Only in the sheet: A, B.") != nil) == true)
         XCTAssertEqual(model.phase, .editing, "the sheet stays open, ready to run again")
         XCTAssertEqual(model.sampleSheet, sheet)
         let row = OperationCenter.shared.items.first { $0.id == box.operationID }

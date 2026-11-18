@@ -160,6 +160,8 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertEqual(item.operationType, .ingestion)
         XCTAssertEqual(item.title, "RNA-seq Import: counts")
         XCTAssertEqual(try RecordedCLICommand.arguments(of: item.cliCommand), request.arguments)
+        _ = try RecordedCLICommand.parse(item.cliCommand)
+        XCTAssertEqual(try RecordedCLICommand.parseScript(item.cliCommand).count, 1, "one command that the shipped parser accepts")
     }
 
     @MainActor
@@ -208,8 +210,8 @@ final class CLIImportRunnerTests: XCTestCase {
         for folder in [inside, outside] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
         XCTAssertNil(RNASeqImportSheetModel(kind: .bulk, inputs: [inside], projectURL: project).outsideProjectNote)
         let note = try XCTUnwrap(RNASeqImportSheetModel(kind: .bulk, inputs: [inside, outside], projectURL: project).outsideProjectNote)
-        XCTAssertTrue(note.contains("Outside this project: SRR2."), note)
-        XCTAssertTrue(note.contains("<external>/<name>") && note.contains("does not replay"), note)
+        XCTAssertTrue((note.range(of: "Outside this project: SRR2.") != nil), note)
+        XCTAssertTrue((note.range(of: "<external>/<name>") != nil) && (note.range(of: "does not replay") != nil), note)
     }
 
     /// The sheet names a single-cell sample as the command does, for `outs/` and for the run folder above it.
@@ -238,8 +240,8 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertFalse(cellPanel.canChooseFiles)
         XCTAssertTrue(cellPanel.canChooseDirectories && cellPanel.allowsMultipleSelection)
         for card in [bulk, cells] {
-            XCTAssertTrue(card.description.contains("<external>/<name>"), card.description)
-            XCTAssertTrue(card.description.contains("does not replay"), card.description)
+            XCTAssertTrue((card.description.range(of: "<external>/<name>") != nil), card.description)
+            XCTAssertTrue((card.description.range(of: "does not replay") != nil), card.description)
             XCTAssertEqual(card.tab, .sequencingReads)
         }
         XCTAssertEqual(model.historyLabel(for: .rnaseqCounts), "RNA-seq Counts")
@@ -289,11 +291,11 @@ final class CLIImportRunnerTests: XCTestCase {
         let first = Self.maskedRNASeqResult(Self.rnaSeqResultText(createdAt: "2026-11-18T18:49:00Z"))
         let second = Self.maskedRNASeqResult(Self.rnaSeqResultText(createdAt: "2026-11-18T18:49:01Z"))
         XCTAssertEqual(first, second, "two seconds of one import read the same")
-        XCTAssertTrue(first.contains("\"createdAt\" : \"<TIMESTAMP>\""), first)
+        XCTAssertTrue((first.range(of: "\"createdAt\" : \"<TIMESTAMP>\"") != nil), first)
         XCTAssertNotEqual(first, Self.maskedRNASeqResult(Self.rnaSeqResultText(name: "another")), "every other value is compared as written")
         let both = Self.maskedRNASeqResult(Self.rnaSeqResultText(originTime: "2026-11-18T18:49:00Z"))
-        XCTAssertTrue(both.contains("\"createdAt\" : \"<TIMESTAMP>\""), "the top-level time is masked")
-        XCTAssertTrue(both.contains("\"createdAt\" : \"2026-11-18T18:49:00Z\""), "a time one level down stays beside it")
+        XCTAssertTrue((both.range(of: "\"createdAt\" : \"<TIMESTAMP>\"") != nil), "the top-level time is masked")
+        XCTAssertTrue((both.range(of: "\"createdAt\" : \"2026-11-18T18:49:00Z\"") != nil), "a time one level down stays beside it")
     }
 
     func testTheRNASeqClockMaskLeavesAnythingThatIsNotThatClockAsWritten() {
