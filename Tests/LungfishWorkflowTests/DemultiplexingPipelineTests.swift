@@ -1386,6 +1386,160 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertEqual(result.manifest.barcodes.first?.baseCount, 7)
     }
 
+    // MARK: - A dual kit with no sample sheet, at one read end and on the other strand (DEMUX-DUAL-BARE-REVERSE)
+
+    /// The lines `createAdapterConfiguration` hands to cutadapt for `config`, each with the name of the header above it.
+    private func adapterLines(_ config: DemultiplexConfig, in dir: URL) async throws -> [(name: String, text: String)] {
+        let work = dir.appendingPathComponent("work-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let adapters = try await DemultiplexingPipeline().createAdapterConfiguration(for: config, workDirectory: work)
+        var name = ""
+        var lines: [(name: String, text: String)] = []
+        for line in try String(contentsOf: adapters.adapterFASTA, encoding: .utf8).split(separator: "\n") {
+            if line.hasPrefix(">") {
+                name = String(line.dropFirst())
+            } else {
+                lines.append((name: name, text: String(line)))
+            }
+        }
+        return lines
+    }
+
+    /// A custom dual-index definition with no sample sheet at 5' End or 3' End leaves one barcode of each pair free, so
+    /// preflight refuses it before any tool runs, in words that name Both Ends and the two distances, and Both Ends still
+    /// passes (BIO-BARE-REVERSE items 1 and 5 (ii), Q4). At the base both one-end runs passed preflight.
+    func testACustomDualDefinitionWithNoSampleSheetIsRefusedAtOneReadEnd() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        let csv = dir.appendingPathComponent("dual.csv")
+        try "id,i7_sequence,i5_sequence\nD01,TGGGCGAA,AGGAGTTA\n".write(to: csv, atomically: true, encoding: .utf8)
+        let kit = try BarcodeKitRegistry.loadCustomKit(from: csv, name: "dual")
+        XCTAssertEqual(kit.pairingMode, .fixedDual)
+        XCTAssertEqual(kit.platform, .unknown)
+        XCTAssertNil(kit.sourceKitID)
+        let input = dir.appendingPathComponent("reads.fastq")
+        try writeFASTQ(sequences: [Self.anchorI7 + Self.anchorInsert + Self.anchorI5], to: input)
+        func config(_ location: BarcodeLocation) -> DemultiplexConfig {
+            DemultiplexConfig(
+                inputURL: input,
+                barcodeKit: kit,
+                outputDirectory: dir.appendingPathComponent("demux-out", isDirectory: true),
+                barcodeLocation: location,
+                threads: 1
+            )
+        }
+        for location in [BarcodeLocation.fivePrime, .threePrime] {
+            do {
+                try await DemultiplexingPipeline().preflight(config: config(location))
+                XCTFail("a custom dual definition at \(location) with no sample sheet leaves one barcode free")
+            } catch DemultiplexError.dualKitNeedsBothEnds(let kitName) {
+                XCTAssertEqual(kitName, kit.displayName)
+                let words = DemultiplexError.dualKitNeedsBothEnds(kitName: kitName).errorDescription ?? ""
+                XCTAssertTrue(words.contains("\"\(kit.displayName)\""), words)
+                XCTAssertTrue(words.contains("Choose Both Ends (on the command line, --location bothends)"), words)
+                XCTAssertTrue(words.contains("If your barcodes sit some bases in from the read ends, set 5' Distance and 3' "
+                                             + "Distance (on the command line, --max-distance-5prime and --max-distance-3prime)."),
+                              words)
+            }
+        }
+        do {
+            try await DemultiplexingPipeline().preflight(config: config(.bothEnds))
+        } catch DemultiplexError.dualKitNeedsBothEnds(_) {
+            XCTFail("Both Ends anchors both barcodes, so the definition is not refused for its location")
+        }
+        // A built-in kit keeps its words, which name no distance, since its indexes sit at the read ends.
+        let builtIn = DemultiplexError.dualKitNeedsBothEnds(kitName: BarcodeKitRegistry.nexteraXTv2.displayName)
+        XCTAssertFalse((builtIn.errorDescription ?? "").contains("Distance"), builtIn.errorDescription ?? "")
+    }
+
+    /// The other strand of a pair reads as the reverse complement of the pair as written. For `N701-S502` of the built-in
+    /// `nextera-xt-v2` at Both Ends with no sample sheet the lines are `^TAAGGCGA...ATAGAGAG$` and `^CTCTCTAT...TCGCCTTA$`,
+    /// and every pair has its two strands (BIO-BARE-REVERSE items 2 and 5 (i), Q2). At the base the second line was the swap
+    /// `^ATAGAGAG...TAAGGCGA$`, which is no strand of the molecule.
+    func testABuiltInDualKitSearchesTheReverseComplementOfEachPairAsItsOtherStrand() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        let kit = BarcodeKitRegistry.nexteraXTv2
+        let lines = try await adapterLines(DemultiplexConfig(
+            inputURL: dir.appendingPathComponent("reads.fastq"),
+            barcodeKit: kit,
+            outputDirectory: dir.appendingPathComponent("demux-out", isDirectory: true),
+            barcodeLocation: .bothEnds,
+            threads: 1
+        ), in: dir)
+        XCTAssertEqual(lines.filter { $0.name == "N701-S502" }.map { $0.text },
+                       ["^TAAGGCGA...ATAGAGAG$", "^CTCTCTAT...TCGCCTTA$"])
+        for barcode in kit.barcodes {
+            let i7 = barcode.i7Sequence.uppercased()
+            let i5 = try XCTUnwrap(barcode.i5Sequence).uppercased()
+            let (rcI7, rcI5) = (PlatformAdapters.reverseComplement(i7), PlatformAdapters.reverseComplement(i5))
+            XCTAssertEqual(lines.filter { $0.name == barcode.id }.map { $0.text }, ["^\(i7)...\(rcI5)$", "^\(i5)...\(rcI7)$"],
+                           barcode.id)
+        }
+    }
+
+    /// The sample-sheet route of a kit of single barcodes searched as pairs, the other caller of the linked writer, writes
+    /// the other strand the same way, as the reverse complement of its forward line (BIO-BARE-REVERSE items 2 and 5 (iii)).
+    /// At the base it wrote the swap `^rc(reverse)...forward$`.
+    func testTheSampleSheetRouteSearchesTheReverseComplementOfEachPairAsItsOtherStrand() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        let kit = BarcodeKitRegistry.truseqSingleA
+        XCTAssertEqual(kit.pairingMode, .singleEnd)
+        let (forward, reverse) = (Self.anchorI7, Self.anchorI5)
+        let (rcForward, rcReverse) = (PlatformAdapters.reverseComplement(forward), PlatformAdapters.reverseComplement(reverse))
+        XCTAssertNotEqual(rcReverse, forward, "the pair is not its own other strand")
+        let lines = try await adapterLines(DemultiplexConfig(
+            inputURL: dir.appendingPathComponent("reads.fastq"),
+            barcodeKit: kit,
+            outputDirectory: dir.appendingPathComponent("demux-out", isDirectory: true),
+            barcodeLocation: .bothEnds,
+            symmetryMode: .asymmetric,
+            threads: 1,
+            sampleAssignments: [FASTQSampleBarcodeAssignment(sampleID: "S1", forwardSequence: forward, reverseSequence: reverse)]
+        ), in: dir)
+        XCTAssertEqual(lines.map { $0.name }, ["S1", "S1"])
+        XCTAssertEqual(lines.map { $0.text }, ["^\(forward)...\(rcReverse)$", "^\(reverse)...\(rcForward)$"])
+    }
+
+    /// With the lines of `nextera-xt-v2` at Both Ends, reads of `N701-S502` on either strand are placed in its sample and a
+    /// read with the pair swapped, which is no strand of the molecule, stays unassigned (BIO-BARE-REVERSE item 5 (iv), Q3).
+    /// At the base cutadapt left both reverse-strand reads unassigned and placed the swapped read.
+    func testABuiltInDualKitPlacesReadsOfBothStrandsAndNotTheSwappedPair() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        // N701 and the reverse complement of S502, as the forward strand of the read carries them.
+        let (i7, rcI5) = ("TAAGGCGA", "ATAGAGAG")
+        let forward = i7 + Self.anchorInsert + rcI5
+        let otherInsert = "CATGCGTAAACTGCTAGGTACTGACTGAACTGGAC"
+        let inputFASTQ = dir.appendingPathComponent("input.fastq")
+        try writeFASTQ(
+            sequences: [
+                forward,                                                            // the pair as written
+                PlatformAdapters.reverseComplement(forward),                        // the other strand
+                PlatformAdapters.reverseComplement(i7 + otherInsert + rcI5),        // the other strand, another insert
+                rcI5 + Self.anchorInsert + i7,                                      // the pair swapped
+            ],
+            to: inputFASTQ
+        )
+        let result = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: inputFASTQ,
+                barcodeKit: BarcodeKitRegistry.nexteraXTv2,
+                outputDirectory: dir.appendingPathComponent("demux-out", isDirectory: true),
+                barcodeLocation: .bothEnds,
+                errorRate: 0.15,
+                threads: 1,
+                engine: .cutadapt
+            ),
+            progress: { _, _ in }
+        )
+        XCTAssertEqual(result.manifest.inputReadCount, 4)
+        XCTAssertEqual(result.manifest.barcodes.map(\.barcodeID), ["N701-S502"])
+        XCTAssertEqual(result.manifest.barcodes.first?.readCount, 3, "the pair as written and both reads of the other strand")
+        XCTAssertEqual(result.manifest.unassigned.readCount, 1, "the swapped pair")
+    }
+
     // MARK: - Poly-G Trim Config
 
     func testPolyGTrimDefaultsFromPlatform() {

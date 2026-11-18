@@ -60,17 +60,22 @@ final class IlluminaKitDemuxTests: XCTestCase {
         return AdapterFile(flag: adapters.adapterFlag, lines: lines)
     }
 
-    /// Every pair of a dual kit has its own lines, each holding that pair's i7 and the reverse complement of its i5,
-    /// and no line is shared by two pairs. A line shared by two pairs puts the reads of both in the first.
+    /// Every pair of a dual kit has its own lines, and no line is shared by two pairs. A line shared by two pairs puts the
+    /// reads of both in the first. Each pair has a line of the strand as written, holding its i7 and the reverse complement
+    /// of its i5, and a line of the other strand, holding its i5 and the reverse complement of its i7, and no other line
+    /// (BIO-BARE-REVERSE item 2). Until then the second line was the swap of the first, which is no strand of the molecule.
     private func assertEveryPairHasItsOwnLines(_ kit: BarcodeKitDefinition, _ file: AdapterFile) {
         for barcode in kit.barcodes {
             let own = file.lines.filter { $0.name == barcode.id }
             XCTAssertFalse(own.isEmpty, "\(barcode.id) has no line")
-            let i5 = PlatformAdapters.reverseComplement(barcode.i5Sequence ?? "")
-            for line in own {
-                XCTAssertTrue(line.text.contains(barcode.i7Sequence), "\(barcode.id) line \(line.text) lacks its i7 \(barcode.i7Sequence)")
-                XCTAssertTrue(line.text.contains(i5), "\(barcode.id) line \(line.text) lacks its i5 \(i5)")
-            }
+            let i7 = barcode.i7Sequence
+            let i5 = barcode.i5Sequence ?? ""
+            let (rcI7, rcI5) = (PlatformAdapters.reverseComplement(i7), PlatformAdapters.reverseComplement(i5))
+            let asWritten = own.filter { $0.text.hasPrefix("^\(i7)...\(rcI5)") }
+            let otherStrand = own.filter { $0.text.hasPrefix("^\(i5)...\(rcI7)") }
+            XCTAssertFalse(asWritten.isEmpty, "\(barcode.id) has no line of the strand as written in \(own.map(\.text))")
+            XCTAssertFalse(otherStrand.isEmpty, "\(barcode.id) has no line of the other strand in \(own.map(\.text))")
+            XCTAssertEqual(asWritten.count + otherStrand.count, own.count, "\(barcode.id) lines \(own.map(\.text))")
         }
         let shared = Dictionary(grouping: file.lines, by: \.text).filter { Set($0.value.map(\.name)).count > 1 }
         XCTAssertTrue(shared.isEmpty, "\(shared.count) lines are shared by two pairs, for example \(shared.keys.sorted().first ?? "")")
