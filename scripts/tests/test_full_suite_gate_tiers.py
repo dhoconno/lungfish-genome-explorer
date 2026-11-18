@@ -775,9 +775,9 @@ RULED_ORDER = [
     "LungfishAppTests", "LungfishCLITests", "LungfishAppViewTests", "LungfishAppWorkflowTests",
     "LungfishWorkflowTests", "LungfishIOTests", "LungfishCoreTests", "LungfishOperationsTests",
     "LungfishGenotypeUITests", "LungfishKitTests", "LungfishIntegrationTests", "LungfishTaxTriageUITests",
-    "LungfishTwelveSUITests", "LungfishExecutorTests", "LungfishAlignmentUITests", "LungfishEsVirituUITests",
-    "LungfishPortableTests", "LungfishPhylogeneticsUITests", "LungfishAssemblyUITests", "LungfishNvdUITests",
-    "LungfishNaoMgsUITests",
+    "LungfishTwelveSUITests", "LungfishRNASeqUITests", "LungfishExecutorTests", "LungfishAlignmentUITests",
+    "LungfishEsVirituUITests", "LungfishPortableTests", "LungfishPhylogeneticsUITests", "LungfishAssemblyUITests",
+    "LungfishNvdUITests", "LungfishNaoMgsUITests",
 ]
 
 
@@ -804,7 +804,7 @@ class FullTierBundleTests(unittest.TestCase):
     def test_full_tier_bundles_list_every_test_target_once(self):
         targets = re.findall(r'\.testTarget\(\s*name:\s*"([^"]+)"', (ROOT / "Package.swift").read_text())
         bundles = _gate_bundles()
-        self.assertEqual(len(targets), 21, "Package.swift holds 21 test targets at the ruling")
+        self.assertEqual(len(targets), 22, "Package.swift holds 22 test targets at the ruling")
         self.assertEqual(len(bundles), len(set(bundles)), "a bundle is listed twice")
         self.assertEqual(sorted(bundles), sorted(targets), "FULL_TIER_BUNDLES must list every .testTarget once")
         self.assertEqual(bundles, RULED_ORDER, "the order the ruling set")

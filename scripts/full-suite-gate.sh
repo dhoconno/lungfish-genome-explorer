@@ -264,6 +264,7 @@ FULL_TIER_BUNDLES=(
     LungfishIntegrationTests
     LungfishTaxTriageUITests
     LungfishTwelveSUITests
+    LungfishRNASeqUITests
     LungfishExecutorTests
     LungfishAlignmentUITests
     LungfishEsVirituUITests

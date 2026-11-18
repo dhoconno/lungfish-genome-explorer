@@ -601,13 +601,16 @@ DEFAULT_CLASS_TIMEOUT_SECONDS = {
 # outer suite printed in primary/runner.log of gate-20261028-075143-2aab8bf5d-13859 in the phase-3-0 worktree), rounded
 # up to 5 minutes, with a floor of 10 minutes. Swift Testing's 68 seconds are its time in the serial scan of 2026-10-27
 # (the budget note above). A new test target needs its measured time here before the full tier runs it.
+# LungfishRNASeqUITests is the 0.469 seconds that its outer suite printed for 6 tests in the RS-UI-KIND run of
+# 2026-11-18, so the 10 minute floor bounds it.
 SWIFT_TESTING_BUNDLE = "swift-testing"
 FULL_TIER_MEASURED_SECONDS = {
     "LungfishAppTests": 2647.984, "LungfishCLITests": 1285.178, "LungfishAppViewTests": 63.079,
     "LungfishAppWorkflowTests": 8.995, "LungfishWorkflowTests": 976.420, "LungfishIOTests": 130.203,
     "LungfishCoreTests": 92.419, "LungfishOperationsTests": 104.707, "LungfishGenotypeUITests": 288.232,
     "LungfishKitTests": 44.181, "LungfishIntegrationTests": 11.370, "LungfishTaxTriageUITests": 12.244,
-    "LungfishTwelveSUITests": 16.012, "LungfishExecutorTests": 51.378, "LungfishAlignmentUITests": 1.102,
+    "LungfishTwelveSUITests": 16.012, "LungfishRNASeqUITests": 0.469, "LungfishExecutorTests": 51.378,
+    "LungfishAlignmentUITests": 1.102,
     "LungfishEsVirituUITests": 4.438, "LungfishPortableTests": 0.119, "LungfishPhylogeneticsUITests": 4.596,
     "LungfishAssemblyUITests": 2.062, "LungfishNvdUITests": 5.894, "LungfishNaoMgsUITests": 180.871,
     SWIFT_TESTING_BUNDLE: 68.0,
