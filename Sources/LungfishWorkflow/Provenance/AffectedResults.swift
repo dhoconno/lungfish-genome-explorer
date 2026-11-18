@@ -460,10 +460,12 @@ public enum AffectedResults {
         AffectedResultRow(
             backlogID: "DEMUX-DUAL-UNANCHORED", kinds: [.fastqDemultiplexDualSearchedAnywhere], firstBuild: nil,
             lastBuild: 13672,
-            sentence: "This run looked for the two barcodes of a custom dual-index file anywhere in each read, so some "
-                + "samples may hold reads placed there by chance.",
+            sentence: "This run looked for each pair of barcodes in a Custom Definition of dual indexes anywhere in each "
+                + "read, so its sample files may hold reads that matched by chance.",
             whatToDo: "Check each sample against your sample sheet, then run Demultiplex Barcodes again with this version, "
-                + "which looks for the barcodes only at the read ends.",
+                + "which looks for each pair only at the two read ends, and if your barcodes sit some bases in from the "
+                + "ends, set 5' Distance and 3' Distance to that many bases (on the command line, --max-distance-5prime "
+                + "and --max-distance-3prime).",
             fixCommit: "413bdd7a1"
         ),
         // S1 sweep 2026-11-17 lane DEMUX-EXACTBARE-NAMES (BIO-DEMUX-THREE item 11, section 2a). Every build with Exact Bare

@@ -36,10 +36,12 @@ final class AffectedResultsDEMUXDUALANCHORTests: XCTestCase {
         XCTAssertNil(row.firstBuild, "the writer came in e34628cf4, older than any build a row names")
         XCTAssertEqual(row.lastBuild, 13672, "Preview 2026.11.11, the newest published build, lacks the fix")
         XCTAssertEqual(row.fixCommit, "413bdd7a1", "the refusal of SATKIT-4, the first commit that stops such a run")
-        XCTAssertEqual(row.sentence, "This run looked for the two barcodes of a custom dual-index file anywhere in each read, "
-                       + "so some samples may hold reads placed there by chance.")
-        XCTAssertEqual(row.whatToDo, "Check each sample against your sample sheet, then run Demultiplex Barcodes again with "
-                       + "this version, which looks for the barcodes only at the read ends.")
+        XCTAssertEqual(row.sentence, "This run looked for each pair of barcodes in a Custom Definition of dual indexes anywhere in each "
+                       + "read, so its sample files may hold reads that matched by chance.")
+        XCTAssertEqual(row.whatToDo, "Check each sample against your sample sheet, then run Demultiplex Barcodes again with this version, "
+                       + "which looks for each pair only at the two read ends, and if your barcodes sit some bases in from the "
+                       + "ends, set 5' Distance and 3' Distance to that many bases (on the command line, --max-distance-5prime "
+                       + "and --max-distance-3prime).")
         XCTAssertEqual(ids(4192, dual), ["DEMUX-GROUPED-DROPS-INPUTS", "DEMUX-DUAL-UNANCHORED"], "2026.8.1")
         XCTAssertEqual(ids(12972, dual), ["DEMUX-GROUPED-DROPS-INPUTS", "DEMUX-DUAL-UNANCHORED"], "Stable 2026.11.7")
         XCTAssertEqual(ids(13672, dual), ["DEMUX-DUAL-UNANCHORED"], "Preview 2026.11.11")
