@@ -13,15 +13,17 @@ extension ImportCenterViewModel {
     /// for its inputs in an open panel and then opens a sheet (`RNASeqBulkImportSheet`, `RNASeqSingleCellImportSheet`)
     /// for the options of the command. Both say in words what a project path means for the record, since a command that
     /// names an input outside the project does not replay (BACKLOG RNASEQ-IMPORT-EXTERNAL-NO-REPLAY).
+    ///
+    /// A card shows three lines of its description (`ImportCenterView`, `.lineLimit(3)`), about 190 characters at the
+    /// least width of the window, so a description is two short sentences and the sheet carries the rest (RS-GLUE-UX B1).
     static let rnaSeqCards: [ImportCardInfo] = [
         ImportCardInfo(
             id: "rnaseq-counts",
             title: "RNA-seq Counts",
-            description: "Import salmon quant folders, one count table of genes by samples, or the tables nf-core/rnaseq wrote, as one RNA-seq result. "
-                + "A sheet asks for the name, a sample sheet, a transcript-to-gene table for folders and the unit of a table. "
+            description: "Import salmon quant folders, or one count table of genes by samples, as one RNA-seq result. "
                 + RNASeqImportWords.externalInputs,
             sfSymbol: "chart.bar.xaxis",
-            fileHint: "salmon quant folders, or one count table (.tsv, .csv, .txt)",
+            fileHint: "salmon quant folders, or one count table (.tsv, .csv, .txt), such as one of nf-core/rnaseq's merged tables",
             tab: .sequencingReads,
             importKind: .openPanel(
                 configuration: .init(
@@ -37,8 +39,7 @@ extension ImportCenterViewModel {
         ImportCardInfo(
             id: "rnaseq-single-cell",
             title: "Single-cell Counts",
-            description: "Import Cell Ranger outs/ folders or STARsolo run folders as one single-cell result. "
-                + "A sheet asks for the name, a sample sheet, the genomes of a reference of two or more, and a reference set with a BAM for each sample to count its not-host sequences. "
+            description: "Import Cell Ranger outs folders or STARsolo run folders as one single-cell result. "
                 + RNASeqImportWords.externalInputs,
             sfSymbol: "circle.grid.3x3",
             fileHint: "Cell Ranger outs/ folders, or STARsolo run folders",
@@ -61,7 +62,7 @@ extension ImportCenterViewModel {
 enum RNASeqImportWords {
     /// What a person needs to know about inputs outside the project (BACKLOG RNASEQ-IMPORT-EXTERNAL-NO-REPLAY).
     static let externalInputs =
-        "An input outside the project is recorded as <external>/<name>, so its recorded command does not replay."
+        "An input outside the project is recorded as <external>/<name>, so its command does not replay."
 
     /// What a person does after the command refuses (RS-GLUE-UX SF-3). The sheet shows it under the command's own words.
     static let afterARefusal =
