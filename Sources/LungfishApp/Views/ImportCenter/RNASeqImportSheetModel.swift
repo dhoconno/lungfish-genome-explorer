@@ -78,6 +78,8 @@ final class RNASeqImportSheetModel {
     private(set) var phase: Phase = .editing
     /// The CLI's words after a refusal, or the line that says a cancel imported nothing.
     private(set) var failure: String?
+    /// What to do after a refusal, shown under the CLI's words. Nil for a cancel and for every other state.
+    private(set) var hint: String?
     private(set) var operationID: UUID?
 
     /// Registers the row and starts the run. Returns the row's id, or nil when the row was refused and nothing started.

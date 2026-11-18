@@ -62,4 +62,8 @@ enum RNASeqImportWords {
     /// What a person needs to know about inputs outside the project (BACKLOG RNASEQ-IMPORT-EXTERNAL-NO-REPLAY).
     static let externalInputs =
         "An input outside the project is recorded as <external>/<name>, so its recorded command does not replay."
+
+    /// What a person does after the command refuses (RS-GLUE-UX SF-3). The sheet shows it under the command's own words.
+    static let afterARefusal =
+        "Change what the message names, then choose Import again. To choose other inputs, choose Cancel and start again from the card."
 }

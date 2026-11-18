@@ -186,10 +186,32 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertEqual(bulkTable.missingChoice, "Give the result a name.")
 
         XCTAssertNil(RNASeqImportSheetModel(kind: .bulk, inputs: Array(folders.prefix(2)), projectURL: project).missingChoice)
+        // A table is imported on its own. A table with folders, or two tables, cannot be mended in the sheet (RS-GLUE-UX SF-1).
+        let tableOnItsOwn = "A count table is imported on its own. Cancel, then choose one table, or choose only salmon folders."
+        let table2 = root.appendingPathComponent("counts2.tsv")
+        try "gene_id\tS2\nG1\t1\n".write(to: table2, atomically: true, encoding: .utf8)
+        XCTAssertEqual(RNASeqImportSheetModel(kind: .bulk, inputs: [folders[0], table], projectURL: project).missingChoice, tableOnItsOwn)
+        XCTAssertEqual(RNASeqImportSheetModel(kind: .bulk, inputs: [table, table2], projectURL: project).missingChoice, tableOnItsOwn)
+        // Two folders of one name are refused by the command, so the sheet says so before Import is offered.
+        let twins = try ["A/quant", "B/quant"].map { name -> URL in
+            let url = root.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            return url
+        }
+        let twinSheet = RNASeqImportSheetModel(kind: .bulk, inputs: twins, projectURL: project)
         XCTAssertEqual(
-            RNASeqImportSheetModel(kind: .bulk, inputs: [folders[0], table], projectURL: project).missingChoice,
-            "Choose salmon folders, or one count table, and not both."
+            twinSheet.missingChoice,
+            "Two folders are named quant, and a folder's name is its sample's name. Cancel, then rename one of them or choose others."
         )
+        XCTAssertNil(twinSheet.request())
+        // The single-cell sheet takes the folders the command reads as Cell Ranger or STARsolo, and no other.
+        XCTAssertEqual(
+            RNASeqImportSheetModel(kind: .singleCell, inputs: [folders[0]], projectURL: project).missingChoice,
+            "SRR1 is not a Cell Ranger or STARsolo folder. Cancel, then choose the outs folder of a Cell Ranger run, or the folder of a STARsolo run that holds Solo.out."
+        )
+        for marker in ["S1/outs/filtered_feature_bc_matrix", "S2/Solo.out"] {
+            try FileManager.default.createDirectory(at: root.appendingPathComponent(marker, isDirectory: true), withIntermediateDirectories: true)
+        }
 
         let cells = RNASeqImportSheetModel(kind: .singleCell, inputs: Array(folders.suffix(2)), projectURL: project)
         XCTAssertNil(cells.missingChoice, "a single-cell import needs no set")
@@ -212,6 +234,52 @@ final class CLIImportRunnerTests: XCTestCase {
         let note = try XCTUnwrap(RNASeqImportSheetModel(kind: .bulk, inputs: [inside, outside], projectURL: project).outsideProjectNote)
         XCTAssertTrue((note.range(of: "Outside this project: SRR2.") != nil), note)
         XCTAssertTrue((note.range(of: "<external>/<name>") != nil) && (note.range(of: "does not replay") != nil), note)
+    }
+
+    /// A sample sheet whose run column names the folders gives them its sample names, and the command looks each BAM up by
+    /// that name, so the BAM rows of the single-cell sheet carry the sheet's names (RS-GLUE-UX SF-2).
+    @MainActor
+    func testTheRNASeqBAMRowsUseTheSampleNamesOfASheetThatRenamesTheFolders() throws {
+        let root = try makeTemporaryDirectory()
+        let folder = root.appendingPathComponent("S1", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: folder.appendingPathComponent("outs/filtered_feature_bc_matrix", isDirectory: true), withIntermediateDirectories: true)
+        let sheet = root.appendingPathComponent("sheet.tsv")
+        try "sample\trun\nPatient1\tS1\n".write(to: sheet, atomically: true, encoding: .utf8)
+        let model = RNASeqImportSheetModel(kind: .singleCell, inputs: [folder], projectURL: root.appendingPathComponent("Project.lungfish"))
+        XCTAssertEqual(model.sampleIDs, ["S1"])
+        model.sampleSheet = sheet
+        XCTAssertEqual(model.sampleIDs, ["Patient1"])
+        model.referenceSet = root.appendingPathComponent("set")
+        XCTAssertEqual(model.missingChoice, "Choose the sorted, indexed BAM of Patient1, or remove the reference set.")
+        let bam = root.appendingPathComponent("a.bam")
+        model.notHostBAMs[0] = bam
+        let request = try XCTUnwrap(model.request())
+        let named = "Patient1=" + bam.path
+        XCTAssertTrue(request.arguments.contains(named), "the command looks the BAM up by the sheet's sample name: \(request.arguments)")
+        // A sheet that does not name the folders leaves their own names, and the command refuses it in its own words.
+        let other = root.appendingPathComponent("other.tsv")
+        try "sample\trun\nPatient1\tZZ\n".write(to: other, atomically: true, encoding: .utf8)
+        model.sampleSheet = other
+        XCTAssertEqual(model.sampleIDs, ["S1"])
+    }
+
+    /// A refusal keeps the command's words and adds the way back. A cancel is not an error and carries no way back
+    /// (RS-GLUE-UX SF-3).
+    @MainActor
+    func testTheRNASeqSheetKeepsTheCommandsWordsAndAddsTheWayBackOnlyToARefusal() {
+        let model = RNASeqImportSheetModel(kind: .bulk, inputs: [], projectURL: URL(fileURLWithPath: "/p"))
+        let words = "The sample quant appears twice. Each sample is one folder or one column."
+        model.finish(.refused(words))
+        XCTAssertEqual(model.failure, words, "the command's words stay as written")
+        XCTAssertEqual(model.hint, RNASeqImportWords.afterARefusal)
+        model.finish(.cancelled)
+        XCTAssertEqual(model.failure, "The import was cancelled. Nothing was imported.")
+        XCTAssertNil(model.hint, "a cancel is not a refusal")
+        model.finish(.refused(words))
+        model.finish(.imported(URL(fileURLWithPath: "/p/Analyses/x.lungfishrnaseq")))
+        XCTAssertNil(model.failure)
+        XCTAssertNil(model.hint)
     }
 
     /// The sheet names a single-cell sample as the command does, for `outs/` and for the run folder above it.
@@ -242,6 +310,7 @@ final class CLIImportRunnerTests: XCTestCase {
         for card in [bulk, cells] {
             XCTAssertTrue((card.description.range(of: "<external>/<name>") != nil), card.description)
             XCTAssertTrue((card.description.range(of: "does not replay") != nil), card.description)
+            XCTAssertLessThanOrEqual(card.description.count, 190, "the card shows three lines of its description (ImportCenterView.swift:217)")
             XCTAssertEqual(card.tab, .sequencingReads)
         }
         XCTAssertEqual(model.historyLabel(for: .rnaseqCounts), "RNA-seq Counts")
