@@ -253,7 +253,8 @@ public final class RNASeqBulkViewController: NSViewController, NSTableViewDataSo
                 correlationPlot.show(quality.correlation, cells: cells, caption: quality.correlation.caption)
             }
             correlationScale.stringValue = correlationPlot.lowestText.map {
-                "A darker square is a higher value, on a scale from the lowest value of the table, \($0), to 1. A grey square reads Not recorded."
+                "A stronger blue square is a higher value, on a scale from the lowest value of the table, \($0), to 1. "
+                    + "A grey square reads Not recorded."
             } ?? ""
         }
         qualityTable.reloadData()

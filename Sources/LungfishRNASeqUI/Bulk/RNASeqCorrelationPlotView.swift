@@ -132,7 +132,9 @@ public final class RNASeqCorrelationPlotView: NSView {
         }
     }
 
-    /// A cell with no value is grey, and a value is darker the nearer it is to 1 on the scale from the lowest value.
+    /// A cell with no value is grey, and a value is a stronger blue the nearer it is to 1 on the scale from the lowest
+    /// value. The alpha of the blue rises over the text background, which makes it darker on white and brighter in dark
+    /// appearance, so the line under the plot names the blue and never the darkness.
     private func shade(_ r: Double?) -> NSColor {
         guard let r else { return NSColor.quaternaryLabelColor }
         let fraction = lowest < 1 ? CGFloat((r - lowest) / (1 - lowest)) : 1
