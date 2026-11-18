@@ -142,9 +142,12 @@ public struct RNASeqQualitySummary: Equatable, Sendable {
             facts: [
                 "countTable": countTable, "unit": unit.rawValue,
                 "shareOf": "the column sum of \(countTable), every feature",
-                "rRNA": "host genes whose biotype in genes.tsv is \(Self.rRNABiotypes.joined(separator: " or ")),\(rRNAGenes.count) in the table",
-                "notHost": "the \(notHostFeatures.count) features that the manifest lists under notHost",
-                "globin": Self.notRecordedText,
+                "rRNA": "annotated rRNA genes, the host genes whose biotype in genes.tsv is \(Self.rRNABiotypes.joined(separator: " or ")): "
+                    + "\(rRNAGenes.count) in the table. Ribosomal RNA that the annotation lists as no gene is in no count",
+                "notHost": notHostFeatures.count == 1
+                    ? "the 1 feature that the manifest lists under notHost"
+                    : "the \(notHostFeatures.count) features that the manifest lists under notHost",
+                "globin": "\(Self.notRecordedText): no rule names the globin genes yet",
             ],
             columns: Self.columns, rows: samples.map(\.cells))
     }
