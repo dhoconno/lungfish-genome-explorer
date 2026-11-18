@@ -225,7 +225,7 @@ extension AppDelegate {
             await logger.value
             if request.dryRun {
                 _ = reporter.complete(
-                    id: operationID, detail: "Checked \(name). The command made every refusal and wrote no folder.", outputURLs: []
+                    id: operationID, detail: "Checked \(name). Every check passed and no folder was written.", outputURLs: []
                 )
                 return .checked
             }

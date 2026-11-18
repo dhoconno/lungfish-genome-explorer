@@ -34,7 +34,7 @@ struct RNASeqPlanRequest: Sendable, Equatable {
 enum RNASeqPlanOutcome: Sendable, Equatable {
     /// The command wrote this plan folder.
     case written(URL)
-    /// A `--dry-run` made every refusal of the command and wrote nothing.
+    /// A `--dry-run` passed every check of the command and wrote nothing.
     case checked
     /// The command refused or failed, in its own words.
     case refused(String)
@@ -46,7 +46,7 @@ enum RNASeqPlanOutcome: Sendable, Equatable {
 /// CLI's own (`SoloPlanBarcodes`, `SoloPlanPreset`), so a sheet and a plan folder say one thing.
 enum RNASeqPlanWords {
     static let nothingRuns = "Nothing runs here and nothing is submitted. Copy the plan folder to the Linux machine and submit it there."
-    static let checkLine = "Check makes every refusal of the command and writes no folder."
+    static let checkLine = "Check runs every check that Write Plan runs, and writes no folder."
     static let stagedReadsHelp = "A tab-separated list of the reads already in the staging folder, with each read's absolute path, "
         + "size in bytes and SHA-256. Lungfish reads none of the reads."
     static let bulkSampleSheetHelp = "A comma-separated sheet with sample, r1 and r2 columns. Leave r2 empty for single-end reads."
@@ -317,7 +317,7 @@ final class RNASeqPlanSheetModel {
             onDismiss?()
         case .checked:
             failure = nil
-            note = "Checked. The command made every refusal and wrote no folder."
+            note = "Checked. Every check passed and no folder was written. Choose Write Plan to write the plan."
         case .refused(let words):
             failure = words
             note = nil
