@@ -536,6 +536,7 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
         try Self.fastq(fragments, .casava).write(to: input, atomically: true, encoding: .utf8)
 
         let result = try await DemultiplexingPipeline().run(
+            // A custom dual kit at Both Ends with no sample sheet writes unanchored i7...i5 lines, which preflight refuses unless the person keeps unchecked samples (BIO-SATKIT-ANYWHERE item 1, BIO-DUAL-TESTS).
             config: DemultiplexConfig(
                 inputURL: input,
                 barcodeKit: try BarcodeKitRegistry.loadCustomKit(from: csv, name: "dual"),
@@ -544,7 +545,8 @@ final class DemultiplexMateAssignmentTests: XCTestCase {
                 errorRate: 0.0,
                 minimumOverlap: 16,
                 trimBarcodes: true,
-                threads: 2
+                threads: 2,
+                keepsUncheckedSamples: true
             ),
             progress: { _, _ in }
         )
