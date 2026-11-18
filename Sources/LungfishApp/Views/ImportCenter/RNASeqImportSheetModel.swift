@@ -239,12 +239,14 @@ final class RNASeqImportSheetModel {
     func importClicked() {
         guard canImport, let request = request(), let start else { return }
         failure = nil
+        hint = nil
         phase = .running
         operationID = start(request) { [weak self] outcome in self?.finish(outcome) }
         if operationID == nil {
             // `begin` refused, and the Operations panel shows the refused row. Nothing was launched.
             phase = .editing
             failure = "The Operations panel shows why the import could not start."
+            hint = nil
         }
     }
 
@@ -264,12 +266,16 @@ final class RNASeqImportSheetModel {
         switch outcome {
         case .imported(let url):
             failure = nil
+            hint = nil
             onImported?(url)
             onDismiss?()
         case .refused(let words):
+            // The command's words stay as written. The hint says how to go on in the sheet's own terms (RS-GLUE-UX SF-3).
             failure = words
+            hint = RNASeqImportWords.afterARefusal
         case .cancelled:
             failure = "The import was cancelled. Nothing was imported."
+            hint = nil
         }
     }
 }

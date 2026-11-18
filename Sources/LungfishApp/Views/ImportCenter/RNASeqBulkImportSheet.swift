@@ -123,11 +123,20 @@ struct RNASeqImportFooter: View {
                     .accessibilityIdentifier("rnaseq-import-outside-note")
             }
             if let failure = model.failure {
+                // Red is for a refusal, which carries a hint. A cancel, and the line that sends a person to the Operations
+                // panel, read in the secondary colour, since a cancel is Cancelled and not an error (RS-GLUE-UX SF-3).
                 Text(failure)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(model.hint == nil ? Color.secondary : Color.red)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
                     .accessibilityIdentifier("rnaseq-import-failure")
+                if let hint = model.hint {
+                    Text(hint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("rnaseq-import-hint")
+                }
             }
             if model.phase == .running {
                 HStack(spacing: 8) {
