@@ -33,7 +33,7 @@ final class AffectedResultsDEMUXSATKITTests: XCTestCase {
         XCTAssertEqual(row.kinds, [.fastqDemultiplexSaturatedKit])
         XCTAssertNil(row.firstBuild, "every build before the fix, older than any build a row names")
         XCTAssertEqual(row.lastBuild, 13672, "Preview 2026.11.11, the newest published build, lacks the fix")
-        XCTAssertEqual(row.sentence, "This run's barcodes are so short that reads with no barcode match them by chance, "
+        XCTAssertEqual(row.sentence, "This run used a kit whose barcodes match about half of all reads or more by chance, "
                        + "so its sample files may hold chance matches.")
         let saturated = AffectedResultKind.fastqDemultiplexSaturatedKit
         XCTAssertEqual(ids(4192, saturated), ["DEMUX-GROUPED-DROPS-INPUTS", "DEMUX-FLOOR-SATURATED-KIT"], "2026.8.1")

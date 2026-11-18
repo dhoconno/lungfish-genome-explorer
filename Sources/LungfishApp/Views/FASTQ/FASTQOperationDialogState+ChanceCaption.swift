@@ -100,7 +100,7 @@ extension FASTQOperationDialogState {
 
     /// The caption under Keep Unchecked Samples (words for the UX review).
     static let demultiplexKeepUncheckedSamplesCaption =
-        "About half of all reads or more match a barcode of this kit by chance, so the check for chance matches cannot judge the samples, and the run is refused. Choose Keep Unchecked Samples to make the sample files anyway, then check each sample against your sample sheet."
+        "Many reads that carry no barcode would match a barcode of this kit by chance, so the check for chance matches cannot judge the samples, and the run is refused. If the indexes are in the read names, choose the engine Read Names. Otherwise choose Keep Unchecked Samples to make the sample files anyway, then check each sample against your sample sheet."
 
     /// The caption under Keep Unchecked Samples for the built-in Fluidigm Access Array kit, which cutadapt searches anywhere
     /// in the read. It names the routes made for that kit, as the refusal does (BIO-SATKIT-FLUIDIGM item 4), since a person
@@ -115,8 +115,11 @@ extension FASTQOperationDialogState {
 
     /// The caption under Keep Unchecked Samples for the chosen engine.
     var demultiplexKeepUncheckedSamplesCaptionForEngine: String {
-        demultiplexEngine == .exactBareBarcode
-            ? Self.demultiplexExactBareKeepUncheckedSamplesCaption : Self.demultiplexKeepUncheckedSamplesCaption
+        if demultiplexEngine == .exactBareBarcode { return Self.demultiplexExactBareKeepUncheckedSamplesCaption }
+        let isFluidigm = demultiplexBarcodeSource == .builtinKit
+            && demultiplexKitID == BarcodeKitRegistry.fluidigmAccessArray.id
+        return isFluidigm
+            ? Self.demultiplexKeepUncheckedSamplesFluidigmCaption : Self.demultiplexKeepUncheckedSamplesCaption
     }
 
     /// The settings the chance check of the chosen kit reads, with the error rate written as the command writes it. The

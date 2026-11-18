@@ -49,7 +49,7 @@ final class AffectedResultsExtractSampleListTests: XCTestCase {
 
         XCTAssertEqual(
             row.words,
-            "An extraction of a TaxTriage sample whose own BAM was missing may hold another sample's reads. Extract again."
+            "An extraction of a TaxTriage sample whose own BAM was missing may hold another sample's reads. Extract again with this version, which says so when the sample's own BAM is missing."
         )
     }
 

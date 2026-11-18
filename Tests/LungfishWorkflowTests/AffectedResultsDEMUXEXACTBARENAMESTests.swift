@@ -35,7 +35,8 @@ final class AffectedResultsDEMUXEXACTBARENAMESTests: XCTestCase {
         XCTAssertEqual(row.lastBuild, 13672, "Preview 2026.11.11, the newest published build, lacks the fix")
         XCTAssertEqual(row.sentence, "This run searched the read sequences for barcodes that sit in the read names, so its "
                        + "sample files may hold chance matches.")
-        XCTAssertEqual(row.whatToDo, "Run it again with the barcodes read from the read names.")
+        XCTAssertEqual(row.whatToDo, "Run Demultiplex Barcodes again with the engine Read Names, which reads the barcodes "
+                       + "from the read names.")
         let names = AffectedResultKind.fastqDemultiplexExactBareNames
         XCTAssertEqual(ids(2134, names), ["DEMUX-GROUPED-DROPS-INPUTS"], "the build before the engine")
         XCTAssertEqual(ids(2135, names), ["DEMUX-GROUPED-DROPS-INPUTS", "DEMUX-EXACT-BARE-NO-FLOOR"])

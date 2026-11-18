@@ -111,7 +111,7 @@ extension FASTQDemultiplexChanceNotice {
     }
 
     /// The line under the row's name when the run kept the samples of a kit the floor could not check.
-    static let uncheckedKitRowPrefix = "The chance check could not check this kit. "
+    static let uncheckedKitRowPrefix = "The check for chance matches could not check this kit. "
 
     /// The run's one warning and its information line, read together so that one call off the main actor serves the row and
     /// the Log. It reads files.

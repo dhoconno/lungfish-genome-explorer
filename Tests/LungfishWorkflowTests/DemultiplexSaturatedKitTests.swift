@@ -263,7 +263,7 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
         XCTAssertEqual(kitName, kit.displayName)
         XCTAssertFalse(FileManager.default.fileExists(atPath: files.output.path), "a refusal writes nothing")
         let words = try XCTUnwrap(refusal?.localizedDescription)
-        for phrase in ["anywhere in the read", "nearly every read", "cannot tell this pool from reads that carry no barcode",
+        for phrase in ["anywhere in the read", "about half of all reads or more", "cannot tell this pool from reads that carry no barcode",
                        "nothing was run", "ONT Fluidigm Sample Split", "--engine header-index", "--keep-unchecked-samples"] {
             XCTAssertTrue(words.contains(phrase), "\(phrase): \(words)")
         }
@@ -342,7 +342,7 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
             XCTAssertEqual(kitName, "Dual 96")
         }
         let words = try XCTUnwrap(DemultiplexError.chanceCheckCannotJudgeKitPairsSearchedAnywhere(kitName: "Dual 96").errorDescription)
-        for phrase in ["\"Dual 96\"", "anywhere in the read", "3 bases", "nothing was run", "Read Names", "--engine header-index",
+        for phrase in ["\"Dual 96\"", "anywhere in the read", "A few bases", "nothing was run", "Read Names", "--engine header-index",
                        "Keep Unchecked Samples", "--keep-unchecked-samples"] {
             XCTAssertTrue(words.contains(phrase), "\(phrase): \(words)")
         }

@@ -46,7 +46,8 @@ final class AffectedResultsVRSEAdaptersTests: XCTestCase {
         let row = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == backlogID })
         XCTAssertEqual(row.sentence, "A single-end Viral Recon run let fastp guess the adapter from the first reads, "
                        + "so the same reads in another stored order could be trimmed differently.")
-        XCTAssertEqual(row.whatToDo, "Run it again.")
+        XCTAssertEqual(row.whatToDo, "If this run used single-end reads, run Viral Recon again on the same samples with this version "
+                       + "and compare the variant table and consensus.")
         XCTAssertEqual(row.fixCommit, "4bf400438")
     }
 

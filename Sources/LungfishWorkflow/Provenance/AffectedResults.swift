@@ -193,7 +193,7 @@ public enum AffectedResults {
             backlogID: "EXTRACT-SCAN-EXTENDED-ID", kinds: [.taxTriageReadExtraction], firstBuild: 1085,
             lastBuild: 13672,
             sentence: "An extraction of a TaxTriage sample whose own BAM was missing may hold another sample's reads.",
-            whatToDo: "Extract again.",
+            whatToDo: "Extract again with this version, which says so when the sample's own BAM is missing.",
             fixCommit: "e9a83bb94"
         ),
         AffectedResultRow(
@@ -376,7 +376,8 @@ public enum AffectedResults {
             backlogID: "VIRALRECON-SE-ADAPTER-GUESS", kinds: [.viralRecon], firstBuild: 1618, lastBuild: 13672,
             sentence: "A single-end Viral Recon run let fastp guess the adapter from the first reads, so the "
                 + "same reads in another stored order could be trimmed differently.",
-            whatToDo: "Run it again.",
+            whatToDo: "If this run used single-end reads, run Viral Recon again on the same samples with this version "
+                + "and compare the variant table and consensus.",
             fixCommit: "4bf400438"
         ),
         AffectedResultRow(
@@ -439,10 +440,10 @@ public enum AffectedResults {
         // Stable 2026.10.29 and with the floor of random bases from Preview 2026.11.3, published such a kit's chance matches.
         AffectedResultRow(
             backlogID: "DEMUX-FLOOR-SATURATED-KIT", kinds: [.fastqDemultiplexSaturatedKit], firstBuild: nil, lastBuild: 13672,
-            sentence: "This run's barcodes are so short that reads with no barcode match them by chance, so its sample "
-                + "files may hold chance matches.",
-            whatToDo: "Check each sample against your sample sheet, and note that a new run keeps such files only if you "
-                + "choose to.",
+            sentence: "This run used a kit whose barcodes match about half of all reads or more by chance, so its "
+                + "sample files may hold chance matches.",
+            whatToDo: "Check each sample against your sample sheet, and note that a new run makes sample files "
+                + "from such a kit only if you choose Keep Unchecked Samples.",
             fixCommit: "f0103d9f4"
         ),
         // S1 sweep 2026-11-17 lane DEMUX-EXACTBARE-NAMES (BIO-DEMUX-THREE item 11, section 2a). Every build with Exact Bare
@@ -452,7 +453,8 @@ public enum AffectedResults {
             lastBuild: 13672,
             sentence: "This run searched the read sequences for barcodes that sit in the read names, so its sample files "
                 + "may hold chance matches.",
-            whatToDo: "Run it again with the barcodes read from the read names.",
+            whatToDo: "Run Demultiplex Barcodes again with the engine Read Names, which reads the barcodes from the "
+                + "read names.",
             fixCommit: "eba5464b1"
         ),
     ]

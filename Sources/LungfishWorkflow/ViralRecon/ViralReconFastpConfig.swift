@@ -66,9 +66,9 @@ package enum ViralReconFastpConfig {
         package var errorDescription: String? {
             switch self {
             case .unsafePath(let path):
-                return "Lungfish could not name its list of known adapters for viralrecon's fastp, because the folder "
-                    + "\(path) holds a character the config cannot carry. Move the project to a folder whose name "
-                    + "has only letters, digits, dots, dashes and underscores, and run it again."
+                return "Lungfish could not give the fastp step of Viral Recon its list of known adapters, because "
+                    + "the folder \(path) has a character that the step cannot take in a folder name. Move the project "
+                    + "to a folder whose name has only letters, digits, dots, dashes and underscores, and run it again."
             }
         }
     }
