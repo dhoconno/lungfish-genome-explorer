@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import XCTest
 
 /// Release smoke tasks for the classes of the Phase 2 Stable blockers (3.0 lane UIP). Each runs on the
@@ -155,7 +156,10 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
     /// (Tests/LungfishAppTests/SafetyNets). A kind joins the list when its fixture needs no managed tool and its viewer
     /// carries an accessibility identifier, and a preview kind also shows its status words. Assembly, Genotype, FASTQ,
     /// MHC reference, the FASTA collection and the text, PDF and image previews of Quick Look joined in 3.2, each with
-    /// a fixture the test writes or copies from `Tests/Fixtures/analyses`, which the smoke gate stages. Left out: NVD,
+    /// a fixture the test writes or copies from `Tests/Fixtures/analyses`, which the smoke gate stages. The RNA-seq result
+    /// joined in Phase 5.4 (lane RS-UI-KIND) with a folder the test writes by hand, because `lungfish-cli import rnaseq`
+    /// would need `Tests/Fixtures/rnaseq/salmon-c1`, which `SMOKE_FIXTURES` in `app_smoke_gate.py` does not stage.
+    /// `RNASeqSmokeFixtureTests` (Tests/LungfishRNASeqUITests) writes the same bytes and reads them back. Left out: NVD,
     /// CZ ID, 12S, both primer kinds and FASTA document, which have no fixture the smoke can open without managed tools,
     /// as 3.1 found, and Mapping result, whose matrix row is a minimap2 mapping with a viewer bundle, which the smoke cannot
     /// write without a mapping run (Phase 3.4 lane EXBARE). Status only draws no viewer to wait for.
@@ -187,6 +191,7 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
             ("MHC reference", ReleaseSmokeFixtures.mhcRow, any["mhc-reference-bundle-view"].firstMatch),
             ("PDF", ReleaseSmokeFixtures.pdfFile, any["viewer-pdf-preview"].firstMatch),
             ("Image preview", ReleaseSmokeFixtures.imageFile, any["viewer-quick-look-preview"].firstMatch),
+            ("RNA-seq", ReleaseSmokeFixtures.rnaseqRow, any["rnaseq-result-view"].firstMatch),
         ]
         // A preview's status words come from the status bar under it, as the matrix rows "Nextflow script previews as
         // text", "PDF figure" and "PNG image" say them (RoutingSafetyNetTable+ContainerAndFileRows).
@@ -337,7 +342,8 @@ enum ReleaseSmokeFixtures {
     /// `lungfish-cli` builds (`LUNGFISH_TEST_CLI`), plus the fixtures written below, for the view switch of exit check 3.
     /// The FASTQ, MHC reference and genotype bundles and the FASTA and script files are written by hand, and
     /// `SmokeFixtureReadTests` (Tests/LungfishAppTests) writes the same bytes and reads them with the app's own loaders,
-    /// so a change to one goes to the other.
+    /// so a change to one goes to the other. The RNA-seq result is written by hand too, and `RNASeqSmokeFixtureTests`
+    /// (Tests/LungfishRNASeqUITests) does the same for it.
     static func makeViewSwitchProject(named name: String) throws -> URL {
         let project = try makeClassifierResultsProject(named: name)
         let trees = try LungfishProjectFixtureBuilder.makeAlignmentTreeBundleProject(named: "ViewSwitchBundles")
@@ -354,6 +360,7 @@ enum ReleaseSmokeFixtures {
         try addMHCReferenceBundle(to: project)
         try addPDFPreview(to: project)
         try addImagePreview(to: project)
+        try addRNASeqResult(to: project)
         return project
     }
 
@@ -406,6 +413,43 @@ enum ReleaseSmokeFixtures {
                                        "createdAt": "2026-11-04T00:00:00Z"]
         try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
             .write(to: bundle.appendingPathComponent("mhc-reference.json"))
+    }
+
+    /// The name an RNA-seq result shares as its folder and its manifest name, so the sidebar row reads it.
+    static let rnaseqRow = "Smoke RNA-seq"
+
+    /// A bulk RNA-seq result of two samples and two genes, laid out as `RNASeqResultWriter` publishes it
+    /// (`docs/formats/rnaseq-bundle.md`): the manifest `rnaseq-result.json`, `samples.tsv`, `genes.tsv` and
+    /// `counts/genes.counts.tsv`. `lungfish-cli import rnaseq` would write it from `Tests/Fixtures/rnaseq/salmon-c1`, which the
+    /// smoke gate does not stage (`SMOKE_FIXTURES` in `app_smoke_gate.py`), so the files are written here. The manifest lists
+    /// the sha256 of each table as the writer does. The root record the writer adds last is left out, since the viewer reads
+    /// the manifest and the tables only. `RNASeqSmokeFixtureTests` writes the same bytes and reads them with the leaf's reader.
+    static func addRNASeqResult(to project: URL) throws {
+        let bundle = project.appendingPathComponent("\(rnaseqRow).lungfishrnaseq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle.appendingPathComponent("counts", isDirectory: true),
+                                                withIntermediateDirectories: true)
+        let tables = ["samples.tsv": "sample_id\tanimal\tspecies\torigin\tgroup\truns\tsource_folder\nS1\t\t\t\t\tS1\t\nS2\t\t\t\t\tS2\t\n",
+                      "genes.tsv": "gene_id\tname\tbiotype\tcontig\tlength\tnot_host\tmask\tunreliable\nG1\t\t\t\t\t\t\t\nG2\t\t\t\t\t\t\t\n",
+                      "counts/genes.counts.tsv": "feature_id\tS1\tS2\nG1\t10\t20\nG2\t0\t5\n"]
+        var digests: [String: String] = [:]
+        for (path, text) in tables {
+            let data = Data(text.utf8)
+            try data.write(to: bundle.appendingPathComponent(path))
+            digests[path] = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        }
+        func entry(_ path: String) -> [String: Any] { ["path": path, "sha256": digests[path] ?? ""] }
+        var counts = entry("counts/genes.counts.tsv")
+        counts.merge(["rows": "gene", "unit": "reads", "column": "default"]) { _, new in new }
+        let route: [String: Any] = ["id": "salmon-selective-alignment", "tool": "salmon", "toolVersion": "1.10.0",
+                                    "settings": ["unit": "NumReads"]]
+        let manifest: [String: Any] = ["schemaVersion": 1, "kind": "rnaseq-result", "modality": "bulk", "name": rnaseqRow,
+                                       "createdAt": "2026-11-18T00:00:00Z",
+                                       "origin": ["kind": "imported", "tool": "salmon", "toolVersion": "1.10.0"],
+                                       "route": route, "referenceSet": NSNull(), "samples": entry("samples.tsv"),
+                                       "genes": entry("genes.tsv"), "counts": [counts], "sourceFiles": [Any](),
+                                       "notHost": [String]()]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+            .write(to: bundle.appendingPathComponent("rnaseq-result.json"))
     }
 
     /// The sidebar words of the FASTQ bundle, which its folder name carries.
