@@ -115,6 +115,7 @@
       "Tests/LungfishOperationsTests/**",
       "Tests/LungfishKitTests/**",
       "Tests/LungfishTwelveSUITests/**",
+      "Tests/LungfishRNASeqUITests/**",
       "Tests/LungfishAlignmentUITests/**",
       "Tests/LungfishAssemblyUITests/**",
       "Tests/LungfishNvdUITests/**",

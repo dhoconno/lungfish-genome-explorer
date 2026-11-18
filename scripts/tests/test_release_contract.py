@@ -91,9 +91,9 @@ EXPECTED_GATES = {
         "docs/release-notes/**", "docs/plans/**", "docs/reports/**", "docs/contracts/**", "docs/architecture/**",
         "docs/release/NEXT-RELEASE-HANDOFF.md",
         *[f"Tests/Lungfish{name}Tests/**" for name in (
-            "Portable", "Executor", "Core", "IO", "Workflow", "Operations", "Kit", "TwelveSUI", "AlignmentUI",
-            "AssemblyUI", "NvdUI", "NaoMgsUI", "TaxTriageUI", "EsVirituUI", "GenotypeUI", "PhylogeneticsUI", "App",
-            "AppView", "AppWorkflow", "CLI", "Integration")],
+            "Portable", "Executor", "Core", "IO", "Workflow", "Operations", "Kit", "TwelveSUI", "RNASeqUI",
+            "AlignmentUI", "AssemblyUI", "NvdUI", "NaoMgsUI", "TaxTriageUI", "EsVirituUI", "GenotypeUI",
+            "PhylogeneticsUI", "App", "AppView", "AppWorkflow", "CLI", "Integration")],
         "scripts/full-suite-gate.sh", "scripts/release/gate_evidence.py", "scripts/testing/**", "scripts/tests/**",
         "scripts/ratchets/**", "scripts/session/**",
     ],
@@ -481,7 +481,7 @@ class ReleaseContractTests(unittest.TestCase):
         package = (CONTRACT_PATH.parents[1] / "Package.swift").read_text(encoding="utf-8")
         products = [path for kind, _, path in self.module.swiftpm_targets(package) if kind != "testTarget"]
         tests = [path for kind, _, path in self.module.swiftpm_targets(package) if kind == "testTarget"]
-        self.assertEqual(len(tests), 21)
+        self.assertEqual(len(tests), 22)
         self.assertIn("Tests/Support/LungfishTestSupport", products)
         self.assertEqual(sorted(f"{path}/**" for path in tests),
                          sorted(p for p in EXPECTED_GATES["appNeutralPaths"] if p.startswith("Tests/")),
