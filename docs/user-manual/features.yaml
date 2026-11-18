@@ -3235,3 +3235,41 @@ features:
       sheet, with the way back, and a cancel removes the stage and leaves no
       result. An input outside the project is recorded as
       <external>/<name>, so its command does not replay.
+  viewport.rnaseq-result:
+    title: RNA-seq result viewer
+    entry_points:
+      - "Open an RNA-seq result from the sidebar"
+    inputs: [rnaseq-result]
+    outputs: []
+    viewport_class: none
+    sources:
+      - Sources/LungfishRNASeqUI/RNASeqResultSurface.swift
+      - Sources/LungfishRNASeqUI/Bulk/RNASeqBulkViewController.swift
+      - Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellViewController.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController+RNASeq.swift
+      - Sources/LungfishIO/Bundles/BundleKindRegistry.swift
+      - Sources/LungfishIO/Bundles/SidebarKindRegistry.swift
+      - Sources/LungfishWorkflow/Ingestion/CrossProjectItemCopier.swift
+    module: [LungfishRNASeqUI, LungfishApp, LungfishIO, LungfishWorkflow]
+    tests:
+      - Tests/LungfishRNASeqUITests/RNASeqResultSurfaceTests.swift
+      - Tests/LungfishRNASeqUITests/RNASeqSmokeFixtureTests.swift
+      - Tests/LungfishIOTests/Bundles/BundleKindRegistryTests.swift
+      - Tests/LungfishAppTests/CrossProjectItemCopierBasePinTests.swift
+      - Tests/LungfishAppTests/SafetyNets/RoutingTableSafetyNetTests.swift
+      - Tests/LungfishAppTests/SafetyNets/ViewSwitchMatrixTests.swift
+      - Tests/LungfishXCUITests/ReleaseCandidateSmokeXCUITests.swift
+    notes: >-
+      A folder that ends in .lungfishrnaseq is the RNA-seq result kind,
+      known by its extension alone and kept under Analyses/. The sidebar
+      lists it as one row, RNA-seq result, which opens a viewer with the
+      name, modality, origin, route and sample count that rnaseq-result.json
+      states, shown as written, and the bulk or the single-cell view under
+      them. Both views are placeholders in this build and show nothing yet.
+      A result written by a newer LGE shows the reader's words for a newer
+      schema, and a folder with no readable manifest shows the reader's words
+      for that, both in the viewer and not in an alert. The viewer reads the
+      folder and writes nothing, and offers no button, editable field or file
+      action. A copy of a result into another project keeps the folder whole
+      under Analyses/. The Inspector gets the result's name and folder for
+      its Provenance tab, and its Document tab has no RNA-seq block yet.
