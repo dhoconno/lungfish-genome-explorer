@@ -106,6 +106,10 @@ final class RNASeqSingleCellViewTests: XCTestCase {
             let source = try XCTUnwrap(view.tableSource, view.failureWords ?? "")
             let extra = try XCTUnwrap(view.summary?.extras.first)
             let prefix = "not-host-\(extra.extra)"
+            // The mask line shows the file's words, and a virus has no rRNA to mask, so its file holds none and the line says so.
+            XCTAssertEqual(extra.maskWords.isEmpty, notHost == .virus)
+            XCTAssertEqual(RNASeqSingleCellFixtures.texts(in: view.view)["rnaseq-sc-mask-words-\(extra.extra)"],
+                           notHost == .virus ? "No rRNA mask, none needed" : extra.maskWords)
             XCTAssertEqual(source.text(row: 0, column: "\(prefix)-flag"), words)
             XCTAssertEqual(source.text(row: 0, column: "\(prefix)-umis"), umis)
             XCTAssertEqual(source.text(row: 0, column: "\(prefix)-masked"), masked)
@@ -195,5 +199,37 @@ final class RNASeqSingleCellViewTests: XCTestCase {
         XCTAssertNil(view.tableSource)
         XCTAssertEqual(view.cellsTable.numberOfRows, 0)
         XCTAssertEqual(RNASeqSingleCellFixtures.texts(in: view.view)["rnaseq-sc-failure"], words)
+    }
+
+    @MainActor
+    func testTheQualityTableLiesInsideTheViewAtTheDefaultWidth() async throws {
+        // Cell Ranger keeps 20 metrics, the longest "Reads Mapped Confidently to Intergenic Regions". The top pane does not
+        // scroll sideways, so a table with one column for each metric runs past the edge and no one can read it.
+        let url = try RNASeqSingleCellFixtures.write(.cellRanger, into: root)
+        let (surface, view) = try await open(url)
+        let host = surface.viewController.view
+        host.setFrameSize(NSSize(width: 1100, height: 900))
+        host.layoutSubtreeIfNeeded()
+        let fields = RNASeqSingleCellFixtures.allSubviews(of: view.view).compactMap { $0 as? NSTextField }
+            .filter { $0.accessibilityIdentifier().hasPrefix("rnaseq-sc-quality-") }
+        XCTAssertGreaterThan(fields.count, 20, "twenty metrics and their values")
+        for field in fields {
+            XCTAssertLessThanOrEqual(field.convert(field.bounds, to: host).maxX, 1100, "\(field.accessibilityIdentifier()) lies past the right edge")
+            XCTAssertGreaterThanOrEqual(field.frame.width, field.intrinsicContentSize.width - 1, "\(field.stringValue) is cut short")
+        }
+    }
+
+    @MainActor
+    func testEveryStateOfTheViewNamesTheNextStep() async throws {
+        for words in [RNASeqSingleCellWords.noNotHost, RNASeqSingleCellWords.noCellsSummary, RNASeqSingleCellWords.noCells] {
+            XCTAssertTrue(words.lowercased().contains("import"), words)
+        }
+        let url = try RNASeqSingleCellFixtures.write(.starsolo, into: root)
+        let result = try RNASeqResultBundle.load(from: url)
+        let copy = root.appendingPathComponent("broken.lungfishrnaseq", isDirectory: true)
+        try FileManager.default.copyItem(at: url, to: copy)
+        try Data("not a database".utf8).write(to: copy.appendingPathComponent(RNASeqCellsDatabase.filename))
+        guard case .failed(let words) = RNASeqSingleCellSummary.read(result, bundleURL: copy) else { return XCTFail("a file that is not a database fails in words") }
+        XCTAssertTrue(words.hasSuffix("Check that the result folder is whole, or import it again."), words)
     }
 }
