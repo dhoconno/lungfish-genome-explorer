@@ -87,7 +87,9 @@
       "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateExtractFromARenamedResultUsesTheLoadedFolder",
       "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateViewSwitchPerKind",
       "LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateScaleCorpusOpensWithoutAHang",
-      "LungfishXCUITests/ExactBareWordsXCUITests/testExactBarePickShowsTheCaptionAndItsRunSaysNotCheckedForChanceMatches"
+      "LungfishXCUITests/ExactBareWordsXCUITests/testExactBarePickShowsTheCaptionAndItsRunSaysNotCheckedForChanceMatches",
+      "LungfishXCUITests/DemuxDualAnchorXCUITests/testACustomDualListAtBothEndsShowsNoBoxAndRunsToSampleFiles",
+      "LungfishXCUITests/DemuxDualAnchorXCUITests/testTheFluidigmKitShowsTheBoxAndItsUntickedRunIsRefusedWithNothingMade"
     ],
     "appSmokeAccount": null,
     "dependencyPolicy": "manifest",
