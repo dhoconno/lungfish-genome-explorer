@@ -33,6 +33,8 @@ enum RNASeqExportFixture {
         /// Zero keeps the counts linear. Above zero each count is scaled by a fixed wave of this size, so DESeq2 has
         /// dispersions to fit (the not-host R run reads such a folder).
         var noise = 0.0
+        /// The biotype of a gene by id in the gene table. A gene not listed here is `protein_coding`.
+        var biotypes: [String: String] = [:]
     }
 
     /// Writes one result into `analyses` with the one writer and returns its folder. The gene table is the set's own
@@ -42,7 +44,7 @@ enum RNASeqExportFixture {
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         var genesText = "gene_id\tname\tbiotype\tcontig\tlength\tnot_host\tmask\tunreliable\n"
         for id in spec.genes {
-            genesText += "\(id)\t\(id)\tprotein_coding\tchr1\t1000\t\(spec.notHost.contains(id) ? "true" : "false")\t\t\n"
+            genesText += "\(id)\t\(id)\t\(spec.biotypes[id] ?? "protein_coding")\tchr1\t1000\t\(spec.notHost.contains(id) ? "true" : "false")\t\t\n"
         }
         let genesURL = scratch.appendingPathComponent("genes.tsv")
         try genesText.write(to: genesURL, atomically: true, encoding: .utf8)

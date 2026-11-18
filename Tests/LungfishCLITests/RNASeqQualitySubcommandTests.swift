@@ -49,7 +49,18 @@ final class RNASeqQualitySubcommandTests: XCTestCase {
         XCTAssertEqual(tsv.split(separator: "\n").first.map(String.init), RNASeqQualitySummary.columns.joined(separator: "\t"))
         XCTAssertEqual(tsv.split(separator: "\n").count, 4, "a header and one line for each of three samples")
         let text = try RNASeqQualitySubcommand.parse([result.path, "--table", "correlation"]).render()
-        XCTAssertTrue(text.hasPrefix("Sample correlation of bulk: Pearson r of log2(CPM + 1) over 3 host genes"), text)
+        XCTAssertTrue(
+            text.hasPrefix("Sample correlation of bulk: Pearson r of log2(CPM + 1) over 3 features of counts/genes.counts.tsv that the manifest does not list under notHost"),
+            text)
+    }
+
+    /// The help says what the leaf does: the globin share is never a number yet, and an import has no notion of host genes.
+    func testTheHelpSaysTheGlobinShareReadsNotRecordedAndNamesTheCorrelationFeaturesByNotHost() {
+        let discussion = RNASeqQualitySubcommand.configuration.discussion
+        XCTAssertTrue(discussion.contains("The globin share reads Not recorded, since LGE names no globin genes yet."), discussion)
+        XCTAssertTrue(discussion.contains("on the features that the manifest does not list under notHost"), discussion)
+        XCTAssertFalse(discussion.contains("host genes only"), discussion)
+        XCTAssertFalse(discussion.contains("not-host features and globin genes"), discussion)
     }
 
     func testARunWritesNothingIntoTheResult() async throws {

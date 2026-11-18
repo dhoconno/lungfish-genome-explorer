@@ -49,7 +49,7 @@ final class RNASeqQualitySummaryTests: RNASeqExportTestCase {
             XCTAssertEqual(row.mappingRatePercent, "\(mapped)", "percent_mapped as salmon printed it, \(row.sample)")
             XCTAssertEqual(row.libraryType, types.joined(separator: ","), row.sample)
             XCTAssertEqual(row.rRNAPercent, "no rRNA genes annotated", "an import names no reference set, \(row.sample)")
-            XCTAssertEqual(row.notHostPercent, "no not-host features", row.sample)
+            XCTAssertEqual(row.notHostPercent, "Not recorded", "an import names no reference set, so its files do not say which features are not host, \(row.sample)")
             XCTAssertEqual(row.globinPercent, "Not recorded", "no globin rule is named, \(row.sample)")
         }
         XCTAssertEqual(summary.document().columns, RNASeqQualitySummary.columns)
@@ -120,6 +120,37 @@ final class RNASeqQualitySummaryTests: RNASeqExportTestCase {
         XCTAssertEqual(s2.notHostPercent, "0")
         XCTAssertEqual(s1.globinPercent, "Not recorded")
         XCTAssertFalse(s1.rRNAPercent.contains("e"), "a share prints in plain digits: \(s1.rRNAPercent)")
+        let facts = summary.document().facts
+        XCTAssertEqual(facts["rRNA"], "annotated rRNA genes, the host genes whose biotype in genes.tsv is rRNA or Mt_rRNA: 2 in the table. Ribosomal RNA that the annotation lists as no gene is in no count")
+        XCTAssertEqual(facts["notHost"], "the 1 feature that the manifest lists under notHost")
+        XCTAssertEqual(facts["globin"], "Not recorded: no rule names the globin genes yet")
+    }
+
+    /// An import names no reference set, so its files do not say which features are not host (the salmon-c1 test above). A
+    /// result that names a set and lists no extra feature keeps the words that say there is none.
+    func testAResultThatNamesAReferenceSetAndListsNoNotHostFeatureKeepsTheWordsThatSayThereIsNone() throws {
+        let url = try make(.init(name: "plain", samples: ["S1"]))
+        XCTAssertEqual(try RNASeqQualitySummary.read(resultAt: url).samples[0].notHostPercent, "no not-host features")
+    }
+
+    /// The writer sums the transcripts of a gene in doubles, so a printed cell can carry the noise of that sum
+    /// (5.7379999999999995 for the 5.738 that salmon measured). `counted` is the sum of the printed cells rounded to
+    /// 6 decimals, without trailing zeros, and it is the library size when the result has no quality table.
+    func testCountedIsTheRoundedSumOfThePrintedCellsAndNotTheNoiseOfTheWritersDoubleSums() throws {
+        let table = RNASeqCountTable(
+            sampleIDs: ["S1"], rows: [.init(id: "G1", counts: [5.7379999999999995]), .init(id: "G2", counts: [0.1])])
+        let request = RNASeqResultWriter.Request(
+            name: "noisy", modality: .bulk, origin: .init(kind: .quantified), route: RNASeqExportFixture.salmonReads, referenceSet: nil,
+            samples: [RNASeqSampleRecord(id: "S1", runs: ["S1"])], genes: .ids(["G1", "G2"]),
+            counts: [.init(rows: .gene, column: .default, unit: .estimated, table: table)], sourceFiles: [], notHost: [])
+        let url = analyses.appendingPathComponent("noisy.lungfishrnaseq", isDirectory: true)
+        let envelope = ProvenanceEnvelope(workflowName: "RNA-seq quantification", toolName: "lungfish-cli", toolVersion: "test")
+        try RNASeqResultWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil)).write(request, to: url, envelope: envelope)
+        let printed = try String(contentsOf: url.appendingPathComponent("counts/genes.counts.tsv"), encoding: .utf8)
+        XCTAssertTrue(printed.contains("5.7379999999999995"), "the writer prints the noise of the double: \(printed)")
+        let row = try RNASeqQualitySummary.read(resultAt: url).samples[0]
+        XCTAssertEqual(row.counted, "5.838")
+        XCTAssertEqual(row.librarySize, "5.838", "no quality table, so the library size is the column sum")
     }
 
     // MARK: - The sample correlation
@@ -167,5 +198,32 @@ final class RNASeqQualitySummaryTests: RNASeqExportTestCase {
         XCTAssertEqual(RNASeqQualitySummary.plainDigits(0.00001), "0.00001")
         XCTAssertEqual(RNASeqQualitySummary.plainDigits(1e16), "10000000000000000")
         XCTAssertEqual(RNASeqQualitySummary.plainDigits(33.333333333333336), "33.333333333333336")
+    }
+
+    // MARK: - The sum text and the rRNA rule
+
+    /// The values are the exact sums in the kept C1 and C5 tables (`quality-samples.tsv`), with the text a person should read.
+    func testASumPrintsWithoutTheNoiseOfTheWritersDoubleSums() throws {
+        let posix = Locale(identifier: "en_US_POSIX")
+        for (exact, shown) in [
+            ("4829448.9820000000172139", "4829448.982"), ("7711258.0000000000103918", "7711258"),
+            ("11239954.9499999999717548", "11239954.95"), ("17121121.1010000009239852", "17121121.101"),
+            ("402.75", "402.75"), ("52.5", "52.5"), ("0", "0"),
+        ] {
+            XCTAssertEqual(RNASeqQualitySummary.sumText(try XCTUnwrap(Decimal(string: exact, locale: posix))), shown, exact)
+        }
+    }
+
+    /// Decision 1 of the lane: a host gene is an rRNA gene when its biotype is rRNA or Mt_rRNA. A pseudogene of rRNA is not,
+    /// and neither is an rRNA gene that the manifest lists under notHost. The counts of S1 are 10, 20 ... 60 on G1 to G6.
+    func testTheRRNAShareCountsRRNAAndMtRRNAGenesAndLeavesOutPseudogenesAndNotHostFeatures() throws {
+        var spec = RNASeqExportFixture.Spec(name: "rrna", samples: ["S1"], genes: ["G1", "G2", "G3", "G4", "G5", "G6"], notHost: ["G6"])
+        spec.biotypes = ["G1": "rRNA", "G2": "Mt_rRNA", "G3": "rRNA_pseudogene", "G6": "rRNA"]
+        let summary = try RNASeqQualitySummary.read(resultAt: try make(spec))
+        let row = summary.samples[0]
+        XCTAssertEqual(summary.rRNAGenes, ["G1", "G2"])
+        XCTAssertEqual(row.counted, "210")
+        XCTAssertEqual(try XCTUnwrap(Double(row.rRNAPercent)), 30.0 / 210 * 100, accuracy: 1e-12)
+        XCTAssertEqual(try XCTUnwrap(Double(row.notHostPercent)), 60.0 / 210 * 100, accuracy: 1e-12)
     }
 }
