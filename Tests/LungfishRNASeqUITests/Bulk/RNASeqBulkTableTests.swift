@@ -34,8 +34,9 @@ final class RNASeqBulkTableTests: XCTestCase {
         let file = try text(url, "counts/genes.counts.tsv")
         XCTAssertEqual(RNASeqBulkFixtures.printed(model, table: 0), file, "every cell of the gene table reads as the file prints it")
         XCTAssertEqual(RNASeqBulkFixtures.printed(model, table: 1), try text(url, "counts/transcripts.counts.tsv"))
-        XCTAssertTrue(file.split(separator: "\n").dropFirst().contains { $0.split(separator: "\t").dropFirst().contains { $0.contains(".") } },
-                      "the table holds counts that are not whole, so the check reads more than integers")
+        XCTAssertTrue(file.split(separator: "\n").dropFirst().contains { line in
+            line.split(separator: "\t").dropFirst().contains { Double($0).map { $0 != $0.rounded() } == true }
+        }, "the table holds counts that are not whole, so the check reads more than integers")
 
         // The table on screen shows the model's cells: the id, the three columns of genes.tsv, then each count.
         let table = controller.countTables[0]

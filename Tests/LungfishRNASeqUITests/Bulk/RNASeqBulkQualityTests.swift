@@ -94,8 +94,10 @@ final class RNASeqBulkQualityTests: XCTestCase {
         let controller = try await RNASeqBulkFixtures.show(try RNASeqBulkFixtures.importSalmonC1(into: root))
         let quality = try loaded(controller)
         let caption = quality.correlation.caption
-        XCTAssertTrue(caption.contains("\(quality.correlationTable.facts["measure"] ?? "?") of \(quality.correlationTable.facts["transform"] ?? "?")"))
-        XCTAssertTrue(caption.contains("Pearson r of log2(CPM + 1)"))
+        XCTAssertEqual(quality.correlationTable.facts["measure"], "Pearson r")
+        XCTAssertEqual(quality.correlationTable.facts["transform"], "log2(CPM + 1)")
+        XCTAssertEqual(caption, "Sample correlation of salmon-c1: Pearson r of log2(CPM + 1) over \(quality.correlation.geneCount) "
+            + "features of counts/genes.counts.tsv that the manifest does not list under notHost, with a count above 0 in a sample.")
         let texts = RNASeqBulkFixtures.allSubviews(of: controller.tabView.tabViewItems[3].view ?? NSView())
             .compactMap { $0 as? NSTextField }.map(\.stringValue)
         XCTAssertTrue(texts.contains(caption), "the caption sits over the plot")
