@@ -3195,6 +3195,87 @@ features:
       log2(CPM + 1) between the samples, over the features that the manifest
       does not list under notHost and with a count above 0 in a sample.
       --format takes text, which is the default, json and tsv.
+  rnaseq.export:
+    title: Export RNA-seq counts for DESeq2, edgeR, limma voom and dream
+    entry_points:
+      - "Tools > RNA-seq > Export RNA-seq Counts…"
+      - "CLI: lungfish-cli rnaseq export"
+    inputs: [rnaseq-result, sample-sheet]
+    outputs: [export-folder]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Services/RNASeqWorkflowRuns.swift
+      - Sources/LungfishApp/Services/WorkflowLibrary.swift
+      - Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState+RNASeq.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift
+    module: [LungfishApp]
+    cli:
+      - lungfish-cli rnaseq export
+    operation_type: rnaSeqExport
+    tests:
+      - Tests/LungfishAppTests/RNASeqExportDialogTests.swift
+      - Tests/LungfishAppTests/RNASeqExportDialogStateTests.swift
+      - Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
+      - Tests/LungfishAppWorkflowTests/WorkflowOperationDialogStateTests.swift
+    notes: >-
+      The RNA-seq category of the Tools menu has two more tools after
+      Quantify RNA-seq Reads, Export RNA-seq Counts and Pseudobulk RNA-seq
+      Cells. Both are core tools, so they show whether or not any workflow
+      is enabled, and each opens the Workflow Operations window on its own
+      row. The export pane takes one or more RNA-seq results, which a person
+      picks with an open panel, since the sidebar selection is not carried
+      into the pane yet. A sample sheet, the design columns, the contrasts,
+      the adjusted p-value cutoff, the fold-change bar and the batch
+      settings are optional. The cutoff reads 0.05 and goes to DESeq2 as
+      alpha. One run is lungfish-cli rnaseq export with --format json, and
+      the Operations row records the command that runs, which Copy CLI
+      Command gives. Run stays off until the pane holds a result, a folder
+      name, a cutoff above 0 and at most 1, a fold-change bar of 0 or more
+      or none, and contrasts written as FACTOR:NUMERATOR:DENOMINATOR with
+      all three parts given. The command checks the rest, which are the
+      design, the animals of each group and the batch, and a refusal shows
+      in the command's own words on the Operations row. A cancel ends the
+      command and leaves no folder and no stage.
+  rnaseq.pseudobulk:
+    title: Pseudobulk RNA-seq cells
+    entry_points:
+      - "Tools > RNA-seq > Pseudobulk RNA-seq Cells…"
+      - "CLI: lungfish-cli rnaseq pseudobulk"
+    inputs: [rnaseq-result, labels-table]
+    outputs: [rnaseq-result]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Services/RNASeqWorkflowRuns.swift
+      - Sources/LungfishApp/Services/WorkflowLibrary.swift
+      - Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState+RNASeq.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift
+    module: [LungfishApp]
+    cli:
+      - lungfish-cli rnaseq pseudobulk
+    operation_type: rnaSeqPseudobulk
+    tests:
+      - Tests/LungfishAppTests/RNASeqPseudobulkDialogTests.swift
+      - Tests/LungfishAppTests/RNASeqPseudobulkDialogStateTests.swift
+      - Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
+      - Tests/LungfishAppWorkflowTests/WorkflowOperationDialogStateTests.swift
+    notes: >-
+      The second new tool of the RNA-seq category. It takes one single-cell
+      result and a labels table, which a person picks with an open panel,
+      and sums the cells of each sample by label into a bulk result with a
+      name the person gives. The folder name gets the .lungfishrnaseq
+      extension once. One run is lungfish-cli rnaseq pseudobulk with
+      --format json, and the Operations row records the command that runs.
+      A group of fewer than 10 cells is left out, and so are cells with no
+      label. The command prints a note for each, and the row then ends
+      Completed with Warnings and shows the notes as the command prints
+      them. Any refusal shows in the command's own words on the row. A
+      cancel ends the command and leaves no result and no stage.
   import.rnaseq-counts:
     title: Import RNA-seq counts
     entry_points:
