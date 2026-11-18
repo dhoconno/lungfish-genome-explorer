@@ -19,7 +19,14 @@ final class DemuxDualAnchorXCUITests: XCTestCase {
     func testACustomDualListAtBothEndsShowsNoBoxAndRunsToSampleFiles() throws {
         let robot = try ReleaseAppSmokeRobot()
         let project = try ReleaseAppSmokeRobot.newProjectURL(named: "ReleaseDualEnds")
-        defer { robot.app.terminate(); try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
+        // A teardown block and no `defer` (lane TWINS-b, `WalkTwinsXCUITests.swift:33-37`). With `continueAfterFailure` false XCTest
+        // ends a failed test by raising an Objective-C exception, which skips the `defer` of a Swift frame. Run new-1 of this class
+        // left its copy running that way, and a copy left running keeps the gate from restoring the account's preferences.
+        let app = robot.app
+        addTeardownBlock {
+            MainActor.assumeIsolated { app.terminate() }
+            try? FileManager.default.removeItem(at: project.deletingLastPathComponent())
+        }
         let dialog = DemuxDialogDriver(robot: robot, project: project)
         try dialog.start(needsCutadapt: true)
         guard dialog.open(), dialog.use(definition: DemuxDualAnchorFixture.twoName), dialog.click("Cutadapt"), dialog.click("Both Ends"),
@@ -51,7 +58,14 @@ final class DemuxDualAnchorXCUITests: XCTestCase {
     func testNinetySixPairsAtFiveAndFiveAreRefusedWithTheCapWordsAndAtThreeAndThreeAreNot() throws {
         let robot = try ReleaseAppSmokeRobot()
         let project = try ReleaseAppSmokeRobot.newProjectURL(named: "ReleaseDual96")
-        defer { robot.app.terminate(); try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
+        // A teardown block and no `defer` (lane TWINS-b, `WalkTwinsXCUITests.swift:33-37`). With `continueAfterFailure` false XCTest
+        // ends a failed test by raising an Objective-C exception, which skips the `defer` of a Swift frame. Run new-1 of this class
+        // left its copy running that way, and a copy left running keeps the gate from restoring the account's preferences.
+        let app = robot.app
+        addTeardownBlock {
+            MainActor.assumeIsolated { app.terminate() }
+            try? FileManager.default.removeItem(at: project.deletingLastPathComponent())
+        }
         let dialog = DemuxDialogDriver(robot: robot, project: project)
         try dialog.start(needsCutadapt: true)
         guard dialog.open(), dialog.use(definition: DemuxDualAnchorFixture.ninetySixName), dialog.click("Cutadapt"), dialog.click("Both Ends"),
@@ -99,7 +113,14 @@ final class DemuxDualAnchorXCUITests: XCTestCase {
     func testTheFluidigmKitShowsTheBoxAndItsUntickedRunIsRefusedWithNothingMade() throws {
         let robot = try ReleaseAppSmokeRobot()
         let project = try ReleaseAppSmokeRobot.newProjectURL(named: "ReleaseFluidigm")
-        defer { robot.app.terminate(); try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
+        // A teardown block and no `defer` (lane TWINS-b, `WalkTwinsXCUITests.swift:33-37`). With `continueAfterFailure` false XCTest
+        // ends a failed test by raising an Objective-C exception, which skips the `defer` of a Swift frame. Run new-1 of this class
+        // left its copy running that way, and a copy left running keeps the gate from restoring the account's preferences.
+        let app = robot.app
+        addTeardownBlock {
+            MainActor.assumeIsolated { app.terminate() }
+            try? FileManager.default.removeItem(at: project.deletingLastPathComponent())
+        }
         let dialog = DemuxDialogDriver(robot: robot, project: project)
         try dialog.start(needsCutadapt: false)
         guard dialog.open(), dialog.click("Cutadapt"), dialog.click("Both Ends"), dialog.choose(kit: ["Fluidigm Access Array"]) else { return }
