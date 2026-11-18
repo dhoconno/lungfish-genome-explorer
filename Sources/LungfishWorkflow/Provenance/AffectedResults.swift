@@ -475,13 +475,13 @@ public enum AffectedResults {
         ),
         // Lane DEMUX-DUAL-BARE-REVERSE (BIO-BARE-REVERSE items 1, 2, 5 and 6, Q3 and Q4). Every build searched a custom
         // dual-index definition at 5' End or 3' End with no sample sheet with one barcode of each pair free and the swapped
-        // pair as its other strand. The refusal 46e6376f8 is the first commit that stops such a run.
+        // pair as its other strand. The refusal 713276a94 is the first commit that stops such a run.
         AffectedResultRow(
             backlogID: "DEMUX-DUAL-BARE-REVERSE", kinds: [.fastqDemultiplexDualOneEnd], firstBuild: nil, lastBuild: 13764,
             sentence: "This demultiplexing searched a dual-index definition at one read end only, so reads from the "
                 + "reverse strand were left unassigned and chance matches could fill a sample.",
             whatToDo: "Run it again at Both Ends.",
-            fixCommit: "46e6376f8"
+            fixCommit: "713276a94"
         ),
         // S1 sweep 2026-11-17 lane DEMUX-EXACTBARE-NAMES (BIO-DEMUX-THREE item 11, section 2a). Every build with Exact Bare
         // Barcode, from its landing in 4389cd101, searched the read sequences of reads whose barcodes sat in their names.
