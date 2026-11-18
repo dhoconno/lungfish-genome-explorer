@@ -119,11 +119,11 @@ public struct RNASeqQualitySummary: Equatable, Sendable {
             let processed = Self.quality(result.quality, sample: sample, column: "num_processed")
             return Sample(
                 sample: sample,
-                librarySize: processed ?? total.description,
+                librarySize: processed ?? Self.sumText(total),
                 librarySizeSource: processed == nil ? source : "\(result.manifest.route.tool) num_processed",
                 mappingRatePercent: Self.quality(result.quality, sample: sample, column: "percent_mapped") ?? Self.notRecordedText,
                 libraryType: Self.quality(result.quality, sample: sample, column: "library_type") ?? Self.notRecordedText,
-                counted: total.description,
+                counted: Self.sumText(total),
                 rRNAPercent: rRNA.isEmpty ? Self.noRRNAGenesText : Self.percent(onRRNA, of: total),
                 notHostPercent: notHost.isEmpty ? noNotHost : Self.percent(onNotHost, of: total),
                 // No rule names the globin genes yet (lane RS-BULK-VIEW M1, a BIO row), so the share reads Not recorded.
@@ -211,6 +211,18 @@ extension RNASeqQualitySummary {
     static func decimal(_ value: Double) -> Decimal {
         if value == value.rounded(), abs(value) < 1e15 { return Decimal(Int64(value)) }
         return Decimal(string: "\(value)", locale: posix) ?? Decimal(value)
+    }
+
+    /// A decimal sum as text, rounded half up to 6 decimals and without trailing zeros. The writer sums the transcripts
+    /// of a gene in doubles and prints the result with the noise of that sum (5.7379999999999995 for the 5.738 that
+    /// salmon measured), so the exact sum of the printed cells reads 4829448.9820000000172139 for 4829448.982. No count
+    /// tool prints more than 6 decimals, so no printed digit is lost.
+    static func sumText(_ value: Decimal) -> String {
+        var source = value
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &source, 6, .plain)
+        NSDecimalCompact(&rounded)
+        return rounded.description
     }
 
     /// `part` as a percent of `total`, in the plain digits of the nearest double.
