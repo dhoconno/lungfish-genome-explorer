@@ -108,7 +108,9 @@ final class AffectedResultsDEMUXEXACTBARENAMESTests: XCTestCase {
         XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(input: library, kit: kit, engine: "exact-bare")),
                        .fastqDemultiplex, "one library index")
         XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(input: plain, kit: kit, engine: "exact-bare", optIn: true)),
-                       narrower, "a run kept by choice")
+                       .fastqDemultiplex, "the flag was given and the names carry no barcode")
+        XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(input: indexed, kit: kit, engine: "exact-bare", optIn: true)),
+                       narrower, "a run kept by choice on names that carry the barcodes")
         for engine in ["header-index", "cutadapt"] {
             XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(input: indexed, kit: kit, engine: engine)),
                            .fastqDemultiplex, engine)
@@ -116,6 +118,8 @@ final class AffectedResultsDEMUXEXACTBARENAMESTests: XCTestCase {
         let gone = root.appendingPathComponent("gone.fastq")
         XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(input: gone, kit: kit, engine: "exact-bare")),
                        .fastqDemultiplex, "an input that cannot be read")
+        XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(input: gone, kit: kit, engine: "exact-bare", optIn: true)),
+                       narrower, "the flag decides when the names cannot be read")
         let goneKit = root.appendingPathComponent("gone.csv").path
         XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(input: indexed, kit: goneKit, engine: "exact-bare")),
                        .fastqDemultiplex, "a definition that cannot be read")
