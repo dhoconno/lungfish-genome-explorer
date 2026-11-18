@@ -42,6 +42,12 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     /// and reads from the reverse strand were left unassigned (DEMUX-DUAL-BARE-REVERSE, BIO-BARE-REVERSE items 5 and 6). It
     /// is a narrower ``fastqDemultiplex``, so every row of that kind names it too.
     case fastqDemultiplexDualOneEnd
+    /// A demultiplexing run of a custom dual-index definition at Both Ends with no sample sheet that read each secondary
+    /// sequence as written, in a definition with two rows whose first barcodes match and whose secondary sequences are
+    /// reverse complements, each within the error rate, so a file that lists the i5 primer's barcodes put each row's reads
+    /// in the other (DEMUX-DUAL-FORM, BIO-DUAL-FORM item 5). It is a narrower ``fastqDemultiplexDualSearchedAnywhere``, so
+    /// every row of that kind names it too.
+    case fastqDemultiplexDualFormSwap
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -440,7 +446,7 @@ public enum AffectedResults {
             backlogID: "DEMUX-GROUPED-DROPS-INPUTS",
             kinds: [
                 .fastqDemultiplex, .fastqDemultiplexSaturatedKit, .fastqDemultiplexExactBareNames,
-                .fastqDemultiplexDualSearchedAnywhere, .fastqDemultiplexDualOneEnd,
+                .fastqDemultiplexDualSearchedAnywhere, .fastqDemultiplexDualOneEnd, .fastqDemultiplexDualFormSwap,
             ],
             firstBuild: nil, lastBuild: 12972,
             sentence: "If you chose Grouped Result for more than one dataset, this demultiplexing run read only the first "
@@ -463,7 +469,8 @@ public enum AffectedResults {
         // searched a custom dual-index definition at Both Ends with no sample sheet as `i7...i5` with no anchor. The refusal
         // of SATKIT-4, 413bdd7a1, is the first commit that stops such a run, and the anchored lines follow it.
         AffectedResultRow(
-            backlogID: "DEMUX-DUAL-UNANCHORED", kinds: [.fastqDemultiplexDualSearchedAnywhere], firstBuild: nil,
+            backlogID: "DEMUX-DUAL-UNANCHORED",
+            kinds: [.fastqDemultiplexDualSearchedAnywhere, .fastqDemultiplexDualFormSwap], firstBuild: nil,
             lastBuild: 13672,
             sentence: "This run looked for each pair of barcodes in a Custom Definition of dual indexes anywhere in each "
                 + "read, so its sample files may hold reads that matched by chance.",
@@ -478,10 +485,26 @@ public enum AffectedResults {
         // pair as its other strand. The refusal 713276a94 is the first commit that stops such a run.
         AffectedResultRow(
             backlogID: "DEMUX-DUAL-BARE-REVERSE", kinds: [.fastqDemultiplexDualOneEnd], firstBuild: nil, lastBuild: 13764,
-            sentence: "This demultiplexing searched a dual-index definition at one read end only, so reads from the "
-                + "reverse strand were left unassigned and chance matches could fill a sample.",
-            whatToDo: "Run it again at Both Ends.",
+            sentence: "This run searched a Custom Definition of dual indexes at 5' End or 3' End, so reads from the "
+                + "reverse strand were left in Unassigned and its sample files may hold reads that matched by chance, "
+                + "enough in an amplicon pool to fill a sample.",
+            whatToDo: "Run Demultiplex Barcodes again with this version and choose Both Ends, and if your barcodes sit some "
+                + "bases in from the read ends, also set 5' Distance and 3' Distance to that many bases (on the command "
+                + "line, --location bothends, --max-distance-5prime and --max-distance-3prime).",
             fixCommit: "713276a94"
+        ),
+        // Lane DEMUX-DUAL-FORM (BIO-DUAL-FORM item 5). Every build read the secondary sequence of a custom dual-index
+        // definition at Both Ends with no sample sheet only as written. b10e3a8a4 is the first commit that reads it the
+        // way the reads carry it, or stops in words.
+        AffectedResultRow(
+            backlogID: "DEMUX-DUAL-FORM", kinds: [.fastqDemultiplexDualFormSwap], firstBuild: nil, lastBuild: 13764,
+            sentence: "This run read the secondary sequence of each row of your Custom Definition as written, and two of "
+                + "its rows have first barcodes that match and secondary sequences that are reverse complements of each "
+                + "other, each within the error rate, so if the definition lists the i5 primer's barcodes, those two "
+                + "samples hold each other's reads.",
+            whatToDo: "Run Demultiplex Barcodes again with this version, which reads the secondary sequence the way your "
+                + "reads carry it or stops and says why.",
+            fixCommit: "b10e3a8a4"
         ),
         // S1 sweep 2026-11-17 lane DEMUX-EXACTBARE-NAMES (BIO-DEMUX-THREE item 11, section 2a). Every build with Exact Bare
         // Barcode, from its landing in 4389cd101, searched the read sequences of reads whose barcodes sat in their names.
@@ -603,6 +626,7 @@ extension AffectedResults {
             return trimLeftNoAdapterToGuess(envelope) ? nil : .fastqTrim
         case RecordName.fastqDemultiplex:
             if searchedReadNameBarcodesWithExactBare(envelope) { return .fastqDemultiplexExactBareNames }
+            if searchedCustomDualPairsThatCouldSwap(envelope) { return .fastqDemultiplexDualFormSwap }
             if searchedCustomDualPairsAnywhere(envelope) { return .fastqDemultiplexDualSearchedAnywhere }
             if searchedCustomDualPairsAtOneEnd(envelope) { return .fastqDemultiplexDualOneEnd }
             return searchedWithAKitTheFloorCannotJudge(envelope) ? .fastqDemultiplexSaturatedKit : .fastqDemultiplex

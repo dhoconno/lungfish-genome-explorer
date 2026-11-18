@@ -32,7 +32,10 @@ final class AffectedResultsDEMUXDUALANCHORTests: XCTestCase {
     func testTheDualUnanchoredRowHoldsEveryBuildUpToTheFix() throws {
         let row = try XCTUnwrap(AffectedResults.rows.first { $0.backlogID == "DEMUX-DUAL-UNANCHORED" })
         let dual = AffectedResultKind.fastqDemultiplexDualSearchedAnywhere
-        XCTAssertEqual(row.kinds, [dual])
+        // A record of a definition whose two rows could swap names the narrower kind of DEMUX-DUAL-FORM, which keeps this
+        // row's sentence (manager ruling on BIO-DUAL-FORM item 5), read by its raw value so the pin builds at the base.
+        let swap = try XCTUnwrap(AffectedResultKind(rawValue: "fastqDemultiplexDualFormSwap"))
+        XCTAssertEqual(row.kinds, [dual, swap])
         XCTAssertNil(row.firstBuild, "the writer came in e34628cf4, older than any build a row names")
         XCTAssertEqual(row.lastBuild, 13672, "Preview 2026.11.11, the newest published build, lacks the fix")
         XCTAssertEqual(row.fixCommit, "413bdd7a1", "the refusal of SATKIT-4, the first commit that stops such a run")
@@ -46,7 +49,8 @@ final class AffectedResultsDEMUXDUALANCHORTests: XCTestCase {
         XCTAssertEqual(ids(12972, dual), ["DEMUX-GROUPED-DROPS-INPUTS", "DEMUX-DUAL-UNANCHORED"], "Stable 2026.11.7")
         XCTAssertEqual(ids(13672, dual), ["DEMUX-DUAL-UNANCHORED"], "Preview 2026.11.11")
         XCTAssertEqual(ids(13673, dual), [])
-        for kind in AffectedResultKind.allCases where kind != dual {
+        XCTAssertEqual(ids(13672, swap), ["DEMUX-DUAL-UNANCHORED", "DEMUX-DUAL-FORM"], "Preview 2026.11.11")
+        for kind in AffectedResultKind.allCases where !row.kinds.contains(kind) {
             XCTAssertFalse(ids(13672, kind).contains(row.backlogID), "\(kind)")
         }
     }

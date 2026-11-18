@@ -85,6 +85,46 @@ extension AffectedResults {
             && kit.sourceKitID == nil
     }
 
+    /// Whether a `lungfish fastq demultiplex` record is a Cutadapt search of a custom dual-index definition at Both Ends with
+    /// no sample sheet that read each secondary sequence as written, in a definition with two rows A and B whose first
+    /// barcodes differ by at most k substitutions and where B's secondary sequence differs from the reverse complement of
+    /// A's by at most k, with k = floor(error rate x the shorter length) at the record's error rate, 0.15 when it names none.
+    /// A file that lists the i5 primer's barcodes put each of those rows' reads in the other in every published build up to
+    /// Preview 2026.11.12 (DEMUX-DUAL-FORM, BIO-DUAL-FORM item 5). The engine, definition and location tests are those of
+    /// ``searchedCustomDualPairsAnywhere(_:)``, with no floor test. A record that names `secondaryForm` is a run that chose
+    /// its form, so it is not such a run. The kept copy is read first. It reads a file, so the Inspector runs it off the main
+    /// actor.
+    static func searchedCustomDualPairsThatCouldSwap(_ envelope: ProvenanceEnvelope) -> Bool {
+        let options = envelope.options.explicit
+        if case .string(let engine)? = options["engine"], engine != "cutadapt" { return false }
+        guard options["secondaryForm"] == nil else { return false }
+        var location = "bothends"
+        if case .string(let named)? = options["resolvedLocation"] ?? options["location"] { location = named.lowercased() }
+        guard ["bothends", "both", "both-ends", "both_ends"].contains(location), let kit = recordedCustomKit(options),
+              kit.isDualIndexed, kit.pairingMode == .fixedDual, kit.kitType == .custom, kit.platform == .unknown,
+              kit.sourceKitID == nil else { return false }
+        var errorRate = 0.15
+        switch options["errorRate"] {
+        case .number(let value)?: errorRate = value
+        case .integer(let value)?: errorRate = Double(value)
+        default: break
+        }
+        func within(_ one: String, _ other: String) -> Bool {
+            let one = Array(one.uppercased()), other = Array(other.uppercased())
+            guard one.count == other.count else { return false }
+            let errors = Int((errorRate * Double(one.count)).rounded(.down))
+            return zip(one, other).filter { $0 != $1 }.count <= errors
+        }
+        let rows = kit.barcodes.compactMap { barcode in barcode.i5Sequence.map { (first: barcode.i7Sequence, second: $0) } }
+        for (index, row) in rows.enumerated() {
+            for other in rows[(index + 1)...]
+            where within(row.first, other.first) && within(other.second, PlatformAdapters.reverseComplement(row.second.uppercased())) {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Whether a `lungfish fastq demultiplex` record is a Cutadapt search of a custom dual-index definition at 5' End or 3'
     /// End with no sample sheet. Every published build up to Preview 2026.11.12 searched one barcode of each pair free and
     /// the other strand as the swapped pair, so reads from the reverse strand were left unassigned and chance matches

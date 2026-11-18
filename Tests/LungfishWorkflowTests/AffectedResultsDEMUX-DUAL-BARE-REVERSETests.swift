@@ -43,9 +43,12 @@ final class AffectedResultsDEMUXDUALBAREREVERSETests: XCTestCase {
         XCTAssertEqual(row.lastBuild, 13764, "Preview 2026.11.12, the newest published build, lacks the fix")
         XCTAssertEqual(row.fixCommit, "713276a94", "the refusal, the first commit that stops such a run")
         XCTAssertTrue(AffectedResults.publishedReleases.contains(.init("2026.11.12", 13764)))
-        XCTAssertEqual(row.sentence, "This demultiplexing searched a dual-index definition at one read end only, so reads from "
-                       + "the reverse strand were left unassigned and chance matches could fill a sample.")
-        XCTAssertEqual(row.whatToDo, "Run it again at Both Ends.")
+        XCTAssertEqual(row.sentence, "This run searched a Custom Definition of dual indexes at 5' End or 3' End, so reads from "
+                       + "the reverse strand were left in Unassigned and its sample files may hold reads that matched by "
+                       + "chance, enough in an amplicon pool to fill a sample.")
+        XCTAssertEqual(row.whatToDo, "Run Demultiplex Barcodes again with this version and choose Both Ends, and if your "
+                       + "barcodes sit some bases in from the read ends, also set 5' Distance and 3' Distance to that many "
+                       + "bases (on the command line, --location bothends, --max-distance-5prime and --max-distance-3prime).")
         XCTAssertEqual(ids(4192, oneEnd), ["DEMUX-GROUPED-DROPS-INPUTS", "DEMUX-DUAL-BARE-REVERSE"], "2026.8.1")
         XCTAssertEqual(ids(12972, oneEnd), ["DEMUX-GROUPED-DROPS-INPUTS", "DEMUX-DUAL-BARE-REVERSE"], "Stable 2026.11.7")
         XCTAssertEqual(ids(13672, oneEnd), ["DEMUX-DUAL-BARE-REVERSE"], "Preview 2026.11.11")
