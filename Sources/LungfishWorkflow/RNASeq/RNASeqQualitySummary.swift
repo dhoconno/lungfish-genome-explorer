@@ -104,6 +104,8 @@ public struct RNASeqQualitySummary: Equatable, Sendable {
         rRNAGenes = table.table.rows.map(\.id).filter(rRNA.contains)
         notHostFeatures = result.manifest.notHost
         let source = "column sum of \(table.entry.path) in \(Self.unitWords(table.entry.unit))"
+        // An import names no reference set, so its files hold no not_host flags and its empty notHost list is no finding.
+        let noNotHost = result.manifest.referenceSet == nil ? Self.notRecordedText : Self.noNotHostText
         samples = table.table.sampleIDs.enumerated().map { index, sample in
             var total = Decimal(0)
             var onRRNA = Decimal(0)
@@ -123,7 +125,7 @@ public struct RNASeqQualitySummary: Equatable, Sendable {
                 libraryType: Self.quality(result.quality, sample: sample, column: "library_type") ?? Self.notRecordedText,
                 counted: total.description,
                 rRNAPercent: rRNA.isEmpty ? Self.noRRNAGenesText : Self.percent(onRRNA, of: total),
-                notHostPercent: notHost.isEmpty ? Self.noNotHostText : Self.percent(onNotHost, of: total),
+                notHostPercent: notHost.isEmpty ? noNotHost : Self.percent(onNotHost, of: total),
                 // No rule names the globin genes yet (lane RS-BULK-VIEW M1, a BIO row), so the share reads Not recorded.
                 globinPercent: Self.notRecordedText)
         }
