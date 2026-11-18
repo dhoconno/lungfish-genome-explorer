@@ -1,0 +1,171 @@
+// RNASeqQualitySummaryTests.swift - The quality numbers and the sample correlation of a bulk result (5.4 RS-BULK-VIEW M1)
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// Each result is written by the one writer. The salmon-c1 numbers are pinned to salmon's own `aux_info/meta_info.json`,
+// the shares on the refset-mito set to a hand sum written here, and one correlation cell to the formula done here.
+
+import Foundation
+import LungfishIO
+import LungfishTestSupport
+import XCTest
+@testable import LungfishWorkflow
+
+final class RNASeqQualitySummaryTests: RNASeqExportTestCase {
+    // MARK: - salmon-c1 through the import's request
+
+    /// `import rnaseq` of the two salmon-c1 folders with no `--tx2gene`, built as `ImportRNASeqSubcommand` builds it.
+    private func importSalmonC1() throws -> URL {
+        let folders = try RNASeqFixtures.salmonRunIDs.map {
+            try SalmonQuantFolderReader.read(folder: RNASeqFixtures.root.appendingPathComponent("salmon-c1/\($0)", isDirectory: true))
+        }
+        let transcripts = try SalmonQuantFolderReader.transcriptCounts(folders)
+        let route = try SalmonQuantFolderReader.route(folders, tx2geneName: nil)
+        let request = RNASeqResultWriter.Request(
+            name: "c1", modality: .bulk, origin: .init(kind: .imported, tool: SalmonQuantFolderReader.tool, toolVersion: route.toolVersion),
+            route: route, referenceSet: nil, samples: folders.map { RNASeqSampleRecord(id: $0.sample, runs: [$0.sample]) },
+            genes: .ids(transcripts.rows.map(\.id)),
+            counts: [.init(rows: .transcript, column: .default, unit: .estimated, table: transcripts)],
+            sourceFiles: SalmonQuantFolderReader.sourceFiles(folders), notHost: [],
+            quality: SalmonQuantFolderReader.qualityTable(folders))
+        let url = analyses.appendingPathComponent("c1.lungfishrnaseq", isDirectory: true)
+        let envelope = ProvenanceEnvelope(workflowName: "RNA-seq import", toolName: "lungfish-cli", toolVersion: "test")
+        return try RNASeqResultWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil)).write(request, to: url, envelope: envelope)
+    }
+
+    func testSalmonC1LibrarySizeAndMappingRateEqualMetaInfoAndNoRRNAGenesAreAnnotated() throws {
+        let summary = try RNASeqQualitySummary.read(resultAt: try importSalmonC1())
+        XCTAssertEqual(summary.samples.map(\.sample), RNASeqFixtures.salmonRunIDs)
+        XCTAssertEqual(summary.countTable, "counts/transcripts.counts.tsv")
+        for row in summary.samples {
+            let metaURL = RNASeqFixtures.root.appendingPathComponent("salmon-c1/\(row.sample)/aux_info/meta_info.json")
+            let meta = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: metaURL)) as? [String: Any])
+            let processed = try XCTUnwrap(meta["num_processed"] as? Int)
+            let mapped = try XCTUnwrap(meta["percent_mapped"] as? Double)
+            let types = try XCTUnwrap(meta["library_types"] as? [String])
+            XCTAssertEqual(row.librarySize, String(processed), row.sample)
+            XCTAssertEqual(row.librarySizeSource, "salmon num_processed", row.sample)
+            XCTAssertEqual(Double(row.mappingRatePercent), mapped, row.sample)
+            XCTAssertEqual(row.mappingRatePercent, "\(mapped)", "percent_mapped as salmon printed it, \(row.sample)")
+            XCTAssertEqual(row.libraryType, types.joined(separator: ","), row.sample)
+            XCTAssertEqual(row.rRNAPercent, "no rRNA genes annotated", "an import names no reference set, \(row.sample)")
+            XCTAssertEqual(row.notHostPercent, "no not-host features", row.sample)
+            XCTAssertEqual(row.globinPercent, "Not recorded", "no globin rule is named, \(row.sample)")
+        }
+        XCTAssertEqual(summary.document().columns, RNASeqQualitySummary.columns)
+        XCTAssertEqual(summary.document().rows, summary.samples.map(\.cells))
+    }
+
+    // MARK: - refset-mito with a not-host extra, against a hand sum
+
+    /// The rhesus mitochondrion of Ensembl 100 (2 genes of biotype Mt_rRNA, 22 Mt_tRNA, 13 protein coding) with the
+    /// SARS-CoV-2 extra, built by the owner with the stand-in deriver. Returns the set's genes.tsv and its rows.
+    private func rhesusSetGenes() async throws -> (url: URL, set: ReferenceSetOutcome, rows: [[String]]) {
+        let folder = ReferenceSetMitoFixture.folder
+        var request = ReferenceSetRequest(
+            name: "Rhesus mitochondrion", species: "Macaca mulatta", assemblyName: "Mmul_10", annotationSource: "Ensembl",
+            annotationRelease: "100", genome: folder.appendingPathComponent("rhesus-mt.fa"),
+            annotation: folder.appendingPathComponent("rhesus-mt.gtf"), layout: .lge, mitochondrialContigs: ["MT"])
+        request.extras = [ReferenceSetExtraInput(name: "sars-cov-2", kind: .virus, fasta: folder.appendingPathComponent("sars-cov-2.fa"))]
+        let owner = ReferenceSetOwner(
+            storageRoot: root.appendingPathComponent("storage", isDirectory: true), deriver: StandInTranscriptDeriver(),
+            provenanceWriter: ProvenanceWriter(signingProvider: nil))
+        let set = try await owner.build(request)
+        let genes = set.url.appendingPathComponent("derived/genes.tsv")
+        let rows = try String(contentsOf: genes, encoding: .utf8).split(separator: "\n").dropFirst()
+            .map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
+        return (genes, set, rows)
+    }
+
+    func testTheRRNAAndNotHostSharesOnRefsetMitoEqualAHandSum() async throws {
+        let (genesURL, set, rows) = try await rhesusSetGenes()
+        let ids = rows.map { $0[0] }
+        let rRNA = rows.filter { $0[2] == "Mt_rRNA" }.map { $0[0] }
+        let notHost = rows.filter { $0[5] == "true" }.map { $0[0] }
+        XCTAssertEqual(ids.count, 38, "37 host genes and one feature for the virus")
+        XCTAssertEqual(rRNA.count, 2)
+        XCTAssertEqual(notHost, ["NC_045512.2"])
+        // S1: 1.5 on each of the 35 other host genes, 100 and 200.25 on the two rRNA genes, 50 on the virus.
+        // S2: 1.5 on the 35 other host genes and 0 on the rRNA genes and the virus.
+        let counts = ids.map { id -> RNASeqCountTable.Row in
+            if id == rRNA[0] { return .init(id: id, counts: [100, 0]) }
+            if id == rRNA[1] { return .init(id: id, counts: [200.25, 0]) }
+            if notHost.contains(id) { return .init(id: id, counts: [50, 0]) }
+            return .init(id: id, counts: [1.5, 1.5])
+        }
+        let request = RNASeqResultWriter.Request(
+            name: "mito", modality: .bulk, origin: .init(kind: .quantified), route: RNASeqExportFixture.salmonReads,
+            referenceSet: .init(id: set.manifest.id, layout: .lge),
+            samples: [RNASeqSampleRecord(id: "S1", runs: ["S1"]), RNASeqSampleRecord(id: "S2", runs: ["S2"])],
+            genes: .referenceSetTable(url: genesURL, keeping: ids),
+            counts: [.init(rows: .gene, column: .default, unit: .reads, table: RNASeqCountTable(sampleIDs: ["S1", "S2"], rows: counts))],
+            sourceFiles: [], notHost: notHost)
+        let url = analyses.appendingPathComponent("mito.lungfishrnaseq", isDirectory: true)
+        let envelope = ProvenanceEnvelope(workflowName: "RNA-seq quantification", toolName: "lungfish-cli", toolVersion: "test")
+        try RNASeqResultWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil)).write(request, to: url, envelope: envelope)
+
+        let summary = try RNASeqQualitySummary.read(resultAt: url)
+        let s1 = summary.samples[0]
+        let s2 = summary.samples[1]
+        // The hand sums: S1 counts 35 x 1.5 + 100 + 200.25 + 50 = 402.75, S2 counts 35 x 1.5 = 52.5.
+        XCTAssertEqual(s1.counted, "402.75")
+        XCTAssertEqual(s2.counted, "52.5")
+        XCTAssertEqual(s1.librarySize, "402.75", "no quality table, so the library size is the column sum")
+        XCTAssertEqual(s1.librarySizeSource, "column sum of counts/genes.counts.tsv in reads")
+        XCTAssertEqual(s1.mappingRatePercent, "Not recorded")
+        XCTAssertEqual(s1.libraryType, "Not recorded")
+        XCTAssertEqual(try XCTUnwrap(Double(s1.rRNAPercent)), 300.25 / 402.75 * 100, accuracy: 1e-12)
+        XCTAssertEqual(try XCTUnwrap(Double(s1.notHostPercent)), 50 / 402.75 * 100, accuracy: 1e-12)
+        XCTAssertEqual(s2.rRNAPercent, "0")
+        XCTAssertEqual(s2.notHostPercent, "0")
+        XCTAssertEqual(s1.globinPercent, "Not recorded")
+        XCTAssertFalse(s1.rRNAPercent.contains("e"), "a share prints in plain digits: \(s1.rRNAPercent)")
+    }
+
+    // MARK: - The sample correlation
+
+    func testTheCorrelationHasADiagonalOfOneIsSymmetricAndEqualsTheFormulaOnHostGenes() throws {
+        let url = try make(.init(name: "corr", samples: ["S1", "S2", "S3"], genes: ["G1", "G2", "G3", "G4", "G5"], notHost: ["G5"], noise: 0.4))
+        let correlation = try RNASeqSampleCorrelation.read(resultAt: url)
+        XCTAssertEqual(correlation.samples, ["S1", "S2", "S3"])
+        XCTAssertEqual(correlation.geneCount, 4, "the not-host feature is left out")
+        for i in 0..<3 {
+            XCTAssertEqual(correlation.values[i][i], 1)
+            for j in 0..<3 { XCTAssertEqual(correlation.values[i][j], correlation.values[j][i], "\(i) \(j)") }
+        }
+        // The formula, done here: CPM on each sample's sum over host genes, log2(CPM + 1), then Pearson's r.
+        let table = try RNASeqCountTable(tsv: Data(contentsOf: url.appendingPathComponent("counts/genes.counts.tsv")), path: "counts")
+        let host = table.rows.filter { $0.id != "G5" }
+        func logCPM(_ sample: Int) -> [Double] {
+            let total = host.reduce(0) { $0 + $1.counts[sample] }
+            return host.map { log2($0.counts[sample] / total * 1_000_000 + 1) }
+        }
+        let x = logCPM(0)
+        let y = logCPM(2)
+        let mx = x.reduce(0, +) / Double(x.count)
+        let my = y.reduce(0, +) / Double(y.count)
+        let sxy = zip(x, y).reduce(0) { $0 + ($1.0 - mx) * ($1.1 - my) }
+        let sxx = x.reduce(0) { $0 + ($1 - mx) * ($1 - mx) }
+        let syy = y.reduce(0) { $0 + ($1 - my) * ($1 - my) }
+        XCTAssertEqual(try XCTUnwrap(correlation.values[0][2]), sxy / (sxx * syy).squareRoot(), accuracy: 1e-12)
+        XCTAssertEqual(RNASeqSampleCorrelation.measure, "Pearson r")
+        XCTAssertEqual(RNASeqSampleCorrelation.transform, "log2(CPM + 1)")
+        let document = correlation.document()
+        XCTAssertEqual(document.facts["measure"], "Pearson r")
+        XCTAssertEqual(document.facts["transform"], "log2(CPM + 1)")
+        XCTAssertEqual(document.columns, ["sample_id", "S1", "S2", "S3"])
+        XCTAssertEqual(document.rows[1][2], "1")
+    }
+
+    /// A gene of 0 in every sample adds only a point at the origin, so it leaves the correlation. G1 counts 0 in the one
+    /// sample of a shift of -10, and the plain digits of a share hold no exponent.
+    func testAGeneWithNoCountInAnySampleIsLeftOutAndAShareIsPlainDigits() throws {
+        let url = try make(.init(name: "zero", samples: ["S1"], genes: ["G1", "G2", "G3"], shift: -10))
+        let correlation = try RNASeqSampleCorrelation.read(resultAt: url)
+        XCTAssertEqual(correlation.geneCount, 2)
+        XCTAssertEqual(correlation.values, [[1]])
+        XCTAssertEqual(RNASeqQualitySummary.plainDigits(0.00001), "0.00001")
+        XCTAssertEqual(RNASeqQualitySummary.plainDigits(1e16), "10000000000000000")
+        XCTAssertEqual(RNASeqQualitySummary.plainDigits(33.333333333333336), "33.333333333333336")
+    }
+}
