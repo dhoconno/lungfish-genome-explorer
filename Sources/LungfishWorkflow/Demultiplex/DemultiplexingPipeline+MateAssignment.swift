@@ -203,14 +203,14 @@ struct DemultiplexMatePass {
 
     /// The header a record is matched by, without the ` rc` cutadapt adds to
     /// a read it reverse complements.
-    private static func matchKey(_ record: RawFASTQRecord) -> String {
+    static func matchKey(_ record: RawFASTQRecord) -> String {
         let header = record.headerText
         return header.hasSuffix(" rc") ? String(header.dropLast(3)) : header
     }
 
     /// The output whose next record is `input`. Records of the same header
     /// in several outputs are told apart by sequence.
-    private static func cursorIndex(
+    static func cursorIndex(
         for input: RawFASTQRecord,
         key: String,
         heads: [String: [Int]],
@@ -241,7 +241,7 @@ struct DemultiplexMatePass {
         return candidates.min()
     }
 
-    private static func readRecord(from reader: FASTQRawLineReader, file: String, number: Int) throws -> RawFASTQRecord? {
+    static func readRecord(from reader: FASTQRawLineReader, file: String, number: Int) throws -> RawFASTQRecord? {
         guard let header = try reader.nextLine() else { return nil }
         guard let sequence = try reader.nextLine(),
               let plus = try reader.nextLine(),
@@ -305,7 +305,7 @@ struct RawFASTQRecord: Equatable {
 
 /// Reads one cutadapt output record by record through a 64 KB window,
 /// opening the file only to refill the window.
-private final class OrderedOutputCursor {
+final class OrderedOutputCursor {
     let name: String
     let url: URL
     /// The record the output holds next, or nil at its end.
@@ -372,7 +372,7 @@ private final class OrderedOutputCursor {
 
 /// Appends raw records to one file through a buffer, with the file closed
 /// between flushes, as the statistics sink of the root rebuild does.
-private struct AppendingFASTQSink {
+struct AppendingFASTQSink {
     let url: URL
     private var buffer: [UInt8] = []
     private var created = false

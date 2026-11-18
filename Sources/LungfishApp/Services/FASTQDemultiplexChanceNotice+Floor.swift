@@ -115,9 +115,11 @@ extension FASTQDemultiplexChanceNotice {
 
     /// The run's one warning and its information line, read together so that one call off the main actor serves the row and
     /// the Log. It reads files.
-    /// The run's information lines are the floor's limit, then the line of the form it read (DEMUX-DUAL-FORM).
+    /// The run's information lines are the floor's limit, then the line of the form it read (DEMUX-DUAL-FORM), then the
+    /// count of reads that two rows fit (DEMUX-DUAL-OFFSET-SHIFT).
     static func rowWords(for result: FASTQOperationExecutionResult) -> (notice: RowNotice?, floorLimitLine: String?) {
-        let lines = [floorLimitLine(for: result), secondaryFormLine(for: result)].compactMap { $0 }
+        let lines = [floorLimitLine(for: result), secondaryFormLine(for: result), ambiguousReadsLine(for: result)]
+            .compactMap { $0 }
         return (rowNotice(for: result), lines.isEmpty ? nil : lines.joined(separator: " "))
     }
 
@@ -145,10 +147,36 @@ extension FASTQDemultiplexChanceNotice {
         return lines.isEmpty ? nil : lines.joined(separator: " ")
     }
 
-    /// The information line of ``rowWords(for:)`` split into the floor's limit and the line of the form, which comes last.
+    /// The count of reads that two rows fit at their fewest errors, from the `ambiguousReads` of the run folders' records,
+    /// in the ruling's two sentences, each line once, or nil when no record counts one (DEMUX-DUAL-OFFSET-SHIFT,
+    /// BIO-OFFSET-SHIFT item 4). It is a line of information and no warning. It reads files.
+    static func ambiguousReadsLine(for result: FASTQOperationExecutionResult) -> String? {
+        guard case .derivative(.demultiplex, _, _) = result.resolvedRequest else { return nil }
+        var lines: [String] = []
+        for folder in runFolders(for: result) {
+            guard let envelope = try? ProvenanceEnvelopeReader.loadCanonical(from: folder),
+                  case .integer(let count)? = envelope.options.explicit["ambiguousReads"],
+                  let line = DemultiplexingPipeline.ambiguousReadsLine(count), !lines.contains(line) else { continue }
+            lines.append(line)
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: " ")
+    }
+
+    /// Where the line of ``ambiguousReadsLine(for:)`` starts in `line`, at its count.
+    static func ambiguousReadsLineStart(in line: String) -> String.Index? {
+        guard var start = line.range(of: DemultiplexingPipeline.ambiguousReadsWords)?.lowerBound else { return nil }
+        while start > line.startIndex, line[line.index(before: start)].isNumber || line[line.index(before: start)] == "," {
+            start = line.index(before: start)
+        }
+        return start
+    }
+
+    /// The information line of ``rowWords(for:)`` split into the floor's limit and the lines of the form and of the reads
+    /// that two rows fit, which come last.
     static func informationParts(_ line: String?) -> (floorLimit: String?, form: String?) {
         guard let line else { return (nil, nil) }
-        guard let start = line.range(of: secondaryFormLinePrefix)?.lowerBound else { return (line, nil) }
+        let starts = [line.range(of: secondaryFormLinePrefix)?.lowerBound, ambiguousReadsLineStart(in: line)]
+        guard let start = starts.compactMap({ $0 }).min() else { return (line, nil) }
         let limit = line[..<start].trimmingCharacters(in: .whitespaces)
         return (limit.isEmpty ? nil : limit, String(line[start...]))
     }
@@ -173,6 +201,13 @@ extension FASTQDemultiplexChanceNotice {
         if let notice { center.log(id: id, level: .warning, message: notice.message) }
         let (limit, form) = informationParts(floorLimitLine)
         if let limit { center.log(id: id, level: .info, message: limit) }
-        if let form { center.log(id: id, level: .info, message: form) }
+        guard let form else { return }
+        // The count of reads that two rows fit is a Log line of its own (DEMUX-DUAL-OFFSET-SHIFT).
+        if let split = ambiguousReadsLineStart(in: form), split > form.startIndex {
+            center.log(id: id, level: .info, message: form[..<split].trimmingCharacters(in: .whitespaces))
+            center.log(id: id, level: .info, message: String(form[split...]))
+        } else {
+            center.log(id: id, level: .info, message: form)
+        }
     }
 }

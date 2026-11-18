@@ -36,4 +36,8 @@ public struct DemultiplexResult: Sendable {
     /// The way the first reads carry the secondary sequence of a custom dual-index definition at Both Ends with no sample
     /// sheet, and the votes that chose it (DEMUX-DUAL-FORM), or nil on every other route.
     public var secondaryForm: DemultiplexingPipeline.SecondaryFormChoice? = nil
+
+    /// The placed reads that two or more rows fit at their fewest errors, which went to Unassigned, on the route of
+    /// `secondaryForm` with a 5' or 3' Distance above 0 (DEMUX-DUAL-OFFSET-SHIFT), or nil on every other run.
+    public var ambiguousReads: Int? = nil
 }

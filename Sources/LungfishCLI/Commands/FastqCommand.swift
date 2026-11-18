@@ -496,6 +496,9 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             provenanceParameters["secondaryForm"] = .string(choice.form.rawValue)
             provenanceParameters["secondaryFormVotes"] = .dictionary(choice.votes.mapValues { ParameterValue.integer($0) })
         }
+        // The placed reads that two rows fit at their fewest errors, which went to Unassigned, on that route with a
+        // distance above 0 (DEMUX-DUAL-OFFSET-SHIFT, BIO-OFFSET-SHIFT item 4).
+        if let ambiguous = result.ambiguousReads { provenanceParameters["ambiguousReads"] = .integer(ambiguous) }
 
         // How the mates of a paired input were placed (A9, D6).
         if let mateCalls = result.manifest.mateCalls {

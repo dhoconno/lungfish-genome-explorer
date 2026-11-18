@@ -220,6 +220,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             )
         }
 
+        // A placed read stays only in the row whose lines fit it at the fewest errors (DEMUX-DUAL-OFFSET-SHIFT).
+        let offsetShift = checksPlacedReadsByFewestErrors(config) ? try placeReadsByFewestErrors(
+            of: inputFASTQ, in: demuxOutputDir, adapterFASTA: adapterConfig.adapterFASTA, config: config,
+            keepsTrimPositions: infoFilePath != nil
+        ) : nil
+
         // A run that places mates reads each orientation output on its own
         // and writes the sample's output in input order (review A S3).
         if !placesMates {
@@ -240,6 +246,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         var trimPositionsByBarcode: [String: [DemuxTrimEntry]] = [:]
         if let infoFilePath, fm.fileExists(atPath: infoFilePath) {
             trimPositionsByBarcode = parseCutadaptInfoFile(URL(fileURLWithPath: infoFilePath))
+            if let offsetShift { trimPositionsByBarcode = correctingTrims(trimPositionsByBarcode, by: offsetShift) }
         }
 
         // Step 4a: For inner steps of multi-step pipelines, chain trim positions from the
@@ -937,7 +944,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             nativeCommand: result.arguments,
             chanceFloor: chanceFloor,
             engine: .cutadapt,
-            secondaryForm: adapterConfig.secondaryForm
+            secondaryForm: adapterConfig.secondaryForm,
+            ambiguousReads: offsetShift?.ambiguous
         )
     }
 

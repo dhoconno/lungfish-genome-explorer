@@ -194,6 +194,14 @@ extension DemultiplexingPipeline {
     }
 }
 
+extension DemultiplexingPipeline {
+    /// The errors Cutadapt allows one barcode of a line, floor(error rate x its bases that are not N), the budget of the
+    /// choice of form (BIO-DUAL-FORM item 2) and of the check of placed reads (BIO-OFFSET-SHIFT item 2).
+    static func barcodeErrorBudget(_ bases: String, errorRate: Double) -> Int {
+        Int((errorRate * Double(bases.filter { $0 != "N" }.count)).rounded(.down))
+    }
+}
+
 /// One row of a custom dual-index definition as the choice of form tests it.
 private struct DualFormRow {
     let first: [UInt8]
@@ -210,7 +218,7 @@ private struct DualFormRow {
         self.reverseFirst = Array(PlatformAdapters.reverseComplement(first).utf8)
         self.second = Array(second.utf8)
         self.reverseSecond = Array(PlatformAdapters.reverseComplement(second).utf8)
-        func errors(_ bases: String) -> Int { Int((errorRate * Double(bases.filter { $0 != "N" }.count)).rounded(.down)) }
+        func errors(_ bases: String) -> Int { DemultiplexingPipeline.barcodeErrorBudget(bases, errorRate: errorRate) }
         firstErrors = errors(first)
         secondErrors = errors(second)
     }

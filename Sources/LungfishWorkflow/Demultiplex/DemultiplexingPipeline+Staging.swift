@@ -82,7 +82,8 @@ struct DemultiplexStagingArea {
             nativeCommand: result.nativeCommand,
             chanceFloor: result.chanceFloor,
             engine: result.engine,
-            secondaryForm: result.secondaryForm
+            secondaryForm: result.secondaryForm,
+            ambiguousReads: result.ambiguousReads
         )
     }
 
