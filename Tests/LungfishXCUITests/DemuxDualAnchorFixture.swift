@@ -128,6 +128,82 @@ nonisolated enum DemuxDualAnchorFixture {
         return found.sorted()
     }
 
+    /// The read names of the sample file that `sample` got in the run folder. A Cutadapt run holds a sample's reads as
+    /// `<sample>.lungfishfastq/<sample>.fastq.gz`, which is Cutadapt's own output moved into the bundle, with
+    /// `<sample>.fastq.gz.lungfish-provenance.json` beside it (`DemultiplexingPipeline.swift:731-734`, the full mode that a run
+    /// takes when its input is a plain bundle and not a derived one). An Exact Bare run writes `<sample>.fastq`, which
+    /// `ExactBareFixture.readCount(ofBarcode:in:)` reads. Run new-2 looked only for `.fastq` here and found no file in the three
+    /// bundles. A read name is the text after `@` up to the first blank, and the bundle's `preview.fastq` is never the file.
+    static func readNames(ofSample sample: String, in runFolder: URL) throws -> [String] {
+        let manager = FileManager.default
+        let bundle = runFolder.appendingPathComponent("\(sample).lungfishfastq", isDirectory: true)
+        guard manager.fileExists(atPath: bundle.path) else {
+            let held = ((try? manager.contentsOfDirectory(atPath: runFolder.path)) ?? []).sorted().joined(separator: ", ")
+            throw fixtureError(1, "The run folder holds no \(bundle.lastPathComponent), only \(held)")
+        }
+        let held = try manager.contentsOfDirectory(at: bundle, includingPropertiesForKeys: nil).map(\.lastPathComponent).sorted()
+        let files = held.filter { ($0.hasSuffix(".fastq") || $0.hasSuffix(".fastq.gz")) && $0 != "preview.fastq" }
+        guard files.count == 1, let file = files.first else {
+            throw fixtureError(2, "\(bundle.lastPathComponent) holds \(files.count) FASTQ files, not one, among \(held.joined(separator: ", "))")
+        }
+        let raw = try Data(contentsOf: bundle.appendingPathComponent(file))
+        let text = file.hasSuffix(".gz") ? try gunzip(raw) : raw
+        let lines = text.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: false)
+        // A well-formed FASTQ ends with a newline, so the last piece is empty and the rest is four lines to a read.
+        guard lines.last?.isEmpty == true, (lines.count - 1) % 4 == 0 else {
+            throw fixtureError(3, "\(file) holds \(lines.count - 1) lines, which are not four to a read")
+        }
+        return stride(from: 0, to: lines.count - 1, by: 4).map { index in
+            let header = String(decoding: lines[index], as: UTF8.self)
+            return String(header.dropFirst().prefix { $0 != " " && $0 != "\t" })
+        }
+    }
+
+    /// The reads of the sample file that `sample` got in the run folder.
+    static func readCount(ofSample sample: String, in runFolder: URL) throws -> Int {
+        try readNames(ofSample: sample, in: runFolder).count
+    }
+
+    /// What the names of a sample's reads start with, as the input names its reads (`make-dual-ends.py`): `S1_fwd_00`, `S2_rev_59`,
+    /// `none_07`.
+    static func readNamePrefix(ofSample sample: String) -> String {
+        sample == "unassigned" ? "none_" : "\(sample)_"
+    }
+
+    /// A gzip file as RFC 1952 lays it out, a header, one deflate stream and a trailer of the CRC-32 and the length. The Compression
+    /// framework reads a bare deflate stream (it names it zlib), so the header and the trailer are cut off here and the length
+    /// in the trailer is checked against what came out, which fails on a file of two members or on a cut file.
+    static func gunzip(_ data: Data) throws -> Data {
+        let bytes = [UInt8](data)
+        guard bytes.count > 18, bytes[0] == 0x1f, bytes[1] == 0x8b, bytes[2] == 8 else {
+            throw fixtureError(4, "The file is not a gzip file, and starts with \(bytes.prefix(4).map { String($0, radix: 16) })")
+        }
+        let flags = bytes[3]
+        var offset = 10
+        if flags & 0x04 != 0 {
+            let extra = Int(bytes[offset]) | (Int(bytes[offset + 1]) << 8)
+            offset += 2 + extra
+        }
+        for flag in [UInt8(0x08), UInt8(0x10)] where flags & flag != 0 {
+            while offset < bytes.count - 8, bytes[offset] != 0 { offset += 1 }
+            offset += 1
+        }
+        if flags & 0x02 != 0 { offset += 2 }
+        guard offset < bytes.count - 8 else { throw fixtureError(5, "The gzip header runs to the end of the file") }
+        let deflated = Data(bytes[offset..<(bytes.count - 8)])
+        let inflated = try (deflated as NSData).decompressed(using: .zlib) as Data
+        let trailer = bytes[(bytes.count - 4)...]
+        let length = trailer.enumerated().reduce(UInt64(0)) { $0 | UInt64($1.element) << UInt64(8 * $1.offset) }
+        guard UInt64(inflated.count) & 0xFFFF_FFFF == length else {
+            throw fixtureError(6, "The gzip trailer says \(length) bytes and \(inflated.count) came out of the deflate stream")
+        }
+        return inflated
+    }
+
+    private static func fixtureError(_ code: Int, _ words: String) -> NSError {
+        NSError(domain: "DemuxDualAnchorFixture", code: code, userInfo: [NSLocalizedDescriptionKey: words])
+    }
+
     /// The account's managed tool store. The smoke launches the app with an empty home, so the app under test is told
     /// where Cutadapt is installed, the way an installed app finds it in a person's own home.
     static func accountToolRoot() -> URL {

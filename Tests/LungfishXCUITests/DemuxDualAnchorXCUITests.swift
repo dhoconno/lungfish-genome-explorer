@@ -46,9 +46,20 @@ final class DemuxDualAnchorXCUITests: XCTestCase {
         let folders = ExactBareFixture.runFolders(in: project)
         XCTAssertEqual(folders.count, 1, "The run writes one run folder with its record, not \(folders.map(\.lastPathComponent)), and the project holds \(DemuxDualAnchorFixture.madeFiles(in: project))")
         guard let runFolder = folders.first else { return }
+        // A Cutadapt run keeps a sample's reads as `<sample>.fastq.gz` in its bundle, which the fixture unzips and reads by name.
+        // The names show which reads each sample took, since 120 reads in S1 would pass a count alone with the wrong 120.
         for (name, count) in DemuxDualAnchorFixture.expectedCounts.sorted(by: { $0.key < $1.key }) {
-            XCTAssertEqual(try ExactBareFixture.readCount(ofBarcode: name, in: runFolder), count,
-                           "\(name) holds the \(count) reads of the input that have the pair whole at the two ends on either strand")
+            let reads: [String]
+            do {
+                reads = try DemuxDualAnchorFixture.readNames(ofSample: name, in: runFolder)
+            } catch {
+                XCTFail("\(name) has no readable sample file: \(error.localizedDescription)")
+                continue
+            }
+            XCTAssertEqual(reads.count, count, "\(name) holds the \(count) reads of the input that have the pair whole at the two ends on either strand")
+            let prefix = DemuxDualAnchorFixture.readNamePrefix(ofSample: name)
+            let strangers = reads.filter { !$0.hasPrefix(prefix) }
+            XCTAssertTrue(strangers.isEmpty, "\(name) holds only reads named \(prefix)... and also holds \(strangers.prefix(5))")
         }
     }
 
