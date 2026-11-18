@@ -1,6 +1,6 @@
 # Bundle kinds
 
-A Lungfish Genome Explorer (LGE) project is a `.lungfish` folder, and most of what it holds are folders whose extension names their kind, such as a `.lungfishref` reference bundle. This page lists the 15 kinds that `BundleKindRegistry` knows, the facts the app applies to each, and the rule for provenance record names in new writes. It is written for developers. Every value in the tables below is in `Sources/LungfishIO/Bundles/BundleKindRegistry.swift`, and the types are in `Sources/LungfishIO/Bundles/BundleKind.swift`.
+A Lungfish Genome Explorer (LGE) project is a `.lungfish` folder, and most of what it holds are folders whose extension names their kind, such as a `.lungfishref` reference bundle. This page lists the 16 kinds that `BundleKindRegistry` knows, the facts the app applies to each, and the rule for provenance record names in new writes. It is written for developers. Every value in the tables below is in `Sources/LungfishIO/Bundles/BundleKindRegistry.swift`, and the types are in `Sources/LungfishIO/Bundles/BundleKind.swift`.
 
 The layouts of the two kinds a user meets most are in [reference-bundle.md](reference-bundle.md) and [fastq-bundle.md](fastq-bundle.md). The `Analyses/` folder, which holds analysis results rather than one kind, is in [analyses-layout.md](analyses-layout.md).
 
@@ -31,6 +31,7 @@ Other tables still decide a kind on their own. The sidebar uses `SidebarProjectS
 | `workflow-run` | `lungfishrun` | `manifest.json` | Extension | None |
 | `workflow-bundle` | `lungfishflow` | None | Extension | `org.lungfish.workflow` |
 | `workflow-package` | `lungfishflowpkg` | `manifest.json` | Extension | None |
+| `rnaseq-result` | `lungfishrnaseq` | `rnaseq-result.json` | Extension | None |
 
 A folder extension is lowercase, has no dot and is unique across the registry. A FASTQ bundle has no single manifest, and its files are in [fastq-bundle.md](fastq-bundle.md). The retired `.lungfishflow` kind has none either, and nothing creates it, but `Lungfish-Info.plist` still declares its type. The UTType column is what `Lungfish-Info.plist` declares for the extension, and no Swift file declares a UTType.
 
@@ -55,7 +56,7 @@ The names are declared as typed constants, and two test classes tie the registry
 
 The tree, primer scheme and CZ ID kinds have no typed name constant. `PhylogeneticTreeBundle.swift` writes the tree manifest with `bundleKind` set to `phylogenetic-tree`, `PrimerSchemeBundle.swift` loads `manifest.json` and refuses a scheme without `PROVENANCE.md`, and `CzIdDataConverter.swift` in `Sources/LungfishWorkflow/Metagenomics/CzId` writes `cz-id-manifest.json`.
 
-Recognition says what a reader needs before it accepts a folder as the kind. Twelve kinds need the extension alone. For the MHC reference, the 12S reference and the CZ ID import at least one reader also needs the manifest, and `recognizedKind(at:)` returns those three kinds only when the manifest exists. It is the only lookup in the registry that reads the file system (`BundleKindRegistry.swift`). The sidebar still classifies an MHC reference by extension alone, so a caller keeps its own rule until its lane converts it.
+Recognition says what a reader needs before it accepts a folder as the kind. Thirteen kinds need the extension alone. For the MHC reference, the 12S reference and the CZ ID import at least one reader also needs the manifest, and `recognizedKind(at:)` returns those three kinds only when the manifest exists. It is the only lookup in the registry that reads the file system (`BundleKindRegistry.swift`). The sidebar still classifies an MHC reference by extension alone, so a caller keeps its own rule until its lane converts it.
 
 ### Extension case
 
@@ -80,12 +81,13 @@ The registry has two lookups by extension (plan decision V9). `descriptor(forExa
 | `workflow-run` | Hidden | `shippingbox` | Not one object | The project root |
 | `workflow-bundle` | Walked | `shippingbox` | Not one object | `Workflows` |
 | `workflow-package` | Walked | `shippingbox` | Not one object | Refused |
+| `rnaseq-result` | One row | `chart.bar.xaxis` | One object | `Analyses` |
 
 A kind shown as one row has its own viewport or preview, and the sidebar never lists the files inside it. A walked kind has no viewport, so the sidebar shows a document row and lists its children (plan decision S10). The `.lungfish12sref` kind is its own kind and not a genome reference, and `FileTypeUtility` stopped calling it a reference bundle in lane B7. A `.lungfishtax` folder without `cz-id-manifest.json` is a walked document row, and the copier treats it as another native bundle that lands in the project root. A run bundle is a working artifact of a pipeline, and the sidebar hides it by its lowercase extension only. These rules are in the comments and values of `BundleKindRegistry.swift`.
 
 Deletion as one object means that `ProjectDeletionPlanner` treats the folder as a single project object and never lists the files inside it. The planner also treats a folder that holds one of its marker files, such as `analysis-metadata.json` or `classification-result.json`, as one object, and it removes the `<name>.lungfish-meta.json` and `<name>.lungfish-provenance.json` files beside a deleted item (`ProjectDeletionPlanner.swift`).
 
-The copy column is the folder of the target project where `CrossProjectItemCopier` lands an item when the source gives no hint. A refused kind has its own import path or cannot be copied. A genotype result must live under `Analyses/`, so the copier moves it there. The folder names `Reference Sequences`, `Primer Schemes` and `Analyses` are the constants `ReferenceSequenceFolder.folderName`, `PrimerSchemesFolder.folderName` and `AnalysesFolder.directoryName` in `Sources/LungfishIO/Bundles`.
+The copy column is the folder of the target project where `CrossProjectItemCopier` lands an item when the source gives no hint. A refused kind has its own import path or cannot be copied. A genotype result must live under `Analyses/`, so the copier moves it there. The folder names `Reference Sequences`, `Primer Schemes` and `Analyses` are the constants `ReferenceSequenceFolder.folderName`, `PrimerSchemesFolder.folderName` and `AnalysesFolder.directoryName` in `Sources/LungfishIO/Bundles`. An RNA-seq result lands in `Analyses` and copies as one folder. `CrossProjectItemCopier` names it with its own item kind, `rnaseqResultBundle`, so a copy never lands in the project root.
 
 ## Records, app state and producers
 
@@ -98,7 +100,7 @@ The copy column is the folder of the target project where `CrossProjectItemCopie
 | `reference` | The standard rule | `.viewstate.json` | None |
 | `genotype-result` | The standard rule | `.genotype-viewstate.json` | `ont-genotyping` |
 | `cz-id-result` | The standard rule | None | `cz-id` |
-| The other eight kinds | The standard rule | None | None |
+| The other nine kinds | The standard rule | None | None |
 
 The standard rule is `SidecarNaming.rootRecordAndProvenanceFolder`. A bundle has a root record named `.lungfish-provenance.json`, which is `ProvenanceWriter.provenanceFilename`, and a `provenance` folder, which is `ProvenanceWriter.bundleProvenanceDirectoryName`. `BundleKindAgreementTests` checks that the registry and the writer agree on both names. The writer puts a roll-up record named `bundle.lungfish-provenance.json` in that folder, and one record for each output under the output's own path inside the bundle, such as `provenance/genome/sequence.fa.gz.lungfish-provenance.json` (`ProvenanceWriter.swift`). [RECORDING-PROVENANCE.md](../contracts/RECORDING-PROVENANCE.md) says what a record holds and which code writes one.
 
