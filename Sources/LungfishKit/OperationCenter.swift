@@ -35,6 +35,12 @@ public enum OperationType: String, Sendable {
     case phylogeneticTreeImport = "Tree Import"
     case phylogeneticTreeInference = "Tree Inference"
     case phylogeneticTreeTransform = "Tree Transform"
+    /// `lungfish-cli rnaseq quant`, a salmon count of FASTQ bundles against a reference set.
+    case rnaSeqQuantification = "RNA-seq Quant"
+    /// `lungfish-cli rnaseq export`, the folder of a count table and its R scripts.
+    case rnaSeqExport = "RNA-seq Export"
+    /// `lungfish-cli rnaseq pseudobulk`, the sum of a cell table's counts by group.
+    case rnaSeqPseudobulk = "RNA-seq Pseudobulk"
 }
 
 /// A timestamped log entry recorded during an operation's lifecycle.
