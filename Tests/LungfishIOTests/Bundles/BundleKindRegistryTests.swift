@@ -34,7 +34,7 @@ final class BundleKindRegistryTests: XCTestCase {
     private static let ids: [BundleKindID] = [
         .project, .reference, .fastq, .multipleSequenceAlignment, .phylogeneticTree, .primerScheme,
         .primerAnalysis, .mhcReference, .genotypeResult, .twelveSResult, .twelveSReference, .czIdResult,
-        .workflowRun, .workflowBundle, .workflowPackage,
+        .workflowRun, .workflowBundle, .workflowPackage, .rnaseqResult,
     ]
 
     private func descriptor(_ id: BundleKindID, file: StaticString = #filePath, line: UInt = #line) throws -> BundleKindDescriptor {
@@ -43,15 +43,34 @@ final class BundleKindRegistryTests: XCTestCase {
 
     // MARK: - Shape
 
-    func testRegistryHoldsTheFifteenKindsInInventoryOrderWithUniqueIDs() {
+    func testRegistryHoldsTheSixteenKindsInInventoryOrderWithUniqueIDs() {
         XCTAssertEqual(BundleKindRegistry.all.map(\.id), Self.ids)
-        XCTAssertEqual(Set(BundleKindRegistry.all.map(\.id)).count, 15)
-        XCTAssertEqual(Set(Self.ids.map(\.rawValue)).count, 15)
+        XCTAssertEqual(Set(BundleKindRegistry.all.map(\.id)).count, 16)
+        XCTAssertEqual(Set(Self.ids.map(\.rawValue)).count, 16)
+    }
+
+    /// The RNA-seq result is known by its folder extension alone, as `docs/formats/rnaseq-bundle.md` sets, and its
+    /// names are the ones its reader and its manifest spell. It is kept under `Analyses/`, copied and deleted as one
+    /// object, and follows the standard record rule, as the 12S result does.
+    func testTheRNASeqResultIsKnownByItsExtensionAloneAndKeptUnderAnalyses() throws {
+        let rnaseq = try descriptor(.rnaseqResult)
+        XCTAssertEqual(rnaseq.id.rawValue, RNASeqResultManifest.kindName)
+        XCTAssertEqual(rnaseq.folderExtensions, [RNASeqResultBundle.directoryExtension])
+        XCTAssertEqual(rnaseq.manifestFileName, RNASeqResultManifest.filename)
+        XCTAssertEqual(rnaseq.recognition, .extensionOnly)
+        XCTAssertEqual(rnaseq.presentation, .atomicPackage)
+        XCTAssertTrue(rnaseq.deletion.isOpaqueProjectObject)
+        XCTAssertEqual(rnaseq.copy, .copied(toFolder: "Analyses", requiresAnalysesFolder: false))
+        XCTAssertEqual(rnaseq.sidecarNaming, .rootRecordAndProvenanceFolder)
+        XCTAssertTrue(rnaseq.appStateFileNames.isEmpty, "the kind declares no app state file in schema 1")
+        let folder = scratch.appendingPathComponent("SEQC.LungfishRNASeq", isDirectory: true)
+        XCTAssertEqual(BundleKindRegistry.recognizedKind(at: folder)?.id, .rnaseqResult,
+                       "an extension-only kind is recognized without a file on disk, in any case")
     }
 
     func testFolderExtensionsAreLowercaseAndUniqueWhenLowercased() {
         let extensions = BundleKindRegistry.all.flatMap(\.folderExtensions)
-        XCTAssertEqual(extensions.count, 15, "Each kind has one folder extension today")
+        XCTAssertEqual(extensions.count, 16, "Each kind has one folder extension today")
         XCTAssertEqual(Set(extensions.map { $0.lowercased() }).count, extensions.count)
         for ext in extensions {
             XCTAssertEqual(ext, ext.lowercased(), "\(ext) must be spelled in lowercase")

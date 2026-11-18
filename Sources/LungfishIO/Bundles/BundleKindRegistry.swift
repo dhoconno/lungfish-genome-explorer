@@ -162,6 +162,17 @@ public enum BundleKindRegistry {
             deletion: .init(isOpaqueProjectObject: false), copy: .refused,
             appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: []
         ),
+        // An RNA-seq result is known by its extension alone and kept under Analyses/, copied and deleted as one
+        // object, as the 12S result is (docs/formats/rnaseq-bundle.md). Its manifest declares no app state file in
+        // schema 1, so every file is covered by the root record. Last in the order, so no other kind moves.
+        BundleKindDescriptor(
+            id: .rnaseqResult, role: .bundle, folderExtensions: ["lungfishrnaseq"],
+            manifestFileName: "rnaseq-result.json", recognition: .extensionOnly, utTypeIdentifier: nil,
+            sidebarSymbolName: "chart.bar.xaxis", presentation: .atomicPackage,
+            deletion: .init(isOpaqueProjectObject: true),
+            copy: .copied(toFolder: "Analyses", requiresAnalysesFolder: false),
+            appStateFileNames: [], sidecarNaming: .rootRecordAndProvenanceFolder, producedBy: []
+        ),
     ]
 
     /// The one index. Every folder extension, already lowercase, maps to its descriptor.

@@ -64,6 +64,9 @@ extension BundleKindID {
     public static let workflowBundle = BundleKindID(rawValue: "workflow-bundle")
     /// A `.lungfishflowpkg` workflow package.
     public static let workflowPackage = BundleKindID(rawValue: "workflow-package")
+    /// A `.lungfishrnaseq` RNA-seq result, the bulk or single-cell counts of one route on one reference set
+    /// (`docs/formats/rnaseq-bundle.md`). Its id is the `kind` its manifest names.
+    public static let rnaseqResult = BundleKindID(rawValue: "rnaseq-result")
 }
 
 /// Everything the app knows about one kind of Lungfish folder as plain data.

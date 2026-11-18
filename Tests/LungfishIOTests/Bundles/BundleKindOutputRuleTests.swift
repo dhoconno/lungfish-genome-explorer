@@ -47,7 +47,7 @@ final class BundleKindOutputRuleTests: XCTestCase {
             "tracks/variants.vcf.gz.lungfish-provenance.json",
             "a/b/c.lungfish-provenance.json",
         ]
-        XCTAssertEqual(Self.standardBundles.count, 11 + 2, "eleven kinds follow the standard rule, the project folder among them, and two names have no kind")
+        XCTAssertEqual(Self.standardBundles.count, 12 + 2, "twelve kinds follow the standard rule, the project folder among them, and two names have no kind")
         for bundle in Self.standardBundles {
             for record in records {
                 XCTAssertTrue(excluded(record, inBundle: bundle), "\(record) in \(bundle)")
