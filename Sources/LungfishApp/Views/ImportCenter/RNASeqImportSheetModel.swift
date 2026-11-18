@@ -178,7 +178,19 @@ final class RNASeqImportSheetModel {
     var missingChoice: String? {
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Give the result a name." }
         if kind == .bulk, !isCountTable, !isSalmonFolders {
-            return "Choose salmon folders, or one count table, and not both."
+            return "A count table is imported on its own. Cancel, then choose one table, or choose only salmon folders."
+        }
+        // The command reads any folder that is not a Cell Ranger or STARsolo folder as a salmon folder and refuses it in words
+        // about quant.sf, --genome or --reference-set, so the sheet says what is wrong with the folder first (RS-GLUE-UX SF-1).
+        if kind == .singleCell, let bad = inputs.first(where: { !SingleCellFolderReader.isSingleCellFolder($0) }) {
+            return "\(bad.lastPathComponent) is not a Cell Ranger or STARsolo folder. Cancel, then choose the outs folder of a Cell Ranger run, or the folder of a STARsolo run that holds Solo.out."
+        }
+        // A folder's name is its sample's name, and the command refuses two samples of one name, whatever the sheet holds.
+        if kind == .singleCell || isSalmonFolders {
+            let ids = kind == .singleCell ? inputs.map(Self.sampleID(ofSingleCellFolder:)) : inputs.map(\.lastPathComponent)
+            if let twin = ids.first(where: { id in ids.filter { $0 == id }.count > 1 }) {
+                return "Two folders are named \(twin), and a folder's name is its sample's name. Cancel, then rename one of them or choose others."
+            }
         }
         if isCountTable, unit == nil { return "A count table states no unit. Choose the unit its numbers are in." }
         if kind == .singleCell, referenceSet != nil {
