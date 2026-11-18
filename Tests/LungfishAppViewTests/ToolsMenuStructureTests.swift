@@ -174,7 +174,9 @@ final class ToolsMenuStructureTests: XCTestCase {
                     let submenu = try self.categoryMenu(workflow.categoryID, in: tools)
                     let inCategory = submenu.items.first { $0.identifier?.rawValue == identifier }
                     XCTAssertNotNil(inCategory, "\(workflow.id) sits in \(workflow.categoryID.displayName)")
-                    let expectedTitle = everyWorkflowEnabled ? "\(workflow.title)\u{2026}" : "Enable \(workflow.title)\u{2026}"
+                    // A core workflow is always enabled, so its item never offers Enable.
+                    let isEnabled = everyWorkflowEnabled || workflow.maturity == .core
+                    let expectedTitle = isEnabled ? "\(workflow.title)\u{2026}" : "Enable \(workflow.title)\u{2026}"
                     XCTAssertEqual(inCategory?.title, expectedTitle)
                 }
             }
@@ -517,7 +519,12 @@ final class ToolsMenuStructureTests: XCTestCase {
             + submenu("Clustering", [tool(.savont), tool(.pbaa)])
             + submenu("Classification", [tool(.kraken2), tool(.esViritu), tool(.taxTriage), "---", classificationWorkflow])
             + submenu("Genotyping", genotyping + ["---", "MHC Haplotype Definitions\u{2026}"])
-            + submenu("RNA-seq", [tool(.rnaSeqQuant)])
+            // The export and pseudobulk rows are core catalog workflows, so they read the same with every workflow on or off.
+            + submenu("RNA-seq", [
+                tool(.rnaSeqQuant), "---",
+                "\(WorkflowLibraryCatalog.rnaSeqExportItem.title)\u{2026}",
+                "\(WorkflowLibraryCatalog.rnaSeqPseudobulkItem.title)\u{2026}",
+            ])
             + separator
             + submenu("Alignment & Phylogenetics", [tool(.mafft), "---", "Build Tree with IQ-TREE\u{2026}"])
             + submenu("PCR Primer Design", PrimerDesignEngine.allCases.map { "\($0.rawValue)\u{2026}" })

@@ -534,7 +534,11 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertTrue(state.tools.contains { $0.id == "package.org.lungfish.templates.hello-world-nextflow" })
     }
 
-    func testWorkflowOperationDialogSelectsColdEnabledPackageWhenCurrentSelectionIsDisabled() async throws {
+    /// The two RNA-seq rows are core items and always on, so a cold package is no longer the one tool a dialog can offer. A
+    /// selection the library has turned off still moves to the first available tool when the package list arrives, and that
+    /// tool is now the RNA-seq export. The package is listed and available beside it. A package named as the initial tool is the
+    /// pending case, which `testPendingLinkedWorkflowPackageGetsPackageDefaultOutputNameOnceListed` holds.
+    func testWorkflowOperationDialogMovesToFirstAvailableToolWhenCurrentSelectionIsDisabledAndColdPackageLoads() async throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         enablementStore.setWorkflow(.ontGenotyping, enabled: false)
@@ -542,6 +546,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         let package = try WorkflowPackageValidator.validatePackage(at: helloWorldNextflowPackageURL())
         packageStore.addPackage(at: package.packageURL)
         enablementStore.setUserWorkflow(package, enabled: true)
+        let packageToolID = "package.org.lungfish.templates.hello-world-nextflow"
 
         let state = WorkflowOperationDialogState(
             projectURL: nil,
@@ -549,12 +554,18 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             packageStore: packageStore
         )
 
-        XCTAssertNotEqual(state.selectedToolID, "package.org.lungfish.templates.hello-world-nextflow")
+        // With the ONT workflow off and the package cold, the first available tool is the RNA-seq export.
+        XCTAssertEqual(state.selectedToolID, WorkflowLibraryCatalog.rnaSeqExportID)
+        XCTAssertFalse(state.tools.contains { $0.id == packageToolID })
+        // The disabled ONT workflow is what the dialog showed here before the RNA-seq rows existed.
+        state.selectedToolID = "builtin.ont-genotyping"
+        state.outputName = "left-over-name"
 
-        try await waitForWorkflowPackageTool(state, id: "package.org.lungfish.templates.hello-world-nextflow")
+        try await waitForWorkflowPackageTool(state, id: packageToolID)
 
-        XCTAssertEqual(state.selectedToolID, "package.org.lungfish.templates.hello-world-nextflow")
-        XCTAssertEqual(state.outputName, "hello-world-nextflow")
+        XCTAssertEqual(state.tools.first { $0.id == packageToolID }?.availability, .available)
+        XCTAssertEqual(state.selectedToolID, WorkflowLibraryCatalog.rnaSeqExportID)
+        XCTAssertEqual(state.outputName, "rnaseq-export")
     }
 
     func testOpeningOnLinkedWorkflowPackageUsesPackageDefaultOutputName() throws {
