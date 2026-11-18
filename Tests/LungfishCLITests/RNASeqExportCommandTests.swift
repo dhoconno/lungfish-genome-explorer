@@ -128,6 +128,31 @@ final class RNASeqExportCommandTests: XCTestCase {
         }
     }
 
+    /// A contrast is three parts, FACTOR, NUMERATOR and DENOMINATOR, and none of them is empty (BIO-EXPORT-EMPTY-PART). The CLI used to
+    /// count only the parts that hold text, so `group::TB:HIV` exited 0 and wrote `c("group", "", "TB")` into both R scripts, no level
+    /// that any of the tools can fit. Each refusal names `--contrast`. The same call parses with the good contrast, so each throw is
+    /// the contrast and not a missing result path.
+    func testAContrastOfThreePartsWithNoneEmptyIsTheOnlyOneAccepted() throws {
+        let a = try result("a", route: salmon, samples: ["S1", "S2"])
+        let out = root.appendingPathComponent("export1", isDirectory: true)
+        let good = try RNASeqExportSubcommand.parse(arguments([a], output: out, extra: ["--contrast", "group:TB:HIV"]))
+        let contrast = try XCTUnwrap(good.settings().contrasts.first)
+        XCTAssertEqual([contrast.factor, contrast.numerator, contrast.denominator], ["group", "TB", "HIV"])
+        XCTAssertEqual(good.settings().contrasts.count, 1)
+        for words in [
+            "group::TB:HIV", "group:TB::HIV", ":group:TB:HIV", "group:TB:HIV:", "group:TB:HIV::", "group:::TB:HIV",
+            "group:TB:", ":TB:HIV", "group::TB", "group:TB:HIV:ctl", "TB:HIV", "TB",
+        ] {
+            XCTAssertThrowsError(
+                try RNASeqExportSubcommand.parse(arguments([a], output: out, extra: ["--contrast", words])), words
+            ) { error in
+                let message = RNASeqExportSubcommand.message(for: error)
+                XCTAssertTrue(message.contains("--contrast \(words) is not FACTOR:NUMERATOR:DENOMINATOR"), "\(words): \(message)")
+            }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: out.path), "a refused contrast writes nothing")
+    }
+
     /// Every file under `folder` by its path inside it and its sha256, the record left out (Phase 5.2 lane RS-SC-HANDOFF).
     private func treeHashes(_ folder: URL) throws -> [String: String] {
         var all: [String: String] = [:]

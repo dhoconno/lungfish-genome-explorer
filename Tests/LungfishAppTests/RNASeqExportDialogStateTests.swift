@@ -106,6 +106,12 @@ final class RNASeqExportDialogStateTests: XCTestCase {
             ("0.05", "", ["group:TB:"], "--contrast"),
             ("0.05", "", ["group:TB:HIV:ctl"], "--contrast"),
             ("0.05", "", ["group:TB:HIV", "TB:HIV"], "--contrast"),
+            // Three parts that are not all given: a doubled, a leading or a trailing colon (BIO-EXPORT-EMPTY-PART). The CLI counted
+            // only the parts that hold text, so it took the first three of these into the wrong roles and wrote them into the scripts.
+            ("0.05", "", ["group::TB:HIV"], "--contrast"),
+            ("0.05", "", ["group:TB::HIV"], "--contrast"),
+            ("0.05", "", [":group:TB:HIV"], "--contrast"),
+            ("0.05", "", ["group:TB:HIV:"], "--contrast"),
         ]
         let state = makeState(projectURL: scratch)
         state.rnaSeqExport.resultURLs = [first]
