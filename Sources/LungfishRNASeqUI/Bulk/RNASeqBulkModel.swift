@@ -71,9 +71,19 @@ public struct RNASeqBulkQuality: Equatable, Sendable {
         "rrna_percent": "On rRNA genes (%)", "not_host_percent": "Not host (%)", "globin_percent": "On globin genes (%)",
     ]
 
-    /// The lines under the quality table, the rule of each share as the CLI's record states it.
+    /// The lines under the quality table, the rule of each share as the CLI's record states it. A result that names no
+    /// reference set reads Not recorded in every Not host cell, so its line says that and not that the manifest lists
+    /// no features, which a person reads as none.
     public var notes: [String] {
-        ["rRNA", "notHost", "globin"].compactMap { key in samples.facts[key].map { "\(Self.noteLabels[key] ?? key): \($0)." } }
+        let noReferenceSet = !summary.samples.isEmpty
+            && summary.samples.allSatisfy { $0.notHostPercent == RNASeqQualitySummary.notRecordedText }
+        return ["rRNA", "notHost", "globin"].compactMap { key -> String? in
+            if key == "notHost", noReferenceSet {
+                return "Not host: \(RNASeqQualitySummary.notRecordedText), since this result names no reference set "
+                    + "that says which features are not host."
+            }
+            return samples.facts[key].map { "\(Self.noteLabels[key] ?? key): \($0)." }
+        }
     }
 
     static let noteLabels = ["rRNA": "rRNA genes", "notHost": "Not host", "globin": "Globin genes"]
