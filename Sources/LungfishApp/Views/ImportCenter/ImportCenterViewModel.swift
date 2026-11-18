@@ -115,6 +115,10 @@ struct ImportCardInfo: Identifiable, Sendable {
         case fastqLinuxPlan
         /// The adopt of a plan folder a Linux run returned, as one FASTQ bundle (C4 lane A, design section 2).
         case linuxRunResult
+        /// Salmon folders or a count table of RNA-seq, then the bulk sheet (Phase 5.4 lane RS-GLUE).
+        case rnaseqCounts
+        /// Cell Ranger or STARsolo folders, then the single-cell sheet (Phase 5.4 lane RS-GLUE).
+        case rnaseqSingleCell
         case ontRun
         case bam
         case vcf
@@ -601,7 +605,7 @@ final class ImportCenterViewModel {
             tab: .references,
             importKind: .wizardSheet(action: .primerScheme)
         ),
-    ] + ImportCenterViewModel.linuxRunCards
+    ] + ImportCenterViewModel.cardsAfterTheFirstTabs
 
     /// Cards visible in the currently selected section.
     var visibleCards: [ImportCardInfo] {
@@ -713,6 +717,10 @@ final class ImportCenterViewModel {
             if let url = urls.first {
                 appDelegate.adoptLinuxRunFromURL(url)
             }
+        case .rnaseqCounts:
+            appDelegate.importRNASeqFromURLs(urls, kind: .bulk)
+        case .rnaseqSingleCell:
+            appDelegate.importRNASeqFromURLs(urls, kind: .singleCell)
         case .ontRun:
             for url in urls {
                 appDelegate.importONTRunFromURL(url)

@@ -111,6 +111,189 @@ final class CLIImportRunnerTests: XCTestCase {
         } == true)
     }
 
+    // MARK: - import rnaseq (Phase 5.4 lane RS-GLUE)
+
+    func testBuildRNASeqImportArgumentsPutsEveryOptionAfterTheInputs() {
+        let project = URL(fileURLWithPath: "/p")
+        let folders = [URL(fileURLWithPath: "/p/Inputs/SRR1"), URL(fileURLWithPath: "/p/Inputs/SRR2")]
+        XCTAssertEqual(
+            CLIImportRunner.buildRNASeqImportArguments(
+                inputs: folders, projectDirectory: project, name: "SEQC pair",
+                samples: URL(fileURLWithPath: "/p/sheet.tsv"), tx2gene: URL(fileURLWithPath: "/p/t2g.tsv")
+            ),
+            ["import", "rnaseq", "/p/Inputs/SRR1", "/p/Inputs/SRR2", "--project", "/p", "--name", "SEQC pair",
+             "--tx2gene", "/p/t2g.tsv", "--samples", "/p/sheet.tsv", "--format", "json"]
+        )
+        XCTAssertEqual(
+            CLIImportRunner.buildRNASeqImportArguments(
+                inputs: [URL(fileURLWithPath: "/p/counts.tsv")], projectDirectory: project, name: "counts", unit: "umis"
+            ),
+            ["import", "rnaseq", "/p/counts.tsv", "--project", "/p", "--name", "counts", "--unit", "umis", "--format", "json"]
+        )
+        XCTAssertEqual(
+            CLIImportRunner.buildRNASeqImportArguments(
+                inputs: [URL(fileURLWithPath: "/p/S1")], projectDirectory: project, name: "pbmc", genomes: ["hg19", "mm10"],
+                referenceSet: URL(fileURLWithPath: "/p/set"), notHostBAMs: [("S1", URL(fileURLWithPath: "/p/a.bam"))]
+            ),
+            ["import", "rnaseq", "/p/S1", "--project", "/p", "--name", "pbmc", "--genome", "hg19", "--genome", "mm10",
+             "--reference-set", "/p/set", "--not-host-bam", "S1=/p/a.bam", "--format", "json"]
+        )
+    }
+
+    /// `begin` gets the FASTQ import's `OperationType` and a `cliCommand` that splits into the argv the run executes.
+    @MainActor
+    func testTheRNASeqRowNamesItsTypeAndRecordsTheArgvThatRuns() throws {
+        let root = try makeTemporaryDirectory()
+        let table = root.appendingPathComponent("counts.tsv")
+        try "gene_id\tS1\nG1\t1\n".write(to: table, atomically: true, encoding: .utf8)
+        let model = RNASeqImportSheetModel(kind: .bulk, inputs: [table], projectURL: root.appendingPathComponent("Project.lungfish"))
+        model.unit = "estimated"
+        let request = try XCTUnwrap(model.request())
+        let reporter = RecordingOperationReporter()
+        var launched: [UUID] = []
+
+        let result = AppDelegate.beginRNASeqImportOperation(request: request, routeContext: nil, reporter: reporter) { launched.append($0) }
+
+        let item = try XCTUnwrap(reporter.items.first)
+        XCTAssertEqual(result.startedID, item.id)
+        XCTAssertEqual(launched, [item.id])
+        XCTAssertEqual(item.operationType, .ingestion)
+        XCTAssertEqual(item.title, "RNA-seq Import: counts")
+        XCTAssertEqual(try RecordedCLICommand.arguments(of: item.cliCommand), request.arguments)
+    }
+
+    @MainActor
+    func testTheRNASeqSheetAsksForWhatTheCommandNeedsAndNothingMore() throws {
+        let root = try makeTemporaryDirectory()
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let table = root.appendingPathComponent("counts.tsv")
+        try "gene_id\tS1\nG1\t1\n".write(to: table, atomically: true, encoding: .utf8)
+        let folders = try ["SRR1", "SRR2", "S1/outs", "S2"].map { name -> URL in
+            let url = root.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            return url
+        }
+        let bulkTable = RNASeqImportSheetModel(kind: .bulk, inputs: [table], projectURL: project)
+        XCTAssertEqual(bulkTable.missingChoice, "A count table states no unit. Choose the unit its numbers are in.")
+        XCTAssertNil(bulkTable.request())
+        bulkTable.unit = "reads"
+        XCTAssertNil(bulkTable.missingChoice)
+        XCTAssertEqual(RNASeqImportSheetModel.unitChoices.map(\.id), ["reads", "pairs", "umis", "estimated"])
+        XCTAssertTrue(RNASeqImportSheetModel.unitChoices.allSatisfy { RNASeqResultManifest.CountEntry.Unit(rawValue: $0.id) != nil })
+        bulkTable.name = "   "
+        XCTAssertEqual(bulkTable.missingChoice, "Give the result a name.")
+
+        XCTAssertNil(RNASeqImportSheetModel(kind: .bulk, inputs: Array(folders.prefix(2)), projectURL: project).missingChoice)
+        XCTAssertEqual(
+            RNASeqImportSheetModel(kind: .bulk, inputs: [folders[0], table], projectURL: project).missingChoice,
+            "Choose salmon folders, or one count table, and not both."
+        )
+
+        let cells = RNASeqImportSheetModel(kind: .singleCell, inputs: Array(folders.suffix(2)), projectURL: project)
+        XCTAssertNil(cells.missingChoice, "a single-cell import needs no set")
+        cells.referenceSet = root.appendingPathComponent("set")
+        XCTAssertEqual(cells.missingChoice, "Choose the sorted, indexed BAM of S1, or remove the reference set.")
+        cells.notHostBAMs[0] = root.appendingPathComponent("a.bam")
+        XCTAssertEqual(cells.missingChoice, "Choose the sorted, indexed BAM of S2, or remove the reference set.")
+        cells.notHostBAMs[1] = root.appendingPathComponent("b.bam")
+        XCTAssertNil(cells.missingChoice)
+    }
+
+    @MainActor
+    func testTheRNASeqSheetSaysWhenAnInputIsOutsideTheProject() throws {
+        let root = try makeTemporaryDirectory()
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let inside = project.appendingPathComponent("Inputs/SRR1", isDirectory: true)
+        let outside = root.appendingPathComponent("scratch/SRR2", isDirectory: true)
+        for folder in [inside, outside] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        XCTAssertNil(RNASeqImportSheetModel(kind: .bulk, inputs: [inside], projectURL: project).outsideProjectNote)
+        let note = try XCTUnwrap(RNASeqImportSheetModel(kind: .bulk, inputs: [inside, outside], projectURL: project).outsideProjectNote)
+        XCTAssertTrue(note.contains("Outside this project: SRR2."), note)
+        XCTAssertTrue(note.contains("<external>/<name>") && note.contains("does not replay"), note)
+    }
+
+    /// The sheet names a single-cell sample as the command does, for `outs/` and for the run folder above it.
+    func testTheRNASeqSheetNamesASingleCellSampleAsTheReaderDoes() throws {
+        let run = RNASeqFixtures.root.appendingPathComponent("cellranger-pbmc_1k_v3", isDirectory: true)
+        for folder in [run, run.appendingPathComponent("outs", isDirectory: true)] {
+            XCTAssertEqual(
+                RNASeqImportSheetModel.sampleID(ofSingleCellFolder: folder),
+                try SingleCellFolderReader.read(folder: folder).sample
+            )
+        }
+    }
+
+    @MainActor
+    func testTheRNASeqCardsOpenTheirPanelsAndSayWhatAnExternalInputMeans() throws {
+        let model = ImportCenterViewModel()
+        let bulk = try XCTUnwrap(model.allCards.first { $0.id == "rnaseq-counts" })
+        let cells = try XCTUnwrap(model.allCards.first { $0.id == "rnaseq-single-cell" })
+        guard case .openPanel(let bulkPanel, let bulkAction) = bulk.importKind,
+              case .openPanel(let cellPanel, let cellAction) = cells.importKind else {
+            return XCTFail("both cards ask for their inputs in an open panel")
+        }
+        XCTAssertEqual(bulkAction, .rnaseqCounts)
+        XCTAssertEqual(cellAction, .rnaseqSingleCell)
+        XCTAssertTrue(bulkPanel.canChooseFiles && bulkPanel.canChooseDirectories && bulkPanel.allowsMultipleSelection)
+        XCTAssertFalse(cellPanel.canChooseFiles)
+        XCTAssertTrue(cellPanel.canChooseDirectories && cellPanel.allowsMultipleSelection)
+        for card in [bulk, cells] {
+            XCTAssertTrue(card.description.contains("<external>/<name>"), card.description)
+            XCTAssertTrue(card.description.contains("does not replay"), card.description)
+            XCTAssertEqual(card.tab, .sequencingReads)
+        }
+        XCTAssertEqual(model.historyLabel(for: .rnaseqCounts), "RNA-seq Counts")
+        XCTAssertEqual(model.historyLabel(for: .rnaseqSingleCell), "Single-cell Counts")
+        XCTAssertFalse(model.panelMessage(for: .rnaseqCounts).isEmpty)
+        XCTAssertFalse(model.panelMessage(for: .rnaseqSingleCell).isEmpty)
+    }
+
+    func testTheRNASeqRowEndsAsTheRunnerReportedIt() {
+        let bundle = URL(fileURLWithPath: "/p/Analyses/x.lungfishrnaseq")
+        XCTAssertEqual(AppDelegate.rnaSeqImportEnd(RNASeqImportSeen(bundles: [bundle])), .completed(bundle))
+        XCTAssertEqual(AppDelegate.rnaSeqImportEnd(RNASeqImportSeen(error: "Import cancelled")), .cancelled)
+        XCTAssertEqual(AppDelegate.rnaSeqImportEnd(RNASeqImportSeen(error: "Import cancelled before it started")), .cancelled)
+        XCTAssertEqual(AppDelegate.rnaSeqImportEnd(RNASeqImportSeen(error: "Input not found: /x")), .failedByRunner("Input not found: /x"))
+        XCTAssertEqual(
+            AppDelegate.rnaSeqImportEnd(RNASeqImportSeen()),
+            .noBundle("The import finished without naming the result it made.")
+        )
+    }
+
+    /// A refusal of the command reaches the Operations row and the outcome in the command's own words (X5). The
+    /// stand-in prints what `lungfish-cli import rnaseq` prints when the sheet's ids differ from the folders, and the
+    /// real command's words are held in `FastqIngestCancelReplayTests`.
+    func testARefusalOfTheRNASeqCommandReachesTheRowInItsOwnWords() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let words = "The sample ids of the files and the sample sheet differ. Only in the files: SRR1, SRR2. Only in the sheet: A, B."
+        let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
+        try """
+        #!/bin/sh
+        echo '{"event":"start","message":"Starting","progress":0,"schemaVersion":2}'
+        echo '{"event":"failed","message":"\(words)","schemaVersion":2}'
+        exit 5
+        """.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+        let priorCLIPath = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
+        setenv("LUNGFISH_CLI_PATH", fakeCLI.path, 1)
+        defer { if let priorCLIPath { setenv("LUNGFISH_CLI_PATH", priorCLIPath, 1) } else { unsetenv("LUNGFISH_CLI_PATH") } }
+        let operationID = await MainActor.run {
+            OperationCenter.shared.begin(
+                title: "RNA-seq Import: refused", detail: "Starting", operationType: .ingestion, cliCommand: nil
+            ).rowID
+        }
+        addTeardownBlock { await Self.finishAndClearOperation(operationID) }
+
+        let outcome = await AppDelegate.runRNASeqImport(
+            arguments: ["import", "rnaseq"], operationID: operationID, projectDirectory: tempDir, runner: CLIImportRunner()
+        )
+
+        XCTAssertEqual(outcome, .refused(words))
+        let item = await MainActor.run { OperationCenter.shared.items.first { $0.id == operationID } }
+        XCTAssertEqual(item?.state, .failed)
+        XCTAssertEqual(item?.detail, words)
+    }
+
     // MARK: - Argument Building Tests
 
     func testBuildCLIArgumentsPairedEnd() {

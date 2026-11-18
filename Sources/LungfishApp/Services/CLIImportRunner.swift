@@ -156,6 +156,47 @@ public actor CLIImportRunner {
         return args
     }
 
+    /// Builds the CLI argument array for `lungfish-cli import rnaseq`, the one place the Import Center's two RNA-seq cards
+    /// build it from their sheet's values (Phase 5.4 lane RS-GLUE). The same array is what the card runs and what its
+    /// Operations row records, so a script runs the command the card ran.
+    ///
+    /// The sheet passes `unit` only for one count table and `tx2gene` only for salmon folders, since the command refuses
+    /// either with the other input, and it passes `genomes`, `referenceSet` and `notHostBAMs` only for single-cell
+    /// folders. Each `notHostBAMs` entry becomes one `--not-host-bam <sample>=<path>`.
+    ///
+    /// - Parameters:
+    ///   - inputs: The salmon folders, the one count table, or the single-cell folders.
+    ///   - projectDirectory: The project the result is written into.
+    ///   - name: The result's name, already trimmed.
+    ///   - samples: The optional sample sheet.
+    ///   - tx2gene: The optional transcript-to-gene table of salmon folders.
+    ///   - unit: The unit of a count table (`reads`, `pairs`, `umis` or `estimated`).
+    ///   - genomes: The gene id prefix of each genome of a single-cell reference of two or more.
+    ///   - referenceSet: The reference set whose not-host sequences a single-cell import counts.
+    ///   - notHostBAMs: A sample's sorted, indexed BAM for each sample, with `referenceSet`.
+    public static func buildRNASeqImportArguments(
+        inputs: [URL],
+        projectDirectory: URL,
+        name: String,
+        samples: URL? = nil,
+        tx2gene: URL? = nil,
+        unit: String? = nil,
+        genomes: [String] = [],
+        referenceSet: URL? = nil,
+        notHostBAMs: [(sample: String, url: URL)] = []
+    ) -> [String] {
+        var args = ["import", "rnaseq"] + inputs.map(\.path)
+        args += ["--project", projectDirectory.path, "--name", name]
+        if let tx2gene { args += ["--tx2gene", tx2gene.path] }
+        if let samples { args += ["--samples", samples.path] }
+        if let unit { args += ["--unit", unit] }
+        for genome in genomes { args += ["--genome", genome] }
+        if let referenceSet { args += ["--reference-set", referenceSet.path] }
+        for bam in notHostBAMs { args += ["--not-host-bam", "\(bam.sample)=\(bam.url.path)"] }
+        args += ["--format", "json"]
+        return args
+    }
+
     /// The options that set recipe switches, such as `--no-remove-duplicates`, in the order of the switch ids (the
     /// order `ImportFastqOptions.switchOptionArguments` writes).
     public static func recipeSwitchArguments(_ options: [String: Bool]) -> [String] {

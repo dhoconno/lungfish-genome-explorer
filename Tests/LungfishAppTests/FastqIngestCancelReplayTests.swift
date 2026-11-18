@@ -231,4 +231,210 @@ final class FastqIngestCancelReplayTests: XCTestCase {
         }
         XCTAssertEqual(try String(contentsOf: input, encoding: .utf8), Self.reads, "the original is as it was")
     }
+
+    // MARK: - import rnaseq (Phase 5.4 lane RS-GLUE)
+    //
+    // The Import Center's two RNA-seq cards run `lungfish-cli import rnaseq` through `AppDelegate.startRNASeqImport`, the
+    // runner every FASTQ import uses. The cases below run the built command. The inputs sit inside the project, since a
+    // command that names an input outside it does not replay (BACKLOG RNASEQ-IMPORT-EXTERNAL-NO-REPLAY).
+    //
+    // - Parity. The sheet's argv runs on side A as a script runs it, on side C as the card runs it, and on side C' as the
+    //   command side C's row recorded. The three give one output tree and one record with the clocks masked.
+    // - Cancel. The row's Cancel stops the command in its read of 40 large salmon folders, and the project holds no
+    //   result and no stage.
+    // - Refusal. A sheet whose sample ids differ from the folders is refused in the command's words, on the row and in
+    //   the sheet (X5).
+
+    private enum RNASeqCard: String {
+        case salmon = "salmon-c1"
+        case cellRanger = "cellranger-pbmc_1k_v3"
+    }
+
+    @MainActor
+    private final class RNASeqRunBox {
+        var outcome: RNASeqImportOutcome?
+        var operationID: UUID?
+    }
+
+    private func rnaSeqCLI() throws -> URL {
+        let products = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
+        let cli = try XCTUnwrap(
+            CLITestBinaryResolver.cliBinaryURL(buildProductsDirectory: products),
+            "No lungfish-cli beside \(products.path) and none named by LUNGFISH_CLI_PATH"
+        )
+        // The app's runner finds the command as the app does, through this variable.
+        let prior = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
+        setenv("LUNGFISH_CLI_PATH", cli.path, 1)
+        addTeardownBlock { if let prior { setenv("LUNGFISH_CLI_PATH", prior, 1) } else { unsetenv("LUNGFISH_CLI_PATH") } }
+        return cli
+    }
+
+    nonisolated private static func writeRNASeqProject(_ cards: [RNASeqCard], in root: URL) throws {
+        let inputs = root.appendingPathComponent("Project.lungfish/Inputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+        for card in cards {
+            try FileManager.default.copyItem(
+                at: RNASeqFixtures.root.appendingPathComponent(card.rawValue, isDirectory: true),
+                to: inputs.appendingPathComponent(card.rawValue, isDirectory: true)
+            )
+        }
+    }
+
+    /// The sheet of a card with the values a person would give, over the fixture copied into `root`'s project.
+    private static func rnaSeqModel(_ card: RNASeqCard, in root: URL, sampleSheet: URL? = nil) -> RNASeqImportSheetModel {
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let inputs = project.appendingPathComponent("Inputs", isDirectory: true)
+        let model: RNASeqImportSheetModel
+        switch card {
+        case .salmon:
+            let folders = RNASeqFixtures.salmonRunIDs.map { inputs.appendingPathComponent("salmon-c1/\($0)", isDirectory: true) }
+            model = RNASeqImportSheetModel(kind: .bulk, inputs: folders, projectURL: project)
+            model.name = "SEQC pair"
+        case .cellRanger:
+            let folder = inputs.appendingPathComponent("cellranger-pbmc_1k_v3", isDirectory: true)
+            model = RNASeqImportSheetModel(kind: .singleCell, inputs: [folder], projectURL: project)
+            model.name = "pbmc 1k"
+        }
+        model.sampleSheet = sampleSheet
+        return model
+    }
+
+    /// Side C. The card's row and run, on the app's runner, and the command the row recorded.
+    private func rnaSeqSideC(_ request: RNASeqImportRequest) async -> RouteParitySideOutcome {
+        var operationID: UUID?
+        let outcome: RNASeqImportOutcome = await withCheckedContinuation { continuation in
+            operationID = AppDelegate.startRNASeqImport(request: request, routeContext: nil) { continuation.resume(returning: $0) }
+            if operationID == nil { continuation.resume(returning: .refused("the row was refused")) }
+        }
+        let command = OperationCenter.shared.items.first { $0.id == operationID }?.cliCommand
+        switch outcome {
+        case .imported(let bundle):
+            return RouteParitySideOutcome(end: .completed, detail: "Imported \(bundle.lastPathComponent)", recordedCommand: command)
+        case .refused(let words):
+            return RouteParitySideOutcome(end: .failed, detail: words, recordedCommand: command)
+        case .cancelled:
+            return RouteParitySideOutcome(end: .cancelled, detail: "cancelled", recordedCommand: command)
+        }
+    }
+
+    private func assertRNASeqCardParity(_ card: RNASeqCard, file: StaticString = #filePath, line: UInt = #line) async throws {
+        await OperationCenter.useTemporaryFailureReportsForTesting()
+        let cli = try rnaSeqCLI()
+        let scratch = try TestTempDirectory.make(prefix: "rnaseq-card-parity")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let harness = RouteParityHarness(cliBinary: cli, kind: .bundle, masks: .standard, replayTimeout: .seconds(120))
+        let result = try await harness.assertParity(
+            card.rawValue,
+            declared: [],
+            in: scratch.appendingPathComponent(card.rawValue, isDirectory: true),
+            fixture: { root in try Self.writeRNASeqProject([card], in: root) },
+            sideA: { root in
+                let request = try XCTUnwrap(Self.rnaSeqModel(card, in: root).request())
+                let run = await RouteParityHarness.runCLI(cli, arguments: request.arguments, timeout: .seconds(120))
+                return RouteParitySideOutcome(end: run.end, detail: run.detail)
+            },
+            sideC: { root in
+                let request = try XCTUnwrap(Self.rnaSeqModel(card, in: root).request())
+                return await self.rnaSeqSideC(request)
+            },
+            file: file,
+            line: line
+        )
+        for run in result.runs.all {
+            XCTAssertEqual(run.outcome.end, .completed, "\(run.side): \(run.outcome.detail)", file: file, line: line)
+            let analyses = run.root.appendingPathComponent("Project.lungfish/Analyses", isDirectory: true)
+            let made = (try? FileManager.default.contentsOfDirectory(atPath: analyses.path)) ?? []
+            XCTAssertEqual(made.count, 1, "side \(run.side) made one result: \(made)", file: file, line: line)
+            XCTAssertTrue(made.allSatisfy { $0.hasSuffix(".lungfishrnaseq") }, "\(made)", file: file, line: line)
+        }
+    }
+
+    func testTheBulkCardImportsWhatTheCLIImportsFromTheSalmonFolders() async throws {
+        try await assertRNASeqCardParity(.salmon)
+    }
+
+    func testTheSingleCellCardImportsWhatTheCLIImportsFromTheCellRangerFolder() async throws {
+        try await assertRNASeqCardParity(.cellRanger)
+    }
+
+    /// 40 salmon folders of 50,000 transcripts each, so the command is still reading them when the cancel lands.
+    nonisolated private static func writeLargeSalmonFolders(count: Int, transcripts: Int, in root: URL) throws -> [URL] {
+        var quant = "Name\tLength\tEffectiveLength\tTPM\tNumReads\n"
+        for index in 0..<transcripts { quant += "T\(index)\t1000\t850.5\t1.25\t\(index % 97).5\n" }
+        let data = Data(quant.utf8)
+        let fixture = RNASeqFixtures.salmonRun("SRR896663")
+        return try (0..<count).map { index in
+            let folder = root.appendingPathComponent("held\(index)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder.appendingPathComponent("aux_info"), withIntermediateDirectories: true)
+            try data.write(to: folder.appendingPathComponent("quant.sf"))
+            for file in ["cmd_info.json", "lib_format_counts.json", "aux_info/meta_info.json"] {
+                try FileManager.default.copyItem(at: fixture.appendingPathComponent(file), to: folder.appendingPathComponent(file))
+            }
+            return folder
+        }
+    }
+
+    /// The row's Cancel stops the command through the app's runner. The row reads Cancelled, the outcome is a cancel,
+    /// and the project holds no result and no stage in its Analyses folder.
+    func testACancelOfTheRNASeqRowLeavesNoResultAndNoStage() async throws {
+        await OperationCenter.useTemporaryFailureReportsForTesting()
+        _ = try rnaSeqCLI()
+        let root = try TestTempDirectory.make(prefix: "rnaseq-card-cancel")
+        defer { TestTempDirectory.cleanup(root) }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let folders = try Self.writeLargeSalmonFolders(count: 40, transcripts: 50_000, in: root)
+        let model = RNASeqImportSheetModel(kind: .bulk, inputs: folders, projectURL: project)
+        model.name = "held"
+        let request = try XCTUnwrap(model.request())
+
+        let box = RNASeqRunBox()
+        box.operationID = AppDelegate.startRNASeqImport(request: request, routeContext: nil) { box.outcome = $0 }
+        let operationID = try XCTUnwrap(box.operationID)
+        let analyses = project.appendingPathComponent("Analyses", isDirectory: true)
+        let reached = await CLISIGTERMHarness.waitForFile(analyses)
+        XCTAssertTrue(reached, "the command never made the Analyses folder")
+        OperationCenter.shared.cancel(id: operationID)
+        let ended = await waitUntil(timeout: CLISIGTERMHarness.processWait, pollInterval: .milliseconds(20)) { box.outcome != nil }
+
+        XCTAssertTrue(ended, "the run ended after the cancel")
+        XCTAssertEqual(box.outcome, .cancelled)
+        XCTAssertEqual(OperationCenter.shared.items.first { $0.id == operationID }?.state, .cancelled)
+        XCTAssertEqual((try? FileManager.default.contentsOfDirectory(atPath: analyses.path)) ?? ["missing"], [], "no result and no stage")
+        XCTAssertEqual(ProvenanceRecorder.loadEnvelope(from: project)?.status.rawValue, "cancelled")
+    }
+
+    /// X5. A sheet whose sample ids differ from the folders is refused, and the refusal shows the command's own words on
+    /// the Operations row and in the sheet, which stays open with its values so a person can change them and run again.
+    func testASheetWhoseIdsDifferFromTheFoldersIsRefusedInTheCommandsWordsOnTheRowAndInTheSheet() async throws {
+        await OperationCenter.useTemporaryFailureReportsForTesting()
+        _ = try rnaSeqCLI()
+        let root = try TestTempDirectory.make(prefix: "rnaseq-card-refused")
+        defer { TestTempDirectory.cleanup(root) }
+        try Self.writeRNASeqProject([.salmon], in: root)
+        let sheet = root.appendingPathComponent("sheet.tsv")
+        try "sample\tgroup\nA\tx\nB\ty\n".write(to: sheet, atomically: true, encoding: .utf8)
+        let model = Self.rnaSeqModel(.salmon, in: root, sampleSheet: sheet)
+        let box = RNASeqRunBox()
+        model.start = { request, completion in
+            box.operationID = AppDelegate.startRNASeqImport(request: request, routeContext: nil, completion: completion)
+            return box.operationID
+        }
+
+        model.importClicked()
+        XCTAssertEqual(model.phase, .running)
+        let refused = await waitUntil(timeout: CLISIGTERMHarness.processWait, pollInterval: .milliseconds(20)) { model.failure != nil }
+
+        XCTAssertTrue(refused, "the run ended in a refusal")
+        let words = RNASeqImportError.sampleIDsDiffer(onlyInFiles: ["SRR896663", "SRR896743"], onlyInSheet: ["A", "B"]).errorDescription
+        XCTAssertEqual(model.failure, words, "the sheet shows the command's words")
+        XCTAssertTrue(model.failure?.contains("Only in the files: SRR896663, SRR896743. Only in the sheet: A, B.") == true)
+        XCTAssertEqual(model.phase, .editing, "the sheet stays open, ready to run again")
+        XCTAssertEqual(model.sampleSheet, sheet)
+        let row = OperationCenter.shared.items.first { $0.id == box.operationID }
+        XCTAssertEqual(row?.state, .failed)
+        XCTAssertEqual(row?.detail, words, "the Operations row shows the command's words")
+        let analyses = root.appendingPathComponent("Project.lungfish/Analyses", isDirectory: true)
+        XCTAssertEqual((try? FileManager.default.contentsOfDirectory(atPath: analyses.path)) ?? [], [], "a refusal writes nothing")
+    }
 }
