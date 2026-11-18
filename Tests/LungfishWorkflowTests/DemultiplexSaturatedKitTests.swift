@@ -60,11 +60,13 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
     }
 
     private func config(
-        kit: BarcodeKitDefinition, files: (input: URL, output: URL), errorRate: Double = 0.15, optIn: Bool = false
+        kit: BarcodeKitDefinition, files: (input: URL, output: URL), errorRate: Double = 0.15, optIn: Bool = false,
+        fivePrime: Int = 0, threePrime: Int = 0
     ) -> DemultiplexConfig {
         DemultiplexConfig(
             inputURL: files.input, barcodeKit: kit, outputDirectory: files.output, barcodeLocation: .bothEnds,
-            errorRate: errorRate, engine: .cutadapt, keepsUncheckedSamples: optIn
+            errorRate: errorRate, maxDistanceFrom5Prime: fivePrime, maxDistanceFrom3Prime: threePrime, engine: .cutadapt,
+            keepsUncheckedSamples: optIn
         )
     }
 
@@ -277,12 +279,16 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
 
     /// Preflight's refusal of `kit` at `errorRate`, or nil when it passes. The project holds 200 real starts, which the
     /// refusal never reads, and preflight must leave its output folder unmade either way.
-    private func refusal(_ kit: BarcodeKitDefinition, errorRate: Double, optIn: Bool = false) async throws -> DemultiplexError? {
+    private func refusal(
+        _ kit: BarcodeKitDefinition, errorRate: Double, optIn: Bool = false, fivePrime: Int = 0, threePrime: Int = 0
+    ) async throws -> DemultiplexError? {
         let files = try project(starts: Array(try Self.fixtureStarts("SRR2584863-R1-first100000-starts12.txt").prefix(200)))
         defer { try? FileManager.default.removeItem(at: files.input.deletingLastPathComponent()) }
         var refusal: DemultiplexError?
         do {
-            try await DemultiplexingPipeline().preflight(config: config(kit: kit, files: files, errorRate: errorRate, optIn: optIn))
+            try await DemultiplexingPipeline().preflight(config: config(
+                kit: kit, files: files, errorRate: errorRate, optIn: optIn, fivePrime: fivePrime, threePrime: threePrime
+            ))
         } catch let error as DemultiplexError {
             refusal = error
         }
@@ -511,5 +517,112 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
         XCTAssertEqual(anchored.outcome.null, .randomBases, "a kit with an anchored side, under the share, keeps its own floor")
         XCTAssertFalse(anchored.byShare)
         XCTAssertFalse(anchored.unanchored)
+    }
+
+    // MARK: - A custom dual kit searched at the read ends (BIO-DUAL-ANCHOR items 1 to 5, tests i, iv and v)
+
+    /// `dualPairs(count:)` as a Custom Definition with no `# kit:` line, the kit `loadCustomKit` makes from rows with an i5.
+    static func dualKit(count: Int = 96, name: String = "Dual 96") throws -> BarcodeKitDefinition {
+        let rows = dualPairs(count: count).enumerated().map { "D\(String(format: "%02d", $0.offset + 1)),\($0.element.i7),\($0.element.i5)" }
+        return try BarcodeKitRegistry.loadCustomKit(text: rows.joined(separator: "\n") + "\n", name: name)
+    }
+
+    /// The adapter file a run of `kit` at Both Ends with no sample sheet writes, and its lines.
+    private func adapterFile(
+        _ kit: BarcodeKitDefinition, fivePrime: Int = 0, threePrime: Int = 0
+    ) async throws -> (url: URL, lines: [String]) {
+        let files = try project(starts: ["ACGTACGTACGT"])
+        defer { try? FileManager.default.removeItem(at: files.input.deletingLastPathComponent()) }
+        let work = folder.appendingPathComponent("work-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let config = config(kit: kit, files: files, fivePrime: fivePrime, threePrime: threePrime)
+        let adapters = try await DemultiplexingPipeline().createAdapterConfiguration(for: config, workDirectory: work)
+        XCTAssertEqual(adapters.adapterFlag, "-g")
+        let text = try String(contentsOf: adapters.adapterFASTA, encoding: .utf8)
+        return (adapters.adapterFASTA, text.split(separator: "\n").map(String.init))
+    }
+
+    /// A custom dual-index definition at Both Ends with no sample sheet is searched as `^i7...i5$` and, for the other strand
+    /// of the molecule, `^rc(i5)...rc(i7)$`, so cutadapt needs both barcodes whole at the two ends of the read (BIO-DUAL-ANCHOR
+    /// items 1 and 2, test i). At the base the lines were `i7...i5` with no anchor, so each side was found anywhere in the read.
+    func testACustomDualKitIsSearchedAsPairsAnchoredAtBothReadEnds() async throws {
+        let kit = BarcodeKitDefinition(
+            id: "custom-dual-two", displayName: "Dual Two", vendor: "custom", isDualIndexed: true, barcodes: [
+                BarcodeEntry(id: "S1", i7Sequence: "ATTACTCG", i5Sequence: "TATAGCCT"),
+                BarcodeEntry(id: "S2", i7Sequence: "TCCGGAGA", i5Sequence: "ATAGAGGC"),
+            ]
+        )
+        let lines = try await adapterFile(kit).lines
+        XCTAssertEqual(lines, [
+            ">S1__lge_forward", "^ATTACTCG...TATAGCCT$",
+            ">S1__lge_reverse_complement", "^AGGCTATA...CGAGTAAT$",
+            ">S2__lge_forward", "^TCCGGAGA...ATAGAGGC$",
+            ">S2__lge_reverse_complement", "^GCCTCTAT...TCTCCGGA$",
+        ])
+    }
+
+    /// 96 pairs of 8 bases at the default 0.15 with no opt-in pass preflight. Each line is anchored at both read ends, so the
+    /// floor can measure a null, and the kit's share is far under 0.5 as single reads and as fragments (BIO-DUAL-ANCHOR item 3,
+    /// test iv, Q2). At the base they were refused as pairs searched anywhere.
+    func testNinetySixCustomDualPairsAtTheDefaultErrorRateRunWithNoOptIn() async throws {
+        let refused = try await refusal(Self.dualKit(), errorRate: 0.15)
+        XCTAssertNil(refused, "96 pairs anchored at both read ends, error 0.15, no opt-in")
+    }
+
+    /// The floor builds its decoys from the `^` sides of those lines, the i7 and the reverse complement of the i5, so it
+    /// measures a null on the run's unassigned reads (BIO-DUAL-ANCHOR item 4, test v). At the base no side was anchored and
+    /// `decoyIndex` gave nil.
+    func testTheFloorBuildsDecoysForNinetySixAnchoredDualPairs() async throws {
+        let file = try await adapterFile(Self.dualKit())
+        let patterns = try DemultiplexingPipeline().chancePatterns(in: file.url)
+        XCTAssertEqual(patterns.count, 96)
+        XCTAssertFalse(DemultiplexChanceFloor.hasNoAnchoredSide(patterns: patterns))
+        XCTAssertFalse(DemultiplexChanceFloor.isSaturated(patterns: patterns, errorRate: 0.15, allowsIndels: true, unit: 2))
+        XCTAssertNotNil(
+            DemultiplexChanceFloor.decoyIndex(patterns: patterns, errorRate: 0.15, allowsIndels: true),
+            "the floor measures no null for these lines"
+        )
+    }
+
+    // MARK: - The line cap (BIO-DUAL-ANCHOR item 5, the refusal pass of SAD)
+
+    /// Each 5' and 3' distance is a line of its own, `(o5 + 1) x (o3 + 1) x 2` a pair, and cutadapt spends a fixed time a run
+    /// that grows with the lines, about 29 ms a line, before it reads the first read (BIO-DUAL-ANCHOR Q3). So a setup of more
+    /// than 6,000 lines is refused before cutadapt starts, in words that give the cause and both fixes. The refusal pass: 96
+    /// pairs at 3/3 (3,072 lines), one pair at 52/47 (5,088, the ONT wrapper of `DemultiplexingPipelineTests`) and one pair
+    /// at 59/49 (6,000) pass, and 96 pairs at 5/5 (6,912) and one pair at 59/50 (6,120) are refused.
+    func testTheLinesOfACustomDualKitAreCappedAtSixThousand() async throws {
+        let ninetySix = try Self.dualKit()
+        let one = try Self.dualKit(count: 1, name: "Dual One")
+        for (kit, fivePrime, threePrime, lines) in [(ninetySix, 3, 3, 3_072), (one, 52, 47, 5_088), (one, 59, 49, 6_000)] {
+            let setting = "\(kit.displayName) at \(fivePrime)/\(threePrime)"
+            let written = try await adapterFile(kit, fivePrime: fivePrime, threePrime: threePrime).lines
+            XCTAssertEqual(written.count, 2 * lines, setting)
+            let refused = try await refusal(kit, errorRate: 0.15, fivePrime: fivePrime, threePrime: threePrime)
+            XCTAssertNil(refused, setting)
+        }
+        for (kit, fivePrime, threePrime, lines) in [(ninetySix, 5, 5, 6_912), (one, 59, 50, 6_120)] {
+            let setting = "\(kit.displayName) at \(fivePrime)/\(threePrime)"
+            let refused = try await refusal(kit, errorRate: 0.15, fivePrime: fivePrime, threePrime: threePrime)
+            guard case .tooManySearchLines(let kitName, let pairs, let o5, let o3, let count)? = refused else {
+                XCTFail("\(setting) was refused as \(String(describing: refused)), not for its lines")
+                continue
+            }
+            XCTAssertEqual(kitName, kit.displayName, setting)
+            XCTAssertEqual(pairs, kit.barcodes.count, setting)
+            XCTAssertEqual([o5, o3], [fivePrime, threePrime], setting)
+            XCTAssertEqual(count, lines, setting)
+        }
+        let words = try XCTUnwrap(DemultiplexError.tooManySearchLines(
+            kitName: "Dual 96", pairs: 96, maxDistanceFrom5Prime: 5, maxDistanceFrom3Prime: 5, lines: 6_912
+        ).errorDescription)
+        for phrase in ["\"Dual 96\"", "96 barcode pairs", "6,912", "6,000", "nothing was run", "trim", "both distances at 0",
+                       "5' Distance", "3' Distance", "--max-distance-5prime", "--max-distance-3prime"] {
+            XCTAssertTrue(words.contains(phrase), "\(phrase): \(words)")
+        }
+        let single = try XCTUnwrap(DemultiplexError.tooManySearchLines(
+            kitName: "Dual One", pairs: 1, maxDistanceFrom5Prime: 59, maxDistanceFrom3Prime: 50, lines: 6_120
+        ).errorDescription)
+        XCTAssertTrue(single.contains("the barcode pair of \"Dual One\""), single)
     }
 }

@@ -39,6 +39,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     let rootRecordSource: VirtualRootRecordSource
     private static let observedForwardOrientationSuffix = "__lge_forward"
     private static let observedReverseComplementOrientationSuffix = "__lge_reverse_complement"
+    /// The most cutadapt lines a custom dual-index definition at Both Ends with no sample sheet may give, counted as
+    /// `(o5 + 1) x (o3 + 1) x 2` a pair (BIO-DUAL-ANCHOR item 5). It admits 96 pairs at 3/3 and one pair at 52/47.
+    static let observedPairLineCap = 6_000
 
     struct DemuxTrimEntry: Sendable {
         let readID: String

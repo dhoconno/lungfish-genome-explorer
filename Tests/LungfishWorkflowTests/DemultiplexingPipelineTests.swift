@@ -263,7 +263,9 @@ final class DemultiplexingPipelineTests: XCTestCase {
 
         let pipeline = DemultiplexingPipeline()
         let result = try await pipeline.run(
-            // A custom dual kit at Both Ends with no sample sheet writes unanchored i7...i5 lines, which preflight refuses unless the person keeps unchecked samples (BIO-SATKIT-ANYWHERE item 1, BIO-DUAL-TESTS).
+            // A custom dual kit at Both Ends with no sample sheet is searched at the read ends and needs no opt-in
+            // (BIO-DUAL-ANCHOR item 6). Its barcodes are their own reverse complements, so the swapped read is also the
+            // other strand, and testACustomDualPairIsFoundOnlyWholeAtTheReadEndsOnEitherStrand pins the orientation.
             config: DemultiplexConfig(
                 inputURL: inputFASTQ,
                 barcodeKit: kit,
@@ -272,8 +274,7 @@ final class DemultiplexingPipelineTests: XCTestCase {
                 errorRate: 0.0,
                 minimumOverlap: 8,
                 trimBarcodes: true,
-                threads: 1,
-                keepsUncheckedSamples: true
+                threads: 1
             ),
             progress: { _, _ in }
         )
@@ -318,7 +319,9 @@ final class DemultiplexingPipelineTests: XCTestCase {
         )
 
         let result = try await DemultiplexingPipeline().run(
-            // A custom dual kit at Both Ends with no sample sheet writes unanchored i7...i5 lines, which preflight refuses unless the person keeps unchecked samples (BIO-SATKIT-ANYWHERE item 1, BIO-DUAL-TESTS).
+            // The pair sits 52 bases from the start of each read and 47 from the end, inside the ONT wrapper, and the lines
+            // are anchored at the read ends, so the distances name the wrapper: 53 x 48 x 2 = 5,088 lines, under the cap of
+            // 6,000, and no opt-in (BIO-DUAL-ANCHOR items 5 and 6, test vii). Cutadapt spends about 145 s on the lines.
             config: DemultiplexConfig(
                 inputURL: inputFASTQ,
                 barcodeKit: kit,
@@ -326,13 +329,15 @@ final class DemultiplexingPipelineTests: XCTestCase {
                 barcodeLocation: .bothEnds,
                 errorRate: 0.0,
                 minimumOverlap: 16,
+                maxDistanceFrom5Prime: ontLeft.count,
+                maxDistanceFrom3Prime: ontRight.count,
                 trimBarcodes: true,
-                threads: 1,
-                keepsUncheckedSamples: true
+                threads: 1
             ),
             progress: { _, _ in }
         )
 
+        XCTAssertEqual([ontLeft.count, ontRight.count], [52, 47])
         XCTAssertEqual(result.manifest.inputReadCount, 3)
         XCTAssertEqual(result.manifest.barcodes.count, 1)
         XCTAssertEqual(result.manifest.barcodes.first?.barcodeID, "32286-059_DP08")
@@ -342,6 +347,116 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertTrue(nativeCommand.contains("--quiet"))
         XCTAssertTrue(nativeCommand.contains { $0.contains("{name}.fastq") })
         XCTAssertFalse(nativeCommand.contains { $0.contains("{name}.fastq.gz") })
+    }
+
+    /// The pair D01 of BIO-DUAL-ANCHOR Q1, whose barcodes are not their own reverse complements, as a custom dual kit.
+    private static let anchorI7 = "TGGGCGAA"
+    private static let anchorI5 = "AGGAGTTA"
+    private static let anchorInsert = "GATTACAGGTCATCGATCAGTTCAGCATGCAAGTC"
+    private static var anchorKit: BarcodeKitDefinition {
+        BarcodeKitDefinition(
+            id: "custom-dual-d01", displayName: "Dual D01", vendor: "custom", isDualIndexed: true, pairingMode: .fixedDual,
+            barcodes: [BarcodeEntry(id: "D01", i7Sequence: anchorI7, i5Sequence: anchorI5)]
+        )
+    }
+
+    /// A custom dual pair whose barcodes are not their own reverse complements, at Both Ends with no sample sheet, is found
+    /// only whole at the two ends of a read, on either strand of the molecule (BIO-DUAL-ANCHOR items 1 and 2, test ii, Q1).
+    /// A read with the i7 at the start and only 3 bases of the i5 at the end, a read with the pair inside it, and a read
+    /// with the pair swapped, which is no strand of the molecule, stay unassigned, with the opt-in and without it. At the
+    /// base the lines had no anchor, so cutadapt placed those reads too, and preflight refused the run with no opt-in.
+    func testACustomDualPairIsFoundOnlyWholeAtTheReadEndsOnEitherStrand() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        let (i7, i5, insert) = (Self.anchorI7, Self.anchorI5, Self.anchorInsert)
+        let forward = i7 + insert + i5
+        let inputFASTQ = dir.appendingPathComponent("input.fastq")
+        try writeFASTQ(
+            sequences: [
+                forward,                                      // the pair at the read ends
+                PlatformAdapters.reverseComplement(forward),  // the other strand, rc(i5) ... rc(i7)
+                i7 + insert + String(i5.prefix(3)),           // 3 bases of the i5 at the end
+                "CCGTTAGC" + forward + "GCTAACGG",            // the pair inside the read
+                i5 + insert + i7,                             // the pair swapped, no strand of the molecule
+            ],
+            to: inputFASTQ
+        )
+        for keepsUncheckedSamples in [true, false] {
+            let setting = keepsUncheckedSamples ? "with Keep Unchecked Samples" : "with no opt-in"
+            let result = try await DemultiplexingPipeline().run(
+                config: DemultiplexConfig(
+                    inputURL: inputFASTQ,
+                    barcodeKit: Self.anchorKit,
+                    outputDirectory: dir.appendingPathComponent("demux-\(keepsUncheckedSamples)", isDirectory: true),
+                    barcodeLocation: .bothEnds,
+                    errorRate: 0.15,
+                    minimumOverlap: 3,
+                    trimBarcodes: true,
+                    threads: 1,
+                    keepsUncheckedSamples: keepsUncheckedSamples
+                ),
+                progress: { _, _ in }
+            )
+            XCTAssertEqual(result.manifest.inputReadCount, 5, setting)
+            XCTAssertEqual(result.manifest.barcodes.map(\.barcodeID), ["D01"], setting)
+            XCTAssertEqual(result.manifest.barcodes.first?.readCount, 2, setting)
+            XCTAssertEqual(result.manifest.unassigned.readCount, 3, setting)
+        }
+    }
+
+    /// The 5' and 3' distances of a custom dual kit are searched as `N{a}` and `N{b}` wildcards at the read ends, one line
+    /// for each pair of distances on each strand, 3 x 2 x 2 lines at 2 and 1 (BIO-DUAL-ANCHOR item 1, test iii). A read with
+    /// 2 extra bases before the i7 and 1 after the i5 is placed, and so is a read of the other strand within the distances.
+    /// A read with 3 extra bases before the i7 is not. At the base the distances were ignored.
+    func testTheDistancesOfACustomDualKitAreSearchedAsWildcardsAtTheReadEnds() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        let (i7, i5, insert) = (Self.anchorI7, Self.anchorI5, Self.anchorInsert)
+        let (rcI7, rcI5) = (PlatformAdapters.reverseComplement(i7), PlatformAdapters.reverseComplement(i5))
+        XCTAssertEqual([rcI7, rcI5], ["TTCGCCCA", "TAACTCCT"])
+        let inputFASTQ = dir.appendingPathComponent("input.fastq")
+        try writeFASTQ(
+            sequences: [
+                "GC" + i7 + insert + i5 + "T",                                  // 2 bases before, 1 after
+                "GT" + rcI5 + PlatformAdapters.reverseComplement(insert) + rcI7 + "A",  // the other strand, 2 and 1
+                "GCA" + i7 + insert + i5,                                       // 3 bases before
+            ],
+            to: inputFASTQ
+        )
+        let config = DemultiplexConfig(
+            inputURL: inputFASTQ,
+            barcodeKit: Self.anchorKit,
+            outputDirectory: dir.appendingPathComponent("demux-out", isDirectory: true),
+            barcodeLocation: .bothEnds,
+            errorRate: 0.0,
+            minimumOverlap: 3,
+            maxDistanceFrom5Prime: 2,
+            maxDistanceFrom3Prime: 1,
+            trimBarcodes: true,
+            threads: 1
+        )
+        let work = dir.appendingPathComponent("adapters", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let adapters = try await DemultiplexingPipeline().createAdapterConfiguration(for: config, workDirectory: work)
+        let lines = try String(contentsOf: adapters.adapterFASTA, encoding: .utf8).split(separator: "\n").map(String.init)
+        var expected: [String] = []
+        for (suffix, front, back) in [("__lge_forward", i7, i5), ("__lge_reverse_complement", rcI5, rcI7)] {
+            for a in 0...2 {
+                for b in 0...1 {
+                    let before = a > 0 ? "N{\(a)}" : ""
+                    let after = b > 0 ? "N{\(b)}" : ""
+                    expected += [">D01\(suffix)", "^\(before)\(front)...\(back)\(after)$"]
+                }
+            }
+        }
+        XCTAssertEqual(expected.count, 2 * 3 * 2 * 2)
+        XCTAssertEqual(lines, expected)
+
+        let result = try await DemultiplexingPipeline().run(config: config, progress: { _, _ in })
+        XCTAssertEqual(result.manifest.inputReadCount, 3)
+        XCTAssertEqual(result.manifest.barcodes.map(\.barcodeID), ["D01"])
+        XCTAssertEqual(result.manifest.barcodes.first?.readCount, 2)
+        XCTAssertEqual(result.manifest.unassigned.readCount, 1)
     }
 
     func testVirtualDemuxPreservesInterleavedPairingModeFromBundleMetadata() async throws {
