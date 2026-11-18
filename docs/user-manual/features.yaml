@@ -3120,3 +3120,118 @@ features:
       Schemes/<name>.lungfishprimers with its design reference under
       attachments/, ready for BAM primer trimming. Chapters:
       10-primer-design/05 and appendices/primer-schemes.
+  rnaseq.quant:
+    title: Quantify RNA-seq reads
+    entry_points:
+      - "Tools > RNA-seq > Quantify RNA-seq Reads…"
+      - "CLI: lungfish-cli rnaseq quant"
+    inputs: [fastq-bundle, rnaseq-reference-set]
+    outputs: [rnaseq-result]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationRNASeqQuantPane.swift
+      - Sources/LungfishApp/Services/RNASeqQuantRun.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationsCatalog.swift
+      - Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift
+      - Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift
+      - Sources/LungfishApp/App/ToolsMenuLayout.swift
+      - Sources/LungfishKit/OperationCenter.swift
+    module: [LungfishApp, LungfishKit]
+    cli:
+      - lungfish-cli rnaseq quant
+    operation_type: rnaSeqQuantification
+    tests:
+      - Tests/LungfishAppTests/RNASeqQuantDialogTests.swift
+      - Tests/LungfishAppTests/RNASeqQuantDialogConformanceTests.swift
+      - Tests/LungfishAppTests/RNASeqQuantParityMasks.swift
+      - Tests/LungfishAppTests/FASTQOperationsCatalogTests.swift
+      - Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
+    notes: >-
+      The Tools menu has an RNA-seq category after Genotyping with one tool,
+      Quantify RNA-seq Reads. The category needs the rna-seq pack, where
+      salmon comes from. The pane lists the reference sets under the storage
+      root's rnaseq-reference-sets folder and sets k, decoys, trimming and
+      poly-G trimming, each with the help words of the command. One run
+      makes one result for all chosen FASTQ bundles, by lungfish-cli rnaseq
+      quant with --format json. The Operations row reads RNA-seq Quant and
+      records the command that runs, which Copy CLI Command gives. A virtual
+      bundle is named by its folder, and the command writes its reads to the
+      run's work folder before salmon starts. A cancel ends the command
+      (exit 125), which leaves no result and removes its work folder. The
+      row shows the standard error lines of the command and no progress bar.
+  rnaseq.quality:
+    title: Quality numbers and sample correlation of an RNA-seq result
+    entry_points:
+      - "CLI: lungfish-cli rnaseq quality"
+    inputs: [rnaseq-result]
+    outputs: [quality-table]
+    viewport_class: none
+    sources:
+      - Sources/LungfishWorkflow/RNASeq/RNASeqQualitySummary.swift
+      - Sources/LungfishWorkflow/RNASeq/RNASeqQualitySummary+Correlation.swift
+      - Sources/LungfishWorkflow/CLIEvents/CLIEventContract.swift
+      - Sources/LungfishWorkflow/Provenance/ScientificProvenancePolicy.swift
+      - Sources/LungfishCLI/Commands/RNASeqQualitySubcommand.swift
+      - Sources/LungfishCLI/Commands/RNASeqCommand.swift
+    module: [LungfishWorkflow, LungfishCLI]
+    cli:
+      - lungfish-cli rnaseq quality
+    tests:
+      - Tests/LungfishWorkflowTests/RNASeq/RNASeqQualitySummaryTests.swift
+      - Tests/LungfishCLITests/RNASeqQualitySubcommandTests.swift
+      - Tests/LungfishCLITests/ScientificProvenancePolicyLeafTests.swift
+      - Tests/LungfishCLITests/CLIEventContractCoverageTests.swift
+    notes: >-
+      Prints one table of a bulk .lungfishrnaseq result and writes nothing.
+      It first checks each file of the result against the sha256 that the
+      manifest lists. --table samples gives each sample's library size,
+      mapping rate and library type, the share of counts on rRNA genes
+      (biotype rRNA or Mt_rRNA in genes.tsv) and the share on not-host
+      features. The globin share reads Not recorded, since no rule names the
+      globin genes yet, and so does the not-host share of a result that
+      names no reference set. --table correlation gives Pearson r of
+      log2(CPM + 1) between the samples, over the features that the manifest
+      does not list under notHost and with a count above 0 in a sample.
+      --format takes text, which is the default, json and tsv.
+  import.rnaseq-counts:
+    title: Import RNA-seq counts
+    entry_points:
+      - "Import Center > Sequencing Reads > RNA-seq Counts"
+      - "Import Center > Sequencing Reads > Single-cell Counts"
+      - "CLI: lungfish-cli import rnaseq"
+    inputs: [salmon-quant-folder, rnaseq-count-table, cellranger-outs-folder, starsolo-folder]
+    outputs: [rnaseq-result]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel+RNASeqCards.swift
+      - Sources/LungfishApp/Views/ImportCenter/RNASeqBulkImportSheet.swift
+      - Sources/LungfishApp/Views/ImportCenter/RNASeqSingleCellImportSheet.swift
+      - Sources/LungfishApp/Views/ImportCenter/RNASeqImportSheetModel.swift
+      - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel+ActionText.swift
+      - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift
+      - Sources/LungfishApp/App/AppDelegate+ImportCenterRNASeq.swift
+      - Sources/LungfishApp/Services/CLIImportRunner.swift
+    module: [LungfishApp]
+    cli:
+      - lungfish-cli import rnaseq
+    operation_type: ingestion
+    tests:
+      - Tests/LungfishAppTests/CLIImportRunnerTests.swift
+      - Tests/LungfishAppTests/CLIRunnerArgvRoundTripTests.swift
+      - Tests/LungfishAppTests/FastqIngestCancelReplayTests.swift
+    notes: >-
+      Two cards on the Sequencing Reads tab of the Import Center. RNA-seq
+      Counts imports salmon quant folders, or one count table of genes by
+      samples, as one RNA-seq result. Single-cell Counts imports Cell Ranger
+      outs folders or STARsolo run folders as one single-cell result. Each
+      opens a sheet that asks for what the command needs, such as the unit
+      of a count table, a sample sheet, a reference set and, with a reference
+      set, one BAM for each single-cell sample, and says what is wrong with
+      the inputs before Import is offered. The sheet runs lungfish-cli import
+      rnaseq with --format json, and the Operations row records that command.
+      A refusal of the command shows in its own words on the row and in the
+      sheet, with the way back, and a cancel removes the stage and leaves no
+      result. An input outside the project is recorded as
+      <external>/<name>, so its command does not replay.
