@@ -17,6 +17,8 @@ public enum RNASeqSingleCellWords {
     public static let noCellsSummary = "This result names no cells.sqlite, so no cell summary shows."
     public static let noQuality = "The result keeps no quality table, so quality reads \(RNASeqResultBundle.notRecordedText)."
     public static let noCells = "The result holds no cells."
+    /// The words of a masked column that the file holds none for, as the CLI says them. A virus or a spike-in has no rRNA to mask.
+    public static let noMask = "No rRNA mask, none needed"
 }
 
 /// The summary of a single-cell result. Its parts are values as written or counts that SQLite made.

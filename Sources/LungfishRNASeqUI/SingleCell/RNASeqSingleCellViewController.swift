@@ -178,7 +178,8 @@ public final class RNASeqSingleCellViewController: NSViewController {
             summaryStack.addArrangedSubview(RNASeqHistogramView(histogram: histogram))
         }
         for extra in summary.extras {
-            summaryStack.addArrangedSubview(Self.fact("\(extra.name) masked column", extra.maskWords, id: "rnaseq-sc-mask-words-\(extra.extra)"))
+            let words = extra.maskWords.isEmpty ? RNASeqSingleCellWords.noMask : extra.maskWords
+            summaryStack.addArrangedSubview(Self.fact("\(extra.name) masked column", words, id: "rnaseq-sc-mask-words-\(extra.extra)"))
         }
     }
 
