@@ -1429,7 +1429,10 @@ extension DemultiplexingPipeline {
                 guard !entries.isEmpty else { throw DemultiplexError.noBarcodes }
                 // Each pair of 5' and 3' distances is a line of its own on each strand, and cutadapt spends a fixed time
                 // a run that grows with the lines before it reads the first read (BIO-DUAL-ANCHOR item 5, Q3).
-                let lines = (config.maxDistanceFrom5Prime + 1) * (config.maxDistanceFrom3Prime + 1) * 2 * entries.count
+                // The distances are clamped to the cap before they are multiplied, so a distance of a billion is refused in words
+                // and does not overflow Int.
+                let cap = Self.observedPairLineCap
+                let lines = (min(config.maxDistanceFrom5Prime, cap) + 1) * (min(config.maxDistanceFrom3Prime, cap) + 1) * 2 * entries.count
                 guard lines <= Self.observedPairLineCap else {
                     throw DemultiplexError.tooManySearchLines(
                         kitName: config.barcodeKit.displayName, pairs: entries.count,
