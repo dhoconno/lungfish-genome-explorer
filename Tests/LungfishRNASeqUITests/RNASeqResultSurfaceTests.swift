@@ -172,7 +172,8 @@ final class RNASeqResultSurfaceTests: XCTestCase {
         XCTAssertFalse(views.isEmpty)
         XCTAssertEqual(try snapshot(url), before, "opening a result changes no file and adds none")
         XCTAssertFalse(views.contains { $0 is NSButton }, "the leaf offers no button")
-        XCTAssertTrue(views.compactMap { $0 as? NSTextField }.allSatisfy { !$0.isEditable }, "no field is editable")
+        XCTAssertTrue(views.compactMap { $0 as? NSTextField }.allSatisfy { !$0.isEditable || $0 is NSSearchField },
+                      "no field is editable but the bulk view's gene search, which edits no file")
         XCTAssertFalse(views.contains { ($0 as? NSTextView)?.isEditable == true })
     }
 
