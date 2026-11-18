@@ -211,6 +211,7 @@ lungfish-cli rnaseq index	shown	0	lungfish-cli.rnaseq.index.txt
 lungfish-cli rnaseq quant	shown	0	lungfish-cli.rnaseq.quant.txt
 lungfish-cli rnaseq export	shown	0	lungfish-cli.rnaseq.export.txt
 lungfish-cli rnaseq pseudobulk	shown	0	lungfish-cli.rnaseq.pseudobulk.txt
+lungfish-cli rnaseq quality	shown	0	lungfish-cli.rnaseq.quality.txt
 lungfish-cli rnaseq index-plan	shown	0	lungfish-cli.rnaseq.index-plan.txt
 lungfish-cli rnaseq index-adopt	shown	0	lungfish-cli.rnaseq.index-adopt.txt
 lungfish-cli rnaseq solo-plan	shown	0	lungfish-cli.rnaseq.solo-plan.txt

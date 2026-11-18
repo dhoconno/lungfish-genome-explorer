@@ -10,6 +10,6 @@ struct RNASeqCommand: AsyncParsableCommand {
         commandName: "rnaseq",
         abstract: "Build RNA-seq reference sets and count RNA-seq reads",
         subcommands: [ReferenceSetSubcommand.self, IndexSubcommand.self, QuantSubcommand.self, RNASeqExportSubcommand.self, RNASeqPseudobulkSubcommand.self,
-                      RNASeqIndexPlanSubcommand.self, RNASeqIndexAdoptSubcommand.self, RNASeqSoloPlanSubcommand.self]
+                      RNASeqQualitySubcommand.self, RNASeqIndexPlanSubcommand.self, RNASeqIndexAdoptSubcommand.self, RNASeqSoloPlanSubcommand.self]
     )
 }

@@ -226,6 +226,7 @@ public enum ScientificProvenancePolicy {
         "rnaseq export": dataWriting("cli.rnaseq.export", writer: "ScientificFileExportProvenance"),
         // `rnaseq pseudobulk` writes a bulk result through the one writer, root record last (lane RS-PSEUDOBULK).
         "rnaseq pseudobulk": dataWriting("cli.rnaseq.pseudobulk", writer: "RNASeqResultWriter/ProvenanceWriter"),
+        "rnaseq quality": inspectOnly("cli.rnaseq.quality"),
         // `rnaseq index-plan` writes a plan folder for a Linux machine, and `rnaseq index-adopt` writes the index record
         // that later plans pin, through its one owner (lane EX-INDEX).
         "rnaseq index-plan": dataWriting("cli.rnaseq.index-plan", writer: "STARIndexSubmit/ExecutorPlanBatchWriter"),

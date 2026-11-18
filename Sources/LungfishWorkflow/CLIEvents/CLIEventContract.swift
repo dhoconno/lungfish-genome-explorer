@@ -253,6 +253,7 @@ package enum CLIEventContractTable {
         // Since 5.3 lane EX-INDEX, the set id, the key, the record's path and its file count and bytes.
         "rnaseq index-adopt": .result(schemaID: "rnaseq-index-adopt"),
         "rnaseq quant": .result(schemaID: "rnaseq-quant"),
+        "rnaseq quality": .result(schemaID: "rnaseq-quality"),
         "rnaseq reference-set": .result(schemaID: "rnaseq-reference-set"),
         "search": .result(schemaID: "search"),
         "storage dedupe": .result(schemaID: "storage-dedupe"),

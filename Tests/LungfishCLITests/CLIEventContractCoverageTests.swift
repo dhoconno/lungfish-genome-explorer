@@ -491,7 +491,7 @@ final class CLIEventContractCoverageTests: XCTestCase {
             [
                 "cz-id-summary", "debug-container", "debug-env", "demo-info", "demo-list",
                 "genotype-ai-haplotyping", "metadata-export", "metadata-get", "nao-mgs-summary",
-                "nvd-summary", "primers-analysis-inspect", "project-lock", "storage-dedupe", "storage-info",
+                "nvd-summary", "primers-analysis-inspect", "project-lock", "rnaseq-quality", "storage-dedupe", "storage-info",
             ]
         ),
     ]

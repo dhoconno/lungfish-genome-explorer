@@ -66,7 +66,7 @@ final class RNASeqQualitySubcommandTests: XCTestCase {
             XCTAssertEqual(
                 (error as? LocalizedError)?.errorDescription,
                 "cells.lungfishrnaseq is a single-cell result, whose numbers for each cell are in its cells.sqlite. "
-                    + "rnaseq quality reads the count table of a bulk result. Run rnaseq pseudobulk to sum its cells into one.")
+                    + "rnaseq quality reads the count table of a bulk result. Run rnaseq pseudobulk to sum its cells into a bulk result.")
         }
         do {
             try await RNASeqQualitySubcommand.parse([result.path]).run()
