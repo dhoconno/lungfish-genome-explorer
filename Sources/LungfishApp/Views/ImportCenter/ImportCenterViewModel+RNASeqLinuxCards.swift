@@ -34,7 +34,7 @@ extension ImportCenterViewModel {
             title: "RNA-seq Linux Run Result",
             description: "Import the counts a run on a Linux machine returned, from a plan folder or a batch folder, as one RNA-seq result.",
             sfSymbol: "arrow.down.doc.fill",
-            fileHint: "a returned plan folder, or a returned batch folder",
+            fileHint: "a returned plan folder, or a returned batch folder: for every sample, copy the files inside result/ into that sample's folder on the Mac, next to plan.json",
             tab: .sequencingReads,
             importKind: .openPanel(
                 configuration: .init(
