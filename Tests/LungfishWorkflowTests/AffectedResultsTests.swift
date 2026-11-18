@@ -10,7 +10,7 @@ final class AffectedResultsTests: XCTestCase {
     /// The builds of the published releases from Stable 2026.10.27 on, each the commit count of its packaged commit,
     /// and 2026.9.52 (`git rev-list --count v2026.9.52`), the last build without the older Viral Recon lineage fix.
     private let publishedBuilds: Set<Int> = [
-        5442, 11609, 11807, 12045, 12518, 12591, 12803, 12818, 12859, 12962, 12972, 13190, 13300, 13603, 13672,
+        5442, 11609, 11807, 12045, 12518, 12591, 12803, 12818, 12859, 12962, 12972, 13190, 13300, 13603, 13672, 13764,
     ]
 
     private func version(_ build: Int) -> String { "Lungfish 2026.10.29 (\(build))" }
@@ -546,7 +546,7 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.10.29"), 11808...12045, "after 2026.10.28, up to its own")
         XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.8.1"), 4192...4192, "the first published release")
         XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.9.5"), 4363...4440, "never published, between 9.4 and 9.6")
-        for text in ["2026.11.12", "2026.7.30", "Lungfish 2026.10.29 (12045)", "2026.10.29.1", "dev", ""] {
+        for text in ["2026.11.13", "2026.7.30", "Lungfish 2026.10.29 (12045)", "2026.10.29.1", "dev", ""] {
             XCTAssertNil(AffectedResults.builds(ofVersion: text), text)
         }
         var fixture = ProvenanceEnvelope.fixture()
