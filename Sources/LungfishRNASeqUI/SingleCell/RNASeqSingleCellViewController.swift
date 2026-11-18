@@ -115,7 +115,7 @@ public final class RNASeqSingleCellViewController: NSViewController {
                 source.install(in: cellsTable)
                 lay(shown)
             } catch {
-                fail(error.localizedDescription)
+                fail(RNASeqSingleCellSummary.failureWords(error))
             }
         }
     }

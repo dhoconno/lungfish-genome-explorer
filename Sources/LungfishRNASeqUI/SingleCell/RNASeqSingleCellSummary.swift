@@ -13,10 +13,12 @@ import LungfishIO
 /// `not_host_calls.flag` as the file holds them.
 public enum RNASeqSingleCellWords {
     public static let rankPlot = "The plot ranks the cells of cells.sqlite by UMIs, most first. The result keeps no raw barcode list, so barcodes outside the cells are not in the plot."
-    public static let noNotHost = "This result holds no not-host counts."
-    public static let noCellsSummary = "This result names no cells.sqlite, so no cell summary shows."
+    public static let noNotHost = "This result holds no not-host counts. To count them, import the folder again with a reference set and a not-host BAM for each sample."
+    public static let noCellsSummary = "This result names no cells.sqlite, so no cell summary shows. Import the Cell Ranger or STARsolo folder again to write one."
     public static let noQuality = "The result keeps no quality table, so quality reads \(RNASeqResultBundle.notRecordedText)."
-    public static let noCells = "The result holds no cells."
+    public static let noCells = "The result holds no cells, so there is nothing to plot. Check that the run found cells, then import its folder again."
+    /// The step after a read that failed. A newer schema's own words name theirs.
+    public static let tryAgain = "Check that the result folder is whole, or import it again."
     /// The words of a masked column that the file holds none for, as the CLI says them. A virus or a spike-in has no rRNA to mask.
     public static let noMask = "No rRNA mask, none needed"
 }
@@ -88,8 +90,15 @@ extension RNASeqSingleCellSummary {
                 extras: extras)
             return .loaded(summary, cellsURL: url)
         } catch {
-            return .failed(error.localizedDescription)
+            return .failed(failureWords(error))
         }
+    }
+
+    /// A newer schema's words already say what to do. Any other failure gets the next step.
+    static func failureWords(_ error: Error) -> String {
+        if let known = error as? RNASeqResultError, case .newerSchema = known { return known.localizedDescription }
+        let words = error.localizedDescription
+        return (words.hasSuffix(".") ? words : words + ".") + " " + RNASeqSingleCellWords.tryAgain
     }
 }
 
