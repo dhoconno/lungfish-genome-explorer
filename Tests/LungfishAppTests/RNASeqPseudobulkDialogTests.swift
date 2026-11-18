@@ -104,9 +104,11 @@ final class RNASeqPseudobulkDialogParityReplayTests: XCTestCase {
             outputURL: root.appendingPathComponent("Analyses/pb1.lungfishrnaseq", isDirectory: true))
     }
 
-    private func end(of outcome: CLIViewerExportRunner.Outcome) -> RouteParityEnd {
+    /// How the row ends. The labels file always makes a note (the group of 9 cells), so a run that completed ends Completed with
+    /// Warnings by the Label rule of `docs/contracts/CLI-EQUIVALENCE.md` (a warning log line), the same as a script's run does.
+    private func end(of outcome: CLIViewerExportRunner.Outcome, row: OperationCenter.Item) -> RouteParityEnd {
         switch outcome {
-        case .completed: return .completed
+        case .completed: return row.hasWarnings ? .completedWithWarnings : .completed
         case .cancelled: return .cancelled
         case .failed: return .failed
         }
@@ -139,12 +141,12 @@ final class RNASeqPseudobulkDialogParityReplayTests: XCTestCase {
                 }
                 XCTAssertEqual(item.operationType, .rnaSeqPseudobulk)
                 return RouteParitySideOutcome(
-                    end: self.end(of: outcome), detail: item.errorMessage ?? item.detail, recordedCommand: item.cliCommand)
+                    end: self.end(of: outcome, row: item), detail: item.errorMessage ?? item.detail, recordedCommand: item.cliCommand)
             }
         )
         let runs = result.runs
         for run in runs.all {
-            XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)")
+            XCTAssertEqual(run.outcome.end, .completedWithWarnings, "side \(run.side): \(run.outcome.detail)")
         }
         let counts = try runs.all.map {
             try Data(contentsOf: $0.root.appendingPathComponent("Analyses/pb1.lungfishrnaseq/counts/genes.counts.tsv"))
