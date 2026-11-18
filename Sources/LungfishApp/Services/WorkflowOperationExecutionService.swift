@@ -52,6 +52,10 @@ final class WorkflowOperationExecutionService {
             return try await runFullLengthONTMHCGenotyping(request, routeContext: routeContext)
         case .twelveSAmpliconMatching(let configuration):
             return try await runTwelveSAmpliconMatching(configuration, routeContext: routeContext)
+        case .rnaSeqExport(let request):
+            return try launchRNASeqLeaf(request.run, routeContext: routeContext)
+        case .rnaSeqPseudobulk(let request):
+            return try launchRNASeqLeaf(request.run, routeContext: routeContext)
         case .workflowPackage(let request, let bundleRoot):
             let service = LocalWorkflowExecutionService(
                 operationCenter: operationCenter,
@@ -62,6 +66,15 @@ final class WorkflowOperationExecutionService {
                 beforeRegister: beforeRegister)
             return [result.bundleURL]
         }
+    }
+
+    /// Starts one `lungfish-cli rnaseq` leaf and returns at once, so the window is free and a CLI refusal shows only on the
+    /// Operations row, in the CLI's words. A busy result refuses the row and nothing launches.
+    private func launchRNASeqLeaf(_ run: RNASeqLeafRun, routeContext: OperationRouteContext?) throws -> [URL] {
+        guard RNASeqLeafRoute.launch(run, routeContext: routeContext, operations: operationCenter) != nil else {
+            throw LocalWorkflowExecutionError.bundleBusy("The RNA-seq result is busy. Wait for its current operation to finish.")
+        }
+        return [run.outputURL]
     }
 
     @discardableResult

@@ -9,6 +9,8 @@ enum WorkflowOperationToolKind: Equatable, Sendable {
     case ontGenotyping
     case fullLengthONTMHCGenotyping
     case twelveSAmpliconMatching
+    case rnaSeqExport
+    case rnaSeqPseudobulk
     case workflowPackage(WorkflowPackageValidationResult)
 }
 
@@ -24,6 +26,8 @@ enum WorkflowOperationLaunchRequest: Equatable {
     case ontGenotyping(ONTBarcodeDemuxGenotypingRunRequest)
     case fullLengthONTMHCGenotyping(FullLengthONTMHCGenotypingRunRequest)
     case twelveSAmpliconMatching(TwelveSAmpliconMatchingConfiguration)
+    case rnaSeqExport(RNASeqExportRunRequest)
+    case rnaSeqPseudobulk(RNASeqPseudobulkRunRequest)
     case workflowPackage(LocalWorkflowRunRequest, bundleRoot: URL)
 }
 
@@ -148,6 +152,9 @@ final class WorkflowOperationDialogState {
     var selectedHaplotypeDefinitionSetID: String?
     var extraArgumentsText: String
     var advancedOptionsExpanded: Bool
+    /// The settings of the export and pseudobulk rows. Their methods are in `WorkflowOperationDialogState+RNASeq.swift`.
+    let rnaSeqExport = RNASeqExportDialogModel()
+    let rnaSeqPseudobulk = RNASeqPseudobulkDialogModel()
     var projectReferenceCandidates: [URL]
     var projectGuideCandidates: [URL]
     var projectBarcodeDefinitionCandidates: [URL]
@@ -424,6 +431,7 @@ final class WorkflowOperationDialogState {
     }
 
     var datasetLabel: String {
+        if let label = rnaSeqDatasetLabel { return label }
         guard !selectedReadURLs.isEmpty else { return "No read bundles selected" }
         if selectedReadURLs.count == 1 {
             return selectedReadURLs[0].lastPathComponent
@@ -518,6 +526,7 @@ final class WorkflowOperationDialogState {
         guard selectedTool?.availability == .available else {
             return selectedTool?.availability.badgeText ?? "Workflow unavailable."
         }
+        if let words = rnaSeqReadinessText { return words }
         guard referenceURLForSelectedTool() != nil else {
             return "Select a reference bundle or FASTA file."
         }
@@ -624,7 +633,7 @@ final class WorkflowOperationDialogState {
         outputName = Self.defaultOutputName(for: selectedTool, readURLs: selectedReadURLs)
         lastDefaultOutputName = outputName
         switch selectedTool?.kind {
-        case .workflowPackage, .twelveSAmpliconMatching:
+        case .workflowPackage, .twelveSAmpliconMatching, .rnaSeqExport, .rnaSeqPseudobulk:
             break
         case .fullLengthONTMHCGenotyping:
             if selectedHaplotypeAssayID == nil {
@@ -649,6 +658,10 @@ final class WorkflowOperationDialogState {
             return defaultFullLengthONTMHCOutputName(for: readURLs)
         case .twelveSAmpliconMatching:
             return defaultTwelveSOutputName(for: readURLs)
+        case .rnaSeqExport:
+            return "rnaseq-export"
+        case .rnaSeqPseudobulk:
+            return "pseudobulk"
         case .ontGenotyping, nil:
             return defaultONTGenotypingOutputName(for: readURLs)
         }
@@ -1357,6 +1370,12 @@ final class WorkflowOperationDialogState {
             )
             return .twelveSAmpliconMatching(config)
 
+        case .rnaSeqExport:
+            return .rnaSeqExport(try makeRNASeqExportRequest())
+
+        case .rnaSeqPseudobulk:
+            return .rnaSeqPseudobulk(try makeRNASeqPseudobulkRequest())
+
         case .workflowPackage(let package):
             return .workflowPackage(
                 try makeLocalWorkflowRunRequest(package: package),
@@ -1565,7 +1584,7 @@ final class WorkflowOperationDialogState {
                 twelveSResultsDirectoryName,
                 isDirectory: true
             )
-        case .workflowPackage:
+        case .workflowPackage, .rnaSeqExport, .rnaSeqPseudobulk:
             return analysesDirectory
         case nil:
             return analysesDirectory
@@ -1610,6 +1629,8 @@ final class WorkflowOperationDialogState {
                     : .disabled(reason: "Enable in Library")
             ))
         }
+
+        tools += rnaSeqTools(enablementStore: enablementStore)
 
         tools += packages.map { package in
             let enabled = enablementStore.isUserWorkflowEnabled(package)

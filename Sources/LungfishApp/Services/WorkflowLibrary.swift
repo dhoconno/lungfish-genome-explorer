@@ -137,6 +137,8 @@ struct WorkflowLibrarySection: Identifiable, Equatable, Sendable {
 enum WorkflowLibraryCatalog {
     static let twelveSAmpliconMatchingID = "builtin.12s-amplicon-matching"
     static let fullLengthONTMHCGenotypingID = "builtin.full-length-ont-mhc-genotyping"
+    static let rnaSeqExportID = "builtin.rnaseq-export"
+    static let rnaSeqPseudobulkID = "builtin.rnaseq-pseudobulk"
 
     static let twelveSAmpliconMatchingItem = WorkflowLibraryItem(
         id: twelveSAmpliconMatchingID,
@@ -162,6 +164,26 @@ enum WorkflowLibraryCatalog {
         capabilities: [.workflowOperations, .haplotypeDefinitions]
     )
 
+    static let rnaSeqExportItem = WorkflowLibraryItem(
+        id: rnaSeqExportID,
+        title: "Export RNA-seq Counts",
+        subtitle: "Write counts and R scripts for DESeq2, edgeR, limma voom and dream from one or more RNA-seq results. A single-cell result is exported alone.",
+        categoryID: .rnaSeq,
+        maturity: .core,
+        requiredPluginPackIDs: [],
+        capabilities: [.workflowOperations]
+    )
+
+    static let rnaSeqPseudobulkItem = WorkflowLibraryItem(
+        id: rnaSeqPseudobulkID,
+        title: "Pseudobulk RNA-seq Cells",
+        subtitle: "Sum the UMIs of a single-cell RNA-seq result by sample and label into a new bulk result.",
+        categoryID: .rnaSeq,
+        maturity: .core,
+        requiredPluginPackIDs: [],
+        capabilities: [.workflowOperations]
+    )
+
     static let builtIn: [WorkflowLibraryItem] = FASTQOperationToolID.allCases.map { toolID in
         if toolID == .savont {
             return WorkflowLibraryItem(
@@ -183,7 +205,7 @@ enum WorkflowLibraryCatalog {
             maturity: .core,
             requiredPluginPackIDs: toolID.categoryID.requiredPackIDs
         )
-    } + [fullLengthONTMHCGenotypingItem, twelveSAmpliconMatchingItem]
+    } + [fullLengthONTMHCGenotypingItem, twelveSAmpliconMatchingItem, rnaSeqExportItem, rnaSeqPseudobulkItem]
 
     static func item(for toolID: FASTQOperationToolID) -> WorkflowLibraryItem? {
         builtIn.first { $0.toolID == toolID }

@@ -98,8 +98,10 @@ private struct WorkflowOperationsDetailPane: View {
                 section(DatasetOperationSection.overview.title) {
                     Text(state.selectedToolSummary)
                         .foregroundStyle(.secondary)
-                    Button("Open Previous Run…", action: onOpenPreviousRun)
-                        .accessibilityIdentifier("workflow-operations-open-previous-run")
+                    if !state.selectedToolIsRNASeq {
+                        Button("Open Previous Run…", action: onOpenPreviousRun)
+                            .accessibilityIdentifier("workflow-operations-open-previous-run")
+                    }
                     if let configuration = state.replayConfiguration, let source = state.replaySourceBundleURL {
                         Text("Run Again: \(configuration.identity.packageManifest.name), version \(configuration.identity.packageManifest.version)")
                             .font(.headline)
@@ -116,19 +118,28 @@ private struct WorkflowOperationsDetailPane: View {
                 }
 
                 section(DatasetOperationSection.inputs.title) {
-                    referencePicker
-                    if case .twelveSAmpliconMatching = state.selectedTool?.kind {
-                        twelveSSampleMetadataPicker
+                    switch state.selectedTool?.kind {
+                    case .rnaSeqExport:
+                        RNASeqExportInputsPane(state: state)
+                    case .rnaSeqPseudobulk:
+                        RNASeqPseudobulkInputsPane(state: state)
+                    default:
+                        referencePicker
+                        if case .twelveSAmpliconMatching = state.selectedTool?.kind {
+                            twelveSSampleMetadataPicker
+                        }
+                        readPicker
                     }
-                    readPicker
                 }
 
                 section(DatasetOperationSection.primarySettings.title) {
                     primarySettings
                 }
 
-                section(DatasetOperationSection.advancedSettings.title) {
-                    advancedSettings
+                if !state.selectedToolIsRNASeq {
+                    section(DatasetOperationSection.advancedSettings.title) {
+                        advancedSettings
+                    }
                 }
 
                 section(DatasetOperationSection.output.title) {
@@ -344,6 +355,10 @@ private struct WorkflowOperationsDetailPane: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        case .rnaSeqExport:
+            RNASeqExportSettingsPane(state: state)
+        case .rnaSeqPseudobulk:
+            RNASeqPseudobulkSettingsPane(state: state)
         case .none:
             Text("No runnable workflow selected.")
                 .foregroundStyle(.secondary)
@@ -518,6 +533,8 @@ private struct WorkflowOperationsDetailPane: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        case .rnaSeqExport, .rnaSeqPseudobulk:
+            EmptyView()
         case .none:
             EmptyView()
         }
