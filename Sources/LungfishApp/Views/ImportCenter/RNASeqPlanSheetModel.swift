@@ -78,7 +78,11 @@ enum RNASeqPlanWords {
     static func barcodeListWords(preset: SoloPlanPreset, supplied: URL?) -> String {
         let list = preset.barcodeList
         guard let supplied else {
-            return "Barcode list: \(list.name) for \(list.chemistry), SHA-256 \(list.sha256). Source: the \(SoloPlanBarcodes.fromImage)."
+            // The sheet cannot know the image of a chosen manifest, and the image of this app holds one list of the two. So it
+            // states the rule of the command (`SoloPlanBarcodes.choose`) and not a fact about the image.
+            return "Barcode list: \(list.name) for \(list.chemistry), SHA-256 \(list.sha256). With no list chosen the command "
+                + "reads the \(SoloPlanBarcodes.fromImage) and refuses in words when the image holds none. To supply the list "
+                + "yourself, choose the whole list here."
         }
         return "Barcode list: \(supplied.lastPathComponent), supplied by you. The command checks it by SHA-256 against the whole "
             + "list of this preset, \(list.name), and records it as a \(SoloPlanBarcodes.supplied). It never copies the file, so "
