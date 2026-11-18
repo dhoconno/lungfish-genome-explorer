@@ -232,7 +232,8 @@ public final class RNASeqBulkViewController: NSViewController, NSTableViewDataSo
     private func showQuality() {
         switch model.quality {
         case .loading:
-            qualityCaption.stringValue = "Reading the quality numbers, after checking each file of the result against its sha256."
+            qualityCaption.stringValue = "Reading the quality numbers, after checking each file of the result against its sha256. "
+                + "A result of many samples can take a while, and the count tables can be read meanwhile."
             correlationCaption.stringValue = qualityCaption.stringValue
             qualityNotes.stringValue = ""
             correlationScale.stringValue = ""
