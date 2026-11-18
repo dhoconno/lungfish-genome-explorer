@@ -86,7 +86,35 @@ final class RNASeqBulkQualityTests: XCTestCase {
             "On rRNA genes (%)", "Not host (%)", "On globin genes (%)",
         ])
         XCTAssertEqual(quality.notes.count, 3, "the rule of each share, as the CLI's record states it")
+        XCTAssertEqual(
+            quality.notes[1], "Not host: Not recorded, since this result names no reference set that says which features are not host.",
+            "the note under the table says what the Not host cells say, not that no feature is listed")
         XCTAssertTrue(quality.notes[0].hasPrefix("rRNA genes: annotated rRNA genes, the host genes whose biotype in genes.tsv is rRNA or Mt_rRNA"))
+    }
+
+    @MainActor
+    func testTheNotHostNoteOfAResultOnASetKeepsTheRecord() async throws {
+        let quality = try loaded(try await RNASeqBulkFixtures.show(try RNASeqBulkFixtures.writeNamed(into: root)))
+        XCTAssertEqual(quality.notes.count, 3)
+        XCTAssertEqual(quality.notes[1], "Not host: the 1 feature that the manifest lists under notHost.")
+    }
+
+    @MainActor
+    func testWhileTheQualityIsReadTheCaptionSaysSoAndThatTheTablesCanBeRead() throws {
+        let url = try RNASeqBulkFixtures.writeNamed(into: root)
+        guard case .loaded(let result) = RNASeqResultSurface.read(url) else { return XCTFail("the fixture did not load") }
+        let controller = RNASeqBulkViewController(model: RNASeqBulkModel())
+        controller.configure(result: result, bundleURL: url)
+        _ = controller.view
+        // A synchronous test never yields the main actor, so the read cannot end before the check.
+        XCTAssertEqual(controller.model.quality, .loading)
+        func caption(tab: Int, id: String) -> String? {
+            RNASeqBulkFixtures.allSubviews(of: controller.tabView.tabViewItems[tab].view ?? NSView())
+                .compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == id }?.stringValue
+        }
+        let wait = "the count tables can be read meanwhile."
+        XCTAssertEqual(caption(tab: 2, id: "rnaseq-bulk-quality-caption")?.hasSuffix(wait), true, "the Quality tab")
+        XCTAssertEqual(caption(tab: 3, id: "rnaseq-bulk-correlation-caption")?.hasSuffix(wait), true, "the Correlation tab")
     }
 
     @MainActor
@@ -132,6 +160,14 @@ final class RNASeqBulkQualityTests: XCTestCase {
         let chosen = RNASeqBulkFixtures.allSubviews(of: controller.tabView.tabViewItems[3].view ?? NSView())
             .compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == "rnaseq-bulk-correlation-selected" }
         XCTAssertEqual(chosen?.stringValue, words, "the chosen cell's value shows in words under the plot")
+        // The shade raises the alpha of a blue over the text background, so a higher value is a stronger blue in both
+        // appearances and a darker square only on white.
+        let scale = RNASeqBulkFixtures.allSubviews(of: controller.tabView.tabViewItems[3].view ?? NSView())
+            .compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == "rnaseq-bulk-correlation-scale" }
+        XCTAssertEqual(
+            scale?.stringValue,
+            "A stronger blue square is a higher value, on a scale from the lowest value of the table, "
+                + "\(try XCTUnwrap(plot.lowestText)), to 1. A grey square reads Not recorded.")
     }
 
     @MainActor
