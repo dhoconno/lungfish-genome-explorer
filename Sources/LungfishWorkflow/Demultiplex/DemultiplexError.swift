@@ -109,7 +109,7 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
             // A built-in kit's indexes sit at the read ends. The barcodes of a definition the person wrote can sit some
             // bases in, which the two distances name at Both Ends (BIO-BARE-REVERSE item 1, UX).
             guard !BarcodeKitRegistry.builtinKits().contains(where: { $0.displayName == kitName }) else { return words }
-            return words + " If your barcodes sit some bases in from the read ends, set 5' Distance and 3' Distance (on the command line, --max-distance-5prime and --max-distance-3prime)."
+            return words + " If your barcodes sit some bases in from the read ends, also set 5' Distance and 3' Distance to that many bases (on the command line, --max-distance-5prime and --max-distance-3prime). Both Ends looks for the secondary sequence of each row as it appears at the end of the read, which is the reverse complement of the barcode in the second primer. If a run of this file at 5' End or 3' End in an earlier version placed a large share of the reads in samples, often about half, the file holds the second primer's barcode, so change each secondary sequence to its reverse complement before you run it at Both Ends. If that run left nearly all reads in Unassigned, keep the file as it is."
         case .binCountExceeded(let count, let limit):
             return "Bin count (\(count)) exceeds maximum (\(limit)). Reduce the number of barcode combinations or use fewer demux steps."
         case .exactBareBarcodeUnsupported:

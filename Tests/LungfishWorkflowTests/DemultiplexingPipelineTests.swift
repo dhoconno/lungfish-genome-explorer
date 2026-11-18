@@ -1437,8 +1437,16 @@ final class DemultiplexingPipelineTests: XCTestCase {
                 let words = DemultiplexError.dualKitNeedsBothEnds(kitName: kitName).errorDescription ?? ""
                 XCTAssertTrue(words.contains("\"\(kit.displayName)\""), words)
                 XCTAssertTrue(words.contains("Choose Both Ends (on the command line, --location bothends)"), words)
-                XCTAssertTrue(words.contains("If your barcodes sit some bases in from the read ends, set 5' Distance and 3' "
-                                             + "Distance (on the command line, --max-distance-5prime and --max-distance-3prime)."),
+                XCTAssertTrue(words.contains("If your barcodes sit some bases in from the read ends, also set 5' Distance and 3' "
+                                             + "Distance to that many bases (on the command line, --max-distance-5prime and "
+                                             + "--max-distance-3prime)."),
+                              words)
+                XCTAssertTrue(words.contains("Both Ends looks for the secondary sequence of each row as it appears at the end of "
+                                             + "the read, which is the reverse complement of the barcode in the second primer."),
+                              words)
+                XCTAssertTrue(words.contains("the file holds the second primer's barcode, so change each secondary sequence to its "
+                                             + "reverse complement before you run it at Both Ends. If that run left nearly all "
+                                             + "reads in Unassigned, keep the file as it is."),
                               words)
             }
         }
