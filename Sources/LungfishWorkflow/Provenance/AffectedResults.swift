@@ -32,6 +32,11 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     /// searched the read sequences for barcodes that sat in the names (DEMUX-EXACT-BARE-NO-FLOOR, the names case). It is a
     /// narrower ``fastqDemultiplex``, so every row of that kind names it too.
     case fastqDemultiplexExactBareNames
+    /// A demultiplexing run that searched the two barcodes of a custom dual-index definition at Both Ends with no sample
+    /// sheet with Cutadapt anywhere in each read, so reads with no barcode could land in a sample by chance
+    /// (DEMUX-DUAL-UNANCHORED, BIO-DUAL-ANCHOR items 7 and 12). It is a narrower ``fastqDemultiplex``, so every row of that
+    /// kind names it too.
+    case fastqDemultiplexDualSearchedAnywhere
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
