@@ -1580,7 +1580,8 @@ extension DemultiplexingPipeline {
     /// as written and `^N{a}rc(i5)...rc(i7)N{b}$` for the other strand, for every `a` up to the 5' distance and `b` up to
     /// the 3' distance (BIO-DUAL-ANCHOR items 1 and 2). Cutadapt then needs both barcodes whole at the read ends, at those
     /// distances, and counts no N toward the error rate. A pair whose other strand reads as the pair itself writes one
-    /// strand. The swap `^i5...i7$` that `writeLinkedAdapterFASTA` writes is not a strand of the molecule and is not used.
+    /// strand. `writeLinkedAdapterFASTA` writes the other strand by the same rule, without the strand suffixes, and wrote
+    /// the swap `^i5...i7$`, which is no strand of the molecule, until BIO-BARE-REVERSE item 2.
     private func writeObservedLinkedAdapterFASTA(
         entries: [(name: String, first: String, second: String)],
         maxDistanceFrom5Prime: Int,
@@ -1764,10 +1765,16 @@ extension DemultiplexingPipeline {
                 lines.append(pattern)
             }
 
-            if first != second {
+            // The other strand of the molecule reads as the reverse complement of the pair as written, with the
+            // location's anchors kept, and a pair whose other strand reads as the pair itself writes one strand
+            // (BIO-BARE-REVERSE item 2). The swap `second...first` written until then is no strand of the molecule, so
+            // reverse-strand reads were left unassigned and swapped reads were placed (Q3).
+            let reverseFirst = PlatformAdapters.reverseComplement(second)
+            let reverseSecond = PlatformAdapters.reverseComplement(first)
+            if reverseFirst != first || reverseSecond != second {
                 let reversePatterns = linkedAdapterPatterns(
-                    first: second,
-                    second: first,
+                    first: reverseFirst,
+                    second: reverseSecond,
                     location: location,
                     fivePrimeOffsets: fivePrimeOffsets,
                     threePrimeOffsets: threePrimeOffsets
