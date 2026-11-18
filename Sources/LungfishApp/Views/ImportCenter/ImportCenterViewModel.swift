@@ -119,6 +119,12 @@ struct ImportCardInfo: Identifiable, Sendable {
         case rnaseqCounts
         /// Cell Ranger or STARsolo folders, then the single-cell sheet (Phase 5.4 lane RS-GLUE).
         case rnaseqSingleCell
+        /// The bulk plan sheet, then `rnaseq quant --write-plan` (Phase 5.4 lane EX-APP).
+        case rnaseqBulkPlan
+        /// The 10x plan sheet, then `rnaseq solo-plan` (Phase 5.4 lane EX-APP).
+        case rnaseqTenXPlan
+        /// The adopt of the RNA-seq counts a Linux run returned, `import rnaseq --adopt` (Phase 5.4 lane EX-APP).
+        case rnaseqLinuxRunResult
         case ontRun
         case bam
         case vcf
@@ -721,6 +727,12 @@ final class ImportCenterViewModel {
             appDelegate.importRNASeqFromURLs(urls, kind: .bulk)
         case .rnaseqSingleCell:
             appDelegate.importRNASeqFromURLs(urls, kind: .singleCell)
+        case .rnaseqLinuxRunResult:
+            if let url = urls.first {
+                appDelegate.adoptRNASeqRunFromURL(url)
+            }
+        case .rnaseqBulkPlan, .rnaseqTenXPlan:
+            break // Handled by wizard sheet path
         case .ontRun:
             for url in urls {
                 appDelegate.importONTRunFromURL(url)
@@ -832,6 +844,8 @@ final class ImportCenterViewModel {
         case .nvd: appDelegate.launchNvdImport(request)
         case .czId: appDelegate.launchCzIdImport(request)
         case .primerScheme: appDelegate.launchPrimerSchemeImport(request)
+        case .rnaseqBulkPlan: appDelegate.launchRNASeqPlanSheet(.bulk, request)
+        case .rnaseqTenXPlan: appDelegate.launchRNASeqPlanSheet(.tenX, request)
         default:
             rejectDispatch("This action has no import configuration sheet.")
             return

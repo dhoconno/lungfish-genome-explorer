@@ -7,7 +7,7 @@ import Foundation
 extension ImportCenterViewModel {
     /// The Linux run cards and the RNA-seq cards, joined here so `allCards` adds one array to its literal. A second `+`
     /// on that literal is more than the compiler type-checks in reasonable time.
-    static let cardsAfterTheFirstTabs: [ImportCardInfo] = linuxRunCards + rnaSeqCards
+    static let cardsAfterTheFirstTabs: [ImportCardInfo] = linuxRunCards + rnaSeqCards + rnaSeqLinuxCards
 
     /// The two cards of RNA-seq counts another tool made, on the Sequencing Reads tab (Phase 5.4 lane RS-GLUE). Each asks
     /// for its inputs in an open panel and then opens a sheet (`RNASeqBulkImportSheet`, `RNASeqSingleCellImportSheet`)
