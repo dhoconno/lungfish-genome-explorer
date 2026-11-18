@@ -76,6 +76,7 @@ final class CrossProjectItemCopierBasePinTests: XCTestCase {
         let cases: [(source: URL, kind: CrossProjectItemCopier.ItemKind, destination: String)] = [
             (try makeBundle("Analyses/run.lungfishprimeranalysis"), .primerAnalysisBundle, "Analyses/run.lungfishprimeranalysis"),
             (try makeBundle("Analyses/run.lungfish12s"), .twelveSResultBundle, "Analyses/run.lungfish12s"),
+            (try makeBundle("Analyses/run.lungfishrnaseq"), .rnaseqResultBundle, "Analyses/run.lungfishrnaseq"),
             (try makeBundle("Databases/db.lungfish12sref"), .otherNativeBundle, "Databases/db.lungfish12sref"),
             (try makeBundle("Classifications/plain.lungfishtax"), .otherNativeBundle, "Classifications/plain.lungfishtax"),
             (try makeBundle("root-level.lungfishref"), .referenceBundle, "root-level.lungfishref"),
@@ -100,6 +101,7 @@ final class CrossProjectItemCopierBasePinTests: XCTestCase {
             (.primerAnalysisBundle, "Analyses", false),
             (.genotypeResultBundle, "Analyses", true),
             (.twelveSResultBundle, "Analyses", false),
+            (.rnaseqResultBundle, "Analyses", false),
             (.czIdResult, "Classifications", false),
             (.workflowBundle, "Workflows", false),
             (.otherNativeBundle, "", false),

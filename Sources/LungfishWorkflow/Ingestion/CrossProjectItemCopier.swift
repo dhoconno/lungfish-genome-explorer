@@ -32,6 +32,7 @@ package enum CrossProjectItemCopier {
         case primerAnalysisBundle
         case genotypeResultBundle
         case twelveSResultBundle
+        case rnaseqResultBundle
         case czIdResult
         case workflowBundle
         case otherNativeBundle
@@ -62,7 +63,8 @@ package enum CrossProjectItemCopier {
             case .primerSchemeBundle: return PrimerSchemesFolder.folderName
             case .czIdResult: return "Classifications"
             case .workflowBundle: return ItemKind.workflowsDirectoryName
-            case .analysisResult, .genotypeResultBundle, .primerAnalysisBundle, .twelveSResultBundle:
+            case .analysisResult, .genotypeResultBundle, .primerAnalysisBundle, .twelveSResultBundle,
+                 .rnaseqResultBundle:
                 return AnalysesFolder.directoryName
             case .otherNativeBundle: return ""
             }
@@ -78,6 +80,7 @@ package enum CrossProjectItemCopier {
             case .primerAnalysisBundle: return "primer analysis"
             case .genotypeResultBundle: return "genotype result"
             case .twelveSResultBundle: return "12S result"
+            case .rnaseqResultBundle: return "RNA-seq result"
             case .czIdResult: return "CZ ID result"
             case .workflowBundle: return "workflow"
             case .otherNativeBundle: return "bundle"
@@ -117,6 +120,7 @@ package enum CrossProjectItemCopier {
             case .primerAnalysis: return .primerAnalysisBundle
             case .genotypeResult: return .genotypeResultBundle
             case .twelveSResult: return .twelveSResultBundle
+            case .rnaseqResult: return .rnaseqResultBundle
             case .czIdResult:
                 return descriptor.recognizes(folder: url, fileManager: fileManager) ? .czIdResult : .otherNativeBundle
             default: return .otherNativeBundle
