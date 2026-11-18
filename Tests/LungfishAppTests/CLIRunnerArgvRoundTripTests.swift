@@ -180,4 +180,113 @@ final class CLIRunnerArgvRoundTripTests: XCTestCase {
         XCTAssertNil(parsed.tx2genePath, "a single-cell import passes no transcript-to-gene table")
         XCTAssertTrue(try LungfishCLI.parseAsRoot(arguments) is ImportCommand.RNASeqSubcommand)
     }
+
+    // MARK: - The RNA-seq plan sheets and the adopt card (Phase 5.4 lane EX-APP)
+
+    /// The bulk plan sheet. Its values parse through `RNASeqQuantSubcommand` as the options they were, its Check button is
+    /// `--dry-run` on the same argv, and the CLI's own defaults are shown and sent.
+    @MainActor
+    func testTheBulkSheetsArgvParsesThroughRNASeqQuantSubcommand() throws {
+        let model = RNASeqPlanSheetFixtures.bulkModel()
+        model.chain = "star-2.7.11b-genecounts"
+        model.requestMemoryMiB = "4096"
+        model.requestDiskGiB = "20"
+        model.jobRequirements = "OpSys == \"LINUX\""
+        let request = try XCTUnwrap(model.request(dryRun: true))
+
+        XCTAssertEqual(Array(request.arguments.prefix(2)), ["rnaseq", "quant"])
+        let leaf = try RNASeqCommand.QuantSubcommand.parse(Array(request.arguments.dropFirst(2)))
+        XCTAssertEqual(leaf.bundles, model.bundles.map(\.path))
+        XCTAssertEqual(leaf.setID, "ensembl-107")
+        XCTAssertNil(leaf.project, "a plan writes no result in a project")
+        XCTAssertEqual(leaf.planOptions.writePlan, RNASeqPlanSheetFixtures.plans.path)
+        XCTAssertEqual(leaf.planOptions.chain?.rawValue, "star-2.7.11b-genecounts")
+        XCTAssertEqual(leaf.planOptions.stagingFolder, "/staging/groups/g/1/lge")
+        XCTAssertEqual(leaf.planOptions.requestCPUs, 8, "the CLI's own default is shown and sent")
+        XCTAssertEqual(leaf.planOptions.requestMemoryMiB, 4096)
+        XCTAssertEqual(leaf.planOptions.requestDiskGiB, 20)
+        XCTAssertEqual(leaf.planOptions.jobRequirements, "OpSys == \"LINUX\"")
+        XCTAssertTrue(leaf.planOptions.dryRun, "Check is --dry-run")
+        XCTAssertNil(leaf.planOptions.executorManifest, "the app's own executor is the command's default")
+        XCTAssertEqual(leaf.globalOptions.outputFormat, .json)
+        XCTAssertTrue(try LungfishCLI.parseAsRoot(request.arguments) is RNASeqCommand.QuantSubcommand)
+        XCTAssertEqual(RNASeqPlanSheetModel.chains, RNASeqQuantPlanChain.allCases.map(\.rawValue), "the sheet offers the CLI's chains")
+
+        let written = try XCTUnwrap(model.request(dryRun: false))
+        XCTAssertFalse(written.arguments.contains("--dry-run"), "Write Plan is the same argv without --dry-run")
+        let wroteLeaf = try RNASeqCommand.QuantSubcommand.parse(Array(written.arguments.dropFirst(2)))
+        XCTAssertFalse(wroteLeaf.planOptions.dryRun)
+        XCTAssertEqual(wroteLeaf.planOptions.chain?.rawValue, "star-2.7.11b-genecounts")
+    }
+
+    @MainActor
+    func testTheBulkSheetsStagedReadsGoWithTheSampleSheetAndNoBundles() throws {
+        let model = RNASeqPlanSheetFixtures.bulkModel(staged: true)
+        model.executorManifest = URL(fileURLWithPath: "/exec/manifest.json")
+        model.image = URL(fileURLWithPath: "/exec/image.json")
+        model.imageToolManifest = URL(fileURLWithPath: "/exec/image-manifest.json")
+        let request = try XCTUnwrap(model.request(dryRun: false))
+
+        let leaf = try RNASeqCommand.QuantSubcommand.parse(Array(request.arguments.dropFirst(2)))
+        XCTAssertTrue(leaf.bundles.isEmpty)
+        XCTAssertEqual(leaf.planOptions.stagedReads, "/data/staged-reads.tsv")
+        XCTAssertEqual(leaf.planOptions.samplesheet, "/data/samples.csv")
+        XCTAssertNil(leaf.planOptions.chain, "the default chain is left to the command")
+        XCTAssertEqual(leaf.planOptions.executorManifest, "/exec/manifest.json")
+        XCTAssertEqual(leaf.planOptions.image, "/exec/image.json")
+        XCTAssertEqual(leaf.planOptions.imageToolManifest, "/exec/image-manifest.json")
+        XCTAssertTrue(try LungfishCLI.parseAsRoot(request.arguments) is RNASeqCommand.QuantSubcommand)
+    }
+
+    /// The 10x plan sheet parses through `RNASeqSoloPlanSubcommand`, with the preset, the barcode list a person supplied and
+    /// the 10x filter as the options they were.
+    @MainActor
+    func testTheTenXSheetsArgvParsesThroughRNASeqSoloPlanSubcommand() throws {
+        let model = RNASeqPlanSheetFixtures.tenXModel()
+        model.preset = .threePrimeV3Introns
+        model.barcodeList = URL(fileURLWithPath: "/data/3M-february-2018.txt")
+        model.tenXFilter = "gencode-2020-A"
+        let request = try XCTUnwrap(model.request(dryRun: true))
+
+        XCTAssertEqual(Array(request.arguments.prefix(2)), ["rnaseq", "solo-plan"])
+        let parsed = try RNASeqSoloPlanSubcommand.parse(Array(request.arguments.dropFirst(2)))
+        XCTAssertEqual(parsed.setReference, "ensembl-107")
+        XCTAssertEqual(parsed.preset, "tenx-3p-v3-introns")
+        XCTAssertEqual(parsed.barcodeList, "/data/3M-february-2018.txt")
+        XCTAssertEqual(parsed.tenxFilter, "gencode-2020-A")
+        XCTAssertEqual(parsed.stagedReads, "/data/staged-reads.tsv")
+        XCTAssertEqual(parsed.samplesheet, "/data/samples.csv")
+        XCTAssertEqual(parsed.outputPath, RNASeqPlanSheetFixtures.plans.path)
+        XCTAssertEqual(parsed.stagingFolder, "/staging/groups/g/1/lge")
+        XCTAssertEqual(parsed.expectedCells, 3000, "the CLI's own default is shown and sent")
+        XCTAssertEqual(parsed.requestCPUs, 8)
+        XCTAssertTrue(parsed.dryRun)
+        XCTAssertEqual(parsed.globalOptions.outputFormat, .json)
+        XCTAssertTrue(try LungfishCLI.parseAsRoot(request.arguments) is RNASeqSoloPlanSubcommand)
+        XCTAssertEqual(SoloPlanPreset.allCases.map(\.rawValue), ["tenx-3p-v3", "tenx-5p-v2", "tenx-3p-v3-introns"])
+    }
+
+    /// The adopt card's argv parses through `ImportRNASeqSubcommand` with `--adopt`, and its Check button and its storage
+    /// root are `--dry-run` and `--storage-root`.
+    @MainActor
+    func testTheAdoptCardsArgvParsesThroughImportRNASeqSubcommandWithDryRunAndStorageRoot() throws {
+        let folder = URL(fileURLWithPath: "/data/returned/star-2711-genecounts", isDirectory: true)
+        let project = URL(fileURLWithPath: "/data/Project.lungfish", isDirectory: true)
+        let model = RNASeqAdoptSheetModel(folder: folder, projectURL: project)
+        XCTAssertEqual(model.name, "star-2711-genecounts")
+        model.storageRoot = URL(fileURLWithPath: "/data/storage", isDirectory: true)
+        let request = try XCTUnwrap(model.request(dryRun: true))
+
+        let parsed = try ImportCommand.RNASeqSubcommand.parse(Array(request.arguments.dropFirst(2)))
+        XCTAssertEqual(parsed.inputPaths, [folder.path])
+        XCTAssertEqual(parsed.projectPath, project.path)
+        XCTAssertEqual(parsed.name, "star-2711-genecounts")
+        XCTAssertTrue(parsed.adoptOptions.adopt)
+        XCTAssertTrue(parsed.adoptOptions.dryRun)
+        XCTAssertEqual(parsed.adoptOptions.storageRoot, "/data/storage")
+        XCTAssertNil(parsed.adoptRefusal)
+        XCTAssertTrue(try LungfishCLI.parseAsRoot(request.arguments) is ImportCommand.RNASeqSubcommand)
+        let adopt = try XCTUnwrap(model.request(dryRun: false))
+        XCTAssertFalse(adopt.arguments.contains("--dry-run"))
+    }
 }

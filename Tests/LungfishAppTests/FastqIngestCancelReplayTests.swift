@@ -31,6 +31,7 @@ import LungfishKitTestSupport
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishWorkflow
 
 @MainActor
 final class FastqIngestCancelReplayTests: XCTestCase {
@@ -437,6 +438,182 @@ final class FastqIngestCancelReplayTests: XCTestCase {
         let row = OperationCenter.shared.items.first { $0.id == box.operationID }
         XCTAssertEqual(row?.state, .failed)
         XCTAssertEqual(row?.detail, words, "the Operations row shows the command's words")
+        let analyses = root.appendingPathComponent("Project.lungfish/Analyses", isDirectory: true)
+        XCTAssertEqual((try? FileManager.default.contentsOfDirectory(atPath: analyses.path)) ?? [], [], "a refusal writes nothing")
+    }
+
+    // MARK: - import rnaseq --adopt (Phase 5.4 lane EX-APP)
+    //
+    // The adopt card runs `lungfish-cli import rnaseq <folder> --adopt` through `AppDelegate.startRNASeqAdopt`, on the runner of
+    // the import cards. The returned folder is `Tests/Fixtures/rnaseq/star-adopt/star-2711-genecounts`, whose plan names the
+    // reference set of `refset-mito` and sums its genes, so each side's root holds a storage root with that set (built once).
+    //
+    // - Parity. The sheet's argv runs on side A as a script runs it, on side C as the card runs it and on side C' as the
+    //   command side C's row recorded. The three whole trees agree after the Masks row of docs/contracts/CLI-EQUIVALENCE.md,
+    //   with the clock of the result's record masked as the import cards' cases mask it, and no difference is declared.
+    // - Refusal. A storage root that holds no set is refused in the command's words on the row and in the sheet (X5), and
+    //   the project holds nothing.
+
+    nonisolated private static let adoptFolder = "star-2711-genecounts"
+
+    /// gffread's stand-in, as `ImportRNASeqAdoptTests` writes it: one record of each transcript id, contig and strand of the
+    /// GTF it is given, in file order, at its merged exon length.
+    private struct AdoptStandInDeriver: ReferenceSetTranscriptDeriving {
+        func toolVersion() async throws -> String { "0.12.9" }
+        func writeTranscripts(genome: URL, annotation: URL, to output: URL) async throws {
+            var records: [(id: String, place: String)] = []
+            var exons: [String: [ClosedRange<Int>]] = [:]
+            for line in try String(contentsOf: annotation, encoding: .utf8).split(separator: "\n") where !line.hasPrefix("#") {
+                let cells = line.split(separator: "\t", omittingEmptySubsequences: false)
+                guard cells.count == 9, ["exon", "CDS", "transcript"].contains(cells[2]),
+                      let range = cells[8].range(of: #"transcript_id "[^"]+""#, options: .regularExpression) else { continue }
+                let id = String(cells[8][range].dropFirst("transcript_id \"".count).dropLast())
+                let place = "\(id)\t\(cells[0])\t\(cells[6])"
+                if exons[place] == nil {
+                    records.append((id, place))
+                    exons[place] = []
+                }
+                if cells[2] == "exon", let start = Int(cells[3]), let end = Int(cells[4]) { exons[place]?.append(start...end) }
+            }
+            let fasta = records.map { record -> String in
+                let length = max(ReferenceSetAnnotationReader.mergedLength(exons[record.place] ?? []), 4)
+                return ">\(record.id)\n\(String(String(repeating: "ACGT", count: length / 4 + 1).prefix(length)))\n"
+            }
+            try Data(fasta.joined().utf8).write(to: output)
+        }
+    }
+
+    /// The `refset-mito` set of the LGE layout under `storage`, the set the returned plans of `star-adopt/` name.
+    nonisolated private static func buildMitoSet(in storage: URL) async throws {
+        let mito = RNASeqFixtures.root.appendingPathComponent("refset-mito", isDirectory: true)
+        let request = ReferenceSetRequest(
+            name: "Cynomolgus mitochondrion", species: "Macaca fascicularis", assemblyName: "Macaca_fascicularis_5.0",
+            annotationSource: "RefSeq", annotationRelease: "101", genome: mito.appendingPathComponent("cynomolgus-mt.fa"),
+            annotation: mito.appendingPathComponent("cynomolgus-mt.gtf"), layout: .lge,
+            assemblyReport: mito.appendingPathComponent("cynomolgus-mt_assembly_report.txt"))
+        let owner = ReferenceSetOwner(
+            storageRoot: storage, deriver: AdoptStandInDeriver(), provenanceWriter: ProvenanceWriter(signingProvider: nil))
+        _ = try await owner.build(request)
+    }
+
+    /// A side's root before the run: an empty project, a copy of the returned folder, and a storage root that is a copy of
+    /// `storage` or an empty folder when there is none.
+    nonisolated private static func writeAdoptRoot(_ root: URL, storage seed: URL?) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: root.appendingPathComponent("Project.lungfish", isDirectory: true), withIntermediateDirectories: true)
+        let returned = root.appendingPathComponent("returned", isDirectory: true)
+        try fileManager.createDirectory(at: returned, withIntermediateDirectories: true)
+        try fileManager.copyItem(
+            at: RNASeqFixtures.root.appendingPathComponent("star-adopt/\(adoptFolder)", isDirectory: true),
+            to: returned.appendingPathComponent(adoptFolder, isDirectory: true)
+        )
+        let storage = root.appendingPathComponent("storage", isDirectory: true)
+        if let seed {
+            try fileManager.copyItem(at: seed, to: storage)
+        } else {
+            try fileManager.createDirectory(at: storage, withIntermediateDirectories: true)
+        }
+    }
+
+    /// The adopt sheet of a side's root, with the values a person would give.
+    private static func adoptSheet(in root: URL) -> RNASeqAdoptSheetModel {
+        let model = RNASeqAdoptSheetModel(
+            folder: root.appendingPathComponent("returned/\(adoptFolder)", isDirectory: true),
+            projectURL: root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        )
+        model.storageRoot = root.appendingPathComponent("storage", isDirectory: true)
+        return model
+    }
+
+    /// Side C. The card's row and run on the app's runner, and the command the row recorded.
+    private func adoptSideC(_ request: RNASeqAdoptRequest) async -> RouteParitySideOutcome {
+        var operationID: UUID?
+        let outcome: RNASeqAdoptOutcome = await withCheckedContinuation { continuation in
+            operationID = AppDelegate.startRNASeqAdopt(request: request, routeContext: nil) { continuation.resume(returning: $0) }
+            if operationID == nil { continuation.resume(returning: .refused("the row was refused")) }
+        }
+        let command = OperationCenter.shared.items.first { $0.id == operationID }?.cliCommand
+        switch outcome {
+        case .adopted(let bundle):
+            return RouteParitySideOutcome(end: .completed, detail: "Adopted \(bundle.lastPathComponent)", recordedCommand: command)
+        case .checked:
+            return RouteParitySideOutcome(end: .completed, detail: "Checked", recordedCommand: command)
+        case .refused(let words):
+            return RouteParitySideOutcome(end: .failed, detail: words, recordedCommand: command)
+        case .cancelled:
+            return RouteParitySideOutcome(end: .cancelled, detail: "cancelled", recordedCommand: command)
+        }
+    }
+
+    func testTheAdoptCardAdoptsWhatTheCLIAdoptsFromTheReturnedFolder() async throws {
+        OperationCenter.useTemporaryFailureReportsForTesting()
+        let cli = try rnaSeqCLI()
+        let scratch = try TestTempDirectory.make(prefix: "rnaseq-adopt-parity")
+        defer { TestTempDirectory.cleanup(scratch) }
+        let seed = scratch.appendingPathComponent("seed-storage", isDirectory: true)
+        try await Self.buildMitoSet(in: seed)
+        let harness = RouteParityHarness(cliBinary: cli, kind: .bundle, masks: .rnaSeqImport, replayTimeout: .seconds(120))
+        let result = try await harness.assertParity(
+            "adopt",
+            declared: [],
+            in: scratch.appendingPathComponent("adopt", isDirectory: true),
+            fixture: { root in try Self.writeAdoptRoot(root, storage: seed) },
+            sideA: { root in
+                let request = try XCTUnwrap(Self.adoptSheet(in: root).request(dryRun: false))
+                let run = await RouteParityHarness.runCLI(cli, arguments: request.arguments, timeout: .seconds(120))
+                return RouteParitySideOutcome(end: run.end, detail: run.detail)
+            },
+            sideC: { root in
+                let request = try XCTUnwrap(Self.adoptSheet(in: root).request(dryRun: false))
+                return await self.adoptSideC(request)
+            }
+        )
+        for run in result.runs.all {
+            XCTAssertEqual(run.outcome.end, .completed, "\(run.side): \(run.outcome.detail)")
+            let analyses = run.root.appendingPathComponent("Project.lungfish/Analyses", isDirectory: true)
+            let made = (try? FileManager.default.contentsOfDirectory(atPath: analyses.path)) ?? []
+            XCTAssertEqual(made, ["\(Self.adoptFolder).lungfishrnaseq"], "side \(run.side) adopted the folder as one result")
+        }
+    }
+
+    /// X5. The returned plan names a reference set that the storage root does not hold. The command refuses before it writes
+    /// a file, and the refusal shows its own words on the Operations row and in the sheet, which stays open with its values.
+    /// The words are the library's refusal, which `import rnaseq --adopt` prints on its `failed` event.
+    func testAnAdoptWhoseStorageRootHoldsNoSetIsRefusedInTheCommandsWordsOnTheRowAndInTheSheet() async throws {
+        OperationCenter.useTemporaryFailureReportsForTesting()
+        _ = try rnaSeqCLI()
+        let root = try TestTempDirectory.make(prefix: "rnaseq-adopt-refused")
+        defer { TestTempDirectory.cleanup(root) }
+        try Self.writeAdoptRoot(root, storage: nil)
+        let model = Self.adoptSheet(in: root)
+        let expected: String
+        do {
+            _ = try ExecutorRunAdoption.dryRunCounts(
+                resultFolder: model.folder, projectDirectory: model.projectURL, name: Self.adoptFolder,
+                storageRoot: root.appendingPathComponent("storage", isDirectory: true)
+            )
+            return XCTFail("the adopt took a folder whose set the storage root lacks")
+        } catch let refusal as ExecutorAdoptRefusal {
+            expected = refusal.reason
+        }
+        XCTAssertTrue(expected.contains("holds no such set"), expected)
+        let box = RNASeqRunBox()
+        model.start = { request, completion in
+            box.operationID = AppDelegate.startRNASeqAdopt(request: request, routeContext: nil, completion: completion)
+            return box.operationID
+        }
+
+        model.adoptClicked()
+        XCTAssertEqual(model.phase, .running)
+        let refused = await waitUntil(budget: .lookup, pollInterval: .milliseconds(20)) { model.failure != nil }
+
+        XCTAssertTrue(refused, "the run ended in a refusal")
+        XCTAssertEqual(model.failure, expected, "the sheet shows the command's words")
+        XCTAssertEqual(model.phase, .editing, "the sheet stays open, ready to run again")
+        XCTAssertEqual(model.name, Self.adoptFolder)
+        let row = OperationCenter.shared.items.first { $0.id == box.operationID }
+        XCTAssertEqual(row?.state, .failed)
+        XCTAssertEqual(row?.detail, expected, "the Operations row shows the command's words")
         let analyses = root.appendingPathComponent("Project.lungfish/Analyses", isDirectory: true)
         XCTAssertEqual((try? FileManager.default.contentsOfDirectory(atPath: analyses.path)) ?? [], [], "a refusal writes nothing")
     }

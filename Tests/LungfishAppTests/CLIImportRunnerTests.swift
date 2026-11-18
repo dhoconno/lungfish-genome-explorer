@@ -331,6 +331,24 @@ final class CLIImportRunnerTests: XCTestCase {
         )
     }
 
+    /// The adopt card's row (Phase 5.4 lane EX-APP) ends as the runner reported it. A run with no error ends in the result
+    /// the command named, or in a passed check for `--dry-run`, which names none. The two cancel messages of
+    /// `CLIImportRunner.run` end it as a cancel, and any other message is the command's own words.
+    func testTheRNASeqAdoptEndsInTheResultACheckOrTheCommandsWords() {
+        let bundle = URL(fileURLWithPath: "/data/Project.lungfish/Analyses/S1.lungfishrnaseq")
+        XCTAssertEqual(AppDelegate.rnaSeqAdoptEnd(RNASeqImportSeen(bundles: [bundle]), dryRun: false), .adopted(bundle))
+        XCTAssertEqual(AppDelegate.rnaSeqAdoptEnd(RNASeqImportSeen(), dryRun: true), .checked, "a dry run names no result")
+        XCTAssertEqual(AppDelegate.rnaSeqAdoptEnd(RNASeqImportSeen(error: "Import cancelled"), dryRun: false), .cancelled)
+        XCTAssertEqual(AppDelegate.rnaSeqAdoptEnd(RNASeqImportSeen(error: "Import cancelled before it started"), dryRun: false), .cancelled)
+        XCTAssertEqual(
+            AppDelegate.rnaSeqAdoptEnd(RNASeqImportSeen(error: "S1 was refused."), dryRun: true), .refused("S1 was refused.")
+        )
+        XCTAssertEqual(
+            AppDelegate.rnaSeqAdoptEnd(RNASeqImportSeen(), dryRun: false),
+            .refused("The adopt finished without naming the result it made.")
+        )
+    }
+
     // MARK: - The clock of rnaseq-result.json in the parity cases
     //
     // Sides A, C and C' of the parity cases in FastqIngestCancelReplayTests run `import rnaseq` at three different seconds,

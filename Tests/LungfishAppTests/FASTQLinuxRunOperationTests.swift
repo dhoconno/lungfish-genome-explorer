@@ -159,6 +159,138 @@ final class FASTQLinuxRunOperationTests: XCTestCase {
         }
     }
 
+    // MARK: The RNA-seq plan sheets and the adopt card (Phase 5.4 lane EX-APP)
+
+    /// Each row names the FASTQ plan and adopt `OperationType` and records the argv it runs, which the shipped parser takes
+    /// as one command.
+    func testEachRNASeqRowNamesItsTypeAndRecordsTheArgvThatRuns() throws {
+        let reporter = RecordingOperationReporter()
+        var launched: [UUID] = []
+        let bulk = try XCTUnwrap(RNASeqPlanSheetFixtures.bulkModel().request(dryRun: false))
+        let tenX = try XCTUnwrap(RNASeqPlanSheetFixtures.tenXModel().request(dryRun: true))
+        let adopt = try XCTUnwrap(RNASeqAdoptSheetModel(
+            folder: URL(fileURLWithPath: "/data/returned/S1"), projectURL: URL(fileURLWithPath: "/data/Project.lungfish")
+        ).request(dryRun: false))
+
+        AppDelegate.beginRNASeqPlanOperation(request: bulk, routeContext: nil, reporter: reporter) { launched.append($0) }
+        AppDelegate.beginRNASeqPlanOperation(request: tenX, routeContext: nil, reporter: reporter) { launched.append($0) }
+        AppDelegate.beginRNASeqAdoptOperation(request: adopt, routeContext: nil, reporter: reporter) { launched.append($0) }
+
+        XCTAssertEqual(reporter.items.map(\.id), launched)
+        XCTAssertEqual(reporter.items.map(\.operationType), [.ingestion, .ingestion, .ingestion])
+        XCTAssertEqual(reporter.items.map(\.title), ["Plan for a Linux Machine: plan-1", "Check of the Plan: plan-1", "RNA-seq Linux Run Result: S1"])
+        for (item, request) in zip(reporter.items, [bulk.arguments, tenX.arguments, adopt.arguments]) {
+            XCTAssertEqual(try RecordedCLICommand.arguments(of: item.cliCommand), request)
+            XCTAssertEqual(try RecordedCLICommand.parseScript(item.cliCommand).count, 1, "one command that the shipped parser accepts")
+        }
+    }
+
+    /// A plan prints one summary and no event stream, so this stand-in runs in place of `CLIRNASeqPlanRunner`.
+    private struct StandInPlanRunner: RNASeqPlanCommandRunning {
+        let end: RNASeqPlanRunError?
+        func run(argv: [String], cancellation: CLIRunCancellation, log: @escaping @Sendable (String) -> Void) async throws {
+            log("planning")
+            if let end { throw end }
+        }
+    }
+
+    private func runRNASeqPlan(
+        _ request: RNASeqPlanRequest, end: RNASeqPlanRunError?, reporter: RecordingOperationReporter
+    ) async -> RNASeqPlanOutcome {
+        await withCheckedContinuation { continuation in
+            let id = AppDelegate.startRNASeqPlan(
+                request: request, routeContext: nil, reporter: reporter, runner: StandInPlanRunner(end: end)
+            ) { continuation.resume(returning: $0) }
+            if id == nil { continuation.resume(returning: .refused("the row was refused")) }
+        }
+    }
+
+    /// X5. The command refuses a plan, and the refusal shows the command's own words on the Operations row and in the sheet,
+    /// which keeps its values. The refused plan leaves no folder.
+    func testARefusedRNASeqPlanReachesTheRowAndTheSheetInTheCommandsWordsAndWritesNoFolder() async throws {
+        let model = RNASeqPlanSheetFixtures.tenXModel()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("rnaseq-plan-refused-\(UUID().uuidString)")
+        model.planFolder = folder
+        let words = "The set ensembl-107 has no adopted STAR 2.7.11b index with no 10x filter rule in this storage root, and a plan never builds one."
+        let reporter = RecordingOperationReporter()
+        let request = try XCTUnwrap(model.request(dryRun: false))
+
+        let outcome = await runRNASeqPlan(request, end: .failed(words), reporter: reporter)
+        model.finish(outcome)
+
+        XCTAssertEqual(outcome, .refused(words))
+        XCTAssertEqual(reporter.items.first?.state, .failed)
+        XCTAssertEqual(reporter.items.first?.failure?.detail, words, "the Operations row shows the command's words")
+        XCTAssertEqual(model.failure, words, "the sheet shows the command's words")
+        XCTAssertEqual(model.stagedReads?.lastPathComponent, "staged-reads.tsv", "the sheet keeps its values")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "a refused plan writes nothing")
+    }
+
+    func testACancelledRNASeqPlanEndsTheRowCancelledAndLeavesNoFolder() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("rnaseq-plan-cancelled-\(UUID().uuidString)")
+        let model = RNASeqPlanSheetFixtures.bulkModel()
+        model.planFolder = folder
+        let reporter = RecordingOperationReporter()
+        let request = try XCTUnwrap(model.request(dryRun: false))
+
+        let outcome = await runRNASeqPlan(request, end: .cancelled, reporter: reporter)
+        model.finish(outcome)
+
+        XCTAssertEqual(outcome, .cancelled)
+        XCTAssertEqual(reporter.items.first?.state, .cancelled)
+        XCTAssertNotNil(model.note)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "a cancelled plan leaves no folder")
+    }
+
+    func testAFinishedRNASeqPlanAndAPassedCheckCompleteTheirRows() async throws {
+        let reporter = RecordingOperationReporter()
+        let model = RNASeqPlanSheetFixtures.bulkModel()
+        let written = await runRNASeqPlan(try XCTUnwrap(model.request(dryRun: false)), end: nil, reporter: reporter)
+        let checked = await runRNASeqPlan(try XCTUnwrap(model.request(dryRun: true)), end: nil, reporter: reporter)
+
+        XCTAssertEqual(written, .written(RNASeqPlanSheetFixtures.plans))
+        XCTAssertEqual(checked, .checked)
+        XCTAssertEqual(reporter.items.map(\.state), [.completed, .completed])
+    }
+
+    func testTheRNASeqPlanCommandsWordsAreTheStandardErrorWithoutItsErrorPrefix() {
+        XCTAssertEqual(
+            CLIRNASeqPlanRunner.words(fromStandardError: "Error: The plan folder x already exists, so name a new folder.\n"),
+            "The plan folder x already exists, so name a new folder."
+        )
+        XCTAssertEqual(CLIRNASeqPlanRunner.words(fromStandardError: "no prefix\n"), "no prefix")
+    }
+
+    /// Cancel on the adopt row stops its command, which a stand-in holds until SIGTERM. The row reads Cancelled at once, the
+    /// outcome is a cancel, and no result is handed over. The real command's cancel of its stage is held by its own tests.
+    func testTheRNASeqAdoptRowIsCancelledAtOnceWhenTheCommandStops() async throws {
+        let ready = FileManager.default.temporaryDirectory.appendingPathComponent("rnaseq-adopt-ready-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(at: ready) }
+        try installStubCLI(printing: [Self.startLine], readyFile: ready)
+        let request = try XCTUnwrap(RNASeqAdoptSheetModel(
+            folder: URL(fileURLWithPath: "/data/returned/S1", isDirectory: true),
+            projectURL: URL(fileURLWithPath: "/data/Project.lungfish", isDirectory: true)
+        ).request(dryRun: false))
+        let outcome = OSAllocatedUnfairLock<RNASeqAdoptOutcome?>(initialState: nil)
+        let id = try XCTUnwrap(AppDelegate.startRNASeqAdopt(request: request, routeContext: nil) { ended in
+            outcome.withLock { $0 = ended }
+        })
+        let started = await waitUntil(budget: .lookup, pollInterval: .milliseconds(20)) {
+            FileManager.default.fileExists(atPath: ready.path)
+        }
+        XCTAssertTrue(started, "the stand-in command started")
+
+        OperationCenter.shared.cancel(id: id)
+        let ended = await rowAfterItEnds(id, timeout: .seconds(6))
+        let row = try XCTUnwrap(ended)
+        XCTAssertEqual(row.state, .cancelled, "the row reads \"\(row.detail)\" 6 seconds after Cancel")
+        XCTAssertNil(row.errorMessage)
+        XCTAssertEqual(row.bundleURLs, [])
+        let handedOver = await waitUntil(budget: .lookup, pollInterval: .milliseconds(20)) { outcome.withLock { $0 } != nil }
+        XCTAssertTrue(handedOver)
+        XCTAssertEqual(outcome.withLock { $0 }, .cancelled)
+    }
+
     // MARK: A returned batch folder (C5 D2 a, UX-c5 point 7)
 
     private static let project = URL(fileURLWithPath: "/data/Project.lungfish", isDirectory: true)
