@@ -65,6 +65,11 @@ let package = Package(
             name: "LungfishTwelveSUI",
             targets: ["LungfishTwelveSUI"]
         ),
+        // RNA-seq results UI leaf module
+        .library(
+            name: "LungfishRNASeqUI",
+            targets: ["LungfishRNASeqUI"]
+        ),
         // Alignment results UI leaf module extracted from LungfishApp
         .library(
             name: "LungfishAlignmentUI",
@@ -361,6 +366,24 @@ let package = Package(
             path: "Tests/LungfishTwelveSUITests"
         ),
 
+        // MARK: - LungfishRNASeqUI (RNA-seq results UI leaf)
+        .target(
+            name: "LungfishRNASeqUI",
+            dependencies: [
+                "LungfishCore",
+                "LungfishIO",
+                "LungfishWorkflow",
+                "LungfishKit",
+            ],
+            path: "Sources/LungfishRNASeqUI",
+            exclude: ["AGENTS.md"]
+        ),
+        .testTarget(
+            name: "LungfishRNASeqUITests",
+            dependencies: ["LungfishRNASeqUI", "LungfishKit", "LungfishIO", "LungfishWorkflow", "LungfishTestSupport"],
+            path: "Tests/LungfishRNASeqUITests"
+        ),
+
         // MARK: - LungfishAlignmentUI (Alignment results UI leaf)
         .target(
             name: "LungfishAlignmentUI",
@@ -537,6 +560,7 @@ let package = Package(
                 "LungfishEsVirituUI",
                 "LungfishGenotypeUI",
                 "LungfishPhylogeneticsUI",
+                "LungfishRNASeqUI",
                 "LungfishTaxonomyUI",
             ],
             path: "Sources/LungfishApp",

@@ -11,6 +11,7 @@ import LungfishEsVirituUI
 import LungfishGenotypeUI
 import LungfishNvdUI
 import LungfishPhylogeneticsUI
+import LungfishRNASeqUI
 import LungfishTaxTriageUI
 import LungfishTaxonomyUI
 import LungfishTwelveSUI
@@ -21,6 +22,7 @@ extension ViewerViewController {
     func makeSurfaceRegistry() -> SurfaceRegistry {
         let registry = SurfaceRegistry()
         registry.register(.bundle(.twelveSResult), factory: TwelveSSurface.factory { [weak self] in self?.wireTwelveSUnresolvedBlast($0) })
+        registry.register(.bundle(.rnaseqResult), factory: RNASeqResultSurface.factory { [weak self] in self?.wireRNASeqResult($0) })
         registry.register(.bundle(.primerAnalysis)) { PrimerAnalysisSurface() }
         registry.register(.analysis(.primerOrder)) { PrimerOrderSurface() }
         registry.register(.analysis(.naomgs), factory: NaoMgsSurface.factory())

@@ -132,6 +132,7 @@ public enum SidebarKindRegistry {
         bundleKind(.genotypeResult, .genotypeResultBundle, "Genotype result", opens: .bundle(.genotypeResult)),
         bundleKind(.twelveSResult, .twelveSAmpliconResultBundle, "12S amplicon result", opens: .bundle(.twelveSResult)),
         bundleKind(.czIdResult, .czIdResult, "CZ-ID result", opens: .analysis(.czId), manifestRequired: true),
+        bundleKind(.rnaseqResult, .registeredBundle, "RNA-seq result", opens: .bundle(.rnaseqResult)),
     ]
 
     /// What differs from an analysis kind's defaults: an `.analysisResult` row, no viewport, the Document tab.
