@@ -175,4 +175,48 @@ final class RNASeqResultSurfaceTests: XCTestCase {
         XCTAssertTrue(views.compactMap { $0 as? NSTextField }.allSatisfy { !$0.isEditable }, "no field is editable")
         XCTAssertFalse(views.contains { ($0 as? NSTextView)?.isEditable == true })
     }
+
+    /// A host with the surface registered, as the viewer makes it, and the hook that tells the App.
+    @MainActor
+    private func makeHost(onLoaded: @escaping @MainActor (RNASeqResultFacts, URL) -> Void) -> (ViewportHost, NSViewController) {
+        let parent = NSViewController()
+        parent.view = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let registry = SurfaceRegistry()
+        registry.register(.bundle(.rnaseqResult), factory: RNASeqResultSurface.factory { $0.onLoaded = onLoaded })
+        return (ViewportHost(registry: registry, containerView: parent.view, parentController: parent), parent)
+    }
+
+    @MainActor
+    func testAShowThroughTheHostInstallsTheResultAndTellsTheAppOnce() async throws {
+        let url = try writeResult()
+        var told = 0
+        let (host, parent) = makeHost { _, _ in told += 1 }
+        let outcome = await host.show(kind: .bundle(.rnaseqResult), input: url).value
+        guard case .committed = outcome else { return XCTFail("the show ended \(outcome)") }
+        XCTAssertEqual(told, 1)
+        XCTAssertEqual(parent.children.count, 1)
+    }
+
+    /// The guard after the detached read (`Task.checkCancellation()` in `RNASeqResultSurface.load`) keeps a late
+    /// load from telling the App about a result the person has already left.
+    @MainActor
+    func testALoadThatAClearCancelledPresentsNothingAndTellsTheAppNothing() async throws {
+        let url = try writeResult()
+        var told = 0
+        let (host, parent) = makeHost { _, _ in told += 1 }
+        let task = host.show(kind: .bundle(.rnaseqResult), input: url)
+        host.clear()
+        let outcome = await task.value
+        guard case .refused = outcome else { return XCTFail("the show ended \(outcome)") }
+        XCTAssertEqual(told, 0, "a load that a clear cancelled tells the App nothing")
+        XCTAssertTrue(parent.children.isEmpty)
+    }
+
+    @MainActor
+    func testAnInputThatIsNoURLIsRefusedAndInstallsNothing() async {
+        let (host, parent) = makeHost { _, _ in }
+        _ = await host.show(kind: .bundle(.rnaseqResult), input: "not a url").value
+        guard case .failed = host.lastOutcome else { return XCTFail("a wrong input must fail") }
+        XCTAssertTrue(parent.children.isEmpty)
+    }
 }
