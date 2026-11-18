@@ -149,4 +149,35 @@ final class FASTQDialogKeepUncheckedSamplesTests: XCTestCase {
         XCTAssertNil(run.keep, "a box the kit does not show reached the run")
         XCTAssertFalse(run.arguments.contains("--keep-unchecked-samples"), "\(run.arguments)")
     }
+
+    /// The caption under the box says what the refusal says, since a person who ticks the box never reads the refusal
+    /// (WORDS-UX W11, ruling R1). The built-in Fluidigm Access Array kit, which cutadapt searches anywhere in the read, gets
+    /// a caption that names the two routes made for it, ONT Fluidigm Sample Split and the engine Read Names. Every other
+    /// kit, a custom dual definition and QA's 384 definition here, gets the first caption, which names no Fluidigm tool.
+    func testTheFluidigmKitGetsTheCaptionThatNamesItsRoutes() async throws {
+        let state = dialog()
+        state.demultiplexBarcodeSource = .builtinKit
+        state.demultiplexKitID = "fluidigm-access-array"
+        await state.refreshDemultiplexChanceCheck()
+        XCTAssertTrue(state.showsDemultiplexKeepUncheckedSamples, "fluidigm-access-array at 0.15 shows no box")
+        let fluidigm = state.demultiplexKeepUncheckedSamplesCaptionForEngine
+        XCTAssertEqual(fluidigm, FASTQOperationDialogState.demultiplexKeepUncheckedSamplesFluidigmCaption)
+        XCTAssertTrue(fluidigm.contains("ONT Fluidigm Sample Split"), fluidigm)
+        XCTAssertTrue(fluidigm.contains("Read Names"), fluidigm)
+
+        state.demultiplexBarcodeSource = .customDefinition
+        state.setAuxiliaryInput(try dualDefinition(), for: .barcodeDefinition)
+        await state.refreshDemultiplexChanceCheck()
+        XCTAssertTrue(state.showsDemultiplexKeepUncheckedSamples, "a custom dual definition shows no box")
+        let dual = state.demultiplexKeepUncheckedSamplesCaptionForEngine
+        XCTAssertEqual(dual, FASTQOperationDialogState.demultiplexKeepUncheckedSamplesCaption)
+        XCTAssertFalse(dual.contains("Fluidigm"), dual)
+
+        state.setAuxiliaryInput(try qa384Definition(), for: .barcodeDefinition)
+        await state.refreshDemultiplexChanceCheck()
+        XCTAssertTrue(state.showsDemultiplexKeepUncheckedSamples, "QA's 384 definition shows no box")
+        let qa = state.demultiplexKeepUncheckedSamplesCaptionForEngine
+        XCTAssertEqual(qa, FASTQOperationDialogState.demultiplexKeepUncheckedSamplesCaption)
+        XCTAssertFalse(qa.contains("Fluidigm"), qa)
+    }
 }

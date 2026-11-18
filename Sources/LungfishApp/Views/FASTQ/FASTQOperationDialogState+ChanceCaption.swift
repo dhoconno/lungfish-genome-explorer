@@ -102,6 +102,12 @@ extension FASTQOperationDialogState {
     static let demultiplexKeepUncheckedSamplesCaption =
         "About half of all reads or more match a barcode of this kit by chance, so the check for chance matches cannot judge the samples, and the run is refused. Choose Keep Unchecked Samples to make the sample files anyway, then check each sample against your sample sheet."
 
+    /// The caption under Keep Unchecked Samples for the built-in Fluidigm Access Array kit, which cutadapt searches anywhere
+    /// in the read. It names the routes made for that kit, as the refusal does (BIO-SATKIT-FLUIDIGM item 4), since a person
+    /// who ticks the box never reads the refusal.
+    static let demultiplexKeepUncheckedSamplesFluidigmCaption =
+        "Cutadapt searches each barcode of this kit anywhere in the read, so about half of all reads or more match one of them by chance. The check for chance matches cannot judge the samples, and the run is refused. For Fluidigm barcodes in ONT reads, use ONT Fluidigm Sample Split. For reads whose index is in the read names, choose the engine Read Names. Choose Keep Unchecked Samples only to make the sample files anyway, then check each sample against your sample sheet."
+
     /// The caption under Keep Unchecked Samples with Exact Bare Barcode, when the read names carry the kit's barcodes
     /// (DEMUX-EXACT-BARE-NO-FLOOR, words for the UX review).
     static let demultiplexExactBareKeepUncheckedSamplesCaption =
