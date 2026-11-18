@@ -3235,6 +3235,35 @@ features:
       sheet, with the way back, and a cancel removes the stage and leaves no
       result. An input outside the project is recorded as
       <external>/<name>, so its command does not replay.
+  rnaseq.bulk-view:
+    title: Read a bulk RNA-seq result
+    entry_points:
+      - "Sidebar: select an RNA-seq result (.lungfishrnaseq) of bulk modality"
+      - "CLI: lungfish-cli rnaseq quality"
+    inputs: [rnaseq-result]
+    outputs: []
+    viewport_class: RNASeqBulkViewController
+    sources:
+      - Sources/LungfishRNASeqUI/Bulk/RNASeqBulkModel.swift
+      - Sources/LungfishRNASeqUI/Bulk/RNASeqBulkViewController.swift
+      - Sources/LungfishRNASeqUI/Bulk/RNASeqCorrelationPlotView.swift
+      - Sources/LungfishRNASeqUI/RNASeqResultSurface.swift
+    module: [LungfishRNASeqUI]
+    cli:
+      - lungfish-cli rnaseq quality
+    tests:
+      - Tests/LungfishRNASeqUITests/Bulk/RNASeqBulkTableTests.swift
+      - Tests/LungfishRNASeqUITests/Bulk/RNASeqBulkQualityTests.swift
+      - Tests/LungfishRNASeqUITests/Bulk/RNASeqBulkEvidenceTests.swift
+    notes: >-
+      One tab a count table of the result, then Quality and Correlation. A
+      count reads as counts/genes.counts.tsv prints it, with the name,
+      biotype and not-host flag of genes.tsv beside it and Not recorded
+      where genes.tsv is empty. The search keeps the rows whose gene id or
+      name holds the text. The masked table is its own tab. Quality and
+      Correlation show the cells of lungfish-cli rnaseq quality, and the
+      plot's caption names Pearson r of log2(CPM + 1). Nothing in the view
+      edits a file of the result.
   viewport.rnaseq-result:
     title: RNA-seq result viewer
     entry_points:
