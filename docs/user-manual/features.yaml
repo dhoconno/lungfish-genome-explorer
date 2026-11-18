@@ -3246,15 +3246,22 @@ features:
       - Sources/LungfishRNASeqUI/RNASeqResultSurface.swift
       - Sources/LungfishRNASeqUI/Bulk/RNASeqBulkViewController.swift
       - Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellViewController.swift
+      - Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellSummary.swift
+      - Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCharts.swift
+      - Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCellsTable.swift
       - Sources/LungfishApp/Views/Viewer/ViewerViewController+RNASeq.swift
       - Sources/LungfishIO/Bundles/BundleKindRegistry.swift
       - Sources/LungfishIO/Bundles/SidebarKindRegistry.swift
+      - Sources/LungfishIO/Bundles/RNASeqCellsDatabase+Bins.swift
       - Sources/LungfishWorkflow/Ingestion/CrossProjectItemCopier.swift
     module: [LungfishRNASeqUI, LungfishApp, LungfishIO, LungfishWorkflow]
     tests:
       - Tests/LungfishRNASeqUITests/RNASeqResultSurfaceTests.swift
       - Tests/LungfishRNASeqUITests/RNASeqSmokeFixtureTests.swift
+      - Tests/LungfishRNASeqUITests/SingleCell/RNASeqSingleCellViewTests.swift
+      - Tests/LungfishRNASeqUITests/SingleCell/RNASeqCellsDatabaseBinsFixtureTests.swift
       - Tests/LungfishIOTests/Bundles/BundleKindRegistryTests.swift
+      - Tests/LungfishIOTests/Bundles/RNASeqCellsDatabaseBinsTests.swift
       - Tests/LungfishAppTests/CrossProjectItemCopierBasePinTests.swift
       - Tests/LungfishAppTests/SafetyNets/RoutingTableSafetyNetTests.swift
       - Tests/LungfishAppTests/SafetyNets/ViewSwitchMatrixTests.swift
@@ -3265,7 +3272,19 @@ features:
       lists it as one row, RNA-seq result, which opens a viewer with the
       name, modality, origin, route and sample count that rnaseq-result.json
       states, shown as written, and the bulk or the single-cell view under
-      them. Both views are placeholders in this build and show nothing yet.
+      them. The bulk view shows a tab for each count table of the result,
+      then a Quality tab and a Correlation tab that show the numbers of
+      lungfish-cli rnaseq quality. The single-cell view shows the cell
+      summary that the import wrote: each sample's cells, features and
+      entries, the tool and version, the quality table, a plot of the cells
+      ranked by UMIs (the result keeps no list of the barcodes outside the
+      cells, so they are not in the plot), histograms of UMIs per cell,
+      genes per cell and not-host UMIs per cell, and a table of the cells
+      with each cell's not-host counts, the share of them at nM 0 or 1 as
+      two counts, and the flag. The flag reads viral RNA above ambient for a
+      virus and bacterial RNA above ambient for a bacterium, as the import
+      wrote it, and no cell is called infected. The view reads cells.sqlite
+      without changing it and counts nothing itself.
       A result written by a newer LGE shows the reader's words for a newer
       schema, and a folder with no readable manifest shows the reader's words
       for that, both in the viewer and not in an alert. The viewer reads the
