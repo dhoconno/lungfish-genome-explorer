@@ -32,4 +32,8 @@ public struct DemultiplexResult: Sendable {
 
     /// The engine that ran, which the route owner chose when the run named none, or nil for the asymmetric search.
     public var engine: DemultiplexEngine? = nil
+
+    /// The way the first reads carry the secondary sequence of a custom dual-index definition at Both Ends with no sample
+    /// sheet, and the votes that chose it (DEMUX-DUAL-FORM), or nil on every other route.
+    public var secondaryForm: DemultiplexingPipeline.SecondaryFormChoice? = nil
 }

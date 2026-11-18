@@ -518,6 +518,12 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             provenanceDefaults["trimBarcodes"] = .boolean(true)
             provenanceDefaults["threads"] = .integer(4)
         }
+        // The way the first reads carry the secondary sequence of a custom dual-index definition at Both Ends with no
+        // sample sheet, and the votes that chose it, on that route only (DEMUX-DUAL-FORM, BIO-DUAL-FORM item 2).
+        if let choice = result.secondaryForm {
+            provenanceParameters["secondaryForm"] = .string(choice.form.rawValue)
+            provenanceParameters["secondaryFormVotes"] = .dictionary(choice.votes.mapValues { ParameterValue.integer($0) })
+        }
 
         // How the mates of a paired input were placed (A9, D6).
         if let mateCalls = result.manifest.mateCalls {

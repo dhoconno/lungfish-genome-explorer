@@ -177,7 +177,7 @@ extension DemultiplexingPipeline {
             .appendingPathComponent("lungfish-demux-chance-check-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: scratch) }
-        let adapters = try await createAdapterConfiguration(for: config, workDirectory: scratch)
+        let adapters = try await createAdapterConfiguration(for: config, workDirectory: scratch, readsSecondaryForm: false)
         try requireAdapterSequences(in: adapters.adapterFASTA, kitName: config.barcodeKit.displayName)
         do {
             try requireChanceCheckableKit(config: config, adapterFASTA: adapters.adapterFASTA) { true }

@@ -59,9 +59,47 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     case noReadNameIndex(kitName: String)
     /// Detect Barcodes read the first read names of a file for an Illumina or Element kit and found no index (L9).
     case readNamesCarryNoIndex(kitName: String, namesRead: Int)
+    /// A custom dual-index definition at Both Ends with no sample sheet whose first reads fit its rows both with the
+    /// secondary sequence as written and reverse complemented, in different rows, while no row carries a form
+    /// (DEMUX-DUAL-FORM, BIO-DUAL-FORM item 2). `rows` are the rows of those reads in the definition's order.
+    case dualFormUndecided(kitName: String, rows: [String])
+    /// The same definition whose rows carry the secondary sequence in both forms. The rows of the form fewer rows carry are
+    /// named in the list of that form and the other list is empty, and both lists are named on a tie (UX-WORDS-2 section 3).
+    case dualFormMixed(kitName: String, asWritten: [String], reverseComplemented: [String])
 
     public var errorDescription: String? {
         switch self {
+        case .dualFormUndecided(let kitName, let rows):
+            let named = "The rows \(Self.list(rows)) of \"\(kitName)\""
+            let match = "first barcodes that match and secondary sequences that are reverse complements of each other, each "
+                + "within the error rate."
+            let fit = " The first reads fit these rows both ways, with the secondary sequence as it appears at the end of the "
+                + "read and as the i5 primer's barcode, so Demultiplex Barcodes cannot tell which sample each read belongs to, "
+                + "and nothing was run."
+            guard rows.count > 2 else {
+                return named + " have " + match + fit
+                    + " If one of these rows is not in this pool, remove it from the definition and run again."
+            }
+            return named + " come in pairs, and the two rows of each pair have " + match + fit
+                + " If one row of a pair is not in this pool, remove it from the definition and run again."
+        case .dualFormMixed(let kitName, let asWritten, let reverseComplemented):
+            func rows(_ names: [String]) -> String { names.count == 1 ? "the row \(names[0])" : "the rows \(Self.list(names))" }
+            func carry(_ names: [String]) -> String { names.count == 1 ? "carries" : "carry" }
+            let advice = " Write the secondary sequence of every row the same way, either as it appears at the end of the "
+                + "read or as the i5 primer's barcode, and run again."
+            if asWritten.isEmpty {
+                return "In the first reads, most rows of \"\(kitName)\" carry the secondary sequence as written, but "
+                    + "\(rows(reverseComplemented)) \(carry(reverseComplemented)) it reverse complemented, so nothing was run."
+                    + advice
+            }
+            if reverseComplemented.isEmpty {
+                return "In the first reads, most rows of \"\(kitName)\" carry the secondary sequence reverse complemented, "
+                    + "but \(rows(asWritten)) \(carry(asWritten)) it as written, so nothing was run." + advice
+            }
+            // The rows that carry it reverse complemented come first, so a run of the same file gives the same words.
+            return "In the first reads, \(rows(reverseComplemented)) of \"\(kitName)\" \(carry(reverseComplemented)) the "
+                + "secondary sequence reverse complemented and \(rows(asWritten)) \(carry(asWritten)) it as written, so "
+                + "nothing was run." + advice
         case .readNamesCarryNoIndex(let kitName, let namesRead):
             return "Detect Barcodes read the first \(namesRead) read names and found no index in them, so it counted no barcode of \(kitName). It counts Illumina and Element kits from the index that bcl2fastq or BCL Convert writes in each read name, and names such as those SRA gives by default carry none. For barcodes inside the reads, run Demultiplex Barcodes with a Custom Definition of their sequences (on the command line, fastq demultiplex --kit with your barcode file)."
         case .noReadNameIndex(let kitName):
@@ -120,7 +158,13 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     }
 
     /// `value` with a comma between each group of three digits, as the words write counts.
-    private static func grouped(_ value: Int) -> String {
+    /// `items` joined as the words list rows, "X and Y" for two and "A, B, C and D" for more.
+    static func list(_ items: [String]) -> String {
+        guard items.count > 1 else { return items.first ?? "" }
+        return items.dropLast().joined(separator: ", ") + " and " + items[items.count - 1]
+    }
+
+    static func grouped(_ value: Int) -> String {
         let digits = Array(String(value))
         var text = ""
         for (index, digit) in digits.enumerated() {

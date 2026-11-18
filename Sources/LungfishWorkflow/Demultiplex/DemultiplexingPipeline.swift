@@ -935,7 +935,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             wallClockSeconds: elapsed,
             nativeCommand: result.arguments,
             chanceFloor: chanceFloor,
-            engine: .cutadapt
+            engine: .cutadapt,
+            secondaryForm: adapterConfig.secondaryForm
         )
     }
 
@@ -1231,12 +1232,15 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     struct AdapterConfiguration {
         let adapterFASTA: URL
         let adapterFlag: String
+        var secondaryForm: SecondaryFormChoice? = nil
     }
 }
 extension DemultiplexingPipeline {
+    /// `readsSecondaryForm` false writes a custom dual definition's lines as written and reads no read (DEMUX-DUAL-FORM).
     func createAdapterConfiguration(
         for config: DemultiplexConfig,
-        workDirectory: URL
+        workDirectory: URL,
+        readsSecondaryForm: Bool = true
     ) async throws -> AdapterConfiguration {
         let adapterFASTA = workDirectory.appendingPathComponent("adapters.fasta")
 
@@ -1440,14 +1444,16 @@ extension DemultiplexingPipeline {
                         maxDistanceFrom3Prime: config.maxDistanceFrom3Prime, lines: lines
                     )
                 }
+                // The first reads choose which way the secondary sequence is read (DEMUX-DUAL-FORM, BIO-DUAL-FORM item 2).
+                let choice = readsSecondaryForm ? try await chooseSecondaryForm(of: entries, config: config) : nil
                 try writeObservedLinkedAdapterFASTA(
-                    entries: entries,
+                    entries: choice?.oriented(entries) ?? entries,
                     maxDistanceFrom5Prime: config.maxDistanceFrom5Prime,
                     maxDistanceFrom3Prime: config.maxDistanceFrom3Prime,
                     to: adapterFASTA
                 )
                 try validateAdapterFASTA(at: adapterFASTA, kitName: config.barcodeKit.displayName)
-                return AdapterConfiguration(adapterFASTA: adapterFASTA, adapterFlag: "-g")
+                return AdapterConfiguration(adapterFASTA: adapterFASTA, adapterFlag: "-g", secondaryForm: choice)
             }
 
             let entries: [(name: String, first: String, second: String)] = config.barcodeKit.barcodes.compactMap { barcode in

@@ -81,7 +81,8 @@ struct DemultiplexStagingArea {
             wallClockSeconds: result.wallClockSeconds,
             nativeCommand: result.nativeCommand,
             chanceFloor: result.chanceFloor,
-            engine: result.engine
+            engine: result.engine,
+            secondaryForm: result.secondaryForm
         )
     }
 
