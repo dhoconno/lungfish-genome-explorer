@@ -91,8 +91,8 @@ extension WorkflowOperationDialogState {
     /// The words that say why Run is off for the two rows, `Ready to run.` when it is on, and `nil` for any other tool. The design,
     /// the animals and the batch stay the CLI's to refuse, so each of those refusals reaches the Operations row in the CLI's own
     /// words. The three argument checks of `RNASeqExportSubcommand.validate()` are mirrored here (the range of the cutoff, the sign
-    /// of the fold-change bar and the shape of a contrast), because the CLI answers them in terminal text, a usage line on a
-    /// one-line row. `testTheReadinessAgreesWithTheCLIsArgumentCheck` holds the two together.
+    /// of the fold-change bar and the shape of a contrast, which is three parts with none empty), because the CLI answers them in
+    /// terminal text, a usage line on a one-line row. `testTheReadinessAgreesWithTheCLIsArgumentCheck` holds the two together.
     var rnaSeqReadinessText: String? {
         switch selectedTool?.kind {
         case .rnaSeqExport:
@@ -104,7 +104,8 @@ extension WorkflowOperationDialogState {
             }
             if !rnaSeqExport.lfcBarIsValid { return "Enter the fold-change bar as 0 or more, such as 1, or leave it empty for none." }
             if let bad = rnaSeqExport.contrasts.first(where: {
-                $0.split(separator: ":", omittingEmptySubsequences: false).filter { !$0.isEmpty }.count != 3
+                let parts = $0.split(separator: ":", omittingEmptySubsequences: false)
+                return parts.count != 3 || parts.contains(where: \.isEmpty)
             }) {
                 return "Write the contrast \(bad) as FACTOR:NUMERATOR:DENOMINATOR, such as group:TB:HIV."
             }

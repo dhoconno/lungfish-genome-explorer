@@ -64,8 +64,13 @@ struct RNASeqExportSubcommand: AsyncParsableCommand {
         guard RNASeqExportSettings.BatchCorrection(rawValue: batchCorrection) != nil else {
             throw ValidationError("--batch-correction is none, combat-seq or sva.")
         }
-        for words in contrastWords where words.split(separator: ":", omittingEmptySubsequences: false).filter({ !$0.isEmpty }).count != 3 {
-            throw ValidationError("--contrast \(words) is not FACTOR:NUMERATOR:DENOMINATOR, such as group:TB:HIV.")
+        // Three parts and none empty. settings() reads the parts by position, so a doubled or a leading colon would put an empty text in
+        // one role and shift the next level into it, and the scripts would name a contrast that the person did not type.
+        for words in contrastWords {
+            let parts = words.split(separator: ":", omittingEmptySubsequences: false)
+            guard parts.count == 3, !parts.contains(where: \.isEmpty) else {
+                throw ValidationError("--contrast \(words) is not FACTOR:NUMERATOR:DENOMINATOR, such as group:TB:HIV.")
+            }
         }
     }
 
