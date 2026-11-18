@@ -433,7 +433,10 @@ public enum AffectedResults {
         ),
         AffectedResultRow(
             backlogID: "DEMUX-GROUPED-DROPS-INPUTS",
-            kinds: [.fastqDemultiplex, .fastqDemultiplexSaturatedKit, .fastqDemultiplexExactBareNames],
+            kinds: [
+                .fastqDemultiplex, .fastqDemultiplexSaturatedKit, .fastqDemultiplexExactBareNames,
+                .fastqDemultiplexDualSearchedAnywhere,
+            ],
             firstBuild: nil, lastBuild: 12972,
             sentence: "If you chose Grouped Result for more than one dataset, this demultiplexing run read only the first "
                 + "dataset, so the reads of the others are in none of the samples.",
@@ -450,6 +453,18 @@ public enum AffectedResults {
             whatToDo: "Check each sample against your sample sheet, and note that a new run makes sample files "
                 + "from such a kit only if you choose Keep Unchecked Samples.",
             fixCommit: "f0103d9f4"
+        ),
+        // Lane DEMUX-DUAL-ANCHOR (BIO-DUAL-ANCHOR items 7 and 12, Q4). Every build from the writer's landing in e34628cf4
+        // searched a custom dual-index definition at Both Ends with no sample sheet as `i7...i5` with no anchor. The refusal
+        // of SATKIT-4, 413bdd7a1, is the first commit that stops such a run, and the anchored lines follow it.
+        AffectedResultRow(
+            backlogID: "DEMUX-DUAL-UNANCHORED", kinds: [.fastqDemultiplexDualSearchedAnywhere], firstBuild: nil,
+            lastBuild: 13672,
+            sentence: "This run looked for the two barcodes of a custom dual-index file anywhere in each read, so some "
+                + "samples may hold reads placed there by chance.",
+            whatToDo: "Check each sample against your sample sheet, then run Demultiplex Barcodes again with this version, "
+                + "which looks for the barcodes only at the read ends.",
+            fixCommit: "413bdd7a1"
         ),
         // S1 sweep 2026-11-17 lane DEMUX-EXACTBARE-NAMES (BIO-DEMUX-THREE item 11, section 2a). Every build with Exact Bare
         // Barcode, from its landing in 4389cd101, searched the read sequences of reads whose barcodes sat in their names.
@@ -571,6 +586,7 @@ extension AffectedResults {
             return trimLeftNoAdapterToGuess(envelope) ? nil : .fastqTrim
         case RecordName.fastqDemultiplex:
             if searchedReadNameBarcodesWithExactBare(envelope) { return .fastqDemultiplexExactBareNames }
+            if searchedCustomDualPairsAnywhere(envelope) { return .fastqDemultiplexDualSearchedAnywhere }
             return searchedWithAKitTheFloorCannotJudge(envelope) ? .fastqDemultiplexSaturatedKit : .fastqDemultiplex
         case RecordName.fastqImport:
             let guessed = envelope.steps.contains { runs("fastp", $0) && $0.argv.contains(fastpPairedAdapterGuess) }

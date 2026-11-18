@@ -19,8 +19,9 @@ extension AffectedResults {
     /// every read in one by chance, so its record is such a run at any error rate (BIO-SATKIT-FLUIDIGM item 5 and Q2). A
     /// definition whose `# kit:` line names that kit is searched as the kit is, so its record is such a run at any rate too
     /// (BIO-SATKIT-ANYWHERE item 5). A record that names another engine, another built-in kit, a definition built on
-    /// another kit, a dual kit or a file that cannot be read is not such a run. A custom dual kit at Both Ends with no
-    /// sample sheet is searched anywhere as well, and its records wait for row DEMUX-DUAL-UNANCHORED (item 7).
+    /// another kit, a dual kit or a file that cannot be read is not such a run. A record of a custom dual kit at Both Ends
+    /// with no sample sheet, whose pairs were searched anywhere in the read, names the narrower kind of
+    /// ``searchedCustomDualPairsAnywhere(_:)``, which `kind(of:)` asks first (DEMUX-DUAL-UNANCHORED, BIO-DUAL-ANCHOR item 7).
     /// It reads a file, so the Inspector's lookup runs it off the main actor.
     static func searchedWithAKitTheFloorCannotJudge(_ envelope: ProvenanceEnvelope) -> Bool {
         let options = envelope.options.explicit
@@ -61,5 +62,47 @@ extension AffectedResults {
         return DemultiplexChanceFloor.isSaturated(
             patterns: patterns, errorRate: number("errorRate") ?? 0.15, allowsIndels: true, unit: pairs > 0 ? 2 : 1
         )
+    }
+
+    /// Whether a `lungfish fastq demultiplex` record is a Cutadapt search of a custom dual-index definition at Both Ends with
+    /// no sample sheet. Every published build up to Preview 2026.11.11 searched its pairs as `i7...i5` with no anchor, so each
+    /// barcode was found anywhere in the read and reads with no barcode landed in samples by chance (DEMUX-DUAL-UNANCHORED,
+    /// BIO-DUAL-ANCHOR item 7 and Q4). The record names the engine `cutadapt` or no engine, a definition that loads as dual,
+    /// `.fixedDual`, `.custom` and `.unknown` with no `# kit:` line, the location Both Ends, which is the default, and a
+    /// floor that measured no null. The error rate and the overlap do not matter. The copy of the definition the run kept
+    /// (`customBarcodeKit`) is read before the file `kit` names, so a definition moved or replaced since the run still names
+    /// the kind. The CLI has no sample sheet. It reads a file, so the Inspector's lookup runs it off the main actor.
+    static func searchedCustomDualPairsAnywhere(_ envelope: ProvenanceEnvelope) -> Bool {
+        let options = envelope.options.explicit
+        if case .string(let engine)? = options["engine"], engine != "cutadapt" { return false }
+        if case .dictionary(let floor)? = options["chanceFloor"],
+           floor["null"] == .string(DemultiplexChanceFloor.Null.startComposition.rawValue) { return false }
+        var location = "bothends"
+        if case .string(let named)? = options["resolvedLocation"] ?? options["location"] { location = named.lowercased() }
+        guard ["bothends", "both", "both-ends", "both_ends"].contains(location),
+              let kit = recordedCustomKit(options) else { return false }
+        return kit.isDualIndexed && kit.pairingMode == .fixedDual && kit.kitType == .custom && kit.platform == .unknown
+            && kit.sourceKitID == nil
+    }
+
+    /// The custom definition a demultiplexing record names: the copy the run kept in its result folder, else the file `kit`
+    /// names when it is no built-in kit id, or nil when neither can be read.
+    private static func recordedCustomKit(_ options: [String: ParameterValue]) -> BarcodeKitDefinition? {
+        var urls: [URL] = []
+        switch options["customBarcodeKit"] {
+        case .file(let url)?: urls.append(url)
+        case .string(let path)?: urls.append(URL(fileURLWithPath: path))
+        default: break
+        }
+        if case .string(let named)? = options["kit"], BarcodeKitRegistry.kit(byID: named) == nil {
+            urls.append(URL(fileURLWithPath: named))
+        }
+        for url in urls {
+            if let data = try? Data(contentsOf: url),
+               let kit = try? BarcodeKitRegistry.loadCustomKit(data: data, name: url.deletingPathExtension().lastPathComponent) {
+                return kit
+            }
+        }
+        return nil
     }
 }
