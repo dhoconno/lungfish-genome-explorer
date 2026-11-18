@@ -1060,7 +1060,12 @@ final class FASTQOperationDialogState {
             return ontGenotypingUsesPreparedSampleInputs
                 ? [.fastqDataset, .referenceSequence]
                 : [.fastqDataset, .referenceSequence, .barcodeDefinition]
-        default:
+        case .refreshQCSummary, .ontFluidigmSampleSplit, .fastpTrim, .qualityTrim, .adapterRemoval, .trimFixedBases,
+             .filterByReadLength, .removeHumanReads, .removeRibosomalRNA, .removeLowComplexityReads,
+             .removeDuplicates, .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate,
+             .orientReads, .correctSequencingErrors, .subsampleByProportion, .subsampleByCount, .extractReadsByID,
+             .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .mafft, .minimap2, .bwaMem2, .bowtie2,
+             .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return selectedToolID.requiredInputKinds
         }
     }
@@ -2107,7 +2112,12 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         switch self {
         case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return true
-        default:
+        case .refreshQCSummary, .demultiplexBarcodes, .ontFluidigmSampleSplit, .fastpTrim, .qualityTrim,
+             .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength, .removeHumanReads,
+             .removeRibosomalRNA, .removeContaminants, .removeLowComplexityReads, .removeDuplicates,
+             .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads,
+             .correctSequencingErrors, .subsampleByProportion, .subsampleByCount, .extractReadsByID,
+             .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .ontGenotyping, .mafft:
             return false
         }
     }
@@ -2132,7 +2142,12 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         switch self {
         case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return false
-        default:
+        case .refreshQCSummary, .demultiplexBarcodes, .ontFluidigmSampleSplit, .fastpTrim, .qualityTrim,
+             .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength, .removeHumanReads,
+             .removeRibosomalRNA, .removeContaminants, .removeLowComplexityReads, .removeDuplicates,
+             .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads,
+             .correctSequencingErrors, .subsampleByProportion, .subsampleByCount, .extractReadsByID,
+             .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .ontGenotyping, .mafft:
             return true
         }
     }
@@ -2147,7 +2162,12 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return "Complete the classifier settings to continue."
         case .spades, .megahit, .skesa, .flye, .hifiasm:
             return "Complete the assembly settings to continue."
-        default:
+        case .refreshQCSummary, .demultiplexBarcodes, .ontFluidigmSampleSplit, .fastpTrim, .qualityTrim,
+             .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength, .removeHumanReads,
+             .removeRibosomalRNA, .removeContaminants, .removeLowComplexityReads, .removeDuplicates,
+             .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads,
+             .correctSequencingErrors, .subsampleByProportion, .subsampleByCount, .extractReadsByID,
+             .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .ontGenotyping, .mafft:
             return "Complete the required tool settings to continue."
         }
     }
@@ -2159,7 +2179,13 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .skesa: return .skesa
         case .flye: return .flye
         case .hifiasm: return .hifiasm
-        default: return nil
+        case .refreshQCSummary, .demultiplexBarcodes, .ontFluidigmSampleSplit, .fastpTrim, .qualityTrim,
+             .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength, .removeHumanReads,
+             .removeRibosomalRNA, .removeContaminants, .removeLowComplexityReads, .removeDuplicates,
+             .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads,
+             .correctSequencingErrors, .subsampleByProportion, .subsampleByCount, .extractReadsByID,
+             .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .ontGenotyping, .mafft, .minimap2,
+             .bwaMem2, .bowtie2, .bbmap, .viralRecon, .kraken2, .esViritu, .taxTriage: return nil
         }
     }
 
@@ -2169,7 +2195,13 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .bwaMem2: return .bwaMem2
         case .bowtie2: return .bowtie2
         case .bbmap: return .bbmap
-        default: return nil
+        case .refreshQCSummary, .demultiplexBarcodes, .ontFluidigmSampleSplit, .fastpTrim, .qualityTrim,
+             .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength, .removeHumanReads,
+             .removeRibosomalRNA, .removeContaminants, .removeLowComplexityReads, .removeDuplicates,
+             .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads,
+             .correctSequencingErrors, .subsampleByProportion, .subsampleByCount, .extractReadsByID,
+             .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .ontGenotyping, .mafft, .viralRecon,
+             .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage: return nil
         }
     }
 

@@ -67,7 +67,12 @@ struct FASTQOperationToolPanes: View {
                 onRun: state.captureTaxTriageConfig(_:),
                 onRunnerAvailabilityChange: readinessHandler(for: state.selectedToolID)
             )
-        default:
+        case .refreshQCSummary, .demultiplexBarcodes, .ontFluidigmSampleSplit, .fastpTrim, .qualityTrim,
+             .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength, .removeHumanReads,
+             .removeRibosomalRNA, .removeContaminants, .removeLowComplexityReads, .removeDuplicates,
+             .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads,
+             .correctSequencingErrors, .subsampleByProportion, .subsampleByCount, .extractReadsByID,
+             .extractReadsByMotif, .selectReadsBySequence, .savont, .pbaa, .ontGenotyping, .mafft:
             derivativePane
         }
     }
