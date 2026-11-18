@@ -124,8 +124,16 @@ final class RNASeqImportSheetModel {
         return name == "outs" ? folder.deletingLastPathComponent().lastPathComponent : name
     }
 
+    /// The sample names of the BAM rows, and of `--not-host-bam`. The command renames each folder to the `sample` of the
+    /// sheet's row when the row's `run` names the folder, and looks each BAM up by the new name (RS-GLUE-UX SF-2).
     var sampleIDs: [String] {
-        kind == .singleCell ? inputs.map(Self.sampleID(ofSingleCellFolder:)) : []
+        guard kind == .singleCell else { return [] }
+        let folderIDs = inputs.map(Self.sampleID(ofSingleCellFolder:))
+        // A sheet whose run column names the folders gives them its sample names, and the command looks each BAM up by that name.
+        // A sheet that does not match the folders leaves the folder names, and the command then refuses it in its own words.
+        guard let sampleSheet, let sheet = try? RNASeqSampleSheet.read(sampleSheet),
+              let match = try? RNASeqSampleSheet.match(sheet, fileIDs: folderIDs, byRun: true) else { return folderIDs }
+        return match.sampleIDs
     }
 
     /// The genome prefixes typed in the sheet, split at commas and spaces.

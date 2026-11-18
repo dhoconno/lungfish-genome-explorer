@@ -95,7 +95,7 @@ struct RNASeqImportSampleSheetRow: View {
         RNASeqImportChooserRow(
             title: "Sample sheet:",
             help: "Optional. A tab-separated sheet with a sample column and, when known, run, animal, species, origin and group. "
-                + "Its ids must name the same samples as the \(model.kind == .bulk ? "folders or columns" : "folders"). "
+                + "Its sample column, or its run column when it has one, must name the same samples as the \(model.kind == .bulk ? "folders or columns" : "folders"). "
                 + "Without one, each is a sample whose other fields read Not recorded.",
             value: model.sampleSheet,
             identifier: "rnaseq-import-samples",
