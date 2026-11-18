@@ -128,13 +128,18 @@ struct RNASeqLeafLaunch {
 /// A cancel sends the leaf SIGTERM, which rolls its stage back, so a cancelled run leaves no folder and no stage.
 @MainActor
 enum RNASeqLeafRoute {
+    /// The cancel of a row that has nothing to stop. It is a named value and not an inline `{}` default, so the signature of
+    /// `begin` holds no brace, and `scripts/ratchets/cli-parity-gaps.sh`, which reads a function body from the first brace after
+    /// its name, finds the `begin` call in `begin` and takes it as a forwarder.
+    static let ignoreCancel: @Sendable () -> Void = {}
+
     /// Registers the row. `launch` runs only when the row started, as Rule 1 of `ADDING-AN-OPERATION.md` requires.
     @discardableResult
     static func begin(
         _ run: RNASeqLeafRun,
         routeContext: OperationRouteContext? = nil,
         operations: any OperationReporting = OperationCenter.shared,
-        onCancel: @escaping @Sendable () -> Void = {},
+        onCancel: @escaping @Sendable () -> Void = RNASeqLeafRoute.ignoreCancel,
         launch: (UUID) -> Void
     ) -> OperationStartResult {
         let result = operations.begin(
