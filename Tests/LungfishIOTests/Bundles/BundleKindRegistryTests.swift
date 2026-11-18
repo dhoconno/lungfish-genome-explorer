@@ -288,9 +288,21 @@ final class BundleKindRegistryTests: XCTestCase {
 
     // MARK: - Facts against the frozen parity answers
 
+    /// The kinds with no frozen answer. Phase 2.6 lane B1 recorded the fifteen kinds the app handled before the
+    /// registry existed, and a kind added since has no record, so a test of its own pins its facts. The RNA-seq result
+    /// is pinned by `testTheRNASeqResultIsKnownByItsExtensionAloneAndKeptUnderAnalyses` and, in the App, by the copier,
+    /// routing and view-switch tests. A new kind joins this list on purpose, with such a test, or gets rows in
+    /// `parity-expected.tsv` (the file is rewritten as `BundleKindParityTests` says).
+    private static let kindsWithoutParityAnswers: Set<BundleKindID> = [.rnaseqResult]
+
     func testPresentationDeletionCopyAndRecognitionEqualWhatTheAppDoesToday() throws {
         let answers = try ParityAnswers()
-        for d in BundleKindRegistry.all {
+        let unrecorded = Set(BundleKindRegistry.all.filter { descriptor in
+            descriptor.folderExtensions.first.map { !answers.hasAnswers(forProbe: "lower-\($0)") } ?? true
+        }.map(\.id))
+        XCTAssertEqual(unrecorded, Self.kindsWithoutParityAnswers,
+                       "a kind with no frozen answers is named in kindsWithoutParityAnswers, and a named kind has none")
+        for d in BundleKindRegistry.all where !Self.kindsWithoutParityAnswers.contains(d.id) {
             let ext = try XCTUnwrap(d.folderExtensions.first)
             let lower = "lower-\(ext)", upper = "upper-\(ext)", bare = "nomanifest-\(ext)"
             let label = "\(d.id)"
@@ -396,7 +408,7 @@ final class BundleKindRegistryTests: XCTestCase {
         XCTAssertEqual(future.kind.rawValue, "zarr-store")
         XCTAssertNil(BundleKindRegistry.descriptor(for: future.kind), "An unknown kind decodes and finds no descriptor")
         XCTAssertEqual(BundleKindID(rawValue: "reference"), .reference)
-        XCTAssertEqual(Set(Self.ids).count, 15)
+        XCTAssertEqual(Set(Self.ids).count, 16)
         XCTAssertEqual("\(BundleKindID.twelveSReference)", "12s-reference")
     }
 
@@ -429,6 +441,11 @@ final class BundleKindRegistryTests: XCTestCase {
 
         subscript(table: String, probe: String) -> String {
             rows["\(table)\t\(probe)"] ?? "missing \(table) \(probe)"
+        }
+
+        /// Whether the frozen record holds the probe, which every recorded kind does for its three spellings.
+        func hasAnswers(forProbe probe: String) -> Bool {
+            rows["sidebar.scanNode\t\(probe)"] != nil
         }
     }
 }

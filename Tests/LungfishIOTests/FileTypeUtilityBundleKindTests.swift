@@ -67,7 +67,7 @@ final class FileTypeUtilityBundleKindTests: XCTestCase {
         XCTAssertFalse(FileTypeUtility.allKnownExtensions.contains(ext), "\(ext) names no category of its own")
     }
 
-    /// The project, the alignment, the tree, both primer kinds, the genotype and 12S results, the 12S
+    /// The project, the alignment, the tree, both primer kinds, the genotype, 12S and RNA-seq results, the 12S
     /// reference database, the CZ ID import, a run bundle and both workflow kinds have no category of their own.
     func testEveryOtherKindIsUnknownAndOffersQuickLook() throws {
         let named: Set<BundleKindID> = Set(Self.referenceKinds + [.fastq])
@@ -84,6 +84,6 @@ final class FileTypeUtilityBundleKindTests: XCTestCase {
             XCTAssertFalse(FileTypeUtility.isKnownExtension(ext), "\(descriptor.id) is not a known extension")
             checked += 1
         }
-        XCTAssertEqual(checked, 12, "15 kinds, less the 3 named kinds")
+        XCTAssertEqual(checked, 13, "16 kinds, less the 3 named kinds")
     }
 }
