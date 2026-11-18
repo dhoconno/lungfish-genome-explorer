@@ -3235,6 +3235,90 @@ features:
       sheet, with the way back, and a cancel removes the stage and leaves no
       result. An input outside the project is recorded as
       <external>/<name>, so its command does not replay.
+  import.rnaseq-plan:
+    title: Write an RNA-seq plan for a Linux machine
+    entry_points:
+      - "Import Center > Sequencing Reads > RNA-seq Plan for a Linux Machine"
+      - "Import Center > Sequencing Reads > Single-cell Plan for a Linux Machine"
+      - "CLI: lungfish-cli rnaseq quant --write-plan"
+      - "CLI: lungfish-cli rnaseq solo-plan"
+    inputs: [fastq-bundle, staged-reads-list, sample-sheet, rnaseq-reference-set, barcode-list]
+    outputs: [plan-folder]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel+RNASeqLinuxCards.swift
+      - Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift
+      - Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheetModel.swift
+      - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel+ActionText.swift
+      - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift
+      - Sources/LungfishApp/App/AppDelegate+RNASeqLinuxRun.swift
+    module: [LungfishApp]
+    cli:
+      - lungfish-cli rnaseq quant
+      - lungfish-cli rnaseq solo-plan
+    operation_type: ingestion
+    tests:
+      - Tests/LungfishAppTests/RNASeqPlanSheetTests.swift
+      - Tests/LungfishAppTests/CLIRunnerArgvRoundTripTests.swift
+      - Tests/LungfishAppTests/FASTQLinuxRunOperationTests.swift
+      - Tests/LungfishAppTests/FastqIngestCancelReplayTests.swift
+    notes: >-
+      Two cards on the Sequencing Reads tab of the Import Center, beside the
+      cards of the FASTQ Linux route. RNA-seq Plan for a Linux Machine opens a
+      sheet that runs lungfish-cli rnaseq quant --write-plan, and
+      Single-cell Plan for a Linux Machine opens one that runs lungfish-cli
+      rnaseq solo-plan. Each sheet takes the values its command takes, shows
+      the command's own defaults, and writes the plan folder that a Linux
+      machine runs. The sheet counts nothing and submits nothing, so the
+      person copies the plan folder to the Linux machine. Check runs every
+      check that Write Plan runs, and writes no folder. A refusal shows in
+      the command's own words, on the Operations row and in the sheet, and
+      the sheet keeps its values. A barcode list that the person chooses is
+      checked by SHA-256 against the whole list of the preset and recorded
+      as supplied by the person. With no list chosen the command reads the
+      list in the tool image, and refuses in words when the image holds
+      none. The introns preset approximates Cell Ranger 7's include-introns
+      counting and is never called a match for it. The folder that plan
+      returns is refused by import rnaseq --adopt, and the sheet says so.
+      The Operations row records the command that runs.
+  import.rnaseq-adopt:
+    title: Adopt the RNA-seq counts a Linux run returned
+    entry_points:
+      - "Import Center > Sequencing Reads > RNA-seq Linux Run Result"
+      - "CLI: lungfish-cli import rnaseq <folder> --adopt"
+    inputs: [rnaseq-plan-folder, rnaseq-batch-folder]
+    outputs: [rnaseq-result]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel+RNASeqLinuxCards.swift
+      - Sources/LungfishApp/Views/ImportCenter/RNASeqAdoptSheet.swift
+      - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel+ActionText.swift
+      - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift
+      - Sources/LungfishApp/App/AppDelegate+RNASeqLinuxRun.swift
+    module: [LungfishApp]
+    cli:
+      - lungfish-cli import rnaseq
+    operation_type: ingestion
+    tests:
+      - Tests/LungfishAppTests/RNASeqPlanSheetTests.swift
+      - Tests/LungfishAppTests/CLIRunnerArgvRoundTripTests.swift
+      - Tests/LungfishAppTests/CLIImportRunnerTests.swift
+      - Tests/LungfishAppTests/FASTQLinuxRunOperationTests.swift
+      - Tests/LungfishAppTests/FastqIngestCancelReplayTests.swift
+    notes: >-
+      One card on the Sequencing Reads tab of the Import Center. It asks for
+      a returned plan folder or a returned batch folder, in which the files
+      inside result/ of every sample were copied into that sample's folder
+      on the Mac, next to plan.json, and then opens a sheet for the name of
+      the result, the storage root and the check. The sheet runs
+      lungfish-cli import rnaseq <folder> --adopt with --format json, and its
+      Check button adds --dry-run, which runs every check and reads and
+      writes nothing. The folder is checked in full before anything is
+      written, so a refused adopt writes nothing, and the refusal shows in
+      the command's own words, on the Operations row and in the sheet. A
+      folder that the introns preset returned is refused. The adopted result
+      is selected in the sidebar. The card needs an open project that can be
+      written.
   rnaseq.bulk-view:
     title: Read a bulk RNA-seq result
     entry_points:
