@@ -16,7 +16,7 @@ Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift 24
 Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift 1010
 Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift 2353
 Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift 1112
-Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift 971
+Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift 979
 Sources/LungfishApp/Views/Inspector/InspectorView.swift 888
 Sources/LungfishApp/Views/Inspector/InspectorViewController+MetadataImport.swift 1053
 Sources/LungfishApp/Views/Inspector/InspectorViewController+PublicAPI.swift 988
