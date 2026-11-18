@@ -117,6 +117,8 @@ final class AffectedResultsDEMUXDUALANCHORTests: XCTestCase {
                        "a record before --engine, when Cutadapt was the one engine")
         XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(kit: path.path, kept: kept, null: nil)), dual,
                        "a record before the floor")
+        XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(kit: path.path, kept: kept, null: "saturated-kit")), dual,
+                       "a kept run of an unpublished build names the narrower kind, which kind(of:) asks before the saturated kit")
         XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(kit: path.path, kept: kept, resolvedLocation: nil)), dual,
                        "a record with no resolved location, at the default location")
         XCTAssertEqual(AffectedResults.kind(of: try writtenRecord(kit: path.path, kept: kept, location: "both")), dual)
