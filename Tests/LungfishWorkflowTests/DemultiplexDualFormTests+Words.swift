@@ -23,7 +23,9 @@ extension DemultiplexDualFormTests {
         let reads: [Read] = (0..<40).map { ("none|\($0)", bases.next(76)) }
         let (words, published) = try await refusal(Self.threePairs, reads)
         XCTAssertEqual(words, causes + " The run looked for the secondary sequence of each row both as written and reverse "
-                       + "complemented, so the way the secondary sequences are written is not the cause." + steps)
+                       + "complemented, so the way the secondary sequences are written is not the cause. If your barcodes "
+                       + "sit some bases in from the read ends, set 5' Distance and 3' Distance to that many bases (on the "
+                       + "command line, --max-distance-5prime and --max-distance-3prime)." + steps)
         XCTAssertFalse(published)
         assertProse(words, "noBarcodeAboveChance on this route")
         XCTAssertEqual(DemultiplexError.noBarcodeAboveChance(kitName: "K").errorDescription, causes + steps,
