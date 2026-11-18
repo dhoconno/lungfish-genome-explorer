@@ -13,22 +13,28 @@ extension AffectedResults {
     /// since its landing in 4389cd101, and the input and the kit beside it. Records since 9ad886777 also say
     /// `chanceCheck: "none"`.
     ///
-    /// A record whose `optIn` is true is such a run by the person's choice, since preflight refuses it otherwise. Any other
-    /// is read: the first read names of the input the record names (the primary FASTQ of a bundle), counted against the
-    /// kit the record names by the route owner's rule (`DemultiplexSearchRouteOwner.presentBarcodes(of:inProbed:)`). The
+    /// The names decide: the first read names of the input the record names (the primary FASTQ of a bundle), counted against
+    /// the kit the record names by the route owner's rule (`DemultiplexSearchRouteOwner.presentBarcodes(of:inProbed:)`). The
     /// kit is the built-in kit of that id or the definition file the run keeps in its result folder. A record whose input
-    /// or definition cannot be read is not such a run. It reads files, so the Inspector's lookup runs it off the main actor.
+    /// or definition cannot be read has no names to count, and then only its `optIn` decides, since preflight refuses a run
+    /// on such names without it. `optIn` is the flag as the person gave it, so it never overrules names that can be read.
+    /// It reads files, so the Inspector's lookup runs it off the main actor.
     static func searchedReadNameBarcodesWithExactBare(_ envelope: ProvenanceEnvelope) -> Bool {
         let options = envelope.options.explicit
         guard options["engine"] == .string(DemultiplexEngine.exactBareBarcode.rawValue) else { return false }
-        if options["optIn"] == .boolean(true) { return true }
+        return exactBareNamesCarryTheKitsBarcodes(options) ?? (options["optIn"] == .boolean(true))
+    }
+
+    /// Whether the first read names of the input `options` name carry two or more barcodes of the kit `options` name, or nil
+    /// when the input, the kit or the definition cannot be read.
+    private static func exactBareNamesCarryTheKitsBarcodes(_ options: [String: ParameterValue]) -> Bool? {
         let inputPath: String
         switch options["input"] {
         case .file(let url)?: inputPath = url.path
         case .string(let path)?: inputPath = path
-        default: return false
+        default: return nil
         }
-        guard case .string(let named)? = options["kit"] else { return false }
+        guard case .string(let named)? = options["kit"] else { return nil }
         let kit: BarcodeKitDefinition
         if let builtIn = BarcodeKitRegistry.kit(byID: named) {
             kit = builtIn
@@ -36,7 +42,7 @@ extension AffectedResults {
             let url = URL(fileURLWithPath: named)
             guard let data = try? Data(contentsOf: url),
                   let loaded = try? BarcodeKitRegistry.loadCustomKit(data: data, name: url.deletingPathExtension().lastPathComponent)
-            else { return false }
+            else { return nil }
             kit = loaded
         }
         var input = URL(fileURLWithPath: inputPath)
@@ -45,7 +51,7 @@ extension AffectedResults {
               let headers = try? FASTQReadLayoutClassifier.readHeaders(
                 from: input, limit: DemultiplexSearchRouteOwner.readOnCount
               ).headers
-        else { return false }
+        else { return nil }
         // A header line holds the name and its comment as the FASTQ reader splits them, at the first space or tab.
         let names = headers.map { header -> FASTQReadNameIndex in
             let parts = header.split(maxSplits: 1, whereSeparator: { $0 == " " || $0 == "\t" })
