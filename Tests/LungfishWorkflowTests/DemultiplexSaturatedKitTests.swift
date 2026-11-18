@@ -616,6 +616,12 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
             XCTAssertEqual([o5, o3], [fivePrime, threePrime], setting)
             XCTAssertEqual(count, lines, setting)
         }
+        // A distance of a billion on 96 pairs would overflow Int if multiplied as typed, and is refused like any other.
+        let absurd = try await refusal(ninetySix, errorRate: 0.15, fivePrime: 999_999_999, threePrime: 999_999_999)
+        guard case .tooManySearchLines(_, let pairs, let o5, let o3, _)? = absurd else {
+            return XCTFail("999999999/999999999 was refused as \(String(describing: absurd)), not for its lines")
+        }
+        XCTAssertEqual([pairs, o5, o3], [96, 999_999_999, 999_999_999])
         let words = try XCTUnwrap(DemultiplexError.tooManySearchLines(
             kitName: "Dual 96", pairs: 96, maxDistanceFrom5Prime: 5, maxDistanceFrom3Prime: 5, lines: 6_912
         ).errorDescription)
