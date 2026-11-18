@@ -8,7 +8,7 @@ This document first traces one real operation, variant calling, from menu item t
 
 ## The variant-calling path, traced through the code
 
-The table follows the calls in order. Every file was read for this trace. Line numbers are correct as of commit a0eec8b32 and drift with edits, so search for the named function when a number is stale.
+The table follows the calls in order. Search for the named function when a line number is stale.
 
 | Step | What happens | File |
 |---|---|---|
@@ -49,7 +49,7 @@ Variant calling is the recommended example because its layering is right. It sti
 
 | Gap | Rule it breaks | Copy this instead |
 |---|---|---|
-| It builds the record as a legacy `WorkflowRun` and converts it with `canonicalEnvelope()`, where Rule 6 asks for `ProvenanceRunBuilder`. The sidecar has been an envelope since sub-phase 2.4, but its steps and parameters still come from the old model. | Rule 6 | `CLIProvenanceSupport.recordSingleStepRun` in `Sources/LungfishCLI/Support/CLIProvenanceSupport.swift`, which builds with `ProvenanceRunBuilder` and writes with `ProvenanceWriter` |
+| It builds the record as a legacy `WorkflowRun` and converts it with `canonicalEnvelope()`, where Rule 6 asks for `ProvenanceRunBuilder`. Its steps and parameters still come from the old model. | Rule 6 | `CLIProvenanceSupport.recordSingleStepRun` in `Sources/LungfishCLI/Support/CLIProvenanceSupport.swift`, which builds with `ProvenanceRunBuilder` and writes with `ProvenanceWriter` |
 
 ## Which launch family a new operation joins
 
@@ -58,11 +58,10 @@ Variant calling is a standalone runner. Most read-processing tools instead belon
 | The operation | Family | Model to copy |
 |---|---|---|
 | reads FASTQ or FASTA datasets and is launched from the FASTQ operations dialog (Tools menu categories such as Clustering, Mapping, Assembly or Trimming & Filtering) | FASTQ operation dialog family | Savont, traced below |
+| runs on RNA-seq results or a workflow package and is launched from the Workflow Operations dialog (a Workflow Library item with the `.workflowOperations` capability) | Workflow Operations dialog family | `RNASeqLeafRoute` in `Sources/LungfishApp/Services/RNASeqWorkflowRuns.swift` |
 | takes any other input (a reference bundle, an alignment track, a variant track, an MSA, a tree) | standalone runner | a new `CLIFooRunner` modelled on `CLITreeRunner` in `Sources/LungfishApp/Services/CLITreeRunner.swift` |
 
 ### The Savont path, traced through the code
-
-Line numbers are correct as of commit 9569fe2b6.
 
 | Step | What happens | File |
 |---|---|---|
@@ -74,7 +73,9 @@ Line numbers are correct as of commit 9569fe2b6.
 | 6. Subprocess | `FASTQOperationExecutionService.execute` materializes inputs and runs each invocation through `LungfishCLIProcessRunner`. That runner finds the binary with `LungfishCLIRunner.findCLI`, launches it on `CLIProcessLauncher` with `operationGrace` and `operationDrain`, and decodes `CLIEvent` lines on the channel that the leaf's row of `CLIEventContractTable` names. | `Sources/LungfishApp/Services/FASTQOperationExecutionService.swift` lines 749 and 780 |
 | 7. Import | `BundleFASTQOperationImporter` turns the discovered outputs into project bundles. | `Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift` line 438 |
 
-Some tools leave this path early in `showFASTQOperationsDialog`, and none of them is a model for new work. Mapping tools (minimap2, BWA-MEM2, Bowtie2, BBMap) set `pendingMappingRequest`, and `runManagedMapping` in `Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift` still runs `ManagedMappingPipeline` in process, which breaks Rule 9 (finding R3). The classifiers set their own pending configurations, and `Sources/LungfishApp/App/AppDelegate+ClassifierLaunchRouting.swift` runs them through `lungfish-cli`, with no hidden key and no in-process route since 2.12 (K1). Viral Recon runs through `Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift`. Workflow Library items with the `.workflowOperations` capability (`ontGenotyping`, titled MiSeq Amplicon MHC Genotyping, Full-Length ONT MHC Genotyping and 12S Amplicon Matching) open the Workflow Operations window and run through `WorkflowOperationExecutionService` in `Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift`, which also starts its own `Process`.
+Some tools leave this path early in `showFASTQOperationsDialog`, and none of them is a model for new work. Mapping tools (minimap2, BWA-MEM2, Bowtie2, BBMap) set `pendingMappingRequest`, and `runManagedMapping` in `Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift` still runs `ManagedMappingPipeline` in process, which breaks Rule 9 (finding R3). The classifiers set their own pending configurations, and `Sources/LungfishApp/App/AppDelegate+ClassifierLaunchRouting.swift` runs them through `lungfish-cli`, with no hidden key and no in-process route. Viral Recon runs through `Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift`.
+
+A Workflow Library item with the `.workflowOperations` capability opens the Workflow Operations window, the third family, and the Tools menu lists the item under its category. `WorkflowOperationToolKind` names each tool, `WorkflowOperationLaunchRequest` carries the request that its pane builds, and `WorkflowOperationsWindowController.run` hands the request to `WorkflowOperationExecutionService.run`. That method has one arm for each case, so a new case fails the build at every switch over it. The arms of MiSeq Amplicon MHC Genotyping, Full-Length ONT MHC Genotyping and 12S Amplicon Matching still start their own `Process`, and none of them is a model. The model is an arm of the RNA-seq export or pseudobulk row. Its request builds the one `argv` that runs, shows in the Operations row and parses back through the real subcommand, and `RNASeqLeafRoute` in `Sources/LungfishApp/Services/RNASeqWorkflowRuns.swift` registers the row with `begin` and runs the leaf on `CLIViewerExportRunner`, so a refusal shows on the row in the CLI's words.
 
 ### What a new FASTQ-input tool adds
 
@@ -89,7 +90,7 @@ Some tools leave this path early in `showFASTQOperationsDialog`, and none of the
 
 ### The runner of the FASTQ family
 
-`LungfishCLIProcessRunner` launches `lungfish-cli` on `CLIProcessLauncher` with `operationGrace` and `operationDrain` since Phase 2.10 (lane A41), as the Viral Recon and Local Workflow runner does, so finding R7 is retired. A new tool in the FASTQ family adds its request case and invocation and runs on that runner. A new standalone runner never starts a `Process`. It runs `lungfish-cli` through `CLISubprocessTransport`, or through `CLIProcessLauncher` when it reads the output itself, as Rule 9 and the Runner row below require.
+`LungfishCLIProcessRunner` launches `lungfish-cli` on `CLIProcessLauncher` with `operationGrace` and `operationDrain`, as the Viral Recon and Local Workflow runner does. A new tool in the FASTQ family adds its request case and invocation and runs on that runner. A new standalone runner never starts a `Process`. It runs `lungfish-cli` through `CLISubprocessTransport`, or through `CLIProcessLauncher` when it reads the output itself, as Rule 9 and the Runner row below require.
 
 ## Rules
 
@@ -150,7 +151,7 @@ A new domain is a folder under `Sources/LungfishWorkflow/`, beside Mapping and V
 
 ## The recipe of a new CLI route
 
-Every route onto `lungfish-cli` takes the same parts, so a cancel, a progress line and a recorded command behave alike on all of them. Decision C5 of `0c972abf4:docs/plans/2026-10-13-phase-2-10.md:100` names the parts, and lane S30 built the shared ones. A family lane pins today's behaviour first only where it is scientific output, then changes the command, moves the route and writes the family's tests. Decision G1 holds for science only, and the parts below are one set for a family of commands, not a set for each route (`docs/contracts/SCOPE-AND-DELIVERY.md`).
+Every route onto `lungfish-cli` takes the same parts, so a cancel, a progress line and a recorded command behave alike on all of them. A family lane pins today's behaviour first only where it is scientific output, then changes the command, moves the route and writes the family's tests. Decision G1 holds for science only, and the parts below are one set for a family of commands, not a set for each route (`docs/contracts/SCOPE-AND-DELIVERY.md`).
 
 | Part | What the route does | Model to copy |
 |---|---|---|
@@ -167,7 +168,7 @@ Every route onto `lungfish-cli` takes the same parts, so a cancel, a progress li
 
 ## What a CLI route's row shows
 
-A route that runs `lungfish-cli` keeps the row its in-process route showed. Decision E15 of `0c972abf4:docs/plans/2026-10-11-phase-2-7.md:52` has the CLI route repeat today's end of run and keep today's label rules, and decision W3 of `0c972abf4:docs/plans/2026-10-13-phase-2-10.md:131` keeps each failure sheet's words until the lane that rewrites them. A move to the CLI therefore changes only the parts in the table below, and it changes them the same way on every route. Decisions W2, C5 and N5 of `0c972abf4:docs/plans/2026-10-13-phase-2-10.md` set those parts, and the classifier route is the model to copy. A new route reads the command's events through `OperationCenterCLIBridge` and keeps no copy of the held bar, the once rule or the label rule. The classifier route predates this rule and still holds its own bar in `CLIClassifierRowEvents` and feeds its overlay from `CLIClassifierRunner`, so a new route copies it for the title, the end and the failure and takes the bar, the log and the overlay from the bridge.
+A route that runs `lungfish-cli` keeps the row its in-process route showed. The CLI route repeats today's end of run, keeps today's label rules and keeps each failure sheet's words until the lane that rewrites them. A move to the CLI therefore changes only the parts in the table below, and it changes them the same way on every route. A new route reads the command's events through `OperationCenterCLIBridge` and keeps no copy of the held bar, the once rule or the label rule. The classifier route predates this rule and still holds its own bar in `CLIClassifierRowEvents` and feeds its overlay from `CLIClassifierRunner`, so a new route copies it for the title, the end and the failure and takes the bar, the log and the overlay from the bridge.
 
 | Part | What the row shows | Model to copy |
 |---|---|---|
@@ -179,7 +180,7 @@ A route that runs `lungfish-cli` keeps the row its in-process route showed. Deci
 | Cancel | The row's cancel callback reaches the runner's `cancel()`. The command gets SIGTERM and the 6 second grace, records its run as cancelled and exits 125, and the row reads Cancelled with no sheet. | the Grace and drain and Cancel parts above |
 | End | The command wrote the result, its records and its manifest entries before it exited, so the app writes nothing after the exit. The runner reads what it needs back from disk off the main actor, completes the row with today's detail and then reloads or reveals the sidebar. The row finishes whether or not the app delegate that launched the run is still there. | `finishClassifierThroughCLI` in `Sources/LungfishApp/App/AppDelegate+ClassificationCLIRoute.swift` |
 | Failure | The row takes the failed event's message and, where the route shows them, its error message and error detail. The sheet keeps today's words, which are the message alone with no tail, until the lane that rewrites that sheet. The command keeps a failed result hidden with its records. | `failClassifierThroughCLI` in `Sources/LungfishApp/App/AppDelegate+ClassificationCLIRoute.swift` |
-| Label | A row reads Completed with Warnings only when a `log` event at level warning arrived or the route calls `completeWithWarning`. Plain standard error stays at info, and so do Docker and conda lines. A line that today's row marks as a warning, such as an ignored task or a failed sample, stays a warning event in the command. Lane A30 gives the Viral Recon runner this rule, so a line of Nextflow on standard error no longer turns its row to Completed with Warnings. | `OperationCenterCLIBridgeTests` |
+| Label | A row reads Completed with Warnings only when a `log` event at level warning arrived or the route calls `completeWithWarning`. Plain standard error stays at info, and so do Docker and conda lines. A line that today's row marks as a warning, such as an ignored task or a failed sample, stays a warning event in the command. | `OperationCenterCLIBridgeTests` |
 
 The command's side of the row has four rules. Every message the row shows today is a progress event with the same words, so the detail does not change. With `--format json` the command writes only events on standard output and its human text on standard error, and nothing prints before the JSON. A refusal exits 3 before any folder exists, a failure exits 64 and a cancel exits 125, and the text names the fix. The closing text line names what was written, as `TaxTriage completed in <t>s` does, and holds no full path that a row detail would show.
 
@@ -255,7 +256,7 @@ An async service entry point that returns a value takes `reporter` as a paramete
 
 ### 3. Make the command reproduce the run
 
-The recorded command is the `lungfish-cli` invocation built from the configuration the GUI executes. When today's command leaves out a flag the run uses, fix the builder. The Kraken2 BLAST command gained `--result-dir`, and the classifier bundle extraction now names its `-o` file inside the project's Extractions folder, where the app writes the bundle. When no CLI command reproduces the run, record nil and put the marker `cli-parity-gap: <ID>` in the helper's doc comment, with the closest command and why it falls short. Never record a descriptive text, a note or another program's command. Never invent a command. `docs/contracts/CLI-EQUIVALENCE.md` lists the rules and the ratchet that counts the gaps.
+The recorded command is the `lungfish-cli` invocation built from the configuration the GUI executes. When today's command leaves out a flag the run uses, fix the builder. When no CLI command reproduces the run, record nil and put the marker `cli-parity-gap: <ID>` in the helper's doc comment, with the closest command and why it falls short. Never record a descriptive text, a note or another program's command. Never invent a command. `docs/contracts/CLI-EQUIVALENCE.md` lists the rules and the ratchet that counts the gaps.
 
 ### 4. Test the site
 
