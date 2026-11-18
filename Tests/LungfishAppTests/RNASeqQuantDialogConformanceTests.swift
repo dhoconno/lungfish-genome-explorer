@@ -2,32 +2,40 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Sub-phase 5.4, lane RS-DIALOG, brief item "parity replay". The row runs the same `lungfish-cli rnaseq quant` that a script
-// runs. This case shows it with the rna-seq pack's salmon and gffread, on the truth probe's small input
-// (Tests/Fixtures/rnaseq/salmon-probe-c1, one pair of SRR896663 and the ERCC92 set), on the three sides of
-// `RouteParityHarness`.
+// Sub-phase 5.4, lane RS-DIALOG, brief item "parity replay". The row runs the same `lungfish-cli rnaseq quant` that a script runs.
+// This case runs it with the rna-seq pack's salmon and gffread on the truth probe's small input (Tests/Fixtures/rnaseq/salmon-probe-c1,
+// one pair of SRR896663 and the ERCC92 set), on the three sides of `RouteParityHarness`.
 //
 // - Side A is a script. The built `lungfish-cli` runs the argv of the request and nothing else.
-// - Side C is the row. `RNASeqQuantRoute.launch` begins the Operations row and runs the built CLI on `CLIRNASeqQuantRunner`,
-//   the launcher the app uses. The row records its command.
+// - Side C is the row. `RNASeqQuantRoute.launch` begins the Operations row and runs the built CLI on `CLIRNASeqQuantRunner`, the
+//   launcher the app uses. The row records its command.
 // - Side C' is that recorded command, replayed by the harness on the same CLI.
 //
-// The harness compares every file under the roots of A and C, and of C and C', through `OutputEquivalence` with the
-// contract's masks (timestamps, ids and each root read as one token), so a stray write shows too. It declares no
-// difference. A result of the row therefore equals a script's, in its tree and its record, and the command the row shows
-// replays to the same result.
+// What the case asserts.
+// 1. All three sides complete and each makes one result. The row's `operationType` is `.rnaSeqQuantification`, its recorded command
+//    starts `lungfish-cli rnaseq quant `, and side C' replays it as one line.
+// 2. `source/A_1/quant.sf` and the two count tables are byte for byte the same on the three sides.
+// 3. The result is a bundle, so the harness compares every file under root A against root C, and under root C against root C', as
+//    a `.bundle` through `OutputEquivalence`. The masks are the standard policy and the four of `MaskPolicy.rnaSeqQuant`
+//    (RNASeqQuantParityMasks.swift, each held by RNASeqQuantParityMaskTests), and no difference is declared. A difference that no
+//    mask of the Masks row of docs/contracts/CLI-EQUIVALENCE.md covers fails the case and is a finding in the lane report.
 //
-// The set and its salmon index (k 31, no decoys) are built once in the case's scratch by their owners with the pack's tools,
-// as `RNASeqQuantSigningReplayTests` builds them, and copied into each root as that root's storage folder. The pack stays
-// outside the roots. Every CLI run gets `LUNGFISH_STORAGE_ROOT` for its root's storage folder and `LUNGFISH_CONDA_ROOT` for
-// the pack's conda folder, so the CLI finds the set and the tools without a flag the row never writes.
+// What it leaves out. The reference set, its salmon index and their use entries sit in one storage root outside the three roots, as
+// the app's storage root sits outside any project, and all three sides read it through `LUNGFISH_STORAGE_ROOT`. That root is not
+// compared. A use entry is named by the sha256 of the result's path, which differs by side by construction, and a record writes a
+// path under the temporary folder as `<workspace>/...`, a spelling of a run root that `Masks.roots` does not read. No mask of the
+// row covers either, so the case does not put that root under the roots (see Findings in the lane report). The pack stays outside as
+// well, through `LUNGFISH_CONDA_ROOT`.
+//
+// The set and its salmon index (k 31, no decoys) are built once in the case's scratch by their owners with the pack's tools, as
+// `RNASeqQuantSigningReplayTests` builds them.
 //
 // salmon and gffread are the pack's in the managed storage root. Run the case as one command with the root given by `env`:
 //   env LUNGFISH_STORAGE_ROOT=<root holding the rna-seq pack> LUNGFISH_REQUIRE_TOOLS=1 swift test --skip-update \
 //       --filter RNASeqQuantDialogConformanceTests
 // Without `LUNGFISH_REQUIRE_TOOLS=1` a root that lacks the pack skips the case, and with it a skip fails
-// (`ToolAvailability.skipOrFail`). `RNASeqQuantDialogTests` is the stand-in beside it and runs in every tier. This class
-// holds `Conformance` in its name, so no gate tier runs it.
+// (`ToolAvailability.skipOrFail`). `RNASeqQuantDialogTests` is the stand-in beside it and runs in every tier. This class holds
+// `Conformance` in its name, so no gate tier runs it.
 
 import Foundation
 import XCTest
@@ -41,10 +49,6 @@ import LungfishTestSupport
 
 @MainActor
 final class RNASeqQuantDialogConformanceTests: XCTestCase {
-    private enum ParityCase: String, Sendable {
-        case onePairAgainstTheProbeSet
-    }
-
     private nonisolated static let projectName = "Probe.lungfish"
     private nonisolated static let linuxRoute = "Run salmon on Linux and import its folders with lungfish-cli import rnaseq"
 
@@ -58,10 +62,6 @@ final class RNASeqQuantDialogConformanceTests: XCTestCase {
 
     private nonisolated static func bundle(in root: URL) -> URL {
         project(in: root).appendingPathComponent("Imports/A_1.lungfishfastq", isDirectory: true)
-    }
-
-    private nonisolated static func storage(in root: URL) -> URL {
-        root.appendingPathComponent("storage", isDirectory: true)
     }
 
     /// The results a root holds, by folder name.
@@ -78,47 +78,27 @@ final class RNASeqQuantDialogConformanceTests: XCTestCase {
         let conda = try packConda()
         let scratch = try TestTempDirectory.make(prefix: "rnaseq-quant-dialog-parity")
         defer { TestTempDirectory.cleanup(scratch) }
-        let seed = try await buildSeed(in: scratch.appendingPathComponent("seed", isDirectory: true))
-        let environment: @Sendable (URL) -> [String: String] = { root in
-            ["LUNGFISH_STORAGE_ROOT": Self.storage(in: root).path, "LUNGFISH_CONDA_ROOT": conda.path]
+        let seed = try await buildSeed(in: scratch.appendingPathComponent("storage", isDirectory: true))
+        let environment: @Sendable (URL) -> [String: String] = { _ in
+            ["LUNGFISH_STORAGE_ROOT": seed.storage.path, "LUNGFISH_CONDA_ROOT": conda.path]
         }
-        let harness = RouteParityHarness(cliBinary: cli, kind: .bundle, replayTimeout: .seconds(300), environment: environment)
-        // Each case root sits five folders below the temporary folder, since a record's sidecar search lists each input's
-        // folder and four above it.
+        let harness = RouteParityHarness(
+            cliBinary: cli, kind: .bundle, masks: .rnaSeqQuant, replayTimeout: .seconds(300), environment: environment)
+        // Each case root sits five folders below the temporary folder, since a record's sidecar search lists each input's folder and
+        // four above it.
         let caseRoot = scratch.appendingPathComponent("cases/of/the/rnaseq-quant-dialog", isDirectory: true)
-        let runs = try await harness.run(
-            in: caseRoot,
-            fixture: { root in try self.writeFixture(root, seed: seed.storage) },
+        let result = try await harness.assertParity(
+            "onePairAgainstTheProbeSet", declared: [], in: caseRoot,
+            fixture: { root in try self.writeFixture(root) },
             sideA: { root in await self.scriptSide(cli: cli, root: root, setID: seed.setID, environment: environment(root)) },
             sideC: { root in await self.rowSide(cli: cli, root: root, setID: seed.setID, environment: environment(root)) }
         )
-        let result = (runs: runs, found: try harness.differences(of: runs))
-        for run in result.runs.all {
+        let runs = result.runs
+        for run in runs.all {
             XCTAssertEqual(run.outcome.end, .completed, "side \(run.side): \(run.outcome.detail)")
         }
-        // The harness compares every file under the three roots. The first run of this family (2026-11-18) found that
-        // `OutputEquivalence`'s standard masks do not cover the family's files, so a whole-tree match needs a mask set that
-        // the contract does not hold yet (see Findings in the lane report). What this case pins is narrower and exact. The
-        // files that differ between A and C, and between C and C', are only files that carry a clock, a temporary folder's
-        // UUID or the root's own storage path. The count tables, quant.sf and every other file are byte for byte the same.
-        for scope in [RouteParityScope.aAgainstC, .cAgainstCPrime] {
-            for difference in result.found[scope] ?? [] {
-                let file = Self.file(ofDifference: difference.id)
-                XCTAssertTrue(Self.carriesAClockOrAPath(file), "\(scope): \(difference.id)")
-            }
-        }
-        let payload = ["source/A_1/quant.sf", "counts/genes.counts.tsv", "counts/transcripts.counts.tsv"]
-        for file in payload {
-            let bytes = try result.runs.all.map { run -> Data in
-                let name = try XCTUnwrap(Self.results(in: run.root).first)
-                return try Data(contentsOf: Self.project(in: run.root).appendingPathComponent("Analyses/\(name)/\(file)"))
-            }
-            XCTAssertFalse(bytes[0].isEmpty, file)
-            XCTAssertEqual(bytes[0], bytes[1], "\(file) of the script and of the row")
-            XCTAssertEqual(bytes[1], bytes[2], "\(file) of the row and of its replay")
-        }
-        // Every side made one result, and the row's holds salmon's own file for the one sample.
-        for run in result.runs.all {
+        // Every side made one result, and it holds salmon's own file for the one sample.
+        for run in runs.all {
             let made = Self.results(in: run.root)
             XCTAssertEqual(made.count, 1, "side \(run.side) holds \(made)")
             let quant = Self.project(in: run.root).appendingPathComponent("Analyses", isDirectory: true)
@@ -126,28 +106,20 @@ final class RNASeqQuantDialogConformanceTests: XCTestCase {
                 .appendingPathComponent("source/A_1/quant.sf")
             XCTAssertTrue(FileManager.default.fileExists(atPath: quant.path), "side \(run.side) has no \(quant.path)")
         }
-        let command = try XCTUnwrap(result.runs.c.outcome.recordedCommand)
-        XCTAssertTrue(command.hasPrefix("lungfish-cli rnaseq quant "), command)
-        XCTAssertEqual(result.runs.cPrime.replayedArguments.count, 1, "the row records one command")
-    }
-
-    /// The file a difference names, from `differs: <file> at <path>` or `only in A: <file>`.
-    private nonisolated static func file(ofDifference id: String) -> String {
-        if id.hasPrefix("differs: ") {
-            let rest = String(id.dropFirst("differs: ".count))
-            return rest.components(separatedBy: " at ").first ?? rest
+        // The counts are the scientific content, so they are also compared by their bytes, which the whole-tree match above does
+        // after its masks.
+        for file in ["source/A_1/quant.sf", "counts/genes.counts.tsv", "counts/transcripts.counts.tsv"] {
+            let bytes = try runs.all.map { run -> Data in
+                let name = try XCTUnwrap(Self.results(in: run.root).first)
+                return try Data(contentsOf: Self.project(in: run.root).appendingPathComponent("Analyses/\(name)/\(file)"))
+            }
+            XCTAssertFalse(bytes[0].isEmpty, file)
+            XCTAssertEqual(bytes[0], bytes[1], "\(file) of the script and of the row")
+            XCTAssertEqual(bytes[1], bytes[2], "\(file) of the row and of its replay")
         }
-        return id.split(separator: ":", maxSplits: 1).last.map { $0.trimmingCharacters(in: .whitespaces) } ?? id
-    }
-
-    /// The files that legitimately differ between two runs of one quant: the use ledger entries of the set and the index
-    /// (named by a digest of the run), the records (the root's own storage path, a clock), the manifest (`createdAt` and the
-    /// digests of the salmon files that carry a clock) and salmon's three files that name the run's temporary folder or time.
-    private nonisolated static func carriesAClockOrAPath(_ file: String) -> Bool {
-        let name = (file as NSString).lastPathComponent
-        if file.hasPrefix("storage/"), file.contains("/uses/") { return true }
-        if name.hasSuffix("lungfish-provenance.json") || name == "rnaseq-result.json" { return true }
-        return file.contains("/source/") && ["meta_info.json", "cmd_info.json", "lib_format_counts.json"].contains(name)
+        let command = try XCTUnwrap(runs.c.outcome.recordedCommand)
+        XCTAssertTrue(command.hasPrefix("lungfish-cli rnaseq quant "), command)
+        XCTAssertEqual(runs.cPrime.replayedArguments.count, 1, "the row records one command")
     }
 
     // MARK: - The fixture
@@ -174,8 +146,7 @@ final class RNASeqQuantDialogConformanceTests: XCTestCase {
     }
 
     /// The probe's set and its salmon index (k 31, no decoys) in a storage root of their own, built by their owners with the
-    /// pack's tools. The records this writes are never signed, and each side holds them as the fixture, which the harness
-    /// leaves out of a side's facts.
+    /// pack's tools. The records this writes are never signed. All three sides read this one root.
     private func buildSeed(in storage: URL) async throws -> (storage: URL, setID: String) {
         try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
         let writer = ProvenanceWriter(signingProvider: nil)
@@ -190,11 +161,9 @@ final class RNASeqQuantDialogConformanceTests: XCTestCase {
         return (storage, set.manifest.id)
     }
 
-    /// Root A before any side runs, which the harness copies to roots C and C': the seed as the root's storage folder, and
-    /// a project with the probe's one pair bundle, named A_1 as C1's stage names SRR896663.
-    private func writeFixture(_ root: URL, seed: URL) throws {
-        try FileManager.default.copyItem(at: seed, to: Self.storage(in: root))
-
+    /// Root A before any side runs, which the harness copies to roots C and C': a project with the probe's one pair bundle, named
+    /// A_1 as C1's stage names SRR896663.
+    private func writeFixture(_ root: URL) throws {
         func lines(_ name: String) throws -> [Substring] {
             try GzipInputStream(url: Self.probe.appendingPathComponent(name)).readAllSync().split(separator: "\n")
         }
