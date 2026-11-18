@@ -39,9 +39,9 @@ final class RNASeqExportDialogModel {
     var contrasts: [String] { Self.entries(of: contrastsText) }
     var cutoff: Double? { Self.number(from: cutoffText) }
     var lfcBar: Double? { Self.number(from: lfcBarText) }
-    /// An empty bar is valid (none). Text that is not a number is not.
+    /// An empty bar is valid (none). Text that is not a number is not, and neither is a number below 0, which the CLI refuses.
     var lfcBarIsValid: Bool {
-        lfcBarText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || lfcBar != nil
+        lfcBarText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (lfcBar.map { $0 >= 0 } ?? false)
     }
 }
 
@@ -88,17 +88,26 @@ extension WorkflowOperationDialogState {
         }
     }
 
-    /// The words that say why Run is off for the two rows, `Ready to run.` when it is on, and `nil` for any other tool. Nothing
-    /// here repeats a check the CLI makes (the design, the contrast, the animals, the batch), so each refusal reaches the
-    /// Operations row in the CLI's own words.
+    /// The words that say why Run is off for the two rows, `Ready to run.` when it is on, and `nil` for any other tool. The design,
+    /// the animals and the batch stay the CLI's to refuse, so each of those refusals reaches the Operations row in the CLI's own
+    /// words. The three argument checks of `RNASeqExportSubcommand.validate()` are mirrored here (the range of the cutoff, the sign
+    /// of the fold-change bar and the shape of a contrast), because the CLI answers them in terminal text, a usage line on a
+    /// one-line row. `testTheReadinessAgreesWithTheCLIsArgumentCheck` holds the two together.
     var rnaSeqReadinessText: String? {
         switch selectedTool?.kind {
         case .rnaSeqExport:
             if rnaSeqExport.resultURLs.isEmpty { return "Select one or more RNA-seq results." }
             if outputDirectoryURL == nil { return "Choose where the export folder goes." }
             if rnaSeqTrimmedOutputName.isEmpty { return "Enter a name for the export folder." }
-            if rnaSeqExport.cutoff == nil { return "The cutoff is a number such as 0.05." }
-            if !rnaSeqExport.lfcBarIsValid { return "The fold-change bar is a number such as 1, or empty for none." }
+            guard let cutoff = rnaSeqExport.cutoff, cutoff > 0, cutoff <= 1 else {
+                return "Enter the cutoff as a number above 0 and at most 1, such as 0.05."
+            }
+            if !rnaSeqExport.lfcBarIsValid { return "Enter the fold-change bar as 0 or more, such as 1, or leave it empty for none." }
+            if let bad = rnaSeqExport.contrasts.first(where: {
+                $0.split(separator: ":", omittingEmptySubsequences: false).filter { !$0.isEmpty }.count != 3
+            }) {
+                return "Write the contrast \(bad) as FACTOR:NUMERATOR:DENOMINATOR, such as group:TB:HIV."
+            }
             return Self.rnaSeqReadyText
         case .rnaSeqPseudobulk:
             if rnaSeqPseudobulk.resultURL == nil { return "Select a single-cell RNA-seq result." }
