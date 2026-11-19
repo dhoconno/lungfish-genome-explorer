@@ -1925,10 +1925,49 @@ def _verify_mutable_release_identity(
     return payload
 
 
+# A patch release (docs/contracts/VERIFICATION-ORDER.md, row A stable release). package stable and publish stable
+# take a branch other than main whose HEAD holds the newest Stable tag and no later release tag. The package stamps
+# origin main's commit count less one as the build, and the publish checks it again.
+PATCH_BUILD_ENV = "LUNGFISH_BUILD_NUMBER"
+
+
+@dataclass(frozen=True)
+class PatchSource:
+    """A branch cut from the newest Stable tag, which package stable and publish stable release as a patch."""
+
+    branch: str
+    stable_tag: str
+    version: str
+    newest_tag: str
+
+
+def _calver_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
+def _release_tags(listing: str) -> list[str]:
+    """The v<YYYY.M.PATCH> tags of a listing with one name a line."""
+    return [name for name in (line.strip() for line in listing.splitlines())
+            if name.startswith("v") and CALVER.fullmatch(name[1:])]
+
+
+def patch_notes_lines(stable_tag: str) -> tuple[str, str, str]:
+    """The whole lines a patch release's notes hold beside those of every stable release. The last one stands first
+    under `## Included preview releases`, since a patch carries no Preview."""
+    return (
+        f"Previous versioned release: {stable_tag}",
+        f"Stable baseline: {stable_tag}",
+        f"Includes no Preview. It patches {stable_tag}.",
+    )
+
+
 class LocalReleaseOperations:
     # The clean commit and the build of the package run in progress, if any.
     _package_source: dict[str, Any] | None = None
     _active_build: PackageBuild | None = None
+    # The patch a stable package on a branch cut from the newest Stable tag makes, and the build it stamps, if any.
+    _patch: PatchSource | None = None
+    _patch_build: str | None = None
 
     def __init__(
         self,
@@ -2061,6 +2100,15 @@ class LocalReleaseOperations:
         if branch == request.main_branch:
             return
         if branch:
+            patch = self._patch_source(request, branch)
+            if patch is not None:
+                self._require_patch(patch)
+                if self.runner.environment.get(PATCH_BUILD_ENV):
+                    raise ReleaseError(
+                        f"a patch package stamps its own build number, so unset {PATCH_BUILD_ENV} and package again"
+                    )
+                self._patch = patch
+                print(f"Patch release {patch.version}: {branch} holds {patch.stable_tag} and no later release tag.")
             # Unsigned branch candidates are reviewable; publish separately enforces main ancestry.
             return
         head = self.runner.text(["git", "rev-parse", "HEAD"]).strip()
@@ -2109,9 +2157,13 @@ class LocalReleaseOperations:
             raise ReleaseError("release source history is shallow")
         branch = self.runner.text(["git", "branch", "--show-current"]).strip()
         if branch != request.main_branch:
-            raise ReleaseError(
-                f"release source must be on {request.main_branch}, not {branch or 'detached HEAD'}"
-            )
+            patch = self._patch_source(request, branch)
+            if patch is None:
+                raise ReleaseError(
+                    f"release source must be on {request.main_branch}, not {branch or 'detached HEAD'}"
+                )
+            self._verify_patch_history(request, patch)
+            return
         head = self.runner.text(["git", "rev-parse", "HEAD"]).strip()
         remote_main = self.runner.text(
             [
@@ -2136,6 +2188,134 @@ class LocalReleaseOperations:
         )
         if ancestor.returncode != 0:
             raise ReleaseError("release checkout is not current with remote main")
+
+    def _patch_source(self, request: ReleaseRequest, branch: str) -> PatchSource | None:
+        """The patch this stable package or publish makes, or None (docs/contracts/VERIFICATION-ORDER.md, row A
+        stable release).
+
+        A patch runs on a branch other than main whose HEAD holds the newest Stable tag, a v<YYYY.M.PATCH> tag whose
+        notes at the tag read `Channel: Stable`, and no later release tag. The release's own tag on HEAD, which a
+        publish rerun finds, counts as neither. Every other source keeps the checks and words of a release from main.
+        """
+        if request.channel != "stable" or not branch or branch == request.main_branch:
+            return None
+        try:
+            version = release_version(self.root)
+        except ReleaseVersionError:
+            return None
+        tags = _release_tags(self.runner.text(["git", "tag", "--list", "v*"]))
+        own = f"v{version}"
+        if own in tags:
+            head = self.runner.text(["git", "rev-parse", "HEAD"]).strip()
+            if self.runner.text(["git", "rev-parse", f"refs/tags/{own}^{{commit}}"]).strip() == head:
+                tags.remove(own)
+        stable = None
+        for tag in sorted(tags, key=lambda name: _calver_key(name[1:]), reverse=True):
+            notes = self.runner.run(
+                ["git", "show", f"refs/tags/{tag}:docs/release-notes/{tag[1:]}.md"], capture=True, check=False
+            )
+            if notes.returncode == 0 and re.search(r"(?m)^Channel: Stable$", notes.stdout or ""):
+                stable = tag
+                break
+        if stable is None:
+            return None
+        held = [name for name in _release_tags(self.runner.text(["git", "tag", "--merged", "HEAD", "--list", "v*"]))
+                if name in tags]
+        if stable not in held or any(_calver_key(name[1:]) > _calver_key(stable[1:]) for name in held):
+            return None
+        newest = max(tags, key=lambda name: _calver_key(name[1:]))
+        return PatchSource(branch=branch, stable_tag=stable, version=version, newest_tag=newest)
+
+    def _require_patch(self, patch: PatchSource) -> None:
+        """A patch's version is newer than every release tag, and its notes hold the lines of patch_notes_lines."""
+        if _calver_key(patch.version) <= _calver_key(patch.newest_tag[1:]):
+            raise ReleaseError(
+                f"patch version {patch.version} is not newer than every release tag, since {patch.newest_tag} is "
+                "the newest. Commit docs/release-notes/<version>.md with a newer version agreed with the next "
+                "Preview, then run the command again"
+            )
+        notes_path = self.root / "docs/release-notes" / f"{patch.version}.md"
+        try:
+            lines = notes_path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError) as error:
+            raise ReleaseError(f"release notes are unavailable: {notes_path}") from error
+        previous, baseline, included = patch_notes_lines(patch.stable_tag)
+        for line in (previous, baseline):
+            if line not in lines:
+                raise ReleaseError(f"patch release notes need the line {line} ({notes_path})")
+        heading = "## Included preview releases"
+        below = lines[lines.index(heading) + 1:] if heading in lines else []
+        if next((line for line in below if line.strip()), "") != included:
+            raise ReleaseError(
+                f"patch release notes need the line {included} first under {heading} ({notes_path})"
+            )
+
+    def _remote_main_count(self, request: ReleaseRequest) -> int:
+        """The commit count of origin main's head. Every main-line release from now on counts at least this many,
+        since publish takes only a descendant of origin main's head and main moves only by fast-forward."""
+        raw = self.runner.text(["git", "ls-remote", "--heads", request.remote, f"refs/heads/{request.main_branch}"])
+        records = [line.split() for line in raw.splitlines() if line.strip()]
+        if (len(records) != 1 or len(records[0]) != 2 or records[0][1] != f"refs/heads/{request.main_branch}"
+                or HEX_COMMIT.fullmatch(records[0][0]) is None):
+            raise ReleaseError("current remote main identity is unavailable")
+        counted = self.runner.run(["git", "rev-list", "--count", records[0][0]], capture=True, check=False)
+        count = (counted.stdout or "").strip()
+        if counted.returncode != 0 or not count.isdigit():
+            raise ReleaseError(
+                f"a patch build number needs origin {request.main_branch}'s head {records[0][0][:12]} in this "
+                f"checkout. Run git fetch {request.remote} {request.main_branch}, then run the command again"
+            )
+        return int(count)
+
+    def _select_patch_build(self, request: ReleaseRequest) -> str:
+        """The build of a patch package, origin main's count less one, checked above every feed a stable publish
+        reads. No main-line release can make it, since each counts at least origin main's count."""
+        count = self._remote_main_count(request)
+        planned = str(count - 1)
+        try:
+            self.validate_sparkle_build_number(request, planned=planned)
+        except ReleaseError as error:
+            raise ReleaseError(
+                f"patch build {planned} (origin {request.main_branch}'s count {count} less one) is not above every "
+                f"build in the feeds a stable publish reads ({error}). Package the patch once origin "
+                f"{request.main_branch} is two commits or more past the newest published build"
+            ) from error
+        print(f"Patch build {planned}: origin {request.main_branch}'s count {count} less one, above every feed.")
+        self._patch_build = planned
+        return planned
+
+    def _verify_patch_receipt(self, receipt: Path) -> None:
+        build = _receipt_build(receipt)
+        if build != self._patch_build:
+            raise ReleaseError(
+                f"patch candidate receipt build {build or 'missing'} is not the stamped build {self._patch_build}"
+            )
+
+    def _verify_patch_history(self, request: ReleaseRequest, patch: PatchSource) -> None:
+        """A patch publish checks the version and notes again, that this checkout holds every release tag of origin,
+        so that the newest Stable tag is the one it names, and that the receipt's build is below origin main's
+        count, so that no main-line release can make it."""
+        self._require_patch(patch)
+        raw = self.runner.text(["git", "ls-remote", "--tags", request.remote, "refs/tags/v*"])
+        remote = {fields[1].removeprefix("refs/tags/").removesuffix("^{}")
+                  for fields in (line.split() for line in raw.splitlines()) if len(fields) == 2}
+        local = set(_release_tags(self.runner.text(["git", "tag", "--list", "v*"])))
+        missing = sorted((name for name in _release_tags("\n".join(remote)) if name not in local),
+                         key=lambda name: _calver_key(name[1:]))
+        if missing:
+            raise ReleaseError(
+                f"{request.remote} holds release tags this checkout lacks ({', '.join(missing)}), so the newest "
+                f"Stable tag is not known here. Run git fetch --tags {request.remote}, then publish again"
+            )
+        count = self._remote_main_count(request)
+        build = _receipt_build(request.receipt)
+        if not build:
+            raise ReleaseError("patch publish needs the build of the candidate receipt")
+        if int(build) >= count:
+            raise ReleaseError(
+                f"patch build {build} is not below origin {request.main_branch}'s count {count}, so a main-line "
+                "release could make it. Package the patch again"
+            )
 
     def select_signing_certificate(self, request: ReleaseRequest) -> ReleaseRequest:
         """Turn the profile's certificate choice into one SHA-1 before any doctor or builder runs.
@@ -2536,10 +2716,14 @@ class LocalReleaseOperations:
             raise ReleaseError("package requires a clean checkout")
         if HEX_COMMIT.fullmatch(request.release_dir.name) and pinned["commit"] != request.release_dir.name:
             raise ReleaseError("HEAD moved after package started; start it again")
+        # A patch's build is set here once, and the builder stamps it in the app and so in the receipt.
+        patch_build = self._select_patch_build(request) if self._patch is not None else None
         read_end, write_end = os.pipe()
         try:
             command = self._package_command(request, ["--gate-handoff-fd", str(read_end)])
             environment = self.runner.environment.copy()
+            if patch_build is not None:
+                environment[PATCH_BUILD_ENV] = patch_build
             environment["LUNGFISH_CLI_INFOPLIST_FILE"] = str(
                 prepare_identity_plist(self.root, self.contract, request.channel)
             )
@@ -2605,6 +2789,8 @@ class LocalReleaseOperations:
         receipt = release_dir / "unsigned-candidate-receipt.json"
         if not receipt.is_file():
             raise ReleaseError("package phase did not produce a candidate receipt")
+        if self._patch_build is not None:
+            self._verify_patch_receipt(receipt)
         if getattr(self, "_linux_executor_stage", None) is not None:
             artifacts = _read_bounded_json(receipt, "unsigned candidate receipt").get("artifacts")
             if not isinstance(artifacts, dict) or not isinstance(artifacts.get("linuxExecutor"), dict):
@@ -2623,8 +2809,12 @@ class LocalReleaseOperations:
         identity: CandidateIdentity | None = None,
         *,
         recovering: bool | None = None,
+        planned: str | None = None,
     ) -> None:
-        if identity is None:
+        # A patch package names its build (planned); every other caller reads it as before.
+        if planned is not None:
+            pass
+        elif identity is None:
             planned = self.runner.environment.get("LUNGFISH_BUILD_NUMBER", "")
             if not planned:
                 planned = self.runner.text(
@@ -2711,10 +2901,16 @@ class LocalReleaseOperations:
     ) -> None:
         self._validate_release_notes(request, identity)
         branch = self.runner.text(["git", "branch", "--show-current"]).strip()
+        pushed = request.main_branch
         if branch != request.main_branch:
-            raise ReleaseError(
-                f"release source must be on {request.main_branch}, not {branch or 'detached HEAD'}"
-            )
+            patch = self._patch_source(request, branch)
+            if patch is None:
+                raise ReleaseError(
+                    f"release source must be on {request.main_branch}, not {branch or 'detached HEAD'}"
+                )
+            # A patch pushes its own branch with its tag, and main stays where it is.
+            self._require_patch(patch)
+            pushed = branch
         direct, peeled = self._remote_tag(request, identity)
         if direct or peeled:
             if not direct or peeled != identity.commit:
@@ -2757,7 +2953,7 @@ class LocalReleaseOperations:
                 "push",
                 "--atomic",
                 request.remote,
-                request.main_branch,
+                pushed,
                 identity.tag,
             ]
         )
