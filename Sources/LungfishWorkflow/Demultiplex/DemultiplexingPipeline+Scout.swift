@@ -489,6 +489,29 @@ extension DemultiplexingPipeline {
         let outputDir: URL
     }
 
+    /// Whether Cutadapt writes a run's outputs plain, to be gzipped after the passes that read them: the observed route of
+    /// a Custom Definition, which joins its strands' outputs, and any run whose adapter file `adapterFASTA` names a row on
+    /// two or more lines, at every distance and on every route (BIO-SHARED-NAME-GZIP item 1, the predicate of 794ae5bff).
+    /// `run` and Detect's `runScoutCutadapt` both ask it. Cutadapt 5.2 opens a writer for each line and keeps the last of
+    /// a name (`steps.py`, `_open_writers`), and each other writer of the name ends an empty gzip stream, 20 bytes, at the
+    /// start of the shared file when Cutadapt closes it. A row's gzip output that has passed Cutadapt's write buffer by
+    /// then, about 202 KB, loses its first 20 bytes and reads as an empty member and bytes that are no gzip stream, so the
+    /// run counted only the reads of the outputs that stayed whole (FIX-MEM-GZIP, F2). A plain writer with no reads writes
+    /// nothing, so plain outputs stay whole. A built-in dual kit names each row on two lines, a sample sheet of a dual kit
+    /// each sample on its two orientations, a sheet can give one sample two barcodes, and a distance above 0 names a row
+    /// once for each offset. A run whose every name is on one line, a single-index kit at 0 or a long-read kit, keeps gzip
+    /// outputs. `config` is nil for Detect, which has no observed route. A name is the header's first word, as Cutadapt
+    /// reads it.
+    func writesPlainCutadaptOutputs(_ config: DemultiplexConfig?, adapterFASTA: URL) throws -> Bool {
+        if let config, usesObservedCustomBarcodePairs(config) { return true }
+        var names = Set<Substring>()
+        for line in try String(contentsOf: adapterFASTA, encoding: .utf8).split(whereSeparator: \.isNewline)
+        where line.hasPrefix(">") {
+            if !names.insert(line.dropFirst().prefix { !$0.isWhitespace }).inserted { return true }
+        }
+        return false
+    }
+
     /// Runs cutadapt for scouting purposes and returns the output directory.
     private func runScoutCutadapt(
         adapterFASTA: URL,
@@ -503,8 +526,11 @@ extension DemultiplexingPipeline {
         let demuxOutputDir = workDir.appendingPathComponent(outputSubdir, isDirectory: true)
         try fm.createDirectory(at: demuxOutputDir, withIntermediateDirectories: true)
 
-        let outputPattern = demuxOutputDir.appendingPathComponent("{name}.fastq.gz").path
-        let unassignedPath = demuxOutputDir.appendingPathComponent("unassigned.fastq.gz").path
+        // A file that names a row on two lines, as each pair of a dual kit is, writes plain outputs, gzipped once Cutadapt
+        // ends, so no output loses its reads to another writer of its name (BIO-SHARED-NAME-GZIP item 1).
+        let plain = try writesPlainCutadaptOutputs(nil, adapterFASTA: adapterFASTA)
+        let outputPattern = demuxOutputDir.appendingPathComponent(plain ? "{name}.fastq" : "{name}.fastq.gz").path
+        let unassignedPath = demuxOutputDir.appendingPathComponent(plain ? "unassigned.fastq" : "unassigned.fastq.gz").path
         let jsonReportPath = workDir.appendingPathComponent("\(outputSubdir)-report.json").path
 
         var args: [String] = []
@@ -538,6 +564,7 @@ extension DemultiplexingPipeline {
                 stderr: cutadaptResult.stderr
             )
         }
+        if plain { try gzipPlainDemuxOutputs(in: demuxOutputDir) }
 
         return ScoutCutadaptResult(outputDir: demuxOutputDir)
     }
