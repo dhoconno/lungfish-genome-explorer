@@ -283,10 +283,12 @@ final class AffectedResultsTests: XCTestCase {
         // narrower kind of an Exact Bare run on barcodes in the read names (DEMUX-EXACTBARE-NAMES), and so is the narrower
         // kind of a custom dual kit searched anywhere in the read (DEMUX-DUAL-ANCHOR), and so is the narrower kind of a
         // custom dual kit searched at one read end (DEMUX-DUAL-BARE-REVERSE), and so is the narrower kind of a custom dual
-        // kit whose two rows could swap (DEMUX-DUAL-FORM), read by its raw value so the pin builds at the base.
+        // kit whose two rows could swap (DEMUX-DUAL-FORM), and so is the narrower kind of a single-index kit searched at an
+        // offset (DEMUX-SINGLE-OFFSET-SHIFT), read by its raw value so the pin builds at the base.
         XCTAssertEqual(row.kinds, [
             demultiplex, .fastqDemultiplexSaturatedKit, .fastqDemultiplexExactBareNames, .fastqDemultiplexDualSearchedAnywhere,
             .fastqDemultiplexDualOneEnd, try XCTUnwrap(AffectedResultKind(rawValue: "fastqDemultiplexDualFormSwap")),
+            try XCTUnwrap(AffectedResultKind(rawValue: "fastqDemultiplexSingleOffset")),
         ])
         XCTAssertNil(row.firstBuild)
         XCTAssertEqual(row.lastBuild, 12972, "Stable 2026.11.7, the newest build, lacks the fix")
