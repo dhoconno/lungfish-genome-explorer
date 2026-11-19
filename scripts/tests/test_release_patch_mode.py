@@ -243,6 +243,12 @@ class PatchModeTests(PatchFixture):
                 with self.assertRaisesRegex(self.release.ReleaseError, "patch release notes .*" + line.split(":")[0]):
                     self.operations().verify_package_source(self.request())
 
+    def test_package_refuses_when_origin_holds_a_release_tag_this_checkout_lacks(self):
+        main = self.repository.git("rev-parse", "main")
+        self.repository.git("tag", "v2026.11.10", main, cwd=self.repository.origin)
+        with self.assertRaisesRegex(self.release.ReleaseError, r"v2026\.11\.10.*git fetch --tags origin"):
+            self.operations().verify_package_source(self.request())
+
     def test_package_checks_that_the_receipt_holds_the_stamped_build(self):
         operations = self.operations()
         request = self.request()
