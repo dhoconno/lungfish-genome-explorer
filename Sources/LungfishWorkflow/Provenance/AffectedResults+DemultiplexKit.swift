@@ -184,10 +184,6 @@ extension AffectedResults {
     /// the Inspector's lookup runs it off the main actor.
     static func searchedBuiltInDualPairsAtAnOffset(_ envelope: ProvenanceEnvelope) -> Bool {
         let options = envelope.options.explicit
-        if case .string(let engine)? = options["engine"], engine != "cutadapt" { return false }
-        var location = "bothends"
-        if case .string(let named)? = options["resolvedLocation"] ?? options["location"] { location = named.lowercased() }
-        guard ["bothends", "both", "both-ends", "both_ends"].contains(location) else { return false }
         let searched = ["maxDistanceFrom5Prime", "maxDistanceFrom3Prime"].contains { key in
             switch options[key] {
             case .integer(let value)?: return value > 0
@@ -195,7 +191,34 @@ extension AffectedResults {
             default: return false
             }
         }
-        guard searched else { return false }
+        return searched && searchedBuiltInDualPairsAtBothEnds(options)
+    }
+
+    /// Whether a `lungfish fastq demultiplex` record is a Cutadapt run of built-in dual pairs whose Cutadapt wrote gzip
+    /// outputs: the kit and location of ``searchedBuiltInDualPairsAtAnOffset(_:)`` at any distance, and a step whose `-o`
+    /// names `{name}.fastq.gz`. Such a run wrote each row on two lines, its forward strand and its other strand, and
+    /// Cutadapt's other writer of each name broke the row's gzip output past about 202 KB, so the row lost every read and
+    /// the counts showed only the reads it kept, in every published build from 2026.8.1 up to Preview 2026.11.12
+    /// (DEMUX-SHARED-NAME-GZIP, BIO-SHARED-NAME-GZIP item 3). The step's argv is the run's `nativeCommand` in every such
+    /// build (`FastqCommand.swift`, `stepCommand`). A run of this version writes `{name}.fastq`, and a record with no
+    /// Cutadapt `-o` is not such a run. A record with a distance above 0 names the kind of
+    /// ``searchedBuiltInDualPairsAtAnOffset(_:)``, which `kind(of:)` asks first. No record names a sample sheet, since the
+    /// command has none. It reads a file, so the Inspector's lookup runs it off the main actor.
+    static func wroteBuiltInDualRowsToSharedGzipOutputs(_ envelope: ProvenanceEnvelope) -> Bool {
+        let wroteGzip = envelope.steps.contains { step in
+            zip(step.argv, step.argv.dropFirst()).contains { $0 == "-o" && $1.hasSuffix("{name}.fastq.gz") }
+        }
+        return wroteGzip && searchedBuiltInDualPairsAtBothEnds(envelope.options.explicit)
+    }
+
+    /// Whether a record's options name a Cutadapt search of the built-in TruSeq HT Dual Index or Nextera XT Index Kit v2,
+    /// by `kit` or `resolvedKit`, or of a definition whose `# kit:` line names one of them or IDT for Illumina UD Indexes,
+    /// the kept copy first, at Both Ends, the default. The engine is `cutadapt` or none.
+    private static func searchedBuiltInDualPairsAtBothEnds(_ options: [String: ParameterValue]) -> Bool {
+        if case .string(let engine)? = options["engine"], engine != "cutadapt" { return false }
+        var location = "bothends"
+        if case .string(let named)? = options["resolvedLocation"] ?? options["location"] { location = named.lowercased() }
+        guard ["bothends", "both", "both-ends", "both_ends"].contains(location) else { return false }
         let builtIn = [BarcodeKitRegistry.truseqHTDual.id, BarcodeKitRegistry.nexteraXTv2.id]
         if ["kit", "resolvedKit"].contains(where: { name in builtIn.contains { options[name] == .string($0) } }) { return true }
         guard let source = recordedCustomKit(options)?.sourceKitID else { return false }
