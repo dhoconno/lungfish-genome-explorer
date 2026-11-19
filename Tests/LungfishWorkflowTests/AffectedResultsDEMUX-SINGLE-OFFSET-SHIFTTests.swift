@@ -45,8 +45,10 @@ final class AffectedResultsDEMUXSINGLEOFFSETSHIFTTests: XCTestCase {
         XCTAssertEqual(row.fixCommit, "1a29a8dc0", "the check of placed reads on this route")
         XCTAssertTrue(AffectedResults.publishedReleases.contains(.init("2026.8.1", 4192)))
         XCTAssertTrue(AffectedResults.publishedReleases.contains(.init("2026.11.12", 13764)))
+        // BIO-SHARED-NAME-GZIP item 3: such a run's gzip outputs could also lose all the reads of a sample.
         XCTAssertEqual(row.sentence, "This run searched for single barcodes set in from the read end, and the build that ran "
-                       + "it could place some reads in another sample.")
+                       + "it could place some reads in another sample or leave out all the reads of a sample without a "
+                       + "warning.")
         XCTAssertEqual(row.whatToDo, "Run it again in this version.")
         // The kind is a narrower `fastqDemultiplex`, so a record up to Stable 2026.11.7 keeps the sentence of
         // DEMUX-GROUPED-DROPS-INPUTS beside this one.

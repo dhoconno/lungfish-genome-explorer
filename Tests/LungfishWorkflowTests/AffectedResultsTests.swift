@@ -285,12 +285,14 @@ final class AffectedResultsTests: XCTestCase {
         // custom dual kit searched at one read end (DEMUX-DUAL-BARE-REVERSE), and so is the narrower kind of a custom dual
         // kit whose two rows could swap (DEMUX-DUAL-FORM), and so is the narrower kind of a single-index kit searched at an
         // offset (DEMUX-SINGLE-OFFSET-SHIFT), and so is the narrower kind of a built-in dual kit searched at an offset
-        // (DEMUX-LINKED-OFFSET-SHIFT), read by its raw value so the pin builds at the base.
+        // (DEMUX-LINKED-OFFSET-SHIFT), and so is the narrower kind of a dual kit whose gzip outputs shared a name
+        // (DEMUX-SHARED-NAME-GZIP), read by its raw value so the pin builds at the base.
         XCTAssertEqual(row.kinds, [
             demultiplex, .fastqDemultiplexSaturatedKit, .fastqDemultiplexExactBareNames, .fastqDemultiplexDualSearchedAnywhere,
             .fastqDemultiplexDualOneEnd, try XCTUnwrap(AffectedResultKind(rawValue: "fastqDemultiplexDualFormSwap")),
             try XCTUnwrap(AffectedResultKind(rawValue: "fastqDemultiplexSingleOffset")),
             try XCTUnwrap(AffectedResultKind(rawValue: "fastqDemultiplexBuiltInDualOffset")),
+            try XCTUnwrap(AffectedResultKind(rawValue: "fastqDemultiplexSharedNameGzip")),
         ])
         XCTAssertNil(row.firstBuild)
         XCTAssertEqual(row.lastBuild, 12972, "Stable 2026.11.7, the newest build, lacks the fix")
