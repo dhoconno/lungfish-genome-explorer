@@ -144,4 +144,48 @@ extension DemultiplexDualOffsetShiftTests {
         XCTAssertGreaterThanOrEqual(placed, 1_266)
         XCTAssertEqual(placed + outcome.unassignedCount, 1_680)
     }
+
+    // MARK: - A gzip sink is always ended (FIX-OFFSET-SHIFT BIO review, SF3)
+
+    /// A gzip output of several members (BGZF, or files joined with `cat`) is one stream: no record is lost where a member
+    /// ends, and the order holds.
+    func testTheCheckReadsAGzipOutputOfSeveralMembers() async throws {
+        let clean = Self.fillers(Self.x1x5).filter { $0.name.hasPrefix("X-1|F3-") }
+        let (first, second) = (clean[0], clean[1])
+        let input = try writeFASTQ([first, second])
+        let parts = dir.appendingPathComponent("gzip-members", isDirectory: true)
+        let outputs = dir.appendingPathComponent("gzip-members-outputs", isDirectory: true)
+        for folder in [parts, outputs] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        try writeGzipOutput([first], named: "one", in: parts)
+        try writeGzipOutput([second], named: "two", in: parts)
+        let joined = try Data(contentsOf: parts.appendingPathComponent("one.fastq.gz"))
+            + Data(contentsOf: parts.appendingPathComponent("two.fastq.gz"))
+        try joined.write(to: outputs.appendingPathComponent("X-1.fastq.gz"))
+        try writeGzipOutput([], named: "unassigned", in: outputs)
+        let lines = ">X-1\n^N{3}TGGGCGAA...AGGAGTTAN{3}$\n>X-5\n^N{3}TGGGCGAA...GTAAGGAGN{3}$\n"
+        let fit = try XCTUnwrap(AnchoredOffsetFit(adapterFASTA: lines, rowOf: { $0 }, errorRate: 0.15, indels: true))
+        let counts = try DemultiplexOffsetShiftPass(
+            inputFASTQ: input, outputDirectory: outputs, unassignedName: "unassigned", fit: fit, trims: true
+        ).run()
+        XCTAssertEqual(counts.checked, 2)
+        let kept = try await records(outputs.appendingPathComponent("X-1.fastq.gz"))
+        XCTAssertEqual(kept.map(\.name), [first.name, second.name])
+    }
+
+    /// A read moved into a gzip row that Cutadapt wrote no file for lands in a whole gzip file.
+    func testARowThatCutadaptWroteNoGzipFileForGetsAWholeOne() async throws {
+        let outputs = dir.appendingPathComponent("gzip-new-row", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputs, withIntermediateDirectories: true)
+        let read = Self.seenF0x6
+        try writeGzipOutput([(read.name, String(read.sequence.dropFirst(8).dropLast(11)))], named: "X-5", in: outputs)
+        try writeGzipOutput([], named: "unassigned", in: outputs)
+        let lines = ">X-1\n^N{3}TGGGCGAA...AGGAGTTAN{3}$\n>X-5\n^N{3}TGGGCGAA...GTAAGGAGN{3}$\n"
+        let fit = try XCTUnwrap(AnchoredOffsetFit(adapterFASTA: lines, rowOf: { $0 }, errorRate: 0.15, indels: true))
+        let counts = try DemultiplexOffsetShiftPass(
+            inputFASTQ: try writeFASTQ([read]), outputDirectory: outputs, unassignedName: "unassigned", fit: fit, trims: true
+        ).run()
+        XCTAssertEqual(counts.moved, 1)
+        let moved = try await records(outputs.appendingPathComponent("X-1.fastq.gz"))
+        XCTAssertEqual(moved.map(\.name), [read.name])
+    }
 }

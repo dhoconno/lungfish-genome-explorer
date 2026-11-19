@@ -682,7 +682,12 @@ struct DemultiplexOffsetShiftPass {
             let original = outputDirectory.appendingPathComponent(file(name))
             let rewritten = rewriteDirectory.appendingPathComponent(file(name))
             // A gzip output Cutadapt wrote stays a whole gzip file when the check took all its reads.
-            if cutadaptWrote.contains(name) { try sinks[name]!.finish() } else { try sinks[name]!.flush() }
+            // A gzip stream is always ended, so a gzip row that Cutadapt wrote no file for is a whole file too.
+            if cutadaptWrote.contains(name) || (compressed[name] ?? runCompresses) {
+                try sinks[name]!.finish()
+            } else {
+                try sinks[name]!.flush()
+            }
             if fm.fileExists(atPath: original.path) { try fm.removeItem(at: original) }
             if fm.fileExists(atPath: rewritten.path) { try fm.moveItem(at: rewritten, to: original) }
         }
