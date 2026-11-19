@@ -265,21 +265,25 @@ final class DemultiplexDualOffsetShiftTests: XCTestCase {
     // MARK: - (e) What stays
 
     /// The swap layout with the ONT native outer flanks as long as the distance, 3 at 3/3 and 8 at 8/8, at error 0 and
-    /// 0.15: the right line carries the most N's, so every read lands in its own row, before and after (48/0/0,
-    /// BIO-OFFSET-SHIFT Q2).
-    func testReadsWithAnOuterFlankAsLongAsTheDistanceLandInTheirOwnRows() async throws {
+    /// 0.15 (BIO-OFFSET-TIES items 1 and 2). The flank `TTA` completes X-1's `AGGAGTTA` behind X-5's `GTAAGGAG`, and Y-1's
+    /// behind Y-5's, so X-1 fits those reads with no error at offset 0 as X-5 does at the flank's length. Two rows fit them
+    /// at the same fewest errors, so the 8 reads of X-5 and Y-5 (both strands) go to Unassigned and are counted, and the
+    /// other 40 land in their own rows (40/0/8). Cutadapt's rank kept the 8 in X-5 and Y-5 (48/0/0), the rank this replaces.
+    func testReadsWithAnOuterFlankAsLongAsTheDistanceTieAtTwoRowsAndGoToUnassigned() async throws {
         for (outer, errorRate) in [(3, 0.0), (3, 0.15), (8, 0.0), (8, 0.15)] {
             let label = "(e) \(outer)/\(outer) e \(errorRate)"
             let reads = Self.ontFlankedReads(DemultiplexDualFormTests.swap, outer: outer)
             XCTAssertEqual(reads.count, 48)
             let outcome = try await run(DemultiplexDualFormTests.swap, reads, distance: outer, errorRate: errorRate)
             report(label, outcome, [])
+            let tied = ["X-5", "Y-5"].flatMap { row in
+                ["F", "R"].flatMap { strand in (0..<2).map { "\(row)|\(strand)\(outer)-\($0)" } }
+            }
             XCTAssertEqual(outcome.wrong, [], label)
-            // The flank `TTA` completes X-1's `AGGAGTTA` behind X-5's `GTAAGGAG`, and Y-1's behind Y-5's, so X-1 fits those
-            // reads with no error at the read end as X-5 does at the flank's length. Item 2's rule sends the tie to
-            // Unassigned, where Cutadapt's rank kept them in X-5 (8 of 48). Their row is BIO's to rule (lane report).
-            XCTAssertEqual(outcome.placed.values.map(\.count).reduce(0, +) + outcome.unassignedCount, 48, label)
-            XCTAssertLessThanOrEqual(outcome.unassignedCount, 8, label)
+            XCTAssertEqual(outcome.unassigned.sorted(), tied.sorted(), label)
+            XCTAssertEqual(outcome.unassignedCount, 8, label)
+            XCTAssertEqual(outcome.ambiguous, "8", label)
+            XCTAssertEqual(outcome.placed.values.map(\.count).reduce(0, +), 40, label)
         }
     }
 
@@ -301,5 +305,95 @@ final class DemultiplexDualOffsetShiftTests: XCTestCase {
             XCTAssertEqual(outcome.ambiguous, "none", label)
             XCTAssertFalse(outcome.commandLine.contains("--info-file"), label)
         }
+    }
+
+    // MARK: - An indel is one error
+
+    /// The check counts a base lost from or gained inside a barcode as one error when the run allows indels, as Cutadapt's
+    /// line does, and finds no fit at e 0.15 when it does not (`--no-indels`). X-1's pair alone, offsets up to 3 as the
+    /// writer's lines carry them (BIO-OFFSET-SHIFT item 2). No Cutadapt run.
+    func testTheCheckCountsALostOrGainedBaseAsOneErrorOnlyWhenIndelsAreAllowed() throws {
+        let lines = ">X-1\n^N{3}TGGGCGAA...AGGAGTTAN{3}$\n"
+        let insert = String(repeating: "ACGTTGCA", count: 6)
+        let reads = [
+            Array(("TGGGCGAA" + insert + "AGGAGTA").utf8),    // the second barcode lost a T
+            Array(("TGGGCGAA" + insert + "AGGAGGTTA").utf8),  // and gained a G
+        ]
+        for (indels, errors) in [(true, 1), (false, nil)] as [(Bool, Int?)] {
+            let fit = try XCTUnwrap(AnchoredOffsetFit(adapterFASTA: lines, rowOf: { $0 }, errorRate: 0.15, indels: indels))
+            for read in reads {
+                var search = AnchoredOffsetFit.Search(fit)
+                switch search.call(read) {
+                case .one(_, let found, _): XCTAssertEqual(found, errors, "indels \(indels)")
+                case .none: XCTAssertNil(errors, "indels \(indels)")
+                default: XCTFail("one row cannot tie")
+                }
+            }
+        }
+    }
+
+    // MARK: - A run that keeps trim positions
+
+    /// The trim positions of a run kept for a chained step: the read the check moved to X-1 is listed in X-1 trimmed as
+    /// X-1's line at the read ends trims it, the reads it sent to Unassigned are listed in no sample, and a read that
+    /// stayed keeps Cutadapt's trims (BIO review of DEMUX-DUAL-OFFSET-SHIFT, SF2).
+    func testAMovedAndATiedReadChangeTheTrimPositionsOfTheRunThatKeepsThem() async throws {
+        let named = [Self.seenF0x9, Self.seenR0x9, Self.seenF0x6, Self.seenR0x6]
+        let output = dir.appendingPathComponent("demux-\(UUID().uuidString)", isDirectory: true)
+        let config = DemultiplexConfig(
+            inputURL: try writeFASTQ(named + Self.fillers(Self.x1x5)), barcodeKit: try kit(Self.x1x5),
+            outputDirectory: output, barcodeLocation: .bothEnds, errorRate: 0.15, maxDistanceFrom5Prime: 3,
+            maxDistanceFrom3Prime: 3, trimBarcodes: true, threads: 1, captureTrimsForChaining: true
+        )
+        let result = try await DemultiplexingPipeline().run(config: config, progress: { _, _ in })
+        var trims: [String: [String: (Int, Int)]] = [:]
+        for barcode in result.manifest.barcodes {
+            let file = output.appendingPathComponent(barcode.bundleRelativePath, isDirectory: true)
+                .appendingPathComponent(FASTQBundle.trimPositionFilename)
+            guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            for line in text.split(separator: "\n") where !line.hasPrefix("#") && !line.hasPrefix("read_id") {
+                let fields = line.split(separator: "\t").map(String.init)
+                guard fields.count >= 4, let start = Int(fields[2]), let end = Int(fields[3]) else { continue }
+                trims[barcode.barcodeID, default: [:]][fields[0]] = (start, end)
+            }
+        }
+        print("OFFSETSHIFT trims: \(trims.mapValues { $0.count }), ambiguousReads \(Self.ambiguous(result))")
+        for name in ["X-1|seen|F0|6", "X-1|seen|R0|6"] {
+            XCTAssertEqual(trims["X-1"]?[name].map { [$0.0, $0.1] }, [8, 8], name)
+            XCTAssertNil(trims["X-5"]?[name], name)
+        }
+        for name in ["X-1|seen|F0|9", "X-1|seen|R0|9"] {
+            XCTAssertTrue(trims.values.allSatisfy { $0[name] == nil }, "\(name) is in Unassigned")
+        }
+        XCTAssertEqual(trims["X-1"]?["X-1|F3-0"].map { [$0.0, $0.1] }, [11, 11])
+        XCTAssertEqual(Self.ambiguous(result), "2")
+    }
+
+    // MARK: - Paired input
+
+    /// An interleaved file of two fragments whose first mate of fragment 1 two rows fit with no error at 3/3 and e 0: the
+    /// run ends, every record is in one place, and the count names the one record the check set aside (BIO review of
+    /// DEMUX-DUAL-OFFSET-SHIFT, SF3). Where the fragment lands is the mate pass's call, and the test prints it.
+    func testAnInterleavedFragmentWhoseFirstMateTiesRunsToTheEndAndCountsItsRecords() async throws {
+        let clean = Self.fillers(Self.x1x5).filter { $0.name.hasPrefix("X-1|F3-") }.map(\.sequence)
+        let reads: [Read] = [
+            ("X-1|pair-1/1", Self.seenF0x9.sequence), ("X-1|pair-1/2", clean[0]),
+            ("X-1|pair-2/1", clean[1]), ("X-1|pair-2/2", clean[2]),
+        ]
+        let input = try writeFASTQ(reads)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(ingestion: IngestionMetadata(
+                isClumpified: false, isCompressed: false, pairingMode: .interleaved,
+                originalFilenames: [input.lastPathComponent]
+            )),
+            for: input
+        )
+        let outcome = try await run(Self.x1x5, input, distance: 3, errorRate: 0)
+        report("paired 3/3 e 0", outcome, reads.map(\.name))
+        let places = outcome.placed.values.flatMap { $0.map(\.name) } + outcome.unassigned
+        XCTAssertEqual(Set(places).count, places.count, "no record is in two places")
+        XCTAssertEqual(outcome.placed.values.map(\.count).reduce(0, +) + outcome.unassignedCount, 4)
+        XCTAssertEqual(outcome.wrong, [])
+        XCTAssertEqual(outcome.ambiguous, "1")
     }
 }
