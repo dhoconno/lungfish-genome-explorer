@@ -2103,6 +2103,7 @@ class LocalReleaseOperations:
             patch = self._patch_source(request, branch)
             if patch is not None:
                 self._require_patch(patch)
+                self._require_remote_tags_known(request)
                 if self.runner.environment.get(PATCH_BUILD_ENV):
                     raise ReleaseError(
                         f"a patch package stamps its own build number, so unset {PATCH_BUILD_ENV} and package again"
@@ -2291,11 +2292,9 @@ class LocalReleaseOperations:
                 f"patch candidate receipt build {build or 'missing'} is not the stamped build {self._patch_build}"
             )
 
-    def _verify_patch_history(self, request: ReleaseRequest, patch: PatchSource) -> None:
-        """A patch publish checks the version and notes again, that this checkout holds every release tag of origin,
-        so that the newest Stable tag is the one it names, and that the receipt's build is below origin main's
-        count, so that no main-line release can make it."""
-        self._require_patch(patch)
+    def _require_remote_tags_known(self, request: ReleaseRequest) -> None:
+        """Origin holds no release tag this checkout lacks, so that the newest Stable tag read here is the true one.
+        A patch package and a patch publish both ask."""
         raw = self.runner.text(["git", "ls-remote", "--tags", request.remote, "refs/tags/v*"])
         remote = {fields[1].removeprefix("refs/tags/").removesuffix("^{}")
                   for fields in (line.split() for line in raw.splitlines()) if len(fields) == 2}
@@ -2305,8 +2304,15 @@ class LocalReleaseOperations:
         if missing:
             raise ReleaseError(
                 f"{request.remote} holds release tags this checkout lacks ({', '.join(missing)}), so the newest "
-                f"Stable tag is not known here. Run git fetch --tags {request.remote}, then publish again"
+                f"Stable tag is not known here. Run git fetch --tags {request.remote}, then run the command again"
             )
+
+    def _verify_patch_history(self, request: ReleaseRequest, patch: PatchSource) -> None:
+        """A patch publish checks the version and notes again, that this checkout holds every release tag of origin,
+        so that the newest Stable tag is the one it names, and that the receipt's build is below origin main's
+        count, so that no main-line release can make it."""
+        self._require_patch(patch)
+        self._require_remote_tags_known(request)
         count = self._remote_main_count(request)
         build = _receipt_build(request.receipt)
         if not build:
