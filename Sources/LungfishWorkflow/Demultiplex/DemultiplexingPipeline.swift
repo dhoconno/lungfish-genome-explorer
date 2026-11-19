@@ -157,7 +157,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         let demuxOutputDir = workDir.appendingPathComponent("demux-output", isDirectory: true)
         try fm.createDirectory(at: demuxOutputDir, withIntermediateDirectories: true)
 
-        let usesPlainTemporaryOutputs = writesPlainCutadaptOutputs(config)
+        let usesPlainTemporaryOutputs = try writesPlainCutadaptOutputs(config, adapterFASTA: adapterConfig.adapterFASTA)
         // A file that holds mates is read again beside cutadapt's outputs to
         // place both mates of each fragment, so its outputs stay plain (A9, D6).
         let readLayout = try demultiplexReadLayout(config: config, inputFASTQ: inputFASTQ)
@@ -1677,7 +1677,7 @@ extension DemultiplexingPipeline {
         }
     }
 
-    private func gzipPlainDemuxOutputs(in demuxOutputDir: URL) throws {
+    func gzipPlainDemuxOutputs(in demuxOutputDir: URL) throws {
         let fm = FileManager.default
         let fastqURLs = try fm.contentsOfDirectory(
             at: demuxOutputDir,

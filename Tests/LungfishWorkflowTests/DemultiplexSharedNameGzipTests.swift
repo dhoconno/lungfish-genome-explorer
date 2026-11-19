@@ -81,6 +81,8 @@ final class DemultiplexSharedNameGzipTests: XCTestCase {
 
     struct Outcome {
         var placed: [String: Int] = [:]
+        /// The reads of each row, by the row their name names, in any row's file.
+        var kept: [String: Int] = [:]
         var wrong: [String] = []
         var manifestDisagrees: [String] = []
         var smallFiles: [String] = []
@@ -101,6 +103,7 @@ final class DemultiplexSharedNameGzipTests: XCTestCase {
             var count = 0
             for try await record in FASTQReader(validateSequence: false).records(from: fastq) {
                 count += 1
+                outcome.kept[String(record.identifier.prefix { $0 != "|" }), default: 0] += 1
                 if !record.identifier.hasPrefix(barcode.barcodeID + "|") {
                     outcome.wrong.append("\(record.identifier) in \(barcode.barcodeID)")
                 }
@@ -185,7 +188,16 @@ final class DemultiplexSharedNameGzipTests: XCTestCase {
             },
             keepsUncheckedSamples: true
         )
-        assertKeepsEveryRead(try await run(config), rows: samples.map(\.id), perRow: 7_000)
+        let outcome = try await run(config)
+        // Unanchored lines can put a read in another sample by chance, which is why the chance check asks for Keep
+        // Unchecked Samples, so this test pins that no sample loses a read: each read is in some sample's file.
+        XCTAssertEqual(outcome.kept, Dictionary(uniqueKeysWithValues: samples.map { ($0.id, 7_000) }), "no sample loses a read")
+        XCTAssertEqual(outcome.manifestDisagrees, [])
+        XCTAssertEqual(outcome.smallFiles, [], "each sample's file is past the size where Cutadapt's gzip outputs broke")
+        XCTAssertEqual(outcome.unassigned, 0)
+        XCTAssertEqual(outcome.placed.values.reduce(0, +) + outcome.unassigned, reads.count, "the counts add up to the input")
+        XCTAssertEqual(outcome.inputReadCount, reads.count, "the input count is the input's")
+        XCTAssertEqual(outcome.pattern, "{name}.fastq", "Cutadapt writes plain outputs, gzipped after it ends")
     }
 
     // MARK: - (c) The routes

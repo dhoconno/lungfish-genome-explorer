@@ -506,8 +506,11 @@ extension DemultiplexingPipeline {
         let demuxOutputDir = workDir.appendingPathComponent(outputSubdir, isDirectory: true)
         try fm.createDirectory(at: demuxOutputDir, withIntermediateDirectories: true)
 
-        let outputPattern = demuxOutputDir.appendingPathComponent("{name}.fastq.gz").path
-        let unassignedPath = demuxOutputDir.appendingPathComponent("unassigned.fastq.gz").path
+        // A file that names a row on two lines, as each pair of a dual kit is, writes plain outputs, gzipped once Cutadapt
+        // ends, so no output loses its reads to another writer of its name (BIO-SHARED-NAME-GZIP item 1).
+        let plain = try writesPlainCutadaptOutputs(nil, adapterFASTA: adapterFASTA)
+        let outputPattern = demuxOutputDir.appendingPathComponent(plain ? "{name}.fastq" : "{name}.fastq.gz").path
+        let unassignedPath = demuxOutputDir.appendingPathComponent(plain ? "unassigned.fastq" : "unassigned.fastq.gz").path
         let jsonReportPath = workDir.appendingPathComponent("\(outputSubdir)-report.json").path
 
         var args: [String] = []
@@ -541,6 +544,7 @@ extension DemultiplexingPipeline {
                 stderr: cutadaptResult.stderr
             )
         }
+        if plain { try gzipPlainDemuxOutputs(in: demuxOutputDir) }
 
         return ScoutCutadaptResult(outputDir: demuxOutputDir)
     }
