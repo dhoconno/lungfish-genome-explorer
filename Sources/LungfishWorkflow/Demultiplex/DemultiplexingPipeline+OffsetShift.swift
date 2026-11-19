@@ -115,6 +115,18 @@ extension DemultiplexingPipeline {
             || searchesBuiltInDualPairsAtAnOffset(config)
     }
 
+    /// Whether Cutadapt writes a run's outputs plain, to be gzipped after the passes that read them. The observed route of
+    /// a Custom Definition joins its strands' outputs, and every route the check reads writes a line for each offset under
+    /// its row's name. Cutadapt 5.2 opens a writer for each line and keeps the last of a name (`steps.py`, `_open_writers`),
+    /// and each other writer of the name ends an empty gzip stream, 20 bytes, at the start of the shared file when Cutadapt
+    /// closes it. A row's gzip output that has passed Cutadapt's write buffer by then loses its first 20 bytes and reads as
+    /// an empty member and bytes that are no gzip stream, so the check failed the run, and a run without the check counted
+    /// only the reads of the outputs that stayed whole (FIX-MEM-GZIP, F2). A plain writer with no reads writes nothing,
+    /// so plain outputs stay whole.
+    func writesPlainCutadaptOutputs(_ config: DemultiplexConfig) -> Bool {
+        usesObservedCustomBarcodePairs(config) || checksPlacedReadsByFewestErrors(config)
+    }
+
     /// Whether a run writes the lines of `writeLinkedAdapterFASTA` with offsets through the `.fixedDual` case: a dual kit of
     /// fixed pairs that is not the observed route of a Custom Definition, which is the built-in TruSeq HT Dual Index or
     /// Nextera XT Index Kit v2 or a definition whose `# kit:` line names one of them or IDT for Illumina UD Indexes, with

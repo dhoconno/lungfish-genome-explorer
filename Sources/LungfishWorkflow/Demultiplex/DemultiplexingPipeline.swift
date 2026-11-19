@@ -157,12 +157,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         let demuxOutputDir = workDir.appendingPathComponent("demux-output", isDirectory: true)
         try fm.createDirectory(at: demuxOutputDir, withIntermediateDirectories: true)
 
-        let usesPlainObservedTemporaryOutputs = usesObservedCustomBarcodePairs(config)
+        let usesPlainTemporaryOutputs = writesPlainCutadaptOutputs(config)
         // A file that holds mates is read again beside cutadapt's outputs to
         // place both mates of each fragment, so its outputs stay plain (A9, D6).
         let readLayout = try demultiplexReadLayout(config: config, inputFASTQ: inputFASTQ)
         let placesMates = readLayout.isPaired
-        let temporaryFASTQExtension = usesPlainObservedTemporaryOutputs || placesMates ? "fastq" : "fastq.gz"
+        let temporaryFASTQExtension = usesPlainTemporaryOutputs || placesMates ? "fastq" : "fastq.gz"
         let outputPattern = demuxOutputDir
             .appendingPathComponent("{name}.\(temporaryFASTQExtension)").path
         let unassignedPath = demuxOutputDir
@@ -235,7 +235,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 temporaryFASTQExtension: temporaryFASTQExtension
             )
         }
-        if usesPlainObservedTemporaryOutputs && !placesMates {
+        if usesPlainTemporaryOutputs && !placesMates {
             try gzipPlainDemuxOutputs(in: demuxOutputDir)
         }
 
