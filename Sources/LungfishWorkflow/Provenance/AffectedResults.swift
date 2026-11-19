@@ -524,34 +524,34 @@ public enum AffectedResults {
         ),
         // Lane DEMUX-SINGLE-OFFSET-SHIFT (BIO-SINGLE-OFFSET item 3). Every published build from 2026.8.1, the first that
         // holds the writer fe644e767, searched a single-index kit with a distance above 0 with lines that Cutadapt ranks by
-        // their N's. 1a29a8dc0 is the first commit that keeps a placed read only in the row that fits it at the fewest errors.
+        // their N's. ce890d4a4 ends the fix: a placed read stays only in the row that fits it at the fewest errors.
         AffectedResultRow(
             backlogID: "DEMUX-SINGLE-OFFSET-SHIFT", kinds: [.fastqDemultiplexSingleOffset], firstBuild: 4192, lastBuild: 13764,
             sentence: "This run searched for single barcodes set in from the read end, and the build that ran it could place "
                 + "some reads in another sample or leave out all the reads of a sample without a warning.",
             whatToDo: "Run it again in this version.",
-            fixCommit: "1a29a8dc0"
+            fixCommit: "ce890d4a4"
         ),
         // Lane DEMUX-LINKED-OFFSET-SHIFT (BIO-LINKED-OFFSET item 3). Every published build from 2026.8.1, the first that
         // holds the writer fe644e767, searched a built-in Illumina dual kit, or a definition made on one, at Both Ends with
-        // a distance above 0 with lines that Cutadapt ranks by their N's. 97c49c71f is the first commit that keeps a placed
-        // read only in the row that fits it at the fewest errors.
+        // a distance above 0 with lines that Cutadapt ranks by their N's. ce890d4a4 ends the fix: a placed read stays only
+        // in the row that fits it at the fewest errors.
         AffectedResultRow(
             backlogID: "DEMUX-LINKED-OFFSET-SHIFT", kinds: [.fastqDemultiplexBuiltInDualOffset], firstBuild: 4192,
             lastBuild: 13764,
             sentence: "This run searched for dual indexes set in from the read ends, and the build that ran it could place "
                 + "some reads in another sample or leave out all the reads of a sample without a warning.",
             whatToDo: "Run it again in this version.",
-            fixCommit: "97c49c71f"
+            fixCommit: "ce890d4a4"
         ),
         // Lane DEMUX-SHARED-NAME-GZIP (BIO-SHARED-NAME-GZIP item 3). Every published build from 2026.8.1, the first a row
-        // names, wrote a built-in dual kit's rows on two lines into gzip outputs. 4f90ac633 writes them plain and gzips after.
+        // names, wrote a built-in dual kit's rows on two lines into gzip outputs. 794ae5bff writes them plain and gzips after.
         AffectedResultRow(
             backlogID: "DEMUX-SHARED-NAME-GZIP", kinds: [.fastqDemultiplexSharedNameGzip], firstBuild: 4192, lastBuild: 13764,
             sentence: "This run searched for pairs of barcodes, and the build that ran it could leave out all the reads of a "
                 + "sample without a warning and count only the reads it kept.",
             whatToDo: "Run it again in this version.",
-            fixCommit: "4f90ac633"
+            fixCommit: "794ae5bff"
         ),
         // S1 sweep 2026-11-17 lane DEMUX-EXACTBARE-NAMES (BIO-DEMUX-THREE item 11, section 2a). Every build with Exact Bare
         // Barcode, from its landing in 4389cd101, searched the read sequences of reads whose barcodes sat in their names.

@@ -42,7 +42,7 @@ final class AffectedResultsDEMUXSINGLEOFFSETSHIFTTests: XCTestCase {
         XCTAssertEqual(row.kinds, [single])
         XCTAssertEqual(row.firstBuild, 4192, "2026.8.1, the first published build that holds the writer fe644e767")
         XCTAssertEqual(row.lastBuild, 13764, "Preview 2026.11.12, the newest published build, lacks the fix")
-        XCTAssertEqual(row.fixCommit, "1a29a8dc0", "the check of placed reads on this route")
+        XCTAssertEqual(row.fixCommit, "ce890d4a4", "the last commit of the fix of this route")
         XCTAssertTrue(AffectedResults.publishedReleases.contains(.init("2026.8.1", 4192)))
         XCTAssertTrue(AffectedResults.publishedReleases.contains(.init("2026.11.12", 13764)))
         // BIO-SHARED-NAME-GZIP item 3: such a run's gzip outputs could also lose all the reads of a sample.

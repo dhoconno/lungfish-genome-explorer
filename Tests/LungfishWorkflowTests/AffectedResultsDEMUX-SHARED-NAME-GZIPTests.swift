@@ -43,7 +43,7 @@ final class AffectedResultsDEMUXSHAREDNAMEGZIPTests: XCTestCase {
         XCTAssertEqual(row.kinds, [shared])
         XCTAssertEqual(row.firstBuild, 4192, "2026.8.1, the first published build an affected row names")
         XCTAssertEqual(row.lastBuild, 13764, "Preview 2026.11.12, the newest published build, lacks the fix")
-        XCTAssertEqual(row.fixCommit, "4f90ac633", "plain Cutadapt outputs when an adapter name repeats")
+        XCTAssertEqual(row.fixCommit, "794ae5bff", "plain Cutadapt outputs when an adapter name repeats")
         XCTAssertTrue(AffectedResults.publishedReleases.contains(.init("2026.8.1", 4192)))
         XCTAssertTrue(AffectedResults.publishedReleases.contains(.init("2026.11.12", 13764)))
         XCTAssertEqual(row.sentence, "This run searched for pairs of barcodes, and the build that ran it could leave out all "
