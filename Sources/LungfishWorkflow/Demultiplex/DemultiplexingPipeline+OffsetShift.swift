@@ -96,12 +96,24 @@ extension DemultiplexingPipeline {
     }
 
     /// Whether a run checks each placed read against the lines of every row: a Custom Definition of dual indexes at Both
-    /// Ends with no sample sheet and a 5' or 3' Distance above 0 (BIO-OFFSET-SHIFT items 1 and 2). At 0/0 no line holds
-    /// an N, so Cutadapt's rank by score is a rank by errors, and the run stays as it was byte for byte. A run that trims
-    /// poly-G is checked on each read as Cutadapt searched it, after its NextSeq trim.
+    /// Ends with no sample sheet and a 5' or 3' Distance above 0 (BIO-OFFSET-SHIFT items 1 and 2), and a single-index kit
+    /// searched at an offset (``searchesSingleBarcodesAtAnOffset(_:)``, BIO-SINGLE-OFFSET items 1 and 2). At a searched
+    /// distance of 0 no line holds an N, so Cutadapt's rank by score is a rank by errors, and the run stays as it was byte
+    /// for byte. A run that trims poly-G is checked on each read as Cutadapt searched it, after its NextSeq trim.
     func checksPlacedReadsByFewestErrors(_ config: DemultiplexConfig) -> Bool {
-        usesObservedCustomBarcodePairs(config)
-            && (config.maxDistanceFrom5Prime > 0 || config.maxDistanceFrom3Prime > 0)
+        (usesObservedCustomBarcodePairs(config) && (config.maxDistanceFrom5Prime > 0 || config.maxDistanceFrom3Prime > 0))
+            || searchesSingleBarcodesAtAnOffset(config)
+    }
+
+    /// Whether a run writes the lines of `writeSingleEndAdapterFASTA` with offsets: a single-index kit, the built-in
+    /// TruSeq Single Index Set A or B or a Custom Definition with one sequence a row, with no sample sheet on a platform
+    /// that reads one strand, and the distance of the end its lines search above 0. 5' End and Both Ends write `^N{a}X`
+    /// and search the 5' Distance, and 3' End writes `XN{b}$` and searches the 3' Distance (BIO-SINGLE-OFFSET items 1 and 2).
+    func searchesSingleBarcodesAtAnOffset(_ config: DemultiplexConfig) -> Bool {
+        let kit = config.barcodeKit
+        guard config.sampleAssignments.isEmpty, kit.pairingMode == .singleEnd || kit.pairingMode == .symmetric,
+              !kit.platform.readsCanBeReverseComplemented else { return false }
+        return config.barcodeLocation == .threePrime ? config.maxDistanceFrom3Prime > 0 : config.maxDistanceFrom5Prime > 0
     }
 
     /// Puts each read Cutadapt placed in `outputDirectory` in the one row whose lines in `adapterFASTA` fit it at the
