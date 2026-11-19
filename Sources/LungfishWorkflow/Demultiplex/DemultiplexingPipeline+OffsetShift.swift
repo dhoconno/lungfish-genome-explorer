@@ -66,23 +66,31 @@ extension DemultiplexingPipeline {
     /// holds them, so the window finds the line by them.
     public static let ambiguousReadsMarker = " went to Unassigned because "
 
-    /// The words after the verb of ``ambiguousReadsLine(_:ends:)`` for lines that search both ends, BIO-OFFSET-SHIFT item 4
-    /// as the UX review of DEMUX-DUAL-OFFSET-SHIFT words it.
-    public static let ambiguousReadsWords = " the barcodes of two or more samples equally well within the 5' and 3' Distance. "
-        + "Set each distance only as far as your barcodes sit in from the read ends."
+    /// The words after the verb of ``ambiguousReadsLine(_:ends:)`` for lines that search both ends. The count holds two kinds
+    /// of read, those that two rows fit equally well within the distances (BIO-OFFSET-SHIFT item 4) and those that another
+    /// row fits as well or better just past them (BIO-OFFSET-PAST-DISTANCE item 1), so the words name both. The advice fits
+    /// both, and its end says when no setting helps (UX reviews of DEMUX-DUAL-OFFSET-SHIFT and FIX-OFFSET-SHIFT).
+    public static let ambiguousReadsWords = " the barcodes of two or more samples equally well within the 5' and 3' Distance, "
+        + "or the barcodes of another sample as well or better just past it. "
+        + "Set each distance to the farthest your barcodes sit in from the read ends, and if each is set that way already, "
+        + "the barcodes alone cannot tell which sample each read belongs to."
 
     /// The words after the verb for the ends a run's lines search: both, the 5' Distance only or the 3' Distance only
-    /// (UX review of DEMUX-DUAL-OFFSET-SHIFT, ruling 4, whose second sentences are BIO-SINGLE-OFFSET item 4's).
+    /// (UX review of DEMUX-DUAL-OFFSET-SHIFT, ruling 4).
     public static func ambiguousReadsEndWords(_ ends: SearchedEnds) -> String {
         switch ends {
         case .both:
             return ambiguousReadsWords
         case .fivePrime:
-            return " the barcodes of two or more samples equally well within the 5' Distance. "
-                + "Set the distance only as far as your barcodes sit in from the start of the read."
+            return " the barcodes of two or more samples equally well within the 5' Distance, "
+                + "or the barcodes of another sample as well or better just past it. "
+                + "Set the distance to the farthest your barcodes sit in from the start of the read, and if it is set that way already, "
+                + "the barcodes alone cannot tell which sample each read belongs to."
         case .threePrime:
-            return " the barcodes of two or more samples equally well within the 3' Distance. "
-                + "Set the distance only as far as your barcodes sit in from the end of the read."
+            return " the barcodes of two or more samples equally well within the 3' Distance, "
+                + "or the barcodes of another sample as well or better just past it. "
+                + "Set the distance to the farthest your barcodes sit in from the end of the read, and if it is set that way already, "
+                + "the barcodes alone cannot tell which sample each read belongs to."
         }
     }
 

@@ -200,7 +200,9 @@ final class DemultiplexSingleOffsetShiftTests: XCTestCase {
         XCTAssertEqual(
             outcome.line,
             "1 read went to Unassigned because it fits the barcodes of two or more samples equally well within the 3' "
-                + "Distance. Set the distance only as far as your barcodes sit in from the end of the read."
+                + "Distance, or the barcodes of another sample as well or better just past it. "
+                + "Set the distance to the farthest your barcodes sit in from the end of the read, and if it is set that way "
+                + "already, the barcodes alone cannot tell which sample each read belongs to."
         )
         for row in ["TGGGCGAA", "AGTGGGCG"] {
             XCTAssertEqual((outcome.placed[row] ?? []).map(\.name).sorted(), (0..<5).map { "\(row)|end-\($0)" }, row)
@@ -231,7 +233,9 @@ final class DemultiplexSingleOffsetShiftTests: XCTestCase {
             XCTAssertEqual(
                 outcome.line,
                 "1 read went to Unassigned because it fits the barcodes of two or more samples equally well within the 5' "
-                    + "Distance. Set the distance only as far as your barcodes sit in from the start of the read.",
+                    + "Distance, or the barcodes of another sample as well or better just past it. "
+                    + "Set the distance to the farthest your barcodes sit in from the start of the read, and if it is set that "
+                    + "way already, the barcodes alone cannot tell which sample each read belongs to.",
                 "\(location)"
             )
             XCTAssertEqual(outcome.wrong, [], "\(location)")

@@ -191,7 +191,9 @@ final class FASTQDemultiplexChanceNoticeTests: XCTestCase {
         let form = "The run read each secondary sequence reverse complemented, as the i5 primer's barcode, since 412 of the "
             + "first 480 reads carry it that way."
         let words = "1,204 reads went to Unassigned because they fit the barcodes of two or more samples equally well within the 5' "
-            + "and 3' Distance. Set each distance only as far as your barcodes sit in from the read ends."
+            + "and 3' Distance, or the barcodes of another sample as well or better just past it. "
+            + "Set each distance to the farthest your barcodes sit in from the read ends, and if each is set that way already, "
+            + "the barcodes alone cannot tell which sample each read belongs to."
         let center = OperationCenter()
         let result = FASTQDemultiplexChanceNotice.rowWords(
             for: try dualFormResult(form: "reverse-complemented", votes: votes, ambiguousReads: 1_204)
@@ -217,8 +219,10 @@ final class FASTQDemultiplexChanceNoticeTests: XCTestCase {
 
     /// A count of one reads in the singular and the window finds the line by its marker, whatever the count.
     func testTheLineOfReadsThatTwoRowsFitAgreesWithItsCount() throws {
-        let tail = " the barcodes of two or more samples equally well within the 5' and 3' Distance. Set each distance only as far "
-            + "as your barcodes sit in from the read ends."
+        let tail = " the barcodes of two or more samples equally well within the 5' and 3' Distance, "
+            + "or the barcodes of another sample as well or better just past it. "
+            + "Set each distance to the farthest your barcodes sit in from the read ends, and if each is set that way already, "
+            + "the barcodes alone cannot tell which sample each read belongs to."
         XCTAssertEqual(DemultiplexingPipeline.ambiguousReadsLine(1), "1 read went to Unassigned because it fits" + tail)
         XCTAssertEqual(DemultiplexingPipeline.ambiguousReadsLine(2), "2 reads went to Unassigned because they fit" + tail)
         XCTAssertNil(DemultiplexingPipeline.ambiguousReadsLine(0))
@@ -245,13 +249,25 @@ final class FASTQDemultiplexChanceNoticeTests: XCTestCase {
     /// searched both. Each line keeps the marker the window finds it by, in the singular too.
     @MainActor
     func testTheLineNamesTheDistanceOfTheEndsTheLinesSearched() throws {
+        let both = " the barcodes of two or more samples equally well within the 5' and 3' Distance, "
+            + "or the barcodes of another sample as well or better just past it. "
+            + "Set each distance to the farthest your barcodes sit in from the read ends, and if each is set that way already, "
+            + "the barcodes alone cannot tell which sample each read belongs to."
+        let five = " the barcodes of two or more samples equally well within the 5' Distance, "
+            + "or the barcodes of another sample as well or better just past it. "
+            + "Set the distance to the farthest your barcodes sit in from the start of the read, and if it is set that way already, "
+            + "the barcodes alone cannot tell which sample each read belongs to."
+        let three = " the barcodes of two or more samples equally well within the 3' Distance, "
+            + "or the barcodes of another sample as well or better just past it. "
+            + "Set the distance to the farthest your barcodes sit in from the end of the read, and if it is set that way already, "
+            + "the barcodes alone cannot tell which sample each read belongs to."
         let cases: [(ends: String?, count: Int, line: String)] = [
-            (nil, 3, "3 reads went to Unassigned because they fit the barcodes of two or more samples equally well within the "
-                + "5' and 3' Distance. Set each distance only as far as your barcodes sit in from the read ends."),
-            ("fivePrime", 1_204, "1,204 reads went to Unassigned because they fit the barcodes of two or more samples equally "
-                + "well within the 5' Distance. Set the distance only as far as your barcodes sit in from the start of the read."),
-            ("threePrime", 1, "1 read went to Unassigned because it fits the barcodes of two or more samples equally well "
-                + "within the 3' Distance. Set the distance only as far as your barcodes sit in from the end of the read."),
+            (nil, 3, "3 reads went to Unassigned because they fit" + both),
+            (nil, 1, "1 read went to Unassigned because it fits" + both),
+            ("fivePrime", 1_204, "1,204 reads went to Unassigned because they fit" + five),
+            ("fivePrime", 1, "1 read went to Unassigned because it fits" + five),
+            ("threePrime", 1_204, "1,204 reads went to Unassigned because they fit" + three),
+            ("threePrime", 1, "1 read went to Unassigned because it fits" + three),
         ]
         let center = OperationCenter()
         for (ends, count, line) in cases {
