@@ -340,4 +340,52 @@ final class DemultiplexSingleOffsetShiftTests: XCTestCase {
         XCTAssertEqual(outcome.placedCount, 2, "3' End at 3/0")
         XCTAssertEqual(outcome.sequence(of: "TGGGCGAA|end"), String(reads[0].sequence.dropLast(8)), "trimmed before the barcode")
     }
+
+    // MARK: - The gate, without Cutadapt
+
+    /// The check is reached by a single-index kit with no sample sheet on a platform that reads one strand, and only when the
+    /// distance of the end its lines search is above 0: the 5' Distance at 5' End and Both Ends, the 3' Distance at 3' End
+    /// (BIO-SINGLE-OFFSET items 1 and 2). The other end's distance, a sample sheet, the platforms that read both strands
+    /// and every run at 0 stay as they were. No test reached these runs before, so an edit to the gate
+    /// (`searchesSingleBarcodesAtAnOffset`) would have moved the reads of those runs with no test red
+    /// (DEMUX-SINGLE-OFFSET-SHIFT-BIO SF1).
+    func testTheCheckIsReachedOnlyByASingleIndexRunWhoseSearchedDistanceIsAboveZero() throws {
+        let pipeline = DemultiplexingPipeline()
+        func checks(
+            _ kit: BarcodeKitDefinition, _ location: BarcodeLocation, _ fivePrime: Int, _ threePrime: Int,
+            sheet: [FASTQSampleBarcodeAssignment] = []
+        ) -> Bool {
+            pipeline.checksPlacedReadsByFewestErrors(DemultiplexConfig(
+                inputURL: dir.appendingPathComponent("in.fastq"), barcodeKit: kit,
+                outputDirectory: dir.appendingPathComponent("out"), barcodeLocation: location, errorRate: 0.15,
+                maxDistanceFrom5Prime: fivePrime, maxDistanceFrom3Prime: threePrime,
+                trimBarcodes: true, threads: 1, engine: .cutadapt, sampleAssignments: sheet
+            ))
+        }
+        let custom = try customKit([("TGGGCGAA", "TGGGCGAA"), ("AGTGGGCG", "AGTGGGCG")])
+        for kit in [BarcodeKitRegistry.truseqSingleA, BarcodeKitRegistry.truseqSingleB, custom] {
+            let id = kit.id
+            XCTAssertTrue(checks(kit, .fivePrime, 3, 0), "\(id) 5' End at 3/0")
+            XCTAssertTrue(checks(kit, .bothEnds, 3, 0), "\(id) Both Ends at 3/0")
+            XCTAssertTrue(checks(kit, .threePrime, 0, 3), "\(id) 3' End at 0/3")
+            XCTAssertFalse(checks(kit, .fivePrime, 0, 0), "\(id) 5' End at 0/0")
+            XCTAssertFalse(checks(kit, .fivePrime, 0, 3), "\(id) 5' End at 0/3 searches no 3' Distance")
+            XCTAssertFalse(checks(kit, .bothEnds, 0, 3), "\(id) Both Ends at 0/3 writes 5' lines only")
+            XCTAssertFalse(checks(kit, .threePrime, 3, 0), "\(id) 3' End at 3/0 searches no 5' Distance")
+            XCTAssertFalse(checks(kit, .threePrime, 0, 0), "\(id) 3' End at 0/0")
+        }
+        // A platform that reads both strands is searched as the platform's construct, with no offset lines.
+        let nanopore = BarcodeKitRegistry.ontNativeBarcoding96
+        XCTAssertTrue(nanopore.platform.readsCanBeReverseComplemented)
+        for location in [BarcodeLocation.fivePrime, .threePrime, .bothEnds] {
+            XCTAssertFalse(checks(nanopore, location, 3, 3), "ONT native at \(location) 3/3")
+        }
+        // A sample sheet is searched by the sheet's own lines, so a single-index run with one stays out at a distance above 0.
+        let truseq = BarcodeKitRegistry.truseqSingleA
+        let sheet = [FASTQSampleBarcodeAssignment(sampleID: "S1", forwardBarcodeID: try XCTUnwrap(truseq.barcodes.first?.id))]
+        XCTAssertTrue(checks(truseq, .fivePrime, 3, 0), "the same run without a sheet is checked")
+        XCTAssertFalse(checks(truseq, .fivePrime, 3, 0, sheet: sheet), "TruSeq A with a sample sheet at 5' End 3/0")
+        XCTAssertFalse(checks(truseq, .bothEnds, 3, 0, sheet: sheet), "TruSeq A with a sample sheet at Both Ends 3/0")
+        XCTAssertFalse(checks(truseq, .threePrime, 0, 3, sheet: sheet), "TruSeq A with a sample sheet at 3' End 0/3")
+    }
 }
