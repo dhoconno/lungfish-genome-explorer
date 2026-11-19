@@ -55,14 +55,26 @@ final class DemultiplexSingleOffsetRecordTests: XCTestCase {
 
     private static let insert = "ACGTTGCAAGCTTCGAGATCCATGGTACCGAATTCTGCAGTCGACGGATCCAAGCTTGCAT"
 
+    /// How many reads of its own a row has next to the tied read. The chance floor counts a row only above the most reads
+    /// chance gives it among the reads that carry no barcode. With one read in Unassigned the run has two chance trials,
+    /// and a row of 8 bases at 4 offsets has a share of about 6e-5, so the most chance gives a row is 1 read (a tail
+    /// under one in two million). A row with 3 reads of its own lies above it, and so the run publishes its samples and
+    /// writes its record instead of refusing the kit (`noBarcodeAboveChance`).
+    private static let readsOfOwn = 3
+
+    /// `count` reads named `<prefix>1`, `<prefix>2`, ... that all carry `sequence`.
+    private func copies(_ prefix: String, _ count: Int, _ sequence: String) -> [(String, String)] {
+        (1...count).map { ("\(prefix)\($0)", sequence) }
+    }
+
     func testTheRecordCountsTheReadsTwoRowsFitAndNamesTheEndTheLinesSearched() async throws {
         try await requireTools()
         // 3' End at 3' Distance 3: `TGGGCGAA` fits the first read at the end and `AGTGGGCG` 2 bases in (BIO-OFFSET-TIES
-        // item 3). The other two reads each carry one row's barcode at the read end.
-        let three = try files("three", rows: ["TGGGCGAA", "AGTGGGCG"], reads: [
-            ("tied", Self.insert + "CCCCC" + "AGTGGGCGAA"),
-            ("p", Self.insert + "CCCCC" + "TGGGCGAA"), ("q", Self.insert + "CCCCC" + "AGTGGGCG"),
-        ])
+        // item 3). The other reads each carry one row's barcode at the read end.
+        let threeReads: [(String, String)] = [("tied", Self.insert + "CCCCC" + "AGTGGGCGAA")]
+            + copies("p", Self.readsOfOwn, Self.insert + "CCCCC" + "TGGGCGAA")
+            + copies("q", Self.readsOfOwn, Self.insert + "CCCCC" + "AGTGGGCG")
+        let three = try files("three", rows: ["TGGGCGAA", "AGTGGGCG"], reads: threeReads)
         try await run([
             three.input.path, "--kit", three.kit.path, "--location", "3prime", "--max-distance-3prime", "3",
             "--error-rate", "0", "-o", three.output.path,
@@ -74,10 +86,10 @@ final class DemultiplexSingleOffsetRecordTests: XCTestCase {
                        "the Unassigned count holds the read")
 
         // 5' End at 5' Distance 3: `TGGGCGAA` fits the first read at the start and `GGCGAAGT` 2 bases in.
-        let five = try files("five", rows: ["TGGGCGAA", "GGCGAAGT"], reads: [
-            ("tied", "TGGGCGAAGT" + "CCCCC" + Self.insert),
-            ("p", "TGGGCGAA" + "CCCCC" + Self.insert), ("q", "GGCGAAGT" + "CCCCC" + Self.insert),
-        ])
+        let fiveReads: [(String, String)] = [("tied", "TGGGCGAAGT" + "CCCCC" + Self.insert)]
+            + copies("p", Self.readsOfOwn, "TGGGCGAA" + "CCCCC" + Self.insert)
+            + copies("q", Self.readsOfOwn, "GGCGAAGT" + "CCCCC" + Self.insert)
+        let five = try files("five", rows: ["TGGGCGAA", "GGCGAAGT"], reads: fiveReads)
         try await run([
             five.input.path, "--kit", five.kit.path, "--location", "5prime", "--max-distance-5prime", "3",
             "--error-rate", "0", "-o", five.output.path,
@@ -85,6 +97,8 @@ final class DemultiplexSingleOffsetRecordTests: XCTestCase {
         let fiveRecord = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: five.output))
         XCTAssertEqual(fiveRecord.options.explicit["ambiguousReads"], .integer(1))
         XCTAssertEqual(fiveRecord.options.explicit["ambiguousReadsEnds"], .string("fivePrime"))
+        XCTAssertEqual(try XCTUnwrap(DemultiplexManifest.load(from: five.output)).unassigned.readCount, 1,
+                       "the Unassigned count holds the read")
 
         // 5' End with only the 3' Distance set searches no offset, so its record holds neither key.
         let zero = try files("zero", rows: ["TGGGCGAA", "GGCGAAGT"], reads: [

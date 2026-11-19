@@ -35,9 +35,24 @@ final class DemultiplexSingleOffsetShiftTests: XCTestCase {
     static let truseqBefore = "CCAGTCAC"
     static let truseqAfter = "ATCTCGTATGCCGTCTTCTGCTTG"
 
+    /// A made read of the TruSeq kit as the run writes it. TruSeq Single Index Set A is an Illumina kit, so its run passes
+    /// `--nextseq-trim=20`, the platform's `defaultPolyGTrimQuality`, and Cutadapt cuts the G bases at the 3' end of each
+    /// read before it searches the lines, whichever file the read lands in. The made reads carry quality `I` throughout, so
+    /// it cuts exactly the run of G at the end, which ``DemultiplexingPipeline/nextseqTrimIndex(_:_:cutoff:)`` computes.
+    /// 54 of the 216 made reads end in G. A Custom Definition has no poly-G trim (`customKit` asserts it),
+    /// so the reads of the tests that use one keep their last bases.
+    static func nextseqTrimmed(_ sequence: String) -> String {
+        guard let cutoff = BarcodeKitRegistry.truseqSingleA.platform.defaultPolyGTrimQuality else { return sequence }
+        let bases = Array(sequence.utf8)
+        let quality = [UInt8](repeating: UInt8(ascii: "I"), count: bases.count)
+        let kept = DemultiplexingPipeline.nextseqTrimIndex(bases, quality, cutoff: cutoff)
+        return String(decoding: bases.prefix(kept), as: UTF8.self)
+    }
+
     /// Two reads of each row of TruSeq Single Index Set A at each offset from 0 to 8: the last k bases of `CCAGTCAC`, the
     /// index, `ATCTCGTATGCCGTCTTCTGCTTG` and an insert (BIO-SINGLE-OFFSET Q2, the real flank). The name is
-    /// `<row>|k<k>-<n>`, and the bases after the index are `afterIndex`.
+    /// `<row>|k<k>-<n>`, and `afterIndex` holds the bases the run writes after the index: the bases after it, less the G
+    /// bases at their 3' end that the NextSeq trim cuts (``nextseqTrimmed(_:)``).
     static func truseqReads() -> (reads: [Read], afterIndex: [String: String]) {
         var bases = DemultiplexDualFormTests.Bases()
         var reads: [Read] = []
@@ -48,7 +63,7 @@ final class DemultiplexSingleOffsetShiftTests: XCTestCase {
                     let name = "\(barcode.id)|k\(k)-\(index)"
                     let after = truseqAfter + bases.next(40)
                     reads.append((name, String(truseqBefore.suffix(k)) + barcode.i7Sequence + after))
-                    afterIndex[name] = after
+                    afterIndex[name] = nextseqTrimmed(after)
                 }
             }
         }
@@ -69,6 +84,7 @@ final class DemultiplexSingleOffsetShiftTests: XCTestCase {
         let kit = try BarcodeKitRegistry.loadCustomKit(from: csv, name: "K")
         XCTAssertEqual(kit.pairingMode, .singleEnd)
         XCTAssertFalse(kit.platform.readsCanBeReverseComplemented)
+        XCTAssertNil(kit.platform.defaultPolyGTrimQuality, "a Custom Definition's run passes no --nextseq-trim")
         return kit
     }
 
@@ -250,6 +266,10 @@ final class DemultiplexSingleOffsetShiftTests: XCTestCase {
     /// (BIO-SINGLE-OFFSET Q2, 216 of 216).
     func testTruSeqReadsUpToAndAtTheDistanceStayInTheirOwnRowsAtErrorZero() async throws {
         let (reads, afterIndex) = Self.truseqReads()
+        // The model is exercised: some made reads end in G, and the expected bases are shorter than the made ones by it.
+        XCTAssertTrue(reads.contains { Self.nextseqTrimmed($0.sequence) != $0.sequence }, "some made reads end in G")
+        XCTAssertEqual(Self.nextseqTrimmed("ACGTGG"), "ACGT", "the run of G at the 3' end is cut")
+        XCTAssertEqual(Self.nextseqTrimmed("GGACGT"), "GGACGT", "a G inside the read stays")
         let outcome = try await run(BarcodeKitRegistry.truseqSingleA, reads, location: .fivePrime, fivePrime: 8, errorRate: 0)
         report("e0", outcome, ["D703|k8-0", "D702|k8-0"])
         XCTAssertEqual(outcome.wrong, [])
@@ -289,7 +309,8 @@ final class DemultiplexSingleOffsetShiftTests: XCTestCase {
     /// (BIO-SINGLE-OFFSET item 1).
     func testARunWhoseSearchedDistanceIsZeroIsTheSameAsBefore() async throws {
         let (all, afterIndex) = Self.truseqReads()
-        // The reads with the index at the read start land in their rows. The reads 1 base in are found by no line.
+        // The reads with the index at the read start land in their rows. The reads 1 base in are found by no line, and
+        // Unassigned holds each of them whole, less the G bases the NextSeq trim cuts at its 3' end.
         let atStart = all.filter { $0.name.contains("|k0-") }
         let oneIn = all.filter { $0.name.contains("|k1-") }
         for (fivePrime, threePrime) in [(0, 0), (0, 3)] {
@@ -304,7 +325,9 @@ final class DemultiplexSingleOffsetShiftTests: XCTestCase {
             XCTAssertEqual(outcome.placedCount, 24, label)
             for (name, _) in atStart { XCTAssertEqual(outcome.sequence(of: name), afterIndex[name], "\(label) \(name)") }
             XCTAssertEqual(outcome.unassigned.map(\.name).sorted(), oneIn.map(\.name).sorted(), label)
-            for read in oneIn { XCTAssertEqual(outcome.sequence(of: read.name), read.sequence, "\(label) \(read.name)") }
+            for read in oneIn {
+                XCTAssertEqual(outcome.sequence(of: read.name), Self.nextseqTrimmed(read.sequence), "\(label) \(read.name)")
+            }
         }
         // 3' End with only a 5' Distance: the pair of (c) at the read end lands in the row the base's line ranks first.
         let kit = try customKit([("TGGGCGAA", "TGGGCGAA"), ("AGTGGGCG", "AGTGGGCG")])
