@@ -143,6 +143,36 @@ extension AffectedResults {
             && kit.sourceKitID == nil
     }
 
+    /// Whether a `lungfish fastq demultiplex` record is a Cutadapt search of single barcodes at offsets: the built-in TruSeq
+    /// Single Index Set A or B, named by `kit` or `resolvedKit`, or a definition that loads one sequence a row on a platform
+    /// that reads one strand, the kept copy first, with the distance of the searched end above 0. 5' End and Both Ends, the
+    /// default, search the 5' Distance, and 3' End the 3' Distance. Every published build from the writer's landing in
+    /// fe644e767 up to Preview 2026.11.12 ranked the lines of such a run by their N's, so a line further in could take a read
+    /// into another sample (DEMUX-SINGLE-OFFSET-SHIFT, BIO-SINGLE-OFFSET item 3). The engine is `cutadapt` or none, and the
+    /// error rate and the floor do not matter. The CLI has no sample sheet. It reads a file, so the Inspector's lookup runs it
+    /// off the main actor.
+    static func searchedSingleBarcodesAtAnOffset(_ envelope: ProvenanceEnvelope) -> Bool {
+        let options = envelope.options.explicit
+        if case .string(let engine)? = options["engine"], engine != "cutadapt" { return false }
+        var location = "bothends"
+        if case .string(let named)? = options["resolvedLocation"] ?? options["location"] { location = named.lowercased() }
+        let searched: String
+        switch location {
+        case "5prime", "five-prime", "fiveprime", "bothends", "both", "both-ends", "both_ends": searched = "maxDistanceFrom5Prime"
+        case "3prime", "three-prime", "threeprime": searched = "maxDistanceFrom3Prime"
+        default: return false
+        }
+        switch options[searched] {
+        case .integer(let value)? where value > 0: break
+        case .number(let value)? where value > 0: break
+        default: return false
+        }
+        let builtIn = [BarcodeKitRegistry.truseqSingleA.id, BarcodeKitRegistry.truseqSingleB.id].map(ParameterValue.string)
+        if ["kit", "resolvedKit"].contains(where: { name in options[name].map { builtIn.contains($0) } == true }) { return true }
+        guard let kit = recordedCustomKit(options) else { return false }
+        return kit.pairingMode == .singleEnd && !kit.platform.readsCanBeReverseComplemented
+    }
+
     /// The custom definition a demultiplexing record names: the copy the run kept in its result folder, else the file `kit`
     /// names when it is no built-in kit id, or nil when neither can be read.
     private static func recordedCustomKit(_ options: [String: ParameterValue]) -> BarcodeKitDefinition? {

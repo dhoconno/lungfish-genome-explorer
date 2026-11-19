@@ -48,6 +48,11 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     /// in the other (DEMUX-DUAL-FORM, BIO-DUAL-FORM item 5). It is a narrower ``fastqDemultiplexDualSearchedAnywhere``, so
     /// every row of that kind names it too.
     case fastqDemultiplexDualFormSwap
+    /// A demultiplexing run of a single-index kit, TruSeq Single Index Set A or B or a Custom Definition with one sequence
+    /// a row, on a platform that reads one strand, that searched its barcodes at offsets up to a 5' or 3' Distance above 0
+    /// with Cutadapt, whose rank put some reads in another sample (DEMUX-SINGLE-OFFSET-SHIFT, BIO-SINGLE-OFFSET item 3). It
+    /// is a narrower ``fastqDemultiplex``, so every row of that kind names it too.
+    case fastqDemultiplexSingleOffset
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -447,6 +452,7 @@ public enum AffectedResults {
             kinds: [
                 .fastqDemultiplex, .fastqDemultiplexSaturatedKit, .fastqDemultiplexExactBareNames,
                 .fastqDemultiplexDualSearchedAnywhere, .fastqDemultiplexDualOneEnd, .fastqDemultiplexDualFormSwap,
+                .fastqDemultiplexSingleOffset,
             ],
             firstBuild: nil, lastBuild: 12972,
             sentence: "If you chose Grouped Result for more than one dataset, this demultiplexing run read only the first "
@@ -505,6 +511,16 @@ public enum AffectedResults {
             whatToDo: "Run Demultiplex Barcodes again with this version, which reads the secondary sequence the way your "
                 + "reads carry it or stops and says why.",
             fixCommit: "95021de8b"
+        ),
+        // Lane DEMUX-SINGLE-OFFSET-SHIFT (BIO-SINGLE-OFFSET item 3). Every published build from 2026.8.1, the first that
+        // holds the writer fe644e767, searched a single-index kit with a distance above 0 with lines that Cutadapt ranks by
+        // their N's. 1a29a8dc0 is the first commit that keeps a placed read only in the row that fits it at the fewest errors.
+        AffectedResultRow(
+            backlogID: "DEMUX-SINGLE-OFFSET-SHIFT", kinds: [.fastqDemultiplexSingleOffset], firstBuild: 4192, lastBuild: 13764,
+            sentence: "This run searched for single barcodes set in from the read end, and the build that ran it could place "
+                + "some reads in another sample.",
+            whatToDo: "Run it again in this version.",
+            fixCommit: "1a29a8dc0"
         ),
         // S1 sweep 2026-11-17 lane DEMUX-EXACTBARE-NAMES (BIO-DEMUX-THREE item 11, section 2a). Every build with Exact Bare
         // Barcode, from its landing in 4389cd101, searched the read sequences of reads whose barcodes sat in their names.
@@ -629,7 +645,8 @@ extension AffectedResults {
             if searchedCustomDualPairsThatCouldSwap(envelope) { return .fastqDemultiplexDualFormSwap }
             if searchedCustomDualPairsAnywhere(envelope) { return .fastqDemultiplexDualSearchedAnywhere }
             if searchedCustomDualPairsAtOneEnd(envelope) { return .fastqDemultiplexDualOneEnd }
-            return searchedWithAKitTheFloorCannotJudge(envelope) ? .fastqDemultiplexSaturatedKit : .fastqDemultiplex
+            if searchedWithAKitTheFloorCannotJudge(envelope) { return .fastqDemultiplexSaturatedKit }
+            return searchedSingleBarcodesAtAnOffset(envelope) ? .fastqDemultiplexSingleOffset : .fastqDemultiplex
         case RecordName.fastqImport:
             let guessed = envelope.steps.contains { runs("fastp", $0) && $0.argv.contains(fastpPairedAdapterGuess) }
             return guessed ? .fastqRecipeImport : nil
