@@ -9,7 +9,8 @@
 // score and scores each N as a matched base, so a line of another row further in beat the right row's line at the read
 // ends and moved the read into another sample with no word. A read now stays in a row only when no other row fits it at
 // the same or fewer errors, and a read that two rows fit equally goes to Unassigned and is counted. Each test but the
-// first runs Cutadapt.
+// first runs Cutadapt. Every Illumina kit trims poly-G (`--nextseq-trim=20`), so Cutadapt and the check search each read
+// with its final G's cut, and each test names the reads whose 3' index the trim cuts (LINKED-CONT).
 
 import XCTest
 @testable import LungfishIO
@@ -126,6 +127,24 @@ final class DemultiplexLinkedOffsetShiftTests: XCTestCase {
     /// The row a read's name starts with.
     func own(_ name: String) -> String { String(name.split(separator: "|")[0]) }
 
+    /// The bases the run's NextSeq trim cuts from the 3' end of `sequence`. Every Illumina kit trims poly-G
+    /// (`--nextseq-trim=20`), and Cutadapt cuts each read's final G's (every quality here is `I`) before it searches the
+    /// lines, so Cutadapt and the check both search the read as cut, and Unassigned holds it as cut.
+    static func cut(_ sequence: String, _ kit: BarcodeKitDefinition) -> Int {
+        guard let cutoff = kit.platform.defaultPolyGTrimQuality else { return 0 }
+        let bases = Array(sequence.utf8)
+        let qualities = [UInt8](repeating: UInt8(ascii: "I"), count: bases.count)
+        return bases.count - DemultiplexingPipeline.nextseqTrimIndex(bases, qualities, cutoff: cutoff)
+    }
+
+    /// The bases of a made read's 3' index the trim cuts: the cut first takes the `k` bases past the index that the
+    /// read's name `<row>|k<k>|<strand>` gives.
+    static func indexBasesCut(_ read: Read, _ kit: BarcodeKitDefinition) -> Int {
+        let part = read.name.split(separator: "|").dropFirst().first ?? ""
+        let k = part.hasPrefix("k") ? Int(part.dropFirst()) ?? 0 : 0
+        return max(0, cut(read.sequence, kit) - k)
+    }
+
     // MARK: - The route the check runs on
 
     /// The check runs on the lines `writeLinkedAdapterFASTA` writes through the built-in dual route: the built-in TruSeq HT
@@ -199,23 +218,35 @@ final class DemultiplexLinkedOffsetShiftTests: XCTestCase {
     // MARK: - (c) The D703 rows at 8/8
 
     /// D701 `ATTACTCG` fits a D703 `CGCTCATT` read with one indel 5 bases further in, so at 8/8 and error 0.15 every read of
-    /// a D703 row whose indexes sit 0 to 3 bases in landed in no D703 row at the base (BIO-LINKED-OFFSET item 2 (c), all 8
-    /// D703 rows at 3 bases in; BIO-SINGLE-OFFSET Q2 puts them in D701). D703-D501 and D703-D508 fit their reads, on both
-    /// strands, with no error, so the reads now land in their own rows.
+    /// a D703 row whose indexes sit 0 to 3 bases in landed in D701 at the base (BIO-LINKED-OFFSET item 2 (c), all 8 D703
+    /// rows at 3 bases in; BIO-SINGLE-OFFSET Q2). They now leave D701. D703-D501 and D703-D508 fit their reads with no
+    /// error on the strand as written, and on the other strand at 2 and 3 bases in, so those 12 land in their own rows. On
+    /// the other strand at 0 and 1 bases in the read ends in rc(D703) `AATGAGCG`, then `G` at 1 base in, and the NextSeq
+    /// trim cuts those final G's before the search. D703 then fits the cut read with one error, the G it lost, and D701
+    /// fits it with one indel 4 bases in, so the two rows tie and those 4 reads go to Unassigned as cut and are counted.
     func testTruSeqHTReadsOfD703ThatD701FitsFurtherInLandInTheirOwnRows() async throws {
+        let kit = BarcodeKitRegistry.truseqHTDual
         let rows = ["D703-D501", "D703-D508"].flatMap { id in (0...3).map { (id: id, k: $0, strands: "FR") } }
-        let (reads, trimmed) = try Self.reads(BarcodeKitRegistry.truseqHTDual, Self.truseq, rows)
+        let (reads, trimmed) = try Self.reads(kit, Self.truseq, rows)
         XCTAssertEqual(reads.count, 16)
-        let outcome = try await run(BarcodeKitRegistry.truseqHTDual, reads, distance: 8, errorRate: 0.15)
+        let tied = reads.filter { Self.indexBasesCut($0, kit) > 0 }.map(\.name)
+        XCTAssertEqual(tied, ["D703-D501|k0|R", "D703-D501|k1|R", "D703-D508|k0|R", "D703-D508|k1|R"])
+        let outcome = try await run(kit, reads, distance: 8, errorRate: 0.15)
         report("(c)", outcome, reads.map(\.name))
-        for (name, _) in reads {
-            XCTAssertTrue(outcome.row(of: name).hasPrefix("D703-"), "\(name) is in \(outcome.row(of: name)), no D703 row")
-            XCTAssertEqual(outcome.row(of: name), own(name), name)
-            XCTAssertEqual(outcome.sequence(of: name), trimmed[name], "\(name) is trimmed between its indexes")
+        for (name, sequence) in reads {
+            XCTAssertFalse(outcome.row(of: name).hasPrefix("D701-"), "\(name) is in \(outcome.row(of: name)), the row further in")
+            if tied.contains(name) {
+                XCTAssertEqual(outcome.row(of: name), "Unassigned", "\(name) ties D703 and D701 at one error")
+                XCTAssertEqual(outcome.sequence(of: name), String(sequence.dropLast(Self.cut(sequence, kit))), "\(name) as cut")
+            } else {
+                XCTAssertEqual(outcome.row(of: name), own(name), name)
+                XCTAssertEqual(outcome.sequence(of: name), trimmed[name], "\(name) is trimmed between its indexes")
+            }
         }
         XCTAssertEqual(outcome.wrong, [])
-        XCTAssertEqual(outcome.unassignedCount, 0)
-        XCTAssertEqual(outcome.ambiguous, 0)
+        XCTAssertEqual(outcome.placedCount, 12)
+        XCTAssertEqual(outcome.unassignedCount, 4)
+        XCTAssertEqual(outcome.ambiguous, 4)
     }
 
     // MARK: - (d) A Nextera read that two rows fit equally
@@ -225,15 +256,21 @@ final class DemultiplexLinkedOffsetShiftTests: XCTestCase {
     static let nexteraInsert = "GCAGGTGGCGTGAAGAGTACTCGGCAAACATGACGGGGACTAGACGACTGGAAGCAG"
 
     /// The built-in Nextera XT Index Kit v2 at Both Ends, 3/3, error 0 (BIO-LINKED-OFFSET item 2 (d), BIO-OFFSET-TIES item
-    /// 4). The read is N711 `AAGAGGCA`, `GAA`, 57 bases and `ATAGAGAG`, rc(S502). N703 `AGGCAGAA` is N711 moved 3 bases in,
-    /// so the line `^N{3}AGGCAGAA...ATAGAGAG$` scored 11 + 8 over N711-S502's 8 + 8 and put the read in N703-S502 at the
-    /// base. Both rows fit it with no error, and no further key breaks a tie, so it goes to Unassigned whole and is counted
-    /// in the words of both distances. Two reads of each row that only their own row fits stay in it.
+    /// 4). The read is N711 `AAGAGGCA`, `GAA`, 57 bases, `ATAGAGAG`, rc(S502), and `GT`, the first 2 bases of the real flank
+    /// past rc(S502). A read that ended in rc(S502) would end in G, which the NextSeq trim cuts before the search, so at
+    /// error 0 no line would fit it and, with every read so cut, the chance floor would refuse the run. N703 `AGGCAGAA` is
+    /// N711 moved 3 bases in, so the line `^N{3}AGGCAGAA...ATAGAGAGN{2}$` scored 11 + 10 over N711-S502's 8 + 10 and put
+    /// the read in N703-S502 at the base. Both rows fit it with no error, and no further key breaks a tie, so it goes to
+    /// Unassigned whole and is counted in the words of both distances. Two reads of each row that only their own row fits
+    /// stay in it, so each row beats the floor.
     func testANexteraReadThatTwoRowsFitEquallyGoesToUnassignedAndIsCounted() async throws {
         XCTAssertEqual(Self.nexteraInsert.count, 57)
-        let tied: Read = ("N711-S502|tied", "AAGAGGCA" + "GAA" + Self.nexteraInsert + "ATAGAGAG")
+        let tied: Read = ("N711-S502|tied", "AAGAGGCA" + "GAA" + Self.nexteraInsert + "ATAGAGAG" + "GT")
         let fillers: [Read] = [("N711-S502", "AAGAGGCA"), ("N703-S502", "AGGCAGAA")].flatMap { row, i7 in
-            (0..<2).map { index -> Read in ("\(row)|fill-\(index)", i7 + "CCC" + Self.nexteraInsert + "ATAGAGAG") }
+            (0..<2).map { index -> Read in ("\(row)|fill-\(index)", i7 + "CCC" + Self.nexteraInsert + "ATAGAGAG" + "GT") }
+        }
+        for (name, sequence) in [tied] + fillers {
+            XCTAssertEqual(Self.cut(sequence, BarcodeKitRegistry.nexteraXTv2), 0, "the trim cuts no base of \(name)")
         }
         let outcome = try await run(BarcodeKitRegistry.nexteraXTv2, [tied] + fillers, distance: 3, errorRate: 0)
         report("(d)", outcome, [tied.name] + fillers.map(\.name))
@@ -258,20 +295,39 @@ final class DemultiplexLinkedOffsetShiftTests: XCTestCase {
 
     // MARK: - (e) Green before and after the fix
 
-    /// At 0/0 no line holds an N and the run does not check its reads, so both kits place and trim every read as before: a
-    /// molecule of each row with its indexes at the read ends, on both strands (BIO-LINKED-OFFSET item 2 (e), 576 of 576
-    /// and 504 of 504).
+    /// At 0/0 no line holds an N and the run does not check its reads, so both kits place and trim reads as before: a
+    /// molecule of each row with its indexes at the read ends, on both strands (BIO-LINKED-OFFSET item 2 (e)). The NextSeq
+    /// trim cuts the final G's of a read whose 3' index ends in G before the search, and each G it cuts is one error of
+    /// that index. A read that loses more than floor(e x 8) goes to Unassigned as cut, before this lane as after it: at
+    /// error 0.15 the 12 TruSeq HT reads `D7xx-D503|k0|F`, which end in rc(D503) `AGGATAGG`, and at error 0 the 48 TruSeq
+    /// HT and 52 Nextera reads that end in G. Every other read lands in its own row, trimmed between its indexes.
     func testBothKitsAtNoDistanceAreTheSameAsBefore() async throws {
+        let lost = ["truseq-ht-dual 0.0": 48, "truseq-ht-dual 0.15": 12, "nextera-xt-v2 0.0": 52, "nextera-xt-v2 0.15": 0]
         for (kit, flanks) in [(BarcodeKitRegistry.truseqHTDual, Self.truseq), (BarcodeKitRegistry.nexteraXTv2, Self.nextera)] {
             let (reads, trimmed) = try Self.reads(kit, flanks, kit.barcodes.map { (id: $0.id, k: 0, strands: "FR") })
-            let outcome = try await run(kit, reads, distance: 0, errorRate: 0.15)
-            report("(e) 0/0 \(kit.id)", outcome, [])
-            XCTAssertNil(outcome.ambiguous, kit.id)
-            XCTAssertNil(outcome.ends, kit.id)
-            XCTAssertEqual(outcome.wrong, [], kit.id)
-            XCTAssertEqual(outcome.placedCount, kit.barcodes.count * 2, kit.id)
-            XCTAssertEqual(outcome.unassignedCount, 0, kit.id)
-            for (name, _) in reads { XCTAssertEqual(outcome.sequence(of: name), trimmed[name], "\(kit.id) \(name)") }
+            for errorRate in [0.0, 0.15] {
+                let label = "\(kit.id) \(errorRate)"
+                // Each index is 8 bases, so each fits with at most floor(e x 8) errors.
+                let budget = Int((errorRate * 8).rounded(.down))
+                let cutPast = Set(reads.filter { Self.indexBasesCut($0, kit) > budget }.map(\.name))
+                XCTAssertEqual(cutPast.count, lost[label], label)
+                let outcome = try await run(kit, reads, distance: 0, errorRate: errorRate)
+                report("(e) 0/0 \(label)", outcome, [])
+                XCTAssertNil(outcome.ambiguous, label)
+                XCTAssertNil(outcome.ends, label)
+                XCTAssertEqual(outcome.wrong, [], label)
+                XCTAssertEqual(outcome.placedCount, reads.count - cutPast.count, label)
+                XCTAssertEqual(outcome.unassignedCount, cutPast.count, label)
+                for (name, sequence) in reads {
+                    if cutPast.contains(name) {
+                        XCTAssertEqual(outcome.row(of: name), "Unassigned", "\(label) \(name)")
+                        XCTAssertEqual(outcome.sequence(of: name), String(sequence.dropLast(Self.cut(sequence, kit))), "\(label) \(name)")
+                    } else {
+                        XCTAssertEqual(outcome.row(of: name), own(name), "\(label) \(name)")
+                        XCTAssertEqual(outcome.sequence(of: name), trimmed[name], "\(label) \(name)")
+                    }
+                }
+            }
         }
     }
 
@@ -298,12 +354,21 @@ final class DemultiplexLinkedOffsetShiftTests: XCTestCase {
     /// The 96 rows of TruSeq HT at 3/3, a molecule of each with its indexes 0 to 3 bases in, four rows on one strand and the
     /// next four on the other, land in their own rows trimmed between their indexes at error 0 and 0.15, before and after
     /// (BIO-LINKED-OFFSET item 2 (e), 1,536 of 1,536 each). A line further in needs 5 or 6 bases more, past the distance.
+    /// rc(i7) of D703, D707 and D709 ends in G, and the real flank past it starts with G, so on the other strand their
+    /// reads at 0 and 1 bases in end in G's that the NextSeq trim cuts into the index before the search. At error 0 no line
+    /// fits such a read, and with one read a row the chance floor refuses the run. So the six rows with D505 and D506 that
+    /// the pattern puts on that strand are made on the strand as written, and the trim cuts no index base of any read.
     func testTruSeqHTReadsAtThreeBasesInStayInTheirOwnRowsAtBothErrorRates() async throws {
-        let rows = BarcodeKitRegistry.truseqHTDual.barcodes.enumerated().map { index, row in
+        let kit = BarcodeKitRegistry.truseqHTDual
+        let pattern = kit.barcodes.enumerated().map { index, row in
             (id: row.id, k: index % 4, strands: (index / 4) % 2 == 0 ? "F" : "R")
         }
-        let (reads, trimmed) = try Self.reads(BarcodeKitRegistry.truseqHTDual, Self.truseq, rows)
+        let cutInto = try Self.reads(kit, Self.truseq, pattern).reads.filter { Self.indexBasesCut($0, kit) > 0 }.map { own($0.name) }
+        XCTAssertEqual(cutInto, ["D703-D505", "D703-D506", "D707-D505", "D707-D506", "D709-D505", "D709-D506"])
+        let rows = pattern.map { row in cutInto.contains(row.id) ? (id: row.id, k: row.k, strands: "F") : row }
+        let (reads, trimmed) = try Self.reads(kit, Self.truseq, rows)
         XCTAssertEqual(reads.count, 96)
+        XCTAssertEqual(reads.filter { Self.indexBasesCut($0, kit) > 0 }.map(\.name), [])
         for errorRate in [0.0, 0.15] {
             let outcome = try await run(BarcodeKitRegistry.truseqHTDual, reads, distance: 3, errorRate: errorRate)
             report("(e) 3/3 e\(errorRate)", outcome, [])
