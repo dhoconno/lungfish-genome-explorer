@@ -15,9 +15,19 @@ extension DemultiplexingPipeline {
         /// The placed reads that two or more rows fit at their fewest errors, which went to Unassigned whole. The record
         /// names them as `ambiguousReads`, and the Unassigned count holds them.
         var ambiguous = 0
+        /// The ends the run's lines search, which name the distances in the words of ``ambiguousReadsLine(_:ends:)``.
+        var ends: SearchedEnds = .both
         /// Each read the check moved or sent to Unassigned, by `readID` and `mate` as the info file names them, kept only
         /// for a run that keeps trim positions, which reads its rows from the info file.
         var corrections: [String: TrimCorrection] = [:]
+    }
+
+    /// The ends of a read that a run's anchored lines search for barcodes: both (dual and linked lines), the start only
+    /// (5' lines) or the end only (3' lines). The record names it as `ambiguousReadsEnds` when it is not both.
+    public enum SearchedEnds: String, Sendable, Equatable {
+        case both
+        case fivePrime
+        case threePrime
     }
 
     /// A read the check moved or sent to Unassigned, as a run that keeps trim positions corrects them.
@@ -48,14 +58,37 @@ extension DemultiplexingPipeline {
         return result
     }
 
-    /// The words after the count in ``ambiguousReadsLine(_:)``, as BIO-OFFSET-SHIFT item 4 writes them.
-    public static let ambiguousReadsWords = " reads fit the barcodes of two samples within the 5' and 3' Distance and went "
-        + "to Unassigned. Set each distance only as far as your barcodes sit in from the read ends."
+    /// The words that stand between the count and the rest of ``ambiguousReadsLine(_:ends:)``. No other line of the window
+    /// holds them, so the window finds the line by them.
+    public static let ambiguousReadsMarker = " went to Unassigned because "
 
-    /// The line of the Operations Panel row and its Log for a run that sent `count` reads that two rows fit to Unassigned,
-    /// a line of information, or nil for none (BIO-OFFSET-SHIFT item 4).
-    public static func ambiguousReadsLine(_ count: Int) -> String? {
-        count > 0 ? DemultiplexError.grouped(count) + ambiguousReadsWords : nil
+    /// The words after the verb of ``ambiguousReadsLine(_:ends:)`` for lines that search both ends, BIO-OFFSET-SHIFT item 4
+    /// as the UX review of DEMUX-DUAL-OFFSET-SHIFT words it.
+    public static let ambiguousReadsWords = " the barcodes of two or more samples equally well within the 5' and 3' Distance. "
+        + "Set each distance only as far as your barcodes sit in from the read ends."
+
+    /// The words after the verb for the ends a run's lines search: both, the 5' Distance only or the 3' Distance only
+    /// (UX review of DEMUX-DUAL-OFFSET-SHIFT, ruling 4, whose second sentences are BIO-SINGLE-OFFSET item 4's).
+    public static func ambiguousReadsEndWords(_ ends: SearchedEnds) -> String {
+        switch ends {
+        case .both:
+            return ambiguousReadsWords
+        case .fivePrime:
+            return " the barcodes of two or more samples equally well within the 5' Distance. "
+                + "Set the distance only as far as your barcodes sit in from the start of the read."
+        case .threePrime:
+            return " the barcodes of two or more samples equally well within the 3' Distance. "
+                + "Set the distance only as far as your barcodes sit in from the end of the read."
+        }
+    }
+
+    /// The line of the Operations Panel row, its Log and the command's summary for a run that sent `count` reads that two
+    /// rows fit to Unassigned, a line of information, or nil for none. The count is grouped, as in "1,204", and the verb
+    /// agrees with it.
+    public static func ambiguousReadsLine(_ count: Int, ends: SearchedEnds = .both) -> String? {
+        guard count > 0 else { return nil }
+        let reads = count == 1 ? "1 read" : "\(DemultiplexError.grouped(count)) reads"
+        return reads + ambiguousReadsMarker + (count == 1 ? "it fits" : "they fit") + ambiguousReadsEndWords(ends)
     }
 
     /// Whether a run checks each placed read against the lines of every row: a Custom Definition of dual indexes at Both
@@ -144,6 +177,11 @@ struct AnchoredOffsetFit {
     let backs: [Probe]
     let indels: Bool
     private let rowOfOutput: [String: Int]
+
+    /// The ends the lines search.
+    var ends: DemultiplexingPipeline.SearchedEnds {
+        fronts.isEmpty ? .threePrime : backs.isEmpty ? .fivePrime : .both
+    }
 
     /// The lines of `adapterFASTA`, each output's row named by `rowOf`, or nil when a line is not anchored at the ends it
     /// searches or the file holds no line.
@@ -442,6 +480,7 @@ struct DemultiplexOffsetShiftPass {
         }
 
         var counts = DemultiplexingPipeline.OffsetShiftCounts()
+        counts.ends = fit.ends
         func correct(_ input: RawFASTQRecord, from placed: Int, to row: Int?, keep: Range<Int>) {
             guard let correctionKey else { return }
             let length = input.sequence.count

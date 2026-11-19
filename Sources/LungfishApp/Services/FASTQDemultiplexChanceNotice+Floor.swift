@@ -148,27 +148,33 @@ extension FASTQDemultiplexChanceNotice {
     }
 
     /// The count of reads that two rows fit at their fewest errors, from the `ambiguousReads` of the run folders' records,
-    /// in the ruling's two sentences, each line once, or nil when no record counts one (DEMUX-DUAL-OFFSET-SHIFT,
-    /// BIO-OFFSET-SHIFT item 4). It is a line of information and no warning. It reads files.
+    /// added over the commands of a run of several inputs, in the ruling's words, or nil when no record counts one
+    /// (DEMUX-DUAL-OFFSET-SHIFT, BIO-OFFSET-SHIFT item 4). The words name the distances of the ends the lines searched,
+    /// the record's `ambiguousReadsEnds`, both when it names none. It is a line of information and no warning. It reads
+    /// files.
     static func ambiguousReadsLine(for result: FASTQOperationExecutionResult) -> String? {
         guard case .derivative(.demultiplex, _, _) = result.resolvedRequest else { return nil }
-        var lines: [String] = []
+        var total = 0
+        var ends: DemultiplexingPipeline.SearchedEnds?
         for folder in runFolders(for: result) {
             guard let envelope = try? ProvenanceEnvelopeReader.loadCanonical(from: folder),
-                  case .integer(let count)? = envelope.options.explicit["ambiguousReads"],
-                  let line = DemultiplexingPipeline.ambiguousReadsLine(count), !lines.contains(line) else { continue }
-            lines.append(line)
+                  case .integer(let count)? = envelope.options.explicit["ambiguousReads"] else { continue }
+            total += count
+            if ends == nil {
+                if case .string(let raw)? = envelope.options.explicit["ambiguousReadsEnds"] {
+                    ends = DemultiplexingPipeline.SearchedEnds(rawValue: raw)
+                } else {
+                    ends = .both
+                }
+            }
         }
-        return lines.isEmpty ? nil : lines.joined(separator: " ")
+        return DemultiplexingPipeline.ambiguousReadsLine(total, ends: ends ?? .both)
     }
 
-    /// Where the line of ``ambiguousReadsLine(for:)`` starts in `line`, at its count.
+    /// Where the line of ``ambiguousReadsLine(for:)`` starts in `line`, at its count, "1,204 reads" or "1 read".
     static func ambiguousReadsLineStart(in line: String) -> String.Index? {
-        guard var start = line.range(of: DemultiplexingPipeline.ambiguousReadsWords)?.lowerBound else { return nil }
-        while start > line.startIndex, line[line.index(before: start)].isNumber || line[line.index(before: start)] == "," {
-            start = line.index(before: start)
-        }
-        return start
+        let marker = NSRegularExpression.escapedPattern(for: DemultiplexingPipeline.ambiguousReadsMarker)
+        return line.range(of: "[0-9][0-9,]* reads?" + marker, options: .regularExpression)?.lowerBound
     }
 
     /// The information line of ``rowWords(for:)`` split into the floor's limit and the lines of the form and of the reads

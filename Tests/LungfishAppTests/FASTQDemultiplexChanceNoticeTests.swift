@@ -104,7 +104,7 @@ final class FASTQDemultiplexChanceNoticeTests: XCTestCase {
     /// The record of a Cutadapt run in its own folder under the test's folder, with the two fields the command writes for a
     /// Custom Definition of dual indexes at Both Ends with no sample sheet (BIO-DUAL-FORM item 2), and the result of the run.
     private func dualFormResult(
-        form: String?, votes: [String: Int], ambiguousReads: Int? = nil
+        form: String?, votes: [String: Int], ambiguousReads: Int? = nil, ambiguousReadsEnds: String? = nil
     ) throws -> FASTQOperationExecutionResult {
         let run = folder.appendingPathComponent("run-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: run, withIntermediateDirectories: true)
@@ -116,6 +116,7 @@ final class FASTQDemultiplexChanceNoticeTests: XCTestCase {
             parameters["secondaryFormVotes"] = .dictionary(votes.mapValues { ParameterValue.integer($0) })
         }
         if let ambiguousReads { parameters["ambiguousReads"] = .integer(ambiguousReads) }
+        if let ambiguousReadsEnds { parameters["ambiguousReadsEnds"] = .string(ambiguousReadsEnds) }
         let argv = ["lungfish-cli", "fastq", "demultiplex", "reads.fastq", "--output", run.path]
         let envelope = try ProvenanceRunBuilder(
             workflowName: "lungfish fastq demultiplex", workflowVersion: "2026.11",
@@ -189,8 +190,8 @@ final class FASTQDemultiplexChanceNoticeTests: XCTestCase {
         let votes = ["readsRead": 480, "asWritten": 0, "reverseComplemented": 412, "disputed": 0, "rowsCarrying": 12]
         let form = "The run read each secondary sequence reverse complemented, as the i5 primer's barcode, since 412 of the "
             + "first 480 reads carry it that way."
-        let words = "1,204 reads fit the barcodes of two samples within the 5' and 3' Distance and went to Unassigned. Set "
-            + "each distance only as far as your barcodes sit in from the read ends."
+        let words = "1,204 reads went to Unassigned because they fit the barcodes of two or more samples equally well within the 5' "
+            + "and 3' Distance. Set each distance only as far as your barcodes sit in from the read ends."
         let center = OperationCenter()
         let result = FASTQDemultiplexChanceNotice.rowWords(
             for: try dualFormResult(form: "reverse-complemented", votes: votes, ambiguousReads: 1_204)
@@ -206,10 +207,67 @@ final class FASTQDemultiplexChanceNoticeTests: XCTestCase {
         XCTAssertEqual(item.logEntries.map(\.message), [form, words])
         XCTAssertEqual(item.logEntries.map(\.level), [.info, .info])
         XCTAssertFalse(item.hasWarnings, "the line adds no warning")
+        XCTAssertFalse(words.contains("\u{2014}") || words.contains(";") || words.contains(":"), words)
 
         let zero = FASTQDemultiplexChanceNotice.rowWords(
             for: try dualFormResult(form: "reverse-complemented", votes: votes, ambiguousReads: 0)
         )
         XCTAssertEqual(zero.floorLimitLine, form, "a count of 0 says nothing")
+    }
+
+    /// A count of one reads in the singular and the window finds the line by its marker, whatever the count.
+    func testTheLineOfReadsThatTwoRowsFitAgreesWithItsCount() throws {
+        let tail = " the barcodes of two or more samples equally well within the 5' and 3' Distance. Set each distance only as far "
+            + "as your barcodes sit in from the read ends."
+        XCTAssertEqual(DemultiplexingPipeline.ambiguousReadsLine(1), "1 read went to Unassigned because it fits" + tail)
+        XCTAssertEqual(DemultiplexingPipeline.ambiguousReadsLine(2), "2 reads went to Unassigned because they fit" + tail)
+        XCTAssertNil(DemultiplexingPipeline.ambiguousReadsLine(0))
+        let line = "The run read each secondary sequence as written, since 10,000 reads carry it that way. "
+            + (DemultiplexingPipeline.ambiguousReadsLine(1) ?? "")
+        let start = try XCTUnwrap(FASTQDemultiplexChanceNotice.ambiguousReadsLineStart(in: line))
+        XCTAssertTrue(line[start...].hasPrefix("1 read went to Unassigned because it fits"))
+    }
+
+    /// The counts of the commands of a run of several inputs make one line, not one for equal counts or two for different ones.
+    func testTheCountsOfSeveralInputsMakeOneLine() throws {
+        let votes = ["readsRead": 480, "asWritten": 412, "reverseComplemented": 0, "disputed": 0, "rowsCarrying": 12]
+        let first = try dualFormResult(form: "as-written", votes: votes, ambiguousReads: 2)
+        let second = try dualFormResult(form: "as-written", votes: votes, ambiguousReads: 2)
+        let both = FASTQOperationExecutionResult(
+            resolvedRequest: first.resolvedRequest, executedInvocations: [],
+            importedURLs: first.importedURLs + second.importedURLs, groupedContainerURL: nil
+        )
+        XCTAssertEqual(FASTQDemultiplexChanceNotice.ambiguousReadsLine(for: both), DemultiplexingPipeline.ambiguousReadsLine(4))
+    }
+
+    /// A run whose lines search one end names that end's distance, from the record's `ambiguousReadsEnds`, so the routes of
+    /// single-barcode kits reuse the line (UX review of DEMUX-DUAL-OFFSET-SHIFT, ruling 4). A record that names no ends
+    /// searched both. Each line keeps the marker the window finds it by, in the singular too.
+    @MainActor
+    func testTheLineNamesTheDistanceOfTheEndsTheLinesSearched() throws {
+        let cases: [(ends: String?, count: Int, line: String)] = [
+            (nil, 3, "3 reads went to Unassigned because they fit the barcodes of two or more samples equally well within the "
+                + "5' and 3' Distance. Set each distance only as far as your barcodes sit in from the read ends."),
+            ("fivePrime", 1_204, "1,204 reads went to Unassigned because they fit the barcodes of two or more samples equally "
+                + "well within the 5' Distance. Set the distance only as far as your barcodes sit in from the start of the read."),
+            ("threePrime", 1, "1 read went to Unassigned because it fits the barcodes of two or more samples equally well "
+                + "within the 3' Distance. Set the distance only as far as your barcodes sit in from the end of the read."),
+        ]
+        let center = OperationCenter()
+        for (ends, count, line) in cases {
+            let result = try dualFormResult(form: nil, votes: [:], ambiguousReads: count, ambiguousReadsEnds: ends)
+            let words = FASTQDemultiplexChanceNotice.rowWords(for: result)
+            XCTAssertEqual(words.floorLimitLine, line)
+            XCTAssertEqual(FASTQDemultiplexChanceNotice.rowDetail(words.notice, words.floorLimitLine, "Done in 12.3s"),
+                           line + " Done in 12.3s", "no floor prefix in front of the line")
+            let id = try XCTUnwrap(center.begin(
+                title: "Demultiplex Barcodes", detail: "", operationType: .fastqOperation, cliCommand: "lungfish fastq demultiplex"
+            ).startedID)
+            FASTQDemultiplexChanceNotice.log(words.notice, words.floorLimitLine, id: id, in: center)
+            let item = try XCTUnwrap(center.items.first { $0.id == id })
+            XCTAssertEqual(item.logEntries.map(\.message), [line])
+            XCTAssertEqual(item.logEntries.map(\.level), [.info])
+            XCTAssertFalse(line.contains("\u{2014}") || line.contains(";") || line.contains(":"), line)
+        }
     }
 }

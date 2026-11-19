@@ -945,7 +945,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             chanceFloor: chanceFloor,
             engine: .cutadapt,
             secondaryForm: adapterConfig.secondaryForm,
-            ambiguousReads: offsetShift?.ambiguous
+            ambiguousReads: offsetShift?.ambiguous,
+            ambiguousReadsEnds: offsetShift?.ends
         )
     }
 

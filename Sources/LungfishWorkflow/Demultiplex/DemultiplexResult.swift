@@ -40,4 +40,8 @@ public struct DemultiplexResult: Sendable {
     /// The placed reads that two or more rows fit at their fewest errors, which went to Unassigned, on the route of
     /// `secondaryForm` with a 5' or 3' Distance above 0 (DEMUX-DUAL-OFFSET-SHIFT), or nil on every other run.
     public var ambiguousReads: Int? = nil
+
+    /// The ends the lines of a checked run search, which name the distances in the words of `ambiguousReads`, or nil
+    /// where `ambiguousReads` is nil.
+    public var ambiguousReadsEnds: DemultiplexingPipeline.SearchedEnds? = nil
 }

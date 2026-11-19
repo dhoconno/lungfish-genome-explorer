@@ -499,6 +499,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         // The placed reads that two rows fit at their fewest errors, which went to Unassigned, on that route with a
         // distance above 0 (DEMUX-DUAL-OFFSET-SHIFT, BIO-OFFSET-SHIFT item 4).
         if let ambiguous = result.ambiguousReads { provenanceParameters["ambiguousReads"] = .integer(ambiguous) }
+        if let ends = result.ambiguousReadsEnds, ends != .both { provenanceParameters["ambiguousReadsEnds"] = .string(ends.rawValue) }
 
         // How the mates of a paired input were placed (A9, D6).
         if let mateCalls = result.manifest.mateCalls {
@@ -560,6 +561,9 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         FileHandle.standardError.write(Data("Input reads: \(result.manifest.inputReadCount)\n".utf8))
         FileHandle.standardError.write(Data("Assigned: \(result.manifest.assignedReadCount) (\(String(format: "%.1f%%", result.manifest.assignmentRate * 100)))\n".utf8))
         FileHandle.standardError.write(Data("Unassigned: \(result.manifest.unassigned.readCount)\n".utf8))
+        if let line = DemultiplexingPipeline.ambiguousReadsLine(result.ambiguousReads ?? 0, ends: result.ambiguousReadsEnds ?? .both) {
+            FileHandle.standardError.write(Data((line + "\n").utf8))
+        }
         if let mateCalls = result.manifest.mateCalls {
             FileHandle.standardError.write(Data((
                 "Mate pairs: \(mateCalls.pairs) (\(mateCalls.bothMatesAgree) with both mates called alike, "
