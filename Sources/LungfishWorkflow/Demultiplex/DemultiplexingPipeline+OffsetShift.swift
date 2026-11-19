@@ -107,10 +107,25 @@ extension DemultiplexingPipeline {
     /// Ends with no sample sheet and a 5' or 3' Distance above 0 (BIO-OFFSET-SHIFT items 1 and 2), and a single-index kit
     /// searched at an offset (``searchesSingleBarcodesAtAnOffset(_:)``, BIO-SINGLE-OFFSET items 1 and 2). At a searched
     /// distance of 0 no line holds an N, so Cutadapt's rank by score is a rank by errors, and the run stays as it was byte
-    /// for byte. A run that trims poly-G is checked on each read as Cutadapt searched it, after its NextSeq trim.
+    /// for byte. A run that trims poly-G is checked on each read as Cutadapt searched it, after its NextSeq trim. The
+    /// built-in dual route (``searchesBuiltInDualPairsAtAnOffset(_:)``, BIO-LINKED-OFFSET items 1 and 2) is checked too.
     func checksPlacedReadsByFewestErrors(_ config: DemultiplexConfig) -> Bool {
         (usesObservedCustomBarcodePairs(config) && (config.maxDistanceFrom5Prime > 0 || config.maxDistanceFrom3Prime > 0))
             || searchesSingleBarcodesAtAnOffset(config)
+            || searchesBuiltInDualPairsAtAnOffset(config)
+    }
+
+    /// Whether a run writes the lines of `writeLinkedAdapterFASTA` with offsets through the `.fixedDual` case: a dual kit of
+    /// fixed pairs that is not the observed route of a Custom Definition, which is the built-in TruSeq HT Dual Index or
+    /// Nextera XT Index Kit v2 or a definition whose `# kit:` line names one of them or IDT for Illumina UD Indexes, with
+    /// no sample sheet on a platform that reads one strand, at Both Ends with a 5' or 3' Distance above 0. Its rows are the
+    /// writer's entries, `^N{a}i7...rc(i5)N{b}$` and the other strand `^N{a}i5...rc(i7)N{b}$`, every line named by its row,
+    /// so the check takes them as written (BIO-LINKED-OFFSET items 1 and 2). A dual kit is refused at 5' End and 3' End.
+    func searchesBuiltInDualPairsAtAnOffset(_ config: DemultiplexConfig) -> Bool {
+        let kit = config.barcodeKit
+        guard config.sampleAssignments.isEmpty, kit.pairingMode == .fixedDual, config.barcodeLocation == .bothEnds,
+              !kit.platform.readsCanBeReverseComplemented, !usesObservedCustomBarcodePairs(config) else { return false }
+        return config.maxDistanceFrom5Prime > 0 || config.maxDistanceFrom3Prime > 0
     }
 
     /// Whether a run writes the lines of `writeSingleEndAdapterFASTA` with offsets: a single-index kit, the built-in
