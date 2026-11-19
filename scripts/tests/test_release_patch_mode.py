@@ -354,6 +354,18 @@ class PatchModeTests(PatchFixture):
         _command, arguments = self.start_build(operations, request)
         self.assertNotIn("LUNGFISH_BUILD_NUMBER", arguments["env"])
 
+    def test_a_stable_package_on_a_branch_that_holds_a_later_release_tag_stamps_nothing(self):
+        self.repository.git("switch", "-q", "-c", "from-preview", "v2026.11.8")
+        self.repository.commit("candidate on a preview", {"docs/release-notes/2026.11.9.md": PATCH_NOTES})
+        operations = self.operations()
+        request = self.request()
+        operations.verify_package_source(request)
+        operations.runner.commands.clear()
+        _command, arguments = self.start_build(operations, request)
+        self.assertNotIn("LUNGFISH_BUILD_NUMBER", arguments["env"])
+        self.assertEqual(operations.runner.commands, [])
+        self.finish_build(operations, request, "3")
+
 
 class TodayPinTests(PatchFixture):
     """A Preview package and publish, and a stable release from main, run the commands of today, word for word."""
@@ -432,37 +444,42 @@ class TodayPinTests(PatchFixture):
         self.assertEqual(operations.runner.commands, [self.floor("sparkle-alpha", "appcast-alpha.xml", "77"),
                                                       self.floor("sparkle-beta", "appcast-beta.xml", "77")])
 
-    def test_tag_and_push_of_a_preview_run_todays_commands(self):
-        head = self.on_main("2026.11.10")
-        identity = self.release.CandidateIdentity(receipt=self.receipt, tag="v2026.11.10", commit=head,
-                                                  version="2026.11.10", scratch_path=self.base / "scratch")
-        operations = self.operations()
-        operations.ensure_annotated_tag(self.request(channel="preview", mode="publish"), identity)
-        remote_tag = ["git", "ls-remote", "--tags", "origin", "refs/tags/v2026.11.10", "refs/tags/v2026.11.10^{}"]
-        self.assertEqual(operations.runner.commands, [
-            ["git", "branch", "--show-current"],
-            remote_tag,
-            ["gh", "release", "view", "v2026.11.10"],
-            ["git", "cat-file", "-t", "v2026.11.10"],
-            ["git", "tag", "-a", "v2026.11.10", head, "-m", "Lungfish v2026.11.10"],
-            ["git", "push", "--atomic", "origin", "main", "v2026.11.10"],
-            remote_tag,
-        ])
-        self.assertEqual(self.repository.git("rev-parse", "refs/heads/main", cwd=self.repository.origin), head)
+    def test_tag_and_push_of_a_preview_and_of_a_stable_release_from_main_run_todays_commands(self):
+        for channel in ("preview", "stable"):
+            with self.subTest(channel=channel):
+                self.setUp()  # A new repository, since the first pass leaves v2026.11.10 on origin.
+                head = self.on_main("2026.11.10", channel.title())
+                identity = self.release.CandidateIdentity(receipt=self.receipt, tag="v2026.11.10", commit=head,
+                                                          version="2026.11.10", scratch_path=self.base / "scratch")
+                operations = self.operations()
+                operations.ensure_annotated_tag(self.request(channel=channel, mode="publish"), identity)
+                remote_tag = ["git", "ls-remote", "--tags", "origin", "refs/tags/v2026.11.10",
+                              "refs/tags/v2026.11.10^{}"]
+                self.assertEqual(operations.runner.commands, [
+                    ["git", "branch", "--show-current"],
+                    remote_tag,
+                    ["gh", "release", "view", "v2026.11.10"],
+                    ["git", "cat-file", "-t", "v2026.11.10"],
+                    ["git", "tag", "-a", "v2026.11.10", head, "-m", "Lungfish v2026.11.10"],
+                    ["git", "push", "--atomic", "origin", "main", "v2026.11.10"],
+                    remote_tag,
+                ])
+                self.assertEqual(self.repository.git("rev-parse", "refs/heads/main", cwd=self.repository.origin), head)
 
-    def test_package_build_of_a_preview_gets_todays_argv_and_environment(self):
-        self.on_main()
-        for environment in ({}, {"LUNGFISH_BUILD_NUMBER": "77"}):
-            with self.subTest(environment=environment):
-                operations = self.operations(environment)
-                request = self.request(channel="preview")
-                operations.verify_package_source(request)
-                operations.runner.commands.clear()
-                command, arguments = self.start_build(operations, request)
-                self.assertEqual(command[:2], ["/bin/echo", "--gate-handoff-fd"])
-                self.assertEqual(arguments["env"], {**operations.runner.environment,
-                                                    "LUNGFISH_CLI_INFOPLIST_FILE": str(self.base / "cli.plist")})
-                self.assertEqual(operations.runner.commands, [])
+    def test_package_build_of_a_preview_and_of_a_stable_release_from_main_gets_todays_argv_and_environment(self):
+        for channel, version in (("preview", None), ("stable", "2026.11.10")):
+            self.on_main(version, "Stable")
+            for environment in ({}, {"LUNGFISH_BUILD_NUMBER": "77"}):
+                with self.subTest(channel=channel, environment=environment):
+                    operations = self.operations(environment)
+                    request = self.request(channel=channel)
+                    operations.verify_package_source(request)
+                    operations.runner.commands.clear()
+                    command, arguments = self.start_build(operations, request)
+                    self.assertEqual(command[:2], ["/bin/echo", "--gate-handoff-fd"])
+                    self.assertEqual(arguments["env"], {**operations.runner.environment,
+                                                        "LUNGFISH_CLI_INFOPLIST_FILE": str(self.base / "cli.plist")})
+                    self.assertEqual(operations.runner.commands, [])
 
     def test_package_command_argv_is_todays(self):
         operations = self.operations()
