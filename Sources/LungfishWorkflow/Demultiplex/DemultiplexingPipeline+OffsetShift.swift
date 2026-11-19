@@ -634,9 +634,9 @@ struct DemultiplexOffsetShiftPass {
         let reader = try FASTQRawLineReader(url: inputFASTQ)
         defer { reader.close() }
         var inputRecords = 0
-        while let input = try DemultiplexMatePass.readRecord(
-            from: reader, file: inputFASTQ.lastPathComponent, number: inputRecords + 1
-        ) {
+        // Read once, since `URL.lastPathComponent` hands back an autoreleased string (FIX-MEM-GZIP, F1).
+        let inputName = inputFASTQ.lastPathComponent
+        while let input = try DemultiplexMatePass.readRecord(from: reader, file: inputName, number: inputRecords + 1) {
             inputRecords += 1
             if inputRecords & 0x3FFF == 0 { try Task.checkCancellation() }
             let key = DemultiplexMatePass.matchKey(input)

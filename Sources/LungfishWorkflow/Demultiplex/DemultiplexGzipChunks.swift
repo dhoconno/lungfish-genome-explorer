@@ -55,16 +55,13 @@ final class GzipChunkInflater {
                     }
                     return []
                 }
-                let handle = try FileHandle(forReadingFrom: url)
-                defer { try? handle.close() }
-                try handle.seek(toOffset: offset)
-                let data = try handle.read(upToCount: Self.compressedWindow) ?? Data()
-                if data.isEmpty {
+                let window = try OrderedOutputCursor.readWindow(of: url, at: offset, count: Self.compressedWindow)
+                if window.isEmpty {
                     fileEnded = true
                     continue
                 }
-                offset += UInt64(data.count)
-                pending = [UInt8](data)
+                offset += UInt64(window.count)
+                pending = window
                 pendingPosition = 0
                 readAny = true
             }

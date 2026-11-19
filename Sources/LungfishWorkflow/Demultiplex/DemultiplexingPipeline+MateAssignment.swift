@@ -140,7 +140,8 @@ struct DemultiplexMatePass {
         defer { reader.close() }
         var inputRecords = 0
         var pending: PlacedRead?
-        while let input = try Self.readRecord(from: reader, file: inputFASTQ.lastPathComponent, number: inputRecords + 1) {
+        let inputName = inputFASTQ.lastPathComponent
+        while let input = try Self.readRecord(from: reader, file: inputName, number: inputRecords + 1) {
             inputRecords += 1
             if inputRecords & 0x3FFF == 0 { try Task.checkCancellation() }
             let key = Self.matchKey(input)
@@ -317,11 +318,15 @@ final class OrderedOutputCursor {
     private var reachedEnd = false
     private var recordsRead = 0
     private let inflater: GzipChunkInflater?
+    /// The file's name for the words of a failure, read once, since `URL.lastPathComponent` hands back an autoreleased
+    /// string and a pass reads every record in one call (FIX-MEM-GZIP, F1).
+    private let fileName: String
     private static let windowSize = 65_536
 
     init(name: String, url: URL) throws {
         self.name = name
         self.url = url
+        fileName = url.lastPathComponent
         inflater = GzipChunkInflater.isGzip(url) ? try GzipChunkInflater() : nil
         try advance()
     }
@@ -335,7 +340,7 @@ final class OrderedOutputCursor {
             throw DemultiplexError.outputParsingFailed("cutadapt's \(name) output ends inside record \(recordsRead + 1)")
         }
         recordsRead += 1
-        head = try RawFASTQRecord(lines: [header, sequence, separator, quality], file: url.lastPathComponent, number: recordsRead)
+        head = try RawFASTQRecord(lines: [header, sequence, separator, quality], file: fileName, number: recordsRead)
     }
 
     private func nextLine() throws -> [UInt8]? {
@@ -366,16 +371,26 @@ final class OrderedOutputCursor {
             buffer.append(contentsOf: data)
             return
         }
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        try handle.seek(toOffset: offset)
-        let data = try handle.read(upToCount: Self.windowSize) ?? Data()
+        let data = try Self.readWindow(of: url, at: offset, count: Self.windowSize)
         if data.isEmpty {
             reachedEnd = true
             return
         }
         offset += UInt64(data.count)
         buffer.append(contentsOf: data)
+    }
+
+    /// Up to `count` bytes of the file at `url` from `offset`, with the file open only for the read. The handle and the
+    /// buffer `read(upToCount:)` hands back are autoreleased, and a pass over the outputs runs in one call that never
+    /// returns to a run loop, so each window drains its own pool. Without it every window stayed in memory until the pass
+    /// ended, about 600 B a record on the dual route (FIX-MEM-GZIP, F1).
+    static func readWindow(of url: URL, at offset: UInt64, count: Int) throws -> [UInt8] {
+        try autoreleasepool {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            try handle.seek(toOffset: offset)
+            return [UInt8](try handle.read(upToCount: count) ?? Data())
+        }
     }
 }
 
