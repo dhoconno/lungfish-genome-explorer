@@ -145,6 +145,31 @@ extension DemultiplexDualOffsetShiftTests {
         XCTAssertEqual(placed + outcome.unassignedCount, 1_680)
     }
 
+    // MARK: - Only the row that fits within the distance can take a read (BIO-OFFSET-PAST-DISTANCE item 1)
+
+    /// Rows A `TGGGCGAA` and Z `GTGGGCGA` as `^N{1}` lines (distance 1, 4 bases of look-ahead, one error, no indels), no
+    /// Cutadapt run. Z fits the first read within the distance at 1 error and A fits it exactly one base past: Unassigned,
+    /// where with no look-ahead it stayed in Z. A fits the second read two bases past and nothing fits within: A never takes
+    /// it. A alone fits the third within the distance and nothing fits out to 4 bases past: it stays.
+    func testOnlyTheRowThatFitsWithinTheDistanceCanTakeAReadAndABetterRowJustPastItSendsItToUnassigned() throws {
+        let lines = ">A\n^N{1}TGGGCGAA\n>Z\n^N{1}GTGGGCGA\n"
+        let insert = "CATGCATGCATG"
+        func called(_ read: String, lookAhead: Int) throws -> AnchoredOffsetFit.Call {
+            let fit = try XCTUnwrap(AnchoredOffsetFit(
+                adapterFASTA: lines, rowOf: { $0 }, errorRate: 0.15, indels: false, lookAhead: lookAhead
+            ))
+            var search = AnchoredOffsetFit.Search(fit)
+            return search.call(Array(read.utf8))
+        }
+        let better = "AC" + "TGGGCGAA" + insert
+        XCTAssertEqual(try called(better, lookAhead: 4), .pastTheDistance(errors: 0))
+        guard case .one(_, let zErrors, _) = try called(better, lookAhead: 0) else { return XCTFail("Z fits within") }
+        XCTAssertEqual(zErrors, 1)
+        XCTAssertEqual(try called("ACC" + "TGGGCGAA" + insert, lookAhead: 4), .none)
+        guard case .one(_, let aErrors, _) = try called("TGGGCGAA" + insert, lookAhead: 4) else { return XCTFail("A alone fits") }
+        XCTAssertEqual(aErrors, 0)
+    }
+
     // MARK: - A gzip sink is always ended (FIX-OFFSET-SHIFT BIO review, SF3)
 
     /// A gzip output of several members (BGZF, or files joined with `cat`) is one stream: no record is lost where a member
