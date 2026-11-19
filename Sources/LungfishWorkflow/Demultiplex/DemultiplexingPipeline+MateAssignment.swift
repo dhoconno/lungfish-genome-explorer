@@ -304,7 +304,8 @@ struct RawFASTQRecord: Equatable {
 }
 
 /// Reads one cutadapt output record by record through a 64 KB window,
-/// opening the file only to refill the window.
+/// opening the file only to refill the window. A gzip output is inflated
+/// a window at a time (DEMUX-DUAL-OFFSET-SHIFT, the check's reuse).
 final class OrderedOutputCursor {
     let name: String
     let url: URL
@@ -315,11 +316,13 @@ final class OrderedOutputCursor {
     private var position = 0
     private var reachedEnd = false
     private var recordsRead = 0
+    private let inflater: GzipChunkInflater?
     private static let windowSize = 65_536
 
     init(name: String, url: URL) throws {
         self.name = name
         self.url = url
+        inflater = GzipChunkInflater.isGzip(url) ? try GzipChunkInflater() : nil
         try advance()
     }
 
@@ -357,6 +360,12 @@ final class OrderedOutputCursor {
             buffer.removeFirst(position)
             position = 0
         }
+        if let inflater {
+            let data = try inflater.next(from: url, offset: &offset, limit: Self.windowSize)
+            if data.isEmpty { reachedEnd = true }
+            buffer.append(contentsOf: data)
+            return
+        }
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         try handle.seek(toOffset: offset)
@@ -376,9 +385,12 @@ struct AppendingFASTQSink {
     let url: URL
     private var buffer: [UInt8] = []
     private var created = false
+    /// The deflater of a gzip output, or nil for a plain one.
+    private let deflater: GzipChunkDeflater?
 
-    init(url: URL) {
+    init(url: URL, gzip deflater: GzipChunkDeflater? = nil) {
         self.url = url
+        self.deflater = deflater
     }
 
     mutating func append(_ record: RawFASTQRecord, flushThreshold: Int) throws {
@@ -390,6 +402,21 @@ struct AppendingFASTQSink {
 
     mutating func flush() throws {
         guard !buffer.isEmpty else { return }
+        try write(deflater.map { try $0.compress(buffer, finish: false) } ?? buffer)
+        buffer.removeAll(keepingCapacity: true)
+    }
+
+    /// Writes what is left, and for a gzip output the end of its stream, so a gzip output with no record is a whole
+    /// empty gzip file. A plain output with no record makes no file.
+    mutating func finish() throws {
+        guard let deflater else { return try flush() }
+        let rest = buffer
+        buffer.removeAll()
+        try write(try deflater.compress(rest, finish: true))
+    }
+
+    private mutating func write(_ bytes: [UInt8]) throws {
+        guard !bytes.isEmpty else { return }
         if !created {
             FileManager.default.createFile(atPath: url.path, contents: nil)
             created = true
@@ -397,7 +424,6 @@ struct AppendingFASTQSink {
         let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }
         try handle.seekToEnd()
-        try handle.write(contentsOf: buffer)
-        buffer.removeAll(keepingCapacity: true)
+        try handle.write(contentsOf: bytes)
     }
 }
