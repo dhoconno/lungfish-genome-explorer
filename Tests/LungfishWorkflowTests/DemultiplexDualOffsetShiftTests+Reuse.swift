@@ -100,6 +100,22 @@ extension DemultiplexDualOffsetShiftTests {
         XCTAssertEqual(rows["X-5"]?.filter { !$0.name.hasPrefix("X-5|") }.map(\.name) ?? [], [])
     }
 
+    /// `nextseqTrimIndex` against Cutadapt 5.2's own `nextseq_trim_index`. A G counts as quality cutoff - 1, and only an
+    /// uppercase G is a G.
+    func testTheNextSeqTrimIndexIsCutadaptsOwn() {
+        func index(_ sequence: String, _ quality: String, cutoff: Int = 20) -> Int {
+            DemultiplexingPipeline.nextseqTrimIndex(Array(sequence.utf8), Array(quality.utf8), cutoff: cutoff)
+        }
+        let high = String(repeating: "I", count: 20)
+        XCTAssertEqual(index("ACGTACGTAC" + String(repeating: "G", count: 10), high), 10, "a high-quality G tail is cut")
+        XCTAssertEqual(index("ACGTACGTAC" + String(repeating: "g", count: 10), high), 20, "a lowercase g is no G")
+        XCTAssertEqual(index("ACGTACGTACGTACGTACGT", String(repeating: "I", count: 10) + String(repeating: "#", count: 10)), 10)
+        XCTAssertEqual(index("ACGTACGTACGTACGTACGT", high), 20)
+        XCTAssertEqual(index("GGGGGGGGGG", String(repeating: "I", count: 10)), 0)
+        XCTAssertEqual(index("ACGTACAAAG", "IIIIII++?I"), 9, "a G is quality 19, so the sum ends at the base of quality 30")
+        XCTAssertEqual(index("", ""), 0)
+    }
+
     // MARK: - Past the distance (BIO-OFFSET-PAST-DISTANCE item 2)
 
     /// Rows X-1 and Z, `GTGGGCGA`/`GGAGTTAT`, at 1/1 and error 0 and 0.15. X-1's pair sits 2 bases in, past the distance,
