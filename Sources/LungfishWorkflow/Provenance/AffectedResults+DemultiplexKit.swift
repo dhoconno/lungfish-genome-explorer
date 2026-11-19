@@ -173,6 +173,35 @@ extension AffectedResults {
         return kit.pairingMode == .singleEnd && !kit.platform.readsCanBeReverseComplemented
     }
 
+    /// Whether a `lungfish fastq demultiplex` record is a Cutadapt search of built-in dual pairs at offsets: the built-in
+    /// TruSeq HT Dual Index or Nextera XT Index Kit v2, named by `kit` or `resolvedKit`, or a definition whose `# kit:` line
+    /// names one of them or IDT for Illumina UD Indexes, the kept copy first, at Both Ends, the default, with a 5' or 3'
+    /// Distance above 0. Every published build from the writer's landing in fe644e767 up to Preview 2026.11.12 ranked the
+    /// lines of such a run by their N's, so a line further in could take a read into another sample
+    /// (DEMUX-LINKED-OFFSET-SHIFT, BIO-LINKED-OFFSET item 3). A dual definition with no kit line is the route of
+    /// DEMUX-DUAL-OFFSET-SHIFT and is not such a run, and the built-in IDT UD kit is refused before any line. The engine is
+    /// `cutadapt` or none, and the error rate and the floor do not matter. The CLI has no sample sheet. It reads a file, so
+    /// the Inspector's lookup runs it off the main actor.
+    static func searchedBuiltInDualPairsAtAnOffset(_ envelope: ProvenanceEnvelope) -> Bool {
+        let options = envelope.options.explicit
+        if case .string(let engine)? = options["engine"], engine != "cutadapt" { return false }
+        var location = "bothends"
+        if case .string(let named)? = options["resolvedLocation"] ?? options["location"] { location = named.lowercased() }
+        guard ["bothends", "both", "both-ends", "both_ends"].contains(location) else { return false }
+        let searched = ["maxDistanceFrom5Prime", "maxDistanceFrom3Prime"].contains { key in
+            switch options[key] {
+            case .integer(let value)?: return value > 0
+            case .number(let value)?: return value > 0
+            default: return false
+            }
+        }
+        guard searched else { return false }
+        let builtIn = [BarcodeKitRegistry.truseqHTDual.id, BarcodeKitRegistry.nexteraXTv2.id]
+        if ["kit", "resolvedKit"].contains(where: { name in builtIn.contains { options[name] == .string($0) } }) { return true }
+        guard let source = recordedCustomKit(options)?.sourceKitID else { return false }
+        return (builtIn + [BarcodeKitRegistry.idtUDIndexes.id]).contains(source)
+    }
+
     /// The custom definition a demultiplexing record names: the copy the run kept in its result folder, else the file `kit`
     /// names when it is no built-in kit id, or nil when neither can be read.
     private static func recordedCustomKit(_ options: [String: ParameterValue]) -> BarcodeKitDefinition? {

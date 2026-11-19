@@ -53,6 +53,11 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     /// with Cutadapt, whose rank put some reads in another sample (DEMUX-SINGLE-OFFSET-SHIFT, BIO-SINGLE-OFFSET item 3). It
     /// is a narrower ``fastqDemultiplex``, so every row of that kind names it too.
     case fastqDemultiplexSingleOffset
+    /// A demultiplexing run of the built-in TruSeq HT Dual Index or Nextera XT Index Kit v2 kit, or of a definition made on
+    /// one of them or on IDT for Illumina UD Indexes, that searched its index pairs at Both Ends at offsets up to a 5' or 3'
+    /// Distance above 0 with Cutadapt, whose rank put some reads in another sample (DEMUX-LINKED-OFFSET-SHIFT,
+    /// BIO-LINKED-OFFSET item 3). It is a narrower ``fastqDemultiplex``, so every row of that kind names it too.
+    case fastqDemultiplexBuiltInDualOffset
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -452,7 +457,7 @@ public enum AffectedResults {
             kinds: [
                 .fastqDemultiplex, .fastqDemultiplexSaturatedKit, .fastqDemultiplexExactBareNames,
                 .fastqDemultiplexDualSearchedAnywhere, .fastqDemultiplexDualOneEnd, .fastqDemultiplexDualFormSwap,
-                .fastqDemultiplexSingleOffset,
+                .fastqDemultiplexSingleOffset, .fastqDemultiplexBuiltInDualOffset,
             ],
             firstBuild: nil, lastBuild: 12972,
             sentence: "If you chose Grouped Result for more than one dataset, this demultiplexing run read only the first "
@@ -521,6 +526,18 @@ public enum AffectedResults {
                 + "some reads in another sample.",
             whatToDo: "Run it again in this version.",
             fixCommit: "1a29a8dc0"
+        ),
+        // Lane DEMUX-LINKED-OFFSET-SHIFT (BIO-LINKED-OFFSET item 3). Every published build from 2026.8.1, the first that
+        // holds the writer fe644e767, searched a built-in Illumina dual kit, or a definition made on one, at Both Ends with
+        // a distance above 0 with lines that Cutadapt ranks by their N's. 97c49c71f is the first commit that keeps a placed
+        // read only in the row that fits it at the fewest errors.
+        AffectedResultRow(
+            backlogID: "DEMUX-LINKED-OFFSET-SHIFT", kinds: [.fastqDemultiplexBuiltInDualOffset], firstBuild: 4192,
+            lastBuild: 13764,
+            sentence: "This run searched for dual indexes set in from the read ends, and the build that ran it could place "
+                + "some reads in another sample.",
+            whatToDo: "Run it again in this version.",
+            fixCommit: "97c49c71f"
         ),
         // S1 sweep 2026-11-17 lane DEMUX-EXACTBARE-NAMES (BIO-DEMUX-THREE item 11, section 2a). Every build with Exact Bare
         // Barcode, from its landing in 4389cd101, searched the read sequences of reads whose barcodes sat in their names.
@@ -645,6 +662,7 @@ extension AffectedResults {
             if searchedCustomDualPairsThatCouldSwap(envelope) { return .fastqDemultiplexDualFormSwap }
             if searchedCustomDualPairsAnywhere(envelope) { return .fastqDemultiplexDualSearchedAnywhere }
             if searchedCustomDualPairsAtOneEnd(envelope) { return .fastqDemultiplexDualOneEnd }
+            if searchedBuiltInDualPairsAtAnOffset(envelope) { return .fastqDemultiplexBuiltInDualOffset }
             if searchedWithAKitTheFloorCannotJudge(envelope) { return .fastqDemultiplexSaturatedKit }
             return searchedSingleBarcodesAtAnOffset(envelope) ? .fastqDemultiplexSingleOffset : .fastqDemultiplex
         case RecordName.fastqImport:
