@@ -8,6 +8,7 @@ hold a Preview package and publish, and a stable release from main, to the comma
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -194,6 +195,22 @@ class PatchFixture(unittest.TestCase):
         self.assertEqual(len(FakeBuilder.started), 1)
         return FakeBuilder.started[0]
 
+    def finish_build(self, operations, request, receipt_build):
+        """finish_package_build over a builder double that exited 0 and left a receipt holding this build."""
+        release_dir = self.base / "release" / "candidate"
+        release_dir.mkdir(parents=True, exist_ok=True)
+        receipt = release_dir / "unsigned-candidate-receipt.json"
+        receipt.write_text(json.dumps({"release": {"build": receipt_build}}), encoding="utf-8")
+        operations._paths = lambda _request: (self.base / "archive", self.base / "derived", release_dir)
+        source = {"clean": True, "commit": self.repository.head()}
+        build = self.release.PackageBuild(process=SimpleNamespace(wait=lambda: 0, returncode=0),
+                                          handoff=os.open(os.devnull, os.O_WRONLY), started=0.0, source=source)
+        evidence = self.release.GateEvidence(manifest=self.base / "gates.json", sha256="0" * 64)
+        with mock.patch.object(self.release, "source_identity", return_value=source), \
+                mock.patch.object(self.release, "verify_manifest"):
+            returned = operations.finish_package_build(build, replace(request, gate_evidence=evidence))
+        self.assertEqual(returned, receipt)
+
     def floor_commands(self, operations):
         return [command for command in operations.runner.commands
                 if len(command) > 1 and command[1].endswith("check-sparkle-build-number.py")]
@@ -258,6 +275,15 @@ class PatchModeTests(PatchFixture):
         self.receipt.write_text(json.dumps({"release": {"build": "3"}}), encoding="utf-8")
         with self.assertRaisesRegex(self.release.ReleaseError, "receipt build 3 .* 4"):
             operations._verify_patch_receipt(self.receipt)
+
+    def test_package_finish_refuses_a_receipt_that_is_not_the_stamped_build(self):
+        operations = self.operations()
+        request = self.request()
+        operations.verify_package_source(request)
+        self.start_build(operations, request)
+        with self.assertRaisesRegex(self.release.ReleaseError, "receipt build 3 .* 4"):
+            self.finish_build(operations, request, "3")
+        self.finish_build(operations, request, "4")
 
     # Publish.
 
