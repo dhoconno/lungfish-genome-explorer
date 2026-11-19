@@ -163,7 +163,7 @@ final class ProjectDeletionPlannerTests: XCTestCase {
             [
                 "lungfishref", "lungfishfastq", "lungfishmsa", "lungfishtree", "lungfishprimers",
                 "lungfishprimeranalysis", "lungfishmhcref", "lungfishgenotype", "lungfish12s",
-                "lungfish12sref", "lungfishtax",
+                "lungfish12sref", "lungfishtax", "lungfishrnaseq",
             ]
         )
         // A project, a run bundle, a retired workflow bundle and a workflow package are walked like any folder.
