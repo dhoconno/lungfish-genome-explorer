@@ -123,6 +123,8 @@ private struct WorkflowOperationsDetailPane: View {
                         RNASeqExportInputsPane(state: state)
                     case .rnaSeqPseudobulk:
                         RNASeqPseudobulkInputsPane(state: state)
+                    case .rnaSeqCellMapImport:
+                        RNASeqCellMapImportInputsPane(state: state)
                     default:
                         referencePicker
                         if case .twelveSAmpliconMatching = state.selectedTool?.kind {
@@ -359,6 +361,8 @@ private struct WorkflowOperationsDetailPane: View {
             RNASeqExportSettingsPane(state: state)
         case .rnaSeqPseudobulk:
             RNASeqPseudobulkSettingsPane(state: state)
+        case .rnaSeqCellMapImport:
+            RNASeqCellMapImportSettingsPane(state: state)
         case .none:
             Text("No runnable workflow selected.")
                 .foregroundStyle(.secondary)
@@ -533,7 +537,7 @@ private struct WorkflowOperationsDetailPane: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-        case .rnaSeqExport, .rnaSeqPseudobulk:
+        case .rnaSeqExport, .rnaSeqPseudobulk, .rnaSeqCellMapImport:
             EmptyView()
         case .none:
             EmptyView()

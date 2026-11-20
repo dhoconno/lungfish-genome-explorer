@@ -56,6 +56,11 @@ final class WorkflowOperationExecutionService {
             return try launchRNASeqLeaf(request.run, routeContext: routeContext)
         case .rnaSeqPseudobulk(let request):
             return try launchRNASeqLeaf(request.run, routeContext: routeContext)
+        case .rnaSeqCellMapImport(let request):
+            guard RNASeqLeafRoute.launchImport(request, routeContext: routeContext, operations: operationCenter) != nil else {
+                throw LocalWorkflowExecutionError.bundleBusy("The RNA-seq result is busy. Wait for its current operation to finish.")
+            }
+            return [request.outputURL]
         case .workflowPackage(let request, let bundleRoot):
             let service = LocalWorkflowExecutionService(
                 operationCenter: operationCenter,

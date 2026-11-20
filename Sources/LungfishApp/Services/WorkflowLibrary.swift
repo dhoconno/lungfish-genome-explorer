@@ -139,6 +139,7 @@ enum WorkflowLibraryCatalog {
     static let fullLengthONTMHCGenotypingID = "builtin.full-length-ont-mhc-genotyping"
     static let rnaSeqExportID = "builtin.rnaseq-export"
     static let rnaSeqPseudobulkID = "builtin.rnaseq-pseudobulk"
+    static let rnaSeqCellMapImportID = "builtin.rnaseq-cell-map-import"
 
     static let twelveSAmpliconMatchingItem = WorkflowLibraryItem(
         id: twelveSAmpliconMatchingID,
@@ -184,6 +185,16 @@ enum WorkflowLibraryCatalog {
         capabilities: [.workflowOperations]
     )
 
+    static let rnaSeqCellMapImportItem = WorkflowLibraryItem(
+        id: rnaSeqCellMapImportID,
+        title: RNASeqCellMapImportWords.title,
+        subtitle: "Show the cells of a single-cell RNA-seq result on the embedding and clusters that Seurat, Scanpy or Cell Ranger made. LGE records the files as given and did not compute them.",
+        categoryID: .rnaSeq,
+        maturity: .core,
+        requiredPluginPackIDs: [],
+        capabilities: [.workflowOperations]
+    )
+
     static let builtIn: [WorkflowLibraryItem] = FASTQOperationToolID.allCases.map { toolID in
         if toolID == .savont {
             return WorkflowLibraryItem(
@@ -205,7 +216,10 @@ enum WorkflowLibraryCatalog {
             maturity: .core,
             requiredPluginPackIDs: toolID.categoryID.requiredPackIDs
         )
-    } + [fullLengthONTMHCGenotypingItem, twelveSAmpliconMatchingItem, rnaSeqExportItem, rnaSeqPseudobulkItem]
+    } + [
+        fullLengthONTMHCGenotypingItem, twelveSAmpliconMatchingItem, rnaSeqExportItem, rnaSeqPseudobulkItem,
+        rnaSeqCellMapImportItem,
+    ]
 
     static func item(for toolID: FASTQOperationToolID) -> WorkflowLibraryItem? {
         builtIn.first { $0.toolID == toolID }

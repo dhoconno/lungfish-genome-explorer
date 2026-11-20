@@ -33,9 +33,10 @@ struct RNASeqLeafRun {
     let outputURL: URL
     let completionDetail: String
 
-    /// The shell-quoted command the Operations row shows, built from the argv that runs.
+    /// The shell-quoted command the Operations row shows, built from the argv that runs. The subcommand's words lead the argv,
+    /// two for `rnaseq export` and three for `rnaseq cell-map import`.
     var cliCommand: String {
-        OperationCenter.buildCLICommand(subcommand: subcommand, args: Array(argv.dropFirst(2)))
+        OperationCenter.buildCLICommand(subcommand: subcommand, args: Array(argv.dropFirst(subcommand.split(separator: " ").count)))
     }
 }
 
@@ -115,6 +116,63 @@ struct RNASeqPseudobulkRunRequest: Sendable, Equatable {
     }
 }
 
+/// What the Import Embedding pane asks for, in the words of `lungfish-cli rnaseq cell-map import`. The CLI does every check, so a
+/// refusal comes back in its words and the alert says which control of the pane turns on the flag that unlocks it. The pane has
+/// no `--method` control, so the CLI names each embedding by its own default.
+struct RNASeqCellMapImportRunRequest: Sendable, Equatable {
+    /// `--barcode-suffix`. Nil is the CLI's default, which matches each barcode as given.
+    enum BarcodeSuffix: String, CaseIterable, Sendable {
+        case drop
+        case add
+    }
+
+    var resultURL: URL
+    /// LGE's table or 10x's projection.csv files, one `--coordinates` each.
+    var coordinateURLs: [URL]
+    /// 10x's clusters.csv files, one `--clusters` each.
+    var clusterURLs: [URL] = []
+    /// The columns of LGE's table that hold labels, one `--label-column` each.
+    var labelColumns: [String] = []
+    var barcodeSuffix: BarcodeSuffix?
+    var skipBarcodesNotHeld = false
+    var otherCounts = false
+    var tool: String?
+    var toolVersion: String?
+    /// The new `.lungfishrnaseq` folder. The CLI refuses a name that does not end in that extension.
+    var outputURL: URL
+
+    /// The argv after the binary name, in the order of the CLI's own canonical command, so the record and the row agree.
+    var argv: [String] {
+        var arguments = ["rnaseq", "cell-map", "import", resultURL.path]
+        for url in coordinateURLs { arguments += ["--coordinates", url.path] }
+        for url in clusterURLs { arguments += ["--clusters", url.path] }
+        for column in labelColumns { arguments += ["--label-column", column] }
+        if let barcodeSuffix { arguments += ["--barcode-suffix", barcodeSuffix.rawValue] }
+        if skipBarcodesNotHeld { arguments.append("--skip-barcodes-not-held") }
+        if otherCounts { arguments.append("--other-counts") }
+        if let tool { arguments += ["--tool", tool] }
+        if let toolVersion { arguments += ["--tool-version", toolVersion] }
+        arguments += ["--output", outputURL.path, "--format", "json"]
+        return arguments
+    }
+
+    var stageLines: [String] {
+        RNASeqCellMapImportWords.stageLines(coordinates: coordinateURLs, clusters: clusterURLs, result: resultURL, output: outputURL)
+    }
+
+    var run: RNASeqLeafRun {
+        RNASeqLeafRun(
+            title: RNASeqCellMapImportWords.title,
+            detail: stageLines.first ?? "Reading \(resultURL.lastPathComponent)",
+            operationType: .ingestion,
+            lockedBundleURLs: [resultURL],
+            subcommand: "rnaseq cell-map import",
+            argv: argv,
+            outputURL: outputURL,
+            completionDetail: "Imported the embedding as \(outputURL.lastPathComponent)")
+    }
+}
+
 /// What a launched row hands back, so a caller can wait for it.
 struct RNASeqLeafLaunch {
     let operationID: UUID
@@ -174,6 +232,40 @@ enum RNASeqLeafRoute {
                     completionDetail: run.completionDetail, environmentAdditions: environmentAdditions)
             }
             launched = RNASeqLeafLaunch(operationID: id, task: task)
+        }
+        return launched
+    }
+}
+
+// MARK: - Import Embedding
+
+extension RNASeqLeafRoute {
+    /// Begins the Import Embedding row, runs the leaf on `CLIViewerExportRunner` and then, for a leaf that exited 0, reads the
+    /// new result off the main actor and opens it (`RNASeqCellMapImportRun.finish`). It returns `nil` when `begin` refused the
+    /// run, and then nothing launched. The runner settles the row at the leaf's exit, with the CLI's words for a refusal.
+    /// `load`, `open` and `report` are for a test, and no production caller passes any.
+    @discardableResult
+    static func launchImport(
+        _ request: RNASeqCellMapImportRunRequest,
+        routeContext: OperationRouteContext? = nil,
+        operations: any OperationReporting = OperationCenter.shared,
+        runner: CLIViewerExportRunner = CLIViewerExportRunner(),
+        environmentAdditions: [String: String] = [:],
+        load: @escaping @Sendable (URL) throws -> Void = RNASeqCellMapImportRun.loadResult,
+        open: @escaping @MainActor (UUID) async -> Bool = RNASeqCellMapImportRun.openResult,
+        report: @escaping @MainActor (String, String) -> Void = RNASeqCellMapImportRun.showAlert
+    ) -> RNASeqCellMapImportLaunch? {
+        let run = request.run
+        var launched: RNASeqCellMapImportLaunch?
+        begin(run, routeContext: routeContext, operations: operations, onCancel: { runner.cancel() }) { id in
+            for line in request.stageLines { OperationCenter.shared.log(id: id, level: .info, message: line) }
+            let task = Task { @MainActor in
+                let outcome = await runner.run(
+                    arguments: run.argv, outputURL: run.outputURL, operationID: id,
+                    completionDetail: run.completionDetail, environmentAdditions: environmentAdditions)
+                return await RNASeqCellMapImportRun.finish(outcome, operationID: id, load: load, open: open, report: report)
+            }
+            launched = RNASeqCellMapImportLaunch(operationID: id, task: task)
         }
         return launched
     }

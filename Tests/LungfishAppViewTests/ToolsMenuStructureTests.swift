@@ -519,11 +519,12 @@ final class ToolsMenuStructureTests: XCTestCase {
             + submenu("Clustering", [tool(.savont), tool(.pbaa)])
             + submenu("Classification", [tool(.kraken2), tool(.esViritu), tool(.taxTriage), "---", classificationWorkflow])
             + submenu("Genotyping", genotyping + ["---", "MHC Haplotype Definitions\u{2026}"])
-            // The export and pseudobulk rows are core catalog workflows, so they read the same with every workflow on or off.
+            // The export, pseudobulk and Import Embedding rows are core catalog workflows, so they read the same with every workflow on or off.
             + submenu("RNA-seq", [
                 tool(.rnaSeqQuant), "---",
                 "\(WorkflowLibraryCatalog.rnaSeqExportItem.title)\u{2026}",
                 "\(WorkflowLibraryCatalog.rnaSeqPseudobulkItem.title)\u{2026}",
+                "\(WorkflowLibraryCatalog.rnaSeqCellMapImportItem.title)\u{2026}",
             ])
             + separator
             + submenu("Alignment & Phylogenetics", [tool(.mafft), "---", "Build Tree with IQ-TREE\u{2026}"])

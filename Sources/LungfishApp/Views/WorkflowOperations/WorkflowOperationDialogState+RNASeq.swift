@@ -53,6 +53,32 @@ final class RNASeqPseudobulkDialogModel {
     var labelsURL: URL?
 }
 
+/// The Import Embedding row's settings. The three controls that unlock a refusal of the import are plain values here, and each is
+/// off until the person turns it on, so the CLI refuses by default and the alert names the control that unlocks it.
+@MainActor
+@Observable
+final class RNASeqCellMapImportDialogModel {
+    var resultURL: URL?
+    var coordinateURLs: [URL] = []
+    var clusterURLs: [URL] = []
+    /// Column names of LGE's table that hold labels, separated by commas or lines.
+    var labelColumnsText = ""
+    var tool = ""
+    var toolVersion = ""
+    var barcodeSuffix: RNASeqCellMapImportRunRequest.BarcodeSuffix?
+    var skipBarcodesNotHeld = false
+    var otherCounts = false
+
+    var labelColumns: [String] { RNASeqExportDialogModel.entries(of: labelColumnsText) }
+    var trimmedTool: String? { Self.nonEmpty(tool) }
+    var trimmedToolVersion: String? { Self.nonEmpty(toolVersion) }
+
+    private static func nonEmpty(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 extension WorkflowOperationDialogState {
     /// The text `isRunEnabled` waits for. `readinessText` ends with it for every tool that is ready.
     static let rnaSeqReadyText = "Ready to run."
@@ -65,7 +91,7 @@ extension WorkflowOperationDialogState {
 
     var selectedToolIsRNASeq: Bool {
         switch selectedTool?.kind {
-        case .rnaSeqExport, .rnaSeqPseudobulk: return true
+        case .rnaSeqExport, .rnaSeqPseudobulk, .rnaSeqCellMapImport: return true
         default: return false
         }
     }
@@ -83,6 +109,8 @@ extension WorkflowOperationDialogState {
             return urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) RNA-seq results selected"
         case .rnaSeqPseudobulk:
             return rnaSeqPseudobulk.resultURL?.lastPathComponent ?? "No RNA-seq result selected"
+        case .rnaSeqCellMapImport:
+            return rnaSeqCellMapImport.resultURL?.lastPathComponent ?? "No RNA-seq result selected"
         default:
             return nil
         }
@@ -115,6 +143,12 @@ extension WorkflowOperationDialogState {
             if rnaSeqPseudobulk.labelsURL == nil { return "Choose a labels table." }
             if outputDirectoryURL == nil { return "Choose where the pseudobulk result goes." }
             if rnaSeqTrimmedOutputName.isEmpty { return "Enter a name for the pseudobulk result." }
+            return Self.rnaSeqReadyText
+        case .rnaSeqCellMapImport:
+            if rnaSeqCellMapImport.resultURL == nil { return "Select a single-cell RNA-seq result." }
+            if rnaSeqCellMapImport.coordinateURLs.isEmpty { return "Choose a coordinates file." }
+            if outputDirectoryURL == nil { return "Choose where the cell map goes." }
+            if rnaSeqTrimmedOutputName.isEmpty { return "Enter a name for the cell map." }
             return Self.rnaSeqReadyText
         default:
             return nil
@@ -156,11 +190,34 @@ extension WorkflowOperationDialogState {
                 Self.pseudobulkFolderName(for: rnaSeqTrimmedOutputName), isDirectory: true))
     }
 
-    /// The two rows, from their Workflow Library items. A `.core` item is always enabled, so both are available in a fresh install.
+    /// The Import Embedding request of the pane. The folder is `<output directory>/<name>.lungfishrnaseq`.
+    func makeRNASeqCellMapImportRequest() throws -> RNASeqCellMapImportRunRequest {
+        guard rnaSeqReadinessText == Self.rnaSeqReadyText,
+              let outputDirectoryURL,
+              let resultURL = rnaSeqCellMapImport.resultURL else {
+            throw WorkflowOperationError.incompleteConfiguration(readinessText)
+        }
+        let model = rnaSeqCellMapImport
+        return RNASeqCellMapImportRunRequest(
+            resultURL: resultURL,
+            coordinateURLs: model.coordinateURLs,
+            clusterURLs: model.clusterURLs,
+            labelColumns: model.labelColumns,
+            barcodeSuffix: model.barcodeSuffix,
+            skipBarcodesNotHeld: model.skipBarcodesNotHeld,
+            otherCounts: model.otherCounts,
+            tool: model.trimmedTool,
+            toolVersion: model.trimmedToolVersion,
+            outputURL: outputDirectoryURL.appendingPathComponent(
+                Self.pseudobulkFolderName(for: rnaSeqTrimmedOutputName), isDirectory: true))
+    }
+
+    /// The three rows, from their Workflow Library items. A `.core` item is always enabled, so all are available in a fresh install.
     static func rnaSeqTools(enablementStore: WorkflowLibraryEnablementStore) -> [WorkflowOperationTool] {
         let rows: [(id: String, kind: WorkflowOperationToolKind)] = [
             (WorkflowLibraryCatalog.rnaSeqExportID, .rnaSeqExport),
             (WorkflowLibraryCatalog.rnaSeqPseudobulkID, .rnaSeqPseudobulk),
+            (WorkflowLibraryCatalog.rnaSeqCellMapImportID, .rnaSeqCellMapImport),
         ]
         return rows.compactMap { row in
             guard let item = WorkflowLibraryCatalog.item(id: row.id) else { return nil }

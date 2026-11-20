@@ -11,6 +11,7 @@ enum WorkflowOperationToolKind: Equatable, Sendable {
     case twelveSAmpliconMatching
     case rnaSeqExport
     case rnaSeqPseudobulk
+    case rnaSeqCellMapImport
     case workflowPackage(WorkflowPackageValidationResult)
 }
 
@@ -28,6 +29,7 @@ enum WorkflowOperationLaunchRequest: Equatable {
     case twelveSAmpliconMatching(TwelveSAmpliconMatchingConfiguration)
     case rnaSeqExport(RNASeqExportRunRequest)
     case rnaSeqPseudobulk(RNASeqPseudobulkRunRequest)
+    case rnaSeqCellMapImport(RNASeqCellMapImportRunRequest)
     case workflowPackage(LocalWorkflowRunRequest, bundleRoot: URL)
 }
 
@@ -152,9 +154,10 @@ final class WorkflowOperationDialogState {
     var selectedHaplotypeDefinitionSetID: String?
     var extraArgumentsText: String
     var advancedOptionsExpanded: Bool
-    /// The settings of the export and pseudobulk rows. Their methods are in `WorkflowOperationDialogState+RNASeq.swift`.
+    /// The settings of the export, pseudobulk and Import Embedding rows. Their methods are in `WorkflowOperationDialogState+RNASeq.swift`.
     let rnaSeqExport = RNASeqExportDialogModel()
     let rnaSeqPseudobulk = RNASeqPseudobulkDialogModel()
+    let rnaSeqCellMapImport = RNASeqCellMapImportDialogModel()
     var projectReferenceCandidates: [URL]
     var projectGuideCandidates: [URL]
     var projectBarcodeDefinitionCandidates: [URL]
@@ -633,7 +636,7 @@ final class WorkflowOperationDialogState {
         outputName = Self.defaultOutputName(for: selectedTool, readURLs: selectedReadURLs)
         lastDefaultOutputName = outputName
         switch selectedTool?.kind {
-        case .workflowPackage, .twelveSAmpliconMatching, .rnaSeqExport, .rnaSeqPseudobulk:
+        case .workflowPackage, .twelveSAmpliconMatching, .rnaSeqExport, .rnaSeqPseudobulk, .rnaSeqCellMapImport:
             break
         case .fullLengthONTMHCGenotyping:
             if selectedHaplotypeAssayID == nil {
@@ -662,6 +665,8 @@ final class WorkflowOperationDialogState {
             return "rnaseq-export"
         case .rnaSeqPseudobulk:
             return "pseudobulk"
+        case .rnaSeqCellMapImport:
+            return "cell-map"
         case .ontGenotyping, nil:
             return defaultONTGenotypingOutputName(for: readURLs)
         }
@@ -1376,6 +1381,9 @@ final class WorkflowOperationDialogState {
         case .rnaSeqPseudobulk:
             return .rnaSeqPseudobulk(try makeRNASeqPseudobulkRequest())
 
+        case .rnaSeqCellMapImport:
+            return .rnaSeqCellMapImport(try makeRNASeqCellMapImportRequest())
+
         case .workflowPackage(let package):
             return .workflowPackage(
                 try makeLocalWorkflowRunRequest(package: package),
@@ -1584,7 +1592,7 @@ final class WorkflowOperationDialogState {
                 twelveSResultsDirectoryName,
                 isDirectory: true
             )
-        case .workflowPackage, .rnaSeqExport, .rnaSeqPseudobulk:
+        case .workflowPackage, .rnaSeqExport, .rnaSeqPseudobulk, .rnaSeqCellMapImport:
             return analysesDirectory
         case nil:
             return analysesDirectory

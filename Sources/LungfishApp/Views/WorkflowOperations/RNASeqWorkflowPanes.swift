@@ -20,6 +20,15 @@ enum RNASeqPaneWords {
     static let labelsCaption = "A tab-separated table with barcode and label columns, and sample for a result of two or more samples."
     static let smallGroupCaption = "A group under 10 cells is left out, and so are the cells with no label. The Operations row says which."
     static let pseudobulkFolderCaption = "The new result is written in the output directory with .lungfishrnaseq added to the name. It must not exist."
+    static let importResultCaption = "A single-cell .lungfishrnaseq result. LGE matches each cell by sample and barcode, as the result holds them."
+    static let importCoordinatesCaption = "LGE's table, or one of 10x's projection.csv files. Choose more than one file for more embeddings."
+    static let importClustersCaption = "One of 10x's clusters.csv files."
+    static let importLabelColumnsCaption = "The columns of LGE's table that hold labels, separated by commas."
+    static let importToolCaption = "The tool that made the files and its version, as you state them. LGE records both and did not compute the embedding."
+    static let importFolderCaption = "The new cell map is written in the output directory with .lungfishrnaseq added to the name. It must not exist."
+    static let importBarcodesCaption = "Barcodes match as given. When a refusal says the files and the result differ by -1, turn on one of these and import again."
+    static let importSkipCaption = "Leave out the barcodes of the files that the result does not hold. The record counts them."
+    static let importOtherCountsCaption = "Turn this on when the embedding was computed on counts other than this result's, such as 10x's analysis of Cell Ranger counts. The record and the view then say computed on other counts."
 }
 
 private struct RNASeqPaneGroup<Content: View>: View {
@@ -69,6 +78,17 @@ private enum RNASeqPanePicker {
         present(panel) { urls in
             if let url = urls.first { completion(url) }
         }
+    }
+
+    /// One or more files, for the coordinates and clusters of the Import Embedding row.
+    static func chooseTables(title: String, message: String, completion: @escaping ([URL]) -> Void) {
+        let panel = NSOpenPanel()
+        panel.title = title
+        panel.message = message
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        present(panel, completion: completion)
     }
 
     private static func present(_ panel: NSOpenPanel, completion: @escaping ([URL]) -> Void) {
@@ -292,6 +312,156 @@ struct RNASeqPseudobulkSettingsPane: View {
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("rnaseq-pseudobulk-result-name")
             RNASeqPaneCaption(RNASeqPaneWords.pseudobulkFolderCaption)
+        }
+    }
+}
+
+// MARK: - Import Embedding
+
+private struct RNASeqPaneFilesRow: View {
+    let urls: [URL]
+    let emptyText: String
+    let projectURL: URL?
+    let identifier: String
+    let choose: () -> Void
+    let clear: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if urls.isEmpty {
+                Text(emptyText).font(.body).foregroundStyle(Color.lungfishOrangeFallback)
+            } else {
+                ForEach(urls, id: \.self) { url in
+                    Text(WorkflowOperationDialogState.displayPath(for: url, relativeTo: projectURL))
+                        .font(.body)
+                        .lineLimit(1)
+                        .help(url.path)
+                }
+            }
+            HStack(spacing: 10) {
+                Button(urls.isEmpty ? "Choose…" : "Replace…", action: choose)
+                    .accessibilityIdentifier("\(identifier)-choose")
+                if !urls.isEmpty {
+                    Button("Clear", action: clear).accessibilityIdentifier("\(identifier)-clear")
+                }
+            }
+        }
+    }
+}
+
+/// The inputs of the Import Embedding row. The files are the person's own, so LGE records them as given and the CLI checks them.
+struct RNASeqCellMapImportInputsPane: View {
+    @Bindable var state: WorkflowOperationDialogState
+
+    var body: some View {
+        @Bindable var model = state.rnaSeqCellMapImport
+        VStack(alignment: .leading, spacing: 12) {
+            RNASeqPaneGroup(title: "Single-cell RNA-seq Result") {
+                RNASeqPaneFileRow(
+                    url: model.resultURL,
+                    emptyText: "No single-cell result selected",
+                    projectURL: state.projectURL,
+                    identifier: "rnaseq-import-result",
+                    choose: {
+                        RNASeqPanePicker.chooseResults(
+                            title: "Choose a Single-cell RNA-seq Result",
+                            message: "Choose a single-cell .lungfishrnaseq result folder.",
+                            multiple: false
+                        ) { urls in model.resultURL = urls.first }
+                    },
+                    clear: { model.resultURL = nil }
+                )
+                RNASeqPaneCaption(RNASeqPaneWords.importResultCaption)
+            }
+            RNASeqPaneGroup(title: "Coordinates") {
+                RNASeqPaneFilesRow(
+                    urls: model.coordinateURLs,
+                    emptyText: "No coordinates file selected",
+                    projectURL: state.projectURL,
+                    identifier: "rnaseq-import-coordinates",
+                    choose: {
+                        RNASeqPanePicker.chooseTables(
+                            title: "Choose Coordinates",
+                            message: "Choose LGE's table or 10x's projection.csv files."
+                        ) { urls in model.coordinateURLs = urls }
+                    },
+                    clear: { model.coordinateURLs = [] }
+                )
+                RNASeqPaneCaption(RNASeqPaneWords.importCoordinatesCaption)
+            }
+            RNASeqPaneGroup(title: "Clusters (optional)") {
+                RNASeqPaneFilesRow(
+                    urls: model.clusterURLs,
+                    emptyText: "No clusters file selected",
+                    projectURL: state.projectURL,
+                    identifier: "rnaseq-import-clusters",
+                    choose: {
+                        RNASeqPanePicker.chooseTables(
+                            title: "Choose Clusters",
+                            message: "Choose 10x's clusters.csv files."
+                        ) { urls in model.clusterURLs = urls }
+                    },
+                    clear: { model.clusterURLs = [] }
+                )
+                RNASeqPaneCaption(RNASeqPaneWords.importClustersCaption)
+            }
+            RNASeqPaneGroup(title: "Label Columns (optional)") {
+                TextField("Label columns", text: $model.labelColumnsText)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("rnaseq-import-label-columns")
+                RNASeqPaneCaption(RNASeqPaneWords.importLabelColumnsCaption)
+            }
+            RNASeqPaneGroup(title: "Tool and Version (optional)") {
+                HStack(spacing: 10) {
+                    TextField("Tool", text: $model.tool)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("rnaseq-import-tool")
+                    TextField("Version", text: $model.toolVersion)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                        .accessibilityIdentifier("rnaseq-import-tool-version")
+                }
+                RNASeqPaneCaption(RNASeqPaneWords.importToolCaption)
+            }
+        }
+    }
+}
+
+/// The settings of the Import Embedding row. The three flags that unlock a refusal of the import are checkboxes here, off until
+/// the person turns one on, and the alert of a refusal names the one that unlocks it (`RNASeqCellMapImportWords`).
+struct RNASeqCellMapImportSettingsPane: View {
+    @Bindable var state: WorkflowOperationDialogState
+
+    private func suffixBinding(_ value: RNASeqCellMapImportRunRequest.BarcodeSuffix) -> Binding<Bool> {
+        Binding(
+            get: { state.rnaSeqCellMapImport.barcodeSuffix == value },
+            set: { state.rnaSeqCellMapImport.barcodeSuffix = $0 ? value : nil })
+    }
+
+    var body: some View {
+        @Bindable var model = state.rnaSeqCellMapImport
+        VStack(alignment: .leading, spacing: 12) {
+            RNASeqPaneGroup(title: "Result Name") {
+                TextField("Result name", text: $state.outputName)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("rnaseq-import-result-name")
+                RNASeqPaneCaption(RNASeqPaneWords.importFolderCaption)
+            }
+            RNASeqPaneGroup(title: "Barcodes") {
+                Toggle(RNASeqCellMapImportWords.dropControl, isOn: suffixBinding(.drop))
+                    .accessibilityIdentifier("rnaseq-import-drop-suffix")
+                Toggle(RNASeqCellMapImportWords.addControl, isOn: suffixBinding(.add))
+                    .accessibilityIdentifier("rnaseq-import-add-suffix")
+                RNASeqPaneCaption(RNASeqPaneWords.importBarcodesCaption)
+                Toggle(RNASeqCellMapImportWords.skipControl, isOn: $model.skipBarcodesNotHeld)
+                    .accessibilityIdentifier("rnaseq-import-skip-not-held")
+                RNASeqPaneCaption(RNASeqPaneWords.importSkipCaption)
+            }
+            RNASeqPaneGroup(title: "Counts") {
+                Toggle(RNASeqCellMapImportWords.otherCountsControl, isOn: $model.otherCounts)
+                    .accessibilityIdentifier("rnaseq-import-other-counts")
+                RNASeqPaneCaption(RNASeqPaneWords.importOtherCountsCaption)
+            }
         }
     }
 }
