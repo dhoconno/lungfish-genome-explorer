@@ -113,14 +113,14 @@ public enum RNASeqCellMapCompute {
     }
 
     /// The predicted peak footprint of a run, P = max(700,000,000 + 41,500 B a cell + 10 B a stored entry, 200,000,000 +
-    /// 21 B a stored entry), against 40% of the Mac's memory (ruling ADJ-SC-EMBED item 4). Cells are the cells the run
+    /// 31 B a stored entry), against 40% of the Mac's memory (rulings ADJ-SC-EMBED item 4 and ADJ-SC-EMBED-2 item 1). Cells are the cells the run
     /// keeps and entries the stored entries of every matrix it reads, both from the parent's manifest.
     public struct MemoryPrediction: Equatable, Sendable {
         public static let base: UInt64 = 700_000_000
         public static let perCell: UInt64 = 41_500
         public static let perEntry: UInt64 = 10
         public static let readBase: UInt64 = 200_000_000
-        public static let readPerEntry: UInt64 = 21
+        public static let readPerEntry: UInt64 = 31
         public static let share = 0.40
 
         public var cells: Int
