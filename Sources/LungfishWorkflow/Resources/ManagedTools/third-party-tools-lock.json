@@ -58,12 +58,20 @@
     { "packID": "metagenomics", "id": "ribodetector", "environment": "ribodetector", "packageSpec": "bioconda::ribodetector=0.3.3=pyhdfd78af_0", "executables": ["ribodetector_cpu"], "version": "0.3.3", "license": "GPL-3.0-or-later", "sourceUrl": "https://github.com/hzi-bifo/RiboDetector" },
     { "packID": "wastewater-surveillance", "id": "freyja", "environment": "freyja", "packageSpec": "bioconda::freyja=2.0.3=pyhdfd78af_0", "executables": ["freyja"], "version": "2.0.3", "license": "BSD-2-Clause", "sourceUrl": "https://github.com/andersen-lab/Freyja" },
     { "packID": "rna-seq", "id": "salmon", "environment": "salmon", "packageSpec": "bioconda::salmon=2.11.0=hfc06a8d_0", "executables": ["salmon"], "version": "2.11.0", "license": "BSD-3-Clause", "sourceUrl": "https://github.com/COMBINE-lab/salmon" },
-    { "packID": "rna-seq", "id": "gffread", "environment": "gffread", "packageSpec": "bioconda::gffread=0.12.9=h551ac6c_0", "executables": ["gffread"], "version": "0.12.9", "license": "MIT", "sourceUrl": "https://github.com/gpertea/gffread" }
+    { "packID": "rna-seq", "id": "gffread", "environment": "gffread", "packageSpec": "bioconda::gffread=0.12.9=h551ac6c_0", "executables": ["gffread"], "version": "0.12.9", "license": "MIT", "sourceUrl": "https://github.com/gpertea/gffread" },
+    { "packID": "single-cell", "id": "scanpy", "environment": "sc-embed", "packageSpec": "conda-forge::scanpy=1.11.5=pyhd8ed1ab_0", "executables": ["python"], "version": "1.11.5", "license": "BSD-3-Clause", "sourceUrl": "https://github.com/scverse/scanpy" },
+    { "packID": "single-cell", "id": "python-igraph", "environment": "sc-embed", "packageSpec": "conda-forge::python-igraph=1.0.0=py311hc588c55_2", "executables": ["python"], "version": "1.0.0", "license": "GPL-2.0-or-later", "sourceUrl": "https://github.com/igraph/python-igraph" },
+    { "packID": "single-cell", "id": "leidenalg", "environment": "sc-embed", "packageSpec": "conda-forge::leidenalg=0.12.0=py311hcf9e9d8_1", "executables": ["python"], "version": "0.12.0", "license": "GPL-3.0-or-later", "sourceUrl": "https://github.com/vtraag/leidenalg" },
+    { "packID": "single-cell", "id": "umap-learn", "environment": "sc-embed", "packageSpec": "conda-forge::umap-learn=0.6.0=py311ha1ab1f8_0", "executables": ["python"], "version": "0.6.0", "license": "BSD-3-Clause", "sourceUrl": "https://github.com/lmcinnes/umap" }
   ],
   "explicitLocks": [
     { "packID": "pcr-primer-design", "id": "olivar", "platform": "osx-arm64", "resource": "olivar-osx-arm64-explicit.txt", "sha256": "5d6b712936440e761f8366cf35b709db0a5d676efed728577af20f33a5f2510a" },
     { "packID": "pcr-primer-design", "id": "varvamp", "platform": "osx-arm64", "resource": "varvamp-osx-arm64-explicit.txt", "sha256": "c193411672d8a9a63e45a9431242707d42c23f1b562e89c3abd099aade200afd" },
-    { "packID": "metagenomics", "id": "esviritu", "platform": "osx-arm64", "resource": "esviritu-osx-arm64-explicit.txt", "sha256": "8de02a50ba7b584eb55b6ebe55a88b1905de52d1b366b5f6189ead7f4817890c" }
+    { "packID": "metagenomics", "id": "esviritu", "platform": "osx-arm64", "resource": "esviritu-osx-arm64-explicit.txt", "sha256": "8de02a50ba7b584eb55b6ebe55a88b1905de52d1b366b5f6189ead7f4817890c" },
+    { "packID": "single-cell", "id": "scanpy", "platform": "osx-arm64", "resource": "sc-embed-osx-arm64-explicit.txt", "sha256": "f127cc050d5b1ff7e381ca8a56b703ced7e949c07a8f2badb59edd1029da97ea" },
+    { "packID": "single-cell", "id": "python-igraph", "platform": "osx-arm64", "resource": "sc-embed-osx-arm64-explicit.txt", "sha256": "f127cc050d5b1ff7e381ca8a56b703ced7e949c07a8f2badb59edd1029da97ea" },
+    { "packID": "single-cell", "id": "leidenalg", "platform": "osx-arm64", "resource": "sc-embed-osx-arm64-explicit.txt", "sha256": "f127cc050d5b1ff7e381ca8a56b703ced7e949c07a8f2badb59edd1029da97ea" },
+    { "packID": "single-cell", "id": "umap-learn", "platform": "osx-arm64", "resource": "sc-embed-osx-arm64-explicit.txt", "sha256": "f127cc050d5b1ff7e381ca8a56b703ced7e949c07a8f2badb59edd1029da97ea" }
   ],
   "pipelines": [
     { "id": "taxtriage", "repository": "jhuapl-bio/taxtriage", "revision": "e10bfebda32a62711f38a4e23ab03b61725a9675", "releaseVersion": "v3.3.8" },

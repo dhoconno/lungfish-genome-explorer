@@ -694,15 +694,7 @@ public extension PluginPack {
             ],
             estimatedSizeMB: 30
         ),
-        PluginPack(
-            id: "single-cell",
-            name: "Single-Cell Analysis",
-            description: "Preprocessing and analysis of droplet-based single-cell RNA-seq data",
-            sfSymbol: "circle.grid.3x3",
-            packages: ["scanpy", "scvi-tools", "star"],
-            category: "Single Cell",
-            estimatedSizeMB: 1800
-        ),
+        singleCellPack,
         PluginPack(
             id: "amplicon-analysis",
             name: "Amplicon Analysis",

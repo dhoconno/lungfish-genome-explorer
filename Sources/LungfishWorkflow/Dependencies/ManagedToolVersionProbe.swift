@@ -127,5 +127,12 @@ public struct ManagedToolVersionProbe: Sendable, Hashable {
         entry("salmon", "salmon", ["--version"]),
         // Prints `0.12.9` on standard output and nothing on standard error.
         entry("gffread", "gffread", ["--version"]),
+        // The four packages of the cell map route's environment. Each probe reads the installed distribution's
+        // version from its metadata, so no scientific code starts: importing scanpy takes seconds and its
+        // `__version__` prints a deprecation warning. python-igraph installs the distribution `igraph`.
+        entry("scanpy", "python", ["-c", "from importlib.metadata import version;print(version('scanpy'))"]),
+        entry("python-igraph", "python", ["-c", "from importlib.metadata import version;print(version('igraph'))"]),
+        entry("leidenalg", "python", ["-c", "from importlib.metadata import version;print(version('leidenalg'))"]),
+        entry("umap-learn", "python", ["-c", "from importlib.metadata import version;print(version('umap-learn'))"]),
     ]
 }

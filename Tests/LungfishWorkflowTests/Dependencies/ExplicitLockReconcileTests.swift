@@ -97,7 +97,7 @@ final class ExplicitLockReconcileTests: XCTestCase {
             let lines = text.split(separator: "\n").filter { $0.hasPrefix("https://") }
             XCTAssertEqual(try lock.lockedPackages().count, lines.count, lock.resource)
         }
-        XCTAssertEqual(Set(bundled.explicitLockPackages().keys), ["esviritu", "olivar", "varvamp"])
+        XCTAssertEqual(Set(bundled.explicitLockPackages().keys), ["esviritu", "olivar", "sc-embed", "varvamp"])
     }
 
     // MARK: - The bundled EsViritu lock
