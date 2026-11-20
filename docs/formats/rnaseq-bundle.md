@@ -2,6 +2,8 @@
 
 An RNA-seq result of Lungfish Genome Explorer (LGE) is one folder, `<name>.lungfishrnaseq`, that holds the bulk or single-cell counts of one route on one reference set. This page gives its layout, its manifest, the one component that writes it and what a reader does with it. It is written for developers and for the Phase 5 lanes RS-KIND, RS-BULK-IMPORT, RS-QUANT, RS-HANDOFF and RS-UI-KIND. Phase 5.1 sets the layout. `RNASeqResultManifest` and `RNASeqResultBundle` in `Sources/LungfishIO/Bundles/` read it, and `RNASeqResultWriter` in `Sources/LungfishWorkflow/RNASeq/` writes it. The reference set it names is in [reference-set.md](reference-set.md), and the test fixtures are in `Tests/Fixtures/rnaseq/` (`Tests/Fixtures/rnaseq/README.md:1-12`).
 
+A cell map, which holds the embeddings and cell labels of one single-cell result in a result of modality `cell-map` at schema 2, is described in [rnaseq-cell-map.md](rnaseq-cell-map.md).
+
 ## A bundle kind kept under Analyses
 
 The result is a bundle kind with a bulk or single-cell modality, as the program plan sets (`docs/plans/2026-10-02-architecture-program.md:115`), and not a plain `Analyses/` folder.
