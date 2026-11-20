@@ -381,6 +381,32 @@ final class RNASeqCellMapComputeTests: XCTestCase {
         XCTAssertEqual(RNASeqCellMapTierB.launchNamesLeftOut(pin), ["LC_CTYPE", "TMPDIR"])
     }
 
+    /// Ruling TIERB-BIO item 2, review CM-COMPUTE BIO B1. A run whose clusters moved changes `counts.clusters` and the keys
+    /// under `counts.cluster_sizes`, an object that `flatten` opens into `counts.cluster_sizes.0` and so on. A left-out name
+    /// covers the keys below it, so the run still reaches ARI, and a key outside the nine, `counts.genes_kept`, still fails.
+    func testTierBLeavesOutTheClusterCountAndSizesOfAMovedRun() throws {
+        let pin = RNASeqCellMapCompute.parameterValue(try XCTUnwrap(try JSONSerialization.jsonObject(with: try ComputeStandIn.pinRecord)))
+        func run(_ change: (inout [String: Any]) -> Void) throws -> ParameterValue {
+            var json = try XCTUnwrap(try JSONSerialization.jsonObject(with: try ComputeStandIn.pinRecord) as? [String: Any])
+            var counts = try XCTUnwrap(json["counts"] as? [String: Any])
+            change(&counts)
+            json["counts"] = counts
+            return RNASeqCellMapCompute.parameterValue(
+                try XCTUnwrap(try JSONSerialization.jsonObject(with: try JSONSerialization.data(withJSONObject: json))))
+        }
+        let moved = try run { counts in
+            counts["cluster_sizes"] = ["0": 232, "1": 228, "2": 139]
+            counts["clusters"] = 14
+        }
+        XCTAssertEqual(RNASeqCellMapTierB.recordDifferences(moved, pin), [])
+        let strict = try run { counts in
+            counts["cluster_sizes"] = ["0": 232, "1": 228, "2": 139]
+            counts["clusters"] = 14
+            counts["genes_kept"] = 15_246
+        }
+        XCTAssertEqual(RNASeqCellMapTierB.recordDifferences(strict, pin), ["counts.genes_kept"])
+    }
+
     /// The view's Source fact (manager's decision of 2026-11-20 04:50). A computed cell map's manifest holds the seed and
     /// threads under `origin.settings`, the parent's `route` is copied whole with no key added, and the manifest reads back
     /// equal. `settings` is a schema 2 key written only for `computed`, so a manifest that holds it at schema 1 or with
@@ -451,6 +477,26 @@ final class RNASeqCellMapComputeTests: XCTestCase {
         XCTAssertEqual(try leftovers(), [])
     }
 
+    /// Review CM-COMPUTE SWIFT SF3. macOS ends a process that runs the Mac out of memory with SIGKILL, and `micromamba run`
+    /// reports its killed child as exit 137. `ToolProcessMemoryStop` is the one route that words it, so a route killed after
+    /// a passing prediction reads as a memory stop with a next step and writes no cell map. The middle sentence names this
+    /// Mac's memory, so the test holds the first sentence and the end, never the whole.
+    func testARouteKilledForMemoryIsWordedByToolProcessMemoryStopAndWritesNoCellMap() async throws {
+        let parent = try CellMapImportFixture.result(CellMapImportFixture.starsolo, in: root)
+        let map = output("killed")
+        do {
+            _ = try await compute(parent, output: map, launch: ComputeStandIn.launch(
+                record: Data(), exitCode: 137, stderr: "", seen: ComputeLaunchSeen()))
+            XCTFail("a killed route wrote a cell map")
+        } catch {
+            let words = error.localizedDescription
+            XCTAssertTrue(words.hasPrefix("The cell-map route stopped before it finished, most likely because the Mac ran out of memory."), words)
+            XCTAssertTrue(words.hasSuffix("bring it in with Import Embedding."), words)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: map.path))
+        XCTAssertEqual(try leftovers(), [])
+    }
+
     func testARefusalBeforeTheLaunchStartsNothing() async throws {
         let parent = try CellMapImportFixture.result(CellMapImportFixture.starsolo, in: root)
         let seen = ComputeLaunchSeen()
@@ -466,5 +512,46 @@ final class RNASeqCellMapComputeTests: XCTestCase {
         }
         XCTAssertEqual(seen.all.count, 0, "a refused run launched the route")
         XCTAssertEqual(try leftovers(), [])
+    }
+
+    /// TIERB-BIO item 5: each form of the verdict, built from the pin's own table, genes and record.
+    func testTierBVerdictTakesEachOfTheRulingsFourForms() throws {
+        let pin = ComputeStandIn.pinFolder
+        func value(_ data: Data) throws -> ParameterValue {
+            RNASeqCellMapCompute.parameterValue(try XCTUnwrap(try JSONSerialization.jsonObject(with: data)))
+        }
+        let pinRecord = try value(try ComputeStandIn.pinRecord)
+        let genes = root.appendingPathComponent("genes", isDirectory: true)
+        try FileManager.default.createDirectory(at: genes, withIntermediateDirectories: true)
+        for name in ["variable_genes.tsv", "pca_variance_ratio.tsv"] {
+            try FileManager.default.copyItem(at: pin.appendingPathComponent(name), to: genes.appendingPathComponent(name))
+        }
+        let rows = try String(contentsOf: pin.appendingPathComponent("cells.tsv"), encoding: .utf8).split(separator: "\n").dropFirst()
+        func table(_ name: String, _ edit: (inout [String]) -> Void) throws -> URL {
+            let url = root.appendingPathComponent(name)
+            let body = rows.map { row -> String in
+                var fields = row.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+                edit(&fields)
+                return fields.joined(separator: "\t")
+            }
+            try Data((((["sample\tbarcode\tumap_1\tumap_2\tleiden"] + body).joined(separator: "\n")) + "\n").utf8).write(to: url)
+            return url
+        }
+        func verdict(_ run: URL, record: ParameterValue? = nil) throws -> String {
+            try RNASeqCellMapTierB.verdict(run: run, pin: pin.appendingPathComponent("cells.tsv"), record: record ?? pinRecord,
+                                           pinRecord: pinRecord, runFolder: genes, pinFolder: pin)
+        }
+        XCTAssertEqual(try verdict(try table("same.tsv") { _ in }), "equal by bytes")
+        XCTAssertEqual(try verdict(try table("mirrored.tsv") { $0[2] = String(-(Float($0[2]) ?? 0)) }),
+                       "same meaning (labels equal, variable genes equal, neighbours kept 1.0000)")
+        let merged = try value(try ComputeStandIn.record(setting: "counts.cluster_sizes", to: ["0": 459, "2": 139]))
+        XCTAssertEqual(try verdict(try table("merged.tsv") { if $0[4] == "1" { $0[4] = "0" } }, record: merged),
+                       "passes by meaning, moved: clusters 15 against 14, 228 cells (18.7%) in another cluster, "
+                       + "0 variable genes in and 0 out; ARI 0.7271, neighbours kept 1.0000")
+        var row = 0
+        XCTAssertTrue(try verdict(try table("shuffled.tsv") { $0[4] = String((row * 7) % 15); row += 1 }).hasPrefix("fail: ARI "))
+        XCTAssertEqual(try verdict(try table("ids.tsv") { $0[1] = "X" + $0[1] }), "fail: cell ids are not the pin's by bytes and in order")
+        XCTAssertEqual(try verdict(try table("record.tsv") { _ in }, record: try value(try ComputeStandIn.record(setting: "counts.genes_kept", to: 1))),
+                       "fail: record keys counts.genes_kept")
     }
 }
