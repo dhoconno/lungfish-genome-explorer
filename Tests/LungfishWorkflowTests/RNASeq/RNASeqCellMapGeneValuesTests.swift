@@ -465,6 +465,137 @@ final class RNASeqCellMapGeneValuesTests: XCTestCase {
         }
     }
 
+    // MARK: - The label of every cell and the not-host rows (fix round 1, item 3)
+
+    /// BIO SF2. The fixture's labels "1" to "7" equal their numbers, so a table that stored a label's value for its number
+    /// would pass there. Here `zero-based` numbers its labels from 0 and `named` holds names that sort in another order than
+    /// the cells run. For each set and every cell, the stored number names the label the request gave. Each label's cells, in
+    /// all and in each sample, equal the cells that hold its number, and the label table and pseudobulk agree with them.
+    func testTheLabelOfEveryCellAgreesWithTheCountsAndTheTable() throws {
+        let parent = try CellMapFixture.parent(in: root)
+        var request = CellMapFixture.request(parent: parent)
+        let labelled = request.labelSets[0].cells
+        let kinds = ["T", "B", "NK", "Mono", "DC", "Plt", "Ery"]
+        request.labelSets.append(.init(name: "zero-based", source: .imported, sourceFile: "source/3/zero-based.csv", cells: labelled,
+                                       labels: labelled.map { String($0 % 7) }))
+        request.labelSets.append(.init(name: "named", source: .imported, sourceFile: "source/4/named.csv", cells: labelled,
+                                       labels: labelled.map { kinds[Int($0) % 7] }))
+        let map = root.appendingPathComponent("pbmc-tsne.lungfishrnaseq", isDirectory: true)
+        try CellMapFixture.write(request, to: map)
+        let database = try RNASeqCellMapDatabase(url: map.appendingPathComponent(RNASeqCellMap.filename))
+        let parentCells = try RNASeqCellsDatabase(url: parent.appendingPathComponent(RNASeqCellsDatabase.filename))
+        let cells = try parentCells.cells(offset: 0, limit: 200)
+        let sampleName = try XCTUnwrap(try parentCells.samples().first).name
+        let sets = try database.labelSets()
+        XCTAssertEqual(sets.map(\.name), ["graphclust", "zero-based", "named"])
+        XCTAssertEqual(sets[1].labels.map(\.name), ["0", "1", "2", "3", "4", "5", "6"])
+        XCTAssertEqual(sets[2].labels.map(\.name), ["B", "DC", "Ery", "Mono", "NK", "Plt", "T"])
+        for (set, requested) in zip(sets, request.labelSets) {
+            let given = Dictionary(uniqueKeysWithValues: zip(requested.cells, requested.labels))
+            let indexOf = try database.cellLabels(labelSet: set.labelSet)
+            for cell in 1...200 {
+                let index = Int(indexOf[cell - 1])
+                let name = set.labels.indices.contains(index - 1) ? set.labels[index - 1].name : nil
+                XCTAssertEqual(name, given[Int32(cell)], "\(set.name), cell \(cell)")
+            }
+            for label in set.labels {
+                XCTAssertEqual(indexOf.filter { Int($0) == label.label }.count, label.cells, "\(set.name), label \(label.name)")
+                for count in set.counts where count.label == label.label {
+                    let inSample = cells.indices.filter { Int(indexOf[$0]) == label.label && cells[$0].sample == count.sample }.count
+                    XCTAssertEqual(inSample, count.cells, "\(set.name), label \(label.name), sample \(count.sample)")
+                }
+            }
+            XCTAssertEqual(indexOf.filter { $0 != 0 }.count, set.samples.reduce(0) { $0 + $1.labelled }, "\(set.name), labelled cells")
+            let table = try String(contentsOf: map.appendingPathComponent(set.table), encoding: .utf8)
+            let lines = zip(requested.cells, requested.labels).map { "\(sampleName)\t\(cells[Int($0) - 1].barcode)\t\($1)" }
+            XCTAssertEqual(table, "sample\tbarcode\tlabel\n" + lines.joined(separator: "\n") + "\n", "the label table of \(set.name)")
+            let outcome = try RNASeqPseudobulk.sum(result: parent, labels: map.appendingPathComponent(set.table), name: "pb")
+            XCTAssertEqual(Dictionary(outcome.kept.map { ($0.label, $0.cells) }, uniquingKeysWith: { first, _ in first }),
+                           Dictionary(set.labels.map { ($0.name, $0.cells) }, uniquingKeysWith: { first, _ in first }), "pseudobulk of \(set.name)")
+        }
+    }
+
+    /// BIO SF3. A parent with a not-host pass: 10 virus UMIs on cell 1, 4 on cell 150 and 1 on a barcode outside the cells.
+    /// Each expected row is read from the parent's own tables and never through the cell-map writer.
+    func testNotHostRowsEqualTheParentsTables() throws {
+        let analyses = root.appendingPathComponent("Analyses", isDirectory: true)
+        try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
+        let virus = SingleCellNotHostTests.virus
+        let folder = try SingleCellFolderReader.read(folder: RNASeqPseudobulkTests.starsolo)
+        let barcodes = try MatrixMarketReader.textLines(of: folder.url.appendingPathComponent(folder.barcodes))
+        // The raw list is the cells and 50,000 more barcodes at 1 UMI, which puts the cells first and a pool behind.
+        let more = (0..<50_000).map { SingleCellNotHostTests.barcode($0) }
+        let raw = SingleCellRawMatrix(
+            barcodes: SingleCellBarcodeTable(data: Data(((barcodes + more).joined(separator: "\n") + "\n").utf8)),
+            totals: barcodes.map { _ in 900 } + more.map { _ in 1 })
+        func read(_ barcode: String, _ umi: String) -> String {
+            ["r\(barcode)\(umi)100", "0", "NC_045512.2", "100", "255", "50M", "*", "0", "0", "*", "*", "NH:i:1", "nM:i:0", "CB:Z:\(barcode)", "UB:Z:\(umi)"]
+                .joined(separator: "\t")
+        }
+        var counter = SingleCellNotHostCounter(extras: [virus])
+        let reads = (1...10).map { read(barcodes[0], "U\($0)") } + (1...4).map { read(barcodes[149], "V\($0)") }
+            + [read(SingleCellNotHostTests.barcode(7), "U1")]
+        try counter.add(samText: reads.joined(separator: "\n") + "\n")
+        let pass = SingleCellNotHostPass.sample(
+            folder.sample, cells: barcodes, raw: raw, pool: SingleCellAmbientPool(raw), tallies: counter.tallies(), extras: [virus])
+        var parentRequest = try SingleCellFolderReader.request([folder], name: "pbmc", samples: [.init(id: folder.sample)], genomes: [])
+        parentRequest.notHostCells = SingleCellNotHostResult(extras: [virus], records: [.init(name: "NC_045512.2", length: 29903)], samples: [pass])
+        let parent = try CellMapFixture.writer.write(
+            parentRequest, to: analyses.appendingPathComponent("pbmc.lungfishrnaseq"),
+            envelope: ProvenanceEnvelope(workflowName: "RNA-seq import", toolName: "lungfish-cli", toolVersion: "test"))
+        let map = analyses.appendingPathComponent("pbmc-tsne.lungfishrnaseq", isDirectory: true)
+        try CellMapFixture.write(CellMapFixture.request(parent: parent), to: map)
+
+        let database = try RNASeqCellMapDatabase(url: map.appendingPathComponent(RNASeqCellMap.filename))
+        let parentCells = try RNASeqCellsDatabase(url: parent.appendingPathComponent(RNASeqCellsDatabase.filename))
+        let extras = try parentCells.notHostExtras()
+        XCTAssertEqual(extras.map(\.name), ["sars-cov-2"])
+        XCTAssertEqual(try database.notHostExtras().map { "\($0.extra)|\($0.name)|\($0.kind)" }, extras.map { "\($0.extra)|\($0.name)|\($0.kind)" })
+
+        // Each cell's sample, and each barcode with a cell by that cell, from the parent's tables.
+        let cells = try parentCells.cells(offset: 0, limit: 200)
+        let sampleOf = Dictionary(uniqueKeysWithValues: cells.map { ($0.cell, $0.sample) })
+        let barcodeRows = try parentCells.notHostBarcodes()
+        let cellOf = Dictionary(barcodeRows.compactMap { row in row.cell.map { ("\(row.sample)|\(row.barcode)", $0) } }, uniquingKeysWith: { first, _ in first })
+        XCTAssertEqual(barcodeRows.filter { $0.barcode == SingleCellNotHostTests.barcode(7) }.map(\.cell), [nil], "that barcode is outside the cells")
+        let counts = try parentCells.notHostCounts()
+        let calls = try parentCells.notHostCalls()
+        let flagCounts = try database.flagCounts()
+        let bounds = try database.valueBounds()
+        for extra in extras {
+            var umis: [Int: Int] = [:]
+            for count in counts where count.extra == extra.extra && count.record == 0 && count.umis > 0 {
+                if let cell = cellOf["\(count.sample)|\(count.barcode)"] { umis[cell] = count.umis }
+            }
+            var flags: [Int: String] = [:]
+            for call in calls where call.extra == extra.extra && !call.flag.isEmpty { flags[call.cell] = call.flag }
+            let stored = try database.cellNotHost(extra: extra.extra)
+            let expectedRows = Set(umis.keys).union(flags.keys).sorted().map { "\($0)|\(umis[$0] ?? 0)|\(flags[$0] ?? "")" }
+            XCTAssertEqual(stored.map { "\($0.cell)|\($0.umis)|\($0.flag)" }, expectedRows, "the rows of \(extra.name)")
+            XCTAssertEqual(stored.filter { $0.umis > 0 }.map { [$0.cell, $0.umis] }, [[1, 10], [150, 4]], "the UMIs sit on cells 1 and 150 and the outside barcode has no row")
+            XCTAssertEqual(stored.first { $0.cell == 1 }?.flag, "viral RNA above ambient")
+
+            // The flags of each sample add up to its cells, and each flag's count is the number of calls with that flag.
+            if extra.kind == ReferenceSetExtraKind.virus.rawValue || extra.kind == ReferenceSetExtraKind.bacterium.rawValue {
+                for sample in try parentCells.samples() {
+                    let rows = flagCounts.filter { $0.extra == extra.extra && $0.sample == sample.sample }
+                    XCTAssertEqual(rows.reduce(0) { $0 + $1.cells }, sample.cells, "the flags of \(extra.name) add up to the cells of \(sample.name)")
+                    let called = calls.filter { $0.extra == extra.extra && !$0.flag.isEmpty && sampleOf[$0.cell] == sample.sample }
+                    var expectedFlags = Dictionary(grouping: called, by: \.flag).mapValues(\.count)
+                    expectedFlags[""] = sample.cells - called.count
+                    XCTAssertEqual(Dictionary(rows.map { ($0.flag, $0.cells) }, uniquingKeysWith: { first, _ in first }), expectedFlags)
+                }
+            }
+
+            // The bound is the sort of all N values with the zeros at index rank - 1. Here 198 of 200 cells hold none, so
+            // rank 198 is a zero while the maximum is 10, the edge where a legend must use the maximum.
+            let all = (umis.values.map { Double($0) } + Array(repeating: 0, count: cells.count - umis.count)).sorted()
+            let bound = try XCTUnwrap(bounds.first { $0.value == "not_host_umis" && $0.extra == extra.extra })
+            XCTAssertEqual([bound.minimum, bound.maximum, bound.p99], [all[0], all[cells.count - 1], all[(99 * cells.count + 99) / 100 - 1]])
+            XCTAssertEqual([bound.minimum, bound.maximum, bound.p99], [0, 10, 0])
+        }
+    }
+
     // MARK: - The X5 measure (O8), opt in
 
     static let x5Variable = "LUNGFISH_CM_KIND_X5_RESULT"
