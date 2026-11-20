@@ -4,6 +4,7 @@
 //
 // Text the export writes, not a resource. Each matrix is read with Matrix::readMM from the file LGE kept as given, plain or gzip,
 // and the table of cells is written before Seurat is called, so an R without Seurat stops in words after the table.
+// The Seurat object takes orig.ident and its identity from the sample of each cell and not from its name (Phase 5.5 lane CM-IDENT).
 
 import Foundation
 
@@ -13,6 +14,7 @@ extension RNASeqExportTemplates {
     private static let seuratRead = #"""
 # seurat.R - written by lungfish-cli rnaseq export. Run it in this folder with Rscript --vanilla seurat.R
 # Needs Matrix, and Seurat for the last step. The table of cells is written before Seurat is called.
+# Checked on Seurat 5.5.1 from conda-forge (SeuratObject 5.4.0, R 4.5.3). No other Seurat version is checked.
 suppressPackageStartupMessages(library(Matrix))
 # ---- Settings written by the export. Edit them here and run the script again. ----
 feature_type <- "Gene Expression"   # the feature type counted in the umis and genes of the table of cells
@@ -59,7 +61,14 @@ cat(sprintf("not-host features %d\n", length(not_host)))
 # The object holds every feature type in its RNA assay, so Antibody Capture rows count in nCount_RNA. Subset by type before normalising.
 cat(sprintf("features %d, of them %d not %s\n", nrow(combined), sum(info$type != feature_type), feature_type))
 if (requireNamespace("Seurat", quietly = TRUE)) {
-  object <- Seurat::CreateSeuratObject(counts = combined, project = "lungfish", meta.data = data.frame(sample = cells$sample, row.names = cells$cell))
+  # Seurat reads orig.ident and the identity of a cell from the part of its name before the first "_", so cov_10_AAAC and cov_11_AAAC
+  # would both be "cov". The sample of each cell is set here instead, as a factor with its levels in the order of samples.tsv, since
+  # factor() alone sorts them by the locale of the session. The barcode stays in meta.data, so a table written from the object keeps
+  # the pair (sample, barcode) when Seurat renames the cells.
+  sample_of <- factor(cells$sample, levels = samples$sample_id)
+  object <- Seurat::CreateSeuratObject(counts = combined, project = "lungfish",
+                                       meta.data = data.frame(orig.ident = sample_of, sample = cells$sample, barcode = cells$barcode, row.names = cells$cell))
+  Seurat::Idents(object) <- "orig.ident"
   # Seurat writes "-" for "_" in a feature name and takes feature data only as a vector named by its own names, so match by position.
   features <- rownames(object[["RNA"]])
   if (length(features) != length(ids)) stop("Seurat kept ", length(features), " of the ", length(ids), " features, so the feature data cannot be matched by position.", call. = FALSE)
