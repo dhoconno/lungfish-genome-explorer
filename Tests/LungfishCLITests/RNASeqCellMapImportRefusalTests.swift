@@ -173,6 +173,39 @@ final class RNASeqCellMapImportRefusalTests: XCTestCase {
         }
     }
 
+    // MARK: - The notes of the command
+
+    /// The notes that `rnaseq cell-map import` prints for `arguments`, in order, with the cell map written to `Analyses/<name>`.
+    private func notes(_ name: String, _ arguments: [String]) throws -> [String] {
+        var printed: [String] = []
+        let target = root.appendingPathComponent("Analyses/\(name).lungfishrnaseq", isDirectory: true)
+        _ = try RNASeqCellMapImportSubcommand.parse(arguments + ["--output", target.path, "--quiet"]).write { printed.append($0) }
+        return printed
+    }
+
+    func testTheNotesCountBarcodesNotHeldWithTheirThousandsMarkedAndAgreeInNumber() throws {
+        let text = try String(contentsOf: projection, encoding: .utf8)
+        func extra(_ count: Int) -> String { (1...count).map { String(format: "AAAAAAAAAAAA%04d-1,0.5,0.5\n", $0) }.joined() }
+        let flags = ["--barcode-suffix", "drop", "--skip-barcodes-not-held", "--other-counts"]
+        let other = "The embeddings were computed on other counts than the result's."
+        XCTAssertEqual(try notes("one", [starsolo.path, "--coordinates", try file("one/projection.csv", text + extra(1)).path] + flags),
+                       ["1 of the 201 barcodes of projection.csv is not held by the result and was left out.", other])
+        XCTAssertEqual(try notes("many", [starsolo.path, "--coordinates", try file("many/projection.csv", text + extra(1022)).path] + flags),
+                       ["1,022 of the 1,222 barcodes of projection.csv are not held by the result and were left out.", other])
+    }
+
+    func testTheNotesCountCellsLeftOutAndAgreeInNumber() throws {
+        let name = try sampleName(starsolo)
+        let rows = try barcodes().map { "\($0)\t1.5\t-2\n" }
+        func arguments(leaving left: Int, in path: String) throws -> [String] {
+            [starsolo.path, "--coordinates", try file(path, "barcode\tumap_1\tumap_2\n" + rows.dropFirst(left).joined()).path]
+        }
+        XCTAssertEqual(try notes("one", try arguments(leaving: 1, in: "one/lge-cell-map.tsv")),
+                       ["1 of the 200 cells of \(name) has no coordinates in umap and is not drawn."])
+        XCTAssertEqual(try notes("three", try arguments(leaving: 3, in: "three/lge-cell-map.tsv")),
+                       ["3 of the 200 cells of \(name) have no coordinates in umap and are not drawn."])
+    }
+
     // MARK: - The output and the parent
 
     func testTheOutputAndTheParentAreCheckedFirst() throws {
