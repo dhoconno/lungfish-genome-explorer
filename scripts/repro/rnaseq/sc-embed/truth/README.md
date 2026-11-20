@@ -43,7 +43,7 @@ Run the tests of the rules and parsers with the same environment. Neither it nor
 
 ## What is written
 
-The barcode of every file is the one the result holds, 10x's with `-1` and STARsolo's bare. A table barcode is shown as given. `cell` equals `column` since each result holds one sample. A gene or an entry with no count is absent from a file of non-zero values and reads as 0.
+The barcode of every file is the one the result holds, 10x's with `-1` and STARsolo's bare. A table barcode is shown as given, except in `p2/outcomes.tsv` and claim `P2-2`, which name a not-held barcode after the suffix reading. `p2/not-held.tsv` holds both forms, and CM-IMPORT's refusal prints the table's form (BIO ruling 6). `cell` equals `column` since each result holds one sample. A gene or an entry with no count is absent from a file of non-zero values and reads as 0.
 
 | Path | Holds |
 | --- | --- |
@@ -58,7 +58,7 @@ The barcode of every file is the one the result holds, 10x's with `-1` and STARs
 | `matrices/<case>/normalised.f32` | The other cases. Every normalised value as a little-endian float32. The entries run by cell column and then by Gene Expression row in matrix order, so the array lines up with the matrix file |
 | `matrices/<case>/seurat-compare.tsv` | Our values against Seurat's, bit for bit in Double and then as float32 (P5) |
 | `matrices/sc5p_v2_hs_PBMC_1k-tenx/ac-effect.tsv` | What Antibody Capture does to the total and to the values (BIO F14) |
-| `selection/<case>/` | P6. `accounting.tsv` has one row for each cluster taken as the selection. `labels.tsv` is the cluster label table. `selection-1.tsv` labels cluster 1 `selected` and every other cell with coordinates `rest`. `expected.labels.tsv` and `expected.selection-1.tsv` hold the sums that `rnaseq pseudobulk` writes for them, in the form of `scripts/repro/rnaseq/gse183579/pseudobulk_check.py` |
+| `selection/<case>/` | P6. `accounting.tsv` has one row for each cluster taken as the selection. `labels.tsv` is the cluster label table. `selection-1.tsv` labels cluster 1 `selected` and every other cell with coordinates `rest`. `expected.labels.tsv` and `expected.selection-1.tsv` hold the sums that `rnaseq pseudobulk` writes for them, in the form of `scripts/repro/rnaseq/gse183579/pseudobulk_check.py`. The column ids here are the labels alone (`1` to `7`, `rest`, `selected`). `rnaseq pseudobulk` writes `<sample>_<label>` (`docs/formats/rnaseq-bundle.md:134`), so a test adds the sample id before it compares. |
 | `claims.tsv`, `inputs.tsv`, `seurat-source.txt` | The claims, the inputs and the installed R source of the Seurat functions |
 
 The cases of `matrices/` are `pbmc_1k_v3-tenx`, `pbmc_1k_v3-gx`, `hgmm_1k_v3-tenx`, `hgmm_1k_v3-gx`, `sc5p_v2_hs_PBMC_1k-tenx` and the two fixtures `fixture-cellranger-pbmc_1k_v3` and `fixture-starsolo-pbmc_1k_v3`. The cases of `selection/` are `p1-full`, `p2-full`, `p1-cut200`, `p2-cut200`, `p1-cut200-leave30` and `p2-cut200-leave30`. The two `leave30` cases leave the last 30 columns of the cut out of the table, as the pseudobulk fixture leaves its last 30 cells with no label.
