@@ -20,18 +20,18 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishIO | library | Sources/LungfishIO | 688 | LungfishCore |
+| LungfishIO | library | Sources/LungfishIO | 689 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 161 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
-| LungfishRNASeqUI | library | Sources/LungfishRNASeqUI | 38 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishRNASeqUI | library | Sources/LungfishRNASeqUI | 42 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1622 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1624 | LungfishCore, LungfishIO |
 | LungfishWorkflowTwelveS | library | Sources/LungfishWorkflowTwelveS | 38 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
@@ -1490,6 +1490,7 @@ None.
 - `RNASeqCellMap` enum, `Sources/LungfishIO/Bundles/RNASeqCellMapDatabase.swift`
 - `RNASeqCellMapDatabase` struct, `Sources/LungfishIO/Bundles/RNASeqCellMapDatabase+Read.swift`
 - `RNASeqCellMapDatabaseWriter` class, `Sources/LungfishIO/Bundles/RNASeqCellMapDatabase.swift`
+- `RNASeqCellMapSelection` enum, `Sources/LungfishIO/Bundles/RNASeqCellMapSelection.swift`
 - `RNASeqCellsDatabase` class, `Sources/LungfishIO/Bundles/RNASeqCellsDatabase.swift`
 - `RNASeqCellsDatabaseWriter` class, `Sources/LungfishIO/Bundles/RNASeqCellsDatabaseWriter.swift`
 - `RNASeqCountTable` struct, `Sources/LungfishIO/Bundles/RNASeqResultTables.swift`
@@ -1935,6 +1936,7 @@ None.
 - `RNASeqCellMapColouring` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
 - `RNASeqCellMapColours` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
 - `RNASeqCellMapFacts` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
+- `RNASeqCellMapGeneRead` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
 - `RNASeqCellMapLoader` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
 - `RNASeqCellMapLoadOutcome` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
 - `RNASeqCellMapPoints` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
@@ -1942,6 +1944,7 @@ None.
 - `RNASeqCellMapValues` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
 - `RNASeqCellMapViewController` class, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapViewController.swift`
 - `RNASeqCorrelationPlotView` class, `Sources/LungfishRNASeqUI/Bulk/RNASeqCorrelationPlotView.swift`
+- `RNASeqEmbeddingGenePickerViewController` class, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingGenePicker.swift`
 - `RNASeqEmbeddingGrid` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift`
 - `RNASeqEmbeddingLegend` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingLegend.swift`
 - `RNASeqEmbeddingLegendView` class, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingLegend.swift`
@@ -1952,6 +1955,8 @@ None.
 - `RNASeqEmbeddingRasterInput` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift`
 - `RNASeqEmbeddingWindow` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift`
 - `RNASeqEmbeddingWords` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingWords.swift`
+- `RNASeqGeneChoice` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingGenePicker.swift`
+- `RNASeqGeneIndex` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingGenePicker.swift`
 - `RNASeqHistogramView` class, `Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCharts.swift`
 - `RNASeqRankPlotView` class, `Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCharts.swift`
 - `RNASeqResultFacts` struct, `Sources/LungfishRNASeqUI/RNASeqResultSurface.swift`
@@ -3433,6 +3438,8 @@ None.
 - `RNASeqCellMapGenes` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCellMapGenes.swift`
 - `RNASeqCellMapImport` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCellMapImport.swift`
 - `RNASeqCellMapImportRefusal` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCellMapImportRefusal.swift`
+- `RNASeqCellMapSelect` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCellMapSelect.swift`
+- `RNASeqCellMapSelectRefusal` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCellMapSelect.swift`
 - `RNASeqCountTableReader` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCountTableReader.swift`
 - `RNASeqExport` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqExportFolder.swift`
 - `RNASeqExportDesignCheck` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqExportDesign.swift`
