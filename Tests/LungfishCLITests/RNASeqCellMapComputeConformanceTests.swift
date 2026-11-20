@@ -35,7 +35,7 @@ final class RNASeqCellMapComputeConformanceTests: XCTestCase {
     override func setUpWithError() throws {
         for (url, what) in [(Self.outs, "the staged pbmc_1k_v3/outs"), (Self.environment, "env-sc-embed"), (Self.micromamba, "micromamba")]
         where !FileManager.default.fileExists(atPath: url.path) {
-            throw XCTSkip("\(what) is not at \(url.path)")
+            try ToolAvailability.skipOrFail("\(what) is not at \(url.path)")
         }
         root = try TestTempDirectory.make(prefix: "rnaseq-cell-map-compute-x4")
     }
