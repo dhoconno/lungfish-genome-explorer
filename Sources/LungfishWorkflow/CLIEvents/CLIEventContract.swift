@@ -144,6 +144,8 @@ package enum CLIEventContractTable {
         "rnaseq export": .events(flag: formatJSON, channel: .standardOutput),
         // Since 5.2 lane RS-PSEUDOBULK: start, a warning for each group left out, then complete or failed.
         "rnaseq pseudobulk": .events(flag: formatJSON, channel: .standardOutput),
+        // Since 5.5 lane CM-IMPORT: start, a warning for each count of cells left out, then complete or failed.
+        "rnaseq cell-map import": .events(flag: formatJSON, channel: .standardOutput),
         "map": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate add": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate delete": .events(flag: formatJSON, channel: .standardOutput),

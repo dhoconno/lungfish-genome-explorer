@@ -21,5 +21,6 @@ SUBCOMMANDS:
                           built
   solo-plan               Write a plan folder that counts 10x libraries with
                           STARsolo on a Linux machine
+  cell-map                Make cell maps of a single-cell result
 
   See 'lungfish-cli help rnaseq <subcommand>' for detailed help.

@@ -31,7 +31,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1620 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1622 | LungfishCore, LungfishIO |
 | LungfishWorkflowTwelveS | library | Sources/LungfishWorkflowTwelveS | 38 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
@@ -3431,6 +3431,8 @@ None.
 - `RiboDetectorStep` struct, `Sources/LungfishWorkflow/Recipes/Steps/RiboDetectorStep.swift`
 - `RNASeqCellMapError` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqResultWriter+CellMap.swift`
 - `RNASeqCellMapGenes` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCellMapGenes.swift`
+- `RNASeqCellMapImport` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCellMapImport.swift`
+- `RNASeqCellMapImportRefusal` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCellMapImportRefusal.swift`
 - `RNASeqCountTableReader` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCountTableReader.swift`
 - `RNASeqExport` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqExportFolder.swift`
 - `RNASeqExportDesignCheck` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqExportDesign.swift`

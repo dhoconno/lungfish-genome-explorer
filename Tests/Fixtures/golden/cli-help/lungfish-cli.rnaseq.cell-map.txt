@@ -1,0 +1,13 @@
+OVERVIEW: Make cell maps of a single-cell result
+
+USAGE: lungfish-cli rnaseq cell-map <subcommand>
+
+OPTIONS:
+  --version               Show the version.
+  -h, --help              Show help information.
+
+SUBCOMMANDS:
+  import                  Import a single-cell result's embeddings and cell
+                          labels as a cell map
+
+  See 'lungfish-cli help rnaseq cell-map <subcommand>' for detailed help.
