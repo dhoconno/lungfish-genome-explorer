@@ -1,0 +1,4 @@
+{"event":"start","message":"Computing a cell map of a single-cell result.","progress":0,"schemaVersion":2}
+{"event":"log","level":"info","message":"Computing a cell map of 200 cells with exact nearest neighbours at 1 thread.","schemaVersion":2}
+{"event":"log","level":"info","message":"Checking the route's table and writing the cell map.","schemaVersion":2}
+{"event":"complete","message":"Wrote the cell map umap, where umap draws 200 cells in 3 Leiden clusters","output":"\/work\/Analyses\/umap.lungfishrnaseq","outputs":["\/work\/Analyses\/umap.lungfishrnaseq"],"progress":1,"schemaVersion":2}

@@ -14,7 +14,7 @@ struct RNASeqCellMapSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "cell-map",
         abstract: "Make cell maps of a single-cell result",
-        subcommands: [RNASeqCellMapImportSubcommand.self, RNASeqCellMapSelectSubcommand.self]
+        subcommands: [RNASeqCellMapImportSubcommand.self, RNASeqCellMapSelectSubcommand.self, RNASeqCellMapComputeSubcommand.self]
     )
 }
 

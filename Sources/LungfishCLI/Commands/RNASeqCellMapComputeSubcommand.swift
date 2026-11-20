@@ -45,14 +45,17 @@ struct RNASeqCellMapComputeSubcommand: AsyncParsableCommand {
          "--seed", String(seed), "--threads", String(threads), "--output", outputURL.path]
     }
 
-    func run() async throws {
+    func run() async throws { try await run(launch: RNASeqCellMapCompute.condaLaunch()) }
+
+    /// The leaf with its launch given, so the transcript capture runs it in process on a stand-in route.
+    func run(launch: @escaping RNASeqCellMapCompute.Launch) async throws {
         let command = self
         let eventsOn = globalOptions.outputFormat == .json
         let quiet = globalOptions.quiet
         let events = CLIEventEmitter(enabled: eventsOn, emit: printEventLine)
         events.emitStart(message: "Computing a cell map of a single-cell result.")
         let outcome = await runCancellingOnSIGTERM { () async throws -> String in
-            try await command.compute(launch: RNASeqCellMapCompute.condaLaunch()) { line in
+            try await command.compute(launch: launch) { line in
                 events.emitLog(.info, line)
                 if !quiet { printHumanLine(line, eventsOn: eventsOn) }
             }

@@ -230,6 +230,8 @@ public enum ScientificProvenancePolicy {
         "rnaseq cell-map import": dataWriting("cli.rnaseq.cell-map.import", writer: "RNASeqResultWriter/ProvenanceWriter"),
         // `rnaseq cell-map select` writes a selection's label table with its sidecar record (lane CM-SELECT-CLI).
         "rnaseq cell-map select": dataWriting("cli.rnaseq.cell-map.select", writer: "ScientificFileExportProvenance"),
+        // `rnaseq cell-map compute` runs the pinned route and writes its cell map through the same writer (lane CM-COMPUTE).
+        "rnaseq cell-map compute": dataWriting("cli.rnaseq.cell-map.compute", writer: "RNASeqResultWriter/ProvenanceWriter"),
         "rnaseq quality": inspectOnly("cli.rnaseq.quality"),
         // `rnaseq index-plan` writes a plan folder for a Linux machine, and `rnaseq index-adopt` writes the index record
         // that later plans pin, through its one owner (lane EX-INDEX).
