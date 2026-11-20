@@ -138,11 +138,11 @@ struct RNASeqCellMapImportSubcommand: AsyncParsableCommand {
         }
         try Task.checkCancellation()
         for file in checked.files where file.notHeld.reduce(0, +) > 0 {
-            notes("\(file.notHeld.reduce(0, +)) of the \(file.rows) barcodes of \(URL(fileURLWithPath: file.path).lastPathComponent) are not held by the result and were left out.")
+            notes(Self.notHeldNote(file.notHeld.reduce(0, +), of: file.rows, file: URL(fileURLWithPath: file.path).lastPathComponent))
         }
         for embedding in summary.embeddings {
             for (sample, leftOut) in zip(summary.samples, embedding.leftOut) where leftOut > 0 {
-                notes("\(leftOut) of the \(sample.cells) cells of \(sample.name) have no coordinates in \(embedding.name) and are not drawn.")
+                notes(Self.leftOutNote(leftOut, of: sample.cells, sample: sample.name, embedding: embedding.name))
             }
         }
         if checked.choices.counts == "computed on other counts" { notes("The embeddings were computed on other counts than the result's.") }
@@ -150,6 +150,22 @@ struct RNASeqCellMapImportSubcommand: AsyncParsableCommand {
         func count(_ n: Int, _ noun: String) -> String { n == 1 ? "1 \(noun)" : "\(n) \(noun)s" }
         let drawn = summary.embeddings.map { "\($0.name) draws \(count($0.drawn.reduce(0, +), "cell"))" }.joined(separator: ", ")
         return "Wrote the cell map \(name), where \(drawn), with \(count(summary.labelSets.count, "label set"))"
+    }
+
+    /// "<k> of the <n> barcodes of <file> are not held by the result and were left out." The counts carry their thousands marks as
+    /// the refusals write them, and the verbs agree with <k>: "1 of the 1,222 barcodes of projection.csv is not held ... was left out."
+    static func notHeldNote(_ notHeld: Int, of rows: Int, file: String) -> String {
+        let one = notHeld == 1
+        return "\(RNASeqCellMapImportRefusal.number(notHeld)) of the \(RNASeqCellMapImportRefusal.count(rows, "barcode")) of \(file) "
+            + "\(one ? "is" : "are") not held by the result and \(one ? "was" : "were") left out."
+    }
+
+    /// "<k> of the <n> cells of <sample> have no coordinates in <embedding> and are not drawn." The page's words for k above 1, with
+    /// the counts marked as the refusals mark them, and "has" and "is" for k of 1.
+    static func leftOutNote(_ leftOut: Int, of cells: Int, sample: String, embedding: String) -> String {
+        let one = leftOut == 1
+        return "\(RNASeqCellMapImportRefusal.number(leftOut)) of the \(RNASeqCellMapImportRefusal.count(cells, "cell")) of \(sample) "
+            + "\(one ? "has" : "have") no coordinates in \(embedding) and \(one ? "is" : "are") not drawn."
     }
 
     func envelope(_ checked: RNASeqCellMapImport.Checked, summary: RNASeqResultWriter.CellMapSummary, startedAt: Date) -> ProvenanceEnvelope {

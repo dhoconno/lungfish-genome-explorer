@@ -206,6 +206,23 @@ final class RNASeqCellMapImportRefusalTests: XCTestCase {
                        ["3 of the 200 cells of \(name) have no coordinates in umap and are not drawn."])
     }
 
+    /// A sample of 1,224 cells needs no fixture of that size: the notes' words are the page's, with the refusals' thousands marks.
+    func testTheNotesMarkTheThousandsAsTheRefusalsDoAndAgreeInNumber() {
+        typealias Command = RNASeqCellMapImportSubcommand
+        XCTAssertEqual(Command.notHeldNote(1, of: 1_222, file: "projection.csv"),
+                       "1 of the 1,222 barcodes of projection.csv is not held by the result and was left out.")
+        XCTAssertEqual(Command.notHeldNote(1_021, of: 1_222, file: "projection.csv"),
+                       "1,021 of the 1,222 barcodes of projection.csv are not held by the result and were left out.")
+        XCTAssertEqual(Command.notHeldNote(1, of: 1, file: "a.tsv"), "1 of the 1 barcode of a.tsv is not held by the result and was left out.")
+        XCTAssertEqual(Command.leftOutNote(3, of: 1_224, sample: "pbmc_1k_v3", embedding: "TSNE"),
+                       "3 of the 1,224 cells of pbmc_1k_v3 have no coordinates in TSNE and are not drawn.")
+        XCTAssertEqual(Command.leftOutNote(1, of: 1_224, sample: "pbmc_1k_v3", embedding: "TSNE"),
+                       "1 of the 1,224 cells of pbmc_1k_v3 has no coordinates in TSNE and is not drawn.")
+        XCTAssertEqual(Command.leftOutNote(1_000, of: 1_224, sample: "pbmc_1k_v3", embedding: "TSNE"),
+                       "1,000 of the 1,224 cells of pbmc_1k_v3 have no coordinates in TSNE and are not drawn.")
+        XCTAssertEqual(RNASeqCellMapImportRefusal.count(1_222, "barcode"), "1,222 barcodes")
+    }
+
     // MARK: - The output and the parent
 
     func testTheOutputAndTheParentAreCheckedFirst() throws {

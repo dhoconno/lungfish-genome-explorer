@@ -85,8 +85,8 @@ public enum RNASeqCellMapImportRefusal: Error, Equatable, LocalizedError, Sendab
         }
     }
 
-    /// A whole number with its thousands marked, such as 1,221.
-    static func number(_ value: Int) -> String {
+    /// A whole number with its thousands marked, such as 1,221. The refusals and the notes of the command write their counts so.
+    public static func number(_ value: Int) -> String {
         let digits = String(value.magnitude)
         var grouped = ""
         for (index, digit) in digits.enumerated() {
@@ -96,6 +96,6 @@ public enum RNASeqCellMapImportRefusal: Error, Equatable, LocalizedError, Sendab
         return (value < 0 ? "-" : "") + grouped
     }
 
-    /// "1 barcode" or "<n> barcodes".
-    static func count(_ value: Int, _ noun: String) -> String { "\(number(value)) \(noun)\(value == 1 ? "" : "s")" }
+    /// "1 barcode" or "<n> barcodes", with the thousands of <n> marked.
+    public static func count(_ value: Int, _ noun: String) -> String { "\(number(value)) \(noun)\(value == 1 ? "" : "s")" }
 }
