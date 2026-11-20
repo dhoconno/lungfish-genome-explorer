@@ -131,6 +131,10 @@ final class RNASeqCellMapComputeConformanceTests: XCTestCase {
         if sameHost {
             XCTAssertTrue(byBytes, "tier A: on the pin's host the labels and coordinates must equal the pin byte for byte")
             XCTAssertEqual(differences, [], "tier A: on the pin's host the record must equal the pin's (ruling TIERB-ENV item 4)")
+            for name in ["variable_genes.tsv", "pca_variance_ratio.tsv"] {  // the pin's word covers all five files
+                XCTAssertEqual(RNASeqCellMapTierB.flatten(.dictionary(record))["outputs.\(name)"],
+                               RNASeqCellMapTierB.flatten(pinValue)["outputs.\(name)"], "tier A: \(name) differs from the pin's")
+            }
             return
         }
         let verdict = try RNASeqCellMapTierB.verdict(run: first.appendingPathComponent(table), pin: pin.appendingPathComponent("cells.tsv"),
