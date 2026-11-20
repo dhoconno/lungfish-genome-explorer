@@ -156,6 +156,49 @@ final class RNASeqCellMapViewModelTests: XCTestCase {
         XCTAssertEqual(colours.legend.words, [RNASeqEmbeddingWords.scaleToMaximum(maximum: "10", cells: 200)])
         XCTAssertEqual(colours.legend.title, "SARS-CoV-2 not-host UMIs")
     }
+
+    /// The expected colour of each cell is computed here from `cell(id:)` and the file's `value_bounds` row, a second
+    /// path to the values the view reads in one ordered read.
+    func testColourByUMIsAndGenesPerCellFollowsTheFilesTotalsAndBounds() throws {
+        let (shown, _, map) = try snapshot()
+        let database = try RNASeqCellMapDatabase(url: map.appendingPathComponent(RNASeqCellMap.filename))
+        XCTAssertEqual(Array(shown.facts.colourings.suffix(2)), [.cellUMIs, .cellGenes], "the fixture has no extras")
+        XCTAssertEqual(shown.facts.title(of: .cellUMIs), "UMIs per cell")
+        XCTAssertEqual(shown.facts.title(of: .cellGenes), "Genes per cell")
+        let bounds = try database.valueBounds()
+        for (colouring, name) in [(RNASeqCellMapColouring.cellUMIs, "umis"), (.cellGenes, "genes")] {
+            let values = try RNASeqCellMapLoader.values(database, colouring: colouring)
+            let colours = try RNASeqCellMapColours.make(facts: shown.facts, colouring: colouring, values: values, points: shown.points)
+            let row = try XCTUnwrap(bounds.first { $0.value == name && $0.extra == 0 }, "the file's \(name) bounds")
+            let top = row.p99 > 0 ? row.p99 : row.maximum
+            var totals: [Int] = []
+            for cell in 0..<shown.facts.cellCount {
+                let stored = try XCTUnwrap(try database.cell(id: cell + 1))
+                let total = colouring == .cellUMIs ? stored.umis : stored.genes
+                totals.append(total)
+                let step: Int = min(Int(Double(total) / top * 255), 255)
+                let expected: UInt16 = total == 0 ? RNASeqEmbeddingPalette.greyIndex : RNASeqEmbeddingPalette.gradientBase + UInt16(step)
+                XCTAssertEqual(colours.index[cell], expected, "the \(name) colour of cell \(cell + 1)")
+            }
+            XCTAssertEqual(colours.legend.title, shown.facts.title(of: colouring))
+            XCTAssertEqual(colours.legend.scale, RNASeqEmbeddingLegend.Scale(minimum: row.minimum, maximum: row.maximum, p99: row.p99))
+            let drawn = colours.order.map { totals[Int($0)] }
+            XCTAssertEqual(drawn.count, 197, "each drawn cell is drawn once")
+            let zeros = drawn.prefix { $0 == 0 }.count
+            XCTAssertEqual(drawn.filter { $0 == 0 }.count, zeros, "the cells with 0 draw first")
+            XCTAssertEqual(Array(drawn.dropFirst(zeros)), drawn.dropFirst(zeros).sorted(), "the rest draw in rising order")
+            let words: String
+            if row.maximum <= 0 {
+                words = RNASeqEmbeddingWords.scaleAllZero(cells: shown.facts.cellCount)
+            } else if row.p99 > 0 {
+                words = RNASeqEmbeddingWords.scale(p99: RNASeqEmbeddingWords.number(row.p99), cells: shown.facts.cellCount,
+                                                   maximum: RNASeqEmbeddingWords.number(row.maximum))
+            } else {
+                words = RNASeqEmbeddingWords.scaleToMaximum(maximum: RNASeqEmbeddingWords.number(row.maximum), cells: shown.facts.cellCount)
+            }
+            XCTAssertEqual(colours.legend.words, [words])
+        }
+    }
 }
 
 final class RNASeqCellMapViewWordsTests: XCTestCase {
@@ -260,6 +303,43 @@ final class RNASeqCellMapViewControllerTests: XCTestCase {
         let barcodes = try String(contentsOf: RNASeqCellMapViewFixtures.starsolo.appendingPathComponent("Solo.out/Gene/filtered/barcodes.tsv"),
                                   encoding: .utf8).split(separator: "\n")
         XCTAssertEqual(controller.hoverWords?.hasPrefix("Barcode \(barcodes[41]), sample \(sample)"), true, controller.hoverWords ?? "no hover")
+    }
+
+    /// Opens the fixture's cell map as the surface does, laid out with a raster on show. The surface holds the
+    /// controller, so a test keeps it.
+    func openController() async throws -> (RNASeqResultSurface, RNASeqCellMapViewController) {
+        let (_, map) = try RNASeqCellMapViewFixtures.cellMap(in: root)
+        let surface = RNASeqResultSurface()
+        let outcome = RNASeqResultSurface.read(map)
+        guard case .loaded(let result) = outcome else { throw XCTSkip("the cell map does not read") }
+        surface.present(outcome, bundleURL: map, cellMap: await RNASeqCellMapLoader.load(result: result, bundleURL: map))
+        let controller = try XCTUnwrap(surface.controller.cellMap)
+        surface.controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        surface.controller.view.layoutSubtreeIfNeeded()
+        controller.requestRaster()
+        await settle(controller)
+        XCTAssertNotNil(controller.snapshot, "the cell map opens")
+        return (surface, controller)
+    }
+
+    func testColourByUMIsPerCellShowsItsScaleAndHoverReadsTheCellsUMIs() async throws {
+        let (surface, controller) = try await openController()
+        defer { withExtendedLifetime(surface) {} }
+        controller.chooseColouring(.cellUMIs)
+        await settle(controller)
+        XCTAssertEqual(controller.colourPopUp.titleOfSelectedItem, "UMIs per cell")
+        let shown = texts(in: controller.view)
+        XCTAssertEqual(shown["rnaseq-cell-map-legend-title"], "UMIs per cell")
+        let snapshot = try XCTUnwrap(controller.snapshot)
+        let row = try XCTUnwrap(try snapshot.database.valueBounds().first { $0.value == "umis" && $0.extra == 0 })
+        XCTAssertEqual(shown["rnaseq-cell-map-scale-top"], RNASeqEmbeddingWords.number(row.p99 > 0 ? row.p99 : row.maximum))
+        let raster = try XCTUnwrap(controller.plot.raster)
+        let pixel = raster.mapping.pixel(x: snapshot.points.x[99], y: snapshot.points.y[99])
+        let cell = try XCTUnwrap(controller.plot.cell(at: controller.plot.viewPoint(column: Int(pixel.column), row: Int(pixel.row))))
+        controller.hover(cell)
+        await controller.hoverWork?.value
+        let umis = try XCTUnwrap(try snapshot.database.cell(id: cell + 1)).umis
+        XCTAssertEqual(controller.hoverWords?.hasSuffix("UMIs per cell \(umis)"), true, controller.hoverWords ?? "no hover")
     }
 }
 

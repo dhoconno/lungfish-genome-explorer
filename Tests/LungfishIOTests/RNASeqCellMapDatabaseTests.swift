@@ -242,4 +242,38 @@ final class RNASeqCellMapDatabaseTests: XCTestCase {
         let outcome = await task.result
         XCTAssertThrowsError(try outcome.get()) { XCTAssertTrue($0 is CancellationError, "\($0)") }
     }
+
+    /// Four cells of one sample with the UMIs and genes of the totals tests, one of them 0 in both.
+    func writeTotalsDatabase() throws -> URL {
+        let url = root.appendingPathComponent("totals-\(RNASeqCellMap.filename)")
+        let writer = try RNASeqCellMapDatabaseWriter(url: url)
+        try writer.setMeta("parent_manifest_sha256", "m")
+        try writer.addSamples([(1, "S1", 4)])
+        try writer.addCells(firstCell: 1, samples: [1, 1, 1, 1], barcodes: ["A", "B", "C", "D"], umis: [5, 0, 9, 12], genes: [3, 0, 4, 6])
+        try writer.finish()
+        return url
+    }
+
+    func testCellTotalsReadTheUMIsAndGenesOfEveryCellInOneOrderedRead() throws {
+        let database = try RNASeqCellMapDatabase(url: try writeTotalsDatabase())
+        let totals = try database.cellTotals()
+        XCTAssertEqual(Array(totals.umis), [5, 0, 9, 12])
+        XCTAssertEqual(Array(totals.genes), [3, 0, 4, 6])
+        for cell in 1...4 {
+            let one = try XCTUnwrap(try database.cell(id: cell))
+            XCTAssertEqual(Int(totals.umis[cell - 1]), one.umis, "the UMIs of cell \(cell) by both reads")
+            XCTAssertEqual(Int(totals.genes[cell - 1]), one.genes, "the genes of cell \(cell) by both reads")
+        }
+    }
+
+    func testCellTotalsStopAtACancel() async throws {
+        let database = try RNASeqCellMapDatabase(url: try writeTotalsDatabase())
+        let task = Task { () throws -> Int in
+            while !Task.isCancelled { await Task.yield() }
+            return try database.cellTotals().umis.count
+        }
+        task.cancel()
+        let outcome = await task.result
+        XCTAssertThrowsError(try outcome.get()) { XCTAssertTrue($0 is CancellationError, "\($0)") }
+    }
 }
