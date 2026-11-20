@@ -164,7 +164,9 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
     /// as 3.1 found, and Mapping result, whose matrix row is a minimap2 mapping with a viewer bundle, which the smoke cannot
     /// write without a mapping run (Phase 3.4 lane EXBARE). Status only draws no viewer to wait for. The cell map joined in
     /// Phase 5.5 (lane CM-VIEW), copied with its single-cell parent from `Tests/Fixtures/rnaseq/cell-map-smoke`, which
-    /// CM-KIND's writer wrote, `RNASeqCellMapViewFixtureTests` reads back and `SMOKE_FIXTURES` stages.
+    /// CM-KIND's writer wrote, `RNASeqCellMapViewFixtureTests` reads back and `SMOKE_FIXTURES` stages. On the cell map the
+    /// task also clicks legend row 0 and wants the selection count to equal the row's count (Phase 5.5 lane CM-SELECT-APP,
+    /// `ReleaseSmokeFixtures.checkThatLegendRowZeroSelectsItsCells`).
     @MainActor
     func testReleaseCandidateViewSwitchPerKind() throws {
         let robot = try ReleaseAppSmokeRobot()
@@ -219,6 +221,9 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
                 let said = NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", words, words)
                 XCTAssertTrue(robot.app.staticTexts.matching(said).firstMatch.waitForExistence(timeout: 5),
                               "The status bar says \"\(words)\" for the \(kind.name) bundle")
+            }
+            if kind.name == "Cell map" {
+                ReleaseSmokeFixtures.checkThatLegendRowZeroSelectsItsCells(in: robot)
             }
             // The NAO-MGS block stands in for a viewer and has its own check below. Kraken2's query takes its root
             // or its Collections toggle, and either goes with the viewer.
@@ -435,6 +440,51 @@ enum ReleaseSmokeFixtures {
             try FileManager.default.copyItem(at: committed.appendingPathComponent(name, isDirectory: true),
                                              to: project.appendingPathComponent(name, isDirectory: true))
         }
+    }
+
+    /// Phase 5.5 (lane CM-SELECT-APP, walk row F3). A click on legend row 0 of the open cell map selects that label's
+    /// cells, and the count under the plot (`rnaseq-cell-map-selection-count`) then names as many cells as the row's own
+    /// count (`rnaseq-cell-map-legend-0-count`). The count comes from a run off the main actor, so the step waits for the
+    /// words. The click lands on the row's swatch, the 12-point dot at the row's leading edge, since the row's name is a
+    /// selectable text. The row's stack view carries `rnaseq-cell-map-legend-0`, but a plain view need not be an
+    /// accessibility element, so when the query finds no such element the swatch is found 12 points left of the name.
+    static func checkThatLegendRowZeroSelectsItsCells(in robot: ReleaseAppSmokeRobot) {
+        let any = robot.app.descendants(matching: .any)
+        let name = any["rnaseq-cell-map-legend-0-name"].firstMatch
+        let rowCount = any["rnaseq-cell-map-legend-0-count"].firstMatch
+        let shown = any["rnaseq-cell-map-selection-count"].firstMatch
+        guard name.waitForExistence(timeout: 10), rowCount.exists, shown.exists else {
+            robot.failShowingScreen("The cell map shows no legend row 0 or no selection count")
+            return
+        }
+        let rowWords = (rowCount.value as? String) ?? rowCount.label
+        guard let cells = Int(rowWords) else {
+            XCTFail("Legend row 0 of the cell map gives its count as \"\(rowWords)\", not a number of cells")
+            return
+        }
+        let row = any["rnaseq-cell-map-legend-0"].firstMatch
+        if row.exists {
+            row.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5)).withOffset(CGVector(dx: 6, dy: 0)).click()
+        } else {
+            name.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5)).withOffset(CGVector(dx: -12, dy: 0)).click()
+        }
+        let expected = selectedCellsWords(cells)
+        let counted = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: shown)
+        XCTAssertEqual(XCTWaiter.wait(for: [counted], timeout: 10), .completed,
+                       "After a click on legend row 0 the selection count reads \"\((shown.value as? String) ?? shown.label)\", not \"\(expected)\"")
+    }
+
+    /// The count's words as `RNASeqEmbeddingSelectionWords.count` writes them: "1 cell selected", "12 cells selected",
+    /// "1,204 cells selected".
+    static func selectedCellsWords(_ cells: Int) -> String {
+        guard cells != 1 else { return "1 cell selected" }
+        let digits = String(cells.magnitude)
+        var grouped = cells < 0 ? "-" : ""
+        for (index, digit) in digits.enumerated() {
+            if index > 0, (digits.count - index) % 3 == 0 { grouped += "," }
+            grouped.append(digit)
+        }
+        return "\(grouped) cells selected"
     }
 
     /// The name an RNA-seq result shares as its folder and its manifest name, so the sidebar row reads it.
