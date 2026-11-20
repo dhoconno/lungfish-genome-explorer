@@ -28,13 +28,13 @@ struct RNASeqCellMapComputeSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("seed"), help: "The seed of the PCA, the neighbours, Leiden and UMAP. Only 0 is offered")
     var seed: Int = 0
 
-    @Option(name: .customLong("threads"), help: "The threads the route may use")
-    var threads: Int = 1
-
     @Option(name: .customLong("output"), help: "The new .lungfishrnaseq folder to write. It must not exist")
     var outputPath: String
 
     @OptionGroup var globalOptions: GlobalOptions
+
+    /// The route's threads, the global `--threads`, which is 1 when not given (5.5 C2), never the processor count.
+    var threads: Int { globalOptions.threads ?? 1 }
 
     var resultURL: URL { URL(fileURLWithPath: resultPath).standardizedFileURL }
     var outputURL: URL { URL(fileURLWithPath: outputPath).standardizedFileURL }
