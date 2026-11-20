@@ -166,6 +166,35 @@ def floors(R, name, run, truth_csv, kmeans_csvs):
                                                        m["sha256"], "; ".join(refs)))
 
 
+def hash_probe_check(route_name, route, probe_name, probe):
+    """Ruling HASH-SEED-FLAG item 3: the reasons a pair is not a hash-order probe, and what was read.
+
+    embed.py's guard takes `--allow-hash-seed 00` as a probe, and Python reads that seed as 0, so the guard
+    line alone proves nothing. The probe's record must say it was a probe, hold the seed it names in
+    PYTHONHASHSEED and show hash_randomization 1. The route's record must be a plain seed-0 run.
+    """
+    def read(rec):
+        return (rec.get("guard"), ((rec.get("environment") or {}).get("values") or {}).get("PYTHONHASHSEED"),
+                ((rec.get("interpreter") or {}).get("sys_flags") or {}).get("hash_randomization"))
+
+    (route_guard, route_seed, route_rand), (probe_guard, probe_seed, probe_rand) = read(route), read(probe)
+    why = []
+    named = re.match(r"passed with --allow-hash-seed (\d+)(?: |$)", probe_guard or "")
+    if not named:
+        why.append("%s's record has guard %r, not 'passed with --allow-hash-seed N'" % (probe_name, probe_guard))
+    elif probe_seed != named.group(1):
+        why.append("%s's record has PYTHONHASHSEED %r, not the %r its guard names" % (probe_name, probe_seed, named.group(1)))
+    if probe_rand != 1:
+        why.append("%s's record has hash_randomization %r, not 1 (a seed such as 00 hashes as seed 0)" % (probe_name, probe_rand))
+    if (route_guard, route_seed, route_rand) != ("passed", "0", 0):
+        why.append("%s's record has guard %r, PYTHONHASHSEED %r and hash_randomization %r, not 'passed', '0' and 0"
+                   % (route_name, route_guard, route_seed, route_rand))
+    facts = ("%s's record has guard %r, PYTHONHASHSEED %r, hash_randomization %r; %s's record has guard %r, "
+             "PYTHONHASHSEED %r, hash_randomization %r" % (route_name, route_guard, route_seed, route_rand,
+                                                           probe_name, probe_guard, probe_seed, probe_rand))
+    return why, facts
+
+
 def main(work, rnaseq, out_tsv):
     R = Runs(work)
     tx = os.path.join(rnaseq, "sc-embed", "tenx")
@@ -189,13 +218,21 @@ def main(work, rnaseq, out_tsv):
         if not R.has(a, b):
             row(name, kind, "not run", "", "runs %s, %s" % (a, b))
             continue
+        note = ""
+        if name.startswith("Hash order"):
+            # ruling HASH-SEED-FLAG item 3: the pair counts only if the records show a real probe
+            why, facts = hash_probe_check(a, R.record(a), b, R.record(b))
+            if why:
+                row(name, kind, "not valid", "", "%s against %s not counted: %s" % (a, b, "; ".join(why)))
+                continue
+            note = "; probe check: " + facts
         ok, eq, rb, keys = compare(R, a, b)
         ari, nl, nxy, n = cell_moves(R, a, b)
         verdict = ("pass" if ok else "fail") if kind == "gate" else "reported"
         row(name, kind, verdict, "payload equal" if ok else "payload differs",
             "%s against %s: %s; labels ARI %.4f, %d of %d labels and %d coordinate pairs differ; record keys that differ: %s"
             % (a, b, ", ".join("%s %s" % (f, "equal" if v else "differs") for f, v in eq.items()), ari, nl, n, nxy,
-               ", ".join(keys) or "none"))
+               ", ".join(keys) or "none") + note)
     row("G4 tier B, the development Mac (5.5 T2)", "report", "not run", "", "the laptop run was not made in this lane")
     floors(R, "G2 floors, pbmc_1k_v3 on 10x's filtered matrix", "g2-a", g2_truth,
            [os.path.join(tx, "pbmc_1k_v3/extract/analysis/clustering/kmeans_%d_clusters/clusters.csv" % k) for k in (7, 10)])

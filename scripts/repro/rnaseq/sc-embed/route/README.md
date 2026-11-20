@@ -31,7 +31,7 @@ env -i PATH=<env>/bin:/usr/bin:/bin HOME=$HOME TMPDIR=<run folder> \
   <env>/bin/python -s -B -P embed.py <arguments>
 ```
 
-`-I` and `-E` are never used, because both make Python ignore `PYTHONHASHSEED`. The guard exits with status 3 and one line naming the failed check unless the hash seed is 0, the user site is off, the script folder is off `sys.path`, no bytecode is written, the environment is read, no `PYTHON*` variable other than `PYTHONHASHSEED` is set, every `sys.path` entry lies under `sys.prefix` and Python is 3.11 or later.
+`-I` and `-E` are never used, because both make Python ignore `PYTHONHASHSEED`. The guard exits with status 3 and one line naming the failed check unless the hash seed is 0 (or `--allow-hash-seed N` names the nonzero seed, the report-only probe of the arguments table), the user site is off, the script folder is off `sys.path`, no bytecode is written, the environment is read, no `PYTHON*` variable other than `PYTHONHASHSEED` is set, every `sys.path` entry lies under `sys.prefix` and Python is 3.11 or later.
 
 ## The arguments
 
@@ -84,7 +84,7 @@ The payload is `cells.tsv`, `variable_genes.tsv` and `pca_variance_ratio.tsv`. T
 | G5, a report | GSE145926 step A, the deposited h5 files of C143, C145, C51 and C52 one at a time, against the authors' `celltype`, joined on (sample, barcode) |
 | Leiden flavors and seeds, reports | Both flavors on G1 for repeats, agreement and time, and Leiden seeds 1 to 9 against seed 0 on G2 |
 | Naming the transformer, a gate | G2 and G1 with and without `transformer="sklearn"`, compared by bytes |
-| Hash order, a report | G1 at `PYTHONHASHSEED` 0 against 1 |
+| Hash order, a report | G1 at `PYTHONHASHSEED` 0 against 1. The row reads "not valid" unless the probe's record shows guard "passed with --allow-hash-seed N", `PYTHONHASHSEED` equal to N and `hash_randomization` 1, and the route's record shows guard "passed", seed 0 and `hash_randomization` 0. A seed written `00` passes the guard and hashes as seed 0 |
 | Time and peak, reports | G1, G3 and a seeded 100,000-cell subsample of G3 at threads 1 |
 
 ## Data and licences
