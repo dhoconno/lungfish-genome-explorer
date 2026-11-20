@@ -123,6 +123,7 @@ final class CondaManagerTests: XCTestCase {
             "phylogenetics",
             "metagenomics",
             "rna-seq",
+            "single-cell",
         ])
     }
 
@@ -394,12 +395,41 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertFalse(pack!.packages.contains("stringtie"))
     }
 
-    func testSingleCellPack() {
-        let pack = PluginPack.builtIn.first { $0.id == "single-cell" }
-        XCTAssertNotNil(pack)
-        XCTAssertTrue(pack!.packages.contains("scanpy"))
-        XCTAssertTrue(pack!.packages.contains("scvi-tools"))
-        XCTAssertTrue(pack!.packages.contains("star"))
+    func testSingleCellPack() throws {
+        let pack = try XCTUnwrap(PluginPack.builtIn.first { $0.id == "single-cell" })
+        // 5.5 C9 holds the pack to the four packages of the cell map route's environment. STAR and scvi-tools belong
+        // to no route that 5.5 ships, so the pack names neither.
+        XCTAssertEqual(pack.packages, ["scanpy", "python-igraph", "leidenalg", "umap-learn"])
+        XCTAssertFalse(pack.packages.contains("star"))
+        XCTAssertFalse(pack.packages.contains("scvi-tools"))
+        XCTAssertTrue(pack.isActive)
+        XCTAssertEqual(pack.toolRequirements.map(\.id), pack.packages)
+        XCTAssertEqual(Set(pack.toolRequirements.map(\.environment)), ["sc-embed"], "one environment holds the route's packages")
+        XCTAssertEqual(pack.toolRequirements.map(\.version), ["1.11.5", "1.0.0", "0.12.0", "0.6.0"])
+        XCTAssertEqual(
+            pack.toolRequirements.map(\.license),
+            ["BSD-3-Clause", "GPL-2.0-or-later", "GPL-3.0-or-later", "BSD-3-Clause"])
+    }
+
+    /// The installer runs one requirement after another, and a reinstall deletes the environment before each one
+    /// (`CondaManager.reinstallPackageSpecs`). So every requirement of the four installs the same bundled lock, and a
+    /// reinstall rebuilds the same environment four times, never one package alone.
+    func testSingleCellPackRequirementsAllInstallTheBundledLockThatPinsThem() throws {
+        let pack = try XCTUnwrap(PluginPack.builtIn.first { $0.id == "single-cell" })
+        var resources: Set<String> = []
+        for requirement in pack.toolRequirements {
+            let lock = try XCTUnwrap(requirement.explicitLock, "\(requirement.id) has no explicit lock")
+            XCTAssertEqual(lock.packID, "single-cell")
+            XCTAssertEqual(lock.platform, "osx-arm64")
+            resources.insert(lock.resource)
+            let text = try String(contentsOf: try lock.validatedResourceURL(), encoding: .utf8)
+            // `conda-forge::name=version=build` is the file's `/name-version-build.` in the lock's URL column.
+            let spec = try XCTUnwrap(requirement.installPackages.first)
+            let parts = try XCTUnwrap(spec.components(separatedBy: "::").last).components(separatedBy: "=")
+            XCTAssertEqual(parts.count, 3, spec)
+            XCTAssertTrue(text.contains("/\(parts[0])-\(parts[1])-\(parts[2])."), "\(spec) is not in \(lock.resource)")
+        }
+        XCTAssertEqual(resources, ["sc-embed-osx-arm64-explicit.txt"])
     }
 
     func testAmpliconAnalysisPack() {

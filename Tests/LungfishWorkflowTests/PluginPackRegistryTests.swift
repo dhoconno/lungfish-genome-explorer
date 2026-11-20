@@ -507,6 +507,7 @@ final class PluginPackRegistryTests: XCTestCase {
             "phylogenetics",
             "metagenomics",
             "rna-seq",
+            "single-cell",
         ])
     }
 
@@ -651,6 +652,7 @@ final class PluginPackRegistryTests: XCTestCase {
             "metagenomics",
             "wastewater-surveillance",
             "rna-seq",
+            "single-cell",
         ])
     }
 
@@ -699,6 +701,7 @@ final class PluginPackRegistryTests: XCTestCase {
             "phylogenetics",
             "metagenomics",
             "rna-seq",
+            "single-cell",
         ])
     }
 

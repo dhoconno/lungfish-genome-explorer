@@ -19,10 +19,10 @@ final class ManagedToolVersionProbeTableTests: XCTestCase {
         lock.tools.map(\.id) + lock.packTools.map(\.toolID)
     }
 
-    func testLockHasFortyEightUniqueIDs() throws {
+    func testLockHasFiftyTwoUniqueIDs() throws {
         let lock = try ManagedToolLock.loadFromBundle()
         let ids = lockIDs(lock)
-        XCTAssertEqual(ids.count, 48)
+        XCTAssertEqual(ids.count, 52)
         XCTAssertEqual(Set(ids).count, ids.count, "tools and packTools share no id")
         XCTAssertEqual(lock.entries.count, ids.count)
     }
@@ -65,10 +65,18 @@ final class ManagedToolVersionProbeTableTests: XCTestCase {
             XCTAssertEqual(byID.executables, tool.executables)
             XCTAssertEqual(byID.pythonRuntime, tool.pythonRuntime)
             XCTAssertEqual(byID.sourceBuild, tool.sourceBuild)
-            XCTAssertEqual(lock.entry(environment: tool.environment), byID)
+            // The lookup by environment finds the first entry installed there, so the later packages of the
+            // single-cell pack's shared environment find scanpy.
+            let installedThere = lock.entries.filter { $0.environment == tool.environment }
+            XCTAssertTrue(installedThere.contains(byID), tool.toolID)
+            XCTAssertEqual(lock.entry(environment: tool.environment), installedThere.first)
         }
-        let environments = lock.entries.map(\.environment)
-        XCTAssertEqual(Set(environments).count, environments.count, "each environment holds one lock entry")
+        // Each environment holds one lock entry, except sc-embed, which holds the four packages of the cell map
+        // route (5.5 C9, one lock entry and one SPDX id for each package).
+        let sharedEnvironments = Dictionary(grouping: lock.entries, by: \.environment).filter { $0.value.count > 1 }
+        XCTAssertEqual(
+            sharedEnvironments.mapValues { $0.map(\.id.rawValue) },
+            ["sc-embed": ["scanpy", "python-igraph", "leidenalg", "umap-learn"]])
     }
 
     /// The tools the conformance run exempts when their environment is absent. The set is
