@@ -101,17 +101,20 @@ enum RNASeqCellMapImportRun {
         return await OperationResultNavigation.navigate(to: item)
     }
 
-    /// The alert, as a sheet of the key window when there is one.
+    /// The alert, as a sheet of the key window when there is one. With no window to hold a sheet it goes to the app's
+    /// presenter for a refusal with no window, which shows it application-modal through `NSApp.presentError`
+    /// (`LiveNoProjectAlertPresenter`). It never calls `runModal`, which the project rules forbid because it blocks the
+    /// main thread in a nested run loop.
     static let showAlert: @MainActor (String, String) -> Void = { title, message in
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = title
-        alert.informativeText = message
-        alert.addButton(withTitle: "OK")
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = title
+            alert.informativeText = message
+            alert.addButton(withTitle: "OK")
             alert.beginSheetModal(for: window)
         } else {
-            alert.runModal()
+            AppDelegate.NoProjectPresenterSeam.presenter.present(title: title, message: message, on: nil)
         }
     }
 
