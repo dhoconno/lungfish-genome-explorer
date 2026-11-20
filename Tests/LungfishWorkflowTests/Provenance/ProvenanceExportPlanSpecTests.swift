@@ -135,7 +135,24 @@ final class ProvenanceExportPlanSpecTests: XCTestCase {
             }
             checked += 1
         }
-        XCTAssertEqual(checked, 46, "19 tools and 29 pack tools, and two of the pack tools have no conda spec")
+        XCTAssertEqual(checked, 50, "19 tools and 33 pack tools (29 and the four of the single-cell pack), and two of the pack tools have no conda spec")
+    }
+
+    /// The four tools of the single-cell pack share the `sc-embed` environment, and each tool's spec names its own package
+    /// whether the step names its tool or the record names only the version it ran (CM-COMPUTE-SWIFT backlog 8). A lookup by
+    /// environment alone returned `scanpy` for all four, so the plan wrote `conda-forge::scanpy=1.0.0` for python-igraph.
+    func testPlanNamesTheOwnPackageOfEachToolOfASharedEnvironment() throws {
+        XCTAssertEqual(
+            try exportedSpec("python-igraph", version: "1.0.0", environment: "sc-embed"),
+            "conda-forge::python-igraph=1.0.0=py311hc588c55_2"
+        )
+        XCTAssertEqual(try exportedSpec("python-igraph", version: "1.0.1", environment: "sc-embed"), "conda-forge::python-igraph=1.0.1")
+        XCTAssertEqual(try exportedSpec("leidenalg", version: "0.12.0", environment: "sc-embed"), "conda-forge::leidenalg=0.12.0=py311hcf9e9d8_1")
+        XCTAssertEqual(try exportedSpec("umap-learn", version: "0.6.0", environment: "sc-embed"), "conda-forge::umap-learn=0.6.0=py311ha1ab1f8_0")
+        XCTAssertEqual(try exportedSpec("scanpy", version: "1.11.5", environment: "sc-embed"), "conda-forge::scanpy=1.11.5=pyhd8ed1ab_0")
+        // A record that names only the environment and the lock's version still finds the tool that version belongs to.
+        let byVersion = ProvenanceExportPlan.pinned(ProvenanceManagedEnvironment(name: "sc-embed"), version: "1.0.0")
+        XCTAssertEqual(byVersion.packageSpec, "conda-forge::python-igraph=1.0.0=py311hc588c55_2")
     }
 
     /// A native pack tool and a conda-run mapper record the lock's spec whatever their probe printed, so a

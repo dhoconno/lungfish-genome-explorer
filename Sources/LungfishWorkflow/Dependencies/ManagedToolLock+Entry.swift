@@ -77,4 +77,20 @@ extension ManagedToolLock {
     public func entry(environment: String) -> ManagedToolLockEntry? {
         entries.first { $0.environment == environment }
     }
+
+    /// The entry of this environment that a record names. A pack can install several tools in one environment (`sc-embed`
+    /// holds `scanpy`, `python-igraph`, `leidenalg` and `umap-learn`), so the first entry of the environment names the right
+    /// tool for one of them only. A record names its tool by the tool id of its step, else by the package of the spec it
+    /// recorded, else by the version it recorded, and the first entry of the environment answers when none of these picks
+    /// one. An environment of one entry answers with that entry whatever the record says.
+    public func entry(inEnvironment environment: String, tool: String?, package: String?, version: String?) -> ManagedToolLockEntry? {
+        let installed = entries.filter { $0.environment == environment }
+        guard installed.count > 1 else { return installed.first }
+        if let tool, let named = installed.first(where: { $0.id.rawValue == tool }) { return named }
+        if let package, let named = installed.first(where: { candidate in
+            packageSpec(of: candidate).flatMap { CondaSpec(spec: $0)?.name } == package
+        }) { return named }
+        if let version, let named = installed.first(where: { $0.version == version }) { return named }
+        return installed.first
+    }
 }

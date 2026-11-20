@@ -305,7 +305,7 @@ struct ProvenanceExportPlan {
         //    variant of it, so two steps that disagree keep both specs. A sub-step is not run by the
         //    export, so it adds no environment to create.
         func pinnedEnvironment(of draft: Draft) -> ProvenanceManagedEnvironment? {
-            draft.identity.environment.map { Self.pinned($0, version: draft.identity.version, lock: lock) }
+            draft.identity.environment.map { Self.pinned($0, version: draft.identity.version, tool: draft.identity.toolName, lock: lock) }
         }
         var environments: [ProvenanceManagedEnvironment] = []
         for draft in merged where draft.kind == .tool && draft.ranUnder == nil {
@@ -448,9 +448,15 @@ struct ProvenanceExportPlan {
     /// package only when the lock does not hold the environment. A Python runtime or a source build
     /// has no conda spec of its own, so the plan writes the tool's id at the recorded version and
     /// leaves the refusal to the pin gate.
+    ///
+    /// An environment can hold several tools, such as `sc-embed` with `scanpy`, `python-igraph`, `leidenalg` and
+    /// `umap-learn`, and each tool's spec names its own package. The lock entry is the one the step's `tool` names, else the
+    /// one whose package is the recorded package, else the one whose lock version is the recorded version, and not the
+    /// first entry of the environment (CM-COMPUTE-SWIFT backlog 8).
     static func pinned(
         _ environment: ProvenanceManagedEnvironment,
         version: String,
+        tool: String? = nil,
         lock: ManagedToolLock = .bundled
     ) -> ProvenanceManagedEnvironment {
         func with(_ spec: String) -> ProvenanceManagedEnvironment {
@@ -458,16 +464,20 @@ struct ProvenanceExportPlan {
                 name: environment.name, executable: environment.executable, packageSpec: spec, variant: environment.variant
             )
         }
+        let located = lock.entry(
+            inEnvironment: environment.name, tool: tool,
+            package: environment.packageSpec.flatMap { CondaSpec(spec: $0)?.name }, version: version
+        )
         if let recorded = environment.packageSpec, let spec = CondaSpec(spec: recorded) {
             // A spec of another version is the lock the writer read, not what ran.
             if spec.version == version { return environment }
-            if lock.entry(environment: environment.name) == nil {
+            if located == nil {
                 let channel = spec.channel.map { "\($0)::" } ?? ""
                 return with(version.first?.isNumber == true ? "\(channel)\(spec.name)=\(version)" : spec.name)
             }
         }
         let numeric = version.first?.isNumber == true
-        guard let entry = lock.entry(environment: environment.name) else {
+        guard let entry = located else {
             if environment.packageSpec != nil { return environment }
             return with(numeric ? "bioconda::\(environment.name)=\(version)" : environment.name)
         }

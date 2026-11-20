@@ -168,7 +168,7 @@ public struct ProvenanceExportPinAssessment: Sendable, Hashable {
         let identity = ProvenanceToolIdentityText.parse(toolName: step.toolName, toolVersion: step.toolVersion)
         let managed = managedEnvironment(of: step, identity: identity)
         // The spec the export writes today, through the export plan's own function.
-        let exported = managed.flatMap { ProvenanceExportPlan.pinned($0, version: identity.version).packageSpec }
+        let exported = managed.flatMap { ProvenanceExportPlan.pinned($0, version: identity.version, tool: identity.toolName).packageSpec }
         return assess(
             number: number, toolName: step.toolName, recordedVersion: step.toolVersion, identity: identity,
             managed: managed, exported: exported, lock: lock
@@ -197,11 +197,11 @@ public struct ProvenanceExportPinAssessment: Sendable, Hashable {
         }
 
         guard let managed = candidate else { return result(.noEnvironmentRecorded) }
-        guard let entry = lock.entry(environment: managed.name) else {
+        guard let entry = lock.entry(inEnvironment: managed.name, tool: identity.toolName, package: managed.packageSpec.flatMap { CondaSpec(spec: $0)?.name }, version: identity.version) else {
             let hazards = hazards(exported: exported, locked: nil, recorded: managed.packageSpec, environment: managed.name)
             return result(.environmentNotInLock(managed.name), environment: managed.name, exported: exported, hazards: hazards)
         }
-        let locked = lock.packageSpec(forEnvironment: managed.name)
+        let locked = entry == lock.entry(environment: managed.name) ? lock.packageSpec(forEnvironment: managed.name) : lock.packageSpec(of: entry) // Another tool of a shared environment (sc-embed) reads the spec of its own entry
         let hazards = hazards(exported: exported, locked: locked, recorded: managed.packageSpec, environment: managed.name)
         func finish(_ status: Status) -> StepAssessment {
             result(status, environment: managed.name, entry: entry, exported: exported, locked: locked, hazards: hazards)
@@ -545,7 +545,7 @@ public struct ProvenanceExportPinGate: Sendable, Hashable {
         case .unpinnableRuntime(let kind):
             return .unpinnableRuntime(kind)
         case .pinnedToLock, .packageSpecUnavailable, .recordedSpecDiffersFromLock:
-            let entry = assessed.environment.flatMap { lock.entry(environment: $0) }
+            let entry = assessed.lockEntryID.flatMap { lock.entry(id: $0) }
             let locked = entry?.version ?? assessed.lockSpec.flatMap { CondaSpec(spec: $0)?.version }
             guard locked == version else { return .versionNotInLock(recorded: version, locked: locked) }
             guard let spec = assessed.exportedSpec, CondaSpec(spec: spec)?.version == version else {
