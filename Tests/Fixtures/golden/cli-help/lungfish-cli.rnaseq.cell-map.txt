@@ -9,5 +9,7 @@ OPTIONS:
 SUBCOMMANDS:
   import                  Import a single-cell result's embeddings and cell
                           labels as a cell map
+  select                  Write a label table of the cells a polygon or labels
+                          select in one embedding of a cell map
 
   See 'lungfish-cli help rnaseq cell-map <subcommand>' for detailed help.

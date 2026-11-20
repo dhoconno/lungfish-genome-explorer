@@ -228,6 +228,8 @@ public enum ScientificProvenancePolicy {
         "rnaseq pseudobulk": dataWriting("cli.rnaseq.pseudobulk", writer: "RNASeqResultWriter/ProvenanceWriter"),
         // `rnaseq cell-map import` writes a cell map through the one writer, root record last (lane CM-IMPORT).
         "rnaseq cell-map import": dataWriting("cli.rnaseq.cell-map.import", writer: "RNASeqResultWriter/ProvenanceWriter"),
+        // `rnaseq cell-map select` writes a selection's label table with its sidecar record (lane CM-SELECT-CLI).
+        "rnaseq cell-map select": dataWriting("cli.rnaseq.cell-map.select", writer: "ScientificFileExportProvenance"),
         "rnaseq quality": inspectOnly("cli.rnaseq.quality"),
         // `rnaseq index-plan` writes a plan folder for a Linux machine, and `rnaseq index-adopt` writes the index record
         // that later plans pin, through its one owner (lane EX-INDEX).

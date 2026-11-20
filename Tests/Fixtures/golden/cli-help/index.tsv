@@ -217,6 +217,7 @@ lungfish-cli rnaseq index-adopt	shown	0	lungfish-cli.rnaseq.index-adopt.txt
 lungfish-cli rnaseq solo-plan	shown	0	lungfish-cli.rnaseq.solo-plan.txt
 lungfish-cli rnaseq cell-map	shown	0	lungfish-cli.rnaseq.cell-map.txt
 lungfish-cli rnaseq cell-map import	shown	0	lungfish-cli.rnaseq.cell-map.import.txt
+lungfish-cli rnaseq cell-map select	shown	0	lungfish-cli.rnaseq.cell-map.select.txt
 lungfish-cli ops	shown	0	lungfish-cli.ops.txt
 lungfish-cli ops stats	shown	0	lungfish-cli.ops.stats.txt
 lungfish-cli provenance	shown	0	lungfish-cli.provenance.txt

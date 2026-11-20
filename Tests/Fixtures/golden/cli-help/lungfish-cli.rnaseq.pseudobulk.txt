@@ -2,9 +2,10 @@ OVERVIEW: Sum a single-cell result's UMIs by sample and label
 
 Writes a new bulk RNA-seq result with one column for each sample and label of
 the table --labels names. A group under 10 cells is left out and said, and so
-are the cells with no label.
+are the cells with no label. For a table that rnaseq cell-map select wrote,
+name its cell map with --cell-map, and the record names both.
 
-USAGE: lungfish-cli rnaseq pseudobulk <result-path> --labels <labels> --output <output> [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
+USAGE: lungfish-cli rnaseq pseudobulk [<options>] <result-path> --labels <labels> --output <output>
 
 ARGUMENTS:
   <result-path>           A single-cell .lungfishrnaseq result
@@ -12,6 +13,8 @@ ARGUMENTS:
 OPTIONS:
   --labels <labels>       A tab-separated table with barcode and label columns,
                           and sample for a result of two or more samples
+  --cell-map <cell-map>   The cell map that the --labels table of a selection
+                          came from. It must be a cell map of the result
   --output <output>       The new .lungfishrnaseq folder to write. It must not
                           exist
   --format <format>       Output format (values: text, json, tsv; default: text)

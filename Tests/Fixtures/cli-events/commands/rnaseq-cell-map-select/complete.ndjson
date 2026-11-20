@@ -1,0 +1,2 @@
+{"event":"start","message":"Selecting cells of a cell map.","progress":0,"schemaVersion":2}
+{"event":"complete","message":"Wrote selection.tsv, where 32 cells of TSNE are selected and 168 cells are the rest","output":"\/work\/Analyses\/selection.tsv","outputs":["\/work\/Analyses\/selection.tsv"],"progress":1,"schemaVersion":2}

@@ -479,6 +479,7 @@ final class ScientificProvenancePolicyLeafTests: XCTestCase {
         "rnaseq export": "cli.rnaseq.export",
         "rnaseq pseudobulk": "cli.rnaseq.pseudobulk",
         "rnaseq cell-map import": "cli.rnaseq.cell-map.import",
+        "rnaseq cell-map select": "cli.rnaseq.cell-map.select",
         "rnaseq quality": "cli.rnaseq.quality",
         "run-headless": "cli.run-headless",
         "search": "cli.search",

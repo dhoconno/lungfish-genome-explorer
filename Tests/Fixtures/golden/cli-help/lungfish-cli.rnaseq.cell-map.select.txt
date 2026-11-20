@@ -1,0 +1,35 @@
+OVERVIEW: Write a label table of the cells a polygon or labels select in one
+embedding of a cell map
+
+Each cell drawn in the embedding gets one line, selected or rest, and a cell
+the embedding leaves out gets none, so rnaseq pseudobulk counts it with the
+cells with no label. The table is written outside every result, with its record
+beside it.
+
+USAGE: lungfish-cli rnaseq cell-map select [<options>] <cell-map-path> --embedding <embedding> --output <output>
+
+ARGUMENTS:
+  <cell-map-path>         A cell map .lungfishrnaseq result
+
+OPTIONS:
+  --embedding <embedding> The embedding whose drawn cells are selected or in
+                          the rest
+  --polygon <polygon>     At least 3 and at most 1,000 vertices split by one
+                          space, each x,y, such as '0,0 10,0 10,10'
+  --label-set <label-set> The label set whose labels select the cells
+  --label <label>         A label of the set. Repeat for more
+  --output <output>       The new table to write, outside every .lungfishrnaseq
+                          folder. It must not exist
+  --format <format>       Output format (values: text, json, tsv; default: text)
+  -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
+                          -vvv)
+  -q, --quiet             Suppress non-essential output (errors only)
+  --progress              Show progress bar (default: auto-detect TTY)
+  --no-progress           Disable progress bar
+  --debug                 Enable debug output with detailed logging
+  --log-file <log-file>   Write detailed logs to file
+  --no-color              Disable colored output
+  -t, --threads <threads> Number of threads to use (default: auto)
+  --version               Show the version.
+  -h, --help              Show help information.
+

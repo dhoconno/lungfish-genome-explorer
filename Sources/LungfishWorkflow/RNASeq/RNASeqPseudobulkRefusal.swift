@@ -23,6 +23,8 @@ public enum RNASeqPseudobulkRefusal: Error, Equatable, LocalizedError, Sendable 
     case outputExists(path: String)
     case notAResultName(name: String)
     case noOutputFolder(path: String)
+    /// `--cell-map` names a cell map whose parent is not the given result (Phase 5.5 lane CM-SELECT-CLI).
+    case cellMapOfAnotherParent(cellMap: String, recorded: String, result: String, given: String, parent: String)
 
     public var errorDescription: String? {
         switch self {
@@ -64,6 +66,9 @@ public enum RNASeqPseudobulkRefusal: Error, Equatable, LocalizedError, Sendable 
             return "--output names a new folder whose name ends in .lungfishrnaseq, such as pbmc-pseudobulk.lungfishrnaseq, and not \(name)."
         case .noOutputFolder(let path):
             return "No folder at \(path) to write the result in. Create it or choose another output."
+        case .cellMapOfAnotherParent(let cellMap, let recorded, let result, let given, let parent):
+            return "\(cellMap) was made from the single-cell result whose manifest has sha256 \(recorded), and \(result) has \(given). "
+                + "Give the result the cell map was made from, \(parent)."
         }
     }
 

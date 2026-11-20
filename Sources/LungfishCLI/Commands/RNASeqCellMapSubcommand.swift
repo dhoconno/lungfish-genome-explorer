@@ -14,7 +14,7 @@ struct RNASeqCellMapSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "cell-map",
         abstract: "Make cell maps of a single-cell result",
-        subcommands: [RNASeqCellMapImportSubcommand.self]
+        subcommands: [RNASeqCellMapImportSubcommand.self, RNASeqCellMapSelectSubcommand.self]
     )
 }
 
@@ -205,5 +205,118 @@ struct RNASeqCellMapImportSubcommand: AsyncParsableCommand {
         envelope.exitStatus = 0
         envelope.status = .completed
         return envelope
+    }
+}
+
+/// Writes the label table of a selection of one embedding of a cell map, `selected` and `rest`, by a polygon of Float32
+/// vertices or by labels of one set, with its record beside it (`docs/formats/rnaseq-cell-map.md`, cell-map select). The
+/// app's Pseudobulk Selected Cells… and Save Selection as Labels Table… run this leaf, so their bytes equal the CLI's.
+/// Every check runs before anything is written, and a refusal, an error or a SIGTERM leaves no table.
+struct RNASeqCellMapSelectSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "select",
+        abstract: "Write a label table of the cells a polygon or labels select in one embedding of a cell map",
+        discussion: "Each cell drawn in the embedding gets one line, selected or rest, and a cell the embedding leaves out gets none, "
+            + "so rnaseq pseudobulk counts it with the cells with no label. The table is written outside every result, with its record beside it."
+    )
+
+    /// The words of a cancelled run.
+    static let cancelledMessage = "The selection was cancelled. No table was written."
+
+    @Argument(help: "A cell map .lungfishrnaseq result")
+    var cellMapPath: String
+
+    // Each value is taken as given even when it starts with -, as a polygon whose first x is negative does, so the
+    // recorded command parses back to the run's vertices and names.
+    @Option(name: .customLong("embedding"), parsing: .unconditional, help: "The embedding whose drawn cells are selected or in the rest")
+    var embedding: String
+
+    @Option(name: .customLong("polygon"), parsing: .unconditional,
+            help: "At least 3 and at most 1,000 vertices split by one space, each x,y, such as '0,0 10,0 10,10'")
+    var polygon: String?
+
+    @Option(name: .customLong("label-set"), parsing: .unconditional, help: "The label set whose labels select the cells")
+    var labelSet: String?
+
+    @Option(name: .customLong("label"), parsing: .unconditionalSingleValue, help: "A label of the set. Repeat for more")
+    var labels: [String] = []
+
+    @Option(name: .customLong("output"), help: "The new table to write, outside every .lungfishrnaseq folder. It must not exist")
+    var outputPath: String
+
+    @OptionGroup var globalOptions: GlobalOptions
+
+    var cellMapURL: URL { URL(fileURLWithPath: cellMapPath).standardizedFileURL }
+    var outputURL: URL { URL(fileURLWithPath: outputPath).standardizedFileURL }
+
+    /// The command the record names, in one fixed order with absolute paths and the polygon in Float32 shortest
+    /// round-trip form. Parsing it gives equal options and the same vertices.
+    func canonicalArgv(form: RNASeqCellMapSelect.Form) -> [String] {
+        var argv = [CLICommandIdentity.executableName, "rnaseq", "cell-map", "select", cellMapURL.path, "--embedding", embedding]
+        switch form {
+        case .polygon(let vertices): argv += ["--polygon", RNASeqCellMapSelect.polygonText(vertices)]
+        case .labels(let set, let labels): argv += ["--label-set", set] + labels.flatMap { ["--label", $0] }
+        }
+        return argv + ["--output", outputURL.path]
+    }
+
+    func run() async throws {
+        let command = self
+        let eventsOn = globalOptions.outputFormat == .json
+        let quiet = globalOptions.quiet
+        let events = CLIEventEmitter(enabled: eventsOn, emit: printEventLine)
+        events.emitStart(message: "Selecting cells of a cell map.")
+        let outcome = await runCancellingOnSIGTERM { () throws -> String in try command.write() }
+        switch outcome {
+        case .success(let message):
+            events.emitComplete(output: outputURL.path, message: message)
+            if !quiet { printHumanLine(message, eventsOn: eventsOn) }
+        case .failure(let error):
+            let isCancel = error is CancellationError
+            let words = isCancel ? Self.cancelledMessage : CLIFailureWords.describe(error)
+            events.emitFailed(words)
+            printHumanLine(words, eventsOn: eventsOn)
+            if isCancel { throw CLIExitCode.cancelled.exitCode }
+            let isInput = error is RNASeqCellMapSelectRefusal || error is RNASeqPseudobulkRefusal || error is RNASeqResultError
+            throw (isInput ? CLIExitCode.inputError : CLIExitCode.workflowError).exitCode
+        }
+    }
+
+    /// Checks, selects, then writes the table and its record in one publication.
+    func write() throws -> String {
+        let runClock = ProvenanceRunClock()
+        let form = try RNASeqCellMapSelect.form(polygon: polygon, labelSet: labelSet, labels: labels)
+        try RNASeqCellMapSelect.checkOutput(outputURL)
+        let selected = try RNASeqCellMapSelect.select(cellMap: cellMapURL, embedding: embedding, form: form)
+        try Task.checkCancellation()
+        var explicit: [String: ParameterValue] = ["cellMap": .file(cellMapURL), "embedding": .string(embedding), "output": .file(outputURL)]
+        switch form {
+        case .polygon(let vertices): explicit["polygon"] = .string(RNASeqCellMapSelect.polygonText(vertices))
+        case .labels(let set, let labels):
+            explicit["labelSet"] = .string(set)
+            explicit["labels"] = .array(labels.map { .string($0) })
+        }
+        try ScientificFileExportProvenance.writeAtomically(.cliLeaf(
+            workflowName: "RNA-seq cell map selection",
+            sourceURLs: [RNASeqResultBundle.manifestURL(in: cellMapURL)],
+            outputURL: outputURL,
+            outputFormat: .text,
+            argv: canonicalArgv(form: form),
+            explicitOptions: explicit,
+            resolved: selected.facts,
+            runClock: runClock
+        )) { stagedURL in
+            try selected.table.write(to: stagedURL)
+            try ViewerExportLeaf.checkpointAfterStaging()
+        }
+        func count(_ n: Int, _ noun: String) -> String { "\(RNASeqCellMapImportRefusal.number(n)) \(noun)\(n == 1 ? "" : "s")" }
+        let chosen = selected.samples.reduce(0) { $0 + $1.selected }
+        let rest = selected.samples.reduce(0) { $0 + $1.rest }
+        let leftOut = selected.samples.reduce(0) { $0 + $1.leftOut }
+        func verb(_ n: Int) -> String { n == 1 ? "is" : "are" }
+        var message = "Wrote \(outputURL.lastPathComponent), where \(count(chosen, "cell")) of \(embedding) \(verb(chosen)) selected "
+            + "and \(count(rest, "cell")) \(verb(rest)) the rest"
+        if leftOut > 0 { message += ", and \(count(leftOut, "cell")) with no coordinates in \(embedding) have no line" }
+        return message
     }
 }
