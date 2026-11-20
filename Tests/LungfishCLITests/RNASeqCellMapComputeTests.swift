@@ -236,8 +236,8 @@ final class RNASeqCellMapComputeTests: XCTestCase {
         XCTAssertTrue(g2.fits)
         XCTAssertTrue(Prediction(cells: 152_425, entries: 164_171_876, physicalMemory: 32 * gib).fits)
         XCTAssertTrue(Prediction(cells: 152_425, entries: 164_171_876, physicalMemory: 64 * gib).fits)
-        // The ruling's table of the most cells a Mac may compute, at G3's and G1's depth.
-        for (depth, expected) in [(1_077, [118_078, 249_548, 512_488]), (2_779, [89_074, 188_250, 386_603])] {
+        // The rulings' table of the most cells a Mac may compute, at G3's and G1's depth (ADJ-SC-EMBED-2 item 3).
+        for (depth, expected) in [(1_077, [118_078, 249_548, 512_488]), (2_779, [77_446, 157_214, 316_751])] {
             let cells = [16, 32, 64].map { Prediction(cells: 1_000, entries: 1_000 * depth, physicalMemory: UInt64($0) * gib).cellsAtThisDepth }
             XCTAssertEqual(cells, expected, "depth \(depth)")
         }
@@ -246,6 +246,47 @@ final class RNASeqCellMapComputeTests: XCTestCase {
         XCTAssertEqual(facts["physicalMemoryBytes"], .integer(17_179_869_184))
         XCTAssertEqual(facts["shareOfPhysicalMemory"], .number(0.40))
         XCTAssertEqual(facts["bytesPerCell"], .integer(41_500))
+        XCTAssertEqual(facts["readBytesPerStoredEntry"], .integer(31))
+    }
+
+    /// The route's own peaks at deep inputs sat above the old read line of 21 B a stored entry: 7,624,415,928 B for 50,000 cells
+    /// and 264,115,061 entries in one matrix, 7,655,040,744 B for 263,750,195 entries in five, 3,906,736,088 B for 25,000 cells
+    /// and 131,662,491 entries. The read line is 31 B a stored entry (ruling ADJ-SC-EMBED-2 items 1 and 4), so the 16 GB Mac
+    /// refuses the two deep inputs, runs the half-size one, and the refusal words stay as ADJ-SC-EMBED item 6 gave them.
+    func testTheMemoryPredictionCoversTheRoutePeaksAtDeepInputsWithThirtyOneBytesAStoredEntry() throws {
+        typealias Prediction = RNASeqCellMapCompute.MemoryPrediction
+        let cases: [(cells: Int, entries: Int, peak: UInt64, runs: Bool)] = [
+            (50_000, 264_115_061, 8_387_566_891, false),
+            (50_000, 263_750_195, 8_376_256_045, false),
+            (25_000, 131_662_491, 4_281_537_221, true),
+        ]
+        for input in cases {
+            let sixteen = Prediction(cells: input.cells, entries: input.entries, physicalMemory: 16 * gib)
+            XCTAssertEqual(sixteen.bound, 6_871_947_673)
+            XCTAssertEqual(sixteen.peak, input.peak, "\(input.cells) cells, \(input.entries) entries")
+            XCTAssertEqual(sixteen.fits, input.runs, "\(input.cells) cells, \(input.entries) entries")
+            if input.runs {
+                XCTAssertNoThrow(try RNASeqCellMapCompute.checkMemory(sixteen))
+            } else {
+                XCTAssertThrowsError(try RNASeqCellMapCompute.checkMemory(sixteen)) { error in
+                    XCTAssertEqual(error as? RNASeqCellMapComputeRefusal, .memory(sixteen))
+                }
+            }
+            XCTAssertEqual(sixteen.facts["readBytesPerStoredEntry"], .integer(31))
+        }
+        let deep = Prediction(cells: 50_000, entries: 264_115_061, physicalMemory: 16 * gib)
+        XCTAssertEqual(deep.cellsAtThisDepth, 40_744)
+        XCTAssertThrowsError(try RNASeqCellMapCompute.checkMemory(deep)) { error in
+            XCTAssertEqual(error.localizedDescription,
+                           "Not started: this cell map is predicted to need about 7.8 GB of memory at its peak (50,000 cells, 264,115,061 stored entries), "
+                           + "more than 40% of this Mac's 16.0 GB (6.4 GB). This Mac can compute about 40,744 cells of this depth. Choose fewer cells, "
+                           + "use a Mac with more memory, or compute the embedding elsewhere and bring it in with Import Embedding.")
+        }
+        let roomy = Prediction(cells: 50_000, entries: 264_115_061, physicalMemory: 32 * gib)
+        XCTAssertEqual(roomy.bound, 13_743_895_347)
+        XCTAssertEqual(roomy.peak, 8_387_566_891)
+        XCTAssertTrue(roomy.fits)
+        XCTAssertNoThrow(try RNASeqCellMapCompute.checkMemory(roomy))
     }
 
     // MARK: - The table
