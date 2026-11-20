@@ -70,9 +70,15 @@ public final class RNASeqEmbeddingPlotView: NSView {
         gestureShift = .zero
     }
 
-    /// An image of a raster's pixels, made off the main actor. The words lay out red, green, blue and alpha.
-    public nonisolated static func image(of raster: RNASeqEmbeddingRaster) -> CGImage? {
-        let data = raster.pixels.withUnsafeBytes { Data($0) }
+    /// The bytes of a raster's pixels, one copy, which the controller makes off the main actor with the raster. The words
+    /// lay out red, green, blue and alpha.
+    public nonisolated static func pixelData(of raster: RNASeqEmbeddingRaster) -> Data {
+        raster.pixels.withUnsafeBytes { Data($0) }
+    }
+
+    /// An image of a raster from the bytes `pixelData(of:)` made. It wraps the bytes and copies none, so the main actor
+    /// makes it after each raster at no cost of a copy.
+    public nonisolated static func image(of raster: RNASeqEmbeddingRaster, data: Data) -> CGImage? {
         guard let provider = CGDataProvider(data: data as CFData), let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
         return CGImage(width: raster.width, height: raster.height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: raster.width * 4,
                        space: space, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),

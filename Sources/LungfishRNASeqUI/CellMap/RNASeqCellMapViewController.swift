@@ -45,6 +45,12 @@ public final class RNASeqCellMapViewController: NSViewController {
     private var readWork: Task<Void, Never>?
     private var rasterWork: Task<Void, Never>?
     private var generation = 0
+    /// The cell whose hover read is on show or in flight, so a pointer moving inside one disc starts no new read.
+    private var hoveredCell: Int?
+    /// The embedding and colouring the newest choices want, kept until a read shows them, so a later choice keeps an
+    /// earlier one still being read (5.5 V1, newest wins).
+    private var wantedEmbedding: Int?
+    private var wantedColouring: RNASeqCellMapColouring?
 
     public override func loadView() {
         let root = NSView()
@@ -157,9 +163,14 @@ public final class RNASeqCellMapViewController: NSViewController {
         readWork?.cancel()
         rasterWork?.cancel()
         hoverWork?.cancel()
+        wantedEmbedding = nil
+        wantedColouring = nil
+        clearHover()
     }
 
     func apply(_ outcome: RNASeqCellMapLoadOutcome) {
+        wantedEmbedding = nil
+        wantedColouring = nil
         switch outcome {
         case .failed(let words):
             snapshot = nil
@@ -194,23 +205,34 @@ public final class RNASeqCellMapViewController: NSViewController {
         requestRaster()
     }
 
-    /// Reads and shows another embedding. A newer choice cancels this read.
+    /// Reads and shows another embedding with the colouring wanted. A newer choice cancels this read and keeps this
+    /// embedding.
     public func chooseEmbedding(_ embedding: Int) {
-        guard let shown = snapshot else { return }
-        reread { database in
-            let points = try RNASeqCellMapLoader.points(database, embedding: embedding)
-            let colours = try RNASeqCellMapColours.make(facts: shown.facts, colouring: shown.colouring, values: shown.values, points: points)
-            return (points, shown.colouring, shown.values, colours)
-        }
+        guard snapshot != nil else { return }
+        wantedEmbedding = embedding
+        rereadWanted()
     }
 
-    /// Reads and shows another colouring. A newer choice cancels this read.
+    /// Reads and shows another colouring on the embedding wanted. A newer choice cancels this read and keeps this
+    /// colouring.
     public func chooseColouring(_ colouring: RNASeqCellMapColouring) {
+        guard snapshot != nil else { return }
+        wantedColouring = colouring
+        rereadWanted()
+    }
+
+    /// Reads what the newest choices want, the points only when the embedding wanted is not the one on show and the
+    /// values only when the colouring wanted is not, then colours the one by the other.
+    private func rereadWanted() {
         guard let shown = snapshot else { return }
+        let embedding = wantedEmbedding ?? shown.points.embedding
+        let colouring = wantedColouring ?? shown.colouring
         reread { database in
-            let values = try RNASeqCellMapLoader.values(database, colouring: colouring)
-            let colours = try RNASeqCellMapColours.make(facts: shown.facts, colouring: colouring, values: values, points: shown.points)
-            return (shown.points, colouring, values, colours)
+            let points = try embedding == shown.points.embedding ? shown.points : RNASeqCellMapLoader.points(database, embedding: embedding)
+            try Task.checkCancellation()
+            let values = try colouring == shown.colouring ? shown.values : RNASeqCellMapLoader.values(database, colouring: colouring)
+            let colours = try RNASeqCellMapColours.make(facts: shown.facts, colouring: colouring, values: values, points: points)
+            return (points, colouring, values, colours)
         }
     }
 
@@ -231,6 +253,8 @@ public final class RNASeqCellMapViewController: NSViewController {
             do {
                 let (points, colouring, values, colours) = try await offMain { try read(database) }
                 guard let self, mine == self.generation, var shown = self.snapshot else { return }
+                self.wantedEmbedding = nil
+                self.wantedColouring = nil
                 if points.embedding != shown.points.embedding { self.plotWindow = nil }
                 shown.points = points
                 shown.colouring = colouring
@@ -251,6 +275,8 @@ public final class RNASeqCellMapViewController: NSViewController {
     // MARK: - Showing
 
     private func refresh() {
+        // A new embedding or colouring makes the value on the hover line stale.
+        clearHover()
         guard let shown = snapshot else { return }
         let facts = shown.facts
         if let index = facts.embeddings.firstIndex(where: { $0.embedding == shown.points.embedding }) { embeddingPopUp.selectItem(at: index) }
@@ -349,16 +375,22 @@ public final class RNASeqCellMapViewController: NSViewController {
         rasterWork?.cancel()
         let mine = generation
         let task = Task { [weak self] in
-            guard let raster = try? await offMain({ try RNASeqEmbeddingRaster.draw(input) }), let self, mine == self.generation,
-                  !Task.isCancelled else { return }
-            self.plot.show(raster, image: RNASeqEmbeddingPlotView.image(of: raster), scale: size.scale)
+            // The pixels' one copy into `Data` runs off the main actor with the raster, and the main actor only wraps it.
+            guard let drawn = try? await offMain({ () throws -> (RNASeqEmbeddingRaster, Data) in
+                let raster = try RNASeqEmbeddingRaster.draw(input)
+                return (raster, RNASeqEmbeddingPlotView.pixelData(of: raster))
+            }), let self, mine == self.generation, !Task.isCancelled else { return }
+            self.plot.show(drawn.0, image: RNASeqEmbeddingPlotView.image(of: drawn.0, data: drawn.1), scale: size.scale)
         }
         rasterWork = task
         work = task
     }
 
-    /// Reads the barcode of the cell under the pointer by its id, off the main actor, one read in flight (5.5 V4).
+    /// Reads the barcode of the cell under the pointer by its id, off the main actor, one read in flight (5.5 V4). A
+    /// pointer that moves inside the disc of the cell already read starts no new read.
     public func hover(_ cell: Int?) {
+        guard cell != hoveredCell else { return }
+        hoveredCell = cell
         hoverWork?.cancel()
         guard let cell, let shown = snapshot else {
             hoverWords = nil
@@ -374,6 +406,15 @@ public final class RNASeqCellMapViewController: NSViewController {
             self.hoverWords = words
             self.hoverField.stringValue = words
         }
+    }
+
+    /// Empties the hover line, drops a hover read in flight and forgets its cell, so the next hover reads again and no
+    /// late read fills the line after it was emptied.
+    private func clearHover() {
+        hoverWork?.cancel()
+        hoveredCell = nil
+        hoverWords = nil
+        hoverField.stringValue = ""
     }
 
     /// The value the colouring shows for a cell, as the file writes it.
