@@ -94,6 +94,73 @@ final class CLIViewerExportRunnerTests: XCTestCase {
         XCTAssertEqual(OperationCenter.shared.items.first { $0.id == id }?.state, .completed)
     }
 
+    // MARK: - The verify hook (CM-IMPORT-APP continuation 1, finding 1)
+
+    /// The check a caller passes runs after the leaf exited 0 and before the row settles, with the file the leaf wrote. Words
+    /// it returns fail the row with those words, so a result that does not open never reads Completed.
+    func testAVerifyThatReturnsWordsFailsTheRowAfterExitZero() async throws {
+        let output = folder.appendingPathComponent("map.tsv")
+        let cli = try standInCLI("""
+        printf 'a\\tb\\n' > "\(output.path)"
+        printf '%s\\n' '{"event":"complete","outputs":["\(output.path)"],"progress":1,"schemaVersion":2}'
+        exit 0
+        """)
+        let id = try beginRow()
+        defer { OperationCenter.shared.clearItem(id: id) }
+
+        let words = "The result could not be read back."
+        let outcome = await CLIViewerExportRunner(cliURLOverride: cli).run(
+            arguments: [], outputURL: output, operationID: id, completionDetail: "Imported map.tsv",
+            verify: { url in url == output ? words : "wrong file \(url.path)" }
+        )
+
+        XCTAssertEqual(outcome, .failed(CLIViewerExportRunner.Failure(message: words)))
+        let row = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == id })
+        XCTAssertEqual(row.state, .failed)
+        XCTAssertEqual(row.errorMessage, words)
+        XCTAssertEqual(row.detail, words)
+        XCTAssertTrue(row.outputURLs.isEmpty, "a failed row links no file")
+    }
+
+    func testAVerifyThatReturnsNothingLeavesTheRowCompleted() async throws {
+        let output = folder.appendingPathComponent("map.tsv")
+        let cli = try standInCLI("""
+        printf 'a\\tb\\n' > "\(output.path)"
+        printf '%s\\n' '{"event":"complete","outputs":["\(output.path)"],"progress":1,"schemaVersion":2}'
+        exit 0
+        """)
+        let id = try beginRow()
+        defer { OperationCenter.shared.clearItem(id: id) }
+
+        let outcome = await CLIViewerExportRunner(cliURLOverride: cli).run(
+            arguments: [], outputURL: output, operationID: id, completionDetail: "Imported map.tsv",
+            verify: { url in url == output ? nil : "wrong file \(url.path)" }
+        )
+
+        XCTAssertEqual(outcome, .completed(output))
+        let row = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == id })
+        XCTAssertEqual(row.state, .completed)
+        XCTAssertEqual(row.detail, "Imported map.tsv")
+        XCTAssertEqual(row.outputURLs, [output])
+    }
+
+    func testAVerifyDoesNotRunWhenTheLeafFails() async throws {
+        let cli = try standInCLI("""
+        printf '%s\\n' '{"error":"Result folder not found: /missing","event":"failed","schemaVersion":2}'
+        exit 64
+        """)
+        let id = try beginRow()
+        defer { OperationCenter.shared.clearItem(id: id) }
+
+        let outcome = await CLIViewerExportRunner(cliURLOverride: cli).run(
+            arguments: [], outputURL: folder.appendingPathComponent("never.tsv"), operationID: id,
+            completionDetail: "unused", verify: { _ in "the verify ran" }
+        )
+
+        XCTAssertEqual(outcome, .failed(CLIViewerExportRunner.Failure(message: "Result folder not found: /missing")))
+        XCTAssertEqual(OperationCenter.shared.items.first { $0.id == id }?.errorMessage, "Result folder not found: /missing")
+    }
+
     /// A cancel reaches the leaf as SIGTERM through the real transport. The stand-in rolls its partial output back
     /// inside the grace and exits 125, as a leaf on `writeAtomically` does, and the row reads Cancelled.
     func testACancelSendsTheLeafSIGTERMAndTheRowReadsCancelled() async throws {
