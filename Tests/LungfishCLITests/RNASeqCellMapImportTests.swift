@@ -140,6 +140,17 @@ final class RNASeqCellMapImportTests: XCTestCase {
         let database = try RNASeqCellMapDatabase(url: map.appendingPathComponent("cellmap.sqlite"))
         XCTAssertEqual(try database.embeddingCells().map { [$0.drawn, $0.leftOut] }, [[200, 0]])
         XCTAssertTrue(try XCTUnwrap(try database.embeddings().first).otherCounts)
+        // The graph clusters read back equal in the STARsolo form too (X1, BIO B1).
+        let set = try XCTUnwrap(try database.labelSets().first)
+        XCTAssertEqual(set.labels.map(\.cells), CellMapImportFixture.clusterSizes)
+        XCTAssertEqual(set.samples.map { [$0.labelled, $0.unlabelled] }, [[200, 0]])
+        let labelOf = Dictionary(try CellMapImportFixture.rows(CellMapImportFixture.clusters).map { (String($0[0].dropLast(2)), $0[1]) },
+                                 uniquingKeysWith: { a, _ in a })
+        let ids = try database.cellLabels(labelSet: set.labelSet)
+        for cell in 1...200 {
+            let barcode = try XCTUnwrap(try database.cell(id: cell)).barcode
+            XCTAssertEqual(set.labels[Int(ids[cell - 1]) - 1].name, labelOf[barcode], barcode)
+        }
         let facts = try CellMapImportFixture.facts(map)
         XCTAssertEqual(facts["choices"], .dictionary(["barcodeSuffix": .string("-1 dropped"), "barcodesNotHeld": .string("refused"),
                                                       "counts": .string("computed on other counts")]))
@@ -177,6 +188,68 @@ final class RNASeqCellMapImportTests: XCTestCase {
             sums[row[0]] != row.dropFirst().map { (text: String) -> Double in Double(text) ?? -1 }
         }.map { (row: [String]) -> String in row[0] }
         XCTAssertEqual(wrong, [], "each gene's seven sums equal CM-TRUTH's row")
+    }
+
+    /// BIO B1. The gene values and the legend bounds of an import of the STARsolo cut equal CM-TRUTH's tables: LYZ in 76 cells
+    /// with 7,518 UMIs and S100A9 in 70 cells with 10,172, each bound recomputed from all 200 values sorted with the zeros.
+    func testTheGeneValuesAndTheBoundsOfAnImportEqualTheTruth() async throws {
+        let result = try CellMapImportFixture.result(CellMapImportFixture.starsolo, in: root)
+        let map = output("tsne")
+        try await RNASeqCellMapImportSubcommand.parse(arguments(result, output: map, ["--barcode-suffix", "drop", "--other-counts"])).run()
+        let database = try RNASeqCellMapDatabase(url: map.appendingPathComponent("cellmap.sqlite"))
+        func rows(_ name: String) throws -> [[String]] {
+            try String(contentsOf: RNASeqFixtures.root.appendingPathComponent("cell-map-pbmc_1k_v3/\(name)"), encoding: .utf8)
+                .split(separator: "\n").dropFirst().map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
+        }
+        let cells = try rows("cells-starsolo.tsv")
+        XCTAssertEqual(cells.count, 200)
+        func expected(_ values: [Double]) -> [Double] {
+            let all = (values + Array(repeating: 0, count: cells.count - values.count)).sorted()
+            return [all[0], all[cells.count - 1], all[197]]
+        }
+        let featureOf = Dictionary(try RNASeqCellsDatabase(url: result.appendingPathComponent(RNASeqCellsDatabase.filename)).features()
+            .map { ($0.id, $0.feature) }, uniquingKeysWith: { a, _ in a })
+        let truth = try rows("genes-of-interest-starsolo.tsv")
+        for (id, count, total) in [("ENSG00000090382", 76, 7_518), ("ENSG00000163220", 70, 10_172)] {
+            let lines = truth.filter { $0[0] == id }.sorted { Int($0[2])! < Int($1[2])! }
+            XCTAssertEqual(lines.count, count, id)
+            XCTAssertEqual(lines.map { Int($0[4])! }.reduce(0, +), total, id)
+            let feature = try XCTUnwrap(featureOf[id])
+            let umis = try XCTUnwrap(try database.geneValues(feature: feature, unit: .umis))
+            let normalised = try XCTUnwrap(try database.geneValues(feature: feature, unit: .normalised))
+            XCTAssertEqual(Array(umis.cells), lines.map { UInt32($0[2])! }, "\(id) has a value in the truth's cells")
+            XCTAssertEqual(umis.values, .umis(ContiguousArray(lines.map { UInt32($0[4])! })), "\(id) raw UMIs are exact")
+            XCTAssertEqual([umis.minimum, umis.maximum, umis.p99], expected(lines.map { Double($0[4])! }), "the UMI bounds of \(id)")
+            XCTAssertEqual([normalised.minimum, normalised.maximum, normalised.p99],
+                           expected(lines.map { Double(Float(bitPattern: UInt32($0[6], radix: 16)!)) }), "the normalised bounds of \(id)")
+        }
+        let bounds = Dictionary(try database.valueBounds().map { ($0.value, [$0.minimum, $0.maximum, $0.p99]) }, uniquingKeysWith: { a, _ in a })
+        XCTAssertEqual(bounds["umis"], expected(cells.map { Double($0[3])! }), "the bounds of each cell's Gene Expression UMIs")
+        XCTAssertEqual(bounds["genes"], expected(cells.map { Double($0[4])! }), "the bounds of each cell's genes")
+    }
+
+    /// BIO SF1. A file with CRLF line ends, as a Windows tool or Excel writes it, reads like the same file with LF, and the
+    /// kept copy is the CRLF file as given.
+    func testACrLfFileReadsLikeAnLfFile() async throws {
+        let result = try CellMapImportFixture.result(CellMapImportFixture.cellRanger, in: root)
+        var given: [URL] = []
+        for (source, folder) in [(CellMapImportFixture.projection, "crlf/tsne"), (CellMapImportFixture.clusters, "crlf/graphclust")] {
+            let url = root.appendingPathComponent(folder, isDirectory: true).appendingPathComponent(source.lastPathComponent)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(try String(contentsOf: source, encoding: .utf8).replacingOccurrences(of: "\n", with: "\r\n").utf8).write(to: url)
+            given.append(url)
+        }
+        let map = output("crlf")
+        try await RNASeqCellMapImportSubcommand.parse([result.path, "--coordinates", given[0].path, "--clusters", given[1].path,
+                                                      "--output", map.path, "--quiet"]).run()
+        let database = try RNASeqCellMapDatabase(url: map.appendingPathComponent("cellmap.sqlite"))
+        XCTAssertEqual(try database.embeddingCells().map { [$0.drawn, $0.leftOut] }, [[200, 0]])
+        XCTAssertEqual(try XCTUnwrap(try database.labelSets().first).labels.map(\.cells), CellMapImportFixture.clusterSizes)
+        let stored = try CellMapImportFixture.coordinates(map)
+        for row in try CellMapImportFixture.rows(CellMapImportFixture.projection) {
+            XCTAssertEqual(stored[1]?[row[0]], Double(row[1]), row[0])
+        }
+        XCTAssertEqual(try Data(contentsOf: map.appendingPathComponent("source/1/projection.csv")), try Data(contentsOf: given[0]))
     }
 
     func testTheRecordedArgvParsesToEqualOptionsAndAReplayGivesEqualFiles() async throws {
