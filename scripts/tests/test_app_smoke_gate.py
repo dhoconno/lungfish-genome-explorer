@@ -524,6 +524,55 @@ class AppSmokeGateTests(unittest.TestCase):
             staged = fixtures / "rnaseq/cell-map-smoke/Smoke cell map.lungfishrnaseq/cellmap.sqlite"
             self.assertEqual(staged.read_bytes(), b"cell map")
 
+    # CM-IMPORT-APP (plan 5.5 T3, reading (ii)). The smoke's cell map is made by the candidate's own `cell-map import`, which
+    # reads the committed copy's kept table against the committed parent. A stand-in CLI records its arguments here.
+    def _smoke_cell_map_checkout(self, raw, body):
+        import app_smoke_gate
+        root = Path(raw) / "checkout"
+        for relative in app_smoke_gate.SMOKE_FIXTURES:
+            (root / relative).mkdir(parents=True)
+        folder = root / "Tests/Fixtures/rnaseq/cell-map-smoke"
+        (folder / "Smoke single-cell.lungfishrnaseq").mkdir(parents=True, exist_ok=True)
+        table = folder / "Smoke cell map.lungfishrnaseq/source/1/lge-cell-map.tsv"
+        table.parent.mkdir(parents=True)
+        table.write_bytes(b"barcode\tUMAP_1\tUMAP_2\tclusters\n")
+        app = Path(raw) / "Lungfish.app"
+        cli = app / "Contents/MacOS/lungfish-cli"
+        cli.parent.mkdir(parents=True)
+        cli.write_text("\n".join(["#!/bin/sh"] + body + [""]))
+        cli.chmod(0o755)
+        return root, app
+
+    def test_the_candidates_own_cell_map_import_makes_the_smoke_cell_map(self):
+        import app_smoke_gate
+        identifiers = ["LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateViewSwitchPerKind"]
+        with tempfile.TemporaryDirectory() as raw:
+            record = Path(raw) / "arguments.txt"
+            root, app = self._smoke_cell_map_checkout(raw, [
+                'printf "%s\\n" "$@" > "' + str(record) + '"', 'cp "$6" "' + str(record) + '.table"',
+                'for last; do :; done', 'mkdir -p "$last"', 'printf made > "$last/made"'])
+            _, fixtures = app_smoke_gate.prepare_candidate_workspace(root, Path(raw) / "workspace", identifiers, app)
+            staged = fixtures / "rnaseq/cell-map-smoke"
+            given = fixtures / "rnaseq/cell-map-smoke-given/Smoke cell map.lungfishrnaseq/source/1/lge-cell-map.tsv"
+            self.assertEqual(record.read_text().splitlines(), [
+                "rnaseq", "cell-map", "import", str(staged / "Smoke single-cell.lungfishrnaseq"), "--coordinates", str(given),
+                "--label-column", "clusters", "--tool", "Seurat", "--tool-version", "5.5.1",
+                "--output", str(staged / "Smoke cell map.lungfishrnaseq")])
+            self.assertEqual(Path(str(record) + ".table").read_bytes(), b"barcode\tUMAP_1\tUMAP_2\tclusters\n",
+                             "the CLI read the committed copy's kept table")
+            self.assertEqual((staged / "Smoke cell map.lungfishrnaseq/made").read_bytes(), b"made")
+            self.assertFalse((staged / "Smoke cell map.lungfishrnaseq/source").exists(), "the candidate's output replaces the committed copy")
+            self.assertFalse(given.parent.parent.parent.parent.exists(), "the committed copy is gone once the import succeeded")
+
+    def test_a_failed_cell_map_import_fails_the_gate_with_the_commands_words(self):
+        import app_smoke_gate
+        identifiers = ["LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateViewSwitchPerKind"]
+        with tempfile.TemporaryDirectory() as raw:
+            root, app = self._smoke_cell_map_checkout(raw, ['echo "No barcode matches." >&2', "exit 64"])
+            with self.assertRaises(EvidenceError) as caught:
+                app_smoke_gate.prepare_candidate_workspace(root, Path(raw) / "workspace", identifiers, app)
+            self.assertIn("exited 64: No barcode matches.", str(caught.exception))
+
     # SMOKE-ISOLATION (ruling QA-RELEASE-LOOP section 6). The guard moves the account's Lungfish preference
     # domains aside before the first launch and restores them exactly, or fails and keeps its journal.
 

@@ -426,7 +426,9 @@ enum ReleaseSmokeFixtures {
     static let cellMapRow = "Smoke cell map"
 
     /// The committed cell map of 12 cells and its single-cell parent, side by side as the writer leaves them, so the
-    /// parent pointer holds. CM-IMPORT-APP later makes this copy with the candidate's own CLI (QA OBJECT 1, reading (ii)).
+    /// parent pointer holds. The release gate (`import_smoke_cell_map` in `scripts/release/app_smoke_gate.py`) replaces the
+    /// cell map with one that the candidate's own `lungfish-cli rnaseq cell-map import` makes from the committed copy's kept
+    /// table (QA OBJECT 1, reading (ii)), so a run through the gate opens what the build under test writes.
     static func addCellMap(to project: URL) throws {
         let committed = LungfishFixtureCatalog.fixturesRoot.appendingPathComponent("rnaseq/cell-map-smoke", isDirectory: true)
         for name in ["Smoke single-cell.lungfishrnaseq", "\(cellMapRow).lungfishrnaseq"] {

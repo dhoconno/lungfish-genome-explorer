@@ -241,11 +241,46 @@ SMOKE_FIXTURES = ("Tests/Fixtures/analyses", "Tests/Fixtures/kraken2-mini", "Tes
                   "Tests/Fixtures/annotated-reference-twin", "Tests/Fixtures/rnaseq/cell-map-smoke")
 
 
-def prepare_candidate_workspace(root, workspace, identifiers):
+SMOKE_CELL_MAP_FOLDER = "rnaseq/cell-map-smoke"
+SMOKE_CELL_MAP_PARENT = "Smoke single-cell.lungfishrnaseq"
+SMOKE_CELL_MAP = "Smoke cell map.lungfishrnaseq"
+
+
+def import_smoke_cell_map(app, fixtures):
+    """Makes the smoke row's cell map with the candidate's own `lungfish-cli rnaseq cell-map import` (plan 5.5 T3, reading (ii)).
+
+    The committed pair holds the single-cell parent and a cell map whose kept table is LGE's own, with the barcodes, the UMAP
+    coordinates and the cluster labels. The candidate reads that table against the parent and writes the cell map beside the
+    parent, where the writer leaves a cell map, so the Cell map row of the view-switch smoke opens what the build under test
+    makes. A folder that holds no pair is left as it is, and an import that fails fails the gate with the command's own words.
+    """
+    folder = Path(fixtures) / SMOKE_CELL_MAP_FOLDER
+    parent, committed = folder / SMOKE_CELL_MAP_PARENT, folder / SMOKE_CELL_MAP
+    if not (parent.is_dir() and committed.is_dir()):
+        return None
+    given = Path(fixtures) / (SMOKE_CELL_MAP_FOLDER + "-given")
+    given.mkdir()
+    shutil.move(str(committed), str(given / SMOKE_CELL_MAP))
+    command = [str(Path(app) / "Contents/MacOS/lungfish-cli"), "rnaseq", "cell-map", "import", str(parent),
+               "--coordinates", str(given / SMOKE_CELL_MAP / "source/1/lge-cell-map.tsv"),
+               "--label-column", "clusters", "--tool", "Seurat", "--tool-version", "5.5.1", "--output", str(committed)]
+    try:
+        run = subprocess.run(command, capture_output=True, text=True, timeout=300, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise EvidenceError("the candidate's cell-map import did not run: %s" % error) from error
+    if run.returncode != 0:
+        raise EvidenceError("the candidate's cell-map import exited %d: %s"
+                            % (run.returncode, (run.stderr or run.stdout).strip()))
+    shutil.rmtree(given)
+    return command
+
+
+def prepare_candidate_workspace(root, workspace, identifiers, app=None):
     """One empty launch home per selected test, and a copy of the fixtures the smoke reads.
 
     The sandboxed UI runner may create no folder outside its own container, and reading a checkout
     under ~/Documents would raise a privacy prompt, so the gate makes both in its temporary folder.
+    With the candidate's `app`, the smoke's cell map is made by that build's own CLI (`import_smoke_cell_map`).
     Returns the folder of homes and the copied Tests/Fixtures folder.
     """
     homes = Path(workspace) / "homes"
@@ -254,6 +289,8 @@ def prepare_candidate_workspace(root, workspace, identifiers):
     copy_root = Path(workspace) / "fixtures"
     for relative in SMOKE_FIXTURES:
         shutil.copytree(Path(root) / relative, copy_root / relative, symlinks=True)
+    if app is not None:
+        import_smoke_cell_map(app, copy_root / "Tests/Fixtures")
     return homes, copy_root / "Tests/Fixtures"
 
 
@@ -859,7 +896,7 @@ def run(args):
     payload = receipt_authority(root)._payload_digest(app)
     profile = getattr(args, "profile", None)
     identifiers = selected_tests(contract) if profile is None else profile_tests(root, profile)
-    candidate_home, fixtures = prepare_candidate_workspace(root, workspace, identifiers)
+    candidate_home, fixtures = prepare_candidate_workspace(root, workspace, identifiers, app)
     candidate = CandidateCopy(app, release_cache_root())
     # appPath names the copy the runner launches, once it exists, and candidateAppPath the original (schema 2).
     result = {"schemaVersion": 2, "kind": "xcode-real-app", "source": source,
