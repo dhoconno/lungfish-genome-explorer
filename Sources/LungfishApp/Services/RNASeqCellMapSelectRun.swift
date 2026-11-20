@@ -20,6 +20,9 @@ import UniformTypeIdentifiers
 enum RNASeqCellMapSelectWords {
     static let title = "Save Selection as Labels Table"
     static let panelMessage = "Choose where the labels table goes. LGE writes it outside every RNA-seq result, with its record beside it."
+    static let pseudobulkTitle = "Pseudobulk Selected Cells"
+    static let pseudobulkBusy = "The single-cell result is busy, so the selection was not pseudobulked. "
+        + "Wait for its current operation to finish, then choose Pseudobulk Selected Cells… again."
 
     /// The CLI's refusal with the words that name a flag rewritten for a person who chose a place in a panel. `nil` for words
     /// that name no flag, which the alert shows as they are.

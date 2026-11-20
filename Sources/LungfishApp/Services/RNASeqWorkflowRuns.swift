@@ -383,22 +383,22 @@ extension RNASeqLeafRoute {
     /// Pseudobulk Selected Cells…. The select row writes the table in a new folder beside the output before the pseudobulk row's
     /// `begin`, and the pseudobulk row then runs `rnaseq pseudobulk <parent> --labels <table> --cell-map <cell map>`, the one
     /// command it records. A run that does not complete, a cancel among them, removes that folder, so it leaves no table and no
-    /// folder. `makeRunner` and `selectEnvironment` are for a test, and no production caller passes either.
+    /// folder. It throws when the folder cannot be made, so the window's alert gives the system's own words. When `begin` refuses
+    /// the pseudobulk row after the select row ran, because the single-cell result is busy, the folder goes and `report` says so,
+    /// since the select row has already read Completed. `makeRunner`, `selectEnvironment` and `report` are for a test, and no
+    /// production caller passes any.
     @discardableResult
     static func launchPseudobulkOfSelection(
         _ request: RNASeqPseudobulkRunRequest,
         routeContext: OperationRouteContext? = nil,
         operations: any OperationReporting = OperationCenter.shared,
         makeRunner: @escaping @MainActor () -> CLIViewerExportRunner = { CLIViewerExportRunner() },
-        selectEnvironment: [String: String] = [:]
-    ) -> RNASeqPseudobulkSelectionLaunch? {
+        selectEnvironment: [String: String] = [:],
+        report: @escaping @MainActor (String, String) -> Void = RNASeqCellMapImportRun.showAlert
+    ) throws -> RNASeqPseudobulkSelectionLaunch? {
         guard let selection = request.selection else { return nil }
         let folder = request.labelsURL.deletingLastPathComponent()
-        do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        } catch {
-            return nil
-        }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let select = RNASeqCellMapSelectRunRequest(
             cellMapURL: selection.cellMapURL, embedding: selection.embedding, form: selection.form, outputURL: request.labelsURL)
         guard let selecting = launchSelect(
@@ -409,10 +409,13 @@ extension RNASeqLeafRoute {
         }
         let task = Task { @MainActor () -> RNASeqPseudobulkSelectionEnd in
             let selected = await selecting.task.value
-            guard case .completed = selected,
-                  let summing = launch(request.run, routeContext: routeContext, operations: operations, runner: makeRunner())
-            else {
+            guard case .completed = selected else {
                 RNASeqCellMapSelectRun.removeInputs(folder)
+                return RNASeqPseudobulkSelectionEnd(select: selected)
+            }
+            guard let summing = launch(request.run, routeContext: routeContext, operations: operations, runner: makeRunner()) else {
+                RNASeqCellMapSelectRun.removeInputs(folder)
+                report(RNASeqCellMapSelectWords.pseudobulkTitle, RNASeqCellMapSelectWords.pseudobulkBusy)
                 return RNASeqPseudobulkSelectionEnd(select: selected)
             }
             let summed = await summing.task.value
