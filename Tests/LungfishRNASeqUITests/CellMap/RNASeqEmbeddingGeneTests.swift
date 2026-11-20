@@ -192,6 +192,7 @@ final class RNASeqEmbeddingGeneTests: XCTestCase {
         let both = try index.search("matr3")
         XCTAssertEqual(both.map(\.id), ["ENSG00000015479", "ENSG00000280987"], "each id of the name is listed")
         XCTAssertEqual(both.map(\.sharesName), [true, true])
+        XCTAssertEqual(both.compactMap { RNASeqGeneChoice(entry: $0, unit: .umis)?.label }, ["MATR3 (ENSG00000015479)", "MATR3 (ENSG00000280987)"], "a shared name names its id once picked")
         XCTAssertEqual(both.map(\.type), ["Gene Expression", "Gene Expression"], "the type shows")
         XCTAssertEqual(try index.search("ensg00000280987").map(\.feature), [2], "an id finds its own row")
         XCTAssertEqual(try index.search("  Tspan ").map(\.sharesName), [false])
@@ -202,6 +203,7 @@ final class RNASeqEmbeddingGeneTests: XCTestCase {
         XCTAssertEqual(cd3.map(\.offered), [true, false])
         XCTAssertNil(RNASeqGeneChoice(entry: cd3[1], unit: .normalised), "Antibody Capture is not offered")
         XCTAssertEqual(RNASeqGeneChoice(entry: cd3[0], unit: .umis), RNASeqGeneChoice(feature: 3, id: "ENSG00000198851", name: "CD3E", unit: .umis))
+        XCTAssertEqual(RNASeqGeneChoice(entry: cd3[0], unit: .umis)?.label, "CD3E", "a name no other id holds stays bare")
     }
 
     /// The picker reads `features` of the cell map, so LYZ and S100A9 are found by name or by id, and the cut holds no CD3E.
@@ -391,6 +393,105 @@ final class RNASeqEmbeddingGeneControllerTests: XCTestCase {
         await settle(controller)
         XCTAssertEqual(controller.colourPopUp.itemTitles.last, "Gene…", "the item names the gene only while one is shown")
         XCTAssertEqual(controller.geneUnitControl.superview?.isHidden, true)
+
+        // Raw UMIs asked for one gene do not carry to the next: the unit control is hidden by then (CM-GENE-BIO SF-3).
+        controller.chooseColouring(.gene(lyz))
+        await settle(controller)
+        controller.geneUnitControl.selectedSegment = 1
+        controller.geneUnitControl.sendAction(controller.geneUnitControl.action, to: controller.geneUnitControl.target)
+        await settle(controller)
+        XCTAssertEqual(controller.geneUnit, .umis)
+        controller.chooseColouring(facts.defaultColouring)
+        await settle(controller)
+        XCTAssertEqual(controller.geneUnit, .normalised, "raw UMIs were asked for one gene, so the next gene starts normalised")
+        controller.colourPopUp.selectItem(at: facts.colourings.count)
+        controller.colourPopUp.sendAction(controller.colourPopUp.action, to: controller.colourPopUp.target)
+        let again = try XCTUnwrap(controller.genePicker)
+        await controller.geneIndexWork?.value
+        again.search("s100a9")
+        await again.searchWork?.value
+        again.pick(try XCTUnwrap(again.results.first))
+        await settle(controller)
+        XCTAssertEqual(controller.snapshot?.colouring, .gene(try gene("S100A9", .normalised, controller)))
+    }
+
+    /// A label set named Sample repeats the title of the sample colouring, and two embeddings may share a name. AppKit's
+    /// `addItem(withTitle:)` removes an earlier item of the same title, so each pop-up item must stay in step with the
+    /// colouring or embedding it stands for (CM-GENE-BIO SF-4).
+    static func withRepeatedTitles(_ shown: RNASeqCellMapSnapshot) -> RNASeqCellMapSnapshot {
+        var renamed = shown
+        renamed.facts.labelSets[0].name = "Sample"
+        renamed.facts.embeddings[1].name = renamed.facts.embeddings[0].name
+        return renamed
+    }
+
+    /// The cell map shown with the first label set named Sample and both embeddings named alike. The tests that use it are not
+    /// async, so that a failure of the pop-ups, such as the exception AppKit raises for an item out of range, is a failure of
+    /// the test and not an abort of the run.
+    func openWithRepeatedTitles() throws -> (RNASeqResultSurface, RNASeqCellMapViewController) {
+        let (_, map) = try RNASeqCellMapViewFixtures.cellMap(in: root)
+        let surface = RNASeqResultSurface()
+        let outcome = RNASeqResultSurface.read(map)
+        guard case .loaded(let result) = outcome else { throw XCTSkip("the cell map does not read") }
+        let shown = Self.withRepeatedTitles(try RNASeqCellMapLoader.snapshot(result: result, bundleURL: map))
+        surface.present(outcome, bundleURL: map, cellMap: RNASeqCellMapLoadOutcome.loaded(shown))
+        let controller = try XCTUnwrap(surface.controller.cellMap)
+        surface.controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        surface.controller.view.layoutSubtreeIfNeeded()
+        return (surface, controller)
+    }
+
+    /// Lets the reads in flight finish, as `settle` does, for a test that is not async.
+    func settleNow(_ controller: RNASeqCellMapViewController) {
+        let done = expectation(description: "the reads settle")
+        Task { @MainActor in
+            await self.settle(controller)
+            await controller.geneIndexWork?.value
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 60)
+    }
+
+    func testALabelSetNamedSampleAndTwoEmbeddingsOfOneNameKeepEveryPopUpItem() throws {
+        let (surface, controller) = try openWithRepeatedTitles()
+        defer { withExtendedLifetime(surface) {} }
+        let facts = try XCTUnwrap(controller.snapshot).facts
+        let colourTitles = facts.colourings.map { facts.title(of: $0) }
+        let embeddingNames = facts.embeddings.map { $0.name }
+        XCTAssertEqual(colourTitles[0], facts.title(of: .sample), "the first label set repeats the sample colouring's title")
+        XCTAssertEqual(controller.embeddingPopUp.itemTitles, embeddingNames, "two embeddings of one name keep both items")
+        XCTAssertEqual(controller.colourPopUp.numberOfItems, colourTitles.count + 1, "a repeated title keeps its own item")
+        XCTAssertEqual(controller.colourPopUp.itemTitles, colourTitles + ["Gene…"], "each item names its colouring, and the last is Gene…")
+    }
+
+    func testTheItemsOfARepeatedTitleColourByWhatTheyName() throws {
+        let (surface, controller) = try openWithRepeatedTitles()
+        defer { withExtendedLifetime(surface) {} }
+        let facts = try XCTUnwrap(controller.snapshot).facts
+        let umisIndex = try XCTUnwrap(facts.colourings.firstIndex(of: .cellUMIs))
+        controller.colourPopUp.selectItem(at: umisIndex)
+        controller.colourPopUp.sendAction(controller.colourPopUp.action, to: controller.colourPopUp.target)
+        settleNow(controller)
+        XCTAssertEqual(controller.snapshot?.colouring, .cellUMIs, "the item at a colouring's index colours by it")
+        controller.colourPopUp.selectItem(withTitle: "Genes per cell")
+        controller.colourPopUp.sendAction(controller.colourPopUp.action, to: controller.colourPopUp.target)
+        settleNow(controller)
+        XCTAssertEqual(controller.snapshot?.colouring, .cellGenes, "the item that reads Genes per cell colours by it")
+        controller.colourPopUp.selectItem(withTitle: "UMIs per cell")
+        controller.colourPopUp.sendAction(controller.colourPopUp.action, to: controller.colourPopUp.target)
+        settleNow(controller)
+        XCTAssertEqual(controller.snapshot?.colouring, .cellUMIs, "the item that reads UMIs per cell colours by it")
+    }
+
+    func testGeneAfterARepeatedTitleOpensThePickerAndColoursNothing() throws {
+        let (surface, controller) = try openWithRepeatedTitles()
+        defer { withExtendedLifetime(surface) {} }
+        let facts = try XCTUnwrap(controller.snapshot).facts
+        controller.colourPopUp.selectItem(withTitle: "Gene…")
+        controller.colourPopUp.sendAction(controller.colourPopUp.action, to: controller.colourPopUp.target)
+        XCTAssertNotNil(controller.genePicker, "Gene… opens the picker")
+        settleNow(controller)
+        XCTAssertEqual(controller.snapshot?.colouring, facts.defaultColouring, "opening the picker colours nothing")
     }
 
     /// The picker lists matches, the newest search wins, and only an offered gene is picked.
