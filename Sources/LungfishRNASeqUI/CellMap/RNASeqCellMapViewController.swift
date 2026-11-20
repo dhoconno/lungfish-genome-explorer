@@ -384,6 +384,8 @@ public final class RNASeqCellMapViewController: NSViewController {
             let label = cell < labels.count ? Int(labels[cell]) : 0
             let name = shown.facts.labelSets.first { $0.labelSet == id }?.labels.first { $0.label == label }?.name
             return "\(title) \(name ?? "no label")"
+        case (.cellUMIs, .totals(let totals)), (.cellGenes, .totals(let totals)):
+            return "\(title) \(cell < totals.count ? String(totals[cell]) : "0")"
         case (_, .counts(let cells, let values)):
             return "\(title) \(cells.firstIndex(of: cell + 1).map { RNASeqEmbeddingWords.number(values[$0]) } ?? "0")"
         case (_, .flags(let cells, let words)):

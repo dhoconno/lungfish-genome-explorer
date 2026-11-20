@@ -130,6 +130,25 @@ public struct RNASeqCellMapDatabase: Sendable {
         }.first
     }
 
+    /// The UMIs and genes of every cell in cell order, from one ordered read of `cells` (5.5 V4), so the view colours by
+    /// either without a read for each cell. A cell the table does not hold reads 0.
+    public func cellTotals() throws -> (umis: ContiguousArray<UInt32>, genes: ContiguousArray<UInt32>) {
+        try Self.withHandle(url) { db in
+            let count = try Self.rows(db, "SELECT count(*) FROM cells", []) { Self.int($0, 0) }.first ?? 0
+            var umis = ContiguousArray<UInt32>(repeating: 0, count: count)
+            var genes = ContiguousArray<UInt32>(repeating: 0, count: count)
+            try Self.step(db, "SELECT cell, umis, genes FROM cells ORDER BY cell", []) { statement in
+                let cell = Self.int(statement, 0)
+                guard cell >= 1, cell <= count else {
+                    throw RNASeqResultError.invalidTable(path: RNASeqCellMap.filename, reason: "the cells table names the cell \(cell), which the map does not hold")
+                }
+                umis[cell - 1] = UInt32(clamping: Self.int(statement, 1))
+                genes[cell - 1] = UInt32(clamping: Self.int(statement, 2))
+            }
+            return (umis, genes)
+        }
+    }
+
     /// Every feature of the parent in feature order, which the gene picker lists by id and by name.
     public func features() throws -> [Feature] {
         try query("SELECT feature, id, name, type, total, cells FROM features ORDER BY feature") {

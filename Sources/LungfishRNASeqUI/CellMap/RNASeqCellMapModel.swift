@@ -17,6 +17,10 @@ public enum RNASeqCellMapColouring: Hashable, Sendable {
     case labelSet(Int)
     /// The sample of each cell, from `samples`.
     case sample
+    /// The UMIs of each cell, read from `cells.umis`, with the `umis` row of `value_bounds`.
+    case cellUMIs
+    /// The genes of each cell, read from `cells.genes`, with the `genes` row of `value_bounds`.
+    case cellGenes
     /// The not-host UMIs of an extra, read from `cell_not_host`, with the bounds of `value_bounds`.
     case notHostUMIs(extra: Int)
     /// The flag words of a virus or bacterium extra, read from `cell_not_host` and counted in `flag_counts`.
@@ -44,7 +48,7 @@ public struct RNASeqCellMapFacts: Equatable, Sendable {
 
     /// Every colouring the cell map can give, in the order of the Colour by pop-up.
     public var colourings: [RNASeqCellMapColouring] {
-        var found = labelSets.map { RNASeqCellMapColouring.labelSet($0.labelSet) } + [.sample]
+        var found = labelSets.map { RNASeqCellMapColouring.labelSet($0.labelSet) } + [.sample, .cellUMIs, .cellGenes]
         for extra in extras {
             found.append(.notHostUMIs(extra: extra.extra))
             if flagCounts.contains(where: { $0.extra == extra.extra }) { found.append(.flag(extra: extra.extra)) }
@@ -56,6 +60,8 @@ public struct RNASeqCellMapFacts: Equatable, Sendable {
         switch colouring {
         case .labelSet(let id): return labelSets.first { $0.labelSet == id }?.name ?? "Labels"
         case .sample: return "Sample"
+        case .cellUMIs: return "UMIs per cell"
+        case .cellGenes: return "Genes per cell"
         case .notHostUMIs(let extra): return "\(extraName(extra)) not-host UMIs"
         case .flag(let extra): return "\(extraName(extra)) flag"
         }
@@ -91,6 +97,8 @@ public enum RNASeqCellMapValues: Sendable {
     /// The label number of each cell in cell order, 0 for no label.
     case labels(ContiguousArray<UInt32>)
     case samples
+    /// The UMIs or the genes of each cell in cell order, from `cells`.
+    case totals(ContiguousArray<UInt32>)
     /// The cells, from 1, with a count above 0, and their counts.
     case counts(cells: [Int], values: [Double])
     /// The cells, from 1, that carry flag words, and their words.
@@ -156,34 +164,54 @@ public struct RNASeqCellMapColours: Sendable {
                 legend.rows.append(.init(name: RNASeqEmbeddingWords.notFlagged, count: countText(""), colour: RNASeqEmbeddingPalette.greyIndex))
             }
         case (.notHostUMIs(let extra), .counts(let cells, let values)):
-            let bound = facts.valueBounds.first { $0.value == "not_host_umis" && $0.extra == extra }
-            let scale = RNASeqEmbeddingLegend.Scale(minimum: bound?.minimum ?? 0, maximum: bound?.maximum ?? 0, p99: bound?.p99 ?? 0)
             var value = ContiguousArray<Double>(repeating: 0, count: count)
             for (cell, amount) in zip(cells, values) where cell >= 1 && cell <= count { value[cell - 1] = amount }
-            for cell in 0..<count where value[cell] > 0 && scale.top > 0 {
-                let step = min(Int(value[cell] / scale.top * Double(RNASeqEmbeddingPalette.gradientSteps - 1)), RNASeqEmbeddingPalette.gradientSteps - 1)
-                index[cell] = RNASeqEmbeddingPalette.gradientBase + UInt16(step)
-            }
-            var risen: [(value: Double, cell: UInt32)] = []
-            for cell in 0..<count where points.isDrawn(cell) {
-                if value[cell] > 0 { risen.append((value[cell], UInt32(cell))) } else { under.append(UInt32(cell)) }
-            }
-            // Zeros first in grey, then the rest in rising order (5.5 V3). A sort is not a number on screen.
-            risen.sort { $0.value != $1.value ? $0.value < $1.value : $0.cell < $1.cell }
-            over = ContiguousArray(risen.map(\.cell))
-            legend.scale = scale
-            if scale.maximum <= 0 {
-                legend.words.append(RNASeqEmbeddingWords.scaleAllZero(cells: facts.cellCount))
-            } else if scale.p99 > 0 {
-                legend.words.append(RNASeqEmbeddingWords.scale(p99: RNASeqEmbeddingWords.number(scale.p99), cells: facts.cellCount,
-                                                                maximum: RNASeqEmbeddingWords.number(scale.maximum)))
-            } else {
-                legend.words.append(RNASeqEmbeddingWords.scaleToMaximum(maximum: RNASeqEmbeddingWords.number(scale.maximum), cells: facts.cellCount))
-            }
+            return try scaled(facts: facts, points: points, legend: legend,
+                              bound: facts.valueBounds.first { $0.value == "not_host_umis" && $0.extra == extra }) { value[$0] }
+        case (.cellUMIs, .totals(let totals)), (.cellGenes, .totals(let totals)):
+            let name = colouring == .cellUMIs ? "umis" : "genes"
+            return try scaled(facts: facts, points: points, legend: legend,
+                              bound: facts.valueBounds.first { $0.value == name && $0.extra == 0 }) { $0 < totals.count ? Double(totals[$0]) : 0 }
         default:
             throw RNASeqResultError.invalidTable(path: RNASeqCellMap.filename, reason: "the values read do not belong to \(facts.title(of: colouring))")
         }
         return RNASeqCellMapColours(index: index, order: under + over, legend: legend)
+    }
+
+    /// Colours a count by the file's bounds, the one place of the rule for every count colouring. The scale runs from 0
+    /// to its top, the p99 or the maximum when the p99 is 0, a value above the top takes the top colour, zeros draw first
+    /// in grey and the rest in rising order (5.5 V3, `docs/formats/rnaseq-cell-map.md`, Bounds). `value` is the count of
+    /// a cell from 0.
+    private static func scaled(facts: RNASeqCellMapFacts, points: RNASeqCellMapPoints, legend: RNASeqEmbeddingLegend,
+                               bound: RNASeqCellMapDatabase.ValueBound?, value: (Int) -> Double) throws -> RNASeqCellMapColours {
+        let count = points.x.count
+        let scale = RNASeqEmbeddingLegend.Scale(minimum: bound?.minimum ?? 0, maximum: bound?.maximum ?? 0, p99: bound?.p99 ?? 0)
+        let top = RNASeqEmbeddingPalette.gradientSteps - 1
+        var index = ContiguousArray<UInt16>(repeating: RNASeqEmbeddingPalette.greyIndex, count: count)
+        var under = ContiguousArray<UInt32>()
+        var risen: [(value: Double, cell: UInt32)] = []
+        for cell in 0..<count {
+            if cell & 0xFFFF == 0 { try Task.checkCancellation() }
+            let amount = value(cell)
+            if amount > 0, scale.top > 0 {
+                index[cell] = RNASeqEmbeddingPalette.gradientBase + UInt16(min(Int(amount / scale.top * Double(top)), top))
+            }
+            guard points.isDrawn(cell) else { continue }
+            if amount > 0 { risen.append((amount, UInt32(cell))) } else { under.append(UInt32(cell)) }
+        }
+        // Zeros first in grey, then the rest in rising order (5.5 V3). A sort is not a number on screen.
+        risen.sort { $0.value != $1.value ? $0.value < $1.value : $0.cell < $1.cell }
+        var legend = legend
+        legend.scale = scale
+        if scale.maximum <= 0 {
+            legend.words.append(RNASeqEmbeddingWords.scaleAllZero(cells: facts.cellCount))
+        } else if scale.p99 > 0 {
+            legend.words.append(RNASeqEmbeddingWords.scale(p99: RNASeqEmbeddingWords.number(scale.p99), cells: facts.cellCount,
+                                                            maximum: RNASeqEmbeddingWords.number(scale.maximum)))
+        } else {
+            legend.words.append(RNASeqEmbeddingWords.scaleToMaximum(maximum: RNASeqEmbeddingWords.number(scale.maximum), cells: facts.cellCount))
+        }
+        return RNASeqCellMapColours(index: index, order: under + ContiguousArray(risen.map(\.cell)), legend: legend)
     }
 }
 
@@ -232,6 +260,10 @@ public enum RNASeqCellMapLoader {
             return .labels(try database.cellLabels(labelSet: id))
         case .sample:
             return .samples
+        case .cellUMIs:
+            return .totals(try database.cellTotals().umis)
+        case .cellGenes:
+            return .totals(try database.cellTotals().genes)
         case .notHostUMIs(let extra):
             let rows = try database.cellNotHost(extra: extra).filter { $0.umis > 0 }
             return .counts(cells: rows.map(\.cell), values: rows.map { Double($0.umis) })
