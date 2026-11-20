@@ -147,8 +147,9 @@ struct RNASeqCellMapImportSubcommand: AsyncParsableCommand {
         }
         if checked.choices.counts == "computed on other counts" { notes("The embeddings were computed on other counts than the result's.") }
         let name = outputURL.deletingPathExtension().lastPathComponent
-        let drawn = summary.embeddings.map { "\($0.name) draws \($0.drawn.reduce(0, +)) cells" }.joined(separator: ", ")
-        return "Wrote the cell map \(name), where \(drawn), with \(summary.labelSets.count) label sets"
+        func count(_ n: Int, _ noun: String) -> String { n == 1 ? "1 \(noun)" : "\(n) \(noun)s" }
+        let drawn = summary.embeddings.map { "\($0.name) draws \(count($0.drawn.reduce(0, +), "cell"))" }.joined(separator: ", ")
+        return "Wrote the cell map \(name), where \(drawn), with \(count(summary.labelSets.count, "label set"))"
     }
 
     func envelope(_ checked: RNASeqCellMapImport.Checked, summary: RNASeqResultWriter.CellMapSummary, startedAt: Date) -> ProvenanceEnvelope {
