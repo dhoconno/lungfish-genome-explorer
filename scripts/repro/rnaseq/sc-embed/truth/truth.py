@@ -678,7 +678,8 @@ def compare_seurat(out, claims, result, folder, job):
                "each value equals Float of Seurat's value or is 1 float32 ulp from it", "",
                f"{n} entries, {equal} equal, {one} at 1 ulp, {more} over 1 ulp, largest {largest} ulp",
                f"doubles bit-equal {bits['A']} (divide then multiply), {bits['B']} (multiply then divide), {bits['C']} (divide by total over 10000), object call and matrix call identical {info['identical']}, compiled LogNorm identical {info['compiled_lognorm_identical']}, largest double difference {diff!r}",
-               more == 0 and info["identical"] == "TRUE")
+               more == 0 and bits["A"] == n and info["identical"] == "TRUE"
+               and info["compiled_lognorm_identical"] == "TRUE")
     return n, equal, one, largest
 
 

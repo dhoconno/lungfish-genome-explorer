@@ -132,6 +132,19 @@ class NormalisationTests(unittest.TestCase):
                 want.append(truth.norm_f64(int(csc.data[at]), int(totals[column])))
         self.assertEqual(got.view(np.uint64).tolist(), np.array(want).view(np.uint64).tolist())
 
+    def test_norm_entries_divides_before_it_multiplies_where_the_orders_differ(self):
+        """The P5 verdict compares float32 values, which cannot tell the two orders apart, so the order is pinned here at Double."""
+        import numpy as np
+        import scipy.sparse as sp
+        pair = next(((s, v) for s in range(2, 400) for v in range(1, s)
+                     if math.log1p((v / s) * 10000.0) != math.log1p((v * 10000.0) / s)), None)
+        self.assertIsNotNone(pair, "some UMI count and total below 400 must tell divide-then-multiply from multiply-then-divide")
+        s, v = pair
+        csc = sp.csc_matrix(np.array([[v], [s - v]], dtype=np.int64))
+        got = truth.norm_entries(csc, [s])
+        self.assertEqual(float(got[0]), math.log1p((v / s) * 10000.0), "norm_entries does not equal divide-then-multiply")
+        self.assertNotEqual(float(got[0]), math.log1p((v * 10000.0) / s), "norm_entries equals multiply-then-divide")
+
 
 class SelectionAccountingTests(unittest.TestCase):
     """5.5 S3. Selected, rest and unlabelled UMIs add up to the sample's Gene Expression UMIs."""
