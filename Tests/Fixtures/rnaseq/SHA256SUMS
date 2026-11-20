@@ -188,3 +188,6 @@ db405b5a1ade2d1a6597239a3cd26e2505649f5d5bb0ea6e3bf24b84372af7b7  umi-adopt/umi-
 67ab41bbbb1491eb5e7f3843d61c4ce0f8e19ee499f2e23b21b61cdc91171ffc  umi-adopt/umi-2711/S2/umi-check/pair1-layout-check.json
 fc666d4b398b885cf5b3495de47a79d86e1e167a8189a3ac06667a042dcbba3a  tenx-gtf-gencode/genes.gtf
 f2414d6aae7f05eaad462bcd9d597edfaea44fcb7a61604bf6fadde21edb0183  tenx-gtf-gencode/rule_2020a.gtf
+81b1802c7f8bf762610438e9471bd25564c876d1bb4a32055a5dc6098ca5121b  cell-map-pbmc_1k_v3/cells-starsolo.tsv
+b4d3b2d9ac9489e44e2fd2ce09747f762da866bc9fb834e9b0caa0d7ecd95659  cell-map-pbmc_1k_v3/genes-of-interest-starsolo.tsv
+58be00c16965309e7f908a6954a579eb27f5f1c1208c49c0cf53e54172f161eb  cell-map-pbmc_1k_v3/normalised-starsolo.tsv

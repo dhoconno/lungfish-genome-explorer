@@ -40,10 +40,13 @@ final class RNASeqCellMapHandBackConformanceTests: XCTestCase {
     object <- Seurat::FindNeighbors(object, dims = 1:10, verbose = FALSE)
     object <- Seurat::FindClusters(object, verbose = FALSE)
     object <- Seurat::RunUMAP(object, dims = 1:10, verbose = FALSE)
+    own <- SeuratObject::Embeddings(object, "umap"); own_meta <- object[[]]
+    write.table(data.frame(sample = own_meta[["sample"]], barcode = own_meta[["barcode"]], x = sprintf("%a", own[rownames(own_meta), 1]), y = sprintf("%a", own[rownames(own_meta), 2])), "object-umap.tsv", sep = "\\t", quote = FALSE, row.names = FALSE)
 
     """
     /// The RNA-seq environment holds no igraph, so sc.tl.leiden cannot run there. The leiden column takes 10x's graph cluster of
     /// each cell by its barcode instead, with the first cell's label left out, so the test can check that each label reaches its cell.
+    /// Both analyses also write the object's own UMAP of each cell as hex floats, `object-umap.tsv`, which the test compares with the map.
     static let scanpyAnalysis = """
     adata.X = adata.X.astype(np.float64)
     sc.pp.normalize_total(adata)
@@ -55,6 +58,7 @@ final class RNASeqCellMapHandBackConformanceTests: XCTestCase {
     labels = [tenx.get(b if b.endswith("-1") else b + "-1") for b in adata.obs["barcode"]]
     labels[0] = None
     adata.obs["leiden"] = pd.Categorical(labels)
+    pd.DataFrame({"sample": adata.obs["sample"].values, "barcode": adata.obs["barcode"].values, "x": [float(v).hex() for v in adata.obsm["X_umap"][:, 0]], "y": [float(v).hex() for v in adata.obsm["X_umap"][:, 1]]}).to_csv("object-umap.tsv", sep="\\t", index=False)
 
     """
 
@@ -182,6 +186,15 @@ final class RNASeqCellMapHandBackConformanceTests: XCTestCase {
             }
         }
         XCTAssertEqual(wrong, [], "each stored Double equals the table's text", file: file, line: line)
+        // The object's own UMAP of each cell, written by the analysis as hex floats so nothing is rounded: the map has to hold what
+        // the tool holds for that (sample, barcode), so a coordinate paired with the wrong row fails here.
+        let own = try String(contentsOf: ran.folder.appendingPathComponent("object-umap.tsv"), encoding: .utf8)
+            .split(separator: "\n").dropFirst().map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
+        XCTAssertEqual(own.count, total, "the object's UMAP is listed for every cell", file: file, line: line)
+        for f in own {
+            XCTAssertEqual(values["umap\t1\t\(f[0])\t\(f[1])"], Double(f[2]), "the map holds the object's own UMAP of each cell: \(f[0]) \(f[1])", file: file, line: line)
+            XCTAssertEqual(values["umap\t2\t\(f[0])\t\(f[1])"], Double(f[3]), "the map holds the object's own UMAP of each cell: \(f[0]) \(f[1])", file: file, line: line)
+        }
         let set = try XCTUnwrap(try database.labelSets().first { $0.name == label }, file: file, line: line)
         var labelled = samples.map(\.cells)
         labelled[0] -= unlabelled
