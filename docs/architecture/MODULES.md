@@ -27,7 +27,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
-| LungfishRNASeqUI | library | Sources/LungfishRNASeqUI | 19 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishRNASeqUI | library | Sources/LungfishRNASeqUI | 38 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
@@ -1922,6 +1922,7 @@ None.
 | Subdirectory |
 |---|
 | Bulk |
+| CellMap |
 | SingleCell |
 
 ### Public types
@@ -1931,7 +1932,26 @@ None.
 - `RNASeqBulkQualityState` enum, `Sources/LungfishRNASeqUI/Bulk/RNASeqBulkModel.swift`
 - `RNASeqBulkTable` struct, `Sources/LungfishRNASeqUI/Bulk/RNASeqBulkModel.swift`
 - `RNASeqBulkViewController` class, `Sources/LungfishRNASeqUI/Bulk/RNASeqBulkViewController.swift`
+- `RNASeqCellMapColouring` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
+- `RNASeqCellMapColours` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
+- `RNASeqCellMapFacts` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
+- `RNASeqCellMapLoader` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
+- `RNASeqCellMapLoadOutcome` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
+- `RNASeqCellMapPoints` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
+- `RNASeqCellMapSnapshot` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
+- `RNASeqCellMapValues` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift`
+- `RNASeqCellMapViewController` class, `Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapViewController.swift`
 - `RNASeqCorrelationPlotView` class, `Sources/LungfishRNASeqUI/Bulk/RNASeqCorrelationPlotView.swift`
+- `RNASeqEmbeddingGrid` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift`
+- `RNASeqEmbeddingLegend` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingLegend.swift`
+- `RNASeqEmbeddingLegendView` class, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingLegend.swift`
+- `RNASeqEmbeddingMapping` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift`
+- `RNASeqEmbeddingPalette` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift`
+- `RNASeqEmbeddingPlotView` class, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingPlotView.swift`
+- `RNASeqEmbeddingRaster` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift`
+- `RNASeqEmbeddingRasterInput` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift`
+- `RNASeqEmbeddingWindow` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift`
+- `RNASeqEmbeddingWords` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingWords.swift`
 - `RNASeqHistogramView` class, `Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCharts.swift`
 - `RNASeqRankPlotView` class, `Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCharts.swift`
 - `RNASeqResultFacts` struct, `Sources/LungfishRNASeqUI/RNASeqResultSurface.swift`
