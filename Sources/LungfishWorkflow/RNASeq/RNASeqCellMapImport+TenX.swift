@@ -82,7 +82,8 @@ extension RNASeqCellMapImport {
     static func table(place: Int, url: URL, labelColumns: [String], samples: Int) throws -> Table {
         let file = url.lastPathComponent
         let (text, sha256, size) = try read(url)
-        var all = text.split(separator: "\n", omittingEmptySubsequences: false).map { $0.hasSuffix("\r") ? $0.dropLast() : $0 }
+        // Swift reads "\r\n" as one Character that is not "\n", so the split takes every line break, as SalmonQuantFolderReader does.
+        var all = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
         if all.last?.isEmpty == true { all.removeLast() }
         let first = all.first.map(String.init) ?? ""
         let lines = all.enumerated().dropFirst().filter { !$0.element.isEmpty }.map { (number: $0.offset + 1, text: $0.element) }
