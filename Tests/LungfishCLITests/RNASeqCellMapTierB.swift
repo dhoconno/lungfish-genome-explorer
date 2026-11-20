@@ -105,7 +105,9 @@ enum RNASeqCellMapTierB {
     /// named: `environment.names (+NAME on the run, -NAME missing from the run)`.
     static func recordDifferences(_ run: ParameterValue, _ pin: ParameterValue) -> [String] {
         let (a, b) = (flatten(run), flatten(pin))
-        var differences = Set(a.keys).union(b.keys).subtracting(leftOut).subtracting([namesKey]).filter { a[$0] != b[$0] }
+        // A left-out name also covers the keys below it: `counts.cluster_sizes` is an object, which `flatten` opens.
+        func isLeftOut(_ key: String) -> Bool { key == namesKey || leftOut.contains { key == $0 || key.hasPrefix($0 + ".") } }
+        var differences = Set(a.keys).union(b.keys).filter { !isLeftOut($0) && a[$0] != b[$0] }
         let (runNames, pinNames) = (Set(names(run)).subtracting(launchNames), Set(names(pin)).subtracting(launchNames))
         let words = runNames.subtracting(pinNames).sorted().map { "+\($0) on the run" }
             + pinNames.subtracting(runNames).sorted().map { "-\($0) missing from the run" }
