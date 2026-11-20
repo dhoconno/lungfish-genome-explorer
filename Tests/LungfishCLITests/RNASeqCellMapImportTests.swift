@@ -167,6 +167,16 @@ final class RNASeqCellMapImportTests: XCTestCase {
                                                     "--output", summed.path, "--quiet"]).run()
         let table = try RNASeqCountTable(tsv: Data(contentsOf: summed.appendingPathComponent("counts/genes.counts.tsv")), path: "genes.counts.tsv")
         XCTAssertEqual(table.sampleIDs, (1...7).map { "\(sample)_\($0)" })
+        // CM-TRUTH's sums of the seven clusters over the same cut, one row a gene (Fixtures/rnaseq/cell-map-pbmc_1k_v3/README.md).
+        let truth = try String(contentsOf: RNASeqFixtures.root.appendingPathComponent("cell-map-pbmc_1k_v3/expected-labels-cellranger.tsv"), encoding: .utf8)
+            .split(separator: "\n").map { $0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init) }
+        XCTAssertEqual(truth.first, ["feature_id"] + (1...7).map { "\($0)" })
+        XCTAssertEqual(table.rows.count, truth.count - 1, "pseudobulk writes one row for each gene of the truth")
+        let sums = Dictionary(table.rows.map { ($0.id, $0.counts) }, uniquingKeysWith: { a, _ in a })
+        let wrong = truth.dropFirst().filter { (row: [String]) -> Bool in
+            sums[row[0]] != row.dropFirst().map { (text: String) -> Double in Double(text) ?? -1 }
+        }.map { (row: [String]) -> String in row[0] }
+        XCTAssertEqual(wrong, [], "each gene's seven sums equal CM-TRUTH's row")
     }
 
     func testTheRecordedArgvParsesToEqualOptionsAndAReplayGivesEqualFiles() async throws {
