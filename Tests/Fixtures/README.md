@@ -117,6 +117,10 @@ The reads are wholly synthetic. `secondary-supplementary/README.md` lists every 
 
 RNA-seq results for the Phase 5 readers and imports, laid out as [docs/formats/rnaseq-bundle.md](../../docs/formats/rnaseq-bundle.md) reads them. Two salmon folders of SEQC (C1), a STARsolo folder and a Cell Ranger `outs/` folder of 10x's pbmc_1k_v3 cut to the same 200 cells and 1,353 genes, a UMI count table of C9 cut to 203 genes, and the salmon folders of nf-core/rnaseq's yeast test profile. 86 files and about 530 KB, none over 180 KB, with no 10x barcode list. `scripts/repro/rnaseq/fixtures/cut.sh <data root> <empty folder>` writes every file but `rnaseq/README.md` from sources pinned by sha256. `rnaseq/README.md` gives each cut rule and the licences, with the CC BY 4.0 notice of the 10x data, and `rnaseq/SOURCES.tsv` names each source by path and sha256. A copy with `SHA256SUMS` is at `/Users/Shared/lungfish-golden/cache/rnaseq-fixtures/`.
 
+| Path | Description |
+|------|-------------|
+| `rnaseq/cell-map-smoke/` | The parent and cell map that the packaged smoke opens as its Cell map row, 20 files and 186,064 bytes. `Smoke single-cell.lungfishrnaseq` is a 12-cell single-cell result cut from `rnaseq/starsolo-pbmc_1k_v3` (its first 6 features and 12 barcodes, with an invented count matrix), and `Smoke cell map.lungfishrnaseq` is its imported cell map with one UMAP and one `clusters` label set. CM-KIND's writer wrote both through `RNASeqCellMapViewFixtures.writeSmoke`, which `testWriteTheSmokeFixtureWhenAsked` runs only when `LUNGFISH_CM_VIEW_WRITE_SMOKE_FIXTURE` names a folder (no gate sets it). `testTheCommittedSmokeCellMapReadsBack` reads the committed bytes back through the view's reader. `scripts/release/app_smoke_gate.py` stages the folder through `SMOKE_FIXTURES`, and `ReleaseSmokeFixtures.addCellMap` copies both bundles into the smoke project. `cut.sh` does not write it |
+
 ## Usage in Tests
 
 ```swift
