@@ -204,6 +204,12 @@ public final class RNASeqEmbeddingGenePickerViewController: NSViewController, NS
         view = root
     }
 
+    /// The search field takes the keyboard when the popover appears, so a person types a name at once.
+    public override func viewDidAppear() {
+        super.viewDidAppear()
+        view.window?.makeFirstResponder(searchField)
+    }
+
     /// Gives the picker the features once they are read, and runs a search made before that.
     public func show(index: RNASeqGeneIndex) {
         self.index = index

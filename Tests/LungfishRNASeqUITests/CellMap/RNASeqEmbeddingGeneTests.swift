@@ -97,7 +97,14 @@ final class RNASeqEmbeddingGeneTests: XCTestCase {
                     return XCTFail("the loader reads a gene's values")
                 }
                 XCTAssertEqual(read.values, stored, "\(name) \(unit): the view reads the stored row")
-                XCTAssertEqual(Array(try colours(gene, map).index), Support.expectedIndex(stored), "\(name) \(unit): the colour of every cell")
+                let made = try colours(gene, map)
+                XCTAssertEqual(Array(made.index), Support.expectedIndex(stored), "\(name) \(unit): the colour of every cell")
+                // Zeros draw first in grey and the rest in rising order of value, cell number breaking a tie (5.5 V3).
+                var value = [Double](repeating: 0, count: Support.cells)
+                for (cell, amount) in zip(stored.cells, stored.floats) { value[Int(cell) - 1] = Double(amount) }
+                let drawn = (1...Support.cells).filter { !RNASeqCellMapViewFixtures.leftOut.contains(Int32($0)) }
+                let counted = drawn.filter { value[$0 - 1] > 0 }.sorted { value[$0 - 1] != value[$1 - 1] ? value[$0 - 1] < value[$1 - 1] : $0 < $1 }
+                XCTAssertEqual(made.order.map { Int($0) + 1 }, drawn.filter { value[$0 - 1] == 0 } + counted, "\(name) \(unit): the draw order")
                 XCTAssertEqual(Set(stored.cells.map { Int($0) }), Set(truth.keys), "\(name) \(unit): the cells with a count")
                 for (cell, value) in zip(stored.cells, stored.floats) {
                     let known = try XCTUnwrap(truth[Int(cell)])

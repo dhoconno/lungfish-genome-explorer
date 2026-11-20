@@ -97,6 +97,7 @@ public final class RNASeqCellMapViewController: NSViewController {
         geneUnitControl.target = self
         geneUnitControl.action = #selector(geneUnitChosen(_:))
         geneUnitControl.setAccessibilityIdentifier("rnaseq-cell-map-gene-unit")
+        geneUnitControl.setAccessibilityLabel(RNASeqEmbeddingWords.geneUnitTitle)
         hoverField.isSelectable = true
         hoverField.setAccessibilityIdentifier("rnaseq-cell-map-hover")
 
@@ -237,6 +238,7 @@ public final class RNASeqCellMapViewController: NSViewController {
     /// colouring choice, so the newest pick wins and a pick keeps an embedding still being read (5.5 V1).
     public func showGenePicker() {
         guard let database = snapshot?.database else { return }
+        genePopover?.close()
         let picker = RNASeqEmbeddingGenePickerViewController()
         picker.onPick = { [weak self] entry in self?.pickGene(entry) }
         genePicker = picker
