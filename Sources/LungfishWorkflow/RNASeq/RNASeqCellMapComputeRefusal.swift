@@ -17,6 +17,7 @@ public enum RNASeqCellMapComputeRefusal: Error, LocalizedError, Equatable {
     case recordUnreadable
     case record(field: String, found: String, expected: String)
     case tableForm
+    case memoryStop(message: String)
 
     public var errorDescription: String? {
         switch self {
@@ -49,6 +50,8 @@ public enum RNASeqCellMapComputeRefusal: Error, LocalizedError, Equatable {
             return "The route's record says \(field) is \(found), where a route run says \(expected). No cell map was written."
         case .tableForm:
             return "The route's cells.tsv does not start with the columns sample, barcode, x, y and cluster, so no cell map was written."
+        case .memoryStop(let message):
+            return message
         }
     }
 

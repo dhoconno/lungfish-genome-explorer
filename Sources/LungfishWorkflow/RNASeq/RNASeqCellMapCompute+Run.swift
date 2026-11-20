@@ -137,6 +137,13 @@ extension RNASeqCellMapCompute {
         let result = try await launch(argv, environment(threads: prepared.threads, temporary: temporary), log)
         try Task.checkCancellation()
         guard result.exitCode == 0 else {
+            // macOS ends a process that runs the Mac out of memory with SIGKILL, and `micromamba run` reports its killed
+            // child as 137. `ToolProcessMemoryStop` is the one route that words it.
+            if result.exitCode == SIGKILL || result.exitCode == ToolProcessMemoryStop.killedExitCode,
+               let stop = ToolProcessMemoryStop(tool: "The cell-map route", exitCode: ToolProcessMemoryStop.killedExitCode) {
+                throw RNASeqCellMapComputeRefusal.memoryStop(message: stop.message(
+                    nextStep: "Close other apps and run it again, or compute the embedding elsewhere and bring it in with Import Embedding."))
+            }
             let last = result.stderr.split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
             throw RNASeqCellMapComputeRefusal.scriptFailed(exitCode: result.exitCode, line: last)
         }
