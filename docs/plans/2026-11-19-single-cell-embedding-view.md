@@ -12,6 +12,10 @@
 - On 2026-11-19 at 15:48 (`SCR/events.log`) the owner answered on downloads: "Yes, small files (Recommended)". That covers published cluster-label tables and 10x analysis archives, a few GB at most on lge_scratch, and never through a 10x form or terms page.
 - O173 (`docs/contracts/OWNER-DIRECTIONS.md:8`) sets the order. A script reproduces a published analysis, then the CLI does it, then the GUI. O175 (`:9`) seats the ad hoc single-cell expert, SC. O159 stands, so 5.5 ends in a Preview and builds no stable release.
 - The "No limit" answer is about this planning job and lasts until the week resets on 2026-11-20 at 03:59 CST. The budget of the build is owner choice O-1.
+- On 2026-11-19 at 21:19 and 21:20 (`~/lungfish-phase-records/phase-5-5-sc-embed/events.log`) the owner answered the owner choices in the build session. O-1 "Accept $764 to $788 (Recommended)", O-2 "1M view, 100k compute (Recommended)", O-4 "Yes, it covers 5.5 (Recommended)", O-6 "Keep round 2's result (Recommended)", O-7 "Plan for it, ask at walk (Recommended)", O-8 "(b) Durable table (Recommended)", O-9 "(b) Model assertions (Recommended)" and O-10 "(b) CLI only in 5.5 (Recommended)".
+- O-3 "Re-check PHATE's licence". A data step reads the licence files inside the PHATE 2.0.0 and 1.0.11 sdists in scratch, and an ARCH ruling on 5.5 C8 follows. MIOFlow stays out.
+- O-5 "Fetch both to scratch". GSE149689's H5AD and GSE164922's RDS go to lge_scratch for a reported comparison that stays in scratch and is never a gate.
+- The owner's go for the sessions of this account (2026-11-19) gives the O126 standing go, which O-4 confirms for the 5.5 Preview, and says "Full-screen control at galah: ask me each time" and "Week limit in this account: start no new work at 92%".
 
 ## User outcome
 
