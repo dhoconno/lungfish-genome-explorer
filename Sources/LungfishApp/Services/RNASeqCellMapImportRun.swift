@@ -56,9 +56,14 @@ enum RNASeqCellMapImportWords {
         return changed ? words : nil
     }
 
-    /// What the alert says when the leaf wrote the cell map and the app could not read it back.
+    /// The first sentence of what the row and the alert say when the leaf wrote the cell map and the app could not read it back.
+    static func loadFailedLead(name: String) -> String {
+        "The cell map \(name) was written, but LGE could not read it back, so it was not opened."
+    }
+
+    /// What the row and the alert say when the leaf wrote the cell map and the app could not read it back.
     static func loadFailedWords(name: String, reason: String) -> String {
-        "The cell map \(name) was written, but LGE could not read it back, so it was not opened. \(reason)"
+        "\(loadFailedLead(name: name)) \(reason)"
     }
 }
 
@@ -107,13 +112,29 @@ enum RNASeqCellMapImportRun {
         }
     }
 
+    /// The check the runner makes once the leaf exited 0 and before it settles the row (`CLIViewerExportRunner.run(verify:)`).
+    /// It reads the new result off the main actor and writes nothing. A read that fails returns the words, so the row reads
+    /// Failed with them, and a read that succeeds returns nil, so the row reads Completed.
+    nonisolated static func verification(
+        load: @escaping @Sendable (URL) throws -> Void
+    ) -> @Sendable (URL) async -> String? {
+        { url in
+            do {
+                try await Task.detached(priority: .userInitiated) { try load(url) }.value
+                return nil
+            } catch {
+                return RNASeqCellMapImportWords.loadFailedWords(name: url.lastPathComponent, reason: error.localizedDescription)
+            }
+        }
+    }
+
     /// Ends one import from how the runner ended it. The runner has settled the row already, so a refusal's row keeps the
-    /// CLI's words and a cancelled row reads Cancelled. Only a leaf that exited 0 reaches the load, and only a load that
-    /// succeeds reaches the open.
+    /// CLI's words, a row whose result did not load keeps the load's words and a cancelled row reads Cancelled. The runner
+    /// returns `.completed` only for a result that loaded, so only that reaches the open.
     static func finish(
         _ outcome: CLIViewerExportRunner.Outcome,
         operationID: UUID,
-        load: @escaping @Sendable (URL) throws -> Void,
+        output: URL,
         open: @MainActor (UUID) async -> Bool,
         report: @MainActor (String, String) -> Void
     ) async -> RNASeqCellMapImportEnd {
@@ -121,19 +142,14 @@ enum RNASeqCellMapImportRun {
         case .cancelled:
             return .cancelled
         case .failed(let failure):
+            if failure.message.hasPrefix(RNASeqCellMapImportWords.loadFailedLead(name: output.lastPathComponent)) {
+                report(RNASeqCellMapImportWords.title, failure.message)
+                return .loadFailed(failure.message)
+            }
             let words = RNASeqCellMapImportWords.paneWords(forCLIWords: failure.message) ?? failure.message
             report(RNASeqCellMapImportWords.title, words)
             return .refused(words)
         case .completed(let url):
-            do {
-                try await Task.detached(priority: .userInitiated) { try load(url) }.value
-            } catch {
-                let words = RNASeqCellMapImportWords.loadFailedWords(
-                    name: url.lastPathComponent, reason: error.localizedDescription)
-                OperationCenter.shared.log(id: operationID, level: .error, message: words)
-                report(RNASeqCellMapImportWords.title, words)
-                return .loadFailed(words)
-            }
             return await open(operationID) ? .opened(url) : .notOpened(url)
         }
     }

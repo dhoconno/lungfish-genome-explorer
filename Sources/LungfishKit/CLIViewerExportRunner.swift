@@ -69,6 +69,10 @@ public actor CLIViewerExportRunner {
     ///     `--format json`, writes no `complete` line, and its row completes on exit 0.
     ///   - environmentAdditions: Variables laid over the app's subprocess environment for this run only. No
     ///     production caller passes any. A test passes the leaf's hold variable.
+    ///   - verify: A check of what the leaf wrote, for a caller whose row may read Completed only when the result opens.
+    ///     It runs once the leaf exited 0, with the file the leaf named, before the row settles, and it runs off this
+    ///     actor. Words it returns fail the row with those words and end the run `.failed`. Nil completes the row. It
+    ///     does not run for a leaf that failed or was cancelled. Every other caller leaves it nil and keeps today's rule.
     ///
     /// A cancel that lands after the leaf committed, so that it exits 0 with a `complete` line naming its file,
     /// returns `.completed(file)` (review 12.31-M3a Fix 6, ruled by the manager). The file and its record are on disk,
@@ -81,7 +85,8 @@ public actor CLIViewerExportRunner {
         operationID: UUID,
         completionDetail: String,
         emitsEvents: Bool = true,
-        environmentAdditions: [String: String] = [:]
+        environmentAdditions: [String: String] = [:],
+        verify: (@Sendable (URL) async -> String?)? = nil
     ) async -> Outcome {
         let written: URL
         do {
@@ -105,6 +110,12 @@ public actor CLIViewerExportRunner {
             await OperationCenterCLIBridge.failOperation(
                 operationID, detail: failure.message, fallbackMessage: failure.message
             )
+            return .failed(failure)
+        }
+        if let verify, let words = await verify(written) {
+            // The leaf wrote the file, but the caller could not use it, so the row fails with the caller's words.
+            let failure = Failure(message: words)
+            await OperationCenterCLIBridge.failOperation(operationID, detail: words, fallbackMessage: words)
             return .failed(failure)
         }
         // The leaf exited 0 with its file and record written, which a Cancel that reached the row since cannot undo.

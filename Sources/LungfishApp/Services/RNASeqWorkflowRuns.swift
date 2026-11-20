@@ -240,9 +240,11 @@ enum RNASeqLeafRoute {
 // MARK: - Import Embedding
 
 extension RNASeqLeafRoute {
-    /// Begins the Import Embedding row, runs the leaf on `CLIViewerExportRunner` and then, for a leaf that exited 0, reads the
-    /// new result off the main actor and opens it (`RNASeqCellMapImportRun.finish`). It returns `nil` when `begin` refused the
-    /// run, and then nothing launched. The runner settles the row at the leaf's exit, with the CLI's words for a refusal.
+    /// Begins the Import Embedding row, runs the leaf on `CLIViewerExportRunner` and opens the new result
+    /// (`RNASeqCellMapImportRun.finish`). It returns `nil` when `begin` refused the run, and then nothing launched. The leaf
+    /// shows its three stages as progress events. When it exits 0 the runner reads the new result off the main actor with `load`
+    /// before it settles the row (`verify`), so the row reads Completed only for a result that loads and Failed with the load's
+    /// words for one that does not. A refusal settles the row with the CLI's words.
     /// `load`, `open` and `report` are for a test, and no production caller passes any.
     @discardableResult
     static func launchImport(
@@ -258,12 +260,12 @@ extension RNASeqLeafRoute {
         let run = request.run
         var launched: RNASeqCellMapImportLaunch?
         begin(run, routeContext: routeContext, operations: operations, onCancel: { runner.cancel() }) { id in
-            for line in request.stageLines { OperationCenter.shared.log(id: id, level: .info, message: line) }
             let task = Task { @MainActor in
                 let outcome = await runner.run(
                     arguments: run.argv, outputURL: run.outputURL, operationID: id,
-                    completionDetail: run.completionDetail, environmentAdditions: environmentAdditions)
-                return await RNASeqCellMapImportRun.finish(outcome, operationID: id, load: load, open: open, report: report)
+                    completionDetail: run.completionDetail, environmentAdditions: environmentAdditions,
+                    verify: RNASeqCellMapImportRun.verification(load: load))
+                return await RNASeqCellMapImportRun.finish(outcome, operationID: id, output: run.outputURL, open: open, report: report)
             }
             launched = RNASeqCellMapImportLaunch(operationID: id, task: task)
         }

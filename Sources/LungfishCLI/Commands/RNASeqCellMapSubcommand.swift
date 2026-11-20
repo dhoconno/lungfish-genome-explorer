@@ -104,8 +104,8 @@ struct RNASeqCellMapImportSubcommand: AsyncParsableCommand {
         let events = CLIEventEmitter(enabled: eventsOn, emit: printEventLine)
         events.emitStart(message: "Importing a cell map of a single-cell result.")
         let outcome = await runCancellingOnSIGTERM { () throws -> String in
-            try command.write { note in
-                events.emitLog(.warning, note)
+            try command.write(stage: { fraction, words in events.emitProgress(fraction, message: words) }) { note in
+                events.emitLog(note == Self.otherCountsNote ? .warning : .info, note)
                 if !quiet { printHumanLine(note, eventsOn: eventsOn) }
             }
         }
@@ -125,11 +125,24 @@ struct RNASeqCellMapImportSubcommand: AsyncParsableCommand {
         }
     }
 
+    /// The one note that stays a warning on the event stream. The person stated that the embedding came from other counts, and the
+    /// view and the record repeat it. The other notes are counts of what the person asked to leave out, and read at information level.
+    static let otherCountsNote = "The embeddings were computed on other counts than the result's."
+
     /// Checks, then writes through the one writer. Each note is a count the person should see: barcodes left out and
     /// cells with no coordinates.
     func write(notes: (String) -> Void) throws -> String {
+        try write(stage: { _, _ in }, notes: notes)
+    }
+
+    /// The same, and `stage` hears the three stages of the work as they begin, with a fraction for the bar: `Reading <file>` for
+    /// each given file, `Checking barcodes against <result>` and `Writing <output>`. The app's row shows them (lane CM-IMPORT-APP).
+    func write(stage: (Double, String) -> Void, notes: (String) -> Void) throws -> String {
         let startedAt = Date()
+        for path in coordinates + clusters { stage(0.1, "Reading \(URL(fileURLWithPath: absolute(path)).lastPathComponent)") }
+        stage(0.3, "Checking barcodes against \(resultURL.lastPathComponent)")
         let checked = try RNASeqCellMapImport.check(options, output: outputURL, createdAt: startedAt)
+        stage(0.6, "Writing \(outputURL.lastPathComponent)")
         let writer = RNASeqResultWriter(provenanceWriter: ProvenanceWriter(), stageObserver: { stage, _ in
             if stage == .tablesWritten { try ViewerExportLeaf.checkpointAfterStaging() }
         })
@@ -145,7 +158,7 @@ struct RNASeqCellMapImportSubcommand: AsyncParsableCommand {
                 notes(Self.leftOutNote(leftOut, of: sample.cells, sample: sample.name, embedding: embedding.name))
             }
         }
-        if checked.choices.counts == "computed on other counts" { notes("The embeddings were computed on other counts than the result's.") }
+        if checked.choices.counts == "computed on other counts" { notes(Self.otherCountsNote) }
         let name = outputURL.deletingPathExtension().lastPathComponent
         func count(_ n: Int, _ noun: String) -> String { n == 1 ? "1 \(noun)" : "\(n) \(noun)s" }
         let drawn = summary.embeddings.map { "\($0.name) draws \(count($0.drawn.reduce(0, +), "cell"))" }.joined(separator: ", ")
