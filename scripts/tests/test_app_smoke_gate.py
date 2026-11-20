@@ -507,6 +507,23 @@ class AppSmokeGateTests(unittest.TestCase):
             self.assertEqual(target["EnvironmentVariables"]["LUNGFISH_RELEASE_SMOKE_HOME"], str(homes))
             self.assertEqual(target["EnvironmentVariables"]["LUNGFISH_RELEASE_SMOKE_FIXTURES"], str(fixtures))
 
+    # CM-VIEW QA SF-1. The Cell map row of the view-switch smoke copies `rnaseq/cell-map-smoke` out of the staged
+    # fixtures (`ReleaseSmokeFixtures.addCellMap`), so a gate that leaves the folder out fails hours into the release.
+    # The stub checkout holds every `SMOKE_FIXTURES` folder and the cell map's one file, and the staged copy must too.
+    def test_the_staged_fixtures_hold_the_smoke_cell_map(self):
+        import app_smoke_gate
+        identifiers = ["LungfishXCUITests/ReleaseCandidateSmokeXCUITests/testReleaseCandidateViewSwitchPerKind"]
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / "checkout"
+            for relative in app_smoke_gate.SMOKE_FIXTURES:
+                (root / relative).mkdir(parents=True)
+            bundle = root / "Tests/Fixtures/rnaseq/cell-map-smoke/Smoke cell map.lungfishrnaseq"
+            bundle.mkdir(parents=True, exist_ok=True)
+            (bundle / "cellmap.sqlite").write_bytes(b"cell map")
+            _, fixtures = app_smoke_gate.prepare_candidate_workspace(root, Path(raw) / "workspace", identifiers)
+            staged = fixtures / "rnaseq/cell-map-smoke/Smoke cell map.lungfishrnaseq/cellmap.sqlite"
+            self.assertEqual(staged.read_bytes(), b"cell map")
+
     # SMOKE-ISOLATION (ruling QA-RELEASE-LOOP section 6). The guard moves the account's Lungfish preference
     # domains aside before the first launch and restores them exactly, or fails and keeps its journal.
 
