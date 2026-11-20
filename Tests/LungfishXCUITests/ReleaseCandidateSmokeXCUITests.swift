@@ -193,8 +193,11 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
             ("MHC reference", ReleaseSmokeFixtures.mhcRow, any["mhc-reference-bundle-view"].firstMatch),
             ("PDF", ReleaseSmokeFixtures.pdfFile, any["viewer-pdf-preview"].firstMatch),
             ("Image preview", ReleaseSmokeFixtures.imageFile, any["viewer-quick-look-preview"].firstMatch),
-            ("RNA-seq", ReleaseSmokeFixtures.rnaseqRow, any["rnaseq-result-view"].firstMatch),
+            // The cell map sits inside the RNA-seq result's container, which carries `rnaseq-result-view` for every
+            // modality (RNASeqResultSurface.loadView), so it comes before the plain RNA-seq result. The check that the
+            // previous viewer goes is then made on `rnaseq-cell-map-view` when the plain result opens.
             ("Cell map", ReleaseSmokeFixtures.cellMapRow, any["rnaseq-cell-map-view"].firstMatch),
+            ("RNA-seq", ReleaseSmokeFixtures.rnaseqRow, any["rnaseq-result-view"].firstMatch),
         ]
         // A preview's status words come from the status bar under it, as the matrix rows "Nextflow script previews as
         // text", "PDF figure" and "PNG image" say them (RoutingSafetyNetTable+ContainerAndFileRows).
