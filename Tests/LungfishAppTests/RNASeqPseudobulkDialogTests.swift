@@ -162,6 +162,23 @@ final class RNASeqPseudobulkDialogTests: XCTestCase {
         XCTAssertNil(Words.paneWords(forCLIWords: "The result cells is not a single-cell result."), "words without a flag show as they are")
     }
 
+    /// CM-IMPORT-APP SWIFT SF1. A typed label column that the table lacks and an output folder inside the result are refusals a
+    /// person reaches from the pane, and their CLI words name --label-column and --output, which no control of the pane carries.
+    func testTheRefusalsOfTheLabelColumnsAndTheOutputFolderNameNoFlagOfThePane() throws {
+        typealias Words = RNASeqCellMapImportWords
+        let cases: [(RNASeqCellMapImportRefusal, String)] = [
+            (.noLabelColumn(file: "table.tsv", column: "Cluster"), "Label Columns"),
+            (.oneDimension(file: "table.tsv", name: "umap", column: "umap_1", joiner: "_"), "Label Columns"),
+            (.outputInsideResult(result: "cells.lungfishrnaseq"), "The folder chosen for the cell map"),
+        ]
+        for (refusal, control) in cases {
+            let cli = try XCTUnwrap(refusal.errorDescription)
+            let pane = try XCTUnwrap(Words.paneWords(forCLIWords: cli), cli)
+            XCTAssertFalse(pane.contains("--"), "the pane's words name no flag: \(pane)")
+            XCTAssertTrue(pane.contains(control), "the pane's words name the control: \(pane)")
+        }
+    }
+
     /// Brief item 2: the row reads Completed when the leaf exited 0 and the new result loads. A load that fails leaves it Failed.
     func testALoadThatFailsAfterExitZeroLeavesTheRowFailedWithTheWordsAndOpensNothing() async throws {
         let output = folder.appendingPathComponent("map1.lungfishrnaseq", isDirectory: true)

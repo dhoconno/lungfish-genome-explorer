@@ -46,6 +46,9 @@ enum RNASeqCellMapImportWords {
              "Turn on \(skipControl), then import again. The record counts them. \(notHeldCause)"),
             ("To import it all the same, run again with --other-counts, and the record and the view then say computed on other counts.",
              "Turn on \(otherCountsControl), then import again. The record and the view then say computed on other counts."),
+            ("which --label-column names.", "which the Label Columns setting of the pane names."),
+            ("Name a column of labels with --label-column.", "Name a column of labels in the Label Columns setting of the pane."),
+            ("--output names a folder inside the result", "The folder chosen for the cell map is inside the result"),
         ]
         var words = message
         var changed = false

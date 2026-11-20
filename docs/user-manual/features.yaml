@@ -3318,7 +3318,9 @@ features:
       and counts of another route, and the pane has one control that
       unlocks each. A refusal names that control and keeps the command's
       counts, and the row keeps the command's own words. Barcodes and cells
-      left out read as information and the row still ends Completed. The row
+      left out read as information and the row still ends Completed. A run
+      that states other counts ends Completed with Warnings, because the
+      command keeps that note as a warning. The row
       reads Completed only when the app can read the new cell map, and the
       app then opens it. A cancel ends the command and leaves no folder and
       no stage.
