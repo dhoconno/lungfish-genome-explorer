@@ -90,7 +90,8 @@ enum RNASeqCellMapSelectRun {
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
             Task { handle(await panel.beginSheetModal(for: window)) }
         } else {
-            handle(panel.runModal())
+            // With no window the panel opens on its own, never with `runModal`, which blocks the main actor.
+            panel.begin { response in handle(response) }
         }
     }
 
