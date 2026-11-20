@@ -126,4 +126,21 @@ final class RNASeqExportCellsIdentConformanceTests: RNASeqExportTestCase {
             try check(try seen(result, collation: collation), result, collation: collation)
         }
     }
+
+    /// A result of one sample names its cells by barcode alone. Seurat's own reading then gave every cell the project name `lungfish`
+    /// (measured at the base), so the object holds the sample id as orig.ident, Idents and sample, and the barcode in meta.data.
+    func testAOneSampleResultHoldsItsSampleIdAsIdentityAndNamesItsCellsByBarcode() throws {
+        let result = try self.result(["solo.1"])
+        let object = try seen(result, collation: "C")
+        let database = try RNASeqCellsDatabase(url: result.appendingPathComponent(RNASeqCellsDatabase.filename))
+        let names = try database.samples().map(\.name)
+        XCTAssertEqual(names.count, 1, "the result holds one sample")
+        let name = try XCTUnwrap(names.first, "the result holds a sample")
+        let cells = try database.cells(offset: 0, limit: 100_000)
+        XCTAssertEqual(object.levels["orig.ident"], [name], "orig.ident has the sample id as its one level")
+        XCTAssertEqual(object.levels["Idents"], [name], "Idents has the sample id as its one level")
+        XCTAssertEqual(object.rows.count, cells.count, "the object holds the cells of cells.sqlite")
+        let wrong = cells.filter { object.rows[$0.barcode] != [name, name, name, $0.barcode] }.map(\.barcode)
+        XCTAssertEqual(wrong.count, 0, "each cell is named by its barcode and holds the sample id as orig.ident, Idents and sample. First: \(wrong.prefix(3))")
+    }
 }
