@@ -352,7 +352,9 @@ final class RNASeqCellMapViewControllerTests: XCTestCase {
         let (_, map) = try RNASeqCellMapViewFixtures.cellMap(in: root)
         let surface = RNASeqResultSurface()
         let outcome = RNASeqResultSurface.read(map)
-        guard case .loaded(let result) = outcome else { throw XCTSkip("the cell map does not read") }
+        var read: RNASeqResult?
+        if case .loaded(let result) = outcome { read = result }
+        let result = try XCTUnwrap(read, "the cell map reads")
         surface.present(outcome, bundleURL: map, cellMap: await RNASeqCellMapLoader.load(result: result, bundleURL: map))
         let controller = try XCTUnwrap(surface.controller.cellMap)
         surface.controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
