@@ -15,6 +15,7 @@ import LungfishCore
 import LungfishIO
 import LungfishKit
 import LungfishKitTestSupport
+import LungfishRNASeqUI
 import LungfishTestSupport
 @testable import LungfishApp
 @testable import LungfishCLI
@@ -62,6 +63,58 @@ final class RNASeqPseudobulkDialogTests: XCTestCase {
         let result = RNASeqLeafRoute.begin(made.run, operations: center) { _ in launched = true }
         guard case .refused = result else { return XCTFail("a result under another row's lock was accepted") }
         XCTAssertFalse(launched)
+    }
+
+    // MARK: Selections of a cell map (CM-SELECT-APP)
+
+    private let map = URL(fileURLWithPath: "/tmp/pb-project/Analyses/map1.lungfishrnaseq", isDirectory: true)
+    /// A polygon whose first x is negative, as t-SNE and UMAP coordinates often are (CM-SELECT-CLI finding 2).
+    private let lasso: [RNASeqCellMapSelection.Vertex] = [.init(x: -1.5, y: -0.25), .init(x: 2.1, y: -0.25), .init(x: 2.1, y: 0.4)]
+
+    func testTheSelectArgvParsesThroughTheRealLeafAndAPolygonWithANegativeFirstXReplays() throws {
+        let request = RNASeqCellMapSelectRunRequest(
+            cellMapURL: map, embedding: "UMAP", form: .polygon(lasso), outputURL: URL(fileURLWithPath: "/tmp/pb-project/selection.tsv"))
+        XCTAssertEqual(Array(request.argv.prefix(3)), ["rnaseq", "cell-map", "select"])
+        let parsed = try RNASeqCellMapSelectSubcommand.parse(Array(request.argv.dropFirst(3)))
+        XCTAssertEqual(try RNASeqCellMapSelect.parsePolygon(try XCTUnwrap(parsed.polygon)), lasso)
+        XCTAssertEqual(parsed.globalOptions.outputFormat, .json)
+        XCTAssertEqual(parsed.canonicalArgv(form: .polygon(lasso)), [CLICommandIdentity.executableName] + Array(request.argv.dropLast(2)))
+        let center = OperationCenter()
+        guard case .started = RNASeqLeafRoute.begin(request.run, operations: center, launch: { _ in }) else { return XCTFail("begin refused") }
+        let item = try XCTUnwrap(center.items.first)
+        XCTAssertEqual(item.operationType, .export)
+        let recorded = try RecordedCLICommand.parse(item.cliCommand, as: RNASeqCellMapSelectSubcommand.self)
+        XCTAssertEqual(try RNASeqCellMapSelect.parsePolygon(try XCTUnwrap(recorded.polygon)), lasso, "the recorded command replays to the vertices")
+        let labels = RNASeqCellMapSelectRunRequest(cellMapURL: map, embedding: "UMAP", form: .labels(set: "clusters", labels: ["-1", "2"]),
+                                                   outputURL: request.outputURL)
+        let byLabels = try RNASeqCellMapSelectSubcommand.parse(Array(labels.argv.dropFirst(3)))
+        XCTAssertEqual(byLabels.labelSet, "clusters")
+        XCTAssertEqual(byLabels.labels, ["-1", "2"])
+    }
+
+    func testThePseudobulkOfASelectionPutsTheCellMapBetweenTheLabelsAndTheOutputAndShowsNoPath() throws {
+        let selection = RNASeqPseudobulkSelection(RNASeqEmbeddingSelectionRequest(
+            cellMapURL: map, cellMapName: "pbmc-map", parentURL: single, embedding: "UMAP", form: .polygon(lasso), count: 412,
+            underTenWords: []))
+        let output = URL(fileURLWithPath: "/tmp/pb-project/Analyses/pb2.lungfishrnaseq", isDirectory: true)
+        let table = RNASeqPseudobulkSelection.tableURL(besideOutput: output)
+        XCTAssertEqual(table.deletingLastPathComponent().deletingLastPathComponent().path, "/tmp/pb-project/Analyses/.lungfish-cell-map-inputs")
+        XCTAssertEqual(table.lastPathComponent, "selection.tsv")
+        XCTAssertEqual(selection.line, "412 selected cells from pbmc-map")
+        XCTAssertFalse(selection.line.contains("/"), "the pane names the selection, never a path")
+        let request = RNASeqPseudobulkRunRequest(resultURL: single, labelsURL: table, outputURL: output, selection: selection)
+        XCTAssertEqual(Array(request.argv.suffix(6)), ["--cell-map", map.path, "--output", output.path, "--format", "json"])
+        let parsed = try RNASeqPseudobulkSubcommand.parse(Array(request.argv.dropFirst(2)))
+        XCTAssertEqual(parsed.cellMapPath, map.path)
+        XCTAssertEqual(parsed.labelsPath, table.path)
+        let center = OperationCenter()
+        guard case .started = RNASeqLeafRoute.begin(request.run, operations: center, launch: { _ in }) else { return XCTFail("begin refused") }
+        let recorded = try RecordedCLICommand.parse(try XCTUnwrap(center.items.first).cliCommand, as: RNASeqPseudobulkSubcommand.self)
+        XCTAssertEqual(recorded.cellMapPath, map.path)
+        XCTAssertEqual(
+            RNASeqCellMapSelectWords.paneWords(forCLIWords: "--output names a file inside the result a.lungfishrnaseq. LGE never writes inside a result."),
+            "The place chosen for the table is inside the result a.lungfishrnaseq. LGE never writes inside a result.")
+        XCTAssertNil(RNASeqCellMapSelectWords.paneWords(forCLIWords: "Something else."))
     }
 
     // MARK: Import Embedding (CM-IMPORT-APP)
@@ -502,5 +555,149 @@ final class RNASeqPseudobulkDialogParityReplayTests: XCTestCase {
         XCTAssertEqual(
             try FileManager.default.contentsOfDirectory(atPath: analyses).sorted(), ["cells.lungfishrnaseq"],
             "a cancel leaves no stage beside the single-cell result")
+    }
+
+    // MARK: Selections of a cell map (CM-SELECT-APP)
+    //
+    // The committed smoke pair, a single-cell result and its cell map with the embedding UMAP and the label set clusters, copied
+    // into `root/Analyses`. The leaf is the built `lungfish-cli`, so the saved table, a script's table and the replay agree.
+
+    private static let smoke = RNASeqFixtures.root.appendingPathComponent("cell-map-smoke", isDirectory: true)
+
+    private func copySmokePair(into root: URL) throws -> (parent: URL, map: URL) {
+        let analyses = root.appendingPathComponent("Analyses", isDirectory: true)
+        try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
+        let parent = analyses.appendingPathComponent("Smoke single-cell.lungfishrnaseq", isDirectory: true)
+        let map = analyses.appendingPathComponent("Smoke cell map.lungfishrnaseq", isDirectory: true)
+        try FileManager.default.copyItem(at: Self.smoke.appendingPathComponent(parent.lastPathComponent), to: parent)
+        try FileManager.default.copyItem(at: Self.smoke.appendingPathComponent(map.lastPathComponent), to: map)
+        return (parent, map)
+    }
+
+    private func selectionRequest(map: URL, parent: URL, form: RNASeqCellMapSelect.Form, embedding: String = "UMAP") -> RNASeqEmbeddingSelectionRequest {
+        RNASeqEmbeddingSelectionRequest(cellMapURL: map, cellMapName: "Smoke cell map", parentURL: parent, embedding: embedding, form: form,
+                                        count: 1, underTenWords: [])
+    }
+
+    /// The STARsolo cut of 200 cells with 10x's t-SNE and graph clusters imported by the built CLI, since the smoke pair is too
+    /// small for a group of 10 cells. The form selects the biggest cluster of the first label set.
+    private func importedPair(in root: URL) async throws -> (parent: URL, map: URL, embedding: String, form: RNASeqCellMapSelect.Form) {
+        try writeSingleCellResult(in: root)
+        let made = importRequest(in: root)
+        let run = await RouteParityHarness.runCLI(cli, arguments: made.argv, timeout: .seconds(120), environment: [:])
+        XCTAssertNotEqual(run.end, .failed, run.detail)
+        let database = try RNASeqCellMapDatabase(url: made.outputURL.appendingPathComponent("cellmap.sqlite"))
+        let embedding = try XCTUnwrap(try database.embeddings().first).name
+        let set = try XCTUnwrap(try database.labelSets().first)
+        let label = try XCTUnwrap(set.labels.max { $0.cells < $1.cells }).name
+        return (made.resultURL, made.outputURL, embedding, .labels(set: set.name, labels: [label]))
+    }
+
+    /// The label of the set `clusters` that holds the most cells, so its pseudobulk group passes 10 cells.
+    private func biggestLabel(of map: URL) throws -> String {
+        let database = try RNASeqCellMapDatabase(url: map.appendingPathComponent("cellmap.sqlite"))
+        let set = try XCTUnwrap(try database.labelSets().first { $0.name == "clusters" })
+        return try XCTUnwrap(set.labels.max { $0.cells < $1.cells }).name
+    }
+
+    func testTheSavedTableEqualsADirectSelectRunByteForByte() async throws {
+        let root = scratch.appendingPathComponent("save", isDirectory: true)
+        let (parent, map) = try copySmokePair(into: root)
+        let out = root.appendingPathComponent("tables", isDirectory: true)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let lasso: [RNASeqCellMapSelection.Vertex] = [.init(x: -0.5, y: -0.5), .init(x: 2, y: -0.5), .init(x: 2, y: 0.5), .init(x: -0.5, y: 0.5)]
+        var alerts: [String] = []
+        let saved = try XCTUnwrap(RNASeqCellMapSelectRun.save(
+            selectionRequest(map: map, parent: parent, form: .polygon(lasso)), to: out.appendingPathComponent("app.tsv"),
+            runner: CLIViewerExportRunner(cliURLOverride: cli), report: { _, words in alerts.append(words) }))
+        let outcome = await saved.task.value
+        guard case .completed = outcome else { return XCTFail("the save ended \(outcome)") }
+        let item = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == saved.operationID })
+        XCTAssertEqual(item.state, .completed)
+        let direct = RNASeqCellMapSelectRunRequest(cellMapURL: map, embedding: "UMAP", form: .polygon(lasso), outputURL: out.appendingPathComponent("cli.tsv"))
+        let run = await RouteParityHarness.runCLI(cli, arguments: direct.argv, timeout: .seconds(120), environment: [:])
+        XCTAssertEqual(run.end, .completed, run.detail)
+        let app = try Data(contentsOf: out.appendingPathComponent("app.tsv"))
+        XCTAssertTrue(String(decoding: app, as: UTF8.self).contains("\tselected\n"))
+        XCTAssertEqual(app, try Data(contentsOf: out.appendingPathComponent("cli.tsv")), "the saved table and a direct cell-map select run")
+        XCTAssertTrue(alerts.isEmpty, "\(alerts)")
+    }
+
+    func testThePseudobulkOfASelectionRunsTheRecordedCommandShowsW7AndReplaysToTheSameCounts() async throws {
+        let root = scratch.appendingPathComponent("pseudobulk-selection", isDirectory: true)
+        let (parent, map, embedding, form) = try await importedPair(in: root)
+        let output = root.appendingPathComponent("Analyses/selected.lungfishrnaseq", isDirectory: true)
+        let request = RNASeqPseudobulkRunRequest(
+            resultURL: parent, labelsURL: RNASeqPseudobulkSelection.tableURL(besideOutput: output), outputURL: output,
+            selection: RNASeqPseudobulkSelection(selectionRequest(map: map, parent: parent, form: form, embedding: embedding)))
+        let launched = try XCTUnwrap(RNASeqLeafRoute.launchPseudobulkOfSelection(request, makeRunner: { CLIViewerExportRunner(cliURLOverride: self.cli) }))
+        let end = await launched.task.value
+        guard case .completed = end.select, case .completed? = end.pseudobulk, let id = end.pseudobulkID else { return XCTFail("the run ended \(end)") }
+        let row = try XCTUnwrap(OperationCenter.shared.items.first { $0.id == id })
+        XCTAssertTrue(row.logEntries.contains { $0.message.contains("Cells picked from this picture") }, "W7 shows on the row")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.labelsURL.path), "the table is kept beside the output")
+        let recorded = try RecordedCLICommand.parse(row.cliCommand, as: RNASeqPseudobulkSubcommand.self)
+        XCTAssertEqual(recorded.cellMapPath, map.path)
+        XCTAssertEqual(recorded.labelsPath, request.labelsURL.path)
+        XCTAssertEqual(row.cliCommand?.contains("cell-map select"), false, "the row records one command")
+
+        // The recorded command with its output swapped, and a script's two commands, give the same counts.
+        let replayed = root.appendingPathComponent("Analyses/replayed.lungfishrnaseq", isDirectory: true)
+        let replay = await RouteParityHarness.runCLI(cli, arguments: [
+            "rnaseq", "pseudobulk", recorded.resultPath, "--labels", recorded.labelsPath, "--cell-map", map.path,
+            "--output", replayed.path, "--format", "json"], timeout: .seconds(120), environment: [:])
+        XCTAssertNotEqual(replay.end, .failed, replay.detail)
+        let scriptTable = root.appendingPathComponent("script.tsv")
+        let scriptOutput = root.appendingPathComponent("Analyses/script.lungfishrnaseq", isDirectory: true)
+        let select = await RouteParityHarness.runCLI(cli, arguments: RNASeqCellMapSelectRunRequest(
+            cellMapURL: map, embedding: embedding, form: form, outputURL: scriptTable).argv, timeout: .seconds(120), environment: [:])
+        XCTAssertEqual(select.end, .completed, select.detail)
+        let sum = await RouteParityHarness.runCLI(cli, arguments: RNASeqPseudobulkRunRequest(
+            resultURL: parent, labelsURL: scriptTable, outputURL: scriptOutput, selection: request.selection).argv,
+            timeout: .seconds(120), environment: [:])
+        XCTAssertNotEqual(sum.end, .failed, sum.detail)
+        XCTAssertEqual(try Data(contentsOf: scriptTable), try Data(contentsOf: request.labelsURL), "the script's table and the row's")
+        let counts = try [output, replayed, scriptOutput].map { try Data(contentsOf: $0.appendingPathComponent("counts/genes.counts.tsv")) }
+        XCTAssertFalse(counts[0].isEmpty)
+        XCTAssertEqual(counts[0], counts[1], "the row and the replay of its command")
+        XCTAssertEqual(counts[0], counts[2], "the row and a script")
+    }
+
+    func testACancelOfTheSelectRunLeavesNoTableAndNoFolder() async throws {
+        let root = scratch.appendingPathComponent("select-cancel", isDirectory: true)
+        let (parent, map) = try copySmokePair(into: root)
+        let form = RNASeqCellMapSelect.Form.labels(set: "clusters", labels: [try biggestLabel(of: map)])
+        let output = root.appendingPathComponent("Analyses/selected.lungfishrnaseq", isDirectory: true)
+        let hold = root.appendingPathComponent("held")
+        let request = RNASeqPseudobulkRunRequest(
+            resultURL: parent, labelsURL: RNASeqPseudobulkSelection.tableURL(besideOutput: output), outputURL: output,
+            selection: RNASeqPseudobulkSelection(selectionRequest(map: map, parent: parent, form: form)))
+        let launched = try XCTUnwrap(RNASeqLeafRoute.launchPseudobulkOfSelection(
+            request, makeRunner: { CLIViewerExportRunner(cliURLOverride: self.cli) }, selectEnvironment: [Self.holdFileVariable: hold.path]))
+        let held = await waitUntil(timeout: WaitBudget.lookup.duration) { FileManager.default.fileExists(atPath: hold.path) }
+        XCTAssertTrue(held, "the select leaf reached its transaction")
+        OperationCenter.shared.cancel(id: launched.selectID)
+        let end = await launched.task.value
+        XCTAssertEqual(end.select, .cancelled)
+        XCTAssertNil(end.pseudobulkID, "no pseudobulk row began")
+        let row = OperationCenter.shared.items.first { $0.id == launched.selectID }
+        XCTAssertEqual(row?.state, .cancelled)
+        XCTAssertNil(row?.errorMessage, "a cancel is not an error")
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("Analyses").path).sorted(),
+            ["Smoke cell map.lungfishrnaseq", "Smoke single-cell.lungfishrnaseq"], "a cancel leaves no table, no folder and no result")
+
+        // Save Selection as Labels Table… cancelled the same way leaves no table and no record.
+        try FileManager.default.removeItem(at: hold)
+        let table = root.appendingPathComponent("saved.tsv")
+        let saving = try XCTUnwrap(RNASeqCellMapSelectRun.save(
+            selectionRequest(map: map, parent: parent, form: form), to: table, runner: CLIViewerExportRunner(cliURLOverride: cli),
+            environmentAdditions: [Self.holdFileVariable: hold.path], report: { _, _ in }))
+        let savingHeld = await waitUntil(timeout: WaitBudget.lookup.duration) { FileManager.default.fileExists(atPath: hold.path) }
+        XCTAssertTrue(savingHeld)
+        OperationCenter.shared.cancel(id: saving.operationID)
+        let saveEnd = await saving.task.value
+        XCTAssertEqual(saveEnd, .cancelled)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path).sorted(), ["Analyses", "held"], "no table and no record")
     }
 }

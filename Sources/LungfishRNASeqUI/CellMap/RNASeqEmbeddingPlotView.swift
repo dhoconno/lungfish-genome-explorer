@@ -25,7 +25,17 @@ public final class RNASeqEmbeddingPlotView: NSView {
     /// Called when the view's size or appearance changes, so the controller draws again.
     public var onNeedsRaster: (() -> Void)?
 
+    /// Called when a drag ends with the lasso's points in view points and the keys held (CM-SELECT-APP).
+    public var onLasso: (([CGPoint], NSEvent.ModifierFlags) -> Void)?
+    /// The context menu of the plot, which the controller builds from what is selected.
+    public var contextMenu: (() -> NSMenu?)?
+    /// The lasso while a drag runs, above the raster.
+    public let lassoLayer = CAShapeLayer()
+
     private let imageLayer = CALayer()
+    /// The selected cells drawn on top of the faded raster. It is a sublayer of the raster, so a gesture moves both.
+    private let selectionLayer = CALayer()
+    private var lassoPoints: [CGPoint] = []
     private var gestureScale: CGFloat = 1
     private var gestureShift = CGPoint.zero
     private var gestureAnchor = CGPoint.zero
@@ -38,6 +48,15 @@ public final class RNASeqEmbeddingPlotView: NSView {
         imageLayer.contentsGravity = .resize
         imageLayer.magnificationFilter = .nearest
         layer?.addSublayer(imageLayer)
+        selectionLayer.anchorPoint = .zero
+        selectionLayer.contentsGravity = .resize
+        selectionLayer.magnificationFilter = .nearest
+        imageLayer.addSublayer(selectionLayer)
+        lassoLayer.fillColor = NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
+        lassoLayer.strokeColor = NSColor.controlAccentColor.cgColor
+        lassoLayer.lineWidth = 1.5
+        lassoLayer.lineDashPattern = [4, 3]
+        layer?.addSublayer(lassoLayer)
         layer?.masksToBounds = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -65,10 +84,23 @@ public final class RNASeqEmbeddingPlotView: NSView {
         imageLayer.contents = image
         imageLayer.frame = CGRect(x: 0, y: 0, width: CGFloat(raster.width) / scale, height: CGFloat(raster.height) / scale)
         imageLayer.setAffineTransform(.identity)
+        selectionLayer.frame = imageLayer.bounds
         CATransaction.commit()
         gestureScale = 1
         gestureShift = .zero
     }
+
+    /// The selected cells' raster on top of the faded one, or nil to show none.
+    public func showSelection(_ image: CGImage?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        selectionLayer.contents = image
+        selectionLayer.frame = imageLayer.bounds
+        CATransaction.commit()
+    }
+
+    /// Whether the selected cells' raster is on show.
+    public var showsSelection: Bool { selectionLayer.contents != nil }
 
     /// The bytes of a raster's pixels, one copy, which the controller makes off the main actor with the raster. The words
     /// lay out red, green, blue and alpha.
@@ -135,9 +167,39 @@ public final class RNASeqEmbeddingPlotView: NSView {
         if ended || (event.phase.isEmpty && event.momentumPhase.isEmpty) { finishGesture() }
     }
 
+    public override var acceptsFirstResponder: Bool { true }
+
+    /// A double click shows every cell. A single press starts a lasso, which Shift makes add and Option take away.
     public override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 2 { onWindowChange?(nil) } else { super.mouseDown(with: event) }
+        if event.clickCount == 2 {
+            onWindowChange?(nil)
+            return
+        }
+        window?.makeFirstResponder(self)
+        lassoPoints = [convert(event.locationInWindow, from: nil)]
     }
+
+    public override func mouseDragged(with event: NSEvent) {
+        guard !lassoPoints.isEmpty else { return }
+        lassoPoints.append(convert(event.locationInWindow, from: nil))
+        let path = CGMutablePath()
+        path.addLines(between: lassoPoints)
+        path.closeSubpath()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        lassoLayer.path = path
+        CATransaction.commit()
+    }
+
+    public override func mouseUp(with event: NSEvent) {
+        let points = lassoPoints
+        lassoPoints = []
+        lassoLayer.path = nil
+        guard points.count >= 3 else { return }
+        onLasso?(points, event.modifierFlags)
+    }
+
+    public override func menu(for event: NSEvent) -> NSMenu? { contextMenu?() ?? super.menu(for: event) }
 
     /// Scales the bitmap about the pinch's point and moves it by the scroll, without drawing it again.
     private func applyGesture() {
@@ -183,14 +245,21 @@ public final class RNASeqEmbeddingPlotView: NSView {
 
     // MARK: - VoiceOver
 
-    /// One child for each legend value, its frame the value's legend row (UX U-A3).
-    public func setLegendChildren(_ labels: [String], frames: [NSRect]) {
-        legendChildren = zip(labels, frames).map { label, frame in
+    /// One child for each legend value, its frame the value's legend row (UX U-A3). With `select`, each child of a row
+    /// carries the action "Select these cells", which selects that row's cells (5.5 V2).
+    public func setLegendChildren(_ labels: [String], frames: [NSRect], select: ((Int) -> Void)? = nil) {
+        legendChildren = zip(labels, frames).enumerated().map { index, pair in
             let child = NSAccessibilityElement()
             child.setAccessibilityRole(.staticText)
-            child.setAccessibilityLabel(label)
+            child.setAccessibilityLabel(pair.0)
             child.setAccessibilityParent(self)
-            child.setAccessibilityFrameInParentSpace(frame)
+            child.setAccessibilityFrameInParentSpace(pair.1)
+            if let select {
+                child.setAccessibilityCustomActions([NSAccessibilityCustomAction(name: RNASeqEmbeddingSelectionWords.selectAction) {
+                    select(index)
+                    return true
+                }])
+            }
             return child
         }
         if legendChildren.count < labels.count {

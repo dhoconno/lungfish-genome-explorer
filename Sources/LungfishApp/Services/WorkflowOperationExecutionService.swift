@@ -54,6 +54,11 @@ final class WorkflowOperationExecutionService {
             return try await runTwelveSAmpliconMatching(configuration, routeContext: routeContext)
         case .rnaSeqExport(let request):
             return try launchRNASeqLeaf(request.run, routeContext: routeContext)
+        case .rnaSeqPseudobulk(let request) where request.selection != nil:
+            guard RNASeqLeafRoute.launchPseudobulkOfSelection(request, routeContext: routeContext, operations: operationCenter) != nil else {
+                throw LocalWorkflowExecutionError.bundleBusy("The cell map is busy. Wait for its current operation to finish.")
+            }
+            return [request.outputURL]
         case .rnaSeqPseudobulk(let request):
             return try launchRNASeqLeaf(request.run, routeContext: routeContext)
         case .rnaSeqCellMapImport(let request):

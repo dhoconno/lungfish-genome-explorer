@@ -53,6 +53,14 @@ public final class RNASeqEmbeddingLegendView: NSStackView {
     public private(set) var legend: RNASeqEmbeddingLegend?
     /// The view of each row, in order, whose frames VoiceOver's children take.
     public private(set) var rowViews: [NSView] = []
+    /// A click on a row with whether Command was held, which selects the row's cells or adds them (CM-SELECT-APP).
+    public var onRowClick: ((Int, Bool) -> Void)?
+    /// Space on the focused row, which toggles its cells.
+    public var onRowToggle: ((Int) -> Void)?
+    /// The row the keyboard is on. The legend takes focus, and the arrows move it.
+    public private(set) var focusedRow: Int?
+    /// The rows whose cells are selected, which show their names in bold.
+    public private(set) var markedRows: Set<Int> = []
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -91,9 +99,14 @@ public final class RNASeqEmbeddingLegendView: NSStackView {
             line.alignment = .centerY
             line.spacing = 6
             line.setAccessibilityIdentifier("rnaseq-cell-map-legend-\(index)")
+            line.wantsLayer = true
+            line.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(rowClicked(_:))))
             addArrangedSubview(line)
             rowViews.append(line)
         }
+        markedRows = []
+        focusedRow = legend.rows.isEmpty ? nil : min(focusedRow ?? 0, legend.rows.count - 1)
+        showFocus()
         if let scale = legend.scale {
             let bar = RNASeqEmbeddingScaleBar(palette: palette)
             bar.translatesAutoresizingMaskIntoConstraints = false
@@ -122,6 +135,63 @@ public final class RNASeqEmbeddingLegendView: NSStackView {
             field.preferredMaxLayoutWidth = 260
             field.setAccessibilityIdentifier("rnaseq-cell-map-legend-words-\(index)")
             addArrangedSubview(field)
+        }
+    }
+
+    /// Shows which rows are selected, their names in bold.
+    public func mark(_ rows: Set<Int>) {
+        markedRows = rows
+        for (index, line) in rowViews.enumerated() {
+            guard let name = (line as? NSStackView)?.arrangedSubviews.dropFirst().first as? NSTextField else { continue }
+            name.font = rows.contains(index) ? .boldSystemFont(ofSize: NSFont.systemFontSize) : .systemFont(ofSize: NSFont.systemFontSize)
+            line.setAccessibilitySelected(rows.contains(index))
+        }
+    }
+
+    public override var acceptsFirstResponder: Bool { !rowViews.isEmpty }
+
+    public override func becomeFirstResponder() -> Bool {
+        defer { showFocus() }
+        return super.becomeFirstResponder()
+    }
+
+    public override func resignFirstResponder() -> Bool {
+        defer { showFocus() }
+        return super.resignFirstResponder()
+    }
+
+    /// Space toggles the focused row, and the up and down arrows move the focus.
+    public override func keyDown(with event: NSEvent) {
+        guard !rowViews.isEmpty else { return super.keyDown(with: event) }
+        switch event.keyCode {
+        case 49: onRowToggle?(focusedRow ?? 0)
+        case 125: moveFocus(by: 1)
+        case 126: moveFocus(by: -1)
+        default: super.keyDown(with: event)
+        }
+    }
+
+    public func moveFocus(by step: Int) {
+        guard !rowViews.isEmpty else { return }
+        focusedRow = min(max((focusedRow ?? 0) + step, 0), rowViews.count - 1)
+        showFocus()
+    }
+
+    @objc private func rowClicked(_ recognizer: NSClickGestureRecognizer) {
+        guard let line = recognizer.view, let row = rowViews.firstIndex(where: { $0 === line }) else { return }
+        focusedRow = row
+        window?.makeFirstResponder(self)
+        showFocus()
+        onRowClick?(row, NSApp.currentEvent?.modifierFlags.contains(.command) ?? false)
+    }
+
+    /// A ring around the focused row while the legend has the keyboard.
+    private func showFocus() {
+        let focused = window?.firstResponder === self
+        for (index, line) in rowViews.enumerated() {
+            line.layer?.borderWidth = focused && index == focusedRow ? 2 : 0
+            line.layer?.borderColor = NSColor.keyboardFocusIndicatorColor.cgColor
+            line.layer?.cornerRadius = 4
         }
     }
 

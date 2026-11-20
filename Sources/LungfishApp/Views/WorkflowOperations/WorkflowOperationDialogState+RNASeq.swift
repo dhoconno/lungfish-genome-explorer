@@ -51,6 +51,8 @@ final class RNASeqExportDialogModel {
 final class RNASeqPseudobulkDialogModel {
     var resultURL: URL?
     var labelsURL: URL?
+    /// The cell map's selection that Pseudobulk Selected Cells… filled the pane with. Choosing a labels table drops it.
+    var selection: RNASeqPseudobulkSelection?
 }
 
 /// The Import Embedding row's settings. The three controls that unlock a refusal of the import are plain values here, and each is
@@ -140,7 +142,7 @@ extension WorkflowOperationDialogState {
             return Self.rnaSeqReadyText
         case .rnaSeqPseudobulk:
             if rnaSeqPseudobulk.resultURL == nil { return "Select a single-cell RNA-seq result." }
-            if rnaSeqPseudobulk.labelsURL == nil { return "Choose a labels table." }
+            if rnaSeqPseudobulk.labelsURL == nil && rnaSeqPseudobulk.selection == nil { return "Choose a labels table." }
             if outputDirectoryURL == nil { return "Choose where the pseudobulk result goes." }
             if rnaSeqTrimmedOutputName.isEmpty { return "Enter a name for the pseudobulk result." }
             return Self.rnaSeqReadyText
@@ -179,15 +181,16 @@ extension WorkflowOperationDialogState {
     func makeRNASeqPseudobulkRequest() throws -> RNASeqPseudobulkRunRequest {
         guard rnaSeqReadinessText == Self.rnaSeqReadyText,
               let outputDirectoryURL,
-              let resultURL = rnaSeqPseudobulk.resultURL,
-              let labelsURL = rnaSeqPseudobulk.labelsURL else {
+              let resultURL = rnaSeqPseudobulk.resultURL else {
             throw WorkflowOperationError.incompleteConfiguration(readinessText)
         }
-        return RNASeqPseudobulkRunRequest(
-            resultURL: resultURL,
-            labelsURL: labelsURL,
-            outputURL: outputDirectoryURL.appendingPathComponent(
-                Self.pseudobulkFolderName(for: rnaSeqTrimmedOutputName), isDirectory: true))
+        let outputURL = outputDirectoryURL.appendingPathComponent(Self.pseudobulkFolderName(for: rnaSeqTrimmedOutputName), isDirectory: true)
+        // A selection's table is written by `cell-map select` before the row's `begin`, in a new folder beside the output.
+        guard let labelsURL = rnaSeqPseudobulk.selection == nil
+            ? rnaSeqPseudobulk.labelsURL : RNASeqPseudobulkSelection.tableURL(besideOutput: outputURL) else {
+            throw WorkflowOperationError.incompleteConfiguration(readinessText)
+        }
+        return RNASeqPseudobulkRunRequest(resultURL: resultURL, labelsURL: labelsURL, outputURL: outputURL, selection: rnaSeqPseudobulk.selection)
     }
 
     /// The Import Embedding request of the pane. The folder is `<output directory>/<name>.lungfishrnaseq`.

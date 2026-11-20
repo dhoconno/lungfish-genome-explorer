@@ -19,6 +19,8 @@ enum RNASeqPaneWords {
     static let singleCellCaption = "A single-cell .lungfishrnaseq result."
     static let labelsCaption = "A tab-separated table with barcode and label columns, and sample for a result of two or more samples."
     static let smallGroupCaption = "A group under 10 cells is left out, and so are the cells with no label. The Operations row says which."
+    static let selectionCaption = "Each sample's selected cells and the rest of its drawn cells become two columns. "
+        + "LGE writes the selection's labels table before the run, outside the single-cell result, and the record names it."
     static let pseudobulkFolderCaption = "The new result is written in the output directory with .lungfishrnaseq added to the name. It must not exist."
     static let importResultCaption = "A single-cell .lungfishrnaseq result. LGE matches each cell by sample and barcode, as the result holds them."
     static let importCoordinatesCaption = "LGE's table, or one of 10x's projection.csv files. Choose more than one file for more embeddings."
@@ -281,6 +283,16 @@ struct RNASeqPseudobulkInputsPane: View {
                 )
                 RNASeqPaneCaption(RNASeqPaneWords.singleCellCaption)
             }
+            if let selection = state.rnaSeqPseudobulk.selection {
+                // Pseudobulk Selected Cells… names the selection by count and cell map, never by the table's path (UX OBJECT U8).
+                RNASeqPaneGroup(title: "Selected Cells") {
+                    Text(selection.line)
+                        .textSelection(.enabled)
+                        .accessibilityIdentifier("rnaseq-pseudobulk-selection")
+                    ForEach(selection.underTenWords, id: \.self) { RNASeqPaneCaption($0) }
+                    RNASeqPaneCaption(RNASeqPaneWords.selectionCaption)
+                }
+            } else {
             RNASeqPaneGroup(title: "Labels Table") {
                 RNASeqPaneFileRow(
                     url: state.rnaSeqPseudobulk.labelsURL,
@@ -297,6 +309,7 @@ struct RNASeqPseudobulkInputsPane: View {
                 )
                 RNASeqPaneCaption(RNASeqPaneWords.labelsCaption)
                 RNASeqPaneCaption(RNASeqPaneWords.smallGroupCaption)
+            }
             }
         }
     }

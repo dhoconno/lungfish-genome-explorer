@@ -66,6 +66,19 @@ public final class RNASeqCellMapViewController: NSViewController {
     private var genePopover: NSPopover?
     /// Normalised UMIs or raw UMIs, in a row under the Colour by list that shows while a gene is on show.
     public let geneUnitControl = NSSegmentedControl(labels: RNASeqEmbeddingWords.geneUnitSegments, trackingMode: .selectOne, target: nil, action: nil)
+    /// What is selected, nil when nothing is. Selecting writes nothing (5.5 S1, RNASeqEmbeddingSelection.swift).
+    public internal(set) var selection: RNASeqEmbeddingSelection?
+    /// The latest membership run, which a test can wait on.
+    public internal(set) var selectionWork: Task<Void, Never>?
+    /// The count VoiceOver was last told.
+    public internal(set) var selectionAnnouncement: String?
+    var selectionGeneration = 0
+    /// Called with Save Selection as Labels Table… or Pseudobulk Selected Cells…, which the App runs through lungfish-cli.
+    public var onSelectionAction: (@MainActor (RNASeqEmbeddingSelectionAction) -> Void)?
+    public let selectionField = NSTextField(labelWithString: RNASeqEmbeddingSelectionWords.none)
+    public let selectionNote = NSTextField(wrappingLabelWithString: "")
+    public let saveSelectionButton = NSButton(title: RNASeqEmbeddingSelectionWords.saveTitle, target: nil, action: nil)
+    public let pseudobulkSelectionButton = NSButton(title: RNASeqEmbeddingSelectionWords.pseudobulkTitle, target: nil, action: nil)
 
     public override func loadView() {
         let root = NSView()
@@ -87,6 +100,23 @@ public final class RNASeqCellMapViewController: NSViewController {
             self?.requestRaster()
         }
         plot.onHover = { [weak self] cell in self?.hover(cell) }
+        plot.onLasso = { [weak self] points, modifiers in self?.lasso(points, modifiers: modifiers) }
+        plot.contextMenu = { [weak self] in self?.selectionMenu() }
+        legendView.onRowClick = { [weak self] row, adding in self?.selectLegendRow(row, adding: adding) }
+        legendView.onRowToggle = { [weak self] row in self?.toggleLegendRow(row) }
+        selectionField.isSelectable = true
+        selectionField.setAccessibilityIdentifier("rnaseq-cell-map-selection-count")
+        selectionNote.isSelectable = true
+        selectionNote.preferredMaxLayoutWidth = 280
+        selectionNote.isHidden = true
+        selectionNote.setAccessibilityIdentifier("rnaseq-cell-map-selection-note")
+        for (button, action, id) in [(saveSelectionButton, #selector(saveSelectionAsLabelsTable(_:)), "rnaseq-cell-map-save-selection"),
+                                     (pseudobulkSelectionButton, #selector(pseudobulkSelectedCells(_:)), "rnaseq-cell-map-pseudobulk-selection")] {
+            button.target = self
+            button.action = action
+            button.isEnabled = false
+            button.setAccessibilityIdentifier(id)
+        }
 
         embeddingPopUp.setAccessibilityIdentifier("rnaseq-cell-map-embedding")
         embeddingPopUp.target = self
@@ -116,6 +146,12 @@ public final class RNASeqCellMapViewController: NSViewController {
             column.addArrangedSubview(row)
         }
         column.addArrangedSubview(legendView)
+        column.addArrangedSubview(selectionField)
+        column.addArrangedSubview(selectionNote)
+        let actions = NSStackView(views: [saveSelectionButton, pseudobulkSelectionButton])
+        actions.orientation = .vertical
+        actions.alignment = .leading
+        column.addArrangedSubview(actions)
         column.addArrangedSubview(wordsStack)
         column.addArrangedSubview(hoverField)
         let document = RNASeqCellMapFlippedView()
@@ -185,8 +221,17 @@ public final class RNASeqCellMapViewController: NSViewController {
         geneUnit = .normalised
         wantedEmbedding = nil
         wantedColouring = nil
+        selectionGeneration += 1
+        selectionWork?.cancel()
+        selection = nil
         clearHover()
     }
+
+    /// Escape empties the selection.
+    public override func cancelOperation(_ sender: Any?) { clearSelection() }
+
+    /// Command-A selects every drawn cell.
+    public override func selectAll(_ sender: Any?) { selectAllCells() }
 
     func apply(_ outcome: RNASeqCellMapLoadOutcome) {
         wantedEmbedding = nil
@@ -348,7 +393,12 @@ public final class RNASeqCellMapViewController: NSViewController {
                 guard let self, mine == self.generation, var shown = self.snapshot else { return }
                 self.wantedEmbedding = nil
                 self.wantedColouring = nil
-                if points.embedding != shown.points.embedding { self.plotWindow = nil }
+                if points.embedding != shown.points.embedding {
+                    // A selection belongs to the embedding it was drawn in.
+                    self.plotWindow = nil
+                    self.selectionWork?.cancel()
+                    self.selection = nil
+                }
                 shown.points = points
                 shown.colouring = colouring
                 shown.values = values
@@ -388,7 +438,9 @@ public final class RNASeqCellMapViewController: NSViewController {
         view.layoutSubtreeIfNeeded()
         var labels = legend.rows.map { RNASeqEmbeddingWords.legendChild(name: $0.name, count: $0.count) }
         if let scale = legend.scale { labels.append("\(legend.title), 0 to \(RNASeqEmbeddingWords.number(scale.top))") }
-        plot.setLegendChildren(labels, frames: legendView.rowViews.map { plot.convert($0.bounds, from: $0) })
+        plot.setLegendChildren(labels, frames: legendView.rowViews.map { plot.convert($0.bounds, from: $0) },
+                               select: legend.rows.isEmpty ? nil : { [weak self] row in self?.selectLegendRow(row, adding: false) })
+        showSelection()
         requestRaster()
     }
 
@@ -461,19 +513,30 @@ public final class RNASeqCellMapViewController: NSViewController {
         guard size.width > 0, size.height > 0 else { return }
         let colours = shown.colours
         let window = plotWindow ?? RNASeqEmbeddingWindow.fit(x: shown.points.x, y: shown.points.y, order: colours.order)
+        let palette = RNASeqEmbeddingPalette.words(dark: plot.isDark)
+        // With a selection the other cells draw faded, and the selected cells draw on top in a second raster.
+        let chosen = selection?.embedding == shown.points.embedding ? selection?.mask : nil
         let input = RNASeqEmbeddingRasterInput(
             x: shown.points.x, y: shown.points.y, order: colours.order, colour: colours.index,
-            palette: RNASeqEmbeddingPalette.words(dark: plot.isDark), width: size.width, height: size.height,
+            palette: chosen == nil ? palette : RNASeqEmbeddingSelection.faded(palette), width: size.width, height: size.height,
             radius: max(Int((pointSize * size.scale / 2).rounded()), 0), window: window)
         rasterWork?.cancel()
         let mine = generation
         let task = Task { [weak self] in
             // The pixels' one copy into `Data` runs off the main actor with the raster, and the main actor only wraps it.
-            guard let drawn = try? await offMain({ () throws -> (RNASeqEmbeddingRaster, Data) in
+            guard let drawn = try? await offMain({ () throws -> (RNASeqEmbeddingRaster, Data, Data?, RNASeqEmbeddingRaster?) in
                 let raster = try RNASeqEmbeddingRaster.draw(input)
-                return (raster, RNASeqEmbeddingPlotView.pixelData(of: raster))
+                var top: RNASeqEmbeddingRaster?
+                if let chosen {
+                    var over = input
+                    over.palette = palette
+                    over.order = input.order.filter { Int($0) < chosen.count && chosen[Int($0)] }
+                    top = try RNASeqEmbeddingRaster.draw(over)
+                }
+                return (raster, RNASeqEmbeddingPlotView.pixelData(of: raster), top.map(RNASeqEmbeddingPlotView.pixelData(of:)), top)
             }), let self, mine == self.generation, !Task.isCancelled else { return }
             self.plot.show(drawn.0, image: RNASeqEmbeddingPlotView.image(of: drawn.0, data: drawn.1), scale: size.scale)
+            self.plot.showSelection(drawn.3.flatMap { top in drawn.2.flatMap { RNASeqEmbeddingPlotView.image(of: top, data: $0) } })
         }
         rasterWork = task
         work = task

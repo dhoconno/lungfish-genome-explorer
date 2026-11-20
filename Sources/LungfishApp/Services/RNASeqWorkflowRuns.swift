@@ -5,6 +5,8 @@
 import Foundation
 import LungfishCore
 import LungfishKit
+import LungfishRNASeqUI
+import LungfishWorkflow
 
 /// The words of the export pane that the golden help of `lungfish-cli rnaseq export` also states, so a test pins them to it.
 enum RNASeqExportDefaults {
@@ -98,9 +100,15 @@ struct RNASeqPseudobulkRunRequest: Sendable, Equatable {
     var labelsURL: URL
     /// The new `.lungfishrnaseq` folder. The CLI refuses a name that does not end in that extension.
     var outputURL: URL
+    /// The selection of a cell map that Pseudobulk Selected Cells… filled the pane with, nil for a labels table the person chose.
+    /// With it, `labelsURL` is the table `cell-map select` writes before the row's `begin`.
+    var selection: RNASeqPseudobulkSelection?
 
+    /// `--cell-map` sits between `--labels` and `--output`, as the CLI's own canonical command puts it.
     var argv: [String] {
-        ["rnaseq", "pseudobulk", resultURL.path, "--labels", labelsURL.path, "--output", outputURL.path, "--format", "json"]
+        ["rnaseq", "pseudobulk", resultURL.path, "--labels", labelsURL.path]
+            + (selection.map { ["--cell-map", $0.cellMapURL.path] } ?? [])
+            + ["--output", outputURL.path, "--format", "json"]
     }
 
     var run: RNASeqLeafRun {
@@ -270,5 +278,147 @@ extension RNASeqLeafRoute {
             launched = RNASeqCellMapImportLaunch(operationID: id, task: task)
         }
         return launched
+    }
+}
+
+// MARK: - Selections of a cell map (CM-SELECT-APP)
+
+/// What `lungfish-cli rnaseq cell-map select` is asked for. The view hands over Float32 vertices or the names of labels, and the
+/// polygon prints in Float32 shortest round-trip form, so the recorded command parses back to the vertices that ran.
+struct RNASeqCellMapSelectRunRequest: Sendable, Equatable {
+    var cellMapURL: URL
+    var embedding: String
+    var form: RNASeqCellMapSelect.Form
+    /// The new table, outside every `.lungfishrnaseq` folder. The leaf refuses one that exists.
+    var outputURL: URL
+
+    var argv: [String] {
+        var arguments = ["rnaseq", "cell-map", "select", cellMapURL.path, "--embedding", embedding]
+        switch form {
+        case .polygon(let vertices): arguments += ["--polygon", RNASeqCellMapSelect.polygonText(vertices)]
+        case .labels(let set, let labels): arguments += ["--label-set", set] + labels.flatMap { ["--label", $0] }
+        }
+        return arguments + ["--output", outputURL.path, "--format", "json"]
+    }
+
+    var run: RNASeqLeafRun {
+        RNASeqLeafRun(
+            title: RNASeqCellMapSelectWords.title,
+            detail: "Selecting cells of \(cellMapURL.lastPathComponent) in \(embedding)",
+            operationType: .export,
+            lockedBundleURLs: [cellMapURL],
+            subcommand: "rnaseq cell-map select",
+            argv: argv,
+            outputURL: outputURL,
+            completionDetail: "Wrote the selection table \(outputURL.lastPathComponent)")
+    }
+}
+
+/// The selection Pseudobulk Selected Cells… fills the pseudobulk pane with. The pane shows it by name and count and never by a path.
+struct RNASeqPseudobulkSelection: Sendable, Equatable {
+    var cellMapURL: URL
+    var cellMapName: String
+    var embedding: String
+    var form: RNASeqCellMapSelect.Form
+    var count: Int
+    var underTenWords: [String]
+
+    var line: String { RNASeqEmbeddingSelectionWords.fromCellMap(count, cellMap: cellMapName) }
+
+    init(_ request: RNASeqEmbeddingSelectionRequest) {
+        cellMapURL = request.cellMapURL
+        cellMapName = request.cellMapName
+        embedding = request.embedding
+        form = request.form
+        count = request.count
+        underTenWords = request.underTenWords
+    }
+
+    /// The table of one run, `<folder of the output>/.lungfish-cell-map-inputs/<UUID>/selection.tsv`, a new folder for each run
+    /// (`docs/formats/rnaseq-cell-map.md`, Where the table lives).
+    static func tableURL(besideOutput output: URL, id: UUID = UUID()) -> URL {
+        output.deletingLastPathComponent()
+            .appendingPathComponent(".lungfish-cell-map-inputs", isDirectory: true)
+            .appendingPathComponent(id.uuidString, isDirectory: true)
+            .appendingPathComponent("selection.tsv")
+    }
+}
+
+/// How Pseudobulk Selected Cells… ended: the select row, then the pseudobulk row when the table was written.
+struct RNASeqPseudobulkSelectionEnd: Equatable, Sendable {
+    var select: CLIViewerExportRunner.Outcome
+    var pseudobulkID: UUID?
+    var pseudobulk: CLIViewerExportRunner.Outcome?
+}
+
+struct RNASeqPseudobulkSelectionLaunch {
+    let selectID: UUID
+    let task: Task<RNASeqPseudobulkSelectionEnd, Never>
+}
+
+extension RNASeqLeafRoute {
+    /// Runs `cell-map select` on its own row. The runner checks the table off the main actor before it settles the row, so the row
+    /// reads Completed only for a table that is there (`RNASeqCellMapSelectRun.tableCheck`). The app writes no byte of it.
+    @discardableResult
+    static func launchSelect(
+        _ request: RNASeqCellMapSelectRunRequest,
+        routeContext: OperationRouteContext? = nil,
+        operations: any OperationReporting = OperationCenter.shared,
+        runner: CLIViewerExportRunner = CLIViewerExportRunner(),
+        environmentAdditions: [String: String] = [:]
+    ) -> RNASeqLeafLaunch? {
+        let run = request.run
+        var launched: RNASeqLeafLaunch?
+        begin(run, routeContext: routeContext, operations: operations, onCancel: { runner.cancel() }) { id in
+            let task = Task { @MainActor in
+                await runner.run(
+                    arguments: run.argv, outputURL: run.outputURL, operationID: id, completionDetail: run.completionDetail,
+                    environmentAdditions: environmentAdditions, verify: RNASeqCellMapSelectRun.tableCheck)
+            }
+            launched = RNASeqLeafLaunch(operationID: id, task: task)
+        }
+        return launched
+    }
+
+    /// Pseudobulk Selected Cells…. The select row writes the table in a new folder beside the output before the pseudobulk row's
+    /// `begin`, and the pseudobulk row then runs `rnaseq pseudobulk <parent> --labels <table> --cell-map <cell map>`, the one
+    /// command it records. A run that does not complete, a cancel among them, removes that folder, so it leaves no table and no
+    /// folder. `makeRunner` and `selectEnvironment` are for a test, and no production caller passes either.
+    @discardableResult
+    static func launchPseudobulkOfSelection(
+        _ request: RNASeqPseudobulkRunRequest,
+        routeContext: OperationRouteContext? = nil,
+        operations: any OperationReporting = OperationCenter.shared,
+        makeRunner: @escaping @MainActor () -> CLIViewerExportRunner = { CLIViewerExportRunner() },
+        selectEnvironment: [String: String] = [:]
+    ) -> RNASeqPseudobulkSelectionLaunch? {
+        guard let selection = request.selection else { return nil }
+        let folder = request.labelsURL.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        } catch {
+            return nil
+        }
+        let select = RNASeqCellMapSelectRunRequest(
+            cellMapURL: selection.cellMapURL, embedding: selection.embedding, form: selection.form, outputURL: request.labelsURL)
+        guard let selecting = launchSelect(
+            select, routeContext: routeContext, operations: operations, runner: makeRunner(), environmentAdditions: selectEnvironment)
+        else {
+            RNASeqCellMapSelectRun.removeInputs(folder)
+            return nil
+        }
+        let task = Task { @MainActor () -> RNASeqPseudobulkSelectionEnd in
+            let selected = await selecting.task.value
+            guard case .completed = selected,
+                  let summing = launch(request.run, routeContext: routeContext, operations: operations, runner: makeRunner())
+            else {
+                RNASeqCellMapSelectRun.removeInputs(folder)
+                return RNASeqPseudobulkSelectionEnd(select: selected)
+            }
+            let summed = await summing.task.value
+            if case .completed = summed {} else { RNASeqCellMapSelectRun.removeInputs(folder) }
+            return RNASeqPseudobulkSelectionEnd(select: selected, pseudobulkID: summing.operationID, pseudobulk: summed)
+        }
+        return RNASeqPseudobulkSelectionLaunch(selectID: selecting.operationID, task: task)
     }
 }

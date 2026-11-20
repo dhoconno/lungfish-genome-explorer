@@ -2,6 +2,7 @@ import AppKit
 import LungfishWorkflow
 import LungfishWorkflowTwelveS
 import LungfishKit
+import LungfishRNASeqUI
 import SwiftUI
 
 @MainActor
@@ -44,6 +45,12 @@ final class WorkflowOperationsWindowController: NSWindowController, NSWindowDele
             )
         }
         shared?.showWindow(nil)
+    }
+
+    /// Pseudobulk Selected Cells… of a cell map's view: the pseudobulk pane, filled with the selection (CM-SELECT-APP).
+    static func showPseudobulk(of request: RNASeqEmbeddingSelectionRequest, projectURL: URL?, routeContext: OperationRouteContext?) {
+        show(projectURL: projectURL, routeContext: routeContext, initialToolID: WorkflowLibraryCatalog.rnaSeqPseudobulkID)
+        if let state = shared?.state { RNASeqCellMapSelectRun.fill(state, with: request) }
     }
 
     init(

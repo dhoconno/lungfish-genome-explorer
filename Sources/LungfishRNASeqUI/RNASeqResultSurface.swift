@@ -63,6 +63,13 @@ public final class RNASeqResultSurface: ResultViewport {
     /// Called after a result is shown, so the App can give the Inspector the result's name and record.
     public var onLoaded: (@MainActor (RNASeqResultFacts, URL) -> Void)?
 
+    /// Called with Save Selection as Labels Table… or Pseudobulk Selected Cells… of a cell map's view, so the App launches
+    /// `lungfish-cli rnaseq cell-map select`. The module writes nothing itself.
+    public var onSelectionAction: (@MainActor (RNASeqEmbeddingSelectionAction) -> Void)? {
+        get { controller.onSelectionAction }
+        set { controller.onSelectionAction = newValue }
+    }
+
     public init(configure: @escaping @MainActor (RNASeqResultSurface) -> Void = { _ in }) {
         self.controller = RNASeqResultViewController(nibName: nil, bundle: nil)
         self.configure = configure
@@ -125,6 +132,10 @@ public final class RNASeqResultViewController: NSViewController {
     public private(set) var singleCell: RNASeqSingleCellViewController?
     /// The embedding view of a cell map (5.5 O1 (a)).
     public private(set) var cellMap: RNASeqCellMapViewController?
+    /// The selection actions of a cell map's view, handed to each view this container hosts.
+    public var onSelectionAction: (@MainActor (RNASeqEmbeddingSelectionAction) -> Void)? {
+        didSet { cellMap?.onSelectionAction = onSelectionAction }
+    }
 
     private let header = NSStackView()
     private let body = NSView()
@@ -198,6 +209,7 @@ public final class RNASeqResultViewController: NSViewController {
             singleCell = child
         case .cellMap:
             let child = RNASeqCellMapViewController(nibName: nil, bundle: nil)
+            child.onSelectionAction = onSelectionAction
             child.configure(result: result, bundleURL: bundleURL, outcome: shownMap)
             install(child)
             cellMap = child
