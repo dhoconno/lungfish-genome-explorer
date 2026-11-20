@@ -343,6 +343,12 @@ def main(work, rnaseq, out_tsv):
                                                                      c["genes_kept"], tm["neighbors"], tm["leiden"], tm["umap"],
                                                                      tm["pca"], tm["read"], rss, note))
     runs = sorted(d for d in os.listdir(os.path.join(work, "runs")) if R.has(d))
+    here = os.path.dirname(os.path.abspath(__file__))
+    script_sha = sha256(os.path.join(here, "embed.py"))
+    stale = [n for n in runs if (R.record(n).get("script") or {}).get("sha256") != script_sha]
+    row("Every run was made by the embed.py beside this file", "gate", "fail" if stale else "pass",
+        "%d of %d runs" % (len(runs) - len(stale), len(runs)),
+        "embed.py sha256 %s. Runs made by another script: %s" % (script_sha, ", ".join(stale) or "none"))
     left = {n: R.procs(n) for n in runs}
     bad = [n for n, v in left.items() if v]
     row("No loky or resource_tracker process outlives a run", "gate", "fail" if bad else "pass",

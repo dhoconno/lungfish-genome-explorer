@@ -86,6 +86,7 @@ The payload is `cells.tsv`, `variable_genes.tsv` and `pca_variance_ratio.tsv`. T
 | Naming the transformer, a gate | G2 and G1 with and without `transformer="sklearn"`, compared by bytes |
 | Hash order, a report | G1 at `PYTHONHASHSEED` 0 against 1. The row reads "not valid" unless the probe's record shows guard "passed with --allow-hash-seed N", `PYTHONHASHSEED` equal to N and `hash_randomization` 1, and the route's record shows guard "passed", seed 0 and `hash_randomization` 0. A seed written `00` passes the guard and hashes as seed 0 |
 | Time and peak, reports | G1, G3 and a seeded 100,000-cell subsample of G3 at threads 1 |
+| Same script, a gate | Every record's `script.sha256` equals the sha256 of the `embed.py` beside `claims.py` |
 
 ## Data and licences
 
