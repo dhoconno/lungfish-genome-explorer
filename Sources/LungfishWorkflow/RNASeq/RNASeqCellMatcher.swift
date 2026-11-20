@@ -8,6 +8,41 @@
 import Foundation
 import LungfishIO
 
+/// Matches the (sample, barcode) pairs of a given file's lines to the result's cells (5.5 I1). A barcode matches
+/// `cells.barcode` as the caller hands it, so a suffix flag changes the barcode before it gets here. The matcher refuses a
+/// sample the result does not hold and a cell listed twice, in pseudobulk's words, and leaves the barcodes not held to
+/// the caller, which counts them.
+struct RNASeqCellMatcher {
+    let samples: [RNASeqPseudobulk.SampleCells]
+    let names: [String]
+    private var claimed: [String: (line: Int, given: String)] = [:]
+
+    init(samples: [RNASeqPseudobulk.SampleCells]) {
+        self.samples = samples
+        names = samples.map(\.name)
+    }
+
+    /// The place of the sample that line `line` of `file` names.
+    func sample(_ text: String, file: String, line: Int) throws -> Int {
+        guard let index = names.firstIndex(of: text) else {
+            throw RNASeqPseudobulkRefusal.unknownSample(file: file, line: line, sample: text, known: names)
+        }
+        return index
+    }
+
+    /// Claims the cell `barcode` of sample place `sample` for line `line`, and returns its column from 1, or nil when the
+    /// sample does not hold it. A cell claimed twice is refused. `given` is the barcode as the file writes it, and when
+    /// it differs from the earlier line's, `changed` (such as "once -1 is dropped") follows it in the words.
+    mutating func claim(sample: Int, barcode: String, file: String, line: Int, given: String? = nil, changed: String? = nil) throws -> Int? {
+        let shown = given ?? barcode
+        if let first = claimed.updateValue((line, shown), forKey: "\(sample)\t\(barcode)") {
+            let words = first.given != shown ? changed.map { "\(shown) \($0)" } ?? shown : shown
+            throw RNASeqPseudobulkRefusal.barcodeTwice(file: file, line: line, firstLine: first.line, sample: names[sample], barcode: words)
+        }
+        return samples[sample].columnOfBarcode[barcode]
+    }
+}
+
 extension RNASeqPseudobulk {
     static func assign(labels url: URL, samples: [SampleCells]) throws -> LabelAssignment {
         let file = url.lastPathComponent
@@ -17,11 +52,11 @@ extension RNASeqPseudobulk {
         guard let labelAt = header.firstIndex(of: "label") else { throw RNASeqPseudobulkRefusal.missingColumn(file: file, column: "label") }
         let sampleAt = header.firstIndex(of: "sample")
         if sampleAt == nil, samples.count >= 2 { throw RNASeqPseudobulkRefusal.noSampleColumn(file: file, samples: samples.count) }
-        let names = samples.map(\.name)
+        var matcher = RNASeqCellMatcher(samples: samples)
+        let names = matcher.names
         var groupOfCell = samples.map { [Int](repeating: -1, count: $0.count) }
         var indexOfKey: [String: Int] = [:]
         var found: [(sample: Int, label: String, cells: Int)] = []
-        var lineOfCell: [String: Int] = [:]
         var strays = 0
         var firstStrays: [String] = []
         for (offset, line) in lines.enumerated().dropFirst() where !line.isEmpty {
@@ -32,18 +67,9 @@ extension RNASeqPseudobulk {
             }
             let label = cells[labelAt]
             guard !label.isEmpty else { throw RNASeqPseudobulkRefusal.emptyLabel(file: file, line: number) }
-            var sample = 0
-            if let sampleAt {
-                guard let index = names.firstIndex(of: cells[sampleAt]) else {
-                    throw RNASeqPseudobulkRefusal.unknownSample(file: file, line: number, sample: cells[sampleAt], known: names)
-                }
-                sample = index
-            }
+            let sample = try sampleAt.map { try matcher.sample(cells[$0], file: file, line: number) } ?? 0
             let barcode = cells[barcodeAt]
-            if let first = lineOfCell.updateValue(number, forKey: "\(sample)\t\(barcode)") {
-                throw RNASeqPseudobulkRefusal.barcodeTwice(file: file, line: number, firstLine: first, sample: names[sample], barcode: barcode)
-            }
-            guard let column = samples[sample].columnOfBarcode[barcode] else {
+            guard let column = try matcher.claim(sample: sample, barcode: barcode, file: file, line: number) else {
                 strays += 1
                 if firstStrays.count < 10 { firstStrays.append(sampleAt == nil ? barcode : "\(barcode) of \(names[sample])") }
                 continue
