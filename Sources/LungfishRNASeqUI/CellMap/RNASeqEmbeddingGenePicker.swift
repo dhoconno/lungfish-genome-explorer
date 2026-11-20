@@ -18,22 +18,26 @@ public struct RNASeqGeneChoice: Hashable, Sendable {
     public var id: String
     public var name: String
     public var unit: RNASeqCellMapDatabase.GeneUnit
+    /// Another offered gene of the cell map holds the same name, so the label shows the id beside it.
+    public var sharesName: Bool
 
-    public init(feature: Int, id: String, name: String, unit: RNASeqCellMapDatabase.GeneUnit) {
+    public init(feature: Int, id: String, name: String, unit: RNASeqCellMapDatabase.GeneUnit, sharesName: Bool = false) {
         self.feature = feature
         self.id = id
         self.name = name
         self.unit = unit
+        self.sharesName = sharesName
     }
 
     /// The gene a row names, or nil for a feature of a type the map has no values for.
     public init?(entry: RNASeqGeneIndex.Entry, unit: RNASeqCellMapDatabase.GeneUnit) {
         guard entry.offered else { return nil }
-        self.init(feature: entry.feature, id: entry.id, name: entry.name, unit: unit)
+        self.init(feature: entry.feature, id: entry.id, name: entry.name, unit: unit, sharesName: entry.sharesName)
     }
 
-    /// What a person reads for the gene, its name, or its id when the file holds no name.
-    public var label: String { name.isEmpty ? id : name }
+    /// What a person reads for the gene: its name, or its id when the file holds no name. A name that another gene holds too
+    /// shows the id beside it, so two genes never read alike in the title, the words, the hover or the pop-up item.
+    public var label: String { name.isEmpty ? id : (sharesName ? "\(name) (\(id))" : name) }
 
     public func with(unit: RNASeqCellMapDatabase.GeneUnit) -> RNASeqGeneChoice {
         var other = self

@@ -206,6 +206,16 @@ final class RNASeqEmbeddingGeneTests: XCTestCase {
         XCTAssertEqual(RNASeqGeneChoice(entry: cd3[0], unit: .umis)?.label, "CD3E", "a name no other id holds stays bare")
     }
 
+    /// A name that two ids hold shows the id in the title of the picked gene and in W5, so two genes never look alike
+    /// (CM-GENE-BIO SF-1).
+    func testASharedNameShowsItsIdInTheTitleAndW5() throws {
+        let facts = try open().shown.facts
+        let gene = RNASeqGeneChoice(feature: 1, id: "ENSG00000280987", name: "MATR3", unit: .umis, sharesName: true)
+        XCTAssertEqual(facts.title(of: .gene(gene)), "MATR3 (ENSG00000280987) UMIs")
+        XCTAssertEqual(RNASeqEmbeddingWords.geneColour(unit: .umis, gene: gene.label),
+            "Colour shows UMIs of MATR3 (ENSG00000280987) in each cell. Grey cells have no UMIs of MATR3 (ENSG00000280987) counted, which does not show that the gene is off.")
+    }
+
     /// The picker reads `features` of the cell map, so LYZ and S100A9 are found by name or by id, and the cut holds no CD3E.
     func testThePickerFindsLYZAndS100A9ByNameAndByIdInTheCellMapsFeatures() throws {
         let map = try open()
