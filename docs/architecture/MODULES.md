@@ -27,7 +27,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishPhylogeneticsUI | library | Sources/LungfishPhylogeneticsUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
-| LungfishRNASeqUI | library | Sources/LungfishRNASeqUI | 42 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishRNASeqUI | library | Sources/LungfishRNASeqUI | 48 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
@@ -1946,6 +1946,7 @@ None.
 - `RNASeqCorrelationPlotView` class, `Sources/LungfishRNASeqUI/Bulk/RNASeqCorrelationPlotView.swift`
 - `RNASeqEmbeddingGenePickerViewController` class, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingGenePicker.swift`
 - `RNASeqEmbeddingGrid` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift`
+- `RNASeqEmbeddingLasso` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingSelection.swift`
 - `RNASeqEmbeddingLegend` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingLegend.swift`
 - `RNASeqEmbeddingLegendView` class, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingLegend.swift`
 - `RNASeqEmbeddingMapping` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift`
@@ -1953,6 +1954,11 @@ None.
 - `RNASeqEmbeddingPlotView` class, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingPlotView.swift`
 - `RNASeqEmbeddingRaster` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift`
 - `RNASeqEmbeddingRasterInput` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift`
+- `RNASeqEmbeddingSelection` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingSelection.swift`
+- `RNASeqEmbeddingSelectionAction` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingSelection.swift`
+- `RNASeqEmbeddingSelectionRequest` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingSelection.swift`
+- `RNASeqEmbeddingSelectionSample` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingSelection.swift`
+- `RNASeqEmbeddingSelectionWords` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingSelection.swift`
 - `RNASeqEmbeddingWindow` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift`
 - `RNASeqEmbeddingWords` enum, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingWords.swift`
 - `RNASeqGeneChoice` struct, `Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingGenePicker.swift`
