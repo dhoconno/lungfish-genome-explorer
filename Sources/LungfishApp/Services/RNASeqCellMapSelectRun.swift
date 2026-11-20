@@ -85,7 +85,7 @@ enum RNASeqCellMapSelectRun {
             if response == .OK, let url = panel.url { then(url) }
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-            panel.beginSheetModal(for: window) { response in MainActor.assumeIsolated { handle(response) } }
+            Task { handle(await panel.beginSheetModal(for: window)) }
         } else {
             handle(panel.runModal())
         }
