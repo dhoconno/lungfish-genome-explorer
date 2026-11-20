@@ -351,32 +351,38 @@ enum TaxTriageParityRawBytes {
     /// A Python port of `maskedRecordText` (doubles printed with `%.17g`) over the red run's `LUNGFISH_PARITY_DUMP`
     /// reproduces the 36 digests that run observed, X1 to X8 on sides C and C', and with a083cc29 put back to 586edb75
     /// in each masked text it gives the SHA-256 this file pinned before. The seven manifest pins did not move.
+    /// Lane CM-COMPUTE (Phase 5.5, continuation 2, ad8134183) moved the same 18 of these 25 pins as RS-LOCK through the
+    /// lock's SHA-256 alone. It is 0c7e42bc since the lock pins scanpy, python-igraph, leidenalg and umap-learn for the
+    /// single-cell pack, and was a083cc29. A Python port of `maskedRecordText` (doubles printed with `%.17g`) over the
+    /// red run's `LUNGFISH_PARITY_DUMP` reproduces the 36 digests that run observed, X1 to X8 on sides C and C', and
+    /// with 0c7e42bc put back to a083cc29 in each masked text it gives the SHA-256 this file pinned before. The seven
+    /// manifest pins did not move.
     static let pinnedRecords: [TaxTriageParityCase: [String: String]] = [
         .x1: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "9c6298fd69afe25303ce85bf20226d29102e1a2b0fecb88ac948a3f6e57bf428",
+                "6f8d930f9ea4091fec2ae9c1b4ed3765e88828c59558320fc8598597a6074760",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
-                "052424326fa95347af7bf9d90107d3f59c4c97f8252743f490cc4fe991e6a403",
+                "21fa395e6e2f44084212a70000d6c786c6345066e23ba473b2c83b8e794ef49a",
             "Project.lungfish/Imports/sarscov2-R1.lungfishfastq/derivatives/len-150-any-00000000.lungfishfastq/analyses-manifest.json":
                 "5611608100d74f07efc953f90a871ca9e1f566118b36b09ea701b00cab4c8585",
         ],
         .x2: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "20f756a819005bdab9ba83f322284ce1e538f7ac4854e10dbc55101bb967100b",
+                "41d654f89687aa69c8625c46864d2b02cfaeff13ac7cb4ba23c35d92ec50ccea",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
-                "76538b38780bf5fbfda8ca35e3b4e5eb0b102ca30918e0e3f31db5a00800b493",
+                "8c88acabbf24f9346e61ce87dda8aebf84207480c5308276c8963d89fef84d6c",
             "Project.lungfish/Imports/sarscov2-pair.lungfishfastq/analyses-manifest.json":
                 "5611608100d74f07efc953f90a871ca9e1f566118b36b09ea701b00cab4c8585",
         ],
         .x3: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "d443d1a500eb104efd28bf0cc4380bff1f1beb22a60f46244a1934e590a63678",
+                "a981e9193e250855ff8091ae90f36f967349d755f17401fb55194ed232cdab4d",
             "Project.lungfish/Analyses/<analysis>/negative-control/.lungfish-provenance.json":
-                "b7a205321398ad733c48bbb65c661f13a6b340dc55a10bdaf0d8636bbd398c0e",
+                "ad39e6d0250ef2510389c1217d508cc8b3ec0191afda985edf4481122af2d979",
             "Project.lungfish/Analyses/<analysis>/sarscov2-pair/.lungfish-provenance.json":
-                "76139f48ca313a54a452a297384e3653fb8009876b19c8e27b4f9a9062f4d0d7",
+                "1e9d27a73f279df8acb041006382cb6c07046314ce62d3fc52ec6151c18cafed",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
-                "af4bfb1705f11d61bab50510d1074bfaa9c08f3c7ae01a0f3f289c150eaa9833",
+                "8a454aad565dfa47e8f7b1a014db1f47159b2cb002668f3deead1f82e320e007",
             "Project.lungfish/Imports/two-samples/negative-control.lungfishfastq/analyses-manifest.json":
                 "138736c54fc2ddfa447d5cb959990857df0d5954edbe87e342955c3109968d15",
             "Project.lungfish/Imports/two-samples/sarscov2-pair.lungfishfastq/analyses-manifest.json":
@@ -384,39 +390,39 @@ enum TaxTriageParityRawBytes {
         ],
         .x4: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "0bddaa9af105496563051662f1f0d3a604dbe9b7f5b544b5de4154d5d921735d",
+                "afdadbf52d96b80e3cb3dccaebaf5132771bbefa4c997eb095a84daf759d8eef",
             "Project.lungfish/Analyses/<analysis>/negative-control/.lungfish-provenance.json":
-                "80bfdfd11d8bc7d79b2977d80425901166e4e58a23ceb50093aee1dcab582d37",
+                "ece0d4abde78b92cef6c81588bc1ed62f84759db5bf8922cd02f12419b64aa36",
             "Project.lungfish/Analyses/<analysis>/sarscov2-pair/.lungfish-provenance.json":
-                "76139f48ca313a54a452a297384e3653fb8009876b19c8e27b4f9a9062f4d0d7",
+                "1e9d27a73f279df8acb041006382cb6c07046314ce62d3fc52ec6151c18cafed",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
-                "2c28f3faebfc6c64943a5aa044e35f6bb791dac7c72331877e6d60819f7d6dd2",
+                "e98d243d2c9821855dac24d0ccb30da27f7775993347a2091f50d82f10b83308",
             "Project.lungfish/Imports/two-samples/sarscov2-pair.lungfishfastq/analyses-manifest.json":
                 "043e3e7bbe5dfdbf602ae89d09a1bee3cf9727ddcf0e6bd94b06d3809a6e1e7f",
         ],
         .x5: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "315a374b17ff5a83ed3dfa95cb7ecea761b886328f783d8a5c15e8310fee4a36",
+                "0944b0b6652a2cbb1a5fcccff865a5caeda70f9e1a2e923b54f3b46cf0f1b777",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
-                "76538b38780bf5fbfda8ca35e3b4e5eb0b102ca30918e0e3f31db5a00800b493",
+                "8c88acabbf24f9346e61ce87dda8aebf84207480c5308276c8963d89fef84d6c",
             "Project.lungfish/Imports/sarscov2-pair.lungfishfastq/analyses-manifest.json":
                 "9d72b0d6704ebfbfcbecb06ba0bd63ba162f482dc3d8333967b97109d75e93d2",
         ],
         .x6: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "a5b2858eb59fea48c87115ed301c87356161863516b958d1c7d95cebb364d3a8",
+                "9258be6db5312208997cff147c71bcd143d5238b9816f7c3d322790bde975c05",
         ],
         .x7: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "6f431c00066c141f11e7a82eac51fee56b084647513ed6a39353e60fd5227203",
+                "250a6f5de4eb412018fb209c8a06351f16858e3520800b340bf4fe6953437477",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
-                "3a134a7c5a4033995e145a89f35f45c2bd7d28d7332a620d6032961bbbe673cf",
+                "8c38e97836cad9c908fb73f02db075c1cb6bff8cdbbf16821ab739e7b3e5da98",
             "Project.lungfish/Imports/sarscov2-pair.lungfishfastq/analyses-manifest.json":
                 "5611608100d74f07efc953f90a871ca9e1f566118b36b09ea701b00cab4c8585",
         ],
         .x8: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "328feeeb0441e4476bad75741f30be94cd0687c8164ceeb041a44e4a94f362f0",
+                "9b811d08b480b63dc29c9a4fe77638a3a1bd8b47ca39972e1b328d44e7059520",
         ],
     ]
 
