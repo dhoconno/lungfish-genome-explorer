@@ -157,8 +157,9 @@ final class RNASeqEmbeddingGeneTests: XCTestCase {
             XCTAssertGreaterThan(stored.maximum, 0)
             let made = try colours(gene, map)
             XCTAssertEqual(made.legend.scale?.top, stored.maximum, "the legend uses the maximum")
+            let top = RNASeqEmbeddingWords.number(stored.maximum)
             XCTAssertEqual(made.legend.words, [Support.w5(unit, rare.name),
-                RNASeqEmbeddingWords.scaleToMaximum(maximum: RNASeqEmbeddingWords.number(stored.maximum), cells: 200, grey: nil)])
+                "Colour runs from 0 to \(top), the largest value, since at least 99% of the 200 cells of this cell map have 0."])
             XCTAssertEqual(made.index.filter { $0 >= RNASeqEmbeddingPalette.gradientBase }.max(),
                            RNASeqEmbeddingPalette.gradientBase + UInt16(RNASeqEmbeddingPalette.gradientSteps - 1), "the largest value takes the top colour")
             XCTAssertEqual(Array(made.index), Support.expectedIndex(stored))
@@ -167,7 +168,7 @@ final class RNASeqEmbeddingGeneTests: XCTestCase {
         let gene = RNASeqGeneChoice(feature: silent.feature, id: silent.id, name: silent.name, unit: .normalised)
         let made = try colours(gene, map)
         XCTAssertTrue(made.index.allSatisfy { $0 == RNASeqEmbeddingPalette.greyIndex })
-        XCTAssertEqual(made.legend.words, [Support.w5(.normalised, silent.name), RNASeqEmbeddingWords.scaleAllZero(cells: 200)])
+        XCTAssertEqual(made.legend.words, [Support.w5(.normalised, silent.name), "All 200 cells of this cell map have 0, so every cell draws in grey."])
         XCTAssertThrowsError(try RNASeqCellMapLoader.values(map.database, colouring: .gene(
             RNASeqGeneChoice(feature: 999_999, id: "none", name: "none", unit: .umis))), "a feature with no row has no values to read")
     }
