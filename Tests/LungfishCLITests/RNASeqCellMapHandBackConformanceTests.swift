@@ -224,4 +224,18 @@ final class RNASeqCellMapHandBackConformanceTests: XCTestCase {
             XCTAssertEqual(wrong, [], "each line holds the cluster of its barcode")
         }
     }
+
+    /// An export with no analysis holds no reduction. Each script prints how to call the hand-back block after the person's
+    /// analysis, goes on and ends with status 0 (`handBack` asserts it), and writes no table.
+    func testAnExportWithNoReductionPrintsHowToCallTheBlockAndEndsWell() throws {
+        let result = try CellMapImportFixture.result(CellMapImportFixture.cellRanger, in: root)
+        for (script, tool, arguments, words) in [("seurat.R", rscript, ["--vanilla", "seurat.R"], "The object holds no reduction yet"),
+                                                 ("scanpy.py", python, ["-I", "scanpy.py"], "The AnnData holds no reduction yet")] {
+            let ran = try handBack(result, script: script, analysis: "", tool: tool, arguments: arguments)
+            XCTAssertTrue(ran.output.contains(words), "\(script) says so:\n\(ran.output)")
+            XCTAssertTrue(ran.output.contains("write_lge_cell_map("), "\(script) names the call:\n\(ran.output)")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: ran.folder.appendingPathComponent("lge-cell-map.tsv").path),
+                           "\(script) writes no table")
+        }
+    }
 }
