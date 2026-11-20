@@ -316,7 +316,10 @@ struct RNASeqCellMapSelectSubcommand: AsyncParsableCommand {
         func verb(_ n: Int) -> String { n == 1 ? "is" : "are" }
         var message = "Wrote \(outputURL.lastPathComponent), where \(count(chosen, "cell")) of \(embedding) \(verb(chosen)) selected "
             + "and \(count(rest, "cell")) \(verb(rest)) the rest"
-        if leftOut > 0 { message += ", and \(count(leftOut, "cell")) with no coordinates in \(embedding) have no line" }
+        if leftOut > 0 {
+            message += ", and \(count(leftOut, "cell")) of the map \(leftOut == 1 ? "has" : "have") no coordinates in \(embedding), "
+                + "so the table has no line for \(leftOut == 1 ? "it" : "them")"
+        }
         return message
     }
 }
