@@ -121,3 +121,25 @@ final class RNASeqPseudobulkCellMapTests: XCTestCase {
         XCTAssertEqual(outcome.request.counts.first?.table.sampleIDs.count, 7, "the seven labels of graphclust are seven groups of one sample")
     }
 }
+
+/// CM-KIND SWIFT 4 (`docs/contracts/EXTERNAL-VOLUMES.md`): the cell map's publication, `DurableReplace.transaction` then
+/// `PortableRename.exclusive`, runs as on an ExFAT volume that rejects `RENAME_EXCL`. The word Durability in the class name
+/// makes `scripts/testing/exfat-tests.sh --simulate` select it with no change to the script.
+final class RNASeqCellMapDurabilityTests: XCTestCase {
+    var root: URL!
+
+    override func setUpWithError() throws { root = try TestTempDirectory.make(prefix: "rnaseq-cell-map-durability") }
+    override func tearDownWithError() throws { TestTempDirectory.cleanup(root) }
+
+    func testACellMapPublishesWhenTheVolumeRejectsExclusiveRename() throws {
+        let parent = try CellMapFixture.parent(in: root)
+        let map = root.appendingPathComponent("pbmc-tsne.lungfishrnaseq", isDirectory: true)
+        try PortableRename.simulatingUnsupportedFlags {
+            _ = try CellMapFixture.write(CellMapFixture.request(parent: parent), to: map)
+        }
+        XCTAssertEqual(try RNASeqResultBundle.verifyChecksums(of: map), [])
+        XCTAssertNoThrow(try RNASeqResultBundle.load(from: map))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path).sorted(), ["pbmc-tsne.lungfishrnaseq", "pbmc.lungfishrnaseq"])
+        XCTAssertEqual(try RNASeqCellMapDatabase(url: map.appendingPathComponent(RNASeqCellMap.filename)).geneValueFeatures().count, 1_353)
+    }
+}
