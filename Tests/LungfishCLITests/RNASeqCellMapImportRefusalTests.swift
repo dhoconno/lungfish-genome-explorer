@@ -238,6 +238,58 @@ final class RNASeqCellMapImportRefusalTests: XCTestCase {
         XCTAssertEqual(RNASeqCellMapImportRefusal.count(1_222, "barcode"), "1,222 barcodes")
     }
 
+    // MARK: - The events of the command (CM-IMPORT-APP)
+
+    /// The progress and log events of `rnaseq cell-map import ... --format json` in order, as `progress: <words>` and `<level>: <words>`.
+    private func eventWords(_ name: String, _ arguments: [String]) async throws -> [String] {
+        let scratch = try ImportStreamCapture.Scratch()
+        defer { scratch.remove() }
+        let target = root.appendingPathComponent("Analyses/\(name).lungfishrnaseq", isDirectory: true)
+        let command = try RNASeqCellMapImportSubcommand.parse(arguments + ["--output", target.path, "--format", "json"])
+        let captured = try await ImportStreamCapture.capture(in: scratch) { try await command.run() }
+        XCTAssertNil(captured.thrown, "the run threw \(String(describing: captured.thrown))")
+        let decoder = CLIEventLineDecoder()
+        return try captured.standardOutput.compactMap { line -> String? in
+            switch try XCTUnwrap(try decoder.decodeLine(line)).event {
+            case let .progress(_, message)?: return "progress: \(message)"
+            case let .log(level, message)?: return "\(level): \(message)"
+            default: return nil
+            }
+        }
+    }
+
+    /// The row of the app shows the stages as the leaf works, so each is a progress event: Reading <file> for each given file,
+    /// Checking barcodes against <result> and Writing <output>.
+    func testTheStreamShowsTheThreeStagesInOrderBeforeAnyNote() async throws {
+        let words = try await eventWords("stages", [
+            starsolo.path, "--coordinates", projection.path, "--clusters", clusters.path, "--barcode-suffix", "drop", "--other-counts"])
+        XCTAssertEqual(words, [
+            "progress: Reading projection.csv", "progress: Reading clusters.csv",
+            "progress: Checking barcodes against cells.lungfishrnaseq", "progress: Writing stages.lungfishrnaseq",
+            "warning: The embeddings were computed on other counts than the result's.",
+        ])
+    }
+
+    /// Cells and barcodes left out are counts the person asked for, so they read as information and the row ends Completed.
+    /// The statement about other counts stays a warning, since the view and the record repeat it.
+    func testCellsLeftOutAndBarcodesNotHeldAreInformationAndOtherCountsStaysAWarning() async throws {
+        let name = try sampleName(starsolo)
+        let rows = try barcodes().map { "\($0)\t1.5\t-2\n" }
+        let left = try file("left/lge-cell-map.tsv", "barcode\tumap_1\tumap_2\n" + rows.dropFirst(3).joined())
+        let leftWords = try await eventWords("left", [starsolo.path, "--coordinates", left.path])
+        XCTAssertEqual(Array(leftWords.suffix(1)), ["info: 3 of the 200 cells of \(name) have no coordinates in umap and are not drawn."])
+        XCTAssertFalse(leftWords.contains { $0.hasPrefix("warning:") }, "a run that leaves cells out has no warning: \(leftWords)")
+
+        let text = try String(contentsOf: projection, encoding: .utf8) + "AAAAAAAAAAAA0001-1,0.5,0.5\n"
+        let heldWords = try await eventWords("held", [
+            starsolo.path, "--coordinates", try file("held/projection.csv", text).path,
+            "--barcode-suffix", "drop", "--skip-barcodes-not-held", "--other-counts"])
+        XCTAssertEqual(Array(heldWords.suffix(2)), [
+            "info: 1 of the 201 barcodes of projection.csv is not held by the result and was left out.",
+            "warning: The embeddings were computed on other counts than the result's.",
+        ])
+    }
+
     // MARK: - The output and the parent
 
     func testTheOutputAndTheParentAreCheckedFirst() throws {

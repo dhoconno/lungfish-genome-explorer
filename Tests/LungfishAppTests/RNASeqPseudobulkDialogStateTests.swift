@@ -125,4 +125,83 @@ final class RNASeqPseudobulkDialogStateTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputURL.path), "nothing launched")
     }
+
+    // MARK: Import Embedding (CM-IMPORT-APP)
+
+    private let projection = URL(fileURLWithPath: "/tmp/pb-state/given/projection.csv")
+    private let clusters = URL(fileURLWithPath: "/tmp/pb-state/given/clusters.csv")
+
+    private func makeImportState(projectURL: URL?) -> WorkflowOperationDialogState {
+        let defaults = makeTestDefaultsSuite(prefix: "RNASeqPseudobulkDialogStateTests").defaults
+        return WorkflowOperationDialogState(
+            projectURL: projectURL,
+            initialToolID: WorkflowLibraryCatalog.rnaSeqCellMapImportID,
+            enablementStore: WorkflowLibraryEnablementStore(userDefaults: defaults),
+            packageStore: WorkflowLibraryImportedPackageStore(userDefaults: defaults))
+    }
+
+    func testSelectingTheImportRowNamesTheCellMapAndReadinessNamesWhatIsMissingInOrder() {
+        let state = makeImportState(projectURL: nil)
+        XCTAssertEqual(state.selectedTool?.kind, .rnaSeqCellMapImport)
+        XCTAssertEqual(state.outputName, "cell-map")
+        XCTAssertTrue(state.selectedToolIsRNASeq)
+        XCTAssertEqual(state.readinessText, "Select a single-cell RNA-seq result.")
+        state.rnaSeqCellMapImport.resultURL = single
+        XCTAssertEqual(state.datasetLabel, "cells.lungfishrnaseq")
+        XCTAssertEqual(state.readinessText, "Choose a coordinates file.")
+        state.rnaSeqCellMapImport.coordinateURLs = [projection]
+        XCTAssertEqual(state.readinessText, "Choose where the cell map goes.")
+        state.setOutputDirectory(scratch)
+        XCTAssertEqual(state.readinessText, "Ready to run.")
+        XCTAssertTrue(state.isRunEnabled)
+        state.outputName = " "
+        XCTAssertEqual(state.readinessText, "Enter a name for the cell map.")
+    }
+
+    func testTheImportLaunchRequestCarriesTheFlagsAddsTheExtensionOnceAndItsArgvParses() throws {
+        let state = makeImportState(projectURL: scratch)
+        state.rnaSeqCellMapImport.resultURL = single
+        state.rnaSeqCellMapImport.coordinateURLs = [projection]
+        state.rnaSeqCellMapImport.clusterURLs = [clusters]
+        state.rnaSeqCellMapImport.labelColumnsText = "clusters, celltype"
+        state.rnaSeqCellMapImport.barcodeSuffix = .drop
+        state.rnaSeqCellMapImport.skipBarcodesNotHeld = true
+        state.rnaSeqCellMapImport.otherCounts = true
+        state.rnaSeqCellMapImport.tool = " Seurat "
+        state.rnaSeqCellMapImport.toolVersion = "5.5.1"
+        state.outputName = "map1"
+        let directory = try XCTUnwrap(state.outputDirectoryURL)
+        let expected = RNASeqCellMapImportRunRequest(
+            resultURL: single, coordinateURLs: [projection], clusterURLs: [clusters], labelColumns: ["clusters", "celltype"],
+            barcodeSuffix: .drop, skipBarcodesNotHeld: true, otherCounts: true, tool: "Seurat", toolVersion: "5.5.1",
+            outputURL: directory.appendingPathComponent("map1.lungfishrnaseq", isDirectory: true))
+        XCTAssertEqual(try state.makeLaunchRequest(), .rnaSeqCellMapImport(expected))
+        state.outputName = "map1.lungfishrnaseq"
+        XCTAssertEqual(try state.makeLaunchRequest(), .rnaSeqCellMapImport(expected), "the extension is added once")
+        let parsed = try RNASeqCellMapImportSubcommand.parse(Array(expected.argv.dropFirst(3)))
+        XCTAssertEqual(parsed.outputPath, directory.appendingPathComponent("map1.lungfishrnaseq").path)
+        XCTAssertEqual(parsed.barcodeSuffix, .drop)
+        XCTAssertEqual(parsed.labelColumns, ["clusters", "celltype"])
+        XCTAssertTrue(parsed.skipBarcodesNotHeld)
+        XCTAssertTrue(parsed.otherCounts)
+        XCTAssertEqual(parsed.tool, "Seurat")
+    }
+
+    func testABusyResultRefusesTheImportRowThroughTheDialogsServiceAndLaunchesNothing() async throws {
+        let center = OperationCenter()
+        _ = center.begin(
+            title: "Holder", detail: "", operationType: .rnaSeqQuantification, targetBundleURL: single, cliCommand: nil,
+            routeContext: nil)
+        let request = RNASeqCellMapImportRunRequest(
+            resultURL: single, coordinateURLs: [projection],
+            outputURL: scratch.appendingPathComponent("map1.lungfishrnaseq", isDirectory: true))
+        let service = WorkflowOperationExecutionService(operationCenter: center)
+        do {
+            _ = try await service.run(.rnaSeqCellMapImport(request))
+            XCTFail("a result under another row's lock was accepted")
+        } catch LocalWorkflowExecutionError.bundleBusy(let words) {
+            XCTAssertEqual(words, "The RNA-seq result is busy. Wait for its current operation to finish.")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.outputURL.path), "nothing launched")
+    }
 }
