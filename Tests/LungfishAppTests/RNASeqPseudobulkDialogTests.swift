@@ -722,4 +722,63 @@ final class RNASeqPseudobulkDialogParityReplayTests: XCTestCase {
         XCTAssertEqual(saveEnd, .cancelled)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path).sorted(), ["Analyses", "held"], "no table and no record")
     }
+
+    /// The select row locks only the cell map, the pseudobulk row also locks the parent. A second selection sent while another
+    /// row holds the parent has its select step run and its pseudobulk `begin` refused (CM-SELECT-APP-SWIFT B2).
+    func testAPseudobulkRefusedAfterTheSelectRanSaysSoAndLeavesNoTable() async throws {
+        let root = scratch.appendingPathComponent("pseudobulk-refused", isDirectory: true)
+        let (parent, map) = try copySmokePair(into: root)
+        let form = RNASeqCellMapSelect.Form.labels(set: "clusters", labels: [try biggestLabel(of: map)])
+        let output = root.appendingPathComponent("Analyses/selected.lungfishrnaseq", isDirectory: true)
+        let request = RNASeqPseudobulkRunRequest(
+            resultURL: parent, labelsURL: RNASeqPseudobulkSelection.tableURL(besideOutput: output), outputURL: output,
+            selection: RNASeqPseudobulkSelection(selectionRequest(map: map, parent: parent, form: form)))
+        guard case .started(let holder) = OperationCenter.shared.begin(
+            title: "Holder", detail: "", operationType: .rnaSeqQuantification, additionalLockedBundleURLs: [parent], cliCommand: nil)
+        else { return XCTFail("the holder row was refused") }
+        defer { _ = OperationCenter.shared.complete(id: holder, detail: "released") }
+        var reported: [(title: String, words: String)] = []
+        let launched = try XCTUnwrap(RNASeqLeafRoute.launchPseudobulkOfSelection(
+            request, makeRunner: { CLIViewerExportRunner(cliURLOverride: self.cli) },
+            report: { title, words in reported.append((title, words)) }))
+        let end = await launched.task.value
+        XCTAssertEqual(end.select, .completed, "the select step ran")
+        XCTAssertNil(end.pseudobulkID, "no pseudobulk row began")
+        XCTAssertEqual(reported.count, 1, "the person is told")
+        XCTAssertEqual(reported.first?.title, RNASeqCellMapSelectWords.pseudobulkTitle)
+        XCTAssertEqual(reported.first?.words, RNASeqCellMapSelectWords.pseudobulkBusy)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.labelsURL.deletingLastPathComponent().path), "no table and no folder")
+    }
+
+    /// The cancel of the pseudobulk row after the select row wrote the table removes the table and its folder
+    /// (CM-SELECT-APP-SWIFT SF2). The 200-cell cut gives a group of 10 cells, so the leaf reaches its hold.
+    func testACancelOfThePseudobulkStepRemovesTheTableAndTheFolder() async throws {
+        let root = scratch.appendingPathComponent("pseudobulk-step-cancel", isDirectory: true)
+        let (parent, map, embedding, form) = try await importedPair(in: root)
+        let output = root.appendingPathComponent("Analyses/selected.lungfishrnaseq", isDirectory: true)
+        let hold = root.appendingPathComponent("held")
+        let request = RNASeqPseudobulkRunRequest(
+            resultURL: parent, labelsURL: RNASeqPseudobulkSelection.tableURL(besideOutput: output), outputURL: output,
+            selection: RNASeqPseudobulkSelection(selectionRequest(map: map, parent: parent, form: form, embedding: embedding)))
+        let launched = try XCTUnwrap(RNASeqLeafRoute.launchPseudobulkOfSelection(
+            request, makeRunner: { CLIViewerExportRunner(cliURLOverride: self.cli) },
+            pseudobulkEnvironment: [Self.holdFileVariable: hold.path]))
+        let held = await waitUntil(timeout: WaitBudget.lookup.duration) { FileManager.default.fileExists(atPath: hold.path) }
+        XCTAssertTrue(held, "the pseudobulk leaf reached its transaction")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: request.labelsURL.path), "the table is there while the pseudobulk runs")
+        let running = OperationCenter.shared.items.first {
+            $0.operationType == .rnaSeqPseudobulk && $0.state == .running && ($0.cliCommand ?? "").contains(output.path)
+        }
+        let row = try XCTUnwrap(running, "the pseudobulk row is running")
+        OperationCenter.shared.cancel(id: row.id)
+        let end = await launched.task.value
+        XCTAssertEqual(end.select, .completed)
+        XCTAssertEqual(end.pseudobulkID, row.id)
+        XCTAssertEqual(end.pseudobulk, .cancelled)
+        XCTAssertEqual(OperationCenter.shared.items.first { $0.id == row.id }?.state, .cancelled)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: request.labelsURL.deletingLastPathComponent().path), "no table and no folder")
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("Analyses").path).sorted(),
+            [map.lastPathComponent, parent.lastPathComponent].sorted(), "a cancel leaves only the two inputs in Analyses")
+    }
 }
