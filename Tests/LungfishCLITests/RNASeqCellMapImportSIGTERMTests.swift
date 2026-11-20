@@ -50,4 +50,37 @@ final class RNASeqCellMapImportSIGTERMTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), "a cancel publishes no cell map")
         XCTAssertEqual(try stages(in: analyses), [], "a cancel leaves no hidden stage")
     }
+
+    /// The same family's cancel case for the sibling leaf (CM-SELECT-CLI SWIFT SF1). `select` stages the table beside its
+    /// destination and holds at the checkpoint inside the publication, so the signal finds the stage on disk.
+    func testSelectTurnsSIGTERMIntoACancelAndLeavesNoTableNoRecordAndNoStage() async throws {
+        let result = try CellMapImportFixture.result(CellMapImportFixture.cellRanger, in: root)
+        let analyses = result.deletingLastPathComponent()
+        let map = analyses.appendingPathComponent("tsne.lungfishrnaseq", isDirectory: true)
+        try await RNASeqCellMapImportSubcommand.parse([
+            result.path, "--coordinates", CellMapImportFixture.projection.path, "--clusters", CellMapImportFixture.clusters.path,
+            "--output", map.path, "--quiet",
+        ]).run()
+        let table = analyses.appendingPathComponent("selection.tsv")
+        let before = Set(try FileManager.default.contentsOfDirectory(atPath: analyses.path))
+        let hold = root.appendingPathComponent("held-select")
+        let run = try CLISIGTERMHarness.launchCLI(
+            ["rnaseq", "cell-map", "select", map.path, "--embedding", "TSNE", "--label-set", "graphclust", "--label", "1",
+             "--output", table.path, "--format", "json"],
+            environment: [ViewerExportLeaf.holdFileVariable: hold.path], workingDirectory: root, testClass: Self.self)
+        defer { run.stop() }
+        let held = await CLISIGTERMHarness.waitForFile(hold)
+        XCTAssertTrue(held, "the leaf staged the table and reached the checkpoint")
+        let staged = try FileManager.default.contentsOfDirectory(atPath: analyses.path).filter { $0.hasPrefix(".selection.tsv.") }
+        XCTAssertEqual(staged.count, 1, "the staged table is on disk while the leaf holds")
+        let stop = await CLISIGTERMHarness.cancel(run)
+        CLISIGTERMHarness.assertCancelledExit(stop)
+        CLISIGTERMHarness.assertNoProcessLeft(stop)
+        XCTAssertTrue(
+            (stop.standardOutput + stop.standardError).contains(RNASeqCellMapSelectSubcommand.cancelledMessage),
+            "the words of a cancel. Standard output: \(stop.standardOutput)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: table.path), "a cancel publishes no table")
+        XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: analyses.path)), before,
+                       "a cancel leaves no record, no stage and no recovery folder")
+    }
 }

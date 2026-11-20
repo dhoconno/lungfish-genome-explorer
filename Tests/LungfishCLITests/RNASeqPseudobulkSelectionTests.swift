@@ -12,6 +12,7 @@
 import ArgumentParser
 import CryptoKit
 import Foundation
+import SQLite3
 import XCTest
 import LungfishIO
 import LungfishTestSupport
@@ -345,6 +346,31 @@ final class RNASeqPseudobulkSelectionTests: XCTestCase {
         }
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: output.deletingLastPathComponent().path), [],
                        "a refusal leaves no table, no record and no staged file")
+    }
+
+    /// The writer numbers the labels of a set 1 to N, so only a hand edit gives a label a number under 1 or past 32 bits.
+    /// Select refuses it in words, as an input error, and does not trap or allocate.
+    func testALabelNumberOutsideOneToTheLabelCountIsRefusedInWordsAndNeverTraps() async throws {
+        let result = try CellMapImportFixture.result(CellMapImportFixture.starsolo, in: root)
+        for (number, name) in [(-5, "negative"), (5_000_000_000, "wide")] {
+            let map = try await tenxMap(result, name: "crafted-\(name)", starsolo: true)
+            let database = map.appendingPathComponent("cellmap.sqlite")
+            let before = try sha256(database)
+            var handle: OpaquePointer?
+            XCTAssertEqual(sqlite3_open_v2(database.path, &handle, SQLITE_OPEN_READWRITE, nil), SQLITE_OK)
+            XCTAssertEqual(sqlite3_exec(handle, "UPDATE labels SET label = \(number) WHERE label_set = 1 AND label = 1", nil, nil, nil), SQLITE_OK)
+            sqlite3_close(handle)
+            let manifest = RNASeqResultBundle.manifestURL(in: map)
+            try String(contentsOf: manifest, encoding: .utf8).replacingOccurrences(of: before, with: try sha256(database))
+                .write(to: manifest, atomically: true, encoding: .utf8)
+            let output = try newTableURL()
+            XCTAssertThrowsError(try RNASeqCellMapSelectSubcommand.parse([map.path] + Self.clusterOne + ["--output", output.path]).write(), name) { error in
+                XCTAssertEqual((error as? LocalizedError)?.errorDescription,
+                               "The RNA-seq result's table cellmap.sqlite is not valid: the label set graphclust numbers its label 1 as \(number), "
+                               + "and a label set numbers its labels 1 to 7. Import the cell map again.", name)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: output.path), name)
+        }
     }
 
     // MARK: - BIO's three should-fix cases (continuation 1)

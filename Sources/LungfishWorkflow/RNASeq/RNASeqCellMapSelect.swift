@@ -177,6 +177,11 @@ public enum RNASeqCellMapSelect {
                 guard let found = set.labels.first(where: { $0.name == label }) else {
                     throw RNASeqCellMapSelectRefusal.noLabel(set: setName, label: label, known: set.labels.map(\.name))
                 }
+                guard found.label >= 1, found.label <= set.labels.count else {
+                    throw RNASeqResultError.invalidTable(
+                        path: RNASeqCellMap.filename,
+                        reason: "the label set \(setName) numbers its label \(label) as \(found.label), and a label set numbers its labels 1 to \(set.labels.count). Import the cell map again.")
+                }
                 chosen.insert(UInt32(found.label))
             }
             try Task.checkCancellation()
