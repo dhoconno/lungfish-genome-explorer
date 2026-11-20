@@ -139,10 +139,25 @@ final class RNASeqCellMapImportRefusalTests: XCTestCase {
                "Line 6 of clusters.csv has an empty label. Give the cell a label, or leave its line out so the cell has none.")
     }
 
+    /// A table saved by pandas to_csv has commas by default. The unknown-form words never said that LGE's table is tab-separated,
+    /// so a line 1 with a comma and no tab, which is not one of 10x's forms, names the cause as well (CM-IMPORT BIO, backlog 4).
+    func testALineOneWithCommasAndNoTabNamesTheTabSeparatedTableAsWell() throws {
+        let rows = try barcodes().prefix(3).enumerated().map { "\($1),\($0).5,-\($0)\n" }
+        let unknown = "is not LGE's table or one of 10x's files. LGE's table has a barcode column, and 10x's files start Barcode,TSNE-1,TSNE-2 or Barcode,Cluster."
+        for (name, header) in [("pandas.csv", "barcode,umap_1,umap_2"), ("capital.csv", "Barcode,umap_1,umap_2")] {
+            refuse(options([try file(name, header + "\n" + rows.joined())]),
+                   "\(name) \(unknown) LGE's table is tab-separated, and line 1 of \(name) holds commas and no tab.")
+        }
+        // A line 1 with a tab is no comma table, so it keeps the unknown-form words alone.
+        refuse(options([try file("cells.tsv", "cell\tumap_1\tumap_2\n" + rows.joined().replacingOccurrences(of: ",", with: "\t"))]),
+               "cells.tsv \(unknown)")
+    }
+
     func testTheFormsAndColumnsThatAreRefused() throws {
         let first = try barcodes()[0]
         refuse(options([try file("odd.csv", "cell,x,y\n\(first),1,2\n")]),
-               "odd.csv is not LGE's table or one of 10x's files. LGE's table has a barcode column, and 10x's files start Barcode,TSNE-1,TSNE-2 or Barcode,Cluster.")
+               "odd.csv is not LGE's table or one of 10x's files. LGE's table has a barcode column, and 10x's files start Barcode,TSNE-1,TSNE-2 or Barcode,Cluster. "
+               + "LGE's table is tab-separated, and line 1 of odd.csv holds commas and no tab.")
         refuse(options([try file("one.tsv", "barcode\tumap_1\tumap_2\tleiden_1\n\(first)\t1\t2\t3\n")]),
                "one.tsv gives the embedding leiden only the column leiden_1. An embedding needs leiden_1 and leiden_2 at least. Name a column of labels with --label-column.")
         refuse(options([try file("gap.tsv", "barcode\tumap_1\tumap_3\n\(first)\t1\t2\n")]),

@@ -93,6 +93,23 @@ extension RNASeqPseudobulkTests {
         }
     }
 
+    /// Swift reads "\r\n" as one Character, so a label table that a Windows tool or Excel saved with CRLF was read as one line
+    /// and refused with "no label column". The sums of the CRLF copy have to equal the sums of the LF table (CM-IMPORT BIO, backlog 1).
+    func testACrLfLabelTableSumsLikeItsLfCopy() throws {
+        let result = try Self.singleCellResult([Self.starsolo], name: "solo", in: root)
+        let labels = Self.fixture.appendingPathComponent("labels-starsolo.tsv")
+        let text = try String(contentsOf: labels, encoding: .utf8)
+        XCTAssertFalse(text.contains("\r"), "the committed label table ends its lines with LF")
+        let crlf = try table(text.replacingOccurrences(of: "\n", with: "\r\n"), "labels-crlf.tsv")
+        var sums: [Data] = []
+        for given in [labels, crlf] {
+            let written = try write(try sum(result, given))
+            sums.append(try Data(contentsOf: written.appendingPathComponent("counts/genes.counts.tsv")))
+            try FileManager.default.removeItem(at: written)
+        }
+        XCTAssertEqual(sums[1], sums[0], "a label table with CRLF line ends sums like its LF copy")
+    }
+
     func testTheNineCellGroupIsLeftOutWithItsWordsAndTheTenCellGroupIsKept() throws {
         for cut in Self.cuts {
             let result = try Self.singleCellResult([cut.folder], name: cut.sample, in: root)
