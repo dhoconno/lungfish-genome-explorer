@@ -14,7 +14,6 @@ Every S4 row moved out of both files at the Phase 5 tidy stays readable at `fb43
 
 | Id | Effect on results or users | Severity | Field | Source |
 |---|---|---|---|---|
-| SC-TABLE-MAIN-THREAD | The single-cell view's cells table opens SQLite, counts the cells and reads every page on the main actor (`Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCellsTable.swift:83-93`, `RNASeqSingleCellSummary.swift:122-139`, `RNASeqSingleCellViewController.swift:111`). Each page opens a second handle and pages with `LIMIT/OFFSET`, so a page near row N walks N rows twice (`Sources/LungfishIO/Bundles/RNASeqCellsDatabase.swift:157`, `RNASeqCellsDatabase+Bins.swift:112`). On a large result, scrolling toward the end may keep the app from answering. The time is not measured. Probe: CM-PAGES-PROBE of 5.5 times the open and a page near the last row at 500,000 and 1,000,000 cells, and UX rates the row from the numbers | S? probe | UX | `~/lungfish-phase-records/sc-embed-plan/inv/SWIFT.md` F6, F7 |
 
 ## Phase 5
 
