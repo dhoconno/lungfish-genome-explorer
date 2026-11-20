@@ -156,13 +156,13 @@ final class RNASeqCellMapSelectionTests: XCTestCase {
             assertTheGridPathEqualsThePlainRule(x: x, y: y, polygon: polygon, what)
         }
 
-        // The jagged star of CM-SELECT-APP's finding 1 on uniform points: 1,000 vertices whose radius steps between 80
-        // and 55, so its spikes lie closer together than a bin is wide, over 20,000 points uniform in a 200 square. To
-        // them are added each vertex, the middle of each edge, and points on the lines through a vertex's y, so that many
-        // points lie on an edge, on a vertex, or at the y where an edge's span starts or stops.
+        // The jagged star of CM-SELECT-APP's finding 1: 1,000 vertices whose radius steps between 80 and 55. First over
+        // 4,000 points uniform in a 200 square, where a bin is wider than the gap between spikes. To them are added each
+        // vertex, the middle of each edge, and points on the lines through a vertex's y, so that many points lie on an
+        // edge, on a vertex, or at the y where an edge's span starts or stops.
         let jagged = Self.jaggedStar()
         var ux = ContiguousArray<Float32>(), uy = ContiguousArray<Float32>()
-        for _ in 0..<20_000 {
+        for _ in 0..<4_000 {
             ux.append(Float32(next() * 200 - 100))
             uy.append(Float32(next() * 200 - 100))
         }
@@ -172,7 +172,7 @@ final class RNASeqCellMapSelectionTests: XCTestCase {
             uy.append(vertex.y)
             ux.append((vertex.x + following.x) / 2)
             uy.append((vertex.y + following.y) / 2)
-            if k % 20 == 0 {
+            if k % 50 == 0 {
                 for step in stride(from: Float32(-100), through: 100, by: 2.5) {
                     ux.append(step)
                     uy.append(vertex.y)
@@ -181,7 +181,27 @@ final class RNASeqCellMapSelectionTests: XCTestCase {
         }
         ux.append(.nan)
         uy.append(3)
-        assertTheGridPathEqualsThePlainRule(x: ux, y: uy, polygon: jagged, "jagged star")
+        assertTheGridPathEqualsThePlainRule(x: ux, y: uy, polygon: jagged, "jagged star over a 200 square")
+
+        // Then over 3,000 points in a window round the spikes near angle 0, where the edges run almost level, so a bin is
+        // about as tall as the gap between spikes and a level edge crosses many columns of one row. The window's vertices
+        // and points on the lines through their y are added.
+        var wx = ContiguousArray<Float32>(), wy = ContiguousArray<Float32>()
+        for _ in 0..<3_000 {
+            wx.append(Float32(50 + next() * 35))
+            wy.append(Float32(next() * 12 - 6))
+        }
+        for vertex in jagged where vertex.x > 50 && abs(vertex.y) < 6 {
+            wx.append(vertex.x)
+            wy.append(vertex.y)
+            for step in stride(from: Float32(50), through: 85, by: 2.5) {
+                wx.append(step)
+                wy.append(vertex.y)
+            }
+        }
+        wx.append(.nan)
+        wy.append(3)
+        assertTheGridPathEqualsThePlainRule(x: wx, y: wy, polygon: jagged, "jagged star over a window round its level spikes")
     }
 
     /// The star whose radius steps between 80 and 55 at each of its 1,000 vertices, centred on the origin.

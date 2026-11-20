@@ -127,11 +127,23 @@ public enum RNASeqCellMapSelection {
         return Int(place)
     }
 
-    /// The grid path. Points with finite coordinates go into square bins over their bounds. Each row of bins lists the
-    /// edges whose y span reaches it, and an edge that a row does not list crosses no point of that row. A bin whose
-    /// points every listed edge crosses alike, judged at the bin's own lowest and highest x and y, takes all its points or
-    /// none, and any other bin tests each point by the plain rule over its row's edges. So the result equals `contains`
-    /// for every point. A point that is not finite is never inside.
+    /// The grid path. Points with finite coordinates go into square bins over their bounds, and each bin keeps the lowest
+    /// and highest x and y of its own points. For every point the plain rule counts the edges with
+    /// `(yi > py) != (yj > py)`, that is `py` in `[yLow, yHigh)`, and `px < edgeX`. The path sorts each edge, bin by bin,
+    /// into one of three answers that hold for every point of the bin, and the bin keeps the parity of the first:
+    /// - it crosses every point, when every point's y lies in its span and every point lies left of it;
+    /// - it crosses no point, when no point's y lies in its span or every point lies on or right of it;
+    /// - it may cross some, and the bin lists it, so each point of the bin tests it by `crosses`.
+    ///
+    /// A point is then inside when the bin's parity and the crossings of the listed edges are odd, which is the plain
+    /// rule's count, so the result equals `contains` for every point. A point that is not finite is never inside.
+    ///
+    /// Where an edge lies is judged from `edgeX` at the ends of the y range in question, clamped to the edge's span. For
+    /// a fixed edge `edgeX` and `bin` are monotone (`edgeX(_:_:)`, `bin(_:origin:scale:bins:)`), so `edgeX` at any y of the
+    /// range lies between those two values, and a point whose column is below the column of the lower value lies left of
+    /// every such x, and one whose column is above the column of the higher value lies right of every such x. An edge
+    /// whose span covers every point of a row and that lies wholly right of a bin flips the parity of every bin to its
+    /// left in one pass along the row, so a row costs its edges plus its bins, not their product.
     static func polygonMask(x: ContiguousArray<Float32>, y: ContiguousArray<Float32>, vertices: [Vertex]) -> [Bool] {
         let count = min(x.count, y.count)
         var inside = [Bool](repeating: false, count: count)
@@ -139,47 +151,47 @@ public enum RNASeqCellMapSelection {
 
         var lowX = Double.infinity, highX = -Double.infinity, lowY = Double.infinity, highY = -Double.infinity
         var finite = 0
-        for cell in 0..<count where x[cell].isFinite && y[cell].isFinite {
-            let px = Double(x[cell]), py = Double(y[cell])
-            lowX = min(lowX, px)
-            highX = max(highX, px)
-            lowY = min(lowY, py)
-            highY = max(highY, py)
-            finite += 1
+        x.withUnsafeBufferPointer { xs in
+            y.withUnsafeBufferPointer { ys in
+                for cell in 0..<count where xs[cell].isFinite && ys[cell].isFinite {
+                    let px = Double(xs[cell]), py = Double(ys[cell])
+                    lowX = min(lowX, px)
+                    highX = max(highX, px)
+                    lowY = min(lowY, py)
+                    highY = max(highY, py)
+                    finite += 1
+                }
+            }
         }
         guard finite > 0 else { return inside }
-        let side = max(1, min(512, Int((Double(finite) / 16).squareRoot())))
+        let side = max(1, min(gridSideLimit, Int((Double(finite) / pointsPerBin).squareRoot())))
         let scaleX = highX > lowX ? Double(side) / (highX - lowX) : 0
         let scaleY = highY > lowY ? Double(side) / (highY - lowY) : 0
         let binCount = side * side
 
         var binOfCell = [Int32](repeating: -1, count: count)
-        var starts = [Int](repeating: 0, count: binCount + 1)
-        var binLowX = [Float32](repeating: .infinity, count: binCount)
-        var binHighX = [Float32](repeating: -.infinity, count: binCount)
-        var binLowY = [Float32](repeating: .infinity, count: binCount)
-        var binHighY = [Float32](repeating: -.infinity, count: binCount)
-        for cell in 0..<count where x[cell].isFinite && y[cell].isFinite {
-            let px = x[cell], py = y[cell]
-            let row = bin(Double(py), origin: lowY, scale: scaleY, bins: side)
-            let column = bin(Double(px), origin: lowX, scale: scaleX, bins: side)
-            let place = row * side + column
-            binOfCell[cell] = Int32(place)
-            starts[place + 1] += 1
-            binLowX[place] = min(binLowX[place], px)
-            binHighX[place] = max(binHighX[place], px)
-            binLowY[place] = min(binLowY[place], py)
-            binHighY[place] = max(binHighY[place], py)
-        }
-        for place in 0..<binCount { starts[place + 1] += starts[place] }
-        var order = [Int32](repeating: 0, count: finite)
-        var next = starts
-        for cell in 0..<count where binOfCell[cell] >= 0 {
-            let place = Int(binOfCell[cell])
-            order[next[place]] = Int32(cell)
-            next[place] += 1
+        var boxes = [Box](repeating: Box(), count: binCount)
+        x.withUnsafeBufferPointer { xs in
+            y.withUnsafeBufferPointer { ys in
+                binOfCell.withUnsafeMutableBufferPointer { places in
+                    boxes.withUnsafeMutableBufferPointer { box in
+                        for cell in 0..<count where xs[cell].isFinite && ys[cell].isFinite {
+                            let px = xs[cell], py = ys[cell]
+                            let row = bin(Double(py), origin: lowY, scale: scaleY, bins: side)
+                            let column = bin(Double(px), origin: lowX, scale: scaleX, bins: side)
+                            let place = row * side + column
+                            places[cell] = Int32(place)
+                            box[place].lowX = min(box[place].lowX, px)
+                            box[place].highX = max(box[place].highX, px)
+                            box[place].lowY = min(box[place].lowY, py)
+                            box[place].highY = max(box[place].highY, py)
+                        }
+                    }
+                }
+            }
         }
 
+        // A row that an edge's span does not reach holds no point whose y lies in that span, since `bin` is monotone.
         var rowEdges = [[Int32]](repeating: [], count: side)
         for (index, edge) in edges.enumerated() {
             let first = bin(min(edge.yi, edge.yj), origin: lowY, scale: scaleY, bins: side)
@@ -187,41 +199,128 @@ public enum RNASeqCellMapSelection {
             for row in first...last { rowEdges[row].append(Int32(index)) }
         }
 
-        for place in 0..<binCount where starts[place + 1] > starts[place] {
-            let listed = rowEdges[place / side]
-            let pxLow = Double(binLowX[place]), pxHigh = Double(binHighX[place])
-            let pyLow = Double(binLowY[place]), pyHigh = Double(binHighY[place])
-            var odd = false
-            var mixed = false
-            for index in listed {
+        var odd = [Bool](repeating: false, count: binCount)
+        var listStart = [Int](repeating: 0, count: binCount + 1)
+        var listed: [Int32] = []
+        var pairs: [(column: Int, edge: Int32)] = []
+        var flip = [Bool](repeating: false, count: side + 1)
+        var perColumn = [Int](repeating: 0, count: side + 1)
+        for row in 0..<side {
+            let base = row * side
+            var rowLowY = Float32.infinity, rowHighY = -Float32.infinity
+            for place in base..<(base + side) {
+                rowLowY = min(rowLowY, boxes[place].lowY)
+                rowHighY = max(rowHighY, boxes[place].highY)
+            }
+            guard rowLowY <= rowHighY else {
+                for place in base..<(base + side) { listStart[place] = listed.count }
+                continue
+            }
+            let rowLow = Double(rowLowY), rowHigh = Double(rowHighY)
+            pairs.removeAll(keepingCapacity: true)
+            for column in 0...side { flip[column] = false }
+
+            for index in rowEdges[row] {
                 let edge = edges[Int(index)]
-                let iLow = edge.yi > pyLow, jLow = edge.yj > pyLow
-                guard iLow == (edge.yi > pyHigh), jLow == (edge.yj > pyHigh) else {
-                    mixed = true
-                    break
+                let yLow = min(edge.yi, edge.yj), yHigh = max(edge.yi, edge.yj)
+                let low = max(yLow, rowLow), high = min(yHigh, rowHigh)
+                guard low <= high else { continue }
+                let atLow = edgeX(edge, low), atHigh = edgeX(edge, high)
+                // Every point of a column before `first` lies left of the edge, and every point of a column after `last`
+                // lies on or right of it, which never crosses.
+                let first = bin(min(atLow, atHigh), origin: lowX, scale: scaleX, bins: side)
+                let last = bin(max(atLow, atHigh), origin: lowX, scale: scaleX, bins: side)
+                if yLow <= rowLow && rowHigh < yHigh {
+                    flip[first].toggle()
+                } else {
+                    for column in 0..<first {
+                        let place = base + column
+                        let box = boxes[place]
+                        guard !box.isEmpty else { continue }
+                        let pyLow = Double(box.lowY), pyHigh = Double(box.highY)
+                        if yLow <= pyLow && pyHigh < yHigh {
+                            odd[place].toggle()
+                        } else if !(pyHigh < yLow || pyLow >= yHigh) {
+                            pairs.append((column, index))
+                        }
+                    }
                 }
-                guard iLow != jLow else { continue }
-                let atLow = edgeX(edge, pyLow), atHigh = edgeX(edge, pyHigh)
-                if pxHigh < min(atLow, atHigh) {
-                    odd.toggle()
-                } else if !(pxLow >= max(atLow, atHigh)) {
-                    mixed = true
-                    break
+                for column in first...last {
+                    let place = base + column
+                    let box = boxes[place]
+                    guard !box.isEmpty else { continue }
+                    let pyLow = Double(box.lowY), pyHigh = Double(box.highY)
+                    let lowHere = max(yLow, pyLow), highHere = min(yHigh, pyHigh)
+                    guard lowHere <= highHere else { continue }
+                    let a = edgeX(edge, lowHere), b = edgeX(edge, highHere)
+                    if Double(box.highX) < min(a, b) {
+                        if yLow <= pyLow && pyHigh < yHigh { odd[place].toggle() } else { pairs.append((column, index)) }
+                    } else if !(Double(box.lowX) >= max(a, b)) {
+                        pairs.append((column, index))
+                    }
                 }
             }
-            let range = starts[place]..<starts[place + 1]
-            if mixed {
-                for slot in range {
-                    let cell = Int(order[slot])
-                    let px = Double(x[cell]), py = Double(y[cell])
-                    var crossed = false
-                    for index in listed where crosses(edges[Int(index)], px, py) { crossed.toggle() }
-                    inside[cell] = crossed
+
+            // A column takes the flips of every full-span edge whose `first` lies past it.
+            var running = false
+            for column in stride(from: side - 1, through: 0, by: -1) {
+                if flip[column + 1] { running.toggle() }
+                if running { odd[base + column].toggle() }
+            }
+
+            // The listed edges of the row, bin by bin in column order.
+            for column in 0...side { perColumn[column] = 0 }
+            for pair in pairs { perColumn[pair.column + 1] += 1 }
+            for column in 0..<side { perColumn[column + 1] += perColumn[column] }
+            let start = listed.count
+            for column in 0..<side { listStart[base + column] = start + perColumn[column] }
+            listed.append(contentsOf: repeatElement(0, count: pairs.count))
+            for pair in pairs {
+                listed[start + perColumn[pair.column]] = pair.edge
+                perColumn[pair.column] += 1
+            }
+        }
+        listStart[binCount] = listed.count
+
+        // One byte a bin for the pass over the points: bit 0 the parity, bit 1 set when the bin lists an edge.
+        var answer = [UInt8](repeating: 0, count: binCount)
+        for place in 0..<binCount {
+            answer[place] = (listStart[place] < listStart[place + 1] ? 2 : 0) | (odd[place] ? 1 : 0)
+        }
+        x.withUnsafeBufferPointer { xs in
+            y.withUnsafeBufferPointer { ys in
+                binOfCell.withUnsafeBufferPointer { places in
+                    inside.withUnsafeMutableBufferPointer { out in
+                        for cell in 0..<count {
+                            let place = Int(places[cell])
+                            guard place >= 0 else { continue }
+                            let kind = answer[place]
+                            guard kind >= 2 else {
+                                out[cell] = kind == 1
+                                continue
+                            }
+                            var crossed = kind == 3
+                            let px = Double(xs[cell]), py = Double(ys[cell])
+                            for slot in listStart[place]..<listStart[place + 1] where crosses(edges[Int(listed[slot])], px, py) {
+                                crossed.toggle()
+                            }
+                            out[cell] = crossed
+                        }
+                    }
                 }
-            } else if odd {
-                for slot in range { inside[Int(order[slot])] = true }
             }
         }
         return inside
     }
+
+    /// The lowest and highest x and y of the points in one bin, in one place so that a point touches one cache line. An
+    /// empty bin keeps the infinities it starts with.
+    struct Box {
+        var lowX = Float32.infinity, highX = -Float32.infinity, lowY = Float32.infinity, highY = -Float32.infinity
+        var isEmpty: Bool { !(lowX <= highX) }
+    }
+
+    /// About this many finite points share a bin, and a side holds at most `gridSideLimit` bins.
+    static let pointsPerBin: Double = 16
+    static let gridSideLimit = 512
 }
