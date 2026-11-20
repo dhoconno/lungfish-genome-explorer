@@ -153,17 +153,59 @@ final class RNASeqCellMapSelectionTests: XCTestCase {
             return Vertex(x: Float32(radius * cos(angle)), y: Float32(radius * sin(angle)))
         }
         for (polygon, what) in [(star, "star"), (grid, "grid"), (sliver, "sliver"), (lasso, "lasso"), (Self.square, "square")] {
-            let found = Selection.mask(x: x, y: y, rule: .polygon(polygon))
-            var differ = 0
-            var held = 0
-            for cell in x.indices {
-                if found[cell] != Selection.contains(x: x[cell], y: y[cell], polygon: polygon) { differ += 1 }
-                if found[cell] { held += 1 }
-            }
-            XCTAssertEqual(differ, 0, "the grid path and the plain rule differ on \(differ) points of the \(what)")
-            XCTAssertGreaterThan(held, 0, "the \(what) holds some points")
-            XCTAssertFalse(found[x.count - 1], "a point with no x is never inside the \(what)")
+            assertTheGridPathEqualsThePlainRule(x: x, y: y, polygon: polygon, what)
         }
+
+        // The jagged star of CM-SELECT-APP's finding 1 on uniform points: 1,000 vertices whose radius steps between 80
+        // and 55, so its spikes lie closer together than a bin is wide, over 20,000 points uniform in a 200 square. To
+        // them are added each vertex, the middle of each edge, and points on the lines through a vertex's y, so that many
+        // points lie on an edge, on a vertex, or at the y where an edge's span starts or stops.
+        let jagged = Self.jaggedStar()
+        var ux = ContiguousArray<Float32>(), uy = ContiguousArray<Float32>()
+        for _ in 0..<20_000 {
+            ux.append(Float32(next() * 200 - 100))
+            uy.append(Float32(next() * 200 - 100))
+        }
+        for (k, vertex) in jagged.enumerated() {
+            let following = jagged[(k + 1) % jagged.count]
+            ux.append(vertex.x)
+            uy.append(vertex.y)
+            ux.append((vertex.x + following.x) / 2)
+            uy.append((vertex.y + following.y) / 2)
+            if k % 20 == 0 {
+                for step in stride(from: Float32(-100), through: 100, by: 2.5) {
+                    ux.append(step)
+                    uy.append(vertex.y)
+                }
+            }
+        }
+        ux.append(.nan)
+        uy.append(3)
+        assertTheGridPathEqualsThePlainRule(x: ux, y: uy, polygon: jagged, "jagged star")
+    }
+
+    /// The star whose radius steps between 80 and 55 at each of its 1,000 vertices, centred on the origin.
+    static func jaggedStar() -> [Vertex] {
+        (0..<1_000).map { step in
+            let angle = Float32(step) / 1_000 * 2 * .pi
+            let radius: Float32 = step % 2 == 0 ? 80 : 55
+            return Vertex(x: radius * cos(angle), y: radius * sin(angle))
+        }
+    }
+
+    /// Every point gets `contains`'s answer, some point is inside, and the last point, which has no x, is not.
+    func assertTheGridPathEqualsThePlainRule(x: ContiguousArray<Float32>, y: ContiguousArray<Float32>, polygon: [Vertex], _ what: String,
+                                             file: StaticString = #filePath, line: UInt = #line) {
+        let found = Selection.mask(x: x, y: y, rule: .polygon(polygon))
+        var differ = 0
+        var held = 0
+        for cell in x.indices {
+            if found[cell] != Selection.contains(x: x[cell], y: y[cell], polygon: polygon) { differ += 1 }
+            if found[cell] { held += 1 }
+        }
+        XCTAssertEqual(differ, 0, "the grid path and the plain rule differ on \(differ) points of the \(what)", file: file, line: line)
+        XCTAssertGreaterThan(held, 0, "the \(what) holds some points", file: file, line: line)
+        XCTAssertFalse(found[x.count - 1], "a point with no x is never inside the \(what)", file: file, line: line)
     }
 
     // MARK: - The time at 1,000,000 cells
@@ -192,22 +234,49 @@ final class RNASeqCellMapSelectionTests: XCTestCase {
             let radius = 9 + 2 * sin(5 * angle)
             return Vertex(x: Float32(15 + radius * cos(angle)), y: Float32(10 + radius * sin(angle)))
         }
+        timeTheMembership(x: x, y: y, polygon: lasso, "CM-SELECT-CLI membership bench: 1000000 clustered cells, a smooth lasso of 1000 vertices")
+    }
+
+    /// The case of CM-SELECT-APP's finding 1, where the grid path took about 155 ms in an optimized build before the
+    /// bins listed their own edges: the jagged star of 1,000 vertices against 1,000,000 cells uniform in a 200 square.
+    /// It runs only with LUNGFISH_PERF_BENCH=1, and only an optimized build asserts the bar.
+    func testOneMillionUniformCellsAgainstAJaggedStarOf1000Vertices() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["LUNGFISH_PERF_BENCH"] == "1",
+                          "Set LUNGFISH_PERF_BENCH=1 to time the membership function at 1,000,000 cells.")
+        let count = 1_000_000
+        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+        func next() -> Float32 {
+            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return Float32(state >> 40) / Float32(1 << 24) * 200 - 100
+        }
+        var x = ContiguousArray<Float32>(repeating: 0, count: count)
+        var y = ContiguousArray<Float32>(repeating: 0, count: count)
+        for cell in 0..<count {
+            x[cell] = next()
+            y[cell] = next()
+        }
+        timeTheMembership(x: x, y: y, polygon: Self.jaggedStar(), "CM-SELECT-APP membership bench: 1000000 uniform cells, a jagged star of 1000 vertices")
+    }
+
+    /// Times 11 runs of the membership function and prints the first, the median and the slowest. An optimized build
+    /// asserts the median under 50 ms (check X3), and a Debug build prints its figures and says it does not assert them.
+    func timeTheMembership(x: ContiguousArray<Float32>, y: ContiguousArray<Float32>, polygon: [Vertex], _ what: String,
+                           file: StaticString = #filePath, line: UInt = #line) {
         var times: [Double] = []
         var held = 0
         for _ in 0..<11 {
             let start = DispatchTime.now().uptimeNanoseconds
-            let found = Selection.mask(x: x, y: y, rule: .polygon(lasso))
+            let found = Selection.mask(x: x, y: y, rule: .polygon(polygon))
             times.append(Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6)
             held = found.reduce(0) { $1 ? $0 + 1 : $0 }
         }
         let sorted = times.sorted()
         let median = sorted[sorted.count / 2]
-        print(String(format: "CM-SELECT-CLI membership bench: 1000000 cells, 1000 vertices, first %.1f ms, median %.1f ms, slowest %.1f ms, %d cells inside",
-                     times[0], median, sorted.last ?? 0, held))
+        print(String(format: "%@: first %.1f ms, median %.1f ms, slowest %.1f ms, %d cells inside", what, times[0], median, sorted.last ?? 0, held))
         #if DEBUG
-        print("CM-SELECT-CLI membership bench: the 50 ms bar of check X3 applies to an optimized build, so this Debug build does not assert it.")
+        print("\(what): the 50 ms bar of check X3 applies to an optimized build, so this Debug build does not assert it.")
         #else
-        XCTAssertLessThan(median, 50, "the membership of 1,000,000 cells stays under 50 ms (check X3)")
+        XCTAssertLessThan(median, 50, "the membership of 1,000,000 cells stays under 50 ms (check X3)", file: file, line: line)
         #endif
     }
 }
