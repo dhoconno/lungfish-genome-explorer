@@ -30,11 +30,30 @@ G5=(C143 C145 C51 C52)
 want() { case " $STEPS " in *" all "*|*" $1 "*) return 0 ;; esac; return 1; }
 log() { echo "run.sh: $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
-# Timed runs wait until no other worktree builds, checked empty twice 30 s apart.
+# Timed runs wait until no other worktree builds or tests, checked empty twice 30 s apart.
+# LGE_SC_IGNORE names a pattern of one known single-core run to leave out of the check
+# (default: CM-KIND's X5 measure, which the coordinator allowed beside the timed runs).
+IGNORE=${LGE_SC_IGNORE:-testTheX5CellMapBuildsUnderOneGiB|agent-a27a57415dd18a53c}
+hostlog() {
+  log "$1 load $(sysctl -n vm.loadavg 2>/dev/null || true), memory pressure level \
+$(sysctl -n kern.memorystatus_vm_pressure_level 2>/dev/null || true), $(memory_pressure -Q 2>/dev/null | tail -n 1 || true)"
+}
+timed() {
+  local rc
+  wait_quiet
+  hostlog "$1 timed start"
+  set +e
+  embed "$@"
+  rc=$?
+  set -e
+  hostlog "$1 timed end"
+  return $rc
+}
 wait_quiet() {
   local hits n=0
   while [ $n -lt 2 ]; do
-    hits=$(ps -axo pid,command | grep -E 'swift-(build|frontend|test)' | grep -v -F "$REPO" | grep -v grep || true)
+    hits=$(ps -axo pid,command | grep -E 'swift-(build|frontend|test)|xctest' | grep -v -F "$REPO" \
+      | grep -v -E "$IGNORE" | grep -v grep || true)
     if [ -z "$hits" ]; then n=$((n + 1)); else n=0; log "waiting, another worktree builds"; fi
     [ $n -lt 2 ] && sleep 30
   done
@@ -118,9 +137,9 @@ if want seeds; then
   for s in 1 2 3 4 5 6 7 8 9; do embed "g2-seed$s" 1 0 "${IN_G2[@]}" --leiden-seed "$s"; done
 fi
 if want g1; then
-  wait_quiet; embed g1-a 1 0 "${IN_G1[@]}"
-  wait_quiet; embed g1-b 1 0 "${IN_G1[@]}"
-  wait_quiet; embed g1-t4 4 0 "${IN_G1[@]}"
+  timed g1-a 1 0 "${IN_G1[@]}"
+  timed g1-b 1 0 "${IN_G1[@]}"
+  timed g1-t4 4 0 "${IN_G1[@]}"
 fi
 if want probes; then
   embed g1-default 1 0 "${IN_G1[@]}" --knn-transformer scanpy-default
@@ -128,9 +147,9 @@ if want probes; then
 fi
 if want flavors; then
   IG=(--leiden-flavor igraph --leiden-directed false)
-  wait_quiet; embed g1-igraph-a 1 0 "${IN_G1[@]}" "${IG[@]}"
-  wait_quiet; embed g1-igraph-b 1 0 "${IN_G1[@]}" "${IG[@]}"
-  wait_quiet; embed g1-igraph-t4 4 0 "${IN_G1[@]}" "${IG[@]}"
+  timed g1-igraph-a 1 0 "${IN_G1[@]}" "${IG[@]}"
+  timed g1-igraph-b 1 0 "${IN_G1[@]}" "${IG[@]}"
+  timed g1-igraph-t4 4 0 "${IN_G1[@]}" "${IG[@]}"
 fi
 if want g5; then
   if [ ! -f "$WORK/gse145926/C52/SHA256SUMS" ]; then
@@ -145,9 +164,9 @@ if want g5; then
   done
 fi
 if want g3; then
-  wait_quiet; embed g3-a 1 0 "${IN_G3[@]}" --n-pcs 20 --resolution 0.8
-  wait_quiet; embed g3-b 1 0 "${IN_G3[@]}" --n-pcs 20 --resolution 0.8
-  wait_quiet; embed g3-t4 4 0 "${IN_G3[@]}" --n-pcs 20 --resolution 0.8
+  timed g3-a 1 0 "${IN_G3[@]}" --n-pcs 20 --resolution 0.8
+  timed g3-b 1 0 "${IN_G3[@]}" --n-pcs 20 --resolution 0.8
+  timed g3-t4 4 0 "${IN_G3[@]}" --n-pcs 20 --resolution 0.8
 fi
 if want sub100k; then
   if [ ! -f "$WORK/sub100k.tsv" ]; then
@@ -156,7 +175,7 @@ if want sub100k; then
     env -i PATH=/usr/bin:/bin "$PY" -s -B -P "$HERE/prep.py" subsample 100000 0 "$WORK/sub100k.tsv" "${SPECS[@]}" \
       > "$WORK/logs/sub100k-prep.log"
   fi
-  wait_quiet; embed g3-sub100k 1 0 "${IN_G3[@]}" --n-pcs 20 --resolution 0.8 --cells "$WORK/sub100k.tsv"
+  timed g3-sub100k 1 0 "${IN_G3[@]}" --n-pcs 20 --resolution 0.8 --cells "$WORK/sub100k.tsv"
 fi
 if want claims; then
   env -i PATH=/usr/bin:/bin "$PY" -s -B -P "$HERE/claims.py" "$WORK" "$RNASEQ" "$HERE/claims.tsv"
