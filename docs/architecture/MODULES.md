@@ -20,7 +20,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishIO | library | Sources/LungfishIO | 685 | LungfishCore |
+| LungfishIO | library | Sources/LungfishIO | 688 | LungfishCore |
 | LungfishKit | library | Sources/LungfishKit | 161 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
@@ -31,7 +31,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1618 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1620 | LungfishCore, LungfishIO |
 | LungfishWorkflowTwelveS | library | Sources/LungfishWorkflowTwelveS | 38 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
@@ -1487,6 +1487,9 @@ None.
 - `ReferenceSequenceManifest` struct, `Sources/LungfishIO/Bundles/ReferenceSequenceFolder.swift`
 - `ReferenceSequenceScanner` enum, `Sources/LungfishIO/Formats/FASTQ/ReferenceSequenceScanner.swift`
 - `ResultBundleSampleMetadataResolver` enum, `Sources/LungfishIO/Metadata/ResultBundleSampleMetadataResolver.swift`
+- `RNASeqCellMap` enum, `Sources/LungfishIO/Bundles/RNASeqCellMapDatabase.swift`
+- `RNASeqCellMapDatabase` struct, `Sources/LungfishIO/Bundles/RNASeqCellMapDatabase+Read.swift`
+- `RNASeqCellMapDatabaseWriter` class, `Sources/LungfishIO/Bundles/RNASeqCellMapDatabase.swift`
 - `RNASeqCellsDatabase` class, `Sources/LungfishIO/Bundles/RNASeqCellsDatabase.swift`
 - `RNASeqCellsDatabaseWriter` class, `Sources/LungfishIO/Bundles/RNASeqCellsDatabaseWriter.swift`
 - `RNASeqCountTable` struct, `Sources/LungfishIO/Bundles/RNASeqResultTables.swift`
@@ -3406,6 +3409,8 @@ None.
 - `ResolvedSequenceInputs` struct, `Sources/LungfishWorkflow/Mapping/ResolvedSequenceInputs.swift`
 - `ResolvedSequenceInputsError` enum, `Sources/LungfishWorkflow/Mapping/ResolvedSequenceInputs.swift`
 - `RiboDetectorStep` struct, `Sources/LungfishWorkflow/Recipes/Steps/RiboDetectorStep.swift`
+- `RNASeqCellMapError` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqResultWriter+CellMap.swift`
+- `RNASeqCellMapGenes` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCellMapGenes.swift`
 - `RNASeqCountTableReader` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCountTableReader.swift`
 - `RNASeqExport` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqExportFolder.swift`
 - `RNASeqExportDesignCheck` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqExportDesign.swift`
