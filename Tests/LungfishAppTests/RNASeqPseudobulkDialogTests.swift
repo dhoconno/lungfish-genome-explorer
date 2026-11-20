@@ -117,6 +117,28 @@ final class RNASeqPseudobulkDialogTests: XCTestCase {
         XCTAssertNil(RNASeqCellMapSelectWords.paneWords(forCLIWords: "Something else."))
     }
 
+    /// Only Pseudobulk Selected Cells… sets a cell map's selection in the pane, and the window is shared for the session, so any
+    /// other way into the pane must drop it (CM-SELECT-APP-SWIFT B1).
+    func testAnotherRouteIntoThePseudobulkPaneDropsASelection() {
+        let suite = makeTestDefaultsSuite(prefix: "RNASeqPseudobulkDialogTests")
+        let state = WorkflowOperationDialogState(
+            projectURL: nil, initialToolID: WorkflowLibraryCatalog.rnaSeqPseudobulkID,
+            enablementStore: WorkflowLibraryEnablementStore(userDefaults: suite.defaults),
+            packageStore: WorkflowLibraryImportedPackageStore(userDefaults: suite.defaults))
+        let controller = WorkflowOperationsWindowController(
+            projectURL: nil, routeContext: nil, selectedReadURLs: [], sidebarInputSelection: nil, initialToolID: nil,
+            providedState: state, persistWindowFrame: false, appDelegate: nil)
+        defer { controller.close() }
+        RNASeqCellMapSelectRun.fill(state, with: RNASeqEmbeddingSelectionRequest(
+            cellMapURL: map, cellMapName: "pbmc-map", parentURL: single, embedding: "UMAP", form: .polygon(lasso), count: 412,
+            underTenWords: []))
+        XCTAssertNotNil(state.rnaSeqPseudobulk.selection, "Pseudobulk Selected Cells… fills the pane with the selection")
+        controller.configure(
+            projectURL: nil, routeContext: nil, selectedReadURLs: [], sidebarInputSelection: nil,
+            initialToolID: WorkflowLibraryCatalog.rnaSeqPseudobulkID)
+        XCTAssertNil(state.rnaSeqPseudobulk.selection, "any other route into the Pseudobulk pane drops a cell map's selection")
+    }
+
     // MARK: Import Embedding (CM-IMPORT-APP)
     //
     // The same three cases for the import route, then a refusal case for each control that unlocks one, and the row that must read

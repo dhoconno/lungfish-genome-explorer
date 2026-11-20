@@ -181,6 +181,96 @@ final class RNASeqEmbeddingSelectionTests: XCTestCase {
         XCTAssertFalse(controller.pseudobulkSelectionButton.isEnabled)
     }
 
+    /// Escape and Space as key events, which the tests above reach only through `cancelOperation` and `onRowToggle`
+    /// (CM-SELECT-APP-SWIFT B3).
+    func testEscapeAndSpaceAsKeyEventsReachThePlotAndTheLegend() async throws {
+        let (surface, controller, _) = try await open()
+        defer { withExtendedLifetime(surface) {} }
+        func key(_ code: UInt16, _ characters: String) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+        }
+        controller.selectLegendRow(0, adding: false)
+        await settle(controller)
+        let rowZero = try XCTUnwrap(controller.selection?.count)
+
+        controller.plot.keyDown(with: try key(53, "\u{1B}"))
+        await settle(controller)
+        XCTAssertNil(controller.selection, "Escape with the plot focused clears the selection")
+
+        controller.selectLegendRow(0, adding: false)
+        await settle(controller)
+        XCTAssertEqual(controller.selection?.count, rowZero)
+        controller.legendView.keyDown(with: try key(53, "\u{1B}"))
+        await settle(controller)
+        XCTAssertNil(controller.selection, "Escape with the legend focused clears the selection")
+
+        controller.legendView.keyDown(with: try key(49, " "))
+        await settle(controller)
+        XCTAssertEqual(controller.selection?.rows, [0], "Space selects the focused row, which is row 0 until the arrows move it")
+        XCTAssertEqual(controller.selection?.count, rowZero)
+    }
+
+    /// The numbers the view works out for itself (CM-SELECT-APP-SWIFT SF1). They pin the code as it is.
+    func testSampleCountsFollowSampleOrderAndOnlySamplesUnderTenGetALine() {
+        // 30 cells in sample order: "a" holds cells 0..<12 and "b" holds cells 12..<30.
+        let mask = (0..<30).map { $0 < 3 || (12..<22).contains($0) }
+        let samples = [RNASeqCellMapDatabase.Sample(sample: 0, name: "a", cells: 12),
+                       RNASeqCellMapDatabase.Sample(sample: 1, name: "b", cells: 18)]
+        let counts = RNASeqEmbeddingSelection.sampleCounts(mask, samples: samples)
+        XCTAssertEqual(counts, [RNASeqEmbeddingSelectionSample(sample: "a", selected: 3),
+                                RNASeqEmbeddingSelectionSample(sample: "b", selected: 10)])
+        func selection(_ samples: [RNASeqEmbeddingSelectionSample]) -> RNASeqEmbeddingSelection {
+            RNASeqEmbeddingSelection(
+                embedding: 0, mask: mask, count: samples.reduce(0) { $0 + $1.selected }, samples: samples, form: nil,
+                rows: [], rowsColouring: nil, polygon: nil)
+        }
+        let words = selection(counts).underTenWords
+        XCTAssertEqual(words.count, 1, "b holds 10 selected cells, which is not under 10")
+        XCTAssertTrue(words.first?.hasPrefix("a holds 3 selected cells") == true, "\(words)")
+        let one = selection([RNASeqEmbeddingSelectionSample(sample: "a", selected: 1)]).underTenWords
+        XCTAssertEqual(one.count, 1)
+        XCTAssertTrue(one.first?.hasPrefix("a holds 1 selected cell,") == true, "a single cell is singular: \(one)")
+        XCTAssertEqual(selection([RNASeqEmbeddingSelectionSample(sample: "a", selected: 0)]).underTenWords, [],
+                       "a sample with none selected gets no line")
+    }
+
+    func testALassoDrawnRoundAPixelSelectsTheCellThePlotReadsThere() async throws {
+        let (surface, controller, _) = try await open()
+        defer { withExtendedLifetime(surface) {} }
+        let plot = controller.plot
+        let raster = try XCTUnwrap(plot.raster)
+        // The first pixel that reads a cell, then the middle of that cell's pixels in the rows and columns round it.
+        var first: (column: Int, row: Int, cell: Int)?
+        search: for row in 0..<raster.height {
+            for column in 0..<raster.width {
+                if let cell = plot.cell(at: plot.viewPoint(column: column, row: row)) {
+                    first = (column, row, cell)
+                    break search
+                }
+            }
+        }
+        let start = try XCTUnwrap(first, "the plot draws a cell")
+        var hits: [(column: Int, row: Int)] = []
+        for row in start.row..<min(start.row + 16, raster.height) {
+            for column in max(start.column - 16, 0)..<min(start.column + 16, raster.width)
+            where plot.cell(at: plot.viewPoint(column: column, row: row)) == start.cell {
+                hits.append((column, row))
+            }
+        }
+        let column = hits.map { $0.column }.reduce(0, +) / hits.count
+        let row = hits.map { $0.row }.reduce(0, +) / hits.count
+        let centre = plot.viewPoint(column: column, row: row)
+        let corners = [CGPoint(x: centre.x - 3, y: centre.y - 3), CGPoint(x: centre.x + 3, y: centre.y - 3),
+                       CGPoint(x: centre.x + 3, y: centre.y + 3), CGPoint(x: centre.x - 3, y: centre.y + 3)]
+        controller.lasso(corners, modifiers: [])
+        await settle(controller)
+        let selection = try XCTUnwrap(controller.selection, "the lasso selected a cell")
+        XCTAssertTrue(selection.mask[start.cell], "the cell the plot reads at that pixel lies inside a lasso drawn round the pixel")
+        XCTAssertLessThan(selection.count, selection.mask.count, "a lasso 6 view points wide does not hold every cell")
+    }
+
     func testTheLassoKeepsAtMostTheFormatPagesVertexCountByOneRule() {
         let drag = (0..<5_000).map { step -> CGPoint in
             let angle = Double(step) / 5_000 * 2 * .pi
