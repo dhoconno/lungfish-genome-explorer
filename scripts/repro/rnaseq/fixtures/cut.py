@@ -52,6 +52,8 @@ PINS = {
     "studies/GSE47774/truth/ercc/ERCC92.zip": "8d5f23e997248084cc210061f07f1a51c2f1bf49ea07ee08a9f78bf6ff074807",
     "studies/GSE47774/fastq/SRR896663_1.fastq.gz": "a2d12d0591b79af3f149063be52c1f61260e152cd4e35b72c4537eba25b32692",
     "studies/GSE47774/fastq/SRR896663_2.fastq.gz": "e3a5b7bd9fec6d3e9db5a746b2194654877135e323a817d644324ad4f1f11efd",
+    # 10x's analysis archive of pbmc_1k_v3, the file the dataset page lists (SCR/rulings/LICENCE-2.md items 1 to 3).
+    "sc-embed/tenx/pbmc_1k_v3/pbmc_1k_v3_analysis.tar.gz": "96373ac9d576bf9673ed50af0bbacf5e4a93f78b1fb6070f54b311cb178cb513",
 }
 PROBE_PAIRS = 6000  # the first 6,000 pairs of SRR896663 (RS-QUANT's probe), under 2 MB with ERCC92
 
@@ -63,6 +65,8 @@ C9_EVERY = 300      # every 300th gene of the C9 count table
 SOLO = "work/tenx-controls/solo/pbmc_1k_v3"
 TENX_TAR = "tenx/pbmc_1k_v3/pbmc_1k_v3_filtered_feature_bc_matrix.tar.gz"
 NFCORE_TAR = "fixtures/nfcore-yeast/salmon_results.tar.gz"
+ANALYSIS_TAR = "sc-embed/tenx/pbmc_1k_v3/pbmc_1k_v3_analysis.tar.gz"
+ANALYSIS_FILES = ("analysis/tsne/2_components/projection.csv", "analysis/clustering/graphclust/clusters.csv")
 
 
 def die(message):
@@ -197,6 +201,20 @@ def single_cell(cut):
     summary = "tenx/pbmc_1k_v3/pbmc_1k_v3_metrics_summary.csv"
     cut.write("cellranger-pbmc_1k_v3/outs/metrics_summary.csv", cut.read(summary))
     cut.source(summary, "cellranger-pbmc_1k_v3/outs/metrics_summary.csv", "whole, so it describes all cells")
+    return cells
+
+
+def tenx_analysis(cut, cells):
+    """10x's t-SNE and graph clusters of pbmc_1k_v3, cut to the 200 cells of the two matrices (lane CM-IMPORT)."""
+    with tarfile.open(fileobj=io.BytesIO(cut.read(ANALYSIS_TAR)), mode="r:gz") as tar:
+        for name in ANALYSIS_FILES:
+            lines = tar.extractfile(name).read().decode().splitlines(keepends=True)
+            kept = [lines[0]] + [line for line in lines[1:] if line.split(",", 1)[0].split("-", 1)[0] in cells]
+            if len(kept) != CELLS + 1:
+                die(f"{name} lists {len(kept) - 1} of the {CELLS} cells")
+            out = f"tenx-analysis-pbmc_1k_v3/{name}"
+            cut.write(out, "".join(kept).encode())
+            cut.source(ANALYSIS_TAR, out, f"{name} of the archive, its first line and the lines of the {CELLS} cells, in file order")
 
 
 def umi_table(cut):
@@ -328,7 +346,7 @@ def main(argv):
     os.makedirs(out_dir, exist_ok=True)
     cut = Cut(data_root, out_dir)
     salmon(cut)
-    single_cell(cut)
+    tenx_analysis(cut, single_cell(cut))
     umi_table(cut)
     nfcore(cut)
     refset_mito(cut)
