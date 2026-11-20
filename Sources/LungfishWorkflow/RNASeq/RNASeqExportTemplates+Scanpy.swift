@@ -101,7 +101,7 @@ print(adata)
 
 # ---- Hand back to LGE. LGE reads no HDF5, so this block writes lge-cell-map.tsv, a table that lungfish-cli rnaseq cell-map import reads. ----
 # The sample and barcode of each cell come from adata.obs, never from its name, which the sample prefix and Scanpy's renames change.
-# Each obsm key is written as <name>_1 to <name>_<k>, without X_, with numbers that read back exactly, and leiden or louvain as labels.
+# Each obsm key that gives every cell 2 or more finite values under a name of its own is written as <name>_1 to <name>_<k>, without X_, and one that does not is named in a line that says so. The numbers are written so LGE reads them back exactly, and leiden and louvain, when the object has them, are written as the labels.
 
 
 def write_lge_cell_map(adata, path=os.path.join(here, "lge-cell-map.tsv")):
@@ -142,7 +142,7 @@ def write_lge_cell_map(adata, path=os.path.join(here, "lge-cell-map.tsv")):
             handle.write("\t".join(row) + "\n")
     print("Wrote %s, %d cells with the embeddings %s%s." % (path, adata.n_obs, ", ".join(written),
                                                             " and the labels of " + ", ".join(labels) if labels else ""))
-    print("Import it into LGE with this command, where RESULT is the single-cell result this folder was exported from and NEW names the new cell map:")
+    print("Import it into LGE with this command, where RESULT is the single-cell result this folder was exported from and NEW names the new cell map, such as <project>/Analyses/<name>.lungfishrnaseq:")
     print(" ".join(["lungfish-cli rnaseq cell-map import RESULT --coordinates", shlex.quote(os.path.abspath(path))] + flags + ["--output NEW.lungfishrnaseq"]))
     return path
 

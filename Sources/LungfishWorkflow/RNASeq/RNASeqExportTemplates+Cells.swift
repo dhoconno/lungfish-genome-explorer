@@ -84,7 +84,7 @@ if (requireNamespace("Seurat", quietly = TRUE)) {
 
 # ---- Hand back to LGE. LGE reads no RDS, so this block writes lge-cell-map.tsv, a table that lungfish-cli rnaseq cell-map import reads. ----
 # The sample and barcode of each cell come from meta.data, never from its name, which the sample prefix and Seurat's renames change.
-# Each reduction is written as <name>_1 to <name>_<k>, with numbers that read back exactly, and seurat_clusters as labels.
+# Each reduction that gives every cell 2 or more finite values is written as <name>_1 to <name>_<k>, and one that does not is named in a line that says so. The numbers are written so LGE reads them back exactly, and seurat_clusters, when the object has it, is written as the labels.
 write_lge_cell_map <- function(object, path = "lge-cell-map.tsv") {
   meta <- object[[]]
   for (column in c("sample", "barcode")) if (!column %in% names(meta)) stop("meta.data has no ", column, " column, so LGE cannot match the cells. Make the object with seurat.R, which sets sample and barcode.", call. = FALSE)
@@ -113,7 +113,7 @@ write_lge_cell_map <- function(object, path = "lge-cell-map.tsv") {
   write.table(table, path, sep = "\t", quote = FALSE, row.names = FALSE, na = "", eol = "\n")
   cat(sprintf("Wrote %s, %d cells with the embeddings %s%s.\n", path, nrow(table), paste(written, collapse = ", "),
               if (length(labels)) paste0(" and the labels of ", paste(labels, collapse = ", ")) else ""))
-  cat("Import it into LGE with this command, where RESULT is the single-cell result this folder was exported from and NEW names the new cell map:\n")
+  cat("Import it into LGE with this command, where RESULT is the single-cell result this folder was exported from and NEW names the new cell map, such as <project>/Analyses/<name>.lungfishrnaseq:\n")
   cat(paste(c("lungfish-cli rnaseq cell-map import RESULT --coordinates", shQuote(normalizePath(path)), flags, "--output NEW.lungfishrnaseq"), collapse = " "), "\n", sep = "")
   invisible(path)
 }

@@ -36,11 +36,11 @@ final class RNASeqCellMapHandBackTests: XCTestCase {
         let cases: [(name: String, text: String, object: String, block: String, words: [String], never: [String])] = [
             ("seurat.R", seurat, "CreateSeuratObject(", "write_lge_cell_map <- function(object",
              [#"meta[["sample"]]"#, #"meta[["barcode"]]"#, #"sprintf("%.17g""#, "SeuratObject::Reductions(object)", "seurat_clusters",
-              "write_lge_cell_map(object)"],
+              "write_lge_cell_map(object)", "The object holds no reduction yet"],
              ["colnames(object)", "Cells(object)", "strsplit(", "sub("]),
             ("scanpy.py", scanpy, "sc.AnnData(", "def write_lge_cell_map(adata",
              [#"adata.obs["sample"]"#, #"adata.obs["barcode"]"#, "repr(float(", "adata.obsm", #""leiden""#, #""louvain""#,
-              "write_lge_cell_map(adata)"],
+              "write_lge_cell_map(adata)", "The AnnData holds no reduction yet"],
              ["obs_names", ".split(", "re.sub("]),
         ]
         for item in cases {
@@ -49,7 +49,7 @@ final class RNASeqCellMapHandBackTests: XCTestCase {
             XCTAssertTrue(object.upperBound < block.lowerBound, "\(item.name) defines the hand-back block after the object is made")
             let tail = String(item.text[block.lowerBound...])
             for words in ["lge-cell-map.tsv", "lungfish-cli", "rnaseq", "cell-map", "import", "--coordinates", "--label-column", "--method",
-                          "--output", #""umap""#, #""UMAP""#, #""tsne""#, #""t-SNE""#, #""pca""#, #""PCA""#] + item.words {
+                          "--output", "NEW names the new cell map, such as <project>/Analyses/<name>.lungfishrnaseq", #""umap""#, #""UMAP""#, #""tsne""#, #""t-SNE""#, #""pca""#, #""PCA""#] + item.words {
                 XCTAssertTrue(tail.contains(words), "the hand-back block of \(item.name) holds \(words)")
             }
             for words in item.never {
