@@ -25,6 +25,8 @@ public enum RNASeqCellMapColouring: Hashable, Sendable {
     case notHostUMIs(extra: Int)
     /// The flag words of a virus or bacterium extra, read from `cell_not_host` and counted in `flag_counts`.
     case flag(extra: Int)
+    /// One gene's values in one unit, read from `gene_values` with that unit's own bounds (5.5 G1).
+    case gene(RNASeqGeneChoice)
 }
 
 /// The facts of a cell map that every colouring and embedding shares. All are values as stored.
@@ -64,6 +66,7 @@ public struct RNASeqCellMapFacts: Equatable, Sendable {
         case .cellGenes: return "Genes per cell"
         case .notHostUMIs(let extra): return "\(extraName(extra)) not-host UMIs"
         case .flag(let extra): return "\(extraName(extra)) flag"
+        case .gene(let choice): return "\(choice.label) \(RNASeqEmbeddingWords.geneUnit(choice.unit))"
         }
     }
 
@@ -103,6 +106,14 @@ public enum RNASeqCellMapValues: Sendable {
     case counts(cells: [Int], values: [Double])
     /// The cells, from 1, that carry flag words, and their words.
     case flags(cells: [Int], words: [String])
+    /// One gene's cells with a count and their values in the unit asked, with the formula of its normalised value.
+    case gene(RNASeqCellMapGeneRead)
+}
+
+/// A gene's row of `gene_values` for one unit, and the formula that `meta` records for the normalised value (nil for UMIs).
+public struct RNASeqCellMapGeneRead: Sendable {
+    public var values: RNASeqCellMapDatabase.GeneValues
+    public var formula: String?
 }
 
 /// The colour and draw order of every cell for one colouring and one embedding, with the legend.
@@ -172,6 +183,16 @@ public struct RNASeqCellMapColours: Sendable {
             let name = colouring == .cellUMIs ? "umis" : "genes"
             return try scaled(facts: facts, points: points, legend: legend,
                               bound: facts.valueBounds.first { $0.value == name && $0.extra == 0 }) { $0 < totals.count ? Double(totals[$0]) : 0 }
+        case (.gene(let choice), .gene(let read)):
+            // The gene goes through the helper of the count colourings with the stored bounds of the unit shown, so the p99
+            // or maximum rule and the scale words stay in one place. W5 names the grey cells in place of the count's sentence.
+            var value = ContiguousArray<Float32>(repeating: 0, count: count)
+            for (cell, amount) in zip(read.values.cells, read.values.floats) where cell >= 1 && Int(cell) <= count { value[Int(cell) - 1] = amount }
+            let stored = RNASeqEmbeddingLegend.Scale(minimum: read.values.minimum, maximum: read.values.maximum, p99: read.values.p99)
+            var made = try scaled(facts: facts, points: points, legend: legend, scale: stored, grey: nil) { Double(value[$0]) }
+            made.legend.words.insert(RNASeqEmbeddingWords.geneColour(unit: choice.unit, gene: choice.label), at: 0)
+            made.legend.formula = choice.unit == .normalised ? read.formula ?? RNASeqResultBundle.notRecordedText : nil
+            return made
         default:
             throw RNASeqResultError.invalidTable(path: RNASeqCellMap.filename, reason: "the values read do not belong to \(facts.title(of: colouring))")
         }
@@ -184,8 +205,15 @@ public struct RNASeqCellMapColours: Sendable {
     /// a cell from 0.
     private static func scaled(facts: RNASeqCellMapFacts, points: RNASeqCellMapPoints, legend: RNASeqEmbeddingLegend,
                                bound: RNASeqCellMapDatabase.ValueBound?, value: (Int) -> Double) throws -> RNASeqCellMapColours {
-        let count = points.x.count
         let scale = RNASeqEmbeddingLegend.Scale(minimum: bound?.minimum ?? 0, maximum: bound?.maximum ?? 0, p99: bound?.p99 ?? 0)
+        return try scaled(facts: facts, points: points, legend: legend, scale: scale, grey: RNASeqEmbeddingWords.greyHaveZero, value: value)
+    }
+
+    /// The same rule for a scale in hand, such as a gene's stored bounds. `grey` is the sentence that ends the scale words,
+    /// or nil when other words name the grey cells.
+    private static func scaled(facts: RNASeqCellMapFacts, points: RNASeqCellMapPoints, legend: RNASeqEmbeddingLegend,
+                               scale: RNASeqEmbeddingLegend.Scale, grey: String?, value: (Int) -> Double) throws -> RNASeqCellMapColours {
+        let count = points.x.count
         let top = RNASeqEmbeddingPalette.gradientSteps - 1
         var index = ContiguousArray<UInt16>(repeating: RNASeqEmbeddingPalette.greyIndex, count: count)
         var under = ContiguousArray<UInt32>()
@@ -207,9 +235,10 @@ public struct RNASeqCellMapColours: Sendable {
             legend.words.append(RNASeqEmbeddingWords.scaleAllZero(cells: facts.cellCount))
         } else if scale.p99 > 0 {
             legend.words.append(RNASeqEmbeddingWords.scale(p99: RNASeqEmbeddingWords.number(scale.p99), cells: facts.cellCount,
-                                                            maximum: RNASeqEmbeddingWords.number(scale.maximum)))
+                                                            maximum: RNASeqEmbeddingWords.number(scale.maximum), grey: grey))
         } else {
-            legend.words.append(RNASeqEmbeddingWords.scaleToMaximum(maximum: RNASeqEmbeddingWords.number(scale.maximum), cells: facts.cellCount))
+            legend.words.append(RNASeqEmbeddingWords.scaleToMaximum(maximum: RNASeqEmbeddingWords.number(scale.maximum), cells: facts.cellCount,
+                                                                     grey: grey))
         }
         return RNASeqCellMapColours(index: index, order: under + ContiguousArray(risen.map(\.cell)), legend: legend)
     }
@@ -270,6 +299,13 @@ public enum RNASeqCellMapLoader {
         case .flag(let extra):
             let rows = try database.cellNotHost(extra: extra).filter { !$0.flag.isEmpty }
             return .flags(cells: rows.map(\.cell), words: rows.map(\.flag))
+        case .gene(let choice):
+            guard let found = try database.geneValues(feature: choice.feature, unit: choice.unit) else {
+                throw RNASeqResultError.invalidTable(path: RNASeqCellMap.filename, reason: RNASeqEmbeddingWords.noGeneValues(choice.label))
+            }
+            try Task.checkCancellation()
+            let formula = try choice.unit == .normalised ? database.meta()["normalisation"] : nil
+            return .gene(RNASeqCellMapGeneRead(values: found, formula: formula))
         }
     }
 

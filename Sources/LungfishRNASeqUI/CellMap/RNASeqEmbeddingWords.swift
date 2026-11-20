@@ -85,15 +85,20 @@ public enum RNASeqEmbeddingWords {
     public static let coloursRepeat = "Colours repeat after 19 labels."
     public static let notFlagged = "Not flagged"
 
+    /// The sentence that ends a count's scale words. A gene's words name the grey cells in W5 and pass none.
+    public static let greyHaveZero = "Grey cells have 0."
+
     /// The scale's words with a p99 above 0 (`docs/formats/rnaseq-cell-map.md`, Bounds).
-    public static func scale(p99: String, cells: Int, maximum: String) -> String {
-        "Colour runs from 0 to \(p99), the 99th percentile of all \(cells) cells of this cell map, zeros included. Cells above \(p99) take the top colour, and the largest value is \(maximum). Grey cells have 0."
+    public static func scale(p99: String, cells: Int, maximum: String, grey: String? = greyHaveZero) -> String {
+        sentence("Colour runs from 0 to \(p99), the 99th percentile of all \(cells) cells of this cell map, zeros included. Cells above \(p99) take the top colour, and the largest value is \(maximum).", grey)
     }
 
     /// The scale's words when at least 99% of the cells have 0.
-    public static func scaleToMaximum(maximum: String, cells: Int) -> String {
-        "Colour runs from 0 to \(maximum), the largest value, since at least 99% of the \(cells) cells of this cell map have 0. Grey cells have 0."
+    public static func scaleToMaximum(maximum: String, cells: Int, grey: String? = greyHaveZero) -> String {
+        sentence("Colour runs from 0 to \(maximum), the largest value, since at least 99% of the \(cells) cells of this cell map have 0.", grey)
     }
+
+    private static func sentence(_ words: String, _ grey: String?) -> String { grey.map { "\(words) \($0)" } ?? words }
 
     /// The scale's words when no cell has a count.
     public static func scaleAllZero(cells: Int) -> String {

@@ -33,12 +33,15 @@ public struct RNASeqEmbeddingLegend: Equatable, Sendable {
     public var scale: Scale?
     /// The lines under the rows or the scale, such as "Colours repeat after 19 labels".
     public var words: [String]
+    /// The formula of a normalised scale as the file records it, nil when the colour is a count (5.5 G1).
+    public var formula: String?
 
-    public init(title: String, rows: [Row], scale: Scale? = nil, words: [String] = []) {
+    public init(title: String, rows: [Row], scale: Scale? = nil, words: [String] = [], formula: String? = nil) {
         self.title = title
         self.rows = rows
         self.scale = scale
         self.words = words
+        self.formula = formula
     }
 }
 
@@ -105,6 +108,13 @@ public final class RNASeqEmbeddingLegendView: NSStackView {
             ends.translatesAutoresizingMaskIntoConstraints = false
             ends.widthAnchor.constraint(equalToConstant: 200).isActive = true
             addArrangedSubview(ends)
+            if let formula = legend.formula {
+                let line = NSTextField(wrappingLabelWithString: RNASeqEmbeddingWords.normalisedFormula(formula))
+                line.isSelectable = true
+                line.preferredMaxLayoutWidth = 260
+                line.setAccessibilityIdentifier("rnaseq-cell-map-legend-formula")
+                addArrangedSubview(line)
+            }
         }
         for (index, words) in legend.words.enumerated() {
             let field = NSTextField(wrappingLabelWithString: words)

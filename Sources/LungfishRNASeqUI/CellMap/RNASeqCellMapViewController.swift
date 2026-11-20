@@ -57,6 +57,15 @@ public final class RNASeqCellMapViewController: NSViewController {
     /// earlier one still being read (5.5 V1, newest wins).
     private var wantedEmbedding: Int?
     private var wantedColouring: RNASeqCellMapColouring?
+    /// The unit a gene is coloured in, the normalised value until a person asks for raw UMIs (5.5 G1).
+    public private(set) var geneUnit: RNASeqCellMapDatabase.GeneUnit = .normalised
+    /// The picker that the Gene… item opened, and the read of the cell map's features that fills it.
+    public private(set) var genePicker: RNASeqEmbeddingGenePickerViewController?
+    public private(set) var geneIndexWork: Task<Void, Never>?
+    private var geneIndex: RNASeqGeneIndex?
+    private var genePopover: NSPopover?
+    /// Normalised UMIs or raw UMIs, in a row under the Colour by list that shows while a gene is on show.
+    public let geneUnitControl = NSSegmentedControl(labels: RNASeqEmbeddingWords.geneUnitSegments, trackingMode: .selectOne, target: nil, action: nil)
 
     public override func loadView() {
         let root = NSView()
@@ -85,6 +94,9 @@ public final class RNASeqCellMapViewController: NSViewController {
         colourPopUp.setAccessibilityIdentifier("rnaseq-cell-map-colour")
         colourPopUp.target = self
         colourPopUp.action = #selector(colouringChosen(_:))
+        geneUnitControl.target = self
+        geneUnitControl.action = #selector(geneUnitChosen(_:))
+        geneUnitControl.setAccessibilityIdentifier("rnaseq-cell-map-gene-unit")
         hoverField.isSelectable = true
         hoverField.setAccessibilityIdentifier("rnaseq-cell-map-hover")
 
@@ -96,8 +108,11 @@ public final class RNASeqCellMapViewController: NSViewController {
         wordsStack.orientation = .vertical
         wordsStack.alignment = .leading
         wordsStack.spacing = 6
-        for (label, control) in [("Embedding", embeddingPopUp), ("Colour by", colourPopUp), (RNASeqCellMapPointSizeControl.title, pointSizeHost)] as [(String, NSView)] {
-            column.addArrangedSubview(Self.control(label, control))
+        for (label, control) in [("Embedding", embeddingPopUp), ("Colour by", colourPopUp), (RNASeqEmbeddingWords.geneUnitTitle, geneUnitControl),
+                                 (RNASeqCellMapPointSizeControl.title, pointSizeHost)] as [(String, NSView)] {
+            let row = Self.control(label, control)
+            row.isHidden = control === geneUnitControl
+            column.addArrangedSubview(row)
         }
         column.addArrangedSubview(legendView)
         column.addArrangedSubview(wordsStack)
@@ -161,6 +176,12 @@ public final class RNASeqCellMapViewController: NSViewController {
         readWork?.cancel()
         rasterWork?.cancel()
         hoverWork?.cancel()
+        geneIndexWork?.cancel()
+        genePopover?.close()
+        genePopover = nil
+        genePicker = nil
+        geneIndex = nil
+        geneUnit = .normalised
         wantedEmbedding = nil
         wantedColouring = nil
         clearHover()
@@ -182,6 +203,7 @@ public final class RNASeqCellMapViewController: NSViewController {
             for embedding in shown.facts.embeddings { embeddingPopUp.addItem(withTitle: embedding.name) }
             colourPopUp.removeAllItems()
             for colouring in shown.facts.colourings { colourPopUp.addItem(withTitle: shown.facts.title(of: colouring)) }
+            colourPopUp.addItem(withTitle: RNASeqEmbeddingWords.genePopUpItem)
             refresh()
         }
     }
@@ -194,8 +216,75 @@ public final class RNASeqCellMapViewController: NSViewController {
     }
 
     @objc private func colouringChosen(_ sender: NSPopUpButton) {
-        guard let facts = snapshot?.facts, facts.colourings.indices.contains(sender.indexOfSelectedItem) else { return }
+        guard let shown = snapshot else { return }
+        let facts = shown.facts
+        if sender.indexOfSelectedItem == facts.colourings.count {
+            // The Gene… item colours nothing itself. The pop-up keeps naming what is shown until a gene is picked.
+            refreshColourPopUp(shown)
+            showGenePicker()
+            return
+        }
+        guard facts.colourings.indices.contains(sender.indexOfSelectedItem) else { return }
         chooseColouring(facts.colourings[sender.indexOfSelectedItem])
+    }
+
+    @objc private func geneUnitChosen(_ sender: NSSegmentedControl) {
+        geneUnit = sender.selectedSegment == 1 ? .umis : .normalised
+        if case .gene(let choice)? = wantedColouring ?? snapshot?.colouring { chooseColouring(.gene(choice.with(unit: geneUnit))) }
+    }
+
+    /// Opens the gene picker under the Colour by list. The features are read once, off the main actor, and a pick is one more
+    /// colouring choice, so the newest pick wins and a pick keeps an embedding still being read (5.5 V1).
+    public func showGenePicker() {
+        guard let database = snapshot?.database else { return }
+        let picker = RNASeqEmbeddingGenePickerViewController()
+        picker.onPick = { [weak self] entry in self?.pickGene(entry) }
+        genePicker = picker
+        if let geneIndex {
+            picker.show(index: geneIndex)
+        } else {
+            geneIndexWork?.cancel()
+            geneIndexWork = Task { [weak self, weak picker] in
+                do {
+                    let index = try await offMain { RNASeqGeneIndex(features: try database.features()) }
+                    guard let self, !Task.isCancelled else { return }
+                    self.geneIndex = index
+                    picker?.show(index: index)
+                } catch is CancellationError {
+                } catch {
+                    picker?.showFailure(RNASeqSingleCellSummary.failureWords(error))
+                }
+            }
+        }
+        guard colourPopUp.window != nil else { return }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = picker
+        genePopover = popover
+        popover.show(relativeTo: colourPopUp.bounds, of: colourPopUp, preferredEdge: .maxY)
+    }
+
+    private func pickGene(_ entry: RNASeqGeneIndex.Entry) {
+        genePopover?.close()
+        genePopover = nil
+        if let choice = RNASeqGeneChoice(entry: entry, unit: geneUnit) { chooseColouring(.gene(choice)) }
+    }
+
+    /// Names what is shown in the Colour by list, and shows the unit control only beside a gene. The last item reads Gene…, or
+    /// Gene and the name while a gene is shown, so choosing it again changes the gene.
+    private func refreshColourPopUp(_ shown: RNASeqCellMapSnapshot) {
+        let facts = shown.facts
+        let geneItem = colourPopUp.item(at: facts.colourings.count)
+        if case .gene(let choice) = shown.colouring {
+            geneItem?.title = RNASeqEmbeddingWords.genePopUpTitle(choice.label)
+            colourPopUp.selectItem(at: facts.colourings.count)
+            geneUnitControl.selectedSegment = choice.unit == .umis ? 1 : 0
+            geneUnitControl.superview?.isHidden = false
+        } else {
+            geneItem?.title = RNASeqEmbeddingWords.genePopUpItem
+            if let index = facts.colourings.firstIndex(of: shown.colouring) { colourPopUp.selectItem(at: index) }
+            geneUnitControl.superview?.isHidden = true
+        }
     }
 
     /// Reads and shows another embedding with the colouring wanted. A newer choice cancels this read and keeps this
@@ -273,7 +362,7 @@ public final class RNASeqCellMapViewController: NSViewController {
         guard let shown = snapshot else { return }
         let facts = shown.facts
         if let index = facts.embeddings.firstIndex(where: { $0.embedding == shown.points.embedding }) { embeddingPopUp.selectItem(at: index) }
-        if let index = facts.colourings.firstIndex(of: shown.colouring) { colourPopUp.selectItem(at: index) }
+        refreshColourPopUp(shown)
         let embedding = facts.embeddings.first { $0.embedding == shown.points.embedding }
         let name = embedding?.name ?? ""
         let axes = RNASeqEmbeddingWords.axes(method: embedding?.method, embedding: name)
@@ -420,6 +509,8 @@ public final class RNASeqCellMapViewController: NSViewController {
             return "\(title) \(name ?? "no label")"
         case (.cellUMIs, .totals(let totals)), (.cellGenes, .totals(let totals)):
             return "\(title) \(cell < totals.count ? String(totals[cell]) : "0")"
+        case (.gene, .gene(let read)):
+            return "\(title) \(read.values.value(ofCell: cell + 1).map(RNASeqEmbeddingWords.number) ?? "0")"
         case (_, .counts(let cells, let values)):
             return "\(title) \(cells.firstIndex(of: cell + 1).map { RNASeqEmbeddingWords.number(values[$0]) } ?? "0")"
         case (_, .flags(let cells, let words)):
