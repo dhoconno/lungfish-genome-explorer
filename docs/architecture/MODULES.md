@@ -31,7 +31,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1624 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1626 | LungfishCore, LungfishIO |
 | LungfishWorkflowTwelveS | library | Sources/LungfishWorkflowTwelveS | 38 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
@@ -3434,6 +3434,8 @@ None.
 - `ResolvedSequenceInputs` struct, `Sources/LungfishWorkflow/Mapping/ResolvedSequenceInputs.swift`
 - `ResolvedSequenceInputsError` enum, `Sources/LungfishWorkflow/Mapping/ResolvedSequenceInputs.swift`
 - `RiboDetectorStep` struct, `Sources/LungfishWorkflow/Recipes/Steps/RiboDetectorStep.swift`
+- `RNASeqCellMapCompute` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCellMapCompute.swift`
+- `RNASeqCellMapComputeRefusal` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCellMapComputeRefusal.swift`
 - `RNASeqCellMapError` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqResultWriter+CellMap.swift`
 - `RNASeqCellMapGenes` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCellMapGenes.swift`
 - `RNASeqCellMapImport` enum, `Sources/LungfishWorkflow/RNASeq/RNASeqCellMapImport.swift`
