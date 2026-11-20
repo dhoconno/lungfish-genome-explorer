@@ -133,6 +133,8 @@ final class WorkflowOperationsWindowController: NSWindowController, NSWindowDele
         initialToolID: String?
     ) {
         configurationGeneration = UUID()
+        // Only Pseudobulk Selected Cells… sets it, and showPseudobulk(of:) fills after show(...).
+        state.rnaSeqPseudobulk.selection = nil
         self.routeContext = routeContext
         originValidator = Self.captureReplayOrigin(routeContext: routeContext, appDelegate: NSApp.delegate as? AppDelegate)
         writeValidator = Self.captureReplayOrigin(routeContext: routeContext, appDelegate: NSApp.delegate as? AppDelegate, requireWritable: true)

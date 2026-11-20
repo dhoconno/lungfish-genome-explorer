@@ -51,7 +51,8 @@ final class RNASeqExportDialogModel {
 final class RNASeqPseudobulkDialogModel {
     var resultURL: URL?
     var labelsURL: URL?
-    /// The cell map's selection that Pseudobulk Selected Cells… filled the pane with. Choosing a labels table drops it.
+    /// The cell map's selection that Pseudobulk Selected Cells… filled the pane with. Any other way into the pane drops it
+    /// (`WorkflowOperationsWindowController.configure`).
     var selection: RNASeqPseudobulkSelection?
 }
 
