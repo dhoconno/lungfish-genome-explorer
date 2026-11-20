@@ -152,5 +152,41 @@ class HashOrderRow(unittest.TestCase):
         self.assertEqual(row["verdict"], "not run")
 
 
+class ScriptRow(unittest.TestCase):
+    ROW = "Every run was made by the embed.py beside this file"
+
+    def rows(self, shas):
+        mine = claims.sha256(os.path.join(HERE, "embed.py"))
+        runs = {}
+        for name, sha in shas.items():
+            rec = route()
+            rec["script"] = {"name": "embed.py", "sha256": mine if sha == "mine" else sha}
+            runs[name] = rec
+        return claim_rows(runs)[self.ROW]
+
+    def test_a_run_made_by_another_script_fails_the_row_and_is_named(self):
+        row = self.rows({"g1-a": "mine", "g1-b": "0" * 64})
+        self.assertEqual(row["verdict"], "fail", row["detail"])
+        self.assertEqual(row["value"], "1 of 2 runs")
+        self.assertIn("g1-b", row["detail"].split("another script:")[1])
+
+    def test_runs_made_by_this_script_pass_the_row(self):
+        row = self.rows({"g1-a": "mine", "g1-b": "mine"})
+        self.assertEqual(row["verdict"], "pass", row["detail"])
+        self.assertEqual(row["value"], "2 of 2 runs")
+
+
+class KnnRow(unittest.TestCase):
+    ROW = "Every route run records kNN exact, brute, transformer=sklearn"
+
+    def test_the_count_names_the_runs_it_checked_and_the_probes_it_left_out(self):
+        probe_run = route()
+        probe_run["knn"] = "kNN: scanpy default for 4 cells (report-only probe, not the route)"
+        row = claim_rows({"g1-a": route(), "g1-default": probe_run, "g2-default": probe_run})[self.ROW]
+        self.assertEqual(row["verdict"], "pass", row["detail"])
+        self.assertIn("1 route runs of 3 runs", row["detail"])
+        self.assertIn("g1-default, g2-default", row["detail"])
+
+
 if __name__ == "__main__":
     unittest.main()
