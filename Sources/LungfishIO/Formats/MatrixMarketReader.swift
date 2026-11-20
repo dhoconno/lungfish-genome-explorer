@@ -169,9 +169,10 @@ public final class MatrixMarketReader {
         } catch {
             throw MatrixMarketError.unreadable(file: url.lastPathComponent, reason: Self.describe(error))
         }
-        var lines = String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false)
+        // Swift reads "\r\n" as one Character that is not "\n", so the split takes every line break, as the import's reader does.
+        var lines = String(decoding: data, as: UTF8.self).split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
         if lines.last?.isEmpty == true { lines.removeLast() }
-        return lines.map { $0.hasSuffix("\r") ? String($0.dropLast()) : String($0) }
+        return lines.map(String.init)
     }
 
     /// Whether `url` starts with gzip's two magic bytes.
