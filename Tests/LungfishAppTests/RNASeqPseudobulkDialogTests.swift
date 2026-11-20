@@ -742,7 +742,7 @@ final class RNASeqPseudobulkDialogParityReplayTests: XCTestCase {
             request, makeRunner: { CLIViewerExportRunner(cliURLOverride: self.cli) },
             report: { title, words in reported.append((title, words)) }))
         let end = await launched.task.value
-        XCTAssertEqual(end.select, .completed, "the select step ran")
+        guard case .completed = end.select else { return XCTFail("the select step did not complete") }
         XCTAssertNil(end.pseudobulkID, "no pseudobulk row began")
         XCTAssertEqual(reported.count, 1, "the person is told")
         XCTAssertEqual(reported.first?.title, RNASeqCellMapSelectWords.pseudobulkTitle)
@@ -772,7 +772,7 @@ final class RNASeqPseudobulkDialogParityReplayTests: XCTestCase {
         let row = try XCTUnwrap(running, "the pseudobulk row is running")
         OperationCenter.shared.cancel(id: row.id)
         let end = await launched.task.value
-        XCTAssertEqual(end.select, .completed)
+        guard case .completed = end.select else { return XCTFail("the select step did not complete") }
         XCTAssertEqual(end.pseudobulkID, row.id)
         XCTAssertEqual(end.pseudobulk, .cancelled)
         XCTAssertEqual(OperationCenter.shared.items.first { $0.id == row.id }?.state, .cancelled)
