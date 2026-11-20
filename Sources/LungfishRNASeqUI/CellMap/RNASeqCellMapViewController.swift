@@ -283,6 +283,8 @@ public final class RNASeqCellMapViewController: NSViewController {
             geneUnitControl.selectedSegment = choice.unit == .umis ? 1 : 0
             geneUnitControl.superview?.isHidden = false
         } else {
+            // Raw UMIs asked for one gene do not carry on: the unit control is hidden now, so the next gene starts normalised.
+            geneUnit = .normalised
             geneItem?.title = RNASeqEmbeddingWords.genePopUpItem
             if let index = facts.colourings.firstIndex(of: shown.colouring) { colourPopUp.selectItem(at: index) }
             geneUnitControl.superview?.isHidden = true
