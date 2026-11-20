@@ -104,6 +104,8 @@ public final class RNASeqCellMapViewController: NSViewController {
         plot.contextMenu = { [weak self] in self?.selectionMenu() }
         legendView.onRowClick = { [weak self] row, adding in self?.selectLegendRow(row, adding: adding) }
         legendView.onRowToggle = { [weak self] row in self?.toggleLegendRow(row) }
+        plot.onEscape = { [weak self] in self?.clearSelection() }
+        legendView.onEscape = { [weak self] in self?.clearSelection() }
         selectionField.isSelectable = true
         selectionField.setAccessibilityIdentifier("rnaseq-cell-map-selection-count")
         selectionNote.isSelectable = true

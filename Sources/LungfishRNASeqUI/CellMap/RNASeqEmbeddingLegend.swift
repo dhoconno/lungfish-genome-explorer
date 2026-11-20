@@ -160,11 +160,15 @@ public final class RNASeqEmbeddingLegendView: NSStackView {
         return super.resignFirstResponder()
     }
 
-    /// Space toggles the focused row, and the up and down arrows move the focus.
+    /// Called when Escape is pressed with the legend focused. The controller empties the selection (CM-SELECT-APP).
+    public var onEscape: (() -> Void)?
+
+    /// Space toggles the focused row, Escape (key code 53) empties the selection, and the up and down arrows move the focus.
     public override func keyDown(with event: NSEvent) {
         guard !rowViews.isEmpty else { return super.keyDown(with: event) }
         switch event.keyCode {
         case 49: onRowToggle?(focusedRow ?? 0)
+        case 53: onEscape?()
         case 125: moveFocus(by: 1)
         case 126: moveFocus(by: -1)
         default: super.keyDown(with: event)

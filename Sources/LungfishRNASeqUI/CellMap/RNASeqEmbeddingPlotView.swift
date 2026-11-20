@@ -169,6 +169,14 @@ public final class RNASeqEmbeddingPlotView: NSView {
 
     public override var acceptsFirstResponder: Bool { true }
 
+    /// Called when Escape is pressed with the plot focused. The controller empties the selection (CM-SELECT-APP).
+    public var onEscape: (() -> Void)?
+
+    /// Escape, key code 53, empties the selection. Any other key goes on to the next responder.
+    public override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 { onEscape?() } else { super.keyDown(with: event) }
+    }
+
     /// A double click shows every cell. A single press starts a lasso, which Shift makes add and Option take away.
     public override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2 {
