@@ -50,7 +50,7 @@ Every value is named on the command line, and `embed.py` has no default of its o
 | `--scale-max` | `10` | `sc.pp.scale`, zero-centred |
 | `--n-comps`, `--svd-solver`, `--pca-seed` | `50`, `arpack`, `0` | `sc.pp.pca` |
 | `--n-neighbors`, `--n-pcs`, `--knn-metric`, `--neighbors-seed` | `15`, `30`, `euclidean`, `0` | `sc.pp.neighbors` with the umap connectivities |
-| `--knn-transformer` | `sklearn` | Exact brute-force kNN at every size (vote S-2). `scanpy-default` is a probe that is never the route |
+| `--knn-transformer` | `sklearn` | Exact brute-force kNN at every size (vote S-2). `scanpy-default` is a report-only probe that is never the route. It writes the record line `kNN: scanpy default for N cells`, which the vote forbids on a route record. The CLI passes `sklearn` at every size and never `scanpy-default`, and it refuses a run record, naming the field, unless `knn` is exactly `kNN: exact, brute, transformer=sklearn` and `parameters.knn_transformer` is `sklearn` |
 | `--leiden-flavor`, `--leiden-iterations`, `--leiden-directed`, `--leiden-use-weights`, `--resolution`, `--leiden-seed` | `leidenalg`, `-1`, `true`, `true`, `1.0`, `0` | `sc.tl.leiden` (5.5 O9 (a)) |
 | `--umap-min-dist`, `--umap-spread`, `--umap-init`, `--umap-maxiter`, `--umap-seed` | `0.5`, `1.0`, `spectral`, `umap-default`, `0` | `sc.tl.umap` with the seeded legacy layout. umap-learn runs 500 epochs at 10,000 cells or fewer and 200 above |
 | `--allow-hash-seed N` | not given | A report-only probe that lets the guard accept a nonzero `PYTHONHASHSEED`. The record then says so |
