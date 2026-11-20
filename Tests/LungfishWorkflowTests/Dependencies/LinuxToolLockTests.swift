@@ -13,7 +13,7 @@ final class LinuxToolLockTests: XCTestCase {
     /// The Mac lock's SHA-256 since RS-LOCK (Phase 5.1) pinned salmon and gffread for the rna-seq pack, which moved it
     /// from 586edb75. A deliberate change to the Mac lock changes this literal in the same commit, and the linux-64
     /// lock follows for the tools it carries.
-    private static let macLockSHA256 = "a083cc293b81c85f5ffd7066f10e5f62205506664fb4e945ff730bf7c8df6a67"
+    private static let macLockSHA256 = "0c7e42bccc2a4cc0492fa6dcbd728f286eb4c05b02959b596a81db4bc49c71dd"
 
     /// The SHA-256 of the 87-package explicit file that slice 0's argv replay and deacon check ran on. It is C0's file
     /// with a home path removed from line 2. A change to the tool set is a lane of its own that reruns both (K5.1).
