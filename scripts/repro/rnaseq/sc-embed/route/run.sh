@@ -55,7 +55,9 @@ wait_quiet() {
     hits=$(ps -axo pid,command | grep -E 'swift-(build|frontend|test)|xctest' | grep -v -F "$REPO" \
       | grep -v -E "$IGNORE" | grep -v grep || true)
     if [ -z "$hits" ]; then n=$((n + 1)); else n=0; log "waiting, another worktree builds"; fi
-    [ $n -lt 2 ] && sleep 30
+    # An `if`, not `[ ... ] && sleep 30`: that list is false on the second quiet check, so the loop and the
+    # function would return 1 and `set -e` would stop the whole chain without a line in the log.
+    if [ $n -lt 2 ]; then sleep 30; fi
   done
 }
 
