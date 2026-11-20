@@ -1,0 +1,25 @@
+# env-sc-embed: the single-cell embedding route of LGE sub-phase 5.5 (plan decision 5.5 C4, C10).
+# A new environment beside `env`, which stays untouched because it pins Phase 5's results.
+# Built by CM-DATA with micromamba 2.10.0, one channel, osx-arm64:
+#   micromamba create -y -p /Volumes/lge_scratch/lge/rnaseq/env-sc-embed -f env-sc-embed.yml \
+#     --no-rc --override-channels -c conda-forge --strict-channel-priority --platform osx-arm64
+# Every package of the 5.5 C10 line is pinned to the version AND build that
+# scripts/repro/rnaseq/env/explicit-osx-arm64.txt holds (line numbers in the comments), because OpenBLAS,
+# numpy and numba decide output bytes. python-igraph and leidenalg are the two additions (GPL, external tools only, 5.5 C9).
+# phate is NOT in this environment (ARCH-LICENCE Q1, owner choice O-3).
+name: env-sc-embed
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11.18=hd05a0c4_0_cpython        # :113
+  - libopenblas=0.3.34=openmp_h5e6e99c_1     # :223
+  - numpy=2.4.6=py311hbd1492f_0              # :260
+  - numba=0.68.1=py311h2438e86_0             # :267
+  - scipy=1.17.1=py311h9a58382_1             # :272
+  - scikit-learn=1.9.1=np2py311h5731ca5_1    # :278
+  - anndata=0.12.19                          # :281
+  - pynndescent=0.7.0                        # :283
+  - umap-learn=0.6.0=py311ha1ab1f8_0         # :341
+  - scanpy=1.11.5                            # :360
+  - python-igraph                            # newest on conda-forge (1.0.0 read 2026-11-19)
+  - leidenalg                                # newest on conda-forge (0.12.0 read 2026-11-19)
