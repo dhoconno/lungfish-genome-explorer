@@ -79,5 +79,48 @@ if (requireNamespace("Seurat", quietly = TRUE)) {
 } else {
   stop("Seurat is not installed in this R, so the table of cells is written and no Seurat object is made. Install Seurat and run seurat.R again.", call. = FALSE)
 }
+
+# ---- Add your analysis here, such as NormalizeData, FindVariableFeatures, ScaleData, RunPCA, FindNeighbors, FindClusters and RunUMAP. ----
+
+# ---- Hand back to LGE. LGE reads no RDS, so this block writes lge-cell-map.tsv, a table that lungfish-cli rnaseq cell-map import reads. ----
+# The sample and barcode of each cell come from meta.data, never from its name, which the sample prefix and Seurat's renames change.
+# Each reduction is written as <name>_1 to <name>_<k>, with numbers that read back exactly, and seurat_clusters as labels.
+write_lge_cell_map <- function(object, path = "lge-cell-map.tsv") {
+  meta <- object[[]]
+  for (column in c("sample", "barcode")) if (!column %in% names(meta)) stop("meta.data has no ", column, " column, so LGE cannot match the cells. Make the object with seurat.R, which sets sample and barcode.", call. = FALSE)
+  table <- data.frame(sample = as.character(meta[["sample"]]), barcode = as.character(meta[["barcode"]]), stringsAsFactors = FALSE)
+  methods <- c("umap" = "UMAP", "tsne" = "t-SNE", "pca" = "PCA")
+  written <- character(); flags <- character()
+  for (name in SeuratObject::Reductions(object)) {
+    values <- SeuratObject::Embeddings(object, reduction = name)
+    at <- match(rownames(meta), rownames(values))
+    if (anyNA(at) || ncol(values) < 2 || !all(is.finite(values[at, ]))) {
+      cat(sprintf("The reduction %s is left out of %s, since it does not give every cell of the object 2 or more finite values.\n", name, path))
+      next
+    }
+    for (k in seq_len(ncol(values))) table[[paste0(name, "_", k)]] <- sprintf("%.17g", values[at, k])
+    written <- c(written, name)
+    if (name %in% names(methods)) flags <- c(flags, "--method", paste0(name, "=", methods[[name]]))
+  }
+  if (length(written) == 0) stop("No reduction of the object gives every cell 2 or more finite values, so ", path, " is not written. Run RunUMAP or RunPCA first.", call. = FALSE)
+  labels <- intersect("seurat_clusters", names(meta))
+  for (label in labels) {
+    x <- as.character(meta[[label]]); x[is.na(x)] <- ""
+    if (any(grepl("[\t\r\n]", x))) stop("A label of ", label, " holds a tab or a line break, which a table cannot hold. Rename it and run write_lge_cell_map again.", call. = FALSE)
+    table[[label]] <- x
+    flags <- c("--label-column", label, flags)
+  }
+  write.table(table, path, sep = "\t", quote = FALSE, row.names = FALSE, na = "", eol = "\n")
+  cat(sprintf("Wrote %s, %d cells with the embeddings %s%s.\n", path, nrow(table), paste(written, collapse = ", "),
+              if (length(labels)) paste0(" and the labels of ", paste(labels, collapse = ", ")) else ""))
+  cat("Import it into LGE with this command, where RESULT is the single-cell result this folder was exported from and NEW names the new cell map:\n")
+  cat(paste(c("lungfish-cli rnaseq cell-map import RESULT --coordinates", shQuote(normalizePath(path)), flags, "--output NEW.lungfishrnaseq"), collapse = " "), "\n", sep = "")
+  invisible(path)
+}
+if (length(SeuratObject::Reductions(object)) > 0) {
+  write_lge_cell_map(object)
+} else {
+  cat("The object holds no reduction yet. After your analysis, such as RunPCA, FindClusters and RunUMAP, run write_lge_cell_map(object) to write lge-cell-map.tsv for lungfish-cli rnaseq cell-map import.\n")
+}
 """#
 }

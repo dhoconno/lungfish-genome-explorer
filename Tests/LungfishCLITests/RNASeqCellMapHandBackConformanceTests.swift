@@ -42,14 +42,19 @@ final class RNASeqCellMapHandBackConformanceTests: XCTestCase {
     object <- Seurat::RunUMAP(object, dims = 1:10, verbose = FALSE)
 
     """
+    /// The RNA-seq environment holds no igraph, so sc.tl.leiden cannot run there. The leiden column takes 10x's graph cluster of
+    /// each cell by its barcode instead, with the first cell's label left out, so the test can check that each label reaches its cell.
     static let scanpyAnalysis = """
     adata.X = adata.X.astype(np.float64)
     sc.pp.normalize_total(adata)
     sc.pp.log1p(adata)
     sc.pp.pca(adata, n_comps=10)
     sc.pp.neighbors(adata)
-    sc.tl.leiden(adata, flavor="igraph", n_iterations=2, directed=False)
     sc.tl.umap(adata)
+    tenx = pd.read_csv("\(CellMapImportFixture.clusters.path)", dtype=str).set_index("Barcode")["Cluster"]
+    labels = [tenx.get(b if b.endswith("-1") else b + "-1") for b in adata.obs["barcode"]]
+    labels[0] = None
+    adata.obs["leiden"] = pd.Categorical(labels)
 
     """
 
@@ -133,7 +138,9 @@ final class RNASeqCellMapHandBackConformanceTests: XCTestCase {
     }
 
     /// Runs the import command the block printed, with RESULT and NEW filled in, and checks the cell map against the table.
-    private func importPrinted(_ ran: (folder: URL, output: String), result: URL, label: String, file: StaticString = #filePath, line: UInt = #line) async throws {
+    private func importPrinted(
+        _ ran: (folder: URL, output: String), result: URL, label: String, unlabelled: Int = 0, file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
         let printed = try XCTUnwrap(ran.output.split(separator: "\n").map(String.init).last { $0.hasPrefix("lungfish-cli rnaseq cell-map import ") },
                                     "the block prints the import command:\n\(ran.output)", file: file, line: line)
         let map = root.appendingPathComponent("Analyses/handed-\(UUID().uuidString).lungfishrnaseq", isDirectory: true)
@@ -176,8 +183,10 @@ final class RNASeqCellMapHandBackConformanceTests: XCTestCase {
         }
         XCTAssertEqual(wrong, [], "each stored Double equals the table's text", file: file, line: line)
         let set = try XCTUnwrap(try database.labelSets().first { $0.name == label }, file: file, line: line)
-        XCTAssertEqual(set.samples.map(\.labelled), samples.map(\.cells), "every cell holds its cluster", file: file, line: line)
-        XCTAssertEqual(set.labels.map(\.cells).reduce(0, +), total, file: file, line: line)
+        var labelled = samples.map(\.cells)
+        labelled[0] -= unlabelled
+        XCTAssertEqual(set.samples.map(\.labelled), labelled, "every cell holds its cluster but the \(unlabelled) left out", file: file, line: line)
+        XCTAssertEqual(set.labels.map(\.cells).reduce(0, +), total - unlabelled, file: file, line: line)
     }
 
     func testTheSeuratBlockWritesATableThatImportsOnOneSampleAndOnTwo() async throws {
@@ -190,7 +199,16 @@ final class RNASeqCellMapHandBackConformanceTests: XCTestCase {
     func testTheScanpyBlockWritesATableThatImportsOnOneSampleAndOnTwo() async throws {
         for result in [try CellMapImportFixture.result(CellMapImportFixture.cellRanger, in: root), try twoSamples()] {
             let ran = try handBack(result, script: "scanpy.py", analysis: Self.scanpyAnalysis, tool: python, arguments: ["-I", "scanpy.py"])
-            try await importPrinted(ran, result: result, label: "leiden")
+            try await importPrinted(ran, result: result, label: "leiden", unlabelled: 1)
+            // Each line's label is 10x's cluster of its barcode, empty on the first line, written against the sample and barcode of obs.
+            let cluster = Dictionary(try CellMapImportFixture.rows(CellMapImportFixture.clusters).map { ($0[0], $0[1]) }, uniquingKeysWith: { a, _ in a })
+            let lines = try String(contentsOf: ran.folder.appendingPathComponent("lge-cell-map.tsv"), encoding: .utf8).split(separator: "\n").dropFirst()
+            let wrong = lines.enumerated().compactMap { index, line -> String? in
+                let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+                let barcode = fields[1].hasSuffix("-1") ? fields[1] : fields[1] + "-1"
+                return fields.last == (index == 0 ? "" : cluster[barcode]) ? nil : "\(fields[0]) \(fields[1]) \(fields.last ?? "")"
+            }
+            XCTAssertEqual(wrong, [], "each line holds the cluster of its barcode")
         }
     }
 }

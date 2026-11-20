@@ -96,5 +96,60 @@ obs = pd.DataFrame({"sample": cells["sample"].values, "barcode": cells["barcode"
 var = pd.DataFrame({"name": info["name"].values, "type": info["type"].values, "not_host": [i in not_host for i in ids]}, index=ids)
 adata = sc.AnnData(X=sp.hstack(blocks).T.tocsr(), obs=obs, var=var)
 print(adata)
+
+# ---- Add your analysis here, such as sc.pp.normalize_total, sc.pp.log1p, sc.pp.pca, sc.pp.neighbors, sc.tl.leiden and sc.tl.umap. ----
+
+# ---- Hand back to LGE. LGE reads no HDF5, so this block writes lge-cell-map.tsv, a table that lungfish-cli rnaseq cell-map import reads. ----
+# The sample and barcode of each cell come from adata.obs, never from its name, which the sample prefix and Scanpy's renames change.
+# Each obsm key is written as <name>_1 to <name>_<k>, without X_, with numbers that read back exactly, and leiden or louvain as labels.
+
+
+def write_lge_cell_map(adata, path=os.path.join(here, "lge-cell-map.tsv")):
+    import shlex
+    for column in ("sample", "barcode"):
+        if column not in adata.obs.columns:
+            raise SystemExit("adata.obs has no %s column, so LGE cannot match the cells. Make the AnnData with scanpy.py, which sets sample and barcode." % column)
+    columns = [("sample", [str(v) for v in adata.obs["sample"]]), ("barcode", [str(v) for v in adata.obs["barcode"]])]
+    methods = {"umap": "UMAP", "tsne": "t-SNE", "pca": "PCA"}
+    written, flags = [], []
+    for key in list(adata.obsm.keys()):
+        name = key[2:] if key.startswith("X_") else key
+        try:
+            values = adata.obsm[key]
+            values = values.toarray() if sp.issparse(values) else np.asarray(values, dtype=np.float64)
+        except (TypeError, ValueError):
+            values = None
+        if name in written or values is None or values.ndim != 2 or values.shape[0] != adata.n_obs or values.shape[1] < 2 or not np.isfinite(values).all():
+            print("The reduction %s is left out of %s, since it does not give every cell 2 or more finite values under a name of its own." % (key, path))
+            continue
+        for k in range(values.shape[1]):
+            columns.append(("%s_%d" % (name, k + 1), [repr(float(x)) for x in values[:, k]]))
+        written.append(name)
+        if name in methods:
+            flags += ["--method", "%s=%s" % (name, methods[name])]
+    if not written:
+        raise SystemExit("No obsm key gives every cell 2 or more finite values, so %s is not written. Run sc.pp.pca or sc.tl.umap first." % path)
+    labels = [c for c in ("leiden", "louvain") if c in adata.obs.columns]
+    for label in labels:
+        x = ["" if pd.isna(v) else str(v) for v in adata.obs[label]]
+        if any(("\t" in v) or ("\r" in v) or ("\n" in v) for v in x):
+            raise SystemExit("A label of %s holds a tab or a line break, which a table cannot hold. Rename it and run write_lge_cell_map again." % label)
+        columns.append((label, x))
+        flags = ["--label-column", label] + flags
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        handle.write("\t".join(name for name, _ in columns) + "\n")
+        for row in zip(*(values for _, values in columns)):
+            handle.write("\t".join(row) + "\n")
+    print("Wrote %s, %d cells with the embeddings %s%s." % (path, adata.n_obs, ", ".join(written),
+                                                            " and the labels of " + ", ".join(labels) if labels else ""))
+    print("Import it into LGE with this command, where RESULT is the single-cell result this folder was exported from and NEW names the new cell map:")
+    print(" ".join(["lungfish-cli rnaseq cell-map import RESULT --coordinates", shlex.quote(os.path.abspath(path))] + flags + ["--output NEW.lungfishrnaseq"]))
+    return path
+
+
+if len(adata.obsm) > 0:
+    write_lge_cell_map(adata)
+else:
+    print("The AnnData holds no reduction yet. After your analysis, such as sc.pp.pca, sc.tl.leiden and sc.tl.umap, run write_lge_cell_map(adata) to write lge-cell-map.tsv for lungfish-cli rnaseq cell-map import.")
 """#
 }
