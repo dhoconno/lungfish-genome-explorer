@@ -353,9 +353,12 @@ def main(work, rnaseq, out_tsv):
     bad = [n for n, v in left.items() if v]
     row("No loky or resource_tracker process outlives a run", "gate", "fail" if bad else "pass",
         "%d of %d runs" % (len(bad), len(runs)), "runs with one left: %s" % (", ".join(bad) or "none"))
-    knn = sorted({R.record(n)["knn"] for n in runs if "default" not in n})
+    probes = ("g1-default", "g2-default")  # the two report-only scanpy-default runs, named and never found by a substring
+    route_runs = [n for n in runs if n not in probes]
+    knn = sorted({R.record(n)["knn"] for n in route_runs})
     row("Every route run records kNN exact, brute, transformer=sklearn", "gate",
-        "pass" if knn == ["kNN: exact, brute, transformer=sklearn"] else "fail", "; ".join(knn), "%d route runs" % len(runs))
+        "pass" if knn == ["kNN: exact, brute, transformer=sklearn"] else "fail", "; ".join(knn),
+        "%d route runs of %d runs; probes left out: %s" % (len(route_runs), len(runs), ", ".join(p for p in probes if p in runs) or "none"))
     text = "\n".join("\t".join(str(x) for x in r) for r in ROWS)
     banned = re.findall(r"\b(reproduc\w*|match\w*)\b", text, re.I)
     row("No claim says the route reproduces or matches Cell Ranger", "gate", "fail" if banned else "pass",
