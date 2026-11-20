@@ -3449,6 +3449,7 @@ features:
       - Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingPlotView.swift
       - Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingLegend.swift
       - Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingWords.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingGenePicker.swift
       - Sources/LungfishApp/Views/Viewer/ViewerViewController+RNASeq.swift
       - Sources/LungfishIO/Bundles/BundleKindRegistry.swift
       - Sources/LungfishIO/Bundles/SidebarKindRegistry.swift

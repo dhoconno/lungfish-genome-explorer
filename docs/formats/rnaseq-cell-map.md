@@ -159,6 +159,7 @@ Every bound is taken over the cell set of the map, which is every row of `cells`
   - with a p99 above 0, "Colour runs from 0 to `<p99>`, the 99th percentile of all `<N>` cells of this cell map, zeros included. Cells above `<p99>` take the top colour, and the largest value is `<maximum>`."
   - with a p99 of 0, "Colour runs from 0 to `<maximum>`, the largest value, since at least 99% of the `<N>` cells of this cell map have 0."
   - for a count colouring (`umis`, `genes` or the not-host UMIs), either of the two ends with "Grey cells have 0.", since the zeros draw in light grey.
+  - for a gene, the words open with "Colour shows `<unit>` of `<gene>` in each cell. Grey cells have no UMIs of `<gene>` counted, which does not show that the gene is off." in place of "Grey cells have 0.", and for the normalised unit a line under the bar reads "Normalised UMIs are `<meta.normalisation>`."
   - when the embedding shown leaves cells out, either adds "`<k>` of these cells have no coordinates in `<embedding>` and are not drawn."
 - An embedding can leave cells out (5.5 I3), so "every cell is drawn" does not hold for every map, and the words name the set by its count for that reason.
 
