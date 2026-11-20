@@ -20,6 +20,7 @@ final class CondaPacksCommandTests: XCTestCase {
                 "phylogenetics",
                 "metagenomics",
                 "rna-seq",
+                "single-cell",
             ]
         )
     }
