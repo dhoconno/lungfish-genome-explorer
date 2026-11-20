@@ -199,6 +199,47 @@ final class RNASeqCellMapViewModelTests: XCTestCase {
             XCTAssertEqual(colours.legend.words, [words])
         }
     }
+
+    /// The only link between the memory guard's `load.cancel()` and the reader's step loop (SF-1).
+    func testACancelBeforeTheReadGivesTheStoppedWordsAndNoSnapshot() async throws {
+        let (_, map) = try RNASeqCellMapViewFixtures.cellMap(in: root)
+        guard case .loaded(let result) = RNASeqResultSurface.read(map) else { return XCTFail("the cell map reads") }
+        let task = Task { () -> RNASeqCellMapLoadOutcome in
+            while !Task.isCancelled { await Task.yield() }
+            return await RNASeqCellMapLoader.load(result: result, bundleURL: map)
+        }
+        task.cancel()
+        guard case .failed(let words) = await task.value else { return XCTFail("a cancelled read shows no snapshot") }
+        XCTAssertTrue(words.contains("The read was stopped."), words)
+    }
+
+    /// The bytes are computed here with plain loops, and no image is stored (5.5 O6). The disc of radius 2 runs the
+    /// stamp offsets, the corner disc the clipped branch, and the dark palette its own words (SF-2).
+    func testADiscOfRadiusTwoSetsExactlyItsPixelsAndAnEdgeDiscIsClipped() throws {
+        let palette = RNASeqEmbeddingPalette.words(dark: true)
+        let width = 64, height = 48, radius = 2
+        let window = RNASeqEmbeddingWindow(minX: 0, minY: 0, maxX: 10, maxY: 5)
+        let mapping = RNASeqEmbeddingMapping(window: window, width: width, height: height, pad: radius + 1)
+        // Cells 0 and 1 overlap, cell 2's disc runs off the corner, cell 3 is left out. Half pixels keep Int() stable.
+        let spots: [(column: Float32, row: Float32)] = [(30.5, 24.5), (32.5, 25.5), (1.5, 1.5)]
+        let points = spots.map { mapping.point(column: $0.column, row: $0.row) }
+        let colours: [UInt16] = [0, 5, 19, 3]
+        let input = RNASeqEmbeddingRasterInput(
+            x: ContiguousArray(points.map(\.x) + [.nan]), y: ContiguousArray(points.map(\.y) + [1]), order: [0, 1, 2, 3],
+            colour: ContiguousArray(colours), palette: palette, width: width, height: height, radius: radius, window: window)
+        let raster = try RNASeqEmbeddingRaster.draw(input)
+        var expected = ContiguousArray<UInt32>(repeating: 0, count: width * height)
+        for cell in 0..<3 {
+            let column = Int(spots[cell].column), row = Int(spots[cell].row)
+            for dy in -radius...radius {
+                for dx in -radius...radius where dx * dx + dy * dy <= radius * radius {
+                    let c = column + dx, r = row + dy
+                    if c >= 0, c < width, r >= 0, r < height { expected[r * width + c] = palette[Int(colours[cell])] }
+                }
+            }
+        }
+        XCTAssertEqual(raster.pixels, expected, "plain loops give the same bytes as the stamp and the clipped branch")
+    }
 }
 
 final class RNASeqCellMapViewWordsTests: XCTestCase {
@@ -340,6 +381,39 @@ final class RNASeqCellMapViewControllerTests: XCTestCase {
         await controller.hoverWork?.value
         let umis = try XCTUnwrap(try snapshot.database.cell(id: cell + 1)).umis
         XCTAssertEqual(controller.hoverWords?.hasSuffix("UMIs per cell \(umis)"), true, controller.hoverWords ?? "no hover")
+    }
+
+    /// The newest choice is the one shown, a read that `close()` superseded is never applied, and a pointer that moves
+    /// inside one disc keeps its hover read (SF-1).
+    func testTheNewestChoiceWinsCloseDropsItsReadAndHoverKeepsItsReadOnOneCell() async throws {
+        let (surface, controller) = try await openController()
+        defer { withExtendedLifetime(surface) {} }
+        let first = try XCTUnwrap(controller.snapshot?.facts.labelSets.first?.labelSet)
+        controller.chooseColouring(.sample)
+        controller.chooseColouring(.labelSet(first))
+        await settle(controller)
+        XCTAssertEqual(controller.snapshot?.colouring, .labelSet(first), "the newest choice is the one shown")
+        controller.chooseColouring(.sample)
+        controller.close()
+        await settle(controller)
+        XCTAssertEqual(controller.snapshot?.colouring, .labelSet(first), "a read that close() superseded is never applied")
+        controller.hover(7)
+        let read = controller.hoverWork
+        controller.hover(7)
+        XCTAssertEqual(controller.hoverWork, read, "a pointer moving inside one disc keeps the read in flight")
+        await controller.hoverWork?.value
+    }
+
+    /// A colouring chosen while another embedding is still being read keeps that embedding (SF-3, 5.5 V1).
+    func testAColouringChosenWhileAnEmbeddingIsReadKeepsTheEmbedding() async throws {
+        let (surface, controller) = try await openController()
+        defer { withExtendedLifetime(surface) {} }
+        controller.chooseEmbedding(2)
+        controller.chooseColouring(.sample)
+        await settle(controller)
+        XCTAssertEqual(controller.snapshot?.points.embedding, 2, "the embedding chosen first is kept")
+        XCTAssertEqual(controller.snapshot?.colouring, .sample)
+        XCTAssertEqual(controller.embeddingPopUp.titleOfSelectedItem, "PCA")
     }
 }
 
