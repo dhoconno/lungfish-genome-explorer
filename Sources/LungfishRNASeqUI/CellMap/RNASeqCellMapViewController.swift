@@ -5,11 +5,13 @@
 // The view draws the cells of a cell map on its embedding (5.5 O1 (a)). The surface's load reads what the view opens
 // with, so the memory guard's cancel of the surface's `loadTask` reaches it. A later read, of another embedding or
 // another colouring, and every raster run off the main actor, and the newest request wins. The controls are an
-// Embedding pop-up, a Colour by pop-up and a point size that nothing records, and the view opens on the first
-// embedding in file order (5.5 V6). The fact lines of 5.5 V5 and the words of 5.5 W1 sit in the right column.
+// Embedding pop-up, a Colour by pop-up and a point size that nothing records, which is LungfishKit's shared slider in
+// a hosting view (RNASeqCellMapPointSize.swift). The view opens on the first embedding in file order (5.5 V6). The
+// fact lines of 5.5 V5 and the words of 5.5 W1 sit in the right column.
 
 import AppKit
 import LungfishIO
+import SwiftUI
 
 @MainActor
 public final class RNASeqCellMapViewController: NSViewController {
@@ -22,8 +24,9 @@ public final class RNASeqCellMapViewController: NSViewController {
     /// What is shown: the facts, the embedding's points, the colouring and its colours. Nil until the read ends.
     public private(set) var snapshot: RNASeqCellMapSnapshot?
     public private(set) var failureWords: String?
-    /// The point size in points, a display setting that nothing records (5.5 V6).
-    public private(set) var pointSize = RNASeqCellMapViewController.defaultPointSize
+    /// The point size in points, a display setting that nothing records (5.5 V6). The model holds it, so the shared
+    /// slider and the raster read one value.
+    public var pointSize: Double { pointSizeModel.value }
     /// The part of the plane shown, nil for every drawn cell.
     public private(set) var plotWindow: RNASeqEmbeddingWindow?
     /// The hover line on show, nil when the pointer is over no cell.
@@ -36,7 +39,10 @@ public final class RNASeqCellMapViewController: NSViewController {
     public let legendView = RNASeqEmbeddingLegendView()
     public let embeddingPopUp = NSPopUpButton()
     public let colourPopUp = NSPopUpButton()
-    public let sizeSlider = NSSlider()
+    /// The size on show in the shared slider. A size that the slider or its number field writes runs `choosePointSize(_:)`.
+    private(set) lazy var pointSizeModel = RNASeqCellMapPointSizeModel { [weak self] size in self?.choosePointSize(size) }
+    /// The shared slider and number field of the point size, which sit in the control row.
+    private(set) lazy var pointSizeHost = NSHostingView(rootView: RNASeqCellMapPointSizeControl(model: pointSizeModel))
     private let column = NSStackView()
     private let wordsStack = NSStackView()
     private let xAxis = NSTextField(labelWithString: "")
@@ -79,14 +85,6 @@ public final class RNASeqCellMapViewController: NSViewController {
         colourPopUp.setAccessibilityIdentifier("rnaseq-cell-map-colour")
         colourPopUp.target = self
         colourPopUp.action = #selector(colouringChosen(_:))
-        sizeSlider.minValue = Self.pointSizes.lowerBound
-        sizeSlider.maxValue = Self.pointSizes.upperBound
-        sizeSlider.doubleValue = Self.defaultPointSize
-        sizeSlider.isContinuous = false
-        sizeSlider.setAccessibilityIdentifier("rnaseq-cell-map-point-size")
-        sizeSlider.setAccessibilityLabel("Point size")
-        sizeSlider.target = self
-        sizeSlider.action = #selector(pointSizeChosen(_:))
         hoverField.isSelectable = true
         hoverField.setAccessibilityIdentifier("rnaseq-cell-map-hover")
 
@@ -98,7 +96,7 @@ public final class RNASeqCellMapViewController: NSViewController {
         wordsStack.orientation = .vertical
         wordsStack.alignment = .leading
         wordsStack.spacing = 6
-        for (label, control) in [("Embedding", embeddingPopUp), ("Colour by", colourPopUp), ("Point size", sizeSlider)] as [(String, NSView)] {
+        for (label, control) in [("Embedding", embeddingPopUp), ("Colour by", colourPopUp), (RNASeqCellMapPointSizeControl.title, pointSizeHost)] as [(String, NSView)] {
             column.addArrangedSubview(Self.control(label, control))
         }
         column.addArrangedSubview(legendView)
@@ -200,11 +198,6 @@ public final class RNASeqCellMapViewController: NSViewController {
         chooseColouring(facts.colourings[sender.indexOfSelectedItem])
     }
 
-    @objc private func pointSizeChosen(_ sender: NSSlider) {
-        pointSize = sender.doubleValue
-        requestRaster()
-    }
-
     /// Reads and shows another embedding with the colouring wanted. A newer choice cancels this read and keeps this
     /// embedding.
     public func chooseEmbedding(_ embedding: Int) {
@@ -236,9 +229,9 @@ public final class RNASeqCellMapViewController: NSViewController {
         }
     }
 
+    /// Shows a point size from 1 to 8 pt, clamping what it is given, and draws the cells again at that size.
     public func choosePointSize(_ size: Double) {
-        pointSize = min(max(size, Self.pointSizes.lowerBound), Self.pointSizes.upperBound)
-        sizeSlider.doubleValue = pointSize
+        pointSizeModel.show(min(max(size, Self.pointSizes.lowerBound), Self.pointSizes.upperBound))
         requestRaster()
     }
 

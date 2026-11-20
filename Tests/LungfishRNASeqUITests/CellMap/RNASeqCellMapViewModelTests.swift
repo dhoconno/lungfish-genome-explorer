@@ -11,6 +11,7 @@ import AppKit
 @testable import LungfishIO
 import LungfishKit
 import LungfishTestSupport
+import SwiftUI
 import XCTest
 @testable import LungfishRNASeqUI
 
@@ -420,6 +421,34 @@ final class RNASeqCellMapViewControllerTests: XCTestCase {
             XCTAssertEqual(controller.plot.raster?.radius, radius(of: expected), "drawn again at \(expected) pt")
         }
         XCTAssertEqual(try listing(of: bundle), before, "the point size is not recorded")
+    }
+
+    /// The shared slider and its number field write the model's `written` through a binding, so the test writes that
+    /// binding as they do. A size written draws again at its radius, a size already on show draws nothing again, a size over the
+    /// range is clamped, and a size set from code is what the binding reads. The control sits in the "Point size" row.
+    func testTheSharedSlidersBindingWritesThePointSizeAndReadsWhatCodeSets() async throws {
+        let (surface, controller) = try await openController()
+        defer { withExtendedLifetime(surface) {} }
+        let scale = controller.plot.pixelSize.scale
+        let binding = Bindable(controller.pointSizeModel).written
+        XCTAssertEqual(binding.wrappedValue, 2, "the control opens on 2 pt")
+        binding.wrappedValue = 6
+        await settle(controller)
+        XCTAssertEqual(controller.pointSize, 6)
+        XCTAssertEqual(controller.plot.raster?.radius, max(Int((6 * scale / 2).rounded()), 0), "the slider's size is drawn")
+        let work = controller.work
+        binding.wrappedValue = 6
+        XCTAssertEqual(controller.work, work, "a size already on show draws nothing again")
+        binding.wrappedValue = 40
+        await settle(controller)
+        XCTAssertEqual(controller.pointSize, 8, "a size over the range is clamped to 8 pt")
+        controller.choosePointSize(3)
+        XCTAssertEqual(binding.wrappedValue, 3, "a size set from code is what the control shows")
+        XCTAssertEqual(RNASeqCellMapPointSizeControl.title, "Point size")
+        XCTAssertEqual(RNASeqCellMapPointSizeControl.accessibilityID, "rnaseq-cell-map-point-size")
+        let row = try XCTUnwrap(controller.pointSizeHost.superview as? NSStackView)
+        XCTAssertEqual((row.arrangedSubviews.first as? NSTextField)?.stringValue, "Point size", "the control sits in the labelled row")
+        await settle(controller)
     }
 
     func testColourByUMIsPerCellShowsItsScaleAndHoverReadsTheCellsUMIs() async throws {
