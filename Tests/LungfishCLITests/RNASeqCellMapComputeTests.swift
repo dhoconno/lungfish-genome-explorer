@@ -65,6 +65,55 @@ enum ComputeStandIn {
     }
 }
 
+/// A seeded synthetic single-cell result in the plain STARsolo layout: a copy of the committed cut whose
+/// `Solo.out/Gene/filtered/` holds `cells` cells in six groups over 3,000 features instead. Each cell holds 60 of 300 shared
+/// features and 90 of its group's 450, so every feature passes the route's `--min-cells 3` and the groups separate.
+enum ComputeSynthetic {
+    static let featureCount = 3_000
+
+    static func folder(cells: Int, seed: UInt64, in root: URL) throws -> URL {
+        let folder = root.appendingPathComponent("synthetic-\(cells)", isDirectory: true)
+        try FileManager.default.copyItem(at: RNASeqFixtures.root.appendingPathComponent(CellMapImportFixture.starsolo, isDirectory: true), to: folder)
+        let filtered = folder.appendingPathComponent("Solo.out/Gene/filtered", isDirectory: true)
+        var state = seed
+        func next() -> UInt64 {  // SplitMix64
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return z ^ (z >> 31)
+        }
+        var entries: [String] = []
+        entries.reserveCapacity(cells * 150)
+        for cell in 0..<cells {
+            var genes = Set<Int>()
+            while genes.count < 60 { genes.insert(Int(next() % 300)) }
+            while genes.count < 150 { genes.insert(300 + (cell % 6) * 450 + Int(next() % 450)) }
+            for gene in genes.sorted() { entries.append("\(gene + 1) \(cell + 1) \(1 + next() % (gene < 300 ? 4 : 8))") }
+        }
+        let letters = Array("ACGT")
+        let barcodes = (0..<cells).map { i in String((0..<16).map { letters[(i >> (2 * (15 - $0))) & 3] }) }
+        let features = (1...featureCount).map { String(format: "SYN%05d\tSYN%05d\tGene Expression", $0, $0) }
+        try Data((features.joined(separator: "\n") + "\n").utf8).write(to: filtered.appendingPathComponent("features.tsv"))
+        try Data((barcodes.joined(separator: "\n") + "\n").utf8).write(to: filtered.appendingPathComponent("barcodes.tsv"))
+        let header = "%%MatrixMarket matrix coordinate integer general\n%\n\(featureCount) \(cells) \(entries.count)\n"
+        try Data((header + entries.joined(separator: "\n") + "\n").utf8).write(to: filtered.appendingPathComponent("matrix.mtx"))
+        return folder
+    }
+
+    /// The folder read and written as a single-cell result by the one writer, as `CellMapImportFixture.result` does.
+    static func result(cells: Int, seed: UInt64, in root: URL) throws -> URL {
+        let read = try SingleCellFolderReader.read(folder: try folder(cells: cells, seed: seed, in: root))
+        let analyses = root.appendingPathComponent("Analyses", isDirectory: true)
+        try FileManager.default.createDirectory(at: analyses, withIntermediateDirectories: true)
+        let samples = [RNASeqSampleRecord(id: read.sample, animal: "A1", species: "Homo sapiens", runs: [read.sample])]
+        let request = try SingleCellFolderReader.request([read], name: "synthetic", samples: samples, genomes: [])
+        let url = analyses.appendingPathComponent("synthetic.lungfishrnaseq", isDirectory: true)
+        let envelope = ProvenanceEnvelope(workflowName: "RNA-seq import", toolName: "lungfish-cli", toolVersion: "test")
+        return try RNASeqResultWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil)).write(request, to: url, envelope: envelope)
+    }
+}
+
 final class RNASeqCellMapComputeTests: XCTestCase {
     private var root: URL!
 
@@ -76,12 +125,12 @@ final class RNASeqCellMapComputeTests: XCTestCase {
     private let gib: UInt64 = 1 << 30
 
     private func compute(_ parent: URL, output: URL, launch: @escaping RNASeqCellMapCompute.Launch, physicalMemory: UInt64 = 64 << 30,
-                         seed: Int = 0) async throws -> RNASeqResultWriter.CellMapSummary {
+                         seed: Int = 0, step: (String) -> Void = { _ in }) async throws -> RNASeqResultWriter.CellMapSummary {
         try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
         let writer = RNASeqResultWriter(provenanceWriter: ProvenanceWriter(signingProvider: nil))
         return try await RNASeqCellMapCompute.compute(
             .init(parent: parent, threads: 1, seed: seed), output: output, physicalMemory: physicalMemory, launch: launch, writer: writer,
-            temporaryRoot: temporaryRoot
+            temporaryRoot: temporaryRoot, step: step
         ) { run, summary in
             var envelope = ProvenanceEnvelope(workflowName: "RNA-seq cell map compute", toolName: "lungfish-cli", toolVersion: "test")
             envelope.options = ProvenanceOptions(explicit: [:], defaults: [:], resolvedDefaults: RNASeqCellMapCompute.facts(run, summary: summary))
@@ -233,7 +282,7 @@ final class RNASeqCellMapComputeTests: XCTestCase {
         XCTAssertEqual(summary.labelSets.map(\.name), ["leiden"])
         XCTAssertEqual(summary.labelSets.first?.labels, ["0", "1", "2"])
         let manifest = try RNASeqResultBundle.loadManifest(from: map)
-        XCTAssertEqual(manifest.origin, .init(kind: .computed, tool: "scanpy", toolVersion: "1.11.5"))
+        XCTAssertEqual(manifest.origin, .init(kind: .computed, tool: "scanpy", toolVersion: "1.11.5", settings: ["seed": "0", "threads": "1"]))
         XCTAssertEqual(manifest.sourceFiles.map(\.path), ["source/compute/embedding.tsv"])
         XCTAssertEqual(manifest.sourceFiles.first?.tool, "scanpy")
         let table = try String(contentsOf: map.appendingPathComponent("source/compute/embedding.tsv"), encoding: .utf8)
@@ -244,9 +293,86 @@ final class RNASeqCellMapComputeTests: XCTestCase {
         XCTAssertEqual(facts["seed"], .integer(0))
         XCTAssertEqual(facts["threads"], .integer(1))
         XCTAssertEqual(facts["cells"], .string("Every cell kept"))
+        XCTAssertEqual(facts["pythonCall"], .string("micromamba run -n sc-embed python -s -B -P embed.py with its inputs as argv"),
+                       "the record does not name the launcher (ruling TIERB-ENV item 5)")
         guard case .dictionary(let route)? = facts["routeRecord"] else { return XCTFail("the record holds no route record") }
         XCTAssertEqual(route["knn"], .string("kNN: exact, brute, transformer=sklearn"))
         XCTAssertEqual(try leftovers(), [], "a stage or a temporary folder is left")
+    }
+
+    /// Vote S-2: a run of 8,192 cells, the old bar of 5.5 C11, passes with exact neighbours and is never refused. The test
+    /// writes a seeded synthetic matrix, and the stand-in covers the Swift path. The route's run is the conformance case.
+    func testAn8192CellRunComputesWithExactNeighboursAndIsNeverRefused() async throws {
+        let parent = try ComputeSynthetic.result(cells: 8_192, seed: 8_192, in: root)
+        let seen = ComputeLaunchSeen()
+        var steps: [String] = []
+        let summary = try await compute(parent, output: output("synthetic-map"),
+                                        launch: ComputeStandIn.launch(record: try ComputeStandIn.pinRecord, seen: seen)) { steps.append($0) }
+        let call = try XCTUnwrap(seen.all.first)
+        XCTAssertEqual(seen.all.count, 1)
+        XCTAssertEqual(call.arguments.firstIndex(of: "--knn-transformer").map { call.arguments[$0 + 1] }, "sklearn")
+        XCTAssertFalse(call.arguments.contains { $0.contains("pynndescent") || $0 == "scanpy-default" })
+        XCTAssertEqual(steps.first, "Computing a cell map of 8,192 cells with exact nearest neighbours at 1 thread.")
+        XCTAssertEqual(summary.embeddings.first?.drawn, [8_192])
+        XCTAssertEqual(try leftovers(), [], "a stage or a temporary folder is left")
+    }
+
+    /// Ruling TIERB-ENV items 1 and 2. With the 13 launch names removed from both lists, the CLI form's 23 names equal the
+    /// pin's 13 as a set, and any other name on one side only fails with the name given.
+    func testTierBComparesEnvironmentNamesAsASetWithoutTheLaunchNames() throws {
+        let pin = RNASeqCellMapCompute.parameterValue(try XCTUnwrap(try JSONSerialization.jsonObject(with: try ComputeStandIn.pinRecord)))
+        let pinNames = RNASeqCellMapTierB.names(pin)
+        XCTAssertEqual(pinNames.count, 13)
+        let added = ["CONDA_DEFAULT_ENV", "CONDA_PREFIX", "CONDA_PROMPT_MODIFIER", "CONDA_SHLVL", "LC_ALL", "MAMBA_EXE",
+                     "MAMBA_ROOT_PREFIX", "PWD", "SHLVL", "XML_CATALOG_FILES", "__CF_USER_TEXT_ENCODING"]
+        func run(_ names: [String]) throws -> ParameterValue {
+            RNASeqCellMapCompute.parameterValue(try XCTUnwrap(try JSONSerialization.jsonObject(
+                with: try ComputeStandIn.record(setting: "environment.names", to: names.sorted()))))
+        }
+        let cli = pinNames.filter { $0 != "LC_CTYPE" } + added
+        XCTAssertEqual(cli.count, 23)
+        XCTAssertEqual(RNASeqCellMapTierB.recordDifferences(try run(cli), pin), [])
+        XCTAssertEqual(RNASeqCellMapTierB.recordDifferences(try run(cli + ["OPENBLAS_CORETYPE"]), pin),
+                       ["environment.names (+OPENBLAS_CORETYPE on the run)"])
+        XCTAssertEqual(RNASeqCellMapTierB.recordDifferences(try run(cli.filter { $0 != "HOME" } + ["CONDA_EXE"]), pin),
+                       ["environment.names (+CONDA_EXE on the run, -HOME missing from the run)"])
+        XCTAssertEqual(RNASeqCellMapTierB.launchNamesLeftOut(try run(cli)).count, 12, "the 11 micromamba adds and TMPDIR")
+        XCTAssertEqual(RNASeqCellMapTierB.launchNamesLeftOut(pin), ["LC_CTYPE", "TMPDIR"])
+    }
+
+    /// The view's Source fact (manager's decision of 2026-11-20 04:50). A computed cell map's manifest holds the seed and
+    /// threads under `origin.settings`, the parent's `route` is copied whole with no key added, and the manifest reads back
+    /// equal. `settings` is a schema 2 key written only for `computed`, so a manifest that holds it at schema 1 or with
+    /// another kind reads as unreadable.
+    func testAComputedCellMapNamesItsSeedAndThreadsInTheOriginAndReadsBackEqual() async throws {
+        let parent = try CellMapImportFixture.result(CellMapImportFixture.starsolo, in: root)
+        let map = output("settings")
+        let launch = ComputeStandIn.launch(record: try ComputeStandIn.pinRecord, seen: ComputeLaunchSeen())
+        _ = try await compute(parent, output: map, launch: launch)
+
+        let data = try Data(contentsOf: map.appendingPathComponent(RNASeqResultManifest.filename))
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let origin = try XCTUnwrap(json["origin"] as? [String: Any])
+        XCTAssertEqual(origin["settings"] as? [String: String], ["seed": "0", "threads": "1"])
+        let manifest = try RNASeqResultBundle.loadManifest(from: map)
+        XCTAssertEqual(manifest.route, try RNASeqResultBundle.loadManifest(from: parent).route, "the parent's route gained a key")
+        XCTAssertTrue(manifest.keysMatchSchema)
+        let again = try JSONDecoder().decode(RNASeqResultManifest.self, from: try JSONEncoder().encode(manifest))
+        XCTAssertEqual(again, manifest)
+        XCTAssertEqual(again.origin.settings, ["seed": "0", "threads": "1"])
+
+        var imported = manifest
+        imported.origin.kind = .imported
+        XCTAssertFalse(imported.keysMatchSchema, "settings with the kind imported read as a cell map")
+        imported.origin.settings = nil
+        XCTAssertTrue(imported.keysMatchSchema)
+        var parentManifest = try RNASeqResultBundle.loadManifest(from: parent)
+        XCTAssertNil(parentManifest.origin.settings)
+        let parentJSON = try XCTUnwrap(try JSONSerialization.jsonObject(
+            with: try Data(contentsOf: parent.appendingPathComponent(RNASeqResultManifest.filename))) as? [String: Any])
+        XCTAssertNil((parentJSON["origin"] as? [String: Any])?["settings"], "a schema 1 origin holds settings")
+        parentManifest.origin.settings = ["seed": "0"]
+        XCTAssertFalse(parentManifest.keysMatchSchema, "a schema 1 manifest with origin settings read as readable")
     }
 
     func testACancelledLaunchLeavesNoCellMapNoStageAndNoTemporaryFolder() async throws {

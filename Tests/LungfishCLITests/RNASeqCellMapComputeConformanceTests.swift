@@ -124,16 +124,37 @@ final class RNASeqCellMapComputeConformanceTests: XCTestCase {
         let byBytes = firstBody == (try body(pin.appendingPathComponent("cells.tsv")))
         let pinValue = RNASeqCellMapCompute.parameterValue(pinRecord)
         print("X4 byte result: labels and coordinates \(byBytes ? "equal" : "differ from") the pin's by bytes; host \(sameHost ? "is" : "is not") the pin's")
-        print("X4 record keys that differ from the pin's, TIERB-BIO item 2's keys aside: "
-              + "\(RNASeqCellMapTierB.recordDifferences(.dictionary(record), pinValue))")
+        let differences = RNASeqCellMapTierB.recordDifferences(.dictionary(record), pinValue)
+        print("X4 record keys that differ from the pin's, TIERB-BIO item 2's keys and TIERB-ENV's launch names aside: \(differences)")
+        print("X4 launch names left out: run \(RNASeqCellMapTierB.launchNamesLeftOut(.dictionary(record))) "
+              + "pin \(RNASeqCellMapTierB.launchNamesLeftOut(pinValue))")
         if sameHost {
             XCTAssertTrue(byBytes, "tier A: on the pin's host the labels and coordinates must equal the pin byte for byte")
+            XCTAssertEqual(differences, [], "tier A: on the pin's host the record must equal the pin's (ruling TIERB-ENV item 4)")
             return
         }
         let verdict = try RNASeqCellMapTierB.verdict(run: first.appendingPathComponent(table), pin: pin.appendingPathComponent("cells.tsv"),
                                                     record: .dictionary(record), pinRecord: pinValue, runFolder: kept, pinFolder: pin)
         print("X4 tier B verdict: \(verdict)")
         XCTAssertFalse(verdict.hasPrefix("fail"), verdict)
+    }
+
+    /// Vote S-2: the route on a seeded synthetic matrix of 8,192 cells, the old bar of 5.5 C11, passes with exact
+    /// neighbours and is never refused. The record check of the CLI holds `knn` to "kNN: exact, brute, transformer=sklearn".
+    func testTheRouteComputes8192SyntheticCellsWithExactNeighbours() async throws {
+        let parent = try ComputeSynthetic.result(cells: 8_192, seed: 8_192, in: root)
+        let map = try await Self.compute(parent, name: "synthetic-8192", launch: RNASeqCellMapCompute.condaLaunch(try condaManager()))
+        let facts = try CellMapImportFixture.facts(map)
+        guard case .dictionary(let record)? = facts["routeRecord"] else { return XCTFail("the record holds no route record") }
+        XCTAssertEqual(record["knn"], .string("kNN: exact, brute, transformer=sklearn"))
+        let manifest = try RNASeqResultBundle.loadManifest(from: map)
+        XCTAssertEqual(manifest.origin.settings, ["seed": "0", "threads": "1"])
+        let table = try String(contentsOf: map.appendingPathComponent(RNASeqCellMapCompute.keptTable), encoding: .utf8)
+        let rows = table.split(separator: "\n").dropFirst()
+        XCTAssertEqual(rows.count, 8_192)
+        let clusters = Set(rows.map { $0.split(separator: "\t").last ?? "" })
+        print("X4 8,192 synthetic cells: \(rows.count) rows, \(clusters.count) Leiden clusters, knn \(record["knn"].map { "\($0)" } ?? "none")")
+        XCTAssertGreaterThanOrEqual(clusters.count, 2)
     }
 
     /// A cancel while the route runs stops the whole tree and leaves no cell map, no stage and no temporary folder.

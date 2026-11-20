@@ -36,11 +36,16 @@ public struct RNASeqResultManifest: Codable, Equatable, Sendable {
         /// when LGE ran the route.
         public var tool: String?
         public var toolVersion: String?
+        /// The settings LGE chose for a `computed` cell map, `seed` and `threads` as decimal text, so a reader that shows
+        /// the source never reads the record. A schema 2 key, written only for `computed` and absent from every other
+        /// origin (`docs/formats/rnaseq-cell-map.md`, the `origin` row).
+        public var settings: [String: String]?
 
-        public init(kind: Kind, tool: String? = nil, toolVersion: String? = nil) {
+        public init(kind: Kind, tool: String? = nil, toolVersion: String? = nil, settings: [String: String]? = nil) {
             self.kind = kind
             self.tool = tool
             self.toolVersion = toolVersion
+            self.settings = settings
         }
     }
 
@@ -230,10 +235,11 @@ public struct RNASeqResultManifest: Codable, Equatable, Sendable {
     /// a schema 2 manifest is a cell map that names its parent and its database. A reader treats any other manifest as
     /// unreadable, so it never guesses at a value of the other schema.
     public var keysMatchSchema: Bool {
-        let schemaTwoOnly = modality == .cellMap || origin.kind == .computed || parent != nil || cellMap != nil || labelTables != nil
+        let schemaTwoOnly = modality == .cellMap || origin.kind == .computed || origin.settings != nil || parent != nil
+            || cellMap != nil || labelTables != nil
         switch schemaVersion {
         case 1: return !schemaTwoOnly
-        case 2: return modality == .cellMap && parent != nil && cellMap != nil
+        case 2: return modality == .cellMap && parent != nil && cellMap != nil && (origin.settings == nil || origin.kind == .computed)
         default: return false
         }
     }

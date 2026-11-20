@@ -44,7 +44,10 @@ extension RNASeqCellMapCompute {
             "parentCellsSummarySHA256": .string(summary.parentCellsSHA256),
             "parentMatrices": .array(matrices),
             "script": .dictionary(["name": .string(scriptName), "sha256": .string(scriptSHA256)]),
-            "pythonCall": .string((["python"] + pythonFlags + [scriptName]).joined(separator: " ") + " with its inputs as argv"),
+            // The launcher is named, so a reader sees why the route record's `environment.names` holds micromamba's names
+            // (ruling TIERB-ENV item 5).
+            "pythonCall": .string((["micromamba", "run", "-n", environmentName, "python"] + pythonFlags + [scriptName]).joined(separator: " ")
+                + " with its inputs as argv"),
             "seed": .integer(run.prepared.seed),
             "threads": .integer(run.prepared.threads),
             "memory": .dictionary(run.prepared.memory.facts),

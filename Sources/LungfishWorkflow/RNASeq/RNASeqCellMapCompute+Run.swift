@@ -154,7 +154,7 @@ extension RNASeqCellMapCompute {
             .init(parent: options.parent, coordinates: [tableURL], labelColumns: [labelSetName], methods: ["\(embeddingName)=\(embeddingMethod)"],
                   tool: tool, toolVersion: toolVersion),
             output: output, createdAt: startedAt)
-        checked.request = computedRequest(checked.request, table: tableURL)
+        checked.request = computedRequest(checked.request, table: tableURL, seed: prepared.seed, threads: prepared.threads)
         let run = Run(prepared: prepared, record: record, packages: packages, tableSHA256: RNASeqResultBundle.sha256Hex(table),
                       checked: checked, exitCode: result.exitCode)
         try Task.checkCancellation()
@@ -167,11 +167,14 @@ extension RNASeqCellMapCompute {
         return (run, summary)
     }
 
-    /// The checker's request as a compute run's: origin `computed` by scanpy 1.11.5, no given file, the table kept as
-    /// `source/compute/embedding.tsv`, and the embedding and label set marked `computed` (`docs/formats/rnaseq-cell-map.md`).
-    static func computedRequest(_ request: RNASeqResultWriter.CellMapRequest, table: URL) -> RNASeqResultWriter.CellMapRequest {
+    /// The checker's request as a compute run's: origin `computed` by scanpy 1.11.5 with the run's `seed` and `threads` as
+    /// its settings, no given file, the table kept as `source/compute/embedding.tsv`, and the embedding and label set marked
+    /// `computed` (`docs/formats/rnaseq-cell-map.md`).
+    static func computedRequest(_ request: RNASeqResultWriter.CellMapRequest, table: URL, seed: Int, threads: Int)
+        -> RNASeqResultWriter.CellMapRequest {
         var request = request
-        request.origin = .init(kind: .computed, tool: tool, toolVersion: toolVersion)
+        request.origin = .init(kind: .computed, tool: tool, toolVersion: toolVersion,
+                               settings: ["seed": String(seed), "threads": String(threads)])
         request.givenFiles = []
         request.computedTable = table
         request.embeddings = request.embeddings.map { embedding in

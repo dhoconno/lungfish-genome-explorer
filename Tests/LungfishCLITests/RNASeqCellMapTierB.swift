@@ -4,7 +4,7 @@
 //
 // Ruling ADJ-SC-EMBED item 2 with BIO's items 1 to 5 of ruling TIERB-BIO. In order: (a) the sample and barcode columns
 // equal the pin's by bytes and in order, (b) the route's record equals the pin's key by key but the nine keys TIERB-BIO
-// item 2 names, (c) labels reach ARI of at least 0.70, unrounded, and (d) the mean share of each cell's 15 nearest
+// item 2 names, with `environment.names` compared as a set once ruling TIERB-ENV's 13 launch names are removed, (c) labels reach ARI of at least 0.70, unrounded, and (d) the mean share of each cell's 15 nearest
 // neighbours kept reaches at least 0.50. It prints the byte result, a label line, a variable-gene line and a PCA line,
 // and gives one of the four verdicts. The bars hold only for pbmc_1k_v3 at the C2 parameters.
 
@@ -83,10 +83,36 @@ enum RNASeqCellMapTierB {
         }
     }
 
-    /// The keys of the run's record that differ from the pin's, the nine keys of TIERB-BIO item 2 aside.
+    /// Ruling TIERB-ENV item 1, the closed list L of names the launch adds or drops. Exact names, never a prefix, and the
+    /// lane never adds one: a new name goes to BIO.
+    static let launchNames: Set<String> = [
+        "CONDA_DEFAULT_ENV", "CONDA_PREFIX", "CONDA_PROMPT_MODIFIER", "CONDA_SHLVL", "LC_ALL", "LC_CTYPE", "MAMBA_EXE",
+        "MAMBA_ROOT_PREFIX", "PWD", "SHLVL", "TMPDIR", "XML_CATALOG_FILES", "__CF_USER_TEXT_ENCODING",
+    ]
+    static let namesKey = "environment.names"
+
+    /// The record's `environment.names` as strings.
+    static func names(_ record: ParameterValue) -> [String] {
+        guard case .array(let values)? = flatten(record)[namesKey] else { return [] }
+        return values.compactMap { if case .string(let name) = $0 { return name } else { return nil } }
+    }
+
+    /// The names of each record that are in L, for the log line of TIERB-ENV item 3.
+    static func launchNamesLeftOut(_ record: ParameterValue) -> [String] { names(record).filter(launchNames.contains) }
+
+    /// The keys of the run's record that differ from the pin's, the nine keys of TIERB-BIO item 2 aside. `environment.names`
+    /// is compared as a set once L is removed from both lists (TIERB-ENV items 1 and 2), and a name left on one side only is
+    /// named: `environment.names (+NAME on the run, -NAME missing from the run)`.
     static func recordDifferences(_ run: ParameterValue, _ pin: ParameterValue) -> [String] {
         let (a, b) = (flatten(run), flatten(pin))
-        return Set(a.keys).union(b.keys).subtracting(leftOut).filter { a[$0] != b[$0] }.sorted()
+        var differences = Set(a.keys).union(b.keys).subtracting(leftOut).subtracting([namesKey]).filter { a[$0] != b[$0] }
+        let (runNames, pinNames) = (Set(names(run)).subtracting(launchNames), Set(names(pin)).subtracting(launchNames))
+        let words = runNames.subtracting(pinNames).sorted().map { "+\($0) on the run" }
+            + pinNames.subtracting(runNames).sorted().map { "-\($0) missing from the run" }
+        if !words.isEmpty || (a[namesKey] == nil) != (b[namesKey] == nil) {
+            differences.insert(words.isEmpty ? namesKey : "\(namesKey) (\(words.joined(separator: ", ")))")
+        }
+        return differences.sorted()
     }
 
     /// The pin's labels matched one to one to the run's, greedily by the largest overlap first, and the cells that sit
@@ -125,9 +151,10 @@ enum RNASeqCellMapTierB {
         let genesBytes = !genes.0.isEmpty && genes.0 == genes.1
         print("X4 tier B bytes: labels and coordinates \(tableBytes ? "equal" : "differ"), variable_genes.tsv \(genesBytes ? "equal" : "differs or is missing")")
         guard p.ids == r.ids else { return "fail: cell ids are not the pin's by bytes and in order" }
-        if tableBytes { return "equal by bytes" }
+        // The record check comes before the byte return, in the order of ADJ-SC-EMBED item 2 (TIERB-ENV item 4).
         let differences = recordDifferences(record, pinRecord)
         guard differences.isEmpty else { return "fail: record keys \(differences.joined(separator: ", "))" }
+        if tableBytes { return "equal by bytes" }
         let moved = movedCells(p.labels, r.labels)
         let pinClusters = Set(p.labels).count, runClusters = Set(r.labels).count
         print("X4 tier B labels: clusters \(pinClusters) on the pin and \(runClusters) on the run; sizes pin [\(sizes(p.labels))] run [\(sizes(r.labels))]; "
