@@ -29,9 +29,14 @@ public enum RNASeqCellMapImportRefusal: Error, Equatable, LocalizedError, Sendab
     case notHeld(file: String, count: Int, first: [String])
     case otherCounts(file: String, name: String, tool: String)
     case changedWhileRead(file: String)
+    case unknownFormWithCommas(file: String)
 
     public var errorDescription: String? {
         switch self {
+        case .unknownFormWithCommas(let file):
+            // The unknown-form words, then the cause of a table saved with commas, such as pandas to_csv writes by default.
+            return (Self.unknownForm(file: file).errorDescription ?? "")
+                + " LGE's table is tab-separated, and line 1 of \(file) holds commas and no tab."
         case .outputInsideResult(let result):
             return "--output names a folder inside the result \(result). LGE never writes inside a result, "
                 + "so choose a folder beside it, such as the project's Analyses folder."

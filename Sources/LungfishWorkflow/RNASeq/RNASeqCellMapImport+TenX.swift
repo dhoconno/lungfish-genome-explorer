@@ -98,6 +98,8 @@ extension RNASeqCellMapImport {
             table.header = first.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
             table.form = table.header == ["Barcode", "Cluster"] ? .clusters : .projection
         } else {
+            // Line 1 has no tab here, so a comma makes it a table saved with commas, such as pandas to_csv writes by default.
+            if first.contains(",") { throw RNASeqCellMapImportRefusal.unknownFormWithCommas(file: file) }
             throw RNASeqCellMapImportRefusal.unknownForm(file: file)
         }
         var seen = Set<String>()
@@ -108,7 +110,13 @@ extension RNASeqCellMapImport {
         case .clusters:
             table.labelSets = [(url.deletingLastPathComponent().lastPathComponent, 1)]
         case .projection:
-            table.embeddings = try embeddings(of: table.header, from: 1, file: file, joiner: "-", unknown: true)
+            do {
+                table.embeddings = try embeddings(of: table.header, from: 1, file: file, joiner: "-", unknown: true)
+            } catch let error as RNASeqCellMapImportRefusal {
+                // A projection file has commas and no tab in line 1 by construction, so the words name the table that LGE reads.
+                guard case .unknownForm = error else { throw error }
+                throw RNASeqCellMapImportRefusal.unknownFormWithCommas(file: file)
+            }
         case .lgeTable:
             table.sampleAt = table.header.firstIndex(of: "sample")
             table.labelSets = labelColumns.compactMap { name in table.header.firstIndex(of: name).map { (name, $0) } }
