@@ -315,6 +315,156 @@ final class RNASeqCellMapGeneValuesTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path).sorted(), before, "nothing is written")
     }
 
+    // MARK: - A real task cancel and a parent of two samples (fix round 1, item 2)
+
+    /// SWIFT SF2. The observer cancels its own task at the end of the spill and does not throw, so the stop comes from the
+    /// writer's `Task.checkCancellation()` after the observer and not from a thrown `CancellationError`.
+    func testATaskCancelAtTheEndOfTheSpillStopsTheBuildAndLeavesNothing() async throws {
+        let parent = try CellMapFixture.parent(in: root)
+        let before = try FileManager.default.contentsOfDirectory(atPath: root.path).sorted()
+        let map = root.appendingPathComponent("pbmc-tsne.lungfishrnaseq", isDirectory: true)
+        let outcome = await Task { () -> (error: (any Error)?, steps: [RNASeqCellMapGenes.Step]) in
+            var steps: [RNASeqCellMapGenes.Step] = []
+            do {
+                try CellMapFixture.write(CellMapFixture.request(parent: parent), to: map, observe: { step in
+                    steps.append(step)
+                    if step == .spilled { withUnsafeCurrentTask { $0?.cancel() } }
+                })
+                return (nil, steps)
+            } catch {
+                return (error, steps)
+            }
+        }.value
+        XCTAssertTrue(outcome.error is CancellationError, "\(String(describing: outcome.error))")
+        XCTAssertTrue(outcome.steps.contains(.spilled), "the cancel came at the end of the spill")
+        XCTAssertFalse(outcome.steps.contains(where: { if case .placed = $0 { true } else { false } }), "no bucket was placed after the cancel")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path).sorted(), before, "no stage, bucket or cell map is left")
+    }
+
+    /// Cells 1 to 200 are the first sample's and 201 to 400 the second's. The embedding leaves out cell 5 of the first and
+    /// cell 250 of the second, and the label set gives no label to cell 6 of the first and cell 251 of the second.
+    static let twoSampleLeftOut: Set<Int32> = [5, 250]
+    static let twoSampleUnlabelled: Set<Int32> = [6, 251]
+    static let twoSampleNames = ["T cell", "B cell", "NK"]
+
+    /// A parent of two samples, each the STARsolo cut, and a cell map of it with one embedding and one label set.
+    func twoSampleCellMap() throws -> (parent: URL, map: URL, request: RNASeqResultWriter.CellMapRequest, summary: RNASeqResultWriter.CellMapSummary) {
+        let parent = try RNASeqPseudobulkTests.singleCellResult(
+            [RNASeqPseudobulkTests.starsolo, try RNASeqPseudobulkTests.starsoloCopy("second", in: root)], name: "two", in: root)
+        let all = (1...400).map { Int32($0) }
+        let drawn = all.filter { !Self.twoSampleLeftOut.contains($0) }
+        let labelled = all.filter { !Self.twoSampleUnlabelled.contains($0) }
+        let request = RNASeqResultWriter.CellMapRequest(
+            name: "two-map", parent: parent, origin: .init(kind: .imported, tool: "Cell Ranger"),
+            embeddings: [.init(name: "TSNE", method: "t-SNE", source: .imported, sourceFile: "source/1/projection.csv", otherCounts: true,
+                               dimensions: 2, cells: drawn, values: drawn.flatMap { [Double($0) * 0.5, 0.25 - Double($0)] })],
+            labelSets: [.init(name: "cluster", source: .imported, sourceFile: "source/2/clusters.csv", cells: labelled,
+                              labels: labelled.map { Self.twoSampleNames[Int($0) % 3] })],
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000))
+        let map = root.appendingPathComponent("two-map.lungfishrnaseq", isDirectory: true)
+        return (parent, map, request, try CellMapFixture.write(request, to: map))
+    }
+
+    /// SWIFT SF1. Every other fixture has one sample, so a mixed-up sample or label number would pass there. The counts
+    /// below are recounted from the request, the sample names and barcodes come from the parent, and the label order differs
+    /// from the request's, so the stored label number is not the name's place in the request.
+    func testAParentOfTwoSamplesKeepsEachSamplesCountsAndGlobalCellIDs() throws {
+        let (parent, map, request, summary) = try twoSampleCellMap()
+        let database = try RNASeqCellMapDatabase(url: map.appendingPathComponent(RNASeqCellMap.filename))
+        let parentCells = try RNASeqCellsDatabase(url: parent.appendingPathComponent(RNASeqCellsDatabase.filename))
+        let samples = try parentCells.samples()
+        XCTAssertEqual(samples.map(\.cells), [200, 200])
+        XCTAssertEqual(try database.samples().map { [$0.sample, $0.cells] }, samples.map { [$0.sample, $0.cells] })
+        let ids = samples.map(\.sample)
+        let names = Dictionary(uniqueKeysWithValues: samples.map { ($0.sample, $0.name) })
+
+        // The embedding leaves out one cell of each sample.
+        XCTAssertEqual(try database.embeddingCells().map { [$0.sample, $0.drawn, $0.leftOut] }, ids.map { [$0, 199, 1] })
+        XCTAssertEqual(summary.embeddings.first?.drawn, [199, 199])
+        XCTAssertEqual(summary.embeddings.first?.leftOut, [1, 1])
+
+        let set = try XCTUnwrap(try database.labelSets().first)
+        XCTAssertEqual(set.labels.map(\.name), ["B cell", "NK", "T cell"], "label order is by code point and not the request's order")
+        let given = Dictionary(uniqueKeysWithValues: zip(request.labelSets[0].cells, request.labelSets[0].labels))
+        func sample(of cell: Int32) -> Int { ids[cell <= 200 ? 0 : 1] }
+        for label in set.labels {
+            let recount = ids.map { id in given.filter { $0.value == label.name && sample(of: $0.key) == id }.count }
+            let stored = set.counts.filter { $0.label == label.label }
+            XCTAssertEqual(stored.map(\.sample), ids, "\(label.name) has a count for each sample")
+            XCTAssertEqual(stored.map(\.cells), recount, "\(label.name) for each sample")
+            XCTAssertEqual(label.cells, recount.reduce(0, +), "\(label.name) in all")
+        }
+        XCTAssertEqual(set.samples.map { [$0.sample, $0.labelled, $0.unlabelled] }, ids.map { [$0, 199, 1] })
+        XCTAssertEqual(summary.labelSets.first?.labelled, [199, 199])
+        XCTAssertEqual(summary.labelSets.first?.unlabelled, [1, 1])
+
+        // The label of each cell, by its global id, is the name the request gave it, and 0 for a cell with no label.
+        let indexOf = try database.cellLabels(labelSet: set.labelSet)
+        XCTAssertEqual(indexOf.count, 400)
+        for cell in 1...400 {
+            let index = Int(indexOf[cell - 1])
+            let name = set.labels.indices.contains(index - 1) ? set.labels[index - 1].name : nil
+            XCTAssertEqual(name, given[Int32(cell)], "the label of cell \(cell)")
+        }
+
+        // The label table names each cell's own sample and barcode, and pseudobulk sums it into the groups the counts name.
+        let lines = try parentCells.cells(offset: 0, limit: 400).compactMap { row in
+            given[Int32(row.cell)].map { "\(names[row.sample] ?? "")\t\(row.barcode)\t\($0)" }
+        }
+        let table = try String(contentsOf: map.appendingPathComponent(set.table), encoding: .utf8)
+        XCTAssertEqual(table, "sample\tbarcode\tlabel\n" + lines.joined(separator: "\n") + "\n")
+        let outcome = try RNASeqPseudobulk.sum(result: parent, labels: map.appendingPathComponent(set.table), name: "pb")
+        let groups = set.counts.map { count in
+            "\(names[count.sample] ?? "")|\(set.labels.first { $0.label == count.label }?.name ?? "")|\(count.cells)"
+        }
+        XCTAssertEqual(Set(outcome.kept.map { "\($0.sample)|\($0.label)|\($0.cells)" }), Set(groups))
+        XCTAssertEqual(Set(outcome.unlabelled.map { "\($0.sample)|\($0.cells)" }), Set(samples.map { "\($0.name)|1" }))
+    }
+
+    /// BIO SF1. Both samples hold the same data, so the second sample's cells are the first's plus 200 with equal UMIs and
+    /// equal normalised bits, every total doubles, and each bound is taken over all 400 cells at rank 396 (index 395).
+    func testTwoSamplesKeepTheirCellsAndTheBoundSetIsEveryCell() throws {
+        let (_, map, _, summary) = try twoSampleCellMap()
+        let database = try RNASeqCellMapDatabase(url: map.appendingPathComponent(RNASeqCellMap.filename))
+        XCTAssertEqual(try database.cellCount(), 400)
+        XCTAssertEqual(summary.genes.entries, 2 * 17_692)
+        let features = try database.features()
+        XCTAssertEqual(features.reduce(0) { $0 + $1.total }, 2 * 212_629, "each sample holds the cut's 212,629 UMIs")
+        for feature in features where feature.cells > 0 {
+            let umis = try XCTUnwrap(try database.geneValues(feature: feature.feature, unit: .umis))
+            let normalised = try XCTUnwrap(try database.geneValues(feature: feature.feature, unit: .normalised))
+            guard case .umis(let counts) = umis.values, case .normalised(let floats) = normalised.values else { return XCTFail("another unit") }
+            XCTAssertEqual(umis.cells.count, feature.cells, "the cells of \(feature.id)")
+            XCTAssertEqual(counts.reduce(0) { $0 + Int($1) }, feature.total, "the UMIs of \(feature.id)")
+            XCTAssertEqual(normalised.cells, umis.cells)
+            let low = umis.cells.filter { $0 <= 200 }
+            let high = umis.cells.filter { $0 > 200 }.map { $0 - 200 }
+            XCTAssertEqual(high, low, "the second sample's cells are the first's plus 200 for \(feature.id)")
+            XCTAssertEqual(Array(counts.suffix(high.count)), Array(counts.prefix(low.count)), "the same UMIs for \(feature.id)")
+            XCTAssertEqual(floats.suffix(high.count).map(\.bitPattern), floats.prefix(low.count).map(\.bitPattern), "the same normalised bits for \(feature.id)")
+        }
+
+        let cells = try CellMapFixture.rows("cells-starsolo.tsv")
+        XCTAssertEqual(cells.count, 200)
+        func expected(_ values: [Double]) -> [Double] {
+            let all = (values + Array(repeating: 0, count: 400 - values.count)).sorted()
+            return [all[0], all[399], all[395]]
+        }
+        let bounds = Dictionary(try database.valueBounds().map { ($0.value, [$0.minimum, $0.maximum, $0.p99]) }, uniquingKeysWith: { first, _ in first })
+        XCTAssertEqual(bounds["umis"], expected((cells + cells).map { Double($0[3])! }), "the bounds of each cell's UMIs over 400 cells")
+        XCTAssertEqual(bounds["genes"], expected((cells + cells).map { Double($0[4])! }), "the bounds of each cell's genes over 400 cells")
+        let truth = try CellMapFixture.rows("genes-of-interest-starsolo.tsv")
+        for id in ["ENSG00000090382", "ENSG00000163220"] {
+            let rows = truth.filter { $0[0] == id }
+            let feature = try XCTUnwrap(features.first { $0.id == id })
+            let umis = try XCTUnwrap(try database.geneValues(feature: feature.feature, unit: .umis))
+            let normalised = try XCTUnwrap(try database.geneValues(feature: feature.feature, unit: .normalised))
+            XCTAssertEqual([umis.minimum, umis.maximum, umis.p99], expected((rows + rows).map { Double($0[4])! }), "the UMI bounds of \(id)")
+            XCTAssertEqual([normalised.minimum, normalised.maximum, normalised.p99],
+                           expected((rows + rows).map { Double(Float(bitPattern: UInt32($0[6], radix: 16)!)) }), "the normalised bounds of \(id)")
+        }
+    }
+
     // MARK: - The X5 measure (O8), opt in
 
     static let x5Variable = "LUNGFISH_CM_KIND_X5_RESULT"
