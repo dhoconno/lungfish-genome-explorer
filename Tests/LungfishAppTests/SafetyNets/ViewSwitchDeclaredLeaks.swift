@@ -46,7 +46,7 @@ enum ViewSwitchDeclaredLeaks {
     /// the MHC viewport does, is seen on the later switches of the circuit as
     /// well, and a fix to one route can change the entries of several pairs.
     static let all: [DeclaredViewSwitchLeak] = fromResultKinds + fromOtherKinds + fromThePDFKind + fromTheFASTACollectionKind
-        + fromTheMappingResultKind + fromTheRNASeqKind
+        + fromTheMappingResultKind + fromTheRNASeqKind + fromTheCellMapKind
 
     static func leak(_ from: String, to: [String], _ backlog: String, _ faults: [String]) -> DeclaredViewSwitchLeak {
         DeclaredViewSwitchLeak(from: from, to: to, backlog: backlog, faults: faults)

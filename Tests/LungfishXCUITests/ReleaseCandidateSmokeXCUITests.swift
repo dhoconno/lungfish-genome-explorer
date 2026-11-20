@@ -162,7 +162,9 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
     /// `RNASeqSmokeFixtureTests` (Tests/LungfishRNASeqUITests) writes the same bytes and reads them back. Left out: NVD,
     /// CZ ID, 12S, both primer kinds and FASTA document, which have no fixture the smoke can open without managed tools,
     /// as 3.1 found, and Mapping result, whose matrix row is a minimap2 mapping with a viewer bundle, which the smoke cannot
-    /// write without a mapping run (Phase 3.4 lane EXBARE). Status only draws no viewer to wait for.
+    /// write without a mapping run (Phase 3.4 lane EXBARE). Status only draws no viewer to wait for. The cell map joined in
+    /// Phase 5.5 (lane CM-VIEW), copied with its single-cell parent from `Tests/Fixtures/rnaseq/cell-map-smoke`, which
+    /// CM-KIND's writer wrote, `RNASeqCellMapViewFixtureTests` reads back and `SMOKE_FIXTURES` stages.
     @MainActor
     func testReleaseCandidateViewSwitchPerKind() throws {
         let robot = try ReleaseAppSmokeRobot()
@@ -192,6 +194,7 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
             ("PDF", ReleaseSmokeFixtures.pdfFile, any["viewer-pdf-preview"].firstMatch),
             ("Image preview", ReleaseSmokeFixtures.imageFile, any["viewer-quick-look-preview"].firstMatch),
             ("RNA-seq", ReleaseSmokeFixtures.rnaseqRow, any["rnaseq-result-view"].firstMatch),
+            ("Cell map", ReleaseSmokeFixtures.cellMapRow, any["rnaseq-cell-map-view"].firstMatch),
         ]
         // A preview's status words come from the status bar under it, as the matrix rows "Nextflow script previews as
         // text", "PDF figure" and "PNG image" say them (RoutingSafetyNetTable+ContainerAndFileRows).
@@ -361,6 +364,7 @@ enum ReleaseSmokeFixtures {
         try addPDFPreview(to: project)
         try addImagePreview(to: project)
         try addRNASeqResult(to: project)
+        try addCellMap(to: project)
         return project
     }
 
@@ -413,6 +417,19 @@ enum ReleaseSmokeFixtures {
                                        "createdAt": "2026-11-04T00:00:00Z"]
         try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
             .write(to: bundle.appendingPathComponent("mhc-reference.json"))
+    }
+
+    /// The name the smoke cell map shares as its folder and its manifest name.
+    static let cellMapRow = "Smoke cell map"
+
+    /// The committed cell map of 12 cells and its single-cell parent, side by side as the writer leaves them, so the
+    /// parent pointer holds. CM-IMPORT-APP later makes this copy with the candidate's own CLI (QA OBJECT 1, reading (ii)).
+    static func addCellMap(to project: URL) throws {
+        let committed = LungfishFixtureCatalog.fixturesRoot.appendingPathComponent("rnaseq/cell-map-smoke", isDirectory: true)
+        for name in ["Smoke single-cell.lungfishrnaseq", "\(cellMapRow).lungfishrnaseq"] {
+            try FileManager.default.copyItem(at: committed.appendingPathComponent(name, isDirectory: true),
+                                             to: project.appendingPathComponent(name, isDirectory: true))
+        }
     }
 
     /// The name an RNA-seq result shares as its folder and its manifest name, so the sidebar row reads it.

@@ -8,7 +8,7 @@ Leaf UI module for RNA-seq results, the `.lungfishrnaseq` folder that `lungfish-
 
 ## Allowed imports
 
-LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Never LungfishApp or another leaf module.
+LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit, QuartzCore (the embedding plot's layer) and SwiftUI. Never LungfishApp or another leaf module.
 
 ## Entry points
 
@@ -17,6 +17,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, LungfishKit, AppKit and SwiftUI. Nev
 | `RNASeqResultSurface`, its factory, `RNASeqResultFacts` and `RNASeqResultViewController` | Sources/LungfishRNASeqUI/RNASeqResultSurface.swift |
 | The bulk view: its controller, its model (`RNASeqBulkModel`) and the correlation plot | Sources/LungfishRNASeqUI/Bulk/RNASeqBulkViewController.swift, Sources/LungfishRNASeqUI/Bulk/RNASeqBulkModel.swift, Sources/LungfishRNASeqUI/Bulk/RNASeqCorrelationPlotView.swift |
 | The single-cell view: its controller, the summary and the pages (`RNASeqSingleCellSummary`), the charts and the cells table | Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellViewController.swift, Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellSummary.swift, Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCharts.swift, Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCellsTable.swift, and the reads of `cells.sqlite` in Sources/LungfishIO/Bundles/RNASeqCellsDatabase+Bins.swift |
+| The cell-map view: its controller, its model and reads (`RNASeqCellMapLoader`), the CPU raster with its hit-test grid, the plot, the legend and the words | Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapViewController.swift, Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift, Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift, Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingPlotView.swift, Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingLegend.swift, Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingWords.swift, and the reads of `cellmap.sqlite` in Sources/LungfishIO/Bundles/RNASeqCellMapDatabase+Read.swift |
 | App glue | Sources/LungfishApp/Views/Viewer/ViewerViewController+RNASeq.swift, the registration line in ViewerViewController+Surfaces.swift, and `updateRNASeqResultDocument` in InspectorViewController+PublicAPI.swift |
 
 ## Contracts this module owns

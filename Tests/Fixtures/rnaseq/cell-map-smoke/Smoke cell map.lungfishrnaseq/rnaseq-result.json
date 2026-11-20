@@ -1,0 +1,62 @@
+{
+  "cellMap" : {
+    "path" : "cellmap.sqlite",
+    "schemaVersion" : 1,
+    "sha256" : "c1d89cd18d5c7245264fdb0ccc727817bc6db8fe22d5f7e2b080148e84a188b2"
+  },
+  "counts" : [
+
+  ],
+  "createdAt" : "2027-01-15T08:00:00Z",
+  "genes" : {
+    "path" : "genes.tsv",
+    "sha256" : "f02c94a6048ad41bffc5e882b1dd3a9c471133c5d42df21feb3754952bf0b85b"
+  },
+  "kind" : "rnaseq-result",
+  "labelTables" : [
+    {
+      "path" : "labels/clusters.tsv",
+      "sha256" : "0248f8acf56e14e684f9ce196b530be6d1c42f0843a2b533510662f109dfae94"
+    }
+  ],
+  "modality" : "cell-map",
+  "name" : "Smoke cell map",
+  "notHost" : [
+
+  ],
+  "origin" : {
+    "kind" : "imported",
+    "tool" : "Seurat",
+    "toolVersion" : "5.5.1"
+  },
+  "parent" : {
+    "cellsSummarySHA256" : "3e3f405b082e8c40376f8d3cdf70599fe77d8e449769e754b2be4e18f27a2ed8",
+    "manifestSHA256" : "25a742bab0d0999f10fb677e567729e6203517438fd700491f433e7a27970001",
+    "path" : "Smoke single-cell.lungfishrnaseq"
+  },
+  "referenceSet" : null,
+  "route" : {
+    "id" : "starsolo-gene-filtered-matrix",
+    "settings" : {
+      "counts" : "UMIs",
+      "features" : "Gene",
+      "matrix" : "Solo.out/Gene/filtered"
+    },
+    "tool" : "STARsolo",
+    "toolVersion" : "Not recorded"
+  },
+  "samples" : {
+    "path" : "samples.tsv",
+    "sha256" : "b9aee05c79c113e4589afc1e8694bbf987ceaf6046b39ccf0a98d8bb71c800b7"
+  },
+  "schemaVersion" : 2,
+  "sourceFiles" : [
+    {
+      "path" : "source/1/lge-cell-map.tsv",
+      "sample" : "",
+      "sha256" : "d22945d1c63407117753087ec3a3bfdd09c421734df21485af8fcf60a8ee82a7",
+      "size" : 331,
+      "tool" : "Seurat"
+    }
+  ]
+}

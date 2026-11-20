@@ -133,6 +133,9 @@ struct RoutingObservation: Equatable, Sendable, CustomStringConvertible {
     /// The window toolbar items on show. Only a viewer in a window has a
     /// toolbar, so the window-less routing table records none.
     var toolbar: [String] = []
+    /// Whether the RNA-seq viewer hosts the embedding view of a cell map, read from its child's accessibility
+    /// identifier, so a cell map is its own view-switch kind (5.5 T3).
+    var cellMap = false
 
     var description: String {
         var lines = [
@@ -150,6 +153,7 @@ struct RoutingObservation: Equatable, Sendable, CustomStringConvertible {
         for entry in native { lines.append("native: \(entry)") }
         for entry in inspector { lines.append("inspector: \(entry)") }
         if let provenance { lines.append("provenance: \(provenance)") }
+        if cellMap { lines.append("cellMap: shown") }
         return lines.joined(separator: "\n")
     }
 
@@ -187,6 +191,10 @@ enum RoutingObserver {
             && (children[0] is QuickLookPreviewController || children[0] is FASTQDatasetContainerController)
         observation.viewports = (wrapped ? children[0].children : children).map { String(describing: type(of: $0)) }
         observation.mode = viewer.contentMode
+        observation.cellMap = children.contains { child in
+            String(describing: type(of: child)) == "RNASeqResultViewController"
+                && child.children.contains { $0.isViewLoaded && $0.view.accessibilityIdentifier() == "rnaseq-cell-map-view" }
+        }
         if let quickLookURL = viewer.testQuickLookURL {
             let suffix = viewer.testPlainTextPreviewString != nil ? " as text" : viewer.testHasPDFPreview ? " as PDF" : ""
             observation.quickLook = (paths.render(quickLookURL) ?? "-") + suffix

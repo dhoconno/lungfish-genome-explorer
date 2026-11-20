@@ -1,0 +1,49 @@
+{
+  "argv" : [
+
+  ],
+  "createdAt" : "2026-11-20T06:47:53Z",
+  "files" : [
+
+  ],
+  "id" : "221B065C-2F30-4DF1-B5D2-C5E31CC6345A",
+  "options" : {
+    "defaults" : {
+
+    },
+    "explicit" : {
+
+    },
+    "resolvedDefaults" : {
+
+    }
+  },
+  "outputs" : [
+
+  ],
+  "reproducibleCommand" : "",
+  "runtimeIdentity" : {
+    "appVersion" : "Lungfish 2026.10.10 (dev)",
+    "architecture" : "arm64",
+    "dependencySet" : "2026.2",
+    "executablePath" : "<external>/xctest",
+    "managedToolLockSHA256" : "a083cc293b81c85f5ffd7066f10e5f62205506664fb4e945ff730bf7c8df6a67",
+    "operatingSystemVersion" : "macOS 26.7.1 (arm64)"
+  },
+  "schemaVersion" : 2,
+  "signatures" : [
+
+  ],
+  "status" : "running",
+  "steps" : [
+
+  ],
+  "tool" : {
+    "name" : "lungfish-cli",
+    "version" : "test"
+  },
+  "toolName" : "lungfish-cli",
+  "toolVersion" : "test",
+  "workflowName" : "RNA-seq cell map",
+  "workflowVersion" : "Lungfish 2026.10.10 (dev)"
+}

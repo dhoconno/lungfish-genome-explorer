@@ -21,6 +21,9 @@ public enum RNASeqSingleCellWords {
     public static let tryAgain = "Check that the result folder is whole, or import it again."
     /// The words of a masked column that the file holds none for, as the CLI says them. A virus or a spike-in has no rRNA to mask.
     public static let noMask = "No rRNA mask, none needed"
+    /// The one line that names the two ways to place these cells on an embedding, each of which writes a new cell map
+    /// beside the result (UX OBJECT U5, walk row B3).
+    public static let cellMap = "To see these cells on an embedding, use Import Embedding…, or run lungfish-cli rnaseq cell-map import or lungfish-cli rnaseq cell-map compute on this result. Either writes a new cell map result and leaves this one as it is."
 }
 
 /// The summary of a single-cell result. Its parts are values as written or counts that SQLite made.

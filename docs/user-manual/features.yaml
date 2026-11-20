@@ -3443,6 +3443,12 @@ features:
       - Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellSummary.swift
       - Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCharts.swift
       - Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCellsTable.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapViewController.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingRaster.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingPlotView.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingLegend.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingWords.swift
       - Sources/LungfishApp/Views/Viewer/ViewerViewController+RNASeq.swift
       - Sources/LungfishIO/Bundles/BundleKindRegistry.swift
       - Sources/LungfishIO/Bundles/SidebarKindRegistry.swift

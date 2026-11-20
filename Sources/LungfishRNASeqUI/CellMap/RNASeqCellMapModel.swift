@@ -1,0 +1,277 @@
+// RNASeqCellMapModel.swift - What the embedding view reads from a cell map, and the colour of each cell (Phase 5.5 lane CM-VIEW)
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+//
+// Everything here is read from `cellmap.sqlite` through CM-KIND's reader, `RNASeqCellMapDatabase`, off the main actor,
+// and each read checks for cancellation in its step loop. The coordinates load in one columnar read into Float32
+// arrays in cell order, and no struct is made for each cell (5.5 V4). A cell's colour is the palette index of the
+// value the file holds for it, and the draw order follows 5.5 V3. Nothing here is a number on screen. The legend's
+// counts and bounds are the file's (`RNASeqEmbeddingLegend`).
+
+import Foundation
+import LungfishIO
+
+/// What the plot can be coloured by. Each case reads one table of the cell map.
+public enum RNASeqCellMapColouring: Hashable, Sendable {
+    /// A label set by its `label_sets.label_set` number, read from `cell_labels`.
+    case labelSet(Int)
+    /// The sample of each cell, from `samples`.
+    case sample
+    /// The not-host UMIs of an extra, read from `cell_not_host`, with the bounds of `value_bounds`.
+    case notHostUMIs(extra: Int)
+    /// The flag words of a virus or bacterium extra, read from `cell_not_host` and counted in `flag_counts`.
+    case flag(extra: Int)
+}
+
+/// The facts of a cell map that every colouring and embedding shares. All are values as stored.
+public struct RNASeqCellMapFacts: Equatable, Sendable {
+    public var embeddings: [RNASeqCellMapDatabase.Embedding]
+    public var embeddingCells: [RNASeqCellMapDatabase.EmbeddingCells]
+    public var samples: [RNASeqCellMapDatabase.Sample]
+    public var labelSets: [RNASeqCellMapDatabase.LabelSet]
+    public var valueBounds: [RNASeqCellMapDatabase.ValueBound]
+    public var extras: [RNASeqCellMapDatabase.NotHostExtra]
+    public var flagCounts: [RNASeqCellMapDatabase.FlagCount]
+    /// `SELECT count(*) FROM cells`, every cell of the parent.
+    public var cellCount: Int
+
+    /// The embedding the view opens on, the first in file order (5.5 V6).
+    public var defaultEmbedding: RNASeqCellMapDatabase.Embedding? { embeddings.first }
+
+    /// The colouring the view opens on, the first label set, or the sample when the map holds none. Nothing is kept
+    /// between opens (5.5 V6).
+    public var defaultColouring: RNASeqCellMapColouring { labelSets.first.map { .labelSet($0.labelSet) } ?? .sample }
+
+    /// Every colouring the cell map can give, in the order of the Colour by pop-up.
+    public var colourings: [RNASeqCellMapColouring] {
+        var found = labelSets.map { RNASeqCellMapColouring.labelSet($0.labelSet) } + [.sample]
+        for extra in extras {
+            found.append(.notHostUMIs(extra: extra.extra))
+            if flagCounts.contains(where: { $0.extra == extra.extra }) { found.append(.flag(extra: extra.extra)) }
+        }
+        return found
+    }
+
+    public func title(of colouring: RNASeqCellMapColouring) -> String {
+        switch colouring {
+        case .labelSet(let id): return labelSets.first { $0.labelSet == id }?.name ?? "Labels"
+        case .sample: return "Sample"
+        case .notHostUMIs(let extra): return "\(extraName(extra)) not-host UMIs"
+        case .flag(let extra): return "\(extraName(extra)) flag"
+        }
+    }
+
+    func extraName(_ extra: Int) -> String { extras.first { $0.extra == extra }?.name ?? "extra \(extra)" }
+
+    func sampleName(_ sample: Int) -> String { samples.first { $0.sample == sample }?.name ?? String(sample) }
+
+    /// The sample of a cell from 0. Cells are numbered from 1 over all samples in sample order, so each sample's
+    /// cells follow the cells of the samples before it (`docs/formats/rnaseq-cell-map.md`, cellmap.sqlite).
+    func sampleIndex(ofCell cell: Int) -> Int {
+        var end = 0
+        for (index, sample) in samples.enumerated() {
+            end += sample.cells
+            if cell < end { return index }
+        }
+        return max(samples.count - 1, 0)
+    }
+}
+
+/// Dimensions 1 and 2 of one embedding in cell order, NaN for a cell left out.
+public struct RNASeqCellMapPoints: Sendable {
+    public var embedding: Int
+    public var x: ContiguousArray<Float32>
+    public var y: ContiguousArray<Float32>
+
+    public func isDrawn(_ cell: Int) -> Bool { x[cell].isFinite && y[cell].isFinite }
+}
+
+/// The values a colouring reads, as the file holds them.
+public enum RNASeqCellMapValues: Sendable {
+    /// The label number of each cell in cell order, 0 for no label.
+    case labels(ContiguousArray<UInt32>)
+    case samples
+    /// The cells, from 1, with a count above 0, and their counts.
+    case counts(cells: [Int], values: [Double])
+    /// The cells, from 1, that carry flag words, and their words.
+    case flags(cells: [Int], words: [String])
+}
+
+/// The colour and draw order of every cell for one colouring and one embedding, with the legend.
+public struct RNASeqCellMapColours: Sendable {
+    /// The palette index of each cell in cell order.
+    public var index: ContiguousArray<UInt16>
+    /// The drawn cells, from 0, first drawn first (5.5 V3).
+    public var order: ContiguousArray<UInt32>
+    public var legend: RNASeqEmbeddingLegend
+
+    /// Colours `points` by `values`. Cells left out of the embedding are not in `order`.
+    public static func make(facts: RNASeqCellMapFacts, colouring: RNASeqCellMapColouring, values: RNASeqCellMapValues,
+                            points: RNASeqCellMapPoints) throws -> RNASeqCellMapColours {
+        let count = points.x.count
+        var index = ContiguousArray<UInt16>(repeating: RNASeqEmbeddingPalette.greyIndex, count: count)
+        var under = ContiguousArray<UInt32>()
+        var over = ContiguousArray<UInt32>()
+        var legend = RNASeqEmbeddingLegend(title: facts.title(of: colouring), rows: [])
+        switch (colouring, values) {
+        case (.labelSet(let id), .labels(let labels)):
+            let set = facts.labelSets.first { $0.labelSet == id }
+            for cell in 0..<count {
+                let label = cell < labels.count ? Int(labels[cell]) : 0
+                if label > 0 { index[cell] = RNASeqEmbeddingPalette.labelIndex(label - 1) }
+                guard points.isDrawn(cell) else { continue }
+                if label > 0 { over.append(UInt32(cell)) } else { under.append(UInt32(cell)) }
+                if cell & 0xFFFF == 0 { try Task.checkCancellation() }
+            }
+            let labelRows = set?.labels ?? []
+            legend.rows = labelRows.map { .init(name: $0.name, count: String($0.cells), colour: RNASeqEmbeddingPalette.labelIndex($0.label - 1)) }
+            if labelRows.count > RNASeqEmbeddingPalette.labelSlots { legend.words.append(RNASeqEmbeddingWords.coloursRepeat) }
+            for sample in set?.samples ?? [] where sample.unlabelled > 0 {
+                legend.words.append(RNASeqEmbeddingWords.unlabelled(sample.unlabelled, sample: facts.sampleName(sample.sample), set: set?.name ?? ""))
+            }
+        case (.sample, _):
+            for cell in 0..<count {
+                index[cell] = RNASeqEmbeddingPalette.labelIndex(facts.sampleIndex(ofCell: cell))
+                if points.isDrawn(cell) { over.append(UInt32(cell)) }
+            }
+            legend.rows = facts.samples.enumerated().map { .init(name: $1.name, count: String($1.cells), colour: RNASeqEmbeddingPalette.labelIndex($0)) }
+            if facts.samples.count > RNASeqEmbeddingPalette.labelSlots { legend.words.append(RNASeqEmbeddingWords.coloursRepeat) }
+        case (.flag(let extra), .flags(let cells, let words)):
+            let counts = facts.flagCounts.filter { $0.extra == extra }
+            var named: [String] = []
+            for row in counts where !row.flag.isEmpty && !named.contains(row.flag) { named.append(row.flag) }
+            for (cell, word) in zip(cells, words) where cell >= 1 && cell <= count {
+                if let slot = named.firstIndex(of: word) { index[cell - 1] = RNASeqEmbeddingPalette.labelIndex(slot) }
+            }
+            for cell in 0..<count where points.isDrawn(cell) {
+                if index[cell] == RNASeqEmbeddingPalette.greyIndex { under.append(UInt32(cell)) } else { over.append(UInt32(cell)) }
+            }
+            func countText(_ flag: String) -> String {
+                let rows = counts.filter { $0.flag == flag }
+                if rows.count == 1 { return String(rows[0].cells) }
+                return rows.map { "\($0.cells) in \(facts.sampleName($0.sample))" }.joined(separator: ", ")
+            }
+            legend.rows = named.enumerated().map { .init(name: $1, count: countText($1), colour: RNASeqEmbeddingPalette.labelIndex($0)) }
+            if counts.contains(where: { $0.flag.isEmpty }) {
+                legend.rows.append(.init(name: RNASeqEmbeddingWords.notFlagged, count: countText(""), colour: RNASeqEmbeddingPalette.greyIndex))
+            }
+        case (.notHostUMIs(let extra), .counts(let cells, let values)):
+            let bound = facts.valueBounds.first { $0.value == "not_host_umis" && $0.extra == extra }
+            let scale = RNASeqEmbeddingLegend.Scale(minimum: bound?.minimum ?? 0, maximum: bound?.maximum ?? 0, p99: bound?.p99 ?? 0)
+            var value = ContiguousArray<Double>(repeating: 0, count: count)
+            for (cell, amount) in zip(cells, values) where cell >= 1 && cell <= count { value[cell - 1] = amount }
+            for cell in 0..<count where value[cell] > 0 && scale.top > 0 {
+                let step = min(Int(value[cell] / scale.top * Double(RNASeqEmbeddingPalette.gradientSteps - 1)), RNASeqEmbeddingPalette.gradientSteps - 1)
+                index[cell] = RNASeqEmbeddingPalette.gradientBase + UInt16(step)
+            }
+            var risen: [(value: Double, cell: UInt32)] = []
+            for cell in 0..<count where points.isDrawn(cell) {
+                if value[cell] > 0 { risen.append((value[cell], UInt32(cell))) } else { under.append(UInt32(cell)) }
+            }
+            // Zeros first in grey, then the rest in rising order (5.5 V3). A sort is not a number on screen.
+            risen.sort { $0.value != $1.value ? $0.value < $1.value : $0.cell < $1.cell }
+            over = ContiguousArray(risen.map(\.cell))
+            legend.scale = scale
+            if scale.maximum <= 0 {
+                legend.words.append(RNASeqEmbeddingWords.scaleAllZero(cells: facts.cellCount))
+            } else if scale.p99 > 0 {
+                legend.words.append(RNASeqEmbeddingWords.scale(p99: RNASeqEmbeddingWords.number(scale.p99), cells: facts.cellCount,
+                                                                maximum: RNASeqEmbeddingWords.number(scale.maximum)))
+            } else {
+                legend.words.append(RNASeqEmbeddingWords.scaleToMaximum(maximum: RNASeqEmbeddingWords.number(scale.maximum), cells: facts.cellCount))
+            }
+        default:
+            throw RNASeqResultError.invalidTable(path: RNASeqCellMap.filename, reason: "the values read do not belong to \(facts.title(of: colouring))")
+        }
+        return RNASeqCellMapColours(index: index, order: under + over, legend: legend)
+    }
+}
+
+/// What the view opens with: the facts, the first embedding's points and the default colouring.
+public struct RNASeqCellMapSnapshot: Sendable {
+    public var database: RNASeqCellMapDatabase
+    public var facts: RNASeqCellMapFacts
+    public var points: RNASeqCellMapPoints
+    public var colouring: RNASeqCellMapColouring
+    public var values: RNASeqCellMapValues
+    public var colours: RNASeqCellMapColours
+}
+
+/// What reading a cell map gave. It holds no state of the main actor, so a detached task can return it.
+public enum RNASeqCellMapLoadOutcome: Sendable {
+    case loaded(RNASeqCellMapSnapshot)
+    case failed(String)
+}
+
+/// The reads of the embedding view, each synchronous so it runs inside a task off the main actor, and each through
+/// CM-KIND's reader, which opens its own read-only handle and checks for cancellation in its step loop.
+public enum RNASeqCellMapLoader {
+    /// The `cellmap.sqlite` the manifest names, inside the result.
+    public static func databaseURL(result: RNASeqResult, bundleURL: URL) throws -> URL {
+        guard let entry = result.manifest.cellMap else {
+            throw RNASeqResultError.unreadableFile(path: RNASeqCellMap.filename, reason: "the manifest names no cell map")
+        }
+        return try RNASeqResultBundle.resolve(entry.path, in: bundleURL)
+    }
+
+    public static func facts(_ database: RNASeqCellMapDatabase) throws -> RNASeqCellMapFacts {
+        RNASeqCellMapFacts(
+            embeddings: try database.embeddings(), embeddingCells: try database.embeddingCells(), samples: try database.samples(),
+            labelSets: try database.labelSets(), valueBounds: try database.valueBounds(), extras: try database.notHostExtras(),
+            flagCounts: try database.flagCounts(), cellCount: try database.cellCount())
+    }
+
+    public static func points(_ database: RNASeqCellMapDatabase, embedding: Int) throws -> RNASeqCellMapPoints {
+        let read = try database.coordinates(embedding: embedding)
+        return RNASeqCellMapPoints(embedding: embedding, x: read.x, y: read.y)
+    }
+
+    public static func values(_ database: RNASeqCellMapDatabase, colouring: RNASeqCellMapColouring) throws -> RNASeqCellMapValues {
+        switch colouring {
+        case .labelSet(let id):
+            return .labels(try database.cellLabels(labelSet: id))
+        case .sample:
+            return .samples
+        case .notHostUMIs(let extra):
+            let rows = try database.cellNotHost(extra: extra).filter { $0.umis > 0 }
+            return .counts(cells: rows.map(\.cell), values: rows.map { Double($0.umis) })
+        case .flag(let extra):
+            let rows = try database.cellNotHost(extra: extra).filter { !$0.flag.isEmpty }
+            return .flags(cells: rows.map(\.cell), words: rows.map(\.flag))
+        }
+    }
+
+    /// Reads what the view opens with. It only reads, so a result is never changed by being shown.
+    public static func snapshot(result: RNASeqResult, bundleURL: URL) throws -> RNASeqCellMapSnapshot {
+        let url = try databaseURL(result: result, bundleURL: bundleURL)
+        let database = try RNASeqCellMapDatabase(url: url)
+        let facts = try facts(database)
+        guard let embedding = facts.defaultEmbedding else {
+            throw RNASeqResultError.invalidTable(path: RNASeqCellMap.filename, reason: RNASeqEmbeddingWords.noEmbedding)
+        }
+        let points = try points(database, embedding: embedding.embedding)
+        try Task.checkCancellation()
+        let colouring = facts.defaultColouring
+        let values = try values(database, colouring: colouring)
+        let colours = try RNASeqCellMapColours.make(facts: facts, colouring: colouring, values: values, points: points)
+        return RNASeqCellMapSnapshot(database: database, facts: facts, points: points, colouring: colouring, values: values, colours: colours)
+    }
+
+    /// Reads the snapshot off the main actor. A cancel of the calling task, such as the memory guard's cancel of the
+    /// surface's `loadTask`, reaches the read, which stops at its next check.
+    public static func load(result: RNASeqResult, bundleURL: URL) async -> RNASeqCellMapLoadOutcome {
+        do {
+            return .loaded(try await offMain { try snapshot(result: result, bundleURL: bundleURL) })
+        } catch is CancellationError {
+            return .failed(RNASeqEmbeddingWords.failed("The read was stopped."))
+        } catch {
+            return .failed(RNASeqSingleCellSummary.failureWords(error))
+        }
+    }
+}
+
+/// Runs `work` on a detached task and passes a cancel of the caller on to it, which a bare `Task.detached` does not.
+func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+    let task = Task.detached(priority: .userInitiated) { try work() }
+    return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+}

@@ -87,6 +87,9 @@ enum ViewSwitchKinds {
             "analyses/minimap2 mapping with a viewer bundle", "k22-mapping"
         ),
         kind("RNA-seq", "RNASeqResultViewController in genomics", "bundles/RNA-seq result", "k23-rnaseq"),
+        // A cell map opens in the RNA-seq viewer's third child (5.5 O1 (a)), so its outcome carries a suffix, as the
+        // mapping result's does, read from the observation's `cellMap` (5.5 T3).
+        kind("Cell map", "RNASeqResultViewController (cell map) in genomics", "bundles/RNA-seq cell map", "k24-cellmap"),
     ]
 
     private static func kind(
@@ -102,6 +105,7 @@ enum ViewSwitchKinds {
         if !observation.viewports.isEmpty {
             shown = observation.viewports.joined(separator: " + ")
                 + (observation.reference?.hasPrefix("mappingResult") == true ? " (mapping result)" : "")
+                + (observation.cellMap ? " (cell map)" : "")
         } else if let quickLook = observation.quickLook {
             shown = quickLook.hasSuffix(" as PDF") ? "PDF" : "Quick Look"
         } else if observation.document != nil {

@@ -6,6 +6,7 @@
 // so the folder is the one `lungfish-cli import rnaseq` leaves and the routing row opens what the CLI writes.
 
 import Foundation
+import LungfishTestSupport
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
@@ -33,5 +34,17 @@ extension RoutingSafetyNetFixtures {
         let bundle = try writer.write(
             request, to: directory.appendingPathComponent("two-sample.lungfishrnaseq", isDirectory: true), envelope: envelope)
         return (bundle, name)
+    }
+
+    /// The committed smoke cell map and its single-cell parent, both written by `RNASeqResultWriter` and read back by
+    /// `RNASeqCellMapViewFixtureTests`, copied side by side into `directory`. Returns the cell map.
+    static func rnaseqCellMapBundle(in directory: URL) throws -> URL {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let committed = RNASeqFixtures.root.appendingPathComponent("cell-map-smoke", isDirectory: true)
+        for name in ["Smoke single-cell.lungfishrnaseq", "Smoke cell map.lungfishrnaseq"] {
+            try FileManager.default.copyItem(at: committed.appendingPathComponent(name, isDirectory: true),
+                                             to: directory.appendingPathComponent(name, isDirectory: true))
+        }
+        return directory.appendingPathComponent("Smoke cell map.lungfishrnaseq", isDirectory: true)
     }
 }

@@ -217,6 +217,19 @@ extension RoutingSafetyNetTable {
                     )
                 )
             },
+            RoutingRow(family: .bundles, name: "RNA-seq cell map", type: .registeredBundle) { context in
+                let bundle = try RoutingSafetyNetFixtures.rnaseqCellMapBundle(in: context.url("RNASeq", isDirectory: true))
+                return RoutingRowFixture(
+                    item: RoutingSafetyNetItems.scanned(bundle),
+                    expected: RoutingObservation(
+                        viewports: ["RNASeqResultViewController"],
+                        mode: .genomics,
+                        provenance: "registeredBundle \(context.render(bundle))",
+                        inspectorTab: "genomics document of [document, selection, view, derive, provenance]",
+                        cellMap: true
+                    )
+                )
+            },
             RoutingRow(family: .bundles, name: "Registered kind with no registration", type: .registeredBundle) { context in
                 // A row whose kind no registration names says so where the viewer was. SidebarKindRegistryRouteTests
                 // opens a registered stub kind.

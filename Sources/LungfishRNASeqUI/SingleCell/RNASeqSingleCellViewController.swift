@@ -144,6 +144,7 @@ public final class RNASeqSingleCellViewController: NSViewController {
         summaryStack.addArrangedSubview(Self.fact("Tool", summary.tool, id: "rnaseq-sc-tool"))
         summaryStack.addArrangedSubview(Self.fact("Version", summary.toolVersion, id: "rnaseq-sc-tool-version"))
         summaryStack.addArrangedSubview(Self.fact("Cells", String(summary.cellCount), id: "rnaseq-sc-cell-count"))
+        summaryStack.addArrangedSubview(Self.text(RNASeqSingleCellWords.cellMap, id: "rnaseq-sc-cell-map-words", wraps: true))
 
         summaryStack.addArrangedSubview(Self.heading("Quality"))
         if let quality = summary.quality {

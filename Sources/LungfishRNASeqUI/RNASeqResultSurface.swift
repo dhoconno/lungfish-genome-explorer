@@ -10,7 +10,7 @@ import LungfishKit
 /// facts and computes nothing from the tables (`docs/formats/rnaseq-bundle.md`).
 public struct RNASeqResultFacts: Equatable, Sendable {
     public var name: String
-    /// `bulk` or `single-cell`, as the manifest writes it.
+    /// `bulk`, `single-cell` or `cell-map`, as the manifest writes it.
     public var modality: String
     /// The origin kind, then the tool and version that made the files when the manifest names them.
     public var origin: String
@@ -84,12 +84,20 @@ public final class RNASeqResultSurface: ResultViewport {
         configure(self)
         let outcome = await Task.detached(priority: .userInitiated) { RNASeqResultSurface.read(bundleURL) }.value
         try Task.checkCancellation()
-        present(outcome, bundleURL: bundleURL)
+        // A cell map's coordinates and colours are read inside this load, the host's `loadTask`, so the memory guard's
+        // cancel of that task reaches the read (`Sources/LungfishApp/Services/AppMemoryGuard.swift`, cancelLoads).
+        var cellMap: RNASeqCellMapLoadOutcome?
+        if case .loaded(let result) = outcome, result.manifest.modality == .cellMap {
+            cellMap = await RNASeqCellMapLoader.load(result: result, bundleURL: bundleURL)
+            try Task.checkCancellation()
+        }
+        present(outcome, bundleURL: bundleURL, cellMap: cellMap)
     }
 
-    /// Shows what the read gave and tells the App when it was a result.
-    public func present(_ outcome: RNASeqResultLoadOutcome, bundleURL: URL) {
-        controller.show(outcome, bundleURL: bundleURL)
+    /// Shows what the read gave and tells the App when it was a result. A cell map shows `cellMap`, or reads its own
+    /// when the caller read none.
+    public func present(_ outcome: RNASeqResultLoadOutcome, bundleURL: URL, cellMap: RNASeqCellMapLoadOutcome? = nil) {
+        controller.show(outcome, bundleURL: bundleURL, cellMap: cellMap)
         if case .loaded(let result) = outcome {
             onLoaded?(RNASeqResultFacts(result: result), bundleURL)
         }
@@ -115,6 +123,8 @@ public final class RNASeqResultViewController: NSViewController {
     public private(set) var failureWords: String?
     public private(set) var bulk: RNASeqBulkViewController?
     public private(set) var singleCell: RNASeqSingleCellViewController?
+    /// The embedding view of a cell map (5.5 O1 (a)).
+    public private(set) var cellMap: RNASeqCellMapViewController?
 
     private let header = NSStackView()
     private let body = NSView()
@@ -144,8 +154,9 @@ public final class RNASeqResultViewController: NSViewController {
     }
 
     /// Shows the facts and hosts the view of the modality, or shows the words of the failure.
-    public func show(_ outcome: RNASeqResultLoadOutcome, bundleURL: URL) {
+    public func show(_ outcome: RNASeqResultLoadOutcome, bundleURL: URL, cellMap shownMap: RNASeqCellMapLoadOutcome? = nil) {
         _ = view
+        cellMap?.close()
         for line in header.arrangedSubviews {
             header.removeArrangedSubview(line)
             line.removeFromSuperview()
@@ -156,6 +167,7 @@ public final class RNASeqResultViewController: NSViewController {
         }
         bulk = nil
         singleCell = nil
+        cellMap = nil
         switch outcome {
         case .failed(let words):
             facts = nil
@@ -168,11 +180,11 @@ public final class RNASeqResultViewController: NSViewController {
             for row in shown.rows {
                 header.addArrangedSubview(Self.fact(row.label, row.value, id: "rnaseq-result-\(row.label.lowercased())"))
             }
-            host(result, bundleURL: bundleURL)
+            host(result, bundleURL: bundleURL, cellMap: shownMap)
         }
     }
 
-    private func host(_ result: RNASeqResult, bundleURL: URL) {
+    private func host(_ result: RNASeqResult, bundleURL: URL, cellMap shownMap: RNASeqCellMapLoadOutcome?) {
         switch result.manifest.modality {
         case .bulk:
             let child = RNASeqBulkViewController(nibName: nil, bundle: nil)
@@ -185,11 +197,10 @@ public final class RNASeqResultViewController: NSViewController {
             install(child)
             singleCell = child
         case .cellMap:
-            // An empty child until CM-VIEW's embedding view replaces this case (5.5 O1 (a)).
-            let child = NSViewController(nibName: nil, bundle: nil)
-            child.view = NSView()
-            child.view.setAccessibilityIdentifier("rnaseq-cell-map-view")
+            let child = RNASeqCellMapViewController(nibName: nil, bundle: nil)
+            child.configure(result: result, bundleURL: bundleURL, outcome: shownMap)
             install(child)
+            cellMap = child
         }
     }
 
