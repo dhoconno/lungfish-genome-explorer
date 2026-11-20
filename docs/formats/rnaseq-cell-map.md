@@ -123,7 +123,7 @@ The writer builds `cellmap.sqlite` in its stage in one transaction, as `RNASeqCe
 | `flag_counts` | extra, sample and flag words | `extra`, `sample`, `flag` and `cells`, over every cell of the sample, with empty `flag` for the cells not flagged. Written for each virus or bacterium extra |
 | `value_bounds` | value the view colours by | `value` (`umis`, `genes` or `not_host_umis`), `extra` (0, or the extra of `not_host_umis`), `minimum`, `maximum` and `p99` |
 
-The view colours by a label set, by sample, by `umis` or `genes`, by a gene, by the not-host UMIs of an extra or by the flag (CM-VIEW), and each of these reads a table above. The flag reads `viral RNA above ambient` or `bacterial RNA above ambient` as the parent writes it, never "infected" (`docs/formats/rnaseq-bundle.md:88`).
+The view colours by a label set, by sample, by `umis` (titled "UMIs per cell" in the Colour by pop-up) or `genes` (titled "Genes per cell"), by a gene, by the not-host UMIs of an extra or by the flag (CM-VIEW), and each of these reads a table above. The flag reads `viral RNA above ambient` or `bacterial RNA above ambient` as the parent writes it, never "infected" (`docs/formats/rnaseq-bundle.md:88`).
 
 ### Coordinates
 
@@ -158,6 +158,7 @@ Every bound is taken over the cell set of the map, which is every row of `cells`
 - The legend's words name the set either way. Drafts, which UX reads once at the notes step (5.5 W1):
   - with a p99 above 0, "Colour runs from 0 to `<p99>`, the 99th percentile of all `<N>` cells of this cell map, zeros included. Cells above `<p99>` take the top colour, and the largest value is `<maximum>`."
   - with a p99 of 0, "Colour runs from 0 to `<maximum>`, the largest value, since at least 99% of the `<N>` cells of this cell map have 0."
+  - for a count colouring (`umis`, `genes` or the not-host UMIs), either of the two ends with "Grey cells have 0.", since the zeros draw in light grey.
   - when the embedding shown leaves cells out, either adds "`<k>` of these cells have no coordinates in `<embedding>` and are not drawn."
 - An embedding can leave cells out (5.5 I3), so "every cell is drawn" does not hold for every map, and the words name the set by its count for that reason.
 
