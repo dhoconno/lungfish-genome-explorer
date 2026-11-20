@@ -201,12 +201,19 @@ public final class RNASeqCellMapViewController: NSViewController {
             failureWords = nil
             plotWindow = nil
             embeddingPopUp.removeAllItems()
-            for embedding in shown.facts.embeddings { embeddingPopUp.addItem(withTitle: embedding.name) }
+            for embedding in shown.facts.embeddings { Self.addItem(embedding.name, to: embeddingPopUp) }
             colourPopUp.removeAllItems()
-            for colouring in shown.facts.colourings { colourPopUp.addItem(withTitle: shown.facts.title(of: colouring)) }
-            colourPopUp.addItem(withTitle: RNASeqEmbeddingWords.genePopUpItem)
+            for colouring in shown.facts.colourings { Self.addItem(shown.facts.title(of: colouring), to: colourPopUp) }
+            Self.addItem(RNASeqEmbeddingWords.genePopUpItem, to: colourPopUp)
             refresh()
         }
+    }
+
+    /// Adds an item to the menu itself. `addItem(withTitle:)` removes an earlier item of the same title, and a label set may be
+    /// named Sample as the sample colouring is, so the items would fall out of step with the colourings and embeddings they
+    /// stand for.
+    private static func addItem(_ title: String, to popUp: NSPopUpButton) {
+        popUp.menu?.addItem(NSMenuItem(title: title, action: nil, keyEquivalent: ""))
     }
 
     // MARK: - Controls
