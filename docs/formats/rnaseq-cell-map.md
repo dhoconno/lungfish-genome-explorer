@@ -320,7 +320,7 @@ lungfish-cli rnaseq cell-map select <cell map> --embedding <name>
 - `--label-set` and `--label` name a set and its labels as `label_sets.name` and `labels.name` hold them. `--label` repeats.
 - `--embedding` is given in both forms, because it sets the rest.
 - The table takes the label-table form above, written by the same serializer. Every cell with coordinates in the embedding has one line in cell order, with the label `selected` when the function selects it and `rest` otherwise. A cell left out of the embedding has no line, so it stays unlabelled and pseudobulk counts it with the cells with no label (5.5 S3).
-- Its record is the sidecar `<table>.lungfish-provenance.json` beside it (`ProvenanceRecorder.fileSidecarURL`), written through `ProvenanceWriter`. It holds the command, the cell map by path and manifest sha256 as an input, the embedding, the polygon in shortest round-trip form with its vertex count or the set and labels, for each sample the cells selected, in the rest and left out, and the table's sha256 as the output.
+- Its record is the sidecar `<table>.lungfish-provenance.json` beside it (`ProvenanceRecorder.fileSidecarURL`), written through `ScientificFileExportProvenance`. It holds the command, the cell map by path and manifest sha256 as an input, the embedding, the polygon in shortest round-trip form with its vertex count or the set and labels, for each sample the cells selected, in the rest and left out, and the table's sha256 as the output.
 
 | When | Words |
 | --- | --- |
@@ -333,6 +333,7 @@ lungfish-cli rnaseq cell-map select <cell map> --embedding <name>
 | No such set or label | "`<cell map>` holds no label set `<set>`. Its label sets are `<names>`." or "The label set `<set>` holds no label `<label>`. Its labels are `<names>`." |
 | Both forms, or neither | "Give --polygon, or --label-set with --label, and not both." |
 | No cell selected | "The selection holds no cell drawn in `<embedding>`. Draw the polygon around drawn cells, or choose a label that holds some." |
+| The folder of `--output` does not exist | "No folder at `<path>` to write the table in. Create it or choose another output." |
 | The output exists, or lies inside a `.lungfishrnaseq` folder | "`<path>` already exists. Choose a new name for the table." or "--output names a file inside the result `<result>`. LGE never writes inside a result, so choose a place outside it." |
 
 ### Where the table lives

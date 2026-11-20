@@ -148,7 +148,7 @@ package enum CLIEventContractTable {
         "rnaseq cell-map import": .events(flag: formatJSON, channel: .standardOutput),
         // Since 5.5 lane CM-SELECT-CLI: start, then complete with the table, or failed.
         "rnaseq cell-map select": .events(flag: formatJSON, channel: .standardOutput),
-        "map":.events(flag: formatJSON, channel: .standardOutput),
+        "map": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate add": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate delete": .events(flag: formatJSON, channel: .standardOutput),
         "msa annotate edit": .events(flag: formatJSON, channel: .standardOutput),
