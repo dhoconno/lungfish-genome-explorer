@@ -3276,6 +3276,52 @@ features:
       Completed with Warnings and shows the notes as the command prints
       them. Any refusal shows in the command's own words on the row. A
       cancel ends the command and leaves no result and no stage.
+  rnaseq.cell-map-import:
+    title: Import Embedding
+    entry_points:
+      - "Tools > RNA-seq > Import Embedding…"
+      - "CLI: lungfish-cli rnaseq cell-map import"
+    inputs: [rnaseq-result, embedding-table]
+    outputs: [rnaseq-result]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Services/RNASeqWorkflowRuns.swift
+      - Sources/LungfishApp/Services/RNASeqCellMapImportRun.swift
+      - Sources/LungfishApp/Services/WorkflowLibrary.swift
+      - Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState+RNASeq.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift
+      - Sources/LungfishKit/CLIViewerExportRunner.swift
+    module: [LungfishApp]
+    cli:
+      - lungfish-cli rnaseq cell-map import
+    operation_type: ingestion
+    tests:
+      - Tests/LungfishAppTests/RNASeqPseudobulkDialogTests.swift
+      - Tests/LungfishAppTests/RNASeqPseudobulkDialogStateTests.swift
+      - Tests/LungfishKitTests/CLIViewerExportRunnerTests.swift
+      - Tests/LungfishCLITests/RNASeqCellMapImportRefusalTests.swift
+      - Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
+    notes: >-
+      The third new tool of the RNA-seq category. It takes one single-cell
+      result and the files that a person's own tool made, which are LGE's
+      table or 10x's projection and clusters files, picked with an open
+      panel. It writes a cell map beside the result with the embedding and
+      the cell labels, under a name the person gives. The folder name gets
+      the .lungfishrnaseq extension once. One run is lungfish-cli rnaseq
+      cell-map import with --format json, and the Operations row records the
+      command that runs. The row shows Reading each file, Checking barcodes
+      against the result and Writing as the command works. The command
+      refuses barcodes that do not match, barcodes the result does not hold
+      and counts of another route, and the pane has one control that
+      unlocks each. A refusal names that control and keeps the command's
+      counts, and the row keeps the command's own words. Barcodes and cells
+      left out read as information and the row still ends Completed. The row
+      reads Completed only when the app can read the new cell map, and the
+      app then opens it. A cancel ends the command and leaves no folder and
+      no stage.
   import.rnaseq-counts:
     title: Import RNA-seq counts
     entry_points:
