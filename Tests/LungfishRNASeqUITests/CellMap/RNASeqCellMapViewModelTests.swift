@@ -365,6 +365,63 @@ final class RNASeqCellMapViewControllerTests: XCTestCase {
         return (surface, controller)
     }
 
+    /// The sliders and the SwiftUI hosting views under `root`. The walk stops at a hosting view, because SwiftUI draws the
+    /// shared slider with views of its own, and `NSHostingView` is generic, so a host is found by its class name.
+    func sliderAndHostCounts(in root: NSView) -> (sliders: Int, hosts: Int) {
+        var counts = (sliders: 0, hosts: 0)
+        func walk(_ view: NSView) {
+            if view is NSSlider { counts.sliders += 1 }
+            if String(describing: type(of: view)).hasPrefix("NSHostingView") {
+                counts.hosts += 1
+                return
+            }
+            view.subviews.forEach(walk)
+        }
+        walk(root)
+        return counts
+    }
+
+    /// The path, size and modification time of every file and folder under `folder`.
+    func listing(of folder: URL) throws -> [String] {
+        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey]
+        let walker = try XCTUnwrap(FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys))
+        return try walker.compactMap { $0 as? URL }.map { url in
+            let values = try url.resourceValues(forKeys: Set(keys))
+            return "\(url.path) \(values.fileSize ?? -1) \(values.contentModificationDate?.timeIntervalSince1970 ?? 0)"
+        }.sorted()
+    }
+
+    /// Every slider in LGE is LungfishKit's shared control (the shared-slider-control ratchet), which is SwiftUI, so the
+    /// point size is one hosting view in the control row and the view holds no NSSlider.
+    func testThePointSizeIsTheSharedSliderInAHostingViewAndNoNSSliderIsLeft() async throws {
+        let (surface, controller) = try await openController()
+        defer { withExtendedLifetime(surface) {} }
+        let counts = sliderAndHostCounts(in: controller.view)
+        XCTAssertEqual(counts.sliders, 0, "an NSSlider draws the point size")
+        XCTAssertEqual(counts.hosts, 1, "the shared slider is hosted once, in the control row")
+    }
+
+    /// The point size runs 1 to 8 pt, opens on 2 pt and clamps what it is given. A new size draws again with a disc of
+    /// the radius it names, and nothing in the bundle changes (5.5 V6).
+    func testThePointSizeClampsToOneToEightRedrawsAtTheNewRadiusAndWritesNothing() async throws {
+        let (surface, controller) = try await openController()
+        defer { withExtendedLifetime(surface) {} }
+        let scale = controller.plot.pixelSize.scale
+        func radius(of size: Double) -> Int { max(Int((size * scale / 2).rounded()), 0) }
+        let bundle = try XCTUnwrap(controller.bundleURL)
+        let before = try listing(of: bundle)
+        XCTAssertEqual(RNASeqCellMapViewController.pointSizes, 1.0...8.0)
+        XCTAssertEqual(controller.pointSize, 2)
+        XCTAssertEqual(controller.plot.raster?.radius, radius(of: 2), "the view opens on 2 pt")
+        for (asked, expected) in [(5.0, 5.0), (0.2, 1.0), (99.0, 8.0), (-3.0, 1.0), (2.0, 2.0)] {
+            controller.choosePointSize(asked)
+            await settle(controller)
+            XCTAssertEqual(controller.pointSize, expected, "asked for \(asked) pt")
+            XCTAssertEqual(controller.plot.raster?.radius, radius(of: expected), "drawn again at \(expected) pt")
+        }
+        XCTAssertEqual(try listing(of: bundle), before, "the point size is not recorded")
+    }
+
     func testColourByUMIsPerCellShowsItsScaleAndHoverReadsTheCellsUMIs() async throws {
         let (surface, controller) = try await openController()
         defer { withExtendedLifetime(surface) {} }
