@@ -28,6 +28,7 @@ Time and peak, g3-a	report	reported	wall 409.0 s, peak 7824580600 B	threads 1, 1
 Time and peak, g3-b	report	reported	wall 411.34 s, peak 7824596960 B	threads 1, 152425 cells, 164171876 stored entries read, 25567 genes kept; neighbors 78.9 s, leiden 184.5 s, umap 89.5 s, pca 35.6 s, read 12.6 s; maximum resident set 9934127104 B
 Time and peak, g3-t4	report	reported	wall 385.38 s, peak 7892082848 B	threads 4, 152425 cells, 164171876 stored entries read, 25567 genes kept; neighbors 78.9 s, leiden 188.9 s, umap 78.1 s, pca 17.1 s, read 12.6 s; maximum resident set 10079092736 B
 Time and peak, g3-sub100k	report	reported	wall 198.11 s, peak 5139177392 B	threads 1, 100000 cells, 164171876 stored entries read, 24557 genes kept; neighbors 43.1 s, leiden 57.4 s, umap 53.4 s, pca 23.2 s, read 12.8 s; maximum resident set 9735405568 B; vote S-2 lines: neighbors under 900 s, whole run under 12 min and under 30 min, peak under 40% of 16 GB (6871947673 B)
+Every run was made by the embed.py beside this file	gate	pass	30 of 30 runs	embed.py sha256 493f9c5a0fe658d19f5581086a70726df10c9e979607d1f5bedb32a16482fa2c. Runs made by another script: none
 No loky or resource_tracker process outlives a run	gate	pass	0 of 30 runs	runs with one left: none
-Every route run records kNN exact, brute, transformer=sklearn	gate	pass	kNN: exact, brute, transformer=sklearn	30 route runs
+Every route run records kNN exact, brute, transformer=sklearn	gate	pass	kNN: exact, brute, transformer=sklearn	28 route runs of 30 runs; probes left out: g1-default, g2-default
 No claim says the route reproduces or matches Cell Ranger	gate	pass	0 banned words	scanned every row above
