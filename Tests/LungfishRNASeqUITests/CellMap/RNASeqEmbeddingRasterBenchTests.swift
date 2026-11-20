@@ -4,7 +4,9 @@
 //
 // The bar of 5.5 V1 and T4: 1,000,000 synthetic points rasterised at 1600x1000 points @2x (3200x2000 pixels) with a
 // median under 100 ms on galah. It runs only when LUNGFISH_PERF_BENCH=1 is set, so no gate runs it, and it is timed only
-// while no lane builds. It prints the first pass, the median, the slowest pass and the grid's share.
+// while no lane builds. It prints the first pass, the median, the slowest pass and the pixels set. The bar holds for an
+// optimized build, as the packaged app is, so only such a build asserts it. A Debug build is about a hundred times slower
+// (1,889.6 ms against 14.3 ms on galah for the same input), and there the test prints its figures and says so.
 
 import Foundation
 import XCTest
@@ -48,6 +50,11 @@ final class RNASeqEmbeddingRasterBenchTests: XCTestCase {
         let drawn = try XCTUnwrap(last).pixels.reduce(0) { $1 == 0 ? $0 : $0 + 1 }
         print(String(format: "CM-VIEW raster bench: 1000000 points 3200x2000 px radius 2, first %.1f ms, median %.1f ms, slowest %.1f ms, %d pixels set, passes %d",
                      times[0], median, sorted.last ?? 0, drawn, times.count))
+        #if DEBUG
+        print("CM-VIEW raster bench: the 100 ms bar of 5.5 V1 applies to an optimized build, so this Debug build does not assert it. "
+              + "Measure one with LUNGFISH_PERF_BENCH=1 swift test --skip-update -c release -Xswiftc -enable-testing --filter RNASeqEmbeddingRasterBenchTests")
+        #else
         XCTAssertLessThan(median, 100, "the median raster of 1,000,000 points stays under 100 ms (5.5 V1)")
+        #endif
     }
 }
