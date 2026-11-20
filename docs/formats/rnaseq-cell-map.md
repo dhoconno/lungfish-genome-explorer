@@ -235,7 +235,7 @@ Each refusal names the file and what to do. Words marked "as pseudobulk" are tho
 | The parent is not a single-cell result | "`<name>` is a bulk result." or "`<name>` is a cell map." then "rnaseq cell-map import reads a single-cell result, such as one that import rnaseq made from Cell Ranger or STARsolo folders." |
 | A file of the parent differs from its manifest's sha256 | As pseudobulk (`:32-35`) |
 | A file cannot be read, such as a gzip stream that ends early | "`<file>` cannot be read as text, `<reason>`. Give the file as the tool wrote it." |
-| A first line of no known form | "`<file>` is not LGE's table or one of 10x's files. LGE's table has a barcode column, and 10x's files start Barcode,TSNE-1,TSNE-2 or Barcode,Cluster." |
+| A first line of no known form | "`<file>` is not LGE's table or one of 10x's files. LGE's table has a barcode column, and 10x's files start Barcode,TSNE-1,TSNE-2 or Barcode,Cluster." When line 1 holds commas and no tab, the words go on "LGE's table is tab-separated, and line 1 of `<file>` holds commas and no tab." |
 | No given file holds an embedding | "No given file holds an embedding. Give LGE's table with columns such as umap_1 and umap_2, or one of 10x's projection.csv files." |
 | `--label-column` names a missing column | "`<file>` has no column `<column>`, which --label-column names." |
 | `--method` names a missing embedding | "--method names the embedding `<name>`, which no given file holds. The embeddings are `<names>`." |
