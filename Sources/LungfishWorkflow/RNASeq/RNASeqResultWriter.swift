@@ -183,8 +183,9 @@ public struct RNASeqResultWriter: Sendable {
         let quality = try writeQuality(request.quality, into: stage)
         try note(.tablesWritten, stage)
 
+        // The schema follows the modality, so a bulk, single-cell or pseudobulk result stays at 1 (5.5 L2).
         let manifest = Manifest(
-            modality: request.modality, name: request.name,
+            schemaVersion: Manifest.schemaVersion(for: request.modality), modality: request.modality, name: request.name,
             createdAt: ISO8601DateFormatter().string(from: request.createdAt),
             origin: request.origin, route: request.route, referenceSet: request.referenceSet,
             samples: .init(path: "samples.tsv", sha256: RNASeqResultBundle.sha256Hex(samplesData)),

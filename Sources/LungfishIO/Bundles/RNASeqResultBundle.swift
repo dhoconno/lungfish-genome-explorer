@@ -65,20 +65,21 @@ public enum RNASeqResultBundle {
         bundleURL.appendingPathComponent(RNASeqResultManifest.filename)
     }
 
-    /// Reads the manifest of schema 1. A higher schema is refused before anything else is decoded, so a later
-    /// writer's changed keys never reach the decoder.
+    /// Reads a manifest of schema 1 through `RNASeqResultManifest.newestReadableSchemaVersion`. A higher schema is refused
+    /// before anything else is decoded, so a later writer's changed keys never reach the decoder. A manifest whose values
+    /// or keys belong to the other schema, such as a schema 1 cell map, reads as no readable manifest.
     public static func loadManifest(from bundleURL: URL) throws -> RNASeqResultManifest {
         struct Version: Decodable { let schemaVersion: Int }
         guard let data = try? Data(contentsOf: manifestURL(in: bundleURL)),
               let version = try? JSONDecoder().decode(Version.self, from: data) else {
             throw RNASeqResultError.noReadableManifest
         }
-        if version.schemaVersion > RNASeqResultManifest.currentSchemaVersion {
+        if version.schemaVersion > RNASeqResultManifest.newestReadableSchemaVersion {
             throw RNASeqResultError.newerSchema(version.schemaVersion)
         }
-        guard version.schemaVersion == RNASeqResultManifest.currentSchemaVersion,
+        guard version.schemaVersion >= 1,
               let manifest = try? JSONDecoder().decode(RNASeqResultManifest.self, from: data),
-              manifest.kind == RNASeqResultManifest.kindName else {
+              manifest.kind == RNASeqResultManifest.kindName, manifest.keysMatchSchema else {
             throw RNASeqResultError.noReadableManifest
         }
         return manifest
@@ -120,6 +121,8 @@ public enum RNASeqResultBundle {
         for matrix in manifest.matrices ?? [] { listed += [matrix.matrix, matrix.features, matrix.barcodes].map { ($0.path, $0.sha256) } }
         if let cells = manifest.cellsSummary { listed.append((cells.path, cells.sha256)) }
         if let quality = manifest.quality { listed.append((quality.path, quality.sha256)) }
+        if let cellMap = manifest.cellMap { listed.append((cellMap.path, cellMap.sha256)) }
+        listed += (manifest.labelTables ?? []).map { ($0.path, $0.sha256) }
         // A path the manifest lists twice, such as a matrix file under sourceFiles and under matrices, is hashed once.
         var order: [String] = []
         var expected: [String: [String]] = [:]

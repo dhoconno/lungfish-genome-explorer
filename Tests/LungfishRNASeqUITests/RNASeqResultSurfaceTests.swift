@@ -131,9 +131,10 @@ final class RNASeqResultSurfaceTests: XCTestCase {
         let url = try writeResult()
         let manifestURL = url.appendingPathComponent(RNASeqResultManifest.filename)
         var manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
-        manifest["schemaVersion"] = 2
+        // Schema 2 is the cell map's (5.5 L2), so the first newer schema is 3.
+        manifest["schemaVersion"] = 3
         try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL)
-        let words = "This RNA-seq result was written by a newer LGE (schema 2). Open it with that version or a later one."
+        let words = "This RNA-seq result was written by a newer LGE (schema 3). Open it with that version or a later one."
         XCTAssertEqual(RNASeqResultSurface.read(url), .failed(words))
         let surface = RNASeqResultSurface()
         var loaded = false

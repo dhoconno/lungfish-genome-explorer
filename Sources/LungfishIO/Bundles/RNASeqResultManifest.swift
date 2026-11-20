@@ -1,23 +1,36 @@
-// RNASeqResultManifest.swift - Schema 1 of rnaseq-result.json (Phase 5.1 lane RS-KIND)
+// RNASeqResultManifest.swift - Schemas 1 and 2 of rnaseq-result.json (Phase 5.1 lane RS-KIND, 5.5 lane CM-KIND)
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
 // The manifest of a `.lungfishrnaseq` folder, as `docs/formats/rnaseq-bundle.md` sets it. Keys are camel case, as the
 // 12S result's are. A key enters only with a new schema number, so a schema 1 reader never meets one it must guess at.
-// Every path is relative to the result's folder.
+// Schema 2 adds the cell map (`docs/formats/rnaseq-cell-map.md`), its modality, its `computed` origin and the keys
+// `parent`, `cellMap` and `labelTables`. Every path is relative to the result's folder.
 
 import Foundation
 
 public struct RNASeqResultManifest: Codable, Equatable, Sendable {
     public static let filename = "rnaseq-result.json"
-    public static let currentSchemaVersion = 1
+    /// The newest manifest schema this build reads. A reader accepts schemas 1 through this one (5.5 L2).
+    public static let newestReadableSchemaVersion = 2
     public static let kindName = "rnaseq-result"
 
-    public enum Modality: String, Codable, Sendable { case bulk, singleCell = "single-cell" }
+    /// A cell map is the only result written at schema 2. Bulk, single-cell and pseudobulk results stay at 1, so every
+    /// older build keeps opening them (`docs/formats/rnaseq-cell-map.md`, Schemas 1 and 2).
+    public enum Modality: String, Codable, Sendable { case bulk, singleCell = "single-cell", cellMap = "cell-map" }
+
+    /// The schema a writer gives a result of `modality`. A writer never takes the newest readable schema as its own.
+    public static func schemaVersion(for modality: Modality) -> Int {
+        switch modality {
+        case .bulk, .singleCell: return 1
+        case .cellMap: return 2
+        }
+    }
 
     public struct Origin: Codable, Equatable, Sendable {
-        /// `pseudobulk` is a bulk result whose UMIs LGE summed from a single-cell result by sample and label.
-        public enum Kind: String, Codable, Sendable { case imported, quantified, pseudobulk }
+        /// `pseudobulk` is a bulk result whose UMIs LGE summed from a single-cell result by sample and label. `computed`
+        /// is a cell map whose embedding `rnaseq cell-map compute` made, written only at schema 2.
+        public enum Kind: String, Codable, Sendable { case imported, quantified, pseudobulk, computed }
         public var kind: Kind
         /// The tool and version that made imported files, or those of the single-cell result a pseudobulk summed. Nil
         /// when LGE ran the route.
@@ -143,6 +156,20 @@ public struct RNASeqResultManifest: Codable, Equatable, Sendable {
         }
     }
 
+    /// A cell map's single-cell parent. `path` is written from the folder that holds the cell map and is a pointer, never
+    /// an identity: a reader trusts the folder it finds only when that folder's manifest has `manifestSHA256`.
+    public struct Parent: Codable, Equatable, Sendable {
+        public var path: String
+        public var manifestSHA256: String
+        public var cellsSummarySHA256: String
+
+        public init(path: String, manifestSHA256: String, cellsSummarySHA256: String) {
+            self.path = path
+            self.manifestSHA256 = manifestSHA256
+            self.cellsSummarySHA256 = cellsSummarySHA256
+        }
+    }
+
     public var schemaVersion: Int
     public var kind: String
     public var modality: Modality
@@ -161,16 +188,24 @@ public struct RNASeqResultManifest: Codable, Equatable, Sendable {
     /// The path and sha256 of `quality/samples.quality.tsv`. Nil when the result keeps no quality table, which a reader shows as Not recorded.
     public var quality: FileEntry?
     public var notHost: [String]
+    /// Schema 2, a cell map only: its single-cell parent.
+    public var parent: Parent?
+    /// Schema 2, a cell map only: the path, sha256 and `meta` schema of `cellmap.sqlite`.
+    public var cellMap: CellsSummary?
+    /// Schema 2, a cell map only: each `labels/<set>.tsv` in label-set order, so `verifyChecksums` covers it.
+    public var labelTables: [FileEntry]?
 
+    /// A nil `schemaVersion` is the schema of `modality` (`schemaVersion(for:)`), which every writer passes.
     public init(
-        schemaVersion: Int = RNASeqResultManifest.currentSchemaVersion,
+        schemaVersion: Int? = nil,
         kind: String = RNASeqResultManifest.kindName,
         modality: Modality, name: String, createdAt: String, origin: Origin, route: Route,
         referenceSet: ReferenceSet?, samples: FileEntry, genes: FileEntry, counts: [CountEntry],
         sourceFiles: [SourceFileEntry], matrices: [MatrixEntry]? = nil, cellsSummary: CellsSummary? = nil,
-        quality: FileEntry? = nil, notHost: [String] = []
+        quality: FileEntry? = nil, notHost: [String] = [],
+        parent: Parent? = nil, cellMap: CellsSummary? = nil, labelTables: [FileEntry]? = nil
     ) {
-        self.schemaVersion = schemaVersion
+        self.schemaVersion = schemaVersion ?? Self.schemaVersion(for: modality)
         self.kind = kind
         self.modality = modality
         self.name = name
@@ -186,11 +221,27 @@ public struct RNASeqResultManifest: Codable, Equatable, Sendable {
         self.cellsSummary = cellsSummary
         self.quality = quality
         self.notHost = notHost
+        self.parent = parent
+        self.cellMap = cellMap
+        self.labelTables = labelTables
+    }
+
+    /// Whether the values and keys agree with the schema number. The values and keys of schema 2 are read only at 2, and
+    /// a schema 2 manifest is a cell map that names its parent and its database. A reader treats any other manifest as
+    /// unreadable, so it never guesses at a value of the other schema.
+    public var keysMatchSchema: Bool {
+        let schemaTwoOnly = modality == .cellMap || origin.kind == .computed || parent != nil || cellMap != nil || labelTables != nil
+        switch schemaVersion {
+        case 1: return !schemaTwoOnly
+        case 2: return modality == .cellMap && parent != nil && cellMap != nil
+        default: return false
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, kind, modality, name, createdAt, origin, route, referenceSet
         case samples, genes, counts, sourceFiles, matrices, cellsSummary, quality, notHost
+        case parent, cellMap, labelTables
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -211,5 +262,8 @@ public struct RNASeqResultManifest: Codable, Equatable, Sendable {
         try container.encodeIfPresent(cellsSummary, forKey: .cellsSummary)
         try container.encodeIfPresent(quality, forKey: .quality)
         try container.encode(notHost, forKey: .notHost)
+        try container.encodeIfPresent(parent, forKey: .parent)
+        try container.encodeIfPresent(cellMap, forKey: .cellMap)
+        try container.encodeIfPresent(labelTables, forKey: .labelTables)
     }
 }

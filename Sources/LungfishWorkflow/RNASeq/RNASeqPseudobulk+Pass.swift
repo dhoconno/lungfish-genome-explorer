@@ -14,6 +14,9 @@ extension RNASeqPseudobulk {
     /// Reads, checks and sums `result` by `labels`. Writes nothing, and every refusal comes before the first matrix.
     public static func sum(result: URL, labels: URL, name: String, createdAt: Date = Date()) throws -> Outcome {
         let manifest = try RNASeqResultBundle.loadManifest(from: result)
+        if manifest.modality == .cellMap {
+            throw RNASeqCellMapError.cellMapGiven(name: manifest.name, parent: manifest.parent?.path ?? RNASeqResultBundle.notRecordedText, use: .pseudobulk)
+        }
         guard manifest.modality == .singleCell else { throw RNASeqPseudobulkRefusal.bulkResult(name: manifest.name) }
         guard let matrices = manifest.matrices, !matrices.isEmpty, let summary = manifest.cellsSummary else {
             throw RNASeqPseudobulkRefusal.noCells(name: manifest.name)

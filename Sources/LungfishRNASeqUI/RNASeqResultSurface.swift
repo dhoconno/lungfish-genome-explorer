@@ -184,6 +184,12 @@ public final class RNASeqResultViewController: NSViewController {
             child.configure(result: result, bundleURL: bundleURL)
             install(child)
             singleCell = child
+        case .cellMap:
+            // An empty child until CM-VIEW's embedding view replaces this case (5.5 O1 (a)).
+            let child = NSViewController(nibName: nil, bundle: nil)
+            child.view = NSView()
+            child.view.setAccessibilityIdentifier("rnaseq-cell-map-view")
+            install(child)
         }
     }
 

@@ -53,9 +53,10 @@ final class RNASeqResultBundleTests: XCTestCase {
     }
 
     func testANewerSchemaIsRefusedInWordsAndTheFolderIsUnchanged() throws {
-        let bundle = try makeBundle(manifest: #"{"schemaVersion": 2, "kind": "rnaseq-result", "modality": 7, "later": [1]}"#)
+        // Schema 2 is the cell map's (5.5 L2), so the first newer schema is 3.
+        let bundle = try makeBundle(manifest: #"{"schemaVersion": 3, "kind": "rnaseq-result", "modality": 7, "later": [1]}"#)
         let before = try listing(of: bundle)
-        let words = "This RNA-seq result was written by a newer LGE (schema 2). Open it with that version or a later one."
+        let words = "This RNA-seq result was written by a newer LGE (schema 3). Open it with that version or a later one."
         XCTAssertThrowsError(try RNASeqResultBundle.load(from: bundle)) { XCTAssertEqual($0.localizedDescription, words) }
         XCTAssertThrowsError(try RNASeqResultBundle.loadManifest(from: bundle)) { XCTAssertEqual($0.localizedDescription, words) }
         XCTAssertEqual(try listing(of: bundle), before, "a read writes nothing")

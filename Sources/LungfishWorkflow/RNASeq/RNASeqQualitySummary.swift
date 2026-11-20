@@ -13,6 +13,7 @@ import LungfishIO
 /// Why `rnaseq quality` reads no numbers from a folder. Each one comes before any number is read.
 public enum RNASeqQualityRefusal: Error, Equatable, LocalizedError, Sendable {
     case singleCell(name: String)
+    case cellMap(name: String, parent: String)
     case checksumsDiffer(name: String, files: [String])
     case noCountTable(name: String)
     case notHostDisagrees(name: String, listed: Int, flagged: Int)
@@ -23,6 +24,9 @@ public enum RNASeqQualityRefusal: Error, Equatable, LocalizedError, Sendable {
         case .singleCell(let name):
             return "\(name) is a single-cell result, whose numbers for each cell are in its cells.sqlite. "
                 + "rnaseq quality reads the count table of a bulk result. Run rnaseq pseudobulk to sum its cells into a bulk result."
+        case .cellMap(let name, let parent):
+            return "\(name) is a cell map, which holds coordinates and labels and no counts. "
+                + "rnaseq quality reads the count table of a bulk result, so give a bulk result, or sum the cells of its single-cell result, \(parent), with rnaseq pseudobulk."
         case .checksumsDiffer(let name, let files):
             let what = files.count == 1
                 ? "Its file \(files[0]) no longer matches the sha256 the result lists"
@@ -161,7 +165,11 @@ extension RNASeqQualitySummary {
     public static func loadVerified(_ url: URL) throws -> RNASeqResult {
         let label = url.lastPathComponent
         do {
-            guard try RNASeqResultBundle.loadManifest(from: url).modality == .bulk else {
+            let manifest = try RNASeqResultBundle.loadManifest(from: url)
+            if manifest.modality == .cellMap {
+                throw RNASeqQualityRefusal.cellMap(name: label, parent: manifest.parent?.path ?? RNASeqResultBundle.notRecordedText)
+            }
+            guard manifest.modality == .bulk else {
                 throw RNASeqQualityRefusal.singleCell(name: label)
             }
             var changed: [String] = []

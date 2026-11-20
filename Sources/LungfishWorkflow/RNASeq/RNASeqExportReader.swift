@@ -79,6 +79,11 @@ public enum RNASeqExportReader {
             try Task.checkCancellation()
             let label = url.lastPathComponent
             do {
+                // A cell map holds no counts, so it is refused in words before its files are hashed.
+                if let manifest = try? RNASeqResultBundle.loadManifest(from: url), manifest.modality == .cellMap {
+                    throw RNASeqExportRefusal(RNASeqCellMapError.cellMapGiven(
+                        name: label, parent: manifest.parent?.path ?? RNASeqResultBundle.notRecordedText, use: .export).errorDescription ?? "")
+                }
                 let changed = try RNASeqResultBundle.verifyChecksums(of: url)
                 if !changed.isEmpty {
                     let files = changed.map { $0.actual == nil ? "\($0.path) (missing)" : $0.path }.joined(separator: ", ")
