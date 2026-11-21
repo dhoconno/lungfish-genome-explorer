@@ -27,7 +27,7 @@ features:
   import.vcf:
     title: Import VCF
     entry_points:
-      - "Import Center > Variants"
+      - "Import Center > Variants > VCF Variants"
       - "CLI: lungfish import vcf"
     inputs: [vcf, vcf.gz]
     outputs: [variant-browser-dataset]
@@ -79,6 +79,7 @@ features:
     entry_points:
       - "File > Search Online Databases > Search NCBI…"
       - "CLI: lungfish fetch ncbi"
+      - "CLI: lungfish fetch search"
     inputs: [ncbi-accession]
     outputs: [fasta, genbank, provenance-sidecar]
     viewport_class: none
@@ -113,12 +114,16 @@ features:
     entry_points:
       - "File > Search Online Databases > Search SRA…"
       - "CLI: lungfish fetch sra download"
+      - "CLI: lungfish fetch sra search"
+      - "CLI: lungfish fetch sra info"
     inputs: [sra-run-accession]
     outputs: [fastq, fastq.gz, provenance-sidecar]
     viewport_class: none
     sources:
       - Sources/LungfishCLI/Commands/FetchCommand.swift
       - Sources/LungfishCLI/Commands/SRADownloadSubcommand.swift
+      - Sources/LungfishCLI/Commands/SRASearchSubcommand.swift
+      - Sources/LungfishCLI/Commands/SRAInfoSubcommand.swift
       - Sources/LungfishCLI/Commands/SRADownloadSubcommand+PreferSource.swift
       - Sources/LungfishCLI/Commands/SRADownloadSubcommand+RunReads.swift
       - Sources/LungfishCore/Services/SRA/SRADownloadSourcePreference.swift
@@ -193,7 +198,7 @@ features:
       - "Tools > Mapping…"
       - "CLI: lungfish map"
       - "CLI: lungfish bam adopt-mapping"
-      - "Inspector > Document > Run Settings"
+      - "Inspector > Bundle > Run Settings"
     inputs: [fastq, fasta, reference-bundle]
     outputs: [bam, bai, mapping-result, alignment-track, mapping-provenance]
     viewport_class: alignment
@@ -259,7 +264,7 @@ features:
       left some out, the summary bar above the list says how many have
       alignments, for example 94 of 905,628. Results made by earlier versions
       show as before.
-      On the Inspector's Document tab, Run Settings lists each recorded command
+      On the Inspector's Bundle tab, Run Settings lists each recorded command
       as a step that expands to its whole command. Copy Step, Copy Command and
       Copy All Steps copy steps as plain text from a step's copy button, its
       context menu, its VoiceOver actions or Command-C.
@@ -374,8 +379,9 @@ features:
   import.sequence:
     title: Import a reference sequence
     entry_points:
-      - "Import Center > Reference"
-      - "CLI: lungfish import reference"
+      - "Import Center > Reference Sequences > Reference Sequences"
+      - "CLI: lungfish import fasta"
+      - "CLI: lungfish bundle create"
     inputs: [fasta, genbank, 2bit, gff3, gtf, bed]
     outputs: [lungfishref]
     viewport_class: sequence
@@ -405,6 +411,8 @@ features:
     title: Extract a region to a new reference bundle
     entry_points:
       - "Extract Sequence… on a selected region in a reference bundle viewer"
+      - "Sequence > Extract Visible Region…"
+      - "Sequence > Copy Visible Region as FASTA"
       - "CLI: lungfish extract sequence --bundle"
     inputs: [reference-bundle]
     outputs: [lungfishref]
@@ -449,7 +457,8 @@ features:
   bundle.merge:
     title: Merge reference bundles into a new bundle
     entry_points:
-      - "Merge into New Bundle for two or more reference bundles selected in the sidebar"
+      - "Sidebar context menu > Merge Into New Bundle… for two or more reference bundles"
+      - "Selection > Sidebar Item > Merge Into New Bundle…"
       - "CLI: lungfish bundle merge"
     inputs: [lungfishref]
     outputs: [lungfishref]
@@ -481,7 +490,8 @@ features:
   export.sequences:
     title: Export sequences from a bundle
     entry_points:
-      - "Export Sequences… on a bundle in the sidebar"
+      - "File > Export > Sequences (FASTA/GenBank)…"
+      - "Sidebar context menu > Export Sequences…"
       - "CLI: lungfish convert"
     inputs: [bundle]
     outputs: [fasta, genbank]
@@ -590,8 +600,10 @@ features:
   sequence.analyze:
     title: Sequence statistics and validation
     entry_points:
-      - "CLI: lungfish analyze"
-      - "CLI: lungfish composition"
+      - "CLI: lungfish analyze stats"
+      - "CLI: lungfish analyze composition"
+      - "CLI: lungfish analyze validate"
+      - "CLI: lungfish search"
     inputs: [fasta, fastq]
     outputs: [json, tsv]
     viewport_class: none
@@ -605,24 +617,36 @@ features:
   sequence.translate:
     title: Translate DNA to protein
     entry_points:
-      - "Sequence > Translate"
+      - "Sequence > Translate…"
       - "CLI: lungfish translate"
+      - "CLI: lungfish fastq translate"
     inputs: [fasta, sequence-selection]
     outputs: [protein-fasta]
     viewport_class: sequence
     sources:
       - Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift
+      - Sources/LungfishApp/Views/Viewer/SequenceViewerView+Interaction.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController.swift
       - Sources/LungfishApp/Views/TranslationTool
       - Sources/LungfishCLI/Commands/TranslateCommand.swift
     module: [LungfishApp, LungfishCLI]
     notes: >-
       Translates a DNA or RNA sequence or selection to protein using a chosen
-      genetic code and reading frame.
+      genetic code and reading frame. Sequence > Translate opens the sequence
+      operation dialog on the selected sequences with Translate All Sequences
+      chosen, which writes an amino-acid FASTA.
   sequence.annotate:
     title: Annotate sequence features
     entry_points:
-      - "Sequence > Add Annotation"
+      - "Sequence > Add Annotation…"
+      - "Sequence > Edit Annotation…"
+      - "Sequence > Delete Annotation"
+      - "Sequence > Find ORFs…"
+      - "Import Center > Reference Sequences > Annotation Track"
       - "CLI: lungfish sequence annotate-orfs"
+      - "CLI: lungfish sequence update-annotation"
+      - "CLI: lungfish sequence delete-annotations"
+      - "CLI: lungfish sequence delete-annotation-track"
       - "CLI: lungfish bam annotate-cds-best"
     inputs: [lungfishref, fasta]
     outputs: [annotation-track, lungfishref]
@@ -715,12 +739,17 @@ features:
   import.fastq:
     title: Import FASTQ reads
     entry_points:
-      - "Import Center > Reads"
+      - "Import Center > Sequencing Reads > Sequencing Read Files"
+      - "Import Center > Sequencing Reads > FASTQ Sample Sheet"
+      - "Import Center > Sequencing Reads > ONT Run Folder"
       - "CLI: lungfish import-fastq"
+      - "CLI: lungfish import fastq"
+      - "CLI: lungfish fastq ingest"
     inputs: [fastq, fastq.gz]
     outputs: [fastq-dataset]
     viewport_class: none
     sources:
+      - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift
       - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet+Platform.swift
       - Sources/LungfishApp/Services/FASTQIngestionService+OperationBegin.swift
@@ -880,6 +909,11 @@ features:
       - "CLI: lungfish fastq sequence-filter"
       - "CLI: lungfish fastq entropy-filter"
       - "CLI: lungfish fastq deduplicate"
+      - "CLI: lungfish fastq trim"
+      - "CLI: lungfish fastq quality-trim"
+      - "CLI: lungfish fastq fixed-trim"
+      - "CLI: lungfish fastq length-filter"
+      - "CLI: lungfish fastq primer-remove"
     inputs: [fastq, fastq.gz]
     outputs: [fastq, fastq.gz]
     viewport_class: none
@@ -914,6 +948,7 @@ features:
       - "CLI: lungfish fastq scrub-human"
       - "CLI: lungfish fastq deacon-ribo"
       - "CLI: lungfish fastq contaminant-filter"
+      - "CLI: lungfish fastq ribodetector"
     inputs: [fastq, fastq.gz]
     outputs: [fastq, fastq.gz]
     viewport_class: none
@@ -932,6 +967,12 @@ features:
     entry_points:
       - "Tools > Read Processing…"
       - "CLI: lungfish fastq error-correct"
+      - "CLI: lungfish fastq merge"
+      - "CLI: lungfish fastq repair"
+      - "CLI: lungfish fastq interleave"
+      - "CLI: lungfish fastq deinterleave"
+      - "CLI: lungfish fastq reverse-complement"
+      - "CLI: lungfish fastq translate"
     inputs: [fastq, fastq.gz]
     outputs: [fastq, fastq.gz]
     viewport_class: none
@@ -955,7 +996,10 @@ features:
     entry_points:
       - "Tools > Search & Subsetting…"
       - "CLI: lungfish fastq search-motif"
-      - "CLI: lungfish extract-reads"
+      - "CLI: lungfish fastq search-text"
+      - "CLI: lungfish fastq subsample"
+      - "CLI: lungfish fastq materialize"
+      - "CLI: lungfish extract reads"
     inputs: [fastq, fastq.gz]
     outputs: [fastq, fastq.gz]
     viewport_class: none
@@ -970,8 +1014,9 @@ features:
   fastq.demultiplex:
     title: Demultiplex reads by barcode
     entry_points:
-      - "Tools > Demultiplexing…"
+      - "Tools > Demultiplexing > Demultiplex Barcodes…"
       - "CLI: lungfish fastq demultiplex"
+      - "CLI: lungfish fastq scout"
     inputs: [fastq, fastq.gz, barcode-kit]
     outputs: [fastq, demux-manifest]
     viewport_class: none
@@ -1036,7 +1081,9 @@ features:
   fetch.ena:
     title: Download sequences and reads from ENA
     entry_points:
-      - "CLI: lungfish fetch ena"
+      - "CLI: lungfish fetch ena search"
+      - "CLI: lungfish fetch ena reads"
+      - "CLI: lungfish fetch ena fasta"
     inputs: [ena-accession, ena-run-accession]
     outputs: [fasta, fastq, fastq.gz, provenance-sidecar]
     viewport_class: none
@@ -1089,6 +1136,7 @@ features:
     title: Browse the Pathoplexus catalogue
     entry_points:
       - "File > Search Online Databases > Search Pathoplexus…"
+      - "CLI: lungfish fetch pathoplexus"
     inputs: [pathoplexus-query]
     outputs: [fasta, lungfishref]
     viewport_class: none
@@ -1120,8 +1168,13 @@ features:
   database.manage:
     title: Manage metagenomics reference databases
     entry_points:
-      - "CLI: lungfish db list"
-      - "CLI: lungfish db download-db"
+      - "CLI: lungfish conda db list"
+      - "CLI: lungfish conda db info"
+      - "CLI: lungfish conda db download"
+      - "CLI: lungfish conda db remove"
+      - "CLI: lungfish conda db recommend"
+      - "CLI: lungfish conda db update"
+      - "CLI: lungfish conda db install-managed"
     inputs: [database-catalog]
     outputs: [reference-database]
     viewport_class: none
@@ -1137,7 +1190,7 @@ features:
   import.bam:
     title: Import BAM or CRAM alignments
     entry_points:
-      - "Import Center > Alignment"
+      - "Import Center > Alignments > BAM/CRAM Alignments"
       - "CLI: lungfish import bam"
     inputs: [bam, cram, sam]
     outputs: [alignment-track, bai]
@@ -1197,7 +1250,8 @@ features:
       - "Inspector > Mark Duplicates in Bundle Tracks"
       - "CLI: lungfish bundle mark-duplicates"
       - "CLI: lungfish markdup"
-      - "CLI: lungfish bam deduplicate-alignments"
+      - "CLI: lungfish bam markdup"
+      - "CLI: lungfish bundle deduplicate-alignments"
     inputs: [reference-bundle, bundle-alignment-track]
     outputs: [bam, bai, alignment-track]
     viewport_class: alignment
@@ -1231,7 +1285,7 @@ features:
   bam.extract-reads:
     title: Extract reads by region
     entry_points:
-      - "CLI: lungfish extract-reads"
+      - "CLI: lungfish extract reads"
       - "CLI: lungfish extract"
     inputs: [bam, cram, region]
     outputs: [fastq, bam]
@@ -1298,8 +1352,16 @@ features:
     title: GATK4 germline variant workflow
     entry_points:
       - "CLI: lungfish gatk haplotype-caller"
-      - "CLI: lungfish gatk genotype"
+      - "CLI: lungfish gatk joint-genotype"
+      - "CLI: lungfish gatk filter"
+      - "CLI: lungfish gatk select"
+      - "CLI: lungfish gatk variants-to-table"
       - "CLI: lungfish gatk bqsr"
+      - "CLI: lungfish gatk markdup"
+      - "CLI: lungfish gatk validate-sam"
+      - "CLI: lungfish gatk leftalign"
+      - "CLI: lungfish gatk collect-metrics"
+      - "CLI: lungfish variants phase"
     inputs: [reference-bundle, bam, known-sites-vcf]
     outputs: [gvcf, vcf.gz, variant-table]
     viewport_class: variant
@@ -1317,6 +1379,8 @@ features:
       - "Inspector > Variant query builder"
       - "CLI: lungfish variants query"
       - "CLI: lungfish variants extract-sample"
+      - "CLI: lungfish variants export"
+      - "Sidebar context menu > Delete Variant Tracks…"
     inputs: [reference-bundle, variant-track, variant-sqlite-db]
     outputs: [vcf, filtered-variant-set]
     viewport_class: variant
@@ -1340,6 +1404,17 @@ features:
     entry_points:
       - "CLI: lungfish import metadata"
       - "CLI: lungfish metadata import"
+      - "CLI: lungfish metadata get"
+      - "CLI: lungfish metadata set"
+      - "CLI: lungfish metadata export"
+      - "CLI: lungfish metadata export-biosample"
+      - "CLI: lungfish import sample-metadata"
+      - "File > Export > Project Sample Metadata (CSV)…"
+      - "Sidebar context menu > Import Sample Metadata…"
+      - "Sidebar context menu > Clone Metadata From…"
+      - "Sidebar context menu > Edit Folder Sample Metadata…"
+      - "Sidebar context menu > Export Folder Sample Metadata (CSV)…"
+      - "Sidebar context menu > Import Folder Sample Metadata (CSV)…"
     inputs: [csv, tsv, reference-bundle]
     outputs: [variant-track, fastq-dataset]
     viewport_class: variant
@@ -1349,6 +1424,9 @@ features:
       - Sources/LungfishCLI/Commands/MetadataCommand.swift
       - Sources/LungfishCLI/Commands/MetadataExportBioSampleSubcommand.swift
       - Sources/LungfishApp/Views/Sidebar/FolderMetadataEditorSheet.swift
+      - Sources/LungfishApp/Views/Sidebar/ProjectMetadataExportImport.swift
+      - Sources/LungfishApp/Views/Sidebar/SidebarViewController+CloneMetadata.swift
+      - Sources/LungfishApp/App/AppDelegate+ImportExport.swift
       - Sources/LungfishApp/App/AppDelegate+MetadataExportOperationBegin.swift
       - Sources/LungfishWorkflow/ViewerExport/FolderMetadataExport.swift
       - Sources/LungfishCLI/Commands/MetadataExportSubcommand+Output.swift
@@ -1383,6 +1461,10 @@ features:
     entry_points:
       - "Tools > Classification…"
       - "CLI: lungfish-cli kraken2 classify"
+      - "CLI: lungfish-cli kraken2 export"
+      - "CLI: lungfish-cli build-db kraken2"
+      - "CLI: lungfish-cli import kraken2"
+      - "Import Center > Classification Results > Kraken2 Results"
     inputs: [fastq, fasta, kraken2-database]
     outputs: [kraken2-kreport, taxonomy-dataset]
     viewport_class: taxonomy
@@ -1449,6 +1531,11 @@ features:
     entry_points:
       - "Tools > Classification…"
       - "CLI: lungfish esviritu"
+      - "CLI: lungfish esviritu download-db"
+      - "CLI: lungfish esviritu db-status"
+      - "CLI: lungfish esviritu export"
+      - "CLI: lungfish import esviritu"
+      - "Import Center > Classification Results > EsViritu Results"
     inputs: [fastq, esviritu-database]
     outputs: [esviritu-report, taxonomy-dataset]
     viewport_class: taxonomy
@@ -1491,6 +1578,14 @@ features:
     entry_points:
       - "Tools > Classification…"
       - "CLI: lungfish taxtriage"
+      - "CLI: lungfish taxtriage check-prerequisites"
+      - "CLI: lungfish taxtriage export"
+      - "CLI: lungfish build-db taxtriage"
+      - "CLI: lungfish import taxtriage"
+      - "Import Center > Classification Results > TaxTriage Results"
+      - "View > Next Sample"
+      - "View > Previous Sample"
+      - "View > All Samples"
     inputs: [fastq, taxtriage-database]
     outputs: [taxtriage-report, taxonomy-dataset]
     viewport_class: taxonomy
@@ -1612,8 +1707,11 @@ features:
   classify.nao-mgs:
     title: NAO-MGS metagenomic surveillance
     entry_points:
-      - "Import Center > NAO-MGS"
-      - "CLI: lungfish nao-mgs"
+      - "Import Center > Classification Results > NAO-MGS Results"
+      - "CLI: lungfish nao-mgs import"
+      - "CLI: lungfish nao-mgs summary"
+      - "CLI: lungfish nao-mgs export"
+      - "CLI: lungfish import nao-mgs"
     inputs: [nao-mgs-output-directory]
     outputs: [nao-mgs-report, taxonomy-dataset]
     viewport_class: taxonomy
@@ -1635,6 +1733,11 @@ features:
       - "Tools > Classification > 12S Amplicon Matching…"
       - "Workflow Library > 12S Amplicon Matching"
       - "CLI: lungfish fastq 12s-match"
+      - "CLI: lungfish fastq 12s-export"
+      - "CLI: lungfish fastq 12s-export-unresolved"
+      - "CLI: lungfish fastq 12s-reference-bundle"
+      - "CLI: lungfish fastq 12s-reference-metadata"
+      - "File > Export > 12S Result…"
     inputs: [fastq, twelve-s-reference-fasta]
     outputs: [twelve-s-result, csv, tsv, xlsx]
     viewport_class: taxonomy
@@ -1650,6 +1753,9 @@ features:
       - Sources/LungfishCLI/Commands/FastqTwelveSMatchSubcommand.swift
       - Sources/LungfishCLI/Commands/FastqTwelveSExportSubcommands.swift
       - Sources/LungfishApp/Services/WorkflowOperationExecutionService+TwelveSArguments.swift
+      - Sources/LungfishCLI/Commands/FastqTwelveSReferenceBundleSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqTwelveSReferenceMetadataSubcommand.swift
+      - Sources/LungfishTwelveSUI/TwelveSResultMenuActions.swift
     module: [LungfishCLI, LungfishWorkflow, LungfishTwelveSUI, LungfishApp]
     tests:
       - Tests/LungfishWorkflowTests/TwelveSFragmentCountingTests.swift
@@ -1674,8 +1780,11 @@ features:
   import.nvd:
     title: Import NVD novel-virus results
     entry_points:
-      - "Import Center > NVD"
+      - "Import Center > Classification Results > NVD Results"
       - "CLI: lungfish nvd import"
+      - "CLI: lungfish nvd summary"
+      - "CLI: lungfish nvd export"
+      - "CLI: lungfish import nvd"
     inputs: [nvd-output-directory]
     outputs: [taxonomy-dataset]
     viewport_class: taxonomy
@@ -1692,8 +1801,10 @@ features:
   import.czid:
     title: Import CZ-ID results
     entry_points:
-      - "Import Center > CZ-ID"
+      - "Import Center > Classification Results > CZ-ID Results"
       - "CLI: lungfish cz-id import"
+      - "CLI: lungfish cz-id summary"
+      - "CLI: lungfish import cz-id"
     inputs: [czid-taxon-report-tsv]
     outputs: [taxonomy-dataset]
     viewport_class: taxonomy
@@ -1727,7 +1838,13 @@ features:
     title: BLAST verification of classified reads
     entry_points:
       - "Taxonomy browser > BLAST"
-      - "CLI: lungfish blast"
+      - "CLI: lungfish blast verify"
+      - "CLI: lungfish blast submit"
+      - "CLI: lungfish blast resume"
+      - "CLI: lungfish blast stop"
+      - "CLI: lungfish blast in-flight"
+      - "CLI: lungfish blast export table"
+      - "Selection > Table Row > Verify with BLAST…"
     inputs: [sequence, taxon-selection]
     outputs: [blast-results]
     viewport_class: none
@@ -1743,6 +1860,8 @@ features:
       - Sources/LungfishApp/Views/Viewer/ViewerViewController+Kraken2BlastSubmit.swift
       - Sources/LungfishCLI/Commands/BlastCommand+ExportTable.swift
       - Sources/LungfishKit/BlastResultsDrawerTab+ExportOperationBegin.swift
+      - Sources/LungfishCLI/Commands/BlastResumeCommand.swift
+      - Sources/LungfishCLI/Commands/BlastStopCommand.swift
     module: [LungfishApp, LungfishKit, LungfishCLI, LungfishWorkflow]
     cli:
       - lungfish-cli blast submit
@@ -1784,7 +1903,9 @@ features:
     title: Extract reads by taxon
     entry_points:
       - "Taxonomy browser > Extract Reads"
-      - "CLI: lungfish extract-reads"
+      - "Selection > Table Row > Extract Reads…"
+      - "CLI: lungfish extract reads"
+      - "CLI: lungfish extract taxa-collection"
     inputs: [taxonomy-dataset, taxon-selection]
     outputs: [fastq]
     viewport_class: none
@@ -1883,8 +2004,9 @@ features:
   assembly.extract-contigs:
     title: Extract contigs from an assembly
     entry_points:
-      - "Assembly viewport > Extract Contigs"
-      - "CLI: lungfish extract-contigs"
+      - "Assembly viewport > select contigs > Create Bundle"
+      - "Assembly viewport > select contigs > BLAST Contigs"
+      - "CLI: lungfish extract contigs"
     inputs: [assembly-fasta, assembly-result, selection]
     outputs: [fasta, lungfishref]
     viewport_class: assembly
@@ -1904,6 +2026,8 @@ features:
       - "Workflow Library > MiSeq Amplicon MHC Genotyping"
       - "CLI: lungfish fastq ont-genotype"
       - "CLI: lungfish fastq genotype"
+      - "CLI: lungfish fastq genotype-cohort"
+      - "CLI: lungfish fastq ont-barcode-genotype"
     inputs: [fastq, fastq.gz, mhc-reference-bundle]
     outputs: [genotype-bundle]
     viewport_class: none
@@ -1924,6 +2048,7 @@ features:
       - "Workflow Library > Full-Length ONT MHC Genotyping"
       - "CLI: lungfish fastq full-length-ont-mhc-genotype"
       - "CLI: lungfish fastq pbaa-cluster"
+      - "CLI: lungfish fastq ont-pacbio-barcode-demux"
     inputs: [fastq, fastq.gz, mhc-reference-bundle]
     outputs: [genotype-bundle, cluster-consensus-fasta]
     viewport_class: none
@@ -1965,6 +2090,11 @@ features:
       - "Open a genotype result bundle from the sidebar"
       - "Selection > Genotype Sample"
       - "Selection > Genotype Call"
+      - "CLI: lungfish genotype list-samples"
+      - "CLI: lungfish genotype apply-annotations"
+      - "CLI: lungfish genotype replay-matrix-annotation"
+      - "CLI: lungfish genotype replay-call-overrides"
+      - "CLI: lungfish genotype replay-manual-haplotype-assignments"
     inputs: [genotype-bundle]
     outputs: [xlsx, csv, tsv]
     viewport_class: none
@@ -2001,6 +2131,7 @@ features:
       - "CLI: lungfish genotype export-xlsx"
       - "CLI: lungfish genotype export-pivot-xlsx"
       - "CLI: lungfish genotype export-labkey"
+      - "CLI: lungfish genotype export-manual-definitions"
     inputs: [genotype-bundle]
     outputs: [xlsx, csv, tsv, labkey-csv]
     viewport_class: none
@@ -2048,7 +2179,17 @@ features:
     entry_points:
       - "Tools > Genotyping > MHC Haplotype Definitions…"
       - "Workflow Operations > Haplotype Definition > Manage…"
-      - "CLI: lungfish haplotypes"
+      - "CLI: lungfish haplotypes list"
+      - "CLI: lungfish haplotypes validate"
+      - "CLI: lungfish haplotypes import"
+      - "CLI: lungfish haplotypes save"
+      - "CLI: lungfish haplotypes export"
+      - "CLI: lungfish haplotypes duplicate"
+      - "CLI: lungfish haplotypes delete"
+      - "CLI: lungfish haplotypes bundle-install"
+      - "CLI: lungfish haplotypes bundle-create"
+      - "CLI: lungfish haplotypes bundle-save"
+      - "CLI: lungfish haplotypes bundle-replace-reference"
     inputs: [haplotype-definitions]
     outputs: [haplotype-definitions]
     viewport_class: none
@@ -2077,6 +2218,8 @@ features:
     entry_points:
       - "Tools > Alignment & Phylogenetics > MAFFT…"
       - "CLI: lungfish align mafft"
+      - "Import Center > Alignments > Multiple Sequence Alignments"
+      - "CLI: lungfish import msa"
     inputs: [fasta, sequence-collection]
     outputs: [lungfishmsa]
     viewport_class: sequence
@@ -2105,6 +2248,17 @@ features:
     entry_points:
       - "CLI: lungfish msa consensus"
       - "CLI: lungfish msa distance"
+      - "CLI: lungfish msa actions"
+      - "CLI: lungfish msa describe"
+      - "CLI: lungfish msa annotate add"
+      - "CLI: lungfish msa annotate edit"
+      - "CLI: lungfish msa annotate delete"
+      - "CLI: lungfish msa annotate project"
+      - "CLI: lungfish msa export"
+      - "CLI: lungfish msa extract"
+      - "CLI: lungfish msa mask columns"
+      - "CLI: lungfish msa trim columns"
+      - "Sidebar context menu > Export Alignment…"
     inputs: [lungfishmsa]
     outputs: [lungfishmsa, consensus-fasta, distance-matrix]
     viewport_class: sequence
@@ -2246,7 +2400,6 @@ features:
       - "Right-click in the alignment viewport > Build Tree with IQ-TREE…"
       - "MSA alignment matrix or row gutter > accessibility action Build Tree with IQ-TREE…"
       - "CLI: lungfish tree infer iqtree"
-      - "CLI: lungfish msa tree"
     inputs: [lungfishmsa, newick]
     outputs: [lungfishtree]
     viewport_class: none
@@ -2303,6 +2456,8 @@ features:
     title: Phylogenetic tree viewport
     entry_points:
       - "Open a tree bundle from the sidebar"
+      - "Import Center > Alignments > Phylogenetic Trees"
+      - "CLI: lungfish import tree"
       - "Selection > Tree Node > Show in Inspector"
       - "Selection > Tree Node > Root on Selected Branch"
       - "Selection > Tree Node > Extract Subtree as New Bundle…"
@@ -2340,6 +2495,8 @@ features:
     entry_points:
       - "CLI: lungfish tree extract-subtree"
       - "CLI: lungfish tree reroot"
+      - "CLI: lungfish tree relabel"
+      - "CLI: lungfish tree export"
     inputs: [lungfishtree]
     outputs: [lungfishtree, newick]
     viewport_class: none
@@ -2362,6 +2519,9 @@ features:
       - "Tools > Workflows"
       - "Tools > Workflows > Workflow Library…"
       - "CLI: lungfish workflow run"
+      - "CLI: lungfish workflow list"
+      - "CLI: lungfish workflow validate"
+      - "CLI: lungfish run-headless"
     inputs: [nextflow-pipeline, nf-core-pipeline]
     outputs: [workflow-run-bundle, project-datasets]
     viewport_class: none
@@ -2665,6 +2825,7 @@ features:
       - "Operations > Selected Operation > Run Again…"
       - "Operations > Clear Completed"
       - "Operations > Cancel All Operations"
+      - "CLI: lungfish ops stats"
     inputs: [operation-center-item]
     outputs: [operation-log, failure-report, cli-command]
     viewport_class: none
@@ -2678,6 +2839,7 @@ features:
       - Sources/LungfishApp/Views/Operations/OperationResultNavigation.swift
       - Sources/LungfishApp/App/MainMenu.swift
       - Sources/LungfishApp/App/AppDelegate+MenuActions.swift
+      - Sources/LungfishCLI/Commands/OpsCommand.swift
       - Sources/LungfishKit/OperationCenter.swift
       - Sources/LungfishCLI/Support/CLIFailureWords.swift
     module: [LungfishApp, LungfishKit, LungfishCLI]
@@ -2707,18 +2869,30 @@ features:
     title: Manage projects and shared locks
     entry_points:
       - "File > Open Project Folder…"
-      - "CLI: lungfish project"
+      - "File > New Project"
+      - "File > Open Recent"
+      - "File > About Saving…"
+      - "Window > New Window for Current Project"
+      - "CLI: lungfish project lock"
+      - "CLI: lungfish project unlock"
+      - "CLI: lungfish project migrate"
     inputs: [lungfish-project]
     outputs: [project-lock, bundle-migration]
     viewport_class: none
     sources:
       - Sources/LungfishApp/App/ProjectOpenCoordinator.swift
       - Sources/LungfishApp/App/ProjectLockWarningPresentation.swift
+      - Sources/LungfishApp/App/ProjectLockResolutionDialog.swift
+      - Sources/LungfishApp/App/AppDelegate+PersistenceHelp.swift
+      - Sources/LungfishApp/App/MainMenu.swift
+      - Sources/LungfishApp/App/AppDelegate.swift
       - Sources/LungfishCLI/Commands/ProjectCommand.swift
     module: [LungfishApp, LungfishCLI]
     notes: >-
-      Opens project folders, creates and removes project-local lock records, and
-      migrates bundles for shared multi-user projects.
+      Creates and opens project folders, reopens recent ones, and opens a
+      second window on the current project. About Saving explains how LGE
+      writes project changes. The CLI creates and removes project-local lock
+      records and migrates bundles for shared multi-user projects.
   project.copy-item:
     title: Copy an item from another project
     entry_points:
@@ -2769,7 +2943,7 @@ features:
     tests:
       - Tests/LungfishAppTests/DemoProjectsDownloadSigningReplayTests.swift
     notes: >-
-      Lists eight demo projects from the bundled manifest, downloads one from
+      Lists ten demo projects from the bundled manifest, downloads one from
       the public demo-projects GitHub release, checks its byte count and
       SHA-256, unpacks it through a staging folder, installs it under
       ~/Documents/LGE Demo Projects (changeable), and opens it. Replacing a
@@ -2823,6 +2997,13 @@ features:
     title: Provision managed tools
     entry_points:
       - "CLI: lungfish conda install"
+      - "CLI: lungfish conda setup"
+      - "CLI: lungfish conda packs"
+      - "CLI: lungfish conda lock"
+      - "CLI: lungfish conda export-pack"
+      - "CLI: lungfish conda offline-export"
+      - "CLI: lungfish conda offline-install"
+      - "CLI: lungfish tools update"
     inputs: [tool-catalog]
     outputs: [conda-environment, managed-tool]
     viewport_class: none
@@ -2847,7 +3028,11 @@ features:
     title: Plugin Manager
     entry_points:
       - "Tools > Plugin Manager"
-      - "CLI: lungfish conda"
+      - "CLI: lungfish conda list"
+      - "CLI: lungfish conda search"
+      - "CLI: lungfish conda remove"
+      - "CLI: lungfish conda envs"
+      - "CLI: lungfish conda run"
     inputs: [plugin-pack]
     outputs: [installed-plugin]
     viewport_class: none
@@ -3013,6 +3198,9 @@ features:
     entry_points:
       - "Open a .lungfishprimeranalysis bundle from the sidebar"
       - "CLI: lungfish primers analysis inspect"
+      - "CLI: lungfish primers analysis history"
+      - "CLI: lungfish primers analysis audit"
+      - "CLI: lungfish primers analysis annotated-reference"
     inputs: [lungfishprimeranalysis]
     outputs: []
     viewport_class: none
@@ -3540,4 +3728,532 @@ features:
       folder and writes nothing, and offers no button, editable field or file
       action. A copy of a result into another project keeps the folder whole
       under Analyses/. The Inspector gets the result's name and folder for
-      its Provenance tab, and its Document tab has no RNA-seq block yet.
+      its Provenance tab, and its Bundle tab has no RNA-seq block yet.
+      A cell map result opens an embedding view with an Embedding pop-up, a
+      Colour by pop-up and a point size, and its selection actions are listed
+      under rnaseq.cell-map-select.
+  app.settings:
+    title: Settings window
+    entry_points:
+      - "Lungfish Genome Explorer > Settings…"
+    inputs: []
+    outputs: [app-preferences]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Settings/SettingsWindowController.swift
+      - Sources/LungfishApp/Views/Settings/SettingsView.swift
+      - Sources/LungfishApp/Views/Settings/GeneralSettingsTab.swift
+      - Sources/LungfishApp/Views/Settings/AppearanceSettingsTab.swift
+      - Sources/LungfishApp/Views/Settings/RenderingSettingsTab.swift
+      - Sources/LungfishApp/Views/Settings/StorageSettingsTab.swift
+      - Sources/LungfishApp/Views/Settings/AIServicesSettingsTab.swift
+      - Sources/LungfishApp/Views/Settings/AdvancedSettingsTab.swift
+      - Sources/LungfishApp/Views/Settings/BlastContactSettingsSection.swift
+      - Sources/LungfishApp/App/AppDelegate+MenuActions.swift
+    module: [LungfishApp]
+    notes: >-
+      Six tabs, General (viewer zoom, analyst identity, VCF import profile,
+      maintenance, NCBI API key and BLAST contact, provenance signing),
+      Appearance, Rendering, Storage, AI Services and Advanced. Advanced holds
+      the Show Experimental Features switch, and every tab but Storage has its
+      own Restore Defaults.
+  app.updates:
+    title: Check for app updates
+    entry_points:
+      - "Lungfish Genome Explorer > Check for Updates…"
+    inputs: []
+    outputs: []
+    viewport_class: none
+    sources:
+      - Sources/Lungfish/main.swift
+      - Sources/LungfishApp/App/AppDelegate+MenuActions.swift
+      - Sources/LungfishApp/App/MainMenu.swift
+    module: [LungfishApp, Lungfish]
+    notes: >-
+      Asks the Sparkle updater for a newer build on the app's release channel
+      (Preview or Stable) and offers to install it.
+  app.welcome:
+    title: Welcome window and first-run setup
+    entry_points:
+      - "Shown at launch when no project is open"
+    inputs: []
+    outputs: [lungfish-project]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift
+      - Sources/LungfishApp/Views/Welcome/WelcomeFailureReports.swift
+      - Sources/LungfishApp/App/AppDelegate.swift
+    module: [LungfishApp]
+    notes: >-
+      Offers Create Project and opening a recent or other project, and checks
+      the core and optional tools before work begins.
+      It also lets the person choose another storage location for the
+      third-party tools and databases.
+  help.menu:
+    title: Help menu, help window and About
+    entry_points:
+      - "Help > Lungfish Genome Explorer Help"
+      - "Help > Getting Started"
+      - "Help > VCF Variants Guide"
+      - "Help > AI Assistant Guide"
+      - "Help > Documentation"
+      - "Help > Release Notes"
+      - "Help > Report an Issue…"
+      - "Lungfish Genome Explorer > About Lungfish Genome Explorer"
+    inputs: []
+    outputs: []
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Help/HelpWindowController.swift
+      - Sources/LungfishApp/App/AppDelegate+MenuActions.swift
+      - Sources/LungfishApp/App/MainMenu.swift
+      - Sources/LungfishApp/App/AboutWindowController.swift
+      - Sources/LungfishApp/App/AboutAcknowledgements.swift
+      - Sources/LungfishApp/App/ThirdPartyLicensesWindowController.swift
+    module: [LungfishApp]
+    notes: >-
+      The first four items open topics in the in-app help window, and
+      Documentation, Release Notes and Report an Issue open web pages. The
+      About window names the version and build and opens the third-party
+      licenses.
+  view.layout:
+    title: Window panes, drawer, zoom and text size
+    entry_points:
+      - "View > Show Sidebar"
+      - "View > Show Inspector"
+      - "View > Focus Viewer"
+      - "View > Restore Side Panes"
+      - "View > Document Inspector"
+      - "View > Show Drawer"
+      - "View > Make Drawer Taller"
+      - "View > Content Text Size > Larger"
+      - "View > Zoom In"
+      - "View > Zoom to Fit"
+      - "View > Expand All"
+      - "View > Show as RNA (U instead of T)"
+      - "View > Show Annotations for Selected Track"
+      - "View > Reset View Settings to Defaults"
+    inputs: []
+    outputs: []
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/App/MainMenu.swift
+      - Sources/LungfishApp/App/AppDelegate+MenuActions.swift
+    module: [LungfishApp]
+    notes: >-
+      Shows or hides the sidebar, Inspector and bottom drawer, changes the
+      drawer height and the text size of viewer content, and zooms the
+      viewer (Zoom Reset shows 10 kb). Show as RNA draws U for T, and Reset
+      View Settings returns the open viewer's display options to defaults.
+  window.set-size:
+    title: Set the window size
+    entry_points:
+      - "Window > Set Size…"
+    inputs: []
+    outputs: []
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/App/WindowSizeDialogController.swift
+      - Sources/LungfishApp/App/WindowSizeRequest.swift
+      - Sources/LungfishApp/App/AppDelegate.swift
+    module: [LungfishApp]
+    notes: >-
+      Opens a sheet that sets the main window to an exact width and height
+      in points, which keeps screenshots the same size.
+  project.storage:
+    title: Review project storage and move removable items to the Trash
+    entry_points:
+      - "File > Manage Project Storage…"
+      - "Sidebar context menu > Manage Project Storage…"
+    inputs: [lungfish-project]
+    outputs: [cleanup-receipt]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/ProjectStorage/ProjectStorageSheetViewController.swift
+      - Sources/LungfishApp/Views/ProjectStorage/ProjectStorageSheetViewModel.swift
+      - Sources/LungfishApp/App/AppDelegate.swift
+      - Sources/LungfishApp/Views/Sidebar/SidebarItemAction.swift
+    module: [LungfishApp]
+    notes: >-
+      Scans the project and lists its storage by category with logical size,
+      estimated size on disk and date, and moves only entries proven
+      removable to the Trash. It writes a cleanup receipt and offers Retry
+      Failed, Retry Scan, Reveal Receipt and Reveal in Trash.
+  storage.managed-roots:
+    title: Managed storage location and duplicate space
+    entry_points:
+      - "Lungfish Genome Explorer > Settings… > Storage"
+      - "CLI: lungfish storage info"
+      - "CLI: lungfish storage dedupe"
+    inputs: []
+    outputs: []
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Settings/StorageSettingsTab.swift
+      - Sources/LungfishCLI/Commands/StorageCommand.swift
+    module: [LungfishApp, LungfishCLI]
+    notes: >-
+      The Storage tab shows where third-party tools and databases live and
+      offers Change Location, Use Default Location, Remove old local copies
+      and Reclaim Duplicate Space. storage dedupe replaces duplicate files
+      across the storage roots of the release channels with APFS clones.
+  sequence.navigate:
+    title: Go to a location or a gene
+    entry_points:
+      - "Sequence > Go to Location…"
+      - "Sequence > Go to Gene…"
+    inputs: [lungfishref]
+    outputs: []
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift
+      - Sources/LungfishCore/Models/LocusQueryParser.swift
+    module: [LungfishApp, LungfishCore]
+    notes: >-
+      Go to Location accepts a contig name, a position, contig:position or a
+      range such as chr1:1,000-2,000 and centres a single position in the
+      default window. Go to Gene searches the loaded annotations and needs a
+      bundle with an annotation track.
+  sequence.reverse-complement:
+    title: Reverse-complement selected sequences
+    entry_points:
+      - "Sequence > Reverse Complement…"
+      - "CLI: lungfish fastq reverse-complement"
+    inputs: [sequence-selection, fasta]
+    outputs: [fasta]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift
+      - Sources/LungfishApp/Views/Viewer/SequenceViewerView+Interaction.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController.swift
+      - Sources/LungfishCLI/Commands/FastqReverseComplementSubcommand.swift
+    module: [LungfishApp, LungfishCLI]
+    notes: >-
+      Opens the sequence operation dialog on the selected sequences with
+      Reverse Complement All Sequences chosen.
+  annotation.export-gff3:
+    title: Export annotations as GFF3
+    entry_points:
+      - "File > Export > Annotations (GFF3)…"
+      - "CLI: lungfish bundle export-gff3"
+    inputs: [lungfishref, annotation-track]
+    outputs: [gff3]
+    viewport_class: sequence
+    sources:
+      - Sources/LungfishApp/App/AppDelegate+AnnotationGFF3ExportBegin.swift
+      - Sources/LungfishApp/App/AppDelegate+ImportCenter.swift
+      - Sources/LungfishApp/App/AppDelegate+ImportCenterSequenceExport.swift
+      - Sources/LungfishCLI/Commands/BundleExportGFF3Subcommand.swift
+    module: [LungfishApp, LungfishCLI]
+    notes: >-
+      Writes one annotation source of the open reference bundle as a GFF3
+      file with a provenance record. The app runs lungfish-cli bundle
+      export-gff3 behind an Operations row.
+  export.fastq:
+    title: Export FASTQ bundles as FASTQ files
+    entry_points:
+      - "File > Export > FASTQ…"
+      - "Sidebar context menu > Export as FASTQ…"
+      - "CLI: lungfish fastq export reads"
+      - "CLI: lungfish fastq export sample-barcodes"
+    inputs: [fastq-bundle]
+    outputs: [fastq, sample-barcode-sheet]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/App/AppDelegate+ImportExport.swift
+      - Sources/LungfishApp/App/AppDelegate+FASTQExportOperationBegin.swift
+      - Sources/LungfishApp/Views/Sidebar/SidebarViewController+MenuDelegate.swift
+      - Sources/LungfishCLI/Commands/FastqExportSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqExportReadsSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqExportSampleBarcodesSubcommand.swift
+    module: [LungfishApp, LungfishCLI]
+    notes: >-
+      Writes the reads of each selected FASTQ bundle as one FASTQ file with
+      provenance, one Operations row per bundle, and a cancel stops the
+      batch. fastq export sample-barcodes writes the sample barcode sheet of
+      the FASTQ metadata drawer.
+  import.fastq-linux-plan:
+    title: Plan FASTQ import on a Linux machine and adopt its result
+    entry_points:
+      - "Import Center > Sequencing Reads > Plan for a Linux Machine"
+      - "Import Center > Sequencing Reads > Linux Run Result"
+      - "CLI: lungfish import fastq --write-plan"
+      - "CLI: lungfish import fastq --adopt"
+    inputs: [fastq, fastq.gz, plan-folder]
+    outputs: [plan-folder, fastq-bundle]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel+ActionText.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQPlanSheet.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQPlanSheetModel.swift
+      - Sources/LungfishApp/App/AppDelegate+LinuxRun.swift
+      - Sources/LungfishApp/Services/FASTQIngestionService+LinuxRun.swift
+    module: [LungfishApp]
+    notes: >-
+      Plan for a Linux Machine writes a plan folder that reorders, compresses
+      and counts the reads on a Linux machine with HTCondor or a plain
+      launcher, and imports nothing. Linux Run Result adopts the returned
+      folder into the open project as one FASTQ bundle a sample with the
+      run's record.
+  fastq.ont-fluidigm-split:
+    title: ONT Fluidigm sample split
+    entry_points:
+      - "Tools > Demultiplexing > ONT Fluidigm Sample Split…"
+      - "CLI: lungfish fastq ont-fluidigm-samples"
+    inputs: [fastq-bundle]
+    outputs: [fastq-bundle]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift
+      - Sources/LungfishCLI/Commands/FastqONTFluidigmSamplesSubcommand.swift
+      - Sources/LungfishWorkflow/ONTGenotyping/ONTFluidigmSampleMaterializer.swift
+      - Sources/LungfishWorkflow/ONTGenotyping/ONTFluidigmAmpliconMaterializer.swift
+    module: [LungfishApp, LungfishWorkflow, LungfishCLI]
+    notes: >-
+      Splits a bulk ONT Fluidigm amplicon bundle into one counted CS1-CS2
+      insert FASTQ bundle per sample.
+  cluster.reads:
+    title: Cluster amplicon reads with Savont or pbAA
+    entry_points:
+      - "Tools > Clustering > Savont Clustering…"
+      - "Tools > Clustering > pbAA Amplicon Clustering…"
+      - "CLI: lungfish fastq savont-cluster"
+      - "CLI: lungfish fastq pbaa-cluster"
+    inputs: [fastq-bundle]
+    outputs: [consensus-fasta, lungfishref]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationsCatalog.swift
+      - Sources/LungfishApp/Views/Inspector/Sections/FASTQPBAAArtifactsSection.swift
+      - Sources/LungfishCLI/Commands/FastqSavontClusterSubcommand.swift
+      - Sources/LungfishCLI/Commands/FastqPBAAClusterSubcommand.swift
+    module: [LungfishApp, LungfishCLI]
+    notes: >-
+      Savont clusters FASTQ reads into counted consensus sequences, and pbAA
+      clusters PacBio HiFi amplicon reads in pinned containers and writes the
+      passed consensus sequences as a reference bundle. Savont needs the
+      full-length MHC genotyping plugin pack.
+  import.application-export:
+    title: Import a Geneious or other application export
+    entry_points:
+      - "Import Center > Application Exports > Geneious Export"
+      - "CLI: lungfish import geneious"
+      - "CLI: lungfish import application-export"
+    inputs: [geneious-archive, application-export-folder]
+    outputs: [lungfishref, project-collection]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift
+      - Sources/LungfishApp/Services/CLIApplicationExportImportRunner.swift
+      - Sources/LungfishApp/App/AppDelegate+ImportCenter.swift
+      - Sources/LungfishCLI/Commands/ApplicationExportImportSubcommands.swift
+      - Sources/LungfishWorkflow/ApplicationExports/ApplicationExportImportModels.swift
+    module: [LungfishApp, LungfishCLI, LungfishWorkflow]
+    notes: >-
+      Turns a Geneious archive or export folder into one project collection
+      of native reference and annotation bundles. import application-export
+      takes the other kinds, such as CLC Workbench, DNASTAR Lasergene,
+      Benchling, QIIME 2 and IGV session exports.
+  import.primer-scheme:
+    title: Import a primer scheme bundle
+    entry_points:
+      - "Import Center > Reference Sequences > Primer Scheme"
+      - "CLI: lungfish primers import"
+    inputs: [lungfishprimers, bed, fasta]
+    outputs: [lungfishprimers]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/ImportCenter/PrimerSchemeImportView.swift
+      - Sources/LungfishApp/Views/ImportCenter/PrimerSchemeImportViewModel.swift
+      - Sources/LungfishApp/Views/Sidebar/PrimerSchemeInspectorView.swift
+      - Sources/LungfishCLI/Commands/PrimerCommand.swift
+    module: [LungfishApp, LungfishCLI]
+    notes: >-
+      Imports a .lungfishprimers bundle authored from a BED file and an
+      optional FASTA, for use with iVar primer trimming of an alignment.
+  workflow.library:
+    title: Workflow Library
+    entry_points:
+      - "Tools > Workflows > Workflow Library…"
+    inputs: [lungfishflowpkg]
+    outputs: []
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/WorkflowLibrary/WorkflowLibraryPanelView.swift
+      - Sources/LungfishApp/Views/WorkflowLibrary/WorkflowLibraryViewModel.swift
+      - Sources/LungfishApp/Views/WorkflowLibrary/WorkflowLibraryWindowController.swift
+      - Sources/LungfishApp/Services/WorkflowLibrary.swift
+      - Sources/LungfishApp/App/MainMenu+Tools.swift
+      - Sources/LungfishApp/App/ToolsMenuModel.swift
+    module: [LungfishApp]
+    notes: >-
+      Lists every tool and workflow in Core Tools, Specialized Workflows and
+      User Workflows and turns each one on or off, and Link Workflow adds a
+      workflow package that then gets its own item in Tools > Workflows. A
+      tool that is not enabled reads Enable name… in its Tools submenu and
+      offers to open the Workflow Library.
+  sidebar.item-actions:
+    title: Sidebar item commands
+    entry_points:
+      - "Sidebar context menu > Open"
+      - "Sidebar context menu > New Folder…"
+      - "Sidebar context menu > Rename…"
+      - "Sidebar context menu > Duplicate"
+      - "Sidebar context menu > Move to Trash"
+      - "Sidebar context menu > Show in Finder"
+      - "Sidebar context menu > Select Siblings"
+      - "Sidebar context menu > Copy Classification Command"
+      - "Selection > Sidebar Item"
+    inputs: [sidebar-item]
+    outputs: []
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Sidebar/SidebarItemAction.swift
+      - Sources/LungfishApp/Views/Sidebar/SidebarViewController+ItemActions.swift
+      - Sources/LungfishApp/Views/Sidebar/SidebarViewController+MenuDelegate.swift
+      - Sources/LungfishApp/App/MainMenu.swift
+    module: [LungfishApp]
+    notes: >-
+      The same commands appear in the sidebar's context menu and in the
+      Selection > Sidebar Item submenu, and a multiple selection names the
+      count, as in Move 3 Items to Trash. The bundle-specific items are listed
+      in the rows of their features.
+  results.table-row-commands:
+    title: Result table row commands
+    entry_points:
+      - "Selection > Table Row > Open Row"
+      - "Selection > Table Row > Copy Accession"
+      - "Selection > Table Row > Copy Row as TSV"
+      - "Selection > Table Row > Open on NCBI"
+      - "Selection > Table Row > Search PubMed"
+    inputs: [result-table-row]
+    outputs: []
+    viewport_class: taxonomy
+    sources:
+      - Sources/LungfishKit/Accessibility/ResultRowMenuActions.swift
+      - Sources/LungfishApp/App/MainMenu.swift
+    module: [LungfishKit, LungfishApp]
+    notes: >-
+      The row commands of the result tables, also in each table's context
+      menu, include Extract Reads, Verify with BLAST, Extract to New Bundle,
+      copies of the name, accession, taxon ID, sequence or FASTA, and NCBI
+      and PubMed links.
+  bundle.inspect:
+    title: Inspect, validate and package bundles
+    entry_points:
+      - "Sidebar context menu > Get Bundle Info"
+      - "Sidebar context menu > Show Package Contents"
+      - "CLI: lungfish bundle info"
+      - "CLI: lungfish bundle list"
+      - "CLI: lungfish bundle validate"
+      - "CLI: lungfish bundle export"
+    inputs: [lungfishref]
+    outputs: [oci-layout-tarball]
+    viewport_class: none
+    sources:
+      - Sources/LungfishApp/Views/Sidebar/SidebarItemAction.swift
+      - Sources/LungfishCLI/Commands/BundleInfoSubcommand.swift
+      - Sources/LungfishCLI/Commands/BundleListSubcommand.swift
+      - Sources/LungfishCLI/Commands/BundleValidateSubcommand.swift
+      - Sources/LungfishCLI/Commands/BundleExportSubcommand.swift
+    module: [LungfishCLI, LungfishApp]
+    notes: >-
+      Shows a bundle's contents and checks its layout. bundle export writes a
+      reference bundle as a deterministic OCI layout tarball.
+  genotype.mhc-reference-bundle:
+    title: MHC reference bundles
+    entry_points:
+      - "Open a .lungfishmhcref bundle from the sidebar"
+      - "CLI: lungfish fastq mhc-reference-bundle"
+    inputs: [fasta, mhc-allele-library]
+    outputs: [mhc-reference-bundle]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/FastqMHCReferenceBundleSubcommand.swift
+      - Sources/LungfishApp/Views/Inspector/Sections/MHCReferenceBundleDocumentSection.swift
+      - Sources/LungfishIO/Bundles/BundleKindRegistry.swift
+    module: [LungfishApp, LungfishCLI, LungfishIO]
+    notes: >-
+      A .lungfishmhcref bundle holds the MHC allele library that the two MHC
+      genotyping workflows take as their reference. The Inspector names a
+      selected one an MHC Reference Bundle.
+  rnaseq.reference-set:
+    title: Build an RNA-seq reference set and its index
+    entry_points:
+      - "CLI: lungfish-cli rnaseq reference-set"
+      - "CLI: lungfish-cli rnaseq index"
+      - "CLI: lungfish-cli rnaseq index-plan"
+      - "CLI: lungfish-cli rnaseq index-adopt"
+    inputs: [fasta, gtf, gff3]
+    outputs: [rnaseq-reference-set, salmon-index, star-index]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/RNASeqReferenceSetSubcommand.swift
+      - Sources/LungfishCLI/Commands/RNASeqIndexSubcommand.swift
+      - Sources/LungfishCLI/Commands/RNASeqIndexPlanSubcommand.swift
+      - Sources/LungfishCLI/Commands/RNASeqIndexAdoptSubcommand.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationRNASeqQuantPane.swift
+    module: [LungfishCLI, LungfishApp]
+    notes: >-
+      Builds a reference set from a genome, an annotation and extra sequences
+      under the storage root, then builds or reuses its salmon index, or
+      writes and adopts a plan that builds its STAR index on a Linux machine.
+      The app has no dialog for this step, and the Quantify RNA-seq Reads
+      pane lists only the sets that are already installed.
+  rnaseq.cell-map-select:
+    title: Save or pseudobulk a cell map selection
+    entry_points:
+      - "Cell map view > Save Selection as Labels Table…"
+      - "Cell map view > Pseudobulk Selected Cells…"
+      - "CLI: lungfish-cli rnaseq cell-map select"
+    inputs: [rnaseq-result]
+    outputs: [labels-table, rnaseq-result]
+    viewport_class: none
+    sources:
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapViewController.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingSelection.swift
+      - Sources/LungfishApp/Services/RNASeqCellMapSelectRun.swift
+      - Sources/LungfishApp/Views/Viewer/ViewerViewController+RNASeq.swift
+      - Sources/LungfishCLI/Commands/RNASeqCellMapSubcommand.swift
+    module: [LungfishApp, LungfishRNASeqUI, LungfishCLI]
+    notes: >-
+      Writes a labels table of the cells that a polygon or labels select in
+      one embedding, outside every RNA-seq result and with its record beside
+      it. Pseudobulk Selected Cells opens the pseudobulk pane filled in, and
+      its run writes the table with cell-map select first.
+  rnaseq.cell-map-compute:
+    title: Compute a UMAP and Leiden clusters for a single-cell result
+    entry_points:
+      - "CLI: lungfish-cli rnaseq cell-map compute"
+    inputs: [rnaseq-result]
+    outputs: [rnaseq-result]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/RNASeqCellMapComputeSubcommand.swift
+      - Sources/LungfishWorkflow/Conda/PluginPack+SingleCell.swift
+    module: [LungfishCLI, LungfishWorkflow]
+    notes: >-
+      Runs LGE's pinned Scanpy route in the Single-Cell Analysis pack's
+      environment and writes the UMAP and Leiden clusters as a new cell map
+      result. Only seed 0 is offered.
+  debug.cli:
+    title: Version and troubleshooting commands
+    entry_points:
+      - "CLI: lungfish version"
+      - "CLI: lungfish debug env"
+      - "CLI: lungfish debug resource-smoke"
+      - "CLI: lungfish debug fastq-ingest"
+      - "CLI: lungfish debug workflow-log"
+    inputs: []
+    outputs: []
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/VersionCommand.swift
+      - Sources/LungfishCLI/Commands/DebugCommand.swift
+    module: [LungfishCLI]
+    notes: >-
+      version prints the LGE version and the bundled tool reference. The
+      debug commands check the environment and dependencies, verify packaged
+      resources without the app, run a FASTQ ingest and parse workflow logs.
