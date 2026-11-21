@@ -3848,7 +3848,7 @@ features:
   window.set-size:
     title: Set the window size
     entry_points:
-      - "Window > Set Size…"
+      - "Move & Resize (in the Window menu) > Set Size…"
     inputs: []
     outputs: []
     viewport_class: none
@@ -3859,7 +3859,9 @@ features:
     module: [LungfishApp]
     notes: >-
       Opens a sheet that sets the main window to an exact width and height
-      in points, which keeps screenshots the same size.
+      in points, which keeps screenshots the same size. LGE adds the item at
+      run time to the Move & Resize submenu that macOS puts in the Window
+      menu, so the menu bar a test builds has no such path.
   project.storage:
     title: Review project storage and move removable items to the Trash
     entry_points:
