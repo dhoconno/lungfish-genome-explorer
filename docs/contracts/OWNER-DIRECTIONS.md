@@ -1,6 +1,6 @@
 # Owner directions
 
-Each row is a direction of the owner that still binds later sessions, in the owner's words (shortened with an ellipsis, never reworded) and with what it binds. A one-time answer is spent and has no row. Rows run by topic. An id with a prefix, such as 2.9 O5, is a row of that older plan, since plans before the audit numbered their own rows.
+Each row is a direction of the owner that still binds later sessions, in the owner's words (shortened with an ellipsis, never reworded) and with what it binds. A one-time answer is spent and has no row. Rows run by topic. An id with a prefix, such as 2.9 O5, is a row of that older plan.
 
 | Id | Date | The owner's words | Binds |
 |---|---|---|---|
@@ -26,10 +26,10 @@ Each row is a direction of the owner that still binds later sessions, in the own
 | 2.12 O12 | 2026-10-18 | "We should also make sure that the Claude Code best practices ... are checked weekly ..." | Check the Claude Code best practices page weekly |
 | 2.12 O10 | 2026-10-18 | "... when we get close to the quota we should by contract output a prompt I can use to resume in a new account that doesn't have this session's context" | Near the quota stop, write a resume prompt for a new account |
 | 2.13 O26 | 2026-10-21 | "The notes have gotten excessively detailed. We should have the experts write more accessible notes anyway." | Release notes are short, plain and written for bench scientists |
-| O168 | 2026-11-11 | "I want to finish all of the phases first, then revisit the user manual and screencasts." | The manual, screenshots and screencasts wait until every phase ends |
+| O181 | 2026-11-21 | "OK, we should also begin refreshing and improving the docs. ... have Claude Code revise the documents and screenshots to reflect all of the changes in Phases 1-5. ..." | Ends the O168 wait for the manual and screenshots. Screencasts still wait |
 | 2.9 O5 | 2026-10-12 | "Use live computer tests when possible, with a fallback to the stand-ins as necessary." | Real tool runs first, stand-ins only where this Mac cannot run |
 | O138 | 2026-11-03 | "... we should adjust the tests so they do not rely on predictable BLAST behavior ..." | Tests never count on a third-party service's speed or answer |
 | CHTC O2 | 2026-10-21 | "Yes, we would not use human data, so HIPAA is not an issue." | No restricted read set goes to CHTC, checked for each batch |
 | CHTC O42 | 2026-10-24 | "We also shouldn't be using a 60GB file for testing after we have the Linux tool operational. This would be wasteful." | The Linux tool is tested on small public read sets only |
 
-The full history is in the owner tables of the plans, in git at the commits those plans cite, and in `~/lungfish-phase-records`. A direction not listed above is spent or replaced.
+The full history is in the owner tables of the plans, in git and in `~/lungfish-phase-records`. A direction not listed above is spent or replaced.
