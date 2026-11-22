@@ -26,7 +26,7 @@ illustrations: []
 glossary_refs: [fastq, fasta, phred-score, read, read-length, paired-end, mate, n50, quality-binning, gc-content, sparkline, quality-control, bundle, viewport, sidebar, project, fixture, adapter, library-prep, mapping, required-setup-pack, inspector, provenance, depth, command-line-flag, terminal, json, classifier, fastp, phix, sra, ena, ncbi, simplex-read, interleaved-fastq, read-merging, poly-g-tail]
 features_refs: [viewport.fastq-dataset, fastq.qc-summary]
 fixtures_refs: [hg002-chr20]
-brand_reviewed: false
+brand_reviewed: true
 lead_approved: false
 ---
 
@@ -38,7 +38,7 @@ In Lungfish Genome Explorer (LGE), the [viewport](../../GLOSSARY.md#viewport) is
 
 The nine summary cards give bundle-wide figures. The three charts below them show how read lengths and quality scores vary. Below the charts, open **Reads** for individual records. It sits beside **Operations**. Import fills the cards and usually fills the charts. To recalculate the summary, choose **Tools > QC & Reporting > Refresh QC Summary…**.
 
-Adapters can go unnoticed in the summary. [Library preparation](../../GLOSSARY.md#library-prep) is the lab work that gets DNA ready for sequencing. An [adapter](../../GLOSSARY.md#adapter) is a short piece of synthetic DNA attached to a fragment end during that work. A raw Illumina read keeps its length when it runs into an adapter. If you suspect adapters, use Adapter Removal under **Tools > Trimming & Filtering**. Compare the new and original Bases cards to see how much sequence the operation removed.
+Adapters can go unnoticed in the summary. [Library preparation](../../GLOSSARY.md#library-prep) is the lab work that gets DNA ready for sequencing. An [adapter](../../GLOSSARY.md#adapter) is a short piece of synthetic DNA attached to a fragment end during that work. A raw Illumina read keeps its length when it runs into an adapter. If you suspect adapters, use **Adapter Removal** under **Tools > Trimming & Filtering**. Compare the new and original **Bases** cards to see how much sequence the operation removed.
 
 Single-end sequencing reads each fragment from one end only. For these reads, the trim can miss a rare adapter. On an Illumina NextSeq or NovaSeq run it also cuts [poly-G tails](../../GLOSSARY.md#poly-g-tail), false runs of G at the end of a read. See [Trimming and Filtering Reads](04-trimming-and-filtering.md) for the operation.
 
@@ -58,13 +58,13 @@ A demo project is a ready-made practice project you can download from **Help > D
 
 To import the pair yourself, download `HG002.chr20.10.0-10.5Mb_R1.fastq.gz` and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` from the [hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20). Click each file's name, then click **Download raw file**. Leave the `.gz` files compressed. LGE reads them directly, as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
 
-At import, the counts and mean quality come from `seqkit`, a program that counts and measures reads. Refresh QC Summary measures every read with LGE's own reader and does not call `seqkit`. For a fresh import, check that the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the set of common analysis programs that includes `seqkit`, is ready. Open **Tools > Plugin Manager…** (Cmd-Shift-B) and look for Ready on every row of Required Setup in the **Packs** tab. See [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) for help with setup.
+At import, the counts and mean quality come from `seqkit`, a program that counts and measures reads. Refresh QC Summary measures every read with LGE's own reader and does not call `seqkit`. For a fresh import, check that the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the set of common analysis programs that includes `seqkit`, is ready. Open **Tools > Plugin Manager…** (Cmd-Shift-B) and look for **Ready** on every row of **Required Setup** in the **Packs** tab. See [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) for help with setup.
 
-To match the demo's quality charts, keep the original scores. Open **File > Import Center…** (Cmd-Shift-I) and choose **None (keep every score)** under **Quality Binning** in the Import FASTQ sheet, the import dialog. Follow the [Importing Sequencing Reads](01-importing-fastq.md#procedure) steps to finish. The default, **Q5 steps (8-level)**, stores each score as one of eight values. It can change the mean quality and chart shapes. Q20 and Q30 are the percentages of bases scoring at least 20 and at least 30, respectively. The default keeps each score on the same side of both cutoffs, so those percentages stay the same.
+To match the demo's quality charts, keep the original scores. Open **File > Import Center…** (Cmd-Shift-I) and choose **None (keep every score)** under **Quality Binning** in the **Import FASTQ** sheet, the import dialog. Follow the [Importing Sequencing Reads](01-importing-fastq.md#procedure) steps to finish. The default, **Q5 steps (8-level)**, stores each score as one of eight values. It can change the mean quality and chart shapes. Q20 and Q30 are the percentages of bases scoring at least 20 and at least 30, respectively. The default keeps each score on the same side of both cutoffs, so those percentages stay the same.
 
 ## Procedure
 
-Use steps 1 through 3 to read the summary saved at import. Use steps 4 and 5 if a chart says Click to Compute or if you need the charts to cover every read in a bundle with more than 100,000 reads. For a single stored file, the import charts cover up to its first 100,000 reads. The demo has 91,148 reads, so you can use its existing charts and treat the refresh as practice.
+Use steps 1 through 3 to read the summary saved at import. Use steps 4 and 5 if a chart says **Click to Compute** or if you need the charts to cover every read in a bundle with more than 100,000 reads. For a single stored file, the import charts cover up to its first 100,000 reads. The demo has 91,148 reads, so you can use its existing charts and treat the refresh as practice.
 
 1. Click the `HG002.chr20.10.0-10.5Mb` bundle under `Imports/` in the sidebar. The `_R1` and `_R2` files hold read 1 and read 2, the two mates of each pair. Import joined them under the name they share, so one row opens the FASTQ viewport.
 
@@ -74,25 +74,25 @@ Use steps 1 through 3 to read the summary saved at import. Use steps 4 and 5 if 
 
 3. Check the three [sparkline](../../GLOSSARY.md#sparkline) charts below the cards. A sparkline is a small chart drawn without axes. Click **Length Dist.**, **Q / Position**, or **Q Score Dist.** to open it full size in a popover, a panel that closes when you click elsewhere. For the full-size quality chart, see [The FASTQ viewport's sparkline charts](#the-fastq-viewports-sparkline-charts) below.
 
-4. Keep the bundle selected and choose **Tools > QC & Reporting > Refresh QC Summary…**. [FASTA](../../GLOSSARY.md#fasta) is a format that holds bases without quality scores. The FASTQ/FASTA Operations dialog opens with Refresh QC Summary selected. It shows an Inputs section that names the bundle and an Output section with the **Output Strategy** control, and its foot holds a status line and the **Cancel** and **Run** buttons. [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes the layout the operations share.
+4. Keep the bundle selected and choose **Tools > QC & Reporting > Refresh QC Summary…**. [FASTA](../../GLOSSARY.md#fasta) is a format that holds bases without quality scores. The **FASTQ/FASTA Operations** dialog opens with **Refresh QC Summary** selected. It shows an **Inputs** section that names the bundle and an **Output** section with the **Output Strategy** control, and its foot holds a status line and the **Cancel** and **Run** buttons. [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes the layout the operations share.
 
     <!-- WAIT ux-text TV-SHELL -->
 
     <!-- SHOT: refresh-qc-summary-dialog -->
 
-5. Click **Run**. To watch the job, open the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), the separate window that lists running jobs, with **Operations > Show Operations Panel** (Cmd-Shift-P). The row is titled `FASTQ: FASTQ QC Summary`. It reads Elapsed during the run, then Took, and turns red if the run fails. After a successful refresh, check the updated cards and charts in the same viewport. The refresh rewrites the bundle's stored summary.
+5. Click **Run**. To watch the job, open the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), the separate window that lists running jobs, with **Operations > Show Operations Panel** (Cmd-Shift-P). The row is titled `FASTQ: FASTQ QC Summary`. It reads **Elapsed** during the run, then **Took**, and turns red if the run fails. After a successful refresh, check the updated cards and charts in the same viewport. The refresh rewrites the bundle's stored summary.
 
 If a card surprises you, click **Reads** below the charts to inspect individual records. Then use the four checks in [What good looks like](#what-good-looks-like) to decide whether to proceed.
 
-If the import sample could not be read, the summary can lack data for **Q / Position** and **Q Score Dist.**. Clicking Click to Compute on either chart opens the FASTQ/FASTA Operations dialog on QC & Reporting. The refresh starts when you click **Run**. It fills in both charts and records the change in the bundle's [provenance](../../GLOSSARY.md#provenance), the automatic record of how it was made.
+If the import sample could not be read, the summary can lack data for **Q / Position** and **Q Score Dist.** Clicking **Click to Compute** on either chart opens the **FASTQ/FASTA Operations** dialog on **QC & Reporting**. The refresh starts when you click **Run**. It fills in both charts and records the change in the bundle's [provenance](../../GLOSSARY.md#provenance), the automatic record of how it was made.
 
-The [Inspector](../../GLOSSARY.md#inspector) is the right-hand pane that describes the selection. Its Quality Report row under Dataset Statistics reads Cached when the chart data are saved with the bundle and Not Computed before that. Use **View > Show Inspector** (Cmd-Opt-I) if the pane is hidden. The Provenance tab shows the record of the refresh.
+The [Inspector](../../GLOSSARY.md#inspector) is the right-hand pane that describes the selection. Its **Quality Report** row under **Dataset Statistics** reads **Cached** when the chart data are saved with the bundle and **Not Computed** before that. Use **View > Show Inspector** (Cmd-Opt-I) if the pane is hidden. The **Provenance** tab shows the record of the refresh.
 
 ## Settings
 
 <!-- WAIT ux-text TV-SHELL -->
 
-Refresh QC Summary has no tool-specific controls. The FASTQ/FASTA Operations dialog shows Inputs and Output for this operation. A [command-line flag](../../GLOSSARY.md#command-line-flag) is a named option you type after a command, such as `--output` for the report below.
+Refresh QC Summary has no tool-specific controls. The **FASTQ/FASTA Operations** dialog shows **Inputs** and **Output** for this operation. A [command-line flag](../../GLOSSARY.md#command-line-flag) is a named option you type after a command, such as `--output` for the report below.
 
 **Output Strategy.** Offers the shared **Per Input** and **Grouped Result** choices for saving separate or pooled results from several bundles. The default is **Per Input**, and either choice gives the same result here because the refresh rewrites each bundle's own summary. Leave the default for this refresh and consult [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) when choosing how to save other results. This setting has no command-line flag.
 
@@ -102,23 +102,23 @@ The cards show measurements from the reads. In the table, K means thousand, Mb m
 
 | Card | What it measures | This fixture |
 |---|---|---|
-| Reads | How many read records the bundle holds, both mates counted | 91.1K (91,148) |
-| Bases | The total number of bases across every read | 22.66 Mb (22,662,846) |
-| Mean Length | The average read length, rounded to a whole base | 249 bp |
-| Median Length | The length of the middle read once every read is sorted by length | 250 bp |
-| N50 | The length at which reads that long or longer hold at least half of all bases | 250 bp |
-| Mean Q (error rate) | The average base quality on the Phred scale, averaged through error probabilities | 25.3 |
-| Q20 | The percentage of bases scoring 20 or higher | 94.6% |
-| Q30 | The percentage of bases scoring 30 or higher | 91.3% |
-| GC | The percentage of bases that are G or C | 39.4% |
+| **Reads** | How many read records the bundle holds, both mates counted | 91.1K (91,148) |
+| **Bases** | The total number of bases across every read | 22.66 Mb (22,662,846) |
+| **Mean Length** | The average read length, rounded to a whole base | 249 bp |
+| **Median Length** | The length of the middle read once every read is sorted by length | 250 bp |
+| **N50** | The length at which reads that long or longer hold at least half of all bases | 250 bp |
+| **Mean Q (error rate)** | The average base quality on the Phred scale, averaged through error probabilities | 25.3 |
+| **Q20** | The percentage of bases scoring 20 or higher | 94.6% |
+| **Q30** | The percentage of bases scoring 30 or higher | 91.3% |
+| **GC** | The percentage of bases that are G or C | 39.4% |
 
-In the Inspector, Dataset Statistics gives the exact Read Count. Base Count is rounded, to 22.7 Mb on this fixture. Min Length and Max Length give the shortest and longest reads. Hold the pointer over its **Mean Q (error rate)** row for a short note on which average the figure is.
+In the Inspector, **Dataset Statistics** gives the exact **Read Count**. **Base Count** is rounded, to 22.7 Mb on this fixture. **Min Length** and **Max Length** give the shortest and longest reads. Hold the pointer over its **Mean Q (error rate)** row for a short note on which average the figure is.
 
 ### The Reads and Bases cards
 
-The fixture's 91,148 reads are 45,574 pairs counted one mate at a time. To compare Reads with a delivery count quoted in pairs, double the provider's figure. If Reads is far below what you expect, check that you imported all the files. Providers can also quote gigabases. One gigabase is a billion bases.
+The fixture's 91,148 reads are 45,574 pairs counted one mate at a time. To compare **Reads** with a delivery count quoted in pairs, double the provider's figure. If **Reads** is far below what you expect, check that you imported all the files. Providers can also quote gigabases. One gigabase is a billion bases.
 
-Use Bases to estimate whether you sequenced enough for your goal. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering a position. Before mapping, divide Bases by the genome's total length for a whole-genome run, or by the size of the region you aimed to sequence for a targeted run. Treat the result as an upper bound, the highest average depth you could get. Duplicate reads, or reads that repeat the same original fragment, add to Bases without adding depth where you need it. So do reads outside the target and reads that do not map.
+Use **Bases** to estimate whether you sequenced enough for your goal. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering a position. Before mapping, divide **Bases** by the genome's total length for a whole-genome run, or by the size of the region you aimed to sequence for a targeted run. Treat the result as an upper bound, the highest average depth you could get. Duplicate reads, or reads that repeat the same original fragment, add to **Bases** without adding depth where you need it. So do reads outside the target and reads that do not map.
 
 The fixture's reads were taken from a whole-genome run after they aligned to its 500,000-base window, so here 22,662,846 bases over the window give about 45x, read as 45 times. An average across a region can hide positions with few reads. After mapping, check the depth at the positions you plan to analyze.
 
@@ -150,19 +150,19 @@ The **GC** card measures the reads in the bundle. This fixture reads 39.4 percen
 !!! note "Why Mean Q sits below most of the scores"
     Q30 represents an error probability of 1 in 1,000 and Q10 represents 1 in 10. Averaging the scores gives Q20. Averaging the probabilities, 0.001 and 0.1, gives 0.0505, or about Q13. One Q10 base contributes as many expected errors as a hundred Q30 bases.
 
-LGE averages probabilities for the card, the **Mean Q** column on the Reads tab, and `lungfish-cli fastq qc-summary`. The method matches AvgQual in `seqkit`. The mean triangles in **Q / Position** average the scores directly. If another program gives you a different mean quality, check which average it used.
+LGE averages probabilities for the card, the **Mean Q** column on the **Reads** tab, and `lungfish-cli fastq qc-summary`. The method matches AvgQual in `seqkit`. The mean triangles in **Q / Position** average the scores directly. If another program gives you a different mean quality, check which average it used.
 
-Some reads, including FASTA records, lack quality scores. Some files carry one placeholder score for every base. Examples include some Oxford Nanopore files and reads converted from FASTA. The Sequence Read Archive is a public archive of raw sequencing reads. NCBI, the U.S. center that hosts public sequence databases, delivers reads from that archive in a format called SRA Lite. In that format, every passing base reads 30. A single bar in Q Score Dist. is the sign.
+Some reads, including FASTA records, lack quality scores. Some files carry one placeholder score for every base. Examples include some Oxford Nanopore files and reads converted from FASTA. The Sequence Read Archive is a public archive of raw sequencing reads. NCBI, the U.S. center that hosts public sequence databases, delivers reads from that archive in a format called SRA Lite. In that format, every passing base reads 30. A single bar in **Q Score Dist.** is the sign.
 
-Depending on the bundle, the cards can read No quality scores, Mean Q (error rate) 0.0, or Mean Q 2.0. If the scores are missing or you know they are placeholders, use checks that do not depend on them.
+Depending on the bundle, the cards can read **No quality scores**, **Mean Q (error rate)** 0.0, or Mean Q 2.0. If the scores are missing or you know they are placeholders, use checks that do not depend on them.
 
 ### The FASTQ viewport's sparkline charts
 
 The cards summarize all reads. The charts summarize every read after Refresh QC Summary. At import, short-read files can be reordered unless you clear **Optimize storage**, although mates stay together. The import charts use the start of the stored file, so refresh if you need to see whether a pattern holds across the bundle. With 91,148 reads, this fixture is below the 100,000-read limit and the import charts cover every read. To save an image, right-click a full-size chart and choose **Copy Chart as PNG** to copy it to the clipboard.
 
-**Length Dist.** counts reads at each length and opens as Read Length Distribution. The fixture has one spike at the right end. In the fixture, 71.1 percent of reads are exactly 250 bases long. The 249- and 250-base reads together account for 91.0 percent, with the shortest reads at 35 bases. A pair can have a 250-base mate and a 249-base mate, as [Paired-end reads](../01-foundations/02-sequencing-reads.md#paired-end-reads) explains. A second hump to the left shows a group of shorter reads.
+**Length Dist.** counts reads at each length and opens as **Read Length Distribution**. The fixture has one spike at the right end. In the fixture, 71.1 percent of reads are exactly 250 bases long. The 249- and 250-base reads together account for 91.0 percent, with the shortest reads at 35 bases. A pair can have a 250-base mate and a 249-base mate, as [Paired-end reads](../01-foundations/02-sequencing-reads.md#paired-end-reads) explains. A second hump to the left shows a group of shorter reads.
 
-**Q / Position** shows where quality changes along the read. The sparkline shows the median score at each position over shaded bands for scores of 20 and 30. The full chart, Per-Position Quality Scores, shows the spread for each position. When there are too many positions to show separately, it groups neighboring positions in one box and labels the span. In this fixture's 250-base reads, each box covers two positions, as in 113-114.
+**Q / Position** shows where quality changes along the read. The sparkline shows the median score at each position over shaded bands for scores of 20 and 30. The full chart, **Per-Position Quality Scores**, shows the spread for each position. When there are too many positions to show separately, it groups neighboring positions in one box and labels the span. In this fixture's 250-base reads, each box covers two positions, as in 113-114.
 
 | Mark in the full chart | What it shows |
 |---|---|
@@ -183,11 +183,11 @@ The axis prints a label under only some boxes, such as 225-226, so count boxes f
 
 <!-- SHOT: fastq-sparkline-popover -->
 
-**Q Score Dist.** counts bases at each stored score and opens as Quality Score Distribution. The import sheet's **Compression Tool** defaults to BBTools clumpify, which groups reads that share sequence so they take up less space. On every sequencing platform, the **Q5 steps (8-level)** default applies when import uses BBTools clumpify or when **Optimize storage** is cleared. The other **Compression Tool** choice, Trim Galore --clumpify, trims adapters and poor read ends as it stores the reads. With Trim Galore --clumpify, no binning runs. See the settings in [Importing Sequencing Reads](01-importing-fastq.md#settings) for details.
+**Q Score Dist.** counts bases at each stored score and opens as **Quality Score Distribution**. The import sheet's **Compression Tool** defaults to **BBTools clumpify**, which groups reads that share sequence so they take up less space. On every sequencing platform, the **Q5 steps (8-level)** default applies when import uses **BBTools clumpify** or when **Optimize storage** is cleared. The other **Compression Tool** choice, **Trim Galore --clumpify**, trims adapters and poor read ends as it stores the reads. With **Trim Galore --clumpify**, no binning runs. See the settings in [Importing Sequencing Reads](01-importing-fastq.md#settings) for details.
 
 Binning can produce a few tall spikes because many bases share a stored score. The spikes reflect how the scores were stored, by the instrument or at import. Many Illumina instruments, including the NovaSeq 6000, the NextSeq 500 and the HiSeq X, write only a few distinct scores, so their files show a few spikes even with **None (keep every score)**. Binning leaves the base calls as they were.
 
-With **None (keep every score)**, the fixture shows a spread of bars. Q40 accounts for 42.6 percent of bases and Q39 for 25.0 percent. If import used BBTools clumpify or **Optimize storage** was off, look for the **Quality Binning** row in the Inspector's Ingestion group. The row is absent when every score was kept.
+With **None (keep every score)**, the fixture shows a spread of bars. Q40 accounts for 42.6 percent of bases and Q39 for 25.0 percent. If import used **BBTools clumpify** or **Optimize storage** was off, look for the **Quality Binning** row in the Inspector's **Ingestion** group. The row is absent when every score was kept.
 
 ### The FASTQ viewport's Reads tab
 
@@ -224,7 +224,7 @@ A flow cell is the consumable chip that holds the sample while the instrument re
 
 The fixture's reads come from HiSeq 2500 runs in Rapid mode, the instrument's faster run mode. The older instrument's 2x250 minimum was also a Q30 of 75 percent. The reads were kept because they aligned to the window, so the fixture's figures can sit above what its whole runs showed.
 
-Oxford Nanopore quotes modal read accuracy, the accuracy most reads reach. Mean Q (error rate) averages error probabilities over every base, so it usually reads lower than that figure. A Mean Q far below the figure for your flow cell and model is worth raising with whoever ran the sequencing.
+Oxford Nanopore quotes modal read accuracy, the accuracy most reads reach. **Mean Q (error rate)** averages error probabilities over every base, so it usually reads lower than that figure. A Mean Q far below the figure for your flow cell and model is worth raising with whoever ran the sequencing.
 
 **Check where quality drops.** Open **Q / Position** at full size and compare the mean triangles with a Phred score of 20. The fixture's mean dips under Q30 over its last six bases. Inspect the boxes and lower whiskers to see how much the scores vary. If quality drops in the middle, check whether it recovers before the end. Trimming the ends can leave an internal low-quality stretch in place. If quality is low throughout, ask your provider about the run.
 
@@ -232,7 +232,7 @@ Oxford Nanopore quotes modal read accuracy, the accuracy most reads reach. Mean 
 
 **Compare GC with what you sequenced.** A difference in percentage points is the difference between the two percentages. If the figures differ substantially, check that you imported the intended files and that the expected GC fits the region you sequenced. If you suspect another organism, use a [classifier](../../GLOSSARY.md#classifier), a program that assigns reads to the organisms they most likely came from. See [Running Kraken 2](../06-classification/02-running-kraken2.md) for the steps.
 
-If poor quality clusters at the ends, try fastp Adapter & Quality Trim under **Tools > Trimming & Filtering**. It uses [fastp](../../GLOSSARY.md#fastp), a program that cuts adapters and low-quality ends. Trimming writes a new bundle. Before mapping, compare **Reads** to see how many whole records you retained and **Bases** to see how much sequence you retained. Check **Mean Length**, **Mean Q (error rate)**, **Q20**, and **Q30** to see how the retained reads compare.
+If poor quality clusters at the ends, try **fastp Adapter & Quality Trim** under **Tools > Trimming & Filtering**. It uses [fastp](../../GLOSSARY.md#fastp), a program that cuts adapters and low-quality ends. Trimming writes a new bundle. Before mapping, compare **Reads** to see how many whole records you retained and **Bases** to see how much sequence you retained. Check **Mean Length**, **Mean Q (error rate)**, **Q20**, and **Q30** to see how the retained reads compare.
 
 [PhiX](../../GLOSSARY.md#phix) is the small genome of a virus that infects bacteria. Illumina sells it as a control that sequencing centers often mix into a run, so a few reads can come from it. If classification points to an unwanted sequence, [Decontamination](05-decontamination.md) covers ways to remove human sequence, ribosomal RNA (the RNA in ribosomes), PhiX, or a sequence you can supply as a file. For an intentionally mixed sample, continue with classification.
 
@@ -244,13 +244,13 @@ A popup is a menu that opens when you click it. Polymerase chain reaction (PCR) 
 
 | Fact | Where LGE shows it |
 |---|---|
-| Platform | The **Platform** control on the Import FASTQ sheet records the instrument, such as Illumina or Oxford Nanopore. The **Read Type** popup under Sample Metadata in the Inspector sets assembly defaults. It offers Auto, Illumina short reads, ONT reads, and PacBio HiFi/CCS. ONT stands for Oxford Nanopore Technologies. With Auto, the gray line below gives the type LGE detected |
-| Read length | The **Mean Length**, **Median Length**, and **N50** cards, plus Min Length and Max Length under Dataset Statistics |
-| Single, paired, or merged | The Pairing row under Ingestion in the Inspector shows how the reads are stored. See the labels below |
-| Library strategy, amplicon or shotgun | For a run from SRA or ENA, the Strategy row in SRA Metadata or ENA Metadata |
-| A reference for the organism | **File > Search Online Databases > Search NCBI…**, with the mode set to Genome, searches [NCBI](../../GLOSSARY.md#ncbi), the U.S. center that hosts public sequence databases. See [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) for the search steps |
+| Platform | The **Platform** control on the **Import FASTQ** sheet records the instrument, such as Illumina or Oxford Nanopore. The **Read Type** popup under **Sample Metadata** in the Inspector sets assembly defaults. It offers **Auto**, **Illumina short reads**, **ONT reads**, and **PacBio HiFi/CCS**. ONT stands for Oxford Nanopore Technologies. With **Auto**, the gray line below gives the type LGE detected |
+| Read length | The **Mean Length**, **Median Length**, and **N50** cards, plus **Min Length** and **Max Length** under **Dataset Statistics** |
+| Single, paired, or merged | The **Pairing** row under **Ingestion** in the Inspector shows how the reads are stored. See the labels below |
+| Library strategy, amplicon or shotgun | For a run from SRA or ENA, the **Strategy** row in **SRA Metadata** or **ENA Metadata** |
+| A reference for the organism | **File > Search Online Databases > Search NCBI…**, with the mode set to **Genome**, searches [NCBI](../../GLOSSARY.md#ncbi), the U.S. center that hosts public sequence databases. See [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) for the search steps |
 
-[Interleaved](../../GLOSSARY.md#interleaved-fastq) means the two mates sit side by side in one file, as in this fixture. The Pairing row can show Single End, Paired End, or Interleaved. A [merged read](../../GLOSSARY.md#read-merging) joins the overlapping mates into one longer read. A file with pairs alongside merged or single reads shows "Pairs and single reads" with counts, such as "Pairs and single reads (5 pairs + 3 merged + 2 singles)". Here singles counts reads with a missing mate. Ask whoever prepared the library how it was made and how many genome copies the organism carries. FASTQ has no fields for these details.
+[Interleaved](../../GLOSSARY.md#interleaved-fastq) means the two mates sit side by side in one file, as in this fixture. The **Pairing** row can show **Single End**, **Paired End**, or **Interleaved**. A [merged read](../../GLOSSARY.md#read-merging) joins the overlapping mates into one longer read. A file with pairs alongside merged or single reads shows "Pairs and single reads" with counts, such as "Pairs and single reads (5 pairs + 3 merged + 2 singles)". Here singles counts reads with a missing mate. Ask whoever prepared the library how it was made and how many genome copies the organism carries. FASTQ has no fields for these details.
 
 ## On the command line
 
