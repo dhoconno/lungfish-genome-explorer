@@ -238,8 +238,9 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
         }
     }
 
-    /// LOOSE-PAIR-SHORT-MATE. A loose R1 and R2 that run as one pair are counted first, and files
-    /// that hold different numbers of records are refused with the interleaver's words.
+    /// LOOSE-PAIR-SHORT-MATE and LOOSE-PAIR-OUT-OF-STEP. A loose R1 and R2 that run as one pair have both files
+    /// counted and each pair's read names compared first. Files that hold different numbers of records, or whose
+    /// mates are out of step by name, are refused with the interleaver's words.
     private static func refuseShortMate(r1: URL, r2: URL) throws {
         if let words = try LooseMatePairCheck.refusal(r1: r1, r2: r2) {
             throw EsVirituAnalysisRunRefusal.input(words)

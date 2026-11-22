@@ -72,8 +72,9 @@ public struct Kraken2AnalysisRunTool: AnalysisRunTool {
         }
         let samples = try Self.samples(of: inputURLs, request: request, batch: runRequest.groupsSamples)
         let inputFormat = try Kraken2RunRequest.inferInputFormat(from: inputURLs)
-        // LOOSE-PAIR-SHORT-MATE. kraken2 `--paired` pairs two loose files by position, so their records are
-        // counted first and files that hold different numbers are refused with the interleaver's words.
+        // LOOSE-PAIR-SHORT-MATE and LOOSE-PAIR-OUT-OF-STEP. kraken2 `--paired` pairs two loose files by position,
+        // so both files are counted and each pair's read names are compared first. Files that hold different
+        // numbers of records, or whose mates are out of step by name, are refused with the interleaver's words.
         for sample in samples where sample.readFormat.format == .paired && sample.inputURLs.count == 2 {
             if let words = try LooseMatePairCheck.refusal(r1: sample.inputURLs[0], r2: sample.inputURLs[1]) {
                 throw Kraken2RunRefusal.input(words)

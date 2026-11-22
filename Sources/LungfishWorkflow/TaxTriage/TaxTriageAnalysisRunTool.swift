@@ -174,7 +174,8 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
         }
         for sample in samples {
             try Self.refuseUnreadableFiles(of: sample)
-            // LOOSE-PAIR-SHORT-MATE. A row's fastq_1 and fastq_2 are counted before any launch, as --input2 is.
+            // LOOSE-PAIR-SHORT-MATE and LOOSE-PAIR-OUT-OF-STEP. A row's fastq_1 and fastq_2 are both counted and
+            // each pair's read names are compared before any launch, as --input2 is.
             if let read2 = sample.fastq2, let words = try LooseMatePairCheck.refusal(r1: sample.fastq1, r2: read2) {
                 throw TaxTriageRunRefusal.input(words)
             }
@@ -207,8 +208,9 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
             guard FileManager.default.fileExists(atPath: read2.path) else {
                 throw TaxTriageRunRefusal.input("Input R2 file not found: \(input2Path)")
             }
-            // LOOSE-PAIR-SHORT-MATE. The pipeline's fastp pairs the two files by position and leaves R1's reads past a
-            // short R2 out with no word, so the files are counted before any Nextflow launch.
+            // LOOSE-PAIR-SHORT-MATE and LOOSE-PAIR-OUT-OF-STEP. The pipeline's fastp pairs the two files by position
+            // and leaves R1's reads past a short R2 out with no word, so both files are counted and each pair's read
+            // names are compared before any Nextflow launch.
             if let words = try LooseMatePairCheck.refusal(r1: inputs[0], r2: read2) {
                 throw TaxTriageRunRefusal.input(words)
             }
