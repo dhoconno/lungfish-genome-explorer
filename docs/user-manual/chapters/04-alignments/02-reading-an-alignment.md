@@ -32,7 +32,7 @@ shots:
     caption: "In the PNG exported with File > Export > Image (PNG)... around position 2,078 of the HG002 chromosome 20 slice, look for the Minimum alignment confidence cutoff of 30 beneath the Depth strip and the mismatch marks in the reads below."
 illustrations:
   - id: alignment-zoom-tiers
-    brief: "Three stacked thumbnails of the same stretch of the HG002 chromosome 20 slice in the alignment viewport, each labeled with its bases per pixel. Top, above 2 bp/px, the coverage curve alone with the message asking you to zoom in where the reads would be. Middle, at 2 bp/px or closer but above 0.6 bp/px, the reads as strand-tinted bars with a colored tick at each mismatch when the reference is available. Bottom, at 0.6 bp/px, the reads with their bases, matching bases as dots and one alternate base in its color. A thin Lungfish Creamsicle bracket at the left of each thumbnail names the tier (coverage, bars, bases). Cream background, IBM Plex Mono for the bp/px labels."
+    brief: "Three stacked thumbnails of the same stretch of the HG002 chromosome 20 slice in the alignment viewport, each labeled with its bases per pixel. Top, above 2 bp/px, the coverage curve alone with the message asking you to zoom in where the reads would be. Middle, at 2 bp/px or closer but above 0.6 bp/px, the reads as strand-tinted bars with a Lungfish Creamsicle tick at each mismatch when the reference is available. Bottom, at 0.6 bp/px, the reads with their bases, matching bases as dots and one alternate base shown as a Deep Ink letter on Lungfish Creamsicle. A thin Lungfish Creamsicle bracket at the left of each thumbnail names the tier (coverage, bars, bases). Cream background, IBM Plex Mono for the bp/px labels."
 
 glossary_refs: [bam, coverage, coverage-breadth, depth, pileup, soft-clip, strand, strand-bias, supplementary-alignment, secondary-alignment, pcr-duplicate, mapq, allele-frequency, flagstat, extraction, contig, alignment-track, provenance-sidecar, read, mapper, reference-bundle, shotgun, homozygous, heterozygous, amplicon, phred-score, cigar, inspector, operations-panel, fragment, flag, read-group]
 features_refs: [viewport.alignment-pileup, bam.extract-reads, viewer.export-image]
@@ -127,9 +127,71 @@ To take individual reads, click one or use Cmd-click or Shift-click to select se
 
 ### Tune the viewport and export a figure
 
-1. Check whether the pileup still supports the difference when you hide reads with less certain placements. Mapping quality ([MAPQ](../../GLOSSARY.md#mapq)) is the mapper's confidence in a read's placement. In the Inspector's **View** tab, open **Alignment** under **View Settings** and set **Minimum alignment confidence** to 30. The viewport redraws with reads that meet the cutoff.
+1. Check whether the pileup still supports the difference when you hide reads with less certain placements. Mapping quality ([MAPQ](../../GLOSSARY.md#mapq)) is the mapper's confidence in a read's placement. In the Inspector's **View** tab, open **Alignment** under **View Settings** and set **Minimum alignment confidence** to 30. The viewport redraws with reads that meet the cutoff. See [Three MAPQ cutoffs](04-alignment-quality.md#three-mapq-cutoffs).
 
 2. To save a figure with the cutoff shown, return to the zoom you used at position 2,078 and choose **File > Export > Image (PNG)...**. Leave **Scope** on Tracks, name the file, and click **Save**. In the Operations Panel, the **Export Image** row shows `Exported` followed by the file name. See [What an exported figure draws](#what-an-exported-figure-draws). Set **Minimum alignment confidence** back to 0 to match the counts in Reading the results.
+
+## Settings
+
+Use **View Settings** in the Inspector's **View** tab to change what you see without changing the BAM. The **Alignment** tab controls which reads contribute to the view. The **Reads** tab controls how the stack is drawn. The **Annotations** tab controls tracks that mark features on the reference. **View > Show Drawer** (Control-Command-B) opens the list of features beneath the viewport. If the result holds variant tracks, the **Annotations** tab shows **Variant Tracks** with a tick box for each track and **All** and **None** buttons. To set a slider, drag it or type in its number field. See [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md).
+
+When you open a different reference or mapping result, LGE resets **Minimum alignment confidence**, the three **Read Inclusion** toggles, the read group filter and the [consensus settings](../05-variants/05-consensus-and-lineage.md). Selecting the same result again keeps the settings. A [read group](../../GLOSSARY.md#read-group) labels reads from the same source, such as a sequencing run. Its filter appears in **Alignment** when the file has more than one group.
+
+Most controls affect the display only. For extraction, `extract reads` takes `--min-mapq`, `--exclude-flags`, and `--read-group`. For figure export, `bundle export-graphic` takes `--exclude-flags` and `--coverage-scale`.
+
+An [amplicon](../../GLOSSARY.md#amplicon) is a stretch of DNA copied using a pair of primers. Primers are short sequences that mark where copying starts.
+
+<!-- SHOT: view-settings-alignment-tab -->
+
+**Visible Alignment.** Shows all alignment tracks in the bundle or one track at a time. The default, All Alignments, shows the single track from a fresh mapping run. Switch to one track when several overlap, for example to compare a primer-trimmed track with its source as in [Primer Trimming an Alignment](03-primer-trimming.md).
+
+**Show reads.** Draws the alignment track, including the coverage curve and read stack. It is on by default so you can inspect both. Turn it off to hide the alignment track, including the coverage curve.
+
+**Minimum alignment confidence.** Hides reads below the MAPQ cutoff and excludes them from viewport depth. The default is 0, so the cutoff leaves low-MAPQ reads visible. Try 30 to see how much support remains after reads with less certain placements are hidden.
+
+**Coverage scale.** Sets how depth translates to height, with Linear, Log10, and Square root. The default is Linear, so height is proportional to depth. When a deep peak makes smaller ones hard to see, as can happen with amplicon data, choose Log10 or Square root to use the scale labeled `Depth (log₁₀)` or `Depth (√)`, respectively.
+
+**Include duplicate-marked reads.** Displays reads marked as [PCR duplicates](../../GLOSSARY.md#pcr-duplicate), copies of the same original DNA fragment, and includes them in depth. It is off by default so repeated copies do not inflate the depth. Turn it on to see how much of the stack is marked as duplicate.
+
+**Include secondary alignments.** Shows [secondary alignments](../../GLOSSARY.md#secondary-alignment), other placements that might fit the same read. It is off by default to focus on the mapper's main placements. Turn it on to inspect alternative placements in repeated regions, though this fixture has no secondary alignments.
+
+**Include supplementary alignments.** Shows [supplementary alignments](../../GLOSSARY.md#supplementary-alignment), the extra placements that the mapper stores in the BAM by default for reads that align in parts. It is off by default, so depth counts split reads at their main placements only. Turn it on to look for split reads when you suspect a DNA rearrangement.
+
+<!-- SHOT: view-settings-reads-tab -->
+
+**Maximum rows.** Sets the row limit when **Limit visible rows** is on, from 10 to 2,000 in steps of 10, with room for several reads end to end in each row. The default is 75, enough to see the shape of a stack. Raise it to see more rows while keeping the limit on.
+
+**Limit visible rows.** Draws only the number of rows set by **Maximum rows** (75 by default). It is off by default so you can scroll through the stack. Turn it on if a deep stack scrolls slowly and you need only the top rows.
+
+**Maximum displayed depth.** Sets the depth above which LGE randomly thins the displayed reads, from 50x to 5,000x in steps of 50, with typed values snapping to the nearest step. The default is 500x to keep deep windows quick to draw while showing many reads. Lower it if the view redraws slowly or raise it to see more reads in a deep region, as described in [The read stack and the sample banner](#the-read-stack-and-the-sample-banner).
+
+**Use compact row height.** Draws shorter rows. It is on by default so more reads fit on screen. Turn it off if the rows are hard to click.
+
+**Show matching bases as dots.** Draws matches as dots and differences in their base colors between 0.6 and 0.25 bases per pixel. It is on by default so differences stand out. Turn it off to read the sequence as letters at the zoom where dots would appear.
+
+**Show soft-clipped sequence.** Draws clipped bases in a lighter tint at the read ends. It is on by default so you can see which bases the alignment leaves out. Turn it off to see where primer trimming ended or to clear clutter from the pileup.
+
+**Show insertion and deletion markers.** Marks extra or missing bases relative to the reference. It is on by default so those differences are visible. Leave it on when checking for insertions or deletions.
+
+**Color reads by strand.** Turns read tinting on or off. It is on by default so you can check strand balance using pale blue for forward reads and pale pink for reverse reads in the default scheme. Turn it off for neutral gray reads if the tints make base colors hard to read.
+
+**Sort reads by.** Orders the stack by Position, Read Name, Strand, Mapping Quality, Insert Size ([Insert size](../../GLOSSARY.md#insert-size) measures the original DNA fragment from the outer ends of its two mates), or Base at Position. The default, Position, packs reads by where they start. Choose Base at Position to group bases at one column, rarest first.
+
+Choosing Base at Position from the menu sorts at the center of the view. Opening the stack menu with VoiceOver, the macOS screen reader (VO-Shift-M), also uses the center.
+
+**Color reads by.** Sets the tint scheme while **Color reads by strand** is on, with choices of Strand, Insert Size, Mapping Quality, Read Group, First/Second in Pair, or Base Quality. The default is Strand so you can compare support across orientations. Switch to Mapping Quality to see which reads have less certain placements.
+
+**Forward strand color.** Sets the forward tint with a swatch that opens the macOS color picker. It defaults to pale blue so forward reads are distinct from reverse reads. Change it if the two tints are hard to tell apart.
+
+**Reverse strand color.** Sets the reverse tint with the swatch under the forward one. It defaults to pale pink so reverse reads are distinct from forward reads. Change it along with the forward tint if you need a clearer pair.
+
+In step 5, [extraction](../../GLOSSARY.md#extraction) copies reads out of the alignment. The two settings below describe the selection and where LGE saves the result. Neither has an on-screen label, so this manual names each one in lowercase inside parentheses.
+
+**(the selected region).** Sets the stretch from which LGE extracts overlapping reads. There is no default because the menu item needs a selection. Drag across the stretch you want before right-clicking. On the command line this is `--region`.
+
+**(the save destination).** Sets where the extracted reads go. The default in a project is the automatic location in step 5, which keeps the extraction with the project. Choose a destination if the save panel opens because LGE cannot find a project root. On the command line this is `--output`.
+
+If "Extract Selected Region Failed" reports "Alignment evidence is unavailable", the viewer has no loaded alignment. Reopen the mapping result from the sidebar and select the stretch again.
 
 ## Reading the results
 
@@ -143,7 +205,7 @@ The fixture shows a broad, even band. Across the 500,001 positions in the 500 ki
 
 Around ten reads per position is a rough starting point. At a depth of two, one sequencing error can look like an even split. At a depth of twenty, one error accounts for one read in twenty. Below 10x, treat the evidence with caution. For a change carried by only a few percent of reads, look for more depth. The roughly 30x quoted for genome projects is an average across the genome, while ten here refers to depth at one position.
 
-A sequencing library is the collection of DNA fragments prepared for sequencing. In a [shotgun](../../GLOSSARY.md#shotgun) library, like this fixture, the DNA is broken at random. Expect a fairly even band with dips where sequence rich or poor in G and C copies less well during preparation. An [amplicon](../../GLOSSARY.md#amplicon) is a stretch of DNA copied using a pair of primers. Primers are short sequences that mark where copying starts. An amplicon library tends to show sharp-edged blocks, one per amplicon, because reads start at primer sites. In a tiled panel, neighboring amplicons overlap, and those overlaps are often the deepest parts. A flat gap between blocks can signal a dropout, where a primer pair failed to produce reads. A change where a primer binds is one possible cause.
+A sequencing library is the collection of DNA fragments prepared for sequencing. In a [shotgun](../../GLOSSARY.md#shotgun) library, like this fixture, the DNA is broken at random. Expect a fairly even band with dips where sequence rich or poor in G and C copies less well during preparation. An amplicon library tends to show sharp-edged blocks, one per amplicon, because reads start at primer sites. In a tiled panel, neighboring amplicons overlap, and those overlaps are often the deepest parts. A flat gap between blocks can signal a dropout, where a primer pair failed to produce reads. A change where a primer binds is one possible cause.
 
 ### The pileup at position 2,078
 
@@ -218,64 +280,6 @@ Use the six tabs under **Analysis** to run these operations.
 | Export | **Create Deduplicated Bundle** | Makes a copy with duplicates removed | [Alignment Quality](04-alignment-quality.md) |
 
 If the bundle holds several tracks and the dialog offers an **Alignment Track** picker, check which track is selected before running the operation. The picker opens with a track already chosen.
-
-## Settings
-
-Use **View Settings** in the Inspector's **View** tab to change what you see without changing the BAM. The **Alignment** tab controls which reads contribute to the view. The **Reads** tab controls how the stack is drawn. The **Annotations** tab controls tracks that mark features on the reference. **View > Show Drawer** (Control-Command-B) opens the list of features beneath the viewport. If the result holds variant tracks, the **Annotations** tab shows **Variant Tracks** with a tick box for each track and **All** and **None** buttons. To set a slider, drag it or type in its number field. See [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md).
-
-When you open a different reference or mapping result, LGE resets **Minimum alignment confidence**, the three **Read Inclusion** toggles, the read group filter and the [consensus settings](../05-variants/05-consensus-and-lineage.md). Selecting the same result again keeps the settings. A [read group](../../GLOSSARY.md#read-group) labels reads from the same source, such as a sequencing run. Its filter appears in **Alignment** when the file has more than one group.
-
-Most controls affect the display only. For extraction, `extract reads` takes `--min-mapq`, `--exclude-flags`, and `--read-group`. For figure export, `bundle export-graphic` takes `--exclude-flags` and `--coverage-scale`.
-
-<!-- SHOT: view-settings-alignment-tab -->
-
-**Visible Alignment.** Shows all alignment tracks in the bundle or one track at a time. The default, All Alignments, shows the single track from a fresh mapping run. Switch to one track when several overlap, for example to compare a primer-trimmed track with its source as in [Primer Trimming an Alignment](03-primer-trimming.md).
-
-**Show reads.** Draws the alignment track, including the coverage curve and read stack. It is on by default so you can inspect both. Turn it off to hide the alignment track, including the coverage curve.
-
-**Minimum alignment confidence.** Hides reads below the MAPQ cutoff and excludes them from viewport depth. The default is 0, so the cutoff leaves low-MAPQ reads visible. Try 30 to see how much support remains after reads with less certain placements are hidden. See [Three MAPQ cutoffs](04-alignment-quality.md#three-mapq-cutoffs).
-
-**Coverage scale.** Sets how depth translates to height, with Linear, Log10, and Square root. The default is Linear, so height is proportional to depth. Choose Log10 or Square root when a deep peak makes smaller ones hard to see, as can happen with amplicon data. The key then reads `Depth (log₁₀)` or `Depth (√)`.
-
-**Include duplicate-marked reads.** Displays reads marked as [PCR duplicates](../../GLOSSARY.md#pcr-duplicate), copies of the same original DNA fragment, and includes them in depth. It is off by default so repeated copies do not inflate the depth. Turn it on to see how much of the stack is marked as duplicate.
-
-**Include secondary alignments.** Shows [secondary alignments](../../GLOSSARY.md#secondary-alignment), other placements that might fit the same read. It is off by default to focus on the mapper's main placements. Turn it on to inspect alternative placements in repeated regions, though this fixture has no secondary alignments.
-
-**Include supplementary alignments.** Shows [supplementary alignments](../../GLOSSARY.md#supplementary-alignment), the extra placements that the mapper stores in the BAM by default for reads that align in parts. It is off by default, so depth counts split reads at their main placements only. Turn it on to look for split reads when you suspect a DNA rearrangement.
-
-<!-- SHOT: view-settings-reads-tab -->
-
-**Maximum rows.** Sets the row limit when **Limit visible rows** is on, from 10 to 2,000 in steps of 10, with room for several reads end to end in each row. The default is 75, enough to see the shape of a stack. Raise it to see more rows while keeping the limit on.
-
-**Limit visible rows.** Draws only the number of rows set by **Maximum rows** (75 by default). It is off by default so you can scroll through the stack. Turn it on if a deep stack scrolls slowly and you need only the top rows.
-
-**Maximum displayed depth.** Sets the depth above which LGE randomly thins the displayed reads, from 50x to 5,000x in steps of 50, with typed values snapping to the nearest step. The default is 500x to keep deep windows quick to draw while showing many reads. Lower it if the view redraws slowly or raise it to see more reads in a deep region, as described in [The read stack and the sample banner](#the-read-stack-and-the-sample-banner).
-
-**Use compact row height.** Draws shorter rows. It is on by default so more reads fit on screen. Turn it off if the rows are hard to click.
-
-**Show matching bases as dots.** Draws matches as dots and differences in their base colors between 0.6 and 0.25 bases per pixel. At 0.25 or closer, all bases are letters. It is on by default so differences stand out. Turn it off to read the sequence as letters at the zoom where dots would appear.
-
-**Show soft-clipped sequence.** Draws clipped bases in a lighter tint at the read ends. It is on by default so you can see which bases the alignment leaves out. Turn it off to see where primer trimming ended or to clear clutter from the pileup.
-
-**Show insertion and deletion markers.** Marks extra or missing bases relative to the reference. It is on by default so those differences are visible. Leave it on when checking for insertions or deletions.
-
-**Color reads by strand.** Turns read tinting on or off. It is on by default so you can check strand balance using pale blue for forward reads and pale pink for reverse reads in the default scheme. Turn it off for neutral gray reads if the tints make base colors hard to read.
-
-**Sort reads by.** Orders the stack by Position, Read Name, Strand, Mapping Quality, Insert Size, or Base at Position. [Insert size](../../GLOSSARY.md#insert-size) measures the original DNA fragment from the outer ends of its two mates. The default, Position, packs reads by where they start. Choose Base at Position to group bases at one column, rarest first. To choose the column yourself, right-click it and choose **Sort Reads by Base Here**. Choosing Base at Position from the menu sorts at the center of the view. Opening the stack menu with VoiceOver, the macOS screen reader (VO-Shift-M), also uses the center.
-
-**Color reads by.** Sets the tint scheme while **Color reads by strand** is on. Choose Strand, Insert Size, Mapping Quality, Read Group, First/Second in Pair, or Base Quality. The default is Strand so you can compare support across orientations. Switch to Mapping Quality to see which reads have less certain placements.
-
-**Forward strand color.** Sets the forward tint with a swatch that opens the macOS color picker. It defaults to pale blue so forward reads are distinct from reverse reads. Change it if the two tints are hard to tell apart.
-
-**Reverse strand color.** Sets the reverse tint with the swatch under the forward one. It defaults to pale pink so reverse reads are distinct from forward reads. Change it along with the forward tint if you need a clearer pair.
-
-In step 5, [extraction](../../GLOSSARY.md#extraction) copies reads out of the alignment. The two settings below describe the selection and where LGE saves the result. Neither has an on-screen label, so this manual names each one in lowercase inside parentheses.
-
-**(the selected region).** Sets the stretch from which LGE extracts overlapping reads. There is no default because the menu item needs a selection. Drag across the stretch you want before right-clicking. On the command line this is `--region`.
-
-**(the save destination).** Sets where the extracted reads go. The default in a project is the automatic location in step 5, which keeps the extraction with the project. Choose a destination if the save panel opens because LGE cannot find a project root. On the command line this is `--output`.
-
-If "Extract Selected Region Failed" reports "Alignment evidence is unavailable", the viewer has no loaded alignment. Reopen the mapping result from the sidebar and select the stretch again.
 
 ## What good looks like
 
