@@ -3,7 +3,7 @@ title: Importing Sequencing Reads
 chapter_id: 03-reads/01-importing-fastq
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 01-foundations/06-the-lungfish-project]
-estimated_reading_min: 30
+estimated_reading_min: 32
 task: Import FASTQ read files, or an unmapped BAM, into a Lungfish Genome Explorer project.
 tags: [reads, fastq, bam, ont, import, paired-end, batch, sample-sheet, recipe, sample-metadata, zip]
 tools: []
@@ -40,18 +40,18 @@ Importing copies sequencing reads into a Lungfish Genome Explorer (LGE) [project
 
 An HG002 read with two lines cut after 30 characters:
 
-```
+```fastq
 @D00360:94:H2YT5BCXX:1:1101:1582:14700
 GTTTAGATTAACACATCTTCTTGATTTTAC...
 +
 DDDDDIIIIHIIIHIIIHIHIIIIIIIIII...
 ```
 
-[The four-line FASTQ record](../01-foundations/02-sequencing-reads.md#the-four-line-fastq-record) explains each line. A [paired-end](../../GLOSSARY.md#paired-end) run reads each fragment from both ends. The two reads are [mates](../../GLOSSARY.md#mate) and usually arrive in separate R1 and R2 files. LGE keeps both in one bundle.
+[The four-line FASTQ record](../01-foundations/02-sequencing-reads.md#the-four-line-fastq-record) explains each line. A [paired-end](../../GLOSSARY.md#paired-end) run reads each fragment from both ends. The two reads are [mates](../../GLOSSARY.md#mate) and usually arrive in two files, R1 for the first read of each pair and R2 for the second. LGE keeps both in one bundle.
 
 During import, LGE counts reads and bases, measures length and quality, and records the likely sequencing platform and pairing, which is how mates are grouped. The platform is the type of sequencing system that produced the reads. LGE uses file and read names to infer details that FASTQ has no dedicated fields for. A [provenance](../../GLOSSARY.md#provenance) record describes how the bundle was made. The [provenance guide](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to review the record.
 
-You can import FASTQ files with or without gzip compression, which adds a `.gz` ending, or import an unmapped [BAM](../../GLOSSARY.md#bam). A BAM usually stores reads aligned to a reference. A reference is the DNA sequence used to place the reads. An unmapped BAM holds reads that have yet to be aligned. Oxford Nanopore software can write one when it turns the instrument's signal into bases. The Sequence Read Archive ([SRA](../../GLOSSARY.md#sra)) is a public archive at the National Center for Biotechnology Information ([NCBI](../../GLOSSARY.md#ncbi)). If your files are there, use the [SRA download procedure](02-downloading-from-sra.md). For a whole [Oxford Nanopore run folder](07-ont-runs.md), follow the separate import procedure.
+You can import FASTQ files with or without compression by gzip, a common compression program that adds a `.gz` ending. You can also import an unmapped [BAM](../../GLOSSARY.md#bam). A BAM usually stores reads aligned to a reference. A reference is the DNA sequence used to place the reads. An unmapped BAM holds reads that have yet to be aligned. Oxford Nanopore software can write one when it turns the instrument's signal into bases. The Sequence Read Archive ([SRA](../../GLOSSARY.md#sra)) is a public archive at the National Center for Biotechnology Information ([NCBI](../../GLOSSARY.md#ncbi)). If your files are there, use the [SRA download procedure](02-downloading-from-sra.md). For a whole [Oxford Nanopore run folder](07-ont-runs.md), follow the separate import procedure.
 
 ## Where this part fits
 
@@ -61,7 +61,9 @@ Import is the first step in preparing reads for [Mapping Reads to a Reference](.
 
 <!-- ILLUSTRATION: read-preparation-order -->
 
-An [adapter](../../GLOSSARY.md#adapter) is a piece of synthetic DNA added to a fragment during library preparation. A [mapper](../../GLOSSARY.md#mapper) places reads on a genome. An end-to-end mapper tries to [align the full read](../../GLOSSARY.md#end-to-end-alignment). A run accession is the identifier for a run in an archive. A subsample is a smaller set of reads you can use for a quick test. An [amplicon](../../GLOSSARY.md#amplicon) is a region copied by PCR, so many reads in an amplicon run start at the same position by design.
+Library preparation turns a sample's DNA or RNA into a library, a set of fragments a sequencer can read. An [adapter](../../GLOSSARY.md#adapter) is a piece of synthetic DNA added to a fragment during library preparation. PCR is a lab method that makes many copies of a stretch of DNA. A [PCR duplicate](../../GLOSSARY.md#pcr-duplicate) is a copy of a fragment made during library preparation.
+
+A [mapper](../../GLOSSARY.md#mapper) places reads on a genome. An end-to-end mapper tries to [align the full read](../../GLOSSARY.md#end-to-end-alignment). A run accession is the identifier for a run in an archive. A subsample is a smaller set of reads you can use for a quick test. An [amplicon](../../GLOSSARY.md#amplicon) is a region copied by PCR, so many reads in an amplicon run start at the same position by design.
 
 | Order | Step | Chapter | Added to the bundle name | When a project needs it |
 |---|---|---|---|---|
@@ -74,23 +76,25 @@ An [adapter](../../GLOSSARY.md#adapter) is a piece of synthetic DNA added to a f
 
 Split pooled runs into samples first, as [Demultiplexing by Barcode](09-demultiplexing-barcodes.md) and [Oxford Nanopore Runs](07-ont-runs.md) describe.
 
-Keep mates separate for the mapping and variant calling workflow in this manual. Mates overlap when they cover some of the same bases. Merging them replaces the pairing and the quality scores in the overlap. A [variant caller](../../GLOSSARY.md#variant-caller) lists where a sample differs from the reference. If an amplicon tool needs merged reads, [Read Processing](08-read-processing.md) explains how to join them. The HG002 practice reads are clean, so the manual maps the imported bundle as it is. The trim and filter in [Trimming and Filtering Reads](04-trimming-and-filtering.md) are for practice.
+In this manual, keep mates separate for mapping and [variant calling](../../GLOSSARY.md#variant-caller), which lists where a sample differs from the reference. Mates overlap when they cover some of the same bases. Merging turns an overlapping pair into one read, replacing the pairing and leaving one base and one score at each position in the overlap. Some tools compute a score from both mates, raising it where they agree and lowering it where they disagree. Others can keep the first mate's base and score.
+
+If an amplicon tool needs merged reads, [Read Processing](08-read-processing.md) explains how to join them. The HG002 practice reads are clean, so the manual maps the imported bundle as it is. The trim and filter in [Trimming and Filtering Reads](04-trimming-and-filtering.md) are for practice.
 
 ### Which operations keep pairs
 
-Keeping mates paired lets a mapper use one mate to help place the other. [fastp](../../GLOSSARY.md#fastp) is a program that trims reads.
+Keeping mates paired lets a mapper use one mate to help place the other. [fastp](../../GLOSSARY.md#fastp) is a program that trims reads. A recipe is a set of read-processing steps that LGE can run during import.
 
 | What happens to pairs | Operations |
 |---|---|
 | Both mates are kept or removed together | Import, the four [fastp](../../GLOSSARY.md#fastp) trims, Primer Trimming, Filter by Read Length, Remove Human Reads, Remove Ribosomal RNA Reads, Remove Contaminants, Remove Low-Complexity Reads, Remove Duplicate Reads, both subsamples, the three extraction operations, Correct Sequencing Errors, Reverse Complement All Sequences, Repair Paired-End Files |
 | A mate can be left on its own | Orient Reads, which is built for single long reads and drops any read it cannot place |
-| Pairs are joined into single reads | Merge Overlapping Pairs, the Illumina Amplicon Merge recipe, and the [VSP2 target enrichment and Wastewater metagenomics recipes](#processing-recipes), which keep merged reads and leftover pairs in one bundle |
+| Pairs are joined into single reads | Merge Overlapping Pairs, Illumina Amplicon Merge, and the two cleanup presets in [Processing recipes](#processing-recipes), which keep merged reads and leftover pairs in one bundle |
 
 If the mates are out of step and both are still present, [repair the paired files](08-read-processing.md#repairing-paired-end-files) to put them back together.
 
 ## Why you would do this
 
-Import your reads once so you can use the same bundle for quality control, trimming, mapping, classification, assembly, and variant calling. The bundle keeps the platform and pairing with the reads. You can also add [sample metadata](../../GLOSSARY.md#sample-metadata), facts about the specimen such as when and where it was collected. These details stay with the bundle. The [platform guide](#how-lge-decides-the-platform) explains how LGE uses the recorded platform to pick starting settings.
+Import your reads once so you can use the same bundle for quality control, trimming, mapping, and variant calling. You can also use it for classification, which names the organisms the reads come from, and assembly, which joins reads into longer sequences. The bundle keeps the platform and pairing with the reads. You can also add [sample metadata](../../GLOSSARY.md#sample-metadata), facts about the specimen such as when and where it was collected. These details stay with the bundle. The [platform guide](#how-lge-decides-the-platform) explains how LGE uses the recorded platform to pick starting settings.
 
 The practice data come from HG002, a human genome characterized by the Genome in a Bottle project so labs can check their methods. This [fixture](../../GLOSSARY.md#fixture) is a public data set that lets everyone practice on the same files. Depth is the number of reads that cover a position, as the [coverage track](../01-foundations/04-alignment-files.md#coverage-and-the-coverage-track) shows.
 
@@ -107,7 +111,7 @@ A whole human genome run can deliver hundreds of millions of pairs. This slice i
 
 Choose how to store the reads based on their length, whether their order matters, and whether the batch needs trimming. Check the platform and pairing first if you need to [identify the reads you have](../01-foundations/02-sequencing-reads.md#know-your-reads-before-you-choose-a-tool). Reordering saves space by putting repeated sequence close together, where the compressor can find it.
 
-For short reads that need no trimming, choose **BBTools clumpify** if the stored read order can change. [clumpify](../../GLOSSARY.md#clumpify) groups reads that share k-mers. A [k-mer](../../GLOSSARY.md#k-mer) is a sequence of a fixed number of bases, so `ACGTA` is a 5-mer. Clumpify is part of the BBTools suite from the Joint Genome Institute. It keeps all reads and bases and applies the **Quality Binning** setting to their scores. The [read classification primer](../06-classification/01-what-is-classification.md#three-ways-to-match-a-read) explains k-mer matching.
+For short reads that need no trimming, choose **BBTools clumpify** if the stored read order can change. [clumpify](../../GLOSSARY.md#clumpify) groups reads that share k-mers. A [k-mer](../../GLOSSARY.md#k-mer) is a sequence of a fixed number of bases, so `ACGTA` is a 5-mer. Clumpify is part of the BBTools suite from the Joint Genome Institute. It keeps all reads and bases and can round their quality scores to fewer values using **Quality Binning**. The [read classification primer](../06-classification/01-what-is-classification.md#three-ways-to-match-a-read) explains k-mer matching.
 
 **Trim Galore --clumpify** trims reads as it stores them. [Trim Galore](../../GLOSSARY.md#trim-galore) removes adapters and poor ends, drops reads left too short, and decides whether to cut poly-G tails. A [poly-G tail](../../GLOSSARY.md#poly-g-tail) is a false run of G that some Illumina instruments produce when the signal fades at the end of a read. Trim Galore uses fixed settings at import. The bundle contains the trimmed reads and the originals stay where they are. Check quality on a bundle imported with BBTools clumpify first. Use Trim Galore for the batch only if every sample needs the same trim. The [trimming chapter](04-trimming-and-filtering.md#choosing-a-tool) compares the tools.
 
@@ -119,7 +123,7 @@ Clear **Optimize storage** to keep the reads in their original order. Reordering
 | Trim Galore --clumpify | Trimming adapters and poor read ends while storing | Every sample in the batch needs the same standard trim | You still need to check read quality |
 | Optimize storage off | Keeping the source file's read order | Nanopore or PacBio reads, or a disk without room for the reordering | Short reads can be reordered and disk space allows it |
 
-Use BBTools clumpify to store the short Illumina reads in the HG002 fixture more compactly. They need no trimming. The bibliography lists sources for [BBTools and Trim Galore](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge) if you want to read about either tool. For Oxford Nanopore or PacBio reads, leave **Optimize storage** off, and choose **Trim Galore --clumpify** only when the quality report shows that every sample in the batch needs the same trim.
+Use BBTools clumpify to store the short Illumina reads in the HG002 fixture more compactly. They need no trimming. The bibliography lists sources for [BBTools and Trim Galore](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge) if you want to read about either tool. For Oxford Nanopore or PacBio reads, leave **Optimize storage** at its default of off. If the quality report shows that every sample in a short-read batch needs the same trim, choose **Trim Galore --clumpify** with **Optimize storage** selected.
 
 ## Before you start
 
@@ -147,7 +151,9 @@ Only an uppercase R counts, and the suffix needs its underscore. `Sample_r1.fast
 
 The file ending does not affect pairing. LGE accepts `.fastq` and `.fq`, each with or without `.gz`, and one folder may mix them.
 
-LGE looks for a mate in the same folder first. It pairs across folders only if both filenames are unique among the selected files. For example, `R1/x_R1.fastq.gz` and `R2/x_R2.fastq.gz` import as one sample `x` if neither filename appears twice. If either name repeats, LGE keeps the files as single-end samples. The Operations Panel row for the R1 sample logs the filenames and reason. The command line uses the same rule.
+LGE looks for a mate in the same folder first. It pairs across folders only if both filenames are unique among the selected files. For example, `R1/x_R1.fastq.gz` and `R2/x_R2.fastq.gz` import as one sample `x` if neither filename appears twice. If either name repeats, LGE keeps the files as [single-end](../../GLOSSARY.md#single-end) samples, with one file per sample and each read treated as unpaired. The Operations Panel, which lists running and finished operations, logs the filenames and reason in the row for the R1 sample.
+
+The same rule applies on the command line, where you type `lungfish-cli` commands in Terminal. [On the command line](#on-the-command-line) shows how to run an import this way.
 
 If LGE cannot find a mate file, it imports the file as [single-end](../../GLOSSARY.md#single-end) and treats each read as unpaired. The bundle keeps the mate suffix, so `Sample01_R1.fastq.gz` alone becomes `Sample01_R1` in the app and with `lungfish-cli import fastq`. Check the import summary because LGE shows no alert. For one sample, look for `R1:` and `R2:` for a pair, or a filename with `Size:` for a single file. For a batch, compare the paired-end and single-end counts with what you expect. If an expected pair appears as single-end, click **Cancel**. Check that you selected both files and that they use one of the suffix pairs in the table. Then reopen the sheet.
 
@@ -159,7 +165,9 @@ To keep the filenames you received, use a [sample sheet](../../GLOSSARY.md#sampl
 
 ## How LGE decides the platform
 
-LGE looks for platform clues in the FASTQ header, the first line of each read. In the example above, `D00360` is the instrument, `94` the run, `H2YT5BCXX` the flowcell, `1` the lane, `1101` the tile, and `1582` and `14700` the position on the tile. A flowcell is the surface the DNA is read on. LGE checks the first 32 reads or 256 kilobytes of text, whichever comes first. Each matching header counts as a vote, and LGE names a platform only when the votes agree. For an unmapped BAM, LGE checks the read-group `PL` and `DS` fields and the program names in the BAM header.
+LGE looks for platform clues in the FASTQ header, the first line of each read. A flowcell is the surface the DNA is read on, a lane is one of its channels, and a tile is a small imaged patch of a lane. In the example above, `D00360` is the instrument, `94` the run, `H2YT5BCXX` the flowcell, `1` the lane, `1101` the tile, and `1582` and `14700` the position on the tile.
+
+LGE checks the first 32 reads or 256 kilobytes of text, whichever comes first. Each matching header counts as a vote, and LGE names a platform only when the votes agree. A read group is a line in the BAM header that labels the reads from one run or library. For an unmapped BAM, LGE checks the program names and the read group's `PL` field for the platform and `DS` field for a description.
 
 The import sheet shows the evidence, such as the header pattern and how many reads matched it, and the bundle keeps it. The command line prints it. LGE can identify Illumina, Oxford Nanopore, PacBio, Element Biosciences, and MGI / DNBSEQ from read names. Choose Ultima Genomics yourself for FASTQ, or import an unmapped BAM whose read group says `PL:ULTIMA`. LGE records Ion Torrent reads as Unknown and names Ion Torrent in the evidence.
 
@@ -190,7 +198,7 @@ To import the HG002 chromosome 20 pair, follow these steps. If you drag both fil
 
 5. To match the demo bundle, choose **None (keep every score)** from the **Quality Binning** popup. A popup is a menu that opens when you click it. Check that **Platform** reads Illumina and **Pairing** reads Paired-end. Leave **BBTools clumpify** and the other defaults in place, then click **Import**.
 
-The HG002 fixture has no score below Q2, so BBTools clumpify keeps every quality score with this setting. The [import settings](#settings) explain how to preserve scores for other data. The demo bundle supplies the figures in [Quality Control for Reads](03-quality-control.md) for comparison.
+The HG002 fixture has no score below Q2, a score of 2 on the Phred scale explained in [Settings](#settings), so BBTools clumpify keeps every quality score with this setting. The [import settings](#settings) explain how to preserve scores for other data. The demo bundle supplies the figures in [Quality Control for Reads](03-quality-control.md) for comparison.
 
 Follow progress in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) with **Operations > Show Operations Panel** (Cmd-Shift-P). The finished bundle appears under `Imports` in the [sidebar](../../GLOSSARY.md#sidebar). Its name, `HG002.chr20.10.0-10.5Mb`, is the shared filename stem, the part left after removing the mate suffix and file ending.
 
@@ -225,7 +233,9 @@ If a colleague sends a read bundle packed as a ZIP file, drag it onto the sideba
 
 ### Using the other Sequencing Reads cards
 
-The Sequencing Reads tab has ten cards. This chapter uses the first two. The other eight are covered in the chapters below, including five cards for RNA-seq, which sequences RNA to estimate how much of each transcript is in a sample. Programs that count RNA-seq reads per gene include salmon, STAR, Cell Ranger, and STARsolo.
+The Sequencing Reads tab has ten cards. This chapter uses the first two. The other eight are covered in the chapters below, including five for RNA-seq, which sequences RNA to estimate how much of each transcript, an RNA copy of a gene, is in a sample. Single-cell RNA-seq measures each cell separately. Bulk RNA-seq measures a whole sample at once.
+
+The program salmon estimates how many reads come from each transcript, and STAR counts reads per gene. Cell Ranger and STARsolo count molecules per gene in each cell.
 
 | Card | What it does | Chapter |
 |---|---|---|
@@ -234,7 +244,7 @@ The Sequencing Reads tab has ten cards. This chapter uses the first two. The oth
 | Linux Run Result | Imports the folder a Linux run returned, as one FASTQ bundle per sample | [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md) |
 | RNA-seq Counts | Imports salmon quant folders, or one table of counts by gene and sample, as one RNA-seq result | [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) |
 | Single-cell Counts | Imports Cell Ranger outs folders or STARsolo run folders as one single-cell result | [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md) |
-| RNA-seq Plan for a Linux Machine | Writes the files that count bulk RNA-seq reads with salmon or STAR on a Linux machine or cluster | [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) |
+| RNA-seq Plan for a Linux Machine | Writes the files that count bulk RNA-seq reads with salmon or STAR on a Linux machine or cluster, a group of computers that share work | [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) |
 | Single-cell Plan for a Linux Machine | Writes the files that count 10x Genomics single-cell libraries with STARsolo on a Linux machine or cluster | [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md) |
 | RNA-seq Linux Run Result | Imports the counts a Linux run returned, from a plan folder or a batch folder, as one RNA-seq result | [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) |
 
@@ -269,6 +279,8 @@ FASTQ stores each score as one character. The [guide to decoding quality charact
 
 The numbers in the labels describe the available bins, which are the values the tool can store.
 
+The default keeps every read and base and preserves the share of bases at or above Q10, Q20, and Q30. Binning loses the original score values. PacBio HiFi reads, long reads made accurate by reading each molecule many times, can have scores up to Q93, and the default stores every score from Q35 up as Q37, even with **Optimize storage** off. Choose **None (keep every score)** for these reads if a later tool weighs base scores.
+
 | Quality Binning | What happens to the scores |
 |---|---|
 | Q5 steps (8-level) | Rounds in steps of five without crossing Q10, Q20, or Q30. Below Q35 the change is at most 2. Scores of Q35 or above become Q37 |
@@ -291,13 +303,15 @@ With Trim Galore chosen, a note reads "Trim Galore also performs adapter detecti
 
 **(recipe picker).** Chooses the recipe and shows its purpose, required input, and a Workflow line that updates when you change the checkboxes. The unlabeled popup appears when you turn on recipes and starts with the first entry, Illumina Amplicon Merge. Choose the recipe that suits your reads using the [recipe comparison](#processing-recipes). On the command line this is `--recipe`.
 
-**Remove duplicate reads.** Toggles duplicate removal for VSP2 target enrichment and Wastewater metagenomics. It starts on for both because a [PCR duplicate](../../GLOSSARY.md#pcr-duplicate), a copy made during library preparation, would otherwise count as a second observation. Clear it if a later step needs those reads, since getting discarded reads back requires a new import. On the command line this is `--remove-duplicates/--no-remove-duplicates`.
+[VSP2](../../GLOSSARY.md#vsp2) stands for Illumina's Viral Surveillance Panel version 2. Target enrichment uses probes to capture selected sequences before sequencing. Metagenomics sequences all the DNA or RNA in a mixed sample such as wastewater.
+
+**Remove duplicate reads.** Toggles duplicate removal for VSP2 target enrichment and Wastewater metagenomics. It starts on for both because a PCR duplicate would otherwise count as a second observation. Clear it if a later step needs those reads, since getting discarded reads back requires a new import. On the command line this is `--remove-duplicates/--no-remove-duplicates`.
 
 **Remove ribosomal RNA reads.** Toggles removal of reads associated with [ribosomal RNA](../../GLOSSARY.md#ribosomal-rna), the most abundant RNA in a cell. It starts on for Wastewater metagenomics to reduce ribosomal reads before classification and off for VSP2 target enrichment, where the probes select the target sequence. Turn the option on for an enrichment library if you still need to remove many ribosomal reads. On the command line this is `--remove-ribosomal-rna/--no-remove-ribosomal-rna`.
 
 ### Processing recipes
 
-Check what a recipe keeps or removes before you use it on a whole batch. For read files and sample sheets, the picker lists these three entries plus any you added. VSP2 target enrichment and Wastewater metagenomics are presets of Illumina paired-end cleanup. They differ in which adapter pair they use and whether **Remove ribosomal RNA reads** starts on.
+Check what a recipe keeps or removes before you use it on a whole batch. For read files and sample sheets, the picker lists these three entries plus any you added. VSP2 target enrichment and Wastewater metagenomics are presets of Illumina paired-end cleanup. They differ in which adapter pair they use and whether **Remove ribosomal RNA reads** starts on. MHC stands for major histocompatibility complex, a family of immune genes.
 
 | Picker entry | What it does | Use it for | `--recipe` value |
 |---|---|---|---|
@@ -305,7 +319,7 @@ Check what a recipe keeps or removes before you use it on a whole batch. For rea
 | VSP2 target enrichment | Removes duplicate reads, trims adapters and poor ends, removes human reads, merges overlapping pairs, and drops reads under 50 bases | Viral target-enrichment reads for [Running EsViritu](../06-classification/03-running-esviritu.md) | `vsp2-target-enrichment` |
 | Wastewater metagenomics | The same steps, and also removes ribosomal RNA reads | Wastewater and other metagenomic reads for the classifiers in [What Is Read Classification](../06-classification/01-what-is-classification.md) | `wastewater-metagenomics` |
 
-[VSP2](../../GLOSSARY.md#vsp2) is Illumina's Viral Surveillance Panel version 2, a kit whose probes pull viral sequence out of a sheared sample. Each preset keeps both merged reads and unmerged pairs in one bundle. VSP2 target enrichment trims with the Nextera adapter pair. Wastewater metagenomics uses the TruSeq pair.
+The VSP2 probes capture viral fragments from a library made by tagmentation, which uses an enzyme to cut DNA and add adapters in one step. That step adds the Nextera adapter pair, which the VSP2 preset trims. Each preset keeps both merged reads and unmerged pairs in one bundle. Wastewater metagenomics uses the TruSeq pair.
 
 Illumina Amplicon Merge drops pairs whose mates do not overlap, so it can favor shorter fragments. When it drops pairs, the Operations Panel reports Completed with Warnings and logs one warning per sample.
 
