@@ -145,7 +145,7 @@ The action bar is the one every classifier viewport shares, with **Verify with B
 
 ## What good looks like
 
-The NAO-MGS viewport speaks to the five questions of [The evidence checklist](01-what-is-classification.md#the-evidence-checklist) in the order the checklist asks them. **Hits** counts the reads that support a name, the miniBAM panels show how they spread along the reference, and **Unique Reads** counts the original fragments. The viewport has no control role, so a [negative control](../../GLOSSARY.md#negative-control), a blank carried through the run, is just one more sample. **Verify with BLAST…** gives the independent check.
+The NAO-MGS viewport speaks to the five questions of [The evidence checklist](01-what-is-classification.md#the-evidence-checklist) in the order the checklist asks them. **Hits** counts the reads that support a name, the miniBAM panels show how they spread along the reference, and **Unique Reads** counts the reads left after probable PCR copies are set aside, so each independent fragment adds one read, or two when both mates of a pair align. The viewport has no control role, so a [negative control](../../GLOSSARY.md#negative-control), a blank carried through the run, is just one more sample. **Verify with BLAST…** gives the independent check.
 
 Read Unique Reads before Hits. When Unique Reads falls well below Hits, the taxon rests on a few fragments that PCR copied, and the honest count is the unique one. As a rule of thumb, a row whose unique count is under half its hit count deserves its pileups opened before you quote the number. The fixture's two Rotavirus A rows sit at 67 and 93 percent unique, both above that line.
 
