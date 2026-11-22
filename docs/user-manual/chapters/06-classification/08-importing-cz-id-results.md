@@ -174,7 +174,7 @@ The six columns give the percentage, the [clade](../../GLOSSARY.md#clade) count 
 
 LGE puts a species one level below its genus if `genus_tax_id` gives the taxon ID of a genus in the same report. The genus's direct count is its own count minus the counts of those species. Every other taxon sits one level below `root`. The practice report has no `genus_tax_id` column, so Viruses and SARS-CoV-2 appear side by side, and Viruses shows 88 under both **Reads** and **Direct**.
 
-In the kreport, R means root and S means species. D stands for the broad ranks superkingdom and domain. Viruses has rank superkingdom in the fixture. If a row has a missing or unrecognized rank, LGE keeps its reads and gives it `-`, the kreport code for a taxon with no rank.
+In the kreport, R means root and S means species. D stands for the broad ranks superkingdom and domain. Viruses has rank superkingdom in the fixture. If a row has a missing or unrecognized rank, LGE keeps its reads and writes `-` for its rank code in the converted kreport. The **Rank** column shows `-`.
 
 Each percentage is a [relative abundance](../../GLOSSARY.md#relative-abundance), the share of a stated total. LGE takes the total from the row with a `rank` of `root` or a `tax_id` of `1`. It divides each taxon's NT count by the root NT count and multiplies by 100. The kreport stores the result to two decimal places. The viewport's **%** column rounds it to one decimal place.
 
