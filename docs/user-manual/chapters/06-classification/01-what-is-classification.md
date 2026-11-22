@@ -28,7 +28,7 @@ illustrations:
 glossary_refs: [minimizer, fastq, read, fragment, mate, read-pair, alignment, taxon, taxonomic-rank, lowest-common-ancestor, read-classification, metagenomics, mapping, kraken2, esviritu, taxtriage, cz-id, nao-mgs, nvd, freyja, lineage, plugin-pack, k-mer, blast, container, docker, terminal, nextflow, host-depletion, import-center, operations-panel, amplicon, pcr, accession, shotgun, paired-end, coverage, contig, rpkmf, reads-per-billion, reads-per-million, workflow-library, bracken, minimap2, coverage-breadth, demixing, allele-frequency, sensitivity, specificity, precision, consensus-sequence, tass-score, negative-control, abundance, relative-abundance, false-positive, false-negative, contamination, unclassified-reads, unique-reads, confidence-kraken-2, twelve-s, bundle, project, ncbi, depth, library, kreport, taxon-report, inspector, barcode]
 features_refs: [classify.kraken2, classify.esviritu, classify.taxtriage, classify.twelve-s, variants.freyja-demix, classify.nao-mgs, import.nvd, import.czid, viewport.taxonomy-browser, classify.blast-verify, classify.extract-reads]
 fixtures_refs: [kraken-protocol-cornea, sarscov2-srr36291587, primate-12s]
-brand_reviewed: false
+brand_reviewed: true
 lead_approved: false
 ---
 
@@ -101,7 +101,7 @@ LGE shows these details on summary cards, boxes that show key facts about the re
 
 The reference sequences in the database limit what a classifier can identify. Reads from an organism the database lacks may match a relative, including when the reads come from the host. The Kraken authors' protocol paper recommends a database that holds at least the human genome. See [Lu et al. 2022, Metagenome analysis using the Kraken software suite](https://doi.org/10.1038/s41596-022-00738-y), *Nature Protocols* 17, 2815.
 
-Kraken 2's [Confidence](../../GLOSSARY.md#confidence-kraken-2) setting sets the minimum share of a read's k-mers that must support a taxon or taxa below it, 0.20 by default. It counts only k-mers without an ambiguous base, a position that lacks a definite base call.
+Kraken 2's **[Confidence](../../GLOSSARY.md#confidence-kraken-2)** setting sets the minimum share of a read's k-mers that must support a taxon or taxa below it, 0.20 by default. It counts only k-mers without an ambiguous base, a position that lacks a definite base call.
 
 Kraken 2 normally loads the whole database into memory (RAM). With **Memory mapping** checked, it reads the database from disk in pieces, which is much slower but avoids loading a database-sized copy into memory. To check your Mac's memory, choose **Apple menu > About This Mac**. The Standard database covers archaea, bacteria, viruses, plasmids, and the human genome. Plasmids are DNA molecules separate from a cell's main genome. The table shows LGE's memory estimates for five builds. Find the others and download databases in the **Databases** tab of **Tools > Plugin Manager…**, the window that installs tools and databases. See [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) for details.
 
@@ -234,20 +234,20 @@ Use the first table to find your result and its view. CZ ID goes under `Classifi
 | NAO-MGS | `Analyses/naomgs-<name>/` | NAO-MGS viewport, a taxon table |
 | NVD | `Analyses/nvd-<experiment>/` | NVD viewport, a contig outline |
 
-Before comparing values, check what the tool counts and what total it uses to calculate a share. A pair represents two reads from one fragment. Filtering or merging can change the relationship between reported read and pair counts. Where offered, **Verify with BLAST…** and **Extract Reads…** appear in the action bar at the bottom of the viewport and in a row's right-click menu. By default, **Extract Reads…** saves the taxon's reads as a new bundle in the project. Its **Destination** setting can also save the reads to a file, copy them to the clipboard, or share them, and its **Format** setting chooses FASTQ or FASTA. A FASTA file stores named sequences without quality scores.
+Before comparing values, check what the tool counts and what total it uses to calculate a share. A pair represents two reads from one fragment. Filtering or merging can change the relationship between reported read and pair counts. Where offered, **Verify with BLAST…** and **Extract Reads…** appear in the action bar at the bottom of the viewport and in a row's right-click menu. By default, **Extract Reads…** saves the taxon's reads as a new bundle in the project. Its **Destination** setting can also save the reads to a file, copy them to the clipboard, or share them, and its **Format** setting chooses **FASTQ** or **FASTA**. A FASTA file stores named sequences without quality scores.
 
 The `core_nt` collection is a version of NCBI's general nucleotide collection. See [BLAST Verification](06-blast-verification.md#settings) for the search settings.
 
-| Tool | Unit counted | Normalized figure and its denominator | What Unique Reads means | **Verify with BLAST…** | **Extract Reads…** |
+| Tool | Unit counted | Normalized figure and its denominator | What **Unique Reads** means | **Verify with BLAST…** | **Extract Reads…** |
 |---|---|---|---|---|---|
 | Kraken 2 | Fragments, so a read pair counts once | % of all fragments in the same sample, unclassified included | No such column | Yes, against `core_nt` | Yes |
-| EsViritu | Reads, each mate counted once | RPKMF, per kilobase of reference per million filtered reads | Left after duplicate marking | Yes, against `core_nt` | Yes |
-| TaxTriage | Alignment records, one placement of a read per line, each mate counted | Abundance, TaxTriage's % of the sample's reads aligned to the organism | Left after duplicate marking | Yes, against `core_nt` | Yes |
-| 12S Amplicon Matching | Fragments containing a whole reference sequence, counting each merged read (two mates joined into one), single read, or pair whose mates agree once | % of Sample, a share of exact-matched fragments only | No such column | Unresolved clusters only | No |
+| EsViritu | Reads, each mate counted once | **RPKMF**, per kilobase of reference per million filtered reads | Left after duplicate marking | Yes, against `core_nt` | Yes |
+| TaxTriage | Alignment records, one placement of a read per line, each mate counted | **Abundance**, TaxTriage's % of the sample's reads aligned to the organism | Left after duplicate marking | Yes, against `core_nt` | Yes |
+| 12S Amplicon Matching | Fragments containing a whole reference sequence, counting each merged read (two mates joined into one), single read, or pair whose mates agree once | **% of Sample**, a share of exact-matched fragments only | No such column | Unresolved clusters only | No |
 | Freyja | Mutation frequencies at lineage-defining positions | Abundances, shares of the virus in the sample | No such column | No | No |
 | CZ ID | CZ ID's nucleotide read count per taxon | % of the report's root row count, with RPM in the output of `lungfish-cli cz-id summary` | No such column | No | No |
-| NAO-MGS | Aligned reads, called Hits, each mate counted as one read | None. Read raw Hits against each sample's read total. | Left after duplicate marking | Yes, against `core_nt` | Yes |
-| NVD | Contigs, with the reads that mapped back to each | RPB, per billion of the sample's reads | Left after duplicate marking, on a full run with contig sequences and alignment files | Yes, the contig itself, on a full run | Yes, on a full run |
+| NAO-MGS | Aligned reads, called **Hits**, each mate counted as one read | None. Read raw **Hits** against each sample's read total. | Left after duplicate marking | Yes, against `core_nt` | Yes |
+| NVD | Contigs, with the reads that mapped back to each | **RPB**, per billion of the sample's reads | Left after duplicate marking, on a full run with contig sequences and alignment files | Yes, the contig itself, on a full run | Yes, on a full run |
 
 **Unique Reads** means the same thing in all four views that carry it. In a shotgun library, a small share is a reason to check whether many reads came from copies of the same fragments. A primer is a short piece of DNA that binds a chosen position and starts DNA synthesis there. In an amplicon library, copies of a region can share endpoints because the same primers set the ends. That design can yield a small share of unique reads. See [Running EsViritu](03-running-esviritu.md#reading-the-results) for how the library affects this count.
 
