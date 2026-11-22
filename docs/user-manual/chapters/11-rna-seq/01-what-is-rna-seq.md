@@ -26,7 +26,7 @@ glossary_refs: [genome, cdna, ribosomal-rna, library-prep, read, fragment, exon,
 features_refs: [rnaseq.quant, rnaseq.export, rnaseq.pseudobulk, rnaseq.cell-map-import, rnaseq.cell-map-compute, rnaseq.reference-set, rnaseq.quality, import.rnaseq-counts, import.rnaseq-plan, import.rnaseq-adopt, plugins.rna-seq-pack, plugins.single-cell-pack]
 fixtures_refs: []
 brand_reviewed: true
-lead_approved: false
+lead_approved: true
 ---
 
 <!-- SCOPE: What RNA-seq measures, how bulk and single-cell libraries differ, and which counting route to pick. -->
