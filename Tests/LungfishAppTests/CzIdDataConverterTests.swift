@@ -244,6 +244,26 @@ final class CzIdDataConverterTests: XCTestCase {
         XCTAssertEqual(converted.result.tree.unclassifiedReads, 0)
     }
 
+    /// A report with NR count columns only is counted by them (FIX-CZID SWIFT SF2). Total 1000 / 500.0 rPM is 2,000,000
+    /// reads, the genus direct count is 1000 - 400, and the root direct count is 2,000,000 - 1000.
+    func testReportWithNRCountsOnlyIsCountedByThem() throws {
+        let root = try TestTempDirectory.make(prefix: "czid-report-nr-only")
+        defer { TestTempDirectory.cleanup(root) }
+        let reportURL = root.appendingPathComponent("nr-only.csv")
+        try "tax_id,tax_level,genus_tax_id,name,nr_rpm,nr_count\n1279,2,1279,Staphylococcus,500.0,1000\n1280,1,1279,Staphylococcus aureus,200.0,400\n"
+            .write(to: reportURL, atomically: true, encoding: .utf8)
+
+        let parsed = try CzIdDataConverter.parseTaxonReport(at: reportURL)
+
+        XCTAssertEqual(parsed.rows.map(\.ntReadCount), [1000, 400])
+        XCTAssertEqual(parsed.rows.map(\.nrReadCount), [1000, 400])
+        XCTAssertEqual(CzIdDataConverter.kreportText(from: parsed.rows).components(separatedBy: "\n").dropLast(), [
+            "100.00\t2000000\t1999000\tR\t1\troot",
+            "0.05\t1000\t600\tG\t1279\t  Staphylococcus",
+            "0.02\t400\t400\tS\t1280\t    Staphylococcus aureus",
+        ])
+    }
+
     /// Every CZ-ID fixture in Tests/ still parses.
     func testEveryCzIdFixtureParses() throws {
         for name in ["minimal_taxon_report.tsv", "sample_report.csv", "sample_report.tsv"] {
