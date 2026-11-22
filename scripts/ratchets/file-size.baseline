@@ -58,7 +58,7 @@ Sources/LungfishApp/Views/Viewer/SequenceViewerView+Alignment.swift 1411
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+AnnotationRendering.swift 1703
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Interaction.swift 2101
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+MultiSequence.swift 1066
-Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift 1231
+Sources/LungfishApp/Views/Viewer/SequenceViewerView+Rendering.swift 1229
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Tooltips.swift 939
 Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift 2842
 Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift 872
