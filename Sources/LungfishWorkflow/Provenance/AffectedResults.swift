@@ -73,6 +73,10 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     case fastqLoosePairImport
     /// A CZ ID taxon report imported as a result (CZID-REAL-EXPORT-FORMAT).
     case czIdImport
+    /// A counts result that a Linux run of an RNA-seq plan returned and the adopt wrote (LOOSE-PAIR-SHORT-MATE,
+    /// LOOSE-PAIR-OUT-OF-STEP). The record names no read file, so a pair of loose files staged on the cluster and a pair
+    /// of a bundle look alike, and the kind holds every such result.
+    case rnaSeqPlanRun
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -736,6 +740,8 @@ extension AffectedResults {
             return mappedTwoLooseFiles(envelope) ? .mappingLoosePair : nil
         case RecordName.czIdImport:
             return .czIdImport
+        case RecordName.rnaSeqAdopt:
+            return .rnaSeqPlanRun
         case RecordName.variantsCall:
             return envelope.steps.contains { runs("ivar", $0) } ? .variantCalls : nil
         case RecordName.extractReads, RecordName.classifierReadExtraction, RecordName.appClassifierReadExtraction:

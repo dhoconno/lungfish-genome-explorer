@@ -10,6 +10,8 @@ extension AffectedResults.RecordName {
     /// The record of a CZ ID taxon report import, from the command line or the import window
     /// (`CzIdDataConverter.swift:476`).
     public static let czIdImport = "CZ-ID Import"
+    /// The root record of the adopt of an RNA-seq plan counts (`ExecutorRunAdoption+RNASeqRecord.swift:31`). It names no read file.
+    public static let rnaSeqAdopt = "RNA-seq adopt"
 }
 
 extension AffectedResults {
@@ -47,6 +49,7 @@ extension AffectedResults {
             backlogID: "LOOSE-PAIR-SHORT-MATE",
             kinds: [
                 .taxTriage, .kraken2, .esViritu, .mappingLoosePair, .assembly, .viralRecon, .fastqRecipeImport,
+                .rnaSeqPlanRun,
             ],
             firstBuild: nil, lastBuild: 14072,
             sentence: "If this result used separate R1 and R2 files, the old version did not check for equal read "
@@ -64,6 +67,7 @@ extension AffectedResults {
             kinds: [
                 .taxTriage, .kraken2, .esViritu, .mappingLoosePair, .assembly, .viralRecon, .fastqRecipeImport,
                 .fastqLoosePairImport,
+                .rnaSeqPlanRun,
             ],
             firstBuild: nil, lastBuild: 14072,
             sentence: "If this result used separate R1 and R2 files with equal read counts but different read orders, "
