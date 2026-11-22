@@ -3,7 +3,7 @@ title: Quality Control for Reads
 chapter_id: 03-reads/03-quality-control
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 03-reads/01-importing-fastq]
-estimated_reading_min: 21
+estimated_reading_min: 22
 task: Read a FASTQ bundle's quality summary and decide whether the reads are fit to analyze.
 tags: [reads, qc, quality, phred, sparkline]
 tools: []
@@ -38,7 +38,7 @@ In Lungfish Genome Explorer (LGE), the [viewport](../../GLOSSARY.md#viewport) is
 
 The nine summary cards give bundle-wide figures. The three charts below them show how read lengths and quality scores vary. Below the charts, open **Reads** for individual records. It sits beside **Operations**. Import fills the cards and usually fills the charts. To recalculate the summary, choose **Tools > QC & Reporting > Refresh QC Summary…**.
 
-Adapters can go unnoticed in the summary. [Library preparation](../../GLOSSARY.md#library-prep) is the lab work that gets DNA ready for sequencing. An [adapter](../../GLOSSARY.md#adapter) is a short piece of synthetic DNA attached to a fragment end during that work. A raw Illumina read keeps its length when it runs into an adapter. If you suspect adapters, use **Adapter Removal** under **Tools > Trimming & Filtering**. Compare the new and original **Bases** cards to see how much sequence the operation removed.
+Adapters can go unnoticed in the summary. [Library preparation](../../GLOSSARY.md#library-prep) is the lab work that gets DNA ready for sequencing. An [adapter](../../GLOSSARY.md#adapter) is a short piece of synthetic DNA attached to a fragment end during that work. A raw Illumina read keeps its length when it runs into an adapter. If you suspect adapters, use **Adapter Removal…** under **Tools > Trimming & Filtering**. Compare the new and original **Bases** cards to see how much sequence the operation removed.
 
 Single-end sequencing reads each fragment from one end only. For these reads, the trim can miss a rare adapter. On an Illumina NextSeq or NovaSeq run it also cuts [poly-G tails](../../GLOSSARY.md#poly-g-tail), false runs of G at the end of a read. See [Trimming and Filtering Reads](04-trimming-and-filtering.md) for the operation.
 
@@ -84,7 +84,7 @@ Use steps 1 through 3 to read the summary saved at import. Use steps 4 and 5 if 
 
 If a card surprises you, click **Reads** below the charts to inspect individual records. Then use the four checks in [What good looks like](#what-good-looks-like) to decide whether to proceed.
 
-If the import sample could not be read, the summary can lack data for **Q / Position** and **Q Score Dist.** Clicking **Click to Compute** on either chart opens the **FASTQ/FASTA Operations** dialog on **QC & Reporting**. The refresh starts when you click **Run**. It fills in both charts and records the change in the bundle's [provenance](../../GLOSSARY.md#provenance), the automatic record of how it was made.
+If import could not read the reads it copies for the charts, up to the first 100,000 of the stored file, the summary can lack data for **Q / Position** and **Q Score Dist.** Clicking **Click to Compute** on either chart opens the **FASTQ/FASTA Operations** dialog on **QC & Reporting**. The refresh starts when you click **Run**. It fills in both charts and records the change in the bundle's [provenance](../../GLOSSARY.md#provenance), the automatic record of how it was made.
 
 The [Inspector](../../GLOSSARY.md#inspector) is the right-hand pane that describes the selection. Its **Quality Report** row under **Dataset Statistics** reads **Cached** when the chart data are saved with the bundle and **Not Computed** before that. Use **View > Show Inspector** (Cmd-Opt-I) if the pane is hidden. The **Provenance** tab shows the record of the refresh.
 
@@ -152,9 +152,9 @@ The **GC** card measures the reads in the bundle. This fixture reads 39.4 percen
 
 LGE averages probabilities for the card, the **Mean Q** column on the **Reads** tab, and `lungfish-cli fastq qc-summary`. The method matches AvgQual in `seqkit`. The mean triangles in **Q / Position** average the scores directly. If another program gives you a different mean quality, check which average it used.
 
-Some reads, including FASTA records, lack quality scores. Some files carry one placeholder score for every base. Examples include some Oxford Nanopore files and reads converted from FASTA. The Sequence Read Archive is a public archive of raw sequencing reads. NCBI, the U.S. center that hosts public sequence databases, delivers reads from that archive in a format called SRA Lite. In that format, every passing base reads 30. A single bar in **Q Score Dist.** is the sign.
+Some reads, including FASTA records, lack quality scores. Some files carry one placeholder score for every base. Examples include some Oxford Nanopore files and reads converted from FASTA. The Sequence Read Archive is a public archive of raw sequencing reads. NCBI, the U.S. center that hosts public sequence databases, delivers reads from that archive in a format called SRA Lite. In that format, every base that passed the run's filter reads 30. A single bar in **Q Score Dist.** is the sign.
 
-Depending on the bundle, the cards can read **No quality scores**, **Mean Q (error rate)** 0.0, or Mean Q 2.0. If the scores are missing or you know they are placeholders, use checks that do not depend on them.
+Depending on the bundle, the cards can read **No quality scores**, **Mean Q (error rate)** 0.0, or **Mean Q (error rate)** 2.0. If the scores are missing or you know they are placeholders, use checks that do not depend on them.
 
 ### The FASTQ viewport's sparkline charts
 
@@ -232,7 +232,7 @@ Oxford Nanopore quotes modal read accuracy, the accuracy most reads reach. **Mea
 
 **Compare GC with what you sequenced.** A difference in percentage points is the difference between the two percentages. If the figures differ substantially, check that you imported the intended files and that the expected GC fits the region you sequenced. If you suspect another organism, use a [classifier](../../GLOSSARY.md#classifier), a program that assigns reads to the organisms they most likely came from. See [Running Kraken 2](../06-classification/02-running-kraken2.md) for the steps.
 
-If poor quality clusters at the ends, try **fastp Adapter & Quality Trim** under **Tools > Trimming & Filtering**. It uses [fastp](../../GLOSSARY.md#fastp), a program that cuts adapters and low-quality ends. Trimming writes a new bundle. Before mapping, compare **Reads** to see how many whole records you retained and **Bases** to see how much sequence you retained. Check **Mean Length**, **Mean Q (error rate)**, **Q20**, and **Q30** to see how the retained reads compare.
+If poor quality clusters at the ends, try **fastp Adapter & Quality Trim…** under **Tools > Trimming & Filtering**. It uses [fastp](../../GLOSSARY.md#fastp), a program that cuts adapters and low-quality ends. Trimming writes a new bundle. Before mapping, compare **Reads** to see how many whole records you retained and **Bases** to see how much sequence you retained. Check **Mean Length**, **Mean Q (error rate)**, **Q20**, and **Q30** to see how the retained reads compare.
 
 [PhiX](../../GLOSSARY.md#phix) is the small genome of a virus that infects bacteria. Illumina sells it as a control that sequencing centers often mix into a run, so a few reads can come from it. If classification points to an unwanted sequence, [Decontamination](05-decontamination.md) covers ways to remove human sequence, ribosomal RNA (the RNA in ribosomes), PhiX, or a sequence you can supply as a file. For an intentionally mixed sample, continue with classification.
 
