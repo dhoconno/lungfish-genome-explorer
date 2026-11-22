@@ -112,6 +112,29 @@ final class TaxTriageWizardInputSamplesTests: XCTestCase {
         XCTAssertEqual(samples.map(\.fastq2), [r2])
     }
 
+    /// Rule 3 for loose files: a third file of one stem leaves all three unpaired, and none is left out.
+    func testThreeLooseFilesOfOneStemAreThreeSamples() throws {
+        let r1 = try looseFile("X_R1.fastq.gz")
+        let r2 = try looseFile("X_R2.fastq.gz")
+        let one = try looseFile("X_1.fastq.gz")
+        let samples = TaxTriageWizardSheet.inputSamples(from: [r1, r2, one])
+        XCTAssertEqual(samples.map(\.sampleId), ["X_1", "X_R1", "X_R2"])
+        XCTAssertEqual(samples.map(\.fastq1), [one, r1, r2])
+        XCTAssertEqual(samples.map(\.fastq2), [nil, nil, nil])
+    }
+
+    /// Bundles and loose mates in one list: the bundles stay two samples, the loose pair is one, R1 first.
+    func testBundlesAndLooseMatesTogetherAreThreeSamples() throws {
+        let a = try bundle("A_1")
+        let b = try bundle("A_2")
+        let r1 = try looseFile("L_R1.fastq.gz")
+        let r2 = try looseFile("L_R2.fastq.gz")
+        let samples = TaxTriageWizardSheet.inputSamples(from: [r2, a, r1, b])
+        XCTAssertEqual(samples.map(\.sampleId), ["A_1", "A_2", "L"])
+        XCTAssertEqual(samples.map(\.fastq1), [a, b, r1])
+        XCTAssertEqual(samples.map(\.fastq2), [nil, nil, r2])
+    }
+
     /// Verdict item 4: each sample's role comes from its own bundle, read from the bundle URL itself.
     func testNegativeControlBundleKeepsItsRoleAsTheSecondOfAWouldBePair() throws {
         let test = try bundle("C_1")
