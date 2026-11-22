@@ -26,7 +26,7 @@ public enum RNASeqEmbeddingSelectionWords {
     public static let none = "No cells selected"
     /// How to select, in "About selecting" beside the selection line and in the plot's VoiceOver help, never in a help
     /// tag on the plot, whose hover shows the cell (S1b).
-    public static let howToSelect = "Drag around cells or click a legend row to select its cells."
+    public static let howToSelect = "Drag around cells to select them. When colouring by labels or Sample, click a legend row to select its cells."
     public static let selectingHelpID = "rnaseq.cellmap.selecting"
     public static let selectingSubject = "selecting"
     public static let selectingHelp = LungfishHelpContent.HelpItem(id: selectingHelpID, summary: "Explains how to select cells on the plot.",
@@ -47,7 +47,7 @@ public enum RNASeqEmbeddingSelectionWords {
 
     /// The line beside the count for a sample whose selection is under 10 cells (CM-SELECT-CLI-BIO backlog 10).
     public static func underTen(sample: String, cells: Int) -> String {
-        "Pseudobulk counts \(sample)'s \(cells) selected \(cells == 1 ? "cell" : "cells") (under 10) with unlabelled cells and skips that sample's selected column."
+        "Pseudobulk omits \(sample)'s \(cells) selected \(cells == 1 ? "cell" : "cells") (under 10), so that sample has no selected column."
     }
 }
 

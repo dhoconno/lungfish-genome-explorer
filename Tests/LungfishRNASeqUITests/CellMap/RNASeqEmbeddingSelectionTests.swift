@@ -185,7 +185,9 @@ final class RNASeqEmbeddingSelectionTests: XCTestCase {
         XCTAssertEqual(controller.pseudobulkSelectionButton.toolTip, RNASeqEmbeddingSelectionWords.noOneCommandHelp)
         XCTAssertNil(controller.plot.toolTip)
         XCTAssertEqual(controller.plot.accessibilityHelp(), RNASeqEmbeddingSelectionWords.howToSelect)
-        XCTAssertEqual(controller.selectingInfo.popoverController.text, "Drag around cells or click a legend row to select its cells.")
+        // S1b, FACTS-CELLMAP S1b.3: a legend click selects only under a label colouring or Sample, and the words say so.
+        XCTAssertEqual(controller.selectingInfo.popoverController.text,
+                       "Drag around cells to select them. When colouring by labels or Sample, click a legend row to select its cells.")
         controller.cancelOperation(nil)
         await settle(controller)
         XCTAssertEqual(controller.selectionField.stringValue, "No cells selected")
@@ -239,10 +241,11 @@ final class RNASeqEmbeddingSelectionTests: XCTestCase {
         }
         let words = selection(counts).underTenWords
         XCTAssertEqual(words.count, 1, "b holds 10 selected cells, which is not under 10")
-        XCTAssertEqual(words.first, "Pseudobulk counts a's 3 selected cells (under 10) with unlabelled cells and skips that sample's selected column.")
+        // C16, FACTS-CELLMAP C16.4: Pseudobulk leaves a group under 10 cells out, and the cells with no label are another matter.
+        XCTAssertEqual(words.first, "Pseudobulk omits a's 3 selected cells (under 10), so that sample has no selected column.")
         let one = selection([RNASeqEmbeddingSelectionSample(sample: "a", selected: 1)]).underTenWords
         XCTAssertEqual(one.count, 1)
-        XCTAssertTrue(one.first?.hasPrefix("Pseudobulk counts a's 1 selected cell (under 10)") == true, "a single cell is singular: \(one)")
+        XCTAssertEqual(one.first, "Pseudobulk omits a's 1 selected cell (under 10), so that sample has no selected column.", "a single cell is singular: \(one)")
         XCTAssertEqual(selection([RNASeqEmbeddingSelectionSample(sample: "a", selected: 0)]).underTenWords, [],
                        "a sample with none selected gets no line")
     }
