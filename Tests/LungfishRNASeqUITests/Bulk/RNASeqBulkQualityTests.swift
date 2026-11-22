@@ -170,6 +170,23 @@ final class RNASeqBulkQualityTests: XCTestCase {
                 + "\(try XCTUnwrap(plot.lowestText)), to 1. A grey square reads Not recorded.")
     }
 
+    /// 5.6 Q1. The accessibility elements of the Quality and Correlation tabs in the order VoiceOver reaches them, pinned at
+    /// the base of lane TV-SCVIEW so that a later move of words can only replace an entry or add an info button.
+    @MainActor
+    func testTheQualityAndCorrelationTabsKeepTheirAccessibilityOrder() async throws {
+        let controller = try await RNASeqBulkFixtures.show(try RNASeqBulkFixtures.writeNamed(into: root))
+        func pane(_ id: String) throws -> NSView {
+            try XCTUnwrap(controller.tabView.tabViewItems.first { ($0.identifier as? String) == id }?.view, id)
+        }
+        XCTAssertEqual(SCViewAXPin.elements(in: try pane("rnaseq-bulk-tab-quality")), [
+            "rnaseq-bulk-quality-caption", "rnaseq-bulk-quality-table", "rnaseq-bulk-quality-notes",
+        ])
+        XCTAssertEqual(SCViewAXPin.elements(in: try pane("rnaseq-bulk-tab-correlation")), [
+            "rnaseq-bulk-correlation-caption", "rnaseq-bulk-correlation-plot",
+            "rnaseq-bulk-correlation-selected", "rnaseq-bulk-correlation-scale",
+        ])
+    }
+
     @MainActor
     func testAChangedFileShowsTheRefusalOfRNASeqQualityAndTheTableStillShows() async throws {
         let url = try RNASeqBulkFixtures.writeNamed(into: root)

@@ -75,6 +75,44 @@ final class RNASeqSingleCellViewTests: XCTestCase {
         XCTAssertEqual(source.text(row: last + 1, column: "barcode"), "", "a row past the cells shows nothing")
     }
 
+    /// 5.6 Q1. The accessibility elements of the whole view in the order VoiceOver reaches them, from the summary down to
+    /// the cells table, pinned at the base of lane TV-SCVIEW so that a later move of words can only replace an entry.
+    @MainActor
+    func testTheSummaryKeepsItsAccessibilityOrderWithoutANotHostTable() async throws {
+        let url = try RNASeqSingleCellFixtures.write(.cellRanger, into: root)
+        let (_, view) = try await open(url)
+        XCTAssertEqual(SCViewAXPin.elements(in: view.view), [
+            "text:Cell summary", "rnaseq-sc-samples",
+            "text:Tool", "rnaseq-sc-tool", "text:Version", "rnaseq-sc-tool-version", "text:Cells", "rnaseq-sc-cell-count",
+            "rnaseq-sc-cell-map-words",
+            "text:Quality", "rnaseq-sc-quality",
+            "text:Barcode rank", "rnaseq-sc-rank-words", "rnaseq-sc-rank-plot",
+            "text:UMIs per cell", "rnaseq-sc-histogram-umis",
+            "text:Genes per cell", "rnaseq-sc-histogram-genes",
+            "text:Not-host UMIs per cell", "rnaseq-sc-no-not-host",
+            "rnaseq-sc-cells",
+        ])
+    }
+
+    @MainActor
+    func testTheSummaryKeepsItsAccessibilityOrderWithANotHostTable() async throws {
+        let url = try RNASeqSingleCellFixtures.write(.starsolo, into: root, notHost: .virus)
+        let (_, view) = try await open(url)
+        let extra = try XCTUnwrap(view.summary?.extras.first)
+        XCTAssertEqual(SCViewAXPin.elements(in: view.view), [
+            "text:Cell summary", "rnaseq-sc-samples",
+            "text:Tool", "rnaseq-sc-tool", "text:Version", "rnaseq-sc-tool-version", "text:Cells", "rnaseq-sc-cell-count",
+            "rnaseq-sc-cell-map-words",
+            "text:Quality", "rnaseq-sc-quality",
+            "text:Barcode rank", "rnaseq-sc-rank-words", "rnaseq-sc-rank-plot",
+            "text:UMIs per cell", "rnaseq-sc-histogram-umis",
+            "text:Genes per cell", "rnaseq-sc-histogram-genes",
+            "text:Not-host UMIs per cell, \(extra.name), default column", "rnaseq-sc-histogram-not-host-\(extra.extra)",
+            "text:\(extra.name) masked column", "rnaseq-sc-mask-words-\(extra.extra)",
+            "rnaseq-sc-cells",
+        ])
+    }
+
     func testRowsPastTheFirstPageAreTheRowsOfTheCellsTable() throws {
         // The fixtures hold 200 cells, one page, so this file of ten pages and 37 cells reaches the later pages.
         let url = root.appendingPathComponent(RNASeqCellsDatabase.filename)
