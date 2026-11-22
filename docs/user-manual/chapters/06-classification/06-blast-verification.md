@@ -104,7 +104,7 @@ What LGE sends depends on the viewport. A [fragment](../../GLOSSARY.md#fragment)
 |---|---|---|
 | [Taxonomy](02-running-kraken2.md), where Kraken 2 results open | Random fragments, one read per fragment | The popover |
 | [EsViritu](03-running-esviritu.md) and [TaxTriage](04-running-taxtriage.md) | The longest reads, five or a quarter of the request, whichever is smaller, then a random fill. EsViritu uses the row's sample. Both mates are judged and the pair counts once. | The popover |
-| [NAO-MGS](05-running-nao-mgs.md) | Reads from the four quarters of the reference genome, the sequence used for comparison. In each quarter, half the draw has the fewest differences from the reference and half has the most. | The popover |
+| [NAO-MGS](05-running-nao-mgs.md) | LGE sends the first reads from the taxon's top accessions, the reference sequences with the most hits. It skips reads marked as duplicates and sends up to the number you choose in the popover. | The popover |
 | [Novel Virus Diagnostics](09-novel-virus-detection.md) | The selected contig, judged against the taxon named by NVD's adjusted tax ID | A sheet titled **Run BLAST at NCBI?** |
 | [12S Amplicon Metabarcoding](10-twelve-s-metabarcoding.md) | Unresolved sequences from the Unresolved view | A sheet titled **Run BLAST at NCBI?** |
 
