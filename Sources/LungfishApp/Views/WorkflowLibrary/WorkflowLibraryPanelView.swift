@@ -311,6 +311,7 @@ private struct WorkflowLibraryCard: View {
                     Text(item.subtitle)
                         .foregroundStyle(Color.lungfishSecondaryText)
                         .font(.callout)
+                        .lungfishHelpSummary(item.help ?? item.subtitle)
                 }
 
                 Spacer()

@@ -116,6 +116,45 @@ final class RNASeqPseudobulkPaneTests: XCTestCase {
         XCTAssertEqual(WorkflowOperationDialogState.pseudobulkFolderName(for: "x.LungfishRNASeq"), "x.LungfishRNASeq")
     }
 
+    /// UX SF-3 of the 5.6 TV-PSEUDOBULK review (QA 2, 5.6 Q1). E0 and F are held by their help tags alone. ViewInspector lists the words of
+    /// a help tag more than once, and a caption drawn in view adds one more, so these counts fail if either returns to view or loses its
+    /// tag. `paneTexts` takes the help tags out by their words, so the pins above cannot see either of those two cases. The counts are
+    /// what the head reads. The review expected three for F, from the report of 6eaad0cd1 and not from a run at the head, and the head
+    /// lists the Result name field four times. The source draws F nowhere else: `RNASeqPaneWords.pseudobulkFolderCaption` is read only by
+    /// the help item `RNASeqPseudobulkHelp.resultFolder`, which `RNASeqWorkflowPanes.swift` attaches once, to that field.
+    func testE0AndFAreHelpTagsOnlyAndNotDrawnInView() throws {
+        let texts = try OperationsDialogFixtures.workflowDetailTexts(try pseudobulkState(selection: true))
+        XCTAssertEqual(texts.filter { $0 == e0 }.count, 2, "E0: the row's help tag, no caption")
+        XCTAssertEqual(texts.filter { $0 == folder }.count, 4, "F: the field's help tag, no caption")
+    }
+
+    /// BIO SF-3 of the 5.6 TV-PSEUDOBULK review (5.6 B5). E1's 10 is the CLI's own threshold for a group, so a change of
+    /// `RNASeqPseudobulk.minimumCells` or of the number in the sentence moves this pin, and the caption and the pass rule cannot drift apart.
+    func testE1NamesTheCLIsOwnGroupThreshold() {
+        XCTAssertEqual(RNASeqPaneWords.smallGroupCaption, e1)
+        XCTAssertEqual(
+            RNASeqPaneWords.smallGroupCaption,
+            "Groups under \(RNASeqPseudobulk.minimumCells) cells and cells with no label are left out. The Operations row says which.")
+    }
+
+    // MARK: The Library panel's rows
+
+    /// UX SF-2 of the 5.6 TV-PSEUDOBULK review. The Library panel draws each item's subtitle in a wide row, and the six shorter subtitles
+    /// dropped facts that the dialog card holds in its help tag. The panel row carries the same tag, found here by the decided subtitle.
+    func testTheLibraryPanelRowHoldsTheCardsHelpTagOnItsSubtitle() throws {
+        let suite = makeTestDefaultsSuite(prefix: "RNASeqPseudobulkPaneTests")
+        let viewModel = WorkflowLibraryViewModel(
+            store: WorkflowLibraryEnablementStore(userDefaults: suite.defaults),
+            packageStore: WorkflowLibraryImportedPackageStore(userDefaults: suite.defaults),
+            automaticallyRefreshUserWorkflowPackages: false)
+        let texts = try WorkflowLibraryPanelView(viewModel: viewModel).inspect().findAll(ViewType.Text.self)
+        for card in cards {
+            XCTAssertNotNil(WorkflowLibraryCatalog.builtIn.first { $0.subtitle == card.subtitle }, "the catalog holds \(card.title)")
+            let row = try XCTUnwrap(texts.first { (try? $0.string()) == card.subtitle }, "the panel draws the subtitle of \(card.title)")
+            XCTAssertEqual(try row.help().string(), card.help, card.title)
+        }
+    }
+
     // MARK: Import Embedding pane
 
     func testTheImportPaneOrder() throws {
