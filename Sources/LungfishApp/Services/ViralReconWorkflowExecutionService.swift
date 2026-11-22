@@ -19,6 +19,8 @@ final class ViralReconWorkflowExecutionService {
         let runBundleURL: URL
         let sampleNames: [String]
         let projectURL: URL?
+        /// The run's effective params, which set the folders its outputs are read from (VR-INVENTORY).
+        var params: [String: String] = ViralReconOutputLayout.defaultRunParams
     }
 
     /// Turns a finished run into a viewable bundle.
@@ -201,7 +203,8 @@ final class ViralReconWorkflowExecutionService {
             resultsDirectory: request.outputDirectory,
             runBundleURL: bundleURL,
             sampleNames: request.samples.map(\.sampleName),
-            projectURL: projectURL
+            projectURL: projectURL,
+            params: request.effectiveParams
         )
         do {
             try await resultIngest(context)
@@ -242,7 +245,8 @@ final class ViralReconWorkflowExecutionService {
             resultsDirectory: context.resultsDirectory,
             sampleNames: context.sampleNames,
             referenceBundleURL: referenceBundleURL,
-            projectURL: projectURL
+            projectURL: projectURL,
+            params: context.params
         )
         // Awaited rather than fired into a detached Task. Publication is what
         // makes the alignment and variants visible, so discarding its error

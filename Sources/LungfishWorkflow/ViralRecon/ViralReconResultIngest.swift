@@ -41,6 +41,7 @@ public enum ViralReconResultIngest {
         sampleName: String,
         referenceBundleURL: URL,
         into bundleDirectory: URL,
+        params: [String: String] = ViralReconOutputLayout.defaultRunParams,
         fileManager: FileManager = .default
     ) throws -> Ingested {
         guard fileManager.fileExists(atPath: referenceBundleURL.path) else {
@@ -64,7 +65,8 @@ public enum ViralReconResultIngest {
             .write(to: bundleDirectory.appendingPathComponent("analysis-metadata.json"))
 
         let inventory = ViralReconResultInventory.discover(in: resultsDirectory,
-                                                          sampleName: sampleName)
+                                                          sampleName: sampleName,
+                                                          params: params)
         let copied = try copyOutputsByRole(inventory,
                                            into: bundleDirectory,
                                            fileManager: fileManager)
@@ -201,6 +203,10 @@ public enum ViralReconResultIngest {
         if let vcf = inventory.variantVCF {
             json["variantsPath"] = vcf.path
         }
+        // Written only when an output is absent, so a full result's sidecar is unchanged.
+        if !inventory.absentOutputs.isEmpty {
+            json["absentOutputs"] = inventory.absentOutputs.map(\.rawValue)
+        }
 
         let data = try JSONSerialization.data(withJSONObject: json,
                                               options: [.prettyPrinted, .sortedKeys])
@@ -224,6 +230,7 @@ public enum ViralReconResultIngest {
         sampleNames: [String],
         referenceBundleURL: URL,
         projectURL: URL,
+        params: [String: String] = ViralReconOutputLayout.defaultRunParams,
         fileManager: FileManager = .default
     ) throws -> [Ingested] {
         // Checked before the batch path, which would otherwise create an empty
@@ -248,6 +255,7 @@ public enum ViralReconResultIngest {
                     sampleName: sampleNames[0],
                     referenceBundleURL: referenceBundleURL,
                     into: directory,
+                    params: params,
                     fileManager: fileManager
                 )
             } catch {
@@ -264,6 +272,7 @@ public enum ViralReconResultIngest {
             sampleNames: sampleNames,
             referenceBundleURL: referenceBundleURL,
             projectURL: projectURL,
+            params: params,
             fileManager: fileManager
         )
     }
@@ -281,6 +290,7 @@ public enum ViralReconResultIngest {
         sampleNames: [String],
         referenceBundleURL: URL,
         projectURL: URL,
+        params: [String: String] = ViralReconOutputLayout.defaultRunParams,
         fileManager: FileManager = .default
     ) throws -> [Ingested] {
         guard !sampleNames.isEmpty else {
@@ -314,6 +324,7 @@ public enum ViralReconResultIngest {
                     sampleName: sampleName,
                     referenceBundleURL: referenceBundleURL,
                     into: batchDirectory.appendingPathComponent(directoryName, isDirectory: true),
+                    params: params,
                     fileManager: fileManager
                 )
             }

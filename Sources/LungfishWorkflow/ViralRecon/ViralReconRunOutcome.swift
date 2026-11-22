@@ -31,25 +31,10 @@ package enum ViralReconRunOutcome {
     }
 
     /// The run's variant caller, as the release picks it (`workflows/viralrecon.nf:55-56`), or nil when the run calls
-    /// no variants. The files are the ones `conf/modules_illumina.config:395-470` and
-    /// `conf/modules_nanopore.config:44-51` publish.
+    /// no variants. The files and the task are `ViralReconOutputLayout`'s, the one table of the run's folders.
     package static func caller(params: [String: String]) -> Caller? {
-        func value(_ key: String) -> String? {
-            let text = params[key]?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
-            return text.isEmpty ? nil : text
-        }
-        guard value("skip_variants") != "true" else { return nil }
-        if value("platform") == "nanopore" {
-            return Caller(fileTemplates: ["artic_minion/@SAMPLE@.pass.vcf.gz"], processName: "ARTIC_MINION")
-        }
-        switch value("variant_caller") ?? (value("protocol") == "amplicon" ? "ivar" : "bcftools") {
-        case "ivar":
-            // The table iVar writes for every sample it calls, and the VCF it makes when the table has a variant.
-            return Caller(fileTemplates: ["variants/ivar/@SAMPLE@.tsv", "variants/ivar/@SAMPLE@.vcf.gz"], processName: "IVAR_VARIANTS")
-        case "bcftools":
-            return Caller(fileTemplates: ["variants/bcftools/@SAMPLE@.vcf.gz"], processName: "BCFTOOLS_MPILEUP")
-        default:
-            return nil
+        ViralReconOutputLayout(params: params).callerEvidence.map {
+            Caller(fileTemplates: $0.fileTemplates, processName: $0.processName)
         }
     }
 

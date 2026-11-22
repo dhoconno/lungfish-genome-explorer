@@ -89,16 +89,6 @@ public enum ViralReconLineageTool: String, Sendable, Equatable, CaseIterable {
 }
 
 extension ViralReconLineageTool {
-    /// The results folder, under the results directory, that holds this
-    /// tool's per-sample tables in an Illumina run of viralrecon 3.0.0.
-    public var resultsFolder: String {
-        switch self {
-        case .pangolin: return "variants/ivar/consensus/bcftools/pangolin"
-        case .nextclade: return "variants/ivar/consensus/bcftools/nextclade"
-        case .freyja: return "variants/freyja/demix"
-        }
-    }
-
     /// The one file name this tool's table has for `sampleName` in viralrecon
     /// 3.0.0: Pangolin's `--outfile ${prefix}.pangolin.csv`, Nextclade's
     /// published `${prefix}.csv` and Freyja demix's `--output ${prefix}.tsv`,
