@@ -24,16 +24,16 @@ extension AffectedResults {
         AffectedResultRow(
             backlogID: "TAXTRIAGE-BUNDLE-NAMES-PAIRED", kinds: [.taxTriage, .kraken2, .esViritu], firstBuild: nil,
             lastBuild: 14072,
-            sentence: "If this run was given FASTQ bundles named like Swab_1 and Swab_2, the version that made it could run "
-                + "them as the two reads of one sample and leave out a third input named Swab.",
+            sentence: "If this run used FASTQ bundles named like Swab_1 and Swab_2, the old version could treat them as "
+                + "the two reads of one sample and skip a third input named Swab.",
             whatToDo: "Run those samples again with this version, which runs each bundle as its own sample.",
             fixCommit: "61acb5bfc"
         ),
         // FIX-A pairs loose mates only within one folder in `classify --batch` and `esviritu detect --batch`.
         AffectedResultRow(
             backlogID: "GROUPER-CROSS-FOLDER-PAIR", kinds: [.kraken2, .esViritu], firstBuild: nil, lastBuild: 14072,
-            sentence: "If this batch was started on the command line with reads files of one name from two folders, the "
-                + "version that made it could pair the R1 file of one folder with the R2 file of the other.",
+            sentence: "If this command-line batch used read files with the same name from two folders, the old version "
+                + "could pair R1 from one folder with R2 from the other.",
             whatToDo: "Run the batch again with this version, which pairs files only within one folder.",
             fixCommit: "d998a3371"
         ),
@@ -44,11 +44,10 @@ extension AffectedResults {
             backlogID: "LOOSE-PAIR-SHORT-MATE",
             kinds: [.taxTriage, .kraken2, .esViritu, .mappingLoosePair, .assembly, .viralRecon], firstBuild: nil,
             lastBuild: 14072,
-            sentence: "If this result was made from two separate files given as R1 and R2, the version that made it did not "
-                + "check that both files held the same number of reads, so some reads could be left out or paired with "
-                + "the wrong mate.",
-            whatToDo: "If the two files hold different numbers of reads, run the analysis again with this version, which "
-                + "stops and says so.",
+            sentence: "If this result used separate R1 and R2 files, the old version did not check for equal read "
+                + "counts, so it could skip reads or pair them with the wrong mates.",
+            whatToDo: "If the read counts differ, rerun the analysis with this version, which stops and reports the "
+                + "mismatch.",
             fixCommit: "c9ed8e3ef"
         ),
         // FIX-B2 (543d4ea73 to 1c936647b) on TaxTriage, Kraken 2 and EsViritu, FIX-ROUTES (c9ed8e3ef) on map, assembly and
@@ -62,20 +61,20 @@ extension AffectedResults {
                 .fastqLoosePairImport,
             ],
             firstBuild: nil, lastBuild: 14072,
-            sentence: "If this result was made from two separate files given as R1 and R2 with the same number of reads in "
-                + "a different order, the version that made it paired the reads by their place in the files, so reads of "
-                + "different fragments could be taken as mates.",
-            whatToDo: "If the two files may have been sorted or subsampled separately, import them or run the analysis "
-                + "again with this version, which checks that the read names of each pair match.",
+            sentence: "If this result used separate R1 and R2 files with equal read counts but different read orders, "
+                + "the old version paired reads by position, so reads from different fragments could be treated as "
+                + "mates.",
+            whatToDo: "If the files may have been sorted or subsampled separately, import them again or rerun the "
+                + "analysis with this version, which checks that each pair's read names match.",
             fixCommit: "c9ed8e3ef"
         ),
         // FIX-CZID (22dd9eb14) with its folds e2f7f342c and f58ecdaae, in `cz-id import`, `import cz-id` and the window.
         AffectedResultRow(
             backlogID: "CZID-REAL-EXPORT-FORMAT", kinds: [.czIdImport], firstBuild: nil, lastBuild: 14072,
-            sentence: "If this result came from a CZ ID report table saved as a tab file, the version that imported it gave "
-                + "every taxon 0 reads and no rank.",
-            whatToDo: "Import the CZ ID report again with this version, which reads the report table as a CSV or tab "
-                + "file, then remove this result.",
+            sentence: "If this result came from a CZ ID report table saved as a tab file, the old version gave every "
+                + "taxon 0 reads and rank U.",
+            whatToDo: "Import the CZ ID report again with this version, which reads CSV or tab report tables, then "
+                + "remove this result.",
             fixCommit: "f58ecdaae"
         ),
     ]

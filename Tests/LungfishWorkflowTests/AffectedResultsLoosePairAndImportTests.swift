@@ -152,4 +152,40 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
         XCTAssertEqual(kind(record("NAO-MGS Import")), nil)
         XCTAssertEqual(kind(record("CZ-ID Import preview")), nil, "only the root name")
     }
+
+    func testEachRowSaysSolsDecidedWords() {
+        // `SCR/codex/AFFECTED-decided.md`, decided 2026-11-22 14:22 CST.
+        let decided: [(String, String, String)] = [
+            ("TAXTRIAGE-BUNDLE-NAMES-PAIRED",
+             "If this run used FASTQ bundles named like Swab_1 and Swab_2, the old version could treat " +
+             "them as the two reads of one sample and skip a third input named Swab.",
+             "Run those samples again with this version, which runs each bundle as its own sample."),
+            ("GROUPER-CROSS-FOLDER-PAIR",
+             "If this command-line batch used read files with the same name from two folders, the old " +
+             "version could pair R1 from one folder with R2 from the other.",
+             "Run the batch again with this version, which pairs files only within one folder."),
+            ("LOOSE-PAIR-SHORT-MATE",
+             "If this result used separate R1 and R2 files, the old version did not check for equal read " +
+             "counts, so it could skip reads or pair them with the wrong mates.",
+             "If the read counts differ, rerun the analysis with this version, which stops and reports the " +
+             "mismatch."),
+            ("LOOSE-PAIR-OUT-OF-STEP",
+             "If this result used separate R1 and R2 files with equal read counts but different read " +
+             "orders, the old version paired reads by position, so reads from different fragments could be " +
+             "treated as mates.",
+             "If the files may have been sorted or subsampled separately, import them again or rerun the " +
+             "analysis with this version, which checks that each pair's read names match."),
+            ("CZID-REAL-EXPORT-FORMAT",
+             "If this result came from a CZ ID report table saved as a tab file, the old version gave " +
+             "every taxon 0 reads and rank U.",
+             "Import the CZ ID report again with this version, which reads CSV or tab report tables, then " +
+             "remove this result."),
+        ]
+        for (id, sentence, whatToDo) in decided {
+            let row = AffectedResults.rows.first { $0.backlogID == id }
+            XCTAssertEqual(row?.sentence, sentence, id)
+            XCTAssertEqual(row?.whatToDo, whatToDo, id)
+            XCTAssertEqual(row?.words, sentence + " " + whatToDo, id)
+        }
+    }
 }
