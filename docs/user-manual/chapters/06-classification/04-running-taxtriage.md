@@ -92,9 +92,9 @@ The example in this chapter runs TaxTriage once on both corneal samples against 
 
 The **Samples** section holds one row per bundle you selected, so it lists SRR12486983 and SRR12486989.
 
-1. Read each **Sample ID** field. It starts with the reads file's name, less its `.fastq.gz` ending, which here matches the bundle's name, and the pipeline reports the sample under it. When you run several samples, leave each Sample ID as LGE filled it in. LGE then names each sample after its reads file, or after its bundle when the bundle keeps a pair as two files, so a Sample ID you type would not match the name in the results. LGE refuses such a run with an alert titled TaxTriage Cannot Run These Samples, which says what to change.
+1. Read each **Sample ID** field. It starts with the bundle's name, and the pipeline reports the sample under it. When you run several samples, leave each Sample ID as LGE filled it in. LGE then names each sample after its bundle, so a Sample ID you type would not match the name in the results. LGE refuses such a run with an alert titled TaxTriage Cannot Run These Samples, which says what to change.
 
-2. Leave the role picker at the right of each row on **Clinical Sample**, because both samples are patient specimens. LGE sets the picker from the bundle's sample metadata when that records a role, as [Editing sample metadata](../03-reads/01-importing-fastq.md#editing-sample-metadata) describes. For your own samples there are four control roles. A Negative Control is a no-template tube, and an Extraction Blank is a tube with nothing in it carried through DNA extraction. A Positive Control holds a known organism, and an Environmental Control samples the room or bench.
+2. Leave the role picker at the right of each row on **Clinical Sample**, because both samples are patient specimens. For your own samples there are four control roles. A Negative Control is a no-template tube, and an Extraction Blank is a tube with nothing in it carried through DNA extraction. A Positive Control holds a known organism, and an Environmental Control samples the room or bench. Whatever the picker shows, the run marks a sample as a negative control when its bundle's sample metadata records the role Negative Control or Extraction Blank, as [Editing sample metadata](../03-reads/01-importing-fastq.md#editing-sample-metadata) describes.
 
 3. **Remove** at the right of a row drops it. Do not use **Add Sample**. It adds an empty row that cannot hold reads, and the run leaves it out. Select every bundle you want in the sidebar before you open the dialog instead.
 
@@ -142,7 +142,7 @@ Once the result is open, the Inspector's **Operation Details** section lists the
 
 A colleague who ran TaxTriage on another computer can send you its output folder, and LGE opens it in the same viewport. Choose **File > Import Center…** (Cmd-Shift-I), click the **Classification Results** tab, and click **Import…** on the **TaxTriage Results** card, whose file hint reads "TaxTriage output directory". Pick the output folder and click **Open**. No sheet follows, and the import starts at once.
 
-LGE looks inside for each sample's organism report, `<sample>.odr.txt` or `<sample>.organisms.report.txt`, and also picks up the run's Krona chart, `nextflow.log`, and `trace.txt` when they are there. The folder lands in the project as `Imports/taxtriage-<name>`, where `<name>` is the folder's name with every character other than a letter, a digit, a hyphen, or an underscore turned into an underscore, with runs of underscores merged into one and any at either end dropped. A second import of the same name adds `-2`.
+LGE looks inside for each sample's organism report, `<sample>.odr.txt` or `<sample>.organisms.report.txt`, and also picks up the run's Krona chart, `nextflow.log`, and `trace.txt` when they are there. The folder lands in the project as `Imports/taxtriage-<name>`, where `<name>` is the folder's name, less anything after its last dot, with every character other than a letter, a digit, a hyphen, or an underscore turned into an underscore, with runs of underscores merged into one and any at either end dropped. A name that already begins with `taxtriage-`, as LGE's own result folders do, gets no second prefix, and a second import of the same name adds `-2`.
 
 A folder that LGE's own run wrote holds a record of that run, `taxtriage-result.json`, and the import keeps its negative controls, settings, and database. A folder without that record cannot say which samples were controls. Its viewport then shows a note above the table that begins "Not recorded by this import", its settings read Not recorded, and an export's Contamination Risk column reads Not recorded rather than a misleading No.
 
@@ -150,9 +150,9 @@ A folder that LGE's own run wrote holds a record of that run, `taxtriage-result.
 
 Six controls sit in plain view and six more inside **Advanced Settings**.
 
-**Sample ID.** Names one row of the sample list, and every report the pipeline writes refers to the sample by this label. The default is the reads file's name without its ending and without any `_R1` or `_1` mate marker, so each report stays matched to the file it came from. Change it to your lab's identifier in a run of one sample, and leave it as filled in for a run of several, as [Check the samples](#check-the-samples) explains. On the command line this is `--sample`.
+**Sample ID.** Names one row of the sample list, and every report the pipeline writes refers to the sample by this label. The default is the bundle's name without any mate marker at its end, such as `_R1` or `_1`, so each report stays matched to the bundle it came from. Change it to your lab's identifier in a run of one sample, and leave it as filled in for a run of several, as [Check the samples](#check-the-samples) explains. On the command line this is `--sample`.
 
-**Sample role.** Records what kind of material a row holds, Clinical Sample for the specimen under test or one of four control roles. The default is Clinical Sample, or the role the bundle's sample metadata records, because most rows are specimens. Set Negative Control or Extraction Blank on every blank you carried through the protocol, because only those two roles mark the organisms found in them as a contamination risk, and a Clinical Sample row also fills **Exclude host taxa** with 9606. On the command line this is `--negative-control`.
+**Sample role.** Records what kind of material a row holds, Clinical Sample for the specimen under test or one of four control roles. The default is Clinical Sample, because most rows are specimens. Set Negative Control or Extraction Blank on every blank you carried through the protocol, because only those two roles mark the organisms found in them as a contamination risk, and a Clinical Sample row also fills **Exclude host taxa** with 9606. On the command line this is `--negative-control`.
 
 **Kraken2 Database.** Names the reference collection the classification step compares every read against, and so fixes which organisms can be reported at all. The default is the first installed Kraken 2 database, which is an accident of install order rather than a choice. Match it to the organisms you expect, such as Viral for viruses only, Standard-8 or Standard-16 for a broad survey on an 8 GB or 16 GB Mac, and PlusPF when fungi and protozoa matter, as [Sensitivity, precision, and the database](01-what-is-classification.md#sensitivity-precision-and-the-database) describes. On the command line this is `--db`.
 
@@ -234,7 +234,7 @@ In the example run *Streptococcus agalactiae* reads High at 0.780. Hold the poin
 
 ### What the TASS score means
 
-The TASS score folds several measures into one value. They include how cleanly the reads map, whether they map to this organism rather than equally well to others, how evenly they spread along the reference, and whether Kraken 2 and the mapping step agree. It weighs how well the evidence hangs together, not how many reads there are, so a few thousand reads that map cleanly and only to one organism can score as high as millions.
+The TASS score folds several measures into one value. They include how cleanly the reads map, whether they map to this organism rather than equally well to others, and how evenly they spread along the reference. It weighs how well the evidence hangs together, not how many reads there are, so a few thousand reads that map cleanly and only to one organism can score as high as millions.
 
 The score does not measure how much of the organism there is, and it is not a probability that the organism caused a disease. A harmless skin bacterium with clean, evenly spread reads can outscore a pathogen, and the example run shows exactly that. A thin organism can also score near 1, so read Coverage Breadth and Coverage Depth beside it.
 
@@ -329,7 +329,7 @@ Then read your controls and TaxTriage's Microbial Category, as Recognising the p
 
 ## On the command line
 
-These commands repeat the procedure, as [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains. You can skip this section if you work in the app, because the dialog does everything below. Most flags of `taxtriage run` are listed in [Classification](../appendices/cli-reference.md#classification) in the CLI Reference, and `lungfish-cli taxtriage run --help` shows every one.
+These commands repeat the procedure, as [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains. You can skip this section if you work in the app, because the dialog covers the prerequisite check and the run, and the Import Center covers the import. Most flags of `taxtriage run` are listed in [Classification](../appendices/cli-reference.md#classification) in the CLI Reference, and `lungfish-cli taxtriage run --help` shows every one.
 
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/Pathogen Detection.lungfish"
