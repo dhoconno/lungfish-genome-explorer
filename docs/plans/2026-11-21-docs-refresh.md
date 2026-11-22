@@ -289,11 +289,11 @@ A question with no answer after 15 minutes takes the default below (`SCOPE-AND-D
 
 | Id | Decision | Who | Default if no answer comes |
 |---|---|---|---|
-| D1 | Spending past the $750 ask line toward $3,248 | owner | At $750 spent the manager starts no new chain and waits. The pilot report carries the ask |
+| D1 | Spending past the $750 ask line toward $3,248 | owner | Answered 2026-11-21, "Approve with reports": up to about $3,550 (the pilot report's measured total). $750 spent and the end of wave 1 are progress reports to the coordinator (spent, chapters done, false rows, Sol tokens), not stops. If the measured total heads past about $3,550, start no new chain and tell the coordinator first |
 | D2 | The media go | owner | Chapters with new shots stay on the branch, and final text-only chapters push |
 | D3 | The target Preview | coordinator | ux-text's Preview for the whole manual, with unchanged surfaces captured on 2026.11.15 where they match. If it has not published by the reset, the target is 2026.11.15 and ux-text's surfaces keep waiting |
 | D4 | The scope of Stage B | coordinator | The 87 works above |
-| D5 | The pilot arm that scales | coordinator | No scaling before the answer, then the loop of owner word 2, unless arm S matches its blind read and fidelity count at under half its cost |
+| D5 | The pilot arm that scales | coordinator | Answered 2026-11-21: the combination of `SCR/pilot/REPORT.md` (round 1 of the loop with a length target, the Opus check and one fix turn, a second critique round only if a FACT or SCOPE objection survives, two final F reviews merged and fix turns to `FALSE ROWS 0`), now `SCR/codex/PROTOCOL.md` Version 2. Stage A gains step F2. Measured on the first wave 1 chapter before it scales |
 | D6 | The tutorial template in `STYLE.md` | coordinator | The documentation-lead writes it from `ARCHITECTURE.md:145-150` as gate 1 of T-SEQ |
 | D7 | An RNA-seq demo project archive | owner | None. T-RNA runs on the docs fixture folders |
 | D8 | The Linux run of the N-LINUX fixture | coordinator | `run-local.sh` in a Linux container on galah, else F-10's returned runs and `Tests/Fixtures/htcondor` |
