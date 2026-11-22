@@ -40,7 +40,7 @@ final class LoosePairShortMateTests: XCTestCase {
             let refusal = await planRefusal(route, r1: r1, r2: r2)
             XCTAssertEqual(
                 refusal.words,
-                "Paired FASTQ mates do not match: S_R1.fastq has 100 reads but S_R2.fastq has 60. Nothing was imported.",
+                "Paired FASTQ mates do not match. S_R1.fastq has 100 reads, but S_R2.fastq has 60. Nothing ran. Check that both files are complete or run each as single reads.",
                 route.rawValue
             )
             XCTAssertEqual(refusal.exitCode, 3, route.rawValue)
@@ -98,11 +98,13 @@ final class LoosePairShortMateTests: XCTestCase {
         for (r1, r2) in [(r1, plainR2), (gzipR1, gzipR2)] {
             let name = r2.lastPathComponent
 
-            let taxTriage = try await taxTriageTool(r1: r1, r2: r2).plan(runRequest(output, batch: false), context: AnalysisRunPlanningContext(projectURL: nil))
-            let samples = taxTriage.units.flatMap(\.value.config.samples)
-            XCTAssertEqual(samples.map(\.sampleId), ["S1"], name)
-            XCTAssertEqual(samples.map(\.fastq1), [r1], name)
-            XCTAssertEqual(samples.map(\.fastq2), [r2], name)
+            for samplesheet in [false, true] {
+                let taxTriage = try await taxTriageTool(r1: r1, r2: r2, samplesheet: samplesheet).plan(runRequest(output, batch: false), context: AnalysisRunPlanningContext(projectURL: nil))
+                let samples = taxTriage.units.flatMap(\.value.config.samples)
+                XCTAssertEqual(samples.map(\.sampleId), ["S1"], "\(name) samplesheet \(samplesheet)")
+                XCTAssertEqual(samples.map(\.fastq1.path), [r1.path], "\(name) samplesheet \(samplesheet)")
+                XCTAssertEqual(samples.map { $0.fastq2?.path }, [r2.path], "\(name) samplesheet \(samplesheet)")
+            }
 
             for batch in [false, true] {
                 let esViritu = try await esVirituTool(batch: batch).plan(runRequest(output, batch: batch, inputs: [r1, r2]), context: AnalysisRunPlanningContext(projectURL: nil))
@@ -121,6 +123,7 @@ final class LoosePairShortMateTests: XCTestCase {
     /// Each setup that runs two loose files as one pair.
     enum Route: String, CaseIterable {
         case taxTriageInput2 = "taxtriage run --input --input2"
+        case taxTriageSamplesheet = "taxtriage run --samplesheet"
         case esVirituPaired = "esviritu detect --paired"
         case esVirituBatch = "esviritu detect --batch"
         case kraken2Paired = "kraken2 classify --paired"
@@ -133,8 +136,9 @@ final class LoosePairShortMateTests: XCTestCase {
         let context = AnalysisRunPlanningContext(projectURL: nil)
         do {
             switch route {
-            case .taxTriageInput2:
-                _ = try await taxTriageTool(r1: r1, r2: r2).plan(runRequest(output, batch: false), context: context)
+            case .taxTriageInput2, .taxTriageSamplesheet:
+                let tool = taxTriageTool(r1: r1, r2: r2, samplesheet: route == .taxTriageSamplesheet)
+                _ = try await tool.plan(runRequest(output, batch: false), context: context)
             case .esVirituPaired, .esVirituBatch:
                 let batch = route == .esVirituBatch
                 _ = try await esVirituTool(batch: batch).plan(runRequest(output, batch: batch, inputs: [r1, r2]), context: context)
@@ -152,16 +156,22 @@ final class LoosePairShortMateTests: XCTestCase {
         AnalysisRunRequest(inputs: inputs, destination: .directory(output), groupsSamples: batch, commandLine: ["lungfish-cli"])
     }
 
-    func taxTriageTool(r1: URL, r2: URL) -> TaxTriageAnalysisRunTool {
+    /// `taxtriage run --input r1 --input2 r2 --sample S1`, or with `samplesheet` a samplesheet whose one
+    /// row names sample `S1` with `r1` as `fastq_1` and `r2` as `fastq_2`.
+    func taxTriageTool(r1: URL, r2: URL, samplesheet: Bool = false) -> TaxTriageAnalysisRunTool {
         let database = root.appendingPathComponent("kraken2-db", isDirectory: true)
         try? FileManager.default.createDirectory(at: database, withIntermediateDirectories: true)
+        let settings = TaxTriageConfig(samples: [], outputDirectory: root, kraken2DatabasePath: database, maxCpus: 2)
+        var sheetPath: String?
+        if samplesheet {
+            let sheet = root.appendingPathComponent("samplesheet.csv")
+            try? "sample,fastq_1,fastq_2,platform\nS1,\(r1.path),\(r2.path),ILLUMINA\n".write(to: sheet, atomically: true, encoding: .utf8)
+            sheetPath = sheet.path
+        }
         return TaxTriageAnalysisRunTool(
-            request: TaxTriageRunRequest(
-                input: r1.path,
-                input2: r2.path,
-                sampleID: "S1",
-                settings: TaxTriageConfig(samples: [], outputDirectory: root, kraken2DatabasePath: database, maxCpus: 2)
-            ),
+            request: samplesheet
+                ? TaxTriageRunRequest(input: nil, samplesheet: sheetPath, settings: settings)
+                : TaxTriageRunRequest(input: r1.path, input2: r2.path, sampleID: "S1", settings: settings),
             services: TaxTriageRunServices(materializer: ReadSetFixtures.StubMaterializer(readsByBundlePath: [:]))
         )
     }
