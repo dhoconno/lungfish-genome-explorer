@@ -304,6 +304,47 @@ extension RNASeqCellMapViewControllerTests {
         XCTAssertNil(controller.selection, "with no popover open, Escape empties the selection")
     }
 
+    /// BIO lane condition. Each info button is found in the AX tree by its id, a VoiceOver press opens its popover, and the
+    /// popover holds the decided words.
+    func testEachInfoButtonIsFoundThroughAXAndItsPressShowsTheDecidedWords() async throws {
+        let (surface, controller) = try await openController()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = surface.controller.view
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            withExtendedLifetime(surface) {}
+        }
+        func find(_ id: String, in elements: [Any]) -> Any? {
+            for element in elements {
+                guard let (entry, children) = RNASeqCellMapAX.read(element) else { continue }
+                if entry.id == id { return element }
+                if let inner = find(id, in: children) { return inner }
+            }
+            return nil
+        }
+        func press(_ button: LungfishInfoButton, shows words: String) throws {
+            let id = LungfishInfoButton.accessibilityIdentifier(for: button.item)
+            let element = try XCTUnwrap(find(id, in: controller.view.accessibilityChildren() ?? []) as? NSAccessibilityProtocol, "no AX element \(id)")
+            // The column scrolls, and VoiceOver brings the element it presses into view first. A popover shows only beside a
+            // button that is in view, and "About selecting" lies below the 21 legend rows.
+            button.scrollToVisible(button.bounds)
+            controller.view.layoutSubtreeIfNeeded()
+            _ = element.accessibilityPerformPress()
+            XCTAssertTrue(button.isPopoverShown, "\(id): a VoiceOver press opens the popover")
+            XCTAssertEqual(button.popoverController.text, words, id)
+            XCTAssertTrue(button.closePopover())
+        }
+        try press(controller.embeddingInfo, shows: RNASeqEmbeddingWords.caption(method: "UMAP", embedding: "UMAP") + "\n\n" + RNASeqEmbeddingWords.otherCountsPlace)
+        try press(controller.clustersInfo, shows: RNASeqEmbeddingWords.clusterNumbers + "\n\n" + RNASeqEmbeddingWords.unlabelledGrey)
+        try press(controller.selectingInfo, shows: RNASeqEmbeddingSelectionWords.howToSelect)
+        controller.chooseColouring(.cellUMIs)
+        await settle(controller)
+        controller.view.layoutSubtreeIfNeeded()
+        try press(controller.legendView.scaleInfo, shows: RNASeqEmbeddingWords.colourScale(cells: try XCTUnwrap(controller.snapshot).facts.cellCount, gene: false))
+    }
+
     /// 5.6 A1. The cell map's items pass Kit's catalog check, for each method and each clusters caveat.
     func testTheCellMapsHelpItemsPassTheCatalogCheck() throws {
         for method in ["UMAP", "t-SNE", "PHATE", "PCA", nil] as [String?] {

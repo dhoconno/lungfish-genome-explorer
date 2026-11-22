@@ -270,7 +270,8 @@ extension InspectorRNASeqResultTests {
         await assertRows(window, try expectedHeader(map) + expectedCellMap(map, embedding: 1), "t-SNE on show")
     }
 
-    /// BIO 4. Each cell map row, and the view's own line beside it, equals the value built from the manifest and the file.
+    /// BIO 4. Each cell map row equals the value built from the manifest and the file, and the view keeps beside it only
+    /// Cells drawn and its imported-from line (C17, C4a).
     func testEachCellMapRowAndTheViewsLineEqualWhatTheManifestAndTheFileHold() async throws {
         let map = try cellMap()
         let split = split()
@@ -284,10 +285,23 @@ extension InspectorRNASeqResultTests {
             view.subviews.forEach(walk)
         }
         walk(controller.view)
+        // TV-CELLMAP: the parent (C17), the embedding with its method recorded (C17), the source (C4) and the labels (C10) left
+        // the view for the Inspector. Cells drawn stays, and on a map of one sample that leaves cells out it opens with the
+        // Inspector's value and goes on with the left-out words (C6a).
+        let leftTheView: Set<String> = ["parent-result", "embedding", "source", "labels"]
         for row in expected {
-            let id = row.id.replacingOccurrences(of: "inspector-rnaseq-cell-map-", with: "rnaseq-cell-map-fact-")
-            XCTAssertEqual(lines[id], row.value, "the view's \(id) line")
+            let key = row.id.replacingOccurrences(of: "inspector-rnaseq-cell-map-", with: "")
+            let id = "rnaseq-cell-map-fact-" + key
+            if leftTheView.contains(key) {
+                XCTAssertNil(lines[id], "the view no longer lays \(id)")
+            } else {
+                XCTAssertTrue(lines[id]?.hasPrefix(row.value) == true, "the view's \(id) line opens with \(row.value): \(lines[id] ?? "none")")
+            }
         }
+        // C4a: the view's line is the Inspector's Source value with its sha256 cut out, the one string cut once.
+        let source = try XCTUnwrap(expected.first { $0.id == "inspector-rnaseq-cell-map-source" }).value
+        XCTAssertEqual(lines["rnaseq-cell-map-imported"],
+                       source.replacingOccurrences(of: #" \(sha256 [0-9a-f]+\)"#, with: "", options: .regularExpression))
     }
 
     /// QA 2. One assertion by id and string for each cell map row, its value counted from the fixture's own bytes.
