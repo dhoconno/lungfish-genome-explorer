@@ -115,7 +115,7 @@ The 12S drawer displays `BLAST results for <name>` and gives no verdict. EsVirit
 
 | Control | Range and limits |
 |---|---|
-| Slider and number field | 1 to 50 fragments. LGE brings typed values back into range. If the taxon has fewer than 50 fragments, its count is the maximum. Below 20, that count is also the default. |
+| Slider and number field | 1 to 50 reads. LGE brings typed values back into range. If the taxon has fewer than 50 reads, its count is the maximum. Below 20, that count is also the default. |
 | Command line | Accepts up to 100, subject to the search limit of 50 reads. |
 
 In the taxonomy viewport, when the selected taxon is a species or a group above species, LGE draws randomly from fragments assigned to that taxon or any group below it. For a taxon below species, the draw covers its whole species because LGE judges at species level. Each eligible fragment has the same chance of being drawn. The same count on the same result draws the same reads. A larger draw includes the smaller draw, so 40 reads include the first 20.
