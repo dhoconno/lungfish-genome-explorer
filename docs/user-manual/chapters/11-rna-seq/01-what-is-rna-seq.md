@@ -20,12 +20,12 @@ entry_points:
   - "Import Center > Sequencing Reads > RNA-seq Linux Run Result"
 shots:
   - id: rnaseq-tools-submenu
-    caption: "The Tools menu open on its RNA-seq submenu, which lists Quantify RNA-seq Reads… above a separator and then Export RNA-seq Counts…, Import Embedding…, and Pseudobulk RNA-seq Cells…"
+    caption: "The Tools menu open on its RNA-seq submenu, which lists Quantify RNA-seq Reads… above a separator and then Export RNA-seq Counts…, Import Embedding…, and Pseudobulk RNA-seq Cells…."
 illustrations: []
 glossary_refs: [genome, cdna, ribosomal-rna, library-prep, read, fragment, exon, intron, paired-end, umi, library, spike-in-control, fastq, gtf, reference-genome, k-mer, splice-aware-mapper, mapping, host-depletion, bundle, plugin-pack, import-center, alignment, fixture, nf-core, terminal]
 features_refs: [rnaseq.quant, rnaseq.export, rnaseq.pseudobulk, rnaseq.cell-map-import, rnaseq.cell-map-compute, rnaseq.reference-set, rnaseq.quality, import.rnaseq-counts, import.rnaseq-plan, import.rnaseq-adopt, plugins.rna-seq-pack, plugins.single-cell-pack]
 fixtures_refs: []
-brand_reviewed: false
+brand_reviewed: true
 lead_approved: false
 ---
 
