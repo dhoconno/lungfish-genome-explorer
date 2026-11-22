@@ -18,7 +18,7 @@ shots:
   - id: czid-import-sheet
     caption: 'Check the report in Preview and look for Classifications/Sample-CZ-001.lungfishtax under Project Destination before you click Run.'
   - id: czid-result-viewport
-    caption: 'Verify with BLAST… and Extract Reads… are dimmed because the report does not identify individual reads. The action bar reads "Imported CZ-ID result · Sample-CZ-001 · 3 taxa".'
+    caption: 'The taxonomy viewport for Sample-CZ-001 shows Verify with BLAST… and Extract Reads… dimmed and an action bar that reads "Imported CZ-ID result · Sample-CZ-001 · 3 taxa".'
   - id: czid-provenance-popover
     caption: 'Copy the analysis and database versions for your methods notes from Pipeline, NT Database, and NR Database in CZ-ID Pipeline Info.'
 illustrations: []
@@ -196,7 +196,7 @@ If a taxon has NR reads and zero NT reads, it appears in the table with zero rea
 
 ### The viewport
 
-The taxonomy viewport shows a taxon table with **Taxon Name**, **Rank**, **Reads**, **Direct**, and **%**. The action bar is the row of buttons along the bottom of the viewport. Before you select a taxon, the action bar reads `Imported CZ-ID result · Sample-CZ-001 · 3 taxa` to the right of the buttons. The count of 3 includes the root row.
+The taxonomy viewport shows a taxon table with **Sample**, **Taxon Name**, **Rank**, **Reads**, **Direct**, and **%**. The action bar is the row of buttons along the bottom of the viewport. Before you select a taxon, the action bar reads `Imported CZ-ID result · Sample-CZ-001 · 3 taxa` to the right of the buttons. The count of 3 includes the root row.
 
 Read IDs identify individual sequencing reads. The report gives counts by taxon, so LGE has no read IDs to use for BLAST or for extraction, which saves a taxon's reads to a new file. **Verify with BLAST…** and **Extract Reads…** stay dimmed in the action bar and right-click menus. LGE omits **BLAST Results**. Rest the pointer on either dimmed button to see its tooltip, a short note that begins with "CZ-ID results don't include read IDs, so reads can't be extracted or checked with BLAST."
 
