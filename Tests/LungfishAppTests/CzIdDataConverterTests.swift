@@ -124,6 +124,31 @@ final class CzIdDataConverterTests: XCTestCase {
         XCTAssertEqual(try kreportLines(converted.result.reportURL), Self.reportTableKreport)
     }
 
+    /// A tab copy that quotes every field, as Python's `csv.QUOTE_ALL` writes one with a tab delimiter and CRLF line
+    /// ends, reads like the plain tab copy. The tab path split on tabs alone and kept the quotes, so it refused row 2
+    /// with "has no tax_id value" (FIX-CZID BIO SF1).
+    func testFullyQuotedTabCopyOfTheReportTableGivesTheSameKreport() throws {
+        let root = try TestTempDirectory.make(prefix: "czid-report-quote-all-tsv")
+        defer { TestTempDirectory.cleanup(root) }
+        let plain = try String(contentsOf: sharedFixtureURL("sample_report.tsv"), encoding: .utf8)
+        let quotedLines = plain.split(whereSeparator: \.isNewline).map { (line: Substring) -> String in
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map { field -> String in
+                let escaped = field.replacingOccurrences(of: "\"", with: "\"\"")
+                return "\"\(escaped)\""
+            }
+            return fields.joined(separator: "\t")
+        }
+        let reportURL = root.appendingPathComponent("quote_all_report.tsv")
+        try (quotedLines.joined(separator: "\r\n") + "\r\n").write(to: reportURL, atomically: true, encoding: .utf8)
+
+        let converted = try CzIdDataConverter.convertTaxonReport(
+            at: reportURL,
+            outputDirectory: root.appendingPathComponent("imported", isDirectory: true)
+        )
+
+        XCTAssertEqual(try kreportLines(converted.result.reportURL), Self.reportTableKreport)
+    }
+
     /// czid-web's 25 long-read (Nanopore) columns have `nt_count` and `nr_count` but no rPM column, so the root is
     /// the sum of the genus clades.
     func testLongReadReportTableParsesItsCounts() throws {

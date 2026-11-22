@@ -328,13 +328,11 @@ public enum CzIdDataConverter {
         aliases.contains { index[$0.normalizedHeaderKey] != nil }
     }
 
-    /// One line's fields. A tab report splits on tabs, as it always has. A comma report follows RFC 4180, because
-    /// czid-web quotes `species_tax_ids` such as `"[1280, 1282]"`: a field in double quotes may hold the delimiter,
-    /// and a doubled quote inside it is one quote. A quoted field that runs past its line is refused, not split.
+    /// One line's fields. Both tab and comma reports follow RFC 4180, because czid-web quotes `species_tax_ids` such as
+    /// `"[1280, 1282]"` and a spreadsheet can quote every field of a tab copy: a field in double quotes may hold the
+    /// delimiter, and a doubled quote inside it is one quote. A quoted field that runs past its line is refused, not
+    /// split.
     private static func splitFields(_ line: String, delimiter: Character, url: URL) throws -> [String] {
-        guard delimiter == "," else {
-            return line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-        }
         var fields: [String] = []
         var field = ""
         var inQuotes = false
