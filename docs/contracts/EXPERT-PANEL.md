@@ -12,16 +12,16 @@ Five experts set a phase's scope when its plan is written and review the phase's
 | `UX`, U | UI and UX. Every word a user reads, progress, failure and cancel, the Inspector |
 | `QA`, Q | QA and QC. Test tiers, goldens, determinism, the gates, release engineering and signing |
 
-These five vote (E-EP-2). The `manual-fidelity-reviewer` agent checks every factual claim of user-facing text, and each wrong fact is a fix that lands with the lane (E-EP-3). The `llm-efficiency-monitor` agent reports each session's spend. A phase that reaches a field none of the five owns co-opts a sixth expert for that phase by a vote of at least 4 to 1, recorded in its plan with the field's remit and checklist.
+These five vote (E-EP-2). The `manual-fidelity-reviewer` agent checks every factual claim of user-facing text, and each wrong fact is a fix that lands with the lane (E-EP-3). The `llm-efficiency-monitor` agent reports each session's spend. A phase that reaches a field none of the five owns co-opts a sixth expert by a vote of at least 4 to 1, recorded in its plan with its remit and checklist.
 
 ## The meeting
 
-The panel meets once, when a phase plan is written (E-EP-4). A later session of the same plan, a fix session, a release job and a short job hold no meeting. The manager writes a sub-phase plan and the ARCH expert reads it.
+The panel meets once, when a phase plan is written (E-EP-4). A later session of the same plan, a fix session and a release job hold no meeting. The manager writes a sub-phase plan and the ARCH expert reads it.
 
 1. Owner direction. The manager records the owner's words with their date in the plan's first section. It asks with the AskUserQuestion tool before the first spawn and in a plain message that ends its turn after it (E-EP-5).
 2. Round 1, inventory. One `lge-expert` for each field (E-EP-1), opus at effort xhigh, writes `SCR/inv/<FIELD>.md` from the last plan's decisions and the backlog's ranked rows, with facts at a named commit, candidate lanes, risks and open questions `Q-<letter><n>`.
 3. Round 2, challenge. One `lge-planner` drafts the plan and the lane briefs. Each field with a row in the draft reads only its rows, opus at effort xhigh, and writes `SCR/challenge/<FIELD>.md` with CORRECT lines (a wrong fact with its `path:line`) and OBJECT lines (scope or severity). The same seats cast every vote at that effort (E-EP-6), only on an OBJECT that a second field opposes.
-4. Review. One fresh `lge-review` agent from the field a lane changes most reviews it, plus BIO for scientific output and the fact-check for user-facing text. A lane of only documentation or tests gets no field review unless it writes a format or schema page a later lane implements. The QA expert reviews every release step before it runs and reads each candidate's evidence (`docs/contracts/VERIFICATION-ORDER.md`, row Evidence read).
+4. Review. Fresh `lge-review` agents review a lane as SAD Bounded reviews sets, plus the fact-check for user-facing text. A lane of only documentation or tests gets no field review unless it writes a format or schema page a later lane implements. The QA expert reviews every release step before it runs and reads each candidate's evidence (`docs/contracts/VERIFICATION-ORDER.md`, row Evidence read).
 
 Experts never edit code or build, lanes never decide scope and are cut only in the plan's cut order.
 
@@ -64,8 +64,9 @@ A review applies the checklist of the lane's field and of each other field the l
 | UX 4 | End of run. A result shows in the sidebar only when complete, a failure alert names the failed step and the next thing to try, and a cancel reads Cancelled with no alert. |
 | UX 5 | Inspector. New rows appear in Copy text and VoiceOver order, a derived value reads Not recorded, and older records display unchanged. |
 | UX 6 | No silent writes. Reading or displaying writes nothing (hash before and after), and nothing is written into a bundle or a read-only project. |
-| UX 7 | Words. New strings use sentence case and plain words, release notes name each change a user can see, and `docs/user-manual/features.yaml` is updated. |
+| UX 7 | Words. New strings use sentence case and plain words, the notes name each change a user can see, and `docs/user-manual/features.yaml` is updated. |
 | UX 8 | No silent outcomes. A row reads Completed only when its outputs exist where the person will look, and every refusal or failed save shows words in view. |
+| UX 9 | Placement follows the design-system README, Where words go. |
 | QA 1 | Freeze first, for scientific output only. A pin commit passes at its base with the run shown, changes no file under `Sources`, and lands before the behaviour it pins. |
 | QA 2 | Behaviour, not source text. Assertions read outputs, records, events or labels, and the `source-text-assertions` ratchet does not rise. |
 | QA 3 | Tiers and tools. A real-tool test sits in the tier its class name selects, gates on `ToolAvailability` and never on a bare `XCTSkip`, and ran once with `LUNGFISH_REQUIRE_TOOLS=1` with no skip. |

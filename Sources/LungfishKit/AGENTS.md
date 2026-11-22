@@ -40,6 +40,7 @@ LungfishCore, LungfishIO, LungfishWorkflow, AppKit, SwiftUI and Combine. Never L
 | The protocol a result surface conforms to, and the kind that names it | `ResultViewport` and `SurfaceKind`, Sources/LungfishKit/Surfaces/ResultViewport.swift |
 | The factory of each surface kind, which the App fills at one composition point | `SurfaceRegistry`, Sources/LungfishKit/Surfaces/SurfaceRegistry.swift |
 | Request tokens that drop a stale result, shared by the host and the classifier display | `AsyncRequestGate`, Sources/LungfishKit/Surfaces/AsyncRequestGate.swift |
+| The info button that opens a help item's detail in a popover Esc closes, in AppKit and SwiftUI, and the catalog check a module's tests run on its own help items (design README, Where words go) | `LungfishInfoButton` and `LungfishInfoButtonView`, Sources/LungfishKit/LungfishInfoButton.swift, and `LungfishHelpContent.catalogFaults(in:)`, Sources/LungfishKit/LungfishHelpContent+Placement.swift |
 
 ## Contracts this module owns
 

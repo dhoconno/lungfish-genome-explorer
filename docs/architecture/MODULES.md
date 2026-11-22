@@ -21,7 +21,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 689 | LungfishCore |
-| LungfishKit | library | Sources/LungfishKit | 161 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishKit | library | Sources/LungfishKit | 164 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
@@ -1705,6 +1705,9 @@ None.
 - `InspectorKeyValueRow` struct, `Sources/LungfishKit/InspectorKeyValueRow.swift`
 - `LungfishCLIRunner` enum, `Sources/LungfishKit/LungfishCLIRunner.swift`
 - `LungfishHelpContent` enum, `Sources/LungfishKit/LungfishHelpContent.swift`
+- `LungfishInfoButton` class, `Sources/LungfishKit/LungfishInfoButton.swift`
+- `LungfishInfoButtonView` struct, `Sources/LungfishKit/LungfishInfoButton.swift`
+- `LungfishInfoPopoverController` class, `Sources/LungfishKit/LungfishInfoButton.swift`
 - `LungfishKitControlStyle` enum, `Sources/LungfishKit/LungfishAppKitControlStyle.swift`
 - `LungfishUIStrings` enum, `Sources/LungfishKit/LungfishUIStrings.swift`
 - `ManagedToolLocator` enum, `Sources/LungfishKit/ManagedToolExecutablePath.swift`

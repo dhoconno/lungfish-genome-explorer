@@ -25,6 +25,46 @@ A brand sentence sounds like this. "Air sampling is a leading indicator of emerg
 
 App copy sounds like this. "Open projects with built-in viewers before installing tools. Analyses that need external tools will show their setup requirements."
 
+## Where words go
+
+Each word a person reads in the app goes in one of six places. Three of them belong to the view.
+
+1. **In view.**
+   - Controls with their labels, and the data.
+   - Facts exceptional for this result, true of this result or these settings and not of every one. Examples are a count left out, coordinates imported rather than computed, values computed on other counts, a degraded fact such as "method Not recorded", and the reason Run is off.
+   - Every refusal, failure and warning, and the sentence that marks a result an earlier build wrote with a known defect (`docs/contracts/SCOPE-AND-DELIVERY.md`, row Affected results).
+   - An exceptional fact takes one line where it can, at most about 20 words, and its general reason sits one click away. A disclosure that is closed by default never holds an exceptional fact.
+2. **One click away.** General explanation, true of every result of its kind, such as how to read a t-SNE map, what a cluster number means, how an engine works or what a file format holds.
+   - Its home is an info button beside the control or the data it explains, never one button for a whole surface. The button shows `info.circle`, since the round `?` button opens the app's help. It can take keyboard focus, carries the VoiceOver label "About <thing>", and opens a transient popover. Space opens the popover and Esc closes it, and no Esc reaches the window behind.
+   - Build it with `LungfishInfoButton` in AppKit or `LungfishInfoButtonView` in SwiftUI, from one help item (`Sources/LungfishKit/LungfishInfoButton.swift`). The item's summary is the button's help tag and its detail is the popover's text.
+   - Optional settings sit in a disclosure group, closed by default.
+   - A general caveat that a ruling binds lives here.
+3. **Help tag.** A short phrase on a control that says what the control does, at most 20 words, with the same text as its VoiceOver help (`.lungfishHelp` in SwiftUI and `applyLungfishHelp` in AppKit). A help tag is never the only home of a ruled caveat or a refusal, since a keyboard user and a background walk cannot hover. A plot or another data canvas takes no help tag, since its hover shows the data.
+
+The other three sit outside the view.
+
+4. **Inspector.** Provenance goes in the Provenance tab, with the source files and their sha256, the tool and its version, the parent result and the command. The descriptive facts of a selection go in their own tab. New rows keep their place in Copy text and in VoiceOver order.
+5. **Dialogs.** One readiness line, in the footer beside Run. No section without a control. No Overview that repeats the selected card. A card subtitle of one line, with the rest in the card's help tag. A field caption of one line, only for a limit the person must act on.
+6. **Help Book.** Long teaching belongs in the Help Book. It waits for the user manual, so each popover's text stands on its own.
+
+One fact shows in one place in view.
+
+A module's help items live in that module, built from its own constants, so a ruled string has one home. Its tests run `LungfishHelpContent.catalogFaults(in:)` on them (`Sources/LungfishKit/LungfishHelpContent+Placement.swift`), which checks for a unique id, a summary of at most 20 words and no banned word.
+
+The rule rests on these pages of Apple's Human Interface Guidelines (HIG). Each address is `https://developer.apple.com/design/human-interface-guidelines/` followed by the page's slug.
+
+| Page | Address | What this rule takes from it |
+|---|---|---|
+| Offering help | [offering-help](https://developer.apple.com/design/human-interface-guidelines/offering-help) | A help tag says in a few words what a control does |
+| Popovers | [popovers](https://developer.apple.com/design/human-interface-guidelines/popovers) | A popover is a transient view that appears over other content when a person clicks a control |
+| Disclosure controls | [disclosure-controls](https://developer.apple.com/design/human-interface-guidelines/disclosure-controls) | A disclosure control reveals and hides information and functionality that belong to a control or view |
+| Panels | [panels](https://developer.apple.com/design/human-interface-guidelines/panels) | A panel offers information about the active window or the current selection |
+| Split views | [split-views](https://developer.apple.com/design/human-interface-guidelines/split-views) | A split view can show an inspector pane beside the content |
+| Layout | [layout](https://developer.apple.com/design/human-interface-guidelines/layout) | The primary content gets most of the space |
+| Writing | [writing](https://developer.apple.com/design/human-interface-guidelines/writing) | Words are short, plain and direct |
+| Buttons | [buttons](https://developer.apple.com/design/human-interface-guidelines/buttons) | The round help button with a question mark opens help documentation, so an info button uses `info.circle` |
+| Accessibility | [accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility) | Every control has a label that VoiceOver reads |
+
 ## Color
 
 Five colors are the whole brand. They are `creamsicle`, `peach`, `deep-ink`, `cream` and `warm-grey`.
