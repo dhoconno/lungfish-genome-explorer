@@ -27,7 +27,7 @@ illustrations: []
 glossary_refs: [linux, plan-folder, staging-folder, staged-reads, adopt, htcondor, held-job, apptainer, ssh, container, docker, checksum, fastq, read, read-pair, interleaved-fastq, phred-score, clumpify, read-clumping, quality-binning, adapter, sample-sheet, tsv, json, terminal, shell, thread, process, exit-status, absolute-path, bundle, project, import-center, operations-panel, inspector, provenance, run-record, wall-time, fixture, bgzip]
 features_refs: [import.fastq-linux-plan, import.rnaseq-plan, import.rnaseq-adopt, provenance.inspector]
 fixtures_refs: [linux-plan-fastq, hg002-chr20]
-brand_reviewed: false
+brand_reviewed: true
 lead_approved: false
 ---
 
@@ -84,7 +84,7 @@ The [fixture](../../GLOSSARY.md#fixture) is a practice data set with 10,000 read
 
 Choose where the plan runs based on sample size, batch size, available disk space, and which computers you can use.
 
-**Import on the Mac.** The Sequencing Read Files card runs the storage step and makes the bundle without a transfer. While clumpify runs, the Mac needs free disk space of about five times the size of the sample's read files. [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) covers this route.
+**Import on the Mac.** The **Sequencing Read Files** card runs the storage step and makes the bundle without a transfer. While clumpify runs, the Mac needs free disk space of about five times the size of the sample's read files. [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) covers this route.
 
 **`run-local.sh` with Apptainer.** The launcher runs the image file directly on one Linux machine. It refuses the file if its checksum differs from the plan's.
 
@@ -103,11 +103,11 @@ The fixture was a test on one Mac using `run-local.sh` with Docker. A Linux cont
 
 ## Before you start
 
-Use an LGE build with the Linux executor. Release builds include it. Without it, **Write Plan…** stays greyed out and the sheet explains why. You can write a plan without a project, but you need a project to adopt the run. [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows how to make one.
+Use an LGE build with the Linux executor. Release builds include it. Without it, **Write Plan…** stays grayed out and the sheet explains why. You can write a plan without a project, but you need a project to adopt the run. [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows how to make one.
 
 On Linux you need:
 
-- A login to the machine you will use or to the pool's submit machine. Open [Terminal](../../GLOSSARY.md#terminal) from Applications > Utilities to type commands. For [SSH](../../GLOSSARY.md#ssh), a secure remote login, type `ssh <host>` with `<user name>@<machine name>` in place of `<host>` and press Return.
+- A login to the machine you will use or to the pool's submit machine. Open [Terminal](../../GLOSSARY.md#terminal) from **Applications > Utilities** to type commands. For [SSH](../../GLOSSARY.md#ssh), a secure remote login, type `ssh <host>` with `<user name>@<machine name>` in place of `<host>` and press Return.
 - An x86-64 Linux machine with Apptainer or Docker, or an HTCondor pool of x86-64 machines that run EL9 or later. EL9 is version 9 of Enterprise Linux, a family that includes Red Hat Enterprise Linux and Rocky Linux. The term x86-64 names a common server processor design. On that machine, `uname -m` prints `x86_64`. Use `apptainer --version`, `docker --version`, or `condor_version` to check which program is installed.
 - A staging folder that every machine running jobs can read, with space for inputs and results.
 - The tool image `lge-tools-<id>.sif` named in `staging-files.json`. LGE does not include or download it. Ask the person who looks after your Linux machine or pool for the file.
@@ -137,7 +137,7 @@ The fixture took 17 seconds to run. With the image in place, you transfer about 
 
     <!-- SHOT: linux-plan-sheet -->
 
-4. Type `4` into **Threads per job** and `4` into **Clumpify memory (GB)** to match the fixture's plan. Leave **Optimize storage (reorder reads for better compression)** ticked and **Compression Tool** on BBTools clumpify. [Settings](#settings) explains each control.
+4. Type `4` into **Threads per job** and `4` into **Clumpify memory (GB)** to match the fixture's plan. Leave **Optimize storage (reorder reads for better compression)** ticked and **Compression Tool** on **BBTools clumpify**. [Settings](#settings) explains each control.
 
 5. Click **Write Plan…**. In the panel that slides down, which reads "Name a new folder for the plan. Nothing is imported and nothing is submitted.", type `hg002-chr20-plan`, choose a folder on the Mac, and click **Write Plan**. The plan folder's name follows the same rule.
 
@@ -297,7 +297,7 @@ Use the same `<host>` you pass to `ssh`, such as `<user name>@<machine name>` or
 
 4. Watch `Linux Run Result: hg002-chr20-plan` in the Operations Panel. The fixture shows `Checking 1 of 1: hg002-chr20…`, then `Adopting 1 of 1: hg002-chr20…`, and ends with `Imported hg002-chr20.lungfishfastq`. A batch of three shows progress such as `Checking 2 of 3: <sample>…` and ends with `Imported 3 samples`.
 
-5. Find the new bundle `hg002-chr20` under `Imports` in the sidebar.
+5. Find the new bundle `hg002-chr20` under **Imports** in the sidebar.
 
 With no project open, choosing a folder brings up "No Project Open". Adoption needs room for both the returned reads and the project copy unless both folders are on the same APFS volume, a disk or part of a disk in Apple's file system. On that volume the copies share space. Two folders in your home folder usually share a volume.
 
@@ -305,11 +305,11 @@ After import succeeds, you can delete the returned `<sample>/out/` on the Mac be
 
 ## Settings
 
-The Linux Run Result card has no settings because the plan fixes them. The sheet writes plans for short reads, a few hundred bases or fewer, as from Illumina instruments. It sets no recipe, a named set of steps such as removing duplicate reads. The command line takes `--platform`, `--recipe`, `--samplesheet`, `--staged-reads`, and `--job-requirements`.
+The **Linux Run Result** card has no settings because the plan fixes them. The sheet writes plans for short reads, a few hundred bases or fewer, as from Illumina instruments. It sets no recipe, a named set of steps such as removing duplicate reads. The command line takes `--platform`, `--recipe`, `--samplesheet`, `--staged-reads`, and `--job-requirements`.
 
 [Quality binning](../../GLOSSARY.md#quality-binning) replaces nearby quality scores with one stored score to make them easier to compress. The plan stores quality scores in steps of five (`fiveStep`), the quality binning that `lungfish-cli import fastq --help` gives as the default of `--quality-binning`, so Q10, Q20, and Q30 counts stay as sequenced.
 
-**Staging folder.** Sets the absolute Linux path that the plan uses for staging. The field starts empty so you can supply your own path, and **Write Plan…** stays greyed out until the path starts with `/`. Use the folder for the machine or pool running the job, and write a new plan if it moves. On the command line this is `--staging-folder`.
+**Staging folder.** Sets the absolute Linux path that the plan uses for staging. The field starts empty so you can supply your own path, and **Write Plan…** stays grayed out until the path starts with `/`. Use the folder for the machine or pool running the job, and write a new plan if it moves. On the command line this is `--staging-folder`.
 
 **Threads per job.** Sets how many [threads](../../GLOSSARY.md#thread), or parallel workers, process each sample and how many CPUs each HTCondor job requests. The default is 8, and a larger request can take longer to schedule because one machine needs that many free CPUs. Lower it for a smaller machine or raise it when a job has more cores available. On the command line this is `--threads`.
 
@@ -317,7 +317,7 @@ The Linux Run Result card has no settings because the plan fixes them. The sheet
 
 **Optimize storage (reorder reads for better compression).** Groups similar reads for better compression, changing their order. It opens ticked, and a moment later LGE reads the first read headers and clears it for Oxford Nanopore, PacBio, and Unknown reads, because clumpify works well only on accurate reads. Clear it if you need the original read order or tick it to reorder long reads. On the command line this is `--no-optimize-storage`.
 
-**Compression Tool.** Offers BBTools clumpify and Trim Galore --clumpify and stays greyed out while the Optimize storage box is clear. The default is BBTools clumpify, which reorders reads without trimming or dropping them. To trim reads during storage, choose Trim Galore --clumpify, which removes [adapter](../../GLOSSARY.md#adapter) sequence added during library preparation, trims low-quality ends, and drops short reads. On the command line this is `--clumping-tool`.
+**Compression Tool.** Offers **BBTools clumpify** and **Trim Galore --clumpify** and stays grayed out while the Optimize storage box is clear. The default is **BBTools clumpify**, which reorders reads without trimming or dropping them. To trim reads during storage, choose **Trim Galore --clumpify**, which removes [adapter](../../GLOSSARY.md#adapter) sequence added during library preparation, trims low-quality ends, and drops short reads. On the command line this is `--clumping-tool`.
 
 ## Reading the results
 
@@ -398,7 +398,7 @@ If the record is missing, check whether the job was held or removed, whether it 
 
 If the project already holds a bundle with that sample's name, LGE refuses the batch. If you can discard that bundle, delete it from the project and adopt the batch again.
 
-If the disk fills or you click Cancel during adoption, completed bundles stay whole in the project. The message lists them. To retry the whole batch in that project, delete those completed bundles and adopt again.
+If the disk fills or you click **Cancel** during adoption, completed bundles stay whole in the project. The message lists them. To retry the whole batch in that project, delete those completed bundles and adopt again.
 
 For `run-local.sh` exit status 1, read the failed sample's `logs/<sample>.err` and step logs. Before retrying a failed sample, delete its `result/` folder if it exists, since the script skips it otherwise. For exit status 2, read the message explaining why the script stopped before starting any sample.
 
