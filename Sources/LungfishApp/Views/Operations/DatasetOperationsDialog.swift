@@ -9,6 +9,8 @@ struct DatasetOperationsDialog<Detail: View>: View {
     let selectedToolID: String
     let statusText: String
     let isRunEnabled: Bool
+    /// Whether the status line is orange. Nil falls back to Run being off.
+    let statusNeedsAttention: Bool?
     let primaryActionTitle: String
     let accessibilityNamespace: String?
     let onSelectTool: (String) -> Void
@@ -25,6 +27,7 @@ struct DatasetOperationsDialog<Detail: View>: View {
         selectedToolID: String,
         statusText: String,
         isRunEnabled: Bool,
+        statusNeedsAttention: Bool? = nil,
         primaryActionTitle: String = "Run",
         accessibilityNamespace: String? = nil,
         onSelectTool: @escaping (String) -> Void,
@@ -39,6 +42,7 @@ struct DatasetOperationsDialog<Detail: View>: View {
         self.selectedToolID = selectedToolID
         self.statusText = statusText
         self.isRunEnabled = isRunEnabled
+        self.statusNeedsAttention = statusNeedsAttention
         self.primaryActionTitle = primaryActionTitle
         self.accessibilityNamespace = accessibilityNamespace
         self.onSelectTool = onSelectTool
@@ -128,7 +132,7 @@ struct DatasetOperationsDialog<Detail: View>: View {
             Text(statusText)
                 .lungfishAccessibilityIdentifier(scopedID("status-text"))
                 .font(.caption)
-                .foregroundStyle(isRunEnabled ? Color.lungfishSecondaryText : Color.lungfishOrangeFallback)
+                .foregroundStyle(statusColor)
                 .lungfishHelp(LungfishHelpContent.operationReadiness)
             Spacer()
             Button("Cancel", action: onCancel)
@@ -144,6 +148,10 @@ struct DatasetOperationsDialog<Detail: View>: View {
         }
         .padding(16)
         .background(Color.lungfishCanvasBackground)
+    }
+
+    var statusColor: Color {
+        (statusNeedsAttention ?? !isRunEnabled) ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText
     }
 
     private func scopedID(_ suffix: String) -> String? {

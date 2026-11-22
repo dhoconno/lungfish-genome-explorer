@@ -521,3 +521,83 @@ final class OperationsDialogReadinessLineTests: XCTestCase {
     }
 }
 
+// MARK: - The footer line of an embedded wizard (UX-SHELL-WIZARDS Q1 Table 1, work item B)
+
+extension OperationsDialogReadinessLineTests {
+    /// One row of Table 1 as the FASTQ dialog's state receives it: the wizard's Run state and the detail it sends.
+    private struct FooterCase {
+        let row: String
+        let tool: FASTQOperationToolID
+        let runOn: Bool
+        let detail: String?
+        let footer: String
+    }
+
+    private static let footerCases: [FooterCase] = [
+        FooterCase(row: "Assembly, tool not ready with a smoke-test failure", tool: .spades, runOn: false,
+                   detail: assemblySmokeLine, footer: assemblySmokeLine),
+        FooterCase(row: "Assembly, pack failure", tool: .hifiasm, runOn: false,
+                   detail: assemblyPackFailureLine, footer: assemblyPackFailureLine),
+        FooterCase(row: "Assembly, pack status not loaded", tool: .spades, runOn: false,
+                   detail: "Checking the Genome Assembly pack\u{2026}", footer: "Checking the Genome Assembly pack\u{2026}"),
+        FooterCase(row: "Assembly, Run off", tool: .megahit, runOn: false,
+                   detail: "Project name is required.", footer: "Project name is required."),
+        FooterCase(row: "Assembly, Run on, read-class warning", tool: .spades, runOn: true,
+                   detail: readClassWarning, footer: readClassWarning),
+        FooterCase(row: "Assembly, Run on, no warning", tool: .flye, runOn: true, detail: nil, footer: "Ready to configure output."),
+        FooterCase(row: "Viral Recon, preparing", tool: .viralRecon, runOn: false,
+                   detail: "Preparing inputs\u{2026}", footer: "Preparing inputs\u{2026}"),
+        FooterCase(row: "Viral Recon, buildError", tool: .viralRecon, runOn: true, detail: buildError, footer: buildError),
+        FooterCase(row: "Viral Recon, Run off", tool: .viralRecon, runOn: false,
+                   detail: "Select a SARS-CoV-2 primer scheme.", footer: "Select a SARS-CoV-2 primer scheme."),
+        FooterCase(row: "Viral Recon, Run on, no error", tool: .viralRecon, runOn: true, detail: nil, footer: "Ready to configure output."),
+        FooterCase(row: "kraken2, Run on", tool: .kraken2, runOn: true, detail: nil, footer: "Output is fixed for this tool."),
+        FooterCase(row: "EsViritu, Run on", tool: .esViritu, runOn: true, detail: nil, footer: "Output is fixed for this tool."),
+    ]
+
+    private func fastqState(_ item: FooterCase) -> FASTQOperationDialogState {
+        let state = Fx.fastqState(item.tool)
+        state.updateEmbeddedReadiness(item.runOn, for: item.tool)
+        state.updateEmbeddedReadinessDetail(item.detail, for: item.tool)
+        return state
+    }
+
+    /// The footer shows the detail the wizard sends whenever it is set, so a read-class warning and a build error show with Run on.
+    /// With no detail and Run on, the footer keeps its own ready line, for the two wizards and for kraken2 and EsViritu.
+    func testTheFooterShowsTheEmbeddedWizardDetailOfEachTable1Case() throws {
+        for item in Self.footerCases {
+            let state = fastqState(item)
+            XCTAssertEqual(state.selectedToolID, item.tool, item.row)
+            XCTAssertEqual(state.isRunEnabled, item.runOn, item.row)
+            XCTAssertEqual(state.readinessText, item.footer, item.row)
+            let texts = try FASTQOperationDialog(state: state, onCancel: {}, onRun: {}).inspect().findAll(ViewType.Text.self)
+            assertDrawnOnceInTheFooter(texts, item.footer, hasIdentifier: item.tool.categoryID != .classification, item.row)
+        }
+    }
+
+    /// The footer is orange while Run is off and while a line shows with Run on, so a build error or a read-class warning keeps the
+    /// card's orange. With no line and Run on it is grey. The FASTQ dialog hands that to its shell.
+    func testTheFooterColorOfEachTable1Case() throws {
+        for item in Self.footerCases {
+            let state = fastqState(item)
+            let attention = !item.runOn || item.detail != nil
+            XCTAssertEqual(state.readinessNeedsAttention, attention, item.row)
+            let shell = try FASTQOperationDialog(state: state, onCancel: {}, onRun: {}).inspect()
+                .find(DatasetOperationsDialog<FASTQOperationToolPanes>.self).actualView()
+            XCTAssertEqual(shell.statusColor, attention ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText, item.row)
+        }
+    }
+
+    /// A dialog that passes no `statusNeedsAttention` keeps its footer orange exactly while Run is off.
+    func testTheShellFallsBackToRunOffForItsColor() {
+        func shell(runOn: Bool, attention: Bool?) -> DatasetOperationsDialog<EmptyView> {
+            DatasetOperationsDialog(
+                title: "Operations", subtitle: "", datasetLabel: "", tools: [], selectedToolID: "tool", statusText: "Status",
+                isRunEnabled: runOn, statusNeedsAttention: attention, onSelectTool: { _ in }, onCancel: {}, onRun: {}
+            ) { EmptyView() }
+        }
+        XCTAssertEqual(shell(runOn: false, attention: nil).statusColor, Color.lungfishOrangeFallback)
+        XCTAssertEqual(shell(runOn: true, attention: nil).statusColor, Color.lungfishSecondaryText)
+        XCTAssertEqual(shell(runOn: true, attention: true).statusColor, Color.lungfishOrangeFallback)
+    }
+}

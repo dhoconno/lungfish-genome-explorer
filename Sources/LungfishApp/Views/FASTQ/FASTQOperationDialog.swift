@@ -50,6 +50,7 @@ struct FASTQOperationDialog: View {
             selectedToolID: state.selectedToolID.rawValue,
             statusText: statusText,
             isRunEnabled: state.isRunEnabled,
+            statusNeedsAttention: state.readinessNeedsAttention,
             primaryActionTitle: primaryActionTitle,
             accessibilityNamespace: accessibilityNamespace(),
             onSelectTool: selectTool(named:),

@@ -374,9 +374,14 @@ final class FASTQOperationDialogState {
         embeddedToolReady = ready
     }
 
-    /// Publishes progress text for the selected embedded wizard, shown in place of the generic readiness text.
+    /// Publishes the selected embedded wizard's footer line, shown in place of the generic readiness text.
     func updateEmbeddedReadinessDetail(_ detail: String?, for toolID: FASTQOperationToolID) {
         if selectedToolID == toolID { embeddedToolReadinessDetail = detail }
+    }
+
+    /// The footer is orange while Run is off, and while an embedded wizard's line shows with Run on (UX-SHELL-WIZARDS item 2).
+    var readinessNeedsAttention: Bool {
+        !isRunEnabled || (embeddedToolReadinessDetail != nil && readinessText == embeddedToolReadinessDetail)
     }
 
     func refreshSavontRuntimeReadiness() async {
@@ -1032,8 +1037,13 @@ final class FASTQOperationDialogState {
             return runtimeMessage
         }
 
+        // An embedded wizard's line shows whenever it is set, so a build error or a read-class warning shows with Run on.
+        if let embeddedToolReadinessDetail {
+            return embeddedToolReadinessDetail
+        }
+
         if !embeddedToolReady {
-            return embeddedToolReadinessDetail ?? selectedToolID.embeddedReadinessText
+            return selectedToolID.embeddedReadinessText
         }
 
         if showsOutputStrategyPicker {
