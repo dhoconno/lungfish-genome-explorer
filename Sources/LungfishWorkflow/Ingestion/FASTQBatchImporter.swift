@@ -962,7 +962,7 @@ public enum FASTQBatchImporter {
         if let recipe = config.recipe {
             try validateLegacyRecipeInputRequirement(recipe, pair: pair)
         }
-        try LooseMatePairCheck.verifyBeforeRecipe(pair, hasRecipe: config.newRecipe != nil || config.recipe?.steps.isEmpty == false)
+        try LooseMatePairCheck.verifyBeforeAnyStep(pair)
     }
 
     private static func validateNewRecipeInputRequirement(_ recipe: Recipe, pair: SamplePair) throws {

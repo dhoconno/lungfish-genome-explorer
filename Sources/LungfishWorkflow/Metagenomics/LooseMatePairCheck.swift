@@ -92,13 +92,16 @@ package enum LooseMatePairCheck {
         "Paired FASTQ mates are out of step at read \(recordNumber). \(r1File) has '\(r1Name)', but \(r2File) has '\(r2Name)'. Nothing was written. Check that both files are from the same run and neither was sorted or subsampled on its own."
     }
 
-    /// Reads both files of `pair` whole before an import's recipe, and throws the import's own words
-    /// ("... Nothing was imported." and "... so nothing was written.") for a cut or out-of-step pair
-    /// (BIO-ROUTES-2 item 1). A recipe's first step (`FastpTrimStep`, `FastpDedupStep`, the old-format
-    /// paired trims) hands the pair to fastp, which pairs two files by position, and after fastp both
-    /// outputs hold equal counts, so no later check can see the lost reads.
-    static func verifyBeforeRecipe(_ pair: SamplePair, hasRecipe: Bool) throws {
-        guard hasRecipe, let r2 = pair.r2 else { return }
+    /// Reads both files of `pair` whole before the first step of an import, with a recipe or without one, and
+    /// throws the import's own words ("... Nothing was imported." and "... so nothing was written.") for a cut
+    /// or out-of-step pair (BIO-ROUTES-2 item 1, BIO-ROUTES-3 item 1). A recipe's first step (`FastpTrimStep`,
+    /// `FastpDedupStep`, the old-format paired trims) hands the pair to fastp, and every storage route (the Swift
+    /// join, clumpify, reformat and Trim Galore) pairs two files by position as well. After any of them both
+    /// outputs hold equal counts, so no later check can see the lost reads. The progress line is the storage
+    /// step's own text.
+    static func verifyBeforeAnyStep(_ pair: SamplePair) throws {
+        guard let r2 = pair.r2 else { return }
+        FASTQBatchImporter.printProgress("  \u{2192} Checking which reads are mates...")
         _ = try FASTQPairInterleaver.verifyMates(r1: pair.r1, r2: r2, launcher: ToolProcessChildLauncher())
     }
 
