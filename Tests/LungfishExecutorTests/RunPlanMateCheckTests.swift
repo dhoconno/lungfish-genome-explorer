@@ -122,6 +122,33 @@ final class RunPlanMateCheckTests: XCTestCase {
         XCTAssertEqual(record.steps.count, 1)
     }
 
+    /// FIX-ROUTES-5 review SF1 (BIO-ROUTES-4 item 1). R1, an R2 out of step with it and the run-alone file are three inputs, and the
+    /// pair is refused before the first step, so `run(into:)` and `PlanReadPairs.declared` check the first two of three.
+    func testRunRefusesAnOutOfStepPairOfAPlanOfThreeInputsBeforeItsFirstStep() throws {
+        var fixture = try RunPlanFixture()
+        let inputs = ["inputs/R1.fastq", "inputs/R2.fastq", "inputs/R3.fastq"]
+        for (path, serials) in zip(inputs, [[1, 2, 3, 4], [2, 1, 3, 4], [5]]) {
+            try RunPlanFixture.write(Self.readsText(serials: serials), to: fixture.planFolder + "/" + path)
+        }
+        let recipe = try fixture.addTool("trim-reads", "echo ran > logs/recipe.ran")
+        let manifest = try fixture.writeManifest()
+        let step = PlanStep(
+            id: "trim", title: "Run trim", kind: .recipe, tool: recipe, arguments: [], deadlineSeconds: 60,
+            inputs: inputs, outputs: ["out/trimmed.fastq"]
+        )
+        let plan = try fixture.writePlan([step], manifestPin: manifest.pin, inputs: inputs)
+        let run = try fixture.run(plan, ["--image-manifest", manifest.path])
+        XCTAssertEqual(run.status, ExecutorExitCode.failed, run.stderr)
+        let record = try XCTUnwrap(run.record)
+        XCTAssertEqual(record.outcome, .failed)
+        XCTAssertEqual(
+            record.reason,
+            "Paired FASTQ mates are out of step at record 2: R1.fastq has 'SRR0000001.2 2 length=10' but R2.fastq has "
+                + "'SRR0000001.1 1 length=10'. The two files do not list the same fragments in the same order, so nothing was written.")
+        XCTAssertEqual(record.steps.count, 0)
+        XCTAssertEqual(fixture.exists("logs/recipe.ran"), false, "the recipe ran on a plan of three inputs the check refuses")
+    }
+
     /// Guard. A pair in step passes, a triple whose first two are in step passes (the third is the run-alone file, which has
     /// no mate), and one input is not checked as a pair.
     func testTheCheckPassesAPairInStepAndATripleWhoseFirstTwoAreInStepAndSkipsOneInput() throws {
