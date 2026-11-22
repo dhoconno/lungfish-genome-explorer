@@ -128,7 +128,9 @@ For uncounted 10x reads, **Single-cell Plan for a Linux Machine** plans a run wi
 
 Both fixtures use imports because the counts are already available. The bulk fixture has six folders from salmon 2.11.0, the version in the **RNA-Seq Analysis** plugin pack, a group of tools LGE adds on request. Across the same 200 cells and the 1,353 genes the fixture keeps, Cell Ranger counts 212,733 UMIs and STARsolo counts 212,629, a difference of 104 UMIs, about 0.05 percent. Close totals can hide differences for individual genes or cells.
 
-If you have uncounted bulk reads, choose a route your computers can support. To match a published study, check which program made its final counts. A study that mapped with STAR may have counted with STAR, salmon, or featureCounts. LGE records a route in every result. For counts LGE makes or adopts and for imported salmon or Cell Ranger folders, the route names the tool and its version. For an imported STARsolo folder, the version reads **Not recorded**. For an imported count table, both the tool and its version read **Not recorded**.
+If you have uncounted bulk reads, choose a route your computers can support. To match a published study, check which program made its final counts. A study that mapped with STAR may have counted with STAR, salmon, or featureCounts.
+
+LGE records a route in every result. For counts LGE makes from reads or adopts from a Linux run, the route names the tool and its version. For imported salmon or Cell Ranger folders, the route names the tool and the version the files give. The version reads **Not recorded** when the files give none, and also when Cell Ranger folders give different versions. For an imported STARsolo folder, the version reads **Not recorded**. For an imported count table, both the tool and its version read **Not recorded**.
 
 ## Read counts, library size, CPM, and TPM
 
