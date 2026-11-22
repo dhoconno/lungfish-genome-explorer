@@ -26,7 +26,7 @@ shots:
     caption: "The File Already Exists alert that appears when a sample's bundle name is already taken under Imports, offering Replace, Keep Both, and Skip."
 illustrations:
   - id: read-preparation-order
-    brief: "A left-to-right chain of six rounded boxes joined by arrows, each labeled with an operation and, below it in IBM Plex Mono, the suffix it adds to the bundle name. Import (no suffix, the name comes from the file), Quality control (no suffix, the summary is rewritten in place), Trim (-fastpTrim), Length filter (-lengthFilter), Decontaminate (-humanReadScrub), then an optional box for Remove duplicates or Subsample (-deduplicate, -subsampleCount), ending in a larger box labeled Map (Part 4). Three dashed side branches leave the main chain: Merge Overlapping Pairs (-pairedEndMerge) branching off after quality control, Demultiplex branching off before quality control for pooled runs, and Subsample branching off anywhere as a test slice. A small note under the Remove duplicates box reads 'skip for amplicon runs'. Lungfish Creamsicle boxes on the main chain, Peach dashed boxes for side branches, Deep Ink labels and arrows, Cream background."
+    brief: "A left-to-right chain of six rounded boxes joined by arrows, each labeled with an operation and, below it in IBM Plex Mono, the suffix it adds to the bundle name. Import (no suffix, the name comes from the file), Quality control (no suffix, the summary is rewritten in place), Trim (-fastpTrim), Length filter (-lengthFilter), Decontaminate (-humanReadScrub), then an optional box for Remove duplicates or Subsample (-deduplicate, -subsampleCount), ending in a larger box labeled Map (Part 4). Three dashed side branches leave the main chain. Merge Overlapping Pairs (-pairedEndMerge) branches off after quality control, Demultiplex branches off before quality control for pooled runs, and Subsample branches off anywhere as a test slice. A small note under the Remove duplicates box reads 'skip for amplicon runs'. Lungfish Creamsicle boxes on the main chain, Peach dashed boxes for side branches, Deep Ink labels and arrows, Cream background."
 glossary_refs: [fastq, bam, bundle, paired-end, single-end, interleaved-fastq, project, sidebar, inspector, import-center, provenance, checksum, required-setup-pack, sample-metadata, quality-binning, read-clumping, sample-sheet, phred-score, adapter, virtual-bundle, k-mer, clumpify, read, mate, read-pair, fragment, vsp2, trim-galore, poly-g-tail, ribosomal-rna, pcr-duplicate, spot, sra, ncbi, mapper, amplicon, variant-caller, fastp, fixture, viewport, end-to-end-alignment]
 features_refs: [import.fastq, fastq.platform-label, import.sample-metadata]
 fixtures_refs: [hg002-chr20]
@@ -36,7 +36,11 @@ lead_approved: false
 
 ## What it is
 
-Importing copies sequencing reads into a Lungfish Genome Explorer (LGE) [project](../../GLOSSARY.md#project) and leaves your original files where they are. A project is a `.lungfish` folder that holds one analysis. A [read](../../GLOSSARY.md#read) records the sequence the instrument measured from a DNA fragment. LGE saves the copy as a `.lungfishfastq` read bundle in **Imports**. A [bundle](../../GLOSSARY.md#bundle) is a folder that LGE treats as one item. The [project guide](../01-foundations/06-the-lungfish-project.md#what-bundle-means) shows how bundles organize your data. Sequencing reads usually arrive in [FASTQ](../../GLOSSARY.md#fastq) files. Each read takes four lines. They hold the name, the bases, a separator, and one quality character per base.
+Importing copies sequencing reads into a Lungfish Genome Explorer (LGE) [project](../../GLOSSARY.md#project) and leaves your original files where they are. A project is a `.lungfish` folder that holds one analysis. A [read](../../GLOSSARY.md#read) records the sequence the instrument measured from a DNA fragment. LGE saves the copy as a `.lungfishfastq` read bundle in **Imports**. A [bundle](../../GLOSSARY.md#bundle) is a folder that LGE treats as one item. The [project guide](../01-foundations/06-the-lungfish-project.md#what-bundle-means) shows how bundles organize your data.
+
+Sequencing reads usually arrive in [FASTQ](../../GLOSSARY.md#fastq) files. Each read takes four lines. They hold the name, the bases, a separator, and one quality character per base. Each quality character encodes a Phred score, which expresses the estimated chance that the instrument called the base incorrectly. A higher score means a more reliable base call.
+
+HG002 is a human genome characterized by the Genome in a Bottle project so labs can check their methods.
 
 An HG002 read with two lines cut after 30 characters:
 
@@ -53,7 +57,7 @@ During import, LGE counts reads and bases, measures length and quality, and reco
 
 You can import FASTQ files with or without compression by gzip, a common compression program that adds a `.gz` ending. You can also import an unmapped [BAM](../../GLOSSARY.md#bam). A BAM usually stores reads aligned to a reference. A reference is the DNA sequence used to place the reads. An unmapped BAM holds reads that have yet to be aligned. Oxford Nanopore software can write one when it turns the instrument's signal into bases. The Sequence Read Archive ([SRA](../../GLOSSARY.md#sra)) is a public archive at the National Center for Biotechnology Information ([NCBI](../../GLOSSARY.md#ncbi)). If your files are there, use the [SRA download procedure](02-downloading-from-sra.md). For a whole [Oxford Nanopore run folder](07-ont-runs.md), follow the separate import procedure.
 
-## Where this part fits
+## Read preparation and pairs
 
 Import is the first step in preparing reads for [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md). Few projects need every preparation step. Most steps save a new bundle and add a suffix to its name, so you can see which steps it has been through.
 
@@ -84,6 +88,8 @@ If an amplicon tool needs merged reads, [Read Processing](08-read-processing.md)
 
 Keeping mates paired lets a mapper use one mate to help place the other. [fastp](../../GLOSSARY.md#fastp) is a program that trims reads. A recipe is a set of read-processing steps that LGE can run during import.
 
+Short reads, up to a few hundred bases long, come from Illumina, Element Biosciences, MGI / DNBSEQ and Ultima Genomics instruments. Long reads, usually thousands of bases or more, come from Oxford Nanopore and PacBio instruments.
+
 | What happens to pairs | Operations |
 |---|---|
 | Both mates are kept or removed together | Import, the four [fastp](../../GLOSSARY.md#fastp) trims, Primer Trimming, Filter by Read Length, Remove Human Reads, Remove Ribosomal RNA Reads, Remove Contaminants, Remove Low-Complexity Reads, Remove Duplicate Reads, both subsamples, the three extraction operations, Correct Sequencing Errors, Reverse Complement All Sequences, Repair Paired-End Files |
@@ -96,7 +102,7 @@ If the mates are out of step and both are still present, [repair the paired file
 
 Import your reads once so you can use the same bundle for quality control, trimming, mapping, and variant calling. You can also use it for classification, which names the organisms the reads come from, and assembly, which joins reads into longer sequences. The bundle keeps the platform and pairing with the reads. You can also add [sample metadata](../../GLOSSARY.md#sample-metadata), facts about the specimen such as when and where it was collected. These details stay with the bundle. The [platform guide](#how-lge-decides-the-platform) explains how LGE uses the recorded platform to pick starting settings.
 
-The practice data come from HG002, a human genome characterized by the Genome in a Bottle project so labs can check their methods. This [fixture](../../GLOSSARY.md#fixture) is a public data set that lets everyone practice on the same files. Depth is the number of reads that cover a position, as the [coverage track](../01-foundations/04-alignment-files.md#coverage-and-the-coverage-track) shows.
+The practice data come from HG002. This [fixture](../../GLOSSARY.md#fixture) is a public data set that lets everyone practice on the same files. Depth is the number of reads that cover a position, as the [coverage track](../01-foundations/04-alignment-files.md#coverage-and-the-coverage-track) shows.
 
 | What the fixture contains | Value |
 |---|---|
@@ -239,7 +245,7 @@ The program salmon estimates how many reads come from each transcript, and STAR 
 
 | Card | What it does | Chapter |
 |---|---|---|
-| **ONT Run Folder** | Imports an Oxford Nanopore run folder as one bundle per barcode | [Oxford Nanopore Runs](07-ont-runs.md) |
+| **ONT Run Folder** | Imports an Oxford Nanopore run folder as one bundle per barcode. A barcode is a short known DNA sequence added to a sample's fragments so reads from samples sequenced together can be sorted by sample. | [Oxford Nanopore Runs](07-ont-runs.md) |
 | **Plan for a Linux Machine** | Writes the files that reorder, compress, and count FASTQ reads on a Linux machine | [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md) |
 | **Linux Run Result** | Imports the folder a Linux run returned, as one FASTQ bundle per sample | [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md) |
 | **RNA-seq Counts** | Imports salmon quant folders, or one table of counts by gene and sample, as one RNA-seq result | [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) |
