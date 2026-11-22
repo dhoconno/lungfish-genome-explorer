@@ -5,7 +5,7 @@
 // `supportsExactBareBarcodeDemux` (`DemultiplexingPipeline+ExactBareMatching.swift:274-287`) returns false for five reasons: sample
 // assignments, a dual-index kit, a kit that is neither single-end nor symmetric, a context that is not bare, and a barcode with an
 // i5 sequence or a letter outside A, C, G and T. The refusal words of BIO-EXACT-BARE-RC item 3 must be true for each case, so this
-// table pins each one. It changes no result and reads no words.
+// table pins each one, and it pins the refusal words themselves (X). It changes no result.
 
 import XCTest
 @testable import LungfishIO
@@ -37,13 +37,31 @@ final class DemultiplexExactBareGuardTests: XCTestCase {
 
     // MARK: The refusal words (X)
 
-    /// X (BIO-EXACT-BARE-RC item 3). BIO sent the new words back, since a Custom Definition whose kit line names the Fluidigm
-    /// Access Array kit also runs (`BIOWORDS-TV-DEMUX.md` section X), so the refusal keeps its words of the base until X is
-    /// decided. The app and the command line show this one text.
-    func testTheRefusalKeepsItsWordsOfTheBaseUntilXIsDecided() {
+    /// X (BIO-EXACT-BARE-RC item 3, decided in `SCR/codex/TV-DEMUX-decided.md` and held by BIO after the Fluidigm kit-line case
+    /// came back once). The words name the real limit, which the accepted runs and the five cases of this file pin. The app and
+    /// the command line show this one text.
+    func testTheRefusalNamesTheRealLimit() {
         XCTAssertEqual(
             DemultiplexError.exactBareBarcodeUnsupported.errorDescription,
-            "Exact bare-barcode demultiplexing requires a single-index bare barcode kit with A/C/G/T sequences. Use cutadapt for adapter-context, dual-index, or fuzzy barcode matching.")
+            "Nothing was run. Exact Bare Barcode accepts only the built-in Fluidigm Access Array kit or a Custom Definition with one barcode of 1 to 31 A, C, G or T letters per row and either no kit line or a kit line naming the Fluidigm Access Array kit. Choose Cutadapt (on the command line, --engine cutadapt).")
+    }
+
+    /// What X says about a kit line is true. A Custom Definition whose kit line names the Fluidigm Access Array kit runs, as one with
+    /// no kit line does (BIO measured both, `BIOWORDS-TV-DEMUX.md` section X). The same definition with a barcode that X rules
+    /// out (a letter outside A, C, G and T, or more than 31 letters) is refused, by the loader or by the guard.
+    func testTheWordsOfTheRefusalHoldForADefinitionWithTheFluidigmKitLine() throws {
+        XCTAssertTrue(supports(try custom("# kit: fluidigm-access-array\nid,sequence\nBC01,ACGTACGTAC\n")), "a kit line naming the Fluidigm Access Array kit")
+        XCTAssertTrue(
+            supports(try custom("# kit: fluidigm-access-array\nid,sequence\nBC01,\(String(repeating: "A", count: 31))\n")),
+            "31 letters is the longest")
+        for row in ["ACGTNACGTA", String(repeating: "A", count: 32)] {
+            let text = "# kit: fluidigm-access-array\nid,sequence\nBC01,\(row)\n"
+            if let kit = try? custom(text) {
+                XCTAssertFalse(supports(kit), row)
+            } else {
+                print("GUARD-TABLE case 5b: refused at load: \(row)")
+            }
+        }
     }
 
     // MARK: The runs that go ahead
