@@ -108,15 +108,26 @@ public final class RNASeqResultSurface: ResultViewport {
         present(outcome, bundleURL: bundleURL, cellMap: cellMap)
     }
 
-    /// Stops the cell map's reads, which publish their empty lines, then drops the App's closure.
+    /// Called when the host removes this viewer, with the folder it showed, so the App can take that result's rows out
+    /// of the Inspector. A dataset or result that sets no Inspector document of its own would otherwise show under them.
+    public var onWillDeactivate: (@MainActor (URL) -> Void)?
+
+    /// The folder ``present(_:bundleURL:cellMap:)`` last showed.
+    private var shownURL: URL?
+
+    /// Stops the cell map's reads, which publish their empty lines, tells the App which result goes, then drops the
+    /// App's closures.
     public func willDeactivate(replacedBy next: SurfaceKind?) {
         controller.cellMap?.close()
         onCellMapFacts = nil
+        if let shownURL { onWillDeactivate?(shownURL) }
+        onWillDeactivate = nil
     }
 
     /// Shows what the read gave and tells the App when it was a result. A cell map shows `cellMap`, or reads its own
     /// when the caller read none.
     public func present(_ outcome: RNASeqResultLoadOutcome, bundleURL: URL, cellMap: RNASeqCellMapLoadOutcome? = nil) {
+        shownURL = bundleURL
         controller.show(outcome, bundleURL: bundleURL, cellMap: cellMap)
         if case .loaded(let result) = outcome {
             onLoaded?(RNASeqResultFacts(result: result), bundleURL)

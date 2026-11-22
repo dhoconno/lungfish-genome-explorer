@@ -22,6 +22,11 @@ extension ViewerViewController {
         surface.onCellMapFacts = { [weak self] lines, bundleURL in
             (self?.parent as? MainSplitViewController)?.inspectorController.updateRNASeqCellMapFacts(lines, bundleURL: bundleURL)
         }
+        // The result's rows go with its view, since a FASTQ dataset or a classifier result sets no document of its own.
+        surface.onWillDeactivate = { [weak self] bundleURL in
+            (self?.parent as? MainSplitViewController)?.inspectorController.viewModel.documentSectionViewModel
+                .clearRNASeqResultDocument(ifShowing: bundleURL)
+        }
         // Save Selection as Labels Table… and Pseudobulk Selected Cells… of a cell map run `lungfish-cli rnaseq cell-map select`.
         surface.onSelectionAction = { [weak self] action in
             let projectURL = (self?.parent as? MainSplitViewController)?.sidebarController?.currentProjectURL

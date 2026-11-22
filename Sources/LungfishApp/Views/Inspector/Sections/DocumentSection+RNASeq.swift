@@ -58,6 +58,13 @@ extension DocumentSectionViewModel {
         clearForDocumentMode()
         rnaseqResultDocument = RNASeqResultDocumentState(bundleURL: url, header: nil, cellMap: rows)
     }
+
+    /// Takes the rows of the RNA-seq result at `bundleURL` out of the Bundle tab when its view goes, and leaves the
+    /// rows of another result, which a later show already gave.
+    func clearRNASeqResultDocument(ifShowing bundleURL: URL) {
+        guard rnaseqResultDocument?.bundleURL == bundleURL.standardizedFileURL else { return }
+        rnaseqResultDocument = nil
+    }
 }
 
 /// The rows of an open RNA-seq result: its facts, then the cell map's lines. Each row is one accessibility element
