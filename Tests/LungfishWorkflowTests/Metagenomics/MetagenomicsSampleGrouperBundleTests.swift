@@ -82,4 +82,35 @@ final class MetagenomicsSampleGrouperBundleTests: XCTestCase {
         XCTAssertEqual(samples.map(\.fastq1.path), ["/data/run/P.lungfishfastq"])
         XCTAssertEqual(samples.map { $0.fastq2 == nil }, [true])
     }
+
+    func testDottedBundleNamesKeepTheirWholeStem() {
+        let inputs = bundles(["2024.11.05_swab_1", "2024.11.05_swab_2", "Pt.7"])
+
+        let samples = MetagenomicsSampleGrouper.group(inputs)
+
+        XCTAssertEqual(samples.map(\.sampleId), ["2024_11_05_swab_1", "2024_11_05_swab_2", "Pt_7"])
+        XCTAssertEqual(samples.map(\.fastq1), inputs)
+        XCTAssertEqual(samples.map { $0.fastq2 == nil }, [true, true, true])
+    }
+
+    func testProbeCaseThreeBundlesAreThreeSamples() {
+        let inputs = bundles(["Sample_3", "Sample_1", "Sample_2"])
+
+        let samples = MetagenomicsSampleGrouper.group(inputs)
+
+        XCTAssertEqual(samples.map(\.sampleId), ["Sample_1", "Sample_2", "Sample_3"])
+        XCTAssertEqual(samples.map(\.fastq1), bundles(["Sample_1", "Sample_2", "Sample_3"]))
+        XCTAssertEqual(samples.map { $0.fastq2 == nil }, [true, true, true])
+    }
+
+    /// A lone bundle is one sample under its whole stem, even when the stem ends like a mate.
+    func testALoneBundleWithAMateEndingKeepsItsWholeStem() {
+        let inputs = bundles(["Sample_R1"])
+
+        let samples = MetagenomicsSampleGrouper.group(inputs)
+
+        XCTAssertEqual(samples.map(\.sampleId), ["Sample_R1"])
+        XCTAssertEqual(samples.map(\.fastq1), inputs)
+        XCTAssertEqual(samples.map { $0.fastq2 == nil }, [true])
+    }
 }
