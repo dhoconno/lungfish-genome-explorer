@@ -1,0 +1,82 @@
+{
+  "salmon_version": "2.11.0",
+  "samp_type": "none",
+  "opt_type": "vb",
+  "quant_errors": [],
+  "num_libraries": 1,
+  "library_types": [
+    "IU"
+  ],
+  "frag_dist_length": 1001,
+  "frag_length_mean": 174.4520337682267,
+  "frag_length_sd": 48.43104901196096,
+  "frag_length_source": "reads",
+  "seq_bias_correct": false,
+  "gc_bias_correct": false,
+  "pos_bias_correct": false,
+  "num_bias_bins": 0,
+  "mapping_type": "mapping",
+  "keep_duplicates": false,
+  "index_seq_hash": "aac5e0e16b81ac8c94406bee4186e9f249f7c0db78bebc2809383618592f0e0e",
+  "index_name_hash": "ef2db929b7b8077d098b8868827e4d6ad4dc1cd388d45f1f1cde712fe34f6db4",
+  "index_seq_hash512": "756710431073fe9d23e6d1bb32f2ed284a9152a57949153366fa5695271638f81f5ad5374f41c59690d489547fdb20d5a39bbf9f73feb3e95d678fae88b57869",
+  "index_name_hash512": "6df130dbdd98aa977c4b903962fbd5e2b9ba737c4078b8bde0222cf75dd6e61eb9209d233d0908b9edd70b529966d62d070fe4123fee258e3f7c360840fbdd5b",
+  "index_decoy_seq_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "index_decoy_name_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "num_valid_targets": 92,
+  "num_decoy_targets": 0,
+  "num_eq_classes": 51,
+  "serialized_eq_classes": false,
+  "eq_class_properties": [
+    "range_factorized",
+    "gzipped"
+  ],
+  "length_classes": [
+    512,
+    759,
+    999,
+    1097,
+    2000
+  ],
+  "num_processed": 1000000,
+  "num_mapped": 13521,
+  "num_dovetail_fragments": 144,
+  "num_fragments_filtered_vm": 92,
+  "num_alignments_below_threshold_for_mapped_fragments_vm": 141,
+  "percent_mapped": 1.3521,
+  "num_decoy_fragments": 0,
+  "inference_truncated_mass": 0.0,
+  "num_bootstraps": 0,
+  "num_orphan": 492,
+  "range_factorization_bins": 4,
+  "meta_info_complete": true,
+  "num_em_iterations": 50,
+  "em_converged": true,
+  "em_components": {
+    "stop_rule": "projected",
+    "num_components": 51,
+    "num_unconverged": 0,
+    "num_at_max_iter": 0,
+    "fraction_reads_at_max_iter": -0.0,
+    "median_iterations": 50
+  },
+  "detected_library_type": "IU",
+  "inference_path": "deterministic",
+  "total_time_seconds": 4.0240574989999995,
+  "peak_rss_kb": 0,
+  "diagnostics": [
+    {
+      "code": "very_low_mapping_rate",
+      "severity": "warning",
+      "message": "very low mapping rate (1.4%): the reference likely does not match these reads (wrong reference/organism or heavy contamination)"
+    },
+    {
+      "code": "strand_bias_unstranded",
+      "severity": "warning",
+      "message": "detected a *potential* strand bias > 1% in an unstranded protocol (strand_mapping_bias = 0.5112); see lib_format_counts.json for details"
+    }
+  ],
+  "call": "quant",
+  "start_time": "Sat Nov 21 18:51:40 2026",
+  "end_time": "Sat Nov 21 18:51:45 2026"
+}

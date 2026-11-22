@@ -1,0 +1,22 @@
+# sample.sub - written by Lungfish for one recipe of an HTCondor batch. run.dag gives each job its sample's
+# sample, request_disk, sample_inputs and sample_placements through VARS.
+universe = container
+container_image = file:///Volumes/lge_scratch/lge/docs-fx4/staging/images/lge-tools-43a3079b8fb1.sif
+initialdir = $(sample)
+executable = lge-job.sh
+arguments = "'814925494d236164d22735dc54410785c28b9b750e7044bec03ff8fed3dc661b-lungfish-executor=bin/lungfish-executor' $(sample_placements) '--' '--site-fact' 'Machine=$$(Machine:lge_unset)' '--site-fact' 'Arch=$$(Arch:lge_unset)' '--site-fact' 'Microarch=$$(Microarch:lge_unset)' '--site-fact' 'OpSysAndVer=$$(OpSysAndVer:lge_unset)' '--site-fact' 'OpSysMajorVer=$$(OpSysMajorVer:lge_unset)' '--site-fact' 'OSKernelRelease=$$(OSKernelRelease:lge_unset)' '--site-fact' 'Cpus=$$(Cpus:lge_unset)' '--site-fact' 'Memory=$$(Memory:lge_unset)' '--site-fact' 'Disk=$$(Disk:lge_unset)' '--site-fact' 'ClusterId=$(Cluster)' '--site-fact' 'ProcId=$(Process)'"
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files = $(sample_inputs), file:///Volumes/lge_scratch/lge/docs-fx4/staging/shared/814925494d236164d22735dc54410785c28b9b750e7044bec03ff8fed3dc661b-lungfish-executor
+transfer_output_files = plan/run-record.json, plan/logs, plan/out/sample.fastq.gz
+transfer_output_remaps = "plan/run-record.json = file:///Volumes/lge_scratch/lge/docs-fx4/staging/batches/hg002-chr20-plan/$(sample)/result/run-record.json; plan/out/sample.fastq.gz = file:///Volumes/lge_scratch/lge/docs-fx4/staging/batches/hg002-chr20-plan/$(sample)/result/out/sample.fastq.gz"
+requirements = (TARGET.HasCHTCStaging == true) && (TARGET.OpSysMajorVer >= 9) && (TARGET.Arch == "X86_64")
+request_cpus = 4
+request_memory = 12288MB
+request_disk = $(request_disk)
+periodic_release = (NumHolds < 3) && (((HoldReasonCode =?= 12) && (ExitCode =?= 0)) || (HoldReasonCode =?= 13))
+kill_sig = SIGTERM
+log = ../logs/$(sample).log
+output = ../logs/$(sample).out
+error = ../logs/$(sample).err
+queue

@@ -1,0 +1,165 @@
+{
+  "clumping" : {
+    "heapBytes" : 4294967296,
+    "reason" : "The automatic clumping choice names BBTools clumpify for every sample of short reads, at the clumpify heap and with no size estimate, because clumpify's groups=auto compares its memory estimate for each input with the memory available in that heap and splits a large input into more groups.",
+    "requested" : "auto",
+    "resolved" : "bbtools",
+    "resolvedSource" : "default"
+  },
+  "entries" : [
+    {
+      "relativePath" : "bin/lungfish-executor",
+      "role" : "executor",
+      "sha256" : "814925494d236164d22735dc54410785c28b9b750e7044bec03ff8fed3dc661b",
+      "size" : 59148672
+    },
+    {
+      "relativePath" : "inputs/R1.fastq.gz",
+      "role" : "input",
+      "sha256" : "82312a60ab52a1d47c2cbdd99964d2c1c7b817d5a3fb688e7fe5feec5f20586b",
+      "size" : 1674916
+    },
+    {
+      "relativePath" : "inputs/R2.fastq.gz",
+      "role" : "input",
+      "sha256" : "c5aac6d6092c83f6ed5a9e86ad38cce1f839dcfbfbaec6f3d6eca9c1e7ff7250",
+      "size" : 1813908
+    }
+  ],
+  "executor" : {
+    "lgeCommit" : "218471029a71bf9f7edf2c5ce2f1ea033c187f0d",
+    "lgeVersion" : "2026.11.15",
+    "staticLinuxSDKID" : "swift-6.4.0-RELEASE_static-linux-0.1.0",
+    "staticLinuxSDKSHA256" : "47d2fd89eebfdf9eb4d536b6710414297f755c17926cdebc4742c08982b40a9e",
+    "targetTriple" : "x86_64-swift-linux-musl",
+    "toolchainID" : "swift-6.4.0-RELEASE",
+    "toolchainSHA256" : "8fd03185b98fe27f54a54631c2449decf75d5b466ce8e34abbd414141063c6aa"
+  },
+  "graceSeconds" : 60,
+  "imageManifest" : {
+    "sha256" : "ded88d7fc03e50b0c4624f923314db6d4ed53697fe349d7f39a8070d9c916790",
+    "size" : 87670
+  },
+  "sample" : {
+    "originalFilenames" : [
+      "hg002-chr20_R1.fastq.gz",
+      "hg002-chr20_R2.fastq.gz"
+    ],
+    "originalSizeBytes" : 3488824,
+    "platform" : "illumina",
+    "sampleName" : "hg002-chr20",
+    "sampleSheet" : [
+
+    ]
+  },
+  "schemaVersion" : 1,
+  "steps" : [
+    {
+      "arguments" : [
+
+      ],
+      "deadlineSeconds" : 14400,
+      "environment" : [
+        {
+          "name" : "_JAVA_OPTIONS",
+          "value" : "-Xmx4g"
+        }
+      ],
+      "id" : "storage",
+      "inputs" : [
+        "inputs/R1.fastq.gz",
+        "inputs/R2.fastq.gz"
+      ],
+      "kind" : "storage",
+      "outputs" : [
+        "out/sample.fastq.gz"
+      ],
+      "title" : "Store reads",
+      "tool" : {
+        "build" : "h09cc210_0",
+        "id" : "clumpify.sh",
+        "version" : "40.02"
+      }
+    },
+    {
+      "arguments" : [
+        "stats",
+        "-a",
+        "-T",
+        "out/sample.fastq.gz"
+      ],
+      "deadlineSeconds" : 3600,
+      "environment" : [
+
+      ],
+      "id" : "statistics",
+      "inputs" : [
+        "out/sample.fastq.gz"
+      ],
+      "kind" : "statistics",
+      "outputs" : [
+
+      ],
+      "standardOutput" : "out/sample.seqkit-stats.tsv",
+      "title" : "Compute statistics",
+      "tool" : {
+        "build" : "he881be0_0",
+        "id" : "seqkit",
+        "version" : "2.13.0"
+      }
+    },
+    {
+      "arguments" : [
+
+      ],
+      "deadlineSeconds" : 3600,
+      "environment" : [
+
+      ],
+      "id" : "quality-count",
+      "inputs" : [
+        "out/sample.fastq.gz"
+      ],
+      "kind" : "qualityCount",
+      "outputs" : [
+
+      ],
+      "title" : "Count Q20 and Q30 bases"
+    }
+  ],
+  "storage" : {
+    "clumpifyHeapGB" : 4,
+    "clumpifyHeapSource" : "option",
+    "clumpingTool" : "bbtools",
+    "clumpingToolSource" : "default",
+    "compressionLevel" : 4,
+    "compressor" : "bgzip",
+    "compressorSource" : "default",
+    "qualityBinning" : "fiveStep",
+    "qualityBinningSource" : "default",
+    "threads" : 4,
+    "threadsSource" : "option"
+  },
+  "tools" : [
+    {
+      "build" : "ha79157c_0",
+      "id" : "bgzip",
+      "version" : "1.24"
+    },
+    {
+      "build" : "h09cc210_0",
+      "id" : "clumpify.sh",
+      "version" : "40.02"
+    },
+    {
+      "build" : "h1602c4f_26",
+      "id" : "java",
+      "version" : "25.0.2"
+    },
+    {
+      "build" : "he881be0_0",
+      "id" : "seqkit",
+      "version" : "2.13.0"
+    }
+  ]
+}

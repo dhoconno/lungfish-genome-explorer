@@ -1,0 +1,6 @@
+##fileformat=VCFv4.2
+##contig=<ID=HBB_region,length=3000>
+##INFO=<ID=GENE,Number=1,Type=String,Description="Gene symbol">
+##INFO=<ID=HGVS,Number=1,Type=String,Description="Coding change on NM_000518.5">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+HBB_region	614	rs334	A	T	.	PASS	GENE=HBB;HGVS=c.20A>T

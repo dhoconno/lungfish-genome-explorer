@@ -1,0 +1,176 @@
+README.txt - how to run the batch hg002-chr20-plan and bring its results back to the Mac. Written by Lungfish.
+
+This folder holds one plan for each sample, in a folder named by the sample. It has two ways to run
+them. Use run.dag on an HTCondor pool. Use run-local.sh on one machine with Apptainer or Docker, which
+can be a Linux machine or a Mac with Docker. jobs.tsv lists the samples, one row each.
+staging-files.json lists the files the jobs read, each with its size and its SHA-256. Each file
+other than the image also has a source, the file on the Mac to copy or link. The image is staged
+already.
+
+
+Run on an HTCondor pool
+
+1. For each file in staging-files.json that has a source, copy or link that source to the file's
+   stagingPath, below /Volumes/lge_scratch/lge/docs-fx4/staging. The name of a file in shared/ starts with its SHA-256, so a file
+   already there with the listed size is the same file. Leave it, and never copy over it, since the
+   jobs of other batches may be reading it.
+
+2. Copy this folder to the machine you submit from, and run this from inside it:
+
+   condor_submit_dag run.dag
+
+   Each sample's job returns its files to /Volumes/lge_scratch/lge/docs-fx4/staging/batches/hg002-chr20-plan/<sample>/result/
+   and its step logs to <sample>/logs/ in this folder.
+
+run.dag runs at most 10 jobs at once, from its line MAXJOBS lge 10. To change that, edit the
+number on that line before you submit.
+
+The jobs ask for machines that reach the staging folder, run EL9 or later and are x86-64. On another
+pool, write the batch again with --job-requirements '<expression>', which replaces that whole
+requirements line of sample.sub.
+
+The sample sheet of a batch is a comma-separated file, samples.csv, with a header line and one line for
+each sample. Lungfish reads it on the Mac, when it writes the batch with --samplesheet samples.csv.
+The columns sample, r1 and r2 name the sample and its two read files, and a relative path is read
+from the folder that holds the sheet. The optional column request_disk gives that sample's disk
+request in whole GB in place of the size Lungfish works out, and an empty cell keeps that size:
+
+   sample,r1,r2,request_disk
+   S1,S1_R1.fastq.gz,S1_R2.fastq.gz,40
+   S2,S2_R1.fastq.gz,S2_R2.fastq.gz,
+
+
+If a sample's job is held
+
+A held job stops and waits, and the batch does not finish until you deal with it.
+
+1. See which sample is held, and why:
+
+   condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReasonCode NumHolds HoldReason
+
+   Each line gives the job's two numbers, the sample's name, the run's exit code, the hold's
+   code, how many times the job has been held and the reason HTCondor gave.
+   To see every sample's state, read run.dag.status. In logs/<sample>.log a hold
+   shows as "Job was evicted" and then "Job was held". Both lines are one hold, not a move to
+   another machine.
+
+2. If the hold's code is 12 and the exit code is 0, the run finished and only sending its files
+   back failed. If the code is 13, the job could not fetch one of its input files, so it never
+   ran and its exit code reads undefined. HTCondor releases a job held for either reason by
+   itself, at most twice, so leave it. A job held a third time stays held. If its reason says the
+   transfer made no progress, release the job yourself once the staging folder answers:
+
+   condor_release <ClusterId>.<ProcId>
+
+   For any other hold, fix what the reason names. If it says an output file could not be sent
+   back, that sample's job returned no reads. Read its run record, /Volumes/lge_scratch/lge/docs-fx4/staging/batches/hg002-chr20-plan/<sample>/result/run-record.json, and its
+   log, <sample>/logs/ in this folder, to see which step stopped. A job the executor refuses
+   before its first step leaves only the record. A job that lge-job.sh refuses leaves no record,
+   so read logs/<sample>.err.
+
+3. Running the sample again replaces its run record, so copy it aside if it is there. Then remove
+   the held job. HTCondor counts that sample as failed and goes on with the others:
+
+   cp /Volumes/lge_scratch/lge/docs-fx4/staging/batches/hg002-chr20-plan/<sample>/result/run-record.json <sample>/run-record-<ClusterId>.json
+   condor_rm <ClusterId>.<ProcId>
+
+4. When the other samples have finished, the run stops and writes run.dag.rescue001, which lists
+   the samples still to run. Run the batch again from this folder:
+
+   condor_submit_dag run.dag
+
+   HTCondor reads the rescue file and runs only those samples.
+
+5. When every sample has finished, copy the results back to the Mac and adopt the batch, as
+   "Bring the results back to the Mac" says below.
+
+
+Run on one machine with Apptainer or Docker
+
+1. Copy this folder to the machine that runs it, a Linux machine or a Mac with Docker.
+
+2. Make a data folder there and copy or link into it each file staging-files.json lists, at its
+   stagingPath with /Volumes/lge_scratch/lge/docs-fx4/staging/ taken off the front. That gives the folders shared/ and
+   batches/hg002-chr20-plan/, and images/ for Apptainer. A Docker run reads no images/ folder.
+   On a machine that reaches the staging folder, /Volumes/lge_scratch/lge/docs-fx4/staging can be the data folder.
+   Then this step copies nothing. A file in shared/ that has another size than the one listed is not the
+   listed file, so copy it again.
+
+3. Run one of these from inside this folder:
+
+   sh run-local.sh --runtime apptainer --data <data folder>
+   sh run-local.sh --runtime docker --image <image> --data <data folder>
+
+   Apptainer runs images/lge-tools-43a3079b8fb1.sif of the data folder, once its SHA-256 matches the plans.
+   Docker runs <image>, a Docker image for linux/amd64 made from that same file. The lab's
+   launcher-tier.sh image command makes one.
+
+run-local.sh runs at most 10 samples at once, the same number as run.dag. --jobs <n> changes it.
+--sample <name> runs one sample. Each sample works in its own folder under scratch/ in this folder,
+or under --scratch <folder>, which needs the free space of the sample's request_disk in run.dag.
+
+Each sample leaves <sample>/result/ with its run record, its reports and its reads, and
+<sample>/logs/ with its step logs. logs/<sample>.out and logs/<sample>.err hold the run's output.
+Those are the logs of the job. run-local.sh prints its progress to its own output, a line when a
+sample starts and a line when it finishes. It prints none of the job's output.
+run-local.sh skips a sample that has a result/ folder, so running it again runs only the samples
+that returned nothing. Delete a sample's result/ folder to run that sample again.
+
+
+Bring the results back to the Mac
+
+1. The adopt reads one folder for each sample: the plan.json your Mac wrote, with the job's
+   files beside it.
+
+2. For every sample, copy the files inside result/ into that sample's folder on the Mac, next to
+   plan.json. It is one step for both launchers, and only the source differs. After an HTCondor
+   run the source is /Volumes/lge_scratch/lge/docs-fx4/staging/batches/hg002-chr20-plan/<sample>/result/ on the machine that holds the staging folder. After a run of
+   run-local.sh it is <sample>/result/ in this folder on the machine that ran it. The slash after
+   result matters. Run this on the Mac, from the folder that holds hg002-chr20-plan:
+
+   for sample in $(grep -v '^#' hg002-chr20-plan/jobs.tsv | cut -f 1); do rsync -a <source>/"$sample"/result/ hg002-chr20-plan/"$sample"/; done
+
+   <source> is <host>:/Volumes/lge_scratch/lge/docs-fx4/staging/batches/hg002-chr20-plan after an HTCondor run, or <host>:<this folder on the
+   machine that ran run-local.sh> after a run of run-local.sh. When the files are on this Mac, <source>
+   is that folder alone, with no <host>:. The rsync command reaches <host> through your ssh setup,
+   so a name from your ssh config works.
+
+   A host that needs ssh -F <config file> or other ssh options needs them in rsync too. Run
+   export RSYNC_RSH='ssh -F <config file>' on its own line before the command, or change rsync -a
+   in the command to rsync -e 'ssh -F <config file>' -a. The copy brings the payloads of every sample
+   home. As a measured example, the payloads of one batch were 4.96 GB and took 1 min 54 s to copy, and
+   your batch has its own size and time. For a larger batch, copy through a transfer host. At CHTC that
+   is transfer.chtc.wisc.edu, which needs a NetID and Duo. That host is untested.
+
+3. Do not copy logs/, since the adopt reads no log. Do not copy a plan.json back from the Linux
+   side, since the adopt must read the one the Mac wrote. A run of run-local.sh leaves <sample>/logs/ beside
+   <sample>/result/, so copy the files inside result/ and not the whole sample folder. An HTCondor
+   result/ holds no logs/, so there is nothing to leave out of it.
+
+4. Adopt the whole folder:
+
+   lungfish-cli import fastq hg002-chr20-plan --adopt --project <project>
+
+   When no project is at <project>, the adopt makes one there. The adopt copies each payload into its
+   bundle and leaves the returned copy where it is, so the Mac needs the space for the payloads twice,
+   unless the batch folder and the project are on one APFS volume, where the second copy shares the
+   space of the first. After the adopt the folder <sample>/out/ may be deleted.
+
+   A batch is adopted whole: when any sample is refused, nothing is imported and each refused
+   sample is listed by name. Fix or rerun it, then adopt the whole batch again. The project must
+   not already hold a bundle with the name of a sample of the batch, and the adopt refuses that
+   sample if it does. To start over, delete those bundles from the project and adopt the batch
+   again. These are four of the lines you may meet:
+
+   <sample>: its job returned nothing. The folder holds no run-record.json.
+     (a held or removed job, or a copy not made)
+   <sample>: its job returned no reads. The payload <path> is missing from the folder.
+   <sample>: The job's files are in the folder result. Copy everything inside result into the folder <sample>, next to plan.json.
+   <sample>: The project already holds the bundle <bundle>.
+
+5. When the adopt stops after some samples (a full disk, a cancel), the bundles it made stay
+   whole and are named in the message: delete them from the project and adopt the batch again.
+   The message says: To adopt the rest, delete the imported bundles and adopt the batch again.
+
+6. Clean up the staging folder last. When the adopt has finished and no sample was refused, the folders
+   /Volumes/lge_scratch/lge/docs-fx4/staging/batches/hg002-chr20-plan/<sample>/result/ in the staging folder may be removed.

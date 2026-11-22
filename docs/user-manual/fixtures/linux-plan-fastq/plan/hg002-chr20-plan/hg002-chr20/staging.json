@@ -1,0 +1,28 @@
+{
+  "image" : {
+    "fileName" : "lge-tools-43a3079b8fb1.sif",
+    "sha256" : "43a3079b8fb1c32777fc772e1739f4002ab82f53c928cb114278f0910215b8e4",
+    "size" : 633806848
+  },
+  "schemaVersion" : 1,
+  "sharedFiles" : [
+    {
+      "relativePath" : "bin/lungfish-executor",
+      "role" : "executor",
+      "sha256" : "814925494d236164d22735dc54410785c28b9b750e7044bec03ff8fed3dc661b",
+      "size" : 59148672
+    },
+    {
+      "relativePath" : "inputs/R1.fastq.gz",
+      "role" : "input",
+      "sha256" : "82312a60ab52a1d47c2cbdd99964d2c1c7b817d5a3fb688e7fe5feec5f20586b",
+      "size" : 1674916
+    },
+    {
+      "relativePath" : "inputs/R2.fastq.gz",
+      "role" : "input",
+      "sha256" : "c5aac6d6092c83f6ed5a9e86ad38cce1f839dcfbfbaec6f3d6eca9c1e7ff7250",
+      "size" : 1813908
+    }
+  ]
+}

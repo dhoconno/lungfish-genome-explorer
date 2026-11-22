@@ -1,0 +1,105 @@
+{
+  "cellsSummary" : {
+    "path" : "cells.sqlite",
+    "schemaVersion" : 2,
+    "sha256" : "3e3f405b082e8c40376f8d3cdf70599fe77d8e449769e754b2be4e18f27a2ed8"
+  },
+  "counts" : [
+
+  ],
+  "createdAt" : "2026-11-20T06:47:53Z",
+  "genes" : {
+    "path" : "genes.tsv",
+    "sha256" : "f02c94a6048ad41bffc5e882b1dd3a9c471133c5d42df21feb3754952bf0b85b"
+  },
+  "kind" : "rnaseq-result",
+  "matrices" : [
+    {
+      "barcodes" : {
+        "path" : "source/smoke-starsolo/Solo.out/Gene/filtered/barcodes.tsv",
+        "sha256" : "5a84f27d7a051664a9f1b83ea0751e4fa3659ec3ba389d6f9af60edc29737f2c"
+      },
+      "cellCount" : 12,
+      "entryCount" : 48,
+      "featureCount" : 6,
+      "features" : {
+        "path" : "source/smoke-starsolo/Solo.out/Gene/filtered/features.tsv",
+        "sha256" : "57a67faa5afce2e21467e621d60eee38cd7a0dbd79e25ca049e9a7f466dd1a32"
+      },
+      "format" : "matrix-market",
+      "isGzip" : false,
+      "matrix" : {
+        "path" : "source/smoke-starsolo/Solo.out/Gene/filtered/matrix.mtx",
+        "sha256" : "62eb0d73c8d62b022bff50d882f80a7dbb83090ebe74f5a167f8ea2982108503"
+      },
+      "sample" : "smoke-starsolo"
+    }
+  ],
+  "modality" : "single-cell",
+  "name" : "Smoke single-cell",
+  "notHost" : [
+
+  ],
+  "origin" : {
+    "kind" : "imported",
+    "tool" : "STARsolo",
+    "toolVersion" : "Not recorded"
+  },
+  "quality" : {
+    "path" : "quality/samples.quality.tsv",
+    "sha256" : "c54e87607021e6e81f0e9708f982042e9cc4a748c47a4b4cf6ff5cad0720c783"
+  },
+  "referenceSet" : null,
+  "route" : {
+    "id" : "starsolo-gene-filtered-matrix",
+    "settings" : {
+      "counts" : "UMIs",
+      "features" : "Gene",
+      "matrix" : "Solo.out/Gene/filtered"
+    },
+    "tool" : "STARsolo",
+    "toolVersion" : "Not recorded"
+  },
+  "samples" : {
+    "path" : "samples.tsv",
+    "sha256" : "b9aee05c79c113e4589afc1e8694bbf987ceaf6046b39ccf0a98d8bb71c800b7"
+  },
+  "schemaVersion" : 1,
+  "sourceFiles" : [
+    {
+      "path" : "source/smoke-starsolo/Log.final.out",
+      "sample" : "smoke-starsolo",
+      "sha256" : "8997076734db581e928a3dee303201b046257d3c5ca5d7631b780153599ff7f5",
+      "size" : 2029,
+      "tool" : "STARsolo"
+    },
+    {
+      "path" : "source/smoke-starsolo/Solo.out/Gene/Summary.csv",
+      "sample" : "smoke-starsolo",
+      "sha256" : "e830cd34c8b9865bfc6278be5e29e3ae6b8944bbd7dd3d442830916539779982",
+      "size" : 652,
+      "tool" : "STARsolo"
+    },
+    {
+      "path" : "source/smoke-starsolo/Solo.out/Gene/filtered/barcodes.tsv",
+      "sample" : "smoke-starsolo",
+      "sha256" : "5a84f27d7a051664a9f1b83ea0751e4fa3659ec3ba389d6f9af60edc29737f2c",
+      "size" : 204,
+      "tool" : "STARsolo"
+    },
+    {
+      "path" : "source/smoke-starsolo/Solo.out/Gene/filtered/features.tsv",
+      "sample" : "smoke-starsolo",
+      "sha256" : "57a67faa5afce2e21467e621d60eee38cd7a0dbd79e25ca049e9a7f466dd1a32",
+      "size" : 237,
+      "tool" : "STARsolo"
+    },
+    {
+      "path" : "source/smoke-starsolo/Solo.out/Gene/filtered/matrix.mtx",
+      "sample" : "smoke-starsolo",
+      "sha256" : "62eb0d73c8d62b022bff50d882f80a7dbb83090ebe74f5a167f8ea2982108503",
+      "size" : 359,
+      "tool" : "STARsolo"
+    }
+  ]
+}

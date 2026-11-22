@@ -1,0 +1,447 @@
+{
+  "endedAt" : "2026-11-22T01:19:02.136Z",
+  "executor" : {
+    "buildPin" : {
+      "lgeCommit" : "218471029a71bf9f7edf2c5ce2f1ea033c187f0d",
+      "lgeVersion" : "2026.11.15",
+      "staticLinuxSDKID" : "swift-6.4.0-RELEASE_static-linux-0.1.0",
+      "staticLinuxSDKSHA256" : "47d2fd89eebfdf9eb4d536b6710414297f755c17926cdebc4742c08982b40a9e",
+      "targetTriple" : "x86_64-swift-linux-musl",
+      "toolchainID" : "swift-6.4.0-RELEASE",
+      "toolchainSHA256" : "8fd03185b98fe27f54a54631c2449decf75d5b466ce8e34abbd414141063c6aa"
+    },
+    "sha256" : "814925494d236164d22735dc54410785c28b9b750e7044bec03ff8fed3dc661b",
+    "size" : 59148672
+  },
+  "executorArguments" : [
+    "run",
+    "--plan",
+    "plan.json",
+    "--site-fact",
+    "Machine=lge-linux",
+    "--site-fact",
+    "Arch=x86_64",
+    "--site-fact",
+    "OpSysAndVer=debian12",
+    "--site-fact",
+    "ContainerRuntime=Docker",
+    "--site-fact",
+    "ContainerRuntimeVersion=29.9.2",
+    "--site-fact",
+    "ContainerImageID=sha256:4d1027a4dcd93e272ccbcaaf2a4c4e55d1db43b6160284a03de8957f38231560",
+    "--site-fact",
+    "Launcher=run-local.sh/1"
+  ],
+  "exitCode" : 0,
+  "imageManifest" : {
+    "sha256" : "ded88d7fc03e50b0c4624f923314db6d4ed53697fe349d7f39a8070d9c916790",
+    "size" : 87670,
+    "source" : "image"
+  },
+  "inputs" : [
+    {
+      "relativePath" : "inputs/R1.fastq.gz",
+      "role" : "input",
+      "sha256" : "82312a60ab52a1d47c2cbdd99964d2c1c7b817d5a3fb688e7fe5feec5f20586b",
+      "size" : 1674916
+    },
+    {
+      "relativePath" : "inputs/R2.fastq.gz",
+      "role" : "input",
+      "sha256" : "c5aac6d6092c83f6ed5a9e86ad38cce1f839dcfbfbaec6f3d6eca9c1e7ff7250",
+      "size" : 1813908
+    }
+  ],
+  "outcome" : "succeeded",
+  "payloads" : [
+    {
+      "recordCount" : 20000,
+      "recordCountFile" : {
+        "relativePath" : "out/sample.fastq.gz",
+        "sha256" : "bd1e10e6cbc8939737fbfb6f66ad14a64247a7d9e664da36f0227d82a522d98c",
+        "size" : 1453947
+      },
+      "relativePath" : "out/sample.fastq.gz",
+      "sha256" : "bd1e10e6cbc8939737fbfb6f66ad14a64247a7d9e664da36f0227d82a522d98c",
+      "size" : 1453947
+    }
+  ],
+  "plan" : {
+    "relativePath" : "plan.json",
+    "sha256" : "1415f08a85cd81986ec2be5ee87d299f0c0c7cde1ef8226b01852369a9f06389",
+    "size" : 4086
+  },
+  "runtimeIdentity" : {
+    "cgroupVersion" : 2,
+    "kernelRelease" : "7.0.14-linuxkit",
+    "machine" : "x86_64",
+    "observedLimits" : [
+      {
+        "name" : "memTotalBytes",
+        "source" : "/proc/meminfo MemTotal",
+        "value" : "33332244480"
+      },
+      {
+        "name" : "cpusAllowedList",
+        "source" : "/proc/self/status Cpus_allowed_list",
+        "value" : "0-19"
+      },
+      {
+        "name" : "cgroupMemoryMaxBytes",
+        "source" : "/sys/fs/cgroup/memory.max"
+      }
+    ],
+    "orphanSweep" : "subreaper",
+    "pidNamespaceDepth" : 1,
+    "subreaper" : {
+      "getterResult" : 0,
+      "getterValue" : 1,
+      "setterResult" : 0,
+      "setterResultName" : "0",
+      "state" : "set"
+    }
+  },
+  "runtimes" : [
+    {
+      "build" : "h1602c4f_26",
+      "id" : "java",
+      "path" : "/opt/lge/env/bin/java",
+      "version" : "25.0.2",
+      "versionSource" : "imageManifest"
+    }
+  ],
+  "schemaVersion" : 1,
+  "searchPath" : [
+    "/opt/lge/rnaseq/bin",
+    "/opt/lge/env/bin",
+    "/opt/lge/star273a/bin",
+    "/opt/lge/trim_galore/bin",
+    "/usr/bin",
+    "/bin"
+  ],
+  "siteFacts" : [
+    {
+      "key" : "Machine",
+      "value" : "lge-linux"
+    },
+    {
+      "key" : "Arch",
+      "value" : "x86_64"
+    },
+    {
+      "key" : "OpSysAndVer",
+      "value" : "debian12"
+    },
+    {
+      "key" : "ContainerRuntime",
+      "value" : "Docker"
+    },
+    {
+      "key" : "ContainerRuntimeVersion",
+      "value" : "29.9.2"
+    },
+    {
+      "key" : "ContainerImageID",
+      "value" : "sha256:4d1027a4dcd93e272ccbcaaf2a4c4e55d1db43b6160284a03de8957f38231560"
+    },
+    {
+      "key" : "Launcher",
+      "value" : "run-local.sh/1"
+    }
+  ],
+  "startedAt" : "2026-11-22T01:18:45.354Z",
+  "steps" : [
+    {
+      "adoptedOrphansReaped" : 0,
+      "argv" : [
+        "/opt/lge/env/bin/clumpify.sh",
+        "in=inputs/R1.fastq.gz",
+        "out=out/sample.fastq.gz",
+        "-Xmx4g",
+        "-eoom",
+        "ow=t",
+        "reorder",
+        "groups=auto",
+        "pigz=t",
+        "zl=4",
+        "threads=4",
+        "in2=inputs/R2.fastq.gz",
+        "interleaved=t",
+        "qin=33",
+        "qout=33",
+        "maxcalledquality=93",
+        "quantize=0,2,7,12,17,22,27,32,37"
+      ],
+      "deadlineSeconds" : 14400,
+      "endedAt" : "2026-11-22T01:19:00.353Z",
+      "environmentNames" : [
+        "HOME",
+        "PATH",
+        "TMPDIR",
+        "_JAVA_OPTIONS"
+      ],
+      "escalatedToSIGKILL" : false,
+      "graceSeconds" : 60,
+      "id" : "storage",
+      "inputReadCount" : 20000,
+      "kind" : "storage",
+      "outcome" : "succeeded",
+      "outputReadCount" : 20000,
+      "outputs" : [
+        {
+          "bytes" : 1453947,
+          "path" : "out/sample.fastq.gz",
+          "sha256" : "bd1e10e6cbc8939737fbfb6f66ad14a64247a7d9e664da36f0227d82a522d98c"
+        }
+      ],
+      "peakResidentBytes" : 183668736,
+      "startedAt" : "2026-11-22T01:18:47.138Z",
+      "stderrBytes" : 1777,
+      "stderrTail" : "java -ea -XX:+ExitOnOutOfMemoryError  -Xmx4g -Xms4g -cp /opt/lge/env/opt/bbmap-40.02-0/current/ clump.Clumpify in=inputs/R1.fastq.gz out=out/sample.fastq.gz -Xmx4g -eoom ow=t reorder groups=auto pigz=t zl=4 threads=4 in2=inputs/R2.fastq.gz interleaved=t qin=33 qout=33 maxcalledquality=93 quantize=0,2,7,12,17,22,27,32,37\nPicked up _JAVA_OPTIONS: -Xmx4g\nExecuting clump.Clumpify [in=inputs/R1.fastq.gz, out=out/sample.fastq.gz, -Xmx4g, -eoom, ow=t, reorder, groups=auto, pigz=t, zl=4, threads=4, in2=inputs/R2.fastq.gz, interleaved=t, qin=33, qout=33, maxcalledquality=93, quantize=0,2,7,12,17,22,27,32,37]\nVersion 40.02\n\nSet INTERLEAVED to true\nRead Estimate:          174440\nMemory Estimate:        133 MB\nMemory Available:       3319 MB\nSet groups to 1\nExecuting clump.KmerSort1 [in1=inputs/R1.fastq.gz, in2=inputs/R2.fastq.gz, out1=out/sample.fastq.gz, out2=, groups=1, ecco=false, rename=false, shortname=f, unpair=false, repair=false, namesort=false, ow=true, ow=t, reorder, pigz=t, zl=4, threads=4, maxcalledquality=93]\n\nSet threads to 4\nReset INTERLEAVED to false because paired input files were specified.\nMaking comparator.\nMade a comparator with k=31, seed=1, border=1, hashes=4\nStarting cris 0.\nFetching reads.\nMaking fetch threads.\nStarting threads.\nWaiting for threads.\nFetch time: \t3.352 seconds.\nClosing input stream.\nCombining thread output.\nCombine time: \t0.000 seconds.\nSorting.\nSort time: \t0.015 seconds.\nMaking clumps.\nClump time: \t0.038 seconds.\nWriting.\nWaiting for writing to complete.\nWrite time: \t0.487 seconds.\nDone!\nTime:                         \t5.103 seconds.\nReads Processed:         20000 \t3.92k reads/sec\nBases Processed:         4965k \t0.97m bases/sec\n\nReads In:                20000\nClumps Formed:            5327\nTotal time: \t6.954 seconds.\n",
+      "stderrTruncated" : false,
+      "stoppedProcesses" : [
+
+      ],
+      "storage" : {
+        "clumpifyGroups" : 1,
+        "clumpifyMemoryAvailableLine" : "Memory Available:       3319 MB",
+        "clumpifyMemoryEstimateLine" : "Memory Estimate:        133 MB",
+        "clumpingRan" : true,
+        "effectiveCompressionLevel" : 4,
+        "inputBytes" : 3488824,
+        "launches" : [
+          {
+            "argv" : [
+              "/opt/lge/rnaseq/bin/bgzip",
+              "-h"
+            ],
+            "environmentNames" : [
+              "HOME",
+              "PATH",
+              "TMPDIR"
+            ],
+            "escalatedToSIGKILL" : false,
+            "outcome" : "succeeded",
+            "peakResidentBytes" : 37355520,
+            "stderrPath" : "logs/storage.1.stderr",
+            "stoppedProcesses" : [
+
+            ],
+            "tool" : {
+              "build" : "ha79157c_0",
+              "id" : "bgzip",
+              "path" : "/opt/lge/rnaseq/bin/bgzip",
+              "version" : "1.24",
+              "versionSource" : "imageManifest"
+            },
+            "toolExitCode" : 0,
+            "wallSeconds" : 0.099151542
+          },
+          {
+            "argv" : [
+              "/opt/lge/env/bin/clumpify.sh",
+              "in=inputs/R1.fastq.gz",
+              "out=out/sample.fastq.gz",
+              "-Xmx4g",
+              "-eoom",
+              "ow=t",
+              "reorder",
+              "groups=auto",
+              "pigz=t",
+              "zl=4",
+              "threads=4",
+              "in2=inputs/R2.fastq.gz",
+              "interleaved=t",
+              "qin=33",
+              "qout=33",
+              "maxcalledquality=93",
+              "quantize=0,2,7,12,17,22,27,32,37"
+            ],
+            "clumpifyGroups" : 1,
+            "clumpifyMemoryAvailableLine" : "Memory Available:       3319 MB",
+            "clumpifyMemoryEstimateLine" : "Memory Estimate:        133 MB",
+            "environmentNames" : [
+              "HOME",
+              "PATH",
+              "TMPDIR",
+              "_JAVA_OPTIONS"
+            ],
+            "escalatedToSIGKILL" : false,
+            "inputs" : [
+              {
+                "relativePath" : "inputs/R1.fastq.gz",
+                "sha256" : "82312a60ab52a1d47c2cbdd99964d2c1c7b817d5a3fb688e7fe5feec5f20586b",
+                "size" : 1674916
+              },
+              {
+                "relativePath" : "inputs/R2.fastq.gz",
+                "sha256" : "c5aac6d6092c83f6ed5a9e86ad38cce1f839dcfbfbaec6f3d6eca9c1e7ff7250",
+                "size" : 1813908
+              }
+            ],
+            "outcome" : "succeeded",
+            "outputs" : [
+              {
+                "relativePath" : "out/sample.fastq.gz",
+                "sha256" : "bd1e10e6cbc8939737fbfb6f66ad14a64247a7d9e664da36f0227d82a522d98c",
+                "size" : 1453947
+              }
+            ],
+            "peakResidentBytes" : 183668736,
+            "stderrPath" : "logs/storage.2.stderr",
+            "stoppedProcesses" : [
+
+            ],
+            "tool" : {
+              "build" : "h09cc210_0",
+              "id" : "clumpify.sh",
+              "path" : "/opt/lge/env/bin/clumpify.sh",
+              "version" : "40.02",
+              "versionSource" : "imageManifest"
+            },
+            "toolExitCode" : 0,
+            "wallSeconds" : 12.000534713
+          }
+        ],
+        "outputBytes" : 1453947,
+        "peakWorkRootBytes" : 64099264,
+        "qualityBinning" : "fiveStep",
+        "writer" : {
+          "name" : "bgzip",
+          "tool" : {
+            "build" : "ha79157c_0",
+            "id" : "bgzip",
+            "path" : "/opt/lge/rnaseq/bin/bgzip",
+            "version" : "1.24",
+            "versionSource" : "imageManifest"
+          }
+        }
+      },
+      "tool" : {
+        "build" : "h09cc210_0",
+        "id" : "clumpify.sh",
+        "path" : "/opt/lge/env/bin/clumpify.sh",
+        "version" : "40.02",
+        "versionSource" : "imageManifest"
+      },
+      "toolExitCode" : 0,
+      "wallSeconds" : 13.218436464
+    },
+    {
+      "adoptedOrphansReaped" : 0,
+      "argv" : [
+        "/opt/lge/env/bin/seqkit",
+        "stats",
+        "-a",
+        "-T",
+        "out/sample.fastq.gz"
+      ],
+      "deadlineSeconds" : 3600,
+      "endedAt" : "2026-11-22T01:19:01.979Z",
+      "environmentNames" : [
+        "HOME",
+        "PATH",
+        "TMPDIR"
+      ],
+      "escalatedToSIGKILL" : false,
+      "graceSeconds" : 60,
+      "id" : "statistics",
+      "inputFile" : {
+        "relativePath" : "out/sample.fastq.gz",
+        "sha256" : "bd1e10e6cbc8939737fbfb6f66ad14a64247a7d9e664da36f0227d82a522d98c",
+        "size" : 1453947
+      },
+      "kind" : "statistics",
+      "outcome" : "succeeded",
+      "outputs" : [
+
+      ],
+      "peakResidentBytes" : 79699968,
+      "standardOutput" : {
+        "sha256" : "4916ff1337180652cde39f383306d80aee71ffe42477cceeca7baa5c847d6504",
+        "size" : 220,
+        "text" : "file\tformat\ttype\tnum_seqs\tsum_len\tmin_len\tavg_len\tmax_len\tQ1\tQ2\tQ3\tsum_gap\tN50\tN50_num\tQ20(%)\tQ30(%)\tAvgQual\tGC(%)\tsum_n\nout/sample.fastq.gz\tFASTQ\tDNA\t20000\t4965573\t50\t248.3\t250\t249\t250\t250\t0\t250\t1\t95\t92\t25.39\t39.43\t384\n"
+      },
+      "startedAt" : "2026-11-22T01:19:00.356Z",
+      "stderrBytes" : 0,
+      "stderrTail" : "",
+      "stderrTruncated" : false,
+      "stoppedProcesses" : [
+
+      ],
+      "tool" : {
+        "build" : "he881be0_0",
+        "id" : "seqkit",
+        "path" : "/opt/lge/env/bin/seqkit",
+        "version" : "2.13.0",
+        "versionSource" : "imageManifest"
+      },
+      "toolExitCode" : 0,
+      "toolPID" : 232,
+      "wallSeconds" : 1.534741876
+    },
+    {
+      "adoptedOrphansReaped" : 0,
+      "argv" : [
+        "run",
+        "--plan",
+        "plan.json",
+        "--site-fact",
+        "Machine=lge-linux",
+        "--site-fact",
+        "Arch=x86_64",
+        "--site-fact",
+        "OpSysAndVer=debian12",
+        "--site-fact",
+        "ContainerRuntime=Docker",
+        "--site-fact",
+        "ContainerRuntimeVersion=29.9.2",
+        "--site-fact",
+        "ContainerImageID=sha256:4d1027a4dcd93e272ccbcaaf2a4c4e55d1db43b6160284a03de8957f38231560",
+        "--site-fact",
+        "Launcher=run-local.sh/1"
+      ],
+      "deadlineSeconds" : 3600,
+      "endedAt" : "2026-11-22T01:19:02.134Z",
+      "environmentNames" : [
+
+      ],
+      "escalatedToSIGKILL" : false,
+      "graceSeconds" : 60,
+      "id" : "quality-count",
+      "kind" : "qualityCount",
+      "outcome" : "succeeded",
+      "outputs" : [
+
+      ],
+      "qualityCounts" : {
+        "baseCount" : 4965573,
+        "file" : {
+          "relativePath" : "out/sample.fastq.gz",
+          "sha256" : "bd1e10e6cbc8939737fbfb6f66ad14a64247a7d9e664da36f0227d82a522d98c",
+          "size" : 1453947
+        },
+        "q20Count" : 4722951,
+        "q30Count" : 4575212,
+        "recordCount" : 20000
+      },
+      "startedAt" : "2026-11-22T01:19:01.980Z",
+      "stderrBytes" : 0,
+      "stderrTail" : "",
+      "stderrTruncated" : false,
+      "stoppedProcesses" : [
+
+      ],
+      "tool" : {
+        "build" : "218471029a71bf9f7edf2c5ce2f1ea033c187f0d",
+        "id" : "lungfish-executor",
+        "path" : "/proc/self/exe",
+        "sha256" : "814925494d236164d22735dc54410785c28b9b750e7044bec03ff8fed3dc661b",
+        "version" : "2026.11.15",
+        "versionSource" : "planPin"
+      },
+      "wallSeconds" : 0.153532542
+    }
+  ],
+  "wallSeconds" : 16.786746966
+}

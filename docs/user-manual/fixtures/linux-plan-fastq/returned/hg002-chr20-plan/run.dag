@@ -1,0 +1,7 @@
+# run.dag - written by Lungfish for an HTCondor batch. One JOB a sample, each with its own VARS.
+JOB hg002-chr20 sample.sub
+VARS hg002-chr20 sample="hg002-chr20" request_disk="9GB" sample_inputs="plan.tar, file:///Volumes/lge_scratch/lge/docs-fx4/staging/batches/hg002-chr20-plan/hg002-chr20/R1.fastq.gz, file:///Volumes/lge_scratch/lge/docs-fx4/staging/batches/hg002-chr20-plan/hg002-chr20/R2.fastq.gz" sample_placements="R1.fastq.gz=inputs/R1.fastq.gz R2.fastq.gz=inputs/R2.fastq.gz"
+SCRIPT PRE hg002-chr20 /bin/mkdir -p /Volumes/lge_scratch/lge/docs-fx4/staging/batches/hg002-chr20-plan/hg002-chr20/result /Volumes/lge_scratch/lge/docs-fx4/staging/batches/hg002-chr20-plan/hg002-chr20/result/out
+CATEGORY ALL_NODES lge
+MAXJOBS lge 10
+NODE_STATUS_FILE run.dag.status 60

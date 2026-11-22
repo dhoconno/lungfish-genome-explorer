@@ -1,0 +1,40 @@
+java -ea -XX:+ExitOnOutOfMemoryError  -Xmx4g -Xms4g -cp /opt/lge/env/opt/bbmap-40.02-0/current/ clump.Clumpify in=inputs/R1.fastq.gz out=out/sample.fastq.gz -Xmx4g -eoom ow=t reorder groups=auto pigz=t zl=4 threads=4 in2=inputs/R2.fastq.gz interleaved=t qin=33 qout=33 maxcalledquality=93 quantize=0,2,7,12,17,22,27,32,37
+Picked up _JAVA_OPTIONS: -Xmx4g
+Executing clump.Clumpify [in=inputs/R1.fastq.gz, out=out/sample.fastq.gz, -Xmx4g, -eoom, ow=t, reorder, groups=auto, pigz=t, zl=4, threads=4, in2=inputs/R2.fastq.gz, interleaved=t, qin=33, qout=33, maxcalledquality=93, quantize=0,2,7,12,17,22,27,32,37]
+Version 40.02
+
+Set INTERLEAVED to true
+Read Estimate:          174440
+Memory Estimate:        133 MB
+Memory Available:       3319 MB
+Set groups to 1
+Executing clump.KmerSort1 [in1=inputs/R1.fastq.gz, in2=inputs/R2.fastq.gz, out1=out/sample.fastq.gz, out2=, groups=1, ecco=false, rename=false, shortname=f, unpair=false, repair=false, namesort=false, ow=true, ow=t, reorder, pigz=t, zl=4, threads=4, maxcalledquality=93]
+
+Set threads to 4
+Reset INTERLEAVED to false because paired input files were specified.
+Making comparator.
+Made a comparator with k=31, seed=1, border=1, hashes=4
+Starting cris 0.
+Fetching reads.
+Making fetch threads.
+Starting threads.
+Waiting for threads.
+Fetch time: 	3.352 seconds.
+Closing input stream.
+Combining thread output.
+Combine time: 	0.000 seconds.
+Sorting.
+Sort time: 	0.015 seconds.
+Making clumps.
+Clump time: 	0.038 seconds.
+Writing.
+Waiting for writing to complete.
+Write time: 	0.487 seconds.
+Done!
+Time:                         	5.103 seconds.
+Reads Processed:         20000 	3.92k reads/sec
+Bases Processed:         4965k 	0.97m bases/sec
+
+Reads In:                20000
+Clumps Formed:            5327
+Total time: 	6.954 seconds.

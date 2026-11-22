@@ -1,0 +1,15 @@
+{
+  "salmon_version": "2.11.0",
+  "index": "ercc92_index",
+  "libType": "A",
+  "output": "quant/SRR896695",
+  "mates1": [
+    "reads/SRR896695_1.fastq.gz"
+  ],
+  "mates2": [
+    "reads/SRR896695_2.fastq.gz"
+  ],
+  "unmatedReads": [],
+  "threads": 1,
+  "sketch": false
+}
