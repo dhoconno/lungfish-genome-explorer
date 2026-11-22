@@ -30,7 +30,7 @@ glossary_refs: [accession, abundance, blast, bracken, confidence-kraken-2, false
 features_refs: [classify.kraken2, viewport.taxonomy-browser, classify.extract-reads, results.table-row-commands, classify.blast-verify]
 fixtures_refs: [kraken-protocol-cornea]
 brand_reviewed: true
-lead_approved: false
+lead_approved: true
 ---
 
 ## What it is
