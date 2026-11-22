@@ -101,8 +101,23 @@ final class LoosePairShortMateTests: XCTestCase {
 
         for route in Route.allCases {
             let refusal = await planRefusal(route, r1: r1, r2: r2)
-            XCTAssertNil(refusal.words, route.rawValue)
-            XCTAssertNil(refusal.exitCode, route.rawValue)
+            XCTAssertEqual(refusal.words, nil, route.rawValue)
+            XCTAssertEqual(refusal.exitCode, nil, route.rawValue)
+        }
+    }
+
+    /// `fastq-dump --readids` names the mates `SRR1.7.1` and `SRR1.7.2`. Two different names that are mates by
+    /// the dotted rule plan on every route.
+    func testDottedSRAMatesInStepPlanOnEveryLoosePairedRoute() async throws {
+        let r1 = loose.appendingPathComponent("S_R1.fastq")
+        let r2 = loose.appendingPathComponent("S_R2.fastq")
+        try Data(ReadSetFixtures.fastq((1...100).map { "SRR1.\($0).1" }).utf8).write(to: r1)
+        try Data(ReadSetFixtures.fastq((1...100).map { "SRR1.\($0).2" }).utf8).write(to: r2)
+
+        for route in Route.allCases {
+            let refusal = await planRefusal(route, r1: r1, r2: r2)
+            XCTAssertEqual(refusal.words, nil, route.rawValue)
+            XCTAssertEqual(refusal.exitCode, nil, route.rawValue)
         }
     }
 
@@ -256,7 +271,7 @@ final class LoosePairShortMateTests: XCTestCase {
         for (path1, path2) in pairs {
             let r1 = fixtures.appendingPathComponent(path1)
             let r2 = fixtures.appendingPathComponent(path2)
-            XCTAssertTrue(LooseMatePairCheck.isLooseFASTQ(r1) && LooseMatePairCheck.isLooseFASTQ(r2), path1)
+            XCTAssertEqual([LooseMatePairCheck.isLooseFASTQ(r1), LooseMatePairCheck.isLooseFASTQ(r2)], [true, true], path1)
             XCTAssertEqual(try LooseMatePairCheck.refusal(r1: r1, r2: r2), nil, path1)
         }
     }
