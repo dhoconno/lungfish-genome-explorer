@@ -190,7 +190,7 @@ Shots that background control cannot take, and the final look of every shot, wai
 | 04-alignments/02 | pileup-zoom | Retake. The background capture drew reads as bars with no dots or letters, which the base-tier code does not explain (`SCR/shots/PILOT/SUSPECTS.md`) | Held from Stage B |
 | 04-alignments/02 | bam-viewport-overview, view-settings-alignment-tab, view-settings-reads-tab | Retake frontmost for the final look | Background captures of 2026.11.15 |
 
-`alignment-figure-export` needs no GUI. It is the figure that `lungfish-cli bundle export-graphic` draws, the command behind File > Export > Image (PNG)..., since the save panel shows the username (recipe commit 6a29c7936). Each later lane adds its full-screen rows to `SCR/shots/FULLSCREEN.tsv`, and this table gains them before the session is booked. The PNGs then go up in one manual-media push and asset upload under the owner's media go (D2), with `media.lock` in the same main push.
+`alignment-figure-export` needs no GUI. It is the figure that `lungfish-cli bundle export-graphic` draws, the command behind File > Export > Image (PNG)..., since the save panel shows the username (recipe commit 6a29c7936). ux-text's lane TV-ALIGN moves the coverage label inside the data area and clips reads to it, so the alignment shots and this figure are all taken again on ux-text's Preview, and the chapter's sentences about that label are checked against it. Each later lane adds its full-screen rows to `SCR/shots/FULLSCREEN.tsv`, and this table gains them before the session is booked. The PNGs then go up in one manual-media push and asset upload under the owner's media go (D2), with `media.lock` in the same main push.
 
 ## The known break
 
