@@ -135,7 +135,7 @@ final class TaxTriageWizardInputSamplesTests: XCTestCase {
     func testPairedRowSaysTheTwoFilesWerePairedByTheirNames() throws {
         XCTAssertEqual(
             TaxTriageWizardSheet.pairedByNamesLine(fastq2: try looseFile("X_R2.fastq.gz")),
-            "Paired by their names as the two reads of one sample."
+            "Paired by filename as two reads of one sample. To run them as two samples, import each file separately."
         )
         XCTAssertNil(TaxTriageWizardSheet.pairedByNamesLine(fastq2: nil))
     }
@@ -147,7 +147,7 @@ final class TaxTriageWizardInputSamplesTests: XCTestCase {
         let swab2 = try bundle("Swab_2")
         XCTAssertEqual(
             TaxTriageWizardSheet.bundleMateNotices([swab2, swab1]),
-            ["Swab_1 and Swab_2 run as two samples, since each FASTQ bundle is one sample. To run them as the two reads of one sample, import the two files together as a pair."]
+            ["Swab_1 and Swab_2 run as two samples because each FASTQ bundle is one sample. To run them as two reads of one sample, import both read files together as a pair."]
         )
         let triple = try ["X", "X_1", "X_2"].map { try bundle($0) }
         XCTAssertEqual(TaxTriageWizardSheet.bundleMateNotices(triple).count, 1)
@@ -168,7 +168,7 @@ final class TaxTriageWizardInputSamplesTests: XCTestCase {
     func testPairedRowLabelsEachFileAsR1OrR2() throws {
         let r1 = try looseFile("X_R1.fastq.gz")
         let r2 = try looseFile("X_R2.fastq.gz")
-        XCTAssertEqual(TaxTriageWizardSheet.sampleFileLines(fastq1: r1, fastq2: r2), ["R1: X_R1.fastq.gz", "R2: X_R2.fastq.gz"])
+        XCTAssertEqual(TaxTriageWizardSheet.sampleFileLines(fastq1: r1, fastq2: r2), ["R1 · X_R1.fastq.gz", "R2 · X_R2.fastq.gz"])
         XCTAssertEqual(TaxTriageWizardSheet.sampleFileLines(fastq1: try bundle("Swab_1"), fastq2: nil), ["Swab_1.lungfishfastq"])
         XCTAssertEqual(TaxTriageWizardSheet.sampleFileLines(fastq1: nil, fastq2: nil), ["No R1 file"])
     }

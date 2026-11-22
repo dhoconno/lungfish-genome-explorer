@@ -68,12 +68,12 @@ extension TaxTriageWizardSheet {
     nonisolated static func sampleFileLines(fastq1: URL?, fastq2: URL?) -> [String] {
         let first = fastq1?.lastPathComponent ?? "No R1 file"
         guard let fastq2 else { return [first] }
-        return ["R1: \(first)", "R2: \(fastq2.lastPathComponent)"]
+        return ["R1 · \(first)", "R2 · \(fastq2.lastPathComponent)"]
     }
 
     /// The line under a paired row's files. Only two loose files the dialog paired by name make such a row.
     nonisolated static func pairedByNamesLine(fastq2: URL?) -> String? {
-        fastq2 == nil ? nil : "Paired by their names as the two reads of one sample."
+        fastq2 == nil ? nil : "Paired by filename as two reads of one sample. To run them as two samples, import each file separately."
     }
 
     /// One line under the sample list for each two FASTQ bundles named like the R1 and R2 of one sample,
@@ -88,8 +88,8 @@ extension TaxTriageWizardSheet {
         }
         .sorted { $0.r1 < $1.r1 }
         .map {
-            "\($0.r1) and \($0.r2) run as two samples, since each FASTQ bundle is one sample. "
-                + "To run them as the two reads of one sample, import the two files together as a pair."
+            "\($0.r1) and \($0.r2) run as two samples because each FASTQ bundle is one sample. "
+                + "To run them as two reads of one sample, import both read files together as a pair."
         }
     }
 }
