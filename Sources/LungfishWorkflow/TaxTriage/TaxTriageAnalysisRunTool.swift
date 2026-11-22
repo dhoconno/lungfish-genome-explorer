@@ -203,6 +203,11 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
             guard FileManager.default.fileExists(atPath: read2.path) else {
                 throw TaxTriageRunRefusal.input("Input R2 file not found: \(input2Path)")
             }
+            // LOOSE-PAIR-SHORT-MATE. The pipeline's fastp pairs the two files by position and leaves R1's reads past a
+            // short R2 out with no word, so the files are counted before any Nextflow launch.
+            if let words = try LooseMatePairCheck.refusal(r1: inputs[0], r2: read2) {
+                throw TaxTriageRunRefusal.input(words)
+            }
             return [inputSample(inputs[0], named: request.sampleID ?? Self.stem(of: inputs[0]), read2: read2)]
         }
         return inputs.map { url in

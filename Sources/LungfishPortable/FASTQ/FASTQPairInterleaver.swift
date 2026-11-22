@@ -501,6 +501,22 @@ extension FASTQPairInterleaver {
         _ = try deinterleave(interleaved: interleaved, r1: sink1, r2: sink2, launcher: launcher)
     }
 
+    /// Reads every record of the R1 and R2 files of a loose pair as
+    /// ``interleave(r1:r2:to:requireMates:launcher:)`` reads them, writes
+    /// nothing, and returns the pairs. Files that hold different numbers of
+    /// records throw ``InterleaveError/mateCountMismatch(r1File:r1Records:r2File:r2Records:)``
+    /// with both true counts, a record that cannot be parsed throws its
+    /// ``InterleaveError/malformedRecord(file:recordNumber:reason:)``, and a
+    /// gzip that does not decompress whole throws its
+    /// ``InterleaveError/unreadableInput(file:reason:)``. The paired import
+    /// refuses the same files with the same words. A paired run checks a loose
+    /// pair with it first, because fastp and kraken2 pair two files by
+    /// position and leave the reads past the shorter file out with no word
+    /// (LOOSE-PAIR-SHORT-MATE).
+    package static func verifyMateCounts(r1: URL, r2: URL, launcher: any PortableChildLauncher) throws -> Int {
+        try interleave(r1: r1, r2: r2, requireMates: false, launcher: launcher) { _, _ in }.r1Records
+    }
+
     /// Record counts of a by-name partition of a mixed file.
     public struct MixedCounts: Sendable, Equatable {
         /// Adjacent mate pairs found and written as pairs.

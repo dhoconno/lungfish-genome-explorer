@@ -202,6 +202,9 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
         if !namesABundle, let message = Self.inputCountError(format: resolved.format, fileCount: inputURLs.count) {
             throw EsVirituAnalysisRunRefusal.input(message)
         }
+        if !namesABundle, resolved.format == .paired {
+            try Self.refuseShortMate(r1: inputURLs[0], r2: inputURLs[1])
+        }
         return PlannedSample(
             label: options.sampleName ?? sampleName,
             inputs: inputURLs,
@@ -220,7 +223,10 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
         guard options.readFormat == .auto, !options.pairedEnd else {
             throw EsVirituAnalysisRunRefusal.input("--batch plans each sample's read layout from its files, so it takes --read-format auto and no --paired.")
         }
-        return MetagenomicsSampleGrouper.group(inputURLs).map { sample in
+        return try MetagenomicsSampleGrouper.group(inputURLs).map { sample in
+            if sample.isPairedEnd, let read2 = sample.fastq2 {
+                try Self.refuseShortMate(r1: sample.fastq1, r2: read2)
+            }
             let plan = EsVirituSampleReadPlan.plan(for: sample)
             return PlannedSample(
                 label: sample.sampleId,
@@ -229,6 +235,14 @@ public struct EsVirituAnalysisRunTool: AnalysisRunTool {
                 layout: plan.layout,
                 plansReadSet: !sample.isPairedEnd
             )
+        }
+    }
+
+    /// LOOSE-PAIR-SHORT-MATE. A loose R1 and R2 that run as one pair are counted first, and files
+    /// that hold different numbers of records are refused with the interleaver's words.
+    private static func refuseShortMate(r1: URL, r2: URL) throws {
+        if let words = try LooseMatePairCheck.refusal(r1: r1, r2: r2) {
+            throw EsVirituAnalysisRunRefusal.input(words)
         }
     }
 
