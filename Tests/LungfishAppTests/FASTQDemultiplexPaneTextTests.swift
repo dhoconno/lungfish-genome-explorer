@@ -274,7 +274,9 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             "demux.readNames.truseq": 69,
         ]
         for (name, count) in base.sorted(by: { $0.key < $1.key }) {
-            XCTAssertLessThanOrEqual(try words(name), count, name)
+            let head = try words(name)
+            print("DEMUX-WORDS \(name) base \(count) head \(head)")
+            XCTAssertLessThanOrEqual(head, count, name)
         }
     }
 
