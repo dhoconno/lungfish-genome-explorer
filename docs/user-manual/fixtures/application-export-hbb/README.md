@@ -2,7 +2,7 @@
 
 A small export folder in the shape a sequence library application writes when you export a record, for the import of an application export. It holds the human beta-globin (HBB) region as a GenBank record, one variant as a VCF and a one-row index as a CSV. The same three files are also in one zip, since the importer takes a folder, an archive or a single file.
 
-This is not a file set from a vendor application. A script cut it from the public record NG_000007.3 (the record of the `hbb-gene/` fixture) and wrote the VCF and the index by hand. The importer sorts files by their type and never by the program that wrote them, so the kind you name only labels the collection. This set uses the neutral kind `sequence-design-library`.
+This is not a file set from a vendor application. A script cut it from the public record NG_000007.3 (the record of the `hbb-gene/` fixture) and wrote the VCF and the index by hand. For this kind the importer sorts files by their type and not by the program that wrote them, so the kind you name only labels the collection. The kinds `alignment-tree` and `phylogenetics-result-set` are the exception, since they look for alignments and trees first. This set uses the neutral kind `sequence-design-library`.
 
 | File | What it holds | Bytes |
 | --- | --- | --- |
@@ -15,11 +15,11 @@ The set serves chapter 02-sequences/06, the import of an application export.
 
 ## Source
 
-The sequence is `NG_000007.3`, the RefSeqGene record "Homo sapiens beta globin region (HBB@)" of NCBI, 81,706 bases. The `hbb-gene/` fixture holds the whole record and the script `fetch.sh` there fetches it from NCBI. `fx5_build.py`, a script of the manual's records that uses the Python standard library only, took bases 70,001 to 73,000, shifted each feature by 70,000 and left out every feature that crosses the cut. Position p of `HBB_region` is position p + 70,000 of NG_000007.3. The rs334 line follows dbSNP (`NM_000518.5(HBB):c.20A>T`).
+The sequence is `NG_000007.3`, the RefSeqGene record "Homo sapiens beta globin region (HBB@)" of NCBI, 81,706 bases. The `hbb-gene/` fixture holds the whole record and the script `fetch.sh` there fetches it from NCBI. `make.py` in this folder, which uses the Python standard library only, took bases 70,001 to 73,000, shifted each feature by 70,000 and left out every feature that crosses the cut. It also writes the VCF and the index, whose rows are fixed text in the script. Rebuild with `python3 -I make.py <NG_000007.3 GenBank file of hbb-gene/> <new folder>`. A rebuild on 2026-11-21 from `hbb-gene/NG_000007.3.gb` was byte equal for `HBB_region.gb`, `HBB_region.vcf` and `index.csv`. The script was named `fx5_build.py` when it cut these files, and that name is still in its first lines and in the comment of `HBB_region.gb`. Position p of `HBB_region` is position p + 70,000 of NG_000007.3. The rs334 line follows dbSNP (`NM_000518.5(HBB):c.20A>T`).
 
 ## License
 
-RefSeq records are produced by NCBI, a United States government agency, and carry no usage restriction in the United States. Check your own jurisdiction before you redistribute outside the United States. The cut, the VCF and the index are LGE's work from that record and are under LGE's MIT licence. Both allow shipping this folder.
+RefSeq records are produced by NCBI, a United States government agency, and carry no usage restriction in the United States. Check your own jurisdiction before you redistribute outside the United States. The cut, the VCF and the index are LGE's work from that record, and they and `make.py` are under LGE's MIT licence. Both allow shipping this folder.
 
 ## Citation
 
@@ -49,7 +49,7 @@ RefSeq records are produced by NCBI, a United States government agency, and carr
 
 ## Size
 
-The data files total 24,241 bytes (24 KB) in 4 files. The largest is `HBB_region.gb` at 19,739 bytes. Both caps are far off. `SHA256SUMS` lists the SHA-256 of every file but itself and this README.
+The data files total 24,241 bytes (24 KB) in 4 files, and `make.py` is 5,200 bytes. The largest is `HBB_region.gb` at 19,739 bytes. Both caps are far off. `SHA256SUMS` lists the SHA-256 of every file but itself and this README.
 
 ## Internal consistency
 

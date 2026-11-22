@@ -142,6 +142,66 @@ exclusion set of 18 sequences (eleven other Mamu-A1 lineages plus Mamu-A2, A3,
 A4, A6, A7 and B alleles). Deviating from the human tier is the point here,
 since the chapters design primers for a macaque gene family.
 
+`rnaseq-single-cell/` is the single-cell RNA-seq fixture. It supports the
+single-cell counts and cell map chapters and the RNA-seq tutorial with small
+results of one public 10x Genomics sample, the 1k PBMCs from a healthy donor
+(v3 chemistry): a STARsolo and a Cell Ranger count matrix, 10x's t-SNE and
+cluster tables, checked cell map numbers and pseudobulk label tables with
+their expected sums. Every count table keeps the same 200 cells and 1,353
+genes, so the cuts agree with each other. Three STARsolo plan files show a
+plan made for a Linux machine. `cell-map-smoke/` holds two ready-made bundles
+with an invented count matrix, for screenshots of the views only, so read no
+biology from it. Treat the 10x-derived files and `cell-map-smoke/` as CC BY
+4.0, and keep the attribution in its README with any copy.
+
+`rnaseq-bulk/` is the bulk RNA-seq fixture. It supports the chapters on
+counting bulk reads and on reading and exporting bulk counts, and the RNA-seq
+tutorial, with salmon 2.11.0 results of six public runs of the SEQC project,
+three libraries of each of two reference samples, A (Universal Human Reference
+RNA) and B (Human Brain Reference RNA). `salmon-seqc-ercc/` counts the first
+1,000,000 read pairs of each run against the 92 ERCC spike-in sequences only,
+so each `quant.sf` is a table of 92 rows. A sample sheet, a gene table and the
+script `make.sh` come with it. Only about one pair in a hundred comes from a
+spike-in, so read no small fold change from these counts. `salmon-c1/` and
+`salmon-probe-c1/` are older folders from the app's tests and stay as they
+were.
+
+`illumina-dual-index-pool/` is a constructed fixture for demultiplexing. It
+supports the chapter on splitting a pool by the indexes in its read names (the
+Read Names engine and the Demux tab) and on finding the barcodes of a pool
+(Detect Barcodes). It holds 9,958 pairs of HG002 chrM reads from
+`human-mito/`, whose names carry a dual index as bcl2fastq and BCL Convert
+write it (`1:N:0:<i7>+<i5>`). Four library names share the reads, each pair
+went to one of them at random, and `truth.tsv` records the true library and
+the index status of every pair (exact, one mismatch, two mismatches or
+hopped), so a split can be checked read by read. `kit.csv` holds the four
+TruSeq HT Dual index pairs as a custom kit, and `make.py` builds the reads,
+`truth.tsv` and `kit.csv` from the reads of `human-mito/`. The pool is
+constructed, so its hopped pairs are not a measured index-hopping rate.
+
+`linux-plan-fastq/` is a plan for a run on a Linux machine and the folder that
+the run returned. It supports the chapter that shows what a plan holds, what a
+Linux run leaves and how `import fastq --adopt` brings the result into a
+project. The plan is the one that `lungfish-cli import fastq --write-plan`
+wrote for one sample, `hg002-chr20` (the first 10,000 read pairs of
+`hg002-chr20/`, taken through BBTools clumpify, seqkit statistics and a
+quality count). It ran once with `run-local.sh` in a Debian 12 container on an
+Apple silicon Mac, with a small stand-in for the `docker` command, so the job
+ran as amd64 code under emulation and its times say nothing about the speed of
+a Linux machine. The plan files hold the paths of the scratch disk that wrote
+them, so read the plan as an example and do not run it as it is. Its README
+says what the stand-in fakes.
+
+`application-export-hbb/` is a small constructed export folder in the shape a
+sequence library application writes, for the chapter on importing an
+application export. It holds the human beta-globin (HBB) region as a GenBank
+record (3,000 bases, positions 70,001 to 73,000 of NG_000007.3, the record of
+`hbb-gene/`), the sickle variant rs334 as a VCF and a one-row index as a CSV,
+as a folder and as one zip. `make.py` cuts the record and writes the VCF and
+the index. The set is not an export of a vendor application, and its kind,
+`sequence-design-library`, only labels the collection, since the importer
+sorts files of this kind by their type.
+
 `naomgs` and `czid` are not in this folder. They live in the app's test
 fixtures, `Tests/Fixtures/naomgs/` and `Tests/Fixtures/czid/`, because the
 import code's unit tests read them. The manual uses them as display fixtures
@@ -151,11 +211,13 @@ project carries copies.
 Chapters link each fixture folder at a release tag so the files match the
 chapter's numbers. `kraken-protocol-cornea/`, `Tests/Fixtures/naomgs/` and
 `Tests/Fixtures/czid/` are present at tag `v2026.9.52`. `mhc-primer-design/`,
-`giab-trio-chr20/` and `nrg1-ont-barcoded/` are not in any release tag yet, and
-the current `primate-12s/` and `mhc-simulated/` files (the simulated 12S
-mixture and the MCM haplotype definition set) are newer than `v2026.9.52`, so
-links to those five name `main` until the release that ships this edition of
-the manual is tagged.
+`giab-trio-chr20/`, `nrg1-ont-barcoded/`, `rnaseq-single-cell/`,
+`rnaseq-bulk/`, `illumina-dual-index-pool/`, `linux-plan-fastq/` and
+`application-export-hbb/` are not in any release tag yet, and the current
+`primate-12s/` and `mhc-simulated/` files (the simulated 12S mixture and the
+MCM haplotype definition set) are newer than `v2026.9.52`, so links to those
+ten name `main` until the release that ships this edition of the manual is
+tagged.
 
 `sarscov2-srr36291587/` and `sarscov2-clinical/` are viral by design, used
 by the Viral Recon, Freyja, EsViritu, classification, and NVD chapters.

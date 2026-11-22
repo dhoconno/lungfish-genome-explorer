@@ -18,9 +18,16 @@ require_section() {
 }
 
 require_file README.md
-require_file reference.fasta
-require_file reads_R1.fastq.gz
-require_file reads_R2.fastq.gz
+# Paired FASTQ naming (fixtures/README.md:27-33): no dot-delimited mate suffix, and every _R1 file has its _R2 twin.
+while IFS= read -r f; do
+  base=$(basename "$f")
+  case "$base" in
+    *.R1.f*q*|*.R2.f*q*|*.1.f*q*|*.2.f*q*) echo "DOT MATE SUFFIX: $f" >&2; fail=1 ;;
+  esac
+  case "$base" in
+    *_R1*) twin="$(dirname "$f")/${base/_R1/_R2}"; [[ -f "$twin" ]] || { echo "NO R2 TWIN: $f" >&2; fail=1; } ;;
+  esac
+done < <(find "$DIR" -type f \( -name '*.fastq*' -o -name '*.fq*' \))
 
 for section in Source License Citation Size "Internal consistency"; do
   require_section "$section"

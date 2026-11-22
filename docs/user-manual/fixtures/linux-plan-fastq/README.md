@@ -37,9 +37,9 @@ The command ended with exit 0 and wrote one plan for one sample. `--threads` and
 
 ## How it was run
 
-`run-local.sh` records the name of the machine it runs on. On a Mac that is the Mac's name, so the run was made in a Linux container, where the name is the container's. The container is the Docker image `lge-tools:43a3079b8fb1` (Debian 12, linux/amd64, image ID `sha256:4d1027a4dcd93e272ccbcaaf2a4c4e55d1db43b6160284a03de8957f38231560`), started with the host name `lge-linux` by Docker Desktop (engine 29.9.2) on an Apple silicon Mac, so the job ran as amd64 code under emulation. The plan folder was mounted at `/work/hg002-chr20-plan` and the staging folder, with the executor and the two read files staged at the paths `staging-files.json` lists, at `/data` read-only.
+`run-local.sh` records the name of the machine it runs on. On a Mac that is the Mac's name, so the run was made in a Linux container, where the name is the container's. The container is the Docker image `lge-tools:43a3079b8fb1` (Debian 12, linux/amd64, image ID `sha256:4d1027a4dcd93e272ccbcaaf2a4c4e55d1db43b6160284a03de8957f38231560`), started with the host name `lge-linux` by Docker Desktop (engine 29.9.2) on an Apple silicon Mac, so the job ran as amd64 code under emulation. The image is a local image of that Docker and the run pulled nothing. Its relation to the SIF the plan names is not recorded. The plan folder was mounted at `/work/hg002-chr20-plan` and the staging folder, with the executor and the two read files staged at the paths `staging-files.json` lists, at `/data` read-only.
 
-A container cannot start another one, and this container is already the image the job needs. So `docker-standin.sh` was mounted as `/usr/local/bin/docker`. It answers the three calls that `run-local.sh` makes (`docker image inspect`, `docker version` and `docker run`) and runs the job in place. The Docker named in the run record is the engine that hosts the container.
+A container cannot start another one, and this container is already the image the job needs. So `docker-standin.sh` was mounted as `/usr/local/bin/docker`. It answers the three calls that `run-local.sh` makes (`docker image inspect`, `docker version` and `docker run`) and runs the job in place. It prints a fixed image ID and engine version (lines 5 and 6), copied from the host's `docker image inspect` and `docker version`, so the run record's `ContainerImageID` and `ContainerRuntimeVersion` are those copied values. It drops the `--user` and `--volume` options of `run-local.sh`'s `docker run`, so the job ran with the outer container's user and mounts.
 
 ```sh
 docker run --rm --platform linux/amd64 --name lge-fx4-run --hostname lge-linux \
@@ -55,7 +55,7 @@ The run record holds these site facts: `Machine=lge-linux`, `Arch=x86_64`, `OpSy
 
 | Step | Tool | What it did | Wall time |
 | --- | --- | --- | --- |
-| `storage` | `clumpify.sh` 40.02 (BBTools), Java heap 4 GB, 4 threads | Read both files, clumped the pairs and wrote `out/sample.fastq.gz`, interleaved, with qualities binned to five steps. 20,000 reads in and 20,000 out | 13.2 s |
+| `storage` | `clumpify.sh` 40.02 (BBTools), Java heap 4 GB, 4 threads | Read both files, clumped the pairs and wrote `out/sample.fastq.gz`, interleaved, with qualities quantized to the levels 0, 2, 7, 12, 17, 22, 27, 32 and 37 (`quantize=` in `run-logs/hg002-chr20/logs/storage.2.stderr`), which leaves 7 distinct values in this payload. 20,000 reads in and 20,000 out | 13.2 s |
 | `statistics` | `seqkit` 2.13.0 | `seqkit stats -a -T out/sample.fastq.gz` | 1.5 s |
 | `quality-count` | `lungfish-executor` 2026.11.15 | Ran the executor's own quality count (step kind `qualityCount`) | 0.2 s |
 
