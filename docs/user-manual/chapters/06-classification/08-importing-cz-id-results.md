@@ -3,7 +3,7 @@ title: Importing CZ ID Results
 chapter_id: 06-classification/08-importing-cz-id-results
 audience: bench-scientist
 prereqs: [01-foundations/06-the-lungfish-project, 06-classification/01-what-is-classification]
-estimated_reading_min: 15
+estimated_reading_min: 16
 task: Import a CZ ID taxon report export into a project as a taxonomy result bundle and read it in the taxonomy viewport.
 tags: [classification, cz-id, import, taxonomy, metagenomics]
 tools: [cz-id]
@@ -55,7 +55,22 @@ The Pathogen Detection demo project, a ready-made example LGE downloads for you,
 
 You can also get the practice file from the [czid folder on GitHub](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/czid), a public website that stores LGE's own files. Click the file name and look for **Download raw file**, as described in [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual).
 
-LGE requires taxon reports saved as text with tabs between columns, so check your file before importing it. In Numbers or Excel, check the header, the first row that names the columns, for `tax_id`, the [number NCBI gives each taxon](../../GLOSSARY.md#taxonomy-id), such as 2697049 for SARS-CoV-2, and `taxon_name`, the group's name. LGE also reads `rank`, the level in the tree such as species or genus, when present.
+CZ ID writes a [CSV](../../GLOSSARY.md#csv), a plain-text table with commas between columns. LGE reads CSV and [TSV](../../GLOSSARY.md#tsv), a plain-text table with tabs between columns.
+
+Check your file before importing it. In Numbers or Excel, look for three required columns in the header, the first row that names the columns. LGE uses the header to tell commas from tabs. The `tax_id` column holds the [number NCBI gives each taxon](../../GLOSSARY.md#taxonomy-id), such as 2697049 for SARS-CoV-2. The name column is `name` in the CZ ID CSV or `taxon_name` in the practice report. The read count column is `nt_count` or `nr_count` in the CZ ID CSV and `nt_read_count` in the practice report.
+
+Rank is the level in the tree, such as species or genus. LGE reads it from `rank` or, if that column is absent, from the numbers in `tax_level`. Both columns are optional.
+
+| `tax_level` | Rank |
+|---|---|
+| 1 | Species |
+| 2 | Genus |
+| 3 | Family |
+| 4 | Order |
+| 5 | Class |
+| 6 | Phylum |
+| 7 | Kingdom |
+| 8 | Superkingdom |
 
 This import requires only the report, so skip [plugin packs](../../GLOSSARY.md#plugin-pack), sets of tools LGE installs on request. The three-row report imports in well under a second.
 
@@ -65,15 +80,15 @@ This import requires only the report, so skip [plugin packs](../../GLOSSARY.md#p
 
 LGE accepts three forms of the export:
 
-- A single taxon report with a `.tsv` extension. A [TSV](../../GLOSSARY.md#tsv) is a plain-text table with tabs between columns.
+- A single taxon report file ending in `.csv`, `.tsv`, or `.txt`.
 - A ZIP archive, a compressed file holding the export.
 - A folder you unpacked from the archive.
 
-LGE imports one report per archive or folder. It looks for readable taxon reports in text files whose names contain `taxon`, `report`, `czid`, or `cz-id`, and prefers `taxon_report.tsv`.
+LGE imports one report per archive or folder. It looks for readable taxon reports in files ending in `.csv`, `.tsv`, or `.txt` whose names contain `taxon`, `report`, `czid`, or `cz-id`, and prefers `taxon_report.tsv`.
 
 ### Open the Import Center card
 
-Choose **File > Import Center…** (Cmd-Shift-I). The [Import Center](../../GLOSSARY.md#import-center) brings files into your project. Click **Classification Results** and find the **CZ-ID Results** card with the hint "taxon report TSV, .zip, or extracted folder".
+Choose **File > Import Center…** (Cmd-Shift-I). The [Import Center](../../GLOSSARY.md#import-center) brings files into your project. Click **Classification Results** and find the **CZ-ID Results** card with the hint `taxon report (CSV or TSV), .zip, or extracted folder`.
 
 <!-- SHOT: czid-import-card -->
 
@@ -135,7 +150,7 @@ The bundle has five files and a `provenance` folder. [JSON](../../GLOSSARY.md#js
 
 | File | What it holds |
 |---|---|
-| `classification.czid.tsv` | The original report, copied byte for byte |
+| `classification.czid.tsv` | The original report, copied byte for byte. A CSV keeps its commas under this name. |
 | `classification.kreport` | The converted copy the viewport reads |
 | `classification-result.json` | The classification record, with the database named `CZ-ID` |
 | `cz-id-manifest.json` | Import details, including the layout version `cz-id-taxon-report-v1` |
@@ -157,11 +172,15 @@ LGE uses NT counts to build the kreport. The fixture converts to these rows:
 
 The six columns give the percentage, the [clade](../../GLOSSARY.md#clade) count (**Reads**), the direct count (**Direct**), the one-letter rank code, the NCBI taxonomy identifier, and the indented name. A clade is a taxon and all the groups below it. In a kreport, the clade count covers that whole group. The direct count covers reads assigned to the named taxon itself.
 
-For this import, both counts come from the same NT value, so Viruses shows 88 under both **Reads** and **Direct**. The conversion puts every taxon one level below `root` in the file and in the viewport tree, so Viruses and SARS-CoV-2 appear side by side. In the kreport, R means root and S means species. D stands for the broad ranks superkingdom and domain. Viruses has rank superkingdom in the fixture. LGE writes U for a rank it does not recognize.
+LGE puts a species one level below its genus if `genus_tax_id` gives the taxon ID of a genus in the same report. The genus's direct count is its own count minus the counts of those species. Every other taxon sits one level below `root`. The practice report has no `genus_tax_id` column, so Viruses and SARS-CoV-2 appear side by side, and Viruses shows 88 under both **Reads** and **Direct**.
 
-Each percentage is a [relative abundance](../../GLOSSARY.md#relative-abundance), the share of a stated total. LGE takes the total from the row with a `rank` of `root` or a `tax_id` of `1`. It divides each taxon's NT count by the root NT count and multiplies by 100. The kreport stores the result to two decimal places. The viewport's **%** column rounds it to one decimal place. If the report has no root row, LGE adds one and uses the sum of all the NT counts as the total.
+In the kreport, R means root and S means species. D stands for the broad ranks superkingdom and domain. Viruses has rank superkingdom in the fixture. If a row has a missing or unrecognized rank, LGE keeps its reads and gives it `-`, the kreport code for a taxon with no rank.
 
-The sum can count the same reads twice, once under a genus and again under its species, and leaves out reads absent from the report. Double counting can make the percentages smaller than the actual shares of all sample reads, so avoid comparing them with percentages from a report that has a root row.
+Each percentage is a [relative abundance](../../GLOSSARY.md#relative-abundance), the share of a stated total. LGE takes the total from the row with a `rank` of `root` or a `tax_id` of `1`. It divides each taxon's NT count by the root NT count and multiplies by 100. The kreport stores the result to two decimal places. The viewport's **%** column rounds it to one decimal place.
+
+LGE adds a root row when the report has none, as in CZ ID's CSV. The `nt_rpm` column gives NT [reads per million](../../GLOSSARY.md#reads-per-million), a count scaled to one million reads. When these values are available, LGE fills the added row with the total CZ ID used. It takes the taxon with the most NT reads, divides its `nt_count` by its `nt_rpm`, and multiplies by one million.
+
+If a report has no root row and no reads per million values, LGE totals only the counts of taxa directly below the added root row. This leaves out species placed under their genus, but the same reads can still count twice under a family and a genus within it. The sum also leaves out reads absent from the report. Avoid comparing percentages based on this sum with percentages from a report that has a root row.
 
 The fixture's root count is 1,200 NT reads. Viruses has 88 reads, or 7.33 percent, and SARS-CoV-2 has 42, or 3.50 percent. The **%** column shows `7.3%` for Viruses and `3.5%` for SARS-CoV-2. Those shares cover less than 100 percent of the total. Before adding or subtracting the counts, check CZ ID's documentation for what the root count includes and whether the 88 includes the 42.
 
@@ -171,7 +190,7 @@ The NR columns and three NT match measures stay only in `classification.czid.tsv
 
 Check CZ ID's documentation for how to interpret those measures when reported once per taxon. For their meaning in [BLAST](../../GLOSSARY.md#blast), NCBI's sequence search, see the results section of [BLAST Verification](06-blast-verification.md#reading-the-results).
 
-The `nr_read_count` column gives the NR read count. The `nr_rpm` column gives [reads per million](../../GLOSSARY.md#reads-per-million), a count scaled to a total of one million reads. Check CZ ID's documentation for the total it uses. In the fixture, Viruses has 88 NT and 12 NR reads, and SARS-CoV-2 has 42 NT and 5 NR reads.
+The `nr_count` or `nr_read_count` column gives the NR read count. The `nr_rpm` column gives [reads per million](../../GLOSSARY.md#reads-per-million), a count scaled to a total of one million reads. Check CZ ID's documentation for the total it uses. In the fixture, Viruses has 88 NT and 12 NR reads, and SARS-CoV-2 has 42 NT and 5 NR reads.
 
 If a taxon has NR reads and zero NT reads, it appears in the table with zero reads and has no wedge in the sunburst. Check the original NR columns and CZ ID's documentation before interpreting a difference between the counts.
 
@@ -209,9 +228,17 @@ An imported CZ ID result answers only the first question in [The evidence checkl
 
 For comparison, take a blank, a sample with no specimen, through the same steps as your samples to isolate genetic material and prepare it for sequencing, then sequence them together. Process the blank in CZ ID with the same pipeline and database versions, then import it the same way. Any organism found in the blank is suspect in every sample from that run, so compare reads per million in the copied reports to account for the blank's much lower read count.
 
-If the scan fails, the warning triangle in **Preview** and the status line show the reason. For a report file you selected directly, "CZ-ID taxon report must include tax_id, taxon_name, and rank columns" can mean a required column is missing or a single data row has a bad value. Check that the file uses tabs, that the header includes `tax_id` and `taxon_name`, and that every row has a whole number for `tax_id` and a name for `taxon_name`. A comma-separated file gives the same message.
+If the scan fails, the warning triangle in **Preview** and the status line show the reason. For a report file you selected directly, the messages below name the file and end with `Nothing was imported.` Missing column messages start with the file name.
 
-The scan can pass without a `rank` column. For rows with missing or unrecognized ranks, LGE counts the reads as unclassified, meaning it assigns them to no taxon. These rows appear in neither the table nor the chart. Give every taxon a rank such as species or genus.
+| Message text | What to check |
+|---|---|
+| `is missing the tax_id column required for CZ-ID taxon reports` or `is missing the name column required for CZ-ID taxon reports` | Check the header for `tax_id` and a name column, `name` or `taxon_name`. |
+| `has no read count column (nt_count or nr_count), so counts cannot be assigned to taxa` | Check the header for a read count column. |
+| `has no tax_id value` or `has no name value` | Check the indicated row for a whole number under `tax_id` and a name under `name` or `taxon_name`. |
+
+Row messages start with the row number before the file name, as in `Row 5 of`. Count rows as in a spreadsheet, with the header as row 1.
+
+The scan can pass without either `rank` or `tax_level`. LGE keeps rows with missing or unrecognized ranks and counts their reads under the named taxa. These rows appear in the table and sunburst as taxa with no rank.
 
 For an archive or folder with no usable report, the reason begins "No parseable CZ-ID taxon report was found in".
 
