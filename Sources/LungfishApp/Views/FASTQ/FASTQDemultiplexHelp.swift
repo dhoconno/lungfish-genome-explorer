@@ -55,10 +55,10 @@ enum FASTQDemultiplexHelp {
         summary: "Splits reads by the index in each read name without searching read sequences.",
         audience: .analyst)
 
-    /// The kit picker's help tag for a kit that cutadapt searches as its full platform construct (D7's construct clause).
+    /// KIT, the kit picker's help tag for a kit that Cutadapt searches at both read ends (`searchesFullPlatformConstruct`).
     static let kitConstruct = LungfishHelpContent.HelpItem(
         id: "workflow.fastq.demultiplex.kitConstruct",
-        summary: "Selects a kit whose full adapter and barcode construct Cutadapt searches at both read ends in both orientations.",
+        summary: "Selects a kit whose barcodes Cutadapt searches for at both read ends in both orientations.",
         audience: .analyst)
 
     static func segmentHelp(for engine: DemultiplexEngine) -> LungfishHelpContent.HelpItem {

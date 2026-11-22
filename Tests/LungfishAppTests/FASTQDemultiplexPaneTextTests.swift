@@ -37,6 +37,12 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             state.demultiplexEngine = .cutadapt
             state.demultiplexKitID = BarcodeKitRegistry.ontNativeBarcoding24.id
         },
+        // A kit with barcodes at one end only (rapid barcoding): the caption and the kit tag cover it too (FACTS-DEMUX D7.1, KIT.2).
+        "demux.cutadapt.singleEndLongRead": { state in
+            state.demultiplexBarcodeSource = .builtinKit
+            state.demultiplexEngine = .cutadapt
+            state.demultiplexKitID = "ont-rbk004"
+        },
         "demux.exactBare.fluidigm": { state in
             state.demultiplexBarcodeSource = .builtinKit
             state.demultiplexEngine = .exactBareBarcode
@@ -111,7 +117,7 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
     private static let d6Cutadapt = "Many reads without barcodes would match this kit's barcodes by chance. The check for chance matches cannot judge the samples, so the run is refused. If the indexes are in the read names, choose the engine Read Names. Otherwise choose Keep Unchecked Samples to make the sample files anyway, then check each sample against your sample sheet."
     private static let d6Fluidigm = "Cutadapt searches for each kit barcode anywhere in the read. About half of all reads or more match by chance. The check for chance matches cannot judge the samples, so the run is refused. Use ONT Fluidigm Sample Split for Fluidigm barcodes in ONT reads. If the indexes are in the read names, choose the engine Read Names. Choose Keep Unchecked Samples only to make the sample files anyway, then check each sample against your sample sheet."
     private static let d6ExactBare = "The read names carry this kit's barcodes, so Exact Bare Barcode would find them in read sequences only by chance and the run is refused. To split reads by name, choose the engine Read Names. Choose Keep Unchecked Samples only if the read sequences carry these barcodes too, then check each sample against your sample sheet."
-    private static let d7 = "With this kit for long reads, a read is assigned only when both ends carry the same barcode. Location and distance settings do not apply."
+    private static let d7 = "If the kit puts barcodes at both ends, both must carry the same barcode. Otherwise, one barcode at either end is enough. Location and distance settings do not apply."
 
     func testTheRuledCaptionsThatStayInViewAreDrawnInTheirStates() throws {
         let rows: [(id: String, state: String, text: String)] = [
@@ -131,18 +137,21 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
         XCTAssertEqual(FASTQOperationDialogState.demultiplexPlatformConstructCaption, Self.d7, "D7")
     }
 
-    /// D7 shows exactly when the kit searches its full platform construct (`demultiplexKitUsesPlatformConstruct`), and the
-    /// construct clause is the kit picker's help tag then.
-    func testTheLongReadCaptionShowsOnlyForAKitThatSearchesItsFullConstruct() throws {
-        let longRead = try texts("demux.cutadapt.longRead")
+    /// D7 and the kit picker's tag KIT show exactly when Cutadapt searches the kit's barcodes at both read ends in both orientations
+    /// (`demultiplexKitUsesPlatformConstruct`). One caption serves both groups of such kits: where the kit puts barcodes at both ends
+    /// the two must match, and where it puts them at one end one barcode at either end is enough (FACTS-DEMUX D7.1, KIT.2).
+    func testTheLongReadCaptionAndKitTagShowForKitsWithBarcodesAtBothEndsAndAtOneEnd() throws {
         let truseq = try texts("demux.cutadapt.truseq")
-        XCTAssertTrue(longRead.contains(Self.d7))
-        XCTAssertFalse(longRead.contains("Location"))
         XCTAssertFalse(truseq.contains(Self.d7))
         XCTAssertTrue(truseq.contains("Location"))
-        XCTAssertTrue(longRead.contains(FASTQDemultiplexHelp.kitConstruct.summary))
         XCTAssertFalse(truseq.contains(FASTQDemultiplexHelp.kitConstruct.summary))
         XCTAssertTrue(truseq.contains(LungfishHelpContent.fastqBarcodeKit.summary))
+        for name in ["demux.cutadapt.longRead", "demux.cutadapt.singleEndLongRead"] {
+            let longRead = try texts(name)
+            XCTAssertTrue(longRead.contains(Self.d7), "\(name): D7")
+            XCTAssertFalse(longRead.contains("Location"), name)
+            XCTAssertTrue(longRead.contains(FASTQDemultiplexHelp.kitConstruct.summary), "\(name): KIT")
+        }
     }
 
     // MARK: The moved explanations, one press away with the text of their decided constant (5.6 U2, U3)
@@ -400,8 +409,8 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             "ONT 16S Barcoding V14 (SQK-16S114-24, 24)",
             "ONT 16S Rapid Amplicon (RAB204/RAB214, 24)",
             "Built-In Kit",
-            "Selects a kit whose full adapter and barcode construct Cutadapt searches at both read ends in both orientations.",
-            "Selects a kit whose full adapter and barcode construct Cutadapt searches at both read ends in both orientations.",
+            "Selects a kit whose barcodes Cutadapt searches for at both read ends in both orientations.",
+            "Selects a kit whose barcodes Cutadapt searches for at both read ends in both orientations.",
             "Cutadapt",
             "Searches read sequences for barcodes at the error rate below and can allow insertions and deletions.",
             "Searches read sequences for barcodes at the error rate below and can allow insertions and deletions.",
@@ -418,7 +427,7 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
-            "With this kit for long reads, a read is assigned only when both ends carry the same barcode. Location and distance settings do not apply.",
+            "If the kit puts barcodes at both ends, both must carry the same barcode. Otherwise, one barcode at either end is enough. Location and distance settings do not apply.",
             "Error Rate",
             "",
             "Maximum allowed mismatch rate for approximate matching.",
@@ -715,8 +724,8 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             "ONT 16S Barcoding V14 (SQK-16S114-24, 24)",
             "ONT 16S Rapid Amplicon (RAB204/RAB214, 24)",
             "Built-In Kit",
-            "Selects a kit whose full adapter and barcode construct Cutadapt searches at both read ends in both orientations.",
-            "Selects a kit whose full adapter and barcode construct Cutadapt searches at both read ends in both orientations.",
+            "Selects a kit whose barcodes Cutadapt searches for at both read ends in both orientations.",
+            "Selects a kit whose barcodes Cutadapt searches for at both read ends in both orientations.",
             "Cutadapt",
             "Searches read sequences for barcodes at the error rate below and can allow insertions and deletions.",
             "Searches read sequences for barcodes at the error rate below and can allow insertions and deletions.",
@@ -735,7 +744,7 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Keep Unchecked Samples",
             "Cutadapt searches for each kit barcode anywhere in the read. About half of all reads or more match by chance. The check for chance matches cannot judge the samples, so the run is refused. Use ONT Fluidigm Sample Split for Fluidigm barcodes in ONT reads. If the indexes are in the read names, choose the engine Read Names. Choose Keep Unchecked Samples only to make the sample files anyway, then check each sample against your sample sheet.",
-            "With this kit for long reads, a read is assigned only when both ends carry the same barcode. Location and distance settings do not apply.",
+            "If the kit puts barcodes at both ends, both must carry the same barcode. Otherwise, one barcode at either end is enough. Location and distance settings do not apply.",
             "Error Rate",
             "",
             "Maximum allowed mismatch rate for approximate matching.",

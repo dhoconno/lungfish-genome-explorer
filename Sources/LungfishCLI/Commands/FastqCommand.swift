@@ -305,9 +305,9 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
            barcodeLocation != .bothEnds || maxDistanceFrom5Prime != 0 || maxDistanceFrom3Prime != 0 {
             FileHandle.standardError.write(Data("""
                 Note: \(barcodeKit.displayName) is searched as the platform's full adapter and barcode \
-                construct at both read ends in both orientations, and a read is assigned only when both \
-                ends carry the same barcode. --location and --max-distance-5prime/3prime do not apply \
-                to this kit and are ignored.
+                construct at both read ends in both orientations. If the kit puts barcodes at both ends, \
+                both must carry the same barcode. Otherwise, one barcode at either end is enough. \
+                --location and --max-distance-5prime/3prime do not apply to this kit and are ignored.
 
                 """.utf8))
         }

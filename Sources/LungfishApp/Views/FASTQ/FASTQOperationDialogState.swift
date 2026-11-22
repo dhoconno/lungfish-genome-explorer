@@ -1115,7 +1115,7 @@ final class FASTQOperationDialogState {
     /// Caption shown in place of the Location and Distance controls for kits
     /// where `demultiplexKitUsesPlatformConstruct` is true.
     static let demultiplexPlatformConstructCaption =
-        "With this kit for long reads, a read is assigned only when both ends carry the same barcode. Location and distance settings do not apply."
+        "If the kit puts barcodes at both ends, both must carry the same barcode. Otherwise, one barcode at either end is enough. Location and distance settings do not apply."
 
     var detectedAssemblyReadType: AssemblyReadType? {
         assemblyCompatibilityEvaluation.resolvedReadType
