@@ -3,7 +3,7 @@ title: Importing CZ ID Results
 chapter_id: 06-classification/08-importing-cz-id-results
 audience: bench-scientist
 prereqs: [01-foundations/06-the-lungfish-project, 06-classification/01-what-is-classification]
-estimated_reading_min: 15
+estimated_reading_min: 14
 task: Import a CZ ID taxon report export into a project as a taxonomy result bundle and read it in the taxonomy viewport.
 tags: [classification, cz-id, import, taxonomy, metagenomics]
 tools: [cz-id]
@@ -14,13 +14,13 @@ entry_points:
   - "CLI: lungfish-cli cz-id summary"
 shots:
   - id: czid-import-card
-    caption: "The Import Center on its Classification Results tab with the CZ-ID Results card and its Import… button, whose file hint reads taxon report TSV, .zip, or extracted folder."
+    caption: 'On the Classification Results tab, click Import… on the CZ-ID Results card to open the CZ-ID Import sheet.'
   - id: czid-import-sheet
-    caption: "The CZ-ID Import sheet scrolled after a successful scan, showing the Preview panel with Sample, Project, Rows, Source, Report, Pipeline, NT DB, NR DB, and Top taxa, followed by the Project Destination readout naming Classifications/Sample-CZ-001.lungfishtax, and Cancel and Run buttons."
+    caption: 'Check the report in Preview and look for Classifications/Sample-CZ-001.lungfishtax under Project Destination before you click Run.'
   - id: czid-result-viewport
-    caption: "An imported CZ-ID result open in the taxonomy viewport, with the summary cards across the top, the sunburst on the left, the per-taxon table on the right, and the action bar along the bottom reading Imported CZ-ID result · Sample-CZ-001 · 3 taxa, with Verify with BLAST… and Extract Reads… dimmed and no BLAST Results button."
+    caption: 'Verify with BLAST… and Extract Reads… are dimmed because the report does not identify individual reads. The action bar reads "Imported CZ-ID result · Sample-CZ-001 · 3 taxa".'
   - id: czid-provenance-popover
-    caption: "The CZ-ID Pipeline Info popover opened from the information button at the right of the action bar, listing Sample, Project, Format Version, Rows, Pipeline, NT Database, NR Database, Bundle, and Source Files."
+    caption: 'Copy the analysis and database versions for your methods notes from Pipeline, NT Database, and NR Database in CZ-ID Pipeline Info.'
 illustrations: []
 glossary_refs: [blast, bundle, checksum, clade, classifier, csv, cz-id, e-value, esviritu, fastq, fixture, import-center, json, kraken2, kreport, metagenomics, nao-mgs, ncbi, nvd, operations-panel, percent-identity, plugin-pack, project, provenance, read, read-classification, reads-per-million, relative-abundance, sidebar, taxon, taxonomic-rank, taxon-report, taxonomy-id, terminal, tsv, viewport]
 features_refs: [import.czid, viewport.taxonomy-browser]
@@ -31,115 +31,121 @@ lead_approved: false
 
 ## What it is
 
-A [taxon](../../GLOSSARY.md#taxon) is any named group on the tree of life, so *Homo sapiens*, *Streptococcus*, and the virus family *Coronaviridae* are each one taxon. [CZ ID](../../GLOSSARY.md#cz-id) is a [metagenomics](../../GLOSSARY.md#metagenomics) service that runs in a web browser, where metagenomics means studying all the genetic material in a mixed sample at once. You upload sequencing [reads](../../GLOSSARY.md#read), the short DNA sequences a sequencer records, to CZ ID, usually as [FASTQ](../../GLOSSARY.md#fastq) files, the text format sequencers write reads in. CZ ID compares them against two reference collections and hands back a [taxon report](../../GLOSSARY.md#taxon-report), a table with one row per taxon and the evidence CZ ID gathered for it. The collections are NT, the nucleotide (DNA and RNA) sequences kept by [NCBI](../../GLOSSARY.md#ncbi), the United States National Center for Biotechnology Information, and NR, its protein sequences.
+Lungfish Genome Explorer (LGE) imports reports from [CZ ID](../../GLOSSARY.md#cz-id), a web service for [metagenomics](../../GLOSSARY.md#metagenomics). Metagenomics is the study of genetic material from a mixed sample. Importing lets you review read counts and keep the original file. A [read](../../GLOSSARY.md#read) is a sequence recorded from a fragment of genetic material. A [taxon report](../../GLOSSARY.md#taxon-report) gives one row of evidence per [taxon](../../GLOSSARY.md#taxon), a named group such as a species or family. The `root` row in the practice report supplies the total LGE uses to calculate each taxon's share of reads.
 
-One row in that table is not an organism at all. CZ ID writes a `root` row carrying the sample's total read count, so that every other row's share can be measured against it.
+The United States National Center for Biotechnology Information ([NCBI](../../GLOSSARY.md#ncbi)) keeps NT, a nucleotide collection for DNA and RNA sequences, and NR, a protein collection. Consult CZ ID's documentation for how it compares reads with those collections.
 
-Lungfish Genome Explorer (LGE) reads that report. It does not run CZ ID, does not upload your reads anywhere, and does not sign in to a CZ ID account.
+[Read classification](../../GLOSSARY.md#read-classification) uses sequence evidence to assign reads to groups on the tree of life. LGE converts the CZ ID report to a [kreport](../../GLOSSARY.md#kreport), the plain-text table written by [Kraken 2](../../GLOSSARY.md#kraken2). Kraken 2 is a [classifier](../../GLOSSARY.md#classifier), a program that assigns reads to taxa. The converted report opens in the same [viewport](../../GLOSSARY.md#viewport), the panel that displays a result, where you can sort, search, and export the table. Beside the table is a sunburst, a ring chart with wedges sized by read count.
 
-Importing converts the report into the format LGE uses for [read classification](../../GLOSSARY.md#read-classification), the work of naming the organism each read came from. That format is the [kreport](../../GLOSSARY.md#kreport), a plain-text table with one row per taxon that [Kraken 2](../../GLOSSARY.md#kraken2) writes. Kraken 2 is a [classifier](../../GLOSSARY.md#classifier), a program that does that naming, and LGE runs it on your own Mac, as [Running Kraken 2](02-running-kraken2.md) shows. So an imported CZ ID result opens in the same [viewport](../../GLOSSARY.md#viewport) as a Kraken 2 run and can be sorted, searched, and exported the same way. A viewport is the panel in the middle of the window that shows one result, here a sunburst, a ring chart with one ring per level of the tree of life and one wedge per taxon sized by its reads, beside a table of taxa.
-
-The import saves the result as a [bundle](../../GLOSSARY.md#bundle), a folder LGE treats as one item. It keeps the original report unchanged beside the converted copy, and writes a [provenance](../../GLOSSARY.md#provenance) record, a file that says where a result came from and how it was made, including the CZ ID pipeline version and the versions of NT and NR. A pipeline version names which version of CZ ID's analysis code produced your numbers.
-
-The import lives in the [Import Center](../../GLOSSARY.md#import-center), the window that brings files into a [project](../../GLOSSARY.md#project), the folder LGE keeps your data and results in.
+LGE saves the result as a [bundle](../../GLOSSARY.md#bundle), a folder the app treats as one item. It keeps the original report beside the converted copy and writes a [provenance](../../GLOSSARY.md#provenance) record of where the result came from and how it was made. The record includes the pipeline version, which identifies the analysis software version, and the NT and NR database versions when the report supplies them. A [project](../../GLOSSARY.md#project) is the folder for your data and results.
 
 ## Why you would do this
 
-A journal reviewer may ask months later which database version produced a call and whether you can show the file. Importing moves the evidence out of the CZ ID service and into a project you control, where it survives whatever happens to the account.
+Protein searches can find matches that nucleotide searches miss because different DNA sequences can code for the same protein. The practice report lists 88 NT reads and 12 NR reads for Viruses. The viewport shows only NT counts, so use the copied report to review the NR evidence.
 
-Searching the NR protein collection can catch a virus too different from known genomes for any nucleotide match. The kreport has room for only one set of read counts, and the conversion fills it with the NT counts, so the viewport shows only NT counts. [What the conversion keeps](#what-the-conversion-keeps) shows how to read the NR counts.
+Import the report to keep the original counts and available database versions for your methods notes. To find NR counts and nucleotide match details, see [What the conversion keeps](#what-the-conversion-keeps).
 
-The example in this chapter is a three-row synthetic taxon report whose two taxa are Viruses and SARS-CoV-2, small enough to check every number by hand.
+The practice report has three rows. It gives the total and counts for two taxa, Viruses and SARS-CoV-2, so you can check the conversion by hand.
 
 ## Before you start
 
-You need a project open, because the import writes its result into it. If none is open, choose **File > Open Project Folder…** (Cmd-O), as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. With no project open, **Import…** on the CZ-ID Results card, the labeled box for this import, shows an alert titled **No Project Open** and imports nothing.
+To open the project where you want to save the result, choose **File > Open Project Folder…** (Cmd-O). Without an open project, **Import…** on the **CZ-ID Results** card, the labeled box for this import, shows **No Project Open**. See the project-opening steps in [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure).
 
-The Pathogen Detection demo project holds the practice file for this chapter, `minimal_taxon_report.tsv`, which this manual calls a [fixture](../../GLOSSARY.md#fixture). **Help > Demo Projects…** lists the demo projects, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains, and once downloaded the file sits at `~/Documents/LGE Demo Projects/Pathogen Detection.lungfish/Practice Data/czid/minimal_taxon_report.tsv`, where `~` is your home folder. Without the demo project, download the file from the [czid folder on GitHub](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/czid), a public website that stores LGE's own files, by clicking the file's name and then **Download raw file**, as [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains.
+The Pathogen Detection demo project, a ready-made example LGE downloads for you, includes `minimal_taxon_report.tsv`. This manual calls a practice file a [fixture](../../GLOSSARY.md#fixture). Choose **Help > Demo Projects…** to find the project. After download, look for `~/Documents/LGE Demo Projects/Pathogen Detection.lungfish/Practice Data/czid/minimal_taxon_report.tsv`, where `~` is your home folder.
 
-The CZ ID website belongs to the service, so follow CZ ID's own instructions for downloading a sample's report. LGE needs a taxon report with a `tax_id` column, the [number NCBI gives each taxon](../../GLOSSARY.md#taxonomy-id), such as 2697049 for SARS-CoV-2, and a `taxon_name` column, and it reads `rank`, a level such as species or genus, when present. To check your file, open it in Numbers or Excel and read its first row, the header, which names each column.
+You can also get the practice file from the [czid folder on GitHub](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/czid), a public website that stores LGE's own files. Click the file name and look for **Download raw file**, as described in [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual).
 
-No [plugin pack](../../GLOSSARY.md#plugin-pack), a set of tools LGE installs on request, is needed, because the import only reads and rewrites a text file. The three-row report imports in well under a second.
+For your own sample, follow CZ ID's instructions to download its taxon report. In Numbers or Excel, check the header, the first row that names the columns, for `tax_id`, the [number NCBI gives each taxon](../../GLOSSARY.md#taxonomy-id), such as 2697049 for SARS-CoV-2, and `taxon_name`, the group's name. LGE also reads `rank`, the level in the tree such as species or genus, when present.
+
+This import requires only the report, so skip [plugin packs](../../GLOSSARY.md#plugin-pack), sets of tools LGE installs on request. The three-row report imports in well under a second.
 
 ## Procedure
 
 ### Choose the export CZ ID gave you
 
-LGE accepts the export in three forms, so use whichever you have:
+LGE accepts three forms of the export:
 
-- A single taxon report file ending in `.tsv`, a plain-text table with a tab between columns.
-- A ZIP archive, one compressed file holding a whole export.
-- A folder you have already unpacked from such an archive.
+- A single taxon report with a `.tsv` extension. A [TSV](../../GLOSSARY.md#tsv) is a plain-text table with tabs between columns.
+- A ZIP archive, a compressed file holding the export.
+- A folder you unpacked from the archive.
 
-Given an archive or a folder, LGE looks for text files whose names contain taxon, report, czid, or cz-id, keeps those that read as taxon reports, and imports only the best-named one, preferring `taxon_report.tsv`. To import a different file, pick that file itself.
+LGE imports one report per archive or folder. It looks for readable taxon reports in text files whose names contain `taxon`, `report`, `czid`, or `cz-id`, and prefers `taxon_report.tsv`.
 
 ### Open the Import Center card
 
-Choose **File > Import Center…** (Cmd-Shift-I) and click the **Classification Results** tab. Find the **CZ-ID Results** card, whose file hint reads "taxon report TSV, .zip, or extracted folder".
+Choose **File > Import Center…** (Cmd-Shift-I). The [Import Center](../../GLOSSARY.md#import-center) brings files into your project. Click **Classification Results** and find the **CZ-ID Results** card with the hint "taxon report TSV, .zip, or extracted folder".
 
 <!-- SHOT: czid-import-card -->
 
-Click **Import…** on the card. A sheet, a panel attached to the window until you close it, titled **CZ-ID Import** opens. Dragging your export onto the card opens the same sheet with the path already filled in.
+Click **Import…**. The **CZ-ID Import** sheet, a panel attached to the window, opens. You can also drag your export onto the card to open the sheet with the path, the file or folder location, already filled in.
 
 ### Point the sheet at the export and read the preview
 
-1. Click **Browse…** in the **CZ-ID Export** section and select your report file, ZIP archive, or extracted folder in the file chooser. Your own export is usually in `Downloads`. For the demo file, open `Documents`, `LGE Demo Projects`, `Pathogen Detection.lungfish`, `Practice Data`, then `czid`.
-2. Wait until the sheet's status line reads "Ready to import CZ-ID report."
-3. Read the **Preview** panel, which imports nothing, and make three checks. **Rows**, which counts the root row too, should match the row count CZ ID showed for that sample, and far fewer rows means you picked a different file. **Pipeline**, **NT DB**, and **NR DB** should all carry values, because a reviewer will ask for them. **Top taxa** should name organisms the sample could plausibly contain. For the fixture, Viruses and SARS-CoV-2 are the only taxa, which is what the report was built to show, and a soil bacterium in first place would say the file came from a different sample.
-4. Read the **Project Destination** readout, which names where the result will be written, `Classifications/<sample>.lungfishtax` inside the open project, where `<sample>` stands for the sample's name once the scan has read it.
-5. Click **Run**. The button stays disabled until a path is selected and the scan has succeeded.
+1. Click **Browse…** in **CZ-ID Export** and select your report file, ZIP archive, or extracted folder. Your own export is usually in `Downloads`. For the demo, open `Documents`, `LGE Demo Projects`, `Pathogen Detection.lungfish`, `Practice Data`, then `czid`, and select `minimal_taxon_report.tsv`.
 
-On the fixture the Preview reads as follows.
+2. As soon as you choose a path, LGE starts the scan. It reads the report to fill **Preview**, the panel that shows the selected report's details. Wait for "Ready to import CZ-ID report." on the status line, the text at the bottom beside **Cancel** and **Run**. If **Preview** shows a warning, see the checks in [What good looks like](#what-good-looks-like).
+
+3. In **Preview**, check **Sample** and **Report** against the export you intended, especially for an archive or folder. If **Report** shows a different file, use **Browse…** to select your report directly. To verify **Rows**, count the data rows in the report, including `root`, and skip the header.
+
+    For your methods notes, check **Pipeline**, **NT DB**, and **NR DB**. If a name under **Top taxa** surprises you, recheck **Sample** and **Report**. For the fixture, expect Viruses and SARS-CoV-2.
+
+4. Check **Project Destination** for `Classifications/<sample>.lungfishtax` inside the open project. Here `<sample>` stands for the sample name.
+
+    <!-- SHOT: czid-import-sheet -->
+
+5. Click **Run**. The button becomes available after you select a path and the scan succeeds.
+
+The fixture shows these values in **Preview**:
 
 | Preview row | Value for the fixture |
 |---|---|
 | **Sample** | `Sample-CZ-001` |
-| **Project** | `Project-42`, a CZ ID project, not your LGE project |
+| **Project** | `Project-42`, from the CZ ID report |
 | **Rows** | 3 |
 | **Source** | Taxon report file |
-| **Report** | `minimal_taxon_report.tsv`, the file LGE read |
+| **Report** | `minimal_taxon_report.tsv` |
 | **Pipeline** | `8.4` |
 | **NT DB** | `nt_2025_12_01` |
 | **NR DB** | `nr_2025_12_01` |
-| **Top taxa** | `Viruses, Severe acute respiratory syndrome coronavirus 2`, ranked by NT read count with the root row left out, at most five |
+| **Top taxa** | `Viruses, Severe acute respiratory syndrome coronavirus 2`. Up to five taxa ranked by NT read count, excluding `root`. |
 
-A report without a `project_id` column shows no **Project** row, which is harmless, and a report without a version column shows no version row and imports with that version recorded as unknown, so record it yourself.
-
-<!-- SHOT: czid-import-sheet -->
+**Preview** omits **Project** if the report lacks a `project_id` column. If a version column is missing, **Preview** omits its row and LGE records the version as unknown. If you need the version for your notes, record it yourself. Consult CZ ID's documentation for where to look.
 
 ### Find the result
 
-Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), the window that lists running and finished operations, which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The row is titled "CZ-ID Import". It starts with "Converting" and the report's file name, and finishes with "Imported" and the sample name. The row also records the command that did the work, `lungfish-cli import cz-id`, a typed instruction for the [Terminal](../../GLOSSARY.md#terminal) app that LGE ran for you. `lungfish-cli` is LGE's command-line interface, or CLI, and you can ignore it for now.
+The [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) lists running and finished operations. To check the conversion status, choose **Operations > Show Operations Panel** (Cmd-Shift-P). The "CZ-ID Import" row starts with "Converting" and the report's file name, then shows "Imported" and the sample name. LGE uses `lungfish-cli`, its program for typed commands, to run `lungfish-cli import cz-id` for you. The row records that command.
 
-LGE names the bundle after the sample. It keeps letters, digits, dots, hyphens, and underscores, turns every other character into a hyphen, joins a run of hyphens into one, and trims dots and hyphens from both ends of the name. A name left empty becomes `cz-id-sample`. Every other imported classification result lands in `Analyses`, as [Comparing the result views](01-what-is-classification.md#comparing-the-result-views) lists. Open the `Classifications` folder in the project [sidebar](../../GLOSSARY.md#sidebar), the list on the left of the window, and click the result to open it.
+In the project [sidebar](../../GLOSSARY.md#sidebar), the list on the left, open `Classifications` and click the CZ ID result. All other imported classification results go to `Analyses`. See [Comparing the result views](01-what-is-classification.md#comparing-the-result-views) for where each tool's results go and which view opens them.
+
+LGE keeps letters, digits, dots, hyphens, and underscores in the bundle name. It replaces other characters with hyphens, reduces runs of hyphens to one, and trims dots and hyphens from both ends. If the name is empty after that, LGE uses `cz-id-sample`.
 
 ## Settings
 
-The CZ ID import has no settings in the window, only a **Browse…** button, the Preview panel, the Project Destination readout, and the **Cancel** and **Run** buttons. The window takes the bundle name from the first `sample_name` value in the report, or from the report's file name without its extension when there is none, and it has no field for another name.
+The window has no settings. It names the bundle from the first `sample_name` value in the report or, if absent, the file name without its extension. The window has no field for a different name.
 
-The command-line import has four options of its own, `--project`, `--sample-name`, `--metadata`, and `--non-host-fastq`, which the [CLI Reference](../appendices/cli-reference.md) lists. The first two are required and give the project folder and the sample's name, so `--sample-name` is the way to choose another name. The last two are optional and add to the provenance record the path of a CZ ID metadata file or of a non-host FASTQ, which holds the sample's reads that did not come from the host, the person or animal it was taken from.
+You can also import by typing a command. This command-line import has four options of its own. The first two, `--project` and `--sample-name`, are required. They specify the project folder and let you choose the sample name. The optional `--metadata` and `--non-host-fastq` only record a file location in the provenance record. A metadata file holds details about the sample or analysis. [FASTQ](../../GLOSSARY.md#fastq) is a text format for sequencing reads. A non-host FASTQ holds the reads left after filtering for sequences from the host, the person or animal sampled. Both options leave the actions that require individual reads off.
 
 ## Reading the results
 
 ### What lands in the bundle
 
-The bundle holds the five files below, plus a `provenance` folder of supporting records. You rarely need to open them, except `classification.czid.tsv`, which holds the NR columns. The three `.json` files are text records in [JSON](../../GLOSSARY.md#json), a format programs read, which LGE reads for you.
+The bundle has five files and a `provenance` folder. [JSON](../../GLOSSARY.md#json) is a text format for structured records. LGE reads the three `.json` files for you.
 
 | File | What it holds |
 |---|---|
 | `classification.czid.tsv` | The original report, copied byte for byte |
 | `classification.kreport` | The converted copy the viewport reads |
-| `classification-result.json` | LGE's record of the classification, naming the database `CZ-ID` |
-| `cz-id-manifest.json` | A list of facts about the import, including its layout version `cz-id-taxon-report-v1` |
-| `.lungfish-provenance.json` | The command, its outcome, and every input and output file |
+| `classification-result.json` | The classification record, with the database named `CZ-ID` |
+| `cz-id-manifest.json` | Import details, including the layout version `cz-id-taxon-report-v1` |
+| `.lungfish-provenance.json` | The command, its outcome, and the inputs and outputs |
 
-Finder hides the last file because its name starts with a dot, and Cmd-Shift-Period in a Finder window shows it.
+To see `.lungfish-provenance.json`, press Cmd-Shift-Period in Finder to show files whose names start with a dot.
 
-The provenance record also holds a [checksum](../../GLOSSARY.md#checksum) of each file, a short fingerprint computed from the file's bytes that changes if any byte changes. For this import the checksums confirm the copied report is identical to your original, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to compare them.
+A [checksum](../../GLOSSARY.md#checksum) is a short value computed from a file's contents to check for changes. The provenance record gives a checksum for the file or folder you selected. For an archive or folder, it also gives one for the report LGE selected inside it. The output entry for `classification.czid.tsv` has its own checksum. To check the copy, compare its checksum with that of the selected report using the steps in [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results).
 
 ### What the conversion keeps
 
-The converted kreport for the fixture reads as follows.
+LGE uses NT counts to build the kreport. The fixture converts to these rows:
 
 ```text
 100.00	1200	1200	R	1	root
@@ -147,45 +153,67 @@ The converted kreport for the fixture reads as follows.
 3.50	42	42	S	2697049	  Severe acute respiratory syndrome coronavirus 2
 ```
 
-The six columns are the percentage of reads under this taxon, the [clade](../../GLOSSARY.md#clade) read count, which the viewport's **Reads** column shows, the direct read count, which its **Direct** column shows, a one-letter [rank](../../GLOSSARY.md#taxonomic-rank) code, the NCBI taxonomy identifier, and the indented taxon name. A clade is a taxon together with everything below it, so the clade count takes in the reads of every lower taxon, and the direct count takes only the reads assigned to the taxon itself.
+The six columns give the percentage, the [clade](../../GLOSSARY.md#clade) count (**Reads**), the direct count (**Direct**), the one-letter rank code, the NCBI taxonomy identifier, and the indented name. A clade is a taxon and all the groups below it. In a kreport, the clade count covers that whole group. The direct count covers reads assigned to the named taxon itself.
 
-Every percentage is a [relative abundance](../../GLOSSARY.md#relative-abundance), a share of a stated total, and here the total is the root row's 1,200 NT reads. Viruses drew 88 of them, which is 7.33 percent, and SARS-CoV-2 drew 42, which is 3.50 percent. The two taxa sit directly under the root row, and their shares do not add up to 100 percent. The other reads appear in no row, probably because CZ ID could not assign them or matched them to the host, but only CZ ID's own documentation settles that. The report gives one count per taxon, which the conversion writes into both columns, so **Reads** and **Direct** match on every row and Viruses reads 88 in both. Whether that 88 already includes the 42 of SARS-CoV-2 depends on how CZ ID counted, which the report does not say, so check CZ ID's documentation before you add or subtract them. The rank codes are R for root, D for domain, and S for species.
+For this import, both counts come from the same NT value, so Viruses shows 88 under both **Reads** and **Direct**. The conversion puts every taxon one level below `root` in the file and in the viewport tree, so Viruses and SARS-CoV-2 appear side by side. In the kreport, R means root and S means species. D stands for the broad ranks superkingdom and domain. Viruses has rank superkingdom in the fixture. LGE writes U for a rank it does not recognize.
 
-The NR counts stay in the preserved original report, `classification.czid.tsv`, and so do three NT measures of match quality, `nt_percent_identity`, `nt_alignment_length`, and `nt_e_value`, which the report gives once per taxon. To open that file, right-click the result in the sidebar and choose **Show in Finder**. Finder shows the `.lungfishtax` folder as an ordinary folder, so double-click it and then the file, and choose **Open With** if Numbers or Excel does not open it.
+Each percentage is a [relative abundance](../../GLOSSARY.md#relative-abundance), the share of a stated total. LGE takes the total from the row with a `rank` of `root` or a `tax_id` of `1`. It divides each taxon's NT count by the root NT count and multiplies by 100. The kreport stores the result to two decimal places. The viewport's **%** column rounds it to one decimal place. If the report has no root row, LGE adds one and uses the sum of all the NT counts as the total.
 
-[Percent identity](../../GLOSSARY.md#percent-identity) is the share of bases that agree where a read is lined up against a database sequence, alignment length is how many bases were lined up, and the [e-value](../../GLOSSARY.md#e-value) estimates how often a match that good would turn up by chance. Higher identity, longer alignments, and smaller e-values all mean stronger matches, and the fixture's 99.1 and 97.8 percent over 132 and 151 bases at `1e-20` and `2e-50` look strong, as [BLAST Verification](06-blast-verification.md#reading-the-results) explains for [BLAST](../../GLOSSARY.md#blast), NCBI's sequence search.
+The fixture's root count is 1,200 NT reads. Viruses has 88 reads, or 7.33 percent, and SARS-CoV-2 has 42, or 3.50 percent. The **%** column shows `7.3%` for Viruses and `3.5%` for SARS-CoV-2. Those shares cover less than 100 percent of the total. Before adding or subtracting the counts, check CZ ID's documentation for what the root count includes and whether the 88 includes the 42.
 
-The NR columns are `nr_read_count` and `nr_rpm`, the second giving the count in [reads per million](../../GLOSSARY.md#reads-per-million), scaled as though the sample held exactly a million reads. In the fixture, Viruses has 88 NT reads and 12 NR reads, and SARS-CoV-2 has 42 and 5. A taxon with NR reads and few or no NT reads matched only at the protein level, which is what a virus too different for a nucleotide match looks like. The fixture has no such row, and no cutoff separates few from enough, so compare the two counts on each row. Such a row shows few or no reads in the viewport, with a thin wedge or none in the sunburst, so scan the NR columns for it. Treat it as a lead to check with CZ ID's own report or with a tool that first assembles reads into longer stretches, which can give a distant match more sequence to show. [NVD](../../GLOSSARY.md#nvd), Novel Virus Diagnostics, is such a tool. It runs outside LGE on the sample's reads, which a taxon report lacks, and [Novel Virus Diagnostics](09-novel-virus-detection.md) shows how LGE reads its output.
+To open the preserved report, right-click the result and choose **Show in Finder**. Open the `.lungfishtax` folder, then `classification.czid.tsv`. Use **Open With** to choose Numbers or Excel if needed.
+
+The NR columns and three NT match measures stay only in `classification.czid.tsv`. [Percent identity](../../GLOSSARY.md#percent-identity) (`nt_percent_identity`) is the share of lined-up bases that match. Alignment length (`nt_alignment_length`) counts the bases lined up for comparison. The [e-value](../../GLOSSARY.md#e-value) (`nt_e_value`) estimates how many matches at least as good you would expect by chance in a search. The fixture lists 99.1 and 97.8 percent identity over 132 and 151 bases, with e-values of `1e-20` and `2e-50`, respectively.
+
+Check CZ ID's documentation for how to interpret those measures when reported once per taxon. For their meaning in [BLAST](../../GLOSSARY.md#blast), NCBI's sequence search, see the results section of [BLAST Verification](06-blast-verification.md#reading-the-results).
+
+The `nr_read_count` column gives the NR read count. The `nr_rpm` column gives [reads per million](../../GLOSSARY.md#reads-per-million), a count scaled to a total of one million reads. Check CZ ID's documentation for the total it uses. In the fixture, Viruses has 88 NT and 12 NR reads, and SARS-CoV-2 has 42 NT and 5 NR reads.
+
+If a taxon has NR reads and zero NT reads, it appears in the table with zero reads and has a wedge of zero width. Check the original NR columns and CZ ID's documentation before interpreting a difference between the counts.
 
 ### The viewport
 
-The result opens in the taxonomy viewport, which [Running Kraken 2](02-running-kraken2.md#reading-the-results) teaches you to read. The table's columns include **Taxon Name**, **Rank**, **Reads**, **Direct**, and **%**, and clicking a wedge or a row selects that taxon in both views, as [Moving around the tree](02-running-kraken2.md#moving-around-the-tree) shows.
+The taxonomy viewport shows a taxon table with **Taxon Name**, **Rank**, **Reads**, **Direct**, and **%**. The action bar is the row of buttons along the bottom of the viewport. Before you select a taxon, the action bar reads `Imported CZ-ID result · Sample-CZ-001 · 3 taxa` to the right of the buttons. The count of 3 includes the root row.
+
+Read IDs identify individual sequencing reads. The report gives counts by taxon, so LGE has no read IDs to use for BLAST or for extraction, which saves a taxon's reads to a new file. **Verify with BLAST…** and **Extract Reads…** stay dimmed in the action bar and right-click menus. LGE omits **BLAST Results**. Rest the pointer on either dimmed button to see its tooltip, a short note that begins with "CZ-ID results don't include read IDs, so reads can't be extracted or checked with BLAST."
 
 <!-- SHOT: czid-result-viewport -->
 
-The action bar is the strip of buttons along the bottom of the viewport. Until you select a taxon, the line beside its buttons reads `Imported CZ-ID result · Sample-CZ-001 · 3 taxa`, where 3 is the **Rows** figure with the root row counted.
+**Collections** opens a drawer, a panel below the table that holds named sets of taxa. In that drawer, **Extract** gives the same reason in a **Could not extract reads** alert. **Export** still writes the table as TSV or [CSV](../../GLOSSARY.md#csv), a text file with commas between columns. For the shared controls, see [The action bar and the provenance popover](02-running-kraken2.md#the-action-bar-and-the-provenance-popover) in Running Kraken 2.
 
-A taxon report is a summary and does not say which reads belong to which taxon, so the actions that need reads are off. **Verify with BLAST…** and **Extract Reads…** stay dimmed in the action bar and on the right-click menus of the table and the chart, and the **BLAST Results** button is not shown. Hovering over either button shows a tooltip that begins with the reason, "CZ-ID results don't include read IDs, so reads can't be extracted or checked with BLAST." The **Collections** button opens a drawer below the table that holds named sets of taxa, and the drawer's **Extract** button stops here with an alert titled **Could not extract reads** that gives the same reason. **Export** in the same bar writes the table as a [CSV](../../GLOSSARY.md#csv) file, with commas between columns, or a [TSV](../../GLOSSARY.md#tsv) file, and still works. [Running Kraken 2](02-running-kraken2.md#the-action-bar-and-the-provenance-popover) describes each shared button.
-
-To work with the reads themselves, download the sample's reads from CZ ID as FASTQ files, import them as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) shows, and classify them with Kraken 2 or [EsViritu](../../GLOSSARY.md#esviritu), a classifier built around viral genomes, in LGE. Extraction and BLAST checks then work on that new result.
+If you need to extract or verify individual reads, follow CZ ID's instructions for getting the sample's FASTQ files. Bring them into LGE, then classify them with Kraken 2 or [EsViritu](../../GLOSSARY.md#esviritu), a classifier built around viral genomes, the full genetic sequences of viruses. Use the new result to extract reads or check them with BLAST. For the import steps, see [Importing Sequencing Reads](../03-reads/01-importing-fastq.md).
 
 ### The provenance popover
 
-The information button at the right of the action bar opens the **CZ-ID Pipeline Info** popover, a small panel that closes when you click outside it. It lists **Sample**, **Project** when the export carried one, **Format Version**, **Rows**, **Pipeline**, **NT Database**, **NR Database**, the bundle's path under **Bundle**, and every source file under **Source Files**. **Format Version** names the layout of the import's records and reads `cz-id-taxon-report-v1` for the fixture. Each value is selectable, so you can copy it into a methods section.
+To find versions for your methods notes, click the information button at the right of the action bar. **CZ-ID Pipeline Info** opens in a popover, a small panel that closes when you click outside it.
 
 <!-- SHOT: czid-provenance-popover -->
 
+Select and copy the available versions under **Pipeline**, **NT Database**, and **NR Database**. The panel lists **Sample**, **Project** when supplied, and **Rows**. **Format Version** gives the layout of the import records, `cz-id-taxon-report-v1` for the fixture. **Bundle** gives the result's location. **Source Files** lists the copied report, `classification.czid.tsv`, inside the bundle. Each value is selectable.
+
 ## What good looks like
 
-An imported CZ ID result answers only the first question of [The evidence checklist](01-what-is-classification.md#the-evidence-checklist), how many reads support each name. Without per-read data LGE cannot answer how the reads spread along a genome, how many of the reads are independent rather than copies of one fragment, or whether an independent method agrees. The controls question needs a blank sample, one with no specimen in it, that you supply. The three Preview checks in the procedure confirm that the count belongs to the sample you think it does, and a fourth needs the open bundle.
+To check for a wrong or edited report, compare percentages with CZ ID. First, check CZ ID's documentation to see whether its figures use the same NT total as LGE. If they do, make this comparison with the bundle open:
 
-Fourth, once the bundle is open, compare the **%** column for the two or three largest wedges against CZ ID's own figures. If they disagree, download the report from CZ ID again, because a file edited or combined by hand can carry another sample's root row, and every percentage is measured against the root row.
+| Check | What to compare |
+|---|---|
+| **%** for the two or three largest wedges | CZ ID's figures for the same taxa and sample, rounded to one decimal place |
 
-If the scan fails, the **Preview** panel shows a warning triangle with the reason beside it, and the status line repeats the reason. For a report file you picked directly, the reason "CZ-ID taxon report must include tax_id, taxon_name, and rank columns" means a row has no usable `tax_id` or no `taxon_name`, since only those two are required even though the message names `rank`. For an archive or folder with no usable report, the reason begins "No parseable CZ-ID taxon report was found in". If the import fails with a message that begins "Classification bundle already exists", a result of that name is in `Classifications`, which this import never overwrites, so rename it with **Rename…** or remove it with **Move to Trash** in its right-click menu in the sidebar, then run the import again.
+If the values differ, download the report from CZ ID again. A file edited or combined by hand can carry another sample's root row, and LGE measures each percentage against that row.
+
+An imported CZ ID result answers only the first question in [The evidence checklist](01-what-is-classification.md#the-evidence-checklist), how many reads support each name. Without data for individual reads, LGE cannot show how the reads spread along a genome, how many came from distinct fragments, or whether an independent method agrees. The checklist asks about controls, samples run for comparison. For this check, supply a blank sample, one with no specimen in it.
+
+If the scan fails, the warning triangle in **Preview** and the status line show the reason. For a report file you selected directly, "CZ-ID taxon report must include tax_id, taxon_name, and rank columns" can mean a required column is missing or a single data row has a bad value. Check that the file uses tabs, that the header includes `tax_id` and `taxon_name`, and that every row has a whole number for `tax_id` and a name for `taxon_name`. A comma-separated file gives the same message. The `rank` column is optional. A row without a rank gets "no rank".
+
+For an archive or folder with no usable report, the reason begins "No parseable CZ-ID taxon report was found in".
+
+If the message begins "Classification bundle already exists", find the existing result in `Classifications` in the sidebar. To keep it, right-click and choose **Rename…**. If you no longer need it, use **Move to Trash** in the same menu. Then run the import again.
 
 ## On the command line
 
-You can skip this section if you work only in the window. These commands repeat the procedure, as [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains, including where to find Terminal and what the quotation marks, `$HOME`, and backslashes do. Every flag of the import is listed in [`import cz-id`](../appendices/cli-reference.md#import-cz-id) in the CLI Reference. The first command previews the report without importing it. The second imports it into the project.
+You can also use LGE's command-line interface (CLI), `lungfish-cli`, in [Terminal](../../GLOSSARY.md#terminal), the Mac app for typing commands. The first command previews the report. The second imports it. For help with quotation marks, `$HOME`, and backslashes, see [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block).
+
+A flag is an option you pass to a command. Every flag of the import is listed in [`import cz-id`](../appendices/cli-reference.md#import-cz-id) in the CLI Reference.
 
 ```bash
 # Change the next two lines to your own project and report.
@@ -201,10 +229,10 @@ lungfish-cli import cz-id "$REPORT" \
   --sample-name Sample-CZ-001
 ```
 
-The summary prints the sample, row count, and versions, then a table with one line each for Viruses and SARS-CoV-2, and the import ends with a line that says Imported CZ-ID result.
+The summary prints the sample, row count, and versions, followed by one line each for Viruses and SARS-CoV-2. The import ends with a line that begins "Imported CZ-ID result".
 
-**Copy CLI Command** in the Operations Panel row's right-click menu copies the command an import in the window ran, with your own paths.
+To repeat an import you ran in the window, right-click its row in the Operations Panel and choose **Copy CLI Command**. It copies the command with your paths.
 
 ## Next
 
-Continue to [Importing NAO-MGS Results](05-running-nao-mgs.md), which imports the output of [NAO-MGS](../../GLOSSARY.md#nao-mgs), a wastewater surveillance pipeline that runs outside LGE and reports viral hits, the reads it aligned to a virus. Unlike CZ ID's summary, that import keeps the reads behind each taxon. To classify reads inside LGE rather than import an answer, start at [What Is Read Classification](01-what-is-classification.md).
+Continue to [Importing NAO-MGS Results](05-running-nao-mgs.md). [NAO-MGS](../../GLOSSARY.md#nao-mgs) runs outside LGE to report reads aligned to viruses in wastewater samples. That import keeps the reads behind each taxon. To classify your own reads in LGE, start with [What Is Read Classification](01-what-is-classification.md).
