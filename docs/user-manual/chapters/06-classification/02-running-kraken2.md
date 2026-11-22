@@ -330,7 +330,7 @@ Open the Standard-16 result to compare HSV-1 counts and look for groups that Vir
 | Bacteria | none possible | 219,636 (4.56%) |
 | *Homo sapiens* | none possible | 13,252 (0.27%) |
 
-Viral assigned 886,221 pairs to HSV-1, while Standard-16 assigned 89,294, about a tenth as many. Standard-16 keeps about 1 in 7 of the minimizers in the full Standard collection of about 67 GB. It covers archaea, bacteria, viruses, plasmids, the human genome, and cloning-vector sequences. Plasmids are DNA molecules that can replicate independently of the chromosome. Cloning vectors are DNA molecules used to carry other DNA into cells.
+Viral assigned 886,221 pairs to HSV-1, while Standard-16 assigned 89,294, about a tenth as many. Standard-16 keeps about 1 in 7 of the minimizers in the full Standard collection. It covers archaea, bacteria, viruses, plasmids, the human genome, and cloning-vector sequences. Plasmids are DNA molecules that can replicate independently of the chromosome. Cloning vectors are DNA molecules used to carry other DNA into cells.
 
 Both databases hold the same HSV-1 reference genome, and Viral keeps every one of its minimizers. In Standard-16, an HSV-1 pair can match about 1 in 7 of its k-mers on average, below the fifth **Balanced** requires. This likely left most HSV-1 pairs unclassified and explains much of the drop to about a tenth as many. Some classified Standard-16 pairs stopped at the root or at cellular organisms, or fell in small groups such as Archaea.
 
