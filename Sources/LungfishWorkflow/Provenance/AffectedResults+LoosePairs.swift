@@ -51,7 +51,7 @@ extension AffectedResults {
             fixCommit: "c9ed8e3ef"
         ),
         // FIX-B2 (543d4ea73 to 1c936647b) on TaxTriage, Kraken 2 and EsViritu, FIX-ROUTES (c9ed8e3ef) on map, assembly and
-        // Viral Recon, FIX-ROUTES-2 (ab7520464) on the import with a recipe, and FIX-ROUTES-4 (FIX-ROUTES-4-FIX) on the
+        // Viral Recon, FIX-ROUTES-2 (ab7520464) on the import with a recipe, and FIX-ROUTES-4 (cccc812a2) on the
         // import with no recipe and on executor plans (BIO-ROUTES-3 D1 and D2). FIX-B2 and FIX-ROUTES fix three kinds
         // each, so the row names FIX-ROUTES, as LOOSE-PAIR-SHORT-MATE does.
         AffectedResultRow(
