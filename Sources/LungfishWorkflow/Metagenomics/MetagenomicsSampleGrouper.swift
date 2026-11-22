@@ -23,7 +23,7 @@ public struct MetagenomicsSampleInput: Sendable, Equatable, Identifiable {
 }
 
 /// Groups FASTQ URLs into per-sample inputs. Each `.lungfishfastq` bundle is one sample under its whole stem, and
-/// loose files pair by common R1/R2 naming patterns.
+/// loose files of one folder pair by common R1/R2 naming patterns.
 public enum MetagenomicsSampleGrouper {
     private enum ReadRole {
         case read1
@@ -103,32 +103,18 @@ public enum MetagenomicsSampleGrouper {
                 continue
             }
 
-            // Typical case: one R1 + one R2.
-            if read1.count == 1, read2.count == 1, singles.isEmpty {
-                samples.append(
-                    MetagenomicsSampleInput(
-                        sampleId: sampleKey,
-                        fastq1: read1[0],
-                        fastq2: read2[0]
-                    )
-                )
-                continue
-            }
-
-            // If there are explicit R1/R2 files, pair by index.
+            // Explicit R1/R2 files pair by index within each folder (GROUPER-CROSS-FOLDER-PAIR). One R1 and one R2
+            // in one folder are the typical sample. The samples of the stem number across folders as one list: one
+            // sample keeps the stem, more take `_1`, `_2` and on.
             if !read1.isEmpty || !read2.isEmpty {
-                let pairCount = max(read1.count, read2.count)
-                for index in 0..<pairCount {
-                    let r1AtIndex = read1.indices.contains(index) ? read1[index] : nil
-                    let r2AtIndex = read2.indices.contains(index) ? read2[index] : nil
-                    guard let r1 = r1AtIndex ?? r2AtIndex else { continue }
-                    let r2 = r1AtIndex != nil ? r2AtIndex : nil
-                    let suffix = pairCount == 1 ? "" : "_\(index + 1)"
+                let pairs = folderPairs(read1: read1, read2: read2)
+                for (index, pair) in pairs.enumerated() {
+                    let suffix = pairs.count == 1 ? "" : "_\(index + 1)"
                     samples.append(
                         MetagenomicsSampleInput(
                             sampleId: sanitizeSampleId(sampleKey + suffix),
-                            fastq1: r1,
-                            fastq2: r2
+                            fastq1: pair.fastq1,
+                            fastq2: pair.fastq2
                         )
                     )
                 }
@@ -241,6 +227,30 @@ public enum MetagenomicsSampleGrouper {
 
     private static func compareURLs(_ lhs: URL, _ rhs: URL) -> Bool {
         isOrderedBefore(lhs.lastPathComponent, rhs.lastPathComponent)
+    }
+
+    /// The R1 and R2 files of one stem, each role in file-name order, paired by index within each parent folder,
+    /// folders in path order. A file with no mate at its index in its folder runs alone. Same-named files of two
+    /// folders tie in the name sort and keep their input order, so pairing across folders joined two specimens
+    /// whenever a list named the folders in one order for the R1 files and in another for the R2 files
+    /// (GROUPER-CROSS-FOLDER-PAIR, BIO-REACH row A).
+    private static func folderPairs(read1: [URL], read2: [URL]) -> [(fastq1: URL, fastq2: URL?)] {
+        let folderPath: (URL) -> String = { $0.deletingLastPathComponent().standardizedFileURL.path }
+        let read1ByFolder = Dictionary(grouping: read1, by: folderPath)
+        let read2ByFolder = Dictionary(grouping: read2, by: folderPath)
+        let folders = Set(read1ByFolder.keys).union(read2ByFolder.keys).sorted { isOrderedBefore($0, $1) }
+        var pairs: [(fastq1: URL, fastq2: URL?)] = []
+        for folder in folders {
+            let firsts = read1ByFolder[folder, default: []]
+            let seconds = read2ByFolder[folder, default: []]
+            for index in 0..<max(firsts.count, seconds.count) {
+                let r1AtIndex = firsts.indices.contains(index) ? firsts[index] : nil
+                let r2AtIndex = seconds.indices.contains(index) ? seconds[index] : nil
+                guard let r1 = r1AtIndex ?? r2AtIndex else { continue }
+                pairs.append((fastq1: r1, fastq2: r1AtIndex != nil ? r2AtIndex : nil))
+            }
+        }
+        return pairs
     }
 
     /// The locale that orders sample names and file names. It is fixed, so a batch lists its samples and
