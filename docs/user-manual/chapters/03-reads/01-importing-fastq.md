@@ -30,13 +30,13 @@ illustrations:
 glossary_refs: [fastq, bam, bundle, paired-end, single-end, interleaved-fastq, project, sidebar, inspector, import-center, provenance, checksum, required-setup-pack, sample-metadata, quality-binning, read-clumping, sample-sheet, phred-score, adapter, virtual-bundle, k-mer, clumpify, read, mate, read-pair, fragment, vsp2, trim-galore, poly-g-tail, ribosomal-rna, pcr-duplicate, spot, sra, ncbi, mapper, amplicon, variant-caller, fastp, fixture, viewport, end-to-end-alignment]
 features_refs: [import.fastq, fastq.platform-label, import.sample-metadata]
 fixtures_refs: [hg002-chr20]
-brand_reviewed: false
+brand_reviewed: true
 lead_approved: false
 ---
 
 ## What it is
 
-Importing copies sequencing reads into a Lungfish Genome Explorer (LGE) [project](../../GLOSSARY.md#project) and leaves your original files where they are. A project is a `.lungfish` folder that holds one analysis. A [read](../../GLOSSARY.md#read) records the sequence the instrument measured from a DNA fragment. LGE saves the copy as a `.lungfishfastq` read bundle in `Imports`. A [bundle](../../GLOSSARY.md#bundle) is a folder that LGE treats as one item. The [project guide](../01-foundations/06-the-lungfish-project.md#what-bundle-means) shows how bundles organize your data. Sequencing reads usually arrive in [FASTQ](../../GLOSSARY.md#fastq) files. Each read takes four lines. They hold the name, the bases, a separator, and one quality character per base.
+Importing copies sequencing reads into a Lungfish Genome Explorer (LGE) [project](../../GLOSSARY.md#project) and leaves your original files where they are. A project is a `.lungfish` folder that holds one analysis. A [read](../../GLOSSARY.md#read) records the sequence the instrument measured from a DNA fragment. LGE saves the copy as a `.lungfishfastq` read bundle in **Imports**. A [bundle](../../GLOSSARY.md#bundle) is a folder that LGE treats as one item. The [project guide](../01-foundations/06-the-lungfish-project.md#what-bundle-means) shows how bundles organize your data. Sequencing reads usually arrive in [FASTQ](../../GLOSSARY.md#fastq) files. Each read takes four lines. They hold the name, the bases, a separator, and one quality character per base.
 
 An HG002 read with two lines cut after 30 characters:
 
@@ -119,17 +119,17 @@ Clear **Optimize storage** to keep the reads in their original order. Reordering
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
-| BBTools clumpify | Shrinking stored short reads by reordering them, with the quality rounding that Quality Binning sets | The reads are short and order can change | You want the stored reads in the source file's order |
+| BBTools clumpify | Shrinking stored short reads by reordering them, with the quality rounding that **Quality Binning** sets | The reads are short and order can change | You want the stored reads in the source file's order |
 | Trim Galore --clumpify | Trimming adapters and poor read ends while storing | Every sample in the batch needs the same standard trim | You still need to check read quality |
-| Optimize storage off | Keeping the source file's read order | Nanopore or PacBio reads, or a disk without room for the reordering | Short reads can be reordered and disk space allows it |
+| **Optimize storage** off | Keeping the source file's read order | Nanopore or PacBio reads, or a disk without room for the reordering | Short reads can be reordered and disk space allows it |
 
-Use BBTools clumpify to store the short Illumina reads in the HG002 fixture more compactly. They need no trimming. The bibliography lists sources for [BBTools and Trim Galore](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge) if you want to read about either tool. For Oxford Nanopore or PacBio reads, leave **Optimize storage** at its default of off. If the quality report shows that every sample in a short-read batch needs the same trim, choose **Trim Galore --clumpify** with **Optimize storage** selected.
+Use **BBTools clumpify** to store the short Illumina reads in the HG002 fixture more compactly. They need no trimming. The bibliography lists sources for [BBTools and Trim Galore](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge) if you want to read about either tool. For Oxford Nanopore or PacBio reads, leave **Optimize storage** at its default of off. If the quality report shows that every sample in a short-read batch needs the same trim, choose **Trim Galore --clumpify** with **Optimize storage** selected.
 
 ## Before you start
 
 You need an open project to import reads. The [project setup procedure](../01-foundations/06-the-lungfish-project.md#procedure) shows how to make one.
 
-Use **File > New Project** to make an empty project for practice. From **Help > Demo Projects…**, open the Human Reads demo project to find the finished `HG002.chr20.10.0-10.5Mb` bundle and the two originals in `Practice Data`. Import the original files into your new project. The [demo project guide](../01-foundations/06-the-lungfish-project.md#demo-projects) shows how to find the demo files.
+Use **File > New Project** to make an empty project for practice. From **Help > Demo Projects…**, open the Human Reads demo project to find the finished `HG002.chr20.10.0-10.5Mb` bundle and the two originals in **Practice Data**. Import the original files into your new project. The [demo project guide](../01-foundations/06-the-lungfish-project.md#demo-projects) shows how to find the demo files.
 
 To download the files instead, open each of `HG002.chr20.10.0-10.5Mb_R1.fastq.gz` and `HG002.chr20.10.0-10.5Mb_R2.fastq.gz` in [the hg002-chr20 fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.39/docs/user-manual/fixtures/hg002-chr20) and click **Download raw file**, as [Fixture files](../01-foundations/06-the-lungfish-project.md#fixture-files) explains. Keep both files in one folder and do not rename them, because the names are what tell LGE the two files belong together.
 
@@ -169,7 +169,7 @@ LGE looks for platform clues in the FASTQ header, the first line of each read. A
 
 LGE checks the first 32 reads or 256 kilobytes of text, whichever comes first. Each matching header counts as a vote, and LGE names a platform only when the votes agree. A read group is a line in the BAM header that labels the reads from one run or library. For an unmapped BAM, LGE checks the program names and the read group's `PL` field for the platform and `DS` field for a description.
 
-The import sheet shows the evidence, such as the header pattern and how many reads matched it, and the bundle keeps it. The command line prints it. LGE can identify Illumina, Oxford Nanopore, PacBio, Element Biosciences, and MGI / DNBSEQ from read names. Choose Ultima Genomics yourself for FASTQ, or import an unmapped BAM whose read group says `PL:ULTIMA`. LGE records Ion Torrent reads as Unknown and names Ion Torrent in the evidence.
+The import sheet shows the evidence, such as the header pattern and how many reads matched it, and the bundle keeps it. The command line prints it. LGE can identify Illumina, Oxford Nanopore, PacBio, Element Biosciences, and MGI / DNBSEQ from read names. Choose **Ultima Genomics** yourself for FASTQ, or import an unmapped BAM whose read group says `PL:ULTIMA`. LGE records Ion Torrent reads as Unknown and names Ion Torrent in the evidence.
 
 | Confidence in the evidence | What LGE records |
 |---|---|
@@ -178,7 +178,7 @@ The import sheet shows the evidence, such as the header pattern and how many rea
 
 LGE records Unknown if read headers match no known pattern, disagree, or resemble short-read headers on reads longer than 1,000 bases. Renamed reads can also come back as Unknown if the new names have no recognizable pattern. When you [download from the SRA](02-downloading-from-sra.md) in LGE, the platform comes from the archive record.
 
-The platform label sets starting values for import, mapping, and assembly. For Unknown, mapping and assembly use read length to choose short- or long-read defaults and show a note. A tool that may not suit the reads shows an orange warning. If the combination cannot run or you still need to choose a read type, a dialog explains why before you can click Run. The chapters on [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) and [When to Assemble](../07-assembly/01-when-to-assemble.md) show where the warnings appear. If Run stays available, use the warning to decide whether to change the starting settings.
+The platform label sets starting values for import, mapping, and assembly. For Unknown, mapping and assembly use read length to choose short- or long-read defaults and show a note. A tool that may not suit the reads shows an orange warning. If the combination cannot run or you still need to choose a read type, a dialog explains why before you can click **Run**. The chapters on [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) and [When to Assemble](../07-assembly/01-when-to-assemble.md) show where the warnings appear. If **Run** stays available, use the warning to decide whether to change the starting settings.
 
 ## Procedure
 
@@ -200,7 +200,7 @@ To import the HG002 chromosome 20 pair, follow these steps. If you drag both fil
 
 The HG002 fixture has no score below Q2, a score of 2 on the Phred scale explained in [Settings](#settings), so BBTools clumpify keeps every quality score with this setting. The [import settings](#settings) explain how to preserve scores for other data. The demo bundle supplies the figures in [Quality Control for Reads](03-quality-control.md) for comparison.
 
-Follow progress in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) with **Operations > Show Operations Panel** (Cmd-Shift-P). The finished bundle appears under `Imports` in the [sidebar](../../GLOSSARY.md#sidebar). Its name, `HG002.chr20.10.0-10.5Mb`, is the shared filename stem, the part left after removing the mate suffix and file ending.
+Follow progress in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) with **Operations > Show Operations Panel** (Cmd-Shift-P). The finished bundle appears under **Imports** in the [sidebar](../../GLOSSARY.md#sidebar). Its name, `HG002.chr20.10.0-10.5Mb`, is the shared filename stem, the part left after removing the mate suffix and file ending.
 
 <!-- SHOT: sidebar-after-import -->
 
@@ -219,7 +219,7 @@ sample,r1,r2,collection_date,batch_id
 HG002-chr20,HG002.chr20.10.0-10.5Mb_R1.fastq.gz,HG002.chr20.10.0-10.5Mb_R2.fastq.gz,2026-09-06,B42
 ```
 
-In step 3, choose **FASTQ Sample Sheet**, select the CSV, and click **Open**. The Import FASTQ sheet opens, and each bundle takes its name from that row's `sample` value.
+In step 3, choose **FASTQ Sample Sheet**, select the CSV, and click **Open**. The **Import FASTQ** sheet opens, and each bundle takes its name from that row's `sample` value.
 
 ### Importing an unmapped BAM
 
@@ -229,36 +229,36 @@ If the message begins "PacBio BAM import is not supported yet", convert the file
 
 ### Importing a read bundle from a ZIP
 
-If a colleague sends a read bundle packed as a ZIP file, drag it onto the sidebar to add the bundle to `Imports`. The ZIP must contain exactly one bundle. Pack bundles separately to import more than one. If LGE finds none or several, or cannot unpack the ZIP, the sheet titled `Could not import <archive name>` gives the reason and what to try.
+If a colleague sends a read bundle packed as a ZIP file, drag it onto the sidebar to add the bundle to **Imports**. The ZIP must contain exactly one bundle. Pack bundles separately to import more than one. If LGE finds none or several, or cannot unpack the ZIP, the sheet titled `Could not import <archive name>` gives the reason and what to try.
 
 ### Using the other Sequencing Reads cards
 
-The Sequencing Reads tab has ten cards. This chapter uses the first two. The other eight are covered in the chapters below, including five for RNA-seq, which sequences RNA to estimate how much of each transcript, an RNA copy of a gene, is in a sample. Single-cell RNA-seq measures each cell separately. Bulk RNA-seq measures a whole sample at once.
+The **Sequencing Reads** tab has ten cards. This chapter uses the first two. The other eight are covered in the chapters below, including five for RNA-seq, which sequences RNA to estimate how much of each transcript, an RNA copy of a gene, is in a sample. Single-cell RNA-seq measures each cell separately. Bulk RNA-seq measures a whole sample at once.
 
 The program salmon estimates how many reads come from each transcript, and STAR counts reads per gene. Cell Ranger and STARsolo count molecules per gene in each cell.
 
 | Card | What it does | Chapter |
 |---|---|---|
-| ONT Run Folder | Imports an Oxford Nanopore run folder as one bundle per barcode | [Oxford Nanopore Runs](07-ont-runs.md) |
-| Plan for a Linux Machine | Writes the files that reorder, compress, and count FASTQ reads on a Linux machine | [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md) |
-| Linux Run Result | Imports the folder a Linux run returned, as one FASTQ bundle per sample | [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md) |
-| RNA-seq Counts | Imports salmon quant folders, or one table of counts by gene and sample, as one RNA-seq result | [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) |
-| Single-cell Counts | Imports Cell Ranger outs folders or STARsolo run folders as one single-cell result | [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md) |
-| RNA-seq Plan for a Linux Machine | Writes the files that count bulk RNA-seq reads with salmon or STAR on a Linux machine or cluster, a group of computers that share work | [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) |
-| Single-cell Plan for a Linux Machine | Writes the files that count 10x Genomics single-cell libraries with STARsolo on a Linux machine or cluster | [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md) |
-| RNA-seq Linux Run Result | Imports the counts a Linux run returned, from a plan folder or a batch folder, as one RNA-seq result | [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) |
+| **ONT Run Folder** | Imports an Oxford Nanopore run folder as one bundle per barcode | [Oxford Nanopore Runs](07-ont-runs.md) |
+| **Plan for a Linux Machine** | Writes the files that reorder, compress, and count FASTQ reads on a Linux machine | [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md) |
+| **Linux Run Result** | Imports the folder a Linux run returned, as one FASTQ bundle per sample | [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md) |
+| **RNA-seq Counts** | Imports salmon quant folders, or one table of counts by gene and sample, as one RNA-seq result | [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) |
+| **Single-cell Counts** | Imports Cell Ranger outs folders or STARsolo run folders as one single-cell result | [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md) |
+| **RNA-seq Plan for a Linux Machine** | Writes the files that count bulk RNA-seq reads with salmon or STAR on a Linux machine or cluster, a group of computers that share work | [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) |
+| **Single-cell Plan for a Linux Machine** | Writes the files that count 10x Genomics single-cell libraries with STARsolo on a Linux machine or cluster | [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md) |
+| **RNA-seq Linux Run Result** | Imports the counts a Linux run returned, from a plan folder or a batch folder, as one RNA-seq result | [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) |
 
 ## Settings
 
-The Import FASTQ sheet shares most settings across the batch, including every row of a sample sheet. LGE can detect **Platform** and **Pairing** for each sample when you leave those controls alone. The **FASTQ Sample Sheet** card adds no settings of its own.
+The **Import FASTQ** sheet shares most settings across the batch, including every row of a sample sheet. LGE can detect **Platform** and **Pairing** for each sample when you leave those controls alone. The **FASTQ Sample Sheet** card adds no settings of its own.
 
-**Platform.** Records the sequencing platform, sets the starting value of Optimize storage, and guides later tools. It opens on the detected platform or on **Detected per sample** when the batch appears to mix instruments, so each sample keeps its own platform. Change it when the detected platform disagrees with your sequencing records. On the command line this is `--platform`.
+**Platform.** Records the sequencing platform, sets the starting value of **Optimize storage**, and guides later tools. It opens on the detected platform or on **Detected per sample** when the batch appears to mix instruments, so each sample keeps its own platform. Change it when the detected platform disagrees with your sequencing records. On the command line this is `--platform`.
 
-Choose from Illumina, Oxford Nanopore, PacBio, Element Biosciences, Ultima Genomics, MGI / DNBSEQ, and Unknown / Other. If your choice contradicts high-confidence evidence from the reads, LGE records your choice and logs the disagreement.
+Choose from **Illumina**, **Oxford Nanopore**, **PacBio**, **Element Biosciences**, **Ultima Genomics**, **MGI / DNBSEQ**, and **Unknown / Other**. If your choice contradicts high-confidence evidence from the reads, LGE records your choice and logs the disagreement.
 
-**Pairing.** Sets how LGE treats each sample's reads, with Single-end, Paired-end, and Interleaved. It opens on Paired-end for matched files or, for a single file, on Interleaved if mates alternate in the first 2,000 reads and on Single-end otherwise. Choose Single-end to import matched files separately under their own names, or Interleaved when both mates are in one file. On the command line this is `--pairing`.
+**Pairing.** Sets how LGE treats each sample's reads, with **Single-end**, **Paired-end**, and **Interleaved**. It opens on **Paired-end** for matched files or, for a single file, on **Interleaved** if mates alternate in the first 2,000 reads and on **Single-end** otherwise. Choose **Single-end** to import matched files separately under their own names, or **Interleaved** when both mates are in one file. On the command line this is `--pairing`.
 
-Choosing Oxford Nanopore hides **Pairing** because nanopore reads are single reads. LGE records any pairing you choose for later tools. Left alone, LGE matches mate files by name and checks each single file in full for interleaved reads, as it does with `auto` on the command line.
+Choosing **Oxford Nanopore** hides **Pairing** because nanopore reads are single reads. LGE records any pairing you choose for later tools. Left alone, LGE matches mate files by name and checks each single file in full for interleaved reads, as it does with `auto` on the command line.
 
 A [Phred score](../../GLOSSARY.md#phred-score) expresses the estimated chance that the instrument called a base incorrectly. Every increase of 10 points means a tenfold decrease in that estimated chance.
 
@@ -275,7 +275,7 @@ FASTQ stores each score as one character. The [guide to decoding quality charact
 | `?` | 30 |
 | `I` | 40 |
 
-**Quality Binning.** Rounds Phred scores to fewer values to save space. The default is Q5 steps (8-level) on every platform because it saves space and preserves the counts at or above Q10, Q20, and Q30. Choose None (keep every score) when you need the original scores, since [quality binning](../../GLOSSARY.md#quality-binning) cannot be undone. On the command line this is `--quality-binning`.
+**Quality Binning.** Rounds Phred scores to fewer values to save space. The default is **Q5 steps (8-level)** on every platform because it saves space and preserves the counts at or above Q10, Q20, and Q30. Choose **None (keep every score)** when you need the original scores, since [quality binning](../../GLOSSARY.md#quality-binning) cannot be undone. On the command line this is `--quality-binning`.
 
 The numbers in the labels describe the available bins, which are the values the tool can store.
 
@@ -283,9 +283,9 @@ The default keeps every read and base and preserves the share of bases at or abo
 
 | Quality Binning | What happens to the scores |
 |---|---|
-| Q5 steps (8-level) | Rounds in steps of five without crossing Q10, Q20, or Q30. Below Q35 the change is at most 2. Scores of Q35 or above become Q37 |
-| Fine (~21-level) | Rounds in steps of two, with about twenty-one values across the usual range of 0 to 40 |
-| None (keep every score) | BBTools clumpify keeps the scores except that Q0 and Q1 become Q2. With Optimize storage off, every score stays as it is |
+| **Q5 steps (8-level)** | Rounds in steps of five without crossing Q10, Q20, or Q30. Below Q35 the change is at most 2. Scores of Q35 or above become Q37 |
+| **Fine (~21-level)** | Rounds in steps of two, with about twenty-one values across the usual range of 0 to 40 |
+| **None (keep every score)** | BBTools clumpify keeps the scores except that Q0 and Q1 become Q2. With **Optimize storage** off, every score stays as it is |
 
 Trim Galore --clumpify receives no binning option, so the **Quality Binning** control changes nothing while Trim Galore is the **Compression Tool**. The setting applies with BBTools clumpify or with **Optimize storage** off. If you need the exact scores, choose **None (keep every score)** and clear **Optimize storage**.
 
@@ -293,15 +293,15 @@ Trim Galore --clumpify receives no binning option, so the **Quality Binning** co
 
 Clumpify splits large samples into groups to limit memory use. BBTools clumpify writes temporary files, so LGE checks the project disk before reordering each sample. It needs about five times the size of that sample's files in free space. If space is short, LGE skips that sample and keeps its originals. The [table of import messages](#when-a-sample-is-not-imported) gives the next step.
 
-**Compression Tool.** Picks BBTools clumpify or Trim Galore --clumpify to reorder reads and is grayed out while Optimize storage is off. The default is BBTools clumpify, which reorders reads and applies Quality Binning. Choose Trim Galore --clumpify when every sample needs the same standard trim, as [Choosing a tool](#choosing-a-tool) describes. On the command line this is `--clumping-tool`.
+**Compression Tool.** Picks **BBTools clumpify** or **Trim Galore --clumpify** to reorder reads and is grayed out while **Optimize storage** is off. The default is **BBTools clumpify**, which reorders reads and applies **Quality Binning**. Choose **Trim Galore --clumpify** when every sample needs the same standard trim, as [Choosing a tool](#choosing-a-tool) describes. On the command line this is `--clumping-tool`.
 
 With Trim Galore chosen, a note reads "Trim Galore also performs adapter detection/removal, quality trimming, and short-read filtering."
 
-**Compression Level.** Trades import speed against stored file size, offering Fast, Balanced, and Maximum. The default is Balanced, the middle setting that suits most imports. Choose Fast for a large run when disk space is plentiful, and Maximum when it is tight and a slower import is acceptable. On the command line this is `--compression`.
+**Compression Level.** Trades import speed against stored file size, offering **Fast**, **Balanced**, and **Maximum**. The default is **Balanced**, the middle setting that suits most imports. Choose **Fast** for a large run when disk space is plentiful, and **Maximum** when it is tight and a slower import is acceptable. On the command line this is `--compression`.
 
 **Apply processing recipe after import.** Runs a recipe, a series of processing steps, on each sample before reordering and compression, so the bundle holds the processed reads. It starts off so the import uses only the other settings on the sheet. Turn it on for a batch that needs the same processing on every sample. On the command line this is `--recipe`.
 
-**(recipe picker).** Chooses the recipe and shows its purpose, required input, and a Workflow line that updates when you change the checkboxes. The unlabeled popup appears when you turn on recipes and starts with the first entry, Illumina Amplicon Merge. Choose the recipe that suits your reads using the [recipe comparison](#processing-recipes). On the command line this is `--recipe`.
+**(recipe picker).** Chooses the recipe and shows its purpose, required input, and a **Workflow** line that updates when you change the checkboxes. The unlabeled popup appears when you turn on recipes and starts with the first entry, **Illumina Amplicon Merge**. Choose the recipe that suits your reads using the [recipe comparison](#processing-recipes). On the command line this is `--recipe`.
 
 [VSP2](../../GLOSSARY.md#vsp2) stands for Illumina's Viral Surveillance Panel version 2. Target enrichment uses probes to capture selected sequences before sequencing. Metagenomics sequences all the DNA or RNA in a mixed sample such as wastewater.
 
@@ -315,9 +315,9 @@ Check what a recipe keeps or removes before you use it on a whole batch. For rea
 
 | Picker entry | What it does | Use it for | `--recipe` value |
 |---|---|---|---|
-| Illumina Amplicon Merge | Joins overlapping mates into single reads and drops every pair that does not overlap | MiSeq MHC amplicon pairs, as [What Is MHC Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md#choosing-a-tool) explains | `illumina-amplicon-merge` |
-| VSP2 target enrichment | Removes duplicate reads, trims adapters and poor ends, removes human reads, merges overlapping pairs, and drops reads under 50 bases | Viral target-enrichment reads for [Running EsViritu](../06-classification/03-running-esviritu.md) | `vsp2-target-enrichment` |
-| Wastewater metagenomics | The same steps, and also removes ribosomal RNA reads | Wastewater and other metagenomic reads for the classifiers in [What Is Read Classification](../06-classification/01-what-is-classification.md) | `wastewater-metagenomics` |
+| **Illumina Amplicon Merge** | Joins overlapping mates into single reads and drops every pair that does not overlap | MiSeq MHC amplicon pairs, as [What Is MHC Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md#choosing-a-tool) explains | `illumina-amplicon-merge` |
+| **VSP2 target enrichment** | Removes duplicate reads, trims adapters and poor ends, removes human reads, merges overlapping pairs, and drops reads under 50 bases | Viral target-enrichment reads for [Running EsViritu](../06-classification/03-running-esviritu.md) | `vsp2-target-enrichment` |
+| **Wastewater metagenomics** | The same steps, and also removes ribosomal RNA reads | Wastewater and other metagenomic reads for the classifiers in [What Is Read Classification](../06-classification/01-what-is-classification.md) | `wastewater-metagenomics` |
 
 The VSP2 probes capture viral fragments from a library made by tagmentation, which uses an enzyme to cut DNA and add adapters in one step. That step adds the Nextera adapter pair, which the VSP2 preset trims. Each preset keeps both merged reads and unmerged pairs in one bundle. Wastewater metagenomics uses the TruSeq pair.
 
@@ -331,7 +331,7 @@ Either cleanup preset trims with fastp, so choosing Trim Galore as the **Compres
 
 Select the bundle in the sidebar to check the import. The FASTQ [viewport](../../GLOSSARY.md#viewport) is the center of the window, where LGE shows the selected bundle's summary cards. [Quality Control for Reads](03-quality-control.md#reading-the-results) explains what each card measures.
 
-The Reads card rounds the count to 91.1K. The [Inspector](../../GLOSSARY.md#inspector), the details panel on the right, shows 91,148 reads from the fixture's 45,574 pairs. Use **View > Show Inspector** (Cmd-Opt-I) if the panel is hidden. If the count is 45,574 reads, check whether you selected both fixture files and imported them as Paired-end.
+The **Reads** card rounds the count to 91.1K. The [Inspector](../../GLOSSARY.md#inspector), the details panel on the right, shows 91,148 reads from the fixture's 45,574 pairs. Use **View > Show Inspector** (Cmd-Opt-I) if the panel is hidden. If the count is 45,574 reads, check whether you selected both fixture files and imported them as Paired-end.
 
 LGE stores the matched pair of files as one interleaved file, so **Pairing** in the Inspector's **Ingestion** group reads Interleaved. The group shows Yes for **Clumpified** and **Compressed**. It omits the **Quality Binning** row because you kept every score.
 
@@ -343,15 +343,15 @@ If the read names identify the instrument, run, flowcell, and lane, LGE saves th
 
 Edit sample metadata to keep specimen details such as the host and collection date with the reads. LGE measures read count, length, and quality from the file and keeps those values fixed.
 
-Select a bundle and find **Sample Metadata** in the Inspector. **Sample Name** starts with the bundle name. Choose Clinical, Wastewater, Air Sample, Environmental, or Custom from **Template** to show the fields you need. These can include **Geographic Location**, **Organism**, or **Clinical Details** with Host and Sample Type. **Read Type** starts on Auto and tells assembly tools what kind of reads the bundle holds.
+Select a bundle and find **Sample Metadata** in the Inspector. **Sample Name** starts with the bundle name. Choose **Clinical**, **Wastewater**, **Air Sample**, **Environmental**, or **Custom** from **Template** to show the fields you need. These can include **Geographic Location**, **Organism**, or **Clinical Details** with **Host** and **Sample Type**. **Read Type** starts on Auto and tells assembly tools what kind of reads the bundle holds.
 
-Use Notes, Attachments, and Custom Fields for other details. Custom Fields accepts any key and value you add. Edits save after a short pause to `metadata.csv` inside the bundle. The top-right menu offers **Revert to Last Saved** and **Clear All Metadata**.
+Use **Notes**, **Attachments**, and **Custom Fields** for other details. **Custom Fields** accepts any key and value you add. Edits save after a short pause to `metadata.csv` inside the bundle. The top-right menu offers **Revert to Last Saved** and **Clear All Metadata**.
 
-To edit several bundles, right-click their sidebar folder, such as `Imports`, and choose **Edit Folder Sample Metadata…**. **Export Folder Sample Metadata (CSV)…** and **Import Folder Sample Metadata (CSV)…** are in the same menu. These options appear on folders that directly contain FASTQ bundles.
+To edit several bundles, right-click their sidebar folder, such as **Imports**, and choose **Edit Folder Sample Metadata…**. **Export Folder Sample Metadata (CSV)…** and **Import Folder Sample Metadata (CSV)…** are in the same menu. These options appear on folders that directly contain FASTQ bundles.
 
-The editor has one row per bundle, with Sample Name, Role, Sample Type, Collection Date, Location, Host, Patient ID, Run ID, and Organism. To apply metadata from a spreadsheet, save it as CSV and choose **Import CSV…**. Match the `sample_name` column to existing bundle names. In the FASTQ sample sheet, `sample` names the bundles to create. **Export CSV…** writes the table out. **Save** writes `samples.csv` to the folder and saves each row in its bundle.
+The editor has one row per bundle, with **Sample Name**, **Role**, **Sample Type**, **Collection Date**, **Location**, **Host**, **Patient ID**, **Run ID**, and **Organism**. To apply metadata from a spreadsheet, save it as CSV and choose **Import CSV…**. Match the `sample_name` column to existing bundle names. In the FASTQ sample sheet, `sample` names the bundles to create. **Export CSV…** writes the table out. **Save** writes `samples.csv` to the folder and saves each row in its bundle.
 
-To copy fields, select the bundles that should receive them, right-click, and choose **Clone Metadata From…**. Pick a source in the same folder. LGE copies every field except the sample name, so check specimen-specific values such as Collection Date and Patient ID in the receiving bundles.
+To copy fields, select the bundles that should receive them, right-click, and choose **Clone Metadata From…**. Pick a source in the same folder. LGE copies every field except the sample name, so check specimen-specific values such as **Collection Date** and **Patient ID** in the receiving bundles.
 
 To combine metadata in one CSV, choose **File > Export > Project Sample Metadata (CSV)…**. In **Export Sample Metadata**, all samples start checked. Use **Select All** or **Deselect All** to adjust the selection, then click **Export CSV…** and choose where to save the combined table.
 
@@ -367,11 +367,11 @@ Both buttons run `lungfish-cli fastq platform` in the Operations Panel and rewri
 
 Before clicking **Import**, compare the summary with your delivery. A folder of ten paired samples should show ten samples, all paired-end. Twenty single-end samples means LGE treated the files separately. Check the mate suffixes before proceeding.
 
-Check that the bundle appears in `Imports` under the shared filename stem or the sample sheet's `sample` value.
+Check that the bundle appears in **Imports** under the shared filename stem or the sample sheet's `sample` value.
 
-Compare the Reads card with the delivery record. If the import kept all reads, double the provider's pair count and add any unpaired reads. For the fixture, that gives 91,148 reads from 45,574 pairs. If you used a recipe, account for reads it merged or removed.
+Compare the **Reads** card with the delivery record. If the import kept all reads, double the provider's pair count and add any unpaired reads. For the fixture, that gives 91,148 reads from 45,574 pairs. If you used a recipe, account for reads it merged or removed.
 
-If a bundle name is already taken in `Imports`, choose what to keep in the **File Already Exists** alert. **Replace** overwrites the existing bundle. **Keep Both** gives the new bundle a number, such as `HG002.chr20.10.0-10.5Mb 2`. **Skip** shows the existing bundle and skips that sample. If an earlier sample in the same import created the bundle, the alert offers only **Keep Both** and **Skip**. This can happen when two folders each hold a `reads` pair.
+If a bundle name is already taken in **Imports**, choose what to keep in the **File Already Exists** alert. **Replace** overwrites the existing bundle. **Keep Both** gives the new bundle a number, such as `HG002.chr20.10.0-10.5Mb 2`. **Skip** shows the existing bundle and skips that sample. If an earlier sample in the same import created the bundle, the alert offers only **Keep Both** and **Skip**. This can happen when two folders each hold a `reads` pair.
 
 <!-- SHOT: duplicate-name-dialog -->
 
@@ -439,7 +439,7 @@ Use these `--quality-binning` values on the command line.
 
 The `--recipe` values are `illumina-amplicon-merge`, `illumina-paired-cleanup`, `vsp2-target-enrichment` (also `vsp2`), `wastewater-metagenomics`, `wgs`, `hifi`, and `none` (the default). Use `--remove-duplicates` and `--remove-ribosomal-rna` or their `--no-` forms to change the preset checkboxes.
 
-`--platform` takes `auto`, `illumina`, `ont`, `pacbio`, `element`, `mgi`, `ultima`, and `unknown`. Its default `auto` does what the sheet does when you leave Platform alone, and `--dry-run` prints that inference for every sample without importing. `lungfish-cli fastq platform` shows a bundle's recorded platform and the evidence, and [Correcting a platform label](#correcting-a-platform-label) covers changing it.
+`--platform` takes `auto`, `illumina`, `ont`, `pacbio`, `element`, `mgi`, `ultima`, and `unknown`. Its default `auto` does what the sheet does when you leave **Platform** alone, and `--dry-run` prints that inference for every sample without importing. `lungfish-cli fastq platform` shows a bundle's recorded platform and the evidence, and [Correcting a platform label](#correcting-a-platform-label) covers changing it.
 
 `lungfish-cli metadata get`, `set`, `export`, and `export-biosample` read and write the same metadata files as the Inspector and the sidebar. `export-biosample` writes a folder's metadata as a table in the form NCBI's BioSample submission portal takes. [Sample metadata](../appendices/cli-reference.md#sample-metadata) in the CLI Reference lists their flags.
 
