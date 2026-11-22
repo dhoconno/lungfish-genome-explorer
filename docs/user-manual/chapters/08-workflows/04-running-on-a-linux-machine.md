@@ -28,7 +28,7 @@ glossary_refs: [linux, plan-folder, staging-folder, staged-reads, adopt, htcondo
 features_refs: [import.fastq-linux-plan, import.rnaseq-plan, import.rnaseq-adopt, provenance.inspector]
 fixtures_refs: [linux-plan-fastq, hg002-chr20]
 brand_reviewed: true
-lead_approved: false
+lead_approved: true
 ---
 
 <!-- SCOPE: Writing a plan folder for a Linux machine or an HTCondor pool, running it there, and adopting the returned run into the project. -->
