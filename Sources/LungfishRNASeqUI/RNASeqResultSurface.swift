@@ -92,6 +92,8 @@ public final class RNASeqResultSurface: ResultViewport {
     public var viewController: NSViewController { controller }
 
     public var surfaceKind: SurfaceKind { .bundle(.rnaseqResult) }
+    /// The header's Name row sits under the toolbar for bulk, single-cell and cell map alike (5.6 L1).
+    public var pinsTopToSafeArea: Bool { true }
 
     public func load(input: Any, token: AsyncRequestToken<SurfaceRequest>) async throws {
         let bundleURL = try expectInput(input, as: URL.self)

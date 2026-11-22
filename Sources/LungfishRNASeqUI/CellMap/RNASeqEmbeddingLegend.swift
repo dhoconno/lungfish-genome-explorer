@@ -61,6 +61,8 @@ public final class RNASeqEmbeddingLegendView: NSStackView {
     public private(set) var focusedRow: Int?
     /// The rows whose cells are selected, which show their names in bold.
     public private(set) var markedRows: Set<Int> = []
+    /// The width every line of the legend fits in, which the cell map sets from its column (5.6 L1).
+    public var wrapWidth: CGFloat = 260
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -83,6 +85,7 @@ public final class RNASeqEmbeddingLegendView: NSStackView {
         let title = NSTextField(labelWithString: legend.title)
         title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
         title.setAccessibilityIdentifier("rnaseq-cell-map-legend-title")
+        Self.truncates(title, name: legend.title, width: wrapWidth)
         addArrangedSubview(title)
         for (index, row) in legend.rows.enumerated() {
             let swatch = NSView(frame: NSRect(x: 0, y: 0, width: 12, height: 12))
@@ -94,10 +97,13 @@ public final class RNASeqEmbeddingLegendView: NSStackView {
             let name = Self.text(row.name, id: "rnaseq-cell-map-legend-\(index)-name")
             let count = Self.text(row.count, id: "rnaseq-cell-map-legend-\(index)-count")
             count.textColor = .secondaryLabelColor
+            count.setContentCompressionResistancePriority(.required, for: .horizontal)
+            name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             let line = NSStackView(views: [swatch, name, count])
             line.orientation = .horizontal
             line.alignment = .centerY
             line.spacing = 6
+            Self.truncates(line, name: row.name, width: wrapWidth, field: name)
             line.setAccessibilityIdentifier("rnaseq-cell-map-legend-\(index)")
             line.wantsLayer = true
             line.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(rowClicked(_:))))
@@ -124,7 +130,7 @@ public final class RNASeqEmbeddingLegendView: NSStackView {
             if let formula = legend.formula {
                 let line = NSTextField(wrappingLabelWithString: RNASeqEmbeddingWords.normalisedFormula(formula))
                 line.isSelectable = true
-                line.preferredMaxLayoutWidth = 260
+                line.preferredMaxLayoutWidth = wrapWidth
                 line.setAccessibilityIdentifier("rnaseq-cell-map-legend-formula")
                 addArrangedSubview(line)
             }
@@ -132,7 +138,7 @@ public final class RNASeqEmbeddingLegendView: NSStackView {
         for (index, words) in legend.words.enumerated() {
             let field = NSTextField(wrappingLabelWithString: words)
             field.isSelectable = true
-            field.preferredMaxLayoutWidth = 260
+            field.preferredMaxLayoutWidth = wrapWidth
             field.setAccessibilityIdentifier("rnaseq-cell-map-legend-words-\(index)")
             addArrangedSubview(field)
         }
@@ -209,6 +215,16 @@ public final class RNASeqEmbeddingLegendView: NSStackView {
         field.isSelectable = true
         field.setAccessibilityIdentifier(id)
         return field
+    }
+
+    /// Keeps `view` within `width`. A name that does not fit ends in an ellipsis and keeps its whole name in its help tag,
+    /// and its AX value is the whole name (5.6 L1).
+    private static func truncates(_ view: NSView, name: String, width: CGFloat, field: NSTextField? = nil) {
+        let text = field ?? (view as? NSTextField)
+        text?.lineBreakMode = .byTruncatingTail
+        text?.toolTip = name
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.widthAnchor.constraint(lessThanOrEqualToConstant: width).isActive = true
     }
 }
 

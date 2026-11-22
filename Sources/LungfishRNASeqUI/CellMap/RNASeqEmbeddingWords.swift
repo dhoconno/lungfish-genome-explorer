@@ -9,6 +9,7 @@
 
 import Foundation
 import LungfishIO
+import LungfishKit
 
 public enum RNASeqEmbeddingWords {
     /// How the view reads an embedding's recorded method.
@@ -137,5 +138,33 @@ public enum RNASeqEmbeddingWords {
     public static func number(_ value: Double) -> String {
         if value.isFinite, value == value.rounded(), abs(value) < 1e15 { return String(Int64(value)) }
         return String(Float32(value))
+    }
+}
+
+/// The info buttons of the cell map (5.6 U2). Each item is built here from the words above, never copied into Kit, and
+/// its popover holds a general caveat that left the view. The tests run Kit's catalog check on them.
+extension RNASeqEmbeddingWords {
+    public static let embeddingHelpID = "rnaseq.cellmap.embedding"
+    public static let clustersHelpID = "rnaseq.cellmap.clusters"
+    public static let clustersSubject = "clusters"
+
+    /// What the button beside Embedding is about: the recorded method, or the embedding's name when none is recorded.
+    public static func methodSubject(method recorded: String?, embedding: String) -> String {
+        (recorded?.isEmpty == false ? recorded : nil) ?? embedding
+    }
+
+    /// The item beside Embedding. Its popover holds the method's caption (C1 to C3).
+    public static func embeddingHelp(method recorded: String?, embedding: String) -> LungfishHelpContent.HelpItem {
+        LungfishHelpContent.HelpItem(id: embeddingHelpID, summary: "About \(methodSubject(method: recorded, embedding: embedding))",
+                                     detail: caption(method: recorded, embedding: embedding), audience: .benchScientist)
+    }
+
+    /// The item beside Colour by, with W2 for labels LGE computed and W3 for labels that are all numbers (C8, C9). Nil
+    /// when neither holds, and the button then hides.
+    public static func clustersHelp(computed: Bool, numbers: Bool) -> LungfishHelpContent.HelpItem? {
+        let words = [computed ? computedLabels : nil, numbers ? clusterNumbers : nil].compactMap { $0 }
+        guard !words.isEmpty else { return nil }
+        return LungfishHelpContent.HelpItem(id: clustersHelpID, summary: "About \(clustersSubject)", detail: words.joined(separator: "\n\n"),
+                                            audience: .benchScientist)
     }
 }

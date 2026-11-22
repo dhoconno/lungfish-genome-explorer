@@ -7,10 +7,12 @@
 // another colouring, and every raster run off the main actor, and the newest request wins. The controls are an
 // Embedding pop-up, a Colour by pop-up and a point size that nothing records, which is LungfishKit's shared slider in
 // a hosting view (RNASeqCellMapPointSize.swift). The view opens on the first embedding in file order (5.5 V6). The
-// fact lines of 5.5 V5 and the words of 5.5 W1 sit in the right column.
+// right column is one fixed width that sets every wrap width in it (5.6 L1). A general caveat sits in an info button
+// beside the control it explains, and a fact true of this result sits under that control (5.6 U2).
 
 import AppKit
 import LungfishIO
+import LungfishKit
 import SwiftUI
 
 @MainActor
@@ -18,6 +20,11 @@ public final class RNASeqCellMapViewController: NSViewController {
     public static let accessibilityID = "rnaseq-cell-map-view"
     public static let pointSizes = 1.0...8.0
     public static let defaultPointSize = 2.0
+    /// The control column's width, which sets every wrap width in it (5.6 L1).
+    public static let columnWidth: CGFloat = 240
+    static let columnInsets = NSEdgeInsets(top: 4, left: 12, bottom: 12, right: 16)
+    /// The width the column's content fits in, 212 pt.
+    public static var contentWidth: CGFloat { columnWidth - columnInsets.left - columnInsets.right }
 
     public private(set) var result: RNASeqResult?
     public private(set) var bundleURL: URL?
@@ -44,10 +51,17 @@ public final class RNASeqCellMapViewController: NSViewController {
     /// The shared slider and number field of the point size, which sit in the control row.
     private(set) lazy var pointSizeHost = NSHostingView(rootView: RNASeqCellMapPointSizeControl(model: pointSizeModel))
     private let column = NSStackView()
-    private let wordsStack = NSStackView()
+    /// The facts of the embedding on show, under the Embedding row, and of the label set, under the Colour by row.
+    private let embeddingLines = NSStackView()
+    private let labelLines = NSStackView()
+    /// "About <method>" beside Embedding and "About clusters" beside Colour by, each with a caveat that left the view.
+    public let embeddingInfo = LungfishInfoButton(item: RNASeqEmbeddingWords.embeddingHelp(method: nil, embedding: ""), about: "")
+    public let clustersInfo = LungfishInfoButton(item: RNASeqEmbeddingWords.clustersHelp(computed: false, numbers: true)
+        ?? RNASeqEmbeddingWords.embeddingHelp(method: nil, embedding: ""), about: RNASeqEmbeddingWords.clustersSubject)
+    var infoButtons: [LungfishInfoButton] { [embeddingInfo, clustersInfo] }
     private let xAxis = NSTextField(labelWithString: "")
     private let yAxis = NSTextField(labelWithString: "")
-    private let hoverField = NSTextField(labelWithString: "")
+    private let hoverField = NSTextField(wrappingLabelWithString: "")
     private var readWork: Task<Void, Never>?
     private var rasterWork: Task<Void, Never>?
     private var generation = 0
@@ -77,7 +91,7 @@ public final class RNASeqCellMapViewController: NSViewController {
     public var onSelectionAction: (@MainActor (RNASeqEmbeddingSelectionAction) -> Void)?
     /// Gets the fact lines on each refresh, and none on close or a failed reread (the Inspector's cell map part).
     var onFacts: (@MainActor ([(label: String, value: String)]) -> Void)?
-    public let selectionField = NSTextField(labelWithString: RNASeqEmbeddingSelectionWords.none)
+    public let selectionField = NSTextField(wrappingLabelWithString: RNASeqEmbeddingSelectionWords.none)
     public let selectionNote = NSTextField(wrappingLabelWithString: "")
     public let saveSelectionButton = NSButton(title: RNASeqEmbeddingSelectionWords.saveTitle, target: nil, action: nil)
     public let pseudobulkSelectionButton = NSButton(title: RNASeqEmbeddingSelectionWords.pseudobulkTitle, target: nil, action: nil)
@@ -106,12 +120,14 @@ public final class RNASeqCellMapViewController: NSViewController {
         plot.contextMenu = { [weak self] in self?.selectionMenu() }
         legendView.onRowClick = { [weak self] row, adding in self?.selectLegendRow(row, adding: adding) }
         legendView.onRowToggle = { [weak self] row in self?.toggleLegendRow(row) }
-        plot.onEscape = { [weak self] in self?.clearSelection() }
-        legendView.onEscape = { [weak self] in self?.clearSelection() }
+        plot.onEscape = { [weak self] in self?.escape() }
+        legendView.onEscape = { [weak self] in self?.escape() }
+        legendView.wrapWidth = Self.contentWidth
         selectionField.isSelectable = true
+        selectionField.preferredMaxLayoutWidth = Self.contentWidth
         selectionField.setAccessibilityIdentifier("rnaseq-cell-map-selection-count")
         selectionNote.isSelectable = true
-        selectionNote.preferredMaxLayoutWidth = 280
+        selectionNote.preferredMaxLayoutWidth = Self.contentWidth
         selectionNote.isHidden = true
         selectionNote.setAccessibilityIdentifier("rnaseq-cell-map-selection-note")
         for (button, action, id) in [(saveSelectionButton, #selector(saveSelectionAsLabelsTable(_:)), "rnaseq-cell-map-save-selection"),
@@ -120,6 +136,9 @@ public final class RNASeqCellMapViewController: NSViewController {
             button.action = action
             button.isEnabled = false
             button.setAccessibilityIdentifier(id)
+            // The regular size is 220 pt wide for Save Selection as Labels Table…, past the column's 212 (5.6 L1).
+            button.controlSize = .small
+            button.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         }
 
         embeddingPopUp.setAccessibilityIdentifier("rnaseq-cell-map-embedding")
@@ -133,21 +152,27 @@ public final class RNASeqCellMapViewController: NSViewController {
         geneUnitControl.setAccessibilityIdentifier("rnaseq-cell-map-gene-unit")
         geneUnitControl.setAccessibilityLabel(RNASeqEmbeddingWords.geneUnitTitle)
         hoverField.isSelectable = true
+        hoverField.preferredMaxLayoutWidth = Self.contentWidth
         hoverField.setAccessibilityIdentifier("rnaseq-cell-map-hover")
 
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = 10
-        column.edgeInsets = NSEdgeInsets(top: 4, left: 12, bottom: 12, right: 16)
+        column.edgeInsets = Self.columnInsets
         column.translatesAutoresizingMaskIntoConstraints = false
-        wordsStack.orientation = .vertical
-        wordsStack.alignment = .leading
-        wordsStack.spacing = 6
-        for (label, control) in [("Embedding", embeddingPopUp), ("Colour by", colourPopUp), (RNASeqEmbeddingWords.geneUnitTitle, geneUnitControl),
-                                 (RNASeqCellMapPointSizeControl.title, pointSizeHost)] as [(String, NSView)] {
-            let row = Self.control(label, control)
+        for lines in [embeddingLines, labelLines] {
+            lines.orientation = .vertical
+            lines.alignment = .leading
+            lines.spacing = 6
+        }
+        clustersInfo.isHidden = true
+        for (label, control, info, lines) in [("Embedding", embeddingPopUp, embeddingInfo, embeddingLines), ("Colour by", colourPopUp, clustersInfo, labelLines),
+                                              (RNASeqEmbeddingWords.geneUnitTitle, geneUnitControl, nil, nil),
+                                              (RNASeqCellMapPointSizeControl.title, pointSizeHost, nil, nil)] as [(String, NSView, NSView?, NSView?)] {
+            let row = Self.control(label, control, info: info)
             row.isHidden = control === geneUnitControl
             column.addArrangedSubview(row)
+            if let lines { column.addArrangedSubview(lines) }
         }
         column.addArrangedSubview(legendView)
         column.addArrangedSubview(selectionField)
@@ -156,16 +181,17 @@ public final class RNASeqCellMapViewController: NSViewController {
         actions.orientation = .vertical
         actions.alignment = .leading
         column.addArrangedSubview(actions)
-        column.addArrangedSubview(wordsStack)
         column.addArrangedSubview(hoverField)
         let document = RNASeqCellMapFlippedView()
         document.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(column)
-        let side = NSScrollView()
+        let side = RNASeqCellMapSideView()
         side.hasVerticalScroller = true
         side.drawsBackground = false
         side.documentView = document
         side.translatesAutoresizingMaskIntoConstraints = false
+        let sideWidth = side.widthAnchor.constraint(equalToConstant: RNASeqCellMapSideView.width(for: side.scrollerStyle))
+        side.widthConstraint = sideWidth
 
         for view in [plot, xAxis, yAxis, side] as [NSView] { root.addSubview(view) }
         NSLayoutConstraint.activate([
@@ -177,7 +203,7 @@ public final class RNASeqCellMapViewController: NSViewController {
             side.topAnchor.constraint(equalTo: root.topAnchor),
             side.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             side.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            side.widthAnchor.constraint(equalToConstant: 320),
+            sideWidth,
             yAxis.centerXAnchor.constraint(equalTo: root.leadingAnchor, constant: 22),
             yAxis.centerYAnchor.constraint(equalTo: plot.centerYAnchor),
             plot.topAnchor.constraint(equalTo: root.topAnchor, constant: 8),
@@ -232,8 +258,19 @@ public final class RNASeqCellMapViewController: NSViewController {
         onFacts?([])
     }
 
-    /// Escape empties the selection.
-    public override func cancelOperation(_ sender: Any?) { clearSelection() }
+    /// Escape closes an open info popover and keeps the selection, or else empties the selection.
+    public override func cancelOperation(_ sender: Any?) { escape() }
+
+    /// Each Escape path calls this: the plot's and the legend's key handlers and `cancelOperation` (5.6 A1).
+    func escape() {
+        if closeInfoPopover() { return }
+        clearSelection()
+    }
+
+    /// Closes the info popover on show, if one is, and says whether one was.
+    @discardableResult public func closeInfoPopover() -> Bool {
+        infoButtons.reduce(false) { closed, button in button.closePopover() || closed }
+    }
 
     /// Command-A selects every drawn cell.
     public override func selectAll(_ sender: Any?) { selectAllCells() }
@@ -245,7 +282,8 @@ public final class RNASeqCellMapViewController: NSViewController {
         case .failed(let words):
             snapshot = nil
             failureWords = words
-            replaceWords([Self.text(words, id: "rnaseq-cell-map-failure", wraps: true)])
+            Self.replace(embeddingLines, with: [Self.text(words, id: "rnaseq-cell-map-failure", wraps: true)])
+            Self.replace(labelLines, with: [])
             onFacts?([])
         case .loaded(let shown):
             snapshot = shown
@@ -436,7 +474,7 @@ public final class RNASeqCellMapViewController: NSViewController {
         xAxis.stringValue = axes.x
         yAxis.stringValue = axes.y
         legendView.show(shown.colours.legend, palette: RNASeqEmbeddingPalette.words(dark: plot.isDark))
-        replaceWords(wordLines(shown).map { Self.text($0.text, id: $0.id, wraps: true) } + factLines(shown).map { Self.fact($0.label, $0.value) })
+        place(shown)
         plot.setAccessibilityLabel(RNASeqEmbeddingWords.plotLabel(method: embedding?.method, embedding: name,
                                                                   colouring: facts.title(of: shown.colouring)))
         let legend = shown.colours.legend
@@ -449,6 +487,44 @@ public final class RNASeqCellMapViewController: NSViewController {
         showSelection()
         requestRaster()
         onFacts?(factLines(shown))
+    }
+
+    /// The lines that moved to an info button: the caption beside Embedding, W2 and W3 beside Colour by (5.6 U2).
+    static let movedLineIDs: Set<String> = ["rnaseq-cell-map-caption", "rnaseq-cell-map-computed-labels", "rnaseq-cell-map-cluster-numbers"]
+    /// The lines about the label set, which sit under Colour by. The rest sit under Embedding.
+    static let labelLineIDs: Set<String> = ["rnaseq-cell-map-imported-labels", "rnaseq-cell-map-fact-labels"]
+
+    /// Lays each line of what is shown under the control it belongs to, in the order the column had, and points the
+    /// info buttons at their caveats. "About clusters" hides when no caveat of it holds.
+    private func place(_ shown: RNASeqCellMapSnapshot) {
+        let words = wordLines(shown)
+        let lines = words.filter { !Self.movedLineIDs.contains($0.id) }.map { Self.text($0.text, id: $0.id, wraps: true) as NSView }
+            + factLines(shown).map { Self.fact($0.label, $0.value) }
+        let underColour = { (view: NSView) in Self.labelLineIDs.contains(Self.lineID(view)) }
+        Self.replace(embeddingLines, with: lines.filter { !underColour($0) })
+        Self.replace(labelLines, with: lines.filter(underColour))
+        let embedding = shown.facts.embeddings.first { $0.embedding == shown.points.embedding }
+        let name = embedding?.name ?? ""
+        embeddingInfo.configure(item: RNASeqEmbeddingWords.embeddingHelp(method: embedding?.method, embedding: name),
+                                about: RNASeqEmbeddingWords.methodSubject(method: embedding?.method, embedding: name))
+        let ids = Set(words.map(\.id))
+        if let item = RNASeqEmbeddingWords.clustersHelp(computed: ids.contains("rnaseq-cell-map-computed-labels"),
+                                                         numbers: ids.contains("rnaseq-cell-map-cluster-numbers")) {
+            clustersInfo.configure(item: item, about: RNASeqEmbeddingWords.clustersSubject)
+            clustersInfo.isHidden = false
+        } else {
+            clustersInfo.closePopover()
+            clustersInfo.isHidden = true
+        }
+        // A title cut short keeps its whole name in the help tag, and the pop-up's AX value is the whole name.
+        embeddingPopUp.toolTip = embeddingPopUp.titleOfSelectedItem
+        colourPopUp.toolTip = colourPopUp.titleOfSelectedItem
+    }
+
+    /// The id of a line: a text's own, or its value's in a fact row.
+    private static func lineID(_ view: NSView) -> String {
+        if let field = view as? NSTextField { return field.accessibilityIdentifier() }
+        return (view as? NSStackView)?.arrangedSubviews.last?.accessibilityIdentifier() ?? ""
     }
 
     /// The words of 5.5 W1 and I3 for what is shown, each with its accessibility id.
@@ -603,42 +679,55 @@ public final class RNASeqCellMapViewController: NSViewController {
 
     // MARK: - Text
 
-    private func replaceWords(_ views: [NSView]) {
-        for line in wordsStack.arrangedSubviews {
-            wordsStack.removeArrangedSubview(line)
+    /// Puts `views` in `stack` in place of what it held, and hides the stack when they are none.
+    private static func replace(_ stack: NSStackView, with views: [NSView]) {
+        for line in stack.arrangedSubviews {
+            stack.removeArrangedSubview(line)
             line.removeFromSuperview()
         }
-        for view in views { wordsStack.addArrangedSubview(view) }
+        for view in views { stack.addArrangedSubview(view) }
+        stack.isHidden = views.isEmpty
     }
 
-    static func text(_ string: String, id: String, wraps: Bool = false) -> NSTextField {
+    static func text(_ string: String, id: String, wraps: Bool = false, width: CGFloat = contentWidth) -> NSTextField {
         let field = wraps ? NSTextField(wrappingLabelWithString: string) : NSTextField(labelWithString: string)
         field.isEditable = false
         field.isSelectable = true
         field.setAccessibilityIdentifier(id)
-        if wraps { field.preferredMaxLayoutWidth = 280 }
+        if wraps { field.preferredMaxLayoutWidth = width }
         return field
     }
 
+    /// A fact row, its value wrapping in what the column leaves beside the name.
     private static func fact(_ label: String, _ value: String) -> NSView {
         let name = NSTextField(labelWithString: label)
         name.textColor = .secondaryLabelColor
         name.setContentHuggingPriority(.required, for: .horizontal)
+        name.setContentCompressionResistancePriority(.required, for: .horizontal)
         let id = "rnaseq-cell-map-fact-\(label.lowercased().replacingOccurrences(of: " ", with: "-"))"
-        let row = NSStackView(views: [name, text(value, id: id, wraps: true)])
+        let spacing: CGFloat = 8
+        let row = NSStackView(views: [name, text(value, id: id, wraps: true, width: contentWidth - ceil(name.intrinsicContentSize.width) - spacing)])
         row.orientation = .horizontal
         row.alignment = .firstBaseline
-        row.spacing = 8
+        row.spacing = spacing
         return row
     }
 
-    private static func control(_ label: String, _ control: NSView) -> NSView {
+    /// A control row: the name, the control and its info button. A pop-up cut short truncates its title at the tail, and
+    /// the name and the button keep their size.
+    private static func control(_ label: String, _ control: NSView, info: NSView? = nil) -> NSView {
         let name = NSTextField(labelWithString: label)
         name.textColor = .secondaryLabelColor
-        let row = NSStackView(views: [name, control])
+        name.setContentCompressionResistancePriority(.required, for: .horizontal)
+        (control as? NSPopUpButton)?.cell.flatMap { $0 as? NSPopUpButtonCell }?.lineBreakMode = .byTruncatingTail
+        control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let row = NSStackView(views: [name, control] + (info.map { [$0] } ?? []))
+        info?.setContentCompressionResistancePriority(.required, for: .horizontal)
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 8
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.widthAnchor.constraint(lessThanOrEqualToConstant: contentWidth).isActive = true
         return row
     }
 }
@@ -646,4 +735,18 @@ public final class RNASeqCellMapViewController: NSViewController {
 /// A document view whose rows run down from the top, so the column starts at the top of its scroll view.
 private final class RNASeqCellMapFlippedView: NSView {
     override var isFlipped: Bool { true }
+}
+
+/// The column's scroll view: the column's width plus the room a scroller takes when scroll bars always show, so the
+/// column keeps its width and its content its 212 pt in either scroller style (5.6 L1).
+final class RNASeqCellMapSideView: NSScrollView {
+    var widthConstraint: NSLayoutConstraint?
+
+    override var scrollerStyle: NSScroller.Style {
+        didSet { widthConstraint?.constant = Self.width(for: scrollerStyle) }
+    }
+
+    static func width(for style: NSScroller.Style) -> CGFloat {
+        RNASeqCellMapViewController.columnWidth + (style == .legacy ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0)
+    }
 }

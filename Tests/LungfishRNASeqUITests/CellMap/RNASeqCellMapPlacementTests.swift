@@ -9,6 +9,7 @@
 import AppKit
 @testable import LungfishIO
 import LungfishKit
+import LungfishTestSupport
 import XCTest
 @testable import LungfishRNASeqUI
 @testable import LungfishWorkflow
@@ -88,7 +89,7 @@ extension RNASeqCellMapViewControllerTests {
 
     /// A cell map with the walk state's facts: pbmc_1k_v3-tsne, a t-SNE imported on other counts with 3 cells left out,
     /// coloured by the imported graphclust of 7 clusters with 3 cells unlabelled, one sample of a fixed name.
-    func walkStateMap() throws -> URL {
+    func walkStateMap(labelSet: String = "graphclust", embedding embeddingName: String = "TSNE") throws -> URL {
         let parent = try RNASeqCellMapViewFixtures.parent(RNASeqCellMapViewFixtures.starsolo, name: "pbmc_1k_v3", in: root)
         let all = Array(1...Int32(200))
         let drawn = all.filter { !RNASeqCellMapViewFixtures.leftOut.contains($0) }
@@ -100,10 +101,10 @@ extension RNASeqCellMapViewControllerTests {
         }
         let labels: [String] = labelled.map { String($0 % 7 + 1) }
         let embedding = RNASeqResultWriter.CellMapRequest.Embedding(
-            name: "TSNE", method: "t-SNE", source: .imported, sourceFile: "source/1/projection.csv", otherCounts: true,
+            name: embeddingName, method: "t-SNE", source: .imported, sourceFile: "source/1/projection.csv", otherCounts: true,
             dimensions: 2, cells: drawn, values: values)
         let set = RNASeqResultWriter.CellMapRequest.LabelSet(
-            name: "graphclust", source: .imported, sourceFile: "source/2/clusters.csv", cells: labelled, labels: labels)
+            name: labelSet, source: .imported, sourceFile: "source/2/clusters.csv", cells: labelled, labels: labels)
         let request = RNASeqResultWriter.CellMapRequest(
             name: "pbmc_1k_v3-tsne", parent: parent, origin: .init(kind: .imported, tool: "Cell Ranger"),
             embeddings: [embedding], labelSets: [set], createdAt: Date(timeIntervalSince1970: 1_800_000_000))
@@ -140,7 +141,8 @@ extension RNASeqCellMapViewControllerTests {
         controller.view.addSubview(button)
         controller.view.layoutSubtreeIfNeeded()
         XCTAssertEqual(visibleWords(in: controller.view, legend: controller.legendView), words, "a hidden label and a button title count no word")
-        XCTAssertEqual(words, Self.pinnedWalkStateWords, "the walk state's words")
+        print("TV-CELLMAP walk-state words \(words), base \(Self.pinnedWalkStateWords)")
+        XCTAssertLessThanOrEqual(words, Self.pinnedWalkStateWords, "the walk state reads no more words than at the base")
     }
 
     /// LYZ in the unit asked, from the cell map's features.
@@ -155,7 +157,151 @@ extension RNASeqCellMapViewControllerTests {
         let (surface, controller) = try await openController()
         defer { withExtendedLifetime(surface) {} }
         let order = RNASeqCellMapAX.order(of: controller.view)
-        XCTAssertEqual(order, Self.pinnedAXOrder, "the AX order:\n" + order.map(\.description).joined(separator: ",\n"))
+        XCTAssertEqual(order, Self.structureAXOrder, "the AX order:\n" + order.map(\.description).joined(separator: ",\n"))
+    }
+
+    /// The pin after the move (UX 5): the caption and W3 give way to their info buttons, each right after the pop-up it
+    /// explains, and the lines about the embedding and the label set sit under their pop-ups, in the order they had.
+    static var structureAXOrder: [RNASeqCellMapAXEntry] {
+        var order = pinnedAXOrder
+        let start = order.firstIndex { $0.id == "rnaseq-cell-map-caption" } ?? 0
+        let end = order.firstIndex { $0.id == "rnaseq-cell-map-fact-cells-drawn" } ?? 0
+        let block = Array(order[start...end])
+        order.removeSubrange(start...end)
+        // A fact's name label, which has no id, goes with the value after it.
+        var lines: [[RNASeqCellMapAXEntry]] = []
+        var name: [RNASeqCellMapAXEntry] = []
+        for entry in block {
+            if entry.id.isEmpty { name.append(entry) } else { lines.append(name + [entry]); name = [] }
+        }
+        let moved: Set<String> = ["rnaseq-cell-map-caption", "rnaseq-cell-map-cluster-numbers"]
+        let kept = lines.filter { !moved.contains($0.last?.id ?? "") }
+        let underColour = { (line: [RNASeqCellMapAXEntry]) in RNASeqCellMapViewController.labelLineIDs.contains(line.last?.id ?? "") }
+        let embedding = (order.firstIndex { $0.id == "rnaseq-cell-map-embedding" } ?? 0) + 1
+        order.insert(contentsOf: [RNASeqCellMapAXEntry("AXButton", "info-rnaseq.cellmap.embedding", "About UMAP")]
+                     + kept.filter { !underColour($0) }.flatMap { $0 }, at: embedding)
+        let colour = (order.firstIndex { $0.id == "rnaseq-cell-map-colour" } ?? 0) + 1
+        order.insert(contentsOf: [RNASeqCellMapAXEntry("AXButton", "info-rnaseq.cellmap.clusters", "About clusters")]
+                     + kept.filter(underColour).flatMap { $0 }, at: colour)
+        return order
+    }
+
+    /// Whether `view` is drawn inside the column's insets, not hidden and not cut short in height. The insets bound the
+    /// view's alignment rect, where the stack lays it and where its content draws: a text field's frame reaches 2 pt past
+    /// its alignment rect on each side, the cell's padding. The frame itself stays inside the column.
+    func assertInsideTheColumn(_ view: NSView, _ what: String, in controller: RNASeqCellMapViewController, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertFalse(view.isHiddenOrHasHiddenAncestor, "\(what) is hidden", file: file, line: line)
+        guard let column = controller.legendView.superview else { return XCTFail("no column", file: file, line: line) }
+        let frame = view.convert(view.bounds, to: column)
+        let laid = column.convert(view.alignmentRect(forFrame: view.frame), from: view.superview)
+        let left = RNASeqCellMapViewController.columnInsets.left
+        let right = column.bounds.width - RNASeqCellMapViewController.columnInsets.right
+        XCTAssertGreaterThan(frame.width, 0, "\(what) has no width", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(laid.minX, left - 0.5, "\(what) starts left of the column: \(laid), frame \(frame)", file: file, line: line)
+        XCTAssertLessThanOrEqual(laid.maxX, right + 0.5, "\(what) runs past the column: \(laid), frame \(frame)", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(frame.minX, -0.5, "\(what)'s frame leaves the column: \(frame)", file: file, line: line)
+        XCTAssertLessThanOrEqual(frame.maxX, column.bounds.width + 0.5, "\(what)'s frame leaves the column: \(frame)", file: file, line: line)
+        if let field = view as? NSTextField, field.preferredMaxLayoutWidth > 0 {
+            XCTAssertLessThanOrEqual(field.intrinsicContentSize.height, field.frame.height + 1, "\(what) is cut short", file: file, line: line)
+        }
+    }
+
+    /// 5.6 L1, SWIFT OBJECT 7. Every arranged subview of the column, and every text in it, lies inside the insets at 1200 by
+    /// 800 and at the walk's 753 pt viewer, with long names, whether scroll bars overlay the column or always show beside
+    /// it; the plot holds at least 60% of a 753 pt viewer.
+    func testEveryRowOfTheColumnFitsItsInsetsAndThePlotTakesTheLargerShare() async throws {
+        let map = try walkStateMap(labelSet: "gene_expression_kmeans_10_clusters", embedding: "TSNE_gene_expression_2_components")
+        for style in [NSScroller.Style.overlay, .legacy] {
+            for size in [NSSize(width: 1200, height: 800), NSSize(width: 753, height: 600)] {
+                let (surface, controller) = try await open(map, size: size)
+                defer { withExtendedLifetime(surface) {} }
+                let at = "\(size), \(style == .legacy ? "legacy" : "overlay") scrollers"
+                let column = try XCTUnwrap(controller.legendView.superview as? NSStackView)
+                let side = try XCTUnwrap(column.enclosingScrollView)
+                side.scrollerStyle = style
+                controller.view.frame = NSRect(origin: .zero, size: size)
+                controller.selectPolygon([.init(x: -1000, y: -1000), .init(x: 1000, y: -1000), .init(x: 1000, y: 1000)], mode: .replace)
+                await controller.selectionWork?.value
+                controller.view.layoutSubtreeIfNeeded()
+                XCTAssertEqual(column.bounds.width, RNASeqCellMapViewController.columnWidth, accuracy: 0.5, "the column's width at \(at)")
+                XCTAssertEqual(side.contentView.bounds.width, RNASeqCellMapViewController.columnWidth, accuracy: 0.5, "the column is not cut at \(at)")
+                for (index, row) in column.arrangedSubviews.enumerated() where !row.isHidden {
+                    assertInsideTheColumn(row, "row \(index) at \(at)", in: controller)
+                }
+                func fields(_ view: NSView) -> [NSTextField] { ((view as? NSTextField).map { [$0] } ?? []) + view.subviews.flatMap(fields) }
+                for field in fields(column) where !field.isHiddenOrHasHiddenAncestor && !field.stringValue.isEmpty {
+                    assertInsideTheColumn(field, "\(field.accessibilityIdentifier()) at \(at)", in: controller)
+                }
+                assertInsideTheColumn(controller.embeddingInfo, "About TSNE at \(at)", in: controller)
+                assertInsideTheColumn(controller.clustersInfo, "About clusters at \(at)", in: controller)
+                XCTAssertEqual(controller.colourPopUp.toolTip, "gene_expression_kmeans_10_clusters", "the whole name is in the help tag")
+                guard size.width == 753, style == .overlay else { continue }
+                XCTAssertEqual(controller.view.frame.width, 753, accuracy: 0.5, "the viewer")
+                XCTAssertGreaterThanOrEqual(controller.plot.frame.width, 0.6 * 753, "the plot's share: \(controller.plot.frame.width) of 753")
+                XCTAssertEqual(controller.plot.frame.width, 465, accuracy: 0.5)
+            }
+        }
+    }
+
+    func escapeKey(in window: NSWindow) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                       windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+                                       isARepeat: false, keyCode: 53))
+    }
+
+    /// 5.6 A1. With an info popover open, Escape closes it and keeps the selection, from the plot focused, the legend
+    /// focused and the controller. With none open, Escape empties the selection as before.
+    func testEscapeWithAnInfoPopoverOpenClosesItAndKeepsTheSelectionOnEachPath() async throws {
+        let (surface, controller) = try await openController()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = surface.controller.view
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            withExtendedLifetime(surface) {}
+        }
+        controller.selectLegendRow(0, adding: false)
+        await settle(controller)
+        await controller.selectionWork?.value
+        let selected = try XCTUnwrap(controller.selection?.count)
+        for (path, responder) in [("plot", controller.plot as NSResponder), ("legend", controller.legendView as NSResponder)] {
+            XCTAssertTrue(window.makeFirstResponder(responder), path)
+            controller.embeddingInfo.showPopover()
+            XCTAssertTrue(controller.embeddingInfo.isPopoverShown, "\(path): the popover opens")
+            NSApp.sendEvent(try escapeKey(in: window))
+            XCTAssertTrue(waitUntilOnRunLoop(budget: .standard) { !controller.embeddingInfo.isPopoverShown }, "\(path): Escape closes the popover")
+            XCTAssertEqual(controller.selection?.count, selected, "\(path): the selection stays")
+            controller.embeddingInfo.showPopover()
+            XCTAssertTrue(controller.embeddingInfo.isPopoverShown, "\(path): the popover opens again")
+            responder.keyDown(with: try escapeKey(in: window))
+            XCTAssertTrue(waitUntilOnRunLoop(budget: .standard) { !controller.embeddingInfo.isPopoverShown },
+                          "\(path): its own key handler closes the popover first")
+            XCTAssertEqual(controller.selection?.count, selected, "\(path): and keeps the selection")
+        }
+        controller.clustersInfo.showPopover()
+        controller.cancelOperation(nil)
+        XCTAssertTrue(waitUntilOnRunLoop(budget: .standard) { !controller.clustersInfo.isPopoverShown }, "cancelOperation closes the popover")
+        XCTAssertEqual(controller.selection?.count, selected, "cancelOperation keeps the selection while it closes a popover")
+        controller.cancelOperation(nil)
+        XCTAssertNil(controller.selection, "with no popover open, Escape empties the selection")
+    }
+
+    /// 5.6 A1. The cell map's items pass Kit's catalog check, for each method and each clusters caveat.
+    func testTheCellMapsHelpItemsPassTheCatalogCheck() throws {
+        for method in ["UMAP", "t-SNE", "PHATE", "PCA", nil] as [String?] {
+            for (computed, numbers) in [(true, true), (true, false), (false, true)] {
+                let items = [RNASeqEmbeddingWords.embeddingHelp(method: method, embedding: "TSNE"),
+                             try XCTUnwrap(RNASeqEmbeddingWords.clustersHelp(computed: computed, numbers: numbers))]
+                XCTAssertEqual(LungfishHelpContent.catalogFaults(in: items), [], "\(method ?? "no method")")
+            }
+        }
+        XCTAssertNil(RNASeqEmbeddingWords.clustersHelp(computed: false, numbers: false), "no clusters caveat holds, so no button")
+    }
+
+    /// 5.6 L1. The header's Name row sits under the toolbar on every RNA-seq result.
+    func testTheResultSurfacePinsItsTopToTheSafeArea() {
+        XCTAssertTrue(RNASeqResultSurface().pinsTopToSafeArea)
     }
 
     /// 5.6 Q1, BIO. The ruled caveats each state lays, by id.
@@ -164,9 +310,29 @@ extension RNASeqCellMapViewControllerTests {
         defer { withExtendedLifetime(surface) {} }
         var found: [String: [String]] = [:]
         var words: [String: Int] = [:]
+        // Each pinned id is either laid and visible inside the column, or it moved to an info button that shows beside its
+        // control with the moved words as its popover's text (BIO).
         func record(_ state: String) {
             controller.view.layoutSubtreeIfNeeded()
-            found[state] = caveatIDs(in: controller.view)
+            var ids = caveatIDs(in: controller.view)
+            let shown = texts(in: controller.view)
+            func field(_ id: String, in view: NSView) -> NSTextField? {
+                if let found = view as? NSTextField, found.accessibilityIdentifier() == id { return found }
+                return view.subviews.lazy.compactMap { field(id, in: $0) }.first
+            }
+            for id in ids { if let laid = field(id, in: controller.view) { assertInsideTheColumn(laid, "\(state) \(id)", in: controller) } }
+            if let snapshot = controller.snapshot, let embedding = snapshot.facts.embeddings.first(where: { $0.embedding == snapshot.points.embedding }) {
+                assertInsideTheColumn(controller.embeddingInfo, "\(state) About \(embedding.name)", in: controller)
+                XCTAssertEqual(controller.embeddingInfo.popoverController.text, RNASeqEmbeddingWords.caption(method: embedding.method, embedding: embedding.name))
+                XCTAssertNil(shown["rnaseq-cell-map-caption"])
+                ids.append("rnaseq-cell-map-caption")
+            }
+            if !controller.clustersInfo.isHidden {
+                assertInsideTheColumn(controller.clustersInfo, "\(state) About clusters", in: controller)
+                XCTAssertEqual(controller.clustersInfo.popoverController.text, RNASeqEmbeddingWords.clusterNumbers)
+                ids.append("rnaseq-cell-map-cluster-numbers")
+            }
+            found[state] = ids.sorted()
             words[state] = visibleWords(in: controller.view, legend: controller.legendView)
         }
         record("open")
@@ -192,7 +358,8 @@ extension RNASeqCellMapViewControllerTests {
         record("pca")
         for state in found.keys.sorted() {
             XCTAssertEqual(found[state], Self.pinnedCaveatIDs[state], "\(state): \(found[state] ?? [])")
-            XCTAssertEqual(words[state], Self.pinnedWordCounts[state], "\(state) words: \(words[state] ?? -1)")
+            print("TV-CELLMAP \(state) words \(words[state] ?? -1), base \(Self.pinnedWordCounts[state] ?? -1)")
+            XCTAssertLessThanOrEqual(words[state] ?? .max, Self.pinnedWordCounts[state] ?? 0, "\(state) reads no more words than at the base")
         }
         XCTAssertEqual(Set(found.keys), Set(Self.pinnedCaveatIDs.keys))
     }
