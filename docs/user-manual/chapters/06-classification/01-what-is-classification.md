@@ -15,11 +15,11 @@ entry_points:
   - "File > Import Center… (Classification Results tab)"
 shots:
   - id: classification-submenu
-    caption: "In **Tools > Classification**, **Kraken2…**, **EsViritu…**, and **TaxTriage…** appear above the separator and **Enable 12S Amplicon Matching…** appears below it."
+    caption: "In Tools > Classification, Kraken2…, EsViritu…, and TaxTriage… appear above the separator and Enable 12S Amplicon Matching… appears below it."
   - id: classification-dialog-tool-sidebar
-    caption: "**Tools > Classification > Kraken2…** opens FASTQ/FASTA Operations with Kraken2 selected and EsViritu and TaxTriage visible in the tool sidebar."
+    caption: "Tools > Classification > Kraken2… opens FASTQ/FASTA Operations with Kraken2 selected and EsViritu and TaxTriage visible in the tool sidebar."
   - id: import-center-classification-tab
-    caption: "The **Classification Results** tab shows the **NAO-MGS Results**, **Kraken2 Results**, **EsViritu Results**, **TaxTriage Results**, **NVD Results**, and **CZ-ID Results** cards."
+    caption: "The Classification Results tab shows the NAO-MGS Results, Kraken2 Results, EsViritu Results, TaxTriage Results, NVD Results, and CZ-ID Results cards."
 illustrations:
   - id: classification-question
     brief: "Schematic showing a FASTQ bundle on the left, a classifier box in the middle labeled with a reference database, and a sunburst diagram on the right with reads assigned to taxonomic groups (host, bacteria, virus, unclassified). Use Lungfish Creamsicle for the classifier box and Deep Ink for the labels."
@@ -234,7 +234,7 @@ Use the first table to find your result and its view. CZ ID goes under `Classifi
 | NAO-MGS | `Analyses/naomgs-<name>/` | NAO-MGS viewport, a taxon table |
 | NVD | `Analyses/nvd-<experiment>/` | NVD viewport, a contig outline |
 
-Before comparing values, check what the tool counts and what total it uses to calculate a share. A pair represents two reads from one fragment. Filtering or merging can change the relationship between reported read and pair counts. Where offered, **Verify with BLAST…** and **Extract Reads…** appear in the action bar at the bottom of the viewport and in a row's right-click menu. By default, **Extract Reads…** saves the taxon's reads as a new bundle in the project. Its **Destination** setting can also save a FASTQ or FASTA file, copy the reads to the clipboard, or share them. A FASTA file stores named sequences without quality scores.
+Before comparing values, check what the tool counts and what total it uses to calculate a share. A pair represents two reads from one fragment. Filtering or merging can change the relationship between reported read and pair counts. Where offered, **Verify with BLAST…** and **Extract Reads…** appear in the action bar at the bottom of the viewport and in a row's right-click menu. By default, **Extract Reads…** saves the taxon's reads as a new bundle in the project. Its **Destination** setting can also save the reads to a file, copy them to the clipboard, or share them, and its **Format** setting chooses FASTQ or FASTA. A FASTA file stores named sequences without quality scores.
 
 The `core_nt` collection is a version of NCBI's general nucleotide collection. See [BLAST Verification](06-blast-verification.md#settings) for the search settings.
 
