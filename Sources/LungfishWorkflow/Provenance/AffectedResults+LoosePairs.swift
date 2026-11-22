@@ -38,7 +38,7 @@ extension AffectedResults {
             fixCommit: "d998a3371"
         ),
         // FIX-B (1bebe79ce to 6c437e707) refuses a short mate on TaxTriage, Kraken 2 and EsViritu, and FIX-ROUTES
-        // (c9ed8e3ef) on map, assembly, Viral Recon and nf-core sample sheets. Each fixes three of the kinds, and
+        // (c9ed8e3ef) on map, assembly and Viral Recon's sample sheet. Each fixes three of the kinds, and
         // FIX-ROUTES reaches one route more and lands last, so the row names it. FIX-ROUTES-2 (ab7520464) refuses a cut
         // pair before the recipe of an import, whose fastp pairs two files by position and leaves equal counts that no
         // later check sees, so the row holds the recipe import. The import with no recipe refused unequal counts after
