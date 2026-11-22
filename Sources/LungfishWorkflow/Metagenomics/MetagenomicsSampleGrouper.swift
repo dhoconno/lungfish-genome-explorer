@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 /// A logical metagenomics sample inferred from one or two FASTQ files.
 public struct MetagenomicsSampleInput: Sendable, Equatable, Identifiable {
@@ -21,7 +22,8 @@ public struct MetagenomicsSampleInput: Sendable, Equatable, Identifiable {
     public var isPairedEnd: Bool { fastq2 != nil }
 }
 
-/// Groups FASTQ URLs into per-sample inputs using common R1/R2 naming patterns.
+/// Groups FASTQ URLs into per-sample inputs. Each `.lungfishfastq` bundle is one sample under its whole stem, and
+/// loose files pair by common R1/R2 naming patterns.
 public enum MetagenomicsSampleGrouper {
     private enum ReadRole {
         case read1
@@ -36,9 +38,34 @@ public enum MetagenomicsSampleGrouper {
             let role: ReadRole
         }
 
-        let candidates = inputFiles.map { url -> Candidate in
-            let (sampleKey, role) = parseSampleKeyAndRole(from: url)
-            return Candidate(url: url, sampleKey: sampleKey, role: role)
+        // A `.lungfishfastq` bundle, or a file inside one, is one sample named by the bundle's whole stem, as
+        // `TaxTriageAnalysisRunTool.firstMatePair` reads bundles (BIO-TT-PAIR). Two bundles are never the two reads
+        // of one sample, so only loose files pair by their mate endings. Several files of one bundle are that
+        // bundle, once, as `AssemblyInputSamples` reads them.
+        var candidates: [Candidate] = []
+        var bundlePaths: [String] = []
+        var bundleInputs: [String: (bundle: URL, inputs: [URL])] = [:]
+        for url in inputFiles {
+            guard let bundle = SequenceInputResolver.enclosingFASTQBundleURL(for: url) else {
+                let (sampleKey, role) = parseSampleKeyAndRole(from: url)
+                candidates.append(Candidate(url: url, sampleKey: sampleKey, role: role))
+                continue
+            }
+            if bundleInputs[bundle.path] == nil {
+                bundlePaths.append(bundle.path)
+                bundleInputs[bundle.path] = (bundle, [])
+            }
+            bundleInputs[bundle.path]?.inputs.append(url)
+        }
+        for path in bundlePaths {
+            guard let entry = bundleInputs[path] else { continue }
+            candidates.append(
+                Candidate(
+                    url: entry.inputs.count == 1 ? entry.inputs[0] : entry.bundle,
+                    sampleKey: sanitizeSampleId(entry.bundle.deletingPathExtension().lastPathComponent),
+                    role: .single
+                )
+            )
         }
 
         let grouped = Dictionary(grouping: candidates, by: \.sampleKey)
