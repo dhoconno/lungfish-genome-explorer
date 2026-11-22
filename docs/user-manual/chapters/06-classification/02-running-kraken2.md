@@ -39,7 +39,7 @@ lead_approved: false
 
 Kraken 2 looks up short stretches of sequence. An alignment lines up sequences and scores them base by base. Looking up a short sequence takes less time than aligning a whole read. A [k-mer](../../GLOSSARY.md#k-mer) is a stretch of exactly k bases, so `ACGTA` holds three 3-mers, `ACG`, `CGT`, and `GTA`. Kraken 2's default k is 35, so a 76-base read, the longest in this example, holds 42 k-mers. A [minimizer](../../GLOSSARY.md#minimizer) is the shorter stretch Kraken 2 uses to look up a k-mer. By default it chooses the 31-base stretch that comes first in a fixed sort order. Neighboring k-mers often share a minimizer, so one database entry can serve several lookups.
 
-A minimizer shared by relatives is filed under their [lowest common ancestor](../../GLOSSARY.md#lowest-common-ancestor), the smallest group containing them all. For example, a minimizer shared by human and macaque goes under Catarrhini if the database holds both genomes and no match outside that group. Kraken 2 looks up each k-mer through its minimizer and tallies hits along branches of the tree. When the top paths tie, Kraken 2 reports their lowest common ancestor. The **Confidence** threshold under Settings can move an assignment farther up the tree. The report can therefore show counts at several ranks. See [What Is Read Classification](01-what-is-classification.md#what-it-is) for more on how classifiers handle shared sequence.
+A minimizer shared by relatives is filed under their [lowest common ancestor](../../GLOSSARY.md#lowest-common-ancestor), the smallest group containing them all. For example, a minimizer shared by human and macaque goes under Catarrhini, the group of Old World monkeys and apes, if it has no matches outside that group. A hit is a k-mer whose minimizer is in the database. Kraken 2 tallies hits along paths from the root, the tree's top, to each taxon. When the highest-scoring paths tie, Kraken 2 reports their lowest common ancestor. The **Confidence** threshold under Settings can move an assignment farther up the tree. The report can therefore show counts at several ranks. See [What Is Read Classification](01-what-is-classification.md#what-it-is) for more on how classifiers handle shared sequence.
 
 Lungfish Genome Explorer (LGE) labels the tool **Kraken2** in its menus. LGE runs Kraken 2 first and adds species estimates from [Bracken](../../GLOSSARY.md#bracken) when the classification supports them. Bracken uses a table built from the database for one read length that records where Kraken 2 places reads from each genome. It uses that table and each species' own count to share out reads that Kraken 2 left above species. Bracken estimates counts across many reads, while Kraken 2 makes the individual assignments. The result opens in the taxonomy viewport, with a table of taxa beside a sunburst chart that draws the tree as wedges in rings.
 
@@ -59,13 +59,13 @@ Open a project so LGE has somewhere to save the result. With no project open, **
 
 Install the `metagenomics` [plugin pack](../../GLOSSARY.md#plugin-pack), a group of tools LGE installs on request. This pack supplies Kraken 2 and Bracken. Use the steps in [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) to install it before opening the classifier.
 
-Open the Pathogen Detection demo project with **Help > Demo Projects…** to use its copy of `SRR12486983`. See [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) for help opening it. If you are preparing your own project, fetch `SRR12486983` using [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md) as your guide. The [kraken-protocol-cornea fixture](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/kraken-protocol-cornea) lists two public runs and gives the source and terms of use in its README. See [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) for how fixtures are used.
+Open the Pathogen Detection demo project with **Help > Demo Projects…** to use its copy of `SRR12486983`. See [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) for help opening it. If you are preparing your own project, fetch `SRR12486983` using [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md) as your guide. The [kraken-protocol-cornea fixture](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/kraken-protocol-cornea), the manual's practice data for this chapter, lists two public runs and gives the source and terms of use in its README. See [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) for how fixtures are used.
 
 The run comes as `Imports/SRR12486983.lungfishfastq`, a [bundle](../../GLOSSARY.md#bundle) that LGE treats as one item. It holds 4,819,760 [read pairs](../../GLOSSARY.md#read-pair), with two reads from each sequenced DNA fragment. In [paired-end](../../GLOSSARY.md#paired-end) sequencing, the sequencer reads a piece of DNA called a [fragment](../../GLOSSARY.md#fragment) from both ends. The two reads in the pair are [mates](../../GLOSSARY.md#mate). Kraken 2 names both mates together, so the app's "reads" labels for this result count pairs.
 
 To reproduce the counts, compare tool versions and database builds. This example used Kraken 2 version 2.17.1, Bracken 3.1, and Viral and Standard-16 builds labeled 20260626, which is 26 June 2026. Bracken's 3.1 release prints 3.0.1 when asked for its version, while the LGE run record shows 3.1. A different version or database build can change the exact counts. Compare the pattern first. In this example Viral assigns about ten times as many pairs to HSV-1 as Standard-16 does, while Standard-16 can report bacteria and human sequence as well.
 
-You can complete the procedure in LGE. The flag sentences under Settings and the command-line section cover the same work for readers who use Terminal.
+You can complete the procedure in LGE. A flag is an option you type after a command. The flag sentences under Settings and the command-line section cover the same work in Terminal, the macOS app for typed commands.
 
 ## Procedure
 
@@ -84,28 +84,30 @@ The table gives LGE's estimates.
 | Viral | About 0.5 GB | About 0.5 GB |
 | Standard-16 | About 16 GB | About 16 GB |
 
-Standard-16 is a [capped database](../../GLOSSARY.md#capped-database), which keeps a subset of the full Standard collection's minimizers to fit in 16 GB of memory. If your Mac has less than 16 GB, use Standard-8 wherever the steps say Standard-16 and expect fewer classified pairs than shown. With **Memory mapping** off, Kraken 2 loads the whole database into memory before classifying reads. If you choose a database larger than your Mac's memory, the dialog turns **Memory mapping** on so Kraken 2 can read it from disk. This can take much longer than keeping the database in memory, so use the smaller collection if it suits your question.
+Standard-16 is a [capped database](../../GLOSSARY.md#capped-database). It keeps about 1 in 7 of the full Standard collection's minimizers to fit in 16 GB of memory. A read can match only k-mers whose minimizers were kept, so capping can make more reads fall below the **Confidence** threshold. If your Mac has less than 16 GB, use Standard-8 wherever the steps say Standard-16. Standard-8 keeps fewer minimizers still, so expect far fewer classified pairs than shown.
+
+With **Memory mapping** off, Kraken 2 loads the whole database into memory before classifying reads. If you choose a database larger than your Mac's memory, the dialog turns **Memory mapping** on so Kraken 2 can read it from disk. This can take much longer than keeping the database in memory, so use the smaller collection if it suits your question.
 
 Open **Tools > Plugin Manager…** and download Viral from the Databases tab. Download Standard-16 or Standard-8 from the same tab. See [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) for download help.
 
 ### Open the dialog and choose a database
 
 1. Click the FASTQ bundle SRR12486983 under `Imports` in the sidebar, the list on the left of the window.
-2. Choose **Tools > Classification > Kraken2…**. In the FASTQ/FASTA Operations dialog, check that **Kraken2** is selected and the dataset line names `SRR12486983`. The line below describes the bundle's read layout. In an [interleaved FASTQ](../../GLOSSARY.md#interleaved-fastq), both mates are in one file, with each read followed by its mate.
+2. Choose **Tools > Classification > Kraken2…**. In the FASTQ/FASTA Operations dialog, check that **Kraken2** is selected and the dataset line names `SRR12486983`. FASTA is a text format for sequences without quality scores. The line below describes the bundle's read layout. In an [interleaved FASTQ](../../GLOSSARY.md#interleaved-fastq), both mates are in one file, with each read followed by its mate.
 3. Choose **Viral** in the **Database** picker. The picker lists finished downloads and their sizes. If it says "No databases installed.", click **Download Database…** to open the Plugin Manager on its Databases tab.
 
     <!-- SHOT: kraken2-dialog -->
 
-4. Leave **Sensitivity** on **Balanced** and **Advanced Settings** collapsed. Balanced sets how much matching sequence a read needs before Kraken 2 assigns it. Settings explains the two controls, **Confidence** and **Min hit groups**. The screenshot opens the disclosure so you can see those values.
+4. Leave **Sensitivity** on **Balanced** and **Advanced Settings** collapsed. Balanced sets how much matching sequence a read needs before Kraken 2 assigns it. Settings explains the two controls, **Confidence** and **Min hit groups**. The screenshot shows the section open so you can see those values.
 
     <!-- SHOT: kraken2-advanced-settings -->
 
-If you select several bundles, **Batch Samples** lists each input with a layout tag such as PE for paired-end or SE for single reads. LGE samples the start of each file to distinguish pairs from single reads before enabling **Run**. It checks several samples at a time and shows progress such as "Checking read layouts (12 of 57)…". It classifies samples separately so you can tell which sample each assignment came from, then saves them as one batch result with one Operations Panel row.
+If you select several bundles, **Batch Samples** lists each input with a layout tag such as PE for paired-end or SE for single reads. LGE samples the start of each file to distinguish pairs from single reads before enabling **Run**. It checks several samples at a time and shows progress such as "Checking read layouts (12 of 57)…". It classifies samples separately so you can tell which sample each assignment came from, then saves them as one batch result with one row in the Operations Panel, which lists running and finished operations.
 
 ### Run Kraken 2 and find the result
 
 1. Click **Run**. To follow the analysis, open the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) with **Operations > Show Operations Panel** (Cmd-Shift-P). A single-sample row shows "Profiling" followed by the input file name. A batch is titled `Classification Batch (N samples)`. The row shows Elapsed during the run and Took when it reads Completed.
-2. Find the Viral result under `Analyses/` in a new folder whose name starts with `kraken2-` and ends with a timestamp. Each run gets its own folder, so you can compare it with later runs. LGE opens a single-sample result in the taxonomy viewport, with its folder selected and the Unclassified card visible. A batch goes into a timestamped `kraken2-batch-` folder and opens on the first sample without selecting the new folder. See [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) for the project layout.
+2. Find the Viral result under `Analyses/` in a new folder whose name starts with `kraken2-` and ends with a timestamp. Each run gets its own folder, so you can compare it with later runs. LGE opens a single-sample result in the taxonomy viewport, with its folder selected and the Unclassified card visible among the summaries at the top. A batch goes into a timestamped `kraken2-batch-` folder and opens on the first sample without selecting the new folder. See [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) for the project layout.
 
     <!-- SHOT: kraken2-taxonomy-viewport -->
 
@@ -116,7 +118,7 @@ If you select several bundles, **Batch Samples** lists each input with a layout 
 
 Extract a taxon's reads when you need the sequences behind the count. You can map them to a reference sequence to see where they align, assemble them, or check the assignment with [BLAST](../../GLOSSARY.md#blast). BLAST searches a sequence database for regions similar to a sequence you give it. In the cornea sample, use the species row *Simplexvirus humanalpha1* for HSV-1.
 
-1. In the Viral result, type `humanalpha1` in **Filter taxa…**, then select the *Simplexvirus humanalpha1* row or its sunburst wedge.
+1. In the Viral result, type `humanalpha1` in **Filter taxa…**, then select the *Simplexvirus humanalpha1* row. Its wedge lies beyond the eight rings drawn from the root. Re-center on Orthoherpesviridae to see the wedge, as Moving around the tree describes.
 2. Click **Extract Reads…** in the action bar at the bottom of the viewport. You can also choose it from the row or wedge's right-click menu, or use **Selection > Table Row > Extract Reads…** after clicking the table. The screenshot shows the menu on the Orthoherpesviridae family row. Keep *Simplexvirus humanalpha1* selected to extract the HSV-1 pairs without taking the entire family.
 
     <!-- SHOT: kraken2-extract-reads -->
@@ -128,7 +130,7 @@ In the top-level `Extractions` folder, look for a bundle starting with `kraken2_
 
 Extraction uses the result's own folder, even after you rename, move, or copy it. If a copied result lacks its reads, LGE identifies what is missing. Before writing any read, LGE checks its name and length against the Kraken 2 record. If you replaced the bundle's reads after classification, such as by importing different reads under the same name, extraction stops when the checks fail.
 
-For bundles with separate R1 and R2 files, LGE reads the files side by side and takes a pair when Kraken 2 assigned it to the selected taxa. LGE matches the pair's assignment by either mate's read name. LGE checks mate names only for pairs it is about to write and stops with an error if the names identify different pairs. LGE writes each read followed by its mate, then writes any merged reads and orphans after the pairs. Merged reads join overlapping mates into one read. Orphans have lost their mate.
+An R1 file holds the first mate of each pair, and an R2 file holds the second. For bundles with separate R1 and R2 files, LGE reads the files side by side and takes a pair when Kraken 2 assigned it to the selected taxa. LGE matches the pair's assignment by either mate's read name. LGE checks mate names only for pairs it is about to write and stops with an error if the names identify different pairs. LGE writes each read followed by its mate, then writes any merged reads and orphans after the pairs. Merged reads join overlapping mates into one read. Orphans have lost their mate.
 
 Later tools recognize pairs with matching names ending in `/1` and `/2`, or names such as `SRR123.1.1` and `SRR123.1.2`. Mates that differ only by `_1` and `_2` appear as single reads in the new bundle.
 
@@ -165,7 +167,7 @@ The **Sensitivity** presets set two thresholds together.
 
 Use the slider, typed field, or stepper to adjust a threshold on its own. An ambiguous base is a symbol that does not specify a single base. If an assignment fails **Confidence**, Kraken 2 tries the parent group, where k-mers supporting any descendant count toward the threshold. If no group up to the root passes, the read stays unclassified.
 
-**Database.** Sets the reference collection and therefore which names Kraken 2 can report. The default is the first database that finished downloading, so check it against your goal. Choose Viral for viruses or Standard or PlusPF for a broader survey, with PlusPF adding protozoa and fungi to Standard. On the command line this is `--db`.
+**Database.** Sets the reference collection and therefore which names Kraken 2 can report. The default is the first ready database in the picker's list, which is sorted by name, so with Viral and Standard-16 installed it is Standard-16. Choose Viral for viruses or Standard or PlusPF for a broader survey, with PlusPF adding protozoa and fungi to Standard. On the command line this is `--db`.
 
 **Sensitivity.** Sets **Confidence** and **Min hit groups** together. The default is Balanced, the middle setting in the table. Choose Precise when a wrong assignment would be costly, or Sensitive to look for a rare target when you can check every hit. On the command line this is `--preset`.
 
@@ -175,7 +177,7 @@ Use the slider, typed field, or stepper to adjust a threshold on its own. An amb
 
 **Threads.** Sets how many processor cores Kraken 2 uses at once. The default is 4 to share the work across cores, and the control is capped at your Mac's core count. Lower it to keep the Mac responsive during a run. On the command line this is `--threads`.
 
-**Memory mapping.** Reads the database from disk in pieces so it can exceed the Mac's memory. It is off by default so databases that fit in memory run faster. Use it for a database too large for your Mac's memory, in which case LGE ticks it and shows a banner with the gigabytes required and available. On the command line this is `--memory-mapping`.
+**Memory mapping.** Reads the database from disk in pieces so it can exceed the Mac's memory. It is off by default so databases that fit in memory run faster. Use it for a database too large for your Mac's memory, in which case LGE checks it and shows a banner with the gigabytes required and available. On the command line this is `--memory-mapping`.
 
 **Extra arguments.** Passes text to Kraken 2 without checking which options you entered, with an unclosed quote disabling **Run** and showing "Complete the classifier settings to continue." The default is empty, with the gray placeholder "Kraken2 arguments", because most runs use the visible controls. Use it for an option the dialog lacks after checking the Kraken 2 documentation. On the command line this is `--extra-args`.
 
@@ -187,7 +189,7 @@ The [Inspector](../../GLOSSARY.md#inspector) is the right-hand pane that shows d
 
 **Bracken.** Shows Bracken's estimated species counts. The column appears automatically when an estimate is available so you can read it beside the Kraken 2 counts. Use it when you need an estimated species total. This setting has no command-line flag.
 
-**Select All.** Ticks or unticks every visible sample in Sample Filter, under Samples & Metadata in the Inspector. It starts ticked so every sample is shown. Clear it before ticking only the samples you want. This setting has no command-line flag.
+**Select All.** Selects or clears every visible sample in Sample Filter, under Samples & Metadata in the Inspector. It starts checked so every sample is shown. Clear it before selecting only the samples you want. This setting has no command-line flag.
 
 **Filter….** Narrows the sample picker by name while keeping the current selections. It starts empty so you can see all samples in the picker. Use it to find the samples from one plate or date. This setting has no command-line flag.
 
@@ -209,7 +211,7 @@ Start with the summary cards. A just-finished run shows Total Reads, Classified,
 
 When mates are in separate R1 and R2 files or paired reads are mixed with merged or single reads, look for Fragments and Read Pairing. A pair counts as one fragment, as in "100 fragments, 23 from read pairs and 77 from merged or single reads". Older results that counted the two mates separately indicate this on a Counting card.
 
-The root is the top of the taxonomy tree. The sunburst puts it in the center and draws one ring per level. An extra rank such as the realm Duplodnaviria gets its own ring. Wedges are sized by their share of classified pairs. At the root the center shows the classified share of the whole sample, "of all reads". After zooming to a taxon, "of classified" gives its share of classified pairs.
+The sunburst puts the root in the center and draws one ring per level. An extra rank such as the realm Duplodnaviria gets its own ring. Wedges are sized by their share of classified pairs. At the root the center shows the classified share of the whole sample, "of all reads". After zooming to a taxon, "of classified" gives its share of classified pairs.
 
 Taxa too small to draw share a paler wedge in their parent's color. Hover over it to see how many taxa and pairs it holds, or hover over another wedge to see the taxon's name, rank, counts, shares of all and classified pairs, and number of child taxa. A child taxon sits directly below another group in the tree.
 
@@ -226,25 +228,27 @@ A family with many Reads and nearly zero Direct has most of its pairs assigned t
 
 <!-- ILLUSTRATION: clade-vs-direct-counts -->
 
-The **%** column divides Reads by all pairs in that row's sample, including unclassified pairs. This is the taxon's [relative abundance](../../GLOSSARY.md#relative-abundance) in the report. The action bar's selection line and the hover card's share of all pairs also use that sample total. See [Comparing the result views](01-what-is-classification.md#comparing-the-result-views) for the denominators in other views.
+The **%** column divides Reads by all pairs in that row's sample, including unclassified pairs. Kraken 2 calls this the percentage of fragments in the clade. It measures [relative abundance](../../GLOSSARY.md#relative-abundance) as a share of sequence. Genome size and the amount of host DNA can change that share even when organism counts stay the same. The action bar's selection line and the hover card's share of all pairs also use that sample total. See [Comparing the result views](01-what-is-classification.md#comparing-the-result-views) for the denominators in other views.
 
 If you show several samples, compare the rows by sample. Each row uses the same denominator it would in a view of that sample alone. A result made by hand or partly rebuilt can lack a sample total. Its action bar line omits the percentage and its hover card omits the shares. Exported percentage columns still show 0 for that sample, as does the table's **%** column when several samples are selected.
 
-In the Viral run, Kraken 2 classified 893,706 of 4,819,760 pairs (18.54 percent), all under Viruses, and left 3,926,054 (81.46 percent) [unclassified](../../GLOSSARY.md#unclassified-reads). An unclassified pair received no assignment that passed the matching and threshold checks. For example, just one hit group falls below the minimum set by **Balanced**. A database restricted to viruses can leave a large share of tissue reads unclassified. Use Standard-16 to look for other groups as well.
+In the Viral run, Kraken 2 classified 893,706 of 4,819,760 pairs (18.54 percent), all under Viruses, and left 3,926,054 (81.46 percent) [unclassified](../../GLOSSARY.md#unclassified-reads). Of these, 1,565,604 pairs, or 32.48 percent of the run, contain only N, the letter for an unknown base, in both mates. They have no sequence for any database to classify. In the remaining unclassified pairs, any viral matches fell short of the assignment thresholds.
+
+An unclassified pair received no assignment that passed the matching and threshold checks. For example, just one hit group falls below the minimum set by **Balanced**. A database restricted to viruses can leave a large share of tissue reads unclassified. Use Standard-16 to look for other groups as well.
 
 Follow the Viral result down from family through subfamily, genus, and species to HSV-1. The **%** column uses all 4,819,760 pairs.
 
 | Taxon | Reads | % |
 |---|---|---|
-| Orthoherpesviridae | 893,154 | 18.53 |
-| Alphaherpesvirinae | 893,152 | 18.53 |
-| Simplexvirus | 893,039 | 18.53 |
-| *Simplexvirus humanalpha1* | 886,221 | 18.39 |
-| Human alphaherpesvirus 1 | 886,221 | 18.39 |
+| Orthoherpesviridae | 893,154 | 18.5 |
+| Alphaherpesvirinae | 893,152 | 18.5 |
+| Simplexvirus | 893,039 | 18.5 |
+| *Simplexvirus humanalpha1* | 886,221 | 18.4 |
+| Human alphaherpesvirus 1 | 886,221 | 18.4 |
 
-*Simplexvirus humanalpha1* is the species name for HSV-1. The virus name Human alphaherpesvirus 1 appears one rank below with [taxonomy ID](../../GLOSSARY.md#taxonomy-id) 10298, the numeric identifier for that group. The report lists it at subspecies rank. In viral taxonomy a species can contain viruses that have familiar names of their own, which is why both names appear here. The small drop in Reads from family to species shows how much of the herpesvirus branch is accounted for by this species.
+*Simplexvirus humanalpha1* is the species name for HSV-1. The row below it, Human alphaherpesvirus 1, carries the species name used before 2023. Its [taxonomy ID](../../GLOSSARY.md#taxonomy-id), the numeric identifier for that group, is 10298. NCBI kept the old name for the virus when it adopted two-part species names. The Rank column shows Subspecies, LGE's label for Kraken 2's code S1, which marks an entry one step below species. Virus taxonomy has no subspecies rank, so read this row as the virus filed under its species. The small drop in Reads from family to species shows how much of the herpesvirus branch is accounted for by this species.
 
-At the *Simplexvirus* genus row, Direct is 6,789 pairs. An assignment can stop at genus if the minimizers are filed there or if a species assignment fails **Confidence** and moves up. The genus total of 893,039 pairs includes those, the 886,221 HSV-1 pairs, and 29 pairs on two relatives. At the species row Direct is 0, while at Human alphaherpesvirus 1 it is 886,221 pairs. The database files HSV-1 genomes under the lower name, so that row supplies the Reads count at the species rank.
+At the *Simplexvirus* genus row, Direct is 6,789 pairs. An assignment can stop at genus if the minimizers are filed there or if a species assignment fails **Confidence** and moves up. The genus total of 893,039 pairs includes those, the 886,221 HSV-1 pairs, and 29 pairs on two relatives. At the species row Direct is 0, while at Human alphaherpesvirus 1 it is 886,221 pairs. The database holds one HSV-1 genome, reference strain 17 (NC_001806.2 in RefSeq, NCBI's reference sequence collection). It is filed under the lower name, so that row supplies the Reads count at species rank. Where the patient's virus differs from that reference, a pair can lose HSV-1 matches and stop at the genus.
 
 For *Simplexvirus humanalpha1*, Bracken estimates 893,009 pairs, nearly 6,789 more than Reads gives and 99.98 percent of the total Bracken estimated across species. The Bracken column appears only at species rank, so Human alphaherpesvirus 1 has no estimate of its own. Report Bracken as a species estimate and Reads as the Kraken 2 count for that species and its descendants. For extraction, use Reads to see the size of the selection, since extraction uses the original assignments.
 
@@ -252,9 +256,11 @@ If no species reaches 10 in Reads, LGE skips Bracken. The Operations Panel shows
 
 ### Small hits beside a big one
 
-To see small hits beside HSV-1, clear **Filter taxa…** and choose **Expand All** from a row's right-click menu. *Simplexvirus paninealpha3*, the chimpanzee herpesvirus, has 28 pairs. *Macacine alphaherpesvirus 1*, the B virus of macaques, has 1 pair. Outside herpesviruses, 402 pairs fall under Uroviricota, a group of phages, or viruses that infect bacteria. Of these, 66 pairs fall in Pahexavirus, a genus of phages that infect the skin bacterium *Cutibacterium acnes*.
+To see small hits beside HSV-1, clear **Filter taxa…** and choose **Expand All** from a row's right-click menu. *Simplexvirus paninealpha3*, the chimpanzee herpesvirus, has 28 pairs. Macacine alphaherpesvirus 1, the B virus of macaques, in the species *Simplexvirus macacinealpha1*, has 1 pair. Outside herpesviruses, 402 pairs fall under Uroviricota, a group of phages, or viruses that infect bacteria. Of these, 66 pairs fall in Pahexavirus, a genus of phages that infect the skin bacterium *Cutibacterium acnes*.
 
-The chimpanzee virus is a close relative of HSV-1. Shared sequence could account for its small count beside the 886,221 pairs assigned to HSV-1. Treat both small herpesvirus hits as candidates to check before reporting a second infection. The phage assignments are consistent with the *Cutibacterium acnes* assignments in [the Standard-16 run](#the-same-reads-a-different-database). Follow [BLAST Verification](06-blast-verification.md) to check a small hit that matters. The two classifier results give you leads to check before drawing a conclusion about which organisms were present.
+The chimpanzee virus is a close relative of HSV-1 in the same genus. K-mers shared by both viruses support the genus *Simplexvirus*. Under **Balanced**, at least a fifth of the pair's k-mers without ambiguous bases must support the chimpanzee-virus branch for the pair to land there. Those matches support the chimpanzee virus without matching the HSV-1 reference. The few chimpanzee-virus assignments beside 886,221 HSV-1 pairs could reflect differences from the single HSV-1 reference, read errors, or formalin damage. Treat both small herpesvirus hits as candidates to check before reporting a second infection.
+
+The phage assignments are consistent with the *Cutibacterium acnes* assignments in [the Standard-16 run](#the-same-reads-a-different-database). Follow [BLAST Verification](06-blast-verification.md) to check a small hit that matters. The two classifier results give you leads to check before drawing a conclusion about which organisms were present.
 
 ### Moving around the tree
 
@@ -303,13 +309,13 @@ Use a collection to check the same group of organisms across samples. A collecti
 
 Click **Collections** to open the drawer on its Collections tab. It has a **Filter collections...** field and an **All**, **Built-in**, **App**, and **Project** switch. Each collection row shows its name and how many taxa it holds. Only built-in collections are available, so **App** and **Project** stay empty.
 
-LGE has eight built-in collections, including Respiratory Viruses, AMR Organisms (ESKAPE), and Fungal Pathogens. Open a collection to see its taxa. A green dot marks a detected taxon, and its tooltip gives the count. A taxon with no reads is dimmed and struck through. Most taxa are marked "+children", meaning reads assigned below them are included. All taxa start ticked. Untick any you want to leave out.
+LGE has eight built-in collections, including Respiratory Viruses, AMR Organisms (ESKAPE), and Fungal Pathogens. Open a collection to see its taxa. A green dot marks a detected taxon, and its tooltip gives the count. A taxon with no reads is dimmed and struck through. Most taxa are marked "+children", meaning reads assigned below them are included. All taxa start selected. Clear the checkbox for any you want to leave out.
 
-For a batch result, first leave only the sample you want ticked in the Inspector's Sample Filter. Extraction uses the sample shown in the table, including in a result reopened from the sidebar. If several samples are shown, an alert titled Could not extract reads asks you to choose one.
+For a batch result, first leave only the sample you want selected in the Inspector's Sample Filter. Extraction uses the sample shown in the table, including in a result reopened from the sidebar. If several samples are shown, an alert titled Could not extract reads asks you to choose one.
 
-Click **Extract** on the collection row. LGE runs `lungfish-cli extract taxa-collection` behind an Operations Panel row named Extract followed by the collection name. The button stays grayed until you tick a taxon. If none of the ticked taxa has reads, LGE shows the alert No reads to extract and writes nothing.
+Click **Extract** on the collection row. LGE runs `lungfish-cli extract taxa-collection` behind an Operations Panel row named Extract followed by the collection name. The button stays grayed until you select a taxon. If none of the selected taxa has reads, LGE shows the alert No reads to extract and writes nothing.
 
-LGE writes one FASTQ for each ticked taxon with reads and keeps both mates of a pair together. Each file uses reads from every file that went into the classification for that sample. The files are compressed with gzip, a file format that saves space, and named for the taxon and its taxonomy ID. To find them, right-click the result in the sidebar and choose **Show in Finder**. Open the result folder and look for `extracted-` followed by the collection identifier.
+LGE writes one FASTQ for each selected taxon with reads and keeps both mates of a pair together. Each file uses reads from every file that went into the classification for that sample. The files are compressed with gzip, a file format that saves space, and named for the taxon and its taxonomy ID. To find them, right-click the result in the sidebar and choose **Show in Finder**. Open the result folder and look for `extracted-` followed by the collection identifier.
 
 ### The same reads, a different database
 
@@ -324,7 +330,9 @@ Open the Standard-16 result to compare HSV-1 counts and look for groups that Vir
 | Bacteria | none possible | 219,636 (4.56%) |
 | *Homo sapiens* | none possible | 13,252 (0.27%) |
 
-Viral assigned 886,221 pairs to HSV-1, while Standard-16 assigned 89,294, about a tenth as many. Standard-16 keeps a subset of the minimizers from the full Standard collection of about 67 GB. It covers archaea, bacteria, viruses, plasmids, the human genome, and cloning-vector sequences. Plasmids are DNA molecules that can replicate independently of the chromosome. Cloning vectors are DNA molecules used to carry other DNA into cells. Viral uses its space for viruses and keeps more HSV-1 sequence detail. Some classified Standard-16 pairs stopped at the root or at cellular organisms, or fell in small groups such as Archaea.
+Viral assigned 886,221 pairs to HSV-1, while Standard-16 assigned 89,294, about a tenth as many. Standard-16 keeps about 1 in 7 of the minimizers in the full Standard collection of about 67 GB. It covers archaea, bacteria, viruses, plasmids, the human genome, and cloning-vector sequences. Plasmids are DNA molecules that can replicate independently of the chromosome. Cloning vectors are DNA molecules used to carry other DNA into cells.
+
+Both databases hold the same HSV-1 reference genome, and Viral keeps every one of its minimizers. In Standard-16, an HSV-1 pair can match about 1 in 7 of its k-mers on average, below the fifth **Balanced** requires. This likely left most HSV-1 pairs unclassified and explains much of the drop to about a tenth as many. Some classified Standard-16 pairs stopped at the root or at cellular organisms, or fell in small groups such as Archaea.
 
 The 18.39 percent and 1.85 percent figures divide the HSV-1 count for each database by all 4,819,760 pairs. Report each as the share assigned to HSV-1 by the named database. Missed HSV-1 pairs can lower the reported share, and pairs assigned to HSV-1 in error can raise it.
 
@@ -342,15 +350,17 @@ The table lists the largest bacterial species.
 
 The species rows for all 549 bacterial species hold 16,365 pairs. Most pairs counted under Bacteria stopped above species. The report leaves open whether bacterial DNA came from the eye, the surrounding skin, or the lab. See [What good looks like](#what-good-looks-like) for checks before reporting such hits.
 
-Only 13,252 pairs, or 0.27 percent, were assigned to *Homo sapiens*, even though Standard-16 includes the human genome. [Host depletion](../../GLOSSARY.md#host-depletion) removes material from the host, such as its DNA or reads. It could explain the low human count if most human reads were removed before upload, but the report cannot confirm that.
+Only 13,252 pairs, or 0.27 percent, were assigned to *Homo sapiens*, even though Standard-16 includes the human genome. [Host depletion](../../GLOSSARY.md#host-depletion) removes or masks host material, such as its DNA or reads. The 1,565,604 pairs with only N in both mates, 32.48 percent of the run, are consistent with masking and count as unclassified, since they contain no sequence to assign to *Homo sapiens*. The report cannot tell how many came from the host. Standard-16's cap likely leaves many remaining human pairs below the **Confidence** threshold set by **Balanced**, as it can for HSV-1.
 
-Use a broad database to look across groups, then try a specialist database for a group you want to examine in more detail. Here Standard-16 reported HSV-1 at under 2 percent of all pairs, while Viral reported a larger HSV-1 share and could give no bacterial assignments. Both reference coverage and the choice of minimizers differ between these runs. To isolate the effect of the cap, you would need a comparison using the same set of reference genomes.
+Use a broad database to look across groups, then try a specialist database for a group you want to examine in more detail. Here Standard-16 reported HSV-1 at under 2 percent of all pairs, while Viral reported a larger HSV-1 share and could give no bacterial assignments. For HSV-1, the databases share one reference genome, so the cap and **Confidence** likely explain most of the gap. Viral has no bacterial or human reference. To see how the capped database performs with looser thresholds, rerun Standard-16 on **Sensitive**, which sets **Confidence** to 0.00, and compare the HSV-1 counts.
 
 ## What good looks like
 
 Start with the unclassified share to see how much of your sample received no label. Read the Unclassified card after the run. On a reopened result, return the chart to the root and subtract the classified share "of all reads" from 100 percent. If more than half the sample is unclassified, named groups account for a minority of the pairs. The table's **%** column still uses all pairs.
 
-A large unclassified share is expected in tissue screened against Viral. Standard-16 also left 92.88 percent unclassified in this example. Read the mix of named groups in light of the database coverage and the fraction left unclassified. A result can still answer a narrow question, as the Viral run did by reporting HSV-1.
+A large unclassified share is expected in tissue screened against Viral. Standard-16 left 92.88 percent unclassified in this example. About a third of all pairs contain only N, consistent with masking before upload. The cap can also leave reads below the **Confidence** threshold set by **Balanced**, and reads from organisms missing from the database may stay unclassified.
+
+Samples with lots of host DNA and environmental samples usually leave more pairs unclassified than samples from a single organism grown in culture. Compare the share with a similar sample or a negative control, a blank processed alongside the samples, using the same database and settings. A result can still answer a narrow question, as the Viral run did by reporting HSV-1.
 
 A [negative control](../../GLOSSARY.md#negative-control) is a blank you process beside your samples to check for contamination. Comparing the blank with your samples can flag assignments that may come from contamination. When Kraken 2 assigns no pairs, the run opens with "No classification data", the Unclassified card shows "100.0%", and the table has no taxa. The Operations Panel reads Completed with Warnings because Bracken has nothing to estimate, and the Bracken column is absent. An exported table still has an unclassified row. If a sample gives no assignments, check read quality, your thresholds, and whether the database includes the groups you expected before rerunning.
 
@@ -358,7 +368,7 @@ To find the dominant assignments, click the Reads column header and choose **Sor
 
 Plan how you will check small hits before opening the result, then apply the same checks to expected and unexpected organisms. After reviewing the largest groups, scroll down to the small counts.
 
-Consider the single pair assigned to B virus here alongside the much larger HSV-1 signal. A small hit could be a real component, a [false positive](../../GLOSSARY.md#false-positive) caused by shared sequence, or [contamination](../../GLOSSARY.md#contamination) from stray DNA in the sample or reference. A false positive is an assignment to a group the read did not come from. Contamination is unwanted sequence from another source. The same count can arise in any of these cases. Use [BLAST Verification](06-blast-verification.md) to check assignments that matter. See [Why a classifier reports things that are not there](01-what-is-classification.md#why-a-classifier-reports-things-that-are-not-there) for more examples.
+Consider the single pair assigned to B virus here alongside the much larger HSV-1 signal. A small hit could be a real component, a [false positive](../../GLOSSARY.md#false-positive) such as an HSV-1 pair that matches B virus better than the single HSV-1 reference, or [contamination](../../GLOSSARY.md#contamination) from stray DNA in the sample or reference. A false positive is an assignment to a group the read did not come from. Contamination is unwanted sequence from another source. The same count can arise in any of these cases. Use [BLAST Verification](06-blast-verification.md) to check assignments that matter. See [Why a classifier reports things that are not there](01-what-is-classification.md#why-a-classifier-reports-things-that-are-not-there) for more examples.
 
 Read the [Confidence](../../GLOSSARY.md#confidence-kraken-2) threshold as a measure of k-mer support for a taxon and its descendants. Even a strong match can come from a mislabeled reference or a sequence that several organisms share. The viewport shows the count supporting each label. To check an important finding, look for evidence such as the parts of the genome the reads cover, whether many reads came from copies of one fragment, and what your controls showed. See [The evidence checklist](01-what-is-classification.md#the-evidence-checklist) for how to use each kind of evidence. To document the run, use the details described in [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) when you write your methods.
 
