@@ -3,7 +3,7 @@ title: Novel Virus Diagnostics
 chapter_id: 06-classification/09-novel-virus-detection
 audience: analyst
 prereqs: [06-classification/01-what-is-classification]
-estimated_reading_min: 16
+estimated_reading_min: 17
 task: Import Novel Virus Diagnostics (NVD) pipeline results and read the contig-keyed BLAST viewport.
 tags: [classification, nvd, novel-virus, blast, import, wastewater]
 tools: [nvd]
@@ -26,7 +26,7 @@ shots:
 illustrations:
   - id: contig-alignment-length
     brief: "One horizontal bar standing for a contig, labeled with its length, with the stretch BLAST aligned shaded in Creamsicle and the unaligned remainder left in Warm Grey outline. Draw two versions stacked. The upper is the demo's NODE_1_length_500_cov_10.0, 500 bases long with 498 aligned, almost entirely shaded and labeled 'known virus'. The lower is a 5,000-base contig with only 400 bases shaded near one end, labeled 'most of the contig matches nothing the database knows'. Under each bar print Length and Aln Length as the NVD table names them. Deep Ink labels, Cream background."
-glossary_refs: [nvd, contig, blast, e-value, percent-identity, bit-score, accession, taxon, read, fastq, bam, bundle, provenance, checksum, reads-per-billion, inspector, operations-panel, pileup, unique-reads, primary-alignment, mate, viewport, tsv, relative-abundance, fasta, csv, secondary-alignment, working-directory, sample-metadata, pipeline, mapper, command-line-flag]
+glossary_refs: [nvd, contig, blast, e-value, percent-identity, bit-score, accession, taxon, read, fastq, bam, bundle, provenance, checksum, reads-per-billion, inspector, operations-panel, pileup, unique-reads, primary-alignment, mate, viewport, tsv, relative-abundance, fasta, csv, secondary-alignment, working-directory, sample-metadata, pipeline, mapper, command-line-flag, reference-bundle]
 features_refs: [import.nvd]
 fixtures_refs: [nvd-demo]
 brand_reviewed: false
@@ -74,12 +74,12 @@ nvd-demo/
     make-contig-fastas.py
 ```
 
-A full run holds more than the table, and each extra file switches on a feature.
+A full run holds more than the table, and LGE looks for two kinds of extra file, each of which switches on a feature.
 
 | What LGE looks for | Where it sits in the run folder | What it switches on |
 |---|---|---|
 | One contig FASTA file per sample, named `<sample>.human_virus.fasta` | `02_human_viruses/03_human_virus_results/` | **Verify with BLAST…** and the other commands that use a contig's own sequence |
-| One BAM file per sample, with the sample name in its file name | `02_human_viruses/03_human_virus_results/mapped_reads/` | Unique Reads, the reads in **Contig Alignment**, and **Extract Reads…** |
+| One BAM file per sample, with the sample name in its file name | `02_human_viruses/03_human_virus_results/mapped_reads/` | [Unique Reads](../../GLOSSARY.md#unique-reads), the count of independent reads LGE makes itself, the reads in **Contig Alignment**, and **Extract Reads…** |
 
 The demo results hold the table and simulated contig FASTA files, so verification works on them. They hold no BAM files, so extracting the reads behind a contig cannot be performed on them, and that step is described here for use on a full run.
 
@@ -135,11 +135,11 @@ LGE submits the contig's own sequence to NCBI after a sheet titled Run BLAST at 
 
 The import sheet has no settings. It holds a **Browse…** button, a read-only path readout, the Preview panel, and **Cancel** and **Run**, and none of them changes how the import runs. The command-line import has two [flags](../../GLOSSARY.md#command-line-flag) of its own, options typed after the command with two leading hyphens, `--name` and `--output-dir`, which [`import nvd`](../appendices/cli-reference.md#import-nvd) in the CLI Reference lists.
 
-The result window has three display controls in the filter bar above the outline. They change what the window shows, not what the import produced. Two of them have a matching flag on `lungfish-cli nvd export contigs`.
+The result window has three display controls in the filter bar above the outline. They change what the window shows, not what the import produced. Two of them have a matching flag on `lungfish-cli nvd export contigs`, and `--sample` can be repeated.
 
 **By Sample / By Taxon.** Switches the outline between two arrangements of the same contigs. The default is By Sample, which gives one row per contig without grouping by organism and suits walking one run in order. Switch to By Taxon to collect every contig whose best match names the same organism under one heading. This setting has no command-line flag.
 
-**All Samples.** Opens a popover, a small panel beside the button, for narrowing the outline to a chosen subset of the run's samples. The default is every sample, and the button relabels itself to report the state, for example "2 of 3 Samples". Narrow it when a run holds many samples and you want to read one at a time. On the command line this is `--sample`, which you repeat to keep several samples.
+**All Samples.** Opens a popover, a small panel beside the button, for narrowing the outline to a chosen subset of the run's samples. The default is every sample, and the button relabels itself to report the state, for example "2 of 3 Samples". Narrow it when a run holds many samples and you want to read one at a time. On the command line this is `--sample`.
 
 **Search contigs….** Filters the outline to contigs whose organism name, subject title, accession, or contig name contains what you type. The default is empty, which lists every contig in the selected samples. It searches best matches only, so a term that appears only in a lower-ranked match will not bring its contig into view. On the command line this is `--search`.
 
@@ -192,7 +192,7 @@ The action bar is the one every classifier viewport shares, with **Verify with B
 
 The information button at the right of the bar opens a popover headed **NVD Pipeline Info**, listing the experiment, import date, format version, sample, contig, and hit counts, the BLAST database version when the run recorded one, and the source directory. Sample metadata is attached in the [Inspector](../../GLOSSARY.md#inspector), the pane at the right of the window. Open **Samples & Metadata** and click **Import Metadata…**, which shows while the result has no metadata.
 
-Right-click a contig row for **Extract Reads…**, then six commands on the contig's own sequence, which stay grayed when LGE cannot read it from the sample's FASTA file. **Extract Sequence…** opens a dialog that sends it to a new reference bundle, a FASTA file, the clipboard, or the Mac's sharing menu. **Verify with BLAST…** is the search described above. **Copy FASTA** copies it at once, **Export FASTA…** saves it as a file, **Extract to New Bundle…** makes a reference bundle from it, and **Run Operation…** runs an operation that accepts a FASTA file on it. The menu ends with **Copy Name**, **Copy Accession**, **Open on NCBI**, which opens the record, and **Search PubMed**, which searches the literature for the organism.
+Right-click a contig row for **Extract Reads…**, then six commands on the contig's own sequence, which stay grayed when LGE cannot read it from the sample's FASTA file. **Extract Sequence…** opens a dialog that sends it to a new [reference bundle](../../GLOSSARY.md#reference-bundle), a FASTA file, the clipboard, or the Mac's sharing menu. **Verify with BLAST…** is the search described above. **Copy FASTA** copies it at once, **Export FASTA…** saves it as a file, **Extract to New Bundle…** makes a reference bundle from it, and **Run Operation…** runs an operation that accepts a FASTA file on it. The menu ends with **Copy Name**, **Copy Accession**, **Open on NCBI**, which opens the record, and **Search PubMed**, which searches the literature for the organism.
 
 ## What good looks like
 
