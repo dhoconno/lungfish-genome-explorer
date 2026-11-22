@@ -22,7 +22,7 @@ public final class RNASeqRankPlotView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
         setAccessibilityIdentifier(Self.accessibilityID)
-        setAccessibilityLabel("Barcode rank plot of the cells")
+        setAccessibilityLabel(RNASeqSingleCellWords.rankPlotHeading)
         if let first = steps.first, let last = steps.last {
             setAccessibilityValue("Rank \(first.firstRank) holds \(first.umis) UMIs, rank \(last.lastRank) holds \(last.umis) UMIs")
         }

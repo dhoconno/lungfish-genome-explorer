@@ -113,9 +113,26 @@ final class RNASeqBulkQualityTests: XCTestCase {
             RNASeqBulkFixtures.allSubviews(of: controller.tabView.tabViewItems[tab].view ?? NSView())
                 .compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == id }?.stringValue
         }
-        let wait = "the count tables can be read meanwhile."
-        XCTAssertEqual(caption(tab: 2, id: "rnaseq-bulk-quality-caption")?.hasSuffix(wait), true, "the Quality tab")
-        XCTAssertEqual(caption(tab: 3, id: "rnaseq-bulk-correlation-caption")?.hasSuffix(wait), true, "the Correlation tab")
+        let reading = "Checking each file against its sha256 before showing quality numbers. Count tables are available. Many samples can take a while."
+        XCTAssertEqual(caption(tab: 2, id: "rnaseq-bulk-quality-caption"), reading, "the Quality tab")
+        XCTAssertEqual(caption(tab: 3, id: "rnaseq-bulk-correlation-caption"), reading, "the Correlation tab")
+        // The line that stays shows as well. Each tab is selected in a window, and its line is not hidden and lies inside the tab.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .closable],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = controller.view
+        window.makeKeyAndOrderFront(nil)
+        addTeardownBlock { @MainActor in window.orderOut(nil) }
+        for (tab, id, name) in [(2, "rnaseq-bulk-quality-caption", "the Quality tab"), (3, "rnaseq-bulk-correlation-caption", "the Correlation tab")] {
+            controller.tabView.selectTabViewItem(at: tab)
+            controller.view.layoutSubtreeIfNeeded()
+            let pane = try XCTUnwrap(controller.tabView.tabViewItems[tab].view, name)
+            let line = try XCTUnwrap(RNASeqBulkFixtures.allSubviews(of: pane).compactMap { $0 as? NSTextField }
+                .first { $0.accessibilityIdentifier() == id }, "\(name) has its progress line")
+            XCTAssertFalse(line.isHiddenOrHasHiddenAncestor, "\(name)'s progress line is hidden")
+            XCTAssertGreaterThan(line.bounds.width, 0, "\(name)'s progress line has no width")
+            XCTAssertTrue(pane.bounds.contains(line.convert(line.bounds, to: pane)), "\(name)'s progress line lies outside the tab")
+        }
     }
 
     @MainActor
@@ -167,8 +184,7 @@ final class RNASeqBulkQualityTests: XCTestCase {
             .compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == "rnaseq-bulk-correlation-scale" }
         XCTAssertEqual(
             scale?.stringValue,
-            "On a scale from the lowest value of the table, "
-                + "\(try XCTUnwrap(plot.lowestText)), to 1. A grey square reads Not recorded.")
+            "Table minimum \(try XCTUnwrap(plot.lowestText)) to 1. A grey square means Not recorded.")
     }
 
     /// 5.6 Q1. The accessibility elements of the Quality and Correlation tabs in the order VoiceOver reaches them, pinned at
@@ -208,8 +224,8 @@ final class RNASeqBulkQualityTests: XCTestCase {
             window.orderOut(nil)
         }
         let scale = try XCTUnwrap(subviews.first { $0.accessibilityIdentifier() == "rnaseq-bulk-correlation-scale" } as? NSTextField)
-        XCTAssertEqual(scale.stringValue, "On a scale from the lowest value of the table, "
-            + "\(try XCTUnwrap(controller.correlationPlot.lowestText)), to 1. A grey square reads Not recorded.")
+        XCTAssertEqual(scale.stringValue,
+                       "Table minimum \(try XCTUnwrap(controller.correlationPlot.lowestText)) to 1. A grey square means Not recorded.")
         for (view, name) in [(scale as NSView, "the scale line"), (button, "the info button")] {
             XCTAssertFalse(view.isHiddenOrHasHiddenAncestor, "\(name) is hidden")
             XCTAssertGreaterThan(view.bounds.width, 0, "\(name) has no width")
@@ -217,11 +233,11 @@ final class RNASeqBulkQualityTests: XCTestCase {
         }
         XCTAssertEqual(button.accessibilityIdentifier(), "info-rnaseq.bulk.correlationColour")
         XCTAssertEqual(button.accessibilityLabel(), "About the correlation squares")
-        XCTAssertEqual(button.accessibilityHelp(), "A stronger blue square is a higher value.")
+        XCTAssertEqual(button.accessibilityHelp(), "Explains what the shade of blue means.")
         XCTAssertFalse(button.refusesFirstResponder, "the button takes keyboard focus")
         _ = button.accessibilityPerformPress()
         XCTAssertTrue(button.isPopoverShown)
-        XCTAssertEqual(button.popoverController.text, "A stronger blue square is a higher value.")
+        XCTAssertEqual(button.popoverController.text, "A deeper blue means a higher correlation.")
     }
 
     func testTheViewsHelpItemsPassTheCatalogCheck() {

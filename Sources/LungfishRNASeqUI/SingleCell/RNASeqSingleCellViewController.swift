@@ -160,7 +160,7 @@ public final class RNASeqSingleCellViewController: NSViewController {
             summaryStack.addArrangedSubview(Self.text(RNASeqSingleCellWords.noQuality, id: "rnaseq-sc-quality-none", wraps: true))
         }
 
-        summaryStack.addArrangedSubview(Self.heading("Barcode rank", info: RNASeqSingleCellHelp.rankPlot, about: RNASeqSingleCellWords.rankPlotSubject))
+        summaryStack.addArrangedSubview(Self.heading(RNASeqSingleCellWords.rankPlotHeading, info: RNASeqSingleCellHelp.rankPlot, about: RNASeqSingleCellWords.rankPlotSubject))
         if summary.cellCount == 0 {
             summaryStack.addArrangedSubview(Self.text(RNASeqSingleCellWords.noCells, id: "rnaseq-sc-no-cells", wraps: true))
         } else {

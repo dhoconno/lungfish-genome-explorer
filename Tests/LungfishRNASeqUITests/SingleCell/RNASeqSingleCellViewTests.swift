@@ -89,7 +89,7 @@ final class RNASeqSingleCellViewTests: XCTestCase {
             "text:Tool", "rnaseq-sc-tool", "text:Version", "rnaseq-sc-tool-version", "text:Cells", "rnaseq-sc-cell-count",
             "rnaseq-sc-cell-map-words", "info-rnaseq.singleCell.cellMapRoutes",
             "text:Quality", "rnaseq-sc-quality",
-            "text:Barcode rank", "info-rnaseq.singleCell.rankPlot", "rnaseq-sc-rank-plot",
+            "text:Cells ranked by UMIs", "info-rnaseq.singleCell.rankPlot", "rnaseq-sc-rank-plot",
             "text:UMIs per cell", "rnaseq-sc-histogram-umis",
             "text:Genes per cell", "rnaseq-sc-histogram-genes",
             "text:Not-host UMIs per cell", "rnaseq-sc-no-not-host",
@@ -141,13 +141,13 @@ final class RNASeqSingleCellViewTests: XCTestCase {
         XCTAssertNil(subviews.first { $0.accessibilityIdentifier() == "rnaseq-sc-rank-words" }, "the rank plot's words left the view")
         let expected: [(id: String, label: String, help: String, popover: String)] = [
             ("info-rnaseq.singleCell.rankPlot", "About the rank plot",
-             "The plot ranks the cells of cells.sqlite by UMIs, most first.",
-             "The plot ranks the cells of cells.sqlite by UMIs, most first. "
-                + "The result keeps no raw barcode list, so barcodes outside the cells are not in the plot."),
+             "Explains how the plot ranks cells in cells.sqlite by UMIs, highest first.",
+             "The plot ranks cells in cells.sqlite by UMIs, highest first. "
+                + "The result keeps no raw barcode list, so the plot leaves out barcodes that don\u{2019}t belong to those cells."),
             ("info-rnaseq.singleCell.cellMapRoutes", "About importing an embedding",
-             "Either writes a new cell map result and leaves this one as it is.",
-             "Or run lungfish-cli rnaseq cell-map import or lungfish-cli rnaseq cell-map compute on this result. "
-                + "Either writes a new cell map result and leaves this one as it is."),
+             "Explains how each option creates a new cell map result and leaves this one unchanged.",
+             "Run lungfish-cli rnaseq cell-map import or lungfish-cli rnaseq cell-map compute on this result. "
+                + "Either creates a new cell map result and leaves this one unchanged."),
         ]
         for item in expected {
             let button = try XCTUnwrap(subviews.compactMap { $0 as? LungfishInfoButton }.first { $0.accessibilityIdentifier() == item.id }, item.id)
@@ -197,7 +197,7 @@ final class RNASeqSingleCellViewTests: XCTestCase {
             "text:Tool", "rnaseq-sc-tool", "text:Version", "rnaseq-sc-tool-version", "text:Cells", "rnaseq-sc-cell-count",
             "rnaseq-sc-cell-map-words", "info-rnaseq.singleCell.cellMapRoutes",
             "text:Quality", "rnaseq-sc-quality",
-            "text:Barcode rank", "info-rnaseq.singleCell.rankPlot", "rnaseq-sc-rank-plot",
+            "text:Cells ranked by UMIs", "info-rnaseq.singleCell.rankPlot", "rnaseq-sc-rank-plot",
             "text:UMIs per cell", "rnaseq-sc-histogram-umis",
             "text:Genes per cell", "rnaseq-sc-histogram-genes",
             "text:Not-host UMIs per cell, \(extra.name), default column", "rnaseq-sc-histogram-not-host-\(extra.extra)",
@@ -304,8 +304,9 @@ final class RNASeqSingleCellViewTests: XCTestCase {
         var shown = views.compactMap { ($0 as? NSTextField)?.stringValue }
         shown += views.compactMap { $0.accessibilityLabel() } + views.compactMap { $0.accessibilityValue() as? String }
         shown += source.columns.map(\.title) + (0..<50).flatMap { row in source.columns.map { source.text(row: row, column: $0.id) } }
-        shown += [RNASeqSingleCellWords.rankPlot, RNASeqSingleCellWords.noNotHost, RNASeqSingleCellWords.noCellsSummary,
-                  RNASeqSingleCellWords.noQuality, RNASeqSingleCellWords.noCells]
+        shown += [RNASeqSingleCellWords.rankPlotHeading, RNASeqSingleCellWords.rankPlotSummary, RNASeqSingleCellWords.rankPlot,
+                  RNASeqSingleCellWords.cellMapSummary, RNASeqSingleCellWords.cellMapRoutes, RNASeqSingleCellWords.noNotHost,
+                  RNASeqSingleCellWords.noCellsSummary, RNASeqSingleCellWords.noQuality, RNASeqSingleCellWords.noCells]
         XCTAssertTrue(shown.contains("viral RNA above ambient"))
         XCTAssertFalse(shown.joined(separator: "\n").lowercased().contains("infected"))
         XCTAssertTrue(views.compactMap { $0 as? NSButton }.allSatisfy { $0 is LungfishInfoButton }, "the only buttons are info buttons")
