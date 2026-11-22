@@ -181,6 +181,42 @@ final class CzIdDataConverterTests: XCTestCase {
         ])
     }
 
+    /// czid-web writes its CSV through CSVSafe, which puts `'` before a text cell that starts with `-`, `+`, `=` or
+    /// `@`, so a negative tax_id written as text reads `'-100001279`. The row imports as -100001279 with its reads
+    /// under the genus, and is not refused as having no tax_id (FIX-CZID BIO item 5).
+    func testCSVSafePrefixOnANegativeTaxIdIsDropped() throws {
+        let root = try TestTempDirectory.make(prefix: "czid-report-csvsafe")
+        defer { TestTempDirectory.cleanup(root) }
+        let lines = try String(contentsOf: sharedFixtureURL("sample_report.csv"), encoding: .utf8)
+            .split(whereSeparator: \.isNewline).map(String.init)
+        let nonSpecific = "'-100001279,1,1279,Non-species-specific reads in genus Staphylococcus,,bacteria,0,,,,30.0,60,0,0,"
+            + "98.9,147.6,10^-50.0,,,,,,25.0,50,0,0,96.4,48.7,10^-20.0,,,,,,0"
+        // The header, the genus and its two species, the non-specific species row, then the coronavirus rows.
+        let text = (Array(lines[0...3]) + [nonSpecific] + Array(lines[4...])).joined(separator: "\n") + "\n"
+        let reportURL = root.appendingPathComponent("csvsafe_report.csv")
+        try text.write(to: reportURL, atomically: true, encoding: .utf8)
+
+        let converted = try CzIdDataConverter.convertTaxonReport(
+            at: reportURL,
+            outputDirectory: root.appendingPathComponent("imported", isDirectory: true)
+        )
+
+        XCTAssertEqual(converted.parsed.rows.map(\.taxId), [1279, 1280, 1282, -100001279, 694002, 2697049])
+        XCTAssertEqual(converted.parsed.rows.map(\.ntReadCount), [1790, 1520, 210, 60, 845, 840])
+        XCTAssertEqual(converted.result.tree.node(taxId: -100001279)?.readsClade, 60)
+        XCTAssertEqual(converted.result.tree.node(taxId: 1279)?.readsClade, 1790)
+        XCTAssertEqual(converted.result.tree.totalReads, 2_000_000)
+        XCTAssertEqual(try kreportLines(converted.result.reportURL).sorted(), [
+            "100.00\t2000000\t1997365\tR\t1\troot",
+            "0.09\t1790\t0\tG\t1279\t  Staphylococcus",
+            "0.08\t1520\t1520\tS\t1280\t    Staphylococcus aureus",
+            "0.01\t210\t210\tS\t1282\t    Staphylococcus epidermidis",
+            "0.00\t60\t60\tS\t-100001279\t    Non-species-specific reads in genus Staphylococcus",
+            "0.04\t845\t5\tG\t694002\t  Betacoronavirus",
+            "0.04\t840\t840\tS\t2697049\t    Severe acute respiratory syndrome coronavirus 2",
+        ].sorted())
+    }
+
     /// A report the converter cannot count is refused in Sol's words (FIX-CZID Z1, Z2 and Z9), never imported with 0
     /// reads.
     func testReportsThatCannotBeCountedAreRefused() throws {

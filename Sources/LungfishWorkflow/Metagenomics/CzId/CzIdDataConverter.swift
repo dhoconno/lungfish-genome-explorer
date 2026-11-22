@@ -386,15 +386,23 @@ public enum CzIdDataConverter {
         return nil
     }
 
+    /// A number cell's text with one leading `'` dropped. czid-web writes its CSV through CSVSafe, which puts `'`
+    /// before a text cell that starts with `-`, `+`, `=` or `@`, so a negative tax_id written as text reads
+    /// `'-100001279` (FIX-CZID BIO item 5).
+    private static func numberText(_ value: String) -> String {
+        value.hasPrefix("'") ? String(value.dropFirst()) : value
+    }
+
     private static func intValue(_ fields: [String], _ index: [String: Int], aliases: [String]) -> Int? {
-        guard let value = stringValue(fields, index, aliases: aliases) else { return nil }
+        guard let raw = stringValue(fields, index, aliases: aliases) else { return nil }
+        let value = numberText(raw)
         if let intValue = Int(value) { return intValue }
         return Double(value).flatMap(integer)
     }
 
     private static func doubleValue(_ fields: [String], _ index: [String: Int], aliases: [String]) -> Double? {
-        guard let value = stringValue(fields, index, aliases: aliases) else { return nil }
-        return Double(value)
+        guard let raw = stringValue(fields, index, aliases: aliases) else { return nil }
+        return Double(numberText(raw))
     }
 
     private static func writeProvenance(
