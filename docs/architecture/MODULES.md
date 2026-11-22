@@ -31,7 +31,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
-| LungfishWorkflow | library | Sources/LungfishWorkflow | 1626 | LungfishCore, LungfishIO |
+| LungfishWorkflow | library | Sources/LungfishWorkflow | 1628 | LungfishCore, LungfishIO |
 | LungfishWorkflowTwelveS | library | Sources/LungfishWorkflowTwelveS | 38 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishKitTestSupport | library | Tests/Support/LungfishKitTestSupport | 15 | LungfishCore, LungfishKit, LungfishTestSupport, LungfishWorkflow |
 | LungfishTestObserverBootstrap | library | Tests/Support/LungfishTestObserverBootstrap | 0 | none |
@@ -3688,10 +3688,12 @@ None.
 - `ViewerGraphicTrackFact` struct, `Sources/LungfishWorkflow/ViewerExport/ViewerGraphicExport+Figure.swift`
 - `ViewerGraphicViewState` struct, `Sources/LungfishWorkflow/ViewerExport/ViewerGraphicViewState.swift`
 - `ViewerTableExportState` struct, `Sources/LungfishWorkflow/ViewerExport/ViewerTableExportState.swift`
+- `ViralReconAbsentOutput` enum, `Sources/LungfishWorkflow/ViralRecon/ViralReconResultInventory.swift`
 - `ViralReconAnnotationStaging` enum, `Sources/LungfishWorkflow/ViralRecon/ViralReconAnnotationStaging.swift`
 - `ViralReconConsensusCaller` enum, `Sources/LungfishWorkflow/ViralRecon/ViralReconRunRequest.swift`
 - `ViralReconInputResolver` enum, `Sources/LungfishWorkflow/ViralRecon/ViralReconInputResolver.swift`
 - `ViralReconLineageTool` enum, `Sources/LungfishWorkflow/ViralRecon/ViralReconLineageFile.swift`
+- `ViralReconOutputLayout` struct, `Sources/LungfishWorkflow/ViralRecon/ViralReconOutputLayout.swift`
 - `ViralReconParameterSchema` enum, `Sources/LungfishWorkflow/ViralRecon/ViralReconParameterSchema.swift`
 - `ViralReconPlatform` enum, `Sources/LungfishWorkflow/ViralRecon/ViralReconRunRequest.swift`
 - `ViralReconPreparedIlluminaSamples` struct, `Sources/LungfishWorkflow/ViralRecon/ViralReconReadPairing.swift`
