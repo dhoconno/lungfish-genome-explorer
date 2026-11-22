@@ -107,7 +107,7 @@ Kraken 2 normally loads the whole database into memory (RAM). With **Memory mapp
 
 | Database | Memory when loaded into RAM | Use it for |
 |---|---|---|
-| Viral | about 0.5 GB | A virus survey, even on a Mac with 16 GB |
+| Viral | about 0.5 GB | A virus survey, even on a Mac with 16 GB. It holds no host or bacterial genomes, so a read from either can be assigned to a virus that shares part of its sequence. |
 | Standard-8, Standard-16 | 8 GB, 16 GB | A broad survey on a Mac with that much memory |
 | Standard, PlusPF | more than 16 GB | A broad survey. PlusPF adds fungi and protozoa, a group of single-celled organisms. |
 
@@ -130,7 +130,7 @@ Standard-8 and Standard-16 keep a sample of the full Standard collection's looku
 
 **Freyja** estimates lineage shares in SARS-CoV-2 samples. Run it with `lungfish-cli`, LGE's command-line interface (CLI). You enter commands in [Terminal](../../GLOSSARY.md#terminal), the macOS app in the Utilities folder. Freyja's lineage barcodes, tables of changes that mark each lineage, download when you install its experimental [plugin pack](../../GLOSSARY.md#plugin-pack), a set of tools LGE adds on request. Check an experimental result a second time before reporting it. To reconstruct a SARS-CoV-2 genome, use [The Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md) to build a consensus.
 
-**[CZ ID](../../GLOSSARY.md#cz-id)** is a web service that searches NCBI's nucleotide and protein collections separately. A protein search can find evidence for a virus whose DNA differs too much for word lookup. Ask for the [taxon report](../../GLOSSARY.md#taxon-report), a table with one row per taxon and its read counts. The viewport, the panel that displays results, shows only the nucleotide counts, as [Importing CZ ID Results](08-importing-cz-id-results.md#what-the-conversion-keeps) explains.
+**[CZ ID](../../GLOSSARY.md#cz-id)** is a web service that searches NCBI's nucleotide and protein collections separately. A protein search can find evidence for a virus whose genome differs too much from known sequences for word lookup. Ask for the [taxon report](../../GLOSSARY.md#taxon-report), a table with one row per taxon and its read counts. The viewport, the panel that displays results, shows only the nucleotide counts, as [Importing CZ ID Results](08-importing-cz-id-results.md#what-the-conversion-keeps) explains.
 
 **[NAO-MGS](../../GLOSSARY.md#nao-mgs)** is SecureBio's pipeline for wastewater surveillance. A pipeline is an analysis whose steps pass output from one to the next. It runs on a computing cluster, a group of computers that work together, or in the cloud, on remote computers. It reports reads that matched viral genomes. Ask the team that ran it for `virus_hits_final.tsv.gz`.
 
@@ -169,15 +169,15 @@ For your own shotgun reads, start with Kraken 2 when you need a broad survey. If
 
 ## Why a classifier reports things that are not there
 
-A [false positive](../../GLOSSARY.md#false-positive) is a reported name for something absent. A [false negative](../../GLOSSARY.md#false-negative) is something present that the tool missed. Three sources are the usual ones for false positives.
+A [false positive](../../GLOSSARY.md#false-positive) is a reported name for something absent. A [false negative](../../GLOSSARY.md#false-negative) is something present that the tool missed. Three sources of false positives follow.
 
-**A match to a relative.** Related organisms share stretches of DNA. Reads from a species missing from the database can match a relative that is present. A mapping tool such as EsViritu puts the read on whichever reference fits best. In the corneal run, 28 read pairs went to chimpanzee herpesvirus, a close relative of HSV-1, beside 886,221 pairs assigned to HSV-1. Those 28 pairs could be HSV-1 reads that fit the relative slightly better, or they could have another cause. See [Small hits beside a big one](02-running-kraken2.md#small-hits-beside-a-big-one) for the results.
+**A match to a relative.** Related organisms share stretches of DNA. Reads from a species missing from the database can match a relative that is present. A mapping tool such as EsViritu puts the read on whichever reference fits best. In the corneal run, 28 read pairs went to chimpanzee herpesvirus, a relative of HSV-1 in the same genus, *Simplexvirus*, beside 886,221 pairs assigned to HSV-1. Those 28 pairs could be HSV-1 reads that fit the relative slightly better, or they could have another cause. See [Small hits beside a big one](02-running-kraken2.md#small-hits-beside-a-big-one) for the results.
 
-**Laboratory and reagent contamination.** DNA can enter from extraction kits, water, the bench, or people handling the sample. In a low-biomass sample, one with little DNA of its own, even a trace of contaminating DNA is a larger share of a small total, as [Salter and colleagues 2014](https://pubmed.ncbi.nlm.nih.gov/25387460/) showed with a diluted culture. The corneal run includes *Cutibacterium acnes*, a skin bacterium, and *Bradyrhizobium*, a genus Salter and colleagues list among reported reagent contaminants. See the [corneal run comparison](02-running-kraken2.md#the-same-reads-a-different-database) for those rows.
+**Laboratory and reagent contamination.** DNA can enter from extraction kits, water, the bench, or people handling the sample. In a low-biomass sample, one with little DNA of its own, even a trace of contaminating DNA is a larger share of a small total, as [Salter and colleagues 2014](https://pubmed.ncbi.nlm.nih.gov/25387460/) showed with a diluted culture. The corneal run includes *Cutibacterium acnes*, a bacterium that lives on the skin and the eye's surface, so the patient could be its source. The run also includes *Bradyrhizobium*, a genus Salter and colleagues list among reported reagent contaminants. See the [corneal run comparison](02-running-kraken2.md#the-same-reads-a-different-database) for those rows.
 
 **Carry-over between samples.** Material can pass between samples through a shared plate or pipette tip. A misread index, the short tag that identifies a sample, can also put a read in the wrong sample. A strong signal in one sample can then appear weakly in its neighbors.
 
-If a name keeps appearing in unrelated samples, check whether the reads support it. A BLAST search can show whether the reads also fit close relatives. It sends a sample of the reads to NCBI, as [BLAST Verification](06-blast-verification.md#before-you-start) explains.
+If a name keeps appearing in unrelated samples, check the blanks first. Contamination from reagents can show up in both samples and blanks. A BLAST search can show whether the reads also fit close relatives. The search alone cannot tell whether the reads came from contamination. It sends a sample of the reads to NCBI, as [BLAST Verification](06-blast-verification.md#before-you-start) explains.
 
 ## The evidence checklist
 
@@ -187,7 +187,7 @@ Before reporting a name, ask five questions. Each tool chapter's What good looks
 2. Does the spread of reads fit the library? For shotgun reads, matches spread across a genome usually give stronger support than matches to one shared stretch. For a single-marker amplicon such as 12S, check whether the targeted stretch distinguishes the species.
 3. How many original fragments do the reads represent? Copies of one fragment count as one observation. A [unique-read count](../../GLOSSARY.md#unique-reads) counts reads left after duplicate marking, which groups alignments with the same start, end, and strand and counts each group once.
 4. What do the controls show? Compare the blank with each sample to see whether the sample has support beyond the background.
-5. Does an independent method agree? Agreement with a BLAST search, a second classifier, or a PCR test adds support. Weigh it alongside the count, coverage, and controls.
+5. Does another method agree? A BLAST search or a second classifier can support the name using the same reads. Neither can rule out contamination. A PCR test on the original specimen gives evidence independent of the sequencing run. Weigh these findings alongside the count, coverage, and controls.
 
 Write your review rule before looking at results so you apply the same standard to each call. Kraken 2's table answers the count question. EsViritu, TaxTriage, NAO-MGS, and NVD add coverage and a unique-read count, with a full run needed for NVD's unique reads. Sequence a blank in the same run and compare it using the same tool and database. In TaxTriage, the **Negative Control** role marks which sample is the blank and lets the tool compare it with the rest of the batch.
 
@@ -234,7 +234,9 @@ Use the first table to find your result and its view. CZ ID goes under `Classifi
 | NAO-MGS | `Analyses/naomgs-<name>/` | NAO-MGS viewport, a taxon table |
 | NVD | `Analyses/nvd-<experiment>/` | NVD viewport, a contig outline |
 
-Before comparing values, check what the tool counts and what total it uses to calculate a share. A pair represents two reads from one fragment. Filtering or merging can change the relationship between reported read and pair counts. Where offered, **Verify with BLAST…** and **Extract Reads…** appear in the action bar at the bottom of the viewport and in a row's right-click menu. Extraction saves the taxon's reads as a new bundle. The `core_nt` collection is a version of NCBI's general nucleotide collection. See [BLAST Verification](06-blast-verification.md#settings) for the search settings.
+Before comparing values, check what the tool counts and what total it uses to calculate a share. A pair represents two reads from one fragment. Filtering or merging can change the relationship between reported read and pair counts. Where offered, **Verify with BLAST…** and **Extract Reads…** appear in the action bar at the bottom of the viewport and in a row's right-click menu. By default, **Extract Reads…** saves the taxon's reads as a new bundle in the project. Its **Destination** setting can also save a FASTQ or FASTA file, copy the reads to the clipboard, or share them. A FASTA file stores named sequences without quality scores.
+
+The `core_nt` collection is a version of NCBI's general nucleotide collection. See [BLAST Verification](06-blast-verification.md#settings) for the search settings.
 
 | Tool | Unit counted | Normalized figure and its denominator | What Unique Reads means | **Verify with BLAST…** | **Extract Reads…** |
 |---|---|---|---|---|---|
