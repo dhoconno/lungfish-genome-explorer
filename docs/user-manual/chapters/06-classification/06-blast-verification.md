@@ -28,7 +28,7 @@ lead_approved: false
 
 ## What it is
 
-A [read](../../GLOSSARY.md#read) is a short stretch of DNA sequence from a sequencer. A [classifier](../../GLOSSARY.md#read-classification) assigns reads to named groups of organisms. [Kraken 2](../../GLOSSARY.md#kraken2) looks up [k-mers](../../GLOSSARY.md#k-mer), stretches exactly k bases long, in a table. The lookup is fast, but it can name the wrong organism if the source is missing or a relative shares the same pieces. [Running Kraken 2](02-running-kraken2.md#what-it-is) shows how the lookup works.
+A [read](../../GLOSSARY.md#read) is a short stretch of DNA sequence from a sequencer. A [classifier](../../GLOSSARY.md#read-classification) assigns reads to named groups of organisms. [Kraken 2](../../GLOSSARY.md#kraken2) looks up [k-mers](../../GLOSSARY.md#k-mer), stretches exactly k bases long, in a table. The lookup is fast, but it can name the wrong organism when the source is missing from its database and a relative shares the same pieces. [Running Kraken 2](02-running-kraken2.md#what-it-is) shows how the lookup works.
 
 [BLAST](../../GLOSSARY.md#blast) is a sequence search method available online from NCBI, the United States National Center for Biotechnology Information. Use BLAST verification to check whether those reads match sequences from the group the classifier named. BLAST lines up matching stretches of a read with sequences in NCBI's public collection, base by base. It ranks the matching records by score. A record is an entry in the collection, such as a genome or gene. Each record returned is a hit.
 
@@ -118,11 +118,13 @@ The 12S drawer displays `BLAST results for <name>` and gives no verdict. EsVirit
 | Slider and number field | 1 to 50 fragments. LGE brings typed values back into range. If the taxon has fewer than 50 fragments, its count is the maximum. Below 20, that count is also the default. |
 | Command line | Accepts up to 100, subject to the search limit of 50 reads. |
 
-In the taxonomy viewport, LGE draws randomly from fragments assigned to the selected taxon or any group below it. Each eligible fragment has the same chance of being drawn. The same count on the same result draws the same reads. A larger draw includes the smaller draw, so 40 reads include the first 20.
+In the taxonomy viewport, when the selected taxon is a species or a group above species, LGE draws randomly from fragments assigned to that taxon or any group below it. For a taxon below species, the draw covers its whole species because LGE judges at species level. Each eligible fragment has the same chance of being drawn. The same count on the same result draws the same reads. A larger draw includes the smaller draw, so 40 reads include the first 20.
 
 For each fragment, LGE uses the mate with more k-mers matching the taxon in Kraken 2's per-read file, `classification.kraken.gz`. On a tie, it uses the mate with more k-mers matched to anything, then mate 1 if they still tie. This favors the mate with more Kraken 2 evidence for the taxon when that evidence differs. The rule also applies to a read [bundle](../../GLOSSARY.md#bundle), LGE's folder for one set of reads, with separate files R1 and R2. A merged read combines overlapping mates. An orphan is a read whose mate was removed. Either can be drawn like any fragment.
 
-LGE uses `blastn`, which compares DNA with DNA, in NCBI's megablast mode, a fast setting for close matches that can miss distant relatives. The database `core_nt` is a version of NCBI's general nucleotide collection, [`nt`](../../GLOSSARY.md#nt-database). To speed searches, it leaves out some large chromosome assemblies of eukaryotes such as animals and plants. Virus records are outside those exclusions. LGE requests up to 500 records per read to check for ties and keeps the best five for the drawer. NCBI drops matches with an [e-value](../../GLOSSARY.md#e-value) above `1e-10`, or 0.0000000001. The e-value estimates how many matches this good or better you would expect by chance.
+LGE uses `blastn`, which compares DNA with DNA, in NCBI's megablast mode, a fast setting for close matches that can miss distant relatives. The database `core_nt` is a version of NCBI's general nucleotide collection, [`nt`](../../GLOSSARY.md#nt-database). To speed searches, it leaves out some large chromosome assemblies of eukaryotes such as animals and plants. Virus records are outside those exclusions.
+
+LGE keeps the best five records for the drawer. When LGE judges by taxonomy ID, as it does for every Kraken 2 result, it requests up to 500 records per read to check for ties. When LGE can judge an EsViritu or TaxTriage result only by organism names, it requests five records per read. NCBI drops matches with an [e-value](../../GLOSSARY.md#e-value) above `1e-10`, or 0.0000000001. The e-value estimates how many matches this good or better you would expect by chance.
 
 LGE limits new submissions to 50 reads per rolling hour, the last 60 minutes. The app and `lungfish-cli`, LGE's command-line program, share that allowance even if you quit. **Re-run BLAST** counts as a new search. Repeat sends for slow searches have a separate allowance. LGE spaces contacts with NCBI at least 11 seconds apart. If you see `LGE's own limit stopped this search, and NCBI was not contacted.`, wait until the time shown or lower **Reads to submit** to fit the remaining allowance.
 
@@ -150,9 +152,10 @@ An alignment lines up two sequences base by base, with gaps where one has extra 
 | Identity | How to read it |
 |---|---|
 | In the 80s | Below the identity requirement for Verified. |
-| 90% to 95% | Meets the identity requirement. Check how much of the read aligned and the e-value, then compare organism names among the top records. |
+| 90% to 95% | Meets the identity requirement. The read may come from a fast-changing virus or from a variant absent from NCBI's records for the species. A few sequencing errors can also lower identity. Check how much of the read aligned and compare organism names among the top records. |
+| 96% to 100% | Meets the identity requirement. A close relative can match this well over one short read, so compare organism names and scores among the top records here too. |
 
-In the example run, cornea reads were at most 76 bases long, and trimming removed poor-quality ends from some. One mismatch across 76 aligned positions gives 75 divided by 76, or 98.7 percent identity. Identity covers only aligned positions. A read with a perfect match over its first 30 bases and no match over the other 46 still shows 100 percent identity.
+In the example run, cornea reads were at most 76 bases long, and trimming removed poor-quality ends from some. One mismatch across 76 aligned positions gives 75 divided by 76, or 98.7 percent identity. Identity covers only aligned positions. A read with a perfect match over its first 50 bases and no match over the other 26 still shows 100 percent identity.
 
 ### Query coverage
 
@@ -164,15 +167,15 @@ Read identity and coverage together. Ninety-nine percent identity across a third
 
 A smaller e-value means fewer matches this good or better are expected by chance, given the read length and database size. At 0.1 you would expect one such chance match across ten comparable searches, on average. At `1e-30`, or 10 to the power of minus 30, the expected count is tiny. Each step in the exponent changes it tenfold. The expected count at `1e-30` is a billion billion times smaller than at `1e-12`.
 
-Longer matches can give smaller e-values. In the example run, reads that matched HSV-1 perfectly over 76 bases came back at `1e-29` and `4e-29`, well below the `1e-10` cutoff. A sequence shared by several species can give a very small e-value for each of them.
+Longer matches can give smaller e-values. In the example run, reads that matched HSV-1 perfectly came back at `1e-29` over 76 bases and `4e-29` over 75 bases, well below the `1e-10` cutoff. A sequence shared by several species can give a very small e-value for each of them.
 
 ### Bit score
 
-The [bit score](../../GLOSSARY.md#bit-score) grades one alignment. It rises with matches and falls with mismatches and gaps. Unlike the e-value, it is independent of database size. Compare scores for the same read to see whether several records share the top score. If one record scores 141 and another scores 100, check the higher-scoring record's organism, identity, and coverage. In the example run, 76-base reads with perfect matches scored 140 and 141.
+The [bit score](../../GLOSSARY.md#bit-score) grades one alignment. It rises with matches and falls with mismatches and gaps. Unlike the e-value, it is independent of database size. Compare scores for the same read to see whether several records share the top score. If one record scores 141 and another scores 100, check the higher-scoring record's organism, identity, and coverage. In the example run, perfect matches scored 141 over 76 bases and 140 over 75 bases.
 
 ### The per-read label
 
-The Status icon and **Verdict** column show the per-read label. It grades the quality of the best match, with the two placement exceptions in the next section. LGE checks the first alignment of the first record NCBI returns against the Verified thresholds.
+The Status icon and **Verdict** column show the per-read label. It grades the quality of the best match, with the placement exceptions in the next section. LGE checks the first alignment of the best record against the Verified thresholds. LGE normally uses the first record NCBI returns. If records inside and outside the group LGE is checking tie for best and NCBI lists an outside record first, LGE uses the first tied record inside the group.
 
 | Label | Rule |
 |---|---|
@@ -185,7 +188,7 @@ A Verified read can count as supporting or contradicting. Verified describes the
 
 ### Supporting, contradicting, and ties
 
-A Verified read is **supporting** if a best match belongs to the selected taxon's [clade](../../GLOSSARY.md#clade), the group and everything below it in the [Kraken 2 report](../../GLOSSARY.md#kreport), a table of counts per taxon. LGE checks all records tied for best among those NCBI returned. A record ties if its bit score matches the first record's exactly as printed in NCBI's reply. A stretch of 76 bases shared across HSV-1 genomes can tie across many HSV-1 records. A Verified read is **contradicting** if the best match, or all tied best matches, are outside the clade and the result meets neither placement exception below.
+A Verified read is **supporting** if a best match belongs to the selected taxon's [clade](../../GLOSSARY.md#clade), the group and everything below it in the [Kraken 2 report](../../GLOSSARY.md#kreport), a table of counts per taxon. LGE checks all records tied for best among those NCBI returned. A record ties if its bit score matches the first record's exactly as printed in NCBI's reply. A stretch of 76 bases shared across HSV-1 genomes can tie across many HSV-1 records. A Verified read is **contradicting** if the best match, or all tied best matches, are outside the clade and the result meets none of the placement exceptions below.
 
 LGE judges a species or any group below it at species level. A strain is a variant within a species, so a match to another strain of the same species supports the selection. For a group above species, such as a genus, which groups related species, a match to any species in that group can support the selection. With HSV-1 selected, matches to Human alphaherpesvirus 2 or Human gammaherpesvirus 4 are outside the clade.
 
@@ -193,10 +196,11 @@ LGE checks taxonomy IDs first. If the report lacks a record's ID, LGE checks whe
 
 When a tie includes records inside and outside the clade, the read supports and shows an outline triangle. Point to it to see `Tied with <n> other records at the best score: <n> more in this taxon, <n> outside. NCBI returned <n>.`
 
-LGE labels a read Ambiguous in either of these placement cases:
+LGE labels a read or fragment Ambiguous in any of these placement cases:
 
 - NCBI returned all 500 requested records, every one ties for best, and none is in the clade. Otherwise, a read with no clade record among its tied best matches counts as contradicting if it is Verified.
 - The best record has no taxonomy ID and its organism name shares only its first word with the taxon's name. That word alone cannot distinguish Human alphaherpesvirus 1 from Human gammaherpesvirus 4.
+- Both mates of a pair sent from EsViritu or TaxTriage are Verified, with one mate's best match inside the clade and the other's outside. The fragment counts as neither supporting nor contradicting.
 
 Ambiguous, Unverified, and Error reads count as neither supporting nor contradicting.
 
@@ -218,7 +222,7 @@ Divide the supporting count by the sum of the supporting and contradicting count
 
 The ten symbols split submitted reads into rounded tenths. With 20 reads, each symbol represents two. A filled circle means supporting, a diamond means contradicting, and a hollow circle means neither.
 
-Beside the verdict, `<n> also match other records equally` counts supporting reads tied outside the clade. LGE judges by organism names if the best record has no taxonomy ID or LGE cannot look up the row's species. In that case, it adds to `<n> with conflicting organisms` when the five records have more than one first word across their organism names.
+Beside the verdict, `<n> also match other records equally` counts supporting reads tied outside the clade. LGE judges by organism names alone if the best record has no taxonomy ID or LGE has no taxonomy ID for the row. If LGE cannot look up the row's species but knows the row's own tax ID, it judges by that ID and the row's name. When LGE judges by names alone, the bar adds a read to `<n> with conflicting organisms` if the five records have more than one first word across their organism names.
 
 If the drawer says `NCBI searched <database>, not the <database> this search asked for.`, record the database NCBI actually used when you compare or report results. A line starting with `Collected` gives the time since the first send, the number of sends, and the request ID that answered.
 
@@ -232,7 +236,7 @@ FASTA is a text format with a name line followed by a sequence. To copy a sequen
 
 **Export** offers **Export as CSV...** for comma-separated text and **Export as TSV...** for tab-separated text. LGE runs `lungfish-cli blast export table` and shows it in the Operations Panel. The export writes one line for each record of each read, so count each read once when checking a Kraken 2 verdict.
 
-The export's **Verdict** column holds the per-read label, which grades the quality of the best match with the two placement exceptions. A read can show `verified` there and `contradicting` under Taxon Check. Taxon Check also uses `supporting` or `inconclusive`. The tied, tied_in_taxon, and tied_outside columns count ties, and Judged At says how LGE judged the result.
+The export's **Verdict** column holds the per-read label, which grades the quality of the best match with the placement exceptions. A read can show `verified` there and `contradicting` under Taxon Check. Taxon Check also uses `supporting` or `inconclusive`. The tied, tied_in_taxon, and tied_outside columns count ties, and Judged At says how LGE judged the result.
 
 ### Saved verifications
 
@@ -240,15 +244,17 @@ In the Kraken 2 result folder, LGE stores each finished verification under `blas
 
 ## What good looks like
 
-For a Supported verdict, check how many submitted reads counted and how many supporting reads tied outside the clade. Look for best matches in the clade with identity and coverage in the high nineties and e-values far below `1e-10`. Supported tells you that enough of the counted reads support the selected taxon under LGE's rules. Read counts, abundance estimates, and the presence of relatives are separate questions.
+For a Supported verdict, check how many submitted reads counted and how many supporting reads tied outside the clade. Look for best matches in the clade with high identity across nearly the whole read and e-values far below `1e-10`. For a virus with a DNA genome and many genomes in NCBI's collection, such as HSV-1, expect a mismatch or two per read at most. A fast-changing virus with an RNA genome can give lower identity for the right species when no NCBI record matches your strain closely. Supported tells you that enough of the counted reads support the selected taxon under LGE's rules. Read counts, abundance estimates, and the presence of relatives are separate questions.
 
 The example run on the cornea sample gave 20 supporting, 0 contradicting, ten filled circles, and a Supported verdict. Every best record was Human alphaherpesvirus 1 with 100 percent query coverage. Of those reads, 19 had 100.0 percent identity and one had 98.7 percent, a single mismatch in 76 bases. A flagged read tied with a laboratory construct, an engineered DNA molecule carrying a piece of HSV-1, and still supported the taxon. The 100 percent supporting share covered all submitted reads.
 
 For Not specific, check the records named in the bar. A tie to a laboratory construct carrying the same sequence leaves the source unresolved. If another species ties, check whether the reads are spread across the genome or pile up in one shared stretch. Several reads overlapping the same stretch may repeat the same evidence. Use the coverage sparkline in [EsViritu's results](03-running-esviritu.md#reading-the-results) to see where reads fall.
 
-For Unsupported, look for a consistent alternative. If rows repeatedly name one other organism, compare identity, coverage, and ties before treating it as a candidate. If rows name unrelated organisms at middling identity, check for low complexity, meaning limited sequence variety or simple repeats. Also check for leftover adapter, a short synthetic sequence added during library preparation, when DNA is prepared for sequencing.
+For Unsupported, look for a consistent alternative. If rows repeatedly name one other organism, compare identity, coverage, and ties before treating it as a candidate. If rows name many unrelated organisms, look at the read sequences. Reads with low complexity, meaning limited sequence variety or simple repeats such as a run of one base, can match the same repeat in many unrelated genomes at high identity, often with many ties, or find no match.
 
-For Inconclusive, check the per-read labels first. No read was Verified, so every read was Ambiguous, Unverified, or Error. An Ambiguous read may have a strong match LGE could not place. Short or poor-quality reads are one possible cause of weak matches. If that is what you see, try more reads or a taxon with longer reads.
+Reads that still carry adapter, a short synthetic sequence added during library preparation, when DNA is prepared for sequencing, may align to the organism over only part of the read. The adapter can match a laboratory construct or a vector, a DNA molecule used to carry a sequence into cells in the laboratory. Trimming adapter and removing low-complexity reads before classification helps prevent misleading matches.
+
+For Inconclusive, check the per-read labels first. No read was Verified, so every read was Ambiguous, Unverified, or Error. An Ambiguous read may have a strong match LGE could not place. Short or poor-quality reads can give weak matches. In this search, even a perfect match shorter than about 40 bases falls short of the `1e-10` cutoff and comes back Unverified. A source organism can be too distant from every record in `core_nt` for megablast to find a match. If read length or quality is the problem, more reads help only if some are longer or cleaner. A longer sequence, such as a contig assembled from the reads, can give stronger evidence.
 
 For Mixed, see how many reads counted before acting on the share. Two supporting reads out of three give a 67 percent share. To add evidence, reopen **Verify with BLAST…**, raise **Reads to submit**, and run again. After a 20-read search, up to 30 reads remain in the rolling hour, depending on what else you sent. The larger draw includes the original reads.
 
