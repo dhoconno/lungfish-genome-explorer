@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 import LungfishTestSupport
 import XCTest
 @testable import LungfishRNASeqUI
@@ -131,7 +132,7 @@ final class RNASeqBulkTableTests: XCTestCase {
         XCTAssertEqual(try RNASeqBulkFixtures.snapshot(url), before, "showing, searching and reading the quality change no file")
         let views = RNASeqBulkFixtures.allSubviews(of: controller.view) + controller.tabView.tabViewItems.compactMap(\.view)
             .flatMap { [$0] + RNASeqBulkFixtures.allSubviews(of: $0) }
-        XCTAssertFalse(views.contains { $0 is NSButton }, "the view offers no button")
+        XCTAssertTrue(views.compactMap { $0 as? NSButton }.allSatisfy { $0 is LungfishInfoButton }, "the only buttons are info buttons")
         let editable = views.compactMap { $0 as? NSTextField }.filter(\.isEditable)
         XCTAssertEqual(editable.map { $0.accessibilityIdentifier() }, ["rnaseq-bulk-search"], "only the search field takes typing")
         XCTAssertTrue(controller.countTables.allSatisfy { $0.tableColumns.allSatisfy { !$0.isEditable } })
