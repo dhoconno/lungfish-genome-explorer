@@ -103,7 +103,7 @@ With no project open at all, an alert titled **No Active Project** asks you to o
 
 The VCF Variants card has no controls of its own. One preference shapes the import.
 
-**Import profile:.** Chooses how much memory the import may use while writing the VCF's rows into the bundle's database. The default is Auto, which picks Fast, Low Memory, or Ultra-Low Memory from the file's size and your Mac's memory. Choose Fast for a VCF of a few gigabytes on a Mac with 32 GB of memory or more, and Low Memory when a Mac with 8 or 16 GB slows to a crawl during a large import. It lives in **Settings > General** under **VCF Import**, where its label ends in a colon. On the command line this is `--import-profile`, which applies when the command attaches a VCF to a bundle.
+**Import profile.** Chooses how much memory the import may use while writing the VCF's rows into the bundle's database. The default is Auto, which picks Fast, Low Memory, or Ultra-Low Memory from the file's size and your Mac's memory. Choose Fast for a VCF of a few gigabytes on a Mac with 32 GB of memory or more, and Low Memory when a Mac with 8 or 16 GB slows to a crawl during a large import. It lives in **Settings > General** under **VCF Import**, where its label ends in a colon. On the command line this is `--import-profile`, which applies when the command attaches a VCF to a bundle.
 
 ## Reading the results
 

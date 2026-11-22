@@ -146,9 +146,9 @@ The dialog carries five controls. **Run Mode** appears only when you select more
 
 **Enable quality filtering (fastp).** Trims sequencing adapters and drops poor-quality bases with [fastp](../../GLOSSARY.md#fastp) before EsViritu sees the reads. It is ticked by default, because adapter sequence and low-quality read ends both produce false matches. Untick it only when an earlier step of your own already trimmed and filtered these exact reads, so they are not cleaned twice. On the command line this is `--no-qc`, which turns the filter off.
 
-**Threads:.** Sets how many processor cores EsViritu uses at once. The default is the number of cores currently available on your Mac, and the control will not go above your Mac's core count. Lower it to keep the Mac responsive during a long run. On the command line this is `--threads`.
+**Threads.** Sets how many processor cores EsViritu uses at once. The default is the number of cores currently available on your Mac, and the control will not go above your Mac's core count. Lower it to keep the Mac responsive during a long run. On the command line this is `--threads`.
 
-**Extra arguments:.** Passes text straight to EsViritu without LGE checking it. The default is empty, which is right for almost every run. Use it only for an EsViritu option the dialog does not show, after reading that tool's own documentation. On the command line this is `--extra-args`.
+**Extra arguments.** Passes text straight to EsViritu without LGE checking it. The default is empty, which is right for almost every run. Use it only for an EsViritu option the dialog does not show, after reading that tool's own documentation. On the command line this is `--extra-args`.
 
 If the Extra arguments text opens a quotation mark and never closes it, the Run button stays off and the status line reads "Complete the classifier settings to continue." until you close it.
 
