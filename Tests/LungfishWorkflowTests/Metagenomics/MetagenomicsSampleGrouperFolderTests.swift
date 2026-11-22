@@ -118,4 +118,33 @@ final class MetagenomicsSampleGrouperFolderTests: XCTestCase {
             ]
         )
     }
+
+    /// Guard, green at the base: a single of the stem in another folder leaves every file its own sample. Splitting
+    /// the single by folder would pair a's mates as `S` and name the single `S` too (BIO TT-GROUP F1).
+    func testASingleInAnotherFolderBesideMatesLeavesEveryFileItsOwnSample() {
+        let files = [url("a/S_R1.fastq.gz"), url("a/S_R2.fastq.gz"), url("b/S.fastq.gz")]
+
+        let samples = MetagenomicsSampleGrouper.group(files)
+
+        XCTAssertEqual(
+            rows(samples),
+            [
+                ["S", url("b/S.fastq.gz").path, ""],
+                ["S_R1", url("a/S_R1.fastq.gz").path, ""],
+                ["S_R2", url("a/S_R2.fastq.gz").path, ""],
+            ]
+        )
+    }
+
+    /// Guard, green at the base: singles of one stem in two folders both run, as `S_1` and `S_2`. Which file takes
+    /// which number follows the input order for same-named files, so the paths are compared as a set.
+    func testSinglesOfOneStemInTwoFoldersAreBothKept() {
+        let files = [url("a/S.fastq.gz"), url("b/S.fastq.gz")]
+
+        let samples = MetagenomicsSampleGrouper.group(files)
+
+        XCTAssertEqual(samples.map(\.sampleId), ["S_1", "S_2"])
+        XCTAssertEqual(Set(samples.map(\.fastq1.path)), [url("a/S.fastq.gz").path, url("b/S.fastq.gz").path])
+        XCTAssertEqual(samples.map { $0.fastq2 == nil }, [true, true])
+    }
 }
