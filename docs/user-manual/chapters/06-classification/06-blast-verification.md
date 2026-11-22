@@ -17,12 +17,12 @@ shots:
   - id: blast-verify-popover
     caption: "The Verify \"Simplexvirus humanalpha1\" via NCBI BLAST popover open over the sunburst of the SRR12486983 Viral result, showing the Reads to submit slider at 20 with its typed number field, the line saying the reads go to NCBI BLASTN core_nt and leave this Mac, and the Run BLAST button."
   - id: blast-results-drawer
-    caption: "The BLAST Results drawer from an earlier run, under the sunburst of the SRR12486983 Viral result, with the summary bar reading 20 supporting, 0 contradicting, ten filled circles, and the verdict Supported, above per-read rows whose best record is Human alphaherpesvirus 1 at 100.0% identity."
+    caption: "The BLAST Results drawer from an earlier run, under the sunburst of the SRR12486983 Viral result, with the summary bar reading 20 supporting, 0 contradicting, ten filled circles, and the verdict Supported, above per-read rows whose best record is Human alphaherpesvirus 1 at 100.0 percent identity."
 illustrations: []
 glossary_refs: [accession, bit-score, blast, bundle, clade, contig, e-value, esviritu, fastq, fragment, k-mer, kraken2, kreport, mate, nao-mgs, not-specific, nt-database, nvd, operations-panel, paired-end, percent-identity, provenance, query-coverage, read, read-classification, rid, taxon, taxonomic-rank, taxonomy-id, taxtriage, viewport]
 features_refs: [classify.blast-verify, results.table-row-commands]
 fixtures_refs: [kraken-protocol-cornea]
-brand_reviewed: false
+brand_reviewed: true
 lead_approved: false
 ---
 
@@ -44,7 +44,7 @@ The example uses reads from a single sequencing run, listed in the Sequence Read
 
 ## Before you start
 
-Open a project so LGE has a place to save the search. With no project open, **Verify with BLAST…** shows the alert No Project Open and sends nothing. See [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) for help opening a project.
+Open a project so LGE has a place to save the search. With no project open, **Verify with BLAST…** shows the alert **No Project Open** and sends nothing. See [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) for help opening a project.
 
 For this example, open Pathogen Detection with **Help > Demo Projects…**. It holds run `SRR12486983`, so classify the reads against the Viral database. If you need the reads separately, see how to fetch `SRR12486983` in [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md). The [kraken-protocol-cornea fixture](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.53/docs/user-manual/fixtures/kraken-protocol-cornea) is the set of example data used in the Kraken 2, TaxTriage, and BLAST chapters. Its README gives the study source and terms of use. Follow the [Running Kraken 2 procedure](02-running-kraken2.md#procedure) to classify the reads.
 
@@ -54,7 +54,7 @@ The search runs at NCBI. You can start without a plugin pack, an optional set of
 
 Treat submission as a disclosure. LGE cannot call the reads back, and **Verify with BLAST…** has no local mode. A [request ID](../../GLOSSARY.md#rid) is the tracking number NCBI assigns each search. NCBI says it keeps a search for 36 hours and makes it available to anyone with its request ID. Before you click **Run BLAST**, check whether the data-use agreement, the contract that came with the data, allows you to send sequences and identifiers. Always check before sending reads from human samples, since reads assigned to a virus can still carry human sequence. The human cornea reads are already public in the Sequence Read Archive.
 
-NCBI asks BLAST tools for a contact address in case it needs to reach you about a search. LGE uses its shared no-reply address by default. To use yours, choose **Settings…** (Cmd-,) from the menu named after the app and enter it in **Contact email (optional)** in the NCBI BLAST section of the **General** tab. LGE sends the address only to NCBI and keeps it out of project files, records, logs, and copied commands.
+NCBI asks BLAST tools for a contact address in case it needs to reach you about a search. LGE uses its shared no-reply address by default. To use yours, choose **Settings…** (Cmd-,) from the menu named after the app and enter it in **Contact email (optional)** in the **NCBI BLAST** section of the **General** tab. LGE sends the address only to NCBI and keeps it out of project files, records, logs, and copied commands.
 
 NCBI controls how long the search takes. Most searches in LGE's tests came back within about two and a half minutes, and a few took hours. The steps in [Follow a search that NCBI holds](#follow-a-search-that-ncbi-holds) explain how to check progress.
 
@@ -104,10 +104,10 @@ What LGE sends depends on the viewer. A [fragment](../../GLOSSARY.md#fragment) i
 | [Taxonomy](02-running-kraken2.md), where Kraken 2 results open | Random fragments, one read per fragment | The popover |
 | [EsViritu](03-running-esviritu.md) and [TaxTriage](04-running-taxtriage.md) | The longest reads, five or a quarter of the request, whichever is smaller, then a random fill. EsViritu uses the row's sample. Both mates are judged and the pair counts once. | The popover |
 | [NAO-MGS](05-running-nao-mgs.md) | Reads from the four quarters of the reference genome, the sequence used for comparison. In each quarter, half the draw has the fewest differences from the reference and half has the most. | The popover |
-| [Novel Virus Diagnostics](09-novel-virus-detection.md) | The selected contig, judged against the taxon named by NVD's adjusted tax ID | A sheet titled Run BLAST at NCBI? |
-| [12S Amplicon Metabarcoding](10-twelve-s-metabarcoding.md) | Unresolved sequences from the Unresolved view | A sheet titled Run BLAST at NCBI? |
+| [Novel Virus Diagnostics](09-novel-virus-detection.md) | The selected contig, judged against the taxon named by NVD's adjusted tax ID | A sheet titled **Run BLAST at NCBI?** |
+| [12S Amplicon Metabarcoding](10-twelve-s-metabarcoding.md) | Unresolved sequences from the Unresolved view | A sheet titled **Run BLAST at NCBI?** |
 
-The 12S drawer displays `BLAST results for <name>` and gives no verdict. EsViritu, TaxTriage, NAO-MGS, and NVD use the NCBI Taxonomy, NCBI's catalog of named groups, to find a row's species. It is an optional download in the Databases tab of the Plugin Manager, where LGE manages optional tools and data. Without it, these viewers judge by the row's own tax ID or by organism names. Check the line under the summary to see which they used.
+The 12S drawer displays `BLAST results for <name>` and gives no verdict. EsViritu, TaxTriage, NAO-MGS, and NVD use the NCBI Taxonomy, NCBI's catalog of named groups, to find a row's species. It is an optional download in the **Databases** tab of the Plugin Manager, where LGE manages optional tools and data. Without it, these viewers judge by the row's own tax ID or by organism names. Check the line under the summary to see which they used.
 
 ## Settings
 
@@ -141,13 +141,13 @@ The main row for each read shows its best record. To compare other matches, clic
 | Default column | What it shows |
 |---|---|
 | Status | Verified is a filled circle with a checkmark. Unverified is a filled circle with a cross. Ambiguous is a triangle with an exclamation mark. Error is an octagon with an exclamation mark. |
-| Read / Accession | The read identifier on the main row and the NCBI accession on an expanded row. |
-| Organism | The source of the matched record. |
-| Identity, E-value, and Bit Score | The match statistics explained below. |
+| **Read / Accession** | The read identifier on the main row and the NCBI accession on an expanded row. |
+| **Organism** | The source of the matched record. |
+| **Identity**, **E-value**, and **Bit Score** | The match statistics explained below. |
 
 ### Percent identity
 
-An alignment lines up two sequences base by base, with gaps where one has extra bases. [Percent identity](../../GLOSSARY.md#percent-identity), the share of aligned positions with the same base, appears under Identity.
+An alignment lines up two sequences base by base, with gaps where one has extra bases. [Percent identity](../../GLOSSARY.md#percent-identity), the share of aligned positions with the same base, appears under **Identity**.
 
 | Identity | How to read it |
 |---|---|
@@ -181,8 +181,8 @@ The Status icon and **Verdict** column show the per-read label. It grades the qu
 |---|---|
 | **Verified** | At least 90% identity, at least 80% query coverage, and an e-value of `1e-10` or smaller. Every returned record already meets the e-value requirement. |
 | **Ambiguous** | A record came back but missed a Verified threshold, or LGE could not place the read. |
-| **Unverified** | NCBI returned no record under these search settings. Organism says "No significant hit". |
-| **Error** | NCBI's answer had no usable entry for the read. Organism says "No BLAST result". LGE still judges the rest of the batch. |
+| **Unverified** | NCBI returned no record under these search settings. **Organism** says "No significant hit". |
+| **Error** | NCBI's answer had no usable entry for the read. **Organism** says "No BLAST result". LGE still judges the rest of the batch. |
 
 A Verified read can count as supporting or contradicting. Verified describes the strength of the match. The taxon check asks where the match belongs.
 
@@ -230,7 +230,7 @@ If the drawer says `NCBI searched <database>, not the <database> this search ask
 
 ### Columns, copying, and exporting
 
-Five columns are hidden at first, Accession, Coverage, Align Length, Tax ID, and Verdict. Right-click any column header for a menu with a checkmark beside each one showing. Choose a column to show or hide it. LGE remembers the choice across drawers and after you quit.
+Five columns are hidden at first, **Accession**, **Coverage**, **Align Length**, **Tax ID**, and **Verdict**. Right-click any column header for a menu with a checkmark beside each one showing. Choose a column to show or hide it. LGE remembers the choice across drawers and after you quit.
 
 FASTA is a text format with a name line followed by a sequence. To copy a sequence in this format, right-click its row and choose **Copy FASTA**. The menu also offers **Copy Name** for the read ID, **Copy Accession**, **Expand All**, and **Collapse All**.
 
