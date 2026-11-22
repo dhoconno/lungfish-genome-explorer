@@ -97,6 +97,57 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         }
     }
 
+    /// An R1 and an R2 file for `sample` that hold four reads each and are out of step by name from the first read: R2
+    /// lists the first two serials swapped. Both mates carry one serial and no mark, as SRA files do, so only the names
+    /// tell the files from a pair.
+    private func writeOutOfStepPair(_ sample: String) throws -> [URL] {
+        let folder = root.appendingPathComponent("reads-\(sample)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return try [1, 2].map { mate in
+            let url = folder.appendingPathComponent("\(sample)_R\(mate).fastq")
+            let serials = mate == 1 ? [1, 2, 3, 4] : [2, 1, 3, 4]
+            try serials.map { "@SRR0000001.\($0) \($0) length=10\nACGTACGTAC\n+\nIIIIIIIIII\n" }.joined()
+                .write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+    }
+
+    /// BIO-ROUTES-3 D2, item 6 (S1). A plan of two files on this Mac that hold equal counts and are out of step by name
+    /// is refused before any file of the batch is written, because the node pairs R1 and R2 by position.
+    func testWritePlanRefusesAnEqualCountPairOutOfStepByNameAndWritesNoFolder() async throws {
+        let fixture = try writeFixture()
+        let reads = try writeOutOfStepPair("S3")
+        let folder = root.appendingPathComponent("out-of-step", isDirectory: true)
+        let command = try ImportCommand.FastqSubcommand.parse(
+            reads.map(\.path) + fixture.planArguments(folder: folder)
+                + ["--threads", "1", "--clumpify-heap-gb", "4", "--clumping-tool", "bbtools"]
+        )
+        var status: Int32?
+        do {
+            try await command.run()
+        } catch let error as ExitCode {
+            status = error.rawValue
+        }
+        XCTAssertEqual(status, 3)
+        XCTAssertEqual(FileManager.default.fileExists(atPath: folder.path), false)
+    }
+
+    /// The refusal says what the interleaver says for the import: the record, both file names and both read names.
+    func testThePlanRefusalOfAnOutOfStepPairHasTheInterleaversWords() throws {
+        let reads = try writeOutOfStepPair("S3")
+        var message: String?
+        do {
+            try ImportCommand.FastqSubcommand.refuseOutOfStepMates(r1: reads[0], r2: reads[1])
+        } catch let refusal as ImportFastqPlanRefusal {
+            message = refusal.message
+        }
+        XCTAssertEqual(
+            message,
+            "Paired FASTQ mates are out of step at record 1: S3_R1.fastq has 'SRR0000001.1 1 length=10' but S3_R2.fastq has "
+                + "'SRR0000001.2 2 length=10'. The two files do not list the same fragments in the same order, so nothing was written."
+        )
+    }
+
     /// `--dry-run` with `--write-plan` makes the refusals the real run makes for a fixed reason, so a dry run that passes
     /// is a run that can pass. It writes nothing in either case.
     func testWritePlanDryRunReportsTheRefusalsOfTheRealRun() async throws {

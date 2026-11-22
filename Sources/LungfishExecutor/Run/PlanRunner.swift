@@ -75,6 +75,9 @@ struct PlanRunner {
         return nil
     }
 
+    /// The seam of BIO-ROUTES-3 item 5, empty until its fix.
+    static func refuseOutOfStepMates(_ reads: [URL], launcher: any PortableChildLauncher) throws {}
+
     /// Runs the steps and sets the record's steps, outcome, reason, signal and the step the run stopped at.
     func run(into record: inout ExecutorRunRecord) {
         do {

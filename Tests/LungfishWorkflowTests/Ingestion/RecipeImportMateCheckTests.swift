@@ -8,21 +8,22 @@ import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
-/// What one import logged: its failure words and whether a step started.
+/// What one import logged: the name of each step that started.
 private final class RecipeImportMateLog: @unchecked Sendable {
     private let lock = NSLock()
-    private var started = false
+    private var steps: [String] = []
 
     /// Records a step start and cancels the import's task right there, before the step launches its tool, so no
     /// fastp or clumpify runs at the base or after the fix (`NativeToolRunner.runProcess` checks for a cancel
     /// before it spawns).
     func observe(_ event: ImportLogEvent) {
-        guard case .stepStart = event else { return }
-        lock.withLock { started = true }
+        guard case .stepStart(_, let step, _, _) = event else { return }
+        lock.withLock { steps.append(step) }
         withUnsafeCurrentTask { $0?.cancel() }
     }
 
-    var startedAStep: Bool { lock.withLock { started } }
+    var startedAStep: Bool { lock.withLock { !steps.isEmpty } }
+    var startedSteps: [String] { lock.withLock { steps } }
 }
 
 /// BIO ruling BIO-ROUTES-2, binding items 1 and 7 (S1). An import with a recipe handed the person's loose R1 and R2 to
@@ -79,6 +80,71 @@ final class RecipeImportMateCheckTests: XCTestCase {
             let outcome = await importOutcome(recipe, r1: r1, r2: r2)
             XCTAssertEqual(outcome.startedAStep, true, recipe.rawValue)
         }
+    }
+
+    // MARK: - No recipe (BIO-ROUTES-3 D1, S1)
+
+    /// The words of the interleaver for two files out of step at record 1, as an import throws them.
+    static func outOfStepAtRecordOne(r1Name: String, r2Name: String) -> String {
+        "Paired FASTQ mates are out of step at record 1: S_R1.fastq has '\(r1Name)' but S_R2.fastq has '\(r2Name)'. "
+            + "The two files do not list the same fragments in the same order, so nothing was written."
+    }
+
+    /// Six SRA-style names, both mates of one run carrying one serial and no mark.
+    static func sraNames(_ serials: [Int]) -> [String] { serials.map { "SRR0000001.\($0) \($0) length=10" } }
+
+    /// Red pin A. A default import (no recipe, no clumping, no binning) of two files with equal counts whose R2 is
+    /// swapped at reads 1 and 2, in the SRA shape. No step starts and the import fails with the interleaver's words.
+    func testASwappedSRAR2IsRefusedWithNoRecipeBeforeAnyStep() async throws {
+        let r1 = try writeMates("S_R1.fastq", names: Self.sraNames([1, 2, 3, 4, 5, 6]))
+        let r2 = try writeMates("S_R2.fastq", names: Self.sraNames([2, 1, 3, 4, 5, 6]))
+
+        let outcome = await plainImport(r1: r1, r2: r2)
+        XCTAssertEqual(outcome.steps, [])
+        XCTAssertEqual(
+            outcome.words,
+            Self.outOfStepAtRecordOne(r1Name: "SRR0000001.1 1 length=10", r2Name: "SRR0000001.2 2 length=10"))
+    }
+
+    /// Red pin B. The same pair with `/1` and `/2` marks.
+    func testASwappedSlashMarkedR2IsRefusedWithNoRecipeBeforeAnyStep() async throws {
+        let r1 = try writeMates("S_R1.fastq", names: [1, 2, 3, 4, 5, 6].map { "SRR0000001.\($0)/1" })
+        let r2 = try writeMates("S_R2.fastq", names: [2, 1, 3, 4, 5, 6].map { "SRR0000001.\($0)/2" })
+
+        let outcome = await plainImport(r1: r1, r2: r2)
+        XCTAssertEqual(outcome.steps, [])
+        XCTAssertEqual(outcome.words, Self.outOfStepAtRecordOne(r1Name: "SRR0000001.1/1", r2Name: "SRR0000001.2/2"))
+    }
+
+    /// Guard C. An in-step SRA pair, an `x.1` and `x.2` pair and a dotted `SRR1.7.1` and `SRR1.7.2` pair each reach the
+    /// first step of a default import, so the check refuses no pair the recipe import accepts.
+    func testAnInStepPairOfEachSRANameFamilyReachesTheFirstStepWithNoRecipe() async throws {
+        let serials = [1, 2, 3, 4, 5, 6]
+        let families: [(label: String, r1: [String], r2: [String])] = [
+            ("SRA serial", Self.sraNames(serials), Self.sraNames(serials)),
+            ("x.1 and x.2", serials.map { "frag\($0).1" }, serials.map { "frag\($0).2" }),
+            ("dotted SRR1.7.1", serials.map { "SRR1.\($0).1" }, serials.map { "SRR1.\($0).2" }),
+        ]
+        for (index, family) in families.enumerated() {
+            let r1 = try writeMates("F\(index)_R1.fastq", names: family.r1)
+            let r2 = try writeMates("F\(index)_R2.fastq", names: family.r2)
+            let firstStep = await plainImport(r1: r1, r2: r2).steps.first
+            XCTAssertEqual(firstStep, "Compress", family.label)
+        }
+    }
+
+    /// The default import: no recipe, no clumping and no binning, so the first step is "Compress".
+    func plainImport(r1: URL, r2: URL) async -> (words: String?, steps: [String]) {
+        let project = root.appendingPathComponent("Project-\(UUID().uuidString).lungfish", isDirectory: true)
+        let log = RecipeImportMateLog()
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: project, platform: .illumina, recipe: nil,
+            qualityBinning: QualityBinningScheme.none, optimizeStorage: false, threads: 1)
+        let result = await Task {
+            await FASTQBatchImporter.runBatchImport(
+                pairs: [SamplePair(sampleName: "S", r1: r1, r2: r2)], config: config, log: { log.observe($0) })
+        }.value
+        return (result.errors.first?.error, log.startedSteps)
     }
 
     // MARK: - Recipes

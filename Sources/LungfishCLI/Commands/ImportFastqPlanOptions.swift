@@ -346,6 +346,9 @@ extension ImportCommand.FastqSubcommand {
         return (rows, suffixes, suffixes.count == 1 ? .single : .pairedR1R2)
     }
 
+    /// The seam of BIO-ROUTES-3 item 6, empty until its fix.
+    static func refuseOutOfStepMates(r1: URL, r2: URL) throws {}
+
     /// Whether the sheet's first line holds a tab and no comma, which is how a tab-separated sheet begins.
     private static func firstLineHoldsTabNotComma(_ sheet: URL) -> Bool {
         guard let text = try? String(contentsOf: sheet, encoding: .utf8) else { return false }
