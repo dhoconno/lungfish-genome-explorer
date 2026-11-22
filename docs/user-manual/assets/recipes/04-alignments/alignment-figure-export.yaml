@@ -1,0 +1,31 @@
+# Drawn by the CLI of Lungfish Preview 2026.11.15 (2026-11-21 docs refresh), not a screen capture.
+# File > Export > Image (PNG)... runs this same command, so the figure is the one the menu draws. On the demo project's mapped reference bundle:
+#   lungfish-cli bundle export-graphic '{demo_project}/Analyses/minimap2-2026-09-25T00-00-00/GRCh38.chr20.10.0-10.5Mb.lungfishref'
+#     --region chr20_10.0-10.5Mb:2038-2118 --width 900 --scale 2 --theme light --exclude-flags 3332
+#     --coverage-scale linear --view-state view-state.json --output-format png --output alignment-figure-export.png
+# view-state.json is {"schemaVersion":1,"tracks":[],"readMinMapQ":30,"depthMinMapQ":30}, what the window writes with
+# Minimum alignment confidence at 30 (ViewerGraphicViewState.swift:41-47). --exclude-flags 3332 is the viewer's default.
+# The CLI noted 21 base letters and 56 rows left out (track height 200 points). It also writes
+# alignment-figure-export.png.lungfish-provenance.json, which holds local paths and is never shipped.
+id: alignment-figure-export
+chapter: 04-alignments/02-reading-an-alignment
+caption: "A PNG image of the HG002 chromosome 20 slice around position 2,078, as File > Export > Image (PNG)... draws it while Minimum alignment confidence is 30. The contig and range line sits at the top, the Depth strip has a line under it naming the mapping-quality cutoff of 30, and the reads below carry their mismatch marks."
+viewport_class: alignment
+app_state:
+  fixture: '{demo_project}'
+  open_files:
+  - project: Human Mapping and Variants (with results).lungfish
+  - mapping: Analyses/minimap2-2026-09-25T00-00-00
+  window_size:
+  - 900
+  - 424
+  appearance: light
+steps:
+- action: open_file
+  path: '{demo_project}'
+  # PROSE-ONLY: The image is the output of the command above (1800 x 848 PNG at scale 2). In the app the same figure comes from File > Export > Image (PNG)... with Scope Tracks over 2,038 to 2,118 while Minimum alignment confidence is 30
+crop:
+  mode: window
+post:
+  retina: true
+  format: png
