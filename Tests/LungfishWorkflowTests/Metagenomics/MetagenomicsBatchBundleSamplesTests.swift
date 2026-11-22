@@ -1,4 +1,4 @@
-// MetagenomicsBatchBundleSamplesTests.swift - kraken2 classify --batch and esviritu detect --batch plan one sample per bundle
+// MetagenomicsBatchBundleSamplesTests.swift - kraken2 classify --batch and esviritu detect --batch plan one sample per bundle and pair loose mates within one folder
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -66,5 +66,68 @@ final class MetagenomicsBatchBundleSamplesTests: XCTestCase {
 
         XCTAssertEqual(plan.units.map(\.label), ["S_1", "S_2"])
         XCTAssertEqual(plan.units.map { $0.value.inputs.map(\.path) }, [[first.path], [second.path]])
+    }
+
+    /// A loose FASTQ file `folder/name` that holds three reads.
+    private func looseFile(_ folder: String, _ name: String) throws -> URL {
+        let directory = root.appendingPathComponent(folder, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(name)
+        try ReadSetFixtures.fastq(["\(folder)-\(name)-a", "\(folder)-\(name)-b", "\(folder)-\(name)-c"])
+            .write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    /// GROUPER-CROSS-FOLDER-PAIR: `--batch a/S_R1 b/S_R1 b/S_R2 a/S_R2` names the folders in one order for
+    /// the R1 files and in another for the R2 files. Each sample takes both mates from one folder.
+    private func mixedFolderList() throws -> [URL] {
+        [
+            try looseFile("a", "S_R1.fastq"), try looseFile("b", "S_R1.fastq"),
+            try looseFile("b", "S_R2.fastq"), try looseFile("a", "S_R2.fastq"),
+        ]
+    }
+
+    private func folderPairPaths() -> [[String]] {
+        ["a", "b"].map { folder in
+            let directory = root.appendingPathComponent(folder, isDirectory: true)
+            return [directory.appendingPathComponent("S_R1.fastq").path, directory.appendingPathComponent("S_R2.fastq").path]
+        }
+    }
+
+    func testKraken2BatchPairsLooseMatesWithinEachFolder() throws {
+        let files = try mixedFolderList()
+        let request = Kraken2RunRequest(inputArguments: files.map(\.path), databaseName: "Viral", threads: 1)
+
+        let samples = try Kraken2AnalysisRunTool.samples(of: files, request: request, batch: true)
+
+        XCTAssertEqual(samples.map(\.label), ["S_1", "S_2"])
+        XCTAssertEqual(samples.map { $0.inputURLs.map(\.path) }, folderPairPaths())
+        XCTAssertEqual(samples.map(\.request.inputArguments), folderPairPaths())
+        XCTAssertEqual(samples.map(\.request.pairedEnd), [true, true])
+    }
+
+    func testEsVirituBatchPairsLooseMatesWithinEachFolder() async throws {
+        let files = try mixedFolderList()
+        let database = root.appendingPathComponent("esviritu-db", isDirectory: true)
+        try FileManager.default.createDirectory(at: database, withIntermediateDirectories: true)
+        let tool = EsVirituAnalysisRunTool(
+            options: EsVirituAnalysisRunOptions(sampleName: nil, databasePath: database, threads: 1),
+            groupsSamples: true,
+            materializer: FASTQCLIMaterializer(runner: .shared),
+            installedDatabase: { nil }
+        )
+
+        let plan = try await tool.plan(
+            AnalysisRunRequest(
+                inputs: files,
+                destination: .directory(root.appendingPathComponent("out", isDirectory: true)),
+                groupsSamples: true,
+                commandLine: ["lungfish-cli", "esviritu", "detect", "--batch"]
+            ),
+            context: AnalysisRunPlanningContext(projectURL: nil)
+        )
+
+        XCTAssertEqual(plan.units.map(\.label), ["S_1", "S_2"])
+        XCTAssertEqual(plan.units.map { $0.value.inputs.map(\.path) }, folderPairPaths())
     }
 }
