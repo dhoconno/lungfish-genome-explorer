@@ -92,7 +92,7 @@ Counting tools need a map of the genes. A [reference genome](../../GLOSSARY.md#r
 
 LGE groups the genome, annotation, and any extra sequences into a reference set. Each result counted on a set records the set's id, which identifies the sequences and annotation used for the count. Extras come in three kinds, virus, bacterium, or spike-in. [Biological replicates and the not-host share](#biological-replicates-and-the-not-host-share) explains what those extras contribute to the counts.
 
-The command `lungfish-cli rnaseq reference-set` copies files into the set, checks each SHA-256 checksum, a fingerprint of the file's bytes, and uses gffread to extract the transcript sequences. The same files give the same set. LGE stores sets outside individual projects so every project on the Mac can use them. The section [Build a reference set with rnaseq reference-set](02-counting-bulk-reads.md#build-a-reference-set-with-rnaseq-reference-set) explains the command. The guide to [reading a command-line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) introduces [Terminal](../../GLOSSARY.md#terminal), the app where you type commands for `lungfish-cli`, LGE's command-line program.
+`lungfish-cli` is LGE's command-line program. Its `lungfish-cli rnaseq reference-set` command copies files into the set, checks each SHA-256 checksum, a fingerprint of the file's bytes, and uses gffread to extract the transcript sequences. The same files give the same set. LGE stores sets outside individual projects so every project on the Mac can use them. The section [Build a reference set with rnaseq reference-set](02-counting-bulk-reads.md#build-a-reference-set-with-rnaseq-reference-set) explains the command. The guide to [reading a command-line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) introduces [Terminal](../../GLOSSARY.md#terminal), the app where you type commands.
 
 Named defaults identify specific sequences and annotations. For example, `human/gencode-50` uses the human genome version GRCh38 and GENCODE release 50, and `rhesus/ensembl-116` uses the rhesus macaque genome version Mmul_10 and Ensembl release 116. GENCODE and Ensembl publish gene annotations. You download the genome sequence file and its GTF file from their publisher and supply both files to LGE. LGE compares their SHA-256 checksums with the checksums for the named default.
 
@@ -104,11 +104,11 @@ For a Linux run, LGE prepares a plan folder containing instructions and files. W
 
 **salmon** estimates counts by transcript. Its index is a lookup table of [k-mers](../../GLOSSARY.md#k-mer), stretches of exactly k bases. LGE defaults to k = 31. The lookup finds transcripts a read might match. Suppose a read fits only X and Y, equally well. If salmon estimates X to be three times as abundant, X gets 0.75 and Y gets 0.25. LGE sums estimates by gene. By default, the index includes the whole genome as decoys, alternative matches for reads from stray DNA or RNA with introns. salmon counts bulk reads on the Mac through **Tools > RNA-seq > Quantify RNA-seq Reads…**. Counts can reuse the index for the same set and settings.
 
-**STAR** starts with [mapping](../../GLOSSARY.md#mapping), finding where reads fit on the genome. An [alignment](../../GLOSSARY.md#alignment) is one such placement. A read can cross the join between exons that lie far apart in the genome. STAR is a [splice-aware mapper](../../GLOSSARY.md#splice-aware-mapper) because it can place parts of that read on the separate exons. STAR can count with GeneCounts or give salmon alignments in transcript coordinates. Transcript coordinates are positions along the joined exons. The community-built [nf-core](../../GLOSSARY.md#nf-core)/rnaseq workflow uses the STAR and salmon pairing by default. STAR needs more memory than salmon and runs on one Linux machine or an HTCondor pool, a group of computers that share jobs.
+**STAR** starts with [mapping](../../GLOSSARY.md#mapping), finding where reads fit on the genome. An [alignment](../../GLOSSARY.md#alignment) is one such placement. A read can cross the join between exons that lie far apart in the genome. STAR is a [splice-aware mapper](../../GLOSSARY.md#splice-aware-mapper) because it can place parts of that read on the separate exons. STAR can count reads by gene with its GeneCounts option or give salmon alignments in transcript coordinates. Transcript coordinates are positions along the joined exons. The community-built [nf-core](../../GLOSSARY.md#nf-core)/rnaseq workflow uses the STAR and salmon pairing by default. STAR needs more memory than salmon and runs on one Linux machine or an HTCondor pool, a group of computers that share jobs.
 
 **featureCounts** uses the annotation's exons to count STAR's genome alignments by gene. LGE runs it after STAR in the same Linux plan. Choose it if you want gene counts from those alignments or need to match a study that used featureCounts.
 
-**Counts another tool made** come in through the [Import Center](../../GLOSSARY.md#import-center), LGE's window for bringing in data at **File > Import Center…**. Each import type has a card. **RNA-seq Counts** accepts a salmon quant folder per sample or one table of genes by samples. For a table, confirm whether the values count reads, read pairs, or UMIs so you can state the unit. **Single-cell Counts** accepts folders from STARsolo or Cell Ranger, the 10x Genomics counting program.
+**Counts another tool made** come in through the [Import Center](../../GLOSSARY.md#import-center), LGE's window for bringing in data at **File > Import Center…**. Each import type has a card. **RNA-seq Counts** accepts a salmon quant folder, which holds the estimates salmon writes for one sample, or one table of genes by samples. For a table, confirm whether the values count reads, read pairs, or UMIs so you can state the unit. **Single-cell Counts** accepts folders from STARsolo, STAR's single-cell mode, or from Cell Ranger, the 10x Genomics counting program.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
@@ -124,7 +124,7 @@ For a Linux run, LGE prepares a plan folder containing instructions and files. W
 
 A 16 GB Mac falls short of the salmon index build requirement. With that Mac and no Linux machine, you can import counts made elsewhere. An import needs no index, so you can still review counts and export them on your Mac.
 
-For uncounted 10x reads, **Single-cell Plan for a Linux Machine** plans a run with STARsolo, STAR's single-cell mode. In a 10x read pair, one read holds the barcode and UMI and the other holds the RNA sequence. The introns preset, which counts introns as well as exons, returns a folder LGE cannot adopt.
+For uncounted 10x reads, **Single-cell Plan for a Linux Machine** plans a run with STARsolo. In a 10x read pair, one read holds the barcode and UMI and the other holds the RNA sequence. The introns preset, which counts introns as well as exons, returns a folder LGE cannot adopt.
 
 Both fixtures use imports because the counts are already available. The bulk fixture has six folders from salmon 2.11.0, the version in the **RNA-Seq Analysis** plugin pack, a group of tools LGE adds on request. Across the fixture's 200 cells and 1,353 genes (every 25th gene and the mitochondrial genes), Cell Ranger counts 212,733 UMIs and STARsolo counts 212,629, a difference of 104 UMIs, about 0.05 percent. To gauge depth per cell, use the full data set, where the median is about 6,600 UMIs per cell. Close totals can hide differences for individual genes or cells.
 
@@ -173,6 +173,8 @@ The **Tools > RNA-seq** submenu appears after **Genotyping**.
 
 <!-- SHOT: rnaseq-tools-submenu -->
 
+A read [bundle](../../GLOSSARY.md#bundle) is a folder LGE treats as one item, here holding one sample's reads. Seurat is an R package for single-cell analysis. Scanpy is a package for single-cell analysis in Python, a general-purpose programming language.
+
 | Menu item | What it does | Chapter |
 |---|---|---|
 | **Quantify RNA-seq Reads…** | Counts the selected read bundles with salmon on this Mac, as one result | [Counting Bulk RNA-seq Reads](02-counting-bulk-reads.md) |
@@ -180,7 +182,7 @@ The **Tools > RNA-seq** submenu appears after **Genotyping**.
 | **Import Embedding…** | Shows a single-cell result's cells on the embedding and clusters that another tool made | [The Cell Map](05-the-cell-map.md) |
 | **Pseudobulk RNA-seq Cells…** | Sums a single-cell result's UMIs by sample and label into a new bulk result | [Single-Cell RNA-seq Counts](04-single-cell-counts.md) |
 
-A read [bundle](../../GLOSSARY.md#bundle) is a folder LGE treats as one item, here holding one sample's reads. Of these four items, only **Quantify RNA-seq Reads…** needs the **RNA-Seq Analysis** [plugin pack](../../GLOSSARY.md#plugin-pack), which contains salmon and gffread. [Plugin Packs](../01-foundations/07-plugin-packs.md) explains how to add it.
+Of these four items, only **Quantify RNA-seq Reads…** needs the **RNA-Seq Analysis** [plugin pack](../../GLOSSARY.md#plugin-pack), which contains salmon and gffread. [Plugin Packs](../01-foundations/07-plugin-packs.md) explains how to add it.
 
 The Import Center's **Sequencing Reads** tab has five RNA-seq cards.
 
@@ -198,7 +200,7 @@ Each result opens in its own viewer from **Analyses** in the sidebar. The result
 
 ## What the RNA-seq tools leave to other software
 
-Seurat, a package for R, and Scanpy, a package for Python, analyze single-cell data. Matrix Market is a plain-text format Cell Ranger and STARsolo use for matrices with mostly zero entries.
+Matrix Market is a plain-text format Cell Ranger and STARsolo use for matrices with mostly zero entries. HDF5 is a binary file format for storing large data sets.
 
 | Task | What LGE does | Where to do it |
 |---|---|---|
