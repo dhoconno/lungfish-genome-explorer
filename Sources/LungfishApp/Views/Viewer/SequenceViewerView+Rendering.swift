@@ -412,7 +412,8 @@ extension SequenceViewerView {
                     frame: frame.figureFrame,
                     context: context, figureTheme: figureTheme,
                     rect: coverageRect,
-                    scaleMode: coverageScaleModeSetting
+                    scaleMode: coverageScaleModeSetting,
+                    trailingBandWidth: frame.trailingInset
                 )
             }
             if isFetchingDepth && cachedDepthPoints.isEmpty {
@@ -572,8 +573,10 @@ extension SequenceViewerView {
 
                     // Clip to visible read area and translate by scroll offset
                     let clipRect = CGRect(x: 0, y: rowsY, width: bounds.width, height: visibleHeight)
+                    // Reads stay between the gutter and the right band. `clipRect` stays full width for culling and the scroll indicator.
+                    let dataClipRect = CGRect(x: frame.leadingInset, y: rowsY, width: max(0, bounds.width - frame.leadingInset - frame.trailingInset), height: visibleHeight)
                     context.saveGState()
-                    context.clip(to: clipRect)
+                    context.clip(to: dataClipRect)
                     context.translateBy(x: 0, y: -readScrollOffset)
 
                     let drawRect = CGRect(x: 0, y: rowsY, width: bounds.width, height: contentHeight)
@@ -589,21 +592,8 @@ extension SequenceViewerView {
                         maskedPositions = []
                     }
 
-                    // The context was translated by -readScrollOffset, so the
-                    // painted window in *content* coordinates is the clip rect
-                    // shifted down by the scroll offset. Rows scrolled above the
-                    // viewport are culled instead of being walked read-by-read.
+                    // The context is translated by -readScrollOffset, so culling works in content coordinates. Narrowing the cull to `dirtyRect`'s overlap lets a badge-only redraw skip rows, and a full redraw's pixels are unchanged.
                     let contentClipRect = clipRect.offsetBy(dx: 0, dy: readScrollOffset)
-
-                    // ReadTrackRenderer already culls rows to `clipRect` internally
-                    // (ReadTrackCulling.visibleRowRange) — it just was never told
-                    // about a narrow
-                    // invalidation, so a badge-only redraw still walked every visible row when
-                    // packing 50k+ reads. Narrowing the clip passed in to `dirtyRect`'s overlap
-                    // lets that existing culling skip rows outside the current repaint, and
-                    // skips the call outright when there is no overlap at all. A full redraw's
-                    // dirtyRect covers all of `bounds`, so the intersection equals `contentClipRect`
-                    // there and pixel output is unchanged.
                     let paintClipRect = contentClipRect.intersection(dirtyRect.offsetBy(dx: 0, dy: readScrollOffset))
                     if !paintClipRect.isEmpty {
                         if tier == .packed {
@@ -770,7 +760,8 @@ extension SequenceViewerView {
             frame: frame.figureFrame,
             context: context, figureTheme: figureTheme,
             rect: coverageRect,
-            scaleMode: coverageScaleModeSetting
+            scaleMode: coverageScaleModeSetting,
+            trailingBandWidth: frame.trailingInset
         )
 
         let rowsY = coverageRect.maxY + coverageToConsensusGap
@@ -817,10 +808,17 @@ extension SequenceViewerView {
             showStrandColors: showStrandColorsSetting,
             colorMode: readColorModeSetting
         )
+        let dataClipRect = CGRect(x: frame.leadingInset, y: rect.minY, width: max(0, bounds.width - frame.leadingInset - frame.trailingInset), height: rect.height) // the clip wraps the read draws, not the badge
         if tier == .packed {
+            context.saveGState()
+            context.clip(to: dataClipRect)
             ReadTrackRenderer.drawPackedReads(packedReads: packed, overflow: overflow, frame: frame.figureFrame, referenceSequence: source.referenceSequence, referenceStart: 0, settings: settings, verticalCompress: verticallyCompressContigSetting, maxRowsLimit: maxRows, maskedPositions: [], layout: cachedPackedReadLayout, clipRect: rect, mismatchCache: cachedReadMismatchCache, context: context, figureTheme: figureTheme, rect: rect)
+            context.restoreGState()
         } else {
+            context.saveGState()
+            context.clip(to: dataClipRect)
             ReadTrackRenderer.drawBaseReads(packedReads: packed, overflow: overflow, frame: frame.figureFrame, referenceSequence: source.referenceSequence, referenceStart: 0, settings: settings, verticalCompress: verticallyCompressContigSetting, maxRowsLimit: maxRows, maskedPositions: [], layout: cachedPackedReadLayout, clipRect: rect, mismatchCache: cachedReadMismatchCache, context: context, figureTheme: figureTheme, rect: rect)
+            context.restoreGState()
             if source.referenceSequence == nil && ReadTrackRenderer.shouldShowNoReferenceBadge(hasReference: false, hasMDTags: packed.contains(where: { $0.read.mdTag != nil })) {
                 drawTrackLoadingBadge(context: context, message: ReadTrackRenderer.noReferenceBadgeMessage, yOffset: rowsY + 2, tooltip: ReadTrackRenderer.noReferenceBadgeTooltip)
             }
