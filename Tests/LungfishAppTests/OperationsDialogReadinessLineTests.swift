@@ -603,4 +603,21 @@ extension OperationsDialogReadinessLineTests {
         XCTAssertEqual(shell(runOn: true, attention: nil).statusColor, Color.lungfishSecondaryText)
         XCTAssertEqual(shell(runOn: true, attention: true).statusColor, Color.lungfishOrangeFallback)
     }
+
+    /// The pane hands each embedded wizard's line to the dialog state. The argument defaults to nil, so a dropped one compiles, and
+    /// the Assembly closure must name the tool selected, since the pane serves five tools.
+    func testThePaneHandsAnEmbeddedWizardsLineToTheFooter() throws {
+        for tool in [FASTQOperationToolID.spades, .hifiasm, .viralRecon] {
+            let state = Fx.fastqState(tool)
+            XCTAssertNil(state.embeddedToolReadinessDetail, tool.rawValue)
+            let dialog = try FASTQOperationDialog(state: state, onCancel: {}, onRun: {}).inspect()
+            if tool == .viralRecon {
+                try dialog.find(ViralReconWizardSheet.self).scrollView().callOnAppear()
+            } else {
+                try dialog.find(AssemblyWizardSheet.self).group().callOnAppear()
+            }
+            let detail = try XCTUnwrap(state.embeddedToolReadinessDetail, tool.rawValue)
+            XCTAssertEqual(state.readinessText, detail, tool.rawValue)
+        }
+    }
 }
