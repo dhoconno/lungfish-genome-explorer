@@ -166,6 +166,27 @@ final class RNASeqSingleCellViewTests: XCTestCase {
         XCTAssertEqual(LungfishHelpContent.catalogFaults(in: RNASeqSingleCellHelp.items), [])
     }
 
+    /// BIO ANSWER 9 and the lane's finding 1. VoiceOver names the rank plot as the section heading above it names it, and no
+    /// heading calls the ranked items barcodes. The label is read from the plot and the headings, not from the source (QA 2).
+    @MainActor
+    func testTheRankPlotIsNamedForVoiceOverAsItsHeadingNamesItAndNoHeadingCallsACellABarcode() async throws {
+        let url = try RNASeqSingleCellFixtures.write(.cellRanger, into: root)
+        let (_, view) = try await open(url)
+        let subviews = RNASeqSingleCellFixtures.allSubviews(of: view.view)
+        let plot = try XCTUnwrap(subviews.first { $0.accessibilityIdentifier() == "rnaseq-sc-rank-plot" })
+        let headings = subviews.compactMap { $0 as? NSTextField }.filter { $0.accessibilityIdentifier().isEmpty }.map(\.stringValue)
+        XCTAssertTrue(headings.contains("Cells ranked by UMIs"), "the heading above the plot reads Cells ranked by UMIs")
+        XCTAssertEqual(plot.accessibilityLabel(), "Cells ranked by UMIs", "VoiceOver names the plot as its heading does")
+        XCTAssertEqual(plot.accessibilityRole(), NSAccessibility.Role.image)
+        XCTAssertFalse(headings.joined(separator: "\n").lowercased().contains("barcode"), "no heading calls the ranked items barcodes")
+        let steps = try XCTUnwrap(view.summary?.rankSteps)
+        let first = try XCTUnwrap(steps.first)
+        let last = try XCTUnwrap(steps.last)
+        XCTAssertEqual(plot.accessibilityValue() as? String,
+                       "Rank \(first.firstRank) holds \(first.umis) UMIs, rank \(last.lastRank) holds \(last.umis) UMIs",
+                       "the value keeps reading the plot's numbers")
+    }
+
     @MainActor
     func testTheSummaryKeepsItsAccessibilityOrderWithANotHostTable() async throws {
         let url = try RNASeqSingleCellFixtures.write(.starsolo, into: root, notHost: .virus)
