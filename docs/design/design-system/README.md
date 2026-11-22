@@ -35,11 +35,11 @@ Each word a person reads in the app goes in one of six places. Three of them bel
    - Every refusal, failure and warning, and the sentence that marks a result an earlier build wrote with a known defect (`docs/contracts/SCOPE-AND-DELIVERY.md`, row Affected results).
    - An exceptional fact takes one line where it can, at most about 20 words, and its general reason sits one click away. A disclosure that is closed by default never holds an exceptional fact.
 2. **One click away.** General explanation, true of every result of its kind, such as how to read a t-SNE map, what a cluster number means, how an engine works or what a file format holds.
-   - Its home is an info button beside the control or the data it explains, never one button for a whole surface. The button shows `info.circle`, since the round `?` button opens the app's help. It can take keyboard focus, carries the VoiceOver label "About <thing>", and opens a transient popover. Space opens the popover and Esc closes it, and no Esc reaches the window behind.
+   - Its home is an info button beside the control or the data it explains, never one button for a whole surface. The button shows `info.circle`, since the round `?` button opens the app's help. It can take keyboard focus, carries the VoiceOver label `About <thing>`, and opens a transient popover. Space opens the popover and Esc closes it, and no Esc reaches the window behind.
    - Build it with `LungfishInfoButton` in AppKit or `LungfishInfoButtonView` in SwiftUI, from one help item (`Sources/LungfishKit/LungfishInfoButton.swift`). The item's summary is the button's help tag and its detail is the popover's text.
    - Optional settings sit in a disclosure group, closed by default.
    - A general caveat that a ruling binds lives here.
-3. **Help tag.** A short phrase on a control that says what the control does, at most 20 words, with the same text as its VoiceOver help (`.lungfishHelp` in SwiftUI and `applyLungfishHelp` in AppKit). A help tag is never the only home of a ruled caveat or a refusal, since a keyboard user and a background walk cannot hover. A plot or another data canvas takes no help tag, since its hover shows the data.
+3. **Help tag.** A short phrase on a control that says what the control does, at most 20 words. Its VoiceOver help carries the same text. Use `.lungfishHelpSummary(_:)` in SwiftUI, or `applyLungfishHelp` in AppKit with an item that has no detail, since `.lungfishHelp` and `applyLungfishHelp` give VoiceOver the item's detail when it has one. A help tag is never the only home of a ruled caveat or a refusal, since a keyboard user and a background walk cannot hover. A plot or another data canvas takes no help tag, since its hover shows the data.
 
 The other three sit outside the view.
 
@@ -60,10 +60,10 @@ The rule rests on these pages of Apple's Human Interface Guidelines (HIG). Each 
 | Disclosure controls | [disclosure-controls](https://developer.apple.com/design/human-interface-guidelines/disclosure-controls) | A disclosure control reveals and hides information and functionality that belong to a control or view |
 | Panels | [panels](https://developer.apple.com/design/human-interface-guidelines/panels) | A panel offers information about the active window or the current selection |
 | Split views | [split-views](https://developer.apple.com/design/human-interface-guidelines/split-views) | A split view can show an inspector pane beside the content |
-| Layout | [layout](https://developer.apple.com/design/human-interface-guidelines/layout) | The primary content gets most of the space |
+| Layout | [layout](https://developer.apple.com/design/human-interface-guidelines/layout) | The most important content goes where people look first, near the top and the leading side |
 | Writing | [writing](https://developer.apple.com/design/human-interface-guidelines/writing) | Words are short, plain and direct |
-| Buttons | [buttons](https://developer.apple.com/design/human-interface-guidelines/buttons) | The round help button with a question mark opens help documentation, so an info button uses `info.circle` |
-| Accessibility | [accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility) | Every control has a label that VoiceOver reads |
+| Buttons | [buttons](https://developer.apple.com/design/human-interface-guidelines/buttons) | The round help button with a question mark opens the app's help documentation |
+| Accessibility | [accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility) | Label each interface element so VoiceOver and other assistive technologies can describe it |
 
 ## Color
 
