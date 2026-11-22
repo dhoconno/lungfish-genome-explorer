@@ -47,6 +47,65 @@ final class LoosePairShortMateTests: XCTestCase {
         }
     }
 
+    // MARK: - Equal counts, mates out of step (S1 LOOSE-PAIR-OUT-OF-STEP)
+
+    /// BIO ruling on LOOSE-PAIR-OUT-OF-STEP. Two files of one count whose records come in another order
+    /// pair two different fragments from the first slip on, so the plan refuses them at that read.
+    func testEqualCountMatesOutOfStepAreRefusedByEveryLoosePairedRoute() async throws {
+        let r1 = try writeMates("S_R1.fastq", mate: 1, count: 100)
+        var names = (1...100).map { "frag\($0)/2" }
+        names.swapAt(1, 2)
+        let r2 = loose.appendingPathComponent("S_R2.fastq")
+        try Data(ReadSetFixtures.fastq(names).utf8).write(to: r2)
+
+        for route in Route.allCases {
+            let refusal = await planRefusal(route, r1: r1, r2: r2)
+            XCTAssertEqual(
+                refusal.words,
+                "Paired FASTQ mates are out of step at read 2. S_R1.fastq has 'frag2/1', but S_R2.fastq has 'frag3/2'. Nothing ran. Check that both files are from the same run and neither was sorted or subsampled on its own, or run each file as single reads.",
+                route.rawValue
+            )
+            XCTAssertEqual(refusal.exitCode, 3, route.rawValue)
+        }
+    }
+
+    /// BIO ruling, step 2. SRA files name both mates with one serial and no mate mark, so two different
+    /// serials are refused too. A rule that refused only two marked names would let this pair through.
+    func testEqualCountSRASerialsOutOfStepAreRefusedByEveryLoosePairedRoute() async throws {
+        let serials = (1...100).map { "SRR9.\($0)" }
+        var swapped = serials
+        swapped.swapAt(4, 8)
+        let r1 = loose.appendingPathComponent("S_R1.fastq")
+        let r2 = loose.appendingPathComponent("S_R2.fastq")
+        try Data(ReadSetFixtures.fastq(serials).utf8).write(to: r1)
+        try Data(ReadSetFixtures.fastq(swapped).utf8).write(to: r2)
+
+        for route in Route.allCases {
+            let refusal = await planRefusal(route, r1: r1, r2: r2)
+            XCTAssertEqual(
+                refusal.words,
+                "Paired FASTQ mates are out of step at read 5. S_R1.fastq has 'SRR9.5', but S_R2.fastq has 'SRR9.9'. Nothing ran. Check that both files are from the same run and neither was sorted or subsampled on its own, or run each file as single reads.",
+                route.rawValue
+            )
+            XCTAssertEqual(refusal.exitCode, 3, route.rawValue)
+        }
+    }
+
+    /// Guard for the two tests above. Equal SRA serials in both files, in step, plan on every route.
+    func testEqualSRASerialsInStepPlanOnEveryLoosePairedRoute() async throws {
+        let serials = (1...100).map { "SRR9.\($0)" }
+        let r1 = loose.appendingPathComponent("S_R1.fastq")
+        let r2 = loose.appendingPathComponent("S_R2.fastq")
+        try Data(ReadSetFixtures.fastq(serials).utf8).write(to: r1)
+        try Data(ReadSetFixtures.fastq(serials).utf8).write(to: r2)
+
+        for route in Route.allCases {
+            let refusal = await planRefusal(route, r1: r1, r2: r2)
+            XCTAssertNil(refusal.words, route.rawValue)
+            XCTAssertNil(refusal.exitCode, route.rawValue)
+        }
+    }
+
     // MARK: - Files that cannot be parsed
 
     func testAnR2CutMidRecordIsRefusedWithTheReadersWordsByEveryLoosePairedRoute() async throws {
