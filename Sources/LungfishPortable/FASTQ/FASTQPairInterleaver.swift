@@ -269,6 +269,61 @@ extension FASTQPairInterleaver {
         return mark1.fragment == mark2.fragment && mark1.mate == 1 && mark2.mate == 2 ? .mates : .notMates
     }
 
+    /// Whether the header lines `line1` and `line2`, each with its leading `@`, are mates by their bytes, with no
+    /// `String` built. True only where ``recordedMates(_:_:)`` of the two texts is `.mates`: lines that differ in
+    /// their last byte only and end `/1` and `/2`; the same read ID with a Casava ` 1:` and ` 2:` comment; the same
+    /// read ID with no mate number in either line (SRA). Any other pair, and any line with a byte outside ASCII,
+    /// gives false, which is no verdict: the caller asks ``recordedMates(_:_:)`` (LOOSE-PAIR-OUT-OF-STEP, cost).
+    package static func headersAreMatesByBytes(_ line1: [UInt8], _ line2: [UInt8]) -> Bool {
+        let count1 = line1.count
+        let count2 = line2.count
+        guard count1 > 3, count2 > 3, line1[1] != 0x40, line2[1] != 0x40,
+              line1.allSatisfy({ $0 < 0x80 }), line2.allSatisfy({ $0 < 0x80 }) else { return false }
+        let end1 = readIDEnd(line1)
+        let end2 = readIDEnd(line2)
+        // `X/1` and `X/2`: the pair ID is X, unless the read ID is a shorter token that ends `/1` or `/2` itself,
+        // which both lines then share.
+        if count1 == count2, line1[count1 - 2] == 0x2F, line1[count1 - 1] == 0x31, line2[count2 - 1] == 0x32,
+           line1[..<(count1 - 1)].elementsEqual(line2[..<(count2 - 1)]) {
+            return end1 == count1 || !endsInSlashMate(line1, end: end1)
+        }
+        // The same read ID, which carries no `/1` or `/2`, and no line ends in one.
+        guard end1 == end2, end1 > 1, line1[1..<end1].elementsEqual(line2[1..<end2]),
+              !endsInSlashMate(line1, end: end1),
+              !endsInSlashMate(line1, end: count1), !endsInSlashMate(line2, end: count2) else { return false }
+        let space1 = firstSpace(in: line1)
+        let space2 = firstSpace(in: line2)
+        let comment1 = casavaMate(in: line1, afterSpaceAt: space1)
+        let comment2 = casavaMate(in: line2, afterSpaceAt: space2)
+        if comment1 == 0 && comment2 == 0 { return true }
+        return comment1 == 1 && comment2 == 2 && space1 == end1 && space2 == end2
+    }
+
+    /// The index after the read ID of a header line: its first space or tab after the `@`, else its end.
+    private static func readIDEnd(_ line: [UInt8]) -> Int {
+        var index = 1
+        while index < line.count, line[index] != 0x20, line[index] != 0x09 { index += 1 }
+        return index
+    }
+
+    /// The index of the first space of a header line, else its end.
+    private static func firstSpace(in line: [UInt8]) -> Int {
+        var index = 1
+        while index < line.count, line[index] != 0x20 { index += 1 }
+        return index
+    }
+
+    /// Whether `line[..<end]` ends in `/1` or `/2`.
+    private static func endsInSlashMate(_ line: [UInt8], end: Int) -> Bool {
+        end >= 3 && line[end - 2] == 0x2F && (line[end - 1] == 0x31 || line[end - 1] == 0x32)
+    }
+
+    /// 1 or 2 when the text after the first space of a header line starts `1:` or `2:`, else 0.
+    private static func casavaMate(in line: [UInt8], afterSpaceAt space: Int) -> Int {
+        guard space + 2 < line.count, line[space + 2] == 0x3A else { return 0 }
+        return line[space + 1] == 0x31 ? 1 : (line[space + 1] == 0x32 ? 2 : 0)
+    }
+
     /// The fragment and the mate number a read name carries, from `/1` `/2`,
     /// `.1` `.2` or `_1` `_2` at the end of its read ID, or a Casava
     /// ` 1:N:` comment.
@@ -526,6 +581,7 @@ extension FASTQPairInterleaver {
         var recordNumber = 0
         return try interleave(r1: r1, r2: r2, requireMates: false, launcher: launcher) { record1, record2 in
             recordNumber += 1
+            if headersAreMatesByBytes(record1[0], record2[0]) { return }
             let name1 = headerText(record1[0])
             let name2 = headerText(record2[0])
             if recordedMates(name1, name2) != .mates {

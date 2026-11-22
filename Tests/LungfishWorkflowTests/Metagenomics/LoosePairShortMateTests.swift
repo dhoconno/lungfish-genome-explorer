@@ -121,6 +121,39 @@ final class LoosePairShortMateTests: XCTestCase {
         }
     }
 
+    // MARK: - The byte rule of the name check (FIX-B2 SWIFT SF3)
+
+    func testTheByteRuleOfTheNameCheckNeverAnswersTrueWhereRecordedMatesDoesNot() {
+        let ids = ["r1", "r1/1", "r1/2", "r1.1", "r1.2", "r2", "SRR1.7.1", "SRR1.7.2", "r_1", "r_2", "", "@r1", "x"]
+        let tails = [
+            "", " x", "\tx", " 1:N:0:A", " 2:N:0:A", " 1:N:0:B", " 3:N:0:A", " 1 length=3", " 1:", " 1",
+            " x/1", " x/2", "/1", "/2", "\t1:N", "\tz 1:N", "\tz 2:N", " \u{E9}",
+        ]
+        let names = ids.flatMap { id in tails.map { id + $0 } }
+        let lines = names.map { Array(("@" + $0).utf8) }
+        var wrong: [String] = []
+        for (first, line1) in zip(names, lines) {
+            for (second, line2) in zip(names, lines) where FASTQPairInterleaver.headersAreMatesByBytes(line1, line2) {
+                if FASTQPairInterleaver.recordedMates(first, second) != .mates { wrong.append("\(first) | \(second)") }
+            }
+        }
+        XCTAssertEqual(wrong, [])
+    }
+
+    func testTheByteRuleOfTheNameCheckAnswersTrueForTheNameShapesOfRealPairs() {
+        let pairs = [
+            ("ERR12390094.1 M02622:1:000000000-A1:1:1101:1:1 length=76", "ERR12390094.1 M02622:1:000000000-A1:1:1101:1:1 length=75"),
+            ("ERR5069949.2151832 NS500628:1:1:1:1:1:15304/1", "ERR5069949.2151832 NS500628:1:1:1:1:1:15304/2"),
+            ("SRR12486983.546204 SRR12486983.580413/1", "SRR12486983.546204 SRR12486983.580413/2"),
+            ("LH00685:57:23TVN3LT3:1:1101:2126:1061 1:N:0:GAACTGAGCG+CGCTCCACGA", "LH00685:57:23TVN3LT3:1:1101:2126:1061 2:N:0:GAACTGAGCG+CGCTCCACGA"),
+            ("frag2/1", "frag2/2"),
+        ]
+        XCTAssertEqual(
+            pairs.map { FASTQPairInterleaver.headersAreMatesByBytes(Array(("@" + $0.0).utf8), Array(("@" + $0.1).utf8)) },
+            [true, true, true, true, true]
+        )
+    }
+
     // MARK: - Files that cannot be parsed
 
     func testAnR2CutMidRecordIsRefusedWithTheReadersWordsByEveryLoosePairedRoute() async throws {
