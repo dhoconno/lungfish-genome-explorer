@@ -3,8 +3,8 @@ title: Reading an Alignment
 chapter_id: 04-alignments/02-reading-an-alignment
 audience: bench-scientist
 prereqs: [01-foundations/04-alignment-files, 04-alignments/01-mapping-reads-to-a-reference]
-estimated_reading_min: 22
-task: Open an alignment track, read its coverage curve and its pileup, tune what the viewport draws, and pull the reads out of one region.
+estimated_reading_min: 24
+task: Open an alignment track, read its coverage curve and its pileup, tune what the viewport draws, export it as a figure, and pull the reads out of one region.
 tags: [alignments, bam, viewport, coverage, pileup, extraction]
 tools: [samtools]
 parameters_refs: [bam.read-display, bam.extract-reads-in-region]
@@ -13,10 +13,11 @@ entry_points:
   - "Sequence > Go to Location... (Cmd-L)"
   - "Inspector > View Settings > Alignment and Reads tabs"
   - "Right-click a selection in the alignment track > Extract Reads in Selected Region..."
+  - "File > Export > Image (PNG)... or Image (PDF)..."
   - "CLI: lungfish-cli extract reads --by-region"
 shots:
   - id: bam-viewport-overview
-    caption: "The alignment viewport for the HG002 chromosome 20 slice at its whole-region zoom, with the coverage curve, the Depth key and percent-covered figure at the left-hand edge of the coverage strip, the max and mean label at its right-hand edge, and the message asking you to zoom in before individual reads are drawn."
+    caption: "The mapping viewer for the HG002 chromosome 20 slice, with the contig table's Track, Mapped Reads, Mean Depth and Coverage Breadth columns above the alignment at its whole-region zoom. The coverage curve carries the Depth key and percent-covered figure at its left-hand edge and the max and mean label at its right-hand edge, and a message asks you to zoom in before individual reads are drawn."
   - id: view-settings-alignment-tab
     caption: "The Alignment tab of the Inspector's View Settings, showing the Visible Alignment picker, Show reads, Minimum alignment confidence, Coverage scale, and the three Read Inclusion toggles."
   - id: view-settings-reads-tab
@@ -25,12 +26,16 @@ shots:
     caption: "The pileup at position 2,078 of the HG002 chromosome 20 slice, with matching bases drawn as dots and the alternate A highlighted as coloured blocks on both strands."
   - id: extract-reads-region-menu
     caption: "The context menu over a selected stretch of the alignment track, with Extract Reads in Selected Region... showing beneath Copy Visible Region, Copy Visible Region as FASTA, and Extract Visible Region..."
+  - id: hover-card-pinned
+    caption: "A pinned hover card over one read of the HG002 chromosome 20 slice. Its header reads Pinned details beside the Pinned, Copy and Close buttons, and its lines give the read's name, strand and span, MAPQ and CIGAR string, and pair and mate."
+  - id: alignment-figure-export
+    caption: "A PNG image of the HG002 chromosome 20 slice around position 2,078 made with File > Export > Image (PNG)... while Minimum alignment confidence was 30. The contig and range line sits at the top, the Depth strip has a line under it naming the mapping-quality cutoff of 30, and the reads below carry their mismatch marks."
 illustrations:
   - id: alignment-zoom-tiers
     brief: "Three stacked thumbnails of the same stretch of the HG002 chromosome 20 slice in the alignment viewport, each labelled with its bases per pixel. Top, above 2 bp/px, the coverage curve alone with the message asking you to zoom in where the reads would be. Middle, between 2 and 0.6 bp/px, the reads as plain strand-tinted bars. Bottom, below 0.6 bp/px, the reads with their bases, matching bases as dots and one alternate base in its colour. A thin Lungfish Creamsicle bracket at the left of each thumbnail names the tier (coverage, bars, bases). Cream background, IBM Plex Mono for the bp/px labels."
 
-glossary_refs: [bam, coverage, coverage-breadth, depth, pileup, soft-clip, strand, strand-bias, supplementary-alignment, secondary-alignment, pcr-duplicate, mapq, allele-frequency, flagstat, extraction, contig, alignment-track, provenance-sidecar, read, mapper, reference-bundle, shotgun, homozygous, heterozygous, amplicon, phred-score, cigar, inspector, operations-panel]
-features_refs: []
+glossary_refs: [bam, coverage, coverage-breadth, depth, pileup, soft-clip, strand, strand-bias, supplementary-alignment, secondary-alignment, pcr-duplicate, mapq, allele-frequency, flagstat, extraction, contig, alignment-track, provenance-sidecar, read, mapper, reference-bundle, shotgun, homozygous, heterozygous, amplicon, phred-score, cigar, inspector, operations-panel, fragment, flag, read-group]
+features_refs: [viewport.alignment-pileup, bam.extract-reads, viewer.export-image]
 fixtures_refs: [hg002-chr20]
 brand_reviewed: false
 lead_approved: false
@@ -38,7 +43,7 @@ lead_approved: false
 
 ## What it is
 
-A [BAM](../../GLOSSARY.md#bam) file holds one row per aligned read, with an index beside it that lets a viewer jump to any position. A [read](../../GLOSSARY.md#read) is the record a sequencer writes for one DNA fragment, and the [mapper](../../GLOSSARY.md#mapper) is the program that decided where on the reference each read belongs. A table with ninety thousand rows is not something a person reads, so Lungfish Genome Explorer (LGE) draws it as a picture instead. This chapter teaches you to read that picture.
+A [BAM](../../GLOSSARY.md#bam) file holds one row, called an alignment record, for each place a read aligned, with an index beside it that lets a viewer jump to any position. A [read](../../GLOSSARY.md#read) is the sequence an instrument reports for one piece of the sample's DNA, a [fragment](../../GLOSSARY.md#fragment), and the [mapper](../../GLOSSARY.md#mapper) is the program that decided where on the reference each read belongs. Most reads align in one place and have one record, but a read that fits two places can have two. A table with ninety thousand rows is not something a person reads, so Lungfish Genome Explorer (LGE) draws it as a picture instead. This chapter teaches you to read that picture.
 
 The picture is the alignment viewport, and it has three bands stacked from top to bottom. A position ruler runs along the top, marking where you are on the reference in bases. Under the ruler sits the coverage curve, a chart of how many reads sit over each position. Under that the reads stack up as horizontal bars drawn where the mapper placed them. Read straight down through the stack at one position and you get a single column of bases, which is the [pileup](../../GLOSSARY.md#pileup). The reference sequence itself runs in its own row above the coverage curve. Zoom in far enough and a fourth band, the consensus row, appears between the curve and the reads. It shows the base most reads carry at each position, labelled Consensus.
 
@@ -78,19 +83,19 @@ The viewport reads the BAM with `samtools`, which arrives with the [Required Set
 
 The first four steps read the picture. The fifth pulls reads back out of it.
 
-1. Click the `minimap2-` mapping result under **Analyses** in the sidebar. The viewport becomes the mapping viewport, with a table of mapped sequences at the top and the alignment below it, and LGE selects the table's one row, `chr20_10.0-10.5Mb`, for you. The [Inspector](../../GLOSSARY.md#inspector) switches to the mapping result. At the opening zoom the whole slice is on screen, so you see the coverage curve alone. Click **Focus** above the table to give the alignment the whole viewport, and **Back** to return.
+1. Click the `minimap2-` mapping result under **Analyses** in the sidebar. The viewport becomes the mapping viewport, with a table of mapped sequences at the top and the alignment below it, and LGE selects the table's one row, `chr20_10.0-10.5Mb`, for you. In that row **Track** names the alignment track, **Mapped Reads** counts reads, each read once however many records it has, and **Mean Depth** and **Coverage Breadth** are measured from the alignment, as [Mapping Reads to a Reference](01-mapping-reads-to-a-reference.md#reading-the-results) explains column by column. The [Inspector](../../GLOSSARY.md#inspector) switches to the mapping result. At the opening zoom the whole slice is on screen, so you see the coverage curve alone. Click **Focus** above the table to give the alignment the whole viewport, and **Back** to return.
 
     <!-- SHOT: bam-viewport-overview -->
 
-2. Read the coverage curve. Its height at each point is the total depth there, whichever strand the reads came from. Hover any point for a three-line tooltip naming the band (`Depth`), the contig and position (such as `chr20_10.0-10.5Mb:12345`), and the depth (such as `Depth: 47x`). Those numbers show the format only. A `Depth` key at the strip's left-hand edge carries the percentage of the window with any read beside it, reading `100% covered` here. At the right-hand edge a label such as `max: 79x  mean: 44.7x` gives the deepest column in view and the average across the visible window. Both are recomputed for whatever is on screen. While you hover the curve, the status bar at the bottom of the window also reads `Depth: 47x at` followed by the contig and position.
+2. Read the coverage curve. Its height at each point is the total depth there, whichever strand the reads came from. Hover any point for a hover card, the small panel of details that [The hover card and the Selected Read panel](#the-hover-card-and-the-selected-read-panel) describes. Over the curve it has three lines naming the band (`Depth`), the contig and position (such as `chr20_10.0-10.5Mb:12345`), and the depth (such as `Depth: 47x`). Those numbers show the format only. A `Depth` key at the strip's left-hand edge carries the percentage of the window with any read beside it, reading `100% covered` here. At the right-hand edge a label such as `max: 79x  mean: 44.7x` gives the deepest column in view and the average across the visible window. Both are recomputed for whatever is on screen. While you hover the curve, the status bar at the bottom of the window also reads `Depth: 47x at` followed by the contig and position.
 
 3. Go to position 2,078 and zoom in until the base letters appear. Choose **Sequence > Go to Location...** (Cmd-L) and type `2078` with no comma. Positions in this chapter count from the start of the 500 kilobase slice, not from the start of chromosome 20, as [Alignment Files](../01-foundations/04-alignment-files.md#why-you-would-do-this) explains. Add 9,999,999 to turn one into a GRCh38 chromosome 20 position. Zoom with Cmd-= and Cmd-minus (**View > Zoom In** and **Zoom Out**), with the Up and Down arrow keys, or by pinching on a trackpad. Left and Right pan. **Zoom to Fit** (Cmd-0) shows the whole [contig](../../GLOSSARY.md#contig-reference), the one named sequence in the reference, and **Zoom Reset (10kb)** (Cmd-1) shows ten kilobases around where you are. Stop when the status bar reads below 0.6 bases per pixel.
 
     <!-- SHOT: pileup-zoom -->
 
-4. Read the pileup. The reference sequence row above the coverage curve now shows letters, the Consensus row under the curve shows the majority base from the reads, and the reads stack below it. A read base that agrees with the reference is drawn as a small dot and one that disagrees is drawn in its base colour. The colours are fixed, A green, T red, G yellow, and C blue. Click any read to select it, and the Inspector's **Selected Item** tab shows that read's numbers under **Selected Read**. Then go to `250527`, a position where only some reads differ, right-click the read stack at that column, and choose **Sort Reads by Base Here**. The reads split into two blocks by the base they carry there, with the rarer base on top. Here the 27 reads carrying the reference `C` sit above the 36 carrying `T`, so about six reads in every ten carry the change.
+4. Read the pileup. The reference sequence row above the coverage curve now shows letters, the Consensus row under the curve shows the majority base from the reads, and the reads stack below it. A read base that agrees with the reference is drawn as a small dot and one that disagrees is drawn in its base colour. The colours are fixed, A green, T red, G yellow, and C blue. Click any read to select it, and the Inspector's **Selected Item** tab shows that read's numbers under **Selected Read**. Hover a read instead and its hover card gives its name, placement, and mate. Then go to `250527`, a position where only some reads differ, right-click the read stack at that column, and choose **Sort Reads by Base Here**. The reads split into two blocks by the base they carry there, with the rarer base on top. Here the 27 reads carrying the reference `C` sit above the 36 carrying `T`, so about six reads in every ten carry the change.
 
-5. Pull the reads out of a region. Drag horizontally along the Consensus row to select a stretch. A drag that starts on a read selects that read instead. Right-click inside the selection and choose **Extract Reads in Selected Region...**. LGE writes every read overlapping that stretch that the viewer's filters let through, each one whole, into a `.lungfishfastq` bundle named `selected-region-` followed by a unique identifier. The filters are the ones described under Settings, so by default unmapped, secondary, supplementary, and duplicate-marked records are left out. No save panel opens inside a project. The bundle lands in an `alignment-read-extractions/` folder inside the mapping run's folder under `Analyses/`, or under the project root when the track has no run folder. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P).
+5. Pull the reads out of a region. Drag horizontally along the Consensus row to select a stretch. A drag that starts on a read selects that read instead. Right-click inside the selection and choose **Extract Reads in Selected Region...**. LGE writes every read overlapping that stretch that the viewer's filters let through, each one whole, into a `.lungfishfastq` bundle named `selected-region-` followed by a unique identifier. The filters are the ones described under Settings, so by default unmapped, secondary, supplementary, and duplicate-marked records are left out. When a run mapped the two mates of a pair as two single reads, as happens with reads downloaded from the Sequence Read Archive (SRA), both mates are kept. No save panel opens inside a project. The bundle lands in an `alignment-read-extractions/` folder inside the mapping run's folder under `Analyses/`, or under the project root when the track has no run folder. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). Its row, **Extract Reads in Selected Region**, runs `lungfish-cli extract reads`, and **Copy CLI Command** on the row copies that command. The count the run reports is of alignment records. The bundle can hold a few fewer reads, because a record with no stored sequence is skipped and a read with two records in the stretch is written once.
 
     <!-- SHOT: extract-reads-region-menu -->
 
@@ -138,21 +143,35 @@ Showing 72,087 of ~2,050,000 reads · regions above 500x are sampled to about 50
 
 The first figure is how many reads are drawn, and the second is how many the window holds. The "~" means the total is estimated from the sample rather than counted. With several tracks the middle part ends "per track". The cap the banner quotes can sit below your setting when a very deep window would load more read data than LGE allows, and if loading actually stops at that safety limit, the banner adds "read safety limit reached, window may be incomplete". When no stretch is deeper than the setting, there is no banner and every read is drawn.
 
-The last part of the banner is the one to hold on to. The coverage curve, the depth figures, and the consensus row come from separate queries over every read, and never see the cap. Only the drawn rows are sampled, so a sampled window still tells the truth about depth. The sample is drawn with a fixed seed, so the same reads appear every time you redraw, and within one sampled stretch the two mates of a pair are kept or dropped together.
+The last part of the banner is the one to hold on to. The coverage curve, the depth figures, and the consensus row come from separate queries over every read the filters let through, and never see the cap. Only the drawn rows are sampled, so a sampled window still tells the truth about depth. The sample is drawn with a fixed seed, so the same reads appear every time you redraw, and within one sampled stretch the two mates of a pair are kept or dropped together.
 
 At the right-hand end of the banner sits **Load all**, in the accent colour. Clicking it reloads the current window with no cap, up to a ceiling of two million reads. It applies to that window only. Move to a different region and the cap applies again.
 
 While a heavy window loads, a small badge over the read band reads "Loading mapped reads…" with a running count when one is available, then "Packing N reads…" while LGE lays the reads out in rows, each ending "(esc to cancel)". Press Escape during a load to cancel it and keep the coverage curve. Nothing is lost, since panning or zooming starts the load again.
 
-### The Selected Read panel
+### The hover card and the Selected Read panel
+
+Hold the pointer over a read, the coverage curve, or a variant call and a hover card opens, a small panel that sizes itself to its text. Over a read it gives the name, strand, span, MAPQ and CIGAR string, the mate's position for a paired read, and a line for a secondary, supplementary, or duplicate record. Over a variant it lists every call at that position. The card closes when the pointer moves away, so its header reads **Click to keep open**. Click inside it, or on **Pin**, and it stays as **Pinned details** while you hover other reads, which helps when you compare two of them. **Copy** puts its text on the clipboard, and **Close** or the Escape key dismisses it.
+
+<!-- SHOT: hover-card-pinned -->
 
 Click one read and the Inspector's Selected Read panel, on the **Selected Item** tab, shows its own record. A [Phred score](../../GLOSSARY.md#phred-score) is a per-base quality on a logarithmic scale, where 20 means one wrong base in a hundred and 30 means one in a thousand. The panel reports the read's base qualities as Mean Q, a Range from the lowest to the highest score, and the percentage of bases at Q20 or better. For ordinary Illumina data that percentage runs above 90. A Range whose low end sits in single digits means part of the read is close to guesswork even when the mean looks fine. Below the qualities the panel lists the read's insertions, the first five with position and inserted sequence, and a count of the rest. Deletions get no list, since a deletion has no sequence to show.
 
 A read carrying the odd base out at a position, whose quality range bottoms out in single digits, usually answers your question by itself.
 
+### What an exported figure draws
+
+**File > Export > Image (PNG)...** and **Image (PDF)...** draw the alignment as a figure for a slide or a paper. LGE builds the figure from the bundle's own files with `lungfish-cli bundle export-graphic` rather than copying the screen, and [Saving and exporting](../01-foundations/06-the-lungfish-project.md#saving-and-exporting) covers the sheet that asks what to include.
+
+Because the figure is drawn afresh, it follows rules of its own. A line at the top names the contig, the range, and its length. The Depth strip comes next, in the **Coverage scale** you chose, and the reads follow with their mismatch marks, drawn where a read's base differs from the reference. A point is the figure's unit of width, 1/72 of an inch. Reads are drawn only at 2 bases per point or closer, and the Depth strip only at 1,000 or closer. Past either limit, a line in its place says what was not drawn at that zoom. At most 75 rows of reads are drawn, and a line of the form `+N reads not shown (max 75 rows)` counts the reads left out.
+
+The figure counts depth, and draws reads, under the window's own cutoffs. Reads below **Minimum alignment confidence** are left out, and the depth also skips reads below **Consensus minimum MAPQ** and bases below **Consensus minimum base quality**, both on the Consensus tab under **Analysis**. When any cutoff is above 0, a line under the Depth strip names it, such as `Depth counts reads with mapping quality 30 or more and bases with quality 20 or more.` One window setting does not carry over. **Hide high-gap sites** on the Consensus tab hides those sites in the window only, so a figure that draws reads still shows them, and its Operations Panel row ends **Completed with Warnings** with a line in its Log that says so.
+
+<!-- SHOT: alignment-figure-export -->
+
 ### The Inspector summary and the Analysis tabs
 
-The Inspector's **Bundle** tab also holds the alignment summary, the Flag Statistics list, and a collapsed provenance block, which [Mapping Reads to a Reference](01-mapping-reads-to-a-reference.md#reading-the-results) reads number by number. Trust the curve's measured mean depth, 44.7x here, over the summary's Est. Coverage estimate. The provenance block holds the recorded command for each step that produced the track, behind a **Show command** button on each row.
+The Inspector's **Bundle** tab also holds the alignment summary, the Flag Statistics list, and a collapsed provenance block, which [Mapping Reads to a Reference](01-mapping-reads-to-a-reference.md#reading-the-results) reads number by number. Trust the curve's measured mean depth, 44.7x here, over the summary's Est. Coverage estimate. The provenance block holds the recorded command for each step that produced the track, behind a **Show command** button on each row. In the tab's **Alignment Tracks** list, a primer-trimmed, duplicate-marked, filtered, or deduplicated track carries a **Derived** badge and names the track it came from.
 
 The Inspector's **Analysis** tab is where every operation on an alignment starts. With a mapping result selected, its buttons act on the reference bundle inside the mapping result. It holds a row of six smaller tabs, and each holds the buttons listed here.
 
@@ -170,7 +189,9 @@ Launching from the Inspector opens the dialog with the first eligible track in t
 
 ## Settings
 
-The viewer settings in this section never alter the BAM on disk, and none has a command-line flag, so the entries below do not repeat that. They live in the Inspector's **View** tab under **View Settings**, which has three tabs. The Alignment tab decides which reads are drawn at all, and the Reads tab decides how they look. The Annotations tab belongs to feature tracks and is not covered here. The Alignment tab's filters also decide which reads the extraction in step 5 writes out. Every slider has a number field beside it, so you can drag or type. The two extraction settings at the end belong to step 5 and do reach the command line.
+The viewer settings in this section never alter the BAM on disk, and none has a command-line flag of its own, so the entries below do not repeat that. They live in the Inspector's **View** tab under **View Settings**, which has three tabs. The Alignment tab decides which reads are drawn at all, and the Reads tab decides how they look. The Annotations tab belongs to feature tracks, whose list **View > Show Drawer** (Control-Command-B) opens under the viewport, reading `0 annotations` for a reference with none. On a mapping result that holds variant tracks, as after [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md), the Annotations tab also lists them under **Variant Tracks**, with a tick box for each and **All** and **None** buttons, so you can show one track's calls at a time. The Alignment tab's filters also decide which reads the extraction in step 5 writes out, and there they reach the command line as `--min-mapq`, `--exclude-flags`, and `--read-group`. Every slider has a number field beside it, so you can drag or type. The two extraction settings at the end belong to step 5 and do reach the command line.
+
+Opening a different reference or mapping result returns **Minimum alignment confidence**, the three **Read Inclusion** toggles, the [read group](../../GLOSSARY.md#read-group) filter, and the consensus settings of [Extracting a Consensus Sequence](../05-variants/05-consensus-and-lineage.md) to their defaults, so a filter you set on one alignment never hides reads on the next. Selecting the same one again keeps them. The read group filter appears under the Alignment tab's controls only when the alignment carries more than one read group.
 
 <!-- SHOT: view-settings-alignment-tab -->
 
@@ -180,7 +201,7 @@ The viewer settings in this section never alter the BAM on disk, and none has a 
 
 [MAPQ](../../GLOSSARY.md#mapq) is the mapper's confidence in where it placed a read, from 0 for a read that fits several places equally to 60 for one clear placement, as [What one row of a BAM records](../01-foundations/04-alignment-files.md#what-one-row-of-a-bam-records) explains.
 
-**Minimum alignment confidence.** Hides reads whose mapping quality falls below the value you set, in the viewport only. The default is 0, which hides nothing, the honest starting point because a hidden read is one you cannot know about. Raise it when a pile looks suspicious and you want to see how much survives once ambiguously placed reads are gone. It hides reads without removing them, unlike the other two MAPQ controls that [Three MAPQ cutoffs](04-alignment-quality.md#three-mapq-cutoffs) compares.
+**Minimum alignment confidence.** Hides reads whose mapping quality falls below the value you set and leaves them out of the coverage curve's depth, in the viewport only. The default is 0, which hides nothing, the honest starting point because a hidden read is one you cannot know about. Raise it when a pile looks suspicious and you want to see how much survives once ambiguously placed reads are gone. It hides reads without removing them, unlike the other two MAPQ controls that [Three MAPQ cutoffs](04-alignment-quality.md#three-mapq-cutoffs) compares.
 
 **Coverage scale.** Changes how a depth becomes a bar height in the coverage curve, offering Linear, Log10, and Square root. The default is Linear, where height is proportional to depth, which reads correctly whenever the depths in view are of similar size, as on this fixture. Switch to Log10 or Square root when one very deep peak flattens everything else, as happens on [amplicon](../../GLOSSARY.md#amplicon) data. The key then reads `Depth (log₁₀)` or `Depth (√)`, so a compressed curve is never mistaken for a linear one.
 
@@ -222,7 +243,7 @@ The [extraction](../../GLOSSARY.md#extraction) in step 5 has no dialog. It takes
 
 **(the save destination).** Chooses where the extracted reads are written. Inside a project it is decided for you, as described in step 5, and a save panel appears only when no project root can be found. There is nothing to change in the app. On the command line this is `--output`.
 
-If the extraction cannot run, LGE shows an alert titled "Extract Selected Region Failed" with the reason, usually that the alignment could not be read.
+If the extraction cannot start, LGE shows an alert titled "Extract Selected Region Failed" with the reason, such as "Alignment evidence is unavailable" when it could not read the alignment.
 
 ## What good looks like
 
@@ -240,7 +261,7 @@ An alignment that passes all four is ready for variant calling. One that fails o
 
 ## On the command line
 
-The viewer settings have no command-line form, because they change only what the screen draws. The extraction in step 5 does, and `extract reads` is listed in [Read processing](../appendices/cli-reference.md#read-processing) in the CLI Reference. The block follows [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and it needs the name of your mapping result folder and of the track's BAM inside it, which `ls` prints.
+The viewer settings have no command-line form, because they change only what the screen draws. The extraction in step 5 does, and `extract reads` is listed in [Read processing](../appendices/cli-reference.md#read-processing) in the CLI Reference. The block follows [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and it needs the name of your mapping result folder and of the track's BAM inside it, which `ls` prints. Its command has the same form as the one the row of step 5 runs, with the whole slice as the region.
 
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/Human Mapping and Variants.lungfish"
@@ -248,14 +269,17 @@ ls "$PROJECT/Analyses"
 # Put your own folder name and BAM name in the next line.
 BAM="$PROJECT/Analyses/minimap2-2026-09-27T11-21-19/GRCh38.chr20.10.0-10.5Mb.lungfishref/alignments/aln_93ACDFDA.sorted.bam"
 
-# Every read mapped to the slice, written as one FASTQ file.
+# Every read on the slice that the viewer's default filters keep, as one FASTQ bundle.
 lungfish-cli extract reads --by-region \
   --bam "$BAM" \
+  --index "$BAM.bai" \
   --region chr20_10.0-10.5Mb \
-  --output hg002-chr20-reads.fastq
+  --min-mapq 0 \
+  --exclude-flags 3332 \
+  --output hg002-chr20-reads.lungfishfastq
 ```
 
-`chr20_10.0-10.5Mb` is the reference sequence's own name from the FASTA header. The summary reports `Reads extracted: 91148`, the primary read count, which differs from the Inspector's Total Mapped for the reasons [Mapping Reads to a Reference](01-mapping-reads-to-a-reference.md#reading-the-results) gives. The `--region` flag also takes a range on one sequence, written `name:start-end` and counted from 1 with both ends included, and then writes the reads that overlap that range.
+`chr20_10.0-10.5Mb` is the reference sequence's own name from the FASTA header. The `--region` flag also takes a range on one sequence, written `name:start-end` and counted from 1 with both ends included, which is how the app writes a dragged selection. With `--index`, which names the BAM's index, the run publishes a `.lungfishfastq` bundle with its provenance record at `--output`. `--min-mapq` carries **Minimum alignment confidence**, here at its default of 0. `--exclude-flags` carries the three **Read Inclusion** toggles as [FLAG](../../GLOSSARY.md#flag) bits. With all three off its value is 3332, the sum of the bits for unmapped (4), secondary (256), duplicate (1024), and supplementary (2048) records. Add one `--read-group` for each read group to keep, or none to keep them all. The run ends with a line that begins `Published hg002-chr20-reads.lungfishfastq with` and gives a count. Although that line says reads, the count is of alignment records, as step 5 explains.
 
 ## Next
 
