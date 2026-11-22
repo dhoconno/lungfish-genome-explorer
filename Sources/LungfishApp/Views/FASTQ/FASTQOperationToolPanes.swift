@@ -614,32 +614,39 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .foregroundStyle(.secondary)
 
             case .demultiplexBarcodes:
-                Picker("Barcode Source", selection: $state.demultiplexBarcodeSource) {
-                    Text("Built-In Kit").tag(FASTQDemultiplexBarcodeSource.builtinKit)
-                    Text("Custom Definition").tag(FASTQDemultiplexBarcodeSource.customDefinition)
+                HStack(alignment: .center, spacing: 8) {
+                    Picker("Barcode Source", selection: $state.demultiplexBarcodeSource) {
+                        Text("Built-In Kit").tag(FASTQDemultiplexBarcodeSource.builtinKit)
+                        Text("Custom Definition").tag(FASTQDemultiplexBarcodeSource.customDefinition)
+                    }
+                    .pickerStyle(.segmented)
+                    .lungfishHelp(LungfishHelpContent.fastqBarcodeSource)
+                    if state.demultiplexBarcodeSource == .customDefinition {
+                        LungfishInfoButtonView(FASTQDemultiplexHelp.customDefinitionFormat, about: "Custom Definition format")
+                    }
                 }
-                .pickerStyle(.segmented)
-                .lungfishHelp(LungfishHelpContent.fastqBarcodeSource)
                 if state.demultiplexBarcodeSource == .builtinKit {
                     Picker("Built-In Kit", selection: $state.demultiplexKitID) {
                         ForEach(state.demultiplexBuiltInKitOptions) { kit in
                             Text(kit.displayName).tag(kit.id)
                         }
                     }
-                    .lungfishHelp(LungfishHelpContent.fastqBarcodeKit)
-                } else {
-                    Text("Select a barcode definition CSV, TSV, or whitespace-delimited text file in the Inputs section. Columns: id,sequence[,secondary_sequence][,sample_name], or a header line naming the columns (id,sequence,sample_name). At Both Ends with no sample sheet, the secondary sequence may be written as it appears at the end of the read or as the i5 primer's barcode, since the run reads it the way the first 10,000 reads carry it, and the Operations Panel says which.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .lungfishHelp(state.demultiplexKitUsesPlatformConstruct ? FASTQDemultiplexHelp.kitConstruct : LungfishHelpContent.fastqBarcodeKit)
                 }
-                Picker("Engine", selection: $state.demultiplexEngine) {
-                    ForEach(DemultiplexEngine.allCases, id: \.self) { engine in
-                        Text(engine.displayName).tag(engine)
+                HStack(alignment: .center, spacing: 8) {
+                    Picker("Engine", selection: $state.demultiplexEngine) {
+                        ForEach(DemultiplexEngine.allCases, id: \.self) { engine in
+                            Text(engine.displayName)
+                                .lungfishHelp(FASTQDemultiplexHelp.segmentHelp(for: engine))
+                                .tag(engine)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    .lungfishHelp(LungfishHelpContent.fastqDemultiplexEngine)
+                    LungfishInfoButtonView(FASTQDemultiplexHelp.engines, about: "engines")
                 }
-                .pickerStyle(.segmented)
-                .lungfishHelp(LungfishHelpContent.fastqDemultiplexEngine)
-                FASTQDemultiplexChanceRows(state: state, explanation: state.demultiplexEngine.explanation)
+                .task(id: state.demultiplexChanceCheckSettings) { await state.refreshDemultiplexChanceCheck() }
+                FASTQDemultiplexChanceRows(state: state)
                 if state.demultiplexEngine == .cutadapt {
                     if state.demultiplexKitUsesPlatformConstruct {
                         Text(FASTQOperationDialogState.demultiplexPlatformConstructCaption)
@@ -961,14 +968,6 @@ private extension DemultiplexEngine {
         case .cutadapt: return "Cutadapt"
         case .exactBareBarcode: return "Exact Bare Barcode"
         case .headerIndex: return "Read Names"
-        }
-    }
-
-    var explanation: String {
-        switch self {
-        case .cutadapt: return "Cutadapt searches the read sequences for the barcodes, uses the error rate below and can allow insertions and deletions. For Illumina, Element, Ultima and MGI kits and Custom Definitions, it first checks the read names. If they carry the indexes of two or more of the kit's barcodes, it splits the reads by those indexes instead, as Read Names does."
-        case .exactBareBarcode: return "Exact Bare Barcode looks for each barcode, and its reverse complement, as an exact match anywhere in the read. It works with barcodes of plain A, C, G and T letters and never trims, so the barcode stays in the read."
-        case .headerIndex: return "Read Names splits the reads by the index that bcl2fastq or BCL Convert wrote in each read name, with at most one mismatch in each index. It does not search the read sequences, leaves every read as it is and keeps both reads of a pair together. A read whose name matches no barcode of the kit, or more than one, goes to Unassigned."
         }
     }
 }

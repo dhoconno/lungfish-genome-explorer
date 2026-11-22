@@ -8,9 +8,11 @@
 // Samples captions and D7 the long-read kit caption. The pins hold at the base of the sub-phase. The move commit updates each one to
 // the state after the move, with each moved paragraph replaced at its own place by its info button.
 
+import AppKit
 import XCTest
 import SwiftUI
 import ViewInspector
+import LungfishTestSupport
 @testable import LungfishApp
 @testable import LungfishIO
 @testable import LungfishKit
@@ -102,24 +104,16 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
         try pin("demux.keepUnchecked.exactBare")
     }
 
-    // MARK: The ruled captions by id (5.6 B1, UX-WORDS-2 F4 (d), UX-EXACT-BARE-WORDS, BIO-SATKIT-FLUIDIGM 3 and 4)
+    // MARK: The ruled captions that stay in view, by id (5.6 B1, UX-EXACT-BARE-WORDS, BIO-SATKIT-FLUIDIGM 3 and 4)
 
-    private static let d1 = "Select a barcode definition CSV, TSV, or whitespace-delimited text file in the Inputs section. Columns: id,sequence[,secondary_sequence][,sample_name], or a header line naming the columns (id,sequence,sample_name). At Both Ends with no sample sheet, the secondary sequence may be written as it appears at the end of the read or as the i5 primer's barcode, since the run reads it the way the first 10,000 reads carry it, and the Operations Panel says which."
-    private static let d2 = "Cutadapt searches the read sequences for the barcodes, uses the error rate below and can allow insertions and deletions. For Illumina, Element, Ultima and MGI kits and Custom Definitions, it first checks the read names. If they carry the indexes of two or more of the kit's barcodes, it splits the reads by those indexes instead, as Read Names does."
-    private static let d3 = "Exact Bare Barcode looks for each barcode, and its reverse complement, as an exact match anywhere in the read. It works with barcodes of plain A, C, G and T letters and never trims, so the barcode stays in the read."
-    private static let d4 = "Read Names splits the reads by the index that bcl2fastq or BCL Convert wrote in each read name, with at most one mismatch in each index. It does not search the read sequences, leaves every read as it is and keeps both reads of a pair together. A read whose name matches no barcode of the kit, or more than one, goes to Unassigned."
     private static let d5 = "Exact Bare Barcode does not check for chance matches. On reads that do not carry the chosen barcodes in their sequence, such as reads whose index is only in the read names, it can make sample files from chance matches. Use it only on reads that carry the barcodes in their sequence."
     private static let d6Cutadapt = "Many reads that carry no barcode would match a barcode of this kit by chance, so the check for chance matches cannot judge the samples, and the run is refused. If the indexes are in the read names, choose the engine Read Names. Otherwise choose Keep Unchecked Samples to make the sample files anyway, then check each sample against your sample sheet."
     private static let d6Fluidigm = "Cutadapt searches each barcode of this kit anywhere in the read, so about half of all reads or more match one of them by chance. The check for chance matches cannot judge the samples, and the run is refused. For Fluidigm barcodes in ONT reads, use ONT Fluidigm Sample Split. For reads whose index is in the read names, choose the engine Read Names. Choose Keep Unchecked Samples only to make the sample files anyway, then check each sample against your sample sheet."
     private static let d6ExactBare = "The read names carry barcodes of this kit, so Exact Bare Barcode would find them in the read sequences only by chance, and the run is refused. Choose the engine Read Names to split the reads by their names. Choose Keep Unchecked Samples only if the read sequences carry these barcodes too, then check each sample against your sample sheet."
     private static let d7 = "Long-read kit: cutadapt searches the kit's full adapter and barcode construct at both read ends in both orientations, and a read is assigned only when both ends carry the same barcode. Location and distance settings do not apply."
 
-    func testTheRuledCaptionsAreDrawnInTheirStates() throws {
+    func testTheRuledCaptionsThatStayInViewAreDrawnInTheirStates() throws {
         let rows: [(id: String, state: String, text: String)] = [
-            ("D1", "demux.cutadapt.customDefinition", Self.d1),
-            ("D2", "demux.cutadapt.truseq", Self.d2),
-            ("D3", "demux.exactBare.fluidigm", Self.d3),
-            ("D4", "demux.readNames.truseq", Self.d4),
             ("D5", "demux.exactBare.fluidigm", Self.d5),
             ("D6 Cutadapt", "demux.keepUnchecked.cutadapt", Self.d6Cutadapt),
             ("D6 Fluidigm", "demux.keepUnchecked.fluidigm", Self.d6Fluidigm),
@@ -136,13 +130,171 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
         XCTAssertEqual(FASTQOperationDialogState.demultiplexPlatformConstructCaption, Self.d7, "D7")
     }
 
-    /// The Cutadapt kit shows D7 and no Location picker, and the Illumina kit the reverse, so D7 shows exactly when the
-    /// kit searches its full platform construct (`demultiplexKitUsesPlatformConstruct`).
+    /// D7 shows exactly when the kit searches its full platform construct (`demultiplexKitUsesPlatformConstruct`), and the
+    /// construct clause is the kit picker's help tag then.
     func testTheLongReadCaptionShowsOnlyForAKitThatSearchesItsFullConstruct() throws {
-        XCTAssertTrue(try texts("demux.cutadapt.longRead").contains(Self.d7))
-        XCTAssertFalse(try texts("demux.cutadapt.longRead").contains("Location"))
-        XCTAssertFalse(try texts("demux.cutadapt.truseq").contains(Self.d7))
-        XCTAssertTrue(try texts("demux.cutadapt.truseq").contains("Location"))
+        let longRead = try texts("demux.cutadapt.longRead")
+        let truseq = try texts("demux.cutadapt.truseq")
+        XCTAssertTrue(longRead.contains(Self.d7))
+        XCTAssertFalse(longRead.contains("Location"))
+        XCTAssertFalse(truseq.contains(Self.d7))
+        XCTAssertTrue(truseq.contains("Location"))
+        XCTAssertTrue(longRead.contains(FASTQDemultiplexHelp.kitConstruct.summary))
+        XCTAssertFalse(truseq.contains(FASTQDemultiplexHelp.kitConstruct.summary))
+        XCTAssertTrue(truseq.contains(LungfishHelpContent.fastqBarcodeKit.summary))
+    }
+
+    // MARK: The moved explanations, one press away with the text of their decided constant (5.6 U2, U3)
+
+    private static let d1 = "Select a barcode definition CSV, TSV, or whitespace-delimited text file in the Inputs section. Columns: id,sequence[,secondary_sequence][,sample_name], or a header line naming the columns (id,sequence,sample_name). At Both Ends with no sample sheet, the secondary sequence may be written as it appears at the end of the read or as the i5 primer's barcode, since the run reads it the way the first 10,000 reads carry it, and the Operations Panel says which."
+    private static let d2 = "Cutadapt searches the read sequences for the barcodes, uses the error rate below and can allow insertions and deletions. For Illumina, Element, Ultima and MGI kits and Custom Definitions, it first checks the read names. If they carry the indexes of two or more of the kit's barcodes, it splits the reads by those indexes instead, as Read Names does."
+    private static let d3 = "Exact Bare Barcode looks for each barcode, and its reverse complement, as an exact match anywhere in the read. It works with barcodes of plain A, C, G and T letters and never trims, so the barcode stays in the read."
+    private static let d4 = "Read Names splits the reads by the index that bcl2fastq or BCL Convert wrote in each read name, with at most one mismatch in each index. It does not search the read sequences, leaves every read as it is and keeps both reads of a pair together. A read whose name matches no barcode of the kit, or more than one, goes to Unassigned."
+
+    func testTheMovedExplanationsAreFoundInTheirPopovers() throws {
+        try assertPopover(
+            state: "demux.cutadapt.customDefinition", item: FASTQDemultiplexHelp.customDefinitionFormat,
+            about: "Custom Definition format", text: Self.d1, id: "D1")
+        try assertPopover(
+            state: "demux.cutadapt.truseq", item: FASTQDemultiplexHelp.engines, about: "engines",
+            text: [Self.d2, Self.d3, Self.d4].joined(separator: "\n\n"), id: "D2 to D4")
+        XCTAssertEqual(FASTQDemultiplexHelp.customDefinitionFormatText, Self.d1, "D1")
+        XCTAssertEqual(FASTQDemultiplexHelp.cutadaptText, Self.d2, "D2")
+        XCTAssertEqual(FASTQDemultiplexHelp.exactBareText, Self.d3, "D3")
+        XCTAssertEqual(FASTQDemultiplexHelp.readNamesText, Self.d4, "D4")
+    }
+
+    /// The format button belongs to a Custom Definition, so a built-in kit shows none, and no moved paragraph stays in view.
+    func testTheFormatButtonShowsOnlyForACustomDefinitionAndNoMovedParagraphStaysInView() throws {
+        let enginesID = LungfishInfoButton.accessibilityIdentifier(for: FASTQDemultiplexHelp.engines)
+        let formatID = LungfishInfoButton.accessibilityIdentifier(for: FASTQDemultiplexHelp.customDefinitionFormat)
+        XCTAssertEqual(try hostedButtonIDs("demux.cutadapt.truseq"), [enginesID])
+        XCTAssertEqual(try hostedButtonIDs("demux.cutadapt.customDefinition"), [enginesID, formatID].sorted())
+        for name in Self.states.keys.sorted() {
+            let drawn = try texts(name)
+            for moved in [Self.d1, Self.d2, Self.d3, Self.d4] { XCTAssertFalse(drawn.contains(moved), name) }
+        }
+    }
+
+    /// The identifiers of the info buttons of the pane in the named state, sorted, found by walking the hosted views.
+    private func hostedButtonIDs(_ name: String) throws -> [String] {
+        let state = Fx.fastqState(.demultiplexBarcodes)
+        try XCTUnwrap(Self.states[name])(state)
+        let host = NSHostingView(rootView: FASTQOperationToolPanes(state: state).frame(width: 620, height: 900))
+        host.frame = NSRect(x: 0, y: 0, width: 620, height: 900)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        addTeardownBlock { @MainActor in window.orderOut(nil) }
+        var ids: [String] = []
+        XCTAssertTrue(waitUntilOnRunLoop(budget: .standard) {
+            host.layoutSubtreeIfNeeded()
+            ids = Self.infoButtons(in: host).compactMap { ($0.cell as NSAccessibilityProtocol?)?.accessibilityIdentifier() }.sorted()
+            return !ids.isEmpty
+        }, "\(name) has no info button")
+        return ids
+    }
+
+    private func assertPopover(
+        state name: String, item: LungfishHelpContent.HelpItem, about subject: String, text: String, id: String
+    ) throws {
+        let state = Fx.fastqState(.demultiplexBarcodes)
+        try XCTUnwrap(Self.states[name])(state)
+        let host = NSHostingView(rootView: FASTQOperationToolPanes(state: state).frame(width: 620, height: 900))
+        host.frame = NSRect(x: 0, y: 0, width: 620, height: 900)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        let identifier = LungfishInfoButton.accessibilityIdentifier(for: item)
+        var found: LungfishInfoButton?
+        XCTAssertTrue(waitUntilOnRunLoop(budget: .standard) {
+            host.layoutSubtreeIfNeeded()
+            found = Self.infoButtons(in: host).first { ($0.cell as NSAccessibilityProtocol?)?.accessibilityIdentifier() == identifier }
+            return found != nil
+        }, "\(id) has no info button")
+        let button = try XCTUnwrap(found)
+        addTeardownBlock { @MainActor in
+            button.closePopover()
+            window.orderOut(nil)
+        }
+        let element = try XCTUnwrap(button.cell as NSAccessibilityProtocol?)
+        XCTAssertEqual(element.accessibilityLabel(), "About \(subject)", id)
+        XCTAssertEqual(element.accessibilityRole(), .button, id)
+        XCTAssertEqual(element.accessibilityHelp(), item.summary, id)
+        XCTAssertFalse(button.refusesFirstResponder, id)
+        XCTAssertFalse(button.isHiddenOrHasHiddenAncestor, id)
+        _ = element.accessibilityPerformPress()
+        XCTAssertTrue(button.isPopoverShown, "\(id): a press opens the popover")
+        XCTAssertEqual(button.popoverController.text, text, id)
+    }
+
+    private static func infoButtons(in view: NSView) -> [LungfishInfoButton] {
+        ((view as? LungfishInfoButton).map { [$0] } ?? []) + view.subviews.flatMap { infoButtons(in: $0) }
+    }
+
+    func testTheDemultiplexHelpItemsPassTheCatalogCheck() {
+        XCTAssertEqual(LungfishHelpContent.catalogFaults(in: FASTQDemultiplexHelp.all), [])
+    }
+
+    // MARK: The word ceilings (5.6 U7)
+
+    /// The words a person reads as static text: a `Text` that is no help tag, sits in no control and is not hidden.
+    private static func drawnWords(in view: some View) throws -> Int {
+        let controls = [".picker(", ".toggle(", ".button(", ".textField(", ".menu("]
+        return try view.inspect().findAll(ViewType.Text.self)
+            .filter { text in
+                let path = text.pathToRoot
+                return !path.contains(".help()") && !controls.contains { path.contains($0) } && !text.isHidden()
+            }
+            .reduce(0) { total, text in total + ((try? text.string()) ?? "").split(whereSeparator: \.isWhitespace).count }
+    }
+
+    private func words(_ name: String) throws -> Int {
+        let state = Fx.fastqState(.demultiplexBarcodes)
+        try XCTUnwrap(Self.states[name])(state)
+        return try Self.drawnWords(in: FASTQOperationToolPanes(state: state))
+    }
+
+    func testTheCutadaptTruSeqPaneHoldsAtMostFortyWords() throws {
+        XCTAssertLessThanOrEqual(try words("demux.cutadapt.truseq"), 40)
+    }
+
+    /// Every other state reads no more words than at the base `53631b6aa`, counted by the same rule (the base counts).
+    func testNoStateReadsMoreWordsThanAtTheBase() throws {
+        let base: [String: Int] = [
+            "demux.cutadapt.customDefinition": 150,
+            "demux.cutadapt.longRead": 105,
+            "demux.cutadapt.truseq": 71,
+            "demux.exactBare.fluidigm": 98,
+            "demux.keepUnchecked.cutadapt": 133,
+            "demux.keepUnchecked.exactBare": 158,
+            "demux.keepUnchecked.fluidigm": 188,
+            "demux.readNames.truseq": 69,
+        ]
+        for (name, count) in base.sorted(by: { $0.key < $1.key }) {
+            XCTAssertLessThanOrEqual(try words(name), count, name)
+        }
+    }
+
+    /// Negative test: a hidden label, a button title and a help tag leave the count unchanged.
+    func testTheWordCountLeavesOutAHiddenLabelAButtonTitleAndAHelpTag() throws {
+        struct Plain: View {
+            var body: some View { VStack { Text("one two three"); Text("with a tag") } }
+        }
+        struct WithExtras: View {
+            var body: some View {
+                VStack {
+                    Text("one two three")
+                    Text("these four words hidden").hidden()
+                    Button("Press this button now") {}
+                    Text("with a tag").help("a help tag of seven words in all")
+                }
+            }
+        }
+        XCTAssertEqual(try Self.drawnWords(in: Plain()), 6)
+        XCTAssertEqual(try Self.drawnWords(in: WithExtras()), 6)
     }
 
     // MARK: The pins
@@ -166,15 +318,22 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             "Use a built-in barcode kit or a custom barcode definition.",
             "Use a built-in barcode kit or a custom barcode definition.",
             "Use a built-in barcode kit or a custom barcode definition.",
-            "Select a barcode definition CSV, TSV, or whitespace-delimited text file in the Inputs section. Columns: id,sequence[,secondary_sequence][,sample_name], or a header line naming the columns (id,sequence,sample_name). At Both Ends with no sample sheet, the secondary sequence may be written as it appears at the end of the read or as the i5 primer's barcode, since the run reads it the way the first 10,000 reads carry it, and the Operations Panel says which.",
             "Cutadapt",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
             "Exact Bare Barcode",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
             "Read Names",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
             "Engine",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
-            "Cutadapt searches the read sequences for the barcodes, uses the error rate below and can allow insertions and deletions. For Illumina, Element, Ultima and MGI kits and Custom Definitions, it first checks the read names. If they carry the indexes of two or more of the kit's barcodes, it splits the reads by those indexes instead, as Read Names does.",
             "Both Ends",
             "5' End",
             "3' End",
@@ -238,16 +397,24 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             "ONT 16S Barcoding V14 (SQK-16S114-24, 24)",
             "ONT 16S Rapid Amplicon (RAB204/RAB214, 24)",
             "Built-In Kit",
-            "Built-in barcode kit expected for the sequencing library.",
-            "Built-in barcode kit expected for the sequencing library.",
+            "Cutadapt searches the kit's full adapter and barcode construct at both read ends, in both orientations.",
+            "Cutadapt searches the kit's full adapter and barcode construct at both read ends, in both orientations.",
             "Cutadapt",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
             "Exact Bare Barcode",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
             "Read Names",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
             "Engine",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
-            "Cutadapt searches the read sequences for the barcodes, uses the error rate below and can allow insertions and deletions. For Illumina, Element, Ultima and MGI kits and Custom Definitions, it first checks the read names. If they carry the indexes of two or more of the kit's barcodes, it splits the reads by those indexes instead, as Read Names does.",
             "Long-read kit: cutadapt searches the kit's full adapter and barcode construct at both read ends in both orientations, and a read is assigned only when both ends carry the same barcode. Location and distance settings do not apply.",
             "Error Rate",
             "",
@@ -300,13 +467,21 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             "Built-in barcode kit expected for the sequencing library.",
             "Built-in barcode kit expected for the sequencing library.",
             "Cutadapt",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
             "Exact Bare Barcode",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
             "Read Names",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
             "Engine",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
-            "Cutadapt searches the read sequences for the barcodes, uses the error rate below and can allow insertions and deletions. For Illumina, Element, Ultima and MGI kits and Custom Definitions, it first checks the read names. If they carry the indexes of two or more of the kit's barcodes, it splits the reads by those indexes instead, as Read Names does.",
             "Both Ends",
             "5' End",
             "3' End",
@@ -354,13 +529,21 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             "Built-in barcode kit expected for the sequencing library.",
             "Built-in barcode kit expected for the sequencing library.",
             "Cutadapt",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
             "Exact Bare Barcode",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
             "Read Names",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
             "Engine",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
-            "Exact Bare Barcode looks for each barcode, and its reverse complement, as an exact match anywhere in the read. It works with barcodes of plain A, C, G and T letters and never trims, so the barcode stays in the read.",
             "Exact Bare Barcode does not check for chance matches. On reads that do not carry the chosen barcodes in their sequence, such as reads whose index is only in the read names, it can make sample files from chance matches. Use it only on reads that carry the barcodes in their sequence.",
             "Output",
             "Per Input",
@@ -406,13 +589,21 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             "Built-in barcode kit expected for the sequencing library.",
             "Built-in barcode kit expected for the sequencing library.",
             "Cutadapt",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
             "Exact Bare Barcode",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
             "Read Names",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
             "Engine",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
-            "Cutadapt searches the read sequences for the barcodes, uses the error rate below and can allow insertions and deletions. For Illumina, Element, Ultima and MGI kits and Custom Definitions, it first checks the read names. If they carry the indexes of two or more of the kit's barcodes, it splits the reads by those indexes instead, as Read Names does.",
             "Keep Unchecked Samples",
             "Many reads that carry no barcode would match a barcode of this kit by chance, so the check for chance matches cannot judge the samples, and the run is refused. If the indexes are in the read names, choose the engine Read Names. Otherwise choose Keep Unchecked Samples to make the sample files anyway, then check each sample against your sample sheet.",
             "Both Ends",
@@ -462,13 +653,21 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             "Built-in barcode kit expected for the sequencing library.",
             "Built-in barcode kit expected for the sequencing library.",
             "Cutadapt",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
             "Exact Bare Barcode",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
             "Read Names",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
             "Engine",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
-            "Exact Bare Barcode looks for each barcode, and its reverse complement, as an exact match anywhere in the read. It works with barcodes of plain A, C, G and T letters and never trims, so the barcode stays in the read.",
             "Exact Bare Barcode does not check for chance matches. On reads that do not carry the chosen barcodes in their sequence, such as reads whose index is only in the read names, it can make sample files from chance matches. Use it only on reads that carry the barcodes in their sequence.",
             "Keep Unchecked Samples",
             "The read names carry barcodes of this kit, so Exact Bare Barcode would find them in the read sequences only by chance, and the run is refused. Choose the engine Read Names to split the reads by their names. Choose Keep Unchecked Samples only if the read sequences carry these barcodes too, then check each sample against your sample sheet.",
@@ -513,16 +712,24 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             "ONT 16S Barcoding V14 (SQK-16S114-24, 24)",
             "ONT 16S Rapid Amplicon (RAB204/RAB214, 24)",
             "Built-In Kit",
-            "Built-in barcode kit expected for the sequencing library.",
-            "Built-in barcode kit expected for the sequencing library.",
+            "Cutadapt searches the kit's full adapter and barcode construct at both read ends, in both orientations.",
+            "Cutadapt searches the kit's full adapter and barcode construct at both read ends, in both orientations.",
             "Cutadapt",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
             "Exact Bare Barcode",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
             "Read Names",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
             "Engine",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
-            "Cutadapt searches the read sequences for the barcodes, uses the error rate below and can allow insertions and deletions. For Illumina, Element, Ultima and MGI kits and Custom Definitions, it first checks the read names. If they carry the indexes of two or more of the kit's barcodes, it splits the reads by those indexes instead, as Read Names does.",
             "Keep Unchecked Samples",
             "Cutadapt searches each barcode of this kit anywhere in the read, so about half of all reads or more match one of them by chance. The check for chance matches cannot judge the samples, and the run is refused. For Fluidigm barcodes in ONT reads, use ONT Fluidigm Sample Split. For reads whose index is in the read names, choose the engine Read Names. Choose Keep Unchecked Samples only to make the sample files anyway, then check each sample against your sample sheet.",
             "Long-read kit: cutadapt searches the kit's full adapter and barcode construct at both read ends in both orientations, and a read is assigned only when both ends carry the same barcode. Location and distance settings do not apply.",
@@ -577,13 +784,21 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             "Built-in barcode kit expected for the sequencing library.",
             "Built-in barcode kit expected for the sequencing library.",
             "Cutadapt",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
+            "Searches the read sequences with the error rate below, allowing insertions and deletions.",
             "Exact Bare Barcode",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
+            "Finds each barcode, or its reverse complement, as an exact match anywhere in the read.",
             "Read Names",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
+            "Splits reads by the index in each read name and does not search the sequences.",
             "Engine",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
             "Choose cutadapt fuzzy matching, exact barcode matching, or a split by the index in each read name.",
-            "Read Names splits the reads by the index that bcl2fastq or BCL Convert wrote in each read name, with at most one mismatch in each index. It does not search the read sequences, leaves every read as it is and keeps both reads of a pair together. A read whose name matches no barcode of the kit, or more than one, goes to Unassigned.",
             "Output",
             "Per Input",
             "Grouped Result",
