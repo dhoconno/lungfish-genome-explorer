@@ -367,6 +367,11 @@ public enum ReadTrackRenderer {
     ///
     /// This path is decoupled from read rendering and is intended for zoomed-out
     /// coverage visualization where loading full read records is unnecessary.
+    ///
+    /// `trailingBandWidth` is the width at the right end of `rect` that the caller paints over after the
+    /// strip, as the live viewer paints its 12 pt right band. The summary label ends left of that width,
+    /// so the band never covers part of a number. A `rect` that already stops at the data area's right
+    /// edge keeps the default 0, which is the graphic export's call and leaves its label where it was.
     public static func drawCoverage(
         depthPoints: [CoveragePoint],
         regionStart: Int,
@@ -375,7 +380,8 @@ public enum ReadTrackRenderer {
         context: CGContext,
         figureTheme: ViewerFigureTheme,
         rect: CGRect,
-        scaleMode: CoverageScaleMode = .default
+        scaleMode: CoverageScaleMode = .default,
+        trailingBandWidth: CGFloat = 0
     ) {
         let pixelWidth = Int(rect.width)
         guard pixelWidth > 0, regionEnd > regionStart else { return }
@@ -457,7 +463,7 @@ public enum ReadTrackRenderer {
         let rightWidth = CGFloat(ViewerFigureTrackText.width(rightLabel, font: legendFont))
         ViewerFigureTrackText.draw(
             rightLabel, font: legendFont, color: legendColor,
-            topLeft: CGPoint(x: rect.maxX - rightWidth - 4, y: rect.minY + 2), in: context
+            topLeft: CGPoint(x: rect.maxX - trailingBandWidth - rightWidth - 4, y: rect.minY + 2), in: context
         )
 
         let coveragePct = Double(stats.coveredBases) / Double(max(1, stats.span)) * 100
