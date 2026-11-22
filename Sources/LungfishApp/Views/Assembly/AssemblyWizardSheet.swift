@@ -51,6 +51,25 @@ struct AssemblyWizardRunPresentation {
         }
         return nil
     }
+
+    static let checkingPackText = "Checking the Genome Assembly pack\u{2026}"
+
+    /// The embedded wizard's line in the dialog footer (UX-SHELL-WIZARDS Q1 Table 1): the reason Run is off with any tool or pack
+    /// failure after it, the checking line while the pack status loads, a read-class warning while Run is on, or nil.
+    func embeddedReadinessDetail(packStatus: PluginPackStatus?, toolStatus: PackToolStatus?) -> String? {
+        guard let validationMessage else {
+            return compatibilityPresentation.fillStyle == .attention ? compatibilityPresentation.message : nil
+        }
+        if packStatus == nil, compatibilityPresentation.state == .installationRequired,
+           validationMessage == compatibilityPresentation.message {
+            return Self.checkingPackText
+        }
+        let failures = [
+            toolStatus.flatMap { $0.isReady ? nil : "Managed tool status: \($0.statusText)" },
+            toolStatus?.smokeTestFailure, packStatus?.failureMessage,
+        ]
+        return ([validationMessage] + failures.compactMap { $0 }).joined(separator: " ")
+    }
 }
 
 struct AssemblyWizardSheet: View {
@@ -91,6 +110,8 @@ struct AssemblyWizardSheet: View {
     var onRun: ((AssemblyRunRequest, MultiBundleRunMode) -> Void)?
     var onCancel: (() -> Void)?
     var onRunnerAvailabilityChange: ((Bool) -> Void)?
+    /// The footer line for the Operations dialog, sent on appear and on every change (UX-SHELL-WIZARDS Q1 Table 1).
+    var onReadinessDetailChange: ((String?) -> Void)?
 
     init(
         inputFiles: [URL],
@@ -100,8 +121,10 @@ struct AssemblyWizardSheet: View {
         embeddedRunTrigger: Int = 0,
         onRun: ((AssemblyRunRequest, MultiBundleRunMode) -> Void)? = nil,
         onCancel: (() -> Void)? = nil,
-        onRunnerAvailabilityChange: ((Bool) -> Void)? = nil
+        onRunnerAvailabilityChange: ((Bool) -> Void)? = nil,
+        onReadinessDetailChange: ((String?) -> Void)? = nil
     ) {
+        self.onReadinessDetailChange = onReadinessDetailChange
         self.inputFiles = inputFiles
         self.outputDirectory = outputDirectory
         self.initialTool = initialTool
@@ -286,6 +309,10 @@ struct AssemblyWizardSheet: View {
         runPresentation.validationMessage
     }
 
+    private var embeddedReadinessDetail: String? {
+        runPresentation.embeddedReadinessDetail(packStatus: packStatus, toolStatus: selectedToolStatus)
+    }
+
     private var runPresentation: AssemblyWizardRunPresentation {
         AssemblyWizardRunPresentation(
             hasInputFiles: !inputFiles.isEmpty,
@@ -353,10 +380,12 @@ struct AssemblyWizardSheet: View {
         .onAppear {
             syncSelectedToolToAvailableTools()
             onRunnerAvailabilityChange?(canRun)
+            onReadinessDetailChange?(embeddedReadinessDetail)
         }
         .onChange(of: canRun) { _, newValue in
             onRunnerAvailabilityChange?(newValue)
         }
+        .onChange(of: embeddedReadinessDetail) { _, detail in onReadinessDetailChange?(detail) }
         .onChange(of: availableTools) { _, _ in
             syncSelectedToolToAvailableTools()
         }
@@ -429,8 +458,11 @@ struct AssemblyWizardSheet: View {
             advancedSettingsSection
             Divider()
             outputSection
-            Divider()
-            readinessSection
+            // Embedded, the dialog's footer line beside Run holds the readiness (UX-SHELL-WIZARDS Q1 b).
+            if !embeddedInOperationsDialog {
+                Divider()
+                readinessSection
+            }
         }
         .padding(.horizontal, sectionPadding)
         .padding(.vertical, 16)

@@ -13,7 +13,7 @@ struct ViralReconWizardSheet: View {
     let onRunnerAvailabilityChange: (Bool) -> Void
     /// Builds the run's request. The sheet calls it in a detached task, and a test passes its own.
     var prepareRun: @Sendable (ViralReconRunInputs) throws -> ViralReconRunRequest = ViralReconRunPreparation.buildRequest(from:)
-    /// Words for the dialog's status line while the request prepares, and nil when they end. The default keeps the
+    /// The line for the dialog's footer, sent on appear and on every change (UX-SHELL-WIZARDS Q1 Table 1). The default keeps the
     /// sheet usable on its own.
     var onReadinessDetailChange: (String?) -> Void = { _ in }
 
@@ -81,11 +81,21 @@ struct ViralReconWizardSheet: View {
         }
     }
 
-    static func visibleControls(platformDetected: Bool) -> [VisibleControl] {
+    /// Embedded, the dialog's footer line beside Run holds the readiness (UX-SHELL-WIZARDS Q1 b).
+    static func visibleControls(platformDetected: Bool, embedded: Bool = false) -> [VisibleControl] {
         var controls: [VisibleControl] = [.inputs]
         if !platformDetected { controls.append(.platform) }
-        controls.append(contentsOf: [.primerScheme, .minimumMappedReads, .readiness])
+        controls.append(contentsOf: [.primerScheme, .minimumMappedReads])
+        if !embedded { controls.append(.readiness) }
         return controls
+    }
+
+    /// The embedded wizard's line in the dialog footer (UX-SHELL-WIZARDS Q1 Table 1): the build error, which leaves Run on, the
+    /// preparing words, or the exact reason Run is off. Nil when Run is on with no error.
+    static func embeddedReadinessDetail(
+        isPreparing: Bool, buildError: String?, evaluation: ViralReconWizardReadiness.Evaluation
+    ) -> String? {
+        buildError ?? (isPreparing ? "Preparing inputs\u{2026}" : evaluation.canRun ? nil : evaluation.message)
     }
 
     private var selectedPrimerOption: PrimerOption? {
@@ -146,6 +156,10 @@ struct ViralReconWizardSheet: View {
         readinessEvaluation.canRun && !isPreparing
     }
 
+    private var embeddedReadinessDetail: String? {
+        Self.embeddedReadinessDetail(isPreparing: isPreparing, buildError: buildError, evaluation: readinessEvaluation)
+    }
+
     private var buildErrorRecoveryKey: BuildErrorRecoveryKey {
         BuildErrorRecoveryKey(
             selectedPrimerID: selectedPrimerID,
@@ -159,12 +173,15 @@ struct ViralReconWizardSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 headerSection
-                ForEach(Self.visibleControls(platformDetected: platformDetected), id: \.self) { control in
+                ForEach(
+                    Self.visibleControls(platformDetected: platformDetected, embedded: embeddedInOperationsDialog), id: \.self
+                ) { control in
                     if control == .readiness {
                         advancedSection
                     }
                     controlSection(control)
                 }
+                if embeddedInOperationsDialog { advancedSection }
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 20)
@@ -176,10 +193,12 @@ struct ViralReconWizardSheet: View {
         }
         .onAppear {
             onRunnerAvailabilityChange(canRun)
+            onReadinessDetailChange(embeddedReadinessDetail)
         }
         .onChange(of: canRun) { _, ready in
             onRunnerAvailabilityChange(ready)
         }
+        .onChange(of: embeddedReadinessDetail) { _, detail in onReadinessDetailChange(detail) }
         .onChange(of: buildErrorRecoveryKey) { _, _ in
             clearBuildError()
         }
@@ -470,7 +489,6 @@ struct ViralReconWizardSheet: View {
         guard !isPreparing else { return }
         buildError = nil
         isPreparing = true
-        onReadinessDetailChange("Preparing inputs\u{2026}")
         onRunnerAvailabilityChange(canRun)
         let inputs = runInputs
         let prepare = prepareRun
@@ -478,7 +496,6 @@ struct ViralReconWizardSheet: View {
             let outcome = await Task.detached { Result { try prepare(inputs) } }.value
             guard !Task.isCancelled else { return }
             isPreparing = false
-            onReadinessDetailChange(nil)
             preparingTask = nil
             switch outcome {
             case .success(let request):

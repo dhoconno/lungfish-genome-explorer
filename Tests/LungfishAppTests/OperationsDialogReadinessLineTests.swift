@@ -376,4 +376,148 @@ final class OperationsDialogReadinessLineTests: XCTestCase {
             .filter { (try? $0.attributes().font()) == Font.headline }
         XCTAssertEqual(Fx.strings(primerTrim).filter { $0.lowercased() == "primer scheme" }, ["Primer scheme"])
     }
+
+    // MARK: The embedded Assembly and Viral Recon panes hold no Readiness card (UX-SHELL-WIZARDS Q1 b, work item A)
+
+    private static let reads = [URL(fileURLWithPath: "/tmp/reads.fastq")]
+    private static let assemblyOutput = URL(fileURLWithPath: "/tmp/assembly-out", isDirectory: true)
+
+    private func viralRecon(embedded: Bool, onDetail: @escaping (String?) -> Void = { _ in }) -> ViralReconWizardSheet {
+        ViralReconWizardSheet(
+            inputFiles: [], projectURL: nil, embeddedInOperationsDialog: embedded, embeddedRunTrigger: 0,
+            onRun: { _ in }, onRunnerAvailabilityChange: { _ in }, onReadinessDetailChange: onDetail)
+    }
+
+    /// Embedded, the Assembly pane draws no Readiness heading, no card message and no managed tool status, since the footer line beside
+    /// Run holds them. The standalone sheet keeps its one Readiness (5.6 A2).
+    func testTheEmbeddedAssemblyPaneDrawsNoReadinessCard() throws {
+        let embedded = try AssemblyWizardSheet(
+            inputFiles: Self.reads, outputDirectory: Self.assemblyOutput, embeddedInOperationsDialog: true).inspect()
+        let texts = Fx.strings(embedded.findAll(ViewType.Text.self))
+        XCTAssertEqual(texts.filter { $0 == "Readiness" }, [])
+        XCTAssertEqual(texts.filter { $0.hasPrefix("Managed tool status") || $0.hasPrefix("Install the Genome Assembly pack") }, [])
+        XCTAssertThrowsError(try embedded.find(viewWithAccessibilityIdentifier: "assembly-readiness-message"))
+
+        let standalone = try AssemblyWizardSheet(inputFiles: Self.reads, outputDirectory: Self.assemblyOutput).inspect()
+        XCTAssertEqual(Fx.strings(standalone.findAll(ViewType.Text.self)).filter { $0 == "Readiness" }, ["Readiness"])
+        XCTAssertEqual(
+            try standalone.find(viewWithAccessibilityIdentifier: "assembly-readiness-message").text().string(),
+            "Install the Genome Assembly pack to enable SPAdes.")
+    }
+
+    /// Embedded, the Viral Recon pane draws no Readiness section and still draws Advanced. The standalone sheet keeps its one Readiness.
+    func testTheEmbeddedViralReconPaneDrawsNoReadinessCard() throws {
+        let embedded = try viralRecon(embedded: true).inspect()
+        XCTAssertEqual(Fx.strings(embedded.findAll(ViewType.Text.self)).filter { $0 == "Readiness" }, [])
+        XCTAssertThrowsError(try embedded.find(viewWithAccessibilityIdentifier: ViralReconAccessibilityID.readinessLabel))
+        XCTAssertNoThrow(try embedded.find(viewWithAccessibilityIdentifier: ViralReconAccessibilityID.advancedDisclosure))
+
+        let standalone = try viralRecon(embedded: false).inspect()
+        XCTAssertEqual(Fx.strings(standalone.findAll(ViewType.Text.self)).filter { $0 == "Readiness" }, ["Readiness"])
+        XCTAssertEqual(
+            try standalone.find(viewWithAccessibilityIdentifier: ViralReconAccessibilityID.readinessLabel).text().string(),
+            "Select at least one FASTQ bundle.")
+    }
+
+    func testTheFASTQDialogDrawsNoReadinessHeadingForAnEmbeddedAssemblyOrViralRecon() throws {
+        for tool in [FASTQOperationToolID.spades, .flye, .viralRecon] {
+            let state = Fx.fastqState(tool)
+            XCTAssertEqual(state.selectedToolID, tool)
+            let texts = Fx.strings(try FASTQOperationDialog(state: state, onCancel: {}, onRun: {}).inspect().findAll(ViewType.Text.self))
+            XCTAssertEqual(texts.filter { $0 == "Readiness" }, [], tool.rawValue)
+        }
+    }
+
+    static let readClassWarning =
+        "SPAdes is ready. SPAdes is designed for other reads than ONT reads. The run uses SPAdes as chosen."
+    static let buildError = "Could not prepare Viral Recon: The disk is full."
+    static let assemblySmokeLine = "SPAdes is not ready in the Genome Assembly pack yet. Managed tool status: Needs reinstall "
+        + "spades.py --version exited with status 1."
+    static let assemblyPackFailureLine = "Install the Genome Assembly pack to enable SPAdes. Managed tool status: Needs install "
+        + "The Genome Assembly pack could not be checked."
+
+    /// UX-SHELL-WIZARDS Q1 Table 1, the Assembly rows: the line the embedded wizard sends for each card state. A tool or pack failure
+    /// follows the reason Run is off in the card's order, and a read-class warning shows with Run on once no other reason is left.
+    func testTheAssemblyLineOfEachTable1Case() throws {
+        let pack = try XCTUnwrap(PluginPack.builtInPack(id: "assembly"))
+        let requirement = try XCTUnwrap(pack.toolRequirements.first { $0.id == AssemblyTool.spades.rawValue })
+        func tool(installed: Bool, smokeTestFailure: String? = nil) -> PackToolStatus {
+            PackToolStatus(
+                requirement: requirement, environmentExists: installed, missingExecutables: installed ? [] : ["spades.py"],
+                smokeTestFailure: smokeTestFailure, storageUnavailablePath: nil)
+        }
+        func line(
+            name: String = "reads_assembly", inputs: Bool = true, reads: AssemblyReadType = .illuminaShortReads,
+            tool: PackToolStatus?, loaded: Bool = true, packFailure: String? = nil
+        ) -> String? {
+            let packStatus = loaded
+                ? PluginPackStatus(
+                    pack: pack, state: packFailure == nil ? .ready : .failed, toolStatuses: tool.map { [$0] } ?? [],
+                    failureMessage: packFailure)
+                : nil
+            let compatibility = AssemblyCompatibilityPresentation(
+                tool: .spades, readType: reads, packReady: tool?.environmentExists == true, toolReady: tool?.isReady == true,
+                blockingMessage: nil)
+            return AssemblyWizardRunPresentation(
+                hasInputFiles: inputs, hasOutputDirectory: true, projectName: name, requiresManualReadTypeConfirmation: false,
+                hasConfirmedManualReadType: false, advancedOptionsParseError: nil, compatibilityPresentation: compatibility,
+                configurationBlockingMessage: nil
+            ).embeddedReadinessDetail(packStatus: packStatus, toolStatus: tool)
+        }
+        let ready = tool(installed: true)
+        let missing = tool(installed: false)
+        let smoke = tool(installed: true, smokeTestFailure: "spades.py --version exited with status 1.")
+        XCTAssertEqual(AssemblyWizardRunPresentation.checkingPackText, "Checking the Genome Assembly pack\u{2026}")
+        XCTAssertEqual(line(tool: nil, loaded: false), "Checking the Genome Assembly pack\u{2026}", "pack status not loaded")
+        XCTAssertEqual(line(inputs: false, tool: nil, loaded: false), "Select at least one FASTQ input.", "no inputs")
+        XCTAssertEqual(line(name: " ", tool: nil, loaded: false), "Project name is required.", "an earlier reason while loading")
+        XCTAssertEqual(line(name: "", tool: ready), "Project name is required.", "empty project name")
+        XCTAssertEqual(
+            line(tool: missing), "Install the Genome Assembly pack to enable SPAdes. Managed tool status: Needs install", "pack missing")
+        XCTAssertEqual(line(tool: smoke), Self.assemblySmokeLine, "tool not ready with a smoke-test failure")
+        XCTAssertEqual(
+            line(tool: missing, packFailure: "The Genome Assembly pack could not be checked."), Self.assemblyPackFailureLine,
+            "pack failure")
+        XCTAssertEqual(line(reads: .ontReads, tool: ready), Self.readClassWarning, "read-class warning with Run on")
+        XCTAssertEqual(line(name: "", reads: .ontReads, tool: ready), "Project name is required.", "the warning waits")
+        XCTAssertNil(line(tool: ready), "Run on, no warning")
+    }
+
+    /// UX-SHELL-WIZARDS Q1 Table 1, the Viral Recon rows. Embedded, `visibleControls` holds no Readiness.
+    func testTheViralReconLineOfEachTable1CaseAndItsControls() {
+        let blocked = ViralReconWizardReadiness.evaluate(.init(
+            hasInputFiles: true, effectivePlatform: .illumina, inputError: nil, primerManifest: nil, outputRootAvailable: true,
+            minimumMappedReads: 1000))
+        let ready = ViralReconWizardReadiness.Evaluation(canRun: true, message: "Ready to run Viral Recon.")
+        XCTAssertEqual(
+            ViralReconWizardSheet.embeddedReadinessDetail(isPreparing: true, buildError: nil, evaluation: ready),
+            "Preparing inputs\u{2026}", "preparing")
+        XCTAssertEqual(
+            ViralReconWizardSheet.embeddedReadinessDetail(isPreparing: false, buildError: Self.buildError, evaluation: ready),
+            Self.buildError, "buildError with Run on")
+        XCTAssertEqual(
+            ViralReconWizardSheet.embeddedReadinessDetail(isPreparing: false, buildError: nil, evaluation: blocked),
+            "Select a SARS-CoV-2 primer scheme.", "Run off, the exact reason")
+        XCTAssertNil(
+            ViralReconWizardSheet.embeddedReadinessDetail(isPreparing: false, buildError: nil, evaluation: ready), "Run on, no error")
+        for detected in [true, false] {
+            let embedded = ViralReconWizardSheet.visibleControls(platformDetected: detected, embedded: true)
+            XCTAssertEqual(embedded.filter { $0 == .readiness }, [])
+            let standalone = ViralReconWizardSheet.visibleControls(platformDetected: detected, embedded: false)
+            XCTAssertEqual(standalone.filter { $0 == .readiness }, [.readiness])
+        }
+    }
+
+    /// Both wizards send their line on appear, so the footer holds it from the first frame.
+    func testTheEmbeddedWizardsSendTheirLineOnAppear() throws {
+        var assembly: [String?] = []
+        try AssemblyWizardSheet(
+            inputFiles: [], outputDirectory: nil, embeddedInOperationsDialog: true, onReadinessDetailChange: { assembly.append($0) }
+        ).inspect().group().callOnAppear()
+        XCTAssertEqual(assembly, ["Select at least one FASTQ input."])
+        var recon: [String?] = []
+        try viralRecon(embedded: true, onDetail: { recon.append($0) }).inspect().scrollView().callOnAppear()
+        XCTAssertEqual(recon, ["Select at least one FASTQ bundle."])
+    }
 }
+

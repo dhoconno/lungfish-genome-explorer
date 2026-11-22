@@ -40,7 +40,8 @@ struct FASTQOperationToolPanes: View {
                 embeddedInOperationsDialog: true,
                 embeddedRunTrigger: state.embeddedRunTrigger,
                 onRun: state.captureAssemblyRequest(_:runMode:),
-                onRunnerAvailabilityChange: readinessHandler(for: state.selectedToolID)
+                onRunnerAvailabilityChange: readinessHandler(for: state.selectedToolID),
+                onReadinessDetailChange: { [toolID = state.selectedToolID] in state.updateEmbeddedReadinessDetail($0, for: toolID) }
             )
             .id(state.selectedToolID.rawValue)
         case .kraken2:

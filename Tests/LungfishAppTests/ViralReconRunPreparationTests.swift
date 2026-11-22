@@ -99,22 +99,25 @@ final class ViralReconRunPreparationTests: XCTestCase {
 
     /// Review fix 3. The Operations dialog shows its readiness text beside the disabled Run. While the request
     /// prepares, the sheet gives the dialog the words "Preparing inputs..." through `onReadinessDetailChange` and
-    /// takes them back before `onRun`, so the dialog never tells the user to complete settings that are complete.
+    /// takes them back once the request is ready. The sheet sends its line on every change (UX-SHELL-WIZARDS Q1
+    /// Table 1), so the test reads the lines sent since the sheet first reported Run ready.
     func testDialogStatusReadsPreparingWhileTheRequestPrepares() throws {
         let held = try makeHeld()
         defer { held.harness.close() }
+        XCTAssertEqual(held.harness.recorder.details.last, .some(nil), "a ready sheet sends no line")
         try held.pressRunTwice()
 
         XCTAssertEqual(
-            held.harness.recorder.details, ["Preparing inputs\u{2026}"],
+            held.detailsSinceReady, ["Preparing inputs\u{2026}"],
             "the dialog status reads the preparing words once, and the refused second press added nothing"
         )
         held.gate.signal()
         held.harness.waitForRequests(1)
+        AccessibilityTreeProbe.waitUntil(timeout: 30) { held.detailsSinceReady.count >= 2 }
 
         XCTAssertEqual(
-            held.harness.recorder.details, ["Preparing inputs\u{2026}", nil],
-            "the sheet took the preparing words back before the request reached the dialog"
+            held.detailsSinceReady, ["Preparing inputs\u{2026}", nil],
+            "the sheet took the preparing words back once the request was ready"
         )
     }
 
@@ -214,6 +217,11 @@ extension ViralReconRunPreparationTests {
         let gate: DispatchSemaphore
         let builds: OSAllocatedUnfairLock<Int>
         let finishes: OSAllocatedUnfairLock<Int>
+        /// The number of lines the sheet had sent the dialog when it first reported Run ready.
+        let readyMark: Int
+
+        /// The lines the sheet sent the dialog since it first reported Run ready.
+        var detailsSinceReady: [String?] { Array(harness.recorder.details.dropFirst(readyMark)) }
 
         /// Presses Run, waits until the sheet reports Run off and the builder holds on the gate, then presses Run
         /// again and lets the sheet take the press. Waiting on the builder makes the second press a real double press
@@ -243,7 +251,8 @@ extension ViralReconRunPreparationTests {
             return try ViralReconRunPreparation.buildRequest(from: inputs)
         }
         try harness.chooseScheme()
-        return Held(harness: harness, gate: gate, builds: builds, finishes: finishes)
+        return Held(
+            harness: harness, gate: gate, builds: builds, finishes: finishes, readyMark: harness.recorder.details.count)
     }
 }
 
@@ -445,10 +454,10 @@ extension ViralReconRunPreparationTests {
             AccessibilityTreeProbe.waitUntil(timeout: 1) { false }
         }
 
-        /// The words of the sheet's footer, read the way VoiceOver reads them.
+        /// The words of the dialog's footer: the last line the embedded sheet sent, since the embedded sheet draws no
+        /// Readiness of its own (UX-SHELL-WIZARDS Q1 b).
         var footerText: String? {
-            AccessibilityTreeProbe.element(in: window, identifier: ViralReconAccessibilityID.readinessLabel)
-                .flatMap { AccessibilityTreeProbe.label($0) ?? AccessibilityTreeProbe.value($0) }
+            recorder.details.last ?? nil
         }
 
         /// Picks the project scheme in the sheet's Scheme pop-up, the way a user does, and waits until the sheet
