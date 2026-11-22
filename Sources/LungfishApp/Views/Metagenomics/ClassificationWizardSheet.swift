@@ -162,8 +162,8 @@ struct ClassificationWizardSheet: View {
         installedDatabases.filter { $0.status == .ready }
     }
 
-    /// Grouped sample inputs inferred from selected FASTQ files.
-    private var groupedSamples: [MetagenomicsSampleInput] {
+    /// Grouped sample inputs inferred from selected FASTQ files. Internal so tests read the samples the dialog runs.
+    var groupedSamples: [MetagenomicsSampleInput] {
         MetagenomicsSampleGrouper.group(inputFiles)
     }
 
