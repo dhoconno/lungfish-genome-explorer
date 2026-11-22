@@ -361,7 +361,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
             ),
             referenceDownloader: { _, _ in },
             resultIngest: { context in
-                ingested.record(context.resultsDirectory)
+                ingested.record(context.resultsDirectory, params: context.params)
             }
         )
 
@@ -371,6 +371,14 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(ingested.directories.count, 1, "ingest runs once on completion")
+        // The service stages the inputs, so `input` and the primer paths are the run bundle's copies. The keys that
+        // send the ingest to a caller's folders are the request's own.
+        let handed = try XCTUnwrap(ingested.params.first, "the ingest was handed no params")
+        for key in ["outdir", "platform", "protocol", "variant_caller", "consensus_caller"] {
+            XCTAssertNotNil(request.effectiveParams[key], key)
+            XCTAssertEqual(handed[key], request.effectiveParams[key],
+                           "the ingest reads the folders of the run's own \(key)")
+        }
         let item = try XCTUnwrap(operationCenter.items.first { $0.id == result.operationID })
         XCTAssertEqual(item.state, .completed)
     }
@@ -1300,14 +1308,22 @@ private func readPID(_ url: URL) throws -> Int32 {
 private final class IngestRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [URL] = []
+    private var paramStorage: [[String: String]] = []
 
     var directories: [URL] {
         lock.lock(); defer { lock.unlock() }
         return storage
     }
 
-    func record(_ url: URL) {
+    /// The params each recorded ingest was handed, in the order it ran.
+    var params: [[String: String]] {
+        lock.lock(); defer { lock.unlock() }
+        return paramStorage
+    }
+
+    func record(_ url: URL, params: [String: String] = [:]) {
         lock.lock(); defer { lock.unlock() }
         storage.append(url)
+        paramStorage.append(params)
     }
 }

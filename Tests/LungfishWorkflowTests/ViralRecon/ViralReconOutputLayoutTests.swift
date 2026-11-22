@@ -76,17 +76,44 @@ final class ViralReconOutputLayoutTests: XCTestCase {
         XCTAssertEqual(inventory.absentOutputs, [])
     }
 
+    // viralrecon deduplicates ARTIC's pass VCF and reads the result, `pass.unique`, in every later step
+    // (`workflows/viralrecon.nf:935-952`), so the track takes that file. The alignment is ARTIC's primer-trimmed BAM, the
+    // one its variants were called from (`modules/nf-core/artic/minion/main.nf:23-24`), and the other BAMs it publishes
+    // are not taken. The coverage tables are the plot step's, in the Nanopore folders (`conf/modules_nanopore.config:147-181`).
     func testANanoporeRunIsReadFromArticMinion() throws {
-        try write("artic_minion/S1.pass.vcf.gz", "artic_minion/S1.consensus.fasta",
-                  "artic_minion/pangolin/S1.pangolin.csv", "artic_minion/nextclade/S1.csv")
+        try write("artic_minion/S1.pass.vcf.gz", "artic_minion/S1.pass.unique.vcf.gz", "artic_minion/S1.consensus.fasta",
+                  "artic_minion/pangolin/S1.pangolin.csv", "artic_minion/nextclade/S1.csv",
+                  "artic_minion/S1.primertrimmed.rg.sorted.bam", "artic_minion/S1.primertrimmed.rg.sorted.bam.bai",
+                  "artic_minion/S1.sorted.bam", "artic_minion/S1.trimmed.rg.sorted.bam",
+                  "artic_minion/S1.mapped.sorted.bam",
+                  "artic_minion/mosdepth/amplicon/S1.mosdepth.coverage.tsv",
+                  "artic_minion/mosdepth/genome/S1.mosdepth.coverage.tsv")
 
         let inventory = discover(["platform": "nanopore", "protocol": "amplicon", "skip_freyja": "true"])
 
-        XCTAssertEqual(relative(inventory.variantVCF), "artic_minion/S1.pass.vcf.gz")
+        XCTAssertEqual(relative(inventory.variantVCF), "artic_minion/S1.pass.unique.vcf.gz")
         XCTAssertEqual(relative(inventory.consensusFASTA), "artic_minion/S1.consensus.fasta")
         XCTAssertEqual(inventory.lineageFiles.compactMap(relative),
                        ["artic_minion/nextclade/S1.csv", "artic_minion/pangolin/S1.pangolin.csv"])
+        XCTAssertEqual(relative(inventory.sortedBAM), "artic_minion/S1.primertrimmed.rg.sorted.bam")
+        XCTAssertEqual(relative(inventory.bamIndex), "artic_minion/S1.primertrimmed.rg.sorted.bam.bai")
+        XCTAssertEqual(inventory.reportFiles.compactMap(relative),
+                       ["artic_minion/mosdepth/amplicon/S1.mosdepth.coverage.tsv",
+                        "artic_minion/mosdepth/genome/S1.mosdepth.coverage.tsv"])
         XCTAssertEqual(inventory.absentOutputs, [])
+        // The caller's evidence stays ARTIC's own file, as it was.
+        XCTAssertEqual(ViralReconRunOutcome.caller(params: ["platform": "nanopore"])?.fileTemplates,
+                       ["artic_minion/@SAMPLE@.pass.vcf.gz"])
+    }
+
+    // A sample with only ARTIC's pass VCF reached the caller and has no file viralrecon reads, so it is named so.
+    func testANanoporeSampleWithOnlyTheArticVCFHasNoVariantFile() throws {
+        try write("artic_minion/S1.pass.vcf.gz")
+
+        let inventory = discover(["platform": "nanopore", "skip_freyja": "true"])
+
+        XCTAssertNil(inventory.variantVCF)
+        XCTAssertEqual(inventory.absentOutputs.first, .variantsNotWritten)
     }
 
     // The default run, as a new wizard writes its params and as callers with no params read it, reads as before.
@@ -184,5 +211,27 @@ final class ViralReconOutputLayoutTests: XCTestCase {
         XCTAssertEqual(try sidecar("S1")["absentOutputs"] as? [String],
                        ["consensusNotWritten", "pangolinNotWritten", "nextcladeNotWritten"])
         XCTAssertNil(try sidecar("S2")["absentOutputs"])
+    }
+
+    // `ingestRun` hands one sample to `ingest` and several to `ingestBatch`, and each must carry the run's params.
+    func testIngestRunReadsTheFoldersOfTheParamsForOneSampleAndForABatch() throws {
+        let reference = results.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: reference, withIntermediateDirectories: true)
+        let params = Self.amplicon.merging(["variant_caller": "bcftools"]) { $1 }
+        for sample in ["S1", "S2"] {
+            try write("variants/bcftools/\(sample).vcf.gz")
+        }
+        for names in [["S1"], ["S1", "S2"]] {
+            let project = results.appendingPathComponent("P\(names.count).lungfish", isDirectory: true)
+            try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+            let ingested = try ViralReconResultIngest.ingestRun(
+                resultsDirectory: results, sampleNames: names, referenceBundleURL: reference,
+                projectURL: project, params: params)
+            XCTAssertEqual(ingested.count, names.count)
+            for entry in ingested {
+                XCTAssertEqual(relative(entry.inventory.variantVCF),
+                               "variants/bcftools/\(entry.inventory.sampleName).vcf.gz", "\(names)")
+            }
+        }
     }
 }

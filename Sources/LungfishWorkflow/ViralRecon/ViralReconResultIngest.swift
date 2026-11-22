@@ -42,6 +42,7 @@ public enum ViralReconResultIngest {
         referenceBundleURL: URL,
         into bundleDirectory: URL,
         params: [String: String] = ViralReconOutputLayout.defaultRunParams,
+        traceText: String? = nil,
         fileManager: FileManager = .default
     ) throws -> Ingested {
         guard fileManager.fileExists(atPath: referenceBundleURL.path) else {
@@ -66,7 +67,8 @@ public enum ViralReconResultIngest {
 
         let inventory = ViralReconResultInventory.discover(in: resultsDirectory,
                                                           sampleName: sampleName,
-                                                          params: params)
+                                                          params: params,
+                                                          traceText: traceText)
         let copied = try copyOutputsByRole(inventory,
                                            into: bundleDirectory,
                                            fileManager: fileManager)
@@ -311,6 +313,8 @@ public enum ViralReconResultIngest {
         // sample's directory, where copy() returns early because the
         // destination exists. Sample 2 would silently inherit sample 1's
         // consensus and reports, attributing one sample's result to another.
+        // The run's trace is read once for the whole batch, not once for each sample that has no VCF.
+        let traceText = ViralReconResultInventory.newestTraceText(in: resultsDirectory)
         var usedNames: Set<String> = []
         let ingested: [Ingested]
         do {
@@ -325,6 +329,7 @@ public enum ViralReconResultIngest {
                     referenceBundleURL: referenceBundleURL,
                     into: batchDirectory.appendingPathComponent(directoryName, isDirectory: true),
                     params: params,
+                    traceText: traceText,
                     fileManager: fileManager
                 )
             }

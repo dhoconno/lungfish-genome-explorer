@@ -75,10 +75,31 @@ public struct ViralReconOutputLayout: Sendable, Equatable {
         return isNanopore ? "artic_minion" : "variants/\(variantCaller)"
     }
 
-    /// The VCF of `sample`, relative to the results folder.
+    /// The VCF of `sample`, relative to the results folder. A Nanopore run's is the `pass.unique` VCF that
+    /// `VCFLIB_VCFUNIQ` makes from ARTIC's `pass` VCF, the call set viralrecon's own later steps read
+    /// (`workflows/viralrecon.nf:935-952`, `conf/modules_nanopore.config:53-60`).
     public func variantFile(forSample sample: String) -> String? {
         guard let variantsFolder else { return nil }
-        return isNanopore ? "\(variantsFolder)/\(sample).pass.vcf.gz" : "\(variantsFolder)/\(sample).vcf.gz"
+        return isNanopore ? "\(variantsFolder)/\(sample).pass.unique.vcf.gz" : "\(variantsFolder)/\(sample).vcf.gz"
+    }
+
+    /// The alignments of `sample` the track may take, relative to the results folder, the one the caller used first.
+    /// An Illumina run's is the primer-trimmed BAM, or the plain one when the run did not trim. A Nanopore run's is
+    /// ARTIC's primer-trimmed BAM, the alignment its variants were called from
+    /// (`modules/nf-core/artic/minion/main.nf:23-24`, `conf/modules_nanopore.config:44-50`). Its index is the same name
+    /// with `.bai`.
+    public func alignmentFiles(forSample sample: String) -> [String] {
+        isNanopore
+            ? ["artic_minion/\(sample).primertrimmed.rg.sorted.bam"]
+            : ["variants/bowtie2/\(sample).ivar_trim.sorted.bam", "variants/bowtie2/\(sample).sorted.bam"]
+    }
+
+    /// The coverage tables of `sample`, relative to the results folder, per amplicon and then across the genome. The
+    /// plot step names both `<sample>.mosdepth.coverage.tsv` in either pipeline (`modules/local/plot_mosdepth_regions`),
+    /// and a Nanopore run's folders are under `artic_minion/mosdepth` (`conf/modules_nanopore.config:147-181`).
+    public func coverageFiles(forSample sample: String) -> [String] {
+        let folder = isNanopore ? "artic_minion/mosdepth" : "variants/bowtie2/mosdepth"
+        return ["\(folder)/amplicon/\(sample).mosdepth.coverage.tsv", "\(folder)/genome/\(sample).mosdepth.coverage.tsv"]
     }
 
     /// The folder of the consensus: `variants/<caller>/consensus/<consensus_caller>` or `artic_minion`.
@@ -110,7 +131,9 @@ public struct ViralReconOutputLayout: Sendable, Equatable {
     var callerEvidence: (fileTemplates: [String], processName: String)? {
         guard let variantCaller, let template = variantFile(forSample: "@SAMPLE@") else { return nil }
         switch variantCaller {
-        case "artic": return ([template], "ARTIC_MINION")
+        // ARTIC's own pass VCF shows the caller reached the sample. The track takes the unique VCF viralrecon makes
+        // from it, so a sample with only this file reads as `variantsNotWritten`.
+        case "artic": return (["artic_minion/@SAMPLE@.pass.vcf.gz"], "ARTIC_MINION")
         case "ivar": return (["variants/ivar/@SAMPLE@.tsv", template], "IVAR_VARIANTS")
         default: return ([template], "BCFTOOLS_MPILEUP")
         }
