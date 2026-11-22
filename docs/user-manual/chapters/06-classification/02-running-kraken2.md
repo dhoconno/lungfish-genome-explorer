@@ -3,7 +3,7 @@ title: Running Kraken 2
 chapter_id: 06-classification/02-running-kraken2
 audience: bench-scientist
 prereqs: [01-foundations/07-plugin-packs, 03-reads/01-importing-fastq, 06-classification/01-what-is-classification]
-estimated_reading_min: 26
+estimated_reading_min: 35
 task: Classify a FASTQ bundle with Kraken 2 against an installed database, read the taxonomy viewport, and pull the reads of one taxon out as a new bundle.
 tags: [classification, kraken2, bracken, taxonomy, sunburst, extraction]
 tools: [kraken2, bracken]
@@ -16,7 +16,7 @@ shots:
   - id: kraken2-dialog
     caption: "The FASTQ/FASTA Operations dialog opened from Tools > Classification > Kraken2…, with the dataset line naming Imports/SRR12486983.lungfishfastq, the Database picker on Viral with its description and recommended memory, and the Sensitivity control on Balanced."
   - id: kraken2-advanced-settings
-    caption: "The dialog's Advanced Settings disclosure expanded, showing the Confidence slider, the Min hit groups stepper, the Threads stepper, the Memory mapping checkbox, and the Extra arguments field."
+    caption: "The dialog's Advanced Settings section expanded, showing the Confidence slider, the Min hit groups stepper, the Threads stepper, the Memory mapping checkbox, and the Extra arguments field."
   - id: kraken2-taxonomy-viewport
     caption: "The taxonomy viewport after classifying SRR12486983 against the Viral database, with the summary cards along the top, the sunburst on the left, the per-taxon table on the right with its Filter taxa… field and taxa count, and the action bar along the bottom with Verify with BLAST…, Export, Extract Reads…, BLAST Results, and Collections."
   - id: kraken2-drilldown-orthoherpesviridae
@@ -39,7 +39,7 @@ lead_approved: false
 
 Kraken 2 looks up short stretches of sequence. An alignment lines up sequences and scores them base by base. Looking up a short sequence takes less time than aligning a whole read. A [k-mer](../../GLOSSARY.md#k-mer) is a stretch of exactly k bases, so `ACGTA` holds three 3-mers, `ACG`, `CGT`, and `GTA`. Kraken 2's default k is 35, so a 76-base read, the longest in this example, holds 42 k-mers. A [minimizer](../../GLOSSARY.md#minimizer) is the shorter stretch Kraken 2 uses to look up a k-mer. By default it chooses the 31-base stretch that comes first in a fixed sort order. Neighboring k-mers often share a minimizer, so one database entry can serve several lookups.
 
-A minimizer shared by relatives is filed under their [lowest common ancestor](../../GLOSSARY.md#lowest-common-ancestor), the smallest group containing them all. For example, a minimizer shared by human and macaque goes under Catarrhini, the group of Old World monkeys and apes, if it has no matches outside that group. A hit is a k-mer whose minimizer is in the database. Kraken 2 tallies hits along paths from the root, the tree's top, to each taxon. When the highest-scoring paths tie, Kraken 2 reports their lowest common ancestor. The **Confidence** threshold under Settings can move an assignment farther up the tree. The report can therefore show counts at several ranks. See [What Is Read Classification](01-what-is-classification.md#what-it-is) for more on how classifiers handle shared sequence.
+A minimizer shared by relatives is filed under their [lowest common ancestor](../../GLOSSARY.md#lowest-common-ancestor), the smallest group containing them all. For example, a minimizer shared by human and macaque goes under Catarrhini, the group of Old World monkeys and apes, if it has no matches outside that group. A hit is a k-mer whose minimizer is in the database. Kraken 2 tallies hits along paths from the root, the tree's top, to each taxon. When the highest-scoring paths tie, Kraken 2 reports their lowest common ancestor. The **Confidence** threshold, the fraction of a read's k-mers that must support a taxon, can move an assignment farther up the tree. The report can therefore show counts at several ranks. See [What Is Read Classification](01-what-is-classification.md#what-it-is) for more on how classifiers handle shared sequence.
 
 Lungfish Genome Explorer (LGE) labels the tool **Kraken2** in its menus. LGE runs Kraken 2 first and adds species estimates from [Bracken](../../GLOSSARY.md#bracken) when the classification supports them. Bracken uses a table built from the database for one read length that records where Kraken 2 places reads from each genome. It uses that table and each species' own count to share out reads that Kraken 2 left above species. Bracken estimates counts across many reads, while Kraken 2 makes the individual assignments. The result opens in the taxonomy viewport, with a table of taxa beside a sunburst chart that draws the tree as wedges in rings.
 
@@ -49,7 +49,7 @@ Use Kraken 2 for a first look at what a [sequencing library](../../GLOSSARY.md#l
 
 The database you choose shapes what the report can tell you. See [Choosing a tool](01-what-is-classification.md#choosing-a-tool) for the other classification options in LGE. The [Tool Bibliography](../appendices/bibliography.md#tools-installed-by-a-plugin-pack) lists the papers for Kraken 2 by Wood and colleagues 2019 and Bracken by Lu and colleagues 2017.
 
-This chapter uses accession SRR12486983 from the NCBI Sequence Read Archive (SRA). An [accession](../../GLOSSARY.md#accession) is a public record ID. The [SRA](../../GLOSSARY.md#sra) is an archive of sequencing data. The reads come from the cornea, the clear front surface of the eye, of a person with herpes simplex keratitis, an eye infection caused by herpes simplex virus 1 (HSV-1). The tissue was preserved in formalin, a fixative that can damage DNA, and sequenced on an Illumina NextSeq 550. In [shotgun sequencing](../../GLOSSARY.md#shotgun), the sequencer reads DNA from across the sample without first copying a chosen target.
+This chapter uses accession SRR12486983 from the Sequence Read Archive (SRA) at the National Center for Biotechnology Information (NCBI), the American public repository for sequence data. An [accession](../../GLOSSARY.md#accession) is a public record ID. The [SRA](../../GLOSSARY.md#sra) is an archive of sequencing data. The reads come from the cornea, the clear front surface of the eye, of a person with herpes simplex keratitis, an eye infection caused by herpes simplex virus 1 (HSV-1). The tissue was preserved in formalin, a fixative that can damage DNA, and sequenced on an Illumina NextSeq 550. In [shotgun sequencing](../../GLOSSARY.md#shotgun), the sequencer reads DNA from across the sample without first copying a chosen target.
 
 The study reported HSV-1, so use that finding to check whether each database reports the expected virus. The sample is the pathogen-identification example in Lu et al. 2022, *Nature Protocols* 17, 2815. See [Metagenome analysis using the Kraken software suite](https://doi.org/10.1038/s41596-022-00738-y) for the study.
 
@@ -98,7 +98,7 @@ Open **Tools > Plugin Manager…** and download Viral from the **Databases** tab
 
     <!-- SHOT: kraken2-dialog -->
 
-4. Leave **Sensitivity** on **Balanced** and **Advanced Settings** collapsed. **Balanced** sets how much matching sequence a read needs before Kraken 2 assigns it. Settings explains the two controls, **Confidence** and **Min hit groups**. The screenshot shows the section open so you can see those values.
+4. Leave **Sensitivity** on **Balanced** and **Advanced Settings** collapsed. **Balanced** sets how much matching sequence a read needs before Kraken 2 assigns it. Settings explains the two controls, **Confidence** and **Min hit groups**. The screenshot shows the section open so you can see those values. A stepper is a pair of small up and down arrows beside a number.
 
     <!-- SHOT: kraken2-advanced-settings -->
 
@@ -201,7 +201,7 @@ The [Inspector](../../GLOSSARY.md#inspector) is the right-hand pane that shows d
 
 **Include unmapped mates of mapped pairs.** Includes the mate when only one read in a pair aligned to the selected reference and shows how many reads this adds. It is off by default and hidden for Kraken 2 because Kraken 2 produces no alignment. Turn it on for EsViritu, TaxTriage, NAO-MGS, or NVD if you plan to assemble or map the extracted reads. On the command line this is `--include-unmapped-mates`.
 
-**Destination.** Sends the reads to **Save as Bundle**, **Save to File…**, **Copy to Clipboard**, or **Share…**. The default is **Save as Bundle** so you can run other tools on the reads in your project. Choose **Save to File…** when sending reads to another program, or **Copy to Clipboard** for a small selection, since above 10,000 pairs its tooltip asks you to choose another destination and the option is disabled. On the command line this is `--output`.
+**Destination.** Sends the reads to **Save as Bundle**, **Save to File…**, **Copy to Clipboard**, or **Share…**. The default is **Save as Bundle** so you can run other tools on the reads in your project. Choose **Save to File…** when sending reads to another program, or **Copy to Clipboard** for a small selection, since above 10,000 pairs the option is disabled and its tooltip, the message that opens when you hover, asks you to choose another destination. On the command line this is `--output`.
 
 **Name.** Sets a required bundle or file name for **Save as Bundle** or **Save to File…**. It starts with `kraken2_` plus the taxon name so you can identify the selection, and LGE timestamps the bundle if you keep the default. Change it if you need a more descriptive name. On the command line this is `--bundle-name`.
 
@@ -291,7 +291,7 @@ Use the action bar to check a taxon, extract its reads, or save results. Kraken 
 | **BLAST Results** | Shows or hides the **BLAST Results** tab in the drawer below the table. |
 | **Collections** | Shows or hides the **Collections** tab in the same drawer. See [Collections](#collections) for extraction by group. |
 
-A grayed button gives the reason in its tooltip, the message that opens when you hover. With no selection, the tooltip for **Extract Reads…** begins "Select one or more rows to extract their reads." The tooltip for **Verify with BLAST…** begins "Select a row to verify it with BLAST."
+A grayed button gives the reason in its tooltip. With no selection, the tooltip for **Extract Reads…** begins "Select one or more rows to extract their reads." The tooltip for **Verify with BLAST…** begins "Select a row to verify it with BLAST."
 
 To save the table for use outside LGE, choose a file export. The Operations Panel tracks `lungfish-cli kraken2 export table`. The file contains Name, Rank, Reads (Clade), Reads (Direct), "Clade %", and "Direct %", plus any sample metadata columns shown in the table. Metadata are details associated with a sample. Taxon rows follow tree order, with an unclassified row at the end. A multi-sample export groups each sample's rows between its own sample row and its unclassified row. "Clade %" and "Direct %" divide by the total for that row's sample, including the unclassified count. For the cornea result, that total counts pairs.
 
@@ -307,7 +307,7 @@ For the keyboard route to the row commands, click the table to give it focus, th
 
 Use a collection to check the same group of organisms across samples. A collection is a named set of taxa. LGE can extract the set at once, with a separate FASTQ file for each selected taxon with reads.
 
-Click **Collections** to open the drawer on its **Collections** tab. It has a **Filter collections...** field and an **All**, **Built-in**, **App**, and **Project** switch. Each collection row shows its name and how many taxa it holds. Only built-in collections are available, so **App** and **Project** stay empty.
+Click **Collections** to open the drawer on its **Collections** tab. It has a **Filter collections...** field. Each collection row shows its name and how many taxa it holds. Only built-in collections are available.
 
 LGE has eight built-in collections, including Respiratory Viruses, AMR Organisms (ESKAPE), and Fungal Pathogens. Open a collection to see its taxa. A green dot marks a detected taxon, and its tooltip gives the count. A taxon with no reads is dimmed and struck through. Most taxa are marked "+children", meaning reads assigned below them are included. All taxa start selected. Clear the checkbox for any you want to leave out.
 
