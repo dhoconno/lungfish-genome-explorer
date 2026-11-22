@@ -825,7 +825,7 @@ extension SequenceViewerView {
     /// Returns nil in coverage tier (individual reads not visible).
     func readAtPoint(_ point: NSPoint) -> AlignedRead? {
         guard !cachedPackedReads.isEmpty,
-              let frame = viewController?.referenceFrame else { return nil }
+              let frame = viewController?.referenceFrame, point.x >= frame.leadingInset, point.x < bounds.width - frame.trailingInset else { return nil }
 
         let tier = lastRenderedReadTier
         guard tier != .coverage else { return nil }

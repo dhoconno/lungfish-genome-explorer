@@ -147,22 +147,30 @@ final class AlignmentViewerGutterAndLabelTests: XCTestCase {
         XCTAssertEqual(extent.maxX, CGFloat(width) - 4, accuracy: 1.5, "the export's label must keep its place")
     }
 
-    // MARK: - Finding, a click in the gutter
+    // MARK: - A click outside the data area
 
-    /// FINDING (S4, outside TV-ALIGN's files). `readAtPoint` and `readInRow` in
-    /// SequenceViewerView+Tooltips.swift test only a read's pixel span and never the gutter, so a click at
-    /// a gutter x that a read starting before the window overlaps still selects that read. After the clip
-    /// fix the read is no longer drawn there, so the click selects a read the user cannot see. The
-    /// expected failure records that. It becomes an unexpected pass when the hit-test is fixed, and that
-    /// pass is the signal to drop the wrapper and keep the assertion.
-    func testAClickInTheGutterStillHitsAReadThatStartsBeforeTheWindow() {
-        let frame = ReferenceFrame(chromosome: "chr1", start: 1_000, end: 1_728, pixelWidth: 800, sequenceLength: 20_000)
-        frame.leadingInset = leadingInset
-        frame.trailingInset = trailingInset
-        let spanning = read("spanning", chromosome: "chr1", position: 980)
-        let hit = SequenceViewerView.readInRow(0, from: [0: [spanning]], atX: leadingInset - 10, frame: frame)
-        XCTExpectFailure("a gutter click selects a read that the clip no longer draws (TV-ALIGN finding)") {
-            XCTAssertNil(hit, "a click in the gutter must not select a read")
+    /// The read clips keep reads out of the gutter and the right band, so a click, a hover and a
+    /// right-click there must find no read. A click on the drawn part of the same read still finds it.
+    func testAClickOutsideTheDataAreaSelectsNoRead() async throws {
+        let start = 50
+        let cases: [(name: String, position: Int, outside: CGFloat, inside: CGFloat)] = [
+            (name: "left", position: start - 20, outside: leadingInset - 10, inside: leadingInset + 20),
+            (name: "right", position: start + 700, outside: dataRight + 4, inside: dataRight - 20),
+        ]
+        for item in cases {
+            let fixture = try await makeDetachedViewer(
+                windowStart: start, depth: [], reads: [read(item.name, chromosome: "chr1", position: item.position)]
+            )
+            _ = try render(fixture.view)
+            let y = fixture.view.testLastRenderedReadY + 2
+            XCTAssertEqual(
+                fixture.view.testReadAtPoint(NSPoint(x: item.inside, y: y))?.name, item.name,
+                "a click on the drawn part of the \(item.name) read must select it"
+            )
+            XCTAssertNil(
+                fixture.view.testReadAtPoint(NSPoint(x: item.outside, y: y)),
+                "a click at x \(item.outside) lies outside the data area, so it must select no read"
+            )
         }
     }
 
