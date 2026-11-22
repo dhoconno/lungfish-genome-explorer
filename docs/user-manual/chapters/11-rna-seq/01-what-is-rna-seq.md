@@ -60,7 +60,7 @@ A sequencing [library](../../GLOSSARY.md#library) is the collection of prepared 
 | Bulk | One combined count per gene from thousands to millions of cells in a sample |
 | Single-cell | Separate counts per gene for each cell |
 
-LGE's single-cell presets, or ready-made groups of settings, cover the 10x Genomics method. In that method, each droplet captures a cell with a bead carrying DNA tags. The tags on the bead share a cell barcode, a short sequence that identifies the cell, and each tag has its own UMI. Barcodes preserve cell identity when tagged material from many cells is pooled for sequencing. Within each cell, the UMI helps group copies of the original molecule into one count.
+LGE's single-cell presets, or ready-made groups of settings, cover the 10x Genomics method. In that method, a droplet that catches a cell also holds a bead carrying DNA tags. The tags on the bead share a cell barcode, a short sequence that identifies the cell, and each tag has its own UMI. Barcodes preserve cell identity when tagged material from many cells is pooled for sequencing. Within each cell, the UMI helps group copies of the original molecule into one count.
 
 The resulting matrix counts UMIs by gene and cell. Most entries are zero because cells express only some genes and the method captures only some of their RNA. [Cells, barcodes, and UMIs](04-single-cell-counts.md#cells-barcodes-and-umis) explains how those counts are made.
 
@@ -126,9 +126,9 @@ A 16 GB Mac falls short of the salmon index build requirement. With that Mac and
 
 For uncounted 10x reads, **Single-cell Plan for a Linux Machine** plans a run with STARsolo, STAR's single-cell mode. In a 10x read pair, one read holds the barcode and UMI and the other holds the RNA sequence. The introns preset, which counts introns as well as exons, returns a folder LGE cannot adopt.
 
-Both fixtures use imports because the counts are already available. The bulk fixture has six folders from salmon 2.11.0, the version in the **RNA-Seq Analysis** plugin pack, a group of tools LGE adds on request. Across the same 200 cells, Cell Ranger counts 212,733 UMIs and STARsolo counts 212,629, a difference of 104 UMIs, about 0.05 percent. Close totals can hide differences for individual genes or cells.
+Both fixtures use imports because the counts are already available. The bulk fixture has six folders from salmon 2.11.0, the version in the **RNA-Seq Analysis** plugin pack, a group of tools LGE adds on request. Across the same 200 cells and the 1,353 genes the fixture keeps, Cell Ranger counts 212,733 UMIs and STARsolo counts 212,629, a difference of 104 UMIs, about 0.05 percent. Close totals can hide differences for individual genes or cells.
 
-If you have uncounted bulk reads, choose a route your computers can support. To match a published study, check which program made its final counts. A study that mapped with STAR may have counted with STAR, salmon, or featureCounts. LGE records the counting route in every result.
+If you have uncounted bulk reads, choose a route your computers can support. To match a published study, check which program made its final counts. A study that mapped with STAR may have counted with STAR, salmon, or featureCounts. LGE records a route in every result. For counts LGE makes or adopts and for imported salmon or Cell Ranger folders, the route names the tool and its version. For an imported STARsolo folder, the version reads **Not recorded**. For an imported count table, both the tool and its version read **Not recorded**.
 
 ## Read counts, library size, CPM, and TPM
 
