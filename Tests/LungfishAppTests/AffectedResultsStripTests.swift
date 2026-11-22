@@ -204,7 +204,8 @@ final class AffectedResultsStripTests: XCTestCase {
     }
 
     func testTheStripIsAbsentForARecordOfAnUnaffectedOrDevBuild() {
-        for build in ["Lungfish 2026.11.7 (12972)", "Lungfish 2026.11.7 (dev)"] {
+        // 14073 is the first build after every row, since the 5.6 rows end at Preview 2026.11.15 (14072).
+        for build in ["Lungfish 2026.11.16 (14073)", "Lungfish 2026.11.7 (dev)"] {
             let (container, surface, top) = container()
             let words = words(build: build)
             XCTAssertNil(words, build)
@@ -218,7 +219,7 @@ final class AffectedResultsStripTests: XCTestCase {
         let (container, surface, top) = container()
         AffectedResultsStrip.place(words: words(build: "Lungfish 2026.10.29 (12045)"), above: surface, in: container)
         XCTAssertNotNil(AffectedResultsStrip.strip(in: container))
-        AffectedResultsStrip.place(words: words(build: "Lungfish 2026.11.7 (12972)"), above: surface, in: container)
+        AffectedResultsStrip.place(words: words(build: "Lungfish 2026.11.16 (14073)"), above: surface, in: container)
         XCTAssertNil(AffectedResultsStrip.strip(in: container))
         XCTAssertTrue(top.isActive, "the host's own constraint is back")
     }

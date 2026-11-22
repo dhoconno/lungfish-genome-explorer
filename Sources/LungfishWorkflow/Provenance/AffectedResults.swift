@@ -63,6 +63,16 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     /// two lines, so each row's output past about 202 KB of gzip lost every read (DEMUX-SHARED-NAME-GZIP,
     /// BIO-SHARED-NAME-GZIP item 3). It is a narrower ``fastqDemultiplex``, so every row of that kind names it too.
     case fastqDemultiplexSharedNameGzip
+    /// A mapping whose record names two loose read files, outside any `.lungfishfastq` bundle, bound as R1 and R2, which
+    /// the mapper paired by position (LOOSE-PAIR-SHORT-MATE, LOOSE-PAIR-OUT-OF-STEP). A mapping of one file, of files
+    /// mapped as single reads or of a bundle is no kind.
+    case mappingLoosePair
+    /// A FASTQ bundle imported from two loose files recorded as R1 and R2, on this Mac or by a plan whose node returned
+    /// the bundle (LOOSE-PAIR-OUT-OF-STEP). An import whose recipe let fastp guess the adapter pair is a
+    /// ``fastqRecipeImport`` first, even of two loose files, so a row that speaks of the recipe import names both kinds.
+    case fastqLoosePairImport
+    /// A CZ ID taxon report imported as a result (CZID-REAL-EXPORT-FORMAT).
+    case czIdImport
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -207,7 +217,9 @@ public enum AffectedResults {
         return version.split(separator: ".").compactMap { Int($0) }
     }
 
-    /// The table. The newest published builds are `Lungfish 2026.11.11 (13672)` and, before it, 13603 (2026.11.10),
+    /// The table, with the rows of the S1 fixes of sub-phase 5.6 in ``loosePairAndImportRows``. The newest published
+    /// builds are `Lungfish 2026.11.15 (14072)`, 13927 (Stable 2026.11.14, a patch build), 13924 (2026.11.13), 13764
+    /// (2026.11.12) and `Lungfish 2026.11.11 (13672)` and, before it, 13603 (2026.11.10),
     /// 13300 (2026.11.9), 13190 (2026.11.8), 12972 (2026.11.7), 12962 (2026.11.6), 12859, 12818, 12803, 12591, 12518
     /// (2026.11.1), 12045 (2026.10.29), 11807 (2026.10.28) and 11609 (2026.10.27).
     public static let rows: [AffectedResultRow] = [
@@ -564,7 +576,7 @@ public enum AffectedResults {
                 + "read names.",
             fixCommit: "eba5464b1"
         ),
-    ]
+    ] + loosePairAndImportRows
 
     /// A published release, its version and the build of the commit it was packaged from.
     public struct PublishedRelease: Equatable, Sendable {
@@ -615,7 +627,10 @@ public enum AffectedResults {
         .init("2026.10.28", 11807), .init("2026.10.29", 12045), .init("2026.11.1", 12518), .init("2026.11.2", 12591),
         .init("2026.11.3", 12803), .init("2026.11.4", 12818), .init("2026.11.5", 12859), .init("2026.11.6", 12962),
         .init("2026.11.7", 12972), .init("2026.11.8", 13190), .init("2026.11.9", 13300), .init("2026.11.10", 13603),
-        .init("2026.11.11", 13672), .init("2026.11.12", 13764),
+        .init("2026.11.11", 13672), .init("2026.11.12", 13764), .init("2026.11.13", 13924),
+        // Stable 2026.11.14 was packaged from a patch branch of v2026.11.7, whose tag counts 12984 commits, and stamped
+        // 13927. It is left out, so its version names the builds between the two Previews, which hold 13927.
+        .init("2026.11.15", 14072),
     ]
 }
 
@@ -681,8 +696,15 @@ extension AffectedResults {
             if searchedWithAKitTheFloorCannotJudge(envelope) { return .fastqDemultiplexSaturatedKit }
             return searchedSingleBarcodesAtAnOffset(envelope) ? .fastqDemultiplexSingleOffset : .fastqDemultiplex
         case RecordName.fastqImport:
+            // One kind per record: a recipe import that let fastp guess the adapter pair is the recipe kind even when its
+            // reads were two loose files, so LOOSE-PAIR-OUT-OF-STEP names both kinds.
             let guessed = envelope.steps.contains { runs("fastp", $0) && $0.argv.contains(fastpPairedAdapterGuess) }
-            return guessed ? .fastqRecipeImport : nil
+            if guessed { return .fastqRecipeImport }
+            return importedTwoLooseFiles(envelope) ? .fastqLoosePairImport : nil
+        case RecordName.map:
+            return mappedTwoLooseFiles(envelope) ? .mappingLoosePair : nil
+        case RecordName.czIdImport:
+            return .czIdImport
         case RecordName.variantsCall:
             return envelope.steps.contains { runs("ivar", $0) } ? .variantCalls : nil
         case RecordName.extractReads, RecordName.classifierReadExtraction, RecordName.appClassifierReadExtraction:

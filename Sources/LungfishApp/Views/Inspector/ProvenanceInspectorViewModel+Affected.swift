@@ -34,9 +34,14 @@ extension ProvenanceInspectorViewModel {
         case .classificationResult: return .kraken2
         case .naoMgsResult: return .naoMgs
         case .nvdResult: return .nvd
+        case .czIdResult: return .czIdImport
         case .analysisResult:
-            // A result in the Analyses folder names its tool in its metadata.
+            // A result in the Analyses folder names its tool in its metadata. A mapping is a kind only when its record
+            // names two loose files bound as a pair (``AffectedResults/kind(of:)``).
             guard let url = item.url, let tool = AnalysesFolder.readAnalysisMetadata(from: url)?.tool else { return nil }
+            if mappingTools.contains(tool.lowercased()) {
+                return envelope.flatMap(AffectedResults.kind(of:)) == .mappingLoosePair ? .mappingLoosePair : nil
+            }
             return affectedResultKind(forTool: tool)
         case .fastqBundle, .folder, nil:
             // A demultiplexed sample reads its run folder's record, and a track source the record of its track.
@@ -44,6 +49,11 @@ extension ProvenanceInspectorViewModel {
         default: return nil
         }
     }
+
+    /// The tools of a mapping in the Analyses folder (`AnalysisToolRegistry`).
+    nonisolated static let mappingTools: Set<String> = Set(
+        [AnalysisToolID.minimap2, .bwaMem2, .bowtie2, .bbmap].map(\.rawValue)
+    )
 
     nonisolated static func affectedResultKind(forTool tool: String) -> AffectedResultKind? {
         let name = tool.lowercased()

@@ -118,8 +118,21 @@ final class ProvenanceInspectorViewModelOffMainTests: XCTestCase {
         let outcome = await viewModel.lookupTask?.value ?? nil
         XCTAssertEqual(outcome?.affectedResultKind, .viralRecon, "the lookup's outcome carries the kind")
         let shown = viewModel.warnings.filter { $0.title == ProvenanceInspectorViewModel.affectedResultsWarningTitle }
-        XCTAssertEqual(shown.count, 3,
-                       "the lineage-prefix, read-order and single-end adapter rows of Stable 2026.11.7, found \(shown)")
+            .map(\.message)
+        // The rows of the S1 fixes of 5.6 hold every build up to 14072 and have their own pins, so the count leaves them
+        // out. The two loose-pair rows name Viral Recon results.
+        let rowsOf56: Set<String> = [
+            "TAXTRIAGE-BUNDLE-NAMES-PAIRED", "GROUPER-CROSS-FOLDER-PAIR", "LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP",
+            "CZID-REAL-EXPORT-FORMAT",
+        ]
+        let wordsOf56 = Set(AffectedResults.rows.filter { rowsOf56.contains($0.backlogID) }.map(\.words))
+        let older = shown.filter { !wordsOf56.contains($0) }
+        XCTAssertEqual(older.count, 3,
+                       "the lineage-prefix, read-order and single-end adapter rows of Stable 2026.11.7, found \(older)")
+        let loosePair = ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"].compactMap { id in
+            AffectedResults.rows.first { $0.backlogID == id }?.words
+        }
+        XCTAssertEqual(shown.filter { wordsOf56.contains($0) }, loosePair, "the two loose-pair rows of 5.6 are shown")
     }
 
     func testADemultiplexedSampleReadsItsSentenceThroughTheLookup() async throws {

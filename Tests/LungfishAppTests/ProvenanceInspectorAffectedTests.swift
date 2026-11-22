@@ -85,6 +85,20 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
         model.warnings.filter { $0.title == ProvenanceInspectorViewModel.affectedResultsWarningTitle }.map(\.message)
     }
 
+    /// The rows of the S1 fixes of 5.6 hold every build up to 14072 and have their own pins
+    /// (`ProvenanceInspectorLoosePairAffectedTests`), so the pins of the older rows here leave them out.
+    private let rowsOf56: Set<String> = [
+        "TAXTRIAGE-BUNDLE-NAMES-PAIRED", "GROUPER-CROSS-FOLDER-PAIR", "LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP",
+        "CZID-REAL-EXPORT-FORMAT",
+    ]
+
+    private func olderRows(_ shown: [String]) -> [String] {
+        let left = Set(AffectedResults.rows.filter { rowsOf56.contains($0.backlogID) }.map(\.words))
+        return shown.filter { !left.contains($0) }
+    }
+
+    private func olderRowIDs(_ ids: [String]?) -> [String]? { ids?.filter { !rowsOf56.contains($0) } }
+
     func testTheInspectorOfARecordOfAnAffectedBuildShowsTheSentenceAndWhatToDo() throws {
         let model = model(build: "Lungfish 2026.10.29 (12045)")
         apply(model,item(.taxTriageResult))
@@ -118,7 +132,7 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
         for appVersion in ["Lungfish 2026.11.7 (12972)", "Lungfish 2026.11.7 (dev)", "Lungfish 2026.11.7"] {
             let model = model(build: appVersion)
             apply(model,item(.taxTriageResult))
-            XCTAssertEqual(shown(model), [], appVersion)
+            XCTAssertEqual(olderRows(shown(model)), [], appVersion)
         }
     }
 
@@ -256,8 +270,8 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
         let recipe = record("lungfish import fastq", app: "Lungfish 2026.10.25 (11392)",
                             steps: [step("clumpify.sh", ["clumpify.sh"]), guessing])
         let bundle = shownAndPosted(item(.fastqBundle), recipe)
-        XCTAssertEqual(bundle.shown, [try words("FASTQ-TRIM-RECIPE-READ-ORDER")])
-        XCTAssertEqual(bundle.posted?.map(\.backlogID), ["FASTQ-TRIM-RECIPE-READ-ORDER"])
+        XCTAssertEqual(olderRows(bundle.shown), [try words("FASTQ-TRIM-RECIPE-READ-ORDER")])
+        XCTAssertEqual(olderRowIDs(bundle.posted?.map(\.backlogID)), ["FASTQ-TRIM-RECIPE-READ-ORDER"])
         XCTAssertFalse(bundle.shown.contains(try words("FASTQ-TRIM-READ-ORDER")), "a recipe import is never a trim result")
     }
 
@@ -278,12 +292,12 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
         let readOrder = try words("VIRALRECON-READ-ORDER")
         let singleEnd = try words("VIRALRECON-SE-ADAPTER-GUESS")
         let stable = shownAndPosted(item(.analysisResult, at: folder), record("Viral Recon", app: "Lungfish 2026.11.7 (12972)"))
-        XCTAssertEqual(stable.shown, [try words("VIRALRECON-LINEAGE-PREFIX"), readOrder, singleEnd])
-        XCTAssertEqual(stable.posted?.map(\.backlogID),
+        XCTAssertEqual(olderRows(stable.shown), [try words("VIRALRECON-LINEAGE-PREFIX"), readOrder, singleEnd])
+        XCTAssertEqual(olderRowIDs(stable.posted?.map(\.backlogID)),
                        ["VIRALRECON-LINEAGE-PREFIX", "VIRALRECON-READ-ORDER", "VIRALRECON-SE-ADAPTER-GUESS"])
         // 5500 is a build of 2026.9.53, after the all-samples fix (to 5442) and before the prefix defect (from 5524).
         let older = shownAndPosted(item(.analysisResult, at: folder), record("Viral Recon", app: "Lungfish 2026.9.53 (5500)"))
-        XCTAssertEqual(older.shown, [readOrder, singleEnd])
+        XCTAssertEqual(olderRows(older.shown), [readOrder, singleEnd])
     }
 
     func testAnIVarTrackShowsTheCodonMergeRowAndAnotherCallerNothing() throws {

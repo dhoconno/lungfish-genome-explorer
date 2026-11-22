@@ -11,13 +11,27 @@ final class AffectedResultsTests: XCTestCase {
     /// and 2026.9.52 (`git rev-list --count v2026.9.52`), the last build without the older Viral Recon lineage fix.
     private let publishedBuilds: Set<Int> = [
         5442, 11609, 11807, 12045, 12518, 12591, 12803, 12818, 12859, 12962, 12972, 13190, 13300, 13603, 13672, 13764,
+        13924, 14072,
     ]
 
     private func version(_ build: Int) -> String { "Lungfish 2026.10.29 (\(build))" }
 
-    private func ids(_ build: Int, _ kind: AffectedResultKind) -> [String] {
+    /// The rows of the S1 fixes of 5.6 (`AffectedResults.loosePairAndImportRows`). They hold every build up to 14072 and
+    /// have their own pins (`AffectedResultsLoosePairAndImportTests`), so the pins of the older rows here leave them out.
+    private static let rowsOf56: Set<String> = [
+        "TAXTRIAGE-BUNDLE-NAMES-PAIRED", "GROUPER-CROSS-FOLDER-PAIR", "LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP",
+        "CZID-REAL-EXPORT-FORMAT",
+    ]
+
+    private func olderRows(_ ids: [String]) -> [String] { ids.filter { !Self.rowsOf56.contains($0) } }
+
+    /// Every row a build holds for `kind`, in table order.
+    private func allIDs(_ build: Int, _ kind: AffectedResultKind) -> [String] {
         AffectedResults.rows(forAppVersion: version(build), kind: kind).map(\.backlogID)
     }
+
+    /// The older rows a build holds for `kind`, in table order.
+    private func ids(_ build: Int, _ kind: AffectedResultKind) -> [String] { olderRows(allIDs(build, kind)) }
 
     func testTheBuildIsTheNumberInBracketsAndNothingElse() {
         XCTAssertEqual(AffectedResults.build(fromAppVersion: "Lungfish 2026.10.29 (12045)"), 12045)
@@ -60,8 +74,8 @@ final class AffectedResultsTests: XCTestCase {
                 XCTAssertFalse(row.holds(build: first - 1), row.backlogID)
             }
             for kind in row.kinds {
-                XCTAssertTrue(ids(row.lastBuild, kind).contains(row.backlogID), "\(row.backlogID) \(kind)")
-                XCTAssertFalse(ids(row.lastBuild + 1, kind).contains(row.backlogID), "\(row.backlogID) \(kind)")
+                XCTAssertTrue(allIDs(row.lastBuild, kind).contains(row.backlogID), "\(row.backlogID) \(kind)")
+                XCTAssertFalse(allIDs(row.lastBuild + 1, kind).contains(row.backlogID), "\(row.backlogID) \(kind)")
             }
         }
     }
@@ -82,7 +96,7 @@ final class AffectedResultsTests: XCTestCase {
 
         var current = ProvenanceEnvelope.fixture()
         current.runtimeIdentity = ProvenanceRuntimeIdentity(appVersion: "Lungfish 2026.11.7 (12972)")
-        XCTAssertEqual(AffectedResults.rows(for: current, kind: .taxTriage), [])
+        XCTAssertEqual(olderRows(AffectedResults.rows(for: current, kind: .taxTriage).map(\.backlogID)), [])
 
         var dev = ProvenanceEnvelope.fixture()
         dev.runtimeIdentity = ProvenanceRuntimeIdentity(appVersion: "Lungfish 2026.11.7 (dev)")
@@ -401,7 +415,7 @@ final class AffectedResultsTests: XCTestCase {
         let adopted = try fixtureRecord("provenance-adopted-run/Imports/SRR24403534.lungfishfastq/.lungfish-provenance.json")
         XCTAssertEqual(adopted.workflowName, AffectedResults.RecordName.fastqImport)
         XCTAssertEqual(AffectedResults.kind(of: adopted), .fastqRecipeImport)
-        XCTAssertEqual(backlogIDs(adopted, .fastqRecipeImport), ["FASTQ-TRIM-RECIPE-READ-ORDER"], "build 11392")
+        XCTAssertEqual(olderRows(backlogIDs(adopted, .fastqRecipeImport)), ["FASTQ-TRIM-RECIPE-READ-ORDER"], "build 11392")
         XCTAssertEqual(AffectedResults.RecordName.fastqAdapterTrim, "lungfish fastq adapter-trim")
         XCTAssertEqual(AffectedResults.RecordName.variantsCall, "lungfish variants call")
         XCTAssertEqual(AffectedResults.RecordName.fastqDemultiplex, "lungfish fastq demultiplex")
@@ -485,7 +499,7 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertEqual(backlogIDs(record, .esViritu), expected)
         let fixed = try goldenRecord("esviritu", version: "2026.11.7", stepApp: "Lungfish 2026.11.7 (dev)")
         XCTAssertEqual(
-            backlogIDs(fixed, .esViritu), ["BLAST-ESVIRITU-FIRST-WORD", "ESV-STAGING-SYMBOL-NAMES"],
+            olderRows(backlogIDs(fixed, .esViritu)), ["BLAST-ESVIRITU-FIRST-WORD", "ESV-STAGING-SYMBOL-NAMES"],
             "Stable 2026.11.7 holds every fix but the first-word rule of a BLAST check (BLAST-FIRSTWORD) and the staging of same-named inputs (FIX-ESV)"
         )
     }
@@ -526,12 +540,12 @@ final class AffectedResultsTests: XCTestCase {
             workflow: "lungfish.taxtriage.run", tool: "lungfish-cli", toolVersion: "2026.11.5", version: "2026.11.5",
             steps: [pipeline]
         )
-        XCTAssertEqual(backlogIDs(preview, .taxTriage), ["BUILDDB-BAM-FIT"], "TTREADS was fixed in 2026.11.1")
+        XCTAssertEqual(olderRows(backlogIDs(preview, .taxTriage)), ["BUILDDB-BAM-FIT"], "TTREADS was fixed in 2026.11.1")
         let fixed = try writtenRecord(
             workflow: "lungfish.taxtriage.run", tool: "lungfish-cli", toolVersion: "2026.11.6", version: "2026.11.6",
             steps: [pipeline]
         )
-        XCTAssertEqual(backlogIDs(fixed, .taxTriage), [], "Preview 2026.11.6 holds every TaxTriage fix")
+        XCTAssertEqual(olderRows(backlogIDs(fixed, .taxTriage)), [], "Preview 2026.11.6 holds every TaxTriage fix")
     }
 
     func testAnAssemblyRecordMatchesByItsVersion() throws {
@@ -545,15 +559,15 @@ final class AffectedResultsTests: XCTestCase {
         let stable1028 = try backlogIDs(assembly("2026.10.28"), .assembly)
         XCTAssertTrue(stable1028.contains("ASSEMBLY-RECORDED-PATH"))
         XCTAssertTrue(stable1028.contains("READ-LAYOUT-PARTIAL-SCAN"))
-        XCTAssertEqual(try backlogIDs(assembly("2026.10.29"), .assembly), ["READ-LAYOUT-PARTIAL-SCAN"])
-        XCTAssertEqual(try backlogIDs(assembly("2026.11.1"), .assembly), [])
+        XCTAssertEqual(try olderRows(backlogIDs(assembly("2026.10.29"), .assembly)), ["READ-LAYOUT-PARTIAL-SCAN"])
+        XCTAssertEqual(try olderRows(backlogIDs(assembly("2026.11.1"), .assembly)), [])
     }
 
     func testAVersionNamesTheBuildsOfItsRelease() {
         XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.10.29"), 11808...12045, "after 2026.10.28, up to its own")
         XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.8.1"), 4192...4192, "the first published release")
         XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.9.5"), 4363...4440, "never published, between 9.4 and 9.6")
-        for text in ["2026.11.13", "2026.7.30", "Lungfish 2026.10.29 (12045)", "2026.10.29.1", "dev", ""] {
+        for text in ["2026.11.16", "2026.7.30", "Lungfish 2026.10.29 (12045)", "2026.10.29.1", "dev", ""] {
             XCTAssertNil(AffectedResults.builds(ofVersion: text), text)
         }
         var fixture = ProvenanceEnvelope.fixture()
