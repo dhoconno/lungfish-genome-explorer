@@ -97,15 +97,16 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         }
     }
 
-    /// An R1 and an R2 file for `sample` that hold four reads each and are out of step by name from the first read: R2
-    /// lists the first two serials swapped. Both mates carry one serial and no mark, as SRA files do, so only the names
-    /// tell the files from a pair.
+    /// An R1 and an R2 file for `sample` that hold four reads each and are out of step by name from the third read: R2
+    /// lists the last two serials swapped. Both mates carry one serial and no mark, as SRA files do, so only the names
+    /// tell the files from a pair. The swap is not at reads 1 and 2, because the check reads the SRA spot names `x.1`
+    /// and `x.2` as dotted mates, so a swap of spots 1 and 2 is named at record 2 (backlog S4).
     private func writeOutOfStepPair(_ sample: String) throws -> [URL] {
         let folder = root.appendingPathComponent("reads-\(sample)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return try [1, 2].map { mate in
             let url = folder.appendingPathComponent("\(sample)_R\(mate).fastq")
-            let serials = mate == 1 ? [1, 2, 3, 4] : [2, 1, 3, 4]
+            let serials = mate == 1 ? [1, 2, 3, 4] : [1, 2, 4, 3]
             try serials.map { "@SRR0000001.\($0) \($0) length=10\nACGTACGTAC\n+\nIIIIIIIIII\n" }.joined()
                 .write(to: url, atomically: true, encoding: .utf8)
             return url
@@ -143,8 +144,8 @@ final class ImportFastqPlanOptionsTests: XCTestCase {
         }
         XCTAssertEqual(
             message,
-            "Paired FASTQ mates are out of step at record 1: S3_R1.fastq has 'SRR0000001.1 1 length=10' but S3_R2.fastq has "
-                + "'SRR0000001.2 2 length=10'. The two files do not list the same fragments in the same order, so nothing was written."
+            "Paired FASTQ mates are out of step at record 3: S3_R1.fastq has 'SRR0000001.3 3 length=10' but S3_R2.fastq has "
+                + "'SRR0000001.4 4 length=10'. The two files do not list the same fragments in the same order, so nothing was written."
         )
     }
 

@@ -25,10 +25,12 @@ final class RunPlanMateCheckTests: XCTestCase {
         return url
     }
 
-    /// Two inputs with equal counts, out of step at read 1: the check throws the interleaver's own error and starts no child.
+    /// Two inputs with equal counts, out of step at read 3: the check throws the interleaver's own error and starts no child.
+    /// The swap is at reads 3 and 4, because the check reads the SRA spot names `x.1` and `x.2` as dotted mates, so a swap
+    /// of reads 1 and 2 is named at record 2 (backlog S4).
     func testTheCheckRefusesAnEqualCountPairOutOfStepByName() throws {
         let r1 = try writeReads("S_R1.fastq", serials: [1, 2, 3, 4])
-        let r2 = try writeReads("S_R2.fastq", serials: [2, 1, 3, 4])
+        let r2 = try writeReads("S_R2.fastq", serials: [1, 2, 4, 3])
         var refusal: FASTQPairInterleaver.InterleaveError?
         do {
             try PlanRunner.refuseOutOfStepMates([r1, r2], launcher: NoLaunchLauncher())
@@ -38,8 +40,8 @@ final class RunPlanMateCheckTests: XCTestCase {
         XCTAssertEqual(
             refusal,
             .mateNameMismatch(
-                recordNumber: 1, r1File: "S_R1.fastq", r1Name: "SRR0000001.1 1 length=10",
-                r2File: "S_R2.fastq", r2Name: "SRR0000001.2 2 length=10"
+                recordNumber: 3, r1File: "S_R1.fastq", r1Name: "SRR0000001.3 3 length=10",
+                r2File: "S_R2.fastq", r2Name: "SRR0000001.4 4 length=10"
             )
         )
     }

@@ -14,6 +14,9 @@ import XCTest
 /// Since lane Q4 text mode prints no JSON line. Standard output is the base without them, and
 /// standard error is the base with one `⚠` line for each notice and skipped sample that only the S1
 /// lines reported, apart from a `--platform` notice, which text mode prints on standard output.
+///
+/// Since BIO-ROUTES-3 item 2 a paired sample prints `  → Checking which reads are mates...` before its first
+/// step, so the standard error of the pair run starts with that line.
 final class ImportFastqTextOutputPinTests: XCTestCase {
     /// A pair and the run's third file, which the check leaves out, so its sample is skipped.
     func testAPairWhoseThirdFileIsLeftOutPrintsTheBaseLines() async throws {

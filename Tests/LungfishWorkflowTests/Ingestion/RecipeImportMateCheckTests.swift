@@ -84,26 +84,33 @@ final class RecipeImportMateCheckTests: XCTestCase {
 
     // MARK: - No recipe (BIO-ROUTES-3 D1, S1)
 
-    /// The words of the interleaver for two files out of step at record 1, as an import throws them.
-    static func outOfStepAtRecordOne(r1Name: String, r2Name: String) -> String {
-        "Paired FASTQ mates are out of step at record 1: S_R1.fastq has '\(r1Name)' but S_R2.fastq has '\(r2Name)'. "
+    /// The words of the interleaver for two files out of step at record `record`, as an import throws them.
+    static func outOfStepAtRecord(_ record: Int, r1Name: String, r2Name: String) -> String {
+        "Paired FASTQ mates are out of step at record \(record): S_R1.fastq has '\(r1Name)' but S_R2.fastq has '\(r2Name)'. "
             + "The two files do not list the same fragments in the same order, so nothing was written."
+    }
+
+    /// The same words at record 1.
+    static func outOfStepAtRecordOne(r1Name: String, r2Name: String) -> String {
+        outOfStepAtRecord(1, r1Name: r1Name, r2Name: r2Name)
     }
 
     /// Six SRA-style names, both mates of one run carrying one serial and no mark.
     static func sraNames(_ serials: [Int]) -> [String] { serials.map { "SRR0000001.\($0) \($0) length=10" } }
 
     /// Red pin A. A default import (no recipe, no clumping, no binning) of two files with equal counts whose R2 is
-    /// swapped at reads 1 and 2, in the SRA shape. No step starts and the import fails with the interleaver's words.
+    /// swapped at reads 3 and 4, in the SRA shape. No step starts and the import fails with the interleaver's words at
+    /// record 3. The swap is not at reads 1 and 2, because the check reads the SRA spot names `x.1` and `x.2` as dotted
+    /// mates, so a swap of spots 1 and 2 is named at record 2 (backlog S4).
     func testASwappedSRAR2IsRefusedWithNoRecipeBeforeAnyStep() async throws {
         let r1 = try writeMates("S_R1.fastq", names: Self.sraNames([1, 2, 3, 4, 5, 6]))
-        let r2 = try writeMates("S_R2.fastq", names: Self.sraNames([2, 1, 3, 4, 5, 6]))
+        let r2 = try writeMates("S_R2.fastq", names: Self.sraNames([1, 2, 4, 3, 5, 6]))
 
         let outcome = await plainImport(r1: r1, r2: r2)
         XCTAssertEqual(outcome.steps, [])
         XCTAssertEqual(
             outcome.words,
-            Self.outOfStepAtRecordOne(r1Name: "SRR0000001.1 1 length=10", r2Name: "SRR0000001.2 2 length=10"))
+            Self.outOfStepAtRecord(3, r1Name: "SRR0000001.3 3 length=10", r2Name: "SRR0000001.4 4 length=10"))
     }
 
     /// Red pin B. The same pair with `/1` and `/2` marks.
