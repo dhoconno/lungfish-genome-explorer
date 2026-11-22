@@ -271,10 +271,8 @@ final class AlignmentViewerGutterAndLabelTests: XCTestCase {
     private func makeDetachedViewer(
         windowStart: Int, depth: [ReadTrackRenderer.CoveragePoint], reads: [AlignedRead]
     ) async throws -> Fixture {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("tvalign-detached-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TestTempDirectory.make(prefix: "tvalign-detached")
+        addTeardownBlock { TestTempDirectory.cleanup(directory) }
         let bam = directory.appendingPathComponent("evidence.bam")
         let source = SequenceViewerView.DetachedAlignmentSource(
             identityURL: bam,
@@ -311,10 +309,8 @@ final class AlignmentViewerGutterAndLabelTests: XCTestCase {
     }
 
     private func makeMinimalReferenceBundle(chromosome: String, length: Int) throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("tvalign-bundle-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let directory = try TestTempDirectory.make(prefix: "tvalign-bundle")
+        addTeardownBlock { TestTempDirectory.cleanup(directory) }
         let bundleURL = directory.appendingPathComponent("tvalign.lungfishref", isDirectory: true)
         let genomeDir = bundleURL.appendingPathComponent("genome", isDirectory: true)
         try FileManager.default.createDirectory(at: genomeDir, withIntermediateDirectories: true)
