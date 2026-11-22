@@ -242,6 +242,25 @@ final class LoosePairShortMateTests: XCTestCase {
         )
     }
 
+    /// SAD:106 and BIO's ruling on LOOSE-PAIR-OUT-OF-STEP. Two real in-step pairs of `Tests/Fixtures` pass
+    /// the name and count check: an SRA dump whose mates share one serial with no mate mark, and fastp's
+    /// gzip output pair with `/1` `/2` names.
+    func testRealInStepPairsFromTheFixturesAreNotRefused() throws {
+        let fixtures = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures", isDirectory: true)
+        let pairs = [
+            ("sra/fasterq-dump-split-3/ERR12390094/ERR12390094_1.fastq", "sra/fasterq-dump-split-3/ERR12390094/ERR12390094_2.fastq"),
+            ("golden/tools/fastp-paired/outputs/trimmed_1.fq.gz", "golden/tools/fastp-paired/outputs/trimmed_2.fq.gz"),
+        ]
+        for (path1, path2) in pairs {
+            let r1 = fixtures.appendingPathComponent(path1)
+            let r2 = fixtures.appendingPathComponent(path2)
+            XCTAssertTrue(LooseMatePairCheck.isLooseFASTQ(r1) && LooseMatePairCheck.isLooseFASTQ(r2), path1)
+            XCTAssertEqual(try LooseMatePairCheck.refusal(r1: r1, r2: r2), nil, path1)
+        }
+    }
+
     // MARK: - Routes
 
     /// Each setup that runs two loose files as one pair.

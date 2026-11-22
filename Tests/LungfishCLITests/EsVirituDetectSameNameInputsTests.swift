@@ -27,14 +27,14 @@ final class EsVirituDetectSameNameInputsTests: XCTestCase {
     func testTwoPairedMatesOfOneFileNameInTwoRunFoldersAreEachHandedToTheTool() async throws {
         let run = try await detect(["--paired"])
         XCTAssertEqual(run.formatSeen, "paired")
-        XCTAssertEqual(run.filesSeen, [["run-A-read"], ["run-B-read"]], "each mate is read from its own run folder")
+        XCTAssertEqual(run.filesSeen, [["run-read/1"], ["run-read/2"]], "each mate is read from its own run folder")
     }
 
     /// With the layout left at `auto`, two inputs run unpaired, and each file is read once.
     func testTwoUnpairedFilesOfOneFileNameInTwoRunFoldersAreEachReadOnce() async throws {
         let run = try await detect([])
         XCTAssertEqual(run.formatSeen, "unpaired")
-        XCTAssertEqual(run.filesSeen, [["run-A-read"], ["run-B-read"]], "each file is read once, and neither is read twice")
+        XCTAssertEqual(run.filesSeen, [["run-read/1"], ["run-read/2"]], "each file is read once, and neither is read twice")
     }
 
     // MARK: - Helpers
@@ -49,8 +49,8 @@ final class EsVirituDetectSameNameInputsTests: XCTestCase {
     /// arguments, on two files named `reads.fastq` of one read each, in the folders `Run A` and `Run B`.
     private func detect(_ extra: [String]) async throws -> Run {
         let esviritu = try StandInEsViritu(root: root.appendingPathComponent("tool", isDirectory: true))
-        let first = try reads(folder: "Run A", readName: "run-A-read")
-        let second = try reads(folder: "Run B", readName: "run-B-read")
+        let first = try reads(folder: "Run A", readName: "run-read/1")
+        let second = try reads(folder: "Run B", readName: "run-read/2")
         let output = root.appendingPathComponent("Analyses/esviritu/S1", isDirectory: true)
         let parsed = try LungfishCLI.parseAsRoot(
             ["esviritu", "detect", "--input", first.path, "--input", second.path, "--sample", "S1",

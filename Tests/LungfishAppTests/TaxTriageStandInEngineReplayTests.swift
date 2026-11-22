@@ -318,14 +318,15 @@ final class TaxTriageStandInEngineReplayTests: XCTestCase {
         return try XCTUnwrap(launches.first, file: file, line: line)
     }
 
-    /// A FASTQ of `records` four-line records whose names never pair, so no input reads as
-    /// interleaved.
+    /// A FASTQ of `records` four-line records whose adjacent names never pair, so no input reads as
+    /// interleaved. Record i of every file has read ID `read-<i>`, so an R1 and an R2 file of one
+    /// count are mates by name, as the loose-pair check asks (LOOSE-PAIR-OUT-OF-STEP).
     private func writeFASTQ(_ name: String, records: Int) throws -> URL {
         let folder = scratch.appendingPathComponent("reads", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent(name)
         let stem = url.deletingPathExtension().lastPathComponent
-        let text = (1...records).map { "@\(stem)-read-\($0)\nACGTACGTAC\n+\nIIIIIIIIII\n" }.joined()
+        let text = (1...records).map { "@read-\($0) \(stem)\nACGTACGTAC\n+\nIIIIIIIIII\n" }.joined()
         try text.write(to: url, atomically: true, encoding: .utf8)
         return url
     }

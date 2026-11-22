@@ -502,19 +502,40 @@ extension FASTQPairInterleaver {
     }
 
     /// Reads every record of the R1 and R2 files of a loose pair as
-    /// ``interleave(r1:r2:to:requireMates:launcher:)`` reads them, writes
-    /// nothing, and returns the pairs. Files that hold different numbers of
-    /// records throw ``InterleaveError/mateCountMismatch(r1File:r1Records:r2File:r2Records:)``
-    /// with both true counts, a record that cannot be parsed throws its
+    /// ``interleave(r1:r2:to:requireMates:launcher:)`` reads them, checks the
+    /// names of each pair, writes nothing, and returns the pairs.
+    ///
+    /// The first pair whose names are not mates by ``recordedMates(_:_:)``
+    /// throws ``InterleaveError/mateNameMismatch(recordNumber:r1File:r1Name:r2File:r2Name:)``,
+    /// because the files are out of step. Two different names that carry no
+    /// mate number are refused too, since SRA files name both mates with one
+    /// serial and no mark, so a pair that is not `.mates` throws. The paired
+    /// import refuses only names that both carry a mate number, and pairs
+    /// unmarked names by position (LOOSE-PAIR-OUT-OF-STEP). Files whose names
+    /// stay in step but that hold different numbers of records throw
+    /// ``InterleaveError/mateCountMismatch(r1File:r1Records:r2File:r2Records:)``
+    /// with both true counts. A record that cannot be parsed throws its
     /// ``InterleaveError/malformedRecord(file:recordNumber:reason:)``, and a
     /// gzip that does not decompress whole throws its
-    /// ``InterleaveError/unreadableInput(file:reason:)``. The paired import
-    /// refuses the same files with the same words. A paired run checks a loose
-    /// pair with it first, because fastp and kraken2 pair two files by
-    /// position and leave the reads past the shorter file out with no word
+    /// ``InterleaveError/unreadableInput(file:reason:)``. A paired run checks a
+    /// loose pair with it first, because fastp and kraken2 pair two files by
+    /// position, so they leave the reads past the shorter file out and join
+    /// two different fragments of files out of step, with no word
     /// (LOOSE-PAIR-SHORT-MATE).
-    package static func verifyMateCounts(r1: URL, r2: URL, launcher: any PortableChildLauncher) throws -> Int {
-        try interleave(r1: r1, r2: r2, requireMates: false, launcher: launcher) { _, _ in }.r1Records
+    package static func verifyMates(r1: URL, r2: URL, launcher: any PortableChildLauncher) throws -> Int {
+        var recordNumber = 0
+        return try interleave(r1: r1, r2: r2, requireMates: false, launcher: launcher) { record1, record2 in
+            recordNumber += 1
+            let name1 = headerText(record1[0])
+            let name2 = headerText(record2[0])
+            if recordedMates(name1, name2) != .mates {
+                throw InterleaveError.mateNameMismatch(
+                    recordNumber: recordNumber,
+                    r1File: r1.lastPathComponent, r1Name: name1,
+                    r2File: r2.lastPathComponent, r2Name: name2
+                )
+            }
+        }.r1Records
     }
 
     /// Record counts of a by-name partition of a mixed file.
