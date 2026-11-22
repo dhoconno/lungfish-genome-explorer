@@ -77,7 +77,7 @@ extension RNASeqCellMapViewControllerTests {
             if view.isHiddenOrHasHiddenAncestor || rows.contains(ObjectIdentifier(view)) { return }
             if String(describing: type(of: view)).hasPrefix("NSHostingView") { return }
             if let field = view as? NSTextField, field.frame.width > 0, field.frame.height > 0 {
-                let rowLabel = (field.superview as? NSStackView)?.arrangedSubviews.contains { $0 is NSControl && !($0 is NSTextField) } == true
+                let rowLabel = (field.superview as? NSStackView)?.arrangedSubviews.contains { $0 is NSControl && !($0 is NSTextField) && !($0 is LungfishInfoButton) } == true
                     || (field.superview as? NSStackView)?.arrangedSubviews.contains { String(describing: type(of: $0)).hasPrefix("NSHostingView") } == true
                 if !rowLabel { count += field.stringValue.split(whereSeparator: \.isWhitespace).count }
             }
@@ -148,8 +148,9 @@ extension RNASeqCellMapViewControllerTests {
 
     /// 5.6 U7's bar for the walk state. The ruled lines alone read 46 words, past 40, so a ruled line wins and UX sets the
     /// bar at the head's measured count (`docs/plans/2026-11-21-text-in-views.md:164`, TV-CELLMAP decided item 7). The
-    /// base read 193 (`pinnedWalkStateWords`).
-    static let walkStateWordBar = 51
+    /// base read 193 (`pinnedWalkStateWords`). The 54 are 4 axis words, 1 legend title, the 46 ruled words and S1a's 3, and a
+    /// text field beside only an info button counts (UX SF-1), so the selection line is in it.
+    static let walkStateWordBar = 54
 
     /// LYZ in the unit asked, from the cell map's features.
     func lyz(_ controller: RNASeqCellMapViewController) throws -> RNASeqGeneChoice {
@@ -343,6 +344,65 @@ extension RNASeqCellMapViewControllerTests {
         await settle(controller)
         controller.view.layoutSubtreeIfNeeded()
         try press(controller.legendView.scaleInfo, shows: RNASeqEmbeddingWords.colourScale(cells: try XCTUnwrap(controller.snapshot).facts.cellCount, gene: false))
+    }
+
+    /// UX SF-2, BIO SF-1. The Embedding info button explains a map that was read. Before a read and after a failed one it is
+    /// hidden, so it never says that the method "is not recorded" of an embedding nobody read, and a failed read closes its
+    /// popover.
+    func testTheEmbeddingInfoButtonShowsOnlyWithAnEmbedding() async throws {
+        let fresh = RNASeqCellMapViewController()
+        _ = fresh.view
+        XCTAssertTrue(fresh.embeddingInfo.isHidden, "before a read there is no embedding to explain")
+        let (surface, controller) = try await openController()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = surface.controller.view
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            withExtendedLifetime(surface) {}
+        }
+        XCTAssertFalse(controller.embeddingInfo.isHidden, "a map that was read shows it")
+        controller.embeddingInfo.showPopover()
+        XCTAssertTrue(controller.embeddingInfo.isPopoverShown, "the popover opens")
+        controller.apply(.failed("The cell map could not be read."))
+        XCTAssertTrue(waitUntilOnRunLoop(budget: .standard) { !controller.embeddingInfo.isPopoverShown }, "a failed read closes the popover")
+        XCTAssertTrue(controller.embeddingInfo.isHidden, "a failed read leaves no Embedding button")
+        XCTAssertTrue(controller.clustersInfo.isHidden, "a failed read leaves no clusters button")
+    }
+
+    /// BIO SF-2, UX SF-3. The lines laid in view follow the file and never a sum the view makes: C6b reads the sample's own
+    /// total as the CLI wrote it (5.6 B5). The states no fixture builds are C3c (no recorded method), C4b and C10b (computed
+    /// sources), C6b and C6c (two samples), so the walk state's facts are edited in a copy.
+    func testTheInViewLinesFollowTheFileForTwoSamplesAnUnrecordedMethodAndComputedSources() async throws {
+        let (surface, controller) = try await open(try walkStateMap())
+        defer { withExtendedLifetime(surface) {} }
+        var shown = try XCTUnwrap(controller.snapshot)
+        shown.facts.embeddings[0].method = nil
+        shown.facts.embeddings[0].source = "computed"
+        shown.facts.labelSets[0].source = "computed"
+        var second = shown.facts.samples[0]
+        second.sample = 2
+        second.name = "B"
+        shown.facts.samples.append(second)
+        shown.facts.samples[0].name = "A"
+        shown.facts.samples[0].cells = 101
+        var rowB = shown.facts.embeddingCells[0]
+        rowB.sample = 2
+        rowB.leftOut = 0
+        shown.facts.embeddingCells.append(rowB)
+        XCTAssertEqual(controller.viewFacts(shown).first { $0.label == "Embedding" }?.value, "TSNE, method Not recorded", "C3c")
+        XCTAssertEqual(controller.wordLines(shown).filter { $0.id.hasPrefix("rnaseq-cell-map-left-out-") }.map(\.text),
+                       ["3 of 101 cells in A have no coordinates in TSNE and aren't drawn."], "C6b reads the sample's own total, 101, and not 197 + 3")
+        XCTAssertEqual(controller.viewFacts(shown).first { $0.label == "Cells drawn" }?.value, "197 of 200", "C6c")
+        let origin = try XCTUnwrap(controller.result?.manifest.origin)
+        let made = [origin.tool, origin.toolVersion].compactMap { $0 }.joined(separator: " ")
+        XCTAssertFalse(made.isEmpty, "the fixture records its tool")
+        let lines = Dictionary(controller.wordLines(shown).map { ($0.id, $0.text) }, uniquingKeysWith: { first, _ in first })
+        XCTAssertEqual(lines["rnaseq-cell-map-computed-by"], "Computed by \(made)", "C4b")
+        XCTAssertEqual(lines["rnaseq-cell-map-labels-computed-by"], "Computed by \(made)", "C10b")
+        XCTAssertNil(lines["rnaseq-cell-map-imported"], "computed coordinates have no imported-from line")
+        XCTAssertNil(lines["rnaseq-cell-map-imported-labels"], "computed labels have no imported-from line")
     }
 
     /// 5.6 A1. The cell map's items pass Kit's catalog check, for each method and each clusters caveat.

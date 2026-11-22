@@ -170,6 +170,7 @@ public final class RNASeqCellMapViewController: NSViewController {
             lines.spacing = 6
         }
         clustersInfo.isHidden = true
+        embeddingInfo.isHidden = true
         for (label, control, info, lines) in [("Embedding", embeddingPopUp, embeddingInfo, embeddingLines), ("Colour by", colourPopUp, clustersInfo, labelLines),
                                               (RNASeqEmbeddingWords.geneUnitTitle, geneUnitControl, nil, nil),
                                               (RNASeqCellMapPointSizeControl.title, pointSizeHost, nil, nil)] as [(String, NSView, NSView?, NSView?)] {
@@ -292,6 +293,10 @@ public final class RNASeqCellMapViewController: NSViewController {
             failureWords = words
             Self.replace(embeddingLines, with: [Self.text(words, id: "rnaseq-cell-map-failure", wraps: true)])
             Self.replace(labelLines, with: [])
+            // No map was read, so no button explains one (UX SF-2, BIO SF-1).
+            closeInfoPopover()
+            embeddingInfo.isHidden = true
+            clustersInfo.isHidden = true
             onFacts?([])
         case .loaded(let shown):
             snapshot = shown
@@ -517,6 +522,7 @@ public final class RNASeqCellMapViewController: NSViewController {
         embeddingInfo.configure(item: RNASeqEmbeddingWords.embeddingHelp(method: embedding?.method, embedding: name,
                                                                          otherCounts: ids.contains("rnaseq-cell-map-other-counts")),
                                 about: RNASeqEmbeddingWords.methodSubject(method: embedding?.method, embedding: name))
+        embeddingInfo.isHidden = false
         var gene = false
         var unlabelled = false
         if case .gene = shown.colouring { gene = true }
@@ -558,8 +564,10 @@ public final class RNASeqCellMapViewController: NSViewController {
         }
         // A map of one sample says its left-out cells in its Cells drawn row (C6a, `viewFacts`).
         for row in facts.embeddingCells where facts.samples.count > 1 && row.embedding == embedding.embedding && row.leftOut > 0 {
+            // The sample's own count as the CLI wrote it, never drawn plus left out (5.6 B5).
+            guard let total = facts.samples.first(where: { $0.sample == row.sample })?.cells else { continue }
             lines.append(("rnaseq-cell-map-left-out-\(row.sample)",
-                          RNASeqEmbeddingWords.leftOut(row.leftOut, of: row.drawn + row.leftOut, sample: facts.sampleName(row.sample), embedding: embedding.name)))
+                          RNASeqEmbeddingWords.leftOut(row.leftOut, of: total, sample: facts.sampleName(row.sample), embedding: embedding.name)))
         }
         if case .labelSet(let id) = shown.colouring, let set = facts.labelSets.first(where: { $0.labelSet == id }) {
             if set.source == "computed" { lines.append(("rnaseq-cell-map-computed-labels", RNASeqEmbeddingWords.computedLabels)) }
