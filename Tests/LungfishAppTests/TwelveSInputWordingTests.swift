@@ -28,11 +28,10 @@ final class TwelveSInputWordingTests: XCTestCase {
     }
 
     func testTheWorkflowLibrarySaysWhatTheWorkflowReads() {
-        let subtitle = WorkflowLibraryCatalog.twelveSAmpliconMatchingItem.subtitle
+        let item = WorkflowLibraryCatalog.twelveSAmpliconMatchingItem
 
-        XCTAssertFalse(subtitle.contains("Match merged 12S"), subtitle)
-        XCTAssertTrue(subtitle.contains("merged reads, unmerged pairs or both"), subtitle)
-        XCTAssertTrue(subtitle.contains(Self.counting), subtitle)
+        XCTAssertEqual(item.subtitle, "Review unresolved 12S sequences")
+        XCTAssertEqual(item.help, "Matches merged reads, unmerged pairs or both to deduplicated FASTA without substitutions, counting each merged read or agreeing pair once.")
     }
 
     func testTheTwelveSOptionsSayWhatTheWorkflowReads() throws {
