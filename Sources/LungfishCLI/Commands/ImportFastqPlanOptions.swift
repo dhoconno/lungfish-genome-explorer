@@ -329,6 +329,7 @@ extension ImportCommand.FastqSubcommand {
         for pair in pairs {
             let urls = [pair.r1] + [pair.r2, pair.unpaired].compactMap { $0 }
             let stagedInputs = try staged?.inputs(of: pair, files: urls, layout: layout)
+            if stagedInputs == nil, let r2 = pair.r2 { try Self.refuseOutOfStepMates(r1: pair.r1, r2: r2) }
             let suffixes = urls.map { PlanTemplate.fastqSuffix(of: $0.lastPathComponent) }
             if let shape, shape != suffixes {
                 throw ImportFastqPlanRefusal(message: "The sample \(pair.sampleName) has files ending \(suffixes.joined(separator: ", ")) and an earlier sample \(shape.joined(separator: ", ")), so run the command once for each set of file endings.")
@@ -346,8 +347,19 @@ extension ImportCommand.FastqSubcommand {
         return (rows, suffixes, suffixes.count == 1 ? .single : .pairedR1R2)
     }
 
-    /// The seam of BIO-ROUTES-3 item 6, empty until its fix.
-    static func refuseOutOfStepMates(r1: URL, r2: URL) throws {}
+    /// BIO-ROUTES-3 item 6 (S1). The node pairs a sample's R1 and R2 by position, so two files on this Mac that hold
+    /// equal counts but are out of step by name are refused here, before any file of the batch is written, in the
+    /// words of ``FASTQPairInterleaver/verifyMates(r1:r2:launcher:)``. A `--staged-reads` plan holds no read on this Mac,
+    /// and the executor makes the same check on the node.
+    static func refuseOutOfStepMates(r1: URL, r2: URL) throws {
+        do {
+            _ = try FASTQPairInterleaver.verifyMates(r1: r1, r2: r2, launcher: ToolProcessChildLauncher())
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw ImportFastqPlanRefusal(message: error.localizedDescription)
+        }
+    }
 
     /// Whether the sheet's first line holds a tab and no comma, which is how a tab-separated sheet begins.
     private static func firstLineHoldsTabNotComma(_ sheet: URL) -> Bool {
