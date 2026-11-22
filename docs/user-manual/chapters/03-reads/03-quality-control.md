@@ -27,7 +27,7 @@ glossary_refs: [fastq, fasta, phred-score, read, read-length, paired-end, mate, 
 features_refs: [viewport.fastq-dataset, fastq.qc-summary]
 fixtures_refs: [hg002-chr20]
 brand_reviewed: true
-lead_approved: false
+lead_approved: true
 ---
 
 ## What it is
