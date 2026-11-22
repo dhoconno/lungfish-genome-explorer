@@ -728,7 +728,7 @@ final class OperationsDialogPaneOrderTests: XCTestCase {
             "No labels table selected",
             "Choose…",
             "A tab-separated table with barcode and label columns, and sample for a result of two or more samples.",
-            "A group under 10 cells is left out, and so are the cells with no label. The Operations row says which.",
+            "Groups under 10 cells and cells with no label are left out. The Operations row says which.",
             "Primary settings",
             "Result name",
             "Result name",

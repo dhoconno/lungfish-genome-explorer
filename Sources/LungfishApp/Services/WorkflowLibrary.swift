@@ -150,17 +150,18 @@ enum WorkflowLibraryCatalog {
     static let twelveSAmpliconMatchingItem = WorkflowLibraryItem(
         id: twelveSAmpliconMatchingID,
         title: "12S Amplicon Matching",
-        subtitle: "Match 12S amplicon reads exactly to a deduplicated FASTA and review unresolved sequences. Inputs are merged reads, unmerged pairs or both. A merged read counts once, and so does an unmerged pair whose mates agree.",
+        subtitle: "Review unresolved 12S sequences",
         categoryID: .classification,
         maturity: .specialized,
         requiredPluginPackIDs: ["lungfish-tools"],
-        capabilities: [.workflowOperations]
+        capabilities: [.workflowOperations],
+        help: "Matches merged reads, unmerged pairs or both exactly to deduplicated FASTA, counting merged reads and pairs with agreeing mates once."
     )
 
     static let fullLengthONTMHCGenotypingItem = WorkflowLibraryItem(
         id: fullLengthONTMHCGenotypingID,
         title: "Full-Length ONT MHC Genotyping",
-        subtitle: "Cluster full-length ONT MHC amplicons with Savont and genotype cluster consensus sequences against an MHC allele library.",
+        subtitle: "Cluster with Savont, then genotype",
         categoryID: .genotyping,
         maturity: .specialized,
         requiredPluginPackIDs: [
@@ -168,37 +169,41 @@ enum WorkflowLibraryCatalog {
             "read-mapping",
             "full-length-mhc-genotyping",
         ],
-        capabilities: [.workflowOperations, .haplotypeDefinitions]
+        capabilities: [.workflowOperations, .haplotypeDefinitions],
+        help: "Cluster the amplicons with Savont and genotype each cluster's consensus sequence against an MHC allele library."
     )
 
     static let rnaSeqExportItem = WorkflowLibraryItem(
         id: rnaSeqExportID,
         title: "Export RNA-seq Counts",
-        subtitle: "Write counts and R scripts for DESeq2, edgeR, limma voom and dream from one or more RNA-seq results. A single-cell result is exported alone.",
+        subtitle: "Write counts and R scripts",
         categoryID: .rnaSeq,
         maturity: .core,
         requiredPluginPackIDs: [],
-        capabilities: [.workflowOperations]
+        capabilities: [.workflowOperations],
+        help: "Exports one or more results together with scripts for DESeq2, edgeR, limma voom and dream, with single-cell results exported alone."
     )
 
     static let rnaSeqPseudobulkItem = WorkflowLibraryItem(
         id: rnaSeqPseudobulkID,
         title: "Pseudobulk RNA-seq Cells",
-        subtitle: "Sum the UMIs of a single-cell RNA-seq result by sample and label into a new bulk result.",
+        subtitle: "Sum UMIs by sample and label",
         categoryID: .rnaSeq,
         maturity: .core,
         requiredPluginPackIDs: [],
-        capabilities: [.workflowOperations]
+        capabilities: [.workflowOperations],
+        help: "Sum the UMIs of a single-cell RNA-seq result by sample and label into a new bulk result."
     )
 
     static let rnaSeqCellMapImportItem = WorkflowLibraryItem(
         id: rnaSeqCellMapImportID,
         title: RNASeqCellMapImportWords.title,
-        subtitle: "Show the cells of a single-cell RNA-seq result on the embedding and clusters that Seurat, Scanpy or Cell Ranger made. LGE records the files as given and did not compute them.",
+        subtitle: "Show cells from single-cell RNA-seq",
         categoryID: .rnaSeq,
         maturity: .core,
         requiredPluginPackIDs: [],
-        capabilities: [.workflowOperations]
+        capabilities: [.workflowOperations],
+        help: "Records embedding and cluster files from Seurat, Scanpy or Cell Ranger as given, without computing the embedding or clusters."
     )
 
     static let builtIn: [WorkflowLibraryItem] = FASTQOperationToolID.allCases.map { toolID in
@@ -212,9 +217,11 @@ enum WorkflowLibraryCatalog {
         if toolID == .ontGenotyping {
             return WorkflowLibraryItem(
                 toolID: toolID,
+                subtitle: "Write one Excel genotype report",
                 maturity: .specialized,
                 requiredPluginPackIDs: ["lungfish-tools", "read-mapping"],
-                capabilities: [.workflowOperations, .haplotypeDefinitions]
+                capabilities: [.workflowOperations, .haplotypeDefinitions],
+                help: "Match full amplicons from ONT barcode-demux or prepared Illumina sample bundles, allowing insertions and deletions but no mismatches."
             )
         }
         return WorkflowLibraryItem(

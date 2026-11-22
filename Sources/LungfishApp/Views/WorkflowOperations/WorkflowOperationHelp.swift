@@ -26,7 +26,7 @@ enum RNASeqPseudobulkHelp {
         id: "rnaseq.pseudobulk.selection-test",
         summary: "Explains why testing a selection against the rest finds genes by construction.",
         detail: RNASeqPseudobulk.selectionWords, audience: .benchScientist)
-    static let selectionTestSubject = "testing a selection"
+    static let selectionTestSubject = "selection-versus-rest test"
 
     static var items: [LungfishHelpContent.HelpItem] { [singleCellResult, resultFolder, selectionLabelsTable, selectionTest] }
 }

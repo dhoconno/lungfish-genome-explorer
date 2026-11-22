@@ -14,8 +14,9 @@ import SwiftUI
 import XCTest
 import LungfishCore
 import LungfishIO
-import LungfishKit
+@testable import LungfishKit
 import LungfishRNASeqUI
+import LungfishWorkflow
 import LungfishTestSupport
 import ViewInspector
 @testable import LungfishApp
@@ -23,11 +24,11 @@ import ViewInspector
 @MainActor
 final class RNASeqPseudobulkPaneTests: XCTestCase {
     // Ledger E0, E1, E2 and F, as they read now. E0, F and the second sentence of E2 are help tags, E1 and the first sentence of E2 are in view.
-    private let e0 = "A single-cell .lungfishrnaseq result."
-    private let e1 = "A group under 10 cells is left out, and so are the cells with no label. The Operations row says which."
-    private let e2 = "Each sample's selected cells and the rest of its drawn cells become two columns."
+    private let e0 = "Choose a .lungfishrnaseq folder."
+    private let e1 = "Groups under 10 cells and cells with no label are left out. The Operations row says which."
+    private let e2 = "Per sample, one column for selected cells, one for other drawn cells."
     private let labelsTableFact = "LGE writes the selection's labels table before the run, outside the single-cell result, and the record names it."
-    private let folder = "The new result is written in the output directory with .lungfishrnaseq added to the name. It must not exist."
+    private let folder = "LGE always appends .lungfishrnaseq and saves the result in the output directory, where the resulting folder name must be unused."
     private let labelsCaption = "A tab-separated table with barcode and label columns, and sample for a result of two or more samples."
     // Ledger E3 and E4 of the Import Embedding pane, which stay as they are.
     private let e3 = "Turn this on when the embedding was computed on counts other than this result's, "
@@ -229,8 +230,8 @@ final class RNASeqPseudobulkPaneTests: XCTestCase {
 
     /// 5.6 U7. The pane opened from a legend selection holds at most 40 words of static text, with or without the dialog's Output
     /// section. By hand the head reads Inputs 1, Single-cell RNA-seq result 3, No single-cell result selected 4, Selected cells 2, the
-    /// selection line 5, E2 14, Primary settings 2 and Result name 2, which is 33, and 39 with the Output section. The base read 74
-    /// and 80.
+    /// selection line 5, E2 12, Primary settings 2 and Result name 2, which is 31, and 37 with the Output section. The base read 74
+    /// and 80, and the head with the base's E2 read 33 and 39.
     func testTheLegendSelectionPaneHoldsAtMostFortyWords() throws {
         let texts = try visibleTexts(try pseudobulkState(selection: true))
         let pane = Array(texts.prefix { $0 != "Output" })
@@ -241,8 +242,8 @@ final class RNASeqPseudobulkPaneTests: XCTestCase {
         XCTAssertEqual(output, outputSection, "the Output section")
         XCTAssertLessThanOrEqual(Self.wordCount(pane), 40, "the pane")
         XCTAssertLessThanOrEqual(Self.wordCount(pane + output), 40, "the pane with the dialog's Output section")
-        XCTAssertEqual(Self.wordCount(pane), 33, "head")
-        XCTAssertEqual(Self.wordCount(pane + output), 39, "head with the Output section")
+        XCTAssertEqual(Self.wordCount(pane), 31, "head")
+        XCTAssertEqual(Self.wordCount(pane + output), 37, "head with the Output section")
         XCTAssertEqual(Self.wordCount(baseLegendSelectionPane), 74, "base")
         XCTAssertEqual(Self.wordCount(baseLegendSelectionPane + outputSection), 80, "base with the Output section")
     }
@@ -264,18 +265,114 @@ final class RNASeqPseudobulkPaneTests: XCTestCase {
     /// The other states read no more words than at the base. The count is kept to the strings of the base lists, in any case, as the
     /// pins are, so a control's own option or placeholder never counts.
     func testTheOtherStatesReadNoMoreWordsThanAtTheBase() throws {
-        func counts(_ state: WorkflowOperationDialogState, base: [String]) throws -> (head: Int, base: Int) {
-            let known = Set(base.map { $0.lowercased() })
+        // `changed` holds the strings the head draws in place of a base string whose words moved, so they are counted too.
+        func counts(_ state: WorkflowOperationDialogState, base: [String], changed: [String] = []) throws -> (head: Int, base: Int) {
+            let known = Set((base + changed).map { $0.lowercased() })
             let pane = try visibleTexts(state).prefix { $0 != "Output" }.filter { known.contains($0.lowercased()) }
             return (Self.wordCount(Array(pane)), Self.wordCount(base))
         }
-        let labels = try counts(try pseudobulkState(selection: false), base: baseLabelsTablePane)
+        let labels = try counts(try pseudobulkState(selection: false), base: baseLabelsTablePane, changed: [e1])
         XCTAssertEqual(labels.base, 80, "labels table, base")
-        XCTAssertEqual(labels.head, 57, "labels table, head: E0 (4 words) and F (19) are help tags now")
+        XCTAssertEqual(labels.head, 53, "labels table, head: E0 and F are help tags now, and E1 has 17 words")
         let importPane = try counts(try importState(), base: baseImportPane)
         XCTAssertEqual(importPane.head, importPane.base, "Import Embedding, no word moved")
         let export = try counts(try exportState(), base: baseExportPane)
         XCTAssertEqual(export.head, export.base, "export, only the case of five headings moved")
+    }
+
+    // MARK: W7, the info button beside the selection line
+
+    private func infoButtons(in view: NSView) -> [LungfishInfoButton] {
+        ((view as? LungfishInfoButton).map { [$0] } ?? []) + view.subviews.flatMap { infoButtons(in: $0) }
+    }
+
+    /// W7 (5.5 S3, U-A6 W7, BIO R1). After an AX press on the info button of a pane hosted in an `NSHostingView`, the popover holds
+    /// `RNASeqPseudobulk.selectionWords`, the CLI's own constant, and the button reads its decided subject and help tag.
+    func testTheInfoButtonOfW7OpensTheCLIsOwnWordsAfterAnAXPress() throws {
+        let host = NSHostingView(rootView: RNASeqPseudobulkInputsPane(state: try pseudobulkState(selection: true)))
+        host.frame = NSRect(x: 0, y: 0, width: 560, height: 320)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        addTeardownBlock { @MainActor in
+            if let content = window.contentView { self.infoButtons(in: content).forEach { $0.closePopover() } }
+            window.orderOut(nil)
+        }
+        var found: LungfishInfoButton?
+        XCTAssertTrue(waitUntilOnRunLoop(budget: .standard) {
+            window.contentView?.layoutSubtreeIfNeeded()
+            found = window.contentView.flatMap { self.infoButtons(in: $0).first }
+            return found != nil
+        }, "no info button in the hosted pane")
+        let button = try XCTUnwrap(found)
+        let element = try XCTUnwrap(button.cell as NSAccessibilityProtocol?)
+        XCTAssertEqual(element.accessibilityLabel(), "About selection-versus-rest test")
+        XCTAssertEqual(element.accessibilityHelp(), "Explains why testing a selection against the rest finds genes by construction.")
+        _ = element.accessibilityPerformPress()
+        XCTAssertTrue(button.isPopoverShown, "an AX press opens the popover")
+        XCTAssertEqual(button.popoverController.text, RNASeqPseudobulk.selectionWords)
+        XCTAssertTrue(button.closePopover())
+    }
+
+    // MARK: The Workflow cards
+
+    private let cards: [(title: String, subtitle: String, help: String)] = [
+        ("MiSeq Amplicon MHC Genotyping", "Write one Excel genotype report",
+         "Match full amplicons from ONT barcode-demux or prepared Illumina sample bundles, allowing insertions and deletions but no mismatches."),
+        ("Full-Length ONT MHC Genotyping", "Cluster with Savont, then genotype",
+         "Cluster the amplicons with Savont and genotype each cluster's consensus sequence against an MHC allele library."),
+        ("12S Amplicon Matching", "Review unresolved 12S sequences",
+         "Matches merged reads, unmerged pairs or both exactly to deduplicated FASTA, counting merged reads and pairs with agreeing mates once."),
+        ("Export RNA-seq Counts", "Write counts and R scripts",
+         "Exports one or more results together with scripts for DESeq2, edgeR, limma voom and dream, with single-cell results exported alone."),
+        ("Pseudobulk RNA-seq Cells", "Sum UMIs by sample and label",
+         "Sum the UMIs of a single-cell RNA-seq result by sample and label into a new bulk result."),
+        (RNASeqCellMapImportWords.title, "Show cells from single-cell RNA-seq",
+         "Records embedding and cluster files from Seurat, Scanpy or Cell Ranger as given, without computing the embedding or clusters."),
+    ]
+
+    private func allCardsState() throws -> WorkflowOperationDialogState {
+        let suite = makeTestDefaultsSuite(prefix: "RNASeqPseudobulkPaneTests")
+        return try OperationsDialogFixtures.workflowState(
+            selecting: "Pseudobulk RNA-seq Cells", defaults: suite.defaults,
+            enabling: {
+                $0.setWorkflow(.ontGenotyping, enabled: true)
+                for item in [WorkflowLibraryCatalog.fullLengthONTMHCGenotypingItem, WorkflowLibraryCatalog.twelveSAmpliconMatchingItem,
+                             WorkflowLibraryCatalog.rnaSeqExportItem, WorkflowLibraryCatalog.rnaSeqPseudobulkItem,
+                             WorkflowLibraryCatalog.rnaSeqCellMapImportItem] {
+                    $0.setWorkflow(item, enabled: true)
+                }
+            })
+    }
+
+    /// UX-SHELL-WIZARDS Q3 item 7. Each card of the Workflow dialog holds its decided subtitle, and the one line the card list passes
+    /// (`sidebarItems`, then `.help` on the card) holds its decided help tag, which passes the help catalog check.
+    func testEachWorkflowCardHoldsItsDecidedSubtitleAndHelpTag() throws {
+        let items = try allCardsState().sidebarItems
+        for card in cards {
+            let item = try XCTUnwrap(items.first { $0.title == card.title }, card.title)
+            XCTAssertEqual(item.subtitle, card.subtitle, card.title)
+            XCTAssertEqual(item.help, card.help, card.title)
+        }
+        let helpItems = cards.enumerated().map {
+            LungfishHelpContent.HelpItem(id: "workflow.card.\($0.offset)", summary: $0.element.help, audience: .benchScientist)
+        }
+        XCTAssertEqual(LungfishHelpContent.catalogFaults(in: helpItems), [])
+    }
+
+    /// 5.6 U2. Each card subtitle takes one line in the sidebar card, 208 points wide in `.caption` (the sidebar's 260 points less 16
+    /// points of padding twice and 10 points of card padding twice). The negative control is the base's subtitle of the 12S card.
+    func testEachWorkflowCardSubtitleFitsOneLineAt208Points() {
+        func height(_ text: String) -> CGFloat {
+            NSHostingView(rootView: Text(text).font(.caption).frame(width: 208, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)).fittingSize.height
+        }
+        let oneLine = height("One")
+        XCTAssertGreaterThan(oneLine, 0)
+        for card in cards { XCTAssertEqual(height(card.subtitle), oneLine, accuracy: 1, card.title) }
+        let base = "Match 12S amplicon reads exactly to a deduplicated FASTA and review unresolved sequences. Inputs are merged reads, unmerged pairs or both."
+        XCTAssertGreaterThan(height(base), oneLine * 1.5, "the base's subtitle took more than one line")
     }
 }
 
