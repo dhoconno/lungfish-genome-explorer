@@ -1,9 +1,9 @@
-OVERVIEW: Display a summary of a CZ-ID taxon report TSV
+OVERVIEW: Summarize a CZ-ID taxon report (CSV or TSV)
 
 USAGE: lungfish-cli cz-id summary [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>] <input-path> [--top <top>]
 
 ARGUMENTS:
-  <input-path>            Path to a CZ-ID taxon report TSV
+  <input-path>            Path to a CZ-ID taxon report (CSV or TSV)
 
 OPTIONS:
   --format <format>       Output format (values: text, json, tsv; default: text)

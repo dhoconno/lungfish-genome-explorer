@@ -1,10 +1,11 @@
-OVERVIEW: Import a CZ-ID taxon report TSV into a Lungfish result directory
+OVERVIEW: Import a CZ-ID taxon report (CSV or TSV) into a Lungfish result
+directory
 
 USAGE: lungfish-cli cz-id import <input-path> [--output-dir <output-dir>]
 
 ARGUMENTS:
-  <input-path>            Path to a CZ-ID taxon report TSV, ZIP archive, or
-                          extracted export folder
+  <input-path>            Path to a CZ-ID taxon report (CSV or TSV), ZIP
+                          archive, or extracted export folder
 
 OPTIONS:
   -o, --output-dir <output-dir>

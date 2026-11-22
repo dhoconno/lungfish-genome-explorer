@@ -3,8 +3,8 @@ OVERVIEW: Import hosted CZ-ID classification results into a project
 USAGE: lungfish-cli import cz-id [<options>] <input-path> --project <project> --sample-name <sample-name>
 
 ARGUMENTS:
-  <input-path>            Path to a CZ-ID taxon report TSV, ZIP archive, or
-                          extracted export folder
+  <input-path>            Path to a CZ-ID taxon report (CSV or TSV), ZIP
+                          archive, or extracted export folder
 
 OPTIONS:
   --project <project>     Lungfish project directory to import into
