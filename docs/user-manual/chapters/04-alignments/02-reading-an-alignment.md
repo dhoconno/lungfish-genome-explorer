@@ -38,7 +38,7 @@ glossary_refs: [bam, coverage, coverage-breadth, depth, pileup, soft-clip, stran
 features_refs: [viewport.alignment-pileup, bam.extract-reads, viewer.export-image]
 fixtures_refs: [hg002-chr20]
 brand_reviewed: true
-lead_approved: false
+lead_approved: true
 ---
 
 ## What it is
