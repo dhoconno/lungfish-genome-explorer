@@ -75,8 +75,14 @@ struct PlanRunner {
         return nil
     }
 
-    /// The seam of BIO-ROUTES-3 item 5, empty until its fix.
-    static func refuseOutOfStepMates(_ reads: [URL], launcher: any PortableChildLauncher) throws {}
+    /// BIO-ROUTES-3 item 5 (S1). Every storage route of the node and the plan's own paired steps pair a sample's R1 and
+    /// R2 by position, so two inputs that hold equal counts but are out of step by name would be stored as wrong pairs
+    /// with no word. Throws what ``FASTQPairInterleaver/verifyMates(r1:r2:launcher:)`` throws for two inputs, in the
+    /// words of `LungfishPortable`, and checks nothing for one input or three.
+    static func refuseOutOfStepMates(_ reads: [URL], launcher: any PortableChildLauncher) throws {
+        guard reads.count == 2 else { return }
+        _ = try FASTQPairInterleaver.verifyMates(r1: reads[0], r2: reads[1], launcher: launcher)
+    }
 
     /// Runs the steps and sets the record's steps, outcome, reason, signal and the step the run stopped at.
     func run(into record: inout ExecutorRunRecord) {
@@ -91,14 +97,17 @@ struct PlanRunner {
         record.runtimes = Self.runtimes(of: prepared)
         // Every storage route tells BBTools the scores are Phred+33, and a recipe step may rewrite the scores before the
         // storage step reads them, so the plan's own read inputs are checked once, before any step runs (BIO-BIN-QIN N2,
-        // fix round 4 item 3). The storage step checks its own inputs again.
+        // fix round 4 item 3). The storage step checks its own inputs again. A sample's two inputs are checked for their
+        // mate names here too, since every route pairs them by position (BIO-ROUTES-3 item 5).
         do {
             let root = URL(fileURLWithPath: resolver.workRoot)
             let reads = prepared.plan.entries.filter { $0.role == .input }.map { root.appendingPathComponent($0.relativePath) }
-            try QualityEncoding.refuseLegacyPhred64(reads, launcher: ExecutorChildLauncher(
+            let launcher = ExecutorChildLauncher(
                 controller: controller, decompressor: prepared.decompressor,
                 allowedPrograms: Set(prepared.manifest.tools.map(\.path)), graceSeconds: prepared.plan.graceSeconds
-            ))
+            )
+            try QualityEncoding.refuseLegacyPhred64(reads, launcher: launcher)
+            try Self.refuseOutOfStepMates(reads, launcher: launcher)
         } catch {
             record.outcome = .failed
             record.reason = error.localizedDescription
