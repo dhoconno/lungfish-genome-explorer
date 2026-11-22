@@ -430,4 +430,27 @@ extension InspectorRNASeqResultTests {
         XCTAssertEqual(document.rnaseqResultDocument?.cellMap.map(\.value), try expectedCellMap(map, embedding: 0).map(\.value))
         await assertRows(window, shown, "after lines of another result")
     }
+
+    /// A FASTQ dataset or a classifier result sets no document of its own, so the RNA-seq rows go with the RNA-seq view
+    /// and never stand over the dataset or result that replaced it.
+    func testAFASTQOrClassifierResultAfterACellMapLeavesNoRNASeqRow() async throws {
+        let map = try cellMap()
+        let (fastq, _) = try await RoutingSafetyNetFixtures.fastqBundle(in: root.appendingPathComponent("Reads", isDirectory: true))
+        let czId = try RoutingSafetyNetFixtures.czIdResult(named: "cornea-czid.lungfishtax", in: root.appendingPathComponent("Imports", isDirectory: true))
+        for other in [fastq, czId] {
+            let name = other.lastPathComponent
+            let split = split()
+            let window = hostDocument(of: split)
+            let inspector = split.inspectorController.viewModel
+            let controller = try await openMap(map, in: split)
+            await assertRows(window, try expectedHeader(map) + expectedCellMap(map, embedding: 0), "the cell map open before \(name)")
+            split.displayContent(for: RoutingSafetyNetItems.scanned(other))
+            await waitUntil(budget: .lookup) { self.resultController(split) == nil }
+            XCTAssertNil(resultController(split), "\(name) replaces the RNA-seq view")
+            await settle(controller)
+            await waitUntil(budget: .standard) { inspector.documentSectionViewModel.rnaseqResultDocument == nil && self.rows(in: window).isEmpty }
+            XCTAssertNil(inspector.documentSectionViewModel.rnaseqResultDocument, "\(name): the RNA-seq state goes with its view")
+            XCTAssertEqual(rows(in: window), [], "\(name): no RNA-seq row stays")
+        }
+    }
 }
