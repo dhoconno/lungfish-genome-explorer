@@ -29,7 +29,7 @@ glossary_refs: [minimizer, fastq, read, fragment, mate, read-pair, alignment, ta
 features_refs: [classify.kraken2, classify.esviritu, classify.taxtriage, classify.twelve-s, variants.freyja-demix, classify.nao-mgs, import.nvd, import.czid, viewport.taxonomy-browser, classify.blast-verify, classify.extract-reads]
 fixtures_refs: [kraken-protocol-cornea, sarscov2-srr36291587, primate-12s]
 brand_reviewed: true
-lead_approved: false
+lead_approved: true
 ---
 
 ## What it is
