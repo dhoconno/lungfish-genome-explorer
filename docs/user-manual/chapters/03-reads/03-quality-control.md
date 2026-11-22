@@ -3,7 +3,7 @@ title: Quality Control for Reads
 chapter_id: 03-reads/03-quality-control
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 03-reads/01-importing-fastq]
-estimated_reading_min: 22
+estimated_reading_min: 23
 task: Read a FASTQ bundle's quality summary and decide whether the reads are fit to analyze.
 tags: [reads, qc, quality, phred, sparkline]
 tools: []
