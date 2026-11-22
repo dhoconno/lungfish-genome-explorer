@@ -68,12 +68,13 @@ final class MetagenomicsBatchBundleSamplesTests: XCTestCase {
         XCTAssertEqual(plan.units.map { $0.value.inputs.map(\.path) }, [[first.path], [second.path]])
     }
 
-    /// A loose FASTQ file `folder/name` that holds three reads.
+    /// A loose FASTQ file `folder/name` that holds three reads. The reads are named by folder only, so the R1 and
+    /// R2 files of one folder are mates by name (LOOSE-PAIR-OUT-OF-STEP).
     private func looseFile(_ folder: String, _ name: String) throws -> URL {
         let directory = root.appendingPathComponent(folder, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(name)
-        try ReadSetFixtures.fastq(["\(folder)-\(name)-a", "\(folder)-\(name)-b", "\(folder)-\(name)-c"])
+        try ReadSetFixtures.fastq(["\(folder)-a", "\(folder)-b", "\(folder)-c"])
             .write(to: url, atomically: true, encoding: .utf8)
         return url
     }
