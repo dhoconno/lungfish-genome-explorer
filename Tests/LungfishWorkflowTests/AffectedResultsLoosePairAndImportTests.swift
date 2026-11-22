@@ -38,7 +38,7 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
         "mappingLoosePair": ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"],
         "assembly": ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"],
         "viralRecon": ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"],
-        "fastqRecipeImport": ["LOOSE-PAIR-OUT-OF-STEP"],
+        "fastqRecipeImport": ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"],
         "fastqLoosePairImport": ["LOOSE-PAIR-OUT-OF-STEP"],
         "czIdImport": ["CZID-REAL-EXPORT-FORMAT"],
     ]
@@ -50,7 +50,8 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
             ("TAXTRIAGE-BUNDLE-NAMES-PAIRED", ["taxTriage", "kraken2", "esViritu"], "61acb5bfc"),
             ("GROUPER-CROSS-FOLDER-PAIR", ["kraken2", "esViritu"], "d998a3371"),
             ("LOOSE-PAIR-SHORT-MATE",
-             ["taxTriage", "kraken2", "esViritu", "mappingLoosePair", "assembly", "viralRecon"], "c9ed8e3ef"),
+             ["taxTriage", "kraken2", "esViritu", "mappingLoosePair", "assembly", "viralRecon", "fastqRecipeImport"],
+             "c9ed8e3ef"),
             ("LOOSE-PAIR-OUT-OF-STEP",
              ["taxTriage", "kraken2", "esViritu", "mappingLoosePair", "assembly", "viralRecon", "fastqRecipeImport",
               "fastqLoosePairImport"], "c9ed8e3ef"),
@@ -132,7 +133,7 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
         let adopted = try ProvenanceEnvelopeReader.read(fromSidecar: url)?.envelope
         XCTAssertEqual(adopted.flatMap(kind), "fastqRecipeImport")
         XCTAssertEqual(adopted.map { AffectedResults.rows(for: $0, kind: .fastqRecipeImport).map(\.backlogID) },
-                       ["FASTQ-TRIM-RECIPE-READ-ORDER", "LOOSE-PAIR-OUT-OF-STEP"], "build 11392")
+                       ["FASTQ-TRIM-RECIPE-READ-ORDER", "LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"], "build 11392")
     }
 
     func testAMappingOfTwoLooseFilesIsTheLoosePairMappingKindAndOneFileOrABundleIsNot() {

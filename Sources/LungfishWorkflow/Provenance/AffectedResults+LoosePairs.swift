@@ -39,11 +39,16 @@ extension AffectedResults {
         ),
         // FIX-B (1bebe79ce to 6c437e707) refuses a short mate on TaxTriage, Kraken 2 and EsViritu, and FIX-ROUTES
         // (c9ed8e3ef) on map, assembly, Viral Recon and nf-core sample sheets. Each fixes three of the kinds, and
-        // FIX-ROUTES reaches one route more and lands last, so the row names it.
+        // FIX-ROUTES reaches one route more and lands last, so the row names it. FIX-ROUTES-2 (ab7520464) refuses a cut
+        // pair before the recipe of an import, whose fastp pairs two files by position and leaves equal counts that no
+        // later check sees, so the row holds the recipe import. The import with no recipe refused unequal counts after
+        // its tools (BIO-ROUTES-3 D1), so the row leaves that kind out.
         AffectedResultRow(
             backlogID: "LOOSE-PAIR-SHORT-MATE",
-            kinds: [.taxTriage, .kraken2, .esViritu, .mappingLoosePair, .assembly, .viralRecon], firstBuild: nil,
-            lastBuild: 14072,
+            kinds: [
+                .taxTriage, .kraken2, .esViritu, .mappingLoosePair, .assembly, .viralRecon, .fastqRecipeImport,
+            ],
+            firstBuild: nil, lastBuild: 14072,
             sentence: "If this result used separate R1 and R2 files, the old version did not check for equal read "
                 + "counts, so it could skip reads or pair them with the wrong mates.",
             whatToDo: "If the read counts differ, rerun the analysis with this version, which stops and reports the "
