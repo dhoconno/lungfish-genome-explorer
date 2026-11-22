@@ -51,7 +51,7 @@ DDDDDIIIIHIIIHIIIHIHIIIIIIIIII...
 
 [The four-line FASTQ record](../01-foundations/02-sequencing-reads.md#the-four-line-fastq-record) explains each line. A [paired-end](../../GLOSSARY.md#paired-end) run reads each fragment from both ends and writes the two reads, called [mates](../../GLOSSARY.md#mate), into two files, usually named R1 and R2 for the first and second read of each pair. LGE keeps both mates of a sample together in one bundle.
 
-An import also does work you would otherwise repeat. LGE reads every record once to count reads and bases and to measure read length and quality, so those numbers are ready when the bundle appears. It works out which instrument made the reads and whether the files form pairs, and it records both, because a FASTQ file records neither. It makes the stored reads smaller by placing similar short reads next to each other and rounding quality scores to a few steps, and you can turn off either one. It also writes a [provenance](../../GLOSSARY.md#provenance) record of how the bundle was made, as [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows.
+An import also does work you would otherwise repeat. LGE reads every record once to count reads and bases and to measure read length and quality, so those numbers are ready when the bundle appears. It works out which instrument made the reads and whether the files form pairs, and it records both, because a FASTQ file has no field for either. It makes the stored reads smaller by placing similar short reads next to each other and rounding quality scores to a few steps, and you can turn off either one. It also writes a [provenance](../../GLOSSARY.md#provenance) record of how the bundle was made, as [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows.
 
 This chapter covers FASTQ files already on your disk, compressed with gzip (a `.gz` ending) or not, and the unmapped BAM. A [BAM](../../GLOSSARY.md#bam) file normally holds reads aligned to a reference, and an unmapped BAM uses the same container for reads that have not been aligned yet. Oxford Nanopore basecalling software, which turns the instrument's raw signal into bases, can write one. To fetch reads from the Sequence Read Archive ([SRA](../../GLOSSARY.md#sra)), the public archive at [NCBI](../../GLOSSARY.md#ncbi) where researchers deposit raw reads, see [Downloading Reads from the SRA](02-downloading-from-sra.md). To import a whole Oxford Nanopore run folder, see [Oxford Nanopore Runs](07-ont-runs.md).
 
@@ -73,10 +73,10 @@ In the table, an [adapter](../../GLOSSARY.md#adapter) is the synthetic DNA that 
 | 2 | Quality control | [Quality Control for Reads](03-quality-control.md) | Nothing, the summary is rewritten in place | Always |
 | 3 | Trim adapters and poor ends | [Trimming and Filtering Reads](04-trimming-and-filtering.md) | `-fastpTrim` | When quality control shows adapters or poor read ends, or before an [end-to-end](../../GLOSSARY.md#end-to-end-alignment) mapper |
 | 4 | Filter by read length | [Trimming and Filtering Reads](04-trimming-and-filtering.md) | `-lengthFilter` | After any trim |
-| 5 | Remove host or contaminant reads | [Decontamination](05-decontamination.md) | `-humanReadScrub`, `-ribosomalRNAFilter`, and others | When the sample carries reads you must not analyse or share, such as a patient's own genome |
+| 5 | Remove host or contaminant reads | [Decontamination](05-decontamination.md) | `-humanReadScrub`, `-deacon-ribo-norrna` or `-deacon-ribo-rrna`, and others | When the sample carries reads you must not analyse or share, such as a patient's own genome |
 | 6 | Remove duplicates, or subsample | [Decontamination](05-decontamination.md), [Subsetting and Extraction](06-subsetting-and-extraction.md) | `-deduplicate`, `-subsampleCount` | Optional. Skip duplicate removal for amplicon runs |
 
-Three steps sit beside the main chain rather than on it. A pooled run is split into samples first, as [Oxford Nanopore Runs](07-ont-runs.md) shows. Merging the two mates of a pair into one read is for counting distinct fragments or for a few amplicon tools, as [Read Processing](08-read-processing.md) explains, and never for reads headed to a [variant caller](../../GLOSSARY.md#variant-caller), a program that lists where your sample differs from the reference, since mapping needs pairs and real quality scores. A subsample makes a quick test slice at any point.
+Three steps sit beside the main chain rather than on it. A pooled run is split into samples first, as [Oxford Nanopore Runs](07-ont-runs.md) shows. Merging the two mates of a pair into one read is for counting distinct fragments or for a few amplicon tools, as [Read Processing](08-read-processing.md) explains, and never for reads headed to a [variant caller](../../GLOSSARY.md#variant-caller), a program that lists where your sample differs from the reference, since merging replaces the pairing and, where the mates overlap, the quality scores that mapping and variant calling use. A subsample makes a quick test slice at any point.
 
 The human HG002 reads this part uses are clean, so the rest of this manual maps the imported bundle as it is, and the trim and the filter in [Trimming and Filtering Reads](04-trimming-and-filtering.md) are practice.
 
@@ -96,7 +96,7 @@ When an operation has left mates on their own, [Repairing a paired file whose ma
 
 Nothing in LGE works from a loose file on your desktop. Quality control, trimming, mapping, classification, assembly, and variant calling all take a bundle as input.
 
-A FASTQ file holds reads and nothing else. It cannot say which instrument made them, which specimen they came from, or whether a second file holds the other half of each pair. The bundle records the platform and the pairing and has room for the specimen facts you type in yourself. Later tools read the platform to choose their starting settings, as [How LGE decides the platform](#how-lge-decides-the-platform) explains.
+A FASTQ file holds reads and nothing else. It has no field for which instrument made them, which specimen they came from, or whether a second file holds the other half of each pair. The bundle records the platform and the pairing and has room for the specimen facts you type in yourself. Later tools read the platform to choose their starting settings, as [How LGE decides the platform](#how-lge-decides-the-platform) explains.
 
 This chapter works through the HG002 chromosome 20 slice. HG002 is a human genome from the Genome in a Bottle project, which publishes reference samples whose variants are characterized to high confidence so laboratories can check their methods. The [fixture](../../GLOSSARY.md#fixture), the public practice data set that lets every reader start from the same files, is a pair of Illumina files holding 45,574 read pairs, each read up to 250 bases long. The reads come from a 500,000-base stretch of chromosome 20, from 10.0 to 10.5 million bases along it, which is what `10.0-10.5Mb` in the filenames means.
 
@@ -132,7 +132,7 @@ Every tool the import uses arrives with the [Required Setup pack](../../GLOSSARY
 
 ## How LGE decides two files are a pair
 
-LGE reads pairing off the filenames, because nothing else says that two files belong together. Two files pair when their names are identical except for a mate suffix, and only three suffix pairs count.
+LGE reads pairing off the filenames, because a FASTQ file does not name the file that holds its mates. Two files pair when their names are identical except for a mate suffix, and only three suffix pairs count.
 
 | Suffix pair | Example | Where it usually comes from |
 |---|---|---|
@@ -150,7 +150,7 @@ A file whose mate is missing imports as [single-end](../../GLOSSARY.md#single-en
 
 A pair downloaded from a public archive sometimes comes with a third file named after the run alone, such as `SRR123456.fastq.gz`, which holds the reads whose mate is missing. Choose it with the two mate files and LGE imports all three as one bundle, and the summary adds an `Unpaired:` line, as [Downloading Reads from the SRA](02-downloading-from-sra.md#what-good-looks-like) describes. First LGE reads the start of each file. The mate files must open with reads named as mates, and the third file must open with a read of another fragment and hold no two mates side by side among its first 1,000 reads. A third file that fails the check is left out, with a warning that says why. The third file joins the pair in its own folder, and it joins a pair in another folder only when no other chosen file has the run's name or either mate's name.
 
-LGE compares read names, not file names, when it adds a run's third file and when it decides whether one file is interleaved. Names that end in `/1` and `/2`, Illumina names whose text after the first space begins `1:N:` and `2:N:`, identical names, and names such as `SRR1.7.1` and `SRR1.7.2`, which the SRA Toolkit's `fastq-dump --readids` writes, all count as mates. Names such as `SRR1.1` and `SRR1.2` name two separate [spots](../../GLOSSARY.md#spot) and stay single reads, because pairing two unrelated reads is the worse mistake.
+File names propose a run's third file and read names confirm it. Read names also decide whether one file is interleaved. Names that end in `/1` and `/2`, Illumina names whose text after the first space begins `1:N:` and `2:N:`, identical names, and names such as `SRR1.7.1` and `SRR1.7.2`, which the SRA Toolkit's `fastq-dump --readids` writes, all count as mates. Names such as `SRR1.1` and `SRR1.2` name two separate [spots](../../GLOSSARY.md#spot) and stay single reads, because pairing two unrelated reads is the worse mistake.
 
 When renaming is not an option, a [sample sheet](../../GLOSSARY.md#sample-sheet) pairs the files explicitly, and it overrides filename matching entirely. [Importing from a sample sheet](#importing-from-a-sample-sheet) walks through one.
 
@@ -162,7 +162,7 @@ Every decision comes with its evidence, a plain sentence such as the header form
 
 Read length alone never names a platform. Reads whose headers match no known form, reads whose headers disagree with each other, and reads with short-read headers that run past 1,000 bases are recorded as Unknown. So are reads whose names were replaced before the files reached you, such as some files downloaded from an archive outside LGE. A download through LGE takes its platform from the archive record instead, as [Downloading from SRA](02-downloading-from-sra.md) explains. Unknown is never turned into Illumina. It says that the platform could not be told.
 
-The platform only chooses defaults and never blocks a run. Mapping and assembly open with settings chosen for the reads, and a tool that does not suit them shows an orange warning while Run stays available. Reads of Unknown platform take their defaults from read length, the long-read defaults for long reads and the short-read defaults for short ones, with a note that these defaults are not tuned to a platform. [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) and [When to Assemble](../07-assembly/01-when-to-assemble.md) show where the warnings appear.
+The platform only chooses defaults. Mapping and assembly open with settings chosen for the reads, and a tool that does not suit them shows an orange warning while Run stays available. A dialog holds Run back when the tool cannot run the combination or you still have to choose a read type, and it says why. Reads of Unknown platform take their defaults from read length, the long-read defaults for long reads and the short-read defaults for short ones, with a note that these defaults are not tuned to a platform. [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) and [When to Assemble](../07-assembly/01-when-to-assemble.md) show where the warnings appear.
 
 ## Procedure
 
@@ -188,7 +188,7 @@ Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-projec
 
 ### Importing many samples at once
 
-Select a folder in step 3 instead of individual files, and LGE reads the files in that folder and in every folder inside it, matches mates across all of them, and makes one bundle per sample. The import sheet then applies one set of settings to the whole batch, except for **Platform**. When the first eight samples in a folder look like different instruments, the control opens on **Detected per sample**, the line under the summary counts the platforms of those eight samples, and every sample is imported as its own platform. Pick a platform from the list instead and it applies to every sample in the batch.
+Select a folder in step 3 instead of individual files, and LGE reads the files in that folder and in every folder inside it, matches mates across all of them, and makes one bundle per sample. The import sheet then applies one set of settings to the whole batch, except for **Platform** and, while you leave it alone, **Pairing**, which the import decides for each sample. When the first eight samples in a folder look like different instruments, the **Platform** control opens on **Detected per sample**, the line under the summary counts the platforms of those eight samples, and every sample is imported as its own platform. Pick a platform from the list instead and it applies to every sample in the batch.
 
 ### Importing from a sample sheet
 
@@ -272,7 +272,7 @@ A recipe saves you running the same cleanup steps by hand on every sample. For f
 | VSP2 target enrichment | Removes duplicate reads, trims adapters and poor ends, removes human reads, merges overlapping pairs, and drops reads under 50 bases | Viral target-enrichment reads for [Running EsViritu](../06-classification/03-running-esviritu.md) | `vsp2-target-enrichment` |
 | Wastewater metagenomics | The same steps, and also removes ribosomal RNA reads | Wastewater and other metagenomic reads for the classifiers in [What Is Read Classification](../06-classification/01-what-is-classification.md) | `wastewater-metagenomics` |
 
-[VSP2](../../GLOSSARY.md#vsp2) is Illumina's Viral Surveillance Panel version 2, a kit whose probes pull viral sequence out of a sheared sample. The two presets keep merged reads and the pairs that did not merge together in one bundle, and their trims name the Nextera pair for VSP2 target enrichment and the TruSeq pair for Wastewater metagenomics, as [Trimming and Filtering Reads](04-trimming-and-filtering.md) explains.
+[VSP2](../../GLOSSARY.md#vsp2) is Illumina's Viral Surveillance Panel version 2, a kit whose probes pull viral sequence out of a sheared sample. The two presets keep merged reads and the pairs that did not merge together in one bundle, and their trims name an adapter pair, the Nextera pair for VSP2 target enrichment and the TruSeq pair for Wastewater metagenomics.
 
 Illumina Amplicon Merge keeps merged reads only. When it drops pairs, the import's row in the Operations Panel ends as Completed with Warnings, and its log holds one warning line for each sample.
 
