@@ -5,6 +5,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import SwiftUI
 
 /// The words the two rows add to the CLI's own help. The cutoff and the fold-change bar come from `RNASeqExportDefaults`, which a
@@ -19,8 +20,8 @@ enum RNASeqPaneWords {
     static let singleCellCaption = "A single-cell .lungfishrnaseq result."
     static let labelsCaption = "A tab-separated table with barcode and label columns, and sample for a result of two or more samples."
     static let smallGroupCaption = "A group under 10 cells is left out, and so are the cells with no label. The Operations row says which."
-    static let selectionCaption = "Each sample's selected cells and the rest of its drawn cells become two columns. "
-        + "LGE writes the selection's labels table before the run, outside the single-cell result, and the record names it."
+    static let selectionCaption = "Each sample's selected cells and the rest of its drawn cells become two columns."
+    static let selectionLabelsTableFact = "LGE writes the selection's labels table before the run, outside the single-cell result, and the record names it."
     static let pseudobulkFolderCaption = "The new result is written in the output directory with .lungfishrnaseq added to the name. It must not exist."
     static let importResultCaption = "A single-cell .lungfishrnaseq result. LGE matches each cell by sample and barcode, as the result holds them."
     static let importCoordinatesCaption = "LGE's table, or one of 10x's projection.csv files. Choose more than one file for more embeddings."
@@ -143,7 +144,7 @@ struct RNASeqExportInputsPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            RNASeqPaneGroup(title: "RNA-seq Results") {
+            RNASeqPaneGroup(title: "RNA-seq results") {
                 if state.rnaSeqExport.resultURLs.isEmpty {
                     Text("No RNA-seq results selected")
                         .font(.body)
@@ -172,7 +173,7 @@ struct RNASeqExportInputsPane: View {
                 }
                 RNASeqPaneCaption(RNASeqPaneWords.resultsCaption)
             }
-            RNASeqPaneGroup(title: "Sample Sheet (optional)") {
+            RNASeqPaneGroup(title: "Sample sheet (optional)") {
                 RNASeqPaneFileRow(
                     url: state.rnaSeqExport.sampleSheetURL,
                     emptyText: "No sample sheet",
@@ -198,7 +199,7 @@ struct RNASeqExportSettingsPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            RNASeqPaneGroup(title: "Export Folder") {
+            RNASeqPaneGroup(title: "Export folder") {
                 TextField("Folder name", text: $state.outputName)
                     .textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("rnaseq-export-folder-name")
@@ -228,14 +229,14 @@ private struct RNASeqExportOptionFields: View {
                     .accessibilityIdentifier("rnaseq-export-contrasts")
                 RNASeqPaneCaption(RNASeqPaneWords.contrastCaption)
             }
-            RNASeqPaneGroup(title: "Adjusted p-value Cutoff") {
+            RNASeqPaneGroup(title: "Adjusted p-value cutoff") {
                 TextField("0.05", text: $model.cutoffText)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 96)
                     .accessibilityIdentifier("rnaseq-export-cutoff")
                 RNASeqPaneCaption(RNASeqExportDefaults.cutoffHelp + ".")
             }
-            RNASeqPaneGroup(title: "Fold-change Bar") {
+            RNASeqPaneGroup(title: "Fold-change bar") {
                 TextField("None", text: $model.lfcBarText)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 96)
@@ -266,7 +267,7 @@ struct RNASeqPseudobulkInputsPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            RNASeqPaneGroup(title: "Single-cell RNA-seq Result") {
+            RNASeqPaneGroup(title: "Single-cell RNA-seq result") {
                 RNASeqPaneFileRow(
                     url: state.rnaSeqPseudobulk.resultURL,
                     emptyText: "No single-cell result selected",
@@ -281,19 +282,23 @@ struct RNASeqPseudobulkInputsPane: View {
                     },
                     clear: { state.rnaSeqPseudobulk.resultURL = nil }
                 )
-                RNASeqPaneCaption(RNASeqPaneWords.singleCellCaption)
+                .lungfishHelp(RNASeqPseudobulkHelp.singleCellResult)
             }
             if let selection = state.rnaSeqPseudobulk.selection {
                 // Pseudobulk Selected Cells… names the selection by count and cell map, never by the table's path (UX OBJECT U8).
-                RNASeqPaneGroup(title: "Selected Cells") {
-                    Text(selection.line)
-                        .textSelection(.enabled)
-                        .accessibilityIdentifier("rnaseq-pseudobulk-selection")
+                RNASeqPaneGroup(title: "Selected cells") {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(selection.line)
+                            .textSelection(.enabled)
+                            .accessibilityIdentifier("rnaseq-pseudobulk-selection")
+                            .lungfishHelp(RNASeqPseudobulkHelp.selectionLabelsTable)
+                        LungfishInfoButtonView(RNASeqPseudobulkHelp.selectionTest, about: RNASeqPseudobulkHelp.selectionTestSubject)
+                    }
                     ForEach(selection.underTenWords, id: \.self) { RNASeqPaneCaption($0) }
                     RNASeqPaneCaption(RNASeqPaneWords.selectionCaption)
                 }
             } else {
-            RNASeqPaneGroup(title: "Labels Table") {
+            RNASeqPaneGroup(title: "Labels table") {
                 RNASeqPaneFileRow(
                     url: state.rnaSeqPseudobulk.labelsURL,
                     emptyText: "No labels table selected",
@@ -320,11 +325,11 @@ struct RNASeqPseudobulkSettingsPane: View {
     @Bindable var state: WorkflowOperationDialogState
 
     var body: some View {
-        RNASeqPaneGroup(title: "Result Name") {
+        RNASeqPaneGroup(title: "Result name") {
             TextField("Result name", text: $state.outputName)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("rnaseq-pseudobulk-result-name")
-            RNASeqPaneCaption(RNASeqPaneWords.pseudobulkFolderCaption)
+                .lungfishHelp(RNASeqPseudobulkHelp.resultFolder)
         }
     }
 }
@@ -369,7 +374,7 @@ struct RNASeqCellMapImportInputsPane: View {
     var body: some View {
         @Bindable var model = state.rnaSeqCellMapImport
         VStack(alignment: .leading, spacing: 12) {
-            RNASeqPaneGroup(title: "Single-cell RNA-seq Result") {
+            RNASeqPaneGroup(title: "Single-cell RNA-seq result") {
                 RNASeqPaneFileRow(
                     url: model.resultURL,
                     emptyText: "No single-cell result selected",
@@ -418,13 +423,13 @@ struct RNASeqCellMapImportInputsPane: View {
                 )
                 RNASeqPaneCaption(RNASeqPaneWords.importClustersCaption)
             }
-            RNASeqPaneGroup(title: "Label Columns (optional)") {
+            RNASeqPaneGroup(title: "Label columns (optional)") {
                 TextField("Label columns", text: $model.labelColumnsText)
                     .textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("rnaseq-import-label-columns")
                 RNASeqPaneCaption(RNASeqPaneWords.importLabelColumnsCaption)
             }
-            RNASeqPaneGroup(title: "Tool and Version (optional)") {
+            RNASeqPaneGroup(title: "Tool and version (optional)") {
                 HStack(spacing: 10) {
                     TextField("Tool", text: $model.tool)
                         .textFieldStyle(.roundedBorder)
@@ -454,7 +459,7 @@ struct RNASeqCellMapImportSettingsPane: View {
     var body: some View {
         @Bindable var model = state.rnaSeqCellMapImport
         VStack(alignment: .leading, spacing: 12) {
-            RNASeqPaneGroup(title: "Result Name") {
+            RNASeqPaneGroup(title: "Result name") {
                 TextField("Result name", text: $state.outputName)
                     .textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("rnaseq-import-result-name")

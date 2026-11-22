@@ -721,19 +721,17 @@ final class OperationsDialogPaneOrderTests: XCTestCase {
         ],
         "workflow.pseudobulk": [
             "Inputs",
-            "Single-cell RNA-seq Result",
+            "Single-cell RNA-seq result",
             "No single-cell result selected",
             "Choose…",
-            "A single-cell .lungfishrnaseq result.",
-            "Labels Table",
+            "Labels table",
             "No labels table selected",
             "Choose…",
             "A tab-separated table with barcode and label columns, and sample for a result of two or more samples.",
             "A group under 10 cells is left out, and so are the cells with no label. The Operations row says which.",
             "Primary settings",
-            "Result Name",
             "Result name",
-            "The new result is written in the output directory with .lungfishrnaseq added to the name. It must not exist.",
+            "Result name",
             "Output",
             "Directory",
             "No output directory selected",
@@ -769,7 +767,9 @@ final class OperationsDialogPaneOrderTests: XCTestCase {
 
     func testPseudobulkPaneOrderWithNoReplay() throws {
         let state = try Fx.workflowState(selecting: "Pseudobulk RNA-seq Cells", defaults: defaults, enabling: { $0.setWorkflow(WorkflowLibraryCatalog.rnaSeqPseudobulkItem, enabled: true) })
-        pin("workflow.pseudobulk", try Fx.workflowDetailTexts(state))
+        // E0 and F are help tags, which ViewInspector lists again for each help modifier and hint, so the drawn list leaves them out.
+        let helpTags = Set(RNASeqPseudobulkHelp.items.map(\.summary))
+        pin("workflow.pseudobulk", try Fx.workflowDetailTexts(state).filter { !helpTags.contains($0) })
     }
 
     func testONTGenotypingPaneOrder() throws {

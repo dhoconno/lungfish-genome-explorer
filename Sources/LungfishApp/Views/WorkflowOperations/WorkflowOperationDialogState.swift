@@ -312,11 +312,7 @@ final class WorkflowOperationDialogState {
     var sidebarItems: [DatasetOperationToolSidebarItem] {
         tools.map {
             DatasetOperationToolSidebarItem(
-                id: $0.id,
-                title: $0.title,
-                subtitle: $0.subtitle,
-                availability: $0.availability
-            )
+                id: $0.id, title: $0.title, subtitle: $0.subtitle, availability: $0.availability, help: $0.help)
         }
     }
 

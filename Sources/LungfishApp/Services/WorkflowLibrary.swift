@@ -25,6 +25,8 @@ struct WorkflowLibraryItem: Identifiable, Equatable, Sendable {
     let maturity: WorkflowLibraryMaturity
     let requiredPluginPackIDs: [String]
     let capabilities: Set<WorkflowLibraryCapability>
+    /// The card's help tag, the words the one-line subtitle leaves out. Nil keeps the dialog's general sidebar help.
+    let help: String?
 
     init(
         toolID: FASTQOperationToolID,
@@ -32,7 +34,8 @@ struct WorkflowLibraryItem: Identifiable, Equatable, Sendable {
         subtitle: String? = nil,
         maturity: WorkflowLibraryMaturity,
         requiredPluginPackIDs: [String] = [],
-        capabilities: Set<WorkflowLibraryCapability> = []
+        capabilities: Set<WorkflowLibraryCapability> = [],
+        help: String? = nil
     ) {
         self.id = toolID.rawValue
         self.toolID = toolID
@@ -42,6 +45,7 @@ struct WorkflowLibraryItem: Identifiable, Equatable, Sendable {
         self.maturity = maturity
         self.requiredPluginPackIDs = requiredPluginPackIDs
         self.capabilities = capabilities
+        self.help = help
     }
 
     init(
@@ -51,7 +55,8 @@ struct WorkflowLibraryItem: Identifiable, Equatable, Sendable {
         categoryID: FASTQOperationCategoryID,
         maturity: WorkflowLibraryMaturity,
         requiredPluginPackIDs: [String] = [],
-        capabilities: Set<WorkflowLibraryCapability> = []
+        capabilities: Set<WorkflowLibraryCapability> = [],
+        help: String? = nil
     ) {
         self.id = id
         self.toolID = nil
@@ -61,6 +66,7 @@ struct WorkflowLibraryItem: Identifiable, Equatable, Sendable {
         self.maturity = maturity
         self.requiredPluginPackIDs = requiredPluginPackIDs
         self.capabilities = capabilities
+        self.help = help
     }
 }
 
