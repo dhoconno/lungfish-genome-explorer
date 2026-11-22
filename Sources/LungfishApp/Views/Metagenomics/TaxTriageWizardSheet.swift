@@ -83,8 +83,8 @@ struct TaxTriageStandalonePresentation: Equatable {
 ///
 /// ## Multi-Sample Support
 ///
-/// Users can add multiple samples, each with its own R1/R2 FASTQ files.
-/// Paired-end detection is automatic based on whether two files are provided.
+/// Each FASTQ bundle is one sample. Two loose files named as the R1 and R2 of
+/// one sample make one paired sample (`inputSamples(from:)`).
 ///
 /// ## Presentation
 ///
