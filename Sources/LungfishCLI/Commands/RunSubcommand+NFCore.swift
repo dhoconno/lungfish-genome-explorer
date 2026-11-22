@@ -106,6 +106,35 @@ extension RunSubcommand {
         )
 
         output.info("Created run bundle: \(runBundleURL.path)")
+        // BIO-ROUTES item 3 (LOOSE-PAIR-SHORT-MATE, LOOSE-PAIR-OUT-OF-STEP). viralrecon's fastp pairs a row's fastq_1
+        // and fastq_2 by position, so a row of two loose files is counted and each pair's names compared before the
+        // launch. A refused row records the failed run, as a failed split does, and exits 3.
+        for sample in resolvedInputs.illuminaSamples ?? [] where sample.fastqURLs.count == 2 {
+            guard let words = try LooseMatePairCheck.refusal(r1: sample.fastqURLs[0], r2: sample.fastqURLs[1]) else { continue }
+            try NFCoreRunBundleStore.write(
+                request.manifest(
+                    createdAt: bundleClock.startedAt,
+                    executionStatus: .failed,
+                    startedAt: bundleClock.startedAt,
+                    completedAt: bundleClock.now,
+                    exitCode: CLIExitCode.inputError.rawValue
+                ),
+                to: runBundleURL
+            )
+            try writeRunBundleProvenance(
+                request: request,
+                bundleURL: runBundleURL,
+                prepareOnly: prepareOnly,
+                status: .failed,
+                exitCode: CLIExitCode.inputError.rawValue,
+                wallTime: bundleClock.elapsed,
+                stderr: words,
+                readPairing: pairingDecisions,
+                effectiveSamplesheetURL: nil,
+                stagedAnnotation: stagedAnnotation
+            )
+            throw CLIError.validationFailed(errors: [words])
+        }
         if prepareOnly {
             // Nothing launches, so the request's preview is the only command there is. A launched run prints the command
             // the engine got once it is known, below, because this one passes a `.gff3` the schema refuses, drops

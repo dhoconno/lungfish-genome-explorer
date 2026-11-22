@@ -165,6 +165,13 @@ public enum MappingInputResolver {
                 throw CLISequenceInputMaterializationError.unreadableSequenceInput(inputURL.standardizedFileURL.path)
             }
         }
+        // BIO-ROUTES item 1 (LOOSE-PAIR-SHORT-MATE, LOOSE-PAIR-OUT-OF-STEP). minimap2, bwa-mem2 and bowtie2
+        // pair two files by position, so a loose R1 and R2 bound as one pair are counted and each pair's
+        // names compared before anything is written. The CLI refuses every resolver error with exit 3.
+        if request.pairedEnd, inputURLs.count == 2,
+           let words = try LooseMatePairCheck.refusal(r1: inputURLs[0], r2: inputURLs[1]) {
+            throw MappingInputResolverError.unsupportedReadSetPlan(words)
+        }
         let directory = MappingResultLayoutService.inputMaterializationDirectory(in: request.outputDirectory)
         let reusing = ReusingMaterializer(base: materializer)
 

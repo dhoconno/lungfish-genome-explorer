@@ -205,6 +205,13 @@ public enum AssemblyReadSetResolution {
                 throw CLISequenceInputMaterializationError.unreadableSequenceInput(sampleURL.path)
             }
         }
+        // BIO-ROUTES item 2 (LOOSE-PAIR-SHORT-MATE, LOOSE-PAIR-OUT-OF-STEP). MEGAHIT and SPAdes pair two files
+        // by position, so a loose R1 and R2 bound as one pair are counted and each pair's names compared
+        // before anything is written, with the run words as they are (`assemble` exits 3).
+        if pairedEnd, sampleURLs.count == 2,
+           let words = try LooseMatePairCheck.refusal(r1: sampleURLs[0], r2: sampleURLs[1]) {
+            throw AssemblyReadSetResolutionError.unsupportedReadSet(words)
+        }
         // The plan and the resolution after it both materialize a virtual
         // bundle, and the file is written once.
         let materializer = MaterializationMemo(base: materializer)
