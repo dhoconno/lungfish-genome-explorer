@@ -31,7 +31,7 @@ glossary_refs: [fastq, bam, bundle, paired-end, single-end, interleaved-fastq, p
 features_refs: [import.fastq, fastq.platform-label, import.sample-metadata]
 fixtures_refs: [hg002-chr20]
 brand_reviewed: true
-lead_approved: false
+lead_approved: true
 ---
 
 ## What it is
