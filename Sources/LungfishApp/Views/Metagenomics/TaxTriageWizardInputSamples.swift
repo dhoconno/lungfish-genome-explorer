@@ -21,7 +21,7 @@ extension TaxTriageWizardSheet {
     /// The samples `populateFromInitialFiles` lists for `urls`, the inputs the dialog is handed (S1 row
     /// TAXTRIAGE-BUNDLE-NAMES-PAIRED, BIO verdict PRODUCT-4 items 3 and 4, ruling BIO-TT-PAIR question 1).
     ///
-    /// - Each `.lungfishfastq` bundle is one sample, named by its whole stem as `taxtriage run` names it.
+    /// - Each `.lungfishfastq` bundle is one sample, named by its name without its one extension.
     ///   Two bundles are never mates, whatever their names.
     /// - Two loose files make one paired sample only when `MatePairFileNaming` names them the R1 and R2 of
     ///   one stem and no other loose file shares that stem. R1 is the file with the R1 ending.
@@ -46,9 +46,12 @@ extension TaxTriageWizardSheet {
         return made.sorted { ($0.sample.sampleId, $0.order) < ($1.sample.sampleId, $1.order) }.map(\.sample)
     }
 
-    /// The name `taxtriage run` gives `url` when it names the input itself.
+    /// The name `taxtriage run` gives `url` when it names the input itself. A bundle keeps its whole name
+    /// but its one extension, since the command removes two and would cut a dotted name; a dotted bundle
+    /// name then differs from the command's, and `refuseRenamedSamples` refuses several such samples with words.
     private nonisolated static func wholeStem(of url: URL) -> String {
-        TaxTriageAnalysisRunTool.sampleID(for: url, explicitSampleID: nil, totalSampleCount: 1)
+        if FASTQBundle.isBundleURL(url) { return url.deletingPathExtension().lastPathComponent }
+        return TaxTriageAnalysisRunTool.sampleID(for: url, explicitSampleID: nil, totalSampleCount: 1)
     }
 
     /// `sample` with the role and name its FASTQ bundle records: the bundle `fastq1` names, or the bundle

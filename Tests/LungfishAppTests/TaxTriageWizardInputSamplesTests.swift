@@ -93,6 +93,12 @@ final class TaxTriageWizardInputSamplesTests: XCTestCase {
         XCTAssertEqual(samples.map(\.fastq2), [nil, nil, nil])
     }
 
+    /// BIO 5: a dot in a bundle's name stays in its Sample ID.
+    func testBundleNameWithADotKeepsItsWholeStem() throws {
+        let samples = TaxTriageWizardSheet.inputSamples(from: [try bundle("Pt.7"), try bundle("2024.11.05_swab1")])
+        XCTAssertEqual(samples.map(\.sampleId), ["2024.11.05_swab1", "Pt.7"])
+    }
+
     /// Guard, green before the fix too: two loose files named as mates stay one paired sample.
     func testLooseMateFilesMakeOnePairedSample() throws {
         let r1 = try looseFile("X_R1.fastq.gz")
