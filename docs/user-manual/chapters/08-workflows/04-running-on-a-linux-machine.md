@@ -35,79 +35,105 @@ lead_approved: false
 
 ## What it is
 
-A large read set can take hours to reorder and compress, and many labs have a shared Linux computer that could do that work while the Mac stays free. Lungfish Genome Explorer (LGE) can hand the heavy part of a [FASTQ](../../GLOSSARY.md#fastq) import to such a computer and take the result back. The Mac writes down exactly what to run, the Linux computer runs it, and the Mac checks what came back before it makes a read bundle. [Linux](../../GLOSSARY.md#linux) is an operating system, like macOS or Windows, that many shared research computers and computing clusters run.
+Reordering and compressing large sequencing files can take hours. Lungfish Genome Explorer (LGE) can do this work on a shared [Linux](../../GLOSSARY.md#linux) computer to keep your Mac free. Linux is an operating system like macOS or Windows. A [read](../../GLOSSARY.md#read) is a sequence of bases reported by a sequencing instrument. A [FASTQ](../../GLOSSARY.md#fastq) file stores each read's sequence and a quality score for each base.
 
-For FASTQ reads the heavy part is the storage step that every import on the Mac also runs. BBTools [clumpify](../../GLOSSARY.md#clumpify) reorders the reads so that similar reads sit together and the file compresses smaller, a step called [read clumping](../../GLOSSARY.md#read-clumping). A program called SeqKit then counts the reads and bases, and LGE counts the bases at quality 20 or better and at quality 30 or better. Quality is the [Phred score](../../GLOSSARY.md#phred-score) of a base, where 20 means about one wrong base in a hundred and 30 means about one in a thousand. The RNA-seq and single-cell plan cards send counting work along the same route, and [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) and [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md) give their own settings.
+LGE writes the instructions on the Mac, the Linux machine runs them, and LGE checks the returned files. The storage step can use BBTools [clumpify](../../GLOSSARY.md#clumpify) to group similar reads, a step called [read clumping](../../GLOSSARY.md#read-clumping). Similar reads give the compressor repeated sequences it can store more compactly.
+
+A [Phred score](../../GLOSSARY.md#phred-score) expresses the estimated chance that a base was read incorrectly. SeqKit counts reads and bases, and LGE counts bases at or above each score below.
+
+| Phred score | Estimated chance the base is wrong |
+|---|---|
+| 20 | About one in a hundred |
+| 30 | About one in a thousand |
+
+The RNA-seq and single-cell plan cards send counting work along the same route. [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) and [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md) give their own settings.
 
 ### Plan folders, staging folders, and staged reads
 
-A [plan folder](../../GLOSSARY.md#plan-folder) is an ordinary folder that LGE writes on the Mac. It holds one folder per sample, named for the sample, with that sample's plan and a packed copy of it, `plan.tar`, and it holds text files that describe the batch and start its samples on Linux. A plan fixes every setting. It names every tool by version and build, and every file by its size and [checksum](../../GLOSSARY.md#checksum), a SHA-256 fingerprint of the file's exact bytes, so every machine that runs the plan runs the same programs on the same files. Writing a plan imports nothing and submits nothing.
+A [plan folder](../../GLOSSARY.md#plan-folder) holds instructions for the batch, or set of samples. Each sample has a folder with its plan and a packed copy, `plan.tar`. The plan fixes the settings and records each tool's version and build. It also records each file's size and [checksum](../../GLOSSARY.md#checksum), so jobs can check that they have the expected inputs. A checksum is a fingerprint of the file's bytes, here computed with SHA-256. Writing a plan imports and submits nothing.
 
-The steps run inside a [container](../../GLOSSARY.md#container), a sealed package of programs and everything they need. Its image is the file that stores it, here one file of about 634 MB (not a picture) that packages every tool at its pinned version, meaning one version fixed on purpose. A Linux program called `lungfish-executor`, which ships inside the app, runs the steps. Before any tool runs, it checks the size and checksum of each input against the plan. When the steps end, it writes a run record, `run-record.json`, that lists each step, each tool's version, each file's checksum, and how long each step took.
+The steps run in a [container](../../GLOSSARY.md#container), a package of programs and what they need to run. Its image is the file that stores those programs, about 634 MB for this plan. The app includes `lungfish-executor`, the Linux program that checks the size and checksum of each input before running any tool. After the steps end, it writes the [run record](../../GLOSSARY.md#run-record), `run-record.json`, which lists the steps, tool versions, file checksums, and how long each step took.
 
-The jobs read their files from a [staging folder](../../GLOSSARY.md#staging-folder), a folder on the Linux side that every machine running the jobs can read. Its layout is fixed. The image goes in `images/`, the executor in `shared/` under a name that starts with its checksum, and each sample's reads in `batches/<plan folder>/<sample>/`, except staged reads, described next, which stay where the sample sheet names them. Each job returns its files to a `result/` folder inside its sample's folder there. The plan's `staging-files.json` lists every file the jobs read, with its size, its checksum, and, for each file the Mac has to copy, the file on the Mac. The image and any staged read have none.
+The [staging folder](../../GLOSSARY.md#staging-folder) is where jobs on Linux get their inputs. The plan's `staging-files.json` lists the inputs and where they go.
 
-[Staged reads](../../GLOSSARY.md#staged-reads) are reads that already sit in the staging folder, for example because a sequencing core delivered them to the cluster. A plan can name them by path, size, and checksum, and the Mac then never opens or copies them.
+| File | Location within the staging folder |
+|---|---|
+| Tool image | `images/` for Apptainer or HTCondor |
+| Executor | `shared/`, under a name that begins with the checksum |
+| Sample reads to copy | `batches/<plan folder>/<sample>/` |
 
-To [adopt](../../GLOSSARY.md#adopt) a returned run is to bring it into a project. LGE reads the plan the Mac wrote and the run record that came back, checks the size and checksum of every returned read file against the record, and only then writes one FASTQ [bundle](../../GLOSSARY.md#bundle) per sample, with the run's record as the bundle's [provenance](../../GLOSSARY.md#provenance).
+[Staged reads](../../GLOSSARY.md#staged-reads) are already in the staging folder. The plan names their paths, sizes, and checksums, so the Mac leaves them in place.
+
+Each sample returns a `result/` folder. For HTCondor, look under `batches/<plan folder>/<sample>/` in the staging folder. For `run-local.sh`, look in the sample's folder in the copied plan folder.
+
+To [adopt](../../GLOSSARY.md#adopt) a run is to import it into an LGE [project](../../GLOSSARY.md#project), which holds your imported data. LGE reads the Mac's plan and checks each returned read file's size and checksum against the run record before writing one FASTQ [bundle](../../GLOSSARY.md#bundle) per sample. The bundle holds the sample's reads and its [provenance](../../GLOSSARY.md#provenance), the record of how they were processed.
 
 ### One Linux machine or an HTCondor pool
 
-Every plan folder can run in two ways, and the program that starts the jobs is called the launcher. On one machine the launcher is `run-local.sh`, which runs the samples inside the image, at most 10 samples at a time, through [Apptainer](../../GLOSSARY.md#apptainer) or [Docker](../../GLOSSARY.md#docker). Apptainer is container software for shared Linux computers that runs an image as an ordinary user, and Docker is the container software many desktop computers use. On a cluster the launcher is [HTCondor](../../GLOSSARY.md#htcondor), a scheduler that shares a group of computers, called a pool, among many users. You hand it jobs, here one job per sample, and it finds a free machine for each. `run.dag` and `sample.sub` are the files HTCondor reads, and they run the same plans that `run-local.sh` runs.
+A launcher starts jobs on Linux. On one machine, `run-local.sh` uses [Apptainer](../../GLOSSARY.md#apptainer) or [Docker](../../GLOSSARY.md#docker). Both run containers. Apptainer runs the image file as an ordinary user. Docker uses a converted image.
 
-In practice, write the plan on the Mac, let the Linux side run the long step, and adopt what comes back, so the bundle records where and how its reads were processed.
+[HTCondor](../../GLOSSARY.md#htcondor) is a scheduler that shares a group of computers, called a pool, among users. It uses `run.dag` and `sample.sub` to find an eligible machine for each sample's job. Both launchers use the same sample plans.
 
 ## Why you would do this
 
-This chapter's [fixture](../../GLOSSARY.md#fixture), a small practice data set you can repeat every step on, holds 10,000 [read pairs](../../GLOSSARY.md#read-pair) of HG002, the Genome in a Bottle reference sample, from 500 kb of human chromosome 20. A read pair is the two reads that come from the two ends of one DNA fragment. A whole human genome sequenced deeply enough for variant calling usually runs to hundreds of millions of read pairs. Reordering that many reads takes hours, and an import on the Mac needs free disk of about five times a sample's read files while clumpify runs. A Linux computer with many cores and a large disk can do that work, and a pool can do it for many samples at once.
+A whole human genome sequenced for variant calling can yield hundreds of millions of read pairs. A [read pair](../../GLOSSARY.md#read-pair) consists of two reads from opposite ends of one DNA fragment. While clumpify runs, a Mac import needs free disk space of about five times the size of the sample's read files. Use a Linux machine for space or time, or a pool to process many samples across machines.
 
-The bundle that lands in the project carries the same kind of record a Mac import writes, plus where the steps ran, so a collaborator can see from the bundle alone that its reads were reordered on Linux with clumpify 40.02 and how long that took. The fixture is small, and the same steps apply unchanged to a full-size run.
+The [fixture](../../GLOSSARY.md#fixture) is a practice data set with 10,000 read pairs from 500 kb of human chromosome 20 in HG002, the Genome in a Bottle reference sample. Its adopted bundle shows that clumpify 40.02 reordered the reads on Linux and how long it took. For full-size runs, use the same procedure and check the disk request and [Settings](#settings) before submitting.
 
 ## Choosing a tool
 
-The choice is where the plan runs, and it rests on which computers you can reach and how many samples you have. Importing on the Mac stays the simplest choice for a few samples that fit its disk.
+Choose where the plan runs based on sample size, batch size, available disk space, and which computers you can use.
 
-**Import on the Mac.** The Sequencing Read Files card of [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) runs the same storage step on the Mac and makes the bundle at once, with nothing to copy. It needs the free disk described above while clumpify runs.
+**Import on the Mac.** The Sequencing Read Files card runs the storage step and makes the bundle without a transfer. While clumpify runs, the Mac needs free disk space of about five times the size of the sample's read files. [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) covers this route.
 
-**`run-local.sh` with Apptainer.** The `run-local.sh` launcher runs each sample in the image on one Linux machine. Apptainer runs the image file as it is, and the launcher refuses an image whose checksum is not the plan's. It needs no scheduler.
+**`run-local.sh` with Apptainer.** The launcher runs the image file directly on one Linux machine. It refuses the file if its checksum differs from the plan's.
 
-**`run-local.sh` with Docker.** The same launcher runs each sample in a Docker image instead. Docker cannot run the image file directly, so the file must first be made into a Docker image for linux/amd64, and the app does not do this. LGE's source repository holds a script for it, [`scripts/linux/launcher-tier.sh`](https://github.com/dhoconno/lungfish-genome-explorer/blob/main/scripts/linux/launcher-tier.sh), whose `image` command makes the Docker image from the image file and names it `lge-tools:` plus the first 12 characters of the file's checksum. `run-local.sh` takes that name after `--image`.
+**`run-local.sh` with Docker.** Docker needs a linux/amd64 image converted from the tool image file. LGE's repository script, [`scripts/linux/launcher-tier.sh`](https://github.com/dhoconno/lungfish-genome-explorer/blob/main/scripts/linux/launcher-tier.sh), does this with its `image` command. It names the image `lge-tools:` plus the first 12 characters of the file's checksum. Pass that name to `run-local.sh` after `--image`. LGE does not convert the file.
 
-**`run.dag` on an HTCondor pool.** HTCondor runs one job per sample on whichever pool machines are free, at most 10 jobs at once by default. It holds a job that fails to fetch or return its files, so you decide what happens to it. Each job picks its machines with a requirements expression, a test on each machine's attributes, which are named facts such as its processor type. The default expression asks for an attribute, `HasCHTCStaging`, that only the pool LGE was tested on is known to set. On another pool, ask its administrator whether its machines set it, and if not, write the plan on the command line with `--job-requirements '<expression>'`, using an expression the administrator gives you. It replaces that whole requirements line of `sample.sub`.
+**`run.dag` on an HTCondor pool.** HTCondor assigns one job per sample to available machines, with a default limit of 10 jobs at once, and holds jobs that fail to fetch or return files so you can decide what happens next. A requirements expression is a test of which machines can run a job. The default checks for `HasCHTCStaging`. The pool used to test LGE is known to set it. Before writing a plan for another pool, ask its administrator whether the machines set it. If they do not, use the expression the administrator gives you with `--job-requirements '<expression>'`. This replaces the entire requirements line in `sample.sub`.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
-| Import on the Mac | A few samples on one Mac | The reads fit the Mac's disk and time | The Mac lacks the disk or the hours |
-| `run-local.sh` with Apptainer | One Linux machine | You have a login on a Linux server with Apptainer | You have many samples and a pool |
-| `run-local.sh` with Docker | One machine with Docker | Docker is what the machine has | Apptainer is there, since it runs the image file as is |
-| `run.dag` on HTCondor | A shared pool of machines | You have many samples and a pool login | You have one machine and no pool |
+| Import on the Mac | A few samples on one Mac | The Mac has the space and time | You need Linux resources |
+| `run-local.sh` with Apptainer | One Linux machine | Apptainer is available | You have many samples and a pool |
+| `run-local.sh` with Docker | One machine with Docker | Docker is available | Apptainer can run the image file directly |
+| `run.dag` on HTCondor | A shared pool | You have many samples and a pool login | You have one machine |
 
-The fixture's run was a test on one Mac, which ran `run-local.sh` with Docker inside a Linux container, so you do not need to repeat it. The container stood in for a Linux machine, which is why the run record names the machine `lge-linux`. With a Linux server of your own, choose Apptainer, and with a pool, choose HTCondor. A plan's steps run BBTools clumpify and SeqKit on either launcher, and their citations are under [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge) in the Tool Bibliography.
+The fixture was a test on one Mac using `run-local.sh` with Docker. A Linux container stood in for a Linux machine and appears as `lge-linux` in the run record. Choose Apptainer if you have your own Linux server, or HTCondor if you have access to a pool. You can adopt the supplied results to practice. The Tool Bibliography lists BBTools clumpify and SeqKit under [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge), with citations for both.
 
 ## Before you start
 
-You need LGE on a Mac, in a build that includes the Linux executor, which release builds do. A build without it leaves **Write Plan…** greyed out and says why in a line under the controls. Writing a plan needs no open project. Adopting a run needs one, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
+Use an LGE build with the Linux executor. Release builds include it. Without it, **Write Plan…** stays greyed out and the sheet explains why. You can write a plan without a project, but you need a project to adopt the run. [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows how to make one.
 
-On the Linux side you need these things:
+On Linux you need:
 
-- A login to the Linux machine or the pool's submit machine, from the person who looks after it. Open [Terminal](../../GLOSSARY.md#terminal) from Applications > Utilities, type `ssh <host>`, where `<host>` is `<user name>@<machine name>`, and press Return to log in through [SSH](../../GLOSSARY.md#ssh), the secure remote login.
-- An x86-64 Linux machine with Apptainer or Docker, or an HTCondor pool of x86-64 machines that run EL9 or later, version 9 of the Enterprise Linux family that includes Red Hat Enterprise Linux and Rocky Linux. x86-64 is the common server processor design, and on the machine `uname -m` prints `x86_64` for it. Typing `apptainer --version`, `docker --version`, or `condor_version` shows which program is installed.
-- A staging folder that every machine running the jobs can read, with room for the image, the executor, the reads, and the results.
-- The tool image that `staging-files.json` names, a file called `lge-tools-<id>.sif`, in the staging folder's `images/`. LGE does not include it or download it, so ask the person who looks after your Linux machine or pool for it.
+- A login to the machine you will use or to the pool's submit machine. Open [Terminal](../../GLOSSARY.md#terminal) from Applications > Utilities to type commands. For [SSH](../../GLOSSARY.md#ssh), a secure remote login, type `ssh <host>` with `<user name>@<machine name>` in place of `<host>` and press Return.
+- An x86-64 Linux machine with Apptainer or Docker, or an HTCondor pool of x86-64 machines that run EL9 or later. EL9 is version 9 of Enterprise Linux, a family that includes Red Hat Enterprise Linux and Rocky Linux. The term x86-64 names a common server processor design. On that machine, `uname -m` prints `x86_64`. Use `apptainer --version`, `docker --version`, or `condor_version` to check which program is installed.
+- A staging folder that every machine running jobs can read, with space for inputs and results.
+- The tool image `lge-tools-<id>.sif` named in `staging-files.json`. LGE does not include or download it. Ask the person who looks after your Linux machine or pool for the file.
 
-This chapter uses the `linux-plan-fastq` fixture from [the linux-plan-fastq fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/linux-plan-fastq), whose README gives its source, license, and citation. To get it, choose **Code** and then **Download ZIP** on the repository page, then open the fixture's folder. Its `reads/` folder holds the two read files, `plan/hg002-chr20-plan/` is the plan as LGE wrote it, `returned/hg002-chr20-plan/` is the same folder after a run, and `run-logs/` holds what the run printed. The plan files hold the paths of the machine that wrote them, so read that plan as an example and write your own, with your own staging folder, before you run anything. The returned folder can be adopted as it is, so you can try the last procedure without a Linux machine.
+The `linux-plan-fastq` fixture comes from the [linux-plan-fastq fixture folder](https://github.com/dhoconno/lungfish-genome-explorer/tree/main/docs/user-manual/fixtures/linux-plan-fastq). Its README gives its source, license, and citation. To get it, choose **Code** and then **Download ZIP** on the repository page, then open the fixture's folder.
 
-The fixture's run took 17 seconds. Copying its files takes as long as your network needs for about 63 MB one way, most of it the executor, which stays in `shared/` for later plans, and 1.5 MB of results back.
+| Fixture contents | Use |
+|---|---|
+| `reads/` | The two read files |
+| `plan/hg002-chr20-plan/` | Example plan with paths from the Mac that wrote it |
+| `returned/hg002-chr20-plan/` | Supplied results you can adopt |
+| `run-logs/` | Messages from the run |
+
+Write your own plan with your staging folder before running the fixture. To practice without Linux, go straight to [Adopt the returned run with the Linux Run Result card](#adopt-the-returned-run-with-the-linux-run-result-card) and select `returned/hg002-chr20-plan`.
+
+The fixture took 17 seconds to run. With the image in place, you transfer about 63 MB to Linux and 1.5 MB back. Most of the first transfer is the executor, which stays in `shared/` for later plans.
 
 ## Procedure
 
 ### Write a plan folder with the Plan for a Linux Machine card
 
-1. Choose **File > Import Center…** (Cmd-Shift-I) and click the **Sequencing Reads** tab, as [The Import Center](../01-foundations/06-the-lungfish-project.md#the-import-center) describes.
+1. Choose **File > Import Center…** (Cmd-Shift-I) and click the **Sequencing Reads** tab. [The Import Center](../01-foundations/06-the-lungfish-project.md#the-import-center) shows where to find it.
 
-2. Click the **Plan for a Linux Machine** card. In the file panel, select the fixture's `reads` folder, which holds only the two read files, and click **Open**. The panel takes read files or one folder of them, and the Import Center closes.
+2. Click **Plan for a Linux Machine**. Select the fixture's `reads` folder and click **Open**. You can select read files or one folder of them. After you click **Open**, the Import Center closes.
 
-3. In the **Plan for a Linux Machine** sheet, check the line under the title, which reads `Reads: reads` for the folder you chose. Type the [absolute path](../../GLOSSARY.md#absolute-path) of your staging folder into **Staging folder**, the full path from `/` on the Linux side, not on the Mac. To find it, log in, move into the folder with `cd <folder>`, and type `pwd`. Each folder name in the path may use only letters, digits, `_`, `.`, and `-`, or LGE refuses it.
+3. Check that the **Plan for a Linux Machine** sheet shows `Reads: reads`. In **Staging folder**, enter the Linux folder's [absolute path](../../GLOSSARY.md#absolute-path), its full path from `/`. To find it, log in, use `cd <folder>` to change folders, and type `pwd` to show the current path. Use only letters, digits, `_`, `.`, and `-` in folder names.
 
     <!-- SHOT: linux-plan-sheet -->
 
@@ -115,13 +141,13 @@ The fixture's run took 17 seconds. Copying its files takes as long as your netwo
 
 5. Click **Write Plan…**. In the panel that slides down, which reads "Name a new folder for the plan. Nothing is imported and nothing is submitted.", type `hg002-chr20-plan`, choose a folder on the Mac, and click **Write Plan**. The plan folder's name follows the same rule.
 
-The [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) shows the row `Plan for a Linux Machine: hg002-chr20-plan` while LGE writes, and the row ends with `Plan written to hg002-chr20-plan`. The new folder holds the files that [The plan folder and its README](#the-plan-folder-and-its-readme) describes. Open its `README.txt` in TextEdit. Every command for running the plan and bringing it home is in it, already filled in with your staging folder and the plan's name.
+The [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) reports progress. It shows `Plan for a Linux Machine: hg002-chr20-plan` while LGE writes, then `Plan written to hg002-chr20-plan`. Open `README.txt` in TextEdit for commands filled in with your plan name and staging folder. [The plan folder and its README](#the-plan-folder-and-its-readme) describes the files LGE writes.
 
 ### Plan reads that are already on the Linux machine
 
-Staged reads skip the copy from the Mac, and for FASTQ reads they work only on the command line. That means typing `lungfish-cli`, the program inside LGE, into Terminal, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to start it. You need the reads' paths, sizes, and checksums from the Linux side first.
+If your FASTQ files are already staged on Linux, you can skip copying the reads from the Mac. Write the plan in Terminal with `lungfish-cli`, the LGE command-line program. The plan card does not accept staged FASTQ files. [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to start it.
 
-1. Log in to the Linux machine with SSH. Paste these lines into the SSH window, with the absolute path of the folder inside the staging folder that holds the reads in place of `/absolute/folder`. They write `staged-reads.tsv`, a [TSV](../../GLOSSARY.md#tsv) file with one line per read file, into the folder you are in:
+1. In the Linux SSH window, replace `/absolute/folder` with the absolute path to the reads in the staging folder. The commands write `staged-reads.tsv` to your current folder, with a path, size in bytes, and checksum for each `*.fastq.gz` file. A [TSV](../../GLOSSARY.md#tsv) is a text file with columns separated by tabs. Note the folder path with `pwd` after running these lines:
 
     ```sh
     printf 'file\tbytes\tsha256\n' > staged-reads.tsv
@@ -130,9 +156,9 @@ Staged reads skip the copy from the Mac, and for FASTQ reads they work only on t
     done
     ```
 
-2. On the Mac, in a Terminal window that is not logged in to the Linux machine, copy `staged-reads.tsv` with `scp <host>:<folder you were in>/staged-reads.tsv .`, which copies a file over SSH into the folder Terminal is in. Beside it, write a [sample sheet](../../GLOSSARY.md#sample-sheet) named `samples.csv`, a plain text file whose first line is `sample,r1,r2`. Each later line gives a sample's name and its two reads' absolute paths on the Linux side, such as `S1,/absolute/folder/S1_R1.fastq.gz,/absolute/folder/S1_R2.fastq.gz`. Make it in a spreadsheet and save it as CSV. An optional `request_disk` column gives a sample's disk request in whole GB.
+2. In local Terminal on the Mac, run `scp <host>:<folder you were in>/staged-reads.tsv .` to copy the file to your current folder. Beside it, save a [sample sheet](../../GLOSSARY.md#sample-sheet) as `samples.csv`, with `sample,r1,r2` on the first line. Each later line lists a sample and the absolute Linux paths to its two FASTQ files, such as `S1,/absolute/folder/S1_R1.fastq.gz,/absolute/folder/S1_R2.fastq.gz`. Save it from a spreadsheet as CSV, a text file with comma-separated columns. The optional `request_disk` column gives the disk request in whole GB.
 
-3. Write the plan on the Mac. Name the platform with `--platform`, because LGE reads none of the reads and cannot work it out:
+3. Write the plan on the Mac. LGE does not open staged reads, so name the sequencing technology with `--platform`. Use `--platform illumina` for the Illumina files in this example:
 
     ```sh
     lungfish-cli import fastq --samplesheet samples.csv --staged-reads staged-reads.tsv \
@@ -140,23 +166,23 @@ Staged reads skip the copy from the Mac, and for FASTQ reads they work only on t
       --threads 8 --clumpify-heap-gb 16
     ```
 
-The README of a staged-reads plan adds one check before you submit. Each read must sit at its `stagingPath` with the size `staging-files.json` lists, and it must stay there until every job has run, because a missing read holds its job and that job leaves no run record.
+Before submitting, follow the README's check. Each read file must match the listed size in `staging-files.json` and stay at its `stagingPath` until the jobs finish. A missing file holds its job before it can record a run.
 
 ### Copy the plan folder and stage the reads
 
-1. Open `staging-files.json` in the plan folder in TextEdit. For each file that has a `source`, copy that Mac file to its `stagingPath` on the Linux side with `scp` or `rsync`, which copy files between computers over SSH. For the fixture those are the executor, about 59 MB, which the app holds, and the two read files. For one file, run these in Terminal on the Mac, with the entry's own values in place of the placeholders. `ssh <host> mkdir -p <folder of the stagingPath>` makes its folder, and `scp "<source>" <host>:<stagingPath>` copies it.
+1. Open `staging-files.json` in TextEdit to find where the jobs expect their inputs. With `scp` or `rsync`, copy each Mac file listed as a `source` to its `stagingPath` over SSH. For the fixture, copy the executor (about 59 MB) and both read files. Run `ssh <host> mkdir -p <folder of the stagingPath>` with the destination folder only. Run `scp "<source>" <host>:<stagingPath>` with the full path, including the file name.
 
-2. Leave a file in `shared/` alone when one with the listed size is already there. Its name starts with its checksum, so it is the same file, and the jobs of another plan may be reading it.
+2. Leave a file in `shared/` in place if it has the listed size. Another plan may be using it. Its name starts with the expected checksum, and `lungfish-executor` checks the file before running any tool.
 
-3. Check that the image named in the entry whose `role` is `image` is in `images/`, since it has no source on the Mac. `ls <staging folder>/images/` on the Linux side lists the folder.
+3. For Apptainer or HTCondor, run `ls <staging folder>/images/` on Linux and check for the file whose `role` is `image`. For Docker, use the conversion in [Choosing a tool](#choosing-a-tool) to prepare the image.
 
 4. Copy the whole plan folder to the Linux machine that runs it, or to the pool's submit machine, with `scp -r "<plan folder>" <host>:`.
 
-For `run-local.sh` the files can go into a data folder of your choosing instead, each at its `stagingPath` with the staging folder taken off the front, so a file whose `stagingPath` is `<staging folder>/shared/<name>` goes to `<data folder>/shared/<name>`. That gives the folders `shared/`, `batches/hg002-chr20-plan/`, and `images/` for Apptainer. A Docker run reads no `images/` folder. On a machine that can read the staging folder, the staging folder itself can be the data folder, and then nothing needs copying.
+For `run-local.sh`, either use the staging folder as `<data folder>` or recreate its layout in a data folder you choose. For example, `<staging folder>/shared/<name>` becomes `<data folder>/shared/<name>`. Keep `shared/` and `batches/hg002-chr20-plan/` in the layout. Add `images/` for Apptainer. Reuse files already at their listed paths and transfer any missing files. Copy the plan folder as in step 4.
 
 ### Run the plan on one Linux machine with run-local.sh
 
-1. Log in to the Linux machine with SSH and change to the copied plan folder with `cd <plan folder>`.
+1. Log in with SSH and enter the copied plan folder with `cd <plan folder>`. If you need to disconnect during a long run, start `tmux` or `screen` before launching. These programs keep the terminal session running after you log out.
 
 2. Run one of these, with your data folder in place of `<data folder>` and, for Docker, the name of the Docker image in place of `<image>`:
 
@@ -173,27 +199,35 @@ For `run-local.sh` the files can go into a data folder of your choosing instead,
     run-local.sh: every sample finished or was skipped. Copy each <sample>/result/ to the Mac as README.txt says.
     ```
 
-`--jobs <n>` changes the limit of 10 samples at once, `--sample <name>` runs one sample, and `--scratch <folder>` moves each sample's work folder to the folder you name. A run of hours usually stops if the SSH window closes, so start it inside `tmux` or `screen`, which keep it running after you log out.
+Use `--jobs <n>` to change the limit of 10 samples at once, `--sample <name>` to run one sample, or `--scratch <folder>` to move each sample's work folder.
 
-Each sample leaves `<sample>/result/` with its run record, reports, and reads, and `<sample>/logs/` with its step logs, while `logs/<sample>.out` and `logs/<sample>.err` hold the job's own output. The script skips a sample that already has a `result/` folder, so running it again runs only the samples that returned nothing. Delete a sample's `result/` folder to run that sample again. Right after the script ends, type `echo $?` to see its [exit status](../../GLOSSARY.md#exit-status), the number a command hands back when it finishes. It is 0 when every sample finished or was skipped, 1 when one did not finish, and 2 when the script refused before any sample started.
+Each sample writes its record, reports, and reads to `<sample>/result/` and step logs to `<sample>/logs/`. The job writes messages to `logs/<sample>.out` and `logs/<sample>.err`. The launcher skips samples with an existing `result/` folder.
+
+Right after the script finishes, type `echo $?` to see its [exit status](../../GLOSSARY.md#exit-status), the number it returns on completion.
+
+| Exit status | Meaning |
+|---|---|
+| 0 | Every sample finished or was skipped |
+| 1 | At least one sample did not finish |
+| 2 | The script refused before any sample started |
 
 ### Submit the plan to an HTCondor pool
 
 1. Log in to the pool's submit machine with SSH and change to the copied plan folder with `cd <plan folder>`.
 
-2. Submit the batch:
+2. Submit the batch so HTCondor can assign each sample to an eligible machine:
 
     ```sh
     condor_submit_dag run.dag
     ```
 
-3. Follow the samples in `run.dag.status`, which HTCondor rewrites about once a minute in the plan folder with each sample's state. Type `cat run.dag.status` to read it. HTCondor calls each sample a node, so `NodesDone` counts the finished samples out of `NodesTotal`, and a finished sample's own entry reads `NodeStatus = 5`.
+3. Type `cat run.dag.status` in the plan folder to check progress. HTCondor updates the file about once a minute and calls each sample a node. Compare `NodesDone` with `NodesTotal`. A finished sample shows `NodeStatus = 5`.
 
-You can log out after submitting, because HTCondor keeps the batch running. At most 10 jobs run at once, from the line `MAXJOBS lge 10` in `run.dag`, so edit that number in TextEdit on the Mac before you copy the plan folder to the Linux side. Each job asks for the CPUs and memory in `sample.sub` and the disk in `run.dag`. It returns its files to `batches/hg002-chr20-plan/<sample>/result/` in the staging folder and its step logs to `<sample>/logs/` in the plan folder. On a pool whose machines do not set `HasCHTCStaging`, write the plan again with `--job-requirements`, as [Choosing a tool](#choosing-a-tool) describes.
+You can log out after submitting while HTCondor keeps running. To check progress later, return to the plan folder on the submit machine and type `cat run.dag.status`. To change the limit of 10 jobs at once, edit `MAXJOBS lge 10` in `run.dag` on the Mac before copying the plan. Each job requests CPUs and memory from `sample.sub` and disk from `run.dag`. Look for results in `batches/hg002-chr20-plan/<sample>/result/` in the staging folder and step logs in `<sample>/logs/` in the plan folder.
 
 ### Release a held HTCondor job
 
-A [held job](../../GLOSSARY.md#held-job) is one HTCondor has stopped and set aside. It waits, and the batch does not finish until you deal with it.
+A [held job](../../GLOSSARY.md#held-job) is a job HTCondor stopped. The batch waits until the hold is resolved.
 
 1. See which sample is held, and why:
 
@@ -201,34 +235,49 @@ A [held job](../../GLOSSARY.md#held-job) is one HTCondor has stopped and set asi
     condor_q -hold -af ClusterId ProcId DAGNodeName ExitCode HoldReasonCode NumHolds HoldReason
     ```
 
-    Each line gives the job's two numbers, the sample's name, the run's exit code, the hold's code, how many times the job has been held, and HTCondor's reason. In `logs/<sample>.log`, one hold shows as "Job was evicted", which means HTCondor took the job off its machine, and then "Job was held". Both lines are one hold, not a move to another machine.
+    `DAGNodeName` names the sample and `HoldReason` explains the hold. Use `ClusterId` and `ProcId` in the commands below. `ExitCode` reports how the run ended, `HoldReasonCode` gives the hold code, and `NumHolds` counts holds. In `logs/<sample>.log`, "Job was evicted" means HTCondor took the job off its machine. When "Job was held" follows, the two lines describe one hold.
 
-2. Do nothing for a job held with code 12 and exit code 0, which finished its run and only failed to send its files back. Do nothing for a job held with code 13 either, which could not fetch an input file and never ran, so its exit code reads undefined. The plan asks HTCondor to release a job held for either reason by itself, at most twice.
+2. Let HTCondor try to release holds that match the table. The plan allows at most two automatic releases for these holds.
 
-3. A job held a third time stays held. If its reason says the transfer made no progress, release it yourself once the staging folder answers again:
+    | Hold code | Exit code | What happened |
+    |---|---|---|
+    | 12 | 0 | The run finished, but the job could not send its files back |
+    | 13 | undefined | The job could not fetch an input and never ran |
+
+3. A job held a third time stays held. If the transfer made no progress, wait until the staging folder is accessible before releasing the job:
 
     ```sh
     condor_release <ClusterId>.<ProcId>
     ```
 
-4. For any other hold, fix what the reason names, such as copying a missing input file to its `stagingPath`. Running the sample again replaces its run record, so copy the record aside, then remove the job. HTCondor counts that sample as failed and goes on with the others:
+4. For other holds, fix the cause, such as a missing file at its `stagingPath`. If a run record exists, save it with `cp` before the next run replaces it. Then use `condor_rm` so HTCondor marks the sample failed and continues with the others:
 
     ```sh
     cp "<staging folder>/batches/hg002-chr20-plan/<sample>/result/run-record.json" "<sample>/run-record-<ClusterId>.json"
     condor_rm <ClusterId>.<ProcId>
     ```
 
-5. When the other samples have finished, the run writes `run.dag.rescue001`, which lists the samples still to run. Run `condor_submit_dag run.dag` again from the plan folder, and HTCondor reads the rescue file and runs only those samples.
+5. Once the other samples finish, `run.dag.rescue001` lists the samples still to run. Run `condor_submit_dag run.dag` again from the plan folder to run just those samples.
 
-A hold whose reason says an output file could not be sent back means that sample's job returned no reads. Read its run record in the staging folder and its step logs in `<sample>/logs/` to see which step stopped. A job the executor refuses before its first step, for example over an input file whose size or checksum differs from the plan's, leaves only the record. A job that `lge-job.sh`, the small script every job starts with, refuses, for example over a missing `plan.tar`, leaves no record, so read `logs/<sample>.err` for it.
+A hold whose reason says an output file could not be sent back means that sample's job returned no reads. Check the staging folder for its record and `<sample>/logs/` for step logs. An executor refusal before the first step, such as a size or checksum mismatch, leaves only the record. A refusal by `lge-job.sh`, such as a missing `plan.tar`, leaves no record. Check `logs/<sample>.err` for that failure.
 
 ### Copy the returned run back to the Mac
 
-Adopting reads one folder per sample, holding the `plan.json` your Mac wrote with the job's files beside it. So for every sample, the files inside its `result/` folder go into that sample's folder of the plan folder on the Mac, next to `plan.json`. The step is the same for both launchers, and only the source differs.
+LGE needs each sample's returned files beside the original `plan.json` on the Mac. Copy the contents of each `result/` folder into the matching sample folder. Leave the original `plan.json` in place. Adoption does not use the logs.
+
+Choose the value for `<source>` before running the copy.
+
+| Where you ran the plan | Value for `<source>` |
+|---|---|
+| HTCondor | `<host>:<staging folder>/batches/hg002-chr20-plan` |
+| `run-local.sh` | `<host>:` followed by the path to the copied plan folder |
+| Results already on the Mac | Path to the folder holding the sample folders |
+
+Use the same `<host>` you pass to `ssh`, such as `<user name>@<machine name>` or a short name from your SSH configuration file. If your connection needs `ssh -F <config file>` to read a different configuration file, run `export RSYNC_RSH='ssh -F <config file>'` before the loop.
 
 1. In Terminal on the Mac, change to the folder that holds `hg002-chr20-plan`. Type `cd` and a space, drag that folder from Finder onto the Terminal window, and press Return.
 
-2. Run the README's copy loop, with `<source>` replaced as the next paragraph says:
+2. Replace the full `<source>` placeholder with your value and run the README's copy loop. Keep the slash after `result` to copy the folder's contents:
 
     ```sh
     for sample in $(grep -v '^#' hg002-chr20-plan/jobs.tsv | cut -f 1); do rsync -a <source>/"$sample"/result/ hg002-chr20-plan/"$sample"/; done
@@ -236,45 +285,45 @@ Adopting reads one folder per sample, holding the `plan.json` your Mac wrote wit
 
 3. Check that `hg002-chr20-plan/hg002-chr20/` now holds `run-record.json` and `out/sample.fastq.gz` beside `plan.json`, and no `result/` folder.
 
-After an HTCondor run, `<source>` is `<host>:<staging folder>/batches/hg002-chr20-plan`. After `run-local.sh`, it is `<host>:` followed by the plan folder's path on the machine that ran it. `<host>` is what you type after `ssh`, such as `<user name>@<machine name>`, or a short name from your SSH configuration file, where you give a login a short name. When the files are already on the Mac, `<source>` is that folder alone, with no `<host>:`. The slash after `result` matters, because it copies what is inside the folder rather than the folder itself. A host that needs `ssh -F <config file>`, which makes `ssh` read a different configuration file, needs it in `rsync` too, so run `export RSYNC_RSH='ssh -F <config file>'` on its own line before the loop.
-
-Copy nothing else, because adopting reads no log, and never copy a `plan.json` back from the Linux side, since adopting must read the one the Mac wrote.
-
 ### Adopt the returned run with the Linux Run Result card
 
-1. Open the [project](../../GLOSSARY.md#project) that should hold the bundles. For the fixture, a new empty project from **File > New Project** is enough.
+1. Open the [project](../../GLOSSARY.md#project) where you want the bundles. For practice, make an empty project with **File > New Project**.
 
 2. Choose **File > Import Center…** (Cmd-Shift-I), click the **Sequencing Reads** tab, and click the **Linux Run Result** card.
 
     <!-- SHOT: linux-run-result-card -->
 
-3. In the file panel, select the plan folder that holds the returned files and click **Open**. For the fixture that is `returned/hg002-chr20-plan`. One sample's folder works too.
+3. Select the Mac plan folder you copied results into, or `returned/hg002-chr20-plan` for the supplied run, and click **Open**. You can also select one sample's folder.
 
-4. Watch the row `Linux Run Result: hg002-chr20-plan` in the Operations Panel. It reads `Checking 1 of 1: hg002-chr20…` while LGE checks the sample, then `Adopting 1 of 1: hg002-chr20…` while it writes the bundle, and it ends with `Imported hg002-chr20.lungfishfastq`. A batch of three reads `Checking 2 of 3: <sample>…` and so on, and ends with `Imported 3 samples`.
+4. Watch `Linux Run Result: hg002-chr20-plan` in the Operations Panel. The fixture shows `Checking 1 of 1: hg002-chr20…`, then `Adopting 1 of 1: hg002-chr20…`, and ends with `Imported hg002-chr20.lungfishfastq`. A batch of three shows progress such as `Checking 2 of 3: <sample>…` and ends with `Imported 3 samples`.
 
 5. Find the new bundle `hg002-chr20` under `Imports` in the sidebar.
 
-With no project open, choosing a folder brings up the alert "No Project Open". Adopting copies each sample's reads into its bundle and leaves the returned copy where it is, so the Mac needs room for the reads twice. The exception is a plan folder and a project on one APFS volume, a formatted disk or part of a disk in Apple's file system, where the copy shares the space of the original. Two folders in your home folder usually share one. Once adopting has finished, `<sample>/out/` may be deleted. When no sample was refused, the `result/` folders in the staging folder may be removed too.
+With no project open, choosing a folder brings up "No Project Open". Adoption needs room for both the returned reads and the project copy unless both folders are on the same APFS volume, a disk or part of a disk in Apple's file system. On that volume the copies share space. Two folders in your home folder usually share a volume.
+
+After import succeeds, you can delete the returned `<sample>/out/` on the Mac because the bundle holds the reads. If every sample passed, you can also remove the staging folder's `result/` folders.
 
 ## Settings
 
-These are the controls of the Plan for a Linux Machine sheet. The Linux Run Result card has no sheet and no settings, because the plan fixed every setting before the run. The sheet names no platform, recipe, or sample sheet, so a plan it writes is planned as short reads with no recipe. Short reads are a few hundred bases or fewer, as from Illumina instruments, and a recipe is a named set of processing steps for an import, such as removing duplicate reads. The command line takes `--platform`, `--recipe`, `--samplesheet`, `--staged-reads`, and `--job-requirements` for the rest. The plan stores quality scores in steps of five (`fiveStep`), the [quality binning](../../GLOSSARY.md#quality-binning) that `lungfish-cli import fastq --help` gives as the default of `--quality-binning`, so Q10, Q20, and Q30 counts stay as sequenced.
+The Linux Run Result card has no settings because the plan fixes them. The sheet writes plans for short reads, a few hundred bases or fewer, as from Illumina instruments. It sets no recipe, a named set of steps such as removing duplicate reads. The command line takes `--platform`, `--recipe`, `--samplesheet`, `--staged-reads`, and `--job-requirements`.
 
-**Staging folder:.** Gives the absolute path of the staging folder on the Linux side, which the plan writes into every file that names a place there. The field starts empty, because only you know where that folder is, and **Write Plan…** stays greyed out until it holds a path that starts with `/`. Change it for every Linux machine or pool you plan for, and write a new plan rather than editing an old one when the folder moves. On the command line this is `--staging-folder`.
+[Quality binning](../../GLOSSARY.md#quality-binning) replaces nearby quality scores with one stored score to make them easier to compress. The plan stores quality scores in steps of five (`fiveStep`), the quality binning that `lungfish-cli import fastq --help` gives as the default of `--quality-binning`, so Q10, Q20, and Q30 counts stay as sequenced.
 
-**Threads per job:.** Sets how many [threads](../../GLOSSARY.md#thread), parallel workers, each sample's job uses on the Linux side, and each HTCondor job asks the pool for the same number of CPUs. The default is 8, and since a pool must find a machine with that many free CPUs, a larger number can make each job wait longer to start. Lower it to fit a smaller machine, and raise it when the machines you use give one job more cores. On the command line this is `--threads`.
+**Staging folder.** Sets the absolute Linux path that the plan uses for staging. The field starts empty so you can supply your own path, and **Write Plan…** stays greyed out until the path starts with `/`. Use the folder for the machine or pool running the job, and write a new plan if it moves. On the command line this is `--staging-folder`.
 
-**Clumpify memory (GB):.** Sets the Java heap, the working memory in GB that BBTools clumpify may use on the Linux side, and each HTCondor job asks for that much memory plus 8 GB for Java itself and the compressors around it. The default is 16 GB, a 24 GB request in all, and a smaller heap still works, because clumpify splits a sample that does not fit into more groups, as the line under **Compression Tool** says. Lower it when the machines you use have less memory to give one job. On the command line this is `--clumpify-heap-gb`.
+**Threads per job.** Sets how many [threads](../../GLOSSARY.md#thread), or parallel workers, process each sample and how many CPUs each HTCondor job requests. The default is 8, and a larger request can take longer to schedule because one machine needs that many free CPUs. Lower it for a smaller machine or raise it when a job has more cores available. On the command line this is `--threads`.
 
-**Optimize storage (reorder reads for better compression).** Turns read clumping on, so clumpify places reads that share sequence next to each other before the reads are compressed, and the stored file shrinks while its read order no longer matches the source files. It opens ticked, and a moment later LGE reads the first read headers and clears it for Oxford Nanopore, PacBio, and Unknown reads, because clumpify works well only on accurate reads. Clear it yourself when you need the original read order, such as to look a read up by its position in the source file, or tick it to reorder long reads anyway. On the command line this is `--no-optimize-storage`.
+**Clumpify memory (GB).** Sets the Java heap, the working memory in GB for BBTools clumpify, with each HTCondor job requesting an extra 8 GB for Java and compression. The default is 16 GB, a 24 GB request in all, and clumpify splits samples into more groups if they cannot fit in the heap. Lower it when a machine has less memory available per job. On the command line this is `--clumpify-heap-gb`.
 
-**Compression Tool:.** Picks the program that reorders the reads, offering BBTools clumpify and Trim Galore --clumpify, and it is greyed out while the Optimize storage box is clear. The default is BBTools clumpify, which reorders the reads without trimming or dropping any. Choose Trim Galore --clumpify only when you want the reads trimmed in the same step, because it also removes [adapter](../../GLOSSARY.md#adapter) sequence, trims low-quality ends, and drops short reads, as the line under the popup says. On the command line this is `--clumping-tool`.
+**Optimize storage (reorder reads for better compression).** Groups similar reads for better compression, changing their order. It opens ticked, and a moment later LGE reads the first read headers and clears it for Oxford Nanopore, PacBio, and Unknown reads, because clumpify works well only on accurate reads. Clear it if you need the original read order or tick it to reorder long reads. On the command line this is `--no-optimize-storage`.
+
+**Compression Tool.** Offers BBTools clumpify and Trim Galore --clumpify and stays greyed out while the Optimize storage box is clear. The default is BBTools clumpify, which reorders reads without trimming or dropping them. To trim reads during storage, choose Trim Galore --clumpify, which removes [adapter](../../GLOSSARY.md#adapter) sequence added during library preparation, trims low-quality ends, and drops short reads. On the command line this is `--clumping-tool`.
 
 ## Reading the results
 
 ### The plan folder and its README
 
-A plan folder holds these files and folders. Each file is plain text except `plan.tar`, so you can open any of the others in TextEdit.
+Open the plan's text files in TextEdit. The `plan.tar` archive packs files together for the job to unpack.
 
 | File | What it holds |
 |---|---|
@@ -286,35 +335,55 @@ A plan folder holds these files and folders. Each file is plain text except `pla
 | `logs/` | An empty folder when the plan is written, where each job's own output goes as `<sample>.out` and `<sample>.err`, and where HTCondor also writes `<sample>.log` |
 | `<sample>/` | The sample's `plan.json`, the packed copy `plan.tar` that its job carries, and `staging.json`, which names the image and the files the job reads |
 
-For the fixture, `sample.sub` asks for 4 CPUs, the **Threads per job** value, and 12,288 MB of memory, which is the 4 GB clumpify heap plus the 8 GB margin. `run.dag` asks for 9 GB of disk for the sample. The plan takes three times the size of the reads, here 3.5 MB in all, rounds it up to 1 GB, and adds 8 GB for the image and the work files. It asks for more when a larger sample needs it, and a `request_disk` column in a sample sheet replaces the figure.
+For the fixture, `sample.sub` requests 4 CPUs from **Threads per job** and 12,288 MB of memory, the 4 GB heap plus 8 GB. In `run.dag`, the disk request is 9 GB. The plan takes three times the size of the reads, here 3.5 MB in all, rounds it up to 1 GB, and adds 8 GB for the image and the work files. A `request_disk` column in the sample sheet overrides the estimate.
 
-`hg002-chr20/plan.json` names the three steps by title. They are Store reads with `clumpify.sh` 40.02, Compute statistics with `seqkit` 2.13.0, and Count Q20 and Q30 bases, which the executor does itself. Its storage settings name [`bgzip`](../../GLOSSARY.md#bgzip), a gzip-compatible compressor, at compression level 4, quality binning in steps of five, 4 threads, and the 4 GB heap. Higher compression levels make smaller files more slowly, and the sheet has no control for the level, so it stays at that default.
+`hg002-chr20/plan.json` lists Store reads with `clumpify.sh` 40.02, Compute statistics with `seqkit` 2.13.0, and Count Q20 and Q30 bases with the executor. The storage settings use [`bgzip`](../../GLOSSARY.md#bgzip), a gzip-compatible compressor, at level 4, with quality binning in steps of five, 4 threads, and a 4 GB heap. Higher levels compress more slowly and make smaller files. The sheet uses the default level.
 
 ### The returned folder and its run record
 
 `returned/hg002-chr20-plan/hg002-chr20/` holds the plan's files plus `run-record.json` and `out/sample.fastq.gz`, a file of 1,453,947 bytes. The record's outcome is `succeeded`, its three steps all succeeded, and the run took 17 seconds.
 
-The storage step read 20,000 reads and wrote 20,000 reads, the 10,000 read pairs written as one [interleaved](../../GLOSSARY.md#interleaved-fastq) file, so clumpify reordered the reads and dropped none. Its step log, `storage.2.stderr` in the fixture's `run-logs/hg002-chr20/logs/` folder, shows 5,327 clumps, sets of reads that share sequence, made in one group, which means clumpify sorted the whole sample at once. It needed only one group because its memory estimate of 133 MB fit within the 3,319 MB it reported as available, which is less than the 4 GB heap, and a larger sample would have been split into more groups.
+The storage step counted 20,000 reads in and 20,000 out. It wrote 10,000 read pairs to one [interleaved](../../GLOSSARY.md#interleaved-fastq) file. In an interleaved FASTQ file, the two reads in a pair sit next to each other.
 
-The statistics step counted 4,965,573 bases. The quality count then found 4,722,951 of those bases at Q20 or better and 4,575,212 at Q30 or better, which are 95.1 and 92.1 percent. As a rule of thumb for Illumina reads, a Q30 share above roughly 80 percent is healthy, so 92.1 percent is comfortable, and [What good looks like](../03-reads/03-quality-control.md#what-good-looks-like) in Quality Control for Reads says what to do with a lower share.
+In `run-logs/hg002-chr20/logs/`, open `storage.2.stderr` to see 5,327 clumps, or sets of reads that share sequence. Clumpify sorted them in one group because its estimate of 133 MB fit within the reported 3,319 MB available from the 4 GB heap. Larger samples can need more groups.
+
+The statistics step counted 4,965,573 bases. Each percentage below uses that total. Bases counted at Q30 also count at Q20.
+
+| Quality threshold | Bases at or above the threshold | Share of all bases |
+|---|---|---|
+| Q20 | 4,722,951 | 95.1% |
+| Q30 | 4,575,212 | 92.1% |
+
+As a rule of thumb for Illumina reads, a Q30 share above roughly 80 percent is healthy. For lower shares, [What good looks like](../03-reads/03-quality-control.md#what-good-looks-like) in Quality Control for Reads explains what to check.
 
 ### The adopted bundle and its Runtime section
 
-Select the adopted bundle and click the **Provenance** tab of the [Inspector](../../GLOSSARY.md#inspector), as [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#procedure) shows. **Run Summary** shows **Wall Time (Linux run)**, the [wall time](../../GLOSSARY.md#wall-time) of the run on the Linux machine from start to finish, about 17 seconds for the fixture. **Runtime** starts closed, so click the arrow beside its name to open it.
+To check where processing ran and how long it took, select the bundle and click **Provenance** in the [Inspector](../../GLOSSARY.md#inspector), the panel for the selected item's details. In **Run Summary**, **Wall Time (Linux run)** shows [wall time](../../GLOSSARY.md#wall-time), the elapsed time from start to finish, about 17 seconds for the fixture. Click the arrow by **Runtime** to open it. [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#procedure) shows how to find these details.
 
 <!-- SHOT: adopted-run-runtime -->
 
-**Runtime** adds **Steps ran on**, with the Linux kernel, the core of the operating system, and the processor type, **Steps ran with**, with the executor's build and checksum, and **Leftover processes**, which says what happened to any [process](../../GLOSSARY.md#process) a tool left running. Under **Reported by the launcher** come the facts the launcher passed in, which LGE shows as given and does not check, such as the machine name `lge-linux` for the fixture. [Reading the results](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) in Provenance and Reproducibility explains every block of the [run record](../../GLOSSARY.md#run-record).
+**Runtime** shows where the steps ran, what ran them, and how the launcher reported the run.
+
+| Row | What it shows |
+|---|---|
+| **Steps ran on** | The Linux kernel (the core of the operating system) and processor type |
+| **Steps ran with** | The executor's build and checksum |
+| **Leftover processes** | What happened to each [process](../../GLOSSARY.md#process), or running program, a tool left behind |
+| **Reported by the launcher** | Details LGE displays as given, such as the machine name `lge-linux` |
+
+[Reading the results](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) in Provenance and Reproducibility explains each block of the record.
 
 ## What good looks like
 
-A good run ends cleanly on the Linux side. `run-local.sh` prints a last line that begins `run-local.sh: every sample finished or was skipped.` and ends with exit status 0. On a pool, `NodesDone` in `run.dag.status` equals `NodesTotal` and the `condor_q -hold` line prints nothing.
+`run-local.sh` prints a last line that begins `run-local.sh: every sample finished or was skipped.` and returns exit status 0. On a pool, `NodesDone` in `run.dag.status` equals `NodesTotal` and `condor_q -hold` prints nothing.
 
-The row in the Operations Panel ends `Imported` with the bundle's name, or with a count of samples that equals the number of rows in `jobs.tsv` other than the header. The run record says `succeeded` for the run and for every step. Its storage step reads as many reads in as out, 20,000 and 20,000 for the fixture, unless Trim Galore or a recipe removed some on purpose. In the bundle's Provenance tab, **Wall Time (Linux run)** shows the run's own time and **Steps ran on** names a Linux kernel.
+Before copying, check that each sample's `run-record.json` says `succeeded` for the run and each step, including samples the launcher skipped. With BBTools clumpify and no recipe that removes reads, expect the same read count in and out, 20,000 and 20,000 for the fixture. If Trim Galore or a recipe removed reads, check that the drop fits the processing you chose.
+
+After adoption, the Operations Panel ends with `Imported` and the bundle name or the sample count. Compare a batch count with the rows in `jobs.tsv`, excluding the header. In **Provenance**, check **Wall Time (Linux run)** for the run time and **Steps ran on** for the Linux kernel.
 
 ### When the run or adopting fails
 
-LGE checks every sample before it writes anything, and it adopts a batch whole. If any sample is refused, nothing is imported, and each refused sample is listed by name. These are four of the lines you may meet:
+LGE checks every sample before writing bundles. If any sample fails these checks, LGE lists each refused sample by name and imports nothing. Check the message:
 
 ```text
 <sample>: its job returned nothing. The folder holds no run-record.json.
@@ -323,15 +392,21 @@ LGE checks every sample before it writes anything, and it adopts a batch whole. 
 <sample>: The project already holds the bundle <bundle>.
 ```
 
-The first means a job that was held or removed, or a copy that was never made, so go back to [Release a held HTCondor job](#release-a-held-htcondor-job) or to the copy. The second means the reads did not come home. If they are missing on the Linux side too, run that sample again, and if they are missing only on the Mac, copy them again. The third means the copy put the `result/` folder itself into the sample's folder, so copy what is inside it instead. The fourth means the project already holds a bundle with that sample's name, so delete that bundle from the project and adopt the batch again.
+If the record is missing, check whether the job was held or removed, whether it stopped before starting the executor, or whether you copied the results. [Release a held HTCondor job](#release-a-held-htcondor-job) explains where to look for early failures. If the reads are missing only on the Mac, copy them again. If they are also missing on Linux, rerun the sample. If the files are still inside `result/` on the Mac, move its contents beside `plan.json`.
 
-A refusal imports nothing, but a stop partway is different. If adopting stops because the disk filled or you clicked Cancel, the bundles it already made stay whole in the project and the message names them. Delete them from the project and adopt the batch again.
+If the project already holds a bundle with that sample's name, LGE refuses the batch. If you can discard that bundle, delete it from the project and adopt the batch again.
 
-On the Linux side, `run-local.sh` with exit status 1 means at least one sample did not finish. Read that sample's `logs/<sample>.err` and its step logs, then run the script again, since it reruns only the samples with no `result/` folder. A sample whose run record came back has a `result/` folder even when its run failed, so delete that folder first to run the sample again. Exit status 2 means the script refused before any sample started, and the message says why.
+If the disk fills or you click Cancel during adoption, completed bundles stay whole in the project. The message lists them. To retry the whole batch in that project, delete those completed bundles and adopt again.
+
+For `run-local.sh` exit status 1, read the failed sample's `logs/<sample>.err` and step logs. Before retrying a failed sample, delete its `result/` folder if it exists, since the script skips it otherwise. For exit status 2, read the message explaining why the script stopped before starting any sample.
 
 ## On the command line
 
-`lungfish-cli import fastq --help` lists every flag of `import fastq`, including `--write-plan`, `--staging-folder`, `--staged-reads`, `--job-requirements`, and `--adopt`. This block writes the fixture's plan on the Mac, runs it on one Linux machine with Apptainer, copies the results home, and adopts them. `PROJECT` is a project you made in LGE with **File > New Project**, `FIXTURE` is where you saved the fixture folder, and each placeholder in angle brackets stands for your own staging folder, data folder, host, and plan folder. With no Linux machine, run the first three lines and the last line, with `returned/hg002-chr20-plan` in place of `hg002-chr20-plan`.
+Run the block in sections. Write the plan in Terminal on the Mac and stage the files as in the Procedure. Run Apptainer in the Linux SSH window, then return to the Mac to copy and adopt. Set `PROJECT` to the folder for a project you made with **File > New Project** and `FIXTURE` to the downloaded fixture folder. Replace each angle-bracket placeholder with your own value.
+
+To adopt the supplied result without Linux, run the `PROJECT` and `FIXTURE` assignments and `cd "$FIXTURE"` on the Mac. Then run the last command with `returned/hg002-chr20-plan` in place of `hg002-chr20-plan`.
+
+`lungfish-cli import fastq --help` lists every flag of `import fastq`, including `--write-plan`, `--staging-folder`, `--staged-reads`, `--job-requirements`, and `--adopt`.
 
 ```bash
 PROJECT="$HOME/Documents/Linux Runs.lungfish"
@@ -357,6 +432,6 @@ For the fixture the command prints `Adopted hg002-chr20 as hg002-chr20.lungfishf
 
 ## Next
 
-The next part, [What Is MHC Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md), moves from where LGE runs a step to a study it supports from start to finish, calling the MHC alleles of macaques from amplicon reads.
+Continue with [What Is MHC Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md) to see how LGE calls macaque MHC alleles from amplicon reads.
 
-To plan RNA-seq counts for a Linux machine, see [Plan salmon or STAR counting for a Linux machine](../11-rna-seq/02-counting-bulk-reads.md#plan-salmon-or-star-counting-for-a-linux-machine) and [Plan a STARsolo count for a Linux machine](../11-rna-seq/04-single-cell-counts.md#plan-a-starsolo-count-for-a-linux-machine), which give their own settings. To read the adopted bundle's reads, see [Quality Control for Reads](../03-reads/03-quality-control.md), and to read every block of its record, see [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md).
+To plan RNA-seq counts for a Linux machine, see [Plan salmon or STAR counting for a Linux machine](../11-rna-seq/02-counting-bulk-reads.md#plan-salmon-or-star-counting-for-a-linux-machine) and [Plan a STARsolo count for a Linux machine](../11-rna-seq/04-single-cell-counts.md#plan-a-starsolo-count-for-a-linux-machine), which give their own settings. [Quality Control for Reads](../03-reads/03-quality-control.md) helps you inspect the adopted reads. [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md) explains the bundle's record.
