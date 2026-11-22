@@ -25,7 +25,7 @@ illustrations: []
 glossary_refs: [blast, bundle, checksum, clade, classifier, csv, cz-id, e-value, esviritu, fastq, fixture, import-center, json, kraken2, kreport, metagenomics, nao-mgs, ncbi, nvd, operations-panel, percent-identity, plugin-pack, project, provenance, read, read-classification, reads-per-million, relative-abundance, sidebar, taxon, taxonomic-rank, taxon-report, taxonomy-id, terminal, tsv, viewport]
 features_refs: [import.czid, viewport.taxonomy-browser]
 fixtures_refs: [czid]
-brand_reviewed: false
+brand_reviewed: true
 lead_approved: false
 ---
 
