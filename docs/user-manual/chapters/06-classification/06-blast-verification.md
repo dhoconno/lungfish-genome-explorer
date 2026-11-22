@@ -111,7 +111,7 @@ The 12S drawer displays `BLAST results for <name>` and gives no verdict. EsVirit
 
 ## Settings
 
-**Reads to submit.** Sets how many fragments LGE samples from the taxon, with one read sent per fragment. The default is 20 because, when every read counts, changing one read from supporting to contradicting or the reverse shifts the supporting share by 5 percentage points, compared with 10 points for ten counted reads, though a 5-point shift can still cross the 40 or 80 percent cutoff. Lower it to leave more of the hour's 50 reads for other searches, or raise it when a Mixed result rests on few counted reads. On the command line this is `--reads`.
+**Reads to submit.** Sets how many reads LGE sends to NCBI, with one read per sampled fragment in the taxonomy viewport, while EsViritu and TaxTriage can send both mates of a pair. The default is 20 because, when every read counts, changing one read from supporting to contradicting or the reverse shifts the supporting share by 5 percentage points, compared with 10 points for ten counted reads, though a 5-point shift can still cross the 40 or 80 percent cutoff. Lower it to leave more of the hour's 50 reads for other searches, or raise it when a Mixed result rests on few counted reads. On the command line this is `--reads`.
 
 | Control | Range and limits |
 |---|---|
@@ -152,7 +152,7 @@ An alignment lines up two sequences base by base, with gaps where one has extra 
 | Identity | How to read it |
 |---|---|
 | In the 80s | Below the identity requirement for Verified. |
-| 90% to 95% | Meets the identity requirement. The read may come from a fast-changing virus or from a variant absent from NCBI's records for the species. A few sequencing errors can also lower identity. Check how much of the read aligned and compare organism names among the top records. |
+| 90% to 95.9% | Meets the identity requirement. The read may come from a fast-changing virus or from a variant absent from NCBI's records for the species. A few sequencing errors can also lower identity. Check how much of the read aligned and compare organism names among the top records. |
 | 96% to 100% | Meets the identity requirement. A close relative can match this well over one short read, so compare organism names and scores among the top records here too. |
 
 In the example run, cornea reads were at most 76 bases long, and trimming removed poor-quality ends from some. One mismatch across 76 aligned positions gives 75 divided by 76, or 98.7 percent identity. Identity covers only aligned positions. A read with a perfect match over its first 50 bases and no match over the other 26 still shows 100 percent identity.
@@ -175,7 +175,7 @@ The [bit score](../../GLOSSARY.md#bit-score) grades one alignment. It rises with
 
 ### The per-read label
 
-The Status icon and **Verdict** column show the per-read label. It grades the quality of the best match, with the placement exceptions in the next section. LGE checks the first alignment of the best record against the Verified thresholds. LGE normally uses the first record NCBI returns. If records inside and outside the group LGE is checking tie for best and NCBI lists an outside record first, LGE uses the first tied record inside the group.
+The Status icon and **Verdict** column show the per-read label. It grades the quality of the best match, with the placement exceptions in the next section. LGE checks the first alignment of the best record against the Verified thresholds. LGE normally uses the first record NCBI returns. If LGE judges by taxonomy ID and records inside and outside the group tie for best, LGE uses the first tied record inside the group when NCBI lists an outside record first. If LGE judges by organism names alone, it uses the first record NCBI returns.
 
 | Label | Rule |
 |---|---|
@@ -188,6 +188,8 @@ A Verified read can count as supporting or contradicting. Verified describes the
 
 ### Supporting, contradicting, and ties
 
+LGE checks for ties only when it judges by taxonomy ID, as it does for every Kraken 2 result. When it judges by organism names alone, LGE uses the first record NCBI returns.
+
 A Verified read is **supporting** if a best match belongs to the selected taxon's [clade](../../GLOSSARY.md#clade), the group and everything below it in the [Kraken 2 report](../../GLOSSARY.md#kreport), a table of counts per taxon. LGE checks all records tied for best among those NCBI returned. A record ties if its bit score matches the first record's exactly as printed in NCBI's reply. A stretch of 76 bases shared across HSV-1 genomes can tie across many HSV-1 records. A Verified read is **contradicting** if the best match, or all tied best matches, are outside the clade and the result meets none of the placement exceptions below.
 
 LGE judges a species or any group below it at species level. A strain is a variant within a species, so a match to another strain of the same species supports the selection. For a group above species, such as a genus, which groups related species, a match to any species in that group can support the selection. With HSV-1 selected, matches to Human alphaherpesvirus 2 or Human gammaherpesvirus 4 are outside the clade.
@@ -199,7 +201,7 @@ When a tie includes records inside and outside the clade, the read supports and 
 LGE labels a read or fragment Ambiguous in any of these placement cases:
 
 - NCBI returned all 500 requested records, every one ties for best, and none is in the clade. Otherwise, a read with no clade record among its tied best matches counts as contradicting if it is Verified.
-- The best record has no taxonomy ID and its organism name shares only its first word with the taxon's name. That word alone cannot distinguish Human alphaherpesvirus 1 from Human gammaherpesvirus 4.
+- LGE judges by organism names alone because the best record or the row lacks a taxonomy ID, and the best record's organism name shares only its first word with the taxon's name. That word alone cannot distinguish Human alphaherpesvirus 1 from Human gammaherpesvirus 4.
 - Both mates of a pair sent from EsViritu or TaxTriage are Verified, with one mate's best match inside the clade and the other's outside. The fragment counts as neither supporting nor contradicting.
 
 Ambiguous, Unverified, and Error reads count as neither supporting nor contradicting.
