@@ -67,7 +67,8 @@ NCBI controls how long the search takes. Most searches in LGE's tests came back 
 2. To open the verification settings, click **Verify with BLAST…** in the action bar, the row of controls under the table. You can also choose **Verify with BLAST…** from the row's right-click menu or **Selection > Table Row**. If the button is grayed out, check its tooltip, the message that appears when you point to the button.
 
 3. Before sending reads, review the database and data-sharing notice in the popover, a small panel over the sunburst, the ring chart beside the table. The title reads `Verify "Simplexvirus humanalpha1" via NCBI BLAST`. The notice names `core_nt`, a version of NCBI's general DNA sequence collection, and says the reads leave this Mac. LGE may send them again if NCBI is slow, at most three sends in all.
-   <!-- SHOT: blast-verify-popover -->
+
+    <!-- SHOT: blast-verify-popover -->
 
 4. Leave **Reads to submit** at 20 and click **Run BLAST** or press Return.
 
@@ -95,11 +96,11 @@ If you quit, LGE checks again when you reopen it. When the answer comes back, cl
 
 ### Verify from another classifier viewport
 
-Every viewer searches all of `core_nt` with no filter and judges reads by the same rules. **Verify with BLAST…** is in the action bar and the row's right-click menu in EsViritu, TaxTriage, NAO-MGS, and NVD, which are other tools for classification or virus detection.
+From every classifier viewport, LGE searches all of `core_nt` with no filter and judges reads by the same rules. **Verify with BLAST…** is in the action bar and the row's right-click menu in EsViritu, TaxTriage, NAO-MGS, and NVD, which are other tools for classification or virus detection.
 
-What LGE sends depends on the viewer. A [fragment](../../GLOSSARY.md#fragment) is one piece of the sample's DNA. In [paired-end](../../GLOSSARY.md#paired-end) sequencing, both ends are read, giving two reads called [mates](../../GLOSSARY.md#mate). A [contig](../../GLOSSARY.md#contig) is a longer sequence assembled from overlapping reads. A [taxonomy ID](../../GLOSSARY.md#taxonomy-id), or tax ID, is the number NCBI assigns to a taxon.
+What LGE sends depends on the viewport. A [fragment](../../GLOSSARY.md#fragment) is one piece of the sample's DNA. In [paired-end](../../GLOSSARY.md#paired-end) sequencing, both ends are read, giving two reads called [mates](../../GLOSSARY.md#mate). A [contig](../../GLOSSARY.md#contig) is a longer sequence assembled from overlapping reads. A [taxonomy ID](../../GLOSSARY.md#taxonomy-id), or tax ID, is the number NCBI assigns to a taxon.
 
-| Viewer | What LGE sends | Before it sends |
+| Viewport | What LGE sends | Before it sends |
 |---|---|---|
 | [Taxonomy](02-running-kraken2.md), where Kraken 2 results open | Random fragments, one read per fragment | The popover |
 | [EsViritu](03-running-esviritu.md) and [TaxTriage](04-running-taxtriage.md) | The longest reads, five or a quarter of the request, whichever is smaller, then a random fill. EsViritu uses the row's sample. Both mates are judged and the pair counts once. | The popover |
@@ -107,20 +108,20 @@ What LGE sends depends on the viewer. A [fragment](../../GLOSSARY.md#fragment) i
 | [Novel Virus Diagnostics](09-novel-virus-detection.md) | The selected contig, judged against the taxon named by NVD's adjusted tax ID | A sheet titled **Run BLAST at NCBI?** |
 | [12S Amplicon Metabarcoding](10-twelve-s-metabarcoding.md) | Unresolved sequences from the Unresolved view | A sheet titled **Run BLAST at NCBI?** |
 
-The 12S drawer displays `BLAST results for <name>` and gives no verdict. EsViritu, TaxTriage, NAO-MGS, and NVD use the NCBI Taxonomy, NCBI's catalog of named groups, to find a row's species. It is an optional download in the **Databases** tab of the Plugin Manager, where LGE manages optional tools and data. Without it, these viewers judge by the row's own tax ID or by organism names. Check the line under the summary to see which they used.
+The 12S drawer displays `BLAST results for <name>` and gives no verdict. EsViritu, TaxTriage, NAO-MGS, and NVD use the NCBI Taxonomy, NCBI's catalog of named groups, to find a row's species. It is an optional download in the **Databases** tab of the Plugin Manager, where LGE manages optional tools and data. Without it, LGE judges reads from these viewports by the row's own tax ID or by organism names. Check the line under the summary to see which they used.
 
 ## Settings
 
-**Reads to submit.** Sets how many reads LGE sends to NCBI, with one read per sampled fragment in the taxonomy viewport, while EsViritu and TaxTriage can send both mates of a pair. The default is 20 because, when every read counts, changing one read from supporting to contradicting or the reverse shifts the supporting share by 5 percentage points, compared with 10 points for ten counted reads, though a 5-point shift can still cross the 40 or 80 percent cutoff. Lower it to leave more of the hour's 50 reads for other searches, or raise it when a Mixed result rests on few counted reads. On the command line this is `--reads`.
+**Reads to submit.** Sets how many reads LGE sends to NCBI, one per sampled fragment in the taxonomy viewport, with both mates possible in EsViritu and TaxTriage. The default is 20 because, when every read counts, switching one read between supporting and contradicting shifts the supporting share by 5 percentage points versus 10 for ten reads, though even that can change the verdict by crossing 40 or 80 percent. Lower it to leave room for other searches, since LGE submits at most 50 reads in new searches in any 60 minutes, or raise it when a Mixed verdict, between those cutoffs, rests on few counted reads. On the command line this is `--reads`.
 
 | Control | Range and limits |
 |---|---|
 | Slider and number field | 1 to 50 reads. LGE brings typed values back into range. If the taxon has fewer than 50 reads, its count is the maximum. Below 20, that count is also the default. |
-| Command line | Accepts up to 100, subject to the search limit of 50 reads. |
+| Command line | Accepts up to 100, subject to the limit of 50 reads in new searches in any 60 minutes. |
 
 In the taxonomy viewport, when the selected taxon is a species or a group above species, LGE draws randomly from fragments assigned to that taxon or any group below it. For a taxon below species, the draw covers its whole species because LGE judges at species level. Each eligible fragment has the same chance of being drawn. The same count on the same result draws the same reads. A larger draw includes the smaller draw, so 40 reads include the first 20.
 
-For each fragment, LGE uses the mate with more k-mers matching the taxon in Kraken 2's per-read file, `classification.kraken.gz`. On a tie, it uses the mate with more k-mers matched to anything, then mate 1 if they still tie. This favors the mate with more Kraken 2 evidence for the taxon when that evidence differs. The rule also applies to a read [bundle](../../GLOSSARY.md#bundle), LGE's folder for one set of reads, with separate files R1 and R2. A merged read combines overlapping mates. An orphan is a read whose mate was removed. Either can be drawn like any fragment.
+For each fragment, LGE uses the mate with more k-mers matching the taxon in Kraken 2's per-read file, `classification.kraken.gz`. On a tie, it uses the mate with more k-mers matched to anything, then mate 1 if they still tie. This favors the mate with more Kraken 2 evidence for the taxon when that evidence differs. The rule also applies to a read [bundle](../../GLOSSARY.md#bundle), LGE's folder for one set of reads, with separate files R1 and R2 for the first and second mates, respectively. A merged read combines overlapping mates. An orphan is a read whose mate was removed. Either can be drawn like any fragment.
 
 LGE uses `blastn`, which compares DNA with DNA, in NCBI's megablast mode, a fast setting for close matches that can miss distant relatives. The database `core_nt` is a version of NCBI's general nucleotide collection, [`nt`](../../GLOSSARY.md#nt-database). To speed searches, it leaves out some large chromosome assemblies of eukaryotes such as animals and plants. Virus records are outside those exclusions.
 
@@ -130,7 +131,7 @@ LGE limits new submissions to 50 reads per rolling hour, the last 60 minutes. Th
 
 ## Reading the results
 
-Start with the rows under the summary bar. Check the label for each read's match, then see whether each Verified read supports or contradicts the selected taxon. Use those counts to interpret the batch verdict. The example figures below come from an earlier run on the cornea sample, before LGE asked NCBI for 500 records per read, so a run today can differ.
+Start with the rows under the summary bar. Check the label for each read's match. Verified means the best match is close enough across enough of the read to count for or against the selected taxon. Check which way each Verified read counts. Use those counts to interpret the batch verdict. The example figures below come from an earlier run on the cornea sample, before LGE asked NCBI for 500 records per read, so a run today can differ.
 
 <!-- SHOT: blast-results-drawer -->
 
@@ -242,7 +243,7 @@ The export's **Verdict** column holds the per-read label, which grades the quali
 
 ### Saved verifications
 
-In the Kraken 2 result folder, LGE stores each finished verification under `blast-verifications`, with the reads sent, the result, and its [provenance](../../GLOSSARY.md#provenance), a record of how the result was produced. To reopen the latest verification, even after quitting LGE, select the taxon's row and click **BLAST Results**. In the other viewers, return to the row you verified. If you report a verification, keep the provenance, the counts, the number of reads sent, and the request ID.
+In the Kraken 2 result folder, LGE stores each finished verification under `blast-verifications`, with the reads sent, the result, and its [provenance](../../GLOSSARY.md#provenance), a record of how the result was produced. To reopen the latest verification, even after quitting LGE, select the taxon's row and click **BLAST Results**. In the other viewports, return to the row you verified. If you report a verification, keep the provenance, the counts, the number of reads sent, and the request ID.
 
 ## What good looks like
 
@@ -250,7 +251,7 @@ For a Supported verdict, check how many submitted reads counted and how many sup
 
 The example run on the cornea sample gave 20 supporting, 0 contradicting, ten filled circles, and a Supported verdict. Every best record was Human alphaherpesvirus 1 with 100 percent query coverage. Of those reads, 19 had 100.0 percent identity and one had 98.7 percent, a single mismatch in 76 bases. A flagged read tied with a laboratory construct, an engineered DNA molecule carrying a piece of HSV-1, and still supported the taxon. The 100 percent supporting share covered all submitted reads.
 
-For Not specific, check the records named in the bar. A tie to a laboratory construct carrying the same sequence leaves the source unresolved. If another species ties, check whether the reads are spread across the genome or pile up in one shared stretch. Several reads overlapping the same stretch may repeat the same evidence. Use the coverage sparkline in [EsViritu's results](03-running-esviritu.md#reading-the-results) to see where reads fall.
+For Not specific, check the records named in the bar. A tie to a laboratory construct carrying the same sequence leaves the source unresolved. If another species ties, check whether the reads are spread across the genome or pile up in one shared stretch. Several reads overlapping the same stretch may repeat the same evidence. The coverage sparkline, a small chart drawn without axes or labels, shows how the reads spread along the genome in [EsViritu's results](03-running-esviritu.md#reading-the-results).
 
 For Unsupported, look for a consistent alternative. If rows repeatedly name one other organism, compare identity, coverage, and ties before treating it as a candidate. If rows name many unrelated organisms, look at the read sequences. Reads with low complexity, meaning limited sequence variety or simple repeats such as a run of one base, can match the same repeat in many unrelated genomes at high identity, often with many ties, or find no match.
 
