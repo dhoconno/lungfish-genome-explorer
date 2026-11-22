@@ -83,6 +83,24 @@ final class LoosePairShortMateTests: XCTestCase {
         }
     }
 
+    /// BIO review FIX-AB, should-fix 2. A whole gzip R2 that holds fewer records is refused by the count.
+    func testAGzipR2WithFewerWholeRecordsIsRefusedByEveryLoosePairedRoute() async throws {
+        let r1 = try writeMates("S_R1.fastq", mate: 1, count: 100)
+        let plain = try writeMates("short-R2.fastq", mate: 2, count: 60, in: root)
+        let r2 = loose.appendingPathComponent("S_R2.fastq.gz")
+        try await SystemToolProbe.gzip(plain, to: r2)
+
+        for route in Route.allCases {
+            let refusal = await planRefusal(route, r1: r1, r2: r2)
+            XCTAssertEqual(
+                refusal.words,
+                "Paired FASTQ mates do not match. S_R1.fastq has 100 reads, but S_R2.fastq.gz has 60. Nothing ran. Check that both files are complete or run each as single reads.",
+                route.rawValue
+            )
+            XCTAssertEqual(refusal.exitCode, 3, route.rawValue)
+        }
+    }
+
     // MARK: - Equal pairs (guard)
 
     func testEqualPairsPlainAndGzipPlanAsBefore() async throws {
@@ -116,6 +134,53 @@ final class LoosePairShortMateTests: XCTestCase {
                 XCTAssertEqual(kraken2.units.map(\.value.readFormat.format), [.paired], "\(name) batch \(batch)")
             }
         }
+    }
+
+    /// SAD:106 (FIX-B review SWIFT, SF1). The shapes real equal pairs have, which the guard above lacks:
+    /// Casava names, a `+` line that repeats the header (SRA dumps) and an R1 of two gzip members joined
+    /// (lanes merged with `cat`).
+    func testRealShapedEqualPairsAreNotRefused() async throws {
+        func fastq(_ range: ClosedRange<Int>, mate: Int, repeatsHeader: Bool) -> Data {
+            let sequence = "ACGTNACGTACGTAC"
+            let quality = "#" + String(repeating: "F", count: sequence.count - 2) + ":"
+            let text = range.map { index -> String in
+                let name = "A00123:45:HXXXXXXXX:1:1101:\(1000 + index):\(2000 + index) \(mate):N:0:ACGTACGT+TGCATGCA"
+                let plus = repeatsHeader ? "+" + name : "+"
+                return "@\(name)\n\(sequence)\n\(plus)\n\(quality)\n"
+            }.joined()
+            return Data(text.utf8)
+        }
+        let part1 = root.appendingPathComponent("part1.fastq")
+        let part2 = root.appendingPathComponent("part2.fastq")
+        try fastq(1...50, mate: 1, repeatsHeader: true).write(to: part1)
+        try fastq(51...100, mate: 1, repeatsHeader: true).write(to: part2)
+        let gzip1 = root.appendingPathComponent("part1.fastq.gz")
+        let gzip2 = root.appendingPathComponent("part2.fastq.gz")
+        try await SystemToolProbe.gzip(part1, to: gzip1)
+        try await SystemToolProbe.gzip(part2, to: gzip2)
+        let r1 = loose.appendingPathComponent("S_R1.fastq.gz")
+        try (Data(contentsOf: gzip1) + Data(contentsOf: gzip2)).write(to: r1)
+        let r2 = loose.appendingPathComponent("S_R2.fastq")
+        try fastq(1...100, mate: 2, repeatsHeader: false).write(to: r2)
+
+        XCTAssertEqual(try LooseMatePairCheck.refusal(r1: r1, r2: r2), nil)
+    }
+
+    /// FIX-B review SWIFT, SF2. A pair inside a `.lungfishfastq` folder was counted when the bundle was
+    /// imported, so a run does not read it again. The loose control proves the same counts are refused
+    /// outside a bundle.
+    func testFilesInsideABundleAreNotCountedAgain() throws {
+        let bundle = root.appendingPathComponent("S.lungfishfastq", isDirectory: true)
+        let inR1 = try writeMates("S_R1.fastq", mate: 1, count: 100, in: bundle)
+        let inR2 = try writeMates("S_R2.fastq", mate: 2, count: 60, in: bundle)
+        XCTAssertEqual(try LooseMatePairCheck.refusal(r1: inR1, r2: inR2), nil)
+
+        let r1 = try writeMates("S_R1.fastq", mate: 1, count: 100)
+        let r2 = try writeMates("S_R2.fastq", mate: 2, count: 60)
+        XCTAssertEqual(
+            try LooseMatePairCheck.refusal(r1: r1, r2: r2),
+            "Paired FASTQ mates do not match. S_R1.fastq has 100 reads, but S_R2.fastq has 60. Nothing ran. Check that both files are complete or run each as single reads."
+        )
     }
 
     // MARK: - Routes
