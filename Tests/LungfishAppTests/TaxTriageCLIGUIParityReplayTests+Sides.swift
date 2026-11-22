@@ -90,23 +90,16 @@ enum TaxTriageParityCase: String, CaseIterable, Sendable {
     }
 
     /// The config `TaxTriageWizardSheet.performRun` builds when the operations dialog hands it
-    /// the case's bundles (`resolveFASTQOperationInputURLs` gives bundle URLs). One sample per
-    /// bundle, named and ordered as `populateFromInitialFiles` names and orders them, with the
-    /// wizard's defaults: Illumina, the test sample role and the host taxid it brings, 10 top
-    /// hits, confidence 0.2, assembly skipped, Krona on, 16 GB and no extra arguments. The CPU
-    /// count, the profile and the database come from the engine, since a stand-in cannot run
-    /// the wizard's docker profile. A `--project` run writes into a folder of its own in
-    /// `Analyses/` instead of the output folder.
+    /// the case's bundles (`resolveFASTQOperationInputURLs` gives bundle URLs). The samples come
+    /// from `wizardSamples(for:)`, the dialog's own grouping, with the wizard's defaults:
+    /// Illumina, the host taxid the roles bring, 10 top hits, confidence 0.2, assembly skipped,
+    /// Krona on, 16 GB and no extra arguments. The CPU count, the profile and the database come
+    /// from the engine, since a stand-in cannot run the wizard's docker profile. A `--project`
+    /// run writes into a folder of its own in `Analyses/` instead of the output folder.
     @MainActor
     func wizardConfig(project: URL, engine: TaxTriageParityEngine) -> TaxTriageConfig {
         let bundles = bundlePaths.map { project.appendingPathComponent($0, isDirectory: true) }
-        let samples = bundles.map { bundle -> TaxTriageSample in
-            let sampleID = Self.wizardSampleID(for: bundle)
-            var metadata = FASTQSampleMetadata(sampleName: sampleID)
-            metadata.sampleRole = .testSample
-            return TaxTriageSample(sampleId: sampleID, fastq1: bundle, platform: .illumina, metadata: metadata)
-        }
-        .sorted { $0.sampleId < $1.sampleId }
+        let samples = Self.wizardSamples(for: bundles)
         let removeTaxidsText = TaxTriageWizardSheet.removeTaxidsText(
             current: "",
             userEdited: false,
@@ -131,17 +124,23 @@ enum TaxTriageParityCase: String, CaseIterable, Sendable {
         )
     }
 
-    /// The sample name `populateFromInitialFiles` gives an input: its name without the
-    /// extension, a `.gz` and one mate suffix.
-    static func wizardSampleID(for url: URL) -> String {
-        var base = url.deletingPathExtension().lastPathComponent
-        if url.pathExtension.lowercased() == "gz" {
-            base = url.deletingPathExtension().deletingPathExtension().lastPathComponent
+    /// The samples `performRun` hands on for `inputs`: the dialog's own grouping
+    /// (`TaxTriageWizardSheet.inputSamples(from:)`, which `populateFromInitialFiles` calls), each
+    /// with the role its bundle records and the dialog's Illumina platform (row
+    /// TAXTRIAGE-BUNDLE-NAMES-PAIRED).
+    static func wizardSamples(for inputs: [URL]) -> [TaxTriageSample] {
+        TaxTriageWizardSheet.inputSamples(from: inputs).map { input in
+            var metadata = FASTQSampleMetadata(sampleName: input.sampleId)
+            metadata.sampleRole = input.sampleRole
+            return TaxTriageSample(
+                sampleId: input.sampleId,
+                fastq1: input.fastq1,
+                fastq2: input.fastq2,
+                platform: .illumina,
+                isNegativeControl: input.sampleRole == .negativeControl || input.sampleRole == .extractionBlank,
+                metadata: metadata
+            )
         }
-        for suffix in ["_R1", "_R2", "_1", "_2", "_R1_001", "_R2_001"] where base.hasSuffix(suffix) {
-            return String(base.dropLast(suffix.count))
-        }
-        return base
     }
 }
 

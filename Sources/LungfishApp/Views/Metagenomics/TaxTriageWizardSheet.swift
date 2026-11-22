@@ -428,6 +428,9 @@ struct TaxTriageWizardSheet: View {
             .buttonStyle(.plain)
             .foregroundStyle(Color.lungfishCreamsicleFallback)
             Self.sampleNamesNotice(samples.map(\.sampleId))
+            ForEach(Self.bundleMateNotices(samples.compactMap(\.fastq1)), id: \.self) { notice in
+                Text(notice).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -439,17 +442,17 @@ struct TaxTriageWizardSheet: View {
                 .frame(width: 120)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(samples[index].fastq1?.lastPathComponent ?? "No R1 file")
-                    .font(.system(size: 10))
-                    .foregroundStyle(samples[index].fastq1 != nil ? .primary : .secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                if let r2 = samples[index].fastq2 {
-                    Text(r2.lastPathComponent)
+                let lines = Self.sampleFileLines(fastq1: samples[index].fastq1, fastq2: samples[index].fastq2)
+                ForEach(lines.indices, id: \.self) { lineIndex in
+                    let line = lines[lineIndex]
+                    Text(line)
                         .font(.system(size: 10))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(samples[index].fastq1 != nil ? .primary : .secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                }
+                if let note = Self.pairedByNamesLine(fastq2: samples[index].fastq2) {
+                    Text(note).font(.system(size: 10)).foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -723,50 +726,12 @@ struct TaxTriageWizardSheet: View {
     /// Populates the sample list from the initial files.
     private func populateFromInitialFiles() {
         guard !initialFiles.isEmpty else { return }
-
-        // Group files into pairs by stripping R1/R2 suffixes
-        let fileGroups: [(url: URL, baseName: String)] = initialFiles.map { url in
-            var base = url.deletingPathExtension().lastPathComponent
-            // Strip .gz if present
-            if url.pathExtension.lowercased() == "gz" {
-                let withoutGz = url.deletingPathExtension()
-                base = withoutGz.deletingPathExtension().lastPathComponent
-            }
-            for suffix in ["_R1", "_R2", "_1", "_2", "_R1_001", "_R2_001"] {
-                if base.hasSuffix(suffix) {
-                    base = String(base.dropLast(suffix.count))
-                    break
-                }
-            }
-            return (url, base)
-        }
-
-        // Group by base name
-        let grouped = Dictionary(grouping: fileGroups, by: { $0.baseName })
-
-        for (baseName, group) in grouped.sorted(by: { $0.key < $1.key }) {
-            let urls = group.map(\.url)
-            let r1 = urls.first
-            let r2 = urls.count > 1 ? urls[1] : nil
-            var sample = WizardSample(
-                sampleId: baseName,
-                fastq1: r1,
-                fastq2: r2
-            )
-
-            // Auto-load metadata from FASTQ bundle if available
-            if let r1 {
-                let bundleURL = r1.deletingLastPathComponent()
-                if bundleURL.pathExtension == "lungfishfastq",
-                   let csvMeta = FASTQBundleCSVMetadata.load(from: bundleURL) {
-                    let meta = FASTQSampleMetadata(from: csvMeta, fallbackName: baseName)
-                    sample.sampleRole = meta.sampleRole
-                    sample.metadataLabel = meta.sampleName != baseName ? meta.sampleName : nil
-                    sample.isNegativeControl = meta.sampleRole == .negativeControl || meta.sampleRole == .extractionBlank
-                }
-            }
-
-            samples.append(sample)
+        samples += Self.inputSamples(from: initialFiles).map { input in
+            var sample = WizardSample(sampleId: input.sampleId, fastq1: input.fastq1, fastq2: input.fastq2)
+            sample.sampleRole = input.sampleRole
+            sample.metadataLabel = input.metadataLabel
+            sample.isNegativeControl = input.sampleRole == .negativeControl || input.sampleRole == .extractionBlank
+            return sample
         }
 
         removeTaxidsText = Self.removeTaxidsText(
