@@ -93,16 +93,10 @@ public final class DocumentSectionViewModel {
     ///   - manifest: The bundle manifest to display, or nil to clear
     ///   - bundleURL: The URL of the loaded bundle
     func update(manifest: BundleManifest?, bundleURL: URL?) {
-        mappingDocument = nil
-        assemblyDocument = nil
-        multipleSequenceAlignmentDocument = nil
-        phylogeneticTreeDocument = nil
-        genotypeResultDocument = nil
-        mhcReferenceBundleDocument = nil
-        primerSchemeDocument = nil
         // viralReconDocument is deliberately preserved: a Viral Recon analysis
         // displays the reference bundle it aligned against, so this method runs
         // immediately after the catalogue is installed.
+        clearDocumentStates(keepingViralRecon: true)
         navigateToSourceData = nil
         self.manifest = manifest
         self.bundleURL = bundleURL
@@ -140,14 +134,7 @@ public final class DocumentSectionViewModel {
 
     /// Updates the view model with FASTQ dataset statistics.
     func updateFASTQStatistics(_ stats: FASTQDatasetStatistics) {
-        mappingDocument = nil
-        assemblyDocument = nil
-        multipleSequenceAlignmentDocument = nil
-        phylogeneticTreeDocument = nil
-        genotypeResultDocument = nil
-        mhcReferenceBundleDocument = nil
-        primerSchemeDocument = nil
-        viralReconDocument = nil
+        clearDocumentStates()
         navigateToSourceData = nil
         self.fastqStatistics = stats
         // Clear bundle-related data since this is a standalone FASTQ
@@ -184,14 +171,7 @@ public final class DocumentSectionViewModel {
     func updateNvdManifest(_ manifest: NvdManifest?) { showResultDocument(manifest.map { .nvd($0) }) }
 
     private func showResultDocument(_ block: InspectorResultBlock?) {
-        mappingDocument = nil
-        assemblyDocument = nil
-        multipleSequenceAlignmentDocument = nil
-        phylogeneticTreeDocument = nil
-        genotypeResultDocument = nil
-        mhcReferenceBundleDocument = nil
-        primerSchemeDocument = nil
-        viralReconDocument = nil
+        clearDocumentStates()
         showResultBlock(block)
         referenceTrackCapabilities = nil
         clearAlignmentTrackInventory()
@@ -210,153 +190,82 @@ public final class DocumentSectionViewModel {
 
     /// Updates the view model with mapping-document data and clears other document modes.
     func updateMappingDocument(_ state: MappingDocumentState?) {
+        guard let state else {
+            mappingDocument = nil
+            return
+        }
+        clearForDocumentMode(clearingTracks: false)
         mappingDocument = state
-        guard state != nil else { return }
-
-        assemblyDocument = nil
-        multipleSequenceAlignmentDocument = nil
-        phylogeneticTreeDocument = nil
-        genotypeResultDocument = nil
-        mhcReferenceBundleDocument = nil
-        primerSchemeDocument = nil
-        viralReconDocument = nil
-        manifest = nil
-        bundleURL = nil
-        selectedChromosome = nil
-        referenceTrackCapabilities = nil
-        fastqStatistics = nil
-        sraRunInfo = nil
-        enaReadRecord = nil
-        ingestionMetadata = nil
-        fastqDerivativeManifest = nil
-        naoMgsManifest = nil
-        nvdManifest = nil
-        analysisManifestEntries = []
     }
 
     /// Updates the view model with assembly-document data and clears other document modes.
     func updateAssemblyDocument(_ state: AssemblyDocumentState?) {
+        guard let state else {
+            assemblyDocument = nil
+            return
+        }
+        clearForDocumentMode(clearingTracks: false)
         assemblyDocument = state
-        guard state != nil else { return }
-
-        mappingDocument = nil
-        multipleSequenceAlignmentDocument = nil
-        phylogeneticTreeDocument = nil
-        genotypeResultDocument = nil
-        mhcReferenceBundleDocument = nil
-        primerSchemeDocument = nil
-        viralReconDocument = nil
-        manifest = nil
-        bundleURL = nil
-        selectedChromosome = nil
-        referenceTrackCapabilities = nil
-        fastqStatistics = nil
-        sraRunInfo = nil
-        enaReadRecord = nil
-        ingestionMetadata = nil
-        fastqDerivativeManifest = nil
-        naoMgsManifest = nil
-        nvdManifest = nil
-        analysisManifestEntries = []
     }
 
     /// Updates the view model with MSA-document data and clears other document modes.
     func updateMultipleSequenceAlignmentDocument(_ state: MultipleSequenceAlignmentDocumentState?) {
-        multipleSequenceAlignmentDocument = state
-        guard state != nil else {
+        guard let state else {
+            multipleSequenceAlignmentDocument = nil
             msaPairwiseDistance = nil
             msaDiscriminatingSites = nil
             return
         }
-
-        mappingDocument = nil
-        assemblyDocument = nil
-        phylogeneticTreeDocument = nil
-        genotypeResultDocument = nil
-        mhcReferenceBundleDocument = nil
-        primerSchemeDocument = nil
-        viralReconDocument = nil
-        manifest = nil
-        bundleURL = nil
-        selectedChromosome = nil
-        referenceTrackCapabilities = nil
-        fastqStatistics = nil
-        sraRunInfo = nil
-        enaReadRecord = nil
-        ingestionMetadata = nil
-        fastqDerivativeManifest = nil
-        naoMgsManifest = nil
-        nvdManifest = nil
-        analysisManifestEntries = []
-        clearAlignmentTrackInventory()
+        clearForDocumentMode()
+        multipleSequenceAlignmentDocument = state
     }
 
     /// Updates the view model with tree-document data and clears other document modes.
     func updatePhylogeneticTreeDocument(_ state: PhylogeneticTreeDocumentState?) {
+        guard let state else {
+            phylogeneticTreeDocument = nil
+            return
+        }
+        clearForDocumentMode()
         phylogeneticTreeDocument = state
-        guard state != nil else { return }
-
-        mappingDocument = nil
-        assemblyDocument = nil
-        multipleSequenceAlignmentDocument = nil
-        genotypeResultDocument = nil
-        mhcReferenceBundleDocument = nil
-        primerSchemeDocument = nil
-        viralReconDocument = nil
-        manifest = nil
-        bundleURL = nil
-        selectedChromosome = nil
-        referenceTrackCapabilities = nil
-        fastqStatistics = nil
-        sraRunInfo = nil
-        enaReadRecord = nil
-        ingestionMetadata = nil
-        fastqDerivativeManifest = nil
-        naoMgsManifest = nil
-        nvdManifest = nil
-        analysisManifestEntries = []
-        clearAlignmentTrackInventory()
     }
 
     /// Updates the view model with genotype-result data and clears other document modes.
     func updateGenotypeResultDocument(_ state: GenotypeResultDocumentState?) {
+        guard let state else {
+            genotypeResultDocument = nil
+            return
+        }
+        clearForDocumentMode()
         genotypeResultDocument = state
-        guard state != nil else { return }
-
-        mappingDocument = nil
-        assemblyDocument = nil
-        multipleSequenceAlignmentDocument = nil
-        phylogeneticTreeDocument = nil
-        mhcReferenceBundleDocument = nil
-        primerSchemeDocument = nil
-        viralReconDocument = nil
-        manifest = nil
-        bundleURL = nil
-        selectedChromosome = nil
-        referenceTrackCapabilities = nil
-        fastqStatistics = nil
-        sraRunInfo = nil
-        enaReadRecord = nil
-        ingestionMetadata = nil
-        fastqDerivativeManifest = nil
-        naoMgsManifest = nil
-        nvdManifest = nil
-        analysisManifestEntries = []
-        clearAlignmentTrackInventory()
     }
 
     /// Updates the view model with MHC reference bundle data and clears other document modes.
     func updateMHCReferenceBundleDocument(_ state: MHCReferenceBundleDocumentState?) {
+        guard let state else {
+            mhcReferenceBundleDocument = nil
+            return
+        }
+        clearForDocumentMode()
         mhcReferenceBundleDocument = state
-        guard state != nil else { return }
+    }
 
-        primerSchemeDocument = nil
-        viralReconDocument = nil
+    /// Sets every document mode to nil, the Viral Recon catalogue too unless `keepingViralRecon`.
+    private func clearDocumentStates(keepingViralRecon: Bool = false) {
         mappingDocument = nil
         assemblyDocument = nil
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
         genotypeResultDocument = nil
+        mhcReferenceBundleDocument = nil
+        primerSchemeDocument = nil
+        if !keepingViralRecon { viralReconDocument = nil }
+    }
+
+    /// Clears what a document mode replaces before it sets its own state: every document mode, the bundle, the FASTQ
+    /// metadata, the result blocks and the analyses list. Mapping and assembly keep the alignment track inventory.
+    func clearForDocumentMode(clearingTracks: Bool = true) {
+        clearDocumentStates()
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -369,7 +278,7 @@ public final class DocumentSectionViewModel {
         naoMgsManifest = nil
         nvdManifest = nil
         analysisManifestEntries = []
-        clearAlignmentTrackInventory()
+        if clearingTracks { clearAlignmentTrackInventory() }
     }
 
     /// Updates the view model with a primer scheme bundle and clears other document modes.
@@ -399,13 +308,7 @@ public final class DocumentSectionViewModel {
         viralReconDocument = state
         guard state != nil else { return }
 
-        mappingDocument = nil
-        assemblyDocument = nil
-        multipleSequenceAlignmentDocument = nil
-        phylogeneticTreeDocument = nil
-        genotypeResultDocument = nil
-        mhcReferenceBundleDocument = nil
-        primerSchemeDocument = nil
+        clearDocumentStates(keepingViralRecon: true)
         fastqStatistics = nil
         naoMgsManifest = nil
         nvdManifest = nil
