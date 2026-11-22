@@ -1145,9 +1145,9 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         state.demultiplexEngine = .exactBareBarcode
         XCTAssertEqual(
             state.demultiplexEngineChanceCaption,
-            "Exact Bare Barcode does not check for chance matches. On reads that do not carry the chosen barcodes in "
-                + "their sequence, such as reads whose index is only in the read names, it can make sample files from "
-                + "chance matches. Use it only on reads that carry the barcodes in their sequence."
+            "Exact Bare Barcode does not check for chance matches. If the chosen barcodes are absent from the read "
+                + "sequences, such as when indexes appear only in read names, chance matches can produce sample files. "
+                + "Use it only on reads that carry the barcodes in their sequence."
         )
         state.demultiplexEngine = .cutadapt
         XCTAssertNil(state.demultiplexEngineChanceCaption)

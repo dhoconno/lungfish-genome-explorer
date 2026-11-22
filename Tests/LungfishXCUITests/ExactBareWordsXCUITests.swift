@@ -15,9 +15,9 @@ final class ExactBareWordsXCUITests: XCTestCase {
     /// The caption under the engine (`FASTQOperationDialogState+ChanceCaption.swift`), by its first and last sentences, the
     /// clause that says what can go wrong and the clause that says when it can.
     private static let captionOpening = "Exact Bare Barcode does not check for chance matches."
-    private static let captionReason = "it can make sample files from chance matches"
+    private static let captionReason = "chance matches can produce sample files"
     private static let captionClosing = "Use it only on reads that carry the barcodes in their sequence."
-    private static let captionScope = "do not carry the chosen barcodes in their sequence"
+    private static let captionScope = "the chosen barcodes are absent from the read sequences"
     /// The Operations row starts with the cause (`FASTQDemultiplexChanceNotice.rowPrefix`) and ends with the completion.
     private static let rowClause = "Not checked for chance matches."
     private static let rowCompletion = "Done in"

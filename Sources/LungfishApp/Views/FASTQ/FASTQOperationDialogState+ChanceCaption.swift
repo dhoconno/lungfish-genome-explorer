@@ -82,7 +82,7 @@ extension FASTQOperationDialogState {
     /// The caption under the engine's explanation while Exact Bare Barcode is picked (DEMUX-EXACT-BARE-NO-FLOOR, ruling
     /// UX-EXACT-BARE-WORDS). It sits in this file because `FASTQOperationDialogState.swift` may not grow (file-size ratchet).
     static let demultiplexExactBareChanceCaption =
-        "Exact Bare Barcode does not check for chance matches. On reads that do not carry the chosen barcodes in their sequence, such as reads whose index is only in the read names, it can make sample files from chance matches. Use it only on reads that carry the barcodes in their sequence."
+        "Exact Bare Barcode does not check for chance matches. If the chosen barcodes are absent from the read sequences, such as when indexes appear only in read names, chance matches can produce sample files. Use it only on reads that carry the barcodes in their sequence."
 
     var demultiplexEngineChanceCaption: String? {
         demultiplexEngine == .exactBareBarcode ? Self.demultiplexExactBareChanceCaption : nil
@@ -100,18 +100,18 @@ extension FASTQOperationDialogState {
 
     /// The caption under Keep Unchecked Samples (words for the UX review).
     static let demultiplexKeepUncheckedSamplesCaption =
-        "Many reads that carry no barcode would match a barcode of this kit by chance, so the check for chance matches cannot judge the samples, and the run is refused. If the indexes are in the read names, choose the engine Read Names. Otherwise choose Keep Unchecked Samples to make the sample files anyway, then check each sample against your sample sheet."
+        "Many reads without barcodes would match this kit's barcodes by chance. The check for chance matches cannot judge the samples, so the run is refused. If the indexes are in the read names, choose the engine Read Names. Otherwise choose Keep Unchecked Samples to make the sample files anyway, then check each sample against your sample sheet."
 
     /// The caption under Keep Unchecked Samples for the built-in Fluidigm Access Array kit, which cutadapt searches anywhere
     /// in the read. It names the routes made for that kit, as the refusal does (BIO-SATKIT-FLUIDIGM item 4), since a person
     /// who ticks the box never reads the refusal.
     static let demultiplexKeepUncheckedSamplesFluidigmCaption =
-        "Cutadapt searches each barcode of this kit anywhere in the read, so about half of all reads or more match one of them by chance. The check for chance matches cannot judge the samples, and the run is refused. For Fluidigm barcodes in ONT reads, use ONT Fluidigm Sample Split. For reads whose index is in the read names, choose the engine Read Names. Choose Keep Unchecked Samples only to make the sample files anyway, then check each sample against your sample sheet."
+        "Cutadapt searches for each kit barcode anywhere in the read. About half of all reads or more match by chance. The check for chance matches cannot judge the samples, so the run is refused. Use ONT Fluidigm Sample Split for Fluidigm barcodes in ONT reads. If the indexes are in the read names, choose the engine Read Names. Choose Keep Unchecked Samples only to make the sample files anyway, then check each sample against your sample sheet."
 
     /// The caption under Keep Unchecked Samples with Exact Bare Barcode, when the read names carry the kit's barcodes
     /// (DEMUX-EXACT-BARE-NO-FLOOR, words for the UX review).
     static let demultiplexExactBareKeepUncheckedSamplesCaption =
-        "The read names carry barcodes of this kit, so Exact Bare Barcode would find them in the read sequences only by chance, and the run is refused. Choose the engine Read Names to split the reads by their names. Choose Keep Unchecked Samples only if the read sequences carry these barcodes too, then check each sample against your sample sheet."
+        "The read names carry this kit's barcodes, so Exact Bare Barcode would find them in read sequences only by chance and the run is refused. To split reads by name, choose the engine Read Names. Choose Keep Unchecked Samples only if the read sequences carry these barcodes too, then check each sample against your sample sheet."
 
     /// The caption under Keep Unchecked Samples for the chosen engine.
     var demultiplexKeepUncheckedSamplesCaptionForEngine: String {

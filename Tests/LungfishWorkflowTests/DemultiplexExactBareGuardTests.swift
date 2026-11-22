@@ -35,6 +35,17 @@ final class DemultiplexExactBareGuardTests: XCTestCase {
             sampleID: "S1", sampleName: "S1", forwardBarcodeID: "BC01", forwardSequence: "ACGTACGTAC")
     }
 
+    // MARK: The refusal words (X)
+
+    /// X (BIO-EXACT-BARE-RC item 3). BIO sent the new words back, since a Custom Definition whose kit line names the Fluidigm
+    /// Access Array kit also runs (`BIOWORDS-TV-DEMUX.md` section X), so the refusal keeps its words of the base until X is
+    /// decided. The app and the command line show this one text.
+    func testTheRefusalKeepsItsWordsOfTheBaseUntilXIsDecided() {
+        XCTAssertEqual(
+            DemultiplexError.exactBareBarcodeUnsupported.errorDescription,
+            "Exact bare-barcode demultiplexing requires a single-index bare barcode kit with A/C/G/T sequences. Use cutadapt for adapter-context, dual-index, or fuzzy barcode matching.")
+    }
+
     // MARK: The runs that go ahead
 
     func testTheGuardAcceptsTheFluidigmKitAndACustomDefinitionWithNoKitLine() throws {

@@ -172,8 +172,8 @@ final class DemuxDualAnchorXCUITests: XCTestCase {
 /// (`FASTQOperationDialogState+ChanceCaption.swift:101-110`, `DemultiplexError.swift:71-77`).
 private enum DemuxWords {
     static let boxLabel = "Keep Unchecked Samples"
-    static let dualCaption = "Many reads that carry no barcode would match a barcode of this kit by chance"
-    static let fluidigmCaption = "Cutadapt searches each barcode of this kit anywhere in the read"
+    static let dualCaption = "Many reads without barcodes would match this kit's barcodes by chance"
+    static let fluidigmCaption = "Cutadapt searches for each kit barcode anywhere in the read"
     static let fluidigmRefusal = "Cutadapt searches each barcode of the kit \""
     static let fluidigmClauses = ["anywhere in the read", "ONT Fluidigm Sample Split", "Read Names", "Keep Unchecked Samples"]
     static let capOpening = "Searching the 96 barcode pairs of"
