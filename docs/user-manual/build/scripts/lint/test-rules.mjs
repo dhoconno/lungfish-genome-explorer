@@ -127,6 +127,12 @@ test("sentence-colon flags joiner colons and allows lead-in colons", async () =>
   assert.equal((reasons.match(/colon inside a sentence/g) || []).length, 2);
 });
 
+test("sentence-colon allows a lead-in colon right before a pipe table, and still flags a joiner colon", async () => {
+  const messages = await lint("sentence-colon-table.md");
+  const reasons = messages.map((m) => m.reason).join("\n");
+  assert.equal((reasons.match(/colon inside a sentence/g) || []).length, 1);
+});
+
 test("ai-tells flags listed words, inflections, and sentence patterns, but not quoted labels or code", async () => {
   const messages = await lint("bad-ai-tells.md");
   const reasons = messages.map((m) => m.reason).join("\n");

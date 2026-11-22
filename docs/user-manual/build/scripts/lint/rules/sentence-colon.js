@@ -28,13 +28,22 @@ export default function sentenceColon() {
       return siblings[j];
     }
 
+    // This parser has no GFM extension, so a pipe table parses as a paragraph
+    // whose source starts with "|". Such a paragraph is the table it looks like.
+    function isPipeTable(node) {
+      if (!node || node.type !== "paragraph" || !node.position) return false;
+      const source = String(file.value ?? "");
+      const { start, end } = node.position;
+      return source.slice(start.offset, end.offset).trimStart().startsWith("|");
+    }
+
     function check(node, next) {
       const text = proseText(node).replace(URL_TOKEN, "").replace(TIME_OR_RATIO, "  ");
       const trimmed = text.trimEnd();
       const colons = [...trimmed].filter((c) => c === ":").length;
       if (colons === 0) return;
       const endsWithColon = trimmed.endsWith(":");
-      const followerOk = next && LEAD_IN_FOLLOWERS.has(next.type);
+      const followerOk = next && (LEAD_IN_FOLLOWERS.has(next.type) || isPipeTable(next));
       const allowedLeadIn = node.type === "paragraph" && endsWithColon && followerOk;
       let banned = allowedLeadIn ? colons - 1 : colons;
       // A settings paragraph opens with its registry label in bold, and some
