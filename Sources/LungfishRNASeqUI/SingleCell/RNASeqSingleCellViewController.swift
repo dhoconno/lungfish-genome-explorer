@@ -9,6 +9,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 
 /// The view of a single-cell result. The container `RNASeqResultViewController` hosts it by the manifest's modality.
 @MainActor
@@ -144,7 +145,8 @@ public final class RNASeqSingleCellViewController: NSViewController {
         summaryStack.addArrangedSubview(Self.fact("Tool", summary.tool, id: "rnaseq-sc-tool"))
         summaryStack.addArrangedSubview(Self.fact("Version", summary.toolVersion, id: "rnaseq-sc-tool-version"))
         summaryStack.addArrangedSubview(Self.fact("Cells", String(summary.cellCount), id: "rnaseq-sc-cell-count"))
-        summaryStack.addArrangedSubview(Self.text(RNASeqSingleCellWords.cellMap, id: "rnaseq-sc-cell-map-words", wraps: true))
+        summaryStack.addArrangedSubview(Self.line(RNASeqSingleCellWords.cellMap, id: "rnaseq-sc-cell-map-words",
+                                                  info: RNASeqSingleCellHelp.cellMap, about: RNASeqSingleCellWords.cellMapSubject))
 
         summaryStack.addArrangedSubview(Self.heading("Quality"))
         if let quality = summary.quality {
@@ -158,8 +160,7 @@ public final class RNASeqSingleCellViewController: NSViewController {
             summaryStack.addArrangedSubview(Self.text(RNASeqSingleCellWords.noQuality, id: "rnaseq-sc-quality-none", wraps: true))
         }
 
-        summaryStack.addArrangedSubview(Self.heading("Barcode rank"))
-        summaryStack.addArrangedSubview(Self.text(RNASeqSingleCellWords.rankPlot, id: "rnaseq-sc-rank-words", wraps: true))
+        summaryStack.addArrangedSubview(Self.heading("Barcode rank", info: RNASeqSingleCellHelp.rankPlot, about: RNASeqSingleCellWords.rankPlotSubject))
         if summary.cellCount == 0 {
             summaryStack.addArrangedSubview(Self.text(RNASeqSingleCellWords.noCells, id: "rnaseq-sc-no-cells", wraps: true))
         } else {
@@ -192,6 +193,24 @@ public final class RNASeqSingleCellViewController: NSViewController {
         field.setAccessibilityIdentifier(id)
         if wraps { field.preferredMaxLayoutWidth = 640 }
         return field
+    }
+
+    /// A line of text with its info button after it, for words that stay in view beside a general explanation (5.6 U2).
+    private static func line(_ string: String, id: String, info item: LungfishHelpContent.HelpItem, about subject: String) -> NSView {
+        let row = NSStackView(views: [text(string, id: id, wraps: true), LungfishInfoButton(item: item, about: subject)])
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.spacing = 6
+        return row
+    }
+
+    /// A section heading with the info button of the plot below it after it.
+    private static func heading(_ string: String, info item: LungfishHelpContent.HelpItem, about subject: String) -> NSView {
+        let row = NSStackView(views: [heading(string), LungfishInfoButton(item: item, about: subject)])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 6
+        return row
     }
 
     private static func heading(_ string: String) -> NSTextField {

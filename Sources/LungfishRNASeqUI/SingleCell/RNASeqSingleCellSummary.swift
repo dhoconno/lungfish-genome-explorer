@@ -12,7 +12,12 @@ import LungfishIO
 /// The words the single-cell view shows. None of them judges a cell (prog:113), and the flag words come from
 /// `not_host_calls.flag` as the file holds them.
 public enum RNASeqSingleCellWords {
+    /// What the rank plot's info button opens. It is true of every single-cell result, so it is general (5.6 U1).
     public static let rankPlot = "The plot ranks the cells of cells.sqlite by UMIs, most first. The result keeps no raw barcode list, so barcodes outside the cells are not in the plot."
+    /// The help tag of that button.
+    public static let rankPlotSummary = "The plot ranks the cells of cells.sqlite by UMIs, most first."
+    /// What the button explains, the "<thing>" of its VoiceOver label "About <thing>".
+    public static let rankPlotSubject = "the rank plot"
     public static let noNotHost = "This result holds no not-host counts. To count them, import the folder again with a reference set and a not-host BAM for each sample."
     public static let noCellsSummary = "This result names no cells.sqlite, so no cell summary shows. Import the Cell Ranger or STARsolo folder again to write one."
     public static let noQuality = "The result keeps no quality table, so quality reads \(RNASeqResultBundle.notRecordedText)."
@@ -21,9 +26,14 @@ public enum RNASeqSingleCellWords {
     public static let tryAgain = "Check that the result folder is whole, or import it again."
     /// The words of a masked column that the file holds none for, as the CLI says them. A virus or a spike-in has no rRNA to mask.
     public static let noMask = "No rRNA mask, none needed"
-    /// The one line that names the two ways to place these cells on an embedding, each of which writes a new cell map
-    /// beside the result (UX OBJECT U5, walk row B3).
-    public static let cellMap = "To see these cells on an embedding, use Import Embedding…, or run lungfish-cli rnaseq cell-map import or lungfish-cli rnaseq cell-map compute on this result. Either writes a new cell map result and leaves this one as it is."
+    /// The one line in view that names the route to place these cells on an embedding, so the route stays where a person
+    /// looks (UX OBJECT U5, walk row B3).
+    public static let cellMap = "To see these cells on an embedding, use Import Embedding…"
+    /// What the info button after that line opens, the command line routes. Each writes a new cell map beside the result.
+    public static let cellMapRoutes = "Or run lungfish-cli rnaseq cell-map import or lungfish-cli rnaseq cell-map compute on this result. Either writes a new cell map result and leaves this one as it is."
+    /// The help tag of that button.
+    public static let cellMapSummary = "Either writes a new cell map result and leaves this one as it is."
+    public static let cellMapSubject = "importing an embedding"
 }
 
 /// The summary of a single-cell result. Its parts are values as written or counts that SQLite made.

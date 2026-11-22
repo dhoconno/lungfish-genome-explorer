@@ -7,6 +7,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
 import Observation
 
@@ -35,6 +36,19 @@ public final class RNASeqBulkViewController: NSViewController, NSTableViewDataSo
     private let qualityNotes = RNASeqBulkViewController.label("", id: "rnaseq-bulk-quality-notes", wraps: true)
     private let correlationCaption = RNASeqBulkViewController.label("", id: "rnaseq-bulk-correlation-caption", wraps: true)
     private let correlationScale = RNASeqBulkViewController.label("", id: "rnaseq-bulk-correlation-scale", wraps: true)
+    /// The info button after the scale line. It shows only while the plot shows its scale.
+    private let correlationInfo: LungfishInfoButton = {
+        let button = LungfishInfoButton(item: RNASeqBulkHelp.correlationColour, about: RNASeqBulkWords.correlationSubject)
+        button.isHidden = true
+        return button
+    }()
+    private lazy var correlationScaleRow: NSStackView = {
+        let row = NSStackView(views: [correlationScale, correlationInfo])
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.spacing = 6
+        return row
+    }()
     private let correlationChosen = RNASeqBulkViewController.label(
         "Choose a cell with the arrow keys or the pointer to read its value.", id: "rnaseq-bulk-correlation-selected", wraps: true)
     private var builtForShow = -1
@@ -157,7 +171,7 @@ public final class RNASeqBulkViewController: NSViewController, NSTableViewDataSo
         addTab(title: "Quality", id: "rnaseq-bulk-tab-quality", views: [qualityCaption], table: quality, below: [qualityNotes])
         correlationPlot.translatesAutoresizingMaskIntoConstraints = false
         addTab(title: "Correlation", id: "rnaseq-bulk-tab-correlation", views: [correlationCaption], plot: correlationPlot,
-               below: [correlationChosen, correlationScale])
+               below: [correlationChosen, correlationScaleRow])
     }
 
     private func addTab(title: String, id: String, views: [NSView], table: NSTableView? = nil,
@@ -232,8 +246,7 @@ public final class RNASeqBulkViewController: NSViewController, NSTableViewDataSo
     private func showQuality() {
         switch model.quality {
         case .loading:
-            qualityCaption.stringValue = "Reading the quality numbers, after checking each file of the result against its sha256. "
-                + "A result of many samples can take a while, and the count tables can be read meanwhile."
+            qualityCaption.stringValue = RNASeqBulkWords.reading
             correlationCaption.stringValue = qualityCaption.stringValue
             qualityNotes.stringValue = ""
             correlationScale.stringValue = ""
@@ -253,11 +266,9 @@ public final class RNASeqBulkViewController: NSViewController, NSTableViewDataSo
             if correlationPlot.cells != cells {
                 correlationPlot.show(quality.correlation, cells: cells, caption: quality.correlation.caption)
             }
-            correlationScale.stringValue = correlationPlot.lowestText.map {
-                "A stronger blue square is a higher value, on a scale from the lowest value of the table, \($0), to 1. "
-                    + "A grey square reads Not recorded."
-            } ?? ""
+            correlationScale.stringValue = correlationPlot.lowestText.map { RNASeqBulkWords.scale(lowest: $0) } ?? ""
         }
+        correlationInfo.isHidden = correlationScale.stringValue.isEmpty
         qualityTable.reloadData()
     }
 

@@ -9,6 +9,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 import XCTest
 @testable import LungfishRNASeqUI
 @testable import LungfishWorkflow
@@ -166,7 +167,7 @@ final class RNASeqBulkQualityTests: XCTestCase {
             .compactMap { $0 as? NSTextField }.first { $0.accessibilityIdentifier() == "rnaseq-bulk-correlation-scale" }
         XCTAssertEqual(
             scale?.stringValue,
-            "A stronger blue square is a higher value, on a scale from the lowest value of the table, "
+            "On a scale from the lowest value of the table, "
                 + "\(try XCTUnwrap(plot.lowestText)), to 1. A grey square reads Not recorded.")
     }
 
@@ -183,8 +184,48 @@ final class RNASeqBulkQualityTests: XCTestCase {
         ])
         XCTAssertEqual(SCViewAXPin.elements(in: try pane("rnaseq-bulk-tab-correlation")), [
             "rnaseq-bulk-correlation-caption", "rnaseq-bulk-correlation-plot",
-            "rnaseq-bulk-correlation-selected", "rnaseq-bulk-correlation-scale",
+            "rnaseq-bulk-correlation-selected", "rnaseq-bulk-correlation-scale", "info-rnaseq.bulk.correlationColour",
         ])
+    }
+
+    /// 5.6 U2, U3 and UX OBJECT 6. The lowest value and the grey key stay in view at the scale, and the sentence on how to
+    /// read the blue squares is one press behind the info button after them. The lane's decided words replace the literals.
+    @MainActor
+    func testTheScaleStaysInViewAndTheColourSentenceSitsBehindItsInfoButton() async throws {
+        let controller = try await RNASeqBulkFixtures.show(try RNASeqBulkFixtures.writeNamed(into: root))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .closable],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = controller.view
+        window.makeKeyAndOrderFront(nil)
+        controller.tabView.selectTabViewItem(at: controller.tabView.numberOfTabViewItems - 1)
+        controller.view.layoutSubtreeIfNeeded()
+        let pane = try XCTUnwrap(controller.tabView.selectedTabViewItem?.view)
+        let subviews = RNASeqBulkFixtures.allSubviews(of: pane)
+        let button = try XCTUnwrap(subviews.compactMap { $0 as? LungfishInfoButton }.first, "the Correlation tab has its info button")
+        addTeardownBlock { @MainActor in
+            button.closePopover()
+            window.orderOut(nil)
+        }
+        let scale = try XCTUnwrap(subviews.first { $0.accessibilityIdentifier() == "rnaseq-bulk-correlation-scale" } as? NSTextField)
+        XCTAssertEqual(scale.stringValue, "On a scale from the lowest value of the table, "
+            + "\(try XCTUnwrap(controller.correlationPlot.lowestText)), to 1. A grey square reads Not recorded.")
+        for (view, name) in [(scale as NSView, "the scale line"), (button, "the info button")] {
+            XCTAssertFalse(view.isHiddenOrHasHiddenAncestor, "\(name) is hidden")
+            XCTAssertGreaterThan(view.bounds.width, 0, "\(name) has no width")
+            XCTAssertTrue(pane.bounds.contains(view.convert(view.bounds, to: pane)), "\(name) lies outside the tab")
+        }
+        XCTAssertEqual(button.accessibilityIdentifier(), "info-rnaseq.bulk.correlationColour")
+        XCTAssertEqual(button.accessibilityLabel(), "About the correlation squares")
+        XCTAssertEqual(button.accessibilityHelp(), "A stronger blue square is a higher value.")
+        XCTAssertFalse(button.refusesFirstResponder, "the button takes keyboard focus")
+        _ = button.accessibilityPerformPress()
+        XCTAssertTrue(button.isPopoverShown)
+        XCTAssertEqual(button.popoverController.text, "A stronger blue square is a higher value.")
+    }
+
+    func testTheViewsHelpItemsPassTheCatalogCheck() {
+        XCTAssertEqual(LungfishHelpContent.catalogFaults(in: RNASeqBulkHelp.items), [])
     }
 
     @MainActor

@@ -270,15 +270,16 @@ final class RNASeqCellMapViewWordsTests: XCTestCase {
 
     func testNoWordSaysInfectedOrThatClustersMatch() {
         let all = [RNASeqEmbeddingWords.computedLabels, RNASeqEmbeddingWords.clusterNumbers, RNASeqEmbeddingWords.coloursRepeat,
-                   RNASeqEmbeddingWords.otherCounts(embedding: "e", parent: "p"), RNASeqSingleCellWords.cellMap]
+                   RNASeqEmbeddingWords.otherCounts(embedding: "e", parent: "p"), RNASeqSingleCellWords.cellMap,
+                   RNASeqSingleCellWords.cellMapRoutes]
         for words in all {
             for forbidden in ["infected", "matches", "the same clusters as", "equivalent", "not expressed", "trajectory", "pseudotime"] {
                 XCTAssertFalse(words.lowercased().contains(forbidden), "\(forbidden) in \(words)")
             }
         }
         XCTAssertTrue(RNASeqSingleCellWords.cellMap.contains("Import Embedding\u{2026}"))
-        XCTAssertTrue(RNASeqSingleCellWords.cellMap.contains("lungfish-cli rnaseq cell-map import"))
-        XCTAssertTrue(RNASeqSingleCellWords.cellMap.contains("lungfish-cli rnaseq cell-map compute"))
+        XCTAssertTrue(RNASeqSingleCellWords.cellMapRoutes.contains("lungfish-cli rnaseq cell-map import"))
+        XCTAssertTrue(RNASeqSingleCellWords.cellMapRoutes.contains("lungfish-cli rnaseq cell-map compute"))
     }
 }
 

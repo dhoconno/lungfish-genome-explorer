@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 import LungfishTestSupport
 import XCTest
 @testable import LungfishRNASeqUI
@@ -48,7 +49,8 @@ final class RNASeqSingleCellViewTests: XCTestCase {
             XCTAssertEqual(text["rnaseq-sc-quality-\(metric)-0"], quality.columns[metric])
             XCTAssertEqual(text["rnaseq-sc-quality-\(metric)-1"], value ?? RNASeqResultBundle.notRecordedText, quality.columns[metric])
         }
-        XCTAssertEqual(text["rnaseq-sc-rank-words"], RNASeqSingleCellWords.rankPlot)
+        XCTAssertNil(text["rnaseq-sc-rank-words"], "the rank plot's words left the view for its info button")
+        XCTAssertEqual(text["rnaseq-sc-cell-map-words"], RNASeqSingleCellWords.cellMap)
         XCTAssertEqual(text["rnaseq-sc-no-not-host"], RNASeqSingleCellWords.noNotHost, "with no not-host table the third histogram says so")
         XCTAssertEqual(summary.notHost, [])
         let ids = Set(RNASeqSingleCellFixtures.allSubviews(of: view.view).map { $0.accessibilityIdentifier() })
@@ -75,8 +77,9 @@ final class RNASeqSingleCellViewTests: XCTestCase {
         XCTAssertEqual(source.text(row: last + 1, column: "barcode"), "", "a row past the cells shows nothing")
     }
 
-    /// 5.6 Q1. The accessibility elements of the whole view in the order VoiceOver reaches them, from the summary down to
-    /// the cells table, pinned at the base of lane TV-SCVIEW so that a later move of words can only replace an entry.
+    /// 5.6 Q1 and UX 5. The accessibility elements of the whole view in the order VoiceOver reaches them, from the summary
+    /// down to the cells table. The first commit of lane TV-SCVIEW pinned this order at the base. Since then the cell map
+    /// line is followed by its info button, and the rank plot's words are replaced, at their own place, by the plot's.
     @MainActor
     func testTheSummaryKeepsItsAccessibilityOrderWithoutANotHostTable() async throws {
         let url = try RNASeqSingleCellFixtures.write(.cellRanger, into: root)
@@ -84,14 +87,83 @@ final class RNASeqSingleCellViewTests: XCTestCase {
         XCTAssertEqual(SCViewAXPin.elements(in: view.view), [
             "text:Cell summary", "rnaseq-sc-samples",
             "text:Tool", "rnaseq-sc-tool", "text:Version", "rnaseq-sc-tool-version", "text:Cells", "rnaseq-sc-cell-count",
-            "rnaseq-sc-cell-map-words",
+            "rnaseq-sc-cell-map-words", "info-rnaseq.singleCell.cellMapRoutes",
             "text:Quality", "rnaseq-sc-quality",
-            "text:Barcode rank", "rnaseq-sc-rank-words", "rnaseq-sc-rank-plot",
+            "text:Barcode rank", "info-rnaseq.singleCell.rankPlot", "rnaseq-sc-rank-plot",
             "text:UMIs per cell", "rnaseq-sc-histogram-umis",
             "text:Genes per cell", "rnaseq-sc-histogram-genes",
             "text:Not-host UMIs per cell", "rnaseq-sc-no-not-host",
             "rnaseq-sc-cells",
         ])
+    }
+
+    /// Hosts `content` in a window, as the viewer does, so that layout runs and a popover has a window to show from.
+    @MainActor
+    private func host(_ content: NSView) -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 900), styleMask: [.titled, .closable],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = content
+        window.makeKeyAndOrderFront(nil)
+        content.layoutSubtreeIfNeeded()
+        addTeardownBlock { @MainActor in
+            RNASeqSingleCellFixtures.allSubviews(of: content).compactMap { $0 as? LungfishInfoButton }.forEach { $0.closePopover() }
+            window.orderOut(nil)
+        }
+        return window
+    }
+
+    /// A placement test checks that the view shows (QA 2): not hidden, and every point of it inside the visible rect once
+    /// its scroll view has scrolled to it.
+    @MainActor
+    private func assertShown(_ view: NSView, _ name: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertFalse(view.isHiddenOrHasHiddenAncestor, "\(name) is hidden", file: file, line: line)
+        view.scrollToVisible(view.bounds)
+        let clip = view.enclosingScrollView?.contentView
+        let visible = clip?.bounds ?? view.window?.contentView?.bounds ?? .zero
+        let frame = view.convert(view.bounds, to: clip)
+        XCTAssertGreaterThan(frame.width, 0, "\(name) has no width", file: file, line: line)
+        XCTAssertGreaterThan(frame.height, 0, "\(name) has no height", file: file, line: line)
+        XCTAssertTrue(visible.contains(frame), "\(name) at \(frame) is outside the visible \(visible)", file: file, line: line)
+    }
+
+    /// 5.6 U2, U3 and the BIO condition. The general words sit one press behind an info button that VoiceOver and the
+    /// keyboard reach, and the line that names the route to an embedding stays in view.
+    @MainActor
+    func testTheRankPlotAndCellMapWordsSitBehindInfoButtonsAndThePointerStaysInView() async throws {
+        let url = try RNASeqSingleCellFixtures.write(.cellRanger, into: root)
+        let (surface, _) = try await open(url)
+        _ = host(surface.viewController.view)
+        let subviews = RNASeqSingleCellFixtures.allSubviews(of: surface.viewController.view)
+        let pointer = try XCTUnwrap(subviews.first { $0.accessibilityIdentifier() == "rnaseq-sc-cell-map-words" } as? NSTextField)
+        XCTAssertEqual(pointer.stringValue, "To see these cells on an embedding, use Import Embedding\u{2026}")
+        assertShown(pointer, "the cell map line")
+        XCTAssertNil(subviews.first { $0.accessibilityIdentifier() == "rnaseq-sc-rank-words" }, "the rank plot's words left the view")
+        let expected: [(id: String, label: String, help: String, popover: String)] = [
+            ("info-rnaseq.singleCell.rankPlot", "About the rank plot",
+             "The plot ranks the cells of cells.sqlite by UMIs, most first.",
+             "The plot ranks the cells of cells.sqlite by UMIs, most first. "
+                + "The result keeps no raw barcode list, so barcodes outside the cells are not in the plot."),
+            ("info-rnaseq.singleCell.cellMapRoutes", "About importing an embedding",
+             "Either writes a new cell map result and leaves this one as it is.",
+             "Or run lungfish-cli rnaseq cell-map import or lungfish-cli rnaseq cell-map compute on this result. "
+                + "Either writes a new cell map result and leaves this one as it is."),
+        ]
+        for item in expected {
+            let button = try XCTUnwrap(subviews.compactMap { $0 as? LungfishInfoButton }.first { $0.accessibilityIdentifier() == item.id }, item.id)
+            assertShown(button, item.id)
+            XCTAssertEqual(button.accessibilityLabel(), item.label)
+            XCTAssertEqual(button.accessibilityHelp(), item.help)
+            XCTAssertFalse(button.refusesFirstResponder, "\(item.id) takes keyboard focus")
+            _ = button.accessibilityPerformPress()
+            XCTAssertTrue(button.isPopoverShown, "\(item.id) opens its popover")
+            XCTAssertEqual(button.popoverController.text, item.popover)
+            button.closePopover()
+        }
+    }
+
+    func testTheViewsHelpItemsPassTheCatalogCheck() {
+        XCTAssertEqual(LungfishHelpContent.catalogFaults(in: RNASeqSingleCellHelp.items), [])
     }
 
     @MainActor
@@ -102,9 +174,9 @@ final class RNASeqSingleCellViewTests: XCTestCase {
         XCTAssertEqual(SCViewAXPin.elements(in: view.view), [
             "text:Cell summary", "rnaseq-sc-samples",
             "text:Tool", "rnaseq-sc-tool", "text:Version", "rnaseq-sc-tool-version", "text:Cells", "rnaseq-sc-cell-count",
-            "rnaseq-sc-cell-map-words",
+            "rnaseq-sc-cell-map-words", "info-rnaseq.singleCell.cellMapRoutes",
             "text:Quality", "rnaseq-sc-quality",
-            "text:Barcode rank", "rnaseq-sc-rank-words", "rnaseq-sc-rank-plot",
+            "text:Barcode rank", "info-rnaseq.singleCell.rankPlot", "rnaseq-sc-rank-plot",
             "text:UMIs per cell", "rnaseq-sc-histogram-umis",
             "text:Genes per cell", "rnaseq-sc-histogram-genes",
             "text:Not-host UMIs per cell, \(extra.name), default column", "rnaseq-sc-histogram-not-host-\(extra.extra)",
@@ -215,7 +287,7 @@ final class RNASeqSingleCellViewTests: XCTestCase {
                   RNASeqSingleCellWords.noQuality, RNASeqSingleCellWords.noCells]
         XCTAssertTrue(shown.contains("viral RNA above ambient"))
         XCTAssertFalse(shown.joined(separator: "\n").lowercased().contains("infected"))
-        XCTAssertFalse(views.contains { $0 is NSButton }, "the view offers no button")
+        XCTAssertTrue(views.compactMap { $0 as? NSButton }.allSatisfy { $0 is LungfishInfoButton }, "the only buttons are info buttons")
         XCTAssertTrue(views.compactMap { $0 as? NSTextField }.allSatisfy { !$0.isEditable }, "no field is editable")
         XCTAssertTrue(view.cellsTable.tableColumns.allSatisfy { !$0.isEditable })
         XCTAssertFalse(source.tableView(view.cellsTable, shouldEdit: view.cellsTable.tableColumns.first, row: 0))
