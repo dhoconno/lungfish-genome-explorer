@@ -92,6 +92,15 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             normalizing: ["/tmp/reads.fastq", "/tmp"])
     }
 
+    /// The pane's texts in the named state that are not hidden (5.6 Q1: placement is visibility, not presence in the tree).
+    private func visibleTexts(_ name: String) throws -> [String] {
+        let state = Fx.fastqState(.demultiplexBarcodes)
+        try XCTUnwrap(Self.states[name])(state)
+        return Fx.strings(
+            try FASTQOperationToolPanes(state: state).inspect().findAll(ViewType.Text.self).filter { !$0.isHidden() },
+            normalizing: ["/tmp/reads.fastq", "/tmp"])
+    }
+
     private func pin(_ name: String, file: StaticString = #filePath, line: UInt = #line) throws {
         let actual = try texts(name)
         XCTAssertEqual(actual, Self.pins[name], name, file: file, line: line)
@@ -128,7 +137,7 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
             ("D7", "demux.cutadapt.longRead", Self.d7),
         ]
         for row in rows {
-            XCTAssertTrue(try texts(row.state).contains(row.text), "\(row.id) is not drawn in \(row.state)")
+            XCTAssertTrue(try visibleTexts(row.state).contains(row.text), "\(row.id) is not drawn in \(row.state)")
         }
         XCTAssertEqual(FASTQOperationDialogState.demultiplexExactBareChanceCaption, Self.d5, "D5")
         XCTAssertEqual(FASTQOperationDialogState.demultiplexKeepUncheckedSamplesCaption, Self.d6Cutadapt, "D6 Cutadapt")
@@ -141,13 +150,13 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
     /// (`demultiplexKitUsesPlatformConstruct`). One caption serves both groups of such kits: where the kit puts barcodes at both ends
     /// the two must match, and where it puts them at one end one barcode at either end is enough (FACTS-DEMUX D7.1, KIT.2).
     func testTheLongReadCaptionAndKitTagShowForKitsWithBarcodesAtBothEndsAndAtOneEnd() throws {
-        let truseq = try texts("demux.cutadapt.truseq")
+        let truseq = try visibleTexts("demux.cutadapt.truseq")
         XCTAssertFalse(truseq.contains(Self.d7))
         XCTAssertTrue(truseq.contains("Location"))
         XCTAssertFalse(truseq.contains(FASTQDemultiplexHelp.kitConstruct.summary))
         XCTAssertTrue(truseq.contains(LungfishHelpContent.fastqBarcodeKit.summary))
         for name in ["demux.cutadapt.longRead", "demux.cutadapt.singleEndLongRead"] {
-            let longRead = try texts(name)
+            let longRead = try visibleTexts(name)
             XCTAssertTrue(longRead.contains(Self.d7), "\(name): D7")
             XCTAssertFalse(longRead.contains("Location"), name)
             XCTAssertTrue(longRead.contains(FASTQDemultiplexHelp.kitConstruct.summary), "\(name): KIT")
@@ -172,6 +181,8 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
         XCTAssertEqual(FASTQDemultiplexHelp.cutadaptText, Self.d2, "D2")
         XCTAssertEqual(FASTQDemultiplexHelp.exactBareText, Self.d3, "D3")
         XCTAssertEqual(FASTQDemultiplexHelp.readNamesText, Self.d4, "D4")
+        XCTAssertEqual(FASTQDemultiplexHelp.engines.summary, "Shows how each engine finds barcodes.", "ENG")
+        XCTAssertEqual(FASTQDemultiplexHelp.customDefinitionFormat.summary, "Shows how to format a Custom Definition file.", "FMT")
     }
 
     /// The format button belongs to a Custom Definition, so a built-in kit shows none, and no moved paragraph stays in view.
@@ -235,6 +246,15 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
         XCTAssertEqual(element.accessibilityHelp(), item.summary, id)
         XCTAssertFalse(button.refusesFirstResponder, id)
         XCTAssertFalse(button.isHiddenOrHasHiddenAncestor, id)
+        // Beside its control, in its row (5.6 U2, UX 5).
+        let anchorTitle = id == "D1" ? "Custom Definition" : "Read Names"
+        let anchor = try XCTUnwrap(Self.segmentedControls(in: host).first { control in
+            (0..<control.segmentCount).contains { control.label(forSegment: $0) == anchorTitle }
+        }, "\(id) has no segmented control with \(anchorTitle)")
+        let buttonFrame = button.convert(button.bounds, to: host)
+        let anchorFrame = anchor.convert(anchor.bounds, to: host)
+        XCTAssertGreaterThanOrEqual(buttonFrame.minX, anchorFrame.maxX - 1, "\(id): the button is right of its control")
+        XCTAssertLessThan(abs(buttonFrame.midY - anchorFrame.midY), 12, "\(id): the button is in its control's row")
         _ = element.accessibilityPerformPress()
         XCTAssertTrue(button.isPopoverShown, "\(id): a press opens the popover")
         XCTAssertEqual(button.popoverController.text, text, id)
@@ -242,6 +262,10 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
 
     private static func infoButtons(in view: NSView) -> [LungfishInfoButton] {
         ((view as? LungfishInfoButton).map { [$0] } ?? []) + view.subviews.flatMap { infoButtons(in: $0) }
+    }
+
+    private static func segmentedControls(in view: NSView) -> [NSSegmentedControl] {
+        ((view as? NSSegmentedControl).map { [$0] } ?? []) + view.subviews.flatMap { segmentedControls(in: $0) }
     }
 
     func testTheDemultiplexHelpItemsPassTheCatalogCheck() {
