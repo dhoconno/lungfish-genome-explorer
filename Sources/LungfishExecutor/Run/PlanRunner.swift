@@ -75,12 +75,13 @@ struct PlanRunner {
         return nil
     }
 
-    /// BIO-ROUTES-3 item 5 (S1). Every storage route of the node and the plan's own paired steps pair a sample's R1 and
-    /// R2 by position, so two inputs that hold equal counts but are out of step by name would be stored as wrong pairs
-    /// with no word. Throws what ``FASTQPairInterleaver/verifyMates(r1:r2:launcher:)`` throws for two inputs, in the
-    /// words of `LungfishPortable`, and checks nothing for one input or three.
+    /// BIO-ROUTES-3 item 5 (S1), BIO-ROUTES-4 items 1 and 2. Every storage route of the node and the plan's own paired
+    /// steps pair a sample's R1 and R2 by position, so two reads that hold equal counts but are out of step by name would
+    /// be stored as wrong pairs with no word. Throws what ``FASTQPairInterleaver/verifyMates(r1:r2:launcher:)`` throws for
+    /// the first two of `reads`, the R1 and R2 the plan declares (``PlanReadPairs``). A read after them, the run-alone file
+    /// of an SRA download, has no mate, and fewer than two reads are checked as nothing.
     static func refuseOutOfStepMates(_ reads: [URL], launcher: any PortableChildLauncher) throws {
-        guard reads.count == 2 else { return }
+        guard reads.count >= 2 else { return }
         _ = try FASTQPairInterleaver.verifyMates(r1: reads[0], r2: reads[1], launcher: launcher)
     }
 
@@ -97,8 +98,9 @@ struct PlanRunner {
         record.runtimes = Self.runtimes(of: prepared)
         // Every storage route tells BBTools the scores are Phred+33, and a recipe step may rewrite the scores before the
         // storage step reads them, so the plan's own read inputs are checked once, before any step runs (BIO-BIN-QIN N2,
-        // fix round 4 item 3). The storage step checks its own inputs again. A sample's two inputs are checked for their
-        // mate names here too, since every route pairs them by position (BIO-ROUTES-3 item 5).
+        // fix round 4 item 3). The storage step checks its own inputs again. The R1 and R2 the plan declares, each RNA-seq
+        // pair and the pair of a plan of three inputs included, are checked for their mate names here too, since every
+        // route pairs them by position (BIO-ROUTES-3 item 5, BIO-ROUTES-4 items 1 and 2).
         do {
             let root = URL(fileURLWithPath: resolver.workRoot)
             let reads = prepared.plan.entries.filter { $0.role == .input }.map { root.appendingPathComponent($0.relativePath) }
@@ -107,7 +109,11 @@ struct PlanRunner {
                 allowedPrograms: Set(prepared.manifest.tools.map(\.path)), graceSeconds: prepared.plan.graceSeconds
             )
             try QualityEncoding.refuseLegacyPhred64(reads, launcher: launcher)
-            try Self.refuseOutOfStepMates(reads, launcher: launcher)
+            for pair in PlanReadPairs.declared(entries: prepared.plan.entries, steps: prepared.plan.steps) {
+                try Self.refuseOutOfStepMates(
+                    [root.appendingPathComponent(pair.r1), root.appendingPathComponent(pair.r2)], launcher: launcher
+                )
+            }
         } catch {
             record.outcome = .failed
             record.reason = error.localizedDescription
