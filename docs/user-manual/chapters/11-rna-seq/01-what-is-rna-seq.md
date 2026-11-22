@@ -60,7 +60,7 @@ A sequencing [library](../../GLOSSARY.md#library) is the collection of prepared 
 | Bulk | One combined count per gene from thousands to millions of cells in a sample |
 | Single-cell | Separate counts per gene for each cell |
 
-LGE's single-cell presets, or ready-made groups of settings, cover the 10x Genomics method. In that method, a droplet that catches a cell also holds a bead carrying DNA tags. The tags on the bead share a cell barcode, a short sequence that identifies the cell, and each tag has its own UMI. Barcodes preserve cell identity when tagged material from many cells is pooled for sequencing. Within each cell, the UMI helps group copies of the original molecule into one count.
+LGE's single-cell presets, or ready-made groups of settings, cover the 10x Genomics method. In that method, a droplet can capture a cell and a bead carrying DNA tags. Most droplets contain a bead without a cell, and a few contain two cells. The tags on one bead share a cell barcode, a short sequence that marks the droplet, and each tag has its own UMI. The counting program then identifies barcodes from droplets likely to have held a cell. Barcodes preserve cell identity when tagged material from many cells is pooled for sequencing. Within each cell, the UMI helps group copies of the original molecule into one count.
 
 The resulting matrix counts UMIs by gene and cell. Most entries are zero because cells express only some genes and the method captures only some of their RNA. [Cells, barcodes, and UMIs](04-single-cell-counts.md#cells-barcodes-and-umis) explains how those counts are made.
 
@@ -76,7 +76,7 @@ The next chapters use two human [fixtures](../../GLOSSARY.md#fixture), small pub
 
 The bulk fixture, `rnaseq-bulk`, holds salmon counts for six libraries from the SEQC project, a public study in the Gene Expression Omnibus (GEO series GSE47774). The study sequenced the same reference RNAs many times. Sample A is Universal Human Reference RNA and sample B is Human Brain Reference RNA. Each contains a different mix of ERCC [spike-in controls](../../GLOSSARY.md#spike-in-control), 92 synthetic RNAs added in known amounts. The known A-to-B ratios give you a way to check the counts.
 
-The single-cell fixture, `rnaseq-single-cell`, holds 200 cells from the 10x Genomics set "1k PBMCs from a Healthy Donor (v3 chemistry)". PBMCs, or peripheral blood mononuclear cells, are white blood cells with one nucleus and include lymphocytes and monocytes. The sample contains a mixture of cell types.
+The single-cell fixture, `rnaseq-single-cell`, holds 200 cells and 1,353 of the genes from the 10x Genomics set "1k PBMCs from a Healthy Donor (v3 chemistry)". PBMCs, or peripheral blood mononuclear cells, are white blood cells with a single unlobed nucleus. They are mainly lymphocytes and monocytes. Separating PBMCs from blood leaves red cells and granulocytes behind. Granulocytes have nuclei divided into lobes. The sample contains a mixture of cell types.
 
 ## Choosing a tool
 
@@ -126,7 +126,7 @@ A 16 GB Mac falls short of the salmon index build requirement. With that Mac and
 
 For uncounted 10x reads, **Single-cell Plan for a Linux Machine** plans a run with STARsolo, STAR's single-cell mode. In a 10x read pair, one read holds the barcode and UMI and the other holds the RNA sequence. The introns preset, which counts introns as well as exons, returns a folder LGE cannot adopt.
 
-Both fixtures use imports because the counts are already available. The bulk fixture has six folders from salmon 2.11.0, the version in the **RNA-Seq Analysis** plugin pack, a group of tools LGE adds on request. Across the same 200 cells and the 1,353 genes the fixture keeps, Cell Ranger counts 212,733 UMIs and STARsolo counts 212,629, a difference of 104 UMIs, about 0.05 percent. Close totals can hide differences for individual genes or cells.
+Both fixtures use imports because the counts are already available. The bulk fixture has six folders from salmon 2.11.0, the version in the **RNA-Seq Analysis** plugin pack, a group of tools LGE adds on request. Across the fixture's 200 cells and 1,353 genes (every 25th gene and the mitochondrial genes), Cell Ranger counts 212,733 UMIs and STARsolo counts 212,629, a difference of 104 UMIs, about 0.05 percent. To gauge depth per cell, use the full data set, where the median is about 6,600 UMIs per cell. Close totals can hide differences for individual genes or cells.
 
 If you have uncounted bulk reads, choose a route your computers can support. To match a published study, check which program made its final counts. A study that mapped with STAR may have counted with STAR, salmon, or featureCounts.
 
