@@ -110,7 +110,24 @@ extension RunSubcommand {
         // and fastq_2 by position, so a row of two loose files is counted and each pair's names compared before the
         // launch. A refused row records the failed run, as a failed split does, and exits 3.
         for sample in resolvedInputs.illuminaSamples ?? [] where sample.fastqURLs.count == 2 {
-            guard let words = try LooseMatePairCheck.refusal(r1: sample.fastqURLs[0], r2: sample.fastqURLs[1]) else { continue }
+            let refusal: String?
+            do {
+                refusal = try LooseMatePairCheck.refusal(r1: sample.fastqURLs[0], r2: sample.fastqURLs[1])
+            } catch is CancellationError {
+                // A cancel during the pair read is recorded as one during the Docker wait is (SWIFT 3).
+                recordCancelledRun(
+                    request: request,
+                    runBundleURL: runBundleURL,
+                    createdAt: bundleClock.startedAt,
+                    startedAt: bundleClock.startedAt,
+                    endedAt: bundleClock.now,
+                    readPairing: pairingDecisions,
+                    effectiveSamplesheetURL: nil,
+                    stagedAnnotation: stagedAnnotation
+                )
+                throw CancellationError()
+            }
+            guard let words = refusal else { continue }
             try NFCoreRunBundleStore.write(
                 request.manifest(
                     createdAt: bundleClock.startedAt,

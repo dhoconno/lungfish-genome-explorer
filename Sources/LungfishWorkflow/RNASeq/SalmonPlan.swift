@@ -42,7 +42,7 @@ package enum SalmonPlan {
         }
         let index = (entries: pinned.entries, sources: pinned.sources)
         let deadline = request.deadlineSeconds ?? ExecutionPlan.maximumDeadlineSeconds
-        let frame = readsFrame(sample: sample, trim: request.trim, trimTool: pins.trimGalore, deadline: deadline)
+        let frame = try readsFrame(sample: sample, trim: request.trim, trimTool: pins.trimGalore, deadline: deadline)
         var sources = frame.sources
         sources[ExecutorPlanEmitter.executorPath] = pins.executor.url
         let (inputs, r1s, r2s, counted) = (frame.inputs, frame.r1s, frame.r2s, frame.singles)

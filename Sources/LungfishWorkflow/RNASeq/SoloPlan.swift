@@ -58,7 +58,7 @@ package enum SoloPlan {
         try check(index, set: manifest, gtfSHA256: gtf.sha256, star: pins.star)
         let list = try SoloPlanBarcodes.choose(preset: request.preset, supplied: request.suppliedList, imageFiles: pins.imageFiles)
         let deadline = request.deadlineSeconds ?? ExecutionPlan.maximumDeadlineSeconds
-        let frame = SalmonPlan.readsFrame(sample: sample, trim: .none, trimTool: pins.star, deadline: deadline)
+        let frame = try SalmonPlan.readsFrame(sample: sample, trim: .none, trimTool: pins.star, deadline: deadline)
         var sources = frame.sources
         sources[ExecutorPlanEmitter.executorPath] = pins.executor.url
         let reads = frame.r2s + frame.r1s

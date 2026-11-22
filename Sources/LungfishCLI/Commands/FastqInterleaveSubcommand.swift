@@ -38,6 +38,11 @@ struct FastqInterleaveSubcommand: AsyncParsableCommand {
             throw CLIError.inputFileNotFound(path: in2)
         }
         try output.validateOutput()
+        // BIO-ROUTES-2 item 2. reformat pairs the two files by position, so files out of step came out as a file
+        // of wrong pairs with exit 0. Both are read whole first, and nothing is written when they do not pair.
+        if let words = try LooseMatePairCheck.interleaveRefusal(r1: URL(fileURLWithPath: in1), r2: URL(fileURLWithPath: in2)) {
+            throw CLIError.validationFailed(errors: [words])
+        }
         let runner = NativeToolRunner.shared
 
         let args = BBToolsPairArguments.interleave(r1: in1, r2: in2, output: output.output)

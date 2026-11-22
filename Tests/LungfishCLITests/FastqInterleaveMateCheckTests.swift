@@ -8,6 +8,7 @@ import XCTest
 import LungfishIO
 import LungfishTestSupport
 @testable import LungfishCLI
+import LungfishWorkflow
 
 /// BIO ruling BIO-ROUTES-2, binding items 2 and 7 (S1). `lungfish-cli fastq interleave --in1 --in2` handed two loose
 /// files to BBTools reformat, which pairs them by position: an R2 out of step came out as a file of 200 wrong pairs and
@@ -53,23 +54,23 @@ final class FastqInterleaveMateCheckTests: XCTestCase {
         XCTAssertEqual(outcome.outputExists, false)
     }
 
-    /// Guard: an equal pair passes the check and reaches reformat's launch, which the cancel stops.
-    func testAnEqualPairReachesReformat() async throws {
+    /// Guard: the command's check passes an equal pair, so reformat runs on it as before. The check is asked alone,
+    /// so no reformat runs here.
+    func testAnEqualPairPassesTheInterleaveCheck() async throws {
         let r1 = try writeMates("S_R1.fastq", names: (1...200).map { "frag\($0)/1" })
         let r2 = try writeMates("S_R2.fastq", names: (1...200).map { "frag\($0)/2" })
 
-        let outcome = try await interleave(r1: r1, r2: r2)
-        XCTAssertEqual(outcome.reachedTheTool, true)
-        XCTAssertEqual(outcome.outputExists, false)
+        XCTAssertEqual(try LooseMatePairCheck.interleaveRefusal(r1: r1, r2: r2), nil)
     }
 
-    /// The words and exit code of `fastq interleave` on `r1` and `r2` in a cancelled task, whether it stopped at the
-    /// tool's launch (a `CancellationError`), and whether it left an output file.
+    /// The words and exit code of `fastq interleave` on `r1` and `r2`, whether it stopped at the tool's launch (a
+    /// `CancellationError`), and whether it left an output file. The red run at the base (commit 76a8aa6d4) started
+    /// the task cancelled, so reformat could not launch; the mate check polls for a cancel at its first record, so
+    /// after the fix the task is not cancelled, and the refusal comes before any launch.
     func interleave(r1: URL, r2: URL) async throws -> (words: String?, exitCode: Int32?, reachedTheTool: Bool, outputExists: Bool) {
         let output = root.appendingPathComponent("interleaved-\(UUID().uuidString).fastq")
         let command = try FastqInterleaveSubcommand.parse(["--in1", r1.path, "--in2", r2.path, "--output", output.path])
         let caught = await Task { () -> Error? in
-            withUnsafeCurrentTask { $0?.cancel() }
             do {
                 try await command.run()
                 return nil

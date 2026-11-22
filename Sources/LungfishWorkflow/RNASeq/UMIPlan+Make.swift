@@ -123,7 +123,7 @@ extension UMIPlan {
         let duplicates = try duplicatesEntry(preset, umiTools: pins.umiTools, sample: sample)
         try STARPlan.check(index, set: manifest, gtfSHA256: gtf.sha256, star: pins.star)
         let deadline = request.deadlineSeconds ?? ExecutionPlan.maximumDeadlineSeconds
-        let frame = SalmonPlan.readsFrame(sample: sample, trim: .none, trimTool: pins.pigz, deadline: deadline)
+        let frame = try SalmonPlan.readsFrame(sample: sample, trim: .none, trimTool: pins.pigz, deadline: deadline)
         var sources = frame.sources
         sources[ExecutorPlanEmitter.executorPath] = pins.executor.url
         let gtfPath = "references/\(manifest.id)/\(gtf.path)"

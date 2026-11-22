@@ -34,10 +34,16 @@ package struct SalmonPlanReadsFrame: Sendable, Equatable {
 extension SalmonPlan {
     /// The frame of one sample: each pair at `inputs/pair<n>_R1<suffix>` and `inputs/pair<n>_R2<suffix>`, each single
     /// read at `inputs/single<n><suffix>`, and with Trim Galore one ``trimStep(_:files:paired:polyG:tool:deadline:)`` a
-    /// pair, `trim-pair<n>`, and one for the single reads, `trim-singles`.
+    /// pair, `trim-pair<n>`, and one for the single reads, `trim-singles`. Each pair whose two files are on this Mac is
+    /// read whole first, and a pair that is cut or out of step is refused with the run words B1 and B2, since umi_tools,
+    /// STAR and salmon pair two files by position (BIO-ROUTES-2 item 5). A bundle's files were checked at import.
     package static func readsFrame(
         sample: SalmonPlanSample, trim: SalmonQuantTrim, trimTool: PlanToolPin, deadline: Double
-    ) -> SalmonPlanReadsFrame {
+    ) throws -> SalmonPlanReadsFrame {
+        for pair in sample.pairs {
+            guard let r1 = pair.r1.source, let r2 = pair.r2.source else { continue }
+            if let words = try LooseMatePairCheck.refusal(r1: r1, r2: r2) { throw SalmonPlanError(words) }
+        }
         var sources: [String: URL] = [:]
         var inputs: [PlanEntry] = []
         func input(_ read: SalmonPlanRead, _ path: String) -> String {

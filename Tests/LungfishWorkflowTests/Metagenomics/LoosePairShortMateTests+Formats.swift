@@ -15,8 +15,8 @@ import LungfishTestSupport
 /// or gzip, is counted and its names compared.
 extension LoosePairShortMateTests {
 
-    static let bz2Words = "Paired reads must be FASTQ or FASTA files ending .fastq, .fq, .fasta or .fa, plain or .gz. S_R1.fastq.bz2 is not. Nothing ran. Decompress or rename it, or run each file as single reads."
-    static let extensionlessWords = "Paired reads must be FASTQ or FASTA files ending .fastq, .fq, .fasta or .fa, plain or .gz. S_R2 is not. Nothing ran. Decompress or rename it, or run each file as single reads."
+    static let bz2Words = "Paired reads need FASTQ files (.fastq or .fq) or FASTA files (.fasta, .fa, .fna or .fsa), with or without .gz. S_R1.fastq.bz2 has an unsupported name. Nothing ran. Decompress or rename it, or run each file as single reads."
+    static let extensionlessWords = "Paired reads need FASTQ files (.fastq or .fq) or FASTA files (.fasta, .fa, .fna or .fsa), with or without .gz. S_R2 has an unsupported name. Nothing ran. Decompress or rename it, or run each file as single reads."
 
     /// TaxTriage took a `.bz2` pair unchecked and now gives the format words. EsViritu and Kraken2 refuse such a file
     /// earlier with their own words, at the base and after the fix, as map and assemble do.

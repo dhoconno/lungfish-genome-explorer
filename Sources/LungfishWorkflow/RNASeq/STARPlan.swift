@@ -48,7 +48,7 @@ package enum STARPlan {
         }
         let salmon = request.chain == .starSalmon ? try checkDefaultRoute(request, setID: id) : nil
         let deadline = request.deadlineSeconds ?? ExecutionPlan.maximumDeadlineSeconds
-        let frame = SalmonPlan.readsFrame(sample: sample, trim: request.trim, trimTool: pins.trimGalore, deadline: deadline)
+        let frame = try SalmonPlan.readsFrame(sample: sample, trim: request.trim, trimTool: pins.trimGalore, deadline: deadline)
         var sources = frame.sources
         sources[ExecutorPlanEmitter.executorPath] = pins.executor.url
         let paired = !frame.r1s.isEmpty

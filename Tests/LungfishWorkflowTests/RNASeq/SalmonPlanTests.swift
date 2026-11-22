@@ -290,7 +290,7 @@ final class SalmonPlanTests: XCTestCase {
     /// the frame plus its one step, so every chain of one shape names the same `home` paths.
     func testALaterChainTakesTheReadsFrameAndTheJobBuilderTakesItsOwnOutcome() async throws {
         let (_, made) = try await made(.trimGalore(polyG: false))
-        let frame = SalmonPlan.readsFrame(
+        let frame = try SalmonPlan.readsFrame(
             sample: made.sample, trim: .trimGalore(polyG: false), trimTool: pins.trimGalore,
             deadline: ExecutionPlan.maximumDeadlineSeconds)
         XCTAssertEqual(frame.inputs.map(\.relativePath), ["inputs/pair1_R1.fastq", "inputs/pair1_R2.fastq"])
@@ -299,7 +299,7 @@ final class SalmonPlanTests: XCTestCase {
         XCTAssertEqual(frame.sources["inputs/pair1_R2.fastq"], made.sources["inputs/pair1_R2.fastq"])
         XCTAssertEqual(frame.trimSteps, Array(made.plan.steps.dropLast()))
         XCTAssertEqual([frame.r1s, frame.r2s, frame.singles], [["trim-pair1/pair1_R1_val_1.fq"], ["trim-pair1/pair1_R2_val_2.fq"], []])
-        let untrimmed = SalmonPlan.readsFrame(sample: made.sample, trim: .none, trimTool: pins.trimGalore, deadline: 60)
+        let untrimmed = try SalmonPlan.readsFrame(sample: made.sample, trim: .none, trimTool: pins.trimGalore, deadline: 60)
         XCTAssertEqual(untrimmed.trimSteps, [])
         XCTAssertEqual([untrimmed.r1s, untrimmed.r2s], [["inputs/pair1_R1.fastq"], ["inputs/pair1_R2.fastq"]])
 
