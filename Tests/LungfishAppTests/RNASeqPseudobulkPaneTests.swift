@@ -129,4 +129,172 @@ final class RNASeqPseudobulkPaneTests: XCTestCase {
         XCTAssertEqual(texts.filter { $0 == e3 }.count, 1, "E3 is drawn once")
         XCTAssertEqual(texts.filter { $0 == e4 }.count, 1, "E4 is drawn once")
     }
+
+    // MARK: Export pane
+
+    private func exportState() throws -> WorkflowOperationDialogState {
+        let suite = makeTestDefaultsSuite(prefix: "RNASeqPseudobulkPaneTests")
+        return try OperationsDialogFixtures.workflowState(
+            selecting: "Export RNA-seq Counts", defaults: suite.defaults,
+            enabling: { $0.setWorkflow(WorkflowLibraryCatalog.rnaSeqExportItem, enabled: true) })
+    }
+
+    /// The pin of the export pane, with the five headings of 5.6 U4 in sentence case ("RNA-seq results", "Sample sheet (optional)",
+    /// "Export folder", "Adjusted p-value cutoff" and "Fold-change bar"). A control's own label, such as "Folder name", is not kept.
+    func testTheExportPaneOrderAndItsFiveSentenceCaseHeadings() throws {
+        let expected = [
+            "Inputs", "RNA-seq results", "No RNA-seq results selected", RNASeqPaneWords.resultsCaption,
+            "Sample sheet (optional)", "No sample sheet", RNASeqPaneWords.sampleSheetCaption,
+            "Primary settings", "Export folder", RNASeqPaneWords.exportFolderCaption,
+            "Design", RNASeqPaneWords.designCaption, "Contrasts", RNASeqPaneWords.contrastCaption,
+            "Adjusted p-value cutoff", RNASeqExportDefaults.cutoffHelp + ".",
+            "Fold-change bar", RNASeqExportDefaults.lfcBarHelp + ".", "Batch", RNASeqPaneWords.batchCaption,
+        ]
+        let texts = try paneTexts(try exportState(), keeping: expected)
+        XCTAssertEqual(texts, expected)
+    }
+
+    // MARK: Words of the panes (5.6 U7)
+
+    // The strings of the base, 729720e7f, as literals that the head's words never move. The lists are the first commit's pins with the
+    // button titles out, which is how the count reads a pane. The export pane had no pin there, so its list is read from
+    // `RNASeqWorkflowPanes.swift` at that commit, where the five headings were in title case and no caption had moved.
+    private let baseE0 = "A single-cell .lungfishrnaseq result."
+    private let baseE1 = "A group under 10 cells is left out, and so are the cells with no label. The Operations row says which."
+    private let baseE2 = "Each sample's selected cells and the rest of its drawn cells become two columns. "
+        + "LGE writes the selection's labels table before the run, outside the single-cell result, and the record names it."
+    private let baseFolder = "The new result is written in the output directory with .lungfishrnaseq added to the name. It must not exist."
+    private let outputSection = ["Output", "Directory", "No output directory selected"]
+
+    private var baseLegendSelectionPane: [String] {
+        ["Inputs", "Single-cell RNA-seq Result", "No single-cell result selected", baseE0,
+         "Selected Cells", "412 selected cells from pbmc-map", baseE2, "Primary settings", "Result Name", baseFolder]
+    }
+
+    private var baseLabelsTablePane: [String] {
+        ["Inputs", "Single-cell RNA-seq Result", "No single-cell result selected", baseE0,
+         "Labels Table", "No labels table selected", labelsCaption, baseE1, "Primary settings", "Result Name", baseFolder]
+    }
+
+    private var baseImportPane: [String] {
+        ["Inputs", "Single-cell RNA-seq Result", "No single-cell result selected", RNASeqPaneWords.importResultCaption,
+         "Coordinates", "No coordinates file selected", RNASeqPaneWords.importCoordinatesCaption,
+         "Clusters (optional)", "No clusters file selected", RNASeqPaneWords.importClustersCaption,
+         "Label Columns (optional)", RNASeqPaneWords.importLabelColumnsCaption,
+         "Tool and Version (optional)", e4, "Primary settings", "Result Name", RNASeqPaneWords.importFolderCaption,
+         "Barcodes", RNASeqPaneWords.importBarcodesCaption, RNASeqPaneWords.importSkipCaption, "Counts", e3]
+    }
+
+    private var baseExportPane: [String] {
+        ["Inputs", "RNA-seq Results", "No RNA-seq results selected", RNASeqPaneWords.resultsCaption,
+         "Sample Sheet (optional)", "No sample sheet", RNASeqPaneWords.sampleSheetCaption,
+         "Primary settings", "Export Folder", RNASeqPaneWords.exportFolderCaption,
+         "Design", RNASeqPaneWords.designCaption, "Contrasts", RNASeqPaneWords.contrastCaption,
+         "Adjusted p-value Cutoff", RNASeqExportDefaults.cutoffHelp + ".", "Fold-change Bar", RNASeqExportDefaults.lfcBarHelp + ".",
+         "Batch", RNASeqPaneWords.batchCaption]
+    }
+
+    /// The drawn, visible static text under `root`, in order. It leaves out each Text that is the title of a Button, the label of a
+    /// TextField, hidden by `.hidden()`, or a help tag (ViewInspector lists the Text of a help tag and of its accessibility hint too).
+    private static func visibleStaticTexts<V: BaseViewType>(under root: InspectableView<V>, helpTags: Set<String>) -> [String] {
+        var controlTitles: [String] = []
+        for button in root.findAll(ViewType.Button.self) where !button.isHidden() {
+            if let label = try? button.labelView() {
+                controlTitles += label.findAll(ViewType.Text.self).compactMap { try? $0.string() }
+            }
+        }
+        for field in root.findAll(ViewType.TextField.self) where !field.isHidden() {
+            if let label = try? field.labelView() {
+                controlTitles += label.findAll(ViewType.Text.self).compactMap { try? $0.string() }
+            }
+        }
+        var texts = root.findAll(ViewType.Text.self).filter { !$0.isHidden() }.compactMap { try? $0.string() }
+        for title in controlTitles {
+            if let index = texts.firstIndex(of: title) { texts.remove(at: index) }
+        }
+        return texts.filter { !helpTags.contains($0) }
+    }
+
+    /// Words as the help catalog counts them, split on white space.
+    private static func wordCount(_ texts: [String]) -> Int {
+        texts.reduce(0) { $0 + $1.split { $0.isWhitespace || $0.isNewline }.count }
+    }
+
+    /// The visible static text of the dialog's detail pane, from its first heading to the end of its Output section.
+    private func visibleTexts(_ state: WorkflowOperationDialogState) throws -> [String] {
+        let scrolls = try OperationsDialogFixtures.workflowDialog(state).inspect().findAll(ViewType.ScrollView.self)
+        XCTAssertGreaterThanOrEqual(scrolls.count, 2)
+        return Self.visibleStaticTexts(under: scrolls[1], helpTags: Set(RNASeqPseudobulkHelp.items.map(\.summary)))
+    }
+
+    /// 5.6 U7. The pane opened from a legend selection holds at most 40 words of static text, with or without the dialog's Output
+    /// section. By hand the head reads Inputs 1, Single-cell RNA-seq result 3, No single-cell result selected 4, Selected cells 2, the
+    /// selection line 5, E2 14, Primary settings 2 and Result name 2, which is 33, and 39 with the Output section. The base read 74
+    /// and 80.
+    func testTheLegendSelectionPaneHoldsAtMostFortyWords() throws {
+        let texts = try visibleTexts(try pseudobulkState(selection: true))
+        let pane = Array(texts.prefix { $0 != "Output" })
+        // ViewInspector lists the Text of the directory line three times, once as drawn and twice as its own help tag, which
+        // counts once. The pin shows the Output section draws exactly the three strings of `outputSection`.
+        var seen = Set<String>()
+        let output = texts.drop { $0 != "Output" }.filter { seen.insert($0).inserted }
+        XCTAssertEqual(output, outputSection, "the Output section")
+        XCTAssertLessThanOrEqual(Self.wordCount(pane), 40, "the pane")
+        XCTAssertLessThanOrEqual(Self.wordCount(pane + output), 40, "the pane with the dialog's Output section")
+        XCTAssertEqual(Self.wordCount(pane), 33, "head")
+        XCTAssertEqual(Self.wordCount(pane + output), 39, "head with the Output section")
+        XCTAssertEqual(Self.wordCount(baseLegendSelectionPane), 74, "base")
+        XCTAssertEqual(Self.wordCount(baseLegendSelectionPane + outputSection), 80, "base with the Output section")
+    }
+
+    /// The negative test of the count: a hidden label, a button title and a field title leave it unchanged, and a visible label adds
+    /// its words, so the count is not at zero and cannot be lowered by hiding a word or moving it into a button.
+    func testTheCountIgnoresAHiddenLabelAButtonTitleAndAFieldTitle() throws {
+        func count(_ probe: CountProbe) throws -> Int {
+            Self.wordCount(Self.visibleStaticTexts(under: try probe.inspect(), helpTags: ["help words five six"]))
+        }
+        let plain = try count(CountProbe(extra: .none))
+        XCTAssertEqual(plain, 5, "one two three, and visible four")
+        XCTAssertEqual(try count(CountProbe(extra: .hiddenLabel)), plain, "a hidden label adds no word")
+        XCTAssertEqual(try count(CountProbe(extra: .buttonTitle)), plain, "a button title adds no word")
+        XCTAssertEqual(try count(CountProbe(extra: .fieldTitle)), plain, "a field title adds no word")
+        XCTAssertEqual(try count(CountProbe(extra: .visibleLabel)), plain + 3, "a visible label adds its three words")
+    }
+
+    /// The other states read no more words than at the base. The count is kept to the strings of the base lists, in any case, as the
+    /// pins are, so a control's own option or placeholder never counts.
+    func testTheOtherStatesReadNoMoreWordsThanAtTheBase() throws {
+        func counts(_ state: WorkflowOperationDialogState, base: [String]) throws -> (head: Int, base: Int) {
+            let known = Set(base.map { $0.lowercased() })
+            let pane = try visibleTexts(state).prefix { $0 != "Output" }.filter { known.contains($0.lowercased()) }
+            return (Self.wordCount(Array(pane)), Self.wordCount(base))
+        }
+        let labels = try counts(try pseudobulkState(selection: false), base: baseLabelsTablePane)
+        XCTAssertEqual(labels.base, 80, "labels table, base")
+        XCTAssertEqual(labels.head, 57, "labels table, head: E0 (4 words) and F (19) are help tags now")
+        let importPane = try counts(try importState(), base: baseImportPane)
+        XCTAssertEqual(importPane.head, importPane.base, "Import Embedding, no word moved")
+        let export = try counts(try exportState(), base: baseExportPane)
+        XCTAssertEqual(export.head, export.base, "export, only the case of five headings moved")
+    }
+}
+
+/// A small view for the negative test of the word count.
+private struct CountProbe: View {
+    enum Extra { case none, hiddenLabel, buttonTitle, fieldTitle, visibleLabel }
+    let extra: Extra
+
+    var body: some View {
+        VStack {
+            Text("one two three")
+            Text("visible four").help("help words five six")
+            switch extra {
+            case .none: EmptyView()
+            case .hiddenLabel: Text("hidden words seven eight nine").hidden()
+            case .buttonTitle: Button("Button title ten eleven") {}
+            case .fieldTitle: TextField("Field title twelve", text: .constant(""))
+            case .visibleLabel: Text("visible words added")
+            }
+        }
+    }
 }
