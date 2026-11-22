@@ -46,6 +46,10 @@ extension ProvenanceInspectorViewModel {
         case .fastqBundle, .folder, nil:
             // A demultiplexed sample reads its run folder's record, and a track source the record of its track.
             return envelope.flatMap(AffectedResults.kind(of:))
+        case .registeredBundle:
+            // A kind registered by data has no sidebar type of its own (`SidebarItem.swift:69-72`), so its record names the kind.
+            // Only the adopt of an RNA-seq plan's counts is read here, so no other registered kind shows a row it did not show.
+            return envelope.flatMap(AffectedResults.kind(of:)) == .rnaSeqPlanRun ? .rnaSeqPlanRun : nil
         default: return nil
         }
     }

@@ -113,4 +113,16 @@ final class ProvenanceInspectorLoosePairAffectedTests: XCTestCase {
                              explicit: ["r1": pair["r1"]!, "r2": .null])
         XCTAssertEqual(shownAndPosted(item(.fastqBundle), oneFile).shown, [], "an import of one file")
     }
+
+    /// FIX-ROUTES-5 review B2 (BIO-ROUTES-4 item 2). An RNA-seq result is a registered kind with no sidebar type of its own, so
+    /// its item is a `.registeredBundle` (`SidebarItem.swift:69-72`), and the record it holds names the one kind of row it shows.
+    /// No other registered kind takes a kind from its record, whatever that record names.
+    func testARegisteredBundleTakesOnlyTheRNASeqPlanRunKindFromItsRecord() {
+        let adopt = record(AffectedResults.RecordName.rnaSeqAdopt, app: "Lungfish 2026.11.14 (13927)")
+        XCTAssertEqual(kind(item(.registeredBundle), adopt), "rnaSeqPlanRun")
+        XCTAssertEqual(kind(item(.registeredBundle)), nil)
+        let czId = record(AffectedResults.RecordName.czIdImport, app: "Lungfish 2026.11.14 (13927)")
+        XCTAssertEqual(kind(item(.registeredBundle), czId), nil)
+        XCTAssertEqual(kind(item(.folder), czId), "czIdImport")
+    }
 }
