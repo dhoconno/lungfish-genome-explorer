@@ -19,12 +19,20 @@
 #           effect: <one or two plain sentences>
 #           when_to_change: <one sentence, or "rarely">
 #           cli_flag: <flag or null>
+#           source: <Sources/ path>:<line> of the control   # version 1
 #       cli_only:
 #         - flag: <flag>
 #           default: <value>
 #           effect: <one sentence>
 #       notes: <free text>
-version: 0
+#
+# Version 1 (2026-11-21, docs refresh lane REG) adds the optional per-setting
+# key source, the file and line where the dialog draws the control. Every
+# setting of an operation added or filled from version 1 on carries it. A
+# label is the text the dialog draws next to or above the control, with its
+# colon when it has one. Where one heading holds two controls, each control
+# takes its own drawn title or placeholder, and the notes name the heading.
+version: 1
 operations:
   fastq.refresh-qc-summary:
     title: Refresh QC Summary
@@ -84,9 +92,10 @@ operations:
         control: popup
         default: the first registered built-in kit
         allowed: "truseq-single-a, truseq-single-b, truseq-ht-dual, nextera-xt-v2, idt-ud-indexes, fluidigm-access-array, pacbio-sequel-16-v3, pacbio-sequel-96-v2, pacbio-sequel-384-v1, m13-universal-primers, ont-nbd104, ont-nbd114, ont-nbd104-114, ont-nbd114-96, ont-pbc096, ont-rbk004, ont-rbk114-24, ont-rbk114-96, ont-16s114-24, ont-rab204-214"
-        effect: Names the commercial barcode set used to split the pooled reads. Each kit is a fixed list of index sequences and their sample labels.
-        when_to_change: Change it to match the kit the library was prepared with, because a wrong kit assigns almost every read to the unassigned bin.
+        effect: Names the commercial barcode set used to split the pooled reads. Each kit is a fixed list of index sequences and their sample labels. The kit idt-ud-indexes, shown as IDT for Illumina UD Indexes (96 pairs), is listed but refused on every route, the Demux tab plan, Detect, fastq scout, the run and a definition written from its table, until its sequences are checked.
+        when_to_change: Change it to match the kit the library was prepared with, because a wrong kit assigns almost every read to the unassigned bin. For IDT UD indexes, use Custom Definition with your own barcode file.
         cli_flag: --kit
+        source: Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline+Preflight.swift:197
       - label: Engine
         control: radio
         default: Cutadapt
@@ -2011,6 +2020,7 @@ operations:
     entry_points:
       - "Inspector > Import Metadata..."
       - "Annotation table drawer > Samples tab > Import Metadata..."
+      - "Sidebar context menu > Import Sample Metadata…"
       - "CLI: lungfish-cli import sample-metadata <input-path> --bundle <bundle>"
       - "CLI: lungfish-cli import metadata <input-path> --bundle <bundle>"
     gating: []
@@ -2029,7 +2039,12 @@ operations:
       file, and it has no other controls. The rows are matched to samples already
       in the bundle, so the metadata joins existing variant or result tracks rather
       than creating anything new. The two CLI subcommands differ only in the kind of
-      bundle they accept.
+      bundle they accept. Import Sample Metadata… in the sidebar opens the
+      Import Sample Metadata sheet for FASTQ samples, which holds Choose CSV…
+      and a preview table with Status, Sample Name, Template and Collection
+      Date columns and no setting. The folder editor, Sample Metadata, and the
+      Export Sample Metadata sheet hold tables of values and no setting either
+      (FolderMetadataEditorSheet.swift, ProjectMetadataExportImport.swift).
 
   fetch.ncbi:
     title: Search NCBI
@@ -3623,9 +3638,10 @@ operations:
         control: number
         default: "0.25"
         allowed: a decimal between 0 and 1
-        effect: Sets how close two adjacent frequencies must be before the changes are folded into one codon row. It is the second route to merging, for pairs that do not clear the consensus bar.
-        when_to_change: Tighten it when unrelated neighbouring changes are being merged, and loosen it when a genuine pair is staying split.
+        effect: Is passed to the converter and recorded, but it no longer decides a merge. A same-codon group is folded into one row only when every change in it is above Consensus allele frequency, although the help of the flag still says otherwise.
+        when_to_change: never, since it no longer changes the output
         cli_flag: --ivar-merge-af-threshold
+        source: Sources/LungfishWorkflow/Variants/IVarCodonMerger.swift:3
       - label: Minimum ALT quality
         control: number
         default: "20"
@@ -4200,6 +4216,10 @@ operations:
       comparison such as Sample[A].GT != Sample[B].GT. Per-sample clauses accept only
       GT, AF, and DP, and DP matches a per-sample FORMAT field only, so a VCF whose
       FORMAT is GT:PL:AD returns nothing for a DP clause even when INFO/DP is set.
+      VariantQueryBuilderSheet.swift draws a Variant Query Builder with rule
+      rows, a gene field and a Save Query Preset sheet, but no code at
+      eaef01d8f presents it, so the command keeps no dialog settings
+      (checked 2026-11-21, docs refresh lane REG).
 
   variants.extract-sample:
     title: Extract one sample's variants
@@ -7684,3 +7704,1054 @@ operations:
     notes: >-
       Works for PrimalScheme, Olivar, and tiled varVAMP designs, and stores
       the design reference under attachments/. Chapter: 10-primer-design/05.
+
+  rnaseq.quant:
+    title: Quantify RNA-seq Reads
+    entry_points:
+      - "Tools > RNA-seq > Quantify RNA-seq Reads…"
+      - "CLI: lungfish-cli rnaseq quant <bundles> --project <project> --set <set>"
+    gating: [rna-seq]
+    sources:
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationRNASeqQuantPane.swift
+      - Sources/LungfishApp/Services/RNASeqQuantRun.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationsCatalog.swift
+      - Sources/LungfishCLI/Commands/RNASeqQuantSubcommand.swift
+    settings:
+      - label: Reference set
+        control: popup
+        default: Choose a reference set, or the only set when the storage root holds exactly one
+        allowed: the reference sets in the storage root's rnaseq-reference-sets folder, each shown as its id and species
+        effect: Names the transcript set and the salmon index that every read is counted against. The run counts on the set's own index and never builds one, so a set with no index for these settings stops the run.
+        when_to_change: Pick the set of the species the samples came from.
+        cli_flag: --set
+        source: Sources/LungfishApp/Views/FASTQ/FASTQOperationRNASeqQuantPane.swift:160
+      - label: k-mer length
+        control: number
+        default: "31"
+        allowed: odd whole numbers from 1 to 31
+        effect: Picks the salmon index by the length of the short words, k bases long, that it looks reads up by. The set must already hold an index built at this k.
+        when_to_change: Change it only when the set's index was built with another k by lungfish-cli rnaseq index --k.
+        cli_flag: --k
+        source: Sources/LungfishApp/Views/FASTQ/FASTQOperationRNASeqQuantPane.swift:171
+      - label: Decoys
+        control: radio
+        default: Genome
+        allowed: Genome, None
+        effect: Picks the index built with the genome as decoys, sequences that hold back reads from outside the transcripts, or the index built without them. The set must hold an index of the kind chosen.
+        when_to_change: Choose None only when the set's index was built with --decoys none.
+        cli_flag: --decoys
+        source: Sources/LungfishApp/Views/FASTQ/FASTQOperationRNASeqQuantPane.swift:177
+      - label: Trim with Trim Galore
+        control: checkbox
+        default: "false"
+        allowed: "true, false"
+        effect: Trims adapter sequence and low-quality ends from each read with Trim Galore before salmon counts it. Left off, the reads are counted as they were sequenced.
+        when_to_change: Turn it on when the FASTQ quality report shows adapter sequence in many reads.
+        cli_flag: --trim
+        source: Sources/LungfishApp/Views/FASTQ/FASTQOperationRNASeqQuantPane.swift:186
+      - label: Poly-G trimming
+        control: radio
+        default: "Off"
+        allowed: "Off, On"
+        effect: With trimming on, On passes --poly_g to Trim Galore so it cuts the runs of G that a two-colour instrument writes after a fragment ends. The control is greyed out while Trim with Trim Galore is off.
+        when_to_change: Turn it on for reads from a NovaSeq or NextSeq, whose dark cycles read as G.
+        cli_flag: --poly-g-trimming
+        source: Sources/LungfishApp/Views/FASTQ/FASTQOperationRNASeqQuantPane.swift:189
+    cli_only:
+      - flag: --name
+        default: RNA-seq counts
+        effect: Names the result. The dialog passes no name, so a result made in the app is always called RNA-seq counts.
+      - flag: --storage-root
+        default: the configured location
+        effect: Names the managed storage root whose rnaseq-reference-sets folder holds the set.
+      - flag: --write-plan
+        default: none
+        effect: Writes a plan folder for a run on a Linux machine in place of counting here, which the import.rnaseq-plan sheet runs with its own settings.
+    notes: >-
+      The pane replaces the usual Primary and Advanced settings of the FASTQ
+      operations dialog with the three groups Reference set, Index and
+      Trimming. Each group shows the help line of the command under its
+      control. The run passes --project, --set, --k and --decoys every time,
+      adds --trim and --poly-g-trimming only with trimming on, and ends with
+      --format json. One run makes one result for every FASTQ bundle chosen,
+      one sample a bundle. Duplicates are kept and salmon runs with library
+      type A. The labels of this pane may change in ux-text lane TV-SHELL.
+
+  rnaseq.export:
+    title: Export RNA-seq Counts
+    entry_points:
+      - "Tools > RNA-seq > Export RNA-seq Counts…"
+      - "CLI: lungfish-cli rnaseq export <results> --output <folder>"
+    gating: []
+    sources:
+      - Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState+RNASeq.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift
+      - Sources/LungfishApp/Services/RNASeqWorkflowRuns.swift
+    settings:
+      - label: RNA-seq Results
+        control: file
+        default: none, since the sidebar selection is not carried into the pane
+        allowed: one or more .lungfishrnaseq result folders from one route and one reference set, or one single-cell result alone
+        effect: Chooses the results whose counts are written out. Results from different routes or reference sets are refused, because their counts do not compare.
+        when_to_change: Choose every result of one study at once so one table holds all its samples.
+        cli_flag: null
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:146
+      - label: Sample Sheet (optional)
+        control: file
+        default: No sample sheet
+        allowed: a tab-separated file with a sample column
+        effect: Adds the sheet's other columns, such as group or batch, to samples.tsv beside the counts. The design, contrast and batch fields name those columns.
+        when_to_change: Add one whenever you plan to compare groups, since the design terms must name its columns.
+        cli_flag: --sample-sheet
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:175
+      - label: Export Folder
+        control: text
+        default: rnaseq-export
+        allowed: the name of a folder that does not yet exist in the output directory
+        effect: Names the new folder that receives counts.tsv, genes.tsv, samples.tsv, the R scripts and the record.
+        when_to_change: Change it when one project holds more than one export.
+        cli_flag: --output
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:201
+      - label: Design
+        control: text
+        default: empty
+        allowed: column names of samples.tsv, separated by commas
+        effect: Lists the columns that enter the statistical model of the R scripts. The last one is the factor whose effect is tested.
+        when_to_change: Fill it when the export should be ready for DESeq2 or edgeR, for example batch, group to test group while allowing for batch.
+        cli_flag: --design
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:217
+      - label: Contrasts
+        control: text
+        default: empty
+        allowed: lines of FACTOR:NUMERATOR:DENOMINATOR with all three parts given
+        effect: Names each comparison the scripts report, as a factor, the group in the numerator and the group in the denominator. A positive fold change then means higher in the numerator group.
+        when_to_change: Add one line for each pair of groups you want compared.
+        cli_flag: --contrast
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:223
+      - label: Adjusted p-value Cutoff
+        control: number
+        default: "0.05"
+        allowed: a number above 0 and at most 1
+        effect: Sets the adjusted p-value, the p-value corrected for testing thousands of genes at once, below which a gene counts as changed. The same number is alpha in DESeq2's results().
+        when_to_change: Lower it to 0.01 when you want fewer genes called changed with more confidence.
+        cli_flag: --padj-cutoff
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:231
+      - label: Fold-change Bar
+        control: number
+        default: None
+        allowed: empty for none, or a number of 0 or more
+        effect: Sets a bar on the absolute log2 fold change that a gene must pass as well as the cutoff. A bar of 1 asks for at least a doubling or a halving.
+        when_to_change: Set it when you only care about genes whose level changes by a large amount.
+        cli_flag: --lfc-bar
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:238
+      - label: Batch column
+        control: text
+        default: empty
+        allowed: a column name of samples.tsv
+        effect: Names the column that says which batch each sample was prepared or sequenced in. Batch correction reads it.
+        when_to_change: Fill it when samples were prepared on different days or sequenced on different runs.
+        cli_flag: --batch
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:246
+      - label: Batch correction
+        control: popup
+        default: None
+        allowed: None, ComBat-seq, SVA
+        effect: Chooses how the scripts remove the batch effect. ComBat-seq adjusts the counts for the named batch, and SVA estimates hidden batch effects.
+        when_to_change: Choose ComBat-seq when the Batch column is filled and batches differ in the quality report.
+        cli_flag: --batch-correction
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:249
+      - label: Directory
+        control: file
+        default: the project's Analyses folder
+        allowed: any folder you have permission to write
+        effect: Chooses the folder that the Export Folder is made in.
+        when_to_change: Change it only when the export belongs outside the project.
+        cli_flag: --output
+        source: Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift:549
+    cli_only: []
+    notes: >-
+      Opens the Workflow Operations window on its own row, with no Advanced
+      Settings section. Batch column and Batch correction sit under one
+      heading, Batch. Run stays off until the pane holds a result, a folder
+      name, a cutoff above 0 and at most 1, a bar of 0 or more or none, and
+      contrasts with all three parts. A single-cell result exports alone and
+      refuses the design, contrast, batch and bar settings and any cutoff
+      other than 0.05. The labels of this pane may change in ux-text lanes
+      TV-SHELL and TV-PSEUDOBULK.
+
+  rnaseq.pseudobulk:
+    title: Pseudobulk RNA-seq Cells
+    entry_points:
+      - "Tools > RNA-seq > Pseudobulk RNA-seq Cells…"
+      - "CLI: lungfish-cli rnaseq pseudobulk <result> --labels <table> --output <folder>"
+    gating: []
+    sources:
+      - Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState+RNASeq.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift
+      - Sources/LungfishApp/Services/RNASeqWorkflowRuns.swift
+    settings:
+      - label: Single-cell RNA-seq Result
+        control: file
+        default: No single-cell result selected
+        allowed: one single-cell .lungfishrnaseq result folder
+        effect: Chooses the single-cell result whose UMI counts are summed. A UMI, or unique molecular identifier, tags one captured RNA molecule, so a UMI count is a count of molecules.
+        when_to_change: Choose the result that the labels table was written for.
+        cli_flag: null
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:269
+      - label: Labels Table
+        control: file
+        default: No labels table selected
+        allowed: a tab-separated file with barcode and label columns, and a sample column for a result of two or more samples
+        effect: Says which label, such as a cell type or a cluster, each cell barcode carries. The cells of each sample and label are summed into one column of the new bulk result, and a group under 10 cells is left out.
+        when_to_change: Choose the table that names the groups you want to compare, such as one cell type per label.
+        cli_flag: --labels
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:296
+      - label: Result Name
+        control: text
+        default: pseudobulk
+        allowed: any name not already used in the output directory, which gets .lungfishrnaseq added once
+        effect: Names the new bulk result that holds one column for each sample and label.
+        when_to_change: Change it to say which labels table the sums came from.
+        cli_flag: --output
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:323
+      - label: Directory
+        control: file
+        default: the project's Analyses folder
+        allowed: any folder you have permission to write
+        effect: Chooses the folder that the new result is written in.
+        when_to_change: Change it only when the result belongs outside the project.
+        cli_flag: --output
+        source: Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift:549
+    cli_only: []
+    notes: >-
+      Opens the Workflow Operations window on its own row, with no Advanced
+      Settings section. When Pseudobulk Selected Cells in the cell map view
+      opens the pane, a Selected Cells group with the selection's count and
+      cell map takes the place of Labels Table. LGE then writes the
+      selection's labels table before the run and passes --cell-map, and each
+      sample's selected cells and the rest of its drawn cells become two
+      columns. Cells with no label are left out. The labels of this pane may
+      change in ux-text lane TV-PSEUDOBULK.
+
+  rnaseq.cell-map-import:
+    title: Import Embedding
+    entry_points:
+      - "Tools > RNA-seq > Import Embedding…"
+      - "CLI: lungfish-cli rnaseq cell-map import <result> --coordinates <file> --output <folder>"
+    gating: []
+    sources:
+      - Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState+RNASeq.swift
+      - Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift
+      - Sources/LungfishApp/Services/RNASeqWorkflowRuns.swift
+      - Sources/LungfishApp/Services/RNASeqCellMapImportRun.swift
+    settings:
+      - label: Single-cell RNA-seq Result
+        control: file
+        default: No single-cell result selected
+        allowed: one single-cell .lungfishrnaseq result folder
+        effect: Chooses the result whose cells are placed on the map. Each cell is matched by its sample and barcode as the result holds them.
+        when_to_change: Choose the result that the embedding was computed from.
+        cli_flag: null
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:372
+      - label: Coordinates
+        control: file
+        default: No coordinates file selected
+        allowed: LGE's table, or one or more of 10x's projection.csv files
+        effect: Gives the x and y position of each cell in an embedding, a flat picture such as a UMAP in which similar cells sit close together. Each file chosen adds one embedding.
+        when_to_change: Choose the files that Seurat, Scanpy or Cell Ranger wrote for this result.
+        cli_flag: --coordinates
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:389
+      - label: Clusters (optional)
+        control: file
+        default: No clusters file selected
+        allowed: one or more of 10x's clusters.csv files
+        effect: Adds the cluster that 10x's analysis gave each cell, so the map can colour cells by cluster.
+        when_to_change: Add it when the coordinates came from 10x and you want its clusters shown.
+        cli_flag: --clusters
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:405
+      - label: Label Columns (optional)
+        control: text
+        default: empty
+        allowed: column names of LGE's table, separated by commas
+        effect: Names the columns of LGE's table that hold cell labels, such as a cell type, so the map can colour cells by them.
+        when_to_change: Fill it when your coordinates table also carries labels.
+        cli_flag: --label-column
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:421
+      - label: Tool
+        control: text
+        default: empty
+        allowed: any text
+        effect: Records the tool that made the files, as you state it. LGE did not compute the embedding and writes the name into the record as given.
+        when_to_change: Fill it every time, so a reader of the map knows where it came from.
+        cli_flag: --tool
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:429
+      - label: Version
+        control: text
+        default: empty
+        allowed: any text
+        effect: Records the version of that tool, as you state it.
+        when_to_change: Fill it with the version printed by the tool that made the files.
+        cli_flag: --tool-version
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:432
+      - label: Result Name
+        control: text
+        default: cell-map
+        allowed: any name not already used in the output directory, which gets .lungfishrnaseq added once
+        effect: Names the new cell map.
+        when_to_change: Change it when one result gets more than one cell map.
+        cli_flag: --output
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:457
+      - label: "Drop “-1” from each barcode"
+        control: checkbox
+        default: "false"
+        allowed: "true, false"
+        effect: Removes a trailing -1 from each barcode of the files before matching. Turning it on turns off Add “-1” to each barcode.
+        when_to_change: Turn it on when a refusal says the files and the result differ by -1 and the files carry the -1.
+        cli_flag: --barcode-suffix drop
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:464
+      - label: "Add “-1” to each barcode"
+        control: checkbox
+        default: "false"
+        allowed: "true, false"
+        effect: Adds -1 to each barcode of the files before matching. Turning it on turns off Drop “-1” from each barcode.
+        when_to_change: Turn it on when a refusal says the files and the result differ by -1 and the result carries the -1.
+        cli_flag: --barcode-suffix add
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:466
+      - label: Leave out barcodes the result does not hold
+        control: checkbox
+        default: "false"
+        allowed: "true, false"
+        effect: Leaves out the barcodes of the files that the result does not hold, and the record counts them. Left off, any such barcode stops the import.
+        when_to_change: Turn it on when the files cover more cells than the result, for example after the result was filtered.
+        cli_flag: --skip-barcodes-not-held
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:469
+      - label: The embedding was computed on other counts
+        control: checkbox
+        default: "false"
+        allowed: "true, false"
+        effect: States that the embedding came from counts other than this result's, such as 10x's analysis of Cell Ranger counts. The record and the view then say computed on other counts.
+        when_to_change: Turn it on whenever the coordinates were not computed from this exact result.
+        cli_flag: --other-counts
+        source: Sources/LungfishApp/Views/WorkflowOperations/RNASeqWorkflowPanes.swift:474
+      - label: Directory
+        control: file
+        default: the project's Analyses folder
+        allowed: any folder you have permission to write
+        effect: Chooses the folder that the new cell map is written in.
+        when_to_change: Change it only when the cell map belongs outside the project.
+        cli_flag: --output
+        source: Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift:549
+    cli_only:
+      - flag: --method
+        default: none
+        effect: Names the method of one embedding as <embedding>=<name>, such as umap=UMAP.
+    notes: >-
+      Opens the Workflow Operations window on its own row, with no Advanced
+      Settings section. Tool and Version sit under one heading, Tool and
+      Version (optional). The two barcode suffix checkboxes, the Leave out
+      checkbox and the other counts checkbox are off until you turn one on,
+      so the command refuses by default and its alert names the checkbox
+      that unlocks the import. The labels of this pane may change in ux-text
+      lane TV-PSEUDOBULK.
+
+  import.rnaseq-counts:
+    title: Import RNA-seq Counts and Import Single-cell Counts
+    entry_points:
+      - "Import Center > Sequencing Reads > RNA-seq Counts"
+      - "Import Center > Sequencing Reads > Single-cell Counts"
+      - "CLI: lungfish-cli import rnaseq <inputs> --project <project> --name <name>"
+    gating: []
+    sources:
+      - Sources/LungfishApp/Views/ImportCenter/RNASeqBulkImportSheet.swift
+      - Sources/LungfishApp/Views/ImportCenter/RNASeqSingleCellImportSheet.swift
+      - Sources/LungfishApp/Views/ImportCenter/RNASeqImportSheetModel.swift
+      - Sources/LungfishCLI/Commands/ImportRNASeqSubcommand.swift
+    settings:
+      - label: "Name:"
+        control: text
+        default: the file's name without its extension for one count table, the name of the folder that holds all the salmon folders, otherwise RNA-seq counts, or Single-cell counts on the single-cell sheet
+        allowed: any name that is not empty
+        effect: Names the RNA-seq result that the import writes into the project.
+        when_to_change: Change it to the study or experiment the counts belong to.
+        cli_flag: --name
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqBulkImportSheet.swift:81
+      - label: "Sample sheet:"
+        control: file
+        default: None
+        allowed: a tab-separated file with a sample column and, when known, run, animal, species, origin and group columns
+        effect: Describes each sample, and its sample column, or its run column when it has one, must name the same samples as the folders or columns. Without a sheet every other field of a sample reads Not recorded.
+        when_to_change: Add one whenever you know the group or animal of each sample, since the export and the view read these fields.
+        cli_flag: --samples
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqBulkImportSheet.swift:96
+      - label: "Transcript-to-gene table:"
+        control: file
+        default: None
+        allowed: a table that maps each transcript id to its gene id
+        effect: Shown for salmon folders only. With it the result adds gene counts summed from the transcript counts, and without it the result holds transcript counts only.
+        when_to_change: Add it when you want counts per gene, which most comparisons of groups use.
+        cli_flag: --tx2gene
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqBulkImportSheet.swift:184
+      - label: "Unit:"
+        control: popup
+        default: Choose…
+        allowed: Reads, Read pairs, UMIs, Estimated counts
+        effect: Shown for one count table only, which states no unit of its own. It records what each number counts, and salmon's own numbers are estimated counts.
+        when_to_change: Always choose it, because Import stays off until a unit is chosen.
+        cli_flag: --unit
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqBulkImportSheet.swift:211
+      - label: "Genomes:"
+        control: text
+        default: empty
+        allowed: gene id prefixes separated by commas or spaces, such as hg19, mm10
+        effect: On the single-cell sheet, names each genome of a reference made of two or more genomes by the prefix of its gene ids. Leave it empty for a reference of one genome.
+        when_to_change: Fill it for a mixed-species experiment, such as human and mouse cells counted on one combined reference.
+        cli_flag: --genome
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqSingleCellImportSheet.swift:69
+      - label: "Reference set:"
+        control: file
+        default: None
+        allowed: a reference set folder
+        effect: On the single-cell sheet, names a reference set whose not-host sequences, such as viral genomes, are counted in each cell and in the ambient pool. It needs one sorted, indexed BAM for each sample.
+        when_to_change: Choose it when you want to count reads from a pathogen or other not-host source cell by cell.
+        cli_flag: --reference-set
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqSingleCellImportSheet.swift:27
+      - label: "BAM of <sample>:"
+        control: file
+        default: None
+        allowed: the sorted, indexed BAM of that sample
+        effect: Appears once for each sample, with the sample's name in place of <sample>, after a reference set is chosen. The not-host counts of that sample are read from this BAM.
+        when_to_change: Choose the BAM that Cell Ranger or STARsolo wrote for that sample.
+        cli_flag: --not-host-bam
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqSingleCellImportSheet.swift:45
+    cli_only: []
+    notes: >-
+      Two cards open two sheets that share the Name and Sample sheet rows.
+      RNA-seq Counts takes salmon quant folders or one count table of genes
+      by samples, and Single-cell Counts takes Cell Ranger outs folders or
+      STARsolo run folders. Import stays off until the sheet's values make a
+      command, and the line above the buttons says what is missing. An input
+      outside the project is recorded as <external>/<name>, so its command
+      does not replay. The BAM of <sample> label is built at run time, so a
+      chapter writes its angle brackets as HTML entities.
+
+  import.rnaseq-plan:
+    title: RNA-seq Plan and Single-cell Plan for a Linux Machine
+    entry_points:
+      - "Import Center > Sequencing Reads > RNA-seq Plan for a Linux Machine"
+      - "Import Center > Sequencing Reads > Single-cell Plan for a Linux Machine"
+      - "CLI: lungfish-cli rnaseq quant --set <set> --write-plan <folder> --staging-folder <path>"
+      - "CLI: lungfish-cli rnaseq solo-plan --set <set> --preset <preset> --staged-reads <file> --samplesheet <file> --output <folder> --staging-folder <path>"
+    gating: []
+    sources:
+      - Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift
+      - Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheetModel.swift
+      - Sources/LungfishWorkflow/RNASeq/SoloPlanTypes.swift
+      - Sources/LungfishWorkflow/RNASeq/SoloPlan.swift
+    settings:
+      - label: "Reference set:"
+        control: text
+        default: empty
+        allowed: the id of a reference set under the storage root
+        effect: Names the reference set the plan counts on. For the single-cell plan the set's STARsolo index must have been built by an earlier Linux run and left in the staging folder.
+        when_to_change: Give the set of the species the samples came from.
+        cli_flag: --set
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:87
+      - label: "Reads:"
+        control: radio
+        default: FASTQ bundles
+        allowed: FASTQ bundles, Reads in the staging folder
+        effect: On the RNA-seq plan only, chooses between FASTQ bundles of this project and reads already copied to the Linux machine. The second choice shows the Staged reads list and Sample sheet rows.
+        when_to_change: Choose Reads in the staging folder when the reads are too large to copy from this Mac.
+        cli_flag: null
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:121
+      - label: "FASTQ bundles:"
+        control: file
+        default: None
+        allowed: one or more FASTQ bundles, one sample each
+        effect: Chooses the samples to plan when Reads is FASTQ bundles. Each bundle becomes one plan.
+        when_to_change: Choose every sample of the study at once so one batch holds them all.
+        cli_flag: null
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:134
+      - label: "Staged reads list:"
+        control: file
+        default: None
+        allowed: a tab-separated list with file, bytes and sha256 columns for each read in the staging folder
+        effect: Lists each staged read by its absolute path, size in bytes and SHA-256 checksum, so each job can check its reads before it runs. Lungfish reads none of the reads themselves.
+        when_to_change: Make it on the Linux machine with the commands in the CLI help of rnaseq quant.
+        cli_flag: --staged-reads
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:217
+      - label: "Sample sheet:"
+        control: file
+        default: None
+        allowed: a comma-separated file with sample, r1 and r2 columns
+        effect: Names each sample's read files by their absolute paths in the staging folder. On the single-cell plan there is one row a lane, and the rows of one sample are one library.
+        when_to_change: Leave r2 empty for a sample of single-end reads on the RNA-seq plan.
+        cli_flag: --samplesheet
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:222
+      - label: "Chain:"
+        control: popup
+        default: salmon (the default)
+        allowed: salmon, star-salmon, star-salmon-errormodel, star-2.7.11b-genecounts, star-2.7.3a-genecounts, star-2.7.11b-featurecounts
+        effect: On the RNA-seq plan only, chooses what each plan runs after trimming. salmon counts on the index this Mac published, and each STAR chain maps with STAR on a STAR index an earlier Linux run built.
+        when_to_change: Choose a STAR chain when you must match a published study that counted with STAR.
+        cli_flag: --chain
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:147
+      - label: "Preset:"
+        control: popup
+        default: tenx-3p-v3
+        allowed: tenx-3p-v3, tenx-5p-v2, tenx-3p-v3-introns
+        effect: On the single-cell plan only, names the 10x chemistry of the library and the matrix counted. tenx-3p-v3-introns counts exons and introns and approximates, but never matches, Cell Ranger 7's include-introns counting.
+        when_to_change: Choose the preset that matches the kit named in the library's records.
+        cli_flag: --preset
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:170
+      - label: "Barcode list:"
+        control: file
+        default: None, so the plan reads the list in the tool image
+        allowed: the preset's whole 10x barcode list
+        effect: On the single-cell plan only, supplies the list of valid cell barcodes, checked by SHA-256 against the preset's list. A list you give is never copied, so place it in the staging folder.
+        when_to_change: Choose one only when the tool image holds no list.
+        cli_flag: --barcode-list
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:187
+      - label: "10x filter:"
+        control: popup
+        default: None
+        allowed: None, mkgtf-3.0.0, gencode-2020-A
+        effect: On the single-cell plan only, names the 10x biotype list of the adopted STARsolo index to map on.
+        when_to_change: Choose the list the index was built with, and leave None for an index with no 10x filter rule.
+        cli_flag: --tenx-filter
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:192
+      - label: "Expected cells:"
+        control: number
+        default: "3000"
+        allowed: whole numbers from 1
+        effect: On the single-cell plan only, sets the expected number of cells for STARsolo's EmptyDrops_CR cell filter, which separates real cells from empty droplets.
+        when_to_change: Set it to the number of cells the lab loaded and aimed to capture.
+        cli_flag: --expected-cells
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:208
+      - label: "Staging folder:"
+        control: text
+        default: empty
+        allowed: an absolute path that starts with /
+        effect: Gives the folder on the Linux machine that holds the image, the executor, the index and the reads.
+        when_to_change: Give the path your cluster account can read from every machine the jobs run on.
+        cli_flag: --staging-folder
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:93
+      - label: "Plan folder:"
+        control: file
+        default: None, and the panel proposes the name lungfish-plan
+        allowed: a new folder that does not yet exist
+        effect: Names the new folder the plan is written to.
+        when_to_change: Name it after the study so the returned folder is easy to find.
+        cli_flag: --write-plan or --output
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:98
+      - label: "Executor manifest:"
+        control: file
+        default: None, so the app's own executor is used
+        allowed: the manifest.json beside a Linux lungfish-executor
+        effect: Inside Executor and image, names the executor the jobs run. A run you adopt as a result needs the manifest of the executor you built.
+        when_to_change: Choose one when you built the executor yourself.
+        cli_flag: --executor-manifest
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:238
+      - label: "Image:"
+        control: file
+        default: None, so the app's own image is used
+        allowed: the image.json of a container image
+        effect: Inside Executor and image, names the container image the jobs run in.
+        when_to_change: Choose one only when this build holds no image or you built your own.
+        cli_flag: --image
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:243
+      - label: "Image tool manifest:"
+        control: file
+        default: None, so the app's own manifest is used
+        allowed: the tool manifest that image.json pins
+        effect: Inside Executor and image, names the list of tools and versions the image holds.
+        when_to_change: Choose it together with Image.
+        cli_flag: --image-tool-manifest
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:248
+      - label: "CPUs a job asks for:"
+        control: number
+        default: "8"
+        allowed: whole numbers from 1
+        effect: Sets the CPUs each job asks the cluster for, which are also the threads of salmon and STAR.
+        when_to_change: Raise it when your cluster offers more cores to a job.
+        cli_flag: --request-cpus
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:260
+      - label: "Memory (MiB):"
+        control: number
+        default: empty, so the command sizes it where it can
+        allowed: empty, or a whole number of MiB from 1
+        effect: Sets the memory each job asks for. Left empty, the command sizes it, which it can do for some reference sets only.
+        when_to_change: Fill it when Check says the memory must be given.
+        cli_flag: --request-memory-mib
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:267
+      - label: "Disk (GiB):"
+        control: number
+        default: empty, so the command sizes it
+        allowed: empty, or a whole number of GiB from 1
+        effect: Sets the disk space each job asks for.
+        when_to_change: Fill it when jobs stop for lack of disk.
+        cli_flag: --request-disk-gib
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:272
+      - label: "Job requirements:"
+        control: text
+        default: empty
+        allowed: one HTCondor requirements expression on one line
+        effect: Names the machines the jobs may run on, as one HTCondor requirements expression.
+        when_to_change: Fill it when only some machines of your cluster can read the staging folder.
+        cli_flag: --job-requirements
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheet.swift:277
+    cli_only:
+      - flag: --star-multimap-nmax
+        default: STAR's 10
+        effect: With a STAR GeneCounts or featureCounts chain, sets the most loci a read may map to.
+      - flag: --storage-root
+        default: the configured location
+        effect: Names the managed storage root that holds the set and its index records.
+    notes: >-
+      One sheet serves both cards. The RNA-seq plan shows Reads, FASTQ
+      bundles and Chain, and the single-cell plan shows Preset, Barcode list,
+      10x filter and Expected cells. Check adds --dry-run, which runs every
+      check of Write Plan and writes no folder. Write Plan stays off until
+      the sheet names a set, the reads, an absolute staging folder and a new
+      plan folder. Nothing runs on this Mac and nothing is submitted.
+
+  import.rnaseq-adopt:
+    title: RNA-seq Linux Run Result
+    entry_points:
+      - "Import Center > Sequencing Reads > RNA-seq Linux Run Result"
+      - "CLI: lungfish-cli import rnaseq <folder> --adopt --project <project> --name <name>"
+    gating: []
+    sources:
+      - Sources/LungfishApp/Views/ImportCenter/RNASeqAdoptSheet.swift
+      - Sources/LungfishApp/Views/ImportCenter/RNASeqPlanSheetModel.swift
+      - Sources/LungfishApp/App/AppDelegate+RNASeqLinuxRun.swift
+      - Sources/LungfishCLI/Commands/ImportRNASeqAdoptOptions.swift
+    settings:
+      - label: "Name:"
+        control: text
+        default: the name of the returned folder
+        allowed: any name that is not empty
+        effect: Names the RNA-seq result that the adopt writes into the project.
+        when_to_change: Change it to the study or experiment the counts belong to.
+        cli_flag: --name
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqAdoptSheet.swift:160
+      - label: "Storage root:"
+        control: file
+        default: None, so the configured storage root is used
+        allowed: a managed storage root folder
+        effect: Names the storage root that holds the reference set the plan names, whose genes the counts are checked against.
+        when_to_change: Choose one only when the set lives in a storage root other than the configured one.
+        cli_flag: --storage-root
+        source: Sources/LungfishApp/Views/ImportCenter/RNASeqAdoptSheet.swift:164
+    cli_only: []
+    notes: >-
+      The card first asks for a returned plan folder or a returned batch
+      folder, then opens the sheet. Check adds --dry-run, which runs every
+      check and reads and writes nothing. Adopt checks the whole folder before
+      it writes anything, so a refused adopt writes nothing and the sheet
+      keeps the refusal in the command's own words. The plan fixed every
+      setting that changes a count, so the sheet holds no count setting. A
+      folder that the introns preset returned is refused.
+
+  import.fastq-linux-plan:
+    title: Plan for a Linux Machine
+    entry_points:
+      - "Import Center > Sequencing Reads > Plan for a Linux Machine"
+      - "Import Center > Sequencing Reads > Linux Run Result"
+      - "CLI: lungfish-cli import fastq <inputs> --write-plan <folder> --staging-folder <path>"
+      - "CLI: lungfish-cli import fastq <folder> --adopt"
+    gating: []
+    sources:
+      - Sources/LungfishApp/Views/FASTQ/FASTQPlanSheet.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQPlanSheetModel.swift
+      - Sources/LungfishWorkflow/Ingestion/ClumpingTool.swift
+      - Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift
+    settings:
+      - label: "Staging folder:"
+        control: text
+        default: empty
+        allowed: an absolute path that starts with /
+        effect: Gives the folder on the Linux machine that the jobs read the image, the executor and the reads from.
+        when_to_change: Give the path your cluster account can read from every machine the jobs run on.
+        cli_flag: --staging-folder
+        source: Sources/LungfishApp/Views/FASTQ/FASTQPlanSheet.swift:121
+      - label: "Threads per job:"
+        control: number
+        default: "8"
+        allowed: whole numbers from 1
+        effect: Sets the threads each sample's job uses on the Linux machine.
+        when_to_change: Raise it when your cluster offers more cores to a job.
+        cli_flag: --threads
+        source: Sources/LungfishApp/Views/FASTQ/FASTQPlanSheet.swift:123
+      - label: "Clumpify memory (GB):"
+        control: number
+        default: "16"
+        allowed: whole numbers from 1
+        effect: Sets the Java heap, the working memory, of BBTools clumpify on the run machine. Clumpify splits a large sample into more groups to fit this heap.
+        when_to_change: Lower it when the cluster's machines have less memory than this to give a job.
+        cli_flag: --clumpify-heap-gb
+        source: Sources/LungfishApp/Views/FASTQ/FASTQPlanSheet.swift:124
+      - label: Optimize storage (reorder reads for better compression)
+        control: checkbox
+        default: on, then set from the first read headers, on for short reads and off for ONT, PacBio and unknown reads
+        allowed: "true, false"
+        effect: Reorders the reads so that similar reads sit together and the stored files compress smaller. The reads themselves are not changed.
+        when_to_change: Turn it off for long reads, where reordering saves little.
+        cli_flag: --no-optimize-storage (inverted)
+        source: Sources/LungfishApp/Views/FASTQ/FASTQPlanSheet.swift:36
+      - label: "Compression Tool:"
+        control: popup
+        default: BBTools clumpify
+        allowed: BBTools clumpify, Trim Galore --clumpify
+        effect: Chooses the tool that reorders the reads. Trim Galore --clumpify also trims and filters reads, and the line under the popup says so.
+        when_to_change: Choose Trim Galore --clumpify only when you want the reads trimmed in the same step.
+        cli_flag: --clumping-tool
+        source: Sources/LungfishApp/Views/FASTQ/FASTQPlanSheet.swift:38
+    cli_only:
+      - flag: --staged-reads
+        default: none
+        effect: Plans reads that are already in the staging folder, named by a list with each read's path, size and SHA-256.
+      - flag: --job-requirements
+        default: machines that can read the staging folder and run EL9 or later on an x86-64 CPU
+        effect: Replaces the HTCondor requirements expression that picks the machines the jobs may run on.
+    notes: >-
+      The sheet opens after the card's open panel, with the chosen reads named
+      at the top. Write Plan… asks for a new folder in a save panel and writes
+      the plan there. The Compression Tool popup is greyed out while Optimize
+      storage is off. A build with no Linux executor says so under the grid
+      and cannot write a plan. The Linux Run Result card has no sheet, since
+      it adopts the returned folder chosen in its open panel.
+
+  import.primer-scheme:
+    title: Import Primer Scheme
+    entry_points:
+      - "Import Center > Reference Sequences > Primer Scheme"
+      - "CLI: lungfish-cli primers import --bed <bed> --output <name>"
+    gating: []
+    sources:
+      - Sources/LungfishApp/Views/ImportCenter/PrimerSchemeImportView.swift
+      - Sources/LungfishApp/Views/ImportCenter/PrimerSchemeImportViewModel.swift
+    settings:
+      - label: BED
+        control: file
+        default: the BED file chosen on the card, or none
+        allowed: a .bed file of primer coordinates
+        effect: Gives the position of each primer on the reference, one line a primer. It is required.
+        when_to_change: Choose the BED file that the scheme's authors published.
+        cli_flag: --bed
+        source: Sources/LungfishApp/Views/ImportCenter/PrimerSchemeImportView.swift:41
+      - label: FASTA (optional)
+        control: file
+        default: none
+        allowed: a .fa, .fasta or .fna file of primer sequences
+        effect: Copies the primer sequences into the bundle beside the coordinates.
+        when_to_change: Add it when the scheme comes with its primer sequences.
+        cli_flag: --fasta
+        source: Sources/LungfishApp/Views/ImportCenter/PrimerSchemeImportView.swift:48
+      - label: Name (file-safe, e.g. QIASeqDIRECT-SARS2)
+        control: text
+        default: empty
+        allowed: any name that is not empty, made safe for a file name
+        effect: Names the .lungfishprimers bundle written into the project's Primer Schemes folder.
+        when_to_change: Give a short name without spaces that tells schemes apart.
+        cli_flag: --output
+        source: Sources/LungfishApp/Views/ImportCenter/PrimerSchemeImportView.swift:57
+      - label: Display name (e.g. QIAseq Direct SARS-CoV-2)
+        control: text
+        default: empty, which uses the Name
+        allowed: any text
+        effect: Sets the readable name that pickers show in place of the file-safe Name.
+        when_to_change: Give the scheme's full published name.
+        cli_flag: --display-name
+        source: Sources/LungfishApp/Views/ImportCenter/PrimerSchemeImportView.swift:58
+      - label: Canonical reference accession (e.g. MN908947.3)
+        control: text
+        default: empty
+        allowed: an NCBI accession with its version, required
+        effect: Names the reference sequence the BED coordinates are written against.
+        when_to_change: Give the accession in the first column of the BED file.
+        cli_flag: --reference-accession
+        source: Sources/LungfishApp/Views/ImportCenter/PrimerSchemeImportView.swift:59
+      - label: Equivalent accessions (comma-separated; optional)
+        control: text
+        default: empty
+        allowed: accessions separated by commas
+        effect: Lists other accessions of the same reference sequence that the scheme also fits.
+        when_to_change: Add them when your reads were mapped to a copy of the reference with another accession.
+        cli_flag: --equivalent-accession
+        source: Sources/LungfishApp/Views/ImportCenter/PrimerSchemeImportView.swift:61
+    cli_only:
+      - flag: --attachment
+        default: none
+        effect: Copies an extra documentation file under attachments/ in the bundle. Repeatable.
+    notes: >-
+      Import stays off until a BED file, a name and a canonical accession are
+      given. The CLI takes the first BED column as the accession when
+      --reference-accession is left out, but the sheet requires one. The last
+      label carries a semicolon as the sheet draws it.
+
+  viewer.export-image:
+    title: Export Image (PNG) and Image (PDF)
+    entry_points:
+      - "File > Export > Image (PNG)…"
+      - "File > Export > Image (PDF)…"
+      - "CLI: lungfish-cli bundle export-graphic <bundle> --output-format <format> --output <file>"
+    gating: []
+    sources:
+      - Sources/LungfishApp/App/ViewerGraphicsExportPanelController.swift
+      - Sources/LungfishApp/App/ViewerGraphicsExportOptions.swift
+      - Sources/LungfishApp/App/AppDelegate+ViewerGraphicsExportOperationBegin.swift
+      - Sources/LungfishApp/App/AppDelegate+ImportCenter.swift
+    settings:
+      - label: "Scope:"
+        control: popup
+        default: Tracks, or Full Viewer Pane when it is the only choice
+        allowed: Tracks, Ruler and Tracks, and Selected Region for a genome bundle, Tracks, Full Viewer Pane and Selected Region for a document, and Full Viewer Pane alone for any other view
+        effect: Chooses how much of the view the image holds. Ruler and Tracks adds the coordinate ruler above the tracks, and Selected Region appears only when you selected a region yourself.
+        when_to_change: Choose Ruler and Tracks for a figure whose reader needs the coordinates.
+        cli_flag: --include-ruler, --region
+        source: Sources/LungfishApp/App/ViewerGraphicsExportPanelController.swift:87
+      - label: "Format:"
+        control: popup
+        default: PNG from Image (PNG)…, PDF from Image (PDF)…
+        allowed: PNG, JPEG, TIFF, PDF from Image (PNG)…, and PDF alone from Image (PDF)…
+        effect: Chooses the image file type. PDF is a vector format that stays sharp at any size, and the others are bitmaps made of pixels.
+        when_to_change: Choose PDF for a figure in a paper or poster, and PNG for a slide or a web page.
+        cli_flag: --output-format
+        source: Sources/LungfishApp/App/ViewerGraphicsExportPanelController.swift:89
+      - label: "Bitmap Scale:"
+        control: popup
+        default: 2x
+        allowed: 1x, 2x, 4x
+        effect: Sets how many pixels a bitmap draws for each point of the view, so 4x makes an image four times as wide and four times as tall as 1x. It is greyed out for PDF.
+        when_to_change: Choose 4x for a printed figure and 1x to keep the file small.
+        cli_flag: --scale
+        source: Sources/LungfishApp/App/ViewerGraphicsExportPanelController.swift:91
+    cli_only:
+      - flag: --width
+        default: "800"
+        effect: Sets the figure width in points, and the app passes the width of its view.
+      - flag: --theme
+        default: light
+        effect: Draws the figure light or dark, and the app passes the appearance of its viewer.
+    notes: >-
+      The three popups sit in the save panel. A genome bundle exports by
+      running lungfish-cli bundle export-graphic behind an Operations row,
+      and any other view is captured from the screen with no command. The
+      file name extension follows the format chosen.
+
+  export.sequences:
+    title: Export Sequences (FASTA/GenBank)
+    entry_points:
+      - "File > Export > Sequences (FASTA/GenBank)…"
+      - "Sidebar context menu > Export Sequences…"
+      - "CLI: lungfish-cli convert <inputs> --to <file> --to-format <format>"
+    gating: []
+    sources:
+      - Sources/LungfishApp/App/SequenceExportPanelController.swift
+      - Sources/LungfishApp/App/AppDelegate+ImportCenter.swift
+      - Sources/LungfishApp/Services/SequenceExportRoute.swift
+      - Sources/LungfishCLI/Commands/ConvertCommand.swift
+    settings:
+      - label: "Format:"
+        control: popup
+        default: FASTA
+        allowed: FASTA, GenBank
+        effect: Chooses the file format. FASTA holds names and sequences only, and GenBank also holds the annotations, the features drawn on the sequence.
+        when_to_change: Choose GenBank when the annotations must travel with the sequence.
+        cli_flag: --to-format
+        source: Sources/LungfishApp/App/SequenceExportPanelController.swift:45
+      - label: "Compression:"
+        control: popup
+        default: None
+        allowed: None, gzip (.gz), zstd (.zst)
+        effect: Writes the file compressed with gzip or zstd and adds the matching extension. A zstd export uses the zstd that LGE installs with its Required Setup.
+        when_to_change: Choose gzip for a large file you will share, since every Mac and Linux machine reads gzip.
+        cli_flag: --compress
+        source: Sources/LungfishApp/App/SequenceExportPanelController.swift:56
+    cli_only:
+      - flag: --include-annotations
+        default: "false"
+        effect: Includes annotations in an output format that holds them.
+    notes: >-
+      The two popups sit in the save panel. With one item to export, the
+      file name changes with the format and compression chosen. Every
+      selection exports by running lungfish-cli convert behind an Operations
+      row.
+
+  msa.inspection.discriminating-sites:
+    title: Find Discriminating Sites
+    entry_points:
+      - "Inspector > Discriminating Sites > Find Discriminating Sites"
+      - "CLI: lungfish-cli msa discriminating-sites <bundle> --output <tsv>"
+    gating: []
+    sources:
+      - Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesSection.swift
+      - Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesInspectorModel.swift
+    settings:
+      - label: Exclusions
+        control: radio
+        default: Rows in this alignment
+        allowed: Rows in this alignment, Sequences from a file
+        effect: Chooses where the exclusion sequences come from, the sequences an assay must not detect. They are rows of the open alignment, or sequences from a file that MAFFT adds to it without changing the target coordinates.
+        when_to_change: Choose Sequences from a file when the relatives to rule out are not in the alignment.
+        cli_flag: --exclusions, --exclusion-sequences
+        source: Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesSection.swift:40
+      - label: Exclusion sequences
+        control: popup
+        default: Choose…
+        allowed: a FASTA file or .lungfishref bundle of the project, or one picked with Choose File…
+        effect: Names the file of exclusion sequences when Exclusions is Sequences from a file. The popup draws no label, and Exclusion sequences is its VoiceOver name.
+        when_to_change: Pick the file that holds the near relatives your assay must miss.
+        cli_flag: --exclusion-sequences
+        source: Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesSection.swift:55
+      - label: Rows
+        control: popup
+        default: Target for every row
+        allowed: Target, Exclusion, Skip for each row, or Target and Skip when exclusions come from a file
+        effect: Gives each row of the alignment a role. The heading reads Target rows when exclusions come from a file, and All Targets sets every row back to Target.
+        when_to_change: Mark the sequences you want to detect as Target and the ones you must miss as Exclusion.
+        cli_flag: --targets, --exclusions
+        source: Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesSection.swift:101
+      - label: Template
+        control: popup
+        default: First target
+        allowed: First target, or any target row
+        effect: Names the target row whose 1-based positions the report uses for every column.
+        when_to_change: Choose the reference strain whose numbering your lab uses.
+        cli_flag: --template
+        source: Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesSection.swift:170
+      - label: Target mismatch tolerance
+        control: number
+        default: "0"
+        allowed: whole numbers from 0
+        effect: Sets how many target rows may carry a different base and still let a column count. At 0 every target must agree.
+        when_to_change: Raise it to 1 or 2 when a few targets are poor-quality sequences that would block every column.
+        cli_flag: --target-mismatch-tolerance
+        source: Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesSection.swift:185
+      - label: Window length (bp)
+        control: number
+        default: "25"
+        allowed: whole numbers from 1
+        effect: Sets the length, in template bases, of the candidate windows that group nearby discriminating columns. A probe length is a useful value.
+        when_to_change: Set it to the length of the primer or probe you plan to design.
+        cli_flag: --window-length
+        source: Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesSection.swift:190
+      - label: Exclusions that must differ
+        control: number
+        default: empty, shown as All
+        allowed: empty for all, or whole numbers from 1
+        effect: Sets how many exclusion sequences must carry a different base at a column. Empty means all of them.
+        when_to_change: Lower it when no column separates the targets from every exclusion.
+        cli_flag: --min-exclusion-differences
+        source: Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesSection.swift:195
+      - label: Highlight in viewport
+        control: checkbox
+        default: "true"
+        allowed: "true, false"
+        effect: Marks the discriminating columns in the alignment view after a run.
+        when_to_change: Turn it off to read the alignment without the marks.
+        cli_flag: null
+        source: Sources/LungfishApp/Views/Inspector/Sections/MSADiscriminatingSitesSection.swift:286
+    cli_only:
+      - flag: --windows-output
+        default: the output path with a .windows.tsv extension
+        effect: Writes the candidate-window table to another path.
+      - flag: --json-output
+        default: the output path with a .json extension
+        effect: Writes the full report to another path.
+    notes: >-
+      The controls sit in the collapsed Discriminating Sites group of the
+      Inspector for an open alignment. Find Discriminating Sites runs the
+      command through the Operation Center, and the results list each column
+      and each candidate window. Copy TSV, Export TSV… and Export JSON… write
+      the report.
+
+  project.demo-projects:
+    title: Demo Projects
+    entry_points:
+      - "Help > Demo Projects…"
+      - "CLI: lungfish-cli demo fetch <project> --dest <folder>"
+    gating: []
+    sources:
+      - Sources/LungfishApp/Views/DemoProjects/DemoProjectsView.swift
+      - Sources/LungfishApp/Views/DemoProjects/DemoProjectsViewModel.swift
+      - Sources/LungfishApp/Views/DemoProjects/DemoProjectLocationStore.swift
+      - Sources/LungfishWorkflow/DemoProjects/DemoProjectInstaller.swift
+    settings:
+      - label: "Save to:"
+        control: file
+        default: ~/Documents/LGE Demo Projects
+        allowed: any folder you have permission to write, chosen with Change…
+        effect: Chooses the folder that each demo project downloads into, as <Project Name>.lungfish. Use Default appears once you pick another folder and puts the default back.
+        when_to_change: Change it when your Documents folder is short of space or synced to a cloud service.
+        cli_flag: --dest
+        source: Sources/LungfishApp/Views/DemoProjects/DemoProjectsView.swift:108
+    cli_only:
+      - flag: --force
+        default: "false"
+        effect: Moves an existing copy to the Trash before installing a fresh copy, as Replace with a Fresh Copy… does in the window.
+    notes: >-
+      Each demo project downloads once, its size and SHA-256 are checked, and
+      it then opens like any other project. Downloads also appear in the
+      Operations panel.
+
+  window.set-size:
+    title: Set Window Size
+    entry_points:
+      - "Move & Resize (in the Window menu) > Set Size…"
+    gating: []
+    sources:
+      - Sources/LungfishApp/App/WindowSizeDialogController.swift
+      - Sources/LungfishApp/App/WindowSizeRequest.swift
+    settings:
+      - label: "Width:"
+        control: number
+        default: the window's current content width, in points
+        allowed: numbers above 0, rounded to whole points
+        effect: Sets the width of the window's content area in points, the screen unit macOS uses. A width under the window's minimum is raised to the minimum.
+        when_to_change: Set it to a fixed size when you capture screenshots that must match earlier ones.
+        cli_flag: null
+        source: Sources/LungfishApp/App/WindowSizeDialogController.swift:93
+      - label: "Height:"
+        control: number
+        default: the window's current content height, in points
+        allowed: numbers above 0, rounded to whole points
+        effect: Sets the height of the window's content area in points. A height under the window's minimum is raised to the minimum, and the window keeps its top edge in place.
+        when_to_change: Set it with Width for screenshots of a fixed size.
+        cli_flag: null
+        source: Sources/LungfishApp/App/WindowSizeDialogController.swift:94
+    cli_only: []
+    notes: >-
+      Set applies both values, and a value that is not a number above 0 shows
+      Enter positive width and height values in points. under the fields.
+      There is no CLI command.
+
+  viewport.variant-browser:
+    title: Sample Groups
+    entry_points:
+      - "Bottom drawer > Samples tab > Groups"
+    gating: []
+    sources:
+      - Sources/LungfishApp/Views/Viewer/SampleGroupSheet.swift
+      - Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift
+      - Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+SampleMetadata.swift
+    settings:
+      - label: New group
+        control: text
+        default: empty
+        allowed: any name that is not empty
+        effect: Names a new group of samples, such as Cases or Controls, which the plus button beside it adds and selects. Each new group takes the next colour of the sheet's palette.
+        when_to_change: Add one group for each condition you want to compare.
+        cli_flag: null
+        source: Sources/LungfishApp/Views/Viewer/SampleGroupSheet.swift:86
+    cli_only: []
+    notes: >-
+      The Groups button shows on the Samples tab of the bottom drawer of a
+      variant bundle. With a group selected, the sheet lists every sample with
+      a checkbox named by the sample, a colour well and Select All and
+      Deselect All. Apply keeps the groups for the view, and Cancel drops the
+      changes. There is no CLI command.

@@ -3058,6 +3058,49 @@ features:
       install --pack and conda db update. A pack whose smoke test fails exits
       126, and each pack and database run writes a record under
       provenance/packs or provenance/databases.
+  plugins.rna-seq-pack:
+    title: RNA-Seq Analysis pack
+    entry_points:
+      - "Tools > Plugin Manager… > RNA-Seq Analysis"
+      - "CLI: lungfish-cli conda install rna-seq --pack"
+    inputs: [plugin-pack]
+    outputs: [installed-plugin]
+    viewport_class: none
+    sources:
+      - Sources/LungfishWorkflow/Conda/PluginPack.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQOperationsCatalog.swift
+      - Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json
+    module: [LungfishWorkflow, LungfishApp]
+    cli:
+      - lungfish-cli conda install
+    notes: >-
+      The pack with id rna-seq, in category Transcriptomics, installs salmon
+      and gffread for bulk RNA-seq on this Mac, at the versions the tool lock
+      pins. The RNA-seq category of the Tools menu needs it, since salmon
+      comes from it, and Quantify RNA-seq Reads is its tool.
+  plugins.single-cell-pack:
+    title: Single-Cell Analysis pack
+    entry_points:
+      - "Tools > Plugin Manager… > Single-Cell Analysis"
+      - "CLI: lungfish-cli conda install single-cell --pack"
+    inputs: [plugin-pack]
+    outputs: [installed-plugin]
+    viewport_class: none
+    sources:
+      - Sources/LungfishWorkflow/Conda/PluginPack+SingleCell.swift
+      - Sources/LungfishWorkflow/Conda/PluginPack.swift
+      - Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json
+      - Sources/LungfishCLI/Commands/RNASeqCellMapComputeSubcommand.swift
+    module: [LungfishWorkflow, LungfishCLI]
+    cli:
+      - lungfish-cli conda install
+      - lungfish-cli rnaseq cell-map compute
+    notes: >-
+      The pack with id single-cell, in category Single Cell, installs scanpy,
+      python-igraph, leidenalg and umap-learn at the versions the tool lock
+      pins. lungfish-cli rnaseq cell-map compute runs its pinned Scanpy route
+      in this pack's environment to write a UMAP and Leiden clusters as a new
+      cell map. The app has no dialog that runs it yet.
   ai.assistant:
     title: AI Assistant
     entry_points:
@@ -3732,6 +3775,65 @@ features:
       A cell map result opens an embedding view with an Embedding pop-up, a
       Colour by pop-up and a point size, and its selection actions are listed
       under rnaseq.cell-map-select.
+  rnaseq.single-cell-view:
+    title: Read a single-cell RNA-seq result
+    entry_points:
+      - "Sidebar: select an RNA-seq result (.lungfishrnaseq) of single-cell modality"
+      - "Import Center > Sequencing Reads > Single-cell Counts"
+    inputs: [rnaseq-result]
+    outputs: []
+    viewport_class: RNASeqSingleCellViewController
+    sources:
+      - Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellViewController.swift
+      - Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellSummary.swift
+      - Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCharts.swift
+      - Sources/LungfishRNASeqUI/SingleCell/RNASeqSingleCellCellsTable.swift
+      - Sources/LungfishRNASeqUI/RNASeqResultSurface.swift
+      - Sources/LungfishIO/Bundles/RNASeqCellsDatabase+Bins.swift
+    module: [LungfishRNASeqUI, LungfishIO]
+    tests:
+      - Tests/LungfishRNASeqUITests/SingleCell/RNASeqSingleCellViewTests.swift
+      - Tests/LungfishRNASeqUITests/SingleCell/RNASeqSingleCellPagingProbeTests.swift
+      - Tests/LungfishRNASeqUITests/SingleCell/RNASeqSingleCellScaleEvidenceTests.swift
+      - Tests/LungfishRNASeqUITests/SingleCell/RNASeqCellsDatabaseBinsFixtureTests.swift
+    notes: >-
+      Shows the cell summary that the import wrote, each sample's cells,
+      features and entries, the quality table, a plot of the cells ranked by
+      UMIs, histograms per cell, and a table of the cells with their not-host
+      counts and flag. It reads cells.sqlite without changing it, counts
+      nothing itself and never calls a cell infected. The whole viewer is
+      described under viewport.rnaseq-result.
+  rnaseq.cell-map-view:
+    title: Read a cell map
+    entry_points:
+      - "Sidebar: select a cell map result (.lungfishrnaseq) that holds an embedding"
+      - "Tools > RNA-seq > Import Embedding…"
+      - "CLI: lungfish-cli rnaseq cell-map compute"
+    inputs: [rnaseq-result]
+    outputs: []
+    viewport_class: RNASeqCellMapViewController
+    sources:
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapViewController.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapModel.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqCellMapPointSize.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingPlotView.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingLegend.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingGenePicker.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingSelection.swift
+      - Sources/LungfishRNASeqUI/CellMap/RNASeqEmbeddingWords.swift
+    module: [LungfishRNASeqUI]
+    tests:
+      - Tests/LungfishRNASeqUITests/CellMap/RNASeqCellMapViewModelTests.swift
+      - Tests/LungfishRNASeqUITests/CellMap/RNASeqEmbeddingGeneTests.swift
+      - Tests/LungfishRNASeqUITests/CellMap/RNASeqEmbeddingSelectionTests.swift
+    notes: >-
+      Draws each cell of a single-cell result on an embedding, with an
+      Embedding pop-up, a Colour by pop-up, a gene picker and a Point size
+      control. Clusters come from a graph of each cell's nearest neighbours
+      and not from the picture, and a cluster number is a name and not a
+      rank. A selection made by dragging around cells or clicking a legend
+      row feeds Save Selection as Labels Table… and Pseudobulk Selected
+      Cells…, listed under rnaseq.cell-map-select.
   app.settings:
     title: Settings window
     entry_points:
