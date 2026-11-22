@@ -101,14 +101,18 @@ struct RunPlanFixture {
     /// `pins` names the tools the plan pins beside its steps' own, such as the program that reads a gzip payload.
     func writePlan(
         _ steps: [PlanStep], manifestPin: PlanImageManifestPin, executor: PlanEntry? = nil,
-        storage: PlanStorageSettings? = nil, clumping: PlanClumpingChoice? = nil, pins: [PlanToolPin] = []
+        storage: PlanStorageSettings? = nil, clumping: PlanClumpingChoice? = nil, pins: [PlanToolPin] = [],
+        inputs: [String] = ["inputs/R1.fastq"]
     ) throws -> String {
-        let input = try Data(contentsOf: URL(fileURLWithPath: planFolder + "/inputs/R1.fastq"))
+        // `inputs` names the plan's read inputs under the plan folder, one file unless a test pins a pair.
+        let readInputs = try inputs.map { path in
+            (path: path, data: try Data(contentsOf: URL(fileURLWithPath: planFolder + "/" + path)))
+        }
+        let entries: [PlanEntry] = [executor ?? executorEntry] + readInputs.map {
+            PlanEntry(role: .input, relativePath: $0.path, sha256: PortableDigest.sha256Hex(of: $0.data), size: Int64($0.data.count))
+        }
         let plan = ExecutionPlan(
-            entries: [
-                executor ?? executorEntry,
-                PlanEntry(role: .input, relativePath: "inputs/R1.fastq", sha256: PortableDigest.sha256Hex(of: input), size: Int64(input.count)),
-            ],
+            entries: entries,
             executor: PlanExecutorBuild(
                 lgeVersion: "test", lgeCommit: Self.zeros, targetTriple: "test", toolchainID: "test",
                 toolchainSHA256: Self.zeros, staticLinuxSDKID: "test", staticLinuxSDKSHA256: Self.zeros
@@ -116,7 +120,10 @@ struct RunPlanFixture {
             imageManifest: manifestPin,
             tools: Array(Set(steps.compactMap(\.tool) + pins)).sorted { $0.id < $1.id },
             recipe: nil,
-            sample: PlanSampleValues(sampleName: "sample", originalFilenames: ["R1.fastq"], originalSizeBytes: Int64(input.count)),
+            sample: PlanSampleValues(
+                sampleName: "sample", originalFilenames: inputs.map { ($0 as NSString).lastPathComponent },
+                originalSizeBytes: Int64(readInputs.reduce(0) { $0 + $1.data.count })
+            ),
             storage: storage ?? PlanStorageSettings(
                 clumpingTool: .none, compressor: .bgzip, qualityBinning: .illumina4, threads: 1, clumpifyHeapGB: 1,
                 compressionLevel: 4, threadsSource: .option, clumpifyHeapSource: .option, clumpingToolSource: .option,
