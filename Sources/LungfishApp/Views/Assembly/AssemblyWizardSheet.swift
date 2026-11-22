@@ -64,9 +64,11 @@ struct AssemblyWizardRunPresentation {
            validationMessage == compatibilityPresentation.message {
             return Self.checkingPackText
         }
+        // The service copies the first not-ready tool's smoke-test failure into the pack's failure, so show it once.
+        let packFailure = packStatus?.failureMessage
         let failures = [
             toolStatus.flatMap { $0.isReady ? nil : "Managed tool status: \($0.statusText)" },
-            toolStatus?.smokeTestFailure, packStatus?.failureMessage,
+            toolStatus?.smokeTestFailure, packFailure == toolStatus?.smokeTestFailure ? nil : packFailure,
         ]
         return ([validationMessage] + failures.compactMap { $0 }).joined(separator: " ")
     }

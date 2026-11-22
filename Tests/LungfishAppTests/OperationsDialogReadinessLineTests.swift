@@ -478,6 +478,9 @@ final class OperationsDialogReadinessLineTests: XCTestCase {
         XCTAssertEqual(
             line(tool: missing, packFailure: "The Genome Assembly pack could not be checked."), Self.assemblyPackFailureLine,
             "pack failure")
+        XCTAssertEqual(
+            line(tool: smoke, packFailure: "spades.py --version exited with status 1."), Self.assemblySmokeLine,
+            "the service copies the tool's smoke-test failure into the pack's failure, and the footer shows it once")
         XCTAssertEqual(line(reads: .ontReads, tool: ready), Self.readClassWarning, "read-class warning with Run on")
         XCTAssertEqual(line(name: "", reads: .ontReads, tool: ready), "Project name is required.", "the warning waits")
         XCTAssertNil(line(tool: ready), "Run on, no warning")
