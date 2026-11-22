@@ -42,11 +42,14 @@ final class LoosePairRoutesTests: XCTestCase {
         let r1 = try writeMates("S_R1.fastq", mate: 1, count: 100)
         let r2 = try writeMates("S_R2.fastq", mate: 2, count: 60)
 
+        var observed: [String] = []
+        var expected: [String] = []
         for route in Route.allCases {
             let refusal = await planRefusal(route, r1: r1, r2: r2)
-            XCTAssertEqual(refusal.words, route.frame + Self.shortMateWords, route.name)
-            XCTAssertEqual(refusal.exitCode, 3, route.name)
+            observed.append("\(route.name) | \(refusal.words ?? "nil") | \(refusal.exitCode.map(String.init) ?? "nil")")
+            expected.append("\(route.name) | \(route.frame + Self.shortMateWords) | 3")
         }
+        XCTAssertEqual(observed, expected)
     }
 
     // MARK: - Equal counts, records 2 and 3 of R2 swapped
@@ -58,11 +61,14 @@ final class LoosePairRoutesTests: XCTestCase {
         let r2 = loose.appendingPathComponent("S_R2.fastq")
         try Data(ReadSetFixtures.fastq(names).utf8).write(to: r2)
 
+        var observed: [String] = []
+        var expected: [String] = []
         for route in Route.allCases {
             let refusal = await planRefusal(route, r1: r1, r2: r2)
-            XCTAssertEqual(refusal.words, route.frame + Self.outOfStepWords, route.name)
-            XCTAssertEqual(refusal.exitCode, 3, route.name)
+            observed.append("\(route.name) | \(refusal.words ?? "nil") | \(refusal.exitCode.map(String.init) ?? "nil")")
+            expected.append("\(route.name) | \(route.frame + Self.outOfStepWords) | 3")
         }
+        XCTAssertEqual(observed, expected)
     }
 
     // MARK: - Equal pairs (guard)
