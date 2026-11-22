@@ -1229,7 +1229,7 @@ final class FASTQOperationDialogState {
         case .savont:
             return "Use Savont to cluster each FASTQ dataset separately and save counted consensus sequences as FASTA."
         case .ontGenotyping:
-            return "Map one ONT barcode FASTQ by exact full-amplicon match, split retained reads by barcode, and report genotypes in Excel."
+            return "Keep full-amplicon matches allowing only indels from one ONT barcode FASTQ, split reads by barcode, and report genotypes in Excel."
         case .mafft:
             return "Align selected FASTA records with MAFFT into a native MSA bundle."
         case .minimap2:

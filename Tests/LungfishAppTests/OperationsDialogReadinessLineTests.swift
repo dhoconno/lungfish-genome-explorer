@@ -221,7 +221,7 @@ final class OperationsDialogReadinessLineTests: XCTestCase {
     func testTheCardHelpTagsHoldTheDecidedSentences() {
         let pbaaSentence = "Save consensus sequences that pass PacBio HiFi amplicon clustering as a reference bundle."
         let decided: [(tool: FASTQOperationToolID, sentence: String)] = [
-            (.ontGenotyping, "Map one ONT barcode FASTQ by exact full-amplicon match, split retained reads by barcode, and report genotypes in Excel."),
+            (.ontGenotyping, "Keep full-amplicon matches allowing only indels from one ONT barcode FASTQ, split reads by barcode, and report genotypes in Excel."),
             (.ontFluidigmSampleSplit, "Split one bulk ONT Fluidigm amplicon bundle by selected sample-barcode definition into one counted CS1-CS2 insert FASTQ bundle per sample."),
             (.removeRibosomalRNA, "Use Deacon and the managed ribokmers database to keep the selected read classes."),
             (.savont, "Use Savont to cluster each FASTQ dataset separately and save counted consensus sequences as FASTA."),
