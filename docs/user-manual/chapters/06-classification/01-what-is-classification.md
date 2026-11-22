@@ -97,11 +97,11 @@ LGE shows these details on summary cards, boxes that show key facts about the re
 
 ### Sensitivity, precision, and the database
 
-[Sensitivity](../../GLOSSARY.md#sensitivity) is the share of organisms present that the tool finds. [Precision](../../GLOSSARY.md#precision) is the share of reported names that are correct. Finding more of the organisms present can also mean reporting more names in error. The **Sensitive** and **Precise** presets for **Sensitivity** in the Kraken 2 [settings](02-running-kraken2.md#settings) illustrate that trade-off.
+[Sensitivity](../../GLOSSARY.md#sensitivity) is the share of organisms present that the tool finds. [Precision](../../GLOSSARY.md#precision) is the share of reported names that are correct. A call is the name a classifier reports after weighing the evidence from the reads. Finding more of the organisms present can also mean reporting more names in error. The **Sensitive** and **Precise** presets for **Sensitivity** in the Kraken 2 [settings](02-running-kraken2.md#settings) illustrate that trade-off.
 
 The reference sequences in the database limit what a classifier can identify. Reads from an organism the database lacks may match a relative, including when the reads come from the host. The Kraken authors' protocol paper recommends a database that holds at least the human genome. See [Lu et al. 2022, Metagenome analysis using the Kraken software suite](https://doi.org/10.1038/s41596-022-00738-y), *Nature Protocols* 17, 2815.
 
-Kraken 2's **[Confidence](../../GLOSSARY.md#confidence-kraken-2)** setting sets the minimum share of a read's k-mers that must support a taxon or taxa below it, 0.20 by default. It counts only k-mers without an ambiguous base, a position that lacks a definite base call.
+Kraken 2's **[Confidence](../../GLOSSARY.md#confidence-kraken-2)** setting sets the minimum share of a read's k-mers that must support a taxon or taxa below it, 0.20 by default. It counts only k-mers without an ambiguous base, a position where the sequencer could not settle on one base.
 
 Kraken 2 normally loads the whole database into memory (RAM). With **Memory mapping** checked, it reads the database from disk in pieces, which is much slower but avoids loading a database-sized copy into memory. To check your Mac's memory, choose **Apple menu > About This Mac**. The Standard database covers archaea, bacteria, viruses, plasmids, and the human genome. Plasmids are DNA molecules separate from a cell's main genome. The table shows LGE's memory estimates for five builds. Find the others and download databases in the **Databases** tab of **Tools > Plugin Manager…**, the window that installs tools and databases. See [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) for details.
 
@@ -134,7 +134,7 @@ Standard-8 and Standard-16 keep a sample of the full Standard collection's looku
 
 **[NAO-MGS](../../GLOSSARY.md#nao-mgs)** is SecureBio's pipeline for wastewater surveillance. A pipeline is an analysis whose steps pass output from one to the next. It runs on a computing cluster, a group of computers that work together, or in the cloud, on remote computers. It reports reads that matched viral genomes. Ask the team that ran it for `virus_hits_final.tsv.gz`.
 
-**[NVD](../../GLOSSARY.md#nvd)** is the O'Connor laboratory's pipeline for viruses that only partly match known sequences. It usually runs on a computing cluster. It assembles overlapping reads into longer sequences called [contigs](../../GLOSSARY.md#contig), then searches them with [BLAST](../../GLOSSARY.md#blast), NCBI's sequence search. Ask for the `*_blast_concatenated.csv` file. For read-based checks, also ask for a full run, one whose output includes the contig sequences and alignment files.
+**[NVD](../../GLOSSARY.md#nvd)** is the O'Connor laboratory's pipeline for viruses that only partly match known sequences. It usually runs on a computing cluster. It assembles overlapping reads into longer sequences called [contigs](../../GLOSSARY.md#contig), then searches them with [BLAST](../../GLOSSARY.md#blast), NCBI's sequence search. Ask for the `*_blast_concatenated.csv` file, where the asterisk stands for the run's prefix, the part before `_blast_concatenated.csv`. For read-based checks, also ask for a full run, one whose output includes the contig sequences and alignment files.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
