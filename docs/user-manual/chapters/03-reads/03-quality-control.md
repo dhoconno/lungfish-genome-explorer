@@ -118,7 +118,9 @@ In the Inspector, Dataset Statistics gives the exact Read Count. Base Count is r
 
 The fixture's 91,148 reads are 45,574 pairs counted one mate at a time. To compare Reads with a delivery count quoted in pairs, double the provider's figure. If Reads is far below what you expect, check that you imported all the files. Providers can also quote gigabases. One gigabase is a billion bases.
 
-Use Bases to estimate whether you sequenced enough for your goal. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering a position. Before mapping, divide Bases by the size of the region you sequenced, or by the genome's total length for a whole-genome run. Here 22,662,846 bases over a 500,000-base window give about 45x, read as 45 times. An average across a region can hide positions with few reads. After mapping, check the depth at the positions you plan to analyze.
+Use Bases to estimate whether you sequenced enough for your goal. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering a position. Before mapping, divide Bases by the genome's total length for a whole-genome run, or by the size of the region you aimed to sequence for a targeted run. Treat the result as an upper bound, the highest average depth you could get. Duplicate reads, or reads that repeat the same original fragment, add to Bases without adding depth where you need it. So do reads outside the target and reads that do not map.
+
+The fixture's reads were taken from a whole-genome run after they aligned to its 500,000-base window, so here 22,662,846 bases over the window give about 45x, read as 45 times. An average across a region can hide positions with few reads. After mapping, check the depth at the positions you plan to analyze.
 
 ### Mean Length, Median Length, and N50
 
@@ -150,7 +152,9 @@ The **GC** card measures the reads in the bundle. This fixture reads 39.4 percen
 
 LGE averages probabilities for the card, the **Mean Q** column on the Reads tab, and `lungfish-cli fastq qc-summary`. The method matches AvgQual in `seqkit`. The mean triangles in **Q / Position** average the scores directly. If another program gives you a different mean quality, check which average it used.
 
-Some reads, including FASTA records, lack quality scores. Some Oxford Nanopore files use one placeholder score for every base. Depending on the bundle, the cards can read No quality scores, Mean Q (error rate) 0.0, or Mean Q 2.0. If the scores are missing or you know they are placeholders, use checks that do not depend on them.
+Some reads, including FASTA records, lack quality scores. Some files carry one placeholder score for every base. Examples include some Oxford Nanopore files and reads converted from FASTA. The Sequence Read Archive is a public archive of raw sequencing reads. NCBI, the U.S. center that hosts public sequence databases, delivers reads from that archive in a format called SRA Lite. In that format, every base in a read that passed the run's filter scores 30. A single bar in Q Score Dist. is the sign.
+
+Depending on the bundle, the cards can read No quality scores, Mean Q (error rate) 0.0, or Mean Q 2.0. If the scores are missing or you know they are placeholders, use checks that do not depend on them.
 
 ### The FASTQ viewport's sparkline charts
 
@@ -158,7 +162,7 @@ The cards summarize all reads. The charts summarize every read after Refresh QC 
 
 **Length Dist.** counts reads at each length and opens as Read Length Distribution. The fixture has one spike at the right end. In the fixture, 71.1 percent of reads are exactly 250 bases long. The 249- and 250-base reads together account for 91.0 percent, with the shortest reads at 35 bases. A pair can have a 250-base mate and a 249-base mate, as [Paired-end reads](../01-foundations/02-sequencing-reads.md#paired-end-reads) explains. A second hump to the left shows a group of shorter reads.
 
-**Q / Position** shows where quality changes along the read. The sparkline shows the median score at each position over shaded bands for scores of 20 and 30. The full chart, Per-Position Quality Scores, shows the spread for each position. When there are too many positions to show separately, it groups neighboring positions in one box and labels the span. In this fixture's 250-base reads, each box covers two positions, as in 101-102.
+**Q / Position** shows where quality changes along the read. The sparkline shows the median score at each position over shaded bands for scores of 20 and 30. The full chart, Per-Position Quality Scores, shows the spread for each position. When there are too many positions to show separately, it groups neighboring positions in one box and labels the span. In this fixture's 250-base reads, each box covers two positions, as in 113-114.
 
 | Mark in the full chart | What it shows |
 |---|---|
@@ -169,17 +173,21 @@ The cards summarize all reads. The charts summarize every read after Refresh QC 
 
 In this fixture, mean quality falls toward the 3' end, the end the instrument sequenced last. No box has a mean below Q20.
 
-| Position range shown on the chart | Fixture mean |
+| Box, counted from the right edge | Fixture mean |
 |---|---|
-| Through 243-244 | Above Q30 |
-| Starting at 245-246 | Just below Q30 at first |
-| 249-250 | About Q26 |
+| Every box except the last three | Above Q30 |
+| The third and second boxes from the right, covering positions 245-246 and 247-248 | Just below Q30 (29.9 and 29.7) |
+| The last box, covering positions 249-250 | About Q26 |
+
+The axis prints a label under only some boxes, such as 225-226, so count boxes from the right edge.
 
 <!-- SHOT: fastq-sparkline-popover -->
 
 **Q Score Dist.** counts bases at each stored score and opens as Quality Score Distribution. The import sheet's **Compression Tool** defaults to BBTools clumpify, which groups reads that share sequence so they take up less space. On every sequencing platform, the **Q5 steps (8-level)** default applies when import uses BBTools clumpify or when **Optimize storage** is cleared. The other **Compression Tool** choice, Trim Galore --clumpify, trims adapters and poor read ends as it stores the reads. With Trim Galore --clumpify, no binning runs. See the settings in [Importing Sequencing Reads](01-importing-fastq.md#settings) for details.
 
-Binning can produce a few tall spikes because many bases share a stored score. The spikes reflect how the scores were stored. Binning leaves the base calls as they were. With **None (keep every score)**, the fixture shows a spread of bars. Q40 accounts for 42.6 percent of bases and Q39 for 25.0 percent. If import used BBTools clumpify or **Optimize storage** was off, look for the **Quality Binning** row in the Inspector's Ingestion group. The row is absent when every score was kept.
+Binning can produce a few tall spikes because many bases share a stored score. The spikes reflect how the scores were stored, by the instrument or at import. Many Illumina instruments, including the NovaSeq 6000, the NextSeq 500 and the HiSeq X, write only a few distinct scores, so their files show a few spikes even with **None (keep every score)**. Binning leaves the base calls as they were.
+
+With **None (keep every score)**, the fixture shows a spread of bars. Q40 accounts for 42.6 percent of bases and Q39 for 25.0 percent. If import used BBTools clumpify or **Optimize storage** was off, look for the **Quality Binning** row in the Inspector's Ingestion group. The row is absent when every score was kept.
 
 ### The FASTQ viewport's Reads tab
 
@@ -187,7 +195,7 @@ To inspect the reads behind a surprising summary, open **Reads**. The table show
 
 <!-- SHOT: fastq-viewport-reads-tab -->
 
-For the fields in an Illumina read name such as `D00360:94:H2YT5BCXX:1:1101:1582:14700`, see [The four-line FASTQ record](../01-foundations/02-sequencing-reads.md#the-four-line-fastq-record) for a breakdown. A run of `N` characters in **Sequence** marks positions the instrument could not call as A, C, G, or T. Raise it with your provider if many reads show this pattern.
+For the fields in an Illumina read name such as `D00360:94:H2YT5BCXX:1:1101:1582:14700`, see [The four-line FASTQ record](../01-foundations/02-sequencing-reads.md#the-four-line-fastq-record) for a breakdown. A run of `N` characters in **Sequence** marks positions with no base call. Most are bases the instrument could not call as A, C, G, or T. Runs of N at the ends of many reads can also be adapter bases that the provider's conversion software, which writes the instrument's calls into FASTQ files, masked by replacing them with N. Ask your provider which it is if many reads show this pattern.
 
 The table loads the first 1,000 records in stored order, which import may have changed. Use the table for examples and the summary cards to compare whole bundles.
 
@@ -207,10 +215,16 @@ Use these checks to decide whether to proceed or inspect the reads more closely.
 
 **Compare quality with your sequencing platform.** Your provider's run report can help you identify it. For Illumina reads, compare Q30 with the specification for the kit and read length. A figure below that minimum is worth raising with your provider. This fixture's Q30 is 91.3 percent. For Oxford Nanopore reads with usable quality scores, look at **Mean Q (error rate)**. A [simplex read](../../GLOSSARY.md#simplex-read) comes from one strand of a DNA molecule read once.
 
+A flow cell is the consumable chip that holds the sample while the instrument reads it. The basecalling model is the software that turns the instrument's signal into bases.
+
 | Run | Quality comparison |
 |---|---|
 | Illumina 2x250 on the [NovaSeq 6000 with v1.5 reagents](https://www.illumina.com/systems/sequencing-platforms/novaseq/specifications.html) | Illumina's specification minimum, Q30 of at least 75% |
-| Oxford Nanopore simplex | Current simplex reads run about Q12 to Q20 |
+| Oxford Nanopore simplex | Depends on the flow cell and the basecalling model. Oxford Nanopore publishes the expected accuracy for each pairing. |
+
+The fixture's reads come from HiSeq 2500 runs in Rapid mode, the instrument's faster run mode. The older instrument's 2x250 minimum was also a Q30 of 75 percent. The reads were kept because they aligned to the window, so the fixture's figures can sit above what its whole runs showed.
+
+Oxford Nanopore quotes modal read accuracy, the accuracy most reads reach. Mean Q (error rate) averages error probabilities over every base, so it usually reads lower than that figure. A Mean Q far below the figure for your flow cell and model is worth raising with whoever ran the sequencing.
 
 **Check where quality drops.** Open **Q / Position** at full size and compare the mean triangles with a Phred score of 20. The fixture's mean dips under Q30 over its last six bases. Inspect the boxes and lower whiskers to see how much the scores vary. If quality drops in the middle, check whether it recovers before the end. Trimming the ends can leave an internal low-quality stretch in place. If quality is low throughout, ask your provider about the run.
 
@@ -220,7 +234,7 @@ Use these checks to decide whether to proceed or inspect the reads more closely.
 
 If poor quality clusters at the ends, try fastp Adapter & Quality Trim under **Tools > Trimming & Filtering**. It uses [fastp](../../GLOSSARY.md#fastp), a program that cuts adapters and low-quality ends. Trimming writes a new bundle. Before mapping, compare **Reads** to see how many whole records you retained and **Bases** to see how much sequence you retained. Check **Mean Length**, **Mean Q (error rate)**, **Q20**, and **Q30** to see how the retained reads compare.
 
-[PhiX](../../GLOSSARY.md#phix) is a small virus genome Illumina adds to a run as a control. If classification points to an unwanted sequence, [Decontamination](05-decontamination.md) covers ways to remove human sequence, ribosomal RNA (the RNA in ribosomes), PhiX, or a sequence you can supply as a file. For an intentionally mixed sample, continue with classification.
+[PhiX](../../GLOSSARY.md#phix) is the small genome of a virus that infects bacteria. Illumina sells it as a control that sequencing centers often mix into a run, so a few reads can come from it. If classification points to an unwanted sequence, [Decontamination](05-decontamination.md) covers ways to remove human sequence, ribosomal RNA (the RNA in ribosomes), PhiX, or a sequence you can supply as a file. For an intentionally mixed sample, continue with classification.
 
 ## Where LGE shows the facts about your reads
 
