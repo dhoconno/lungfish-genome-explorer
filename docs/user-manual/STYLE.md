@@ -117,7 +117,9 @@ in LGE itself goes to the known-defects registry in
 `chapters/appendices/troubleshooting.md` and nowhere else.
 
 Each Settings entry is one paragraph that begins with the control's label
-in bold with a period inside the bold. The paragraph then has three
+in bold with a period inside the bold. Write the label as the app draws it
+but drop any colon at its end, so the app's `Threads:` becomes
+`**Threads.**`, never `**Threads:.**`. The paragraph then has three
 sentences in this order. What it does, what the default is and why, when
 to change it.
 

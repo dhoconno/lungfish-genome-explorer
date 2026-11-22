@@ -22,3 +22,39 @@ operations:
         cli_flag: --quality
     cli_only: []
     notes: test only
+  test.colon:
+    title: Map reads
+    entry_points: ["Tools > Mapping > Map"]
+    gating: []
+    sources: []
+    settings:
+      - label: "Threads:"
+        control: number
+        default: 4
+        allowed: "1 to 64"
+        effect: Sets how many processor cores the mapper uses.
+        when_to_change: rarely
+        cli_flag: --threads
+      - label: "Extra arguments:"
+        control: text
+        default: ""
+        allowed: "any"
+        effect: Passes more options to the mapper.
+        when_to_change: rarely
+        cli_flag: null
+      - label: "Memory mapping:"
+        control: toggle
+        default: false
+        allowed: "on or off"
+        effect: Reads the database from disk as it runs.
+        when_to_change: rarely
+        cli_flag: --memory-mapping
+      - label: "Min mapping quality:"
+        control: number
+        default: 0
+        allowed: "0 to 60"
+        effect: Drops alignments below this mapping quality.
+        when_to_change: rarely
+        cli_flag: --min-mapq
+    cli_only: []
+    notes: test only, labels with the trailing colon the app draws

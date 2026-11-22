@@ -18,6 +18,16 @@ function registryFor(filePath) {
   return null;
 }
 
+// A registry label may end with a colon because the app draws it that way
+// ("Threads:"). STYLE.md writes the label without that colon (**Threads.**),
+// and chapters written before that rule keep it (**Threads:.**), so either
+// form documents the setting. `bare` is the form a message asks for.
+function labelForms(label) {
+  const full = String(label).trim();
+  const bare = full.replace(/:$/, "").trimEnd();
+  return { bare, forms: bare === full ? [full] : [full, bare] };
+}
+
 export default function settingsCoverage() {
   return (tree, file) => {
     const path = file.path ?? "";
@@ -39,9 +49,9 @@ export default function settingsCoverage() {
     // A paragraph documents a label only when the strong node's OWN text ends
     // with a period (the binding constraint: **Label.** with the period
     // inside the bold). A strong run whose text does NOT end with "." but
-    // that, once trimmed, matches a label verbatim is recorded separately so
-    // we can flag the period-outside-the-bold mistake without counting it as
-    // documented.
+    // that, once trimmed, matches a label form (see labelForms) is recorded
+    // separately so we can flag the period-outside-the-bold mistake without
+    // counting it as documented.
     let inSettings = false; let sawSettings = false;
     const runIns = new Set();
     const outsideBold = new Set();
@@ -70,11 +80,13 @@ export default function settingsCoverage() {
       if (!op) { report(file, `unknown parameters_refs id '${id}'`, fm); continue; }
       if (!sawSettings) { report(file, `parameters_refs names '${id}' but the chapter has no '## Settings' section`, fm); continue; }
       for (const s of op.settings ?? []) {
-        if (outsideBold.has(s.label)) {
-          report(file, `setting '${s.label}' of '${id}' is written as **${s.label}** with the period outside the bold; write **${s.label}.**`, fm);
+        const { bare, forms } = labelForms(s.label);
+        const outside = forms.find((f) => outsideBold.has(f));
+        if (outside !== undefined) {
+          report(file, `setting '${s.label}' of '${id}' is written as **${outside}** with the period outside the bold; write **${bare}.**`, fm);
         }
-        if (!runIns.has(s.label)) {
-          report(file, `setting '${s.label}' of '${id}' is not documented in '## Settings' (expected a paragraph starting with **${s.label}.**)`, fm);
+        if (!forms.some((f) => runIns.has(f))) {
+          report(file, `setting '${s.label}' of '${id}' is not documented in '## Settings' (expected a paragraph starting with **${bare}.**)`, fm);
         }
       }
     }

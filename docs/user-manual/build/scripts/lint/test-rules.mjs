@@ -148,3 +148,17 @@ test("settings-coverage flags unknown ids and undocumented settings", async () =
   assert.match(reasons, /period outside the bold/);
   assert.doesNotMatch(reasons, /setting 'Minimum length'/);
 });
+
+test("settings-coverage accepts a colon label with or without its colon, and still flags missing ones", async () => {
+  const messages = await lint("settings-coverage-colon.md");
+  const reasons = messages.map((m) => m.reason).join("\n");
+  // **Threads.** (the STYLE.md form) and **Extra arguments:.** (the older form) both document their setting.
+  assert.doesNotMatch(reasons, /setting 'Threads:'/);
+  assert.doesNotMatch(reasons, /setting 'Extra arguments:'/);
+  // A label with no paragraph still fails, and the message asks for the form without the colon.
+  assert.match(reasons, /setting 'Min mapping quality:' of 'test\.colon' is not documented in '## Settings' \(expected a paragraph starting with \*\*Min mapping quality\.\*\*\)/);
+  // The period outside the bold still fails for a colon label.
+  assert.match(reasons, /setting 'Memory mapping:' of 'test\.colon' is written as \*\*Memory mapping\*\* with the period outside the bold; write \*\*Memory mapping\.\*\*/);
+  assert.match(reasons, /setting 'Memory mapping:' of 'test\.colon' is not documented/);
+  assert.equal((reasons.match(/of 'test\.colon'/g) || []).length, 3);
+});

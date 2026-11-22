@@ -39,8 +39,9 @@ export default function sentenceColon() {
       let banned = allowedLeadIn ? colons - 1 : colons;
       // A settings paragraph opens with its registry label in bold, and some
       // labels carry a trailing colon because the app draws them that way
-      // ("Threads:"). Colons inside that leading bold label are the label,
-      // not prose, and are not counted.
+      // ("Threads:"). STYLE.md drops that colon (**Threads.**), but chapters
+      // written before that rule keep it (**Threads:.**). Colons inside that
+      // leading bold label are the label, not prose, and are not counted.
       const lead = node.type === "paragraph" ? node.children?.[0] : null;
       if (lead && lead.type === "strong") {
         const labelColons = [...proseText(lead)].filter((c) => c === ":").length;
