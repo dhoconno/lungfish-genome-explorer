@@ -22,7 +22,7 @@ enum RNASeqPaneWords {
     static let smallGroupCaption = "Groups under 10 cells and cells with no label are left out. The Operations row says which."
     static let selectionCaption = "Per sample, one column for selected cells, one for other drawn cells."
     static let selectionLabelsTableFact = "LGE writes the selection's labels table before the run, outside the single-cell result, and the record names it."
-    static let pseudobulkFolderCaption = "LGE always appends .lungfishrnaseq and saves the result in the output directory, where the resulting folder name must be unused."
+    static let pseudobulkFolderCaption = "Names a folder that must not exist in the output directory, adding .lungfishrnaseq only if missing from the end."
     static let importResultCaption = "A single-cell .lungfishrnaseq result. LGE matches each cell by sample and barcode, as the result holds them."
     static let importCoordinatesCaption = "LGE's table, or one of 10x's projection.csv files. Choose more than one file for more embeddings."
     static let importClustersCaption = "One of 10x's clusters.csv files."

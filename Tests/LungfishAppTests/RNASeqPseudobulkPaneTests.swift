@@ -28,7 +28,7 @@ final class RNASeqPseudobulkPaneTests: XCTestCase {
     private let e1 = "Groups under 10 cells and cells with no label are left out. The Operations row says which."
     private let e2 = "Per sample, one column for selected cells, one for other drawn cells."
     private let labelsTableFact = "LGE writes the selection's labels table before the run, outside the single-cell result, and the record names it."
-    private let folder = "LGE always appends .lungfishrnaseq and saves the result in the output directory, where the resulting folder name must be unused."
+    private let folder = "Names a folder that must not exist in the output directory, adding .lungfishrnaseq only if missing from the end."
     private let labelsCaption = "A tab-separated table with barcode and label columns, and sample for a result of two or more samples."
     // Ledger E3 and E4 of the Import Embedding pane, which stay as they are.
     private let e3 = "Turn this on when the embedding was computed on counts other than this result's, "
@@ -106,6 +106,14 @@ final class RNASeqPseudobulkPaneTests: XCTestCase {
         XCTAssertEqual(try dialog.find(viewWithAccessibilityIdentifier: "rnaseq-pseudobulk-selection").help().string(), labelsTableFact)
         XCTAssertEqual(try dialog.find(viewWithAccessibilityIdentifier: "rnaseq-pseudobulk-result-name").help().string(), folder)
         XCTAssertEqual(LungfishHelpContent.catalogFaults(in: RNASeqPseudobulkHelp.items), [])
+    }
+
+    /// BIO SF-1 of the 5.6 TV-PSEUDOBULK review. F says LGE adds .lungfishrnaseq only when the name lacks it at the end, so the words are
+    /// tied to the rule they describe. The check ignores case, and a name that already has the suffix is kept as typed.
+    func testThePseudobulkFolderNameAddsTheSuffixOnlyWhenMissing() {
+        XCTAssertEqual(WorkflowOperationDialogState.pseudobulkFolderName(for: "x"), "x.lungfishrnaseq")
+        XCTAssertEqual(WorkflowOperationDialogState.pseudobulkFolderName(for: "x.lungfishrnaseq"), "x.lungfishrnaseq")
+        XCTAssertEqual(WorkflowOperationDialogState.pseudobulkFolderName(for: "x.LungfishRNASeq"), "x.LungfishRNASeq")
     }
 
     // MARK: Import Embedding pane
@@ -323,9 +331,9 @@ final class RNASeqPseudobulkPaneTests: XCTestCase {
         ("Full-Length ONT MHC Genotyping", "Cluster with Savont, then genotype",
          "Cluster the amplicons with Savont and genotype each cluster's consensus sequence against an MHC allele library."),
         ("12S Amplicon Matching", "Review unresolved 12S sequences",
-         "Matches merged reads, unmerged pairs or both exactly to deduplicated FASTA, counting merged reads and pairs with agreeing mates once."),
-        ("Export RNA-seq Counts", "Write counts and R scripts",
-         "Exports one or more results together with scripts for DESeq2, edgeR, limma voom and dream, with single-cell results exported alone."),
+         "Matches merged reads, unmerged pairs or both to deduplicated FASTA without substitutions, counting each merged read or agreeing pair once."),
+        ("Export RNA-seq Counts", "Write counts and scripts",
+         "Exports bulk results together (DESeq2, edgeR, limma voom and dream) or one single-cell result (Seurat and Scanpy) with matching scripts."),
         ("Pseudobulk RNA-seq Cells", "Sum UMIs by sample and label",
          "Sum the UMIs of a single-cell RNA-seq result by sample and label into a new bulk result."),
         (RNASeqCellMapImportWords.title, "Show cells from single-cell RNA-seq",

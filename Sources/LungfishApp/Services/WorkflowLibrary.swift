@@ -155,7 +155,7 @@ enum WorkflowLibraryCatalog {
         maturity: .specialized,
         requiredPluginPackIDs: ["lungfish-tools"],
         capabilities: [.workflowOperations],
-        help: "Matches merged reads, unmerged pairs or both exactly to deduplicated FASTA, counting merged reads and pairs with agreeing mates once."
+        help: "Matches merged reads, unmerged pairs or both to deduplicated FASTA without substitutions, counting each merged read or agreeing pair once."
     )
 
     static let fullLengthONTMHCGenotypingItem = WorkflowLibraryItem(
@@ -176,12 +176,12 @@ enum WorkflowLibraryCatalog {
     static let rnaSeqExportItem = WorkflowLibraryItem(
         id: rnaSeqExportID,
         title: "Export RNA-seq Counts",
-        subtitle: "Write counts and R scripts",
+        subtitle: "Write counts and scripts",
         categoryID: .rnaSeq,
         maturity: .core,
         requiredPluginPackIDs: [],
         capabilities: [.workflowOperations],
-        help: "Exports one or more results together with scripts for DESeq2, edgeR, limma voom and dream, with single-cell results exported alone."
+        help: "Exports bulk results together (DESeq2, edgeR, limma voom and dream) or one single-cell result (Seurat and Scanpy) with matching scripts."
     )
 
     static let rnaSeqPseudobulkItem = WorkflowLibraryItem(
