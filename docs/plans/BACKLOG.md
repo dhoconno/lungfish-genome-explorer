@@ -14,6 +14,7 @@ Every S4 row moved out of both files at the Phase 5 tidy stays readable at `fb43
 
 | Id | Effect on results or users | Severity | Field | Source |
 |---|---|---|---|---|
+| TAXTRIAGE-BUNDLE-NAMES-PAIRED | The TaxTriage dialog strips `_1`, `_2`, `_R1`, `_R2`, `_R1_001` or `_R2_001` from each FASTQ bundle's name and joins two bundles that then share a name into one sample, the first as R1 and the second as R2 (`TaxTriageWizardSheet.swift:735-755`). The row shows two names under one Sample ID and no word says they were paired (`:434-453`). The run passes `--input <X_1 bundle> --input2 <X_2 bundle>`, nothing refuses two bundles (`TaxTriageAnalysisRunTool.swift:198-206`), and two single-end bundles become `fastq_1` and `fastq_2` of one sample (`TaxTriageReadSetPlanner.swift:69-80`, `:130-151`). So `Swab_1` and `Swab_2` from two specimens run as the mates of one sample `Swab`. A third bundle of a group leaves the launch with no word (`:748-750`), and the second bundle's control role is lost (`:758-766`). Whether TaxTriage then completes is unmeasured, so a probe runs two single-end bundles once: Completed or Completed with Warnings makes it S1. Paired bundles fail with misleading words (`SamplesheetReadSetPlanner.swift:128-129`), and several samples are refused as renamed (`AppDelegate+TaxTriageCLIRoute.swift:152-153`). Fix: one sample per bundle named by its whole stem, and pair only loose files through `MatePairFileNaming` | S? probe (S1 if a run of two bundles joined as mates ends in a result) | BIO | `SCR rulings/PRODUCT-4-verdict.md` |
 
 ## Phase 5
 
