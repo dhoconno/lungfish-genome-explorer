@@ -52,9 +52,9 @@ enum RNASeqEmbeddingGeneSupport {
         return found
     }
 
-    /// W5 as the brief words it.
+    /// W5 as the decided file words it (C14a). Why grey is no reading of the gene is in "About the colour scale" (C14b).
     fileprivate static func w5(_ unit: Unit, _ gene: String) -> String {
-        "Colour shows \(unit == .umis ? "UMIs" : "normalised UMIs") of \(gene) in each cell. Grey cells have no UMIs of \(gene) counted, which does not show that the gene is off."
+        "Colour shows \(unit == .umis ? "UMIs" : "normalised UMIs") of \(gene) per cell. Grey cells have no UMIs of \(gene) counted."
     }
 
     fileprivate static func feature(_ number: Int, _ id: String, _ name: String, _ type: String = "Gene Expression", cells: Int = 10) -> Feature {
@@ -137,8 +137,11 @@ final class RNASeqEmbeddingGeneTests: XCTestCase {
             let n = RNASeqEmbeddingWords.number
             XCTAssertEqual(legend.words, [
                 Support.w5(unit, "LYZ"),
-                "Colour runs from 0 to \(n(top)), the 99th percentile of all 200 cells of this cell map, zeros included. Cells above \(n(top)) take the top colour, and the largest value is \(n(stored.maximum)).",
+                "0 to \(n(top)) (99th percentile). The largest value is \(n(stored.maximum)).",
             ])
+            XCTAssertEqual(RNASeqEmbeddingWords.colourScale(cells: 200, gene: true),
+                           "Colour runs from 0 to the 99th percentile of all 200 cells in this map, zeros included, and higher values use the top colour. "
+                           + "If at least 99% of the 200 cells have 0, the scale ends at the largest value.\n\nA grey cell does not rule out gene expression.")
             tops.append(top)
         }
         XCTAssertNotEqual(tops[0], tops[1], "the UMIs and the normalised value each have their own bounds")
@@ -159,7 +162,7 @@ final class RNASeqEmbeddingGeneTests: XCTestCase {
             XCTAssertEqual(made.legend.scale?.top, stored.maximum, "the legend uses the maximum")
             let top = RNASeqEmbeddingWords.number(stored.maximum)
             XCTAssertEqual(made.legend.words, [Support.w5(unit, rare.name),
-                "Colour runs from 0 to \(top), the largest value, since at least 99% of the 200 cells of this cell map have 0."])
+                "0 to \(top), the largest value, since at least 99% of the 200 cells have 0."])
             XCTAssertEqual(made.index.filter { $0 >= RNASeqEmbeddingPalette.gradientBase }.max(),
                            RNASeqEmbeddingPalette.gradientBase + UInt16(RNASeqEmbeddingPalette.gradientSteps - 1), "the largest value takes the top colour")
             XCTAssertEqual(Array(made.index), Support.expectedIndex(stored))
@@ -168,7 +171,7 @@ final class RNASeqEmbeddingGeneTests: XCTestCase {
         let gene = RNASeqGeneChoice(feature: silent.feature, id: silent.id, name: silent.name, unit: .normalised)
         let made = try colours(gene, map)
         XCTAssertTrue(made.index.allSatisfy { $0 == RNASeqEmbeddingPalette.greyIndex })
-        XCTAssertEqual(made.legend.words, [Support.w5(.normalised, silent.name), "All 200 cells of this cell map have 0, so every cell draws in grey."])
+        XCTAssertEqual(made.legend.words, [Support.w5(.normalised, silent.name), "All 200 cells have 0 and appear grey."])
         XCTAssertThrowsError(try RNASeqCellMapLoader.values(map.database, colouring: .gene(
             RNASeqGeneChoice(feature: 999_999, id: "none", name: "none", unit: .umis))), "a feature with no row has no values to read")
     }
@@ -213,7 +216,7 @@ final class RNASeqEmbeddingGeneTests: XCTestCase {
         let gene = RNASeqGeneChoice(feature: 1, id: "ENSG00000280987", name: "MATR3", unit: .umis, sharesName: true)
         XCTAssertEqual(facts.title(of: .gene(gene)), "MATR3 (ENSG00000280987) UMIs")
         XCTAssertEqual(RNASeqEmbeddingWords.geneColour(unit: .umis, gene: gene.label),
-            "Colour shows UMIs of MATR3 (ENSG00000280987) in each cell. Grey cells have no UMIs of MATR3 (ENSG00000280987) counted, which does not show that the gene is off.")
+            "Colour shows UMIs of MATR3 (ENSG00000280987) per cell. Grey cells have no UMIs of MATR3 (ENSG00000280987) counted.")
     }
 
     /// The picker reads `features` of the cell map, so LYZ and S100A9 are found by name or by id, and the cut holds no CD3E.

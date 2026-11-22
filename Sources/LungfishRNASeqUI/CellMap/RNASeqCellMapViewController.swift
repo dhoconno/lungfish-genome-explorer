@@ -58,7 +58,9 @@ public final class RNASeqCellMapViewController: NSViewController {
     public let embeddingInfo = LungfishInfoButton(item: RNASeqEmbeddingWords.embeddingHelp(method: nil, embedding: ""), about: "")
     public let clustersInfo = LungfishInfoButton(item: RNASeqEmbeddingWords.clustersHelp(computed: false, numbers: true)
         ?? RNASeqEmbeddingWords.embeddingHelp(method: nil, embedding: ""), about: RNASeqEmbeddingWords.clustersSubject)
-    var infoButtons: [LungfishInfoButton] { [embeddingInfo, clustersInfo] }
+    /// "About selecting" beside the selection line (S1b).
+    public let selectingInfo = LungfishInfoButton(item: RNASeqEmbeddingSelectionWords.selectingHelp, about: RNASeqEmbeddingSelectionWords.selectingSubject)
+    var infoButtons: [LungfishInfoButton] { [embeddingInfo, clustersInfo, legendView.scaleInfo, selectingInfo] }
     private let xAxis = NSTextField(labelWithString: "")
     private let yAxis = NSTextField(labelWithString: "")
     private let hoverField = NSTextField(wrappingLabelWithString: "")
@@ -123,8 +125,10 @@ public final class RNASeqCellMapViewController: NSViewController {
         plot.onEscape = { [weak self] in self?.escape() }
         legendView.onEscape = { [weak self] in self?.escape() }
         legendView.wrapWidth = Self.contentWidth
+        // How to select is the plot's VoiceOver help and the popover of "About selecting", never a help tag on the plot (S1b).
+        plot.setAccessibilityHelp(RNASeqEmbeddingSelectionWords.howToSelect)
         selectionField.isSelectable = true
-        selectionField.preferredMaxLayoutWidth = Self.contentWidth
+        selectionField.preferredMaxLayoutWidth = Self.contentWidth - ceil(selectingInfo.intrinsicContentSize.width) - 8
         selectionField.setAccessibilityIdentifier("rnaseq-cell-map-selection-count")
         selectionNote.isSelectable = true
         selectionNote.preferredMaxLayoutWidth = Self.contentWidth
@@ -175,7 +179,11 @@ public final class RNASeqCellMapViewController: NSViewController {
             if let lines { column.addArrangedSubview(lines) }
         }
         column.addArrangedSubview(legendView)
-        column.addArrangedSubview(selectionField)
+        let selectionRow = NSStackView(views: [selectionField, selectingInfo])
+        selectionRow.orientation = .horizontal
+        selectionRow.alignment = .centerY
+        selectionRow.spacing = 8
+        column.addArrangedSubview(selectionRow)
         column.addArrangedSubview(selectionNote)
         let actions = NSStackView(views: [saveSelectionButton, pseudobulkSelectionButton])
         actions.orientation = .vertical
@@ -492,24 +500,33 @@ public final class RNASeqCellMapViewController: NSViewController {
     /// The lines that moved to an info button: the caption beside Embedding, W2 and W3 beside Colour by (5.6 U2).
     static let movedLineIDs: Set<String> = ["rnaseq-cell-map-caption", "rnaseq-cell-map-computed-labels", "rnaseq-cell-map-cluster-numbers"]
     /// The lines about the label set, which sit under Colour by. The rest sit under Embedding.
-    static let labelLineIDs: Set<String> = ["rnaseq-cell-map-imported-labels", "rnaseq-cell-map-fact-labels"]
+    static let labelLineIDs: Set<String> = ["rnaseq-cell-map-imported-labels", "rnaseq-cell-map-labels-computed-by"]
 
-    /// Lays each line of what is shown under the control it belongs to, in the order the column had, and points the
-    /// info buttons at their caveats. "About clusters" hides when no caveat of it holds.
+    /// Lays each line of what is shown under the control it belongs to and points the info buttons at their caveats.
+    /// "About clusters" hides when no caveat of it holds.
     private func place(_ shown: RNASeqCellMapSnapshot) {
         let words = wordLines(shown)
         let lines = words.filter { !Self.movedLineIDs.contains($0.id) }.map { Self.text($0.text, id: $0.id, wraps: true) as NSView }
-            + factLines(shown).map { Self.fact($0.label, $0.value) }
+            + viewFacts(shown).map { Self.fact($0.label, $0.value) }
         let underColour = { (view: NSView) in Self.labelLineIDs.contains(Self.lineID(view)) }
         Self.replace(embeddingLines, with: lines.filter { !underColour($0) })
         Self.replace(labelLines, with: lines.filter(underColour))
         let embedding = shown.facts.embeddings.first { $0.embedding == shown.points.embedding }
         let name = embedding?.name ?? ""
-        embeddingInfo.configure(item: RNASeqEmbeddingWords.embeddingHelp(method: embedding?.method, embedding: name),
-                                about: RNASeqEmbeddingWords.methodSubject(method: embedding?.method, embedding: name))
         let ids = Set(words.map(\.id))
+        embeddingInfo.configure(item: RNASeqEmbeddingWords.embeddingHelp(method: embedding?.method, embedding: name,
+                                                                         otherCounts: ids.contains("rnaseq-cell-map-other-counts")),
+                                about: RNASeqEmbeddingWords.methodSubject(method: embedding?.method, embedding: name))
+        var gene = false
+        var unlabelled = false
+        if case .gene = shown.colouring { gene = true }
+        if case .labelSet(let id) = shown.colouring {
+            unlabelled = shown.facts.labelSets.first { $0.labelSet == id }?.samples.contains { $0.unlabelled > 0 } ?? false
+        }
+        legendView.scaleInfo.configure(item: RNASeqEmbeddingWords.scaleHelp(cells: shown.facts.cellCount, gene: gene),
+                                       about: RNASeqEmbeddingWords.scaleSubject)
         if let item = RNASeqEmbeddingWords.clustersHelp(computed: ids.contains("rnaseq-cell-map-computed-labels"),
-                                                         numbers: ids.contains("rnaseq-cell-map-cluster-numbers")) {
+                                                         numbers: ids.contains("rnaseq-cell-map-cluster-numbers"), unlabelled: unlabelled) {
             clustersInfo.configure(item: item, about: RNASeqEmbeddingWords.clustersSubject)
             clustersInfo.isHidden = false
         } else {
@@ -532,13 +549,15 @@ public final class RNASeqCellMapViewController: NSViewController {
         let facts = shown.facts
         guard let embedding = facts.embeddings.first(where: { $0.embedding == shown.points.embedding }) else { return [] }
         var lines = [(id: "rnaseq-cell-map-caption", text: RNASeqEmbeddingWords.caption(method: embedding.method, embedding: embedding.name))]
-        if embedding.source == "imported" {
-            lines.append(("rnaseq-cell-map-imported", RNASeqEmbeddingWords.importedCoordinates(file: Self.fileName(embedding.sourceFile))))
-        }
+        // One line says who made the coordinates, "not computed by LGE" or "Computed by <tool> <version>" whole (C4).
+        lines.append(embedding.source == "imported"
+                     ? ("rnaseq-cell-map-imported", RNASeqEmbeddingWords.imported(file: Self.fileName(embedding.sourceFile)))
+                     : ("rnaseq-cell-map-computed-by", source(kind: embedding.source, file: embedding.sourceFile)))
         if embedding.otherCounts {
             lines.append(("rnaseq-cell-map-other-counts", RNASeqEmbeddingWords.otherCounts(embedding: embedding.name, parent: parentName)))
         }
-        for row in facts.embeddingCells where row.embedding == embedding.embedding && row.leftOut > 0 {
+        // A map of one sample says its left-out cells in its Cells drawn row (C6a, `viewFacts`).
+        for row in facts.embeddingCells where facts.samples.count > 1 && row.embedding == embedding.embedding && row.leftOut > 0 {
             lines.append(("rnaseq-cell-map-left-out-\(row.sample)",
                           RNASeqEmbeddingWords.leftOut(row.leftOut, of: row.drawn + row.leftOut, sample: facts.sampleName(row.sample), embedding: embedding.name)))
         }
@@ -547,11 +566,29 @@ public final class RNASeqCellMapViewController: NSViewController {
             if !set.labels.isEmpty, set.labels.allSatisfy({ !$0.name.isEmpty && $0.name.allSatisfy(\.isNumber) }) {
                 lines.append(("rnaseq-cell-map-cluster-numbers", RNASeqEmbeddingWords.clusterNumbers))
             }
-            if set.source == "imported" {
-                lines.append(("rnaseq-cell-map-imported-labels", RNASeqEmbeddingWords.importedLabels(set: set.name, file: Self.fileName(set.sourceFile))))
-            }
+            lines.append(set.source == "imported"
+                         ? ("rnaseq-cell-map-imported-labels", RNASeqEmbeddingWords.imported(file: Self.fileName(set.sourceFile)))
+                         : ("rnaseq-cell-map-labels-computed-by", source(kind: set.source, file: set.sourceFile)))
         }
         return lines
+    }
+
+    /// The fact rows laid in view: Embedding only while its method is not recorded (C3c), and Cells drawn, which on a map
+    /// of one sample also says its left-out cells (C6a, C6c). The parent, the source and the labels' facts are the
+    /// Inspector's (C17), and `factLines` keeps every row for it.
+    func viewFacts(_ shown: RNASeqCellMapSnapshot) -> [(label: String, value: String)] {
+        let facts = shown.facts
+        guard let embedding = facts.embeddings.first(where: { $0.embedding == shown.points.embedding }) else { return [] }
+        let all = factLines(shown)
+        var rows = (embedding.method ?? "").isEmpty ? all.filter { $0.label == "Embedding" } : []
+        let single = facts.samples.count == 1 ? facts.embeddingCells.first { $0.embedding == embedding.embedding && $0.leftOut > 0 } : nil
+        if let single {
+            rows.append(("Cells drawn", RNASeqEmbeddingWords.cellsDrawn(embedding.cells, of: facts.cellCount, sample: facts.sampleName(single.sample),
+                                                                         leftOut: single.leftOut, embedding: embedding.name)))
+        } else {
+            rows += all.filter { $0.label == "Cells drawn" }
+        }
+        return rows
     }
 
     /// The fact lines of 5.5 V5, values as the manifest and the file hold them.

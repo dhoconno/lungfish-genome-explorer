@@ -37,13 +37,13 @@ public enum RNASeqEmbeddingWords {
     public static func caption(method recorded: String?, embedding: String) -> String {
         switch method(recorded) {
         case .neighbours(let name):
-            return "\(name) places cells with similar counts near each other on a flat picture. Only near neighbours mean something. The distance between groups far apart, the size of a group and the space between groups carry no meaning."
+            return "\(name) puts cells with similar counts near each other on a flat plot. Only local neighbours matter. Distances between far-apart groups, group sizes and gaps between groups carry no meaning."
         case .phate:
-            return "PHATE draws cells along smooth paths. A path suggests a transition, not an order in time."
+            return "PHATE draws cells along smooth paths. A path suggests a transition and gives no time order."
         case .other(let name):
-            return "\(embedding) holds the coordinates \(name) gave each cell. LGE draws its first two dimensions as given and computes nothing from them."
+            return "\(embedding) stores the coordinates \(name) gave each cell. LGE plots the first two dimensions as given and computes nothing from them."
         case .notRecorded:
-            return "The method that made \(embedding) is not recorded. LGE draws its first two dimensions as given and computes nothing from them."
+            return "The method used for \(embedding) is not recorded. LGE plots the first two dimensions as given and computes nothing from them."
         }
     }
 
@@ -53,34 +53,42 @@ public enum RNASeqEmbeddingWords {
         return ("\(name) 1", "\(name) 2")
     }
 
-    /// W2, beside labels that LGE computed.
-    public static let computedLabels = "Clusters come from a graph of each cell's nearest neighbours, not from this picture, so one cluster can look split here and two can look joined."
-    /// W3, beside a label set whose labels are all numbers.
-    public static let clusterNumbers = "A cluster number is a name, not a rank. Another run can number the same groups differently. Naming a cluster as a cell type is the analyst's call."
+    /// W2, in "About clusters" for labels that LGE computed (C8).
+    public static let computedLabels = "Clusters come from a graph of each cell's nearest neighbours. The plot plays no part in forming them, so one cluster can look split or two can look joined."
+    /// W3, in "About clusters" for a label set whose labels are all numbers (C9). BIO sent the first decided words back
+    /// (BIOWORDS-TV-CELLMAP item 2) and cleared Sol's revised words on recheck (5.5 W1), so these are the decided words.
+    public static let clusterNumbers = "Cluster numbers name groups and give no rank. Another run can give the same groups different numbers. The analyst decides whether to name a cluster as a cell type."
+    /// In "About clusters" when a sample has cells with no label (C7b).
+    public static let unlabelledGrey = "Cells with no label appear in grey beneath the other cells."
 
-    /// W4, for imported coordinates.
-    public static func importedCoordinates(file: String) -> String {
-        "Coordinates imported from \(file). LGE did not compute them."
+    /// W4, the line under Embedding or Colour by for imported coordinates or labels, whose sha256 the Inspector shows (C4a, C10a).
+    public static func imported(file: String) -> String {
+        "Imported from \(file), not computed by LGE"
     }
 
-    /// W4, for imported labels.
-    public static func importedLabels(set: String, file: String) -> String {
-        "Labels of \(set) imported from \(file). LGE did not compute them."
-    }
-
-    /// 5.5 I3, when the record says the embedding came from other counts.
+    /// 5.5 I3, the line under Embedding when the record says the embedding came from other counts (C5a).
     public static func otherCounts(embedding: String, parent: String) -> String {
-        "\(embedding) was computed on other counts, not on the counts of \(parent), so a cell's place need not follow the counts this result holds."
+        "\(embedding) was computed on other counts, not those of \(parent)."
     }
 
-    /// 5.5 I3, the cells of one sample that an embedding leaves out, as `embedding_cells` counts them.
+    /// 5.5 I3, in "About <method>" after the method's words when the other-counts line shows (C5b).
+    public static let otherCountsPlace = "A cell's position need not reflect this result's counts."
+
+    /// 5.5 I3, the cells of one sample that an embedding leaves out on a map of two or more samples, as `embedding_cells`
+    /// counts them (C6b).
     public static func leftOut(_ count: Int, of cells: Int, sample: String, embedding: String) -> String {
-        "\(count) of the \(cells) cells of \(sample) have no coordinates in \(embedding) and are not drawn."
+        "\(count) of \(cells) cells in \(sample) have no coordinates in \(embedding) and aren't drawn."
     }
 
-    /// The cells of one sample with no label in a set, as `label_set_samples` counts them.
+    /// 5.5 I3, the Cells drawn value on a map of one sample whose embedding leaves cells out (C6a). The numbers are the
+    /// manifest's and `embedding_cells`'s.
+    public static func cellsDrawn(_ drawn: Int, of cells: Int, sample: String, leftOut: Int, embedding: String) -> String {
+        "\(drawn) of \(cells) in \(sample). \(leftOut) have no coordinates in \(embedding)."
+    }
+
+    /// The cells of one sample with no label in a set, as `label_set_samples` counts them (C7a).
     public static func unlabelled(_ count: Int, sample: String, set: String) -> String {
-        "\(count) cells of \(sample) have no label in \(set) and draw in grey under the others."
+        "\(sample) has \(count) cells with no label in \(set)."
     }
 
     public static let coloursRepeat = "Colours repeat after 19 labels."
@@ -89,21 +97,30 @@ public enum RNASeqEmbeddingWords {
     /// The sentence that ends a count's scale words. A gene's words name the grey cells in W5 and pass none.
     public static let greyHaveZero = "Grey cells have 0."
 
-    /// The scale's words with a p99 above 0 (`docs/formats/rnaseq-cell-map.md`, Bounds).
-    public static func scale(p99: String, cells: Int, maximum: String, grey: String? = greyHaveZero) -> String {
-        sentence("Colour runs from 0 to \(p99), the 99th percentile of all \(cells) cells of this cell map, zeros included. Cells above \(p99) take the top colour, and the largest value is \(maximum).", grey)
+    /// The scale's words with a p99 above 0 (`docs/formats/rnaseq-cell-map.md`, Bounds, C12a). The definition is in
+    /// "About the colour scale".
+    public static func scale(p99: String, maximum: String, grey: String? = greyHaveZero) -> String {
+        sentence("0 to \(p99) (99th percentile). The largest value is \(maximum).", grey)
     }
 
-    /// The scale's words when at least 99% of the cells have 0.
+    /// The scale's words when at least 99% of the cells have 0 (C12c).
     public static func scaleToMaximum(maximum: String, cells: Int, grey: String? = greyHaveZero) -> String {
-        sentence("Colour runs from 0 to \(maximum), the largest value, since at least 99% of the \(cells) cells of this cell map have 0.", grey)
+        sentence("0 to \(maximum), the largest value, since at least 99% of the \(cells) cells have 0.", grey)
     }
 
     private static func sentence(_ words: String, _ grey: String?) -> String { grey.map { "\(words) \($0)" } ?? words }
 
-    /// The scale's words when no cell has a count.
+    /// The scale's words when no cell has a count (C13b).
     public static func scaleAllZero(cells: Int) -> String {
-        "All \(cells) cells of this cell map have 0, so every cell draws in grey."
+        "All \(cells) cells have 0 and appear grey."
+    }
+
+    /// "About the colour scale" beside the legend's title, both scale states (C12b), and for a gene why grey is no
+    /// reading of the gene (C14b).
+    public static func colourScale(cells: Int, gene: Bool) -> String {
+        "Colour runs from 0 to the 99th percentile of all \(cells) cells in this map, zeros included, and higher values use the top colour. "
+            + "If at least 99% of the \(cells) cells have 0, the scale ends at the largest value."
+            + (gene ? "\n\nA grey cell does not rule out gene expression." : "")
     }
 
     /// The plot's VoiceOver label (UX U-A3).
@@ -154,17 +171,27 @@ extension RNASeqEmbeddingWords {
     }
 
     /// The item beside Embedding. Its popover holds the method's caption (C1 to C3).
-    public static func embeddingHelp(method recorded: String?, embedding: String) -> LungfishHelpContent.HelpItem {
-        LungfishHelpContent.HelpItem(id: embeddingHelpID, summary: "About \(methodSubject(method: recorded, embedding: embedding))",
-                                     detail: caption(method: recorded, embedding: embedding), audience: .benchScientist)
+    public static func embeddingHelp(method recorded: String?, embedding: String, otherCounts: Bool = false) -> LungfishHelpContent.HelpItem {
+        LungfishHelpContent.HelpItem(id: embeddingHelpID, summary: "Explains how to read the plot.",
+                                     detail: caption(method: recorded, embedding: embedding) + (otherCounts ? "\n\n\(otherCountsPlace)" : ""),
+                                     audience: .benchScientist)
     }
 
-    /// The item beside Colour by, with W2 for labels LGE computed and W3 for labels that are all numbers (C8, C9). Nil
-    /// when neither holds, and the button then hides.
-    public static func clustersHelp(computed: Bool, numbers: Bool) -> LungfishHelpContent.HelpItem? {
-        let words = [computed ? computedLabels : nil, numbers ? clusterNumbers : nil].compactMap { $0 }
+    /// The item beside Colour by, with W2 for labels LGE computed, W3 for labels that are all numbers and the grey of
+    /// cells with no label (C8, C9, C7b). Nil when none holds, and the button then hides.
+    public static func clustersHelp(computed: Bool, numbers: Bool, unlabelled: Bool = false) -> LungfishHelpContent.HelpItem? {
+        let words = [computed ? computedLabels : nil, numbers ? clusterNumbers : nil, unlabelled ? unlabelledGrey : nil].compactMap { $0 }
         guard !words.isEmpty else { return nil }
-        return LungfishHelpContent.HelpItem(id: clustersHelpID, summary: "About \(clustersSubject)", detail: words.joined(separator: "\n\n"),
+        return LungfishHelpContent.HelpItem(id: clustersHelpID, summary: "Explains what cluster labels mean.", detail: words.joined(separator: "\n\n"),
                                             audience: .benchScientist)
+    }
+
+    public static let scaleHelpID = "rnaseq.cellmap.scale"
+    public static let scaleSubject = "the colour scale"
+
+    /// The item beside the legend's title while a colour bar shows (C12b, C14b).
+    public static func scaleHelp(cells: Int, gene: Bool) -> LungfishHelpContent.HelpItem {
+        LungfishHelpContent.HelpItem(id: scaleHelpID, summary: "Explains how colours are assigned to values.",
+                                     detail: colourScale(cells: cells, gene: gene), audience: .benchScientist)
     }
 }

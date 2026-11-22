@@ -11,6 +11,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 import LungfishWorkflow
 
 /// The words of selecting. UX reads them at the notes step.
@@ -21,9 +22,19 @@ public enum RNASeqEmbeddingSelectionWords {
     public static let clearTitle = "Clear Selection"
     /// The VoiceOver action on each legend child of the plot group (5.5 V2).
     public static let selectAction = "Select these cells"
-    public static let none = "No cells selected. Drag around cells, or click a legend row."
-    public static let noOneCommand = "One lungfish-cli command cannot name this selection, since it joins lassos or picks samples. "
-        + "Draw one lasso, or pick labels of one label set, to save it or pseudobulk it."
+    /// The selection line with nothing selected, which VoiceOver also announces (S1a).
+    public static let none = "No cells selected"
+    /// How to select, in "About selecting" beside the selection line and in the plot's VoiceOver help, never in a help
+    /// tag on the plot, whose hover shows the cell (S1b).
+    public static let howToSelect = "Drag around cells or click a legend row to select its cells."
+    public static let selectingHelpID = "rnaseq.cellmap.selecting"
+    public static let selectingSubject = "selecting"
+    public static let selectingHelp = LungfishHelpContent.HelpItem(id: selectingHelpID, summary: "Explains how to select cells on the plot.",
+                                                                   detail: howToSelect, audience: .benchScientist)
+    /// The line under the count while no one command can name the selection (S2a), and the help tag of the two disabled
+    /// buttons then (S2h).
+    public static let noOneCommand = "lungfish-cli needs one lasso or labels from one set."
+    public static let noOneCommandHelp = "Select cells with one lasso or labels from one set to enable this action."
 
     public static func count(_ cells: Int) -> String {
         cells == 1 ? "1 cell selected" : "\(RNASeqCellMapImportRefusal.number(cells)) cells selected"
@@ -36,8 +47,7 @@ public enum RNASeqEmbeddingSelectionWords {
 
     /// The line beside the count for a sample whose selection is under 10 cells (CM-SELECT-CLI-BIO backlog 10).
     public static func underTen(sample: String, cells: Int) -> String {
-        "\(sample) holds \(cells) selected \(cells == 1 ? "cell" : "cells"), under 10, so the pseudobulk leaves out its selected column "
-            + "and counts those cells with the cells that have no label."
+        "Pseudobulk counts \(sample)'s \(cells) selected \(cells == 1 ? "cell" : "cells") (under 10) with unlabelled cells and skips that sample's selected column."
     }
 }
 
@@ -314,6 +324,10 @@ extension RNASeqCellMapViewController {
         let named = selectionRequest() != nil
         saveSelectionButton.isEnabled = named
         pseudobulkSelectionButton.isEnabled = named && result?.manifest.parent != nil
+        // A disabled button's help tag gives the reason while no one command names the selection (S2h).
+        let reason = selection?.form == nil && selection != nil ? RNASeqEmbeddingSelectionWords.noOneCommandHelp : nil
+        saveSelectionButton.toolTip = reason
+        pseudobulkSelectionButton.toolTip = reason
         legendView.mark(selection.flatMap { $0.rowsColouring == snapshot?.colouring ? $0.rows : nil } ?? [])
         guard words != selectionAnnouncement else { return }
         selectionAnnouncement = words

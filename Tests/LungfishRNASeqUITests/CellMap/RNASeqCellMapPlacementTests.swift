@@ -143,7 +143,13 @@ extension RNASeqCellMapViewControllerTests {
         XCTAssertEqual(visibleWords(in: controller.view, legend: controller.legendView), words, "a hidden label and a button title count no word")
         print("TV-CELLMAP walk-state words \(words), base \(Self.pinnedWalkStateWords)")
         XCTAssertLessThanOrEqual(words, Self.pinnedWalkStateWords, "the walk state reads no more words than at the base")
+        XCTAssertEqual(words, Self.walkStateWordBar, "the walk state reads the bar UX set")
     }
+
+    /// 5.6 U7's bar for the walk state. The ruled lines alone read 46 words, past 40, so a ruled line wins and UX sets the
+    /// bar at the head's measured count (`docs/plans/2026-11-21-text-in-views.md:164`, TV-CELLMAP decided item 7). The
+    /// base read 193 (`pinnedWalkStateWords`).
+    static let walkStateWordBar = 51
 
     /// LYZ in the unit asked, from the cell map's features.
     func lyz(_ controller: RNASeqCellMapViewController) throws -> RNASeqGeneChoice {
@@ -174,8 +180,10 @@ extension RNASeqCellMapViewControllerTests {
         for entry in block {
             if entry.id.isEmpty { name.append(entry) } else { lines.append(name + [entry]); name = [] }
         }
-        let moved: Set<String> = ["rnaseq-cell-map-caption", "rnaseq-cell-map-cluster-numbers"]
-        let kept = lines.filter { !moved.contains($0.last?.id ?? "") }
+        // The words step: the P rows leave the view (C17), and on this map of one sample the left-out line joins Cells
+        // drawn, which keeps its place (C6a).
+        let moved: Set<String> = ["rnaseq-cell-map-caption", "rnaseq-cell-map-cluster-numbers", joinedCellsDrawn]
+        let kept = lines.filter { !moved.union(leftTheView).contains($0.last?.id ?? "") }
         let underColour = { (line: [RNASeqCellMapAXEntry]) in RNASeqCellMapViewController.labelLineIDs.contains(line.last?.id ?? "") }
         let embedding = (order.firstIndex { $0.id == "rnaseq-cell-map-embedding" } ?? 0) + 1
         order.insert(contentsOf: [RNASeqCellMapAXEntry("AXButton", "info-rnaseq.cellmap.embedding", "About UMAP")]
@@ -183,8 +191,17 @@ extension RNASeqCellMapViewControllerTests {
         let colour = (order.firstIndex { $0.id == "rnaseq-cell-map-colour" } ?? 0) + 1
         order.insert(contentsOf: [RNASeqCellMapAXEntry("AXButton", "info-rnaseq.cellmap.clusters", "About clusters")]
                      + kept.filter(underColour).flatMap { $0 }, at: colour)
+        // "About selecting" follows the selection line it explains (S1b).
+        let count = (order.firstIndex { $0.id == "rnaseq-cell-map-selection-count" } ?? 0) + 1
+        order.insert(RNASeqCellMapAXEntry("AXButton", "info-rnaseq.cellmap.selecting", "About selecting"), at: count)
         return order
     }
+
+    /// The P rows that leave the view for the Inspector (C17), whose fact lines keep them.
+    static let leftTheView: Set<String> = ["rnaseq-cell-map-fact-parent-result", "rnaseq-cell-map-fact-embedding", "rnaseq-cell-map-fact-source",
+                                           "rnaseq-cell-map-fact-labels"]
+    /// The left-out line that joins Cells drawn on a map of one sample (C6a).
+    static let joinedCellsDrawn = "rnaseq-cell-map-left-out-1"
 
     /// Whether `view` is drawn inside the column's insets, not hidden and not cut short in height. The insets bound the
     /// view's alignment rect, where the stack lays it and where its content draws: a text field's frame reaches 2 pt past
@@ -291,8 +308,9 @@ extension RNASeqCellMapViewControllerTests {
     func testTheCellMapsHelpItemsPassTheCatalogCheck() throws {
         for method in ["UMAP", "t-SNE", "PHATE", "PCA", nil] as [String?] {
             for (computed, numbers) in [(true, true), (true, false), (false, true)] {
-                let items = [RNASeqEmbeddingWords.embeddingHelp(method: method, embedding: "TSNE"),
-                             try XCTUnwrap(RNASeqEmbeddingWords.clustersHelp(computed: computed, numbers: numbers))]
+                let items = [RNASeqEmbeddingWords.embeddingHelp(method: method, embedding: "TSNE", otherCounts: numbers),
+                             try XCTUnwrap(RNASeqEmbeddingWords.clustersHelp(computed: computed, numbers: numbers, unlabelled: computed)),
+                             RNASeqEmbeddingWords.scaleHelp(cells: 200, gene: computed), RNASeqEmbeddingSelectionWords.selectingHelp]
                 XCTAssertEqual(LungfishHelpContent.catalogFaults(in: items), [], "\(method ?? "no method")")
             }
         }
@@ -323,15 +341,38 @@ extension RNASeqCellMapViewControllerTests {
             for id in ids { if let laid = field(id, in: controller.view) { assertInsideTheColumn(laid, "\(state) \(id)", in: controller) } }
             if let snapshot = controller.snapshot, let embedding = snapshot.facts.embeddings.first(where: { $0.embedding == snapshot.points.embedding }) {
                 assertInsideTheColumn(controller.embeddingInfo, "\(state) About \(embedding.name)", in: controller)
-                XCTAssertEqual(controller.embeddingInfo.popoverController.text, RNASeqEmbeddingWords.caption(method: embedding.method, embedding: embedding.name))
+                let other = ids.contains("rnaseq-cell-map-other-counts")
+                XCTAssertEqual(controller.embeddingInfo.popoverController.text,
+                               RNASeqEmbeddingWords.caption(method: embedding.method, embedding: embedding.name) + (other ? "\n\n" + RNASeqEmbeddingWords.otherCountsPlace : ""))
                 XCTAssertNil(shown["rnaseq-cell-map-caption"])
                 ids.append("rnaseq-cell-map-caption")
+                // The P rows went to the Inspector (C17): each pinned one is gone from the view and kept in the fact lines.
+                let facts = Dictionary(controller.factLines(snapshot).map { ("rnaseq-cell-map-fact-\($0.label.lowercased().replacingOccurrences(of: " ", with: "-"))", $0.value) },
+                                       uniquingKeysWith: { first, _ in first })
+                for id in Self.pinnedCaveatIDs[state, default: []] where Self.leftTheView.contains(id) {
+                    XCTAssertNil(shown[id], "\(state) \(id) left the view")
+                    XCTAssertNotNil(facts[id], "\(state) \(id) is in the Inspector's fact lines")
+                    ids.append(id)
+                }
+                // On this map of one sample the left-out line joined Cells drawn (C6a).
+                if Self.pinnedCaveatIDs[state, default: []].contains(Self.joinedCellsDrawn) {
+                    XCTAssertNil(shown[Self.joinedCellsDrawn])
+                    XCTAssertTrue(shown["rnaseq-cell-map-fact-cells-drawn"]?.contains("3 have no coordinates in \(embedding.name).") == true,
+                                  "\(state) Cells drawn: \(shown["rnaseq-cell-map-fact-cells-drawn"] ?? "none")")
+                    ids.append(Self.joinedCellsDrawn)
+                }
             }
             if !controller.clustersInfo.isHidden {
                 assertInsideTheColumn(controller.clustersInfo, "\(state) About clusters", in: controller)
-                XCTAssertEqual(controller.clustersInfo.popoverController.text, RNASeqEmbeddingWords.clusterNumbers)
+                // W3 (C9, Sol's revised words cleared by BIO on recheck) and the grey of the 3 unlabelled cells (C7b).
+                XCTAssertEqual(controller.clustersInfo.popoverController.text, RNASeqEmbeddingWords.clusterNumbers + "\n\n" + RNASeqEmbeddingWords.unlabelledGrey)
                 ids.append("rnaseq-cell-map-cluster-numbers")
             }
+            if controller.snapshot?.colours.legend.scale != nil {
+                assertInsideTheColumn(controller.legendView.scaleInfo, "\(state) About the colour scale", in: controller)
+                XCTAssertEqual(controller.legendView.scaleInfo.accessibilityLabel(), "About the colour scale")
+            }
+            assertInsideTheColumn(controller.selectingInfo, "\(state) About selecting", in: controller)
             found[state] = ids.sorted()
             words[state] = visibleWords(in: controller.view, legend: controller.legendView)
         }

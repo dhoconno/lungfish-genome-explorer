@@ -9,6 +9,7 @@
 
 import AppKit
 import LungfishIO
+import LungfishKit
 
 /// What the legend shows for one colouring.
 public struct RNASeqEmbeddingLegend: Equatable, Sendable {
@@ -63,6 +64,8 @@ public final class RNASeqEmbeddingLegendView: NSStackView {
     public private(set) var markedRows: Set<Int> = []
     /// The width every line of the legend fits in, which the cell map sets from its column (5.6 L1).
     public var wrapWidth: CGFloat = 260
+    /// "About the colour scale", beside the title while a colour bar shows. The cell map sets its words.
+    public let scaleInfo = LungfishInfoButton(item: RNASeqEmbeddingWords.scaleHelp(cells: 0, gene: false), about: RNASeqEmbeddingWords.scaleSubject)
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -85,8 +88,21 @@ public final class RNASeqEmbeddingLegendView: NSStackView {
         let title = NSTextField(labelWithString: legend.title)
         title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
         title.setAccessibilityIdentifier("rnaseq-cell-map-legend-title")
-        Self.truncates(title, name: legend.title, width: wrapWidth)
-        addArrangedSubview(title)
+        if legend.scale != nil {
+            // "About the colour scale" sits beside the title of a colour bar, and the title gives way to it (C12b).
+            title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            scaleInfo.setContentCompressionResistancePriority(.required, for: .horizontal)
+            let row = NSStackView(views: [title, scaleInfo])
+            row.orientation = .horizontal
+            row.alignment = .centerY
+            row.spacing = 6
+            Self.truncates(row, name: legend.title, width: wrapWidth, field: title)
+            addArrangedSubview(row)
+        } else {
+            scaleInfo.closePopover()
+            Self.truncates(title, name: legend.title, width: wrapWidth)
+            addArrangedSubview(title)
+        }
         for (index, row) in legend.rows.enumerated() {
             let swatch = NSView(frame: NSRect(x: 0, y: 0, width: 12, height: 12))
             swatch.wantsLayer = true

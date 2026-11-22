@@ -125,9 +125,10 @@ extension RNASeqEmbeddingWords {
     /// A gene unit as a person reads it.
     public static func geneUnit(_ unit: RNASeqCellMapDatabase.GeneUnit) -> String { unit == .umis ? "UMIs" : "normalised UMIs" }
 
-    /// W5, under the legend of a gene. The unit comes first, and a grey cell is never called off or not expressed.
+    /// W5, under the legend of a gene (C14a). The unit comes first, and a grey cell is never called off or not expressed:
+    /// why grey is no reading of the gene is in "About the colour scale" (C14b).
     public static func geneColour(unit: RNASeqCellMapDatabase.GeneUnit, gene: String) -> String {
-        "Colour shows \(geneUnit(unit)) of \(gene) in each cell. Grey cells have no UMIs of \(gene) counted, which does not show that the gene is off."
+        "Colour shows \(geneUnit(unit)) of \(gene) per cell. Grey cells have no UMIs of \(gene) counted."
     }
 
     /// The normalised value's formula as `cellmap.sqlite` records it.

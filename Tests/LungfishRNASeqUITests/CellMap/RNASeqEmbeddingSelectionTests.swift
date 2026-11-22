@@ -178,7 +178,18 @@ final class RNASeqEmbeddingSelectionTests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(controller.selection?.count), first)
         XCTAssertNil(controller.selectionRequest(), "a joined selection has no one command")
         XCTAssertEqual(controller.selectionNote.stringValue, RNASeqEmbeddingSelectionWords.noOneCommand)
+        XCTAssertEqual(controller.selectionNote.stringValue, "lungfish-cli needs one lasso or labels from one set.")
         XCTAssertFalse(controller.pseudobulkSelectionButton.isEnabled)
+        // S2h: the disabled buttons' help tags give the reason, and the plot's hover keeps no help tag (S1b).
+        XCTAssertEqual(controller.saveSelectionButton.toolTip, RNASeqEmbeddingSelectionWords.noOneCommandHelp)
+        XCTAssertEqual(controller.pseudobulkSelectionButton.toolTip, RNASeqEmbeddingSelectionWords.noOneCommandHelp)
+        XCTAssertNil(controller.plot.toolTip)
+        XCTAssertEqual(controller.plot.accessibilityHelp(), RNASeqEmbeddingSelectionWords.howToSelect)
+        XCTAssertEqual(controller.selectingInfo.popoverController.text, "Drag around cells or click a legend row to select its cells.")
+        controller.cancelOperation(nil)
+        await settle(controller)
+        XCTAssertEqual(controller.selectionField.stringValue, "No cells selected")
+        XCTAssertNil(controller.saveSelectionButton.toolTip, "with nothing selected the buttons give no reason")
     }
 
     /// Escape and Space as key events, which the tests above reach only through `cancelOperation` and `onRowToggle`
@@ -228,10 +239,10 @@ final class RNASeqEmbeddingSelectionTests: XCTestCase {
         }
         let words = selection(counts).underTenWords
         XCTAssertEqual(words.count, 1, "b holds 10 selected cells, which is not under 10")
-        XCTAssertTrue(words.first?.hasPrefix("a holds 3 selected cells") == true, "\(words)")
+        XCTAssertEqual(words.first, "Pseudobulk counts a's 3 selected cells (under 10) with unlabelled cells and skips that sample's selected column.")
         let one = selection([RNASeqEmbeddingSelectionSample(sample: "a", selected: 1)]).underTenWords
         XCTAssertEqual(one.count, 1)
-        XCTAssertTrue(one.first?.hasPrefix("a holds 1 selected cell,") == true, "a single cell is singular: \(one)")
+        XCTAssertTrue(one.first?.hasPrefix("Pseudobulk counts a's 1 selected cell (under 10)") == true, "a single cell is singular: \(one)")
         XCTAssertEqual(selection([RNASeqEmbeddingSelectionSample(sample: "a", selected: 0)]).underTenWords, [],
                        "a sample with none selected gets no line")
     }

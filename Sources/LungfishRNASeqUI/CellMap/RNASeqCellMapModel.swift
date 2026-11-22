@@ -234,7 +234,7 @@ public struct RNASeqCellMapColours: Sendable {
         if scale.maximum <= 0 {
             legend.words.append(RNASeqEmbeddingWords.scaleAllZero(cells: facts.cellCount))
         } else if scale.p99 > 0 {
-            legend.words.append(RNASeqEmbeddingWords.scale(p99: RNASeqEmbeddingWords.number(scale.p99), cells: facts.cellCount,
+            legend.words.append(RNASeqEmbeddingWords.scale(p99: RNASeqEmbeddingWords.number(scale.p99),
                                                             maximum: RNASeqEmbeddingWords.number(scale.maximum), grey: grey))
         } else {
             legend.words.append(RNASeqEmbeddingWords.scaleToMaximum(maximum: RNASeqEmbeddingWords.number(scale.maximum), cells: facts.cellCount,

@@ -192,8 +192,7 @@ final class RNASeqCellMapViewModelTests: XCTestCase {
             if row.maximum <= 0 {
                 words = RNASeqEmbeddingWords.scaleAllZero(cells: shown.facts.cellCount)
             } else if row.p99 > 0 {
-                words = RNASeqEmbeddingWords.scale(p99: RNASeqEmbeddingWords.number(row.p99), cells: shown.facts.cellCount,
-                                                   maximum: RNASeqEmbeddingWords.number(row.maximum))
+                words = RNASeqEmbeddingWords.scale(p99: RNASeqEmbeddingWords.number(row.p99), maximum: RNASeqEmbeddingWords.number(row.maximum))
             } else {
                 words = RNASeqEmbeddingWords.scaleToMaximum(maximum: RNASeqEmbeddingWords.number(row.maximum), cells: shown.facts.cellCount)
             }
@@ -247,7 +246,8 @@ final class RNASeqCellMapViewWordsTests: XCTestCase {
     func testUMAPAndTSNEShareW1AndPCAOrNoMethodGetsTheNeutralCaption() {
         let umap = RNASeqEmbeddingWords.caption(method: "UMAP", embedding: "umap")
         let tsne = RNASeqEmbeddingWords.caption(method: "t-SNE", embedding: "TSNE")
-        XCTAssertTrue(umap.hasPrefix("UMAP places cells"))
+        XCTAssertEqual(umap, "UMAP puts cells with similar counts near each other on a flat plot. Only local neighbours matter. "
+                       + "Distances between far-apart groups, group sizes and gaps between groups carry no meaning.")
         XCTAssertEqual(tsne, umap.replacingOccurrences(of: "UMAP", with: "t-SNE"))
         for caption in [RNASeqEmbeddingWords.caption(method: "PCA", embedding: "PCA"), RNASeqEmbeddingWords.caption(method: nil, embedding: "x")] {
             XCTAssertFalse(caption.contains("near neighbours"), caption)
@@ -255,9 +255,17 @@ final class RNASeqCellMapViewWordsTests: XCTestCase {
         }
         XCTAssertTrue(RNASeqEmbeddingWords.caption(method: nil, embedding: "x").contains("not recorded"))
         XCTAssertEqual(RNASeqEmbeddingWords.caption(method: "PHATE", embedding: "phate"),
-                       "PHATE draws cells along smooth paths. A path suggests a transition, not an order in time.")
+                       "PHATE draws cells along smooth paths. A path suggests a transition and gives no time order.")
         XCTAssertEqual(RNASeqEmbeddingWords.axes(method: "t-SNE", embedding: "TSNE").x, "t-SNE 1")
         XCTAssertEqual(RNASeqEmbeddingWords.axes(method: nil, embedding: "TSNE").y, "TSNE 2")
+    }
+
+    /// C9 as BIO rechecked it (`BIO: meaning holds, 5.5 W1`, Sol's revised words): a number names a group and gives no
+    /// rank, and the analyst decides whether a cluster is a cell type.
+    func testClusterNumbersReadTheWordsBIOClearedOnRecheck() {
+        XCTAssertEqual(RNASeqEmbeddingWords.clusterNumbers,
+                       "Cluster numbers name groups and give no rank. Another run can give the same groups different numbers. "
+                       + "The analyst decides whether to name a cluster as a cell type.")
     }
 
     func testNoWordSaysInfectedOrThatClustersMatch() {
@@ -318,14 +326,24 @@ final class RNASeqCellMapViewControllerTests: XCTestCase {
         let sample = try XCTUnwrap(controller.snapshot?.facts.samples.first?.name)
         // The caption sits in the popover of "About UMAP" beside Embedding (5.6 U2).
         XCTAssertNil(shown["rnaseq-cell-map-caption"], "the caption left the column")
-        XCTAssertEqual(controller.embeddingInfo.popoverController.text, RNASeqEmbeddingWords.caption(method: "UMAP", embedding: "UMAP"))
-        XCTAssertEqual(shown["rnaseq-cell-map-left-out-1"], "3 of the 200 cells of \(sample) have no coordinates in UMAP and are not drawn.")
-        XCTAssertEqual(shown["rnaseq-cell-map-other-counts"], RNASeqEmbeddingWords.otherCounts(embedding: "UMAP", parent: "pbmc"))
-        XCTAssertEqual(shown["rnaseq-cell-map-fact-parent-result"], "pbmc (pbmc.lungfishrnaseq)")
-        XCTAssertEqual(shown["rnaseq-cell-map-fact-cells-drawn"], "197 of 200")
+        XCTAssertEqual(controller.embeddingInfo.popoverController.text, RNASeqEmbeddingWords.caption(method: "UMAP", embedding: "UMAP")
+                       + "\n\nA cell's position need not reflect this result's counts.")
+        // A map of one sample says its left-out cells in its Cells drawn row (C6a), with the numbers the CLI wrote.
+        XCTAssertNil(shown["rnaseq-cell-map-left-out-1"], "the left-out line joined Cells drawn")
+        XCTAssertEqual(shown["rnaseq-cell-map-fact-cells-drawn"], "197 of 200 in \(sample). 3 have no coordinates in UMAP.")
+        XCTAssertEqual(shown["rnaseq-cell-map-other-counts"], "UMAP was computed on other counts, not those of pbmc.")
+        XCTAssertTrue(controller.embeddingInfo.popoverController.text.hasSuffix("\n\n" + RNASeqEmbeddingWords.otherCountsPlace), "C5b in About UMAP")
+        XCTAssertEqual(shown["rnaseq-cell-map-imported"], "Imported from projection.csv, not computed by LGE")
+        // The parent's row is the Inspector's (C17), and the fact lines keep it whole for it.
+        XCTAssertNil(shown["rnaseq-cell-map-fact-parent-result"], "the parent left the view")
+        let facts = controller.factLines(try XCTUnwrap(controller.snapshot))
+        XCTAssertEqual(facts.first { $0.label == "Parent result" }?.value, "pbmc (pbmc.lungfishrnaseq)")
+        XCTAssertEqual(facts.first { $0.label == "Cells drawn" }?.value, "197 of 200")
         XCTAssertEqual(shown["rnaseq-cell-map-axis-x"], "UMAP 1")
         XCTAssertFalse(controller.clustersInfo.isHidden, "W3 is one press away beside numeric labels")
-        XCTAssertEqual(controller.clustersInfo.popoverController.text, RNASeqEmbeddingWords.clusterNumbers)
+        XCTAssertEqual(controller.clustersInfo.popoverController.text,
+                       RNASeqEmbeddingWords.clusterNumbers + "\n\nCells with no label appear in grey beneath the other cells.")
+        XCTAssertEqual(shown["rnaseq-cell-map-legend-words-1"], "\(sample) has 3 cells with no label in graphclust.")
         XCTAssertEqual(shown["rnaseq-cell-map-legend-0-count"], String(try XCTUnwrap(controller.snapshot?.facts.labelSets[0].labels[0].cells)))
         XCTAssertEqual(controller.plot.accessibilityChildren()?.count, 21, "VoiceOver reads one child for each legend value")
 
