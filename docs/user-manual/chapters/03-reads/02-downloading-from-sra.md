@@ -16,9 +16,9 @@ entry_points:
   - "CLI: lungfish-cli fetch ena reads <accession>"
 shots:
   - id: sra-runs-pane
-    caption: "The **Accession** scope shows a hint with example run accessions."
+    caption: "The Accession scope shows a hint with example run accessions."
   - id: sra-results-download-selected
-    caption: "Selecting `SRR36291587` changes the button at the bottom of the window to **Download Selected**."
+    caption: "Selecting `SRR36291587` changes the button at the bottom of the window to Download Selected."
   - id: sra-bundle-in-sidebar
     caption: "The `SRR36291587` bundle appears under `Imports/` and opens in the FASTQ viewport."
 illustrations: []
