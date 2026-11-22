@@ -40,6 +40,7 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
         "viralRecon": ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"],
         "fastqRecipeImport": ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"],
         "fastqLoosePairImport": ["LOOSE-PAIR-OUT-OF-STEP"],
+        "rnaSeqPlanRun": ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"],
         "czIdImport": ["CZID-REAL-EXPORT-FORMAT"],
     ]
 
@@ -50,11 +51,12 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
             ("TAXTRIAGE-BUNDLE-NAMES-PAIRED", ["taxTriage", "kraken2", "esViritu"], "61acb5bfc"),
             ("GROUPER-CROSS-FOLDER-PAIR", ["kraken2", "esViritu"], "d998a3371"),
             ("LOOSE-PAIR-SHORT-MATE",
-             ["taxTriage", "kraken2", "esViritu", "mappingLoosePair", "assembly", "viralRecon", "fastqRecipeImport"],
+             ["taxTriage", "kraken2", "esViritu", "mappingLoosePair", "assembly", "viralRecon", "fastqRecipeImport",
+              "rnaSeqPlanRun"],
              "c9ed8e3ef"),
             ("LOOSE-PAIR-OUT-OF-STEP",
              ["taxTriage", "kraken2", "esViritu", "mappingLoosePair", "assembly", "viralRecon", "fastqRecipeImport",
-              "fastqLoosePairImport"], "c9ed8e3ef"),
+              "fastqLoosePairImport", "rnaSeqPlanRun"], "c9ed8e3ef"),
             ("CZID-REAL-EXPORT-FORMAT", ["czIdImport"], "f58ecdaae"),
         ]
         for (id, kinds, fix) in expected {
@@ -67,7 +69,7 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
     }
 
     func testEveryKindHoldsItsRowsUpToPreview20261115AndNoneAfter() {
-        for kind in AffectedResultKind.allCases.map(\.rawValue) + ["mappingLoosePair", "fastqLoosePairImport", "czIdImport"] {
+        for kind in AffectedResultKind.allCases.map(\.rawValue) + ["mappingLoosePair", "fastqLoosePairImport", "czIdImport", "rnaSeqPlanRun"] {
             let held = heldAtTheLastBuild[kind] ?? []
             XCTAssertEqual(ids(14072, kind), held, "\(kind) at Preview 2026.11.15")
             XCTAssertEqual(ids(13927, kind), held, "\(kind) at Stable 2026.11.14, a patch build")

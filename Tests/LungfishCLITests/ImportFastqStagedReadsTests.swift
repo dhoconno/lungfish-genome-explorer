@@ -65,6 +65,52 @@ final class ImportFastqStagedReadsTests: XCTestCase {
         }
     }
 
+    // MARK: The order of a plan's input entries (FIX-ROUTES-5, BIO-ROUTES-4 item 1)
+
+    /// An SRA download of one run is three files, `SRR1_1.fastq`, `SRR1_2.fastq` and the run-alone `SRR1.fastq`. The plan row
+    /// lists them R1, R2 and then the file with no mate (`ImportFastqPlanOptions.planRows`, `SamplePair.inputFiles`), and
+    /// the plan's slots are `inputs/R1`, `inputs/R2` and `inputs/R3` in that order, so the node's mate check can read
+    /// entries 0 and 1 as the mates. The files are on this Mac, so the Mac checks R1 and R2 first and writes the plan.
+    func testAPlanOfARunsThreeFilesListsR1ThenR2ThenTheRunAloneFile() async throws {
+        let fixture = try writeFixture()
+        let sra = root.appendingPathComponent("sra", isDirectory: true)
+        try FileManager.default.createDirectory(at: sra, withIntermediateDirectories: true)
+        let reads = try [("SRR1_1.fastq", 1), ("SRR1_2.fastq", 1), ("SRR1.fastq", 9)].map { name, serial -> URL in
+            let url = sra.appendingPathComponent(name)
+            try "@SRR1.\(serial) \(serial) length=10\nACGTACGTAC\n+\nIIIIIIIIII\n".write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+        let order = root.appendingPathComponent("order", isDirectory: true)
+        try FileManager.default.createDirectory(at: order, withIntermediateDirectories: true)
+        let folder = order.appendingPathComponent("batch", isDirectory: true)
+        try await ImportCommand.FastqSubcommand.parse(
+            reads.map(\.path) + fixture.planArguments(folder: folder) + ["--platform", "illumina"] + Fixture.settings
+        ).run()
+        let planURL = try XCTUnwrap(
+            FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL }
+                .first { $0.lastPathComponent == "plan.json" })
+        let plan = try ExecutionPlan.decode(Data(contentsOf: planURL))
+        let inputs = plan.entries.filter { $0.role == .input }
+        XCTAssertEqual(inputs.map(\.relativePath), ["inputs/R1.fastq", "inputs/R2.fastq", "inputs/R3.fastq"])
+        XCTAssertEqual(plan.sample.originalFilenames, ["SRR1_1.fastq", "SRR1_2.fastq", "SRR1.fastq"])
+        XCTAssertEqual(inputs.map(\.sha256), try reads.map { try PortableDigest.sha256Hex(ofFileAt: $0) })
+    }
+
+    /// A plan of staged reads takes its samples from a sample sheet, whose rows hold an r1 and an r2 and no run-alone file
+    /// (`FASTQSampleSheet.samplePairs()`), so a staged plan of the same run lists two inputs, R1 and R2, even when the
+    /// staged-reads list names the third file. No staged plan has three inputs.
+    func testAStagedPlanOfARunListsR1AndR2AndNeverTheRunAloneFile() async throws {
+        let fixture = try writeFixture()
+        let names = ["SRR1_1.fastq", "SRR1_2.fastq", "SRR1.fastq"]
+        let list = try writeList(["file\tbytes\tsha256"] + names.map { "\(Self.casper)/\($0)\t1000\t\(Self.digest)" }, name: "sra.tsv")
+        let sheet = try writeSheet([["SRR1", "\(Self.casper)/\(names[0])", "\(Self.casper)/\(names[1])"]], name: "sra.csv")
+        let folder = root.appendingPathComponent("batch", isDirectory: true)
+        try await ImportCommand.FastqSubcommand.parse(fixture.stagedArguments(folder: folder, sheet: sheet, list: list)).run()
+        let plan = try ExecutionPlan.decode(Data(contentsOf: folder.appendingPathComponent("SRR1/plan.json")))
+        XCTAssertEqual(plan.entries.filter { $0.role == .input }.map(\.relativePath), ["inputs/R1.fastq", "inputs/R2.fastq"])
+        XCTAssertEqual(plan.sample.originalFilenames, ["SRR1_1.fastq", "SRR1_2.fastq"])
+    }
+
     /// Two files measured on this Mac and the same bytes declared in a list at staging paths give one `plan.json` for
     /// each sample, byte for byte: a staged plan is the plan of those bytes.
     func testStagedPlanEqualsMeasuredPlanOfSameBytes() async throws {

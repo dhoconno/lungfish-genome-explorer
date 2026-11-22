@@ -50,8 +50,60 @@ final class RunPlanMateCheckTests: XCTestCase {
         )
     }
 
-    /// Guard. A pair in step passes, and one input or three are not checked as a pair.
-    func testTheCheckPassesAPairInStepAndSkipsOneInputOrThree() throws {
+    /// FIX-ROUTES-5 item 1 (BIO-ROUTES-4). A sample's R1, R2 and the run-alone file of an SRA download are three inputs in
+    /// that order (`ImportFastqPlanOptions.swift:330`), and every storage route pairs the first two by position, so the
+    /// check reads the first two of three too and refuses the shuffled R2 with the interleaver's own words.
+    func testTheCheckRefusesAnOutOfStepPairOfAPlanOfThreeInputs() throws {
+        let r1 = try writeReads("S_R1.fastq", serials: [1, 2, 3, 4])
+        let r2 = try writeReads("S_R2.fastq", serials: [1, 2, 4, 3])
+        let unpaired = try writeReads("S.fastq", serials: [5])
+        var refusal: FASTQPairInterleaver.InterleaveError?
+        do {
+            try PlanRunner.refuseOutOfStepMates([r1, r2, unpaired], launcher: NoLaunchLauncher())
+        } catch let error as FASTQPairInterleaver.InterleaveError {
+            refusal = error
+        }
+        XCTAssertEqual(
+            refusal,
+            .mateNameMismatch(
+                recordNumber: 3, r1File: "S_R1.fastq", r1Name: "SRR0000001.3 3 length=10",
+                r2File: "S_R2.fastq", r2Name: "SRR0000001.4 4 length=10"
+            )
+        )
+    }
+
+    /// BIO-ROUTES-4 item 2. An RNA-seq plan names its pairs `inputs/pair<n>_R1<suffix>` and `inputs/pair<n>_R2<suffix>`
+    /// (`SalmonPlan+Inputs.swift:57-58`), and a pair of staged reads skips the Mac's check, so the node checks each pair.
+    /// Pair 2 is out of step at record 2, so the run fails with the interleaver's words and no step starts.
+    func testRunRefusesAnOutOfStepPairTwoOfAnRNASeqFrameBeforeItsFirstStep() throws {
+        var fixture = try RunPlanFixture()
+        let inputs = ["inputs/pair1_R1.fastq", "inputs/pair1_R2.fastq", "inputs/pair2_R1.fastq", "inputs/pair2_R2.fastq"]
+        for (path, serials) in zip(inputs, [[1, 2, 3, 4], [1, 2, 3, 4], [1, 2, 3, 4], [2, 1, 3, 4]]) {
+            try RunPlanFixture.write(Self.readsText(serials: serials), to: fixture.planFolder + "/" + path)
+        }
+        let recipe = try fixture.addTool("trim-reads", "echo ran > logs/recipe.ran")
+        let manifest = try fixture.writeManifest()
+        let step = PlanStep(
+            id: "trim", title: "Run trim", kind: .recipe, tool: recipe, arguments: [], deadlineSeconds: 60,
+            inputs: inputs, outputs: ["out/trimmed.fastq"]
+        )
+        let plan = try fixture.writePlan([step], manifestPin: manifest.pin, inputs: inputs)
+
+        let run = try fixture.run(plan, ["--image-manifest", manifest.path])
+        XCTAssertEqual(run.status, ExecutorExitCode.failed, run.stderr)
+        let record = try XCTUnwrap(run.record)
+        XCTAssertEqual(record.outcome, .failed)
+        XCTAssertEqual(
+            record.reason,
+            "Paired FASTQ mates are out of step at record 2: pair2_R1.fastq has 'SRR0000001.2 2 length=10' but pair2_R2.fastq has "
+                + "'SRR0000001.1 1 length=10'. The two files do not list the same fragments in the same order, so nothing was written.")
+        XCTAssertEqual(record.steps.count, 0)
+        XCTAssertEqual(fixture.exists("logs/recipe.ran"), false, "the recipe ran on an RNA-seq frame the check refuses")
+    }
+
+    /// Guard. A pair in step passes, a triple whose first two are in step passes (the third is the run-alone file, which has
+    /// no mate), and one input is not checked as a pair.
+    func testTheCheckPassesAPairInStepAndATripleWhoseFirstTwoAreInStepAndSkipsOneInput() throws {
         let r1 = try writeReads("S_R1.fastq", serials: [1, 2, 3, 4])
         let r2 = try writeReads("S_R2.fastq", serials: [1, 2, 3, 4])
         let swapped = try writeReads("S_R3.fastq", serials: [2, 1, 3, 4])

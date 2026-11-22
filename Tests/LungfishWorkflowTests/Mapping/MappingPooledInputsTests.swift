@@ -532,6 +532,27 @@ final class MappingPooledInputsTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "\(label): nothing is written", file: file, line: line)
     }
 
+    /// FIX-ROUTES-5 item 6 (BIO-ROUTES-4 item 5). A run of loose files with no `--paired`, R1, an R2 out of step with it by name
+    /// and a file of reads with no mate, binds no mates: each file is planned on its own and holds no pair, so the pool is
+    /// one file of single reads (`MappingPooledInputs.swift:185`, `MappingInputResolver.swift:269-272`), and no mate check
+    /// is owed because no pair is bound. The two files alone pool as single reads too.
+    func testLooseFilesWithNoPairedBindNoMatesAndPoolAsSingleReads() async throws {
+        let r1 = root.appendingPathComponent("S_R1.fastq")
+        let r2 = root.appendingPathComponent("S_R2.fastq")
+        let unpaired = root.appendingPathComponent("S.fastq")
+        for (url, names) in [(r1, ["a1", "a2", "a3", "a4"]), (r2, ["a2", "a1", "a3", "a4"]), (unpaired, ["a5"])] {
+            try names.map { "@\($0)\nACGTACGTAC\n+\nIIIIIIIIII\n" }.joined().write(to: url, atomically: true, encoding: .utf8)
+        }
+        let three = try await resolve([r1, r2, unpaired], tool: .minimap2)
+        XCTAssertEqual(three.request.pairedEnd, false)
+        XCTAssertEqual(three.request.inputFASTQURLs.count, 1)
+        XCTAssertEqual(three.request.inputLayout, .singleEnd)
+        XCTAssertEqual(three.layoutResolution.reason, "3 input files are pooled as single reads.")
+        let two = try await resolve([r1, r2], tool: .minimap2)
+        XCTAssertEqual(two.request.pairedEnd, false)
+        XCTAssertEqual(two.layoutResolution.reason, "2 input files are pooled as single reads.")
+    }
+
     private func resolve(_ inputs: [URL], tool: MappingTool) async throws -> MappingResolvedInputs {
         try await MappingInputResolver.resolve(
             request: request(inputs, tool: tool),

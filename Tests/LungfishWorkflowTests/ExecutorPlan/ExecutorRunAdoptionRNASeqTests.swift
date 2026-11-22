@@ -162,6 +162,17 @@ final class ExecutorRunAdoptionRNASeqTests: XCTestCase {
         XCTAssertEqual(record.steps[2].resolvedOptions["polyG"], .string("Poly-G trimming: off (LGE default)"))
     }
 
+    /// FIX-ROUTES-5 item 5 (BIO-ROUTES-4 item 2). The record this adopt writes names the root workflow "RNA-seq adopt"
+    /// (`ExecutorRunAdoption+RNASeqRecord.swift:31`), and `AffectedResults` reads that name as the kind of an RNA-seq result
+    /// of a plan, so the rows of a loose pair speak about it.
+    func testTheAdoptedRecordIsTheRNASeqPlanRunKind() async throws {
+        let set = try await buildSet()
+        let batch = root.appendingPathComponent("batch", isDirectory: true)
+        _ = try Fixture.make(root: batch, name: "sample1", plan: try pinned(), contents: try Self.returnedFiles(set))
+        let record = try XCTUnwrap(try ProvenanceEnvelopeReader.loadCanonical(from: try adopt(batch)))
+        XCTAssertEqual(AffectedResults.kind(of: record)?.rawValue, "rnaSeqPlanRun")
+    }
+
     // MARK: - Review EX-ADOPT-M2M3-BIO should-fix 1, the name a sample keeps
 
     /// A sample whose name holds a space or punctuation keeps that name in the count tables, the samples and the record,
