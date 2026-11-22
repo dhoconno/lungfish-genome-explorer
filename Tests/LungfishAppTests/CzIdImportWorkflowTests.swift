@@ -6,6 +6,7 @@ import XCTest
 import LungfishWorkflow
 @testable import LungfishApp
 import LungfishKit
+import LungfishTestSupport
 @testable import LungfishTaxonomyUI
 
 final class CzIdImportWorkflowTests: XCTestCase {
@@ -109,6 +110,51 @@ final class CzIdImportWorkflowTests: XCTestCase {
         XCTAssertEqual(preview.sampleName, "Sample-CZ-001")
         XCTAssertEqual(preview.rowCount, 3)
         XCTAssertEqual(preview.reportFileName, "taxon_report.tsv")
+    }
+
+    /// CZID-REAL-EXPORT-FORMAT (S1). The import window scans with `CzIdImportPreview`, which accepts CZ-ID's own
+    /// Report Table CSV and shows its true counts.
+    func testPreviewReadsTheReportTableCSVWithItsCounts() async throws {
+        let reportURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/czid/sample_report.csv")
+
+        let preview = try await CzIdImportPreview.scan(reportURL)
+
+        XCTAssertEqual(preview.sourceKind, .taxonReportFile)
+        XCTAssertEqual(preview.sampleName, "sample_report")
+        XCTAssertEqual(preview.rowCount, 5)
+        XCTAssertEqual(preview.topTaxa.map(\.name), [
+            "Staphylococcus",
+            "Staphylococcus aureus",
+            "Betacoronavirus",
+            "Severe acute respiratory syndrome coronavirus 2",
+            "Staphylococcus epidermidis",
+        ])
+        XCTAssertEqual(preview.topTaxa.map(\.ntReadCount), [1790, 1520, 845, 840, 210])
+        XCTAssertEqual(preview.topTaxa.map(\.rank), ["genus", "species", "genus", "species", "species"])
+    }
+
+    /// The import window refuses a report with no count column in Sol's words (FIX-CZID Z2) instead of showing 0.
+    func testPreviewRefusesAReportWithNoCountColumn() async throws {
+        let tempDir = try TestTempDirectory.make(prefix: "czid-preview-no-counts")
+        defer { TestTempDirectory.cleanup(tempDir) }
+        let reportURL = tempDir.appendingPathComponent("no-counts.csv")
+        try "tax_id,tax_level,genus_tax_id,name,nt_rpm\n1279,2,1279,Staphylococcus,895.0\n"
+            .write(to: reportURL, atomically: true, encoding: .utf8)
+
+        var refusal: String?
+        do {
+            _ = try await CzIdImportPreview.scan(reportURL)
+        } catch {
+            refusal = error.localizedDescription
+        }
+
+        XCTAssertEqual(
+            refusal,
+            "no-counts.csv has no read count column (nt_count or nr_count), so counts cannot be assigned to taxa. Nothing was imported."
+        )
     }
 
     func testAppConversionRecordsArchiveChecksumAndFinalPayloadInProvenance() throws {
