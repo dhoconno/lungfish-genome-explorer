@@ -113,4 +113,29 @@ final class MetagenomicsSampleGrouperBundleTests: XCTestCase {
         XCTAssertEqual(samples.map(\.fastq1), inputs)
         XCTAssertEqual(samples.map { $0.fastq2 == nil }, [true])
     }
+
+    /// An SRA split-3 folder. The mate branch paired `X_1` and `X_2` as `X` and left `X.fastq` out with no word.
+    func testALooseSingleBesideMatesIsNeverDropped() {
+        let single = URL(fileURLWithPath: "/data/run/X.fastq")
+        let read1 = URL(fileURLWithPath: "/data/run/X_1.fastq")
+        let read2 = URL(fileURLWithPath: "/data/run/X_2.fastq")
+
+        let samples = MetagenomicsSampleGrouper.group([read2, single, read1])
+
+        XCTAssertEqual(samples.map(\.sampleId), ["X", "X_1", "X_2"])
+        XCTAssertEqual(samples.map(\.fastq1), [single, read1, read2])
+        XCTAssertEqual(samples.map { $0.fastq2 == nil }, [true, true, true])
+    }
+
+    func testABundleBesideLooseMatesOfItsNameIsNeverDropped() {
+        let bundle = URL(fileURLWithPath: "/data/run/X.lungfishfastq", isDirectory: true)
+        let read1 = URL(fileURLWithPath: "/data/run/X_1.fastq")
+        let read2 = URL(fileURLWithPath: "/data/run/X_2.fastq")
+
+        let samples = MetagenomicsSampleGrouper.group([read2, bundle, read1])
+
+        XCTAssertEqual(samples.map(\.sampleId), ["X", "X_1", "X_2"])
+        XCTAssertEqual(samples.map(\.fastq1), [bundle, read1, read2])
+        XCTAssertEqual(samples.map { $0.fastq2 == nil }, [true, true, true])
+    }
 }

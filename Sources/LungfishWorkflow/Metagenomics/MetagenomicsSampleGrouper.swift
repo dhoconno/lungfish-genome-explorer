@@ -85,6 +85,24 @@ public enum MetagenomicsSampleGrouper {
                 .map(\.url)
                 .sorted(by: compareURLs)
 
+            // A single beside mates of one stem, as loose `X.fastq` with `X_1.fastq` and `X_2.fastq` (what
+            // `fasterq-dump --split-3` writes), or a bundle `X` with them. The mate branch below pairs the mates
+            // under the name `X` and leaves the single out with no word. Such a group pairs nothing: each file is
+            // its own sample under its whole stem, so none is lost, none is renamed and no two share a name
+            // (BIO TT-GROUP F1).
+            if !singles.isEmpty, !read1.isEmpty || !read2.isEmpty {
+                for entry in entries.sorted(by: { compareURLs($0.url, $1.url) }) {
+                    samples.append(
+                        MetagenomicsSampleInput(
+                            sampleId: entry.role == .single ? sampleKey : sanitizeSampleId(wholeStem(of: entry.url)),
+                            fastq1: entry.url,
+                            fastq2: nil
+                        )
+                    )
+                }
+                continue
+            }
+
             // Typical case: one R1 + one R2.
             if read1.count == 1, read2.count == 1, singles.isEmpty {
                 samples.append(
@@ -177,20 +195,24 @@ public enum MetagenomicsSampleGrouper {
             + "To run them as two reads of one sample, import both read files together as a pair."
     }
 
-    private static func parseSampleKeyAndRole(from url: URL) -> (String, ReadRole) {
+    /// The file name without `.gz` and `.fastq` or `.fq`, mate ending kept: `X_1` for `X_1.fastq.gz`.
+    private static func wholeStem(of url: URL) -> String {
         var name = url.lastPathComponent
         if name.lowercased().hasSuffix(".gz") {
             name = String(name.dropLast(3))
         }
         let lower = name.lowercased()
-        let withoutExt: String
         if lower.hasSuffix(".fastq") {
-            withoutExt = String(name.dropLast(6))
-        } else if lower.hasSuffix(".fq") {
-            withoutExt = String(name.dropLast(3))
-        } else {
-            withoutExt = url.deletingPathExtension().lastPathComponent
+            return String(name.dropLast(6))
         }
+        if lower.hasSuffix(".fq") {
+            return String(name.dropLast(3))
+        }
+        return url.deletingPathExtension().lastPathComponent
+    }
+
+    private static func parseSampleKeyAndRole(from url: URL) -> (String, ReadRole) {
+        let withoutExt = wholeStem(of: url)
 
         let patterns: [(suffix: String, role: ReadRole)] = [
             ("_r1_001", .read1),
