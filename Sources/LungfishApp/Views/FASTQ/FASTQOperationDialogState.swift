@@ -994,7 +994,7 @@ final class FASTQOperationDialogState {
     }
 
     var visibleSections: [DatasetOperationSection] {
-        var sections: [DatasetOperationSection] = [.inputs, .primarySettings] + (selectedToolID.hasAdvancedSettingsControls ? [.advancedSettings] : [])
+        var sections: [DatasetOperationSection] = [.inputs] + (selectedToolID.hasPrimarySettingsControls ? [.primarySettings] : []) + (selectedToolID.hasAdvancedSettingsControls ? [.advancedSettings] : [])
         if showsOutputStrategyPicker {
             sections.append(.output)
         }

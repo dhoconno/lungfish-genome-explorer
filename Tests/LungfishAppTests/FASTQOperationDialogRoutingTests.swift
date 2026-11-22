@@ -21,6 +21,10 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             Set(FASTQOperationToolID.allCases.filter(\.hasAdvancedSettingsControls)),
             [.pbaa, .savont, .ontGenotyping, .mafft]
         )
+        XCTAssertEqual(
+            Set(FASTQOperationToolID.allCases.filter { !$0.hasPrimarySettingsControls }),
+            [.refreshQCSummary, .repairPairedEndFiles, .reverseComplement, .translate, .ontFluidigmSampleSplit, .removeHumanReads]
+        )
         XCTAssertEqual(state.inputSectionTitle, "Inputs")
         XCTAssertEqual(state.outputSectionTitle, "Output")
         XCTAssertEqual(state.readinessText, "Ready to configure output.")

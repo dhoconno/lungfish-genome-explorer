@@ -310,11 +310,10 @@ private struct FASTQOperationPrimarySettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             switch state.selectedToolID {
-            case .rnaSeqQuant:
+            case .rnaSeqQuant, .refreshQCSummary, .repairPairedEndFiles, .reverseComplement, .translate, .ontFluidigmSampleSplit,
+                 .removeHumanReads, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm,
+                 .kraken2, .esViritu, .taxTriage:
                 EmptyView()
-            case .refreshQCSummary:
-                Text("No additional primary settings are required for this QC summary refresh.")
-                    .foregroundStyle(.secondary)
 
             case .fastpTrim:
                 labeledTextField("Threshold", text: Self.intBinding(state, \.qualityTrimThreshold), help: LungfishHelpContent.fastqQualityThreshold)
@@ -469,18 +468,6 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 .pickerStyle(.segmented)
                 .lungfishHelp(LungfishHelpContent.fastqMergeStrictness)
                 labeledCompactTextField("Minimum Overlap", text: Self.intBinding(state, \.mergeOverlappingPairsMinOverlap), help: LungfishHelpContent.fastqMinimumOverlap)
-
-            case .repairPairedEndFiles:
-                Text("No additional settings are required for paired-end repair.")
-                    .foregroundStyle(.secondary)
-
-            case .reverseComplement:
-                Text("No additional settings are required for reverse complement.")
-                    .foregroundStyle(.secondary)
-
-            case .translate:
-                Text("Frame 1 translation is used for this operation. When the two mates of an interleaved pair share one read ID, their protein names add .1 and .2 after the ID. Other reads keep their names.")
-                    .foregroundStyle(.secondary)
 
             case .orientReads:
                 labeledCompactTextField("Word Length", text: Self.intBinding(state, \.orientWordLength), help: LungfishHelpContent.fastqOrientWordLength)
@@ -682,15 +669,6 @@ private struct FASTQOperationPrimarySettingsSection: View {
                             .lungfishHelp(LungfishHelpContent.fastqDemultiplexTrimBarcodes)
                     }
                 }
-
-            case .ontFluidigmSampleSplit:
-                Text("Uses the selected Fluidigm sample barcode definition, extracts CS1-CS2 inserts, and writes one counted FASTQ bundle per sample.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-            case .removeHumanReads, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
-                Text("This tool uses the dedicated embedded workflow pane or the fixed database chooser above.")
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -916,6 +894,16 @@ private struct FASTQOperationAdvancedSettingsSection: View {
 }
 
 extension FASTQOperationToolID {
+    /// Whether the tool has a control under Primary settings. A tool without one shows no such section.
+    var hasPrimarySettingsControls: Bool {
+        switch self {
+        case .refreshQCSummary, .repairPairedEndFiles, .reverseComplement, .translate, .ontFluidigmSampleSplit, .removeHumanReads:
+            return false
+        default:
+            return true
+        }
+    }
+
     /// Whether the tool has a control under Advanced settings. A tool without one shows no such section.
     var hasAdvancedSettingsControls: Bool {
         switch self {
