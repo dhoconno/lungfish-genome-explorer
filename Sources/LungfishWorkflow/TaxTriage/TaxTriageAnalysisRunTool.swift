@@ -174,6 +174,10 @@ package struct TaxTriageAnalysisRunTool: AnalysisRunTool {
         }
         for sample in samples {
             try Self.refuseUnreadableFiles(of: sample)
+            // LOOSE-PAIR-SHORT-MATE. A row's fastq_1 and fastq_2 are counted before any launch, as --input2 is.
+            if let read2 = sample.fastq2, let words = try LooseMatePairCheck.refusal(r1: sample.fastq1, r2: read2) {
+                throw TaxTriageRunRefusal.input(words)
+            }
         }
         return samples
     }
