@@ -46,7 +46,7 @@ final class RunPlanDeclaredPairsTests: XCTestCase {
             ["inputs/pair2_R1.fastq.gz", "inputs/pair2_R2.fastq.gz"],
             ["inputs/pair10_R1.fastq.gz", "inputs/pair10_R2.fastq.gz"],
         ])
-        XCTAssertEqual(pairs(["inputs/single1.fastq.gz", "inputs/single2.fastq.gz"]), [["inputs/single1.fastq.gz", "inputs/single2.fastq.gz"]],
-                       "two single reads of no pair name read as a read import plan does")
+        XCTAssertEqual(pairs(["inputs/single1.fastq.gz", "inputs/single2.fastq.gz", "inputs/single3.fastq.gz"]), [],
+                       "the single reads of a single-end sample have no mate")
     }
 }

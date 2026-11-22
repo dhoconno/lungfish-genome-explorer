@@ -26,14 +26,16 @@ package enum PlanReadPairs {
         }
     }
 
-    /// The directory and name start of an RNA-seq plan's pair file (`SalmonPlan+Inputs.swift:57-58`).
+    /// The directory and name start of an RNA-seq plan's pair file (`SalmonPlan+Inputs.swift:57-58`) and of its single read (`:61`).
     private static let pairPrefix = "inputs/pair"
+    private static let singlePrefix = "inputs/single"
 
     /// The pairs `entries` and `steps` declare, none for a plan of one read.
     package static func declared(entries: [PlanEntry], steps: [PlanStep]) -> [Pair] {
         let inputs = entries.filter { $0.role == .input }.map(\.relativePath)
-        let named = rnaSeqPairs(in: inputs)
-        if !named.isEmpty { return named }
+        // An RNA-seq frame names every read `inputs/pair<n>_R<m>...` or `inputs/single<n>...`. Its pairs are the named ones,
+        // and single reads, the runs or lanes of a single-end sample, have no mate, so no two of them are read as a pair.
+        if inputs.contains(where: { $0.hasPrefix(pairPrefix) || $0.hasPrefix(singlePrefix) }) { return rnaSeqPairs(in: inputs) }
         guard inputs.count >= 2 else { return [] }
         let mergedFirst = inputs.count == 3 && steps.contains {
             $0.kind == .interleave && $0.arguments.isEmpty && $0.inputs == inputs

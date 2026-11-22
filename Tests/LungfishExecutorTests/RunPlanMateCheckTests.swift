@@ -101,6 +101,27 @@ final class RunPlanMateCheckTests: XCTestCase {
         XCTAssertEqual(fixture.exists("logs/recipe.ran"), false, "the recipe ran on an RNA-seq frame the check refuses")
     }
 
+    /// FIX-ROUTES-5 review B1. The single reads of a single-end RNA-seq sample (`SalmonPlan+Inputs.swift:61`) have no mate, so the
+    /// node checks no mates and the recipe runs.
+    func testRunDoesNotCheckTheSingleReadsOfAnRNASeqFrameAsMates() throws {
+        var fixture = try RunPlanFixture()
+        let inputs = ["inputs/single1.fastq", "inputs/single2.fastq", "inputs/single3.fastq"]
+        for (path, serials) in zip(inputs, [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]]) {
+            try RunPlanFixture.write(Self.readsText(serials: serials), to: fixture.planFolder + "/" + path)
+        }
+        let recipe = try fixture.addTool("trim-reads", "echo ran > logs/recipe.ran")
+        let manifest = try fixture.writeManifest()
+        let step = PlanStep(
+            id: "trim", title: "Run trim", kind: .recipe, tool: recipe, arguments: [], deadlineSeconds: 60,
+            inputs: inputs, outputs: ["out/trimmed.fastq"]
+        )
+        let plan = try fixture.writePlan([step], manifestPin: manifest.pin, inputs: inputs)
+        let run = try fixture.run(plan, ["--image-manifest", manifest.path])
+        let record = try XCTUnwrap(run.record)
+        XCTAssertEqual(fixture.exists("logs/recipe.ran"), true, "the check refused single reads that have no mate")
+        XCTAssertEqual(record.steps.count, 1)
+    }
+
     /// Guard. A pair in step passes, a triple whose first two are in step passes (the third is the run-alone file, which has
     /// no mate), and one input is not checked as a pair.
     func testTheCheckPassesAPairInStepAndATripleWhoseFirstTwoAreInStepAndSkipsOneInput() throws {
