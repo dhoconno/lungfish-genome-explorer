@@ -401,11 +401,6 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     labeledCompactTextField("K-mer", text: Self.intBinding(state, \.removeContaminantsKmerSize), help: LungfishHelpContent.fastqKmerSize)
                     labeledCompactTextField("Hamming Distance", text: Self.intBinding(state, \.removeContaminantsHammingDistance), help: LungfishHelpContent.fastqHammingDistance)
                 }
-                if state.removeContaminantsMode == .custom {
-                    Text("Select the contaminant reference FASTA in the Inputs section.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
 
             case .removeLowComplexityReads:
                 // Entropy is the main control; window and k-mer are advanced.

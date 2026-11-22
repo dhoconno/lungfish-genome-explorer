@@ -210,6 +210,49 @@ final class OperationsDialogReadinessLineTests: XCTestCase {
         }
     }
 
+    /// The twelve help tags of `TV-SHELL-decided.md` (H1 to H6, M1 to M6), each the card's help tag and one sentence of at most 20 words by
+    /// whitespace (`LungfishHelpContent+Placement.summaryWordLimit`). M1 to M6 keep the fact of a removed Advanced settings line, and the
+    /// card of pbAA shows the same sentence as its subtitle.
+    func testTheCardHelpTagsHoldTheDecidedSentences() {
+        let pbaaSentence = "Save consensus sequences that pass PacBio HiFi amplicon clustering as a reference bundle."
+        let decided: [(tool: FASTQOperationToolID, sentence: String)] = [
+            (.ontGenotyping, "Map one ONT barcode FASTQ by exact full-amplicon match, split retained reads by barcode, and report genotypes in Excel."),
+            (.ontFluidigmSampleSplit, "Split one bulk ONT Fluidigm amplicon bundle by selected sample-barcode definition into one counted CS1-CS2 insert FASTQ bundle per sample."),
+            (.removeRibosomalRNA, "Use Deacon and the managed ribokmers database to keep the selected read classes."),
+            (.savont, "Use Savont to cluster each FASTQ dataset separately and save counted consensus sequences as FASTA."),
+            (.pbaa, pbaaSentence),
+            (.rnaSeqQuant, "Count bulk RNA-seq reads with salmon using the reference set index and treat each FASTQ bundle as one sample."),
+            (.removeContaminants, "Filter reads that match a contaminant reference, using the reference FASTA in Inputs for custom contaminants."),
+            (.removeHumanReads, "Filter reads that match the configured human database using the managed Deacon pan-human index."),
+            (.translate, "Translate frame 1 to protein FASTA, appending .1 (mate 1) and .2 (mate 2) only to interleaved mates’ shared IDs."),
+            (.mergeOverlappingPairs, "Merge overlapping paired-end reads and store merged amplicon reads as counted exemplars with duplicate support in FASTQ headers."),
+            (.orientReads, "Set read orientation using the selected reference sequence, which is required, without saving a separate unoriented bundle."),
+            (.adapterRemoval, "Remove adapter sequences from reads, with manual trimming limited to a single literal sequence."),
+        ]
+        XCTAssertEqual(Set(decided.map(\.tool)).count, 12)
+        for item in decided {
+            XCTAssertEqual(FASTQOperationDialogState.toolSummary(for: item.tool), item.sentence, item.tool.rawValue)
+        }
+        XCTAssertEqual(FASTQOperationToolID.pbaa.subtitle, pbaaSentence)
+        for tool in FASTQOperationToolID.allCases {
+            let words = FASTQOperationDialogState.toolSummary(for: tool).split { $0.isWhitespace || $0.isNewline }.count
+            XCTAssertLessThanOrEqual(words, 20, "\(tool.rawValue) holds \(words) words")
+        }
+    }
+
+    /// A custom contaminant reference is chosen in the Inputs row, which says it is required and offers Choose…, and the footer says what
+    /// is missing. Primary settings draws no third line that says the same. The one fact the row lacks, the FASTA format, is in the
+    /// card's help tag (`TV-SHELL-decided.md`, open item 4).
+    func testTheContaminantPaneLeavesTheChoosingToTheInputsRow() throws {
+        let state = Fx.fastqState(.removeContaminants)
+        state.removeContaminantsMode = .custom
+        let texts = Fx.strings(try FASTQOperationToolPanes(state: state).inspect().findAll(ViewType.Text.self))
+        XCTAssertEqual(texts.filter { $0 == "Contaminant Reference" }, ["Contaminant Reference"])
+        XCTAssertEqual(texts.filter { $0 == "Required before this tool can run." }, ["Required before this tool can run."])
+        XCTAssertEqual(texts.filter { $0 == "Select the contaminant reference FASTA in the Inputs section." }, [])
+        XCTAssertEqual(state.readinessText, "Select a contaminant reference to continue.")
+    }
+
     // MARK: No section title without a control
 
     /// The controls a stack can hold. A custom control shows through the standard ones it draws.

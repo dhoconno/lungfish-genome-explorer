@@ -1173,19 +1173,19 @@ final class FASTQOperationDialogState {
     static func toolSummary(for toolID: FASTQOperationToolID) -> String {
         switch toolID {
         case .rnaSeqQuant:
-            return "Count bulk RNA-seq reads with salmon on the index of a reference set, one sample for each FASTQ bundle."
+            return "Count bulk RNA-seq reads with salmon using the reference set index and treat each FASTQ bundle as one sample."
         case .refreshQCSummary:
             return "Recompute the QC summary for the selected FASTQ datasets."
         case .demultiplexBarcodes:
             return "Split pooled reads into sample-specific outputs using a barcode definition."
         case .ontFluidigmSampleSplit:
-            return "Split one bulk ONT Fluidigm amplicon bundle into counted per-sample CS1-CS2 insert FASTQ bundles."
+            return "Split one bulk ONT Fluidigm amplicon bundle by selected sample-barcode definition into one counted CS1-CS2 insert FASTQ bundle per sample."
         case .fastpTrim:
             return "Run fastp adapter detection/removal and quality trimming in one pass."
         case .qualityTrim:
             return "Trim low-quality bases from read ends."
         case .adapterRemoval:
-            return "Remove adapter sequence from reads."
+            return "Remove adapter sequences from reads, with manual trimming limited to a single literal sequence."
         case .primerTrimming:
             return "Trim PCR primer sequences using a literal or reference-backed source."
         case .trimFixedBases:
@@ -1193,25 +1193,25 @@ final class FASTQOperationDialogState {
         case .filterByReadLength:
             return "Keep reads in the requested length range."
         case .removeHumanReads:
-            return "Filter reads that match the configured human database."
+            return "Filter reads that match the configured human database using the managed Deacon pan-human index."
         case .removeRibosomalRNA:
-            return "Run Deacon against the managed ribokmers database and retain selected rRNA read classes."
+            return "Use Deacon and the managed ribokmers database to keep the selected read classes."
         case .removeContaminants:
-            return "Filter reads that match a contaminant reference."
+            return "Filter reads that match a contaminant reference, using the reference FASTA in Inputs for custom contaminants."
         case .removeLowComplexityReads:
             return "Discard low-complexity reads below the entropy threshold."
         case .removeDuplicates:
             return "Collapse duplicate reads from the selected datasets."
         case .mergeOverlappingPairs:
-            return "Merge overlapping paired-end reads."
+            return "Merge overlapping paired-end reads and store merged amplicon reads as counted exemplars with duplicate support in FASTQ headers."
         case .repairPairedEndFiles:
             return "Repair synchronization issues between paired-end mates."
         case .reverseComplement:
             return "Reverse-complement nucleotide sequences while preserving FASTQ qualities when present."
         case .translate:
-            return "Translate nucleotide sequences and emit FASTA protein-sequence output."
+            return "Translate frame 1 to protein FASTA, appending .1 (mate 1) and .2 (mate 2) only to interleaved mates’ shared IDs."
         case .orientReads:
-            return "Orient reads against a required reference sequence."
+            return "Set read orientation using the selected reference sequence, which is required, without saving a separate unoriented bundle."
         case .correctSequencingErrors:
             return "Correct likely sequencing errors before downstream analysis."
         case .subsampleByProportion:
@@ -1225,11 +1225,11 @@ final class FASTQOperationDialogState {
         case .selectReadsBySequence:
             return "Keep reads matching a target sequence."
         case .pbaa:
-            return "Cluster PacBio HiFi amplicon reads and emit passed consensus sequences as a reference bundle."
+            return "Save consensus sequences that pass PacBio HiFi amplicon clustering as a reference bundle."
         case .savont:
-            return "Cluster each FASTQ dataset independently with Savont and emit counted consensus sequences as FASTA."
+            return "Use Savont to cluster each FASTQ dataset separately and save counted consensus sequences as FASTA."
         case .ontGenotyping:
-            return "Genotype one ONT barcode FASTQ by exact full-amplicon mapping, retained-read barcode demultiplexing, and Excel reporting."
+            return "Map one ONT barcode FASTQ by exact full-amplicon match, split retained reads by barcode, and report genotypes in Excel."
         case .mafft:
             return "Align selected FASTA records with MAFFT into a native MSA bundle."
         case .minimap2:
@@ -2014,7 +2014,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .extractReadsByMotif: return "Select reads containing a motif."
         case .selectReadsBySequence: return "Select reads matching a sequence."
         case .savont: return "Cluster FASTQ reads into counted consensus sequences with Savont."
-        case .pbaa: return "Cluster PacBio HiFi amplicon reads and emit passed consensus sequences as a reference bundle."
+        case .pbaa: return "Save consensus sequences that pass PacBio HiFi amplicon clustering as a reference bundle."
         case .ontGenotyping: return "Run exact+indel MiSeq amplicon MHC genotyping for ONT barcode-demux or prepared Illumina sample bundles and write one Excel genotype report."
         case .mafft: return "Align nucleotide or protein FASTA records into a native MSA bundle."
         case .minimap2: return "Map reads to a reference sequence with minimap2."
