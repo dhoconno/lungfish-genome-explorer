@@ -66,6 +66,34 @@ final class RNASeqPseudobulkDialogStateTests: XCTestCase {
         XCTAssertEqual(state.readinessText, "Enter a name for the pseudobulk result.")
     }
 
+    /// UX SF-1 of the 5.6 TV-PSEUDOBULK review. The Result name field's help tag says the new folder must not exist, and the footer says
+    /// so before the run when it does, in the decided words of F-ready, with the folder named as `pseudobulkFolderName(for:)` makes it.
+    /// Run is off then, a suffix typed once is not added twice, the request throws the same line, and an unused name reads as before.
+    func testTheReadinessLineRefusesAResultNameWhoseFolderExists() throws {
+        let state = makeState(projectURL: scratch)
+        state.rnaSeqPseudobulk.resultURL = single
+        state.rnaSeqPseudobulk.labelsURL = labels
+        state.outputName = "pb"
+        XCTAssertEqual(state.readinessText, "Ready to run.", "an unused name reads as before")
+        XCTAssertTrue(state.isRunEnabled)
+        let directory = try XCTUnwrap(state.outputDirectoryURL)
+        let existing = directory.appendingPathComponent("pb.lungfishrnaseq", isDirectory: true)
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+        let line = "pb.lungfishrnaseq already exists in the output directory. Enter another name."
+        XCTAssertEqual(state.readinessText, line)
+        XCTAssertFalse(state.isRunEnabled, "Run is off while the folder exists")
+        state.outputName = "pb.lungfishrnaseq"
+        XCTAssertEqual(state.readinessText, line, "the suffix is added once")
+        XCTAssertThrowsError(try state.makeLaunchRequest()) { error in
+            XCTAssertEqual(error as? WorkflowOperationError, .incompleteConfiguration(line))
+        }
+        state.outputName = "other"
+        XCTAssertEqual(state.readinessText, "Ready to run.", "another name is free")
+        try FileManager.default.removeItem(at: existing)
+        state.outputName = "pb"
+        XCTAssertEqual(state.readinessText, "Ready to run.", "the name is free again once the folder is gone")
+    }
+
     func testTheRowShowsNoFASTQWordsAtAnyStep() {
         let state = makeState(projectURL: nil)
         func assertNoFASTQWords(_ step: String, line: UInt = #line) {

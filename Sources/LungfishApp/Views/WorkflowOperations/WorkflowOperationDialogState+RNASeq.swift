@@ -146,6 +146,14 @@ extension WorkflowOperationDialogState {
             if rnaSeqPseudobulk.labelsURL == nil && rnaSeqPseudobulk.selection == nil { return "Choose a labels table." }
             if outputDirectoryURL == nil { return "Choose where the pseudobulk result goes." }
             if rnaSeqTrimmedOutputName.isEmpty { return "Enter a name for the pseudobulk result." }
+            // The CLI refuses an output folder that exists (`RNASeqPseudobulk.swift:65-67`), so the footer says so before Run (F-ready).
+            // One `stat` on the main actor, where `readinessText` already checks the 12S metadata file.
+            if let outputDirectoryURL {
+                let folder = Self.pseudobulkFolderName(for: rnaSeqTrimmedOutputName)
+                if FileManager.default.fileExists(atPath: outputDirectoryURL.appendingPathComponent(folder, isDirectory: true).path) {
+                    return "\(folder) already exists in the output directory. Enter another name."
+                }
+            }
             return Self.rnaSeqReadyText
         case .rnaSeqCellMapImport:
             if rnaSeqCellMapImport.resultURL == nil { return "Select a single-cell RNA-seq result." }
