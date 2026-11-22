@@ -131,7 +131,7 @@ The fixture took 17 seconds to run. With the image in place, you transfer about 
 
 1. Choose **File > Import Center…** (Cmd-Shift-I) and click the **Sequencing Reads** tab. [The Import Center](../01-foundations/06-the-lungfish-project.md#the-import-center) shows where to find it.
 
-2. Click **Plan for a Linux Machine**. Select the fixture's `reads` folder and click **Open**. You can select read files or one folder of them. After you click **Open**, the Import Center closes.
+2. Click **Import…** on the **Plan for a Linux Machine** card. Select the fixture's `reads` folder and click **Open**. You can select read files or one folder of them. After you click **Open**, the Import Center closes.
 
 3. Check that the **Plan for a Linux Machine** sheet shows `Reads: reads`. In **Staging folder**, enter the Linux folder's [absolute path](../../GLOSSARY.md#absolute-path), its full path from `/`. To find it, log in, use `cd <folder>` to change folders, and type `pwd` to show the current path. Use only letters, digits, `_`, `.`, and `-` in folder names.
 
@@ -289,7 +289,7 @@ Use the same `<host>` you pass to `ssh`, such as `<user name>@<machine name>` or
 
 1. Open the [project](../../GLOSSARY.md#project) where you want the bundles. For practice, make an empty project with **File > New Project**.
 
-2. Choose **File > Import Center…** (Cmd-Shift-I), click the **Sequencing Reads** tab, and click the **Linux Run Result** card.
+2. Choose **File > Import Center…** (Cmd-Shift-I), click the **Sequencing Reads** tab, and click **Import…** on the **Linux Run Result** card.
 
     <!-- SHOT: linux-run-result-card -->
 
@@ -335,7 +335,9 @@ Open the plan's text files in TextEdit. The `plan.tar` archive packs files toget
 | `logs/` | An empty folder when the plan is written, where each job's own output goes as `<sample>.out` and `<sample>.err`, and where HTCondor also writes `<sample>.log` |
 | `<sample>/` | The sample's `plan.json`, the packed copy `plan.tar` that its job carries, and `staging.json`, which names the image and the files the job reads |
 
-For the fixture, `sample.sub` requests 4 CPUs from **Threads per job** and 12,288 MB of memory, the 4 GB heap plus 8 GB. In `run.dag`, the disk request is 9 GB. The plan takes three times the size of the reads, here 3.5 MB in all, rounds it up to 1 GB, and adds 8 GB for the image and the work files. A `request_disk` column in the sample sheet overrides the estimate.
+For the fixture, `sample.sub` requests 4 CPUs from **Threads per job** and 12,288 MB of memory, the 4 GB heap plus 8 GB. In `run.dag`, the disk request is 9 GB. The plan calculates two estimates and requests the larger one. The first triples the size of the reads (3.5 MB in all here), rounds the result up to 1 GB for the fixture, and adds 8 GB for the image and the work files, giving 9 GB.
+
+The second estimate grows faster with the reads. For a plan with no recipe, it is the larger estimate once the reads pass about 1 GB. Both estimates come from runs of small samples, so watch the first jobs of a large sample. A `request_disk` column in the sample sheet overrides the estimate.
 
 `hg002-chr20/plan.json` lists Store reads with `clumpify.sh` 40.02, Compute statistics with `seqkit` 2.13.0, and Count Q20 and Q30 bases with the executor. The storage settings use [`bgzip`](../../GLOSSARY.md#bgzip), a gzip-compatible compressor, at level 4, with quality binning in steps of five, 4 threads, and a 4 GB heap. Higher levels compress more slowly and make smaller files. The sheet uses the default level.
 
@@ -375,7 +377,7 @@ To check where processing ran and how long it took, select the bundle and click 
 
 ## What good looks like
 
-`run-local.sh` prints a last line that begins `run-local.sh: every sample finished or was skipped.` and returns exit status 0. On a pool, `NodesDone` in `run.dag.status` equals `NodesTotal` and `condor_q -hold` prints nothing.
+`run-local.sh` prints a last line that begins `run-local.sh: every sample finished or was skipped.` and returns exit status 0. On a pool, `NodesDone` in `run.dag.status` equals `NodesTotal` and the `condor_q -hold -af` command from [Release a held HTCondor job](#release-a-held-htcondor-job) prints nothing.
 
 Before copying, check that each sample's `run-record.json` says `succeeded` for the run and each step, including samples the launcher skipped. With BBTools clumpify and no recipe that removes reads, expect the same read count in and out, 20,000 and 20,000 for the fixture. If Trim Galore or a recipe removed reads, check that the drop fits the processing you chose.
 
@@ -418,7 +420,7 @@ lungfish-cli import fastq reads/hg002-chr20_R1.fastq.gz reads/hg002-chr20_R2.fas
   --write-plan hg002-chr20-plan --staging-folder "<staging folder>" \
   --platform illumina --threads 4 --clumpify-heap-gb 4
 
-# Copy the plan folder and the files staging-files.json lists to the Linux machine, as the Procedure shows.
+# Copy the plan folder and each file with a `source` in staging-files.json to the Linux machine, as the Procedure shows. The tool image must already be there.
 
 # In the SSH window on the Linux machine, inside the copied plan folder, once the files are staged.
 sh run-local.sh --runtime apptainer --data "<data folder>"
