@@ -30,7 +30,7 @@ The STARsolo folder was counted from 10x's reads of the same sample with STARsol
 
 The 10x-derived files are licensed under the Creative Commons Attribution 4.0 International licence (CC BY 4.0, `https://creativecommons.org/licenses/by/4.0/`), which permits redistribution with attribution. LGE changed them. The matrices are cut to 200 cells and 1,353 genes, the STARsolo counts are LGE's own count of 10x's reads, and the analysis tables keep the 200 cells only. These cuts stay under CC BY 4.0 and not under LGE's MIT licence.
 
-The plan files, the synthetic read files and the invented count matrix of `cell-map-smoke/` were written by LGE and are under LGE's MIT licence. The two smoke bundles also hold the STARsolo `Log.final.out` and `Summary.csv` and the 12 barcodes and 6 features of the 10x-derived cut, so treat the whole of `cell-map-smoke/` as CC BY 4.0. Both licences allow shipping this folder. Keep the attribution below with any copy.
+The plan files, the synthetic read files and the invented count matrix of `cell-map-smoke/` were written by LGE and are under LGE's MIT licence. The two smoke bundles also hold the STARsolo `Log.final.out` and `Summary.csv` and the 12 barcodes and 6 features of the 10x-derived cut, so handle `cell-map-smoke/` as a whole under CC BY 4.0, the stricter of the two. Both licences allow shipping this folder. Keep the attribution below with any copy.
 
 ## Citation
 

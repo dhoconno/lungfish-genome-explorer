@@ -2,7 +2,7 @@
 
 A small export folder in the shape a sequence library application writes when you export a record, for the import of an application export. It holds the human beta-globin (HBB) region as a GenBank record, one variant as a VCF and a one-row index as a CSV. The same three files are also in one zip, since the importer takes a folder, an archive or a single file.
 
-This is not a file set from a vendor application. A script cut it from the public record NG_000007.3 (the record of the `hbb-gene/` fixture) and wrote the VCF and the index by hand. For this kind the importer sorts files by their type and not by the program that wrote them, so the kind you name only labels the collection. The kinds `alignment-tree` and `phylogenetics-result-set` are the exception, since they look for alignments and trees first. This set uses the neutral kind `sequence-design-library`.
+This is not a file set from a vendor application. A script, `make.py`, cut it from the public record NG_000007.3 (the record of the `hbb-gene/` fixture) and wrote the VCF and the index from rows typed into the script by hand. For this kind the importer sorts files by their type and not by the program that wrote them, so the kind you name only labels the collection. The kinds `alignment-tree` and `phylogenetics-result-set` are the exception, since they look for alignments and trees first. This set uses the neutral kind `sequence-design-library`.
 
 | File | What it holds | Bytes |
 | --- | --- | --- |
