@@ -40,13 +40,24 @@ package enum ViralReconViewerPublication {
 
         if let vcf = inventory.variantVCF, fileManager.fileExists(atPath: vcf.path) {
             try await registerVariants(vcfURL: vcf, bundleURL: bundleURL,
-                                       sampleName: inventory.sampleName, fileManager: fileManager)
+                                       sampleName: inventory.sampleName,
+                                       callerName: callerName(inventory.variantCaller), fileManager: fileManager)
         }
 
         return bundleURL
     }
 
-    /// Imports the iVar VCF into the bundle and records it in the manifest.
+    /// The caller as a reader knows it, for the variant track's description (VR-INVENTORY W9). An inventory that
+    /// records no caller is read as the one this publication was written for, iVar.
+    private static func callerName(_ variantCaller: String?) -> String {
+        switch variantCaller {
+        case "bcftools": return "BCFtools"
+        case "artic": return "ARTIC"
+        default: return "iVar"
+        }
+    }
+
+    /// Imports the caller's VCF into the bundle and records it in the manifest.
     ///
     /// The payload is copied in alongside its database so the bundle stays
     /// self-contained: a manifest that points outside itself breaks as soon as
@@ -55,6 +66,7 @@ package enum ViralReconViewerPublication {
         vcfURL: URL,
         bundleURL: URL,
         sampleName: String,
+        callerName: String,
         fileManager: FileManager
     ) async throws {
         let trackID = "viralrecon_ivar_\(UUID().uuidString.prefix(8))"
@@ -101,7 +113,7 @@ package enum ViralReconViewerPublication {
         let trackInfo = VariantTrackInfo(
             id: trackID,
             name: "\(sampleName) Variants",
-            description: "iVar variants from Viral Recon",
+            description: "\(callerName) variants from Viral Recon",
             path: payloadRelativePath,
             indexPath: indexRelativePath,
             databasePath: databaseRelativePath,

@@ -35,6 +35,9 @@ public struct ViralReconResultInventory: Sendable, Equatable {
     public let lineageFiles: [URL]
     public let reportFiles: [URL]
     public let absentOutputs: [ViralReconAbsentOutput]
+    /// The caller whose variants the run made, `ivar`, `bcftools` or `artic` (`ViralReconOutputLayout.variantCaller`),
+    /// or nil when the run calls none. The variant track's description names it.
+    public let variantCaller: String?
 
     public init(
         sampleName: String,
@@ -44,7 +47,8 @@ public struct ViralReconResultInventory: Sendable, Equatable {
         consensusFASTA: URL?,
         lineageFiles: [URL],
         reportFiles: [URL],
-        absentOutputs: [ViralReconAbsentOutput] = []
+        absentOutputs: [ViralReconAbsentOutput] = [],
+        variantCaller: String? = nil
     ) {
         self.sampleName = sampleName
         self.sortedBAM = sortedBAM
@@ -54,6 +58,7 @@ public struct ViralReconResultInventory: Sendable, Equatable {
         self.lineageFiles = lineageFiles
         self.reportFiles = reportFiles
         self.absentOutputs = absentOutputs
+        self.variantCaller = variantCaller
     }
 
     /// The sample's outputs, from the folders `params` (the run's effective params) send them to. The default is the
@@ -127,7 +132,8 @@ public struct ViralReconResultInventory: Sendable, Equatable {
             reportFiles: reports,
             absentOutputs: absentOutputs(
                 layout: layout, sampleName: sampleName, resultsDirectory: resultsDirectory, params: params,
-                hasVCF: vcf != nil, hasConsensus: consensus != nil, lineageTaken: lineageTaken))
+                hasVCF: vcf != nil, hasConsensus: consensus != nil, lineageTaken: lineageTaken),
+            variantCaller: layout.variantCaller)
     }
 
     /// The outputs `layout` leads a reader to expect for the sample that the results do not hold. A missing VCF is

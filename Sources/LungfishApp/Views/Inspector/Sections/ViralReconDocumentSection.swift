@@ -14,9 +14,14 @@ struct ViralReconDocumentFileRow: Equatable {
 }
 
 /// A group of outputs that answer the same question.
+///
+/// `notes` say why an output of this group is not in `rows`, one line each, in the words of the run's own record
+/// (VR-INVENTORY). A section with notes and no rows is shown, because without its line the missing result reads as
+/// a result nobody asked for.
 struct ViralReconDocumentFileSection: Equatable {
     let title: String
     let rows: [ViralReconDocumentFileRow]
+    var notes: [String] = []
 }
 
 struct ViralReconDocumentState: Equatable {
@@ -76,6 +81,13 @@ struct ViralReconDocumentSection: View {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(section.rows, id: \.fileURL) { row in
                     fileRow(row)
+                }
+                ForEach(section.notes, id: \.self) { note in
+                    Text(note)
+                        .font(LungfishInspectorStyle.controlFont)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(.top, 4)

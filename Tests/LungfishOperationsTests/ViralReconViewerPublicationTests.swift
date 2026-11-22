@@ -83,12 +83,48 @@ final class ViralReconViewerPublicationTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    private func ingest() throws -> ViralReconResultIngest.Ingested {
+    private func ingest(
+        params: [String: String] = ViralReconOutputLayout.defaultRunParams
+    ) throws -> ViralReconResultIngest.Ingested {
         try ViralReconResultIngest.ingest(
             resultsDirectory: results,
             sampleName: "S1",
             referenceBundleURL: referenceBundle,
-            into: root.appendingPathComponent("Analyses/viralrecon", isDirectory: true))
+            into: root.appendingPathComponent("Analyses/viralrecon", isDirectory: true),
+            params: params)
+    }
+
+    // VR-INVENTORY W9. The variant track says whose calls it holds, and a run's caller is not always iVar.
+    func testTheVariantTrackNamesTheCallerOfAnIvarRun() async throws {
+        let published = try await ViralReconViewerPublication.publish(ingested: try ingest())
+
+        XCTAssertEqual(try BundleManifest.load(from: published).variants.first?.description,
+                       "iVar variants from Viral Recon")
+    }
+
+    func testTheVariantTrackNamesTheCallerOfABcftoolsRun() async throws {
+        try stage(fixture: "test.vcf.gz", at: "variants/bcftools/S1.vcf.gz")
+        try stage(fixture: "test.vcf.gz.tbi", at: "variants/bcftools/S1.vcf.gz.tbi")
+        let params = ["platform": "illumina", "protocol": "amplicon", "variant_caller": "bcftools"]
+
+        let published = try await ViralReconViewerPublication.publish(ingested: try ingest(params: params))
+
+        XCTAssertEqual(try BundleManifest.load(from: published).variants.first?.description,
+                       "BCFtools variants from Viral Recon")
+    }
+
+    func testTheVariantTrackNamesTheCallerOfANanoporeRun() async throws {
+        // ARTIC's pass VCF and the unique one viralrecon makes from it, so the track is the same whichever the run reads.
+        for name in ["S1.pass.vcf.gz", "S1.pass.unique.vcf.gz"] {
+            try stage(fixture: "test.vcf.gz", at: "artic_minion/\(name)")
+            try stage(fixture: "test.vcf.gz.tbi", at: "artic_minion/\(name).tbi")
+        }
+        let params = ["platform": "nanopore", "protocol": "amplicon"]
+
+        let published = try await ViralReconViewerPublication.publish(ingested: try ingest(params: params))
+
+        XCTAssertEqual(try BundleManifest.load(from: published).variants.first?.description,
+                       "ARTIC variants from Viral Recon")
     }
 
     func testPublishRegistersTheAlignmentInTheManifest() async throws {

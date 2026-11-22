@@ -40,20 +40,24 @@ enum ViralReconDocumentStateBuilder {
 
     /// Builds the Inspector document for an ingested Viral Recon analysis.
     ///
-    /// Returns nil when the bundle holds no outputs at all, so the Inspector
-    /// falls through to the reference bundle's own metadata instead of showing
-    /// a heading over nothing.
+    /// Returns nil when the bundle holds no outputs and the run's record names
+    /// none missing, so the Inspector falls through to the reference bundle's
+    /// own metadata instead of showing a heading over nothing. A section with
+    /// no file is shown only when the record says why, in a line of its own
+    /// (`notes(forBundleAt:)`).
     static func state(
         forBundleAt bundleDirectory: URL,
         sampleName: String,
         fileManager: FileManager = .default
     ) -> ViralReconDocumentState? {
         let rows = rows(forBundleAt: bundleDirectory, fileManager: fileManager)
-        guard !rows.isEmpty else { return nil }
+        let notes = notes(forBundleAt: bundleDirectory, fileManager: fileManager)
+        guard !rows.isEmpty || !notes.isEmpty else { return nil }
 
         let sections = sectionOrder.compactMap { title -> ViralReconDocumentFileSection? in
             let matching = rows.filter { $0.section == title }
-            guard !matching.isEmpty else { return nil }
+            let sectionNotes = notes.filter { $0.section == title }.map { $0.line }
+            guard !matching.isEmpty || !sectionNotes.isEmpty else { return nil }
             return ViralReconDocumentFileSection(
                 title: title,
                 rows: matching.map {
@@ -61,13 +65,64 @@ enum ViralReconDocumentStateBuilder {
                         label: $0.label,
                         detail: detail(for: $0.label),
                         fileURL: $0.fileURL)
-                })
+                },
+                notes: sectionNotes)
         }
 
         return ViralReconDocumentState(
             title: sampleName,
             subtitle: "Viral Recon • \(rows.count) output\(rows.count == 1 ? "" : "s")",
             sections: sections)
+    }
+
+    /// One line the run's record gives for an output that is not in the bundle, with the section it belongs to.
+    struct Note: Equatable {
+        let section: String
+        let line: String
+    }
+
+    /// The lines for the outputs `viralrecon-result.json` says the run did not write, each once, in the order the
+    /// record gives them (`absentOutputs`, VR-INVENTORY). A sidecar with no such key or one that cannot be read gives
+    /// none, and so does a value a later version writes.
+    static func notes(forBundleAt bundleDirectory: URL, fileManager: FileManager = .default) -> [Note] {
+        let sidecar = bundleDirectory.appendingPathComponent("viralrecon-result.json")
+        guard let data = fileManager.contents(atPath: sidecar.path),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = json["absentOutputs"] as? [String]
+        else { return [] }
+        var seen: Set<ViralReconAbsentOutput> = []
+        return raw.compactMap { ViralReconAbsentOutput(rawValue: $0) }
+            .filter { seen.insert($0).inserted }
+            .map { note(for: $0) }
+    }
+
+    /// The decided line for an absent output (ux-text `codex/VR-INVENTORY-decided.md`, W1 to W8), in the section where
+    /// the output would be. Each case is named, so a new one cannot go without a line.
+    private static func note(for output: ViralReconAbsentOutput) -> Note {
+        switch output {
+        case .sampleFailed:
+            return Note(section: Section.variants,
+                        line: "Too few reads were left after trimming or mapping to call variants.")
+        case .noVariantsNoConsensus:
+            return Note(section: Section.variants,
+                        line: "No variants found, so the run made no consensus sequence or lineage tables.")
+        case .noVariants:
+            return Note(section: Section.variants, line: "No variants found.")
+        case .variantsNotWritten:
+            return Note(section: Section.variants, line: "Variant file missing from its expected location.")
+        case .consensusNotWritten:
+            return Note(section: Section.consensus,
+                        line: "Consensus sequence file missing from its expected location.")
+        case .pangolinNotWritten:
+            return Note(section: Section.lineage,
+                        line: "Pangolin lineage table missing from its expected location.")
+        case .nextcladeNotWritten:
+            return Note(section: Section.lineage,
+                        line: "Nextclade clade table missing from its expected location.")
+        case .freyjaNotWritten:
+            return Note(section: Section.lineage,
+                        line: "Freyja variant mix table missing from its expected location.")
+        }
     }
 
     /// Catalogues an ingested Viral Recon analysis directory.
