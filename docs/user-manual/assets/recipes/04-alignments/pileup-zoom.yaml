@@ -1,35 +1,49 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: the chr20 alignment focused view zoomed to chr20_10.0-10.5Mb:2,055-2,095, centered near position 2,078 where reads disagree with the reference
+# Captured from Lungfish Preview 2026.11.15 with capture-window.sh (2026-11-21 docs refresh)
+# App state: the minimap2 mapping result of the demo, Focus view, zoomed to chr20_10.0-10.5Mb:2,058-2,098 so position 2,078 (the alternate A on both strands) sits near the middle. Reference row and Consensus row show letters. The reads drew as plain strand-tinted bars with no glyphs, which the code does not explain (the base tier draws matches as dots or dimmed letters, ReadTrackRenderer+Bases.swift:200,350, and compact rows are 11 points, room for the clamped font).
+# RECAPTURE: the caption describes dots, which this PNG does not show. Recapture in the full-screen session; if the bars persist, it is an app finding, not a caption change.
+# Capture: CROP="0 82 1152 520" ACTIVATE=0 capture-window.sh <window id> 04-alignments pileup-zoom (1600 x 722 PNG).
 id: pileup-zoom
 chapter: 04-alignments/02-reading-an-alignment
-caption: "The pileup at position 2,078 of the HG002 chromosome 20 slice, with matching bases drawn as dots and the alternate A highlighted as coloured blocks on both strands."
+caption: "The pileup at position 2,078 of the HG002 chromosome 20 slice, with matching bases drawn as dots and the alternate A drawn in its base colour on both strands."
 viewport_class: alignment
 app_state:
   fixture: '{demo_project}'
   open_files:
-  - reference: Reference Sequences/chr20_10.0-10.5Mb.lungfishref
+  - project: Human Mapping and Variants (with results).lungfish
+  - mapping: Analyses/minimap2-2026-09-25T00-00-00
   window_size:
-  - 1400
+  - 1440
   - 900
   appearance: light
 steps:
-- action: open_application
-  app: Lungfish Preview
+- action: open_file
+  path: '{demo_project}'
 - action: wait_ready
   signal: main_window_visible
+  # PROSE-ONLY: Pressed Later on the Update tools to 2026.2 sheet
 - action: resize_window
   size:
-  - 1400
+  - 1440
   - 900
-  # PROSE-ONLY: Clicked the chr20_10.0-10.5Mb reference bundle in the sidebar
-  # PROSE-ONLY: Clicked Focus above the alignment viewport to open the dedicated alignment view
-  # PROSE-ONLY: Used Sequence > Go to Location... typing chr20_10.0-10.5Mb:2058-2098
+  # PROSE-ONLY: Clicked minimap2-2026-09-25T00-00-00 under Analyses in the sidebar
+  # PROSE-ONLY: Clicked the chr20 row of the mapped contigs table
+  # PROSE-ONLY: Chose View > Hide Drawer
+  # PROSE-ONLY: Chose View > Hide Sidebar
+- action: resize_window
+  size:
+  - 1440
+  - 900
+  # PROSE-ONLY: Dragged the divider at the Inspector's left edge about 55 points right
+  # PROSE-ONLY: Chose Sequence > Go to Location...
+  # PROSE-ONLY: Typed chr20_10.0-10.5Mb:2058-2098 in the Go to Location field
+  # PROSE-ONLY: Pressed Go
+  # PROSE-ONLY: Clicked Focus above the contig table
 crop:
   mode: region
   region:
-  - 252
-  - 90
-  - 830
+  - 0
+  - 82
+  - 1152
   - 520
 post:
   retina: true

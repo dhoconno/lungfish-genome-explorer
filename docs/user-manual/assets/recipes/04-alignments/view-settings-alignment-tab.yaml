@@ -1,36 +1,48 @@
-# Captured from Lungfish Preview 2026.9.40 with capture-window.sh (2026-09-24 manual review).
-# App state: the Inspector View Settings, Alignment tab, with chr20 reference bundle selected
+# Captured from Lungfish Preview 2026.11.15 with capture-window.sh (2026-11-21 docs refresh)
+# App state: the bam-viewport-overview state (minimap2 mapping result and its contig row selected, sidebar and drawer hidden), Inspector on its View tab, View Settings on the Alignment tab, scrolled so the three Read Inclusion toggles show. All settings at their defaults.
+# Capture: CROP="1158 392 282 481" ACTIVATE=0 capture-window.sh <window id> 04-alignments view-settings-alignment-tab (564 x 962 PNG). The app was in the background, so the Show reads tick is drawn grey.
 id: view-settings-alignment-tab
 chapter: 04-alignments/02-reading-an-alignment
-caption: The Alignment tab of the Inspector's View Settings, showing the Visible Alignment picker, Show
-  reads, Minimum alignment confidence, Coverage scale, and the three Read Inclusion toggles.
+caption: "The Alignment tab of the Inspector's View Settings, showing the Visible Alignment picker, Show reads, Minimum alignment confidence, Coverage scale, and the three Read Inclusion toggles."
 viewport_class: alignment
 app_state:
   fixture: '{demo_project}'
   open_files:
-  - reference: Reference Sequences/chr20_10.0-10.5Mb.lungfishref
+  - project: Human Mapping and Variants (with results).lungfish
+  - mapping: Analyses/minimap2-2026-09-25T00-00-00
   window_size:
-  - 1400
+  - 1440
   - 900
   appearance: light
 steps:
-- action: open_application
-  app: Lungfish Preview
+- action: open_file
+  path: '{demo_project}'
 - action: wait_ready
   signal: main_window_visible
+  # PROSE-ONLY: Pressed Later on the Update tools to 2026.2 sheet
 - action: resize_window
   size:
-  - 1400
+  - 1440
   - 900
-  # PROSE-ONLY: Clicked the View tab in the Inspector
-  # PROSE-ONLY: Clicked the Alignment sub-tab under View Settings
+  # PROSE-ONLY: Clicked minimap2-2026-09-25T00-00-00 under Analyses in the sidebar
+  # PROSE-ONLY: Clicked the chr20 row of the mapped contigs table
+  # PROSE-ONLY: Chose View > Hide Drawer
+  # PROSE-ONLY: Chose View > Hide Sidebar
+- action: resize_window
+  size:
+  - 1440
+  - 900
+  # PROSE-ONLY: Dragged the divider at the Inspector's left edge about 55 points right
+  # PROSE-ONLY: Clicked the View tab at the top of the Inspector (View Settings opens on its Alignment tab)
+- action: scroll_to
+  target: Inspector View Settings, Read Inclusion toggles
 crop:
   mode: region
   region:
-  - 1112
-  - 404
-  - 288
-  - 478
+  - 1158
+  - 392
+  - 282
+  - 481
 post:
   retina: true
   format: png
