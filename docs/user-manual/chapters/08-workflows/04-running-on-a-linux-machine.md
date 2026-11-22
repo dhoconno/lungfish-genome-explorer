@@ -337,7 +337,7 @@ Open the plan's text files in TextEdit. The `plan.tar` archive packs files toget
 
 For the fixture, `sample.sub` requests 4 CPUs from **Threads per job** and 12,288 MB of memory, the 4 GB heap plus 8 GB. In `run.dag`, the disk request is 9 GB. The plan calculates two estimates and requests the larger one. The first triples the size of the reads (3.5 MB in all here), rounds the result up to 1 GB for the fixture, and adds 8 GB for the image and the work files, giving 9 GB.
 
-The second estimate grows faster with the reads. For a plan with no recipe, it is the larger estimate once the reads pass about 1 GB. Both estimates come from runs of small samples, so watch the first jobs of a large sample. A `request_disk` column in the sample sheet overrides the estimate.
+The second estimate grows faster with the reads. For a plan with no recipe, it is the larger estimate once the reads pass about 0.7 GB. Both estimates come from runs of small samples, so watch the first jobs of a large sample. A `request_disk` column in the sample sheet overrides the estimate.
 
 `hg002-chr20/plan.json` lists Store reads with `clumpify.sh` 40.02, Compute statistics with `seqkit` 2.13.0, and Count Q20 and Q30 bases with the executor. The storage settings use [`bgzip`](../../GLOSSARY.md#bgzip), a gzip-compatible compressor, at level 4, with quality binning in steps of five, 4 threads, and a 4 GB heap. Higher levels compress more slowly and make smaller files. The sheet uses the default level.
 
