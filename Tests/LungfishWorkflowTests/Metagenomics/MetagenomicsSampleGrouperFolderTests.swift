@@ -147,4 +147,22 @@ final class MetagenomicsSampleGrouperFolderTests: XCTestCase {
         XCTAssertEqual(Set(samples.map(\.fastq1.path)), [url("a/S.fastq.gz").path, url("b/S.fastq.gz").path])
         XCTAssertEqual(samples.map { $0.fastq2 == nil }, [true, true])
     }
+
+    /// The samples of one stem number by folder path, whatever the order the folders were given in. The base
+    /// numbered them in argument order, so `--batch b a` swaps `S_1` and `S_2` against earlier builds.
+    func testFoldersGivenInReverseNumberByFolderPathOrder() {
+        let files = [
+            url("b/S_R1.fastq.gz"), url("b/S_R2.fastq.gz"), url("a/S_R1.fastq.gz"), url("a/S_R2.fastq.gz"),
+        ]
+
+        let samples = MetagenomicsSampleGrouper.group(files)
+
+        XCTAssertEqual(
+            rows(samples),
+            [
+                ["S_1", url("a/S_R1.fastq.gz").path, url("a/S_R2.fastq.gz").path],
+                ["S_2", url("b/S_R1.fastq.gz").path, url("b/S_R2.fastq.gz").path],
+            ]
+        )
+    }
 }
