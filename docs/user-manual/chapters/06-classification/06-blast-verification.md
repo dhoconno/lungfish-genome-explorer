@@ -98,13 +98,13 @@ If you quit, LGE checks again when you reopen it. When the answer comes back, cl
 
 From every classifier viewport, LGE searches all of `core_nt` with no filter and judges reads by the same rules. **Verify with BLAST…** is in the action bar and the row's right-click menu in EsViritu, TaxTriage, NAO-MGS, and NVD, which are other tools for classification or virus detection.
 
-What LGE sends depends on the viewport. A [fragment](../../GLOSSARY.md#fragment) is one piece of the sample's DNA. In [paired-end](../../GLOSSARY.md#paired-end) sequencing, both ends are read, giving two reads called [mates](../../GLOSSARY.md#mate). A [contig](../../GLOSSARY.md#contig) is a longer sequence assembled from overlapping reads. A [taxonomy ID](../../GLOSSARY.md#taxonomy-id), or tax ID, is the number NCBI assigns to a taxon.
+What LGE sends depends on the viewport. A [fragment](../../GLOSSARY.md#fragment) is one piece of the sample's DNA. In [paired-end](../../GLOSSARY.md#paired-end) sequencing, both ends are read, giving two reads called [mates](../../GLOSSARY.md#mate). A [contig](../../GLOSSARY.md#contig) is a longer sequence assembled from overlapping reads. A [taxonomy ID](../../GLOSSARY.md#taxonomy-id), or tax ID, is the number NCBI assigns to a taxon. A reference sequence is the known sequence that reads are compared with. A duplicate is a read from an extra copy of the same fragment made while preparing the sample for sequencing. A unique read is a read left after duplicates are set aside.
 
 | Viewport | What LGE sends | Before it sends |
 |---|---|---|
 | [Taxonomy](02-running-kraken2.md), where Kraken 2 results open | Random fragments, one read per fragment | The popover |
 | [EsViritu](03-running-esviritu.md) and [TaxTriage](04-running-taxtriage.md) | The longest reads, five or a quarter of the request, whichever is smaller, then a random fill. EsViritu uses the row's sample. Both mates are judged and the pair counts once. | The popover |
-| [NAO-MGS](05-running-nao-mgs.md) | LGE sends the first reads from the taxon's top accessions, the reference sequences with the most hits. It skips reads marked as duplicates and sends up to the number you choose in the popover. | The popover |
+| [NAO-MGS](05-running-nao-mgs.md) | LGE sends the first reads from the taxon's top accessions, up to five reference sequences with the most unique reads. It skips reads marked as duplicates and sends up to the number you choose in the popover. | The popover |
 | [Novel Virus Diagnostics](09-novel-virus-detection.md) | The selected contig, judged against the taxon named by NVD's adjusted tax ID | A sheet titled **Run BLAST at NCBI?** |
 | [12S Amplicon Metabarcoding](10-twelve-s-metabarcoding.md) | Unresolved sequences from the Unresolved view | A sheet titled **Run BLAST at NCBI?** |
 
