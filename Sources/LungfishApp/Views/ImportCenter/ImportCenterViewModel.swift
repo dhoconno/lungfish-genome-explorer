@@ -512,10 +512,10 @@ final class ImportCenterViewModel {
         ImportCardInfo(
             id: "cz-id",
             title: "CZ-ID Results",
-            description: "Import hosted CZ-ID taxon report exports as an imported taxonomy result; CZ-ID is imported, not run locally. Accepts a report TSV, ZIP archive, or extracted folder.",
+            description: "Import hosted CZ-ID taxon report exports as an imported taxonomy result; CZ-ID is imported, not run locally. Accepts a report (CSV or TSV), ZIP archive, or extracted folder.",
             sfSymbol: "c.circle",
             customImage: TextBadgeIcon.image(text: "CZ", size: NSSize(width: 28, height: 28)),
-            fileHint: "taxon report TSV, .zip, or extracted folder",
+            fileHint: "taxon report (CSV or TSV), .zip, or extracted folder",
             tab: .classificationResults,
             importKind: .wizardSheet(action: .czId)
         ),

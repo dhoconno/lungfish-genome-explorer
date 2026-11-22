@@ -13,9 +13,8 @@ struct CzIdCommand: AsyncParsableCommand {
         commandName: "cz-id",
         abstract: "Import and view CZ-ID classification results",
         discussion: """
-        Import CZ-ID hosted metagenomics taxon report TSV exports into Lungfish's
-        classification result schema. This command imports existing CZ-ID outputs;
-        it does not run or submit data to CZ-ID.
+        Import existing CZ-ID taxon reports (CSV or TSV) as Lungfish classification results. \
+        This command does not run CZ-ID or send it data.
         """,
         subcommands: [ImportSubcommand.self, SummarySubcommand.self],
         defaultSubcommand: SummarySubcommand.self
@@ -24,12 +23,12 @@ struct CzIdCommand: AsyncParsableCommand {
     struct ImportSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "import",
-            abstract: "Import a CZ-ID taxon report TSV into a Lungfish result directory"
+            abstract: "Import a CZ-ID taxon report (CSV or TSV) into a Lungfish result directory"
         )
 
         @OptionGroup(visibility: .hidden) var globalOptions: GlobalOptions
 
-        @Argument(help: "Path to a CZ-ID taxon report TSV, ZIP archive, or extracted export folder")
+        @Argument(help: "Path to a CZ-ID taxon report (CSV or TSV), ZIP archive, or extracted export folder")
         var inputPath: String
 
         @Option(
@@ -46,24 +45,31 @@ struct CzIdCommand: AsyncParsableCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
-            let importResult = try await CzIdImportPreview.withResolvedReport(from: inputURL) { resolved in
-                let parsed = try CzIdDataConverter.parseTaxonReport(at: resolved.reportURL)
-                let sample = parsed.metadata.sampleName ?? resolved.reportURL.deletingPathExtension().lastPathComponent
-                let destination = outputDir.map(URL.init(fileURLWithPath:))
-                    ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                        .appendingPathComponent("cz-id-\(sample)", isDirectory: true)
+            let importResult: (converted: CzIdConversion, destination: URL, sample: String)
+            do {
+                importResult = try await CzIdImportPreview.withResolvedReport(from: inputURL) { resolved in
+                    let parsed = try CzIdDataConverter.parseTaxonReport(at: resolved.reportURL)
+                    let sample = parsed.metadata.sampleName ?? resolved.reportURL.deletingPathExtension().lastPathComponent
+                    let destination = outputDir.map(URL.init(fileURLWithPath:))
+                        ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                            .appendingPathComponent("cz-id-\(sample)", isDirectory: true)
 
-                let command = [CLICommandIdentity.executableName, "cz-id", "import", inputURL.path, "--output-dir", destination.path]
-                let sourceInput = resolved.selectedSourceURL.standardizedFileURL == resolved.reportURL.standardizedFileURL
-                    ? nil
-                    : resolved.selectedSourceURL
-                let converted = try CzIdDataConverter.convertTaxonReport(
-                    at: resolved.reportURL,
-                    outputDirectory: destination,
-                    command: command,
-                    sourceInputURL: sourceInput
-                )
-                return (converted: converted, destination: destination, sample: sample)
+                    let command = [CLICommandIdentity.executableName, "cz-id", "import", inputURL.path, "--output-dir", destination.path]
+                    let sourceInput = resolved.selectedSourceURL.standardizedFileURL == resolved.reportURL.standardizedFileURL
+                        ? nil
+                        : resolved.selectedSourceURL
+                    let converted = try CzIdDataConverter.convertTaxonReport(
+                        at: resolved.reportURL,
+                        outputDirectory: destination,
+                        command: command,
+                        sourceInputURL: sourceInput
+                    )
+                    return (converted: converted, destination: destination, sample: sample)
+                }
+            } catch let refusal as CzIdDataConverterError {
+                // A report the converter cannot count is a bad input, refused before anything is written.
+                print(formatter.error(refusal.localizedDescription))
+                throw CLIExitCode.inputError.exitCode
             }
 
             if !globalOptions.quiet {
@@ -87,12 +93,12 @@ struct CzIdCommand: AsyncParsableCommand {
     struct SummarySubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "summary",
-            abstract: "Display a summary of a CZ-ID taxon report TSV"
+            abstract: "Summarize a CZ-ID taxon report (CSV or TSV)"
         )
 
         @OptionGroup var globalOptions: GlobalOptions
 
-        @Argument(help: "Path to a CZ-ID taxon report TSV")
+        @Argument(help: "Path to a CZ-ID taxon report (CSV or TSV)")
         var inputPath: String
 
         @Option(name: .customLong("top"), help: "Number of top taxa to display")
@@ -106,7 +112,13 @@ struct CzIdCommand: AsyncParsableCommand {
                 throw CLIExitCode.inputError.exitCode
             }
 
-            let parsed = try CzIdDataConverter.parseTaxonReport(at: inputURL)
+            let parsed: CzIdParsedTaxonReport
+            do {
+                parsed = try CzIdDataConverter.parseTaxonReport(at: inputURL)
+            } catch let refusal as CzIdDataConverterError {
+                print(formatter.error(refusal.localizedDescription))
+                throw CLIExitCode.inputError.exitCode
+            }
             let topRows = parsed.rows
                 .filter { $0.taxId != 1 }
                 .sorted { $0.ntReadCount > $1.ntReadCount }

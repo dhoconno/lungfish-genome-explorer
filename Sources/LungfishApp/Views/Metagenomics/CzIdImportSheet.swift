@@ -181,7 +181,7 @@ struct CzIdImportSheet: View {
                 .lungfishHelp(LungfishHelpContent.metagenomicsCzIdImportSource)
             }
 
-            Text("Select a CZ-ID taxon report TSV, a ZIP export, or an extracted export folder.")
+            Text("Select a CZ-ID taxon report (CSV or TSV), ZIP export, or extracted export folder.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lungfishHelp(LungfishHelpContent.metagenomicsCzIdImportSource)

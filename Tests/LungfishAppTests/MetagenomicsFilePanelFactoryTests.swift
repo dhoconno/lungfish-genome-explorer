@@ -36,7 +36,7 @@ final class MetagenomicsFilePanelFactoryTests: XCTestCase {
         let panel = MetagenomicsFilePanelFactory.czIdExportImportPanel()
 
         XCTAssertEqual(panel.title, "Select CZ-ID Export")
-        XCTAssertEqual(panel.message, "Select a CZ-ID taxon report TSV, ZIP archive, or extracted folder")
+        XCTAssertEqual(panel.message, "Select a CZ-ID taxon report (CSV or TSV), ZIP archive, or extracted folder")
         XCTAssertTrue(panel.canChooseFiles)
         XCTAssertTrue(panel.canChooseDirectories)
         XCTAssertFalse(panel.allowsMultipleSelection)

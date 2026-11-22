@@ -22,7 +22,7 @@ extension ImportCommand {
             abstract: "Import hosted CZ-ID classification results into a project"
         )
 
-        @Argument(help: "Path to a CZ-ID taxon report TSV, ZIP archive, or extracted export folder")
+        @Argument(help: "Path to a CZ-ID taxon report (CSV or TSV), ZIP archive, or extracted export folder")
         var inputPath: String
 
         @Option(name: .customLong("project"), help: "Lungfish project directory to import into")

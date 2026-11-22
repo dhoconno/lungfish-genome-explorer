@@ -44,7 +44,7 @@ public enum MetagenomicsFilePanelFactory {
     public static func czIdExportImportPanel() -> NSOpenPanel {
         let panel = NSOpenPanel()
         panel.title = "Select CZ-ID Export"
-        panel.message = "Select a CZ-ID taxon report TSV, ZIP archive, or extracted folder"
+        panel.message = "Select a CZ-ID taxon report (CSV or TSV), ZIP archive, or extracted folder"
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false

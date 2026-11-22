@@ -9,49 +9,87 @@ import LungfishIO
 public enum CzIdDataConverter {
     public static let schemaVersion = "cz-id-taxon-report-v1"
 
+    /// Reads a CZ-ID taxon report. czid-web writes its Report Table and bulk Sample Taxon Reports as comma CSV
+    /// (`pipeline_report_service.rb` `report_csv`) with a numeric `tax_level`, `nt_count` and `nr_count`. A tab copy of
+    /// it, and the older tab reports with `taxon_name`, `rank` and `nt_read_count`, read the same way. The delimiter is
+    /// the header line's: a tab, else a comma.
+    ///
+    /// A report is refused, never imported with 0 reads, when it has no taxon ID, name or read count column, or when a
+    /// row has no taxon ID or name (CZID-REAL-EXPORT-FORMAT). An empty cell under a count column is 0, because CZ-ID
+    /// writes no count where a taxon has no hits.
     public static func parseTaxonReport(at url: URL) throws -> CzIdParsedTaxonReport {
         let text = try String(contentsOf: url, encoding: .utf8)
-        let lines = text.components(separatedBy: .newlines)
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let fileName = url.lastPathComponent
+        // Each line keeps its number in the file, which is the row a spreadsheet shows, so a refusal can name it.
+        let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+            .enumerated()
+            .map { (number: $0.offset + 1, text: String($0.element)) }
+            .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
         guard let headerLine = lines.first else {
             throw CzIdDataConverterError.emptyReport(url)
         }
 
-        let headers = splitTSVLine(headerLine)
-        let index = Dictionary(uniqueKeysWithValues: headers.enumerated().map { ($0.element.normalizedHeaderKey, $0.offset) })
+        let delimiter: Character = headerLine.text.contains("\t") ? "\t" : ","
+        let headers = try splitFields(headerLine.text, delimiter: delimiter, url: url)
+        // The first of two columns with the same name wins, as `stringValue` reads them.
+        let index = Dictionary(
+            headers.enumerated().map { ($0.element.normalizedHeaderKey, $0.offset) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        guard hasColumn(index, aliases: Aliases.taxId) else {
+            throw CzIdDataConverterError.missingColumn(fileName: fileName, column: "tax_id")
+        }
+        guard hasColumn(index, aliases: Aliases.name) else {
+            throw CzIdDataConverterError.missingColumn(fileName: fileName, column: "name")
+        }
+        let hasNTCount = hasColumn(index, aliases: Aliases.ntCount)
+        let hasNRCount = hasColumn(index, aliases: Aliases.nrCount)
+        guard hasNTCount || hasNRCount else {
+            throw CzIdDataConverterError.missingCountColumn(fileName: fileName)
+        }
 
         var rows: [CzIdTaxonReportRow] = []
         var metadata = CzIdImportMetadata()
 
         for line in lines.dropFirst() {
-            let fields = splitTSVLine(line)
+            let fields = try splitFields(line.text, delimiter: delimiter, url: url)
             guard !fields.allSatisfy({ $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
                 continue
             }
 
-            let taxId = intValue(fields, index, aliases: ["taxid", "tax_id", "taxonid", "taxon_id"])
-            let name = stringValue(fields, index, aliases: ["taxonname", "tax_name", "name", "taxon"])
-            let rank = stringValue(fields, index, aliases: ["rank", "taxonrank", "tax_rank"]) ?? "no rank"
-
-            guard let taxId, let name, !name.isEmpty else {
-                throw CzIdDataConverterError.missingRequiredColumns
+            guard let taxId = intValue(fields, index, aliases: Aliases.taxId) else {
+                throw CzIdDataConverterError.missingValue(fileName: fileName, row: line.number, column: "tax_id")
             }
+            guard let name = stringValue(fields, index, aliases: Aliases.name) else {
+                throw CzIdDataConverterError.missingValue(fileName: fileName, row: line.number, column: "name")
+            }
+            let rank = stringValue(fields, index, aliases: ["rank", "taxonrank", "tax_rank"])
+                ?? stringValue(fields, index, aliases: ["taxlevel", "tax_level"]).map(rankName(forTaxLevel:))
+                ?? "no rank"
+
+            let ntCount = hasNTCount ? intValue(fields, index, aliases: Aliases.ntCount) ?? 0 : nil
+            let nrCount = hasNRCount ? intValue(fields, index, aliases: Aliases.nrCount) ?? 0 : nil
+            let ntRpm = doubleValue(fields, index, aliases: ["ntrpm", "nt_rpm", "rpm"])
+            let nrRpm = doubleValue(fields, index, aliases: ["nrrpm", "nr_rpm"])
 
             let row = CzIdTaxonReportRow(
                 taxId: taxId,
                 name: name,
                 rank: rank,
-                ntReadCount: intValue(fields, index, aliases: ["ntreadcount", "nt_read_count", "ntreads", "reads", "readcount", "read_count"]) ?? 0,
-                ntRpm: doubleValue(fields, index, aliases: ["ntrpm", "nt_rpm", "rpm"]) ?? 0,
+                // A report with NR counts only is counted by them, with their rPM, rather than written as 0 reads.
+                ntReadCount: ntCount ?? nrCount ?? 0,
+                ntRpm: (hasNTCount ? ntRpm : nrRpm) ?? 0,
                 ntPercentIdentity: doubleValue(fields, index, aliases: ["ntpercentidentity", "nt_percent_identity", "percentidentity", "percent_identity", "pident"]),
                 ntAlignmentLength: intValue(fields, index, aliases: ["ntalignmentlength", "nt_alignment_length", "alignmentlength", "alignment_length"]),
                 ntEValue: doubleValue(fields, index, aliases: ["ntevalue", "nt_e_value", "evalue", "e_value"]),
-                nrReadCount: intValue(fields, index, aliases: ["nrreadcount", "nr_read_count", "nrreads"]),
-                nrRpm: doubleValue(fields, index, aliases: ["nrrpm", "nr_rpm"]),
+                nrReadCount: nrCount,
+                nrRpm: nrRpm,
                 nrPercentIdentity: doubleValue(fields, index, aliases: ["nrpercentidentity", "nr_percent_identity"]),
                 nrAlignmentLength: intValue(fields, index, aliases: ["nralignmentlength", "nr_alignment_length"]),
-                nrEValue: doubleValue(fields, index, aliases: ["nrevalue", "nr_e_value"])
+                nrEValue: doubleValue(fields, index, aliases: ["nrevalue", "nr_e_value"]),
+                genusTaxId: intValue(fields, index, aliases: ["genustaxid", "genus_tax_id"])
             )
             rows.append(row)
 
@@ -167,14 +205,19 @@ public enum CzIdDataConverter {
         return CzIdConversion(parsed: parsed, result: result, manifest: manifest)
     }
 
+    /// The Kraken-style report of `rows`.
+    ///
+    /// CZ-ID lists each genus with its species under it (`genus_tax_id`). A genus row's count is its clade count,
+    /// which already holds its species' reads, so the genus direct count is what its species leave and no read is
+    /// counted twice. A report with no root row gets one, whose clade is the sample's total reads from `nt_count` /
+    /// `nt_rpm` (CZ-ID writes no root and no unclassified row), or else the sum of the top-level clades.
     public static func kreportText(from rows: [CzIdTaxonReportRow]) -> String {
-        let hasRoot = rows.contains { $0.rank.normalizedHeaderKey == "root" || $0.taxId == 1 }
-        let totalReads = rows.first { $0.rank.normalizedHeaderKey == "root" || $0.taxId == 1 }?.ntReadCount
-            ?? rows.reduce(0) { $0 + $1.ntReadCount }
-
-        var lines: [String] = []
-        if !hasRoot {
-            lines.append(kreportLine(percent: 100, clade: totalReads, direct: totalReads, rankCode: "R", taxId: 1, name: "root"))
+        let isRoot: (CzIdTaxonReportRow) -> Bool = { $0.rank.normalizedHeaderKey == "root" || $0.taxId == 1 }
+        let genusIds = Set(rows.filter { $0.rank.normalizedHeaderKey == "genus" && !isRoot($0) }.map(\.taxId))
+        let parentGenus: (CzIdTaxonReportRow) -> Int? = { row in
+            guard let genus = row.genusTaxId, genus != row.taxId, genusIds.contains(genus),
+                  row.rank.normalizedHeaderKey != "genus", !isRoot(row) else { return nil }
+            return genus
         }
 
         let sortedRows = rows.sorted { lhs, rhs in
@@ -182,22 +225,59 @@ public enum CzIdDataConverter {
             if rhs.taxId == 1 { return false }
             return lhs.ntReadCount > rhs.ntReadCount
         }
-
+        var childrenByGenus: [Int: [CzIdTaxonReportRow]] = [:]
         for row in sortedRows {
-            let rankCode = kreportRankCode(for: row.rank)
-            let percent = totalReads > 0 ? (Double(row.ntReadCount) / Double(totalReads)) * 100.0 : 0.0
-            let name = rankCode == "R" ? row.name : "  \(row.name)"
+            if let genus = parentGenus(row) { childrenByGenus[genus, default: []].append(row) }
+        }
+        let topLevelRows = sortedRows.filter { parentGenus($0) == nil && !isRoot($0) }
+        let topLevelReads = topLevelRows.reduce(0) { $0 + $1.ntReadCount }
+
+        let rootRow = rows.first(where: isRoot)
+        let totalReads = rootRow?.ntReadCount ?? totalReadsFromRPM(rows) ?? topLevelReads
+
+        var lines: [String] = []
+        if rootRow == nil {
             lines.append(kreportLine(
-                percent: percent,
-                clade: row.ntReadCount,
-                direct: row.ntReadCount,
-                rankCode: rankCode,
-                taxId: row.taxId,
-                name: name
+                percent: 100,
+                clade: totalReads,
+                direct: max(0, totalReads - topLevelReads),
+                rankCode: "R",
+                taxId: 1,
+                name: "root"
             ))
         }
 
+        func append(_ row: CzIdTaxonReportRow, direct: Int, indent: String) {
+            let rankCode = isRoot(row) ? "R" : kreportRankCode(for: row.rank)
+            let percent = totalReads > 0 ? (Double(row.ntReadCount) / Double(totalReads)) * 100.0 : 0.0
+            lines.append(kreportLine(
+                percent: percent,
+                clade: row.ntReadCount,
+                direct: direct,
+                rankCode: rankCode,
+                taxId: row.taxId,
+                name: rankCode == "R" ? row.name : indent + row.name
+            ))
+        }
+
+        for row in sortedRows where parentGenus(row) == nil {
+            let children = isRoot(row) ? [] : childrenByGenus[row.taxId] ?? []
+            let childReads = children.reduce(0) { $0 + $1.ntReadCount }
+            append(row, direct: max(0, row.ntReadCount - childReads), indent: "  ")
+            for child in children {
+                append(child, direct: child.ntReadCount, indent: "    ")
+            }
+        }
+
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// The sample's total reads from the taxon with the most reads, as `nt_count` / `nt_rpm` per million.
+    private static func totalReadsFromRPM(_ rows: [CzIdTaxonReportRow]) -> Int? {
+        guard let row = rows.filter({ $0.ntReadCount > 0 && $0.ntRpm > 0 }).max(by: { $0.ntReadCount < $1.ntReadCount }) else {
+            return nil
+        }
+        return integer((Double(row.ntReadCount) / row.ntRpm * 1_000_000).rounded())
     }
 
     private static func kreportLine(
@@ -222,12 +302,81 @@ public enum CzIdDataConverter {
         case "family": return "F"
         case "genus": return "G"
         case "species": return "S"
-        default: return "U"
+        // A named taxon with no rank, or a rank word not listed here, is Kraken's no-rank `-`, a taxon at its depth
+        // that keeps its reads. `U` is unclassified reads, and the kreport parser keeps one such line, so writing
+        // each of these rows as `U` lost the reads of all but the last.
+        default: return "-"
         }
     }
 
-    private static func splitTSVLine(_ line: String) -> [String] {
-        line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+    /// The header names each value is read from. They are compared after `normalizedHeaderKey`.
+    private enum Aliases {
+        static let taxId = ["taxid", "tax_id", "taxonid", "taxon_id"]
+        static let name = ["taxonname", "tax_name", "name", "taxon"]
+        static let ntCount = ["ntreadcount", "nt_read_count", "ntreads", "reads", "readcount", "read_count", "nt_count"]
+        static let nrCount = ["nrreadcount", "nr_read_count", "nrreads", "nr_count"]
+    }
+
+    /// czid-web's `tax_level` (`taxon_count.rb:24-31`): 1 species, 2 genus, 3 family, 4 order, 5 class, 6 phylum,
+    /// 7 kingdom and 8 superkingdom. Any other value is kept as it is.
+    private static func rankName(forTaxLevel level: String) -> String {
+        let ranks = [1: "species", 2: "genus", 3: "family", 4: "order", 5: "class", 6: "phylum", 7: "kingdom", 8: "superkingdom"]
+        return Int(level).flatMap { ranks[$0] } ?? level
+    }
+
+    private static func hasColumn(_ index: [String: Int], aliases: [String]) -> Bool {
+        aliases.contains { index[$0.normalizedHeaderKey] != nil }
+    }
+
+    /// One line's fields. A tab report splits on tabs, as it always has. A comma report follows RFC 4180, because
+    /// czid-web quotes `species_tax_ids` such as `"[1280, 1282]"`: a field in double quotes may hold the delimiter,
+    /// and a doubled quote inside it is one quote. A quoted field that runs past its line is refused, not split.
+    private static func splitFields(_ line: String, delimiter: Character, url: URL) throws -> [String] {
+        guard delimiter == "," else {
+            return line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        }
+        var fields: [String] = []
+        var field = ""
+        var inQuotes = false
+        var atFieldStart = true
+        var characters = line.makeIterator()
+        var pending: Character? = characters.next()
+        while let character = pending {
+            pending = characters.next()
+            if inQuotes {
+                if character == "\"" {
+                    if pending == "\"" {
+                        field.append("\"")
+                        pending = characters.next()
+                    } else {
+                        inQuotes = false
+                    }
+                } else {
+                    field.append(character)
+                }
+            } else if character == "\"" && atFieldStart {
+                inQuotes = true
+                atFieldStart = false
+            } else if character == delimiter {
+                fields.append(field)
+                field = ""
+                atFieldStart = true
+            } else {
+                field.append(character)
+                atFieldStart = false
+            }
+        }
+        guard !inQuotes else {
+            throw CzIdDataConverterError.unparseableReport(url)
+        }
+        fields.append(field)
+        return fields
+    }
+
+    /// `value` as an `Int`, or nil when it is not finite or does not fit.
+    private static func integer(_ value: Double) -> Int? {
+        guard value.isFinite, abs(value) < 9.0e18 else { return nil }
+        return Int(value)
     }
 
     private static func stringValue(_ fields: [String], _ index: [String: Int], aliases: [String]) -> String? {
@@ -242,7 +391,7 @@ public enum CzIdDataConverter {
     private static func intValue(_ fields: [String], _ index: [String: Int], aliases: [String]) -> Int? {
         guard let value = stringValue(fields, index, aliases: aliases) else { return nil }
         if let intValue = Int(value) { return intValue }
-        return Double(value).map(Int.init)
+        return Double(value).flatMap(integer)
     }
 
     private static func doubleValue(_ fields: [String], _ index: [String: Int], aliases: [String]) -> Double? {
@@ -456,6 +605,14 @@ public struct CzIdTaxonReportRow: Codable, Sendable, Equatable {
     public let nrPercentIdentity: Double?
     public let nrAlignmentLength: Int?
     public let nrEValue: Double?
+    /// The genus a CZ-ID species row sits under (`genus_tax_id`), which places it in the kreport. It is not part of
+    /// the encoded row, so `cz-id summary --format json` prints what it printed before.
+    public var genusTaxId: Int? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case taxId, name, rank, ntReadCount, ntRpm, ntPercentIdentity, ntAlignmentLength, ntEValue
+        case nrReadCount, nrRpm, nrPercentIdentity, nrAlignmentLength, nrEValue
+    }
 }
 
 public struct CzIdImportMetadata: Codable, Sendable, Equatable {
@@ -527,14 +684,28 @@ public struct CzIdImportManifest: Codable, Sendable, Equatable {
 
 public enum CzIdDataConverterError: Error, LocalizedError, Sendable, Equatable {
     case emptyReport(URL)
-    case missingRequiredColumns
+    /// The report has no taxon ID or no taxon name column (FIX-CZID Z1).
+    case missingColumn(fileName: String, column: String)
+    /// The report has no NT or NR read count column (FIX-CZID Z2).
+    case missingCountColumn(fileName: String)
+    /// A row has no taxon ID or name (FIX-CZID Z9). `row` is the line in the file, the header being 1.
+    case missingValue(fileName: String, row: Int, column: String)
+    /// A quoted field runs past its line.
+    case unparseableReport(URL)
 
     public var errorDescription: String? {
         switch self {
         case .emptyReport(let url):
             return "CZ-ID taxon report is empty: \(url.path)"
-        case .missingRequiredColumns:
-            return "CZ-ID taxon report must include tax_id, taxon_name, and rank columns"
+        case .missingColumn(let fileName, let column):
+            return "\(fileName) is missing the \(column) column required for CZ-ID taxon reports. Nothing was imported."
+        case .missingCountColumn(let fileName):
+            return "\(fileName) has no read count column (nt_count or nr_count), so counts cannot be assigned to taxa. Nothing was imported."
+        case .missingValue(let fileName, let row, let column):
+            return "Row \(row) of \(fileName) has no \(column) value. Nothing was imported."
+        case .unparseableReport(let url):
+            // The words of `CzIdImportPreviewError.reportNotFound`, since FIX-CZID decided none for this case.
+            return "No parseable CZ-ID taxon report was found in \(url.path)"
         }
     }
 }
