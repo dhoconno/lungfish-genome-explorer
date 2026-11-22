@@ -184,6 +184,35 @@ final class CzIdDataConverterTests: XCTestCase {
         )
     }
 
+    /// A comma report with CRLF line ends, a doubled quote and a quoted comma reads as RFC 4180 says (FIX-CZID SWIFT SF1).
+    func testCommaReportReadsCRLFLineEndsDoubledQuotesAndQuotedCommas() throws {
+        let root = try TestTempDirectory.make(prefix: "czid-report-rfc4180")
+        defer { TestTempDirectory.cleanup(root) }
+        let reportURL = root.appendingPathComponent("rfc4180_report.csv")
+        let text = "tax_id,tax_level,genus_tax_id,name,nt_rpm,nt_count\r\n"
+            + "1279,2,1279,\"Staphylococcus \"\"Group A\"\", strain 1\",895.0,1790\r\n"
+            + "1280,1,1279,Staphylococcus aureus,760.0,1520\r\n"
+        try text.write(to: reportURL, atomically: true, encoding: .utf8)
+
+        let parsed = try CzIdDataConverter.parseTaxonReport(at: reportURL)
+
+        XCTAssertEqual(parsed.rows.map(\.name), ["Staphylococcus \"Group A\", strain 1", "Staphylococcus aureus"])
+        XCTAssertEqual(parsed.rows.map(\.ntReadCount), [1790, 1520])
+        XCTAssertEqual(parsed.rows.map(\.rank), ["genus", "species"])
+    }
+
+    /// A quoted field that runs past its line is refused in the words of a report that cannot be read (FIX-CZID SWIFT SF1).
+    func testQuotedFieldThatRunsPastItsLineIsRefused() throws {
+        let root = try TestTempDirectory.make(prefix: "czid-report-open-quote")
+        defer { TestTempDirectory.cleanup(root) }
+        let url = root.appendingPathComponent("open-quote.csv")
+
+        XCTAssertEqual(
+            try refusal(in: root, "open-quote.csv", "tax_id,tax_level,genus_tax_id,name,nt_count\n1279,2,1279,\"Staphylococcus\nGroup A\",1790\n"),
+            "No parseable CZ-ID taxon report was found in \(url.path)"
+        )
+    }
+
     /// A named taxon with no rank, or a rank word the converter does not know, is a no-rank taxon (Kraken's `-`)
     /// that keeps its reads. It was written as `U`, and the kreport parser keeps one unclassified line, so every such
     /// row but the last lost its reads and the total counted them again.
