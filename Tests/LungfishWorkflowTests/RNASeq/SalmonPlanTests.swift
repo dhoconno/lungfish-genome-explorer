@@ -318,6 +318,28 @@ final class SalmonPlanTests: XCTestCase {
         XCTAssertEqual(job.submit.requestCpus, 8)
     }
 
+    /// FIX-ROUTES-5 review SF2. The node checks an RNA-seq plan's pairs by the names the frame gives its files
+    /// (`PlanReadPairs.declared`), so a rename in `readsFrame` that the reader does not follow stops the check with no word.
+    func testTheNodeReadsTheNamesOfThePairsThatTheFrameWrites() async throws {
+        let (_, made) = try await made(.trimGalore(polyG: false))
+        let frame = try SalmonPlan.readsFrame(sample: made.sample, trim: .none, trimTool: pins.trimGalore, deadline: 60)
+        XCTAssertEqual(
+            PlanReadPairs.declared(entries: frame.inputs, steps: frame.trimSteps).map { [$0.r1, $0.r2] },
+            [["inputs/pair1_R1.fastq", "inputs/pair1_R2.fastq"]])
+    }
+
+    /// FIX-ROUTES-5 review SF2, the single-read half (B1 depends on `inputs/single`). The runs or lanes of a single-end sample are
+    /// named `inputs/single<n><suffix>` (`SalmonPlan+Inputs.swift:61`), and the node reads them as reads with no mate.
+    func testTheNodeReadsTheNamesOfTheSingleReadsThatTheFrameWritesAsReadsWithNoMate() throws {
+        func read(_ name: String) -> SalmonPlanStagedRead {
+            SalmonPlanStagedRead(path: "/staging/groups/lab/reads/\(name)", size: 100, sha256: String(repeating: "e", count: 64))
+        }
+        let sample = SalmonPlan.stagedSample(name: "S", pairs: [], singles: ["SE1.fastq.gz", "SE2.fastq.gz"].map(read))
+        let frame = try SalmonPlan.readsFrame(sample: sample, trim: .none, trimTool: pins.trimGalore, deadline: 60)
+        XCTAssertEqual(frame.inputs.map(\.relativePath), ["inputs/single1.fastq.gz", "inputs/single2.fastq.gz"])
+        XCTAssertEqual(PlanReadPairs.declared(entries: frame.inputs, steps: frame.trimSteps).map { [$0.r1, $0.r2] }, [])
+    }
+
     // MARK: - One read of the index a command (FIX-SALMON-1 item 2, red first)
 
     /// The index is measured once and its pin serves each sample's plan, so a batch of N samples reads the published
