@@ -157,6 +157,18 @@ final class LungfishInfoButtonTests: XCTestCase {
         XCTAssertEqual(behind.keyCodes, [53, 53], "once the popover is closed, Esc reaches the view behind again")
     }
 
+    func testHeldSpaceDoesNotToggleThePopover() throws {
+        let (window, button, behind) = makeAppKitWindow()
+        XCTAssertTrue(window.makeFirstResponder(behind))
+
+        button.keyDown(with: try key(" ", keyCode: 49, in: window))
+        XCTAssertTrue(button.isPopoverShown, "Space opens the popover")
+        button.keyDown(with: try key(" ", keyCode: 49, isARepeat: true, in: window))
+        NSApp.sendEvent(try key("\u{1b}", keyCode: 53, in: window))
+        XCTAssertTrue(waitUntilOnRunLoop(budget: .standard) { !button.isPopoverShown }, "Esc closes the popover")
+        XCTAssertEqual(behind.keyCodes, [], "the repeat left the popover open, so Esc went to it and not to the view behind")
+    }
+
     func testPopoverHasAFixedWidthAndTheHeightOfItsText() {
         let short = LungfishInfoButton(item: item, about: "threads")
         let long = LungfishInfoButton(
@@ -313,6 +325,7 @@ final class LungfishInfoButtonTests: XCTestCase {
         _ characters: String,
         keyCode: UInt16,
         modifiers: NSEvent.ModifierFlags = [],
+        isARepeat: Bool = false,
         in window: NSWindow
     ) throws -> NSEvent {
         try XCTUnwrap(NSEvent.keyEvent(
@@ -324,7 +337,7 @@ final class LungfishInfoButtonTests: XCTestCase {
             context: nil,
             characters: characters,
             charactersIgnoringModifiers: characters,
-            isARepeat: false,
+            isARepeat: isARepeat,
             keyCode: keyCode
         ))
     }

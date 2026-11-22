@@ -118,7 +118,7 @@ public final class LungfishInfoButton: NSButton, NSPopoverDelegate {
     public override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if modifiers.isEmpty, event.keyCode == 49 || event.charactersIgnoringModifiers == " " {
-            pressed(self)
+            if !event.isARepeat { pressed(self) }
         } else {
             super.keyDown(with: event)
         }
@@ -160,8 +160,7 @@ public final class LungfishInfoButton: NSButton, NSPopoverDelegate {
         removeKeyMonitor()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard LungfishInfoButton.isCancelKey(event) else { return event }
-            let consumed = MainActor.assumeIsolated { self?.closePopover() ?? false }
-            return consumed ? nil : event
+            return self?.closePopover() == true ? nil : event
         }
     }
 
