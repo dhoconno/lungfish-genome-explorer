@@ -15,6 +15,14 @@ final class LungfishHelpContentTests: XCTestCase {
         }
     }
 
+    /// The CZ-ID import window reads a CZ-ID taxon report as CSV or TSV, so its source help says both (FIX-CZID SWIFT SF3).
+    func testCzIdImportSourceHelpNamesBothReportFormats() {
+        XCTAssertEqual(
+            LungfishHelpContent.metagenomicsCzIdImportSource.summary,
+            "Select a CZ-ID taxon report (CSV or TSV), ZIP export, or extracted folder."
+        )
+    }
+
     func testCatalogAvoidsBannedDocumentationLanguage() {
         let banned = [
             "revolutionary",

@@ -836,7 +836,7 @@ public enum LungfishHelpContent {
 
     public static let metagenomicsCzIdImportSource = HelpItem(
         id: "workflow.metagenomics.import.czId.source",
-        summary: "Select a CZ-ID TSV, ZIP export, or extracted folder.",
+        summary: "Select a CZ-ID taxon report (CSV or TSV), ZIP export, or extracted folder.",
         detail: "Import provenance records source paths, input checksums, output paths, command status, and runtime.",
         audience: .analyst,
         provenanceRelevant: true
