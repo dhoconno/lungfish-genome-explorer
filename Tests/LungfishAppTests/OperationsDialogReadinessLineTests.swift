@@ -209,4 +209,123 @@ final class OperationsDialogReadinessLineTests: XCTestCase {
             XCTAssertEqual(try card.help().string(), FASTQOperationDialogState.toolSummary(for: tool), tool.rawValue)
         }
     }
+
+    // MARK: No section title without a control
+
+    /// The controls a stack can hold. A custom control shows through the standard ones it draws.
+    private static func controls(in stack: InspectableView<ViewType.ParentView>) -> Int {
+        stack.findAll(ViewType.Picker.self).count + stack.findAll(ViewType.Toggle.self).count
+            + stack.findAll(ViewType.TextField.self).count + stack.findAll(ViewType.Button.self).count
+            + stack.findAll(ViewType.Stepper.self).count + stack.findAll(ViewType.Slider.self).count
+            + stack.findAll(ViewType.Menu.self).count
+    }
+
+    private struct DrawnSection: Equatable {
+        let title: String
+        let controls: Int
+    }
+
+    /// The named sections of a pane, each with the number of controls in its stack. A section title is a headline `Text`, and its
+    /// parent is the stack that holds the section, as the `section(_:content:)` of each pane draws it. A title that is not drawn is left out.
+    private static func sections(_ texts: [InspectableView<ViewType.Text>], titles: [String]) -> [DrawnSection] {
+        titles.compactMap { title in
+            guard let text = texts.first(where: { (try? $0.string()) == title && (try? $0.attributes().font()) == Font.headline }),
+                  let stack = try? text.parent()
+            else { return nil }
+            return DrawnSection(title: title, controls: controls(in: stack))
+        }
+    }
+
+    /// Inputs shows the selected dataset and holds no control. It is the one section allowed to hold none.
+    private func assertNoSectionWithoutAControl(
+        _ texts: [InspectableView<ViewType.Text>], titles: [String], _ pane: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let drawn = Self.sections(texts, titles: titles)
+        XCTAssertEqual(drawn.map(\.title), titles, pane, file: file, line: line)
+        XCTAssertEqual(drawn.filter { $0.controls == 0 && $0.title != "Inputs" }, [], pane, file: file, line: line)
+    }
+
+    func testNoDerivativeToolShowsASectionWithoutAControl() throws {
+        let wizardTools: Set<FASTQOperationToolID> = [
+            .rnaSeqQuant, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2,
+            .esViritu, .taxTriage,
+        ]
+        let derivative = FASTQOperationToolID.allCases.filter { !wizardTools.contains($0) }
+        XCTAssertEqual(derivative.count, 29, "the tools the derivative pane draws")
+        for tool in derivative {
+            let state = Fx.fastqState(tool)
+            let texts = try FASTQOperationToolPanes(state: state).inspect().findAll(ViewType.Text.self)
+            assertNoSectionWithoutAControl(texts, titles: state.visibleSections.map(\.title), tool.rawValue)
+        }
+    }
+
+    func testTheRNASeqQuantPaneShowsNoSectionWithoutAControl() throws {
+        let texts = try FASTQOperationToolPanes(state: Fx.fastqState(.rnaSeqQuant)).inspect().findAll(ViewType.Text.self)
+        assertNoSectionWithoutAControl(texts, titles: ["Inputs", "Reference set", "Index", "Trimming"], "RNA-seq quant")
+    }
+
+    private func workflowDetailTextViews(_ state: WorkflowOperationDialogState) throws -> [InspectableView<ViewType.Text>] {
+        let scrolls = try Fx.workflowDialog(state).inspect().findAll(ViewType.ScrollView.self)
+        XCTAssertGreaterThanOrEqual(scrolls.count, 2)
+        return scrolls[1].findAll(ViewType.Text.self)
+    }
+
+    func testNoWorkflowToolShowsASectionWithoutAControl() throws {
+        let cases: [(title: String, enable: (WorkflowLibraryEnablementStore) -> Void, sections: [String])] = [
+            ("MiSeq Amplicon MHC Genotyping", { $0.setWorkflow(.ontGenotyping, enabled: true) },
+             ["Overview", "Inputs", "Primary settings", "Advanced settings", "Output"]),
+            ("Pseudobulk RNA-seq Cells", { $0.setWorkflow(WorkflowLibraryCatalog.rnaSeqPseudobulkItem, enabled: true) },
+             ["Inputs", "Primary settings", "Output"]),
+        ]
+        for item in cases {
+            let state = try Fx.workflowState(selecting: item.title, defaults: defaults, enabling: item.enable)
+            assertNoSectionWithoutAControl(try workflowDetailTextViews(state), titles: item.sections, item.title)
+        }
+    }
+
+    func testAnImportedPackageAndARunAgainShowNoSectionWithoutAControl() throws {
+        let fixture = try Fx.packageFixture(defaults: defaults)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        assertNoSectionWithoutAControl(
+            try workflowDetailTextViews(fixture.state), titles: ["Overview", "Inputs", "Primary settings", "Output"], "imported package")
+        try fixture.state.restoreReplayConfiguration(
+            fixture.configuration, sourceBundleURL: fixture.root.appendingPathComponent("original.lungfishrun"))
+        assertNoSectionWithoutAControl(
+            try workflowDetailTextViews(fixture.state), titles: ["Overview", "Inputs", "Primary settings", "Output"], "Run Again")
+    }
+
+    // MARK: The Assembly, Viral Recon and primer trim headings
+
+    private func primerTrimState() -> BAMPrimerTrimDialogState {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OperationsDialogReadinessLine-\(UUID().uuidString)", isDirectory: true)
+        let manifest = BundleManifest(
+            name: "Stub", identifier: "stub.test",
+            source: SourceInfo(organism: "Virus", assembly: "StubAssembly", database: "Test"),
+            genome: GenomeInfo(
+                path: "genome/ref.fa", indexPath: "genome/ref.fa.fai", totalLength: 1000,
+                chromosomes: [ChromosomeInfo(name: "chr1", length: 1000, offset: 0, lineBases: 60, lineWidth: 61)]),
+            variants: [], alignments: [])
+        return BAMPrimerTrimDialogState(
+            bundle: ReferenceBundle(url: url, manifest: manifest), availability: .available, builtInSchemes: [], projectSchemes: [])
+    }
+
+    /// Hosts the three views that no test hosted, and pins the sentence case of their section headings by `XCTAssertEqual`. The filter
+    /// ignores case, so a heading that turns Title Case is the one that fails.
+    func testTheAssemblyViralReconAndPrimerTrimHeadingsAreInSentenceCase() throws {
+        let assembly = Fx.strings(try AssemblyWizardSheet(inputFiles: [], outputDirectory: nil).inspect().findAll(ViewType.Text.self))
+        XCTAssertEqual(assembly.filter { $0.lowercased() == "primary settings" }, ["Primary settings"])
+        XCTAssertEqual(assembly.filter { $0.lowercased() == "advanced settings" }, ["Advanced settings"])
+        let viralRecon = Fx.strings(
+            try ViralReconWizardSheet(
+                inputFiles: [], projectURL: nil, embeddedInOperationsDialog: false, embeddedRunTrigger: 0,
+                onRun: { _ in }, onRunnerAvailabilityChange: { _ in }
+            ).inspect().findAll(ViewType.Text.self))
+        XCTAssertEqual(viralRecon.filter { $0.lowercased() == "primer scheme" }, ["Primer scheme"])
+        // The pane also draws a picker label in Title Case, so this pin reads the headline `Text` only.
+        let primerTrim = try BAMPrimerTrimToolPanes(state: primerTrimState(), onBrowseScheme: {}).inspect().findAll(ViewType.Text.self)
+            .filter { (try? $0.attributes().font()) == Font.headline }
+        XCTAssertEqual(Fx.strings(primerTrim).filter { $0.lowercased() == "primer scheme" }, ["Primer scheme"])
+    }
 }
