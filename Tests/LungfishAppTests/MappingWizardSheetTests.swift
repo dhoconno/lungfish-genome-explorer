@@ -43,8 +43,8 @@ final class MappingWizardSheetTests: XCTestCase {
     }
 
     func testMappingSheetLabelsExposeReadGroupAndExtraArgumentsContract() {
-        XCTAssertEqual(MappingWizardSheet.readGroupSectionTitle, "Read group")
-        XCTAssertEqual(MappingWizardSheet.advancedSectionTitle, "Advanced settings")
+        XCTAssertEqual(MappingWizardSheet.readGroupSectionTitle, "Read Group")
+        XCTAssertEqual(MappingWizardSheet.advancedSectionTitle, "Advanced Settings")
         XCTAssertEqual(MappingWizardSheet.extraArgumentsFieldTitle, "Extra arguments")
         XCTAssertEqual(MappingWizardSheet.outputTrackSectionTitle, "Output Track")
         XCTAssertEqual(MappingWizardSheet.outputTrackFieldLabel, "Track name (--track-name)")

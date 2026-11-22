@@ -170,8 +170,13 @@ final class OperationsDialogReadinessLineTests: XCTestCase {
         XCTAssertEqual(
             DatasetOperationSection.allCases.map(\.title),
             ["Overview", "Inputs", "Primary settings", "Advanced settings", "Output"])
-        XCTAssertEqual(MappingWizardSheet.readGroupSectionTitle, "Read group")
-        XCTAssertEqual(MappingWizardSheet.advancedSectionTitle, "Advanced settings")
+    }
+
+    /// A disclosure group label is the label of a control, so it keeps title case (5.6 U4, `UX-SHELL-WIZARDS` Q2). The mapping dialog
+    /// draws both as `DisclosureGroup` labels, so they are not headings.
+    func testTheMappingDisclosureLabelsKeepTitleCase() {
+        XCTAssertEqual(MappingWizardSheet.readGroupSectionTitle, "Read Group")
+        XCTAssertEqual(MappingWizardSheet.advancedSectionTitle, "Advanced Settings")
     }
 
     func testOnlyAToolWithAControlShowsAdvancedSettings() throws {
