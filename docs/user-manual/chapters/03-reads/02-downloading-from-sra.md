@@ -31,7 +31,7 @@ lead_approved: false
 
 ## What it is
 
-The Sequence Read Archive ([SRA](../../GLOSSARY.md#sra)) is a public archive of raw sequencing reads. A read is the sequence a sequencer reports from a DNA fragment. A [paired-end](../../GLOSSARY.md#paired-end) run reports two reads per fragment, one from each end. When a paper reports new sequencing data, the reads are usually deposited in the SRA or a partner archive in Europe or Japan that shares its public data with the SRA. Reads from human participants are often held under controlled access and require approval to download.
+The Sequence Read Archive ([SRA](../../GLOSSARY.md#sra)) is a public archive of raw sequencing reads. A read is the sequence a sequencer reports from a DNA fragment. [Paired-end](../../GLOSSARY.md#paired-end) sequencing reports two reads per fragment, one from each end. When a paper reports new sequencing data, the reads are usually deposited in the SRA or a partner archive in Europe or Japan that shares its public data with the SRA. Reads from human participants are often held under controlled access and require approval to download.
 
 In the archive, a run is the set of read files deposited for one sequencing library, a prepared pool of DNA fragments. A sequencer usually reads many libraries at once, so an archive run is often one sample's share of the data from a single pass through the instrument. Lungfish Genome Explorer (LGE) searches the archive and imports the run you choose into your [project](../../GLOSSARY.md#project). A project is the folder that holds the inputs and results of one LGE analysis. You can go from a run named in a paper to reads you can analyze without a separate browser download.
 
@@ -56,7 +56,7 @@ This chapter uses `SRR36291587`, a run from a clinical swab prepared with the QI
 
 This run uses overlapping [amplicons](../../GLOSSARY.md#amplicon). An amplicon is a DNA segment copied by PCR, a method that makes many copies of a chosen sequence. A [primer scheme](../../GLOSSARY.md#primer-scheme) lists where primers, the short DNA sequences that start each copy, bind. [Amplicons and Shotgun Sequencing](../01-foundations/03-amplicon-vs-shotgun.md#amplicon-sequencing) explains how the pieces cover the target. This run is also [paired-end](../../GLOSSARY.md#paired-end), meaning it has two reads per fragment, called [mates](../../GLOSSARY.md#mate).
 
-The earlier ENA lookup listed 85,199 pairs of 251-base Illumina reads from a MiSeq instrument. Counting both mates gives 42,769,898 bases. ENA listed two compressed files of 11,520,356 and 13,206,863 bytes, about 25 MB together.
+The earlier ENA lookup listed 85,199 pairs of 251-base Illumina reads. The read names in the files show a MiSeq instrument. Counting both mates gives 42,769,898 bases. ENA listed two compressed files of 11,520,356 and 13,206,863 bytes, about 25 MB together.
 
 ## Before you start
 
