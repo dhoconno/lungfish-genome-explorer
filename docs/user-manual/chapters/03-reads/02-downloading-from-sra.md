@@ -26,7 +26,7 @@ glossary_refs: [sra, ena, fastq, accession, run-accession, library-strategy, lib
 features_refs: [fetch.sra, fetch.ena]
 fixtures_refs: [sarscov2-srr36291587, kraken-protocol-cornea]
 brand_reviewed: true
-lead_approved: false
+lead_approved: true
 ---
 
 ## What it is
