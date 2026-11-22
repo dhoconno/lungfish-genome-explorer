@@ -29,7 +29,7 @@ illustrations:
 glossary_refs: [accession, abundance, blast, bracken, confidence-kraken-2, false-positive, contamination, fragment, mate, relative-abundance, unclassified-reads, bundle, capped-database, checksum, clade, clade-count, fastq, host-depletion, inspector, interleaved-fastq, k-mer, kraken2, kreport, lowest-common-ancestor, metagenomics, minimizer, negative-control, operations-panel, paired-end, plugin-pack, provenance, read, read-classification, shannon-diversity, shotgun, sra, taxon, taxonomic-rank, taxonomy-id, library, read-pair]
 features_refs: [classify.kraken2, viewport.taxonomy-browser, classify.extract-reads, results.table-row-commands, classify.blast-verify]
 fixtures_refs: [kraken-protocol-cornea]
-brand_reviewed: false
+brand_reviewed: true
 lead_approved: false
 ---
 
@@ -88,17 +88,17 @@ Standard-16 is a [capped database](../../GLOSSARY.md#capped-database). It keeps 
 
 With **Memory mapping** off, Kraken 2 loads the whole database into memory before classifying reads. If you choose a database larger than your Mac's memory, the dialog turns **Memory mapping** on so Kraken 2 can read it from disk. This can take much longer than keeping the database in memory, so use the smaller collection if it suits your question.
 
-Open **Tools > Plugin Manager…** and download Viral from the Databases tab. Download Standard-16 or Standard-8 from the same tab. See [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) for download help.
+Open **Tools > Plugin Manager…** and download Viral from the **Databases** tab. Download Standard-16 or Standard-8 from the same tab. See [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) for download help.
 
 ### Open the dialog and choose a database
 
 1. Click the FASTQ bundle SRR12486983 under `Imports` in the sidebar, the list on the left of the window.
 2. Choose **Tools > Classification > Kraken2…**. In the FASTQ/FASTA Operations dialog, check that **Kraken2** is selected and the dataset line names `SRR12486983`. FASTA is a text format for sequences without quality scores. The line below describes the bundle's read layout. In an [interleaved FASTQ](../../GLOSSARY.md#interleaved-fastq), both mates are in one file, with each read followed by its mate.
-3. Choose **Viral** in the **Database** picker. The picker lists finished downloads and their sizes. If it says "No databases installed.", click **Download Database…** to open the Plugin Manager on its Databases tab.
+3. Choose **Viral** in the **Database** picker. The picker lists finished downloads and their sizes. If it says "No databases installed.", click **Download Database…** to open the Plugin Manager on its **Databases** tab.
 
     <!-- SHOT: kraken2-dialog -->
 
-4. Leave **Sensitivity** on **Balanced** and **Advanced Settings** collapsed. Balanced sets how much matching sequence a read needs before Kraken 2 assigns it. Settings explains the two controls, **Confidence** and **Min hit groups**. The screenshot shows the section open so you can see those values.
+4. Leave **Sensitivity** on **Balanced** and **Advanced Settings** collapsed. **Balanced** sets how much matching sequence a read needs before Kraken 2 assigns it. Settings explains the two controls, **Confidence** and **Min hit groups**. The screenshot shows the section open so you can see those values.
 
     <!-- SHOT: kraken2-advanced-settings -->
 
@@ -123,7 +123,7 @@ Extract a taxon's reads when you need the sequences behind the count. You can ma
 
     <!-- SHOT: kraken2-extract-reads -->
 
-3. Check for `Selected: 1 row` and an estimate of 886,221 pairs on the line ending in "unique reads". This matches the row's Reads count, which includes assignments to the species and all groups below it. Leave **Format** on FASTQ and **Destination** on Save as Bundle. **Name** starts as `kraken2_Simplexvirus_humanalpha1`.
+3. Check for `Selected: 1 row` and an estimate of 886,221 pairs on the line ending in "unique reads". This matches the row's Reads count, which includes assignments to the species and all groups below it. Leave **Format** on **FASTQ** and **Destination** on **Save as Bundle**. **Name** starts as `kraken2_Simplexvirus_humanalpha1`.
 4. Click **Create Bundle**. For the other destinations the button reads **Save**, **Copy**, or **Share**.
 
 In the top-level `Extractions` folder, look for a bundle starting with `kraken2_Simplexvirus_humanalpha1-`. LGE adds a date, time, and short code to the unchanged name. Check that the bundle holds 1,772,442 reads, two for each of the 886,221 pairs. Selecting a family brings in the reads of its genera and species too. Selecting several rows writes their reads into one bundle.
@@ -156,9 +156,9 @@ The **Sensitivity** presets set two thresholds together.
 
 | Preset | Confidence | Min hit groups |
 |---|---|---|
-| Sensitive | 0.00 | 1 |
-| Balanced | 0.20 | 2 |
-| Precise | 0.50 | 3 |
+| **Sensitive** | 0.00 | 1 |
+| **Balanced** | 0.20 | 2 |
+| **Precise** | 0.50 | 3 |
 
 | Control | Range | Step |
 |---|---|---|
@@ -169,9 +169,9 @@ Use the slider, typed field, or stepper to adjust a threshold on its own. An amb
 
 **Database.** Sets the reference collection and therefore which names Kraken 2 can report. The default is the first ready database in the picker's list, which is sorted by name, so with Viral and Standard-16 installed it is Standard-16. Choose Viral for viruses or Standard or PlusPF for a broader survey, with PlusPF adding protozoa and fungi to Standard. On the command line this is `--db`.
 
-**Sensitivity.** Sets **Confidence** and **Min hit groups** together. The default is Balanced, the middle setting in the table. Choose Precise when a wrong assignment would be costly, or Sensitive to look for a rare target when you can check every hit. On the command line this is `--preset`.
+**Sensitivity.** Sets **Confidence** and **Min hit groups** together. The default is **Balanced**, the middle setting in the table. Choose **Precise** when a wrong assignment would be costly, or **Sensitive** to look for a rare target when you can check every hit. On the command line this is `--preset`.
 
-**Confidence.** Sets the fraction of a read's k-mers without ambiguous bases that must support the taxon or its descendants, counting even k-mers with no database match in the denominator. The default is 0.20, so Balanced requires at least a fifth of those k-mers to support the assignment. Raise it when the report has many implausible calls, or lower it when you want to examine weaker matches among unclassified reads. On the command line this is `--confidence`.
+**Confidence.** Sets the fraction of a read's k-mers without ambiguous bases that must support the taxon or its descendants, counting even k-mers with no database match in the denominator. The default is 0.20, so **Balanced** requires at least a fifth of those k-mers to support the assignment. Raise it when the report has many implausible calls, or lower it when you want to examine weaker matches among unclassified reads. On the command line this is `--confidence`.
 
 **Min hit groups.** Sets the minimum number of hit groups for an assignment, where a hit group is a run of overlapping k-mers that share a minimizer found in the database. The default is 2, so one hit group alone cannot give an assignment. Raise it when short repeats produce implausible calls, or lower it for reads too short to hold separate hits. On the command line this is `--min-hit-groups`.
 
@@ -197,13 +197,13 @@ The [Inspector](../../GLOSSARY.md#inspector) is the right-hand pane that shows d
 
 ### The Extract Reads dialog
 
-**Format.** Chooses FASTQ for reads with per-base quality scores or FASTA for sequences alone. The default is FASTQ to keep the scores. Choose FASTA when the next tool needs only sequences, such as for a BLAST submission. On the command line this is `--read-format`.
+**Format.** Chooses **FASTQ** for reads with per-base quality scores or **FASTA** for sequences alone. The default is **FASTQ** to keep the scores. Choose **FASTA** when the next tool needs only sequences, such as for a BLAST submission. On the command line this is `--read-format`.
 
 **Include unmapped mates of mapped pairs.** Includes the mate when only one read in a pair aligned to the selected reference and shows how many reads this adds. It is off by default and hidden for Kraken 2 because Kraken 2 produces no alignment. Turn it on for EsViritu, TaxTriage, NAO-MGS, or NVD if you plan to assemble or map the extracted reads. On the command line this is `--include-unmapped-mates`.
 
-**Destination.** Sends the reads to Save as Bundle, Save to File…, Copy to Clipboard, or Share…. The default is Save as Bundle so you can run other tools on the reads in your project. Choose Save to File when sending reads to another program, or Copy to Clipboard for a small selection, since above 10,000 pairs its tooltip asks you to choose another destination and the option is disabled. On the command line this is `--output`.
+**Destination.** Sends the reads to **Save as Bundle**, **Save to File…**, **Copy to Clipboard**, or **Share…**. The default is **Save as Bundle** so you can run other tools on the reads in your project. Choose **Save to File…** when sending reads to another program, or **Copy to Clipboard** for a small selection, since above 10,000 pairs its tooltip asks you to choose another destination and the option is disabled. On the command line this is `--output`.
 
-**Name.** Sets a required bundle or file name for Save as Bundle or Save to File. It starts with `kraken2_` plus the taxon name so you can identify the selection, and LGE timestamps the bundle if you keep the default. Change it if you need a more descriptive name. On the command line this is `--bundle-name`.
+**Name.** Sets a required bundle or file name for **Save as Bundle** or **Save to File…**. It starts with `kraken2_` plus the taxon name so you can identify the selection, and LGE timestamps the bundle if you keep the default. Change it if you need a more descriptive name. On the command line this is `--bundle-name`.
 
 ## Reading the results
 
@@ -288,8 +288,8 @@ Use the action bar to check a taxon, extract its reads, or save results. Kraken 
 | **Verify with BLAST…** | Sends a sample of the selected taxon's reads to NCBI BLAST. Select exactly one row. See [BLAST Verification](06-blast-verification.md) for the steps. |
 | **Export** | Offers **Export as CSV…**, **Export as TSV…**, **Copy Summary**, and **Show Provenance…**. |
 | **Extract Reads…** | Opens the Extract Reads dialog for the selected taxa. |
-| **BLAST Results** | Shows or hides the BLAST Results tab in the drawer below the table. |
-| **Collections** | Shows or hides the Collections tab in the same drawer. See [Collections](#collections) for extraction by group. |
+| **BLAST Results** | Shows or hides the **BLAST Results** tab in the drawer below the table. |
+| **Collections** | Shows or hides the **Collections** tab in the same drawer. See [Collections](#collections) for extraction by group. |
 
 A grayed button gives the reason in its tooltip, the message that opens when you hover. With no selection, the tooltip for **Extract Reads…** begins "Select one or more rows to extract their reads." The tooltip for **Verify with BLAST…** begins "Select a row to verify it with BLAST."
 
@@ -299,7 +299,7 @@ The line beside the buttons reads "Select a taxon to view details" until you sel
 
 Use the run's provenance, the record of how it was made, to document what produced the counts in your methods. Keep the database and settings with the reported result so another reader can tell how you obtained it. Right after a run, the information button at the right opens the Classification Provenance popover. It lists the Kraken 2 version, database and folder, Confidence and Hit Groups values, thread count, memory mapping status, runtime, input files, a Bracken row when Bracken ran, and a short run ID.
 
-On a Kraken 2 result reopened from the sidebar, the information button and **Export > Show Provenance…** do nothing, as recorded under [Kraken 2 provenance buttons](../appendices/troubleshooting.md#defect-kraken-provenance) in the troubleshooting appendix. Open Operation Details in the Summary tab of the Inspector to see the database and its build, Kraken 2 and Bracken versions, Confidence and Min Hit Groups values, thread count, and runtime.
+On a Kraken 2 result reopened from the sidebar, the information button and **Export > Show Provenance…** do nothing, as recorded under [Kraken 2 provenance buttons](../appendices/troubleshooting.md#defect-kraken-provenance) in the troubleshooting appendix. Open **Operation Details** in the **Summary** tab of the Inspector to see the database and its build, Kraken 2 and Bracken versions, Confidence and Min Hit Groups values, thread count, and runtime.
 
 For the keyboard route to the row commands, click the table to give it focus, then open **Selection > Table Row**. On a Kraken 2 table, **Extract Reads…**, **Verify with BLAST…**, **Copy Name**, **Open Taxonomy on NCBI**, **Open GenBank Record**, and **Search PubMed** act on the selected row. The remaining items are grayed. [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md) describes the rest of the Selection menu.
 
@@ -307,7 +307,7 @@ For the keyboard route to the row commands, click the table to give it focus, th
 
 Use a collection to check the same group of organisms across samples. A collection is a named set of taxa. LGE can extract the set at once, with a separate FASTQ file for each selected taxon with reads.
 
-Click **Collections** to open the drawer on its Collections tab. It has a **Filter collections...** field and an **All**, **Built-in**, **App**, and **Project** switch. Each collection row shows its name and how many taxa it holds. Only built-in collections are available, so **App** and **Project** stay empty.
+Click **Collections** to open the drawer on its **Collections** tab. It has a **Filter collections...** field and an **All**, **Built-in**, **App**, and **Project** switch. Each collection row shows its name and how many taxa it holds. Only built-in collections are available, so **App** and **Project** stay empty.
 
 LGE has eight built-in collections, including Respiratory Viruses, AMR Organisms (ESKAPE), and Fungal Pathogens. Open a collection to see its taxa. A green dot marks a detected taxon, and its tooltip gives the count. A taxon with no reads is dimmed and struck through. Most taxa are marked "+children", meaning reads assigned below them are included. All taxa start selected. Clear the checkbox for any you want to leave out.
 
@@ -364,7 +364,7 @@ Samples with lots of host DNA and environmental samples usually leave more pairs
 
 A [negative control](../../GLOSSARY.md#negative-control) is a blank you process beside your samples to check for contamination. Comparing the blank with your samples can flag assignments that may come from contamination. When Kraken 2 assigns no pairs, the run opens with "No classification data", the Unclassified card shows "100.0%", and the table has no taxa. The Operations Panel reads Completed with Warnings because Bracken has nothing to estimate, and the Bracken column is absent. An exported table still has an unclassified row. If a sample gives no assignments, check read quality, your thresholds, and whether the database includes the groups you expected before rerunning.
 
-To find the dominant assignments, click the Reads column header and choose **Sort Descending**. Compare separate branches at the same rank, then follow the dominant branch down to see how narrow the assignments are. Orthoherpesviridae dominates the Viral result and most of its pairs reach the HSV-1 branch. If several groups have similar counts, check the evidence for each before interpreting the pattern as a mixture.
+To find the dominant assignments, click the **Reads** column header and choose **Sort Descending**. Compare separate branches at the same rank, then follow the dominant branch down to see how narrow the assignments are. Orthoherpesviridae dominates the Viral result and most of its pairs reach the HSV-1 branch. If several groups have similar counts, check the evidence for each before interpreting the pattern as a mixture.
 
 Plan how you will check small hits before opening the result, then apply the same checks to expected and unexpected organisms. After reviewing the largest groups, scroll down to the small counts.
 
