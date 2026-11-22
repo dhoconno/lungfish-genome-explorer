@@ -62,6 +62,23 @@ extension LoosePairRoutesTests {
         }
     }
 
+    func testAViralReconRowOfACutFASTAPairAndOfABz2PairIsRefused() async throws {
+        let route = Route.viralReconSamplesheet
+        let fasta1 = try writeFASTA("S_R1.fasta", names: (1...200).map { "frag\($0)/1" })
+        let fasta2 = try writeFASTA("S_R2.fasta", names: (1...120).map { "frag\($0)/2" })
+        let bz2R1 = try writeMates("T_R1.fastq.bz2", mate: 1, count: 100)
+        let bz2R2 = try writeMates("T_R2.fastq.bz2", mate: 2, count: 100)
+        var observed: [String] = []
+        for (r1, r2) in [(fasta1, fasta2), (bz2R1, bz2R2)] {
+            let refusal = await planRefusal(route, r1: r1, r2: r2)
+            observed.append("\(refusal.words ?? "nil") | \(refusal.exitCode.map(String.init) ?? "nil")")
+        }
+        XCTAssertEqual(observed, [
+            route.frame + Self.fastaShortMateWords + " | 3",
+            route.frame + "Paired reads need FASTQ files (.fastq or .fq) or FASTA files (.fasta, .fa, .fna or .fsa), with or without .gz. T_R1.fastq.bz2 has an unsupported name. Nothing ran. Decompress or rename it, or run each file as single reads. | 3",
+        ])
+    }
+
     /// Writes one record of 100 bases, over two lines, for each name to `name` in the loose folder.
     func writeFASTA(_ name: String, names: [String]) throws -> URL {
         let url = loose.appendingPathComponent(name)
