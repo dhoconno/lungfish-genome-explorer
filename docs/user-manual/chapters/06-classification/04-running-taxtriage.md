@@ -48,9 +48,9 @@ A [negative control](../../GLOSSARY.md#negative-control) is a tube of water or b
 
 To compare classifiers, see [Choosing a tool](01-what-is-classification.md#choosing-a-tool) for the differences among LGE's options. The TaxTriage paper by Merritt and colleagues 2026 appears in [Pinned external pipelines](../appendices/bibliography.md#pinned-external-pipelines) in the bibliography.
 
-The example uses two samples from the human cornea, the clear front surface of the eye. They come from BioProject PRJNA381365, NCBI's record of a study of formalin-fixed corneal specimens. The study's sample records name the infection for each case. In the Kraken 2 protocol [Metagenome analysis using the Kraken software suite](https://doi.org/10.1038/s41596-022-00738-y), Lu et al. 2022 use SRR12486983 as the example run.
+The example uses two samples from the human cornea, the clear front surface of the eye. They come from BioProject PRJNA381365, NCBI's record of a study of corneal specimens preserved in formalin, a formaldehyde solution that stops tissue from breaking down. The study's records name the infection for each case.
 
-The [Sequence Read Archive](../../GLOSSARY.md#sra) (SRA), NCBI's public store of sequencing data, calls each dataset a sequencing run. SRR12486983 is the herpes simplex keratitis case from [Running Kraken 2](02-running-kraken2.md), an eye infection by herpes simplex virus 1 (HSV-1). SRR12486989 is a case recorded as an infection by *Streptococcus agalactiae*.
+The [Sequence Read Archive](../../GLOSSARY.md#sra) (SRA), NCBI's public store of sequencing data, calls each dataset a sequencing run. SRR12486983 is the herpes simplex keratitis case from [Running Kraken 2](02-running-kraken2.md), an eye infection by herpes simplex virus 1 (HSV-1). SRR12486989 is a case recorded as an infection by *Streptococcus agalactiae*. In the Kraken 2 protocol [Metagenome analysis using the Kraken software suite](https://doi.org/10.1038/s41596-022-00738-y), Lu et al. 2022 use SRR12486983 as the example run.
 
 A [sequencing library](../../GLOSSARY.md#library-prep) is DNA prepared for sequencing. Both cases use [shotgun](../../GLOSSARY.md#shotgun) libraries made by breaking the tissue DNA into random fragments, or pieces. Compare the recorded pathogens with the other organisms in each table to see what the score and coverage can tell you.
 
@@ -110,7 +110,7 @@ Assembly joins overlapping reads into longer sequences without a reference. TaxT
 
 ### Keep the human genome out of the top hits
 
-The top hits are the organisms with the most Kraken 2 reads, up to the **Top hits** number at each rank of the Kraken 2 report, such as species or genus. A rank is a level of grouping. TaxTriage adds every organism on its pathogen list that Kraken 2 found, however few its reads, and downloads references for the species in the combined list.
+The top hits are the organisms with the most Kraken 2 reads, up to the **Top hits** number at each rank of the Kraken 2 report, which lists how many reads went to each organism or group. A rank is a level of grouping, such as species or genus. TaxTriage adds every organism on its pathogen list that Kraken 2 found, however few its reads, and downloads references for the species in the combined list.
 
 To keep the human genome out of the top hits, leave **Exclude host taxa** at 9606 below **Skip assembly (faster)**. LGE fills it in because both rows are Clinical Sample. A [taxon](../../GLOSSARY.md#taxon) is a named group of organisms. A [taxonomy ID](../../GLOSSARY.md#taxonomy-id), or taxid, is the number NCBI assigns to each taxon. The help line reads "NCBI taxids removed before TaxTriage picks references, separated by spaces. 9606 is human. Leave empty to keep every taxon."
 
@@ -177,7 +177,7 @@ The numeric controls in **Advanced Settings** accept these values:
 
 **K2 Confidence.** Sets the minimum share of a read's [k-mers](../../GLOSSARY.md#k-mer), short pieces Kraken 2 looks up, that must support a taxon or the groups within it, counting only k-mers with unambiguous bases. The default is 0.20, one k-mer in five, so a read can qualify with partial support. Raise it with the slider or by typing a value if unexpected species fill the table, or lower it if an expected organism is missing, since reads below the threshold go to the nearest broader group that passes or stay unclassified. On the command line this is `--confidence`.
 
-**Top hits.** Caps how many organisms TaxTriage takes from each rank of the Kraken 2 report when choosing references, most reads first, before it adds every organism on its pathogen list that Kraken 2 found. The default of 10 keeps downloads and mapping time modest for organisms outside the pathogen list. Raise it with the stepper if organisms you care about are missing from the table, allowing more time for downloads and mapping. On the command line this is `--top-hits`.
+**Top hits.** Caps how many organisms TaxTriage adds from each rank of the Kraken 2 report when choosing references, most reads first, on top of every organism on its pathogen list that Kraken 2 found. The default of 10 keeps downloads and mapping time modest for organisms outside the pathogen list. Raise it with the stepper if organisms you care about are missing from the table, allowing more time for downloads and mapping. On the command line this is `--top-hits`.
 
 **Max memory.** Sets the pipeline's memory limit. The default is 16 GB, which is enough for this example with Standard-16 and the host excluded. On a Mac with less than 16 GB, set it a few gigabytes below what **Apple menu > About This Mac** shows, or raise it for a large database if you have memory to spare. On the command line this is `--max-memory`.
 
