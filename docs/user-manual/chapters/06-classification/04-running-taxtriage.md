@@ -27,7 +27,7 @@ glossary_refs: [minimap2, accession, amplicon, bam, blast, bundle, checksum, con
 features_refs: [classify.taxtriage, classify.blast-verify, classify.extract-reads, provenance.result-popovers, results.table-row-commands, containers.run, operations.panel]
 fixtures_refs: [kraken-protocol-cornea]
 brand_reviewed: true
-lead_approved: false
+lead_approved: true
 ---
 
 ## What it is
