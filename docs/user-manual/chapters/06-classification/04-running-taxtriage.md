@@ -15,13 +15,13 @@ shots:
   - id: taxtriage-dialog
     caption: "The FASTQ/FASTA Operations dialog opened from Tools > Classification > TaxTriage… with SRR12486983 and SRR12486989 selected, showing both samples as Clinical Sample rows, the Prerequisites row with its Nextflow and Docker Desktop indicators, the Kraken2 Database picker on Standard-16, Sequencing Platform on Illumina, Skip assembly (faster) checked, the Exclude host taxa field holding 9606, and Advanced Settings collapsed."
   - id: taxtriage-advanced-settings
-    caption: "The dialog's Advanced Settings disclosure expanded, showing the K2 Confidence slider at 0.20, the Top hits stepper at 10, the Max memory stepper at 16 GB, the Max CPUs stepper at 14, the Skip Krona visualization checkbox, and an empty Extra arguments field, below the Exclude host taxa field holding 9606."
+    caption: "The dialog's Advanced Settings section expanded, showing the K2 Confidence slider at 0.20, the Top hits stepper at 10, the Max memory stepper at 16 GB, the Max CPUs stepper at 14, the Skip Krona visualization checkbox, and an empty Extra arguments field, below the Exclude host taxa field holding 9606."
   - id: taxtriage-running-row
     caption: "The Operations Panel during the two-sample run, with the row titled TaxTriage (2 samples) and its detail line naming the sample at work, its place in the batch as Sample 1/2 or Sample 2/2, and the pipeline step that is running."
   - id: taxtriage-batch-overview
-    caption: "The TaxTriage viewport with both samples selected and Kocuria typed in the Filter organisms… field beside the sample buttons, the Organisms card reading 15, and SRR12486983's Kocuria rows first, from Kocuria sp. BT304 at 0.920 High down to Kocuria sp. MNB10 at 0.380 Low, then SRR12486989's, starting with Kocuria sp. BT304 at 0.980 High. The first row is selected, and the alignment pane below shows its coverage track."
+    caption: "With both samples selected and Kocuria in **Filter organisms…**, the **Organisms** card reads 15 and the table shows SRR12486983's rows from Kocuria sp. BT304 at 0.920 **High** to Kocuria sp. MNB10 at 0.380 **Low**, followed by SRR12486989's rows starting with Kocuria sp. BT304 at 0.980 **High**, while the pane below shows the selected first row's coverage track."
   - id: taxtriage-result-table
-    caption: "The TaxTriage viewport for the two-sample corneal run in the List Over Detail layout, with both samples selected in the Inspector's Sample Filter and the cards reading Batch TaxTriage, Samples 2, and Organisms 193. The Human alphaherpesvirus 1 row of SRR12486983 is selected in the table on top, showing TASS Score 0.930, Reads 1.5M, and High, and the alignment pane below shows the coverage track across the 152,222-base HSV-1 reference NC_001806.2, zoomed out, with its prompt to zoom in to view individual mapped reads. The Inspector shows its Panel Layout control and the run's Operation Details."
+    caption: "In **List Over Detail**, both samples are selected in the Inspector's **Sample Filter**, the cards read **Batch TaxTriage**, **Samples** 2, and **Organisms** 193, and the selected Human alphaherpesvirus 1 row for SRR12486983 shows **TASS Score** 0.930, **Reads** 1.5M, and **High** above a coverage track spanning all 152,222 bases of the HSV-1 reference NC_001806.2."
 illustrations: []
 glossary_refs: [minimap2, accession, amplicon, bam, blast, bundle, checksum, container, docker, coverage-breadth, depth, fastq, fragment, inspector, kraken2, k-mer, library-prep, lowest-common-ancestor, mapping-quality, mark-duplicates, multiqc, negative-control, nextflow, operations-panel, paired-end, pinned, plugin-pack, primary-alignment, provenance, read, read-classification, reference-genome, required-setup-pack, samplesheet, shotgun, sra, taxon, taxonomy-id, tass-score, taxtriage, tsv, viewport, mate, unique-reads, confidence-kraken-2, contamination, relative-abundance, false-positive, read-merging, single-end, virtual-bundle]
 features_refs: [classify.taxtriage, classify.blast-verify, classify.extract-reads, provenance.result-popovers, results.table-row-commands, containers.run, operations.panel]
@@ -94,7 +94,7 @@ The message leaves **Run** available. If both files belong to one sample, click 
 
 2. Leave the role picker at the right of each row on **Clinical Sample**, because both samples are patient specimens. Sample metadata is information stored about a sample. LGE sets the picker from the bundle's sample metadata and uses **Clinical Sample** when there is no recorded role. See [Editing sample metadata](../03-reads/01-importing-fastq.md#editing-sample-metadata) for how to record a role.
 
-   For your own samples, choose **Negative Control** for a tube without sample DNA or **Extraction Blank** for one carried through extraction without specimen material. Either role marks the sample as a negative control. Whatever the picker shows, either role recorded in the bundle's metadata also marks it as a negative control. The other control roles are **Positive Control** and **Environmental Control**.
+    For your own samples, choose **Negative Control** for a tube without sample DNA or **Extraction Blank** for one carried through extraction without specimen material. Either role marks the sample as a negative control. Whatever the picker shows, either role recorded in the bundle's metadata also marks it as a negative control. The other control roles are **Positive Control** and **Environmental Control**.
 
 3. Use **Remove** to drop a row. Select all bundles you need in the sidebar before opening the dialog. **Add Sample** creates an empty row that cannot hold reads. The run skips that row, so use the project sidebar to add bundles to your selection.
 
@@ -104,7 +104,7 @@ The message leaves **Run** available. If both files belong to one sample, click 
 
 Choose **Standard-16** in the **Kraken2 Database** picker, or **Standard-8** if your Mac has less than 16 GB of memory. If you see "No Kraken2 databases installed", download a database from the **Databases** tab in **Tools > Plugin Manager…** and reopen the dialog.
 
-The sequencing runs' SRA records name an Illumina NextSeq 550, an instrument that reads short pieces of DNA. Leave **Sequencing Platform** on **Illumina** for the example. A bundle that already records its platform runs on that platform whatever the picker says, so the picker matters only when a bundle records no platform TaxTriage can use, as [How LGE decides the platform](../03-reads/01-importing-fastq.md#how-lge-decides-the-platform) explains.
+The sequencing runs' SRA records name an Illumina NextSeq 550, an instrument that reads short pieces of DNA. Leave **Sequencing Platform** on **Illumina** for the example. A bundle that already records its platform runs on that platform whatever **Sequencing Platform** shows, so the setting matters only when a bundle records no platform TaxTriage can use, as [How LGE decides the platform](../03-reads/01-importing-fastq.md#how-lge-decides-the-platform) explains.
 
 Assembly joins overlapping reads into longer sequences without a reference. TaxTriage can classify and score organisms without it, so leave **Skip assembly (faster)** checked. The line under it reads "Classification and confidence scoring only. Significantly faster."
 
@@ -114,7 +114,7 @@ The top hits are the organisms with the most Kraken 2 reads, up to the **Top hit
 
 To keep the human genome out of the top hits, leave **Exclude host taxa** at 9606 below **Skip assembly (faster)**. LGE fills it in because both rows are Clinical Sample. A [taxon](../../GLOSSARY.md#taxon) is a named group of organisms. A [taxonomy ID](../../GLOSSARY.md#taxonomy-id), or taxid, is the number NCBI assigns to each taxon. The help line reads "NCBI taxids removed before TaxTriage picks references, separated by spaces. 9606 is human. Leave empty to keep every taxon."
 
-Open **Advanced Settings** and keep the defaults. On the test Mac these were **K2 Confidence** 0.20, where K2 stands for Kraken 2, **Top hits** 10, **Max memory** 16 GB, and **Max CPUs** 14, based on the number of processor cores. Leave **Extra arguments** empty.
+Open **Advanced Settings** and keep the defaults. On the test Mac these were **K2 Confidence** 0.20, where K2 stands for Kraken 2, **Top hits** 10, **Max memory** 16 GB, and **Max CPUs** 14, based on the number of processor cores. Leave **Extra arguments** empty. A stepper is a pair of small up and down arrows beside a number.
 
 <!-- SHOT: taxtriage-advanced-settings -->
 
