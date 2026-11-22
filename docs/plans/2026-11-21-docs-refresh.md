@@ -179,6 +179,19 @@ Text comes first and screenshots after ux-text's Preview. At most five agents ru
 
 The week stood at 13 percent at 17:08 on 2026-11-21, the stop is 92 percent, and the week resets at 2026-11-27 04:00 CST. ux-text spends from the same week, with a budget of $512 and a stop line of $768 (`docs/plans/2026-11-21-text-in-views.md:35,39`), which is 16 to 23 points at $33. Waves 0 and 1 cost about $1,650 or 50 points with their captures. The job pauses at the end of wave 1 or when the week reads 85 percent, whichever comes first, finishes the chains in flight, and resumes at the reset with waves 2 and 3.
 
+## The media batch
+
+Shots that background control cannot take, and the final look of every shot, wait for one batched full-screen session with the owner at galah. It runs after ux-text's Preview publishes, on that Preview, with the app frontmost so that ticks, window titles and colours match across the manual. Background captures draw an inactive window, with grey ticks and sometimes a `[1]` after the project name, so they serve Stage B and are taken again in this session. When the row list is ready the manager asks the coordinator, who books the owner's time (coordinator's answer of 2026-11-21, `SCR/events.log`).
+
+| Chapter | Row | Why full-screen | Now |
+|---|---|---|---|
+| 04-alignments/02 | extract-reads-region-menu | The route is a context menu | The 2026.9.x shot stands in |
+| 04-alignments/02 | hover-card-pinned | It needs a real pointer hover | No shot yet |
+| 04-alignments/02 | pileup-zoom | Retake. The background capture drew reads as bars with no dots or letters, which the base-tier code does not explain (`SCR/shots/PILOT/SUSPECTS.md`) | Held from Stage B |
+| 04-alignments/02 | bam-viewport-overview, view-settings-alignment-tab, view-settings-reads-tab | Retake frontmost for the final look | Background captures of 2026.11.15 |
+
+`alignment-figure-export` needs no GUI. It is the figure that `lungfish-cli bundle export-graphic` draws, the command behind File > Export > Image (PNG)..., since the save panel shows the username (recipe commit 6a29c7936). Each later lane adds its full-screen rows to `SCR/shots/FULLSCREEN.tsv`, and this table gains them before the session is booked. The PNGs then go up in one manual-media push and asset upload under the owner's media go (D2), with `media.lock` in the same main push.
+
 ## The known break
 
 `docs/user-manual/index.md:14` links `pdf/lungfish-user-manual.pdf`, which only the PDF export writes (`.readthedocs.yaml:21`), so the strict render fails on main unless the venv stub of `SCR/render.sh` adds a placeholder. IDX fixes it in wave 0 with the absolute Read the Docs address of the PDF and rides the pilot's push batch. Its check is that `grep -n '](pdf/' docs/user-manual/index.md` prints nothing and `render.sh` passes. The version line at `index.md:12` still names 2026.9.52 (Stable), and IDX names the target Preview there in wave 3.
