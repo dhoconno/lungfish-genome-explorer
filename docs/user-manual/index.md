@@ -11,7 +11,7 @@ Welcome. This manual documents **Lungfish Genome Explorer** (LGE), a macOS app f
 
 This manual describes LGE 2026.9.52 (Stable) and later.
 
-[Download Documentation as PDF](pdf/lungfish-user-manual.pdf){ .md-button }
+[Download Documentation as PDF](https://lungfish-genome-explorer.readthedocs.io/en/latest/pdf/lungfish-user-manual.pdf){ .md-button }
 
 ## How to use this manual
 
