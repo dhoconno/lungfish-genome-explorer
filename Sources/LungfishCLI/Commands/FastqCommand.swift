@@ -149,11 +149,11 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             barcode, since the run reads it the way the first 10,000 reads carry
             it, and the run's log says which.
 
-            Long-read kits (ONT native, rapid, PCR and 16S barcoding, PacBio) are
-            searched as the platform's full adapter and barcode construct at both
-            read ends in both orientations; a read is assigned only when both ends
-            carry the same barcode. --location and --max-distance-* do not apply
-            to those kits.
+            For the built-in ONT kits (native, rapid, PCR and 16S barcoding, and Fluidigm
+            Access Array) and M13 Universal Primers, Cutadapt searches for barcodes at
+            both read ends in both orientations. If the kit puts barcodes at both ends,
+            both must carry the same barcode. Otherwise, one barcode at either end is
+            enough. --location and --max-distance-* do not apply to those kits.
 
             Interleaved pairs are demultiplexed by fragment. Both mates go to the
             barcode their calls agree on, or to the barcode of the one mate that
@@ -304,8 +304,8 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         if demultiplexEngine == .cutadapt, barcodeKit.searchesFullPlatformConstruct,
            barcodeLocation != .bothEnds || maxDistanceFrom5Prime != 0 || maxDistanceFrom3Prime != 0 {
             FileHandle.standardError.write(Data("""
-                Note: \(barcodeKit.displayName) is searched as the platform's full adapter and barcode \
-                construct at both read ends in both orientations. If the kit puts barcodes at both ends, \
+                Note: Cutadapt searches for \(barcodeKit.displayName) barcodes at both read ends in both \
+                orientations. If the kit puts barcodes at both ends, \
                 both must carry the same barcode. Otherwise, one barcode at either end is enough. \
                 --location and --max-distance-5prime/3prime do not apply to this kit and are ignored.
 
