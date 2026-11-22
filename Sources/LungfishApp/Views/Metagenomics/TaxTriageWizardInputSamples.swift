@@ -15,6 +15,9 @@ struct TaxTriageWizardInputSample: Equatable, Sendable {
     var sampleRole: SampleRole = .testSample
     /// The bundle's own sample name, when it differs from `sampleId`.
     var metadataLabel: String?
+
+    /// Whether the role marks the sample as a negative control, as the command reads it.
+    var marksNegativeControl: Bool { TaxTriageAnalysisRunTool.negativeControlRoles.contains(sampleRole) }
 }
 
 extension TaxTriageWizardSheet {

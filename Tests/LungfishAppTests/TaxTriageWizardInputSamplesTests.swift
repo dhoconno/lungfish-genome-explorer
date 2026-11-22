@@ -149,6 +149,17 @@ final class TaxTriageWizardInputSamplesTests: XCTestCase {
         XCTAssertEqual(samples.map(\.sampleId), ["C_1", "C_2"])
         XCTAssertEqual(samples.map(\.sampleRole), [.testSample, .negativeControl])
         XCTAssertEqual(TaxTriageParityCase.wizardSamples(for: [test, control]).map(\.isNegativeControl), [false, true])
+        XCTAssertEqual(TaxTriageWizardSheet.inputSamples(from: [test, control]).map(\.marksNegativeControl), [false, true])
+        let config = TaxTriageConfig(
+            samples: TaxTriageParityCase.wizardSamples(for: [test, control]),
+            platform: .illumina,
+            outputDirectory: root.appendingPathComponent("Unused/taxtriage-output", isDirectory: true),
+            kraken2DatabasePath: root.appendingPathComponent("Databases/kraken2", isDirectory: true),
+            maxCpus: 2
+        )
+        let launch = try XCTUnwrap(try ClassifierCLIRouteLaunch.taxTriage(config: config, projectURL: root))
+        let marked = zip(launch.arguments, launch.arguments.dropFirst()).filter { $0.0 == "--negative-control" }.map(\.1)
+        XCTAssertEqual(marked, ["C_2"])
     }
 
     /// BIO-TT-PAIR question 1, second CORRECT line: the role is read from the bundle the URL names, so a lone

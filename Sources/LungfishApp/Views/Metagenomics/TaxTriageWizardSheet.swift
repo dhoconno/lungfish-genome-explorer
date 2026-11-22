@@ -730,7 +730,7 @@ struct TaxTriageWizardSheet: View {
             var sample = WizardSample(sampleId: input.sampleId, fastq1: input.fastq1, fastq2: input.fastq2)
             sample.sampleRole = input.sampleRole
             sample.metadataLabel = input.metadataLabel
-            sample.isNegativeControl = input.sampleRole == .negativeControl || input.sampleRole == .extractionBlank
+            sample.isNegativeControl = input.marksNegativeControl
             return sample
         }
 

@@ -137,7 +137,7 @@ enum TaxTriageParityCase: String, CaseIterable, Sendable {
                 fastq1: input.fastq1,
                 fastq2: input.fastq2,
                 platform: .illumina,
-                isNegativeControl: input.sampleRole == .negativeControl || input.sampleRole == .extractionBlank,
+                isNegativeControl: input.marksNegativeControl,
                 metadata: metadata
             )
         }
