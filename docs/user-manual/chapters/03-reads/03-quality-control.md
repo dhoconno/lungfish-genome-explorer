@@ -152,7 +152,7 @@ The **GC** card measures the reads in the bundle. This fixture reads 39.4 percen
 
 LGE averages probabilities for the card, the **Mean Q** column on the Reads tab, and `lungfish-cli fastq qc-summary`. The method matches AvgQual in `seqkit`. The mean triangles in **Q / Position** average the scores directly. If another program gives you a different mean quality, check which average it used.
 
-Some reads, including FASTA records, lack quality scores. Some files carry one placeholder score for every base. Examples include some Oxford Nanopore files and reads converted from FASTA. The Sequence Read Archive is a public archive of raw sequencing reads. NCBI, the U.S. center that hosts public sequence databases, delivers reads from that archive in a format called SRA Lite. In that format, every base in a read that passed the run's filter scores 30. A single bar in Q Score Dist. is the sign.
+Some reads, including FASTA records, lack quality scores. Some files carry one placeholder score for every base. Examples include some Oxford Nanopore files and reads converted from FASTA. The Sequence Read Archive is a public archive of raw sequencing reads. NCBI, the U.S. center that hosts public sequence databases, delivers reads from that archive in a format called SRA Lite. In that format, every passing base reads 30. A single bar in Q Score Dist. is the sign.
 
 Depending on the bundle, the cards can read No quality scores, Mean Q (error rate) 0.0, or Mean Q 2.0. If the scores are missing or you know they are placeholders, use checks that do not depend on them.
 
@@ -215,7 +215,7 @@ Use these checks to decide whether to proceed or inspect the reads more closely.
 
 **Compare quality with your sequencing platform.** Your provider's run report can help you identify it. For Illumina reads, compare Q30 with the specification for the kit and read length. A figure below that minimum is worth raising with your provider. This fixture's Q30 is 91.3 percent. For Oxford Nanopore reads with usable quality scores, look at **Mean Q (error rate)**. A [simplex read](../../GLOSSARY.md#simplex-read) comes from one strand of a DNA molecule read once.
 
-A flow cell is the consumable chip that holds the sample while the instrument reads it. The basecalling model is the software that turns the instrument's signal into bases.
+A flow cell is the consumable chip that holds the sample while the instrument reads it. A basecaller is the program that turns the instrument's signal into bases. The basecalling model is the trained set of rules the program uses to make each call.
 
 | Run | Quality comparison |
 |---|---|
