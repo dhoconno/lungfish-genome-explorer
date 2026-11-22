@@ -299,8 +299,9 @@ struct AssemblyRobot {
         return identified.exists ? identified : assemblyDialog.checkBoxes["Primary contigs only"].firstMatch
     }
 
+    /// The embedded pane draws no Readiness card, so its words are the dialog's footer line beside Run (UX-SHELL-WIZARDS Q1 b).
     var readinessMessage: XCUIElement {
-        app.descendants(matching: .any)["assembly-readiness-message"]
+        app.descendants(matching: .any)["fastq-operations-assembly-status-text"]
     }
 
     var resultView: XCUIElement {
