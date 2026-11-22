@@ -86,13 +86,6 @@ struct FASTQOperationToolPanes: View {
     private var derivativePane: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                section(DatasetOperationSection.overview.title) {
-                    Text(state.selectedToolSummary)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .lungfishHelp(LungfishHelpContent.fastqOverview)
-                }
-
                 if state.visibleSections.contains(.inputs) {
                     section(state.inputSectionTitle) {
                         FASTQOperationInputsSection(state: state)
@@ -120,15 +113,6 @@ struct FASTQOperationToolPanes: View {
                         }
                         .pickerStyle(.segmented)
                         .lungfishHelp(LungfishHelpContent.fastqOutputStrategy)
-                    }
-                }
-
-                if state.visibleSections.contains(.readiness) {
-                    section(DatasetOperationSection.readiness.title) {
-                        Text(state.readinessText)
-                            .font(.callout)
-                            .foregroundStyle(state.isRunEnabled ? Color.lungfishSecondaryText : Color.lungfishOrangeFallback)
-                            .lungfishHelp(LungfishHelpContent.operationReadiness)
                     }
                 }
             }
@@ -828,51 +812,6 @@ private struct FASTQOperationAdvancedSettingsSection: View {
             switch state.selectedToolID {
             case .rnaSeqQuant:
                 EmptyView()
-            case .fastpTrim:
-                Text("fastp will run adapter detection/removal and quality trimming together in one pass.")
-                    .foregroundStyle(.secondary)
-            case .qualityTrim:
-                Text("Quality trimming uses the selected threshold, window size, and mode.")
-                    .foregroundStyle(.secondary)
-            case .adapterRemoval:
-                Text("Manual adapter trimming only exposes a single literal sequence in this slice.")
-                    .foregroundStyle(.secondary)
-            case .primerTrimming:
-                Text("Primer trimming is constrained to the CLI-supported bbduk subset.")
-                    .foregroundStyle(.secondary)
-            case .trimFixedBases:
-                Text("Trim values are applied exactly as entered.")
-                    .foregroundStyle(.secondary)
-            case .filterByReadLength:
-                Text("Length filtering will use the entered minimum and maximum bounds.")
-                    .foregroundStyle(.secondary)
-            case .removeContaminants:
-                Text("Custom contaminant mode expects the reference FASTA in the Inputs section.")
-                    .foregroundStyle(.secondary)
-            case .removeLowComplexityReads:
-                Text("bbduk scores each read's Shannon entropy over a sliding window and discards reads below the threshold.")
-                    .foregroundStyle(.secondary)
-            case .removeRibosomalRNA:
-                Text("Deacon uses the managed BBMap ribokmers index with sensitive minimizer thresholds.")
-                    .foregroundStyle(.secondary)
-            case .removeDuplicates:
-                Text("The deduplication preset selects the CLI-compatible parameter set.")
-                    .foregroundStyle(.secondary)
-            case .mergeOverlappingPairs:
-                Text("Merged amplicon reads are stored as counted exemplars; duplicate support is encoded in FASTQ headers.")
-                    .foregroundStyle(.secondary)
-            case .repairPairedEndFiles:
-                Text("Paired-end repair has no additional settings.")
-                    .foregroundStyle(.secondary)
-            case .reverseComplement:
-                Text("Reverse complement preserves FASTQ quality scores by reversing them with the sequence.")
-                    .foregroundStyle(.secondary)
-            case .translate:
-                Text("Translation emits FASTA output because amino-acid sequences do not have nucleotide quality scores.")
-                    .foregroundStyle(.secondary)
-            case .orientReads:
-                Text("Orient reads against the selected reference sequence without saving a separate unoriented bundle.")
-                    .foregroundStyle(.secondary)
             case .pbaa:
                 DisclosureGroup("Advanced Options") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -906,15 +845,6 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                     }
                     .padding(.top, 4)
                 }
-            case .correctSequencingErrors:
-                Text("The k-mer size controls Tadpole error correction.")
-                    .foregroundStyle(.secondary)
-            case .subsampleByProportion, .subsampleByCount:
-                Text("Subsampling settings are taken directly from the values entered above.")
-                    .foregroundStyle(.secondary)
-            case .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence:
-                Text("Search and sequence filtering use the literal values entered above.")
-                    .foregroundStyle(.secondary)
             case .mafft:
                 DisclosureGroup("Advanced Options", isExpanded: $state.mafftAdvancedOptionsExpanded) {
                     VStack(alignment: .leading, spacing: 8) {
@@ -945,18 +875,8 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                     }
                     .padding(.top, 4)
                 }
-            case .demultiplexBarcodes:
-                Text("Demultiplexing uses either a built-in kit or a custom barcode definition from the Inputs section.")
-                    .foregroundStyle(.secondary)
-            case .ontFluidigmSampleSplit:
-                Text("Input bundles are passed directly to the materializer; ONT chunks are not imported separately for this recipe.")
-                    .foregroundStyle(.secondary)
-            case .removeHumanReads:
-                Text("Human read removal uses the managed Deacon pan-human index.")
-                    .foregroundStyle(.secondary)
-            case .refreshQCSummary, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
-                Text("This tool uses the embedded workflow pane.")
-                    .foregroundStyle(.secondary)
+            default:
+                EmptyView()
             }
         }
     }
@@ -993,6 +913,18 @@ private struct FASTQOperationAdvancedSettingsSection: View {
         )
     }
 
+}
+
+extension FASTQOperationToolID {
+    /// Whether the tool has a control under Advanced settings. A tool without one shows no such section.
+    var hasAdvancedSettingsControls: Bool {
+        switch self {
+        case .pbaa, .savont, .ontGenotyping, .mafft:
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 private extension FASTQOperationOutputMode {

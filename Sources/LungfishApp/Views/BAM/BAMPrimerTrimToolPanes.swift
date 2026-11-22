@@ -31,7 +31,7 @@ struct BAMPrimerTrimToolPanes: View {
 
     private var overviewSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Primer Scheme").font(.headline)
+            Text("Primer scheme").font(.headline)
             PrimerSchemePickerView(
                 builtIn: state.builtInSchemes,
                 projectLocal: state.projectSchemes,

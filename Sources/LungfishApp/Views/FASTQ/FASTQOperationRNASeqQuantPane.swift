@@ -123,18 +123,10 @@ struct RNASeqQuantPane: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                section("Overview") {
-                    Text(state.selectedToolSummary).font(.body).foregroundStyle(.secondary)
-                }
                 section("Inputs") {
                     Label(state.datasetLabel, systemImage: "doc.text").font(.body)
                 }
                 RNASeqQuantSettings(model: state.rnaSeqQuant)
-                section("Readiness") {
-                    Text(state.readinessText)
-                        .font(.callout)
-                        .foregroundStyle(state.isRunEnabled ? Color.lungfishSecondaryText : Color.lungfishOrangeFallback)
-                }
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 20)

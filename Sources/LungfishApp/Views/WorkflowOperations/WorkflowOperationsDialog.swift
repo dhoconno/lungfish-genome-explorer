@@ -39,7 +39,7 @@ struct WorkflowOperationsDialog: View {
             datasetLabel: state.datasetLabel,
             tools: state.sidebarItems,
             selectedToolID: state.selectedToolID,
-            statusText: state.readinessText,
+            statusText: state.isSubmittingReplay ? "Validating the captured configuration before launch…" : state.readinessText,
             isRunEnabled: state.isRunEnabled,
             accessibilityNamespace: "workflow-operations",
             onSelectTool: state.selectTool(_:),
@@ -95,24 +95,28 @@ private struct WorkflowOperationsDetailPane: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                section(DatasetOperationSection.overview.title) {
-                    Text(state.selectedToolSummary)
-                        .foregroundStyle(.secondary)
-                    if !state.selectedToolIsRNASeq {
-                        Button("Open Previous Run…", action: onOpenPreviousRun)
-                            .accessibilityIdentifier("workflow-operations-open-previous-run")
-                    }
-                    if let configuration = state.replayConfiguration, let source = state.replaySourceBundleURL {
-                        Text("Run Again: \(configuration.identity.packageManifest.name), version \(configuration.identity.packageManifest.version)")
-                            .font(.headline)
-                        Text(source.path).font(.caption).textSelection(.enabled)
-                        Text("\(configuration.request.inputURLs.count) retained inputs · \(configuration.request.cpus ?? 0) cores · fresh output directory")
-                            .font(.caption)
-                        Text("Only the original package and input bytes are accepted. Locate missing copies, then check the configuration. The previous run stays unchanged.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        HStack {
-                            Button("Open Workflow Library…") { WorkflowLibraryWindowController.show() }
-                            Button("Open Tool Setup…") { PluginManagerWindowController.show() }
+                if !state.selectedToolIsRNASeq || (state.replayConfiguration != nil && state.replaySourceBundleURL != nil) {
+                    section(DatasetOperationSection.overview.title) {
+                        if !state.selectedToolIsRNASeq {
+                            Button("Open Previous Run…", action: onOpenPreviousRun)
+                                .accessibilityIdentifier("workflow-operations-open-previous-run")
+                        }
+                        if let configuration = state.replayConfiguration, let source = state.replaySourceBundleURL {
+                            Text("Run Again: \(configuration.identity.packageManifest.name), version \(configuration.identity.packageManifest.version)")
+                                .font(.headline)
+                            Text(source.path).font(.caption).textSelection(.enabled)
+                            Text("\(configuration.request.inputURLs.count) retained inputs · \(configuration.request.cpus ?? 0) cores · fresh output directory")
+                                .font(.caption)
+                            Text("Only the original package and input bytes are accepted. Locate missing copies, then check the configuration. The previous run stays unchanged.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            HStack {
+                                Button("Open Workflow Library…") { WorkflowLibraryWindowController.show() }
+                                Button("Open Tool Setup…") { PluginManagerWindowController.show() }
+                            }
+                            Button("Check Configuration") { Task { await state.checkReplayConfiguration() } }
+                                .disabled(state.isCheckingReplay || state.isSubmittingReplay)
+                                .accessibilityIdentifier("workflow-operations-check-repeat")
+                            if state.isCheckingReplay || state.isSubmittingReplay { ProgressView().controlSize(.small) }
                         }
                     }
                 }
@@ -138,7 +142,7 @@ private struct WorkflowOperationsDetailPane: View {
                     primarySettings
                 }
 
-                if !state.selectedToolIsRNASeq {
+                if showsAdvancedSettings {
                     section(DatasetOperationSection.advancedSettings.title) {
                         advancedSettings
                     }
@@ -146,18 +150,6 @@ private struct WorkflowOperationsDetailPane: View {
 
                 section(DatasetOperationSection.output.title) {
                     outputPicker
-                }
-
-                section(DatasetOperationSection.readiness.title) {
-                    Text(state.isSubmittingReplay ? "Validating the captured configuration before launch…" : state.readinessText)
-                        .font(.callout)
-                        .foregroundStyle(state.isRunEnabled ? Color.lungfishSecondaryText : Color.lungfishOrangeFallback)
-                    if state.replayConfiguration != nil {
-                        Button("Check Configuration") { Task { await state.checkReplayConfiguration() } }
-                            .disabled(state.isCheckingReplay || state.isSubmittingReplay)
-                            .accessibilityIdentifier("workflow-operations-check-repeat")
-                        if state.isCheckingReplay || state.isSubmittingReplay { ProgressView().controlSize(.small) }
-                    }
                 }
             }
             .padding(.horizontal, 24)
@@ -175,6 +167,14 @@ private struct WorkflowOperationsDetailPane: View {
                     onCreateTwelveSReferenceBundle(configuration)
                 }
             )
+        }
+    }
+
+    /// Only a tool with a control under Advanced settings shows the section.
+    private var showsAdvancedSettings: Bool {
+        switch state.selectedTool?.kind {
+        case .ontGenotyping, .fullLengthONTMHCGenotyping, .twelveSAmpliconMatching: true
+        default: false
         }
     }
 
@@ -356,6 +356,15 @@ private struct WorkflowOperationsDetailPane: View {
                 Text("\(package.manifest.runner.kind.rawValue.capitalized) package, version \(package.manifest.version).")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text("Inputs: \(package.manifest.inputs.map(\.name).joined(separator: ", "))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Outputs: \(package.manifest.outputs.map(\.pathTemplate).joined(separator: ", "))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Runtime: \(package.manifest.runtime.kind.rawValue)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         case .rnaSeqExport:
             RNASeqExportSettingsPane(state: state)
@@ -525,21 +534,7 @@ private struct WorkflowOperationsDetailPane: View {
                 }
                 .padding(.top, 4)
             }
-        case .workflowPackage(let package):
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Inputs: \(package.manifest.inputs.map(\.name).joined(separator: ", "))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("Outputs: \(package.manifest.outputs.map(\.pathTemplate).joined(separator: ", "))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("Runtime: \(package.manifest.runtime.kind.rawValue)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        case .rnaSeqExport, .rnaSeqPseudobulk, .rnaSeqCellMapImport:
-            EmptyView()
-        case .none:
+        default:
             EmptyView()
         }
     }

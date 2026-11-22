@@ -14,7 +14,6 @@ struct BAMVariantCallingToolPanes: View {
                 callerSpecificSection
                 ivarOptionsSection
                 advancedOptionsSection
-                readinessSection
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
@@ -74,7 +73,7 @@ struct BAMVariantCallingToolPanes: View {
     @ViewBuilder
     private var callerSpecificSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("\(state.selectedToolDisplayName) Settings")
+            Text("\(state.selectedToolDisplayName) settings")
                 .font(.headline)
 
             if state.selectedToolID == BAMVariantCallingToolID.gatkHaplotypeCaller.rawValue {
@@ -184,7 +183,7 @@ struct BAMVariantCallingToolPanes: View {
     private var ivarOptionsSection: some View {
         if state.selectedToolID == BAMVariantCallingToolID.ivar.rawValue {
             VStack(alignment: .leading, spacing: 12) {
-                Text("iVar Options")
+                Text("iVar options")
                     .font(.headline)
 
                 HStack {
@@ -214,16 +213,6 @@ struct BAMVariantCallingToolPanes: View {
                 )
                 .lungfishHelp(LungfishHelpContent.bamVariantIvarStrandBias)
             }
-        }
-    }
-
-    private var readinessSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Readiness")
-                .font(.headline)
-            Text(state.readinessText)
-                .foregroundStyle(.secondary)
-                .lungfishHelp(LungfishHelpContent.operationReadiness)
         }
     }
 }

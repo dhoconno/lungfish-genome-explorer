@@ -507,7 +507,7 @@ struct AssemblyWizardSheet: View {
 
     private var primarySettingsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionTitle("Primary Settings")
+            sectionTitle("Primary settings")
 
             labeledRow("Assembler") {
                 Picker("Assembler", selection: $selectedTool) {
@@ -597,7 +597,7 @@ struct AssemblyWizardSheet: View {
 
     private var advancedSettingsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionTitle("Advanced Settings")
+            sectionTitle("Advanced settings")
 
             DisclosureGroup(Self.advancedDisclosureTitle, isExpanded: $showAdvanced) {
                 VStack(alignment: .leading, spacing: 12) {

@@ -45,7 +45,7 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         state.advancedOptionsExpanded = true
         let inspected = try makeDialog(state).inspect()
 
-        for title in ["Inputs", "Model", "Branch Support", "Rooting", "Output", "Run", "Advanced"] {
+        for title in ["Inputs", "Model", "Branch support", "Rooting", "Output", "Run", "Advanced"] {
             _ = try inspected.find(text: title)
         }
         for label in [

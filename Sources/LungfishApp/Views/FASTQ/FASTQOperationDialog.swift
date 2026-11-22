@@ -44,7 +44,7 @@ struct FASTQOperationDialog: View {
     var body: some View {
         DatasetOperationsDialog(
             title: state.dialogTitle,
-            subtitle: state.dialogSubtitle,
+            subtitle: "",
             datasetLabel: state.datasetLabel,
             tools: state.sidebarItems,
             selectedToolID: state.selectedToolID.rawValue,

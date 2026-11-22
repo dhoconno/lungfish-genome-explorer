@@ -7,10 +7,9 @@ final class DatasetOperationsDialogTests: XCTestCase {
         XCTAssertEqual(DatasetOperationSection.allCases.map(\.title), [
             "Overview",
             "Inputs",
-            "Primary Settings",
-            "Advanced Settings",
+            "Primary settings",
+            "Advanced settings",
             "Output",
-            "Readiness",
         ])
     }
 

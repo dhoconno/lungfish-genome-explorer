@@ -94,8 +94,8 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         })
         XCTAssertEqual(try advancedField.help().string(), LungfishHelpContent.fastqAdvancedArguments.summary)
 
-        let readinessText = try inspected.find(text: state.readinessText)
-        XCTAssertEqual(try readinessText.help().string(), LungfishHelpContent.operationReadiness.summary)
+        // The readiness line is the dialog footer's, so the pane holds no Readiness section.
+        XCTAssertThrowsError(try inspected.find(text: "Readiness"))
 
         // iVar-specific controls (primer-trim toggle, consensus AF/merge-AF/bad-quality
         // fields) only render once iVar is the selected caller.

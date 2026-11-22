@@ -170,7 +170,7 @@ private struct SequenceORFOperationPane: View {
 
     var body: some View {
         Form {
-            Section("Reading Frames") {
+            Section("Reading frames") {
                 VStack(alignment: .leading, spacing: Self.readingFrameRowSpacing) {
                     readingFrameRow(Array(ReadingFrame.allCases.prefix(3)))
                     readingFrameRow(Array(ReadingFrame.allCases.suffix(3)))

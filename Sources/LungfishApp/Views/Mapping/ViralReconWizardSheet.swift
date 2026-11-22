@@ -265,7 +265,7 @@ struct ViralReconWizardSheet: View {
     }
 
     private var primerSection: some View {
-        section("Primer Scheme") {
+        section("Primer scheme") {
             VStack(alignment: .leading, spacing: 8) {
                 if primerOptions.isEmpty {
                     Text("No SARS-CoV-2 primer schemes are available.")

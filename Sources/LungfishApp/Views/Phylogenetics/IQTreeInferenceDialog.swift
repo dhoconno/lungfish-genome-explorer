@@ -173,7 +173,7 @@ struct IQTreeInferenceToolPane: View {
                     .accessibilityIdentifier("iqtree-options-branch-support-unavailable")
             }
         } header: {
-            Text("Branch Support")
+            Text("Branch support")
         }
         .disabled(state.isBranchSupportAvailable == false)
     }

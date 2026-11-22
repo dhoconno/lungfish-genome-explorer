@@ -994,11 +994,10 @@ final class FASTQOperationDialogState {
     }
 
     var visibleSections: [DatasetOperationSection] {
-        var sections: [DatasetOperationSection] = [.inputs, .primarySettings, .advancedSettings]
+        var sections: [DatasetOperationSection] = [.inputs, .primarySettings] + (selectedToolID.hasAdvancedSettingsControls ? [.advancedSettings] : [])
         if showsOutputStrategyPicker {
             sections.append(.output)
         }
-        sections.append(.readiness)
         return sections
     }
 
@@ -1161,7 +1160,7 @@ final class FASTQOperationDialogState {
 
     var sidebarItems: [DatasetOperationToolSidebarItem] {
         visibleToolIDs(for: selectedCategory).map { toolID in
-            toolID.sidebarItem(availability: availability(for: toolID))
+            toolID.sidebarItem(availability: availability(for: toolID), help: Self.toolSummary(for: toolID))
         }
     }
 
@@ -1169,8 +1168,10 @@ final class FASTQOperationDialogState {
         visibleToolIDs(for: selectedCategory)
     }
 
-    var selectedToolSummary: String {
-        switch selectedToolID {
+    var selectedToolSummary: String { Self.toolSummary(for: selectedToolID) }
+
+    static func toolSummary(for toolID: FASTQOperationToolID) -> String {
+        switch toolID {
         case .rnaSeqQuant:
             return "Count bulk RNA-seq reads with salmon on the index of a reference set, one sample for each FASTQ bundle."
         case .refreshQCSummary:
@@ -1269,10 +1270,6 @@ final class FASTQOperationDialogState {
 
     var dialogTitle: String {
         "FASTQ/FASTA Operations"
-    }
-
-    var dialogSubtitle: String {
-        "Configure \(selectedToolID.title) for the selected \(inputDatasetDisplayName.uppercased()) data."
     }
 
     var inputDatasetDisplayName: String {
@@ -2121,13 +2118,15 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     }
 
     func sidebarItem(
-        availability: DatasetOperationAvailability = .available
+        availability: DatasetOperationAvailability = .available,
+        help: String? = nil
     ) -> DatasetOperationToolSidebarItem {
         DatasetOperationToolSidebarItem(
             id: rawValue,
             title: title,
             subtitle: subtitle,
-            availability: availability
+            availability: availability,
+            help: help
         )
     }
 

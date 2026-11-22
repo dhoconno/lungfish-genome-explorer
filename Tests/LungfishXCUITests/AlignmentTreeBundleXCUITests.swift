@@ -25,7 +25,7 @@ final class AlignmentTreeBundleXCUITests: XCTestCase {
         buildTreeMenuItem.click()
         XCTAssertTrue(robot.iqTreeOptionsDialog.waitForExistence(timeout: 5))
         XCTAssertTrue(robot.app.staticTexts["Sequence type"].firstMatch.waitForExistence(timeout: 5))
-        XCTAssertTrue(robot.app.staticTexts["Branch Support"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(robot.app.staticTexts["Branch support"].firstMatch.waitForExistence(timeout: 5))
         XCTAssertTrue(robot.iqTreeAdvancedParametersField.waitForExistence(timeout: 5))
         robot.iqTreeCancelButton.click()
 

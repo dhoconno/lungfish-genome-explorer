@@ -109,11 +109,15 @@ final class FASTQOperationToolPanesSourceTests: XCTestCase {
         // Every derivative-pane section wires a real, resolvable LungfishHelpContent
         // entry via .lungfishHelp(...); read back the actual applied .help() text
         // instead of grepping the modifier call site.
-        let overviewText = try inspected.find(text: state.selectedToolSummary)
-        XCTAssertEqual(try overviewText.help().string(), LungfishHelpContent.fastqOverview.summary)
-
-        let readinessText = try inspected.find(text: state.readinessText)
-        XCTAssertEqual(try readinessText.help().string(), LungfishHelpContent.operationReadiness.summary)
+        // The summary is the card's help tag and the readiness line is the footer's, so the pane holds neither.
+        XCTAssertThrowsError(try inspected.find(text: state.selectedToolSummary))
+        XCTAssertThrowsError(try inspected.find(text: state.readinessText))
+        // This state disables every workflow, so its sidebar is empty. The card a dialog draws for an enabled tool holds the summary
+        // as its help tag (`OperationsDialogReadinessLineTests` reads it off the rendered card).
+        XCTAssertEqual(
+            state.selectedToolID.sidebarItem(help: FASTQOperationDialogState.toolSummary(for: state.selectedToolID)).help,
+            state.selectedToolSummary
+        )
 
         // fastqInputs coverage: FASTQOperationInputsSection's
         // `Label(state.datasetLabel, systemImage: "doc.text")` always renders

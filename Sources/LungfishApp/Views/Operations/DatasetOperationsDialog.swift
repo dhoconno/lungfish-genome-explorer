@@ -71,9 +71,11 @@ struct DatasetOperationsDialog<Detail: View>: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(.title2.weight(.semibold))
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Text(datasetLabel)
@@ -105,7 +107,7 @@ struct DatasetOperationsDialog<Detail: View>: View {
                     }
                     .accessibilityAddTraits(selectedToolID == tool.id ? .isSelected : [])
                     .lungfishAccessibilityIdentifier(scopedID("tool-\(accessibilitySlug(for: tool.title))"))
-                    .lungfishHelp(LungfishHelpContent.operationToolSidebar)
+                    .lungfishHelpSummary(tool.help ?? LungfishHelpContent.operationToolSidebar.summary)
                     .buttonStyle(.plain)
                     .disabled(!canSelect(tool))
                 }

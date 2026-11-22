@@ -211,8 +211,8 @@ struct MappingWizardSheet: View {
         MappingMode(rawValue: selectedModeID)
     }
 
-    static let readGroupSectionTitle = "Read Group"
-    static let advancedSectionTitle = "Advanced Settings"
+    static let readGroupSectionTitle = "Read group"
+    static let advancedSectionTitle = "Advanced settings"
     static let extraArgumentsFieldTitle = "Extra arguments"
 
     static func advancedOptionsPlaceholder(for tool: MappingTool) -> String {

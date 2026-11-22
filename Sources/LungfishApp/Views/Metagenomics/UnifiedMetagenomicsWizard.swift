@@ -44,8 +44,8 @@ struct UnifiedMetagenomicsWizard: View {
             case .prerequisites: return "Prerequisites"
             case .samples: return "Samples"
             case .database: return "Database"
-            case .toolSettings: return "Tool Settings"
-            case .advancedSettings: return "Advanced Settings"
+            case .toolSettings: return "Tool settings"
+            case .advancedSettings: return "Advanced settings"
             }
         }
     }

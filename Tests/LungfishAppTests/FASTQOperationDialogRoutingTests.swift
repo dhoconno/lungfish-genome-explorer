@@ -15,7 +15,11 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
 
         XCTAssertEqual(
             state.visibleSections,
-            [.inputs, .primarySettings, .advancedSettings, .output, .readiness]
+            [.inputs, .primarySettings, .output]
+        )
+        XCTAssertEqual(
+            Set(FASTQOperationToolID.allCases.filter(\.hasAdvancedSettingsControls)),
+            [.pbaa, .savont, .ontGenotyping, .mafft]
         )
         XCTAssertEqual(state.inputSectionTitle, "Inputs")
         XCTAssertEqual(state.outputSectionTitle, "Output")

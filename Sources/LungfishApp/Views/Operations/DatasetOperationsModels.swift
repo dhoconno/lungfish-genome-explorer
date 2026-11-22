@@ -6,7 +6,6 @@ enum DatasetOperationSection: CaseIterable, Sendable {
     case primarySettings
     case advancedSettings
     case output
-    case readiness
 
     var title: String {
         switch self {
@@ -15,13 +14,11 @@ enum DatasetOperationSection: CaseIterable, Sendable {
         case .inputs:
             return "Inputs"
         case .primarySettings:
-            return "Primary Settings"
+            return "Primary settings"
         case .advancedSettings:
-            return "Advanced Settings"
+            return "Advanced settings"
         case .output:
             return "Output"
-        case .readiness:
-            return "Readiness"
         }
     }
 }
@@ -45,16 +42,20 @@ struct DatasetOperationToolSidebarItem: Identifiable, Equatable, Sendable {
     let title: String
     let subtitle: String
     let availability: DatasetOperationAvailability
+    /// The card's help tag, or nil for the dialog's general sidebar help.
+    let help: String?
 
     init(
         id: String,
         title: String,
         subtitle: String,
-        availability: DatasetOperationAvailability
+        availability: DatasetOperationAvailability,
+        help: String? = nil
     ) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.availability = availability
+        self.help = help
     }
 }
