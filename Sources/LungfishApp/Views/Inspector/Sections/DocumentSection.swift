@@ -75,6 +75,9 @@ public final class DocumentSectionViewModel {
     /// empty and the Inspector carries the scheme's details.
     var primerSchemeDocument: PrimerSchemeBundle?
 
+    /// The open RNA-seq result's facts and its cell map's lines (`DocumentSection+RNASeq.swift`).
+    var rnaseqResultDocument: RNASeqResultDocumentState?
+
     /// Callback for project-backed source data rows to navigate in the sidebar.
     var navigateToSourceData: ((URL) -> Void)?
 
@@ -259,6 +262,7 @@ public final class DocumentSectionViewModel {
         genotypeResultDocument = nil
         mhcReferenceBundleDocument = nil
         primerSchemeDocument = nil
+        rnaseqResultDocument = nil
         if !keepingViralRecon { viralReconDocument = nil }
     }
 
@@ -460,6 +464,7 @@ public final class DocumentSectionViewModel {
             genotypeResultDocument != nil ||
             mhcReferenceBundleDocument != nil ||
             primerSchemeDocument != nil ||
+            rnaseqResultDocument != nil ||
             viralReconDocument != nil ||
             manifest != nil ||
             fastqStatistics != nil ||
@@ -707,6 +712,8 @@ public struct DocumentSection: View {
                     bundleContent(manifest)
                 }
             }
+        } else if let rnaseqResultDocument = viewModel.rnaseqResultDocument {
+            RNASeqResultDocumentSection(state: rnaseqResultDocument)
         } else if let manifest = viewModel.manifest {
             bundleContent(manifest)
                 .onChange(of: manifest.modifiedDate) { _, _ in

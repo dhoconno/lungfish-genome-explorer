@@ -14,8 +14,13 @@ extension ViewerViewController {
             self.contentMode = .genomics
             (self.parent as? MainSplitViewController)?.inspectorController.updateRNASeqResultDocument(
                 name: facts.name,
+                facts: facts.rows,
                 bundleURL: bundleURL
             )
+        }
+        // A cell map's fact lines of 5.5 V5, on each refresh, and empty when the map closes or a reread fails.
+        surface.onCellMapFacts = { [weak self] lines, bundleURL in
+            (self?.parent as? MainSplitViewController)?.inspectorController.updateRNASeqCellMapFacts(lines, bundleURL: bundleURL)
         }
         // Save Selection as Labels Table… and Pseudobulk Selected Cells… of a cell map run `lungfish-cli rnaseq cell-map select`.
         surface.onSelectionAction = { [weak self] action in

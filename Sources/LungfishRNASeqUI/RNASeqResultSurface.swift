@@ -63,6 +63,13 @@ public final class RNASeqResultSurface: ResultViewport {
     /// Called after a result is shown, so the App can give the Inspector the result's name and record.
     public var onLoaded: (@MainActor (RNASeqResultFacts, URL) -> Void)?
 
+    /// Called with a cell map's fact lines (label and value) on each refresh of its view, and with none when the map
+    /// closes or a reread fails, so the App can show them in the Inspector. The values are already on the main actor.
+    public var onCellMapFacts: (@MainActor ([(label: String, value: String)], URL) -> Void)? {
+        get { controller.onCellMapFacts }
+        set { controller.onCellMapFacts = newValue }
+    }
+
     /// Called with Save Selection as Labels Table… or Pseudobulk Selected Cells… of a cell map's view, so the App launches
     /// `lungfish-cli rnaseq cell-map select`. The module writes nothing itself.
     public var onSelectionAction: (@MainActor (RNASeqEmbeddingSelectionAction) -> Void)? {
@@ -101,6 +108,12 @@ public final class RNASeqResultSurface: ResultViewport {
         present(outcome, bundleURL: bundleURL, cellMap: cellMap)
     }
 
+    /// Stops the cell map's reads, which publish their empty lines, then drops the App's closure.
+    public func willDeactivate(replacedBy next: SurfaceKind?) {
+        controller.cellMap?.close()
+        onCellMapFacts = nil
+    }
+
     /// Shows what the read gave and tells the App when it was a result. A cell map shows `cellMap`, or reads its own
     /// when the caller read none.
     public func present(_ outcome: RNASeqResultLoadOutcome, bundleURL: URL, cellMap: RNASeqCellMapLoadOutcome? = nil) {
@@ -136,6 +149,8 @@ public final class RNASeqResultViewController: NSViewController {
     public var onSelectionAction: (@MainActor (RNASeqEmbeddingSelectionAction) -> Void)? {
         didSet { cellMap?.onSelectionAction = onSelectionAction }
     }
+    /// The App's closure for a cell map's fact lines, which each hosted cell map view publishes through.
+    var onCellMapFacts: (@MainActor ([(label: String, value: String)], URL) -> Void)?
 
     private let header = NSStackView()
     private let body = NSView()
@@ -210,6 +225,7 @@ public final class RNASeqResultViewController: NSViewController {
         case .cellMap:
             let child = RNASeqCellMapViewController(nibName: nil, bundle: nil)
             child.onSelectionAction = onSelectionAction
+            child.onFacts = { [weak self] lines in self?.onCellMapFacts?(lines, bundleURL) }
             child.configure(result: result, bundleURL: bundleURL, outcome: shownMap)
             install(child)
             cellMap = child

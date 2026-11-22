@@ -357,7 +357,9 @@ extension InspectorRNASeqResultTests {
     func testASwitchFromATreeOrAGenotypeResultToAnRNASeqResultClearsTheirState() async throws {
         let map = try cellMap()
         let tree = try RoutingSafetyNetFixtures.phylogeneticTreeBundle(in: root.appendingPathComponent("Trees", isDirectory: true))
-        let genotype = try RoutingSafetyNetFixtures.genotypeResultBundle(in: root.appendingPathComponent("Genotypes", isDirectory: true), withCalls: false)
+        // With calls, so the genotype viewer shows. Without them the workbook's Quick Look preview shows, and its
+        // QLPreviewView asserts when a window-less test deactivates it.
+        let genotype = try RoutingSafetyNetFixtures.genotypeResultBundle(in: root.appendingPathComponent("Genotypes", isDirectory: true), withCalls: true)
         let shows: [(URL, (DocumentSectionViewModel) -> Bool)] = [
             (tree, { $0.phylogeneticTreeDocument != nil }), (genotype, { $0.genotypeResultDocument != nil }),
         ]
@@ -409,5 +411,23 @@ extension InspectorRNASeqResultTests {
         await settle(controller)
         XCTAssertNotNil(controller.failureWords, "the view says the reread failed")
         await assertRows(window, header, "after a failed reread")
+    }
+
+    /// The App drops lines of a result that is not the Inspector's RNA-seq target, lines and empty lines alike, so a
+    /// view left behind cannot change what replaced it.
+    func testCellMapLinesOfAResultThatIsNotTheTargetAreDropped() async throws {
+        let map = try cellMap()
+        let other = try singleCell()
+        let split = split()
+        let window = hostDocument(of: split)
+        let document = split.inspectorController.viewModel.documentSectionViewModel
+        try await open(map, in: split, cellMap: true)
+        let shown = try expectedHeader(map) + expectedCellMap(map, embedding: 0)
+        await assertRows(window, shown, "the cell map open")
+        split.inspectorController.updateRNASeqCellMapFacts([(label: "Cells drawn", value: "1 of 1")], bundleURL: other)
+        split.inspectorController.updateRNASeqCellMapFacts([], bundleURL: other)
+        XCTAssertEqual(document.rnaseqResultDocument?.bundleURL, map.standardizedFileURL)
+        XCTAssertEqual(document.rnaseqResultDocument?.cellMap.map(\.value), try expectedCellMap(map, embedding: 0).map(\.value))
+        await assertRows(window, shown, "after lines of another result")
     }
 }

@@ -265,6 +265,9 @@ enum RoutingObserver {
         case .bundle:
             if model.primerAnalysisDocument != nil { return ["primerAnalysisBundle"] }
             var blocks = ["document"]
+            if let rnaseq = document.rnaseqResultDocument {
+                blocks = ["rnaseqResult"] + (rnaseq.cellMap.isEmpty ? [] : ["rnaseqCellMap"])
+            }
             if document.projectCopyRecord != nil { blocks.append("missingSources") }
             if model.readStyleSectionViewModel.hasAlignmentTracks { blocks.append("alignmentBundle") }
             if model.contentMode == .fastq { blocks += ["fastqMetadata", "fastqPBAAArtifacts"] }
@@ -407,6 +410,9 @@ enum RoutingObserver {
         }
         if let scheme = document.primerSchemeDocument {
             entries.append("primerScheme=\(scheme.manifest.name)")
+        }
+        if let rnaseq = document.rnaseqResultDocument {
+            entries.append("rnaseqResult=\(paths.render(rnaseq.bundleURL) ?? "-")")
         }
         if let manifest = document.naoMgsManifest {
             entries.append("naoMgs=\(manifest.sampleName)")

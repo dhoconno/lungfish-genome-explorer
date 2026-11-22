@@ -224,6 +224,12 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
             }
             if kind.name == "Cell map" {
                 ReleaseSmokeFixtures.checkThatLegendRowZeroSelectsItsCells(in: robot)
+                // The Inspector's Bundle tab names the cell map with its fact lines (5.6 TV-INSPECT).
+                XCTAssertTrue(any["inspector-rnaseq-cell-map-cells-drawn"].firstMatch.waitForExistence(timeout: 10),
+                              "The Inspector shows the cell map's Cells drawn row")
+                let noBundle = NSPredicate(format: "label == %@ OR value == %@", "No Bundle Loaded", "No Bundle Loaded")
+                XCTAssertFalse(robot.app.staticTexts.matching(noBundle).firstMatch.exists,
+                               "The Inspector says No Bundle Loaded for the cell map")
             }
             // The NAO-MGS block stands in for a viewer and has its own check below. Kraken2's query takes its root
             // or its Collections toggle, and either goes with the viewer.

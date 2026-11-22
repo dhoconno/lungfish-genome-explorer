@@ -212,8 +212,10 @@ extension RoutingSafetyNetTable {
                     expected: RoutingObservation(
                         viewports: ["RNASeqResultViewController"],
                         mode: .genomics,
+                        inspector: ["rnaseqResult=\(context.render(bundle))"],
                         provenance: "registeredBundle \(context.render(bundle))",
-                        inspectorTab: "genomics document of [document, selection, view, derive, provenance]"
+                        inspectorTab: "genomics document of [document, selection, view, derive, provenance]",
+                        inspectorBlocks: ["rnaseqResult"]
                     )
                 )
             },
@@ -224,8 +226,10 @@ extension RoutingSafetyNetTable {
                     expected: RoutingObservation(
                         viewports: ["RNASeqResultViewController"],
                         mode: .genomics,
+                        inspector: ["rnaseqResult=\(context.render(bundle))"],
                         provenance: "registeredBundle \(context.render(bundle))",
                         inspectorTab: "genomics document of [document, selection, view, derive, provenance]",
+                        inspectorBlocks: ["rnaseqResult", "rnaseqCellMap"],
                         cellMap: true
                     )
                 )

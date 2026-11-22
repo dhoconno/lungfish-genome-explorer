@@ -75,6 +75,8 @@ public final class RNASeqCellMapViewController: NSViewController {
     var selectionGeneration = 0
     /// Called with Save Selection as Labels Table… or Pseudobulk Selected Cells…, which the App runs through lungfish-cli.
     public var onSelectionAction: (@MainActor (RNASeqEmbeddingSelectionAction) -> Void)?
+    /// Gets the fact lines on each refresh, and none on close or a failed reread (the Inspector's cell map part).
+    var onFacts: (@MainActor ([(label: String, value: String)]) -> Void)?
     public let selectionField = NSTextField(labelWithString: RNASeqEmbeddingSelectionWords.none)
     public let selectionNote = NSTextField(wrappingLabelWithString: "")
     public let saveSelectionButton = NSButton(title: RNASeqEmbeddingSelectionWords.saveTitle, target: nil, action: nil)
@@ -227,6 +229,7 @@ public final class RNASeqCellMapViewController: NSViewController {
         selectionWork?.cancel()
         selection = nil
         clearHover()
+        onFacts?([])
     }
 
     /// Escape empties the selection.
@@ -243,6 +246,7 @@ public final class RNASeqCellMapViewController: NSViewController {
             snapshot = nil
             failureWords = words
             replaceWords([Self.text(words, id: "rnaseq-cell-map-failure", wraps: true)])
+            onFacts?([])
         case .loaded(let shown):
             snapshot = shown
             failureWords = nil
@@ -444,6 +448,7 @@ public final class RNASeqCellMapViewController: NSViewController {
                                select: legend.rows.isEmpty ? nil : { [weak self] row in self?.selectLegendRow(row, adding: false) })
         showSelection()
         requestRaster()
+        onFacts?(factLines(shown))
     }
 
     /// The words of 5.5 W1 and I3 for what is shown, each with its accessibility id.
