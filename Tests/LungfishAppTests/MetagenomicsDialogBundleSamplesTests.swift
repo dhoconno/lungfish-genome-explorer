@@ -60,4 +60,24 @@ final class MetagenomicsDialogBundleSamplesTests: XCTestCase {
         XCTAssertEqual(samples.map(\.inputFiles), [[bundles[0]], [bundles[1]]])
         XCTAssertEqual(samples.map(\.isPairedEnd), [false, false])
     }
+
+    /// BIO-TT-PAIR question 1, fourth correction, in the words decided as row P4. Only bundles whose stems differ
+    /// by a mate ending get the line, loose files and a lone bundle get none, and each pair gets one line.
+    func testBundlesNamedLikeMatesGetTheDecidedLineInBothDialogs() {
+        let line = "Swab_1 and Swab_2 run as two samples because each FASTQ bundle is one sample. "
+            + "To run them as two reads of one sample, import both read files together as a pair."
+        let inputs = ["Swab_2", "Swab_1", "Other", "T_R1", "T_R2"].map {
+            URL(fileURLWithPath: "/data/run/\($0).lungfishfastq", isDirectory: true)
+        } + [URL(fileURLWithPath: "/data/run/L_R1.fastq.gz"), URL(fileURLWithPath: "/data/run/L_R2.fastq.gz")]
+
+        XCTAssertEqual(MetagenomicsSampleGrouper.nearMateBundleLine(read1: "Swab_1", read2: "Swab_2"), line)
+        XCTAssertEqual(
+            MetagenomicsSampleGrouper.nearMateBundlePairs(in: inputs).map { [$0.read1, $0.read2] },
+            [["Swab_1", "Swab_2"], ["T_R1", "T_R2"]]
+        )
+        XCTAssertEqual(ClassificationWizardSheet(inputFiles: Array(inputs.prefix(3))).nearMateLines, [line])
+        XCTAssertEqual(EsVirituWizardSheet(inputFiles: Array(inputs.prefix(3))).nearMateLines, [line])
+        XCTAssertEqual(ClassificationWizardSheet(inputFiles: Array(inputs.suffix(2))).nearMateLines, [])
+        XCTAssertEqual(EsVirituWizardSheet(inputFiles: [inputs[0]]).nearMateLines, [])
+    }
 }

@@ -167,6 +167,13 @@ struct ClassificationWizardSheet: View {
         MetagenomicsSampleGrouper.group(inputFiles)
     }
 
+    /// One line for each two bundles named like the two reads of one sample, which run as two samples (BIO-TT-PAIR).
+    var nearMateLines: [String] {
+        MetagenomicsSampleGrouper.nearMateBundlePairs(in: inputFiles).map {
+            MetagenomicsSampleGrouper.nearMateBundleLine(read1: $0.read1, read2: $0.read2)
+        }
+    }
+
     /// Display name for the input dataset, stripping bundle extensions.
     private var inputDisplayName: String {
         inputFiles.first?.lungfishDisplayName ?? ""
@@ -418,6 +425,12 @@ struct ClassificationWizardSheet: View {
             Text("LGE runs Kraken2 and Bracken on each sample and saves all results together in one batch result.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            ForEach(nearMateLines, id: \.self) { line in
+                Text(line)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(groupedSamples.prefix(8)) { sample in

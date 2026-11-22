@@ -144,6 +144,39 @@ public enum MetagenomicsSampleGrouper {
         return collapsed.isEmpty ? "sample" : collapsed
     }
 
+    /// The pairs of `.lungfishfastq` bundles among `inputFiles` whose whole stems differ only by a mate ending, such as
+    /// `Swab_1` and `Swab_2`, each as its R1 stem and its R2 stem, in the grouper's order. Each bundle runs as its own
+    /// sample, so the Classification and EsViritu dialogs say so in one line (BIO-TT-PAIR, question 1).
+    public static func nearMateBundlePairs(in inputFiles: [URL]) -> [(read1: String, read2: String)] {
+        var seen = Set<String>()
+        var read1Stems: [String: [String]] = [:]
+        var read2Stems: [String: [String]] = [:]
+        for url in inputFiles {
+            guard let bundle = SequenceInputResolver.enclosingFASTQBundleURL(for: url),
+                  seen.insert(bundle.path).inserted else { continue }
+            let stem = bundle.deletingPathExtension().lastPathComponent
+            switch parseSampleKeyAndRole(from: bundle) {
+            case let (key, .read1): read1Stems[key, default: []].append(stem)
+            case let (key, .read2): read2Stems[key, default: []].append(stem)
+            case (_, .single): continue
+            }
+        }
+        var pairs: [(read1: String, read2: String)] = []
+        for key in read1Stems.keys.sorted(by: { isOrderedBefore($0, $1) }) {
+            let firsts = read1Stems[key, default: []].sorted { isOrderedBefore($0, $1) }
+            let seconds = read2Stems[key, default: []].sorted { isOrderedBefore($0, $1) }
+            pairs += zip(firsts, seconds).map { (read1: $0, read2: $1) }
+        }
+        return pairs
+    }
+
+    /// The dialogs' line for one pair of ``nearMateBundlePairs(in:)``, in the words decided as row P4 of
+    /// `TT-PAIR-decided.md`. The Run button stays on.
+    public static func nearMateBundleLine(read1: String, read2: String) -> String {
+        "\(read1) and \(read2) run as two samples because each FASTQ bundle is one sample. "
+            + "To run them as two reads of one sample, import both read files together as a pair."
+    }
+
     private static func parseSampleKeyAndRole(from url: URL) -> (String, ReadRole) {
         var name = url.lastPathComponent
         if name.lowercased().hasSuffix(".gz") {
