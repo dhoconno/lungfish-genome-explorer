@@ -53,7 +53,7 @@ final class WorkflowRunOutcomeLinesTests: XCTestCase {
         )
         XCTAssertTrue(
             output.standardError.contains(
-                "⚠ 1 failed sample: S2. Too few reads were left after trimming or mapping to call variants.\n"
+                "⚠ 1 failed sample: S2. Too few reads were left to call variants.\n"
             ),
             output.standardError
         )

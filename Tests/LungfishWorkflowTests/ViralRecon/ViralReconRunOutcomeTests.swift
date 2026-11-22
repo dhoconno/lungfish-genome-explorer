@@ -114,11 +114,11 @@ final class ViralReconRunOutcomeTests: XCTestCase {
     func testTheFailedSamplesLineCountsAndNamesThem() {
         XCTAssertEqual(
             ViralReconRunOutcome.failedSamplesLine(["S1"]),
-            "1 failed sample: S1. Too few reads were left after trimming or mapping to call variants."
+            "1 failed sample: S1. Too few reads were left to call variants."
         )
         XCTAssertEqual(
             ViralReconRunOutcome.failedSamplesLine(["S1", "S2"]),
-            "2 failed samples: S1, S2. Too few reads were left after trimming or mapping to call variants."
+            "2 failed samples: S1, S2. Too few reads were left to call variants."
         )
         XCTAssertNil(ViralReconRunOutcome.failedSamplesLine([]))
     }

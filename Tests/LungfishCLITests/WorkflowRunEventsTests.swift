@@ -69,7 +69,7 @@ final class WorkflowRunEventsTests: XCTestCase {
         }
         XCTAssertEqual(warnings, [
             "Some Viral Recon tasks failed: PANGOLIN_RUN (S1). Their outputs are missing.",
-            "1 failed sample: S2. Too few reads were left after trimming or mapping to call variants.",
+            "1 failed sample: S2. Too few reads were left to call variants.",
         ])
         XCTAssertFalse(run.captured.standardError.contains("failed"), "an outcome reaches a reader once: \(run.captured.standardError)")
         XCTAssertEqual(run.events.last, .complete(outputs: [bundle.path, results.path], message: nil))

@@ -91,6 +91,6 @@ package enum ViralReconRunOutcome {
         guard !samples.isEmpty else { return nil }
         let noun = samples.count == 1 ? "sample" : "samples"
         return "\(samples.count) failed \(noun): \(samples.joined(separator: ", ")). "
-            + "Too few reads were left after trimming or mapping to call variants."
+            + "Too few reads were left to call variants."
     }
 }

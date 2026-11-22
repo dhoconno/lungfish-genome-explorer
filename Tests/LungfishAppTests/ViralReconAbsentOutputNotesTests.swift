@@ -14,7 +14,7 @@ import XCTest
 final class ViralReconAbsentOutputNotesTests: XCTestCase {
     private static let decided: [(output: ViralReconAbsentOutput, section: String, line: String)] = [
         (.sampleFailed, "Variants",
-         "Too few reads were left after trimming or mapping to call variants."),
+         "Too few reads were left to call variants."),
         (.noVariantsNoConsensus, "Variants",
          "No variants found, so the run made no consensus sequence or lineage tables."),
         (.noVariants, "Variants",

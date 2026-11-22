@@ -37,7 +37,7 @@ final class ViralReconRowEventsTests: XCTestCase {
         try await super.tearDown()
     }
 
-    private static let failedSample = "1 failed sample: S2. Too few reads were left after trimming or mapping to call variants."
+    private static let failedSample = "1 failed sample: S2. Too few reads were left to call variants."
 
     func testAFailedSampleMakesTheRowCompletedWithWarnings() async throws {
         let item = try await run([

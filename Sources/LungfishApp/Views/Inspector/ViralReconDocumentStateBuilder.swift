@@ -102,7 +102,7 @@ enum ViralReconDocumentStateBuilder {
         switch output {
         case .sampleFailed:
             return Note(section: Section.variants,
-                        line: "Too few reads were left after trimming or mapping to call variants.")
+                        line: "Too few reads were left to call variants.")
         case .noVariantsNoConsensus:
             return Note(section: Section.variants,
                         line: "No variants found, so the run made no consensus sequence or lineage tables.")
