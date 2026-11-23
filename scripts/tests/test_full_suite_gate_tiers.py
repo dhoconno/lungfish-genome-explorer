@@ -821,6 +821,13 @@ class FullTierBundleTests(unittest.TestCase):
         self.assertEqual(GATE.FULL_TIER_BUNDLE_TIMEOUT_SECONDS, expected)
         self.assertEqual([GATE.full_tier_bound(s) for s in (0.1, 300, 301, 450, 2647.984)], [600, 600, 900, 900, 5400])
 
+    def test_the_workflow_bundle_bound_is_at_least_twice_its_serial_time_of_2026_11_22(self):
+        """Ruling QA-PLUGIN-PACK-HANG, item 5. The serial LungfishWorkflowTests bundle needs at least 2,341.8 seconds, so
+        its bound must be at least twice that. The full tiers gate-20261122-201050-f149c6cb7-33883 and
+        gate-20261122-223017-f149c6cb7-43791 both ended red when the old bound of 2,100 seconds (twice the 976.420
+        seconds of 2026-10-28) ran out less than a second into a normal PluginPackStatusServiceTests case."""
+        self.assertGreaterEqual(GATE.FULL_TIER_BUNDLE_TIMEOUT_SECONDS["LungfishWorkflowTests"], 2 * 2341.8)
+
     def test_full_tier_attempt_passes_no_xctest_list(self):
         calls, status, evidence = run_gate_in_process("bundles", "full", "", full_tier_bundle=TWO_BUNDLES)
         self.assertEqual(status, 0, evidence["errors"])
