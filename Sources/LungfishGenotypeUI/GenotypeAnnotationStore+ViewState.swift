@@ -1,37 +1,30 @@
 import Foundation
 import LungfishIO
 
-/// The view the analyst chose for the bundle is app state (plan decision
-/// S11). It lives in `GenotypeResultViewState.filename`, a hidden file that
-/// no directory digest and no record covers. A view switch writes only that
-/// file and never `annotations.json`, its record or the publication lock.
+/// The view the analyst chose for the bundle is view memory, which the store outside every bundle and project keeps
+/// (the revisit of plan decision S11, `GenotypeResultViewController+ViewMemory.swift`). No build writes app state
+/// into a bundle. An older bundle's `GenotypeResultViewState.filename` is read once, off the main actor, as a starting
+/// view while the item has no store entry and no retire mark, and nothing writes or deletes it. A view switch writes
+/// no `annotations.json`, record or publication lock.
 extension GenotypeAnnotationStore {
-    /// The view the bundle opens with, its app state file when it has one and
-    /// otherwise the view fields of its sidecar. Reading never writes, so an
-    /// older sidecar's fields become the starting view and stay as they are.
+    /// The view the sidecar gives the bundle, read from memory with no file read on the main actor. An older
+    /// sidecar's fields become the starting view and stay as they are.
     var startingViewState: GenotypeResultViewState {
-        GenotypeResultViewState.starting(forBundleAt: bundleURL, sidecarSettings: sidecar.settings)
+        GenotypeResultViewState(startingFrom: sidecar.settings)
     }
 
-    /// Saves a view the analyst chose. Only a user event calls this, never
-    /// opening a bundle and never a programmatic restore. A read-only bundle
-    /// keeps the choice for the session only, and a choice equal to the saved
-    /// view writes nothing. A failed write loses a preference and never data,
-    /// so it raises no alert.
+    /// An older bundle's own view file, or nil when it has none or it cannot be read. It reads the disk, so only the
+    /// open's read off the main actor calls it, and only for an item with no store entry and no retire mark.
+    nonisolated static func olderViewState(inBundleAt bundleURL: URL) -> GenotypeResultViewState? {
+        GenotypeResultViewState.load(fromBundleAt: bundleURL)
+    }
+
+    /// Writes nothing. A user's view change is view memory, which the viewer keeps in the store when the visit ends,
+    /// so a read-only bundle and a writable one behave alike and no write runs past `isReadOnly` (VS U9).
     ///
-    /// - Returns: Whether the app state file was written.
+    /// - Returns: Always false, since nothing is written.
     @discardableResult
     func recordUserViewChange(_ change: (inout GenotypeResultViewState) -> Void) -> Bool {
-        guard !isReadOnly else { return false }
-        let saved = startingViewState
-        var next = saved
-        change(&next)
-        guard next != saved else { return false }
-        do {
-            try next.save(toBundleAt: bundleURL)
-            return true
-        } catch {
-            return false
-        }
+        false
     }
 }
