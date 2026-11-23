@@ -54,6 +54,41 @@ final class TaxTriageExportLoaderStaleTests: XCTestCase {
         XCTAssertFalse(source.metrics.isEmpty, "the rows of the current database load")
     }
 
+    /// Red at 8efd65b47 plus TT-m1, where `load` hands over the rows of S2, which a rebuild kept from an earlier database
+    /// without recounting them, with their old numbers and no words (TT-m1-BIO, B1). The result folder has no `report/`
+    /// folder, so `isStale` is false whatever the marks are and only the not-recounted key can refuse it.
+    func testALoaderRefusesASampleARebuildDidNotRecount() throws {
+        let databaseURL = folder.appendingPathComponent(TaxTriageExportLoader.databaseFileName)
+        _ = try TaxTriageDatabase.create(
+            at: databaseURL,
+            rows: [Self.row(sample: "S1"), Self.row(sample: "S2")],
+            metadata: ["tool": "taxtriage", "not_recounted_samples": "[\"S2\"]"]
+        )
+
+        XCTAssertThrowsError(try TaxTriageExportLoader.load(resultURL: folder, samples: [], searchText: nil)) { error in
+            XCTAssertEqual(
+                error as? TaxTriageExportLoader.LoadError,
+                .notRecounted(path: databaseURL.path, samples: ["S2"])
+            )
+        }
+        let source = try TaxTriageExportLoader.load(resultURL: folder, samples: ["S1"], searchText: nil)
+        XCTAssertFalse(source.metrics.isEmpty, "the samples the rebuild did count still export")
+    }
+
+    /// A row of one sample, the helper of `TaxTriageNotRecountedNoticeTests`.
+    private static func row(sample: String) -> TaxTriageTaxonomyRow {
+        TaxTriageTaxonomyRow(
+            sample: sample, organism: "Alpha virus", taxId: 1001, status: nil, tassScore: 0.9, readsAligned: 40,
+            uniqueReads: 20, pctReads: nil, pctAlignedReads: nil, coverageBreadth: 50, meanCoverage: nil, meanDepth: nil,
+            confidence: "High", k2Reads: nil, parentK2Reads: nil, giniCoefficient: nil, meanBaseQ: nil, meanMapQ: nil,
+            mapqScore: nil, disparityScore: nil, minhashScore: nil, diamondIdentity: nil, k2DisparityScore: nil,
+            siblingsScore: nil, breadthWeightScore: nil, hhsPercentile: nil, isAnnotated: nil, annClass: nil,
+            microbialCategory: nil, highConsequence: nil, isSpecies: nil, pathogenicSubstrains: nil, sampleType: nil,
+            bamPath: "\(sample)/minimap2/\(sample).bam", bamIndexPath: "\(sample)/minimap2/\(sample).bam.bai",
+            primaryAccession: "NC_1001", accessionLength: 10_000
+        )
+    }
+
     /// A batch folder with the sample folder of a TaxTriage 3.3.8 organism report and a database of its first row.
     private func makeBatch(metadata: [String: String]) throws -> URL {
         let sample = URL(fileURLWithPath: #filePath)
