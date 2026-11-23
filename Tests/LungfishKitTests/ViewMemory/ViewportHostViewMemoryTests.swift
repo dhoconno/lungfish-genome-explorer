@@ -19,6 +19,7 @@ private final class MemoryStandInSurface: ViewMemoryAdopting {
         let url: URL
         var dataKey: String? = "data-1"
         var pending = false
+        var clearsOnDeactivate = false
     }
 
     static let kind = SurfaceKind.view(SurfaceViewID(rawValue: "memory-stand-in"))
@@ -32,27 +33,42 @@ private final class MemoryStandInSurface: ViewMemoryAdopting {
     var filter = ""
     var selection: [String] = []
     var restoredWithChangedData: Bool?
+    var clearsOnDeactivate = false
 
     func load(input: Any, token: AsyncRequestToken<SurfaceRequest>) async throws {
         let input = try expectInput(input, as: Input.self)
         viewMemoryItem = ViewMemoryItem.read(at: input.url)
         viewMemoryDataKey = input.dataKey
         viewMemoryLoadIsPending = input.pending
+        clearsOnDeactivate = input.clearsOnDeactivate
     }
 
     func captureViewMemory() -> ViewMemoryTestView {
         ViewMemoryTestView(filter: filter, selection: selection)
     }
 
+    /// Restores the filter and the selection only on an equal data key, as VS B6 restores a count filter or a search
+    /// text, and drops both on a changed or unread key, saying so.
     func restoreViewMemory(_ state: ViewMemoryTestView, dataChanged: Bool) -> ViewMemoryLoss {
         restoredWithChangedData = dataChanged
-        filter = state.filter
-        guard dataChanged else {
-            selection = state.selection
-            return []
+        guard !dataChanged else {
+            filter = ""
+            selection = []
+            var lost: ViewMemoryLoss = []
+            if !state.filter.isEmpty { lost.insert(.filters) }
+            if !state.selection.isEmpty { lost.insert(.selection) }
+            return lost
         }
+        filter = state.filter
+        selection = state.selection
+        return []
+    }
+
+    /// A surface that tears its view down as it goes, so only a capture before this call sees the view.
+    func willDeactivate(replacedBy next: SurfaceKind?) {
+        guard clearsOnDeactivate else { return }
+        filter = ""
         selection = []
-        return state.selection.isEmpty ? [] : .selection
     }
 }
 
@@ -130,9 +146,10 @@ final class ViewportHostViewMemoryTests: XCTestCase {
 
         let back = try show(host, .init(url: fixture.bundle, dataKey: "data-2"))
         XCTAssertEqual(back.restoredWithChangedData, true)
-        XCTAssertEqual(back.filter, "Salmo")
+        XCTAssertEqual(back.filter, "", "a filter restores only on an equal data key (VS B6)")
         XCTAssertEqual(back.selection, [])
-        XCTAssertEqual(host.resetLine?.words, "The data changed since your last visit, so your selection was not kept.")
+        XCTAssertEqual(host.resetLine?.words,
+                       "The data changed since your last visit, so your selection and filters were not kept.")
 
         try show(host, .init(url: other))
         XCTAssertNil(host.resetLine, "the next show removes the line")
@@ -236,7 +253,7 @@ final class ViewportHostViewMemoryTests: XCTestCase {
         handle.applyPending()
 
         XCTAssertNil(host.resetLine, "a late restore draws nothing over the surface that took its place")
-        XCTAssertEqual(removed.filter, "", "a removed surface takes no late restore")
+        XCTAssertNil(removed.restoredWithChangedData, "a removed surface takes no late restore")
         XCTAssertTrue(host.activeViewport === installed)
     }
 
@@ -263,6 +280,91 @@ final class ViewportHostViewMemoryTests: XCTestCase {
         try show(host, .init(url: other))
         store.flushSynchronously()
         XCTAssertTrue(fixture.itemFiles().isEmpty)
+    }
+
+    // MARK: - A data key not read (VS B1)
+
+    func testAKeyNotReadNowNeverComparesEqual() throws {
+        let (host, parent) = makeHost(store: loadedStore())
+        defer { _ = parent }
+        try show(host, .init(url: fixture.bundle)).selection = ["sample-1|target-3"]
+        try show(host, .init(url: other))
+
+        let back = try show(host, .init(url: fixture.bundle, dataKey: nil))
+        XCTAssertEqual(back.restoredWithChangedData, true)
+        XCTAssertEqual(back.selection, [])
+    }
+
+    func testAKeyNotReadWhenTheViewWasKeptNeverComparesEqual() throws {
+        let (host, parent) = makeHost(store: loadedStore())
+        defer { _ = parent }
+        try show(host, .init(url: fixture.bundle, dataKey: nil)).selection = ["sample-1|target-3"]
+        try show(host, .init(url: other))
+
+        let back = try show(host, .init(url: fixture.bundle))
+        XCTAssertEqual(back.restoredWithChangedData, true)
+        XCTAssertEqual(back.selection, [])
+    }
+
+    func testAPendingRestoreComparesTheKeysWhenItApplies() throws {
+        let (host, parent) = makeHost(store: loadedStore())
+        defer { _ = parent }
+        try show(host, .init(url: fixture.bundle)).selection = ["sample-1|target-3"]
+        try show(host, .init(url: other))
+
+        let changed = try show(host, .init(url: fixture.bundle, dataKey: "data-2", pending: true))
+        XCTAssertNil(changed.restoredWithChangedData, "nothing restores before the adopter's own load commits")
+        changed.viewMemoryHandle?.applyPending()
+        XCTAssertEqual(changed.restoredWithChangedData, true)
+        XCTAssertEqual(changed.selection, [])
+        changed.selection = ["sample-1|target-3"]
+
+        try show(host, .init(url: other))
+        let readLate = try show(host, .init(url: fixture.bundle, dataKey: nil, pending: true))
+        readLate.viewMemoryDataKey = "data-2"
+        readLate.viewMemoryHandle?.applyPending()
+        XCTAssertEqual(readLate.restoredWithChangedData, false, "the key the adopter's own load read is the one compared")
+        XCTAssertEqual(readLate.selection, ["sample-1|target-3"])
+    }
+
+    // MARK: - The three triggers of a capture
+
+    func testTheViewIsKeptBeforeTheSurfaceTearsItDown() throws {
+        let (host, parent) = makeHost(store: loadedStore())
+        defer { _ = parent }
+        try show(host, .init(url: fixture.bundle, clearsOnDeactivate: true)).filter = "Salmo"
+        try show(host, .init(url: other))
+
+        XCTAssertEqual(try show(host, .init(url: fixture.bundle)).filter, "Salmo",
+                       "the host captures before willDeactivate (VS A2)")
+    }
+
+    func testThePostedQuitNotificationKeepsTheViewAndWritesItBeforeTheDebounce() throws {
+        let (host, parent) = makeHost(store: loadedStore())
+        defer { _ = parent }
+        try show(host, .init(url: fixture.bundle)).filter = "at the quit"
+        NotificationCenter.default.post(name: NSApplication.willTerminateNotification, object: nil)
+        XCTAssertEqual(fixture.itemFiles().count, 1, "the quit keeps the view with no switch and writes it at once")
+
+        let (relaunched, relaunchedParent) = makeHost(store: loadedStore())
+        defer { _ = relaunchedParent }
+        XCTAssertEqual(try show(relaunched, .init(url: fixture.bundle)).filter, "at the quit")
+    }
+
+    func testClosingTheHostsWindowKeepsTheViewWithNoSwitch() throws {
+        let store = loadedStore()
+        let (host, parent) = makeHost(store: store)
+        defer { _ = parent }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = parent.view
+        let key = try XCTUnwrap(store.key(for: ViewMemoryItem.read(at: fixture.bundle)))
+        try show(host, .init(url: fixture.bundle)).filter = "Salmo"
+        XCTAssertFalse(store.hasRecord(for: key))
+
+        window.close()
+        XCTAssertTrue(store.hasRecord(for: key), "the window's close keeps the installed view")
     }
 
     func testTheWordsNameWhatWasNotKeptInOrder() {
