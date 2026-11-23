@@ -189,6 +189,57 @@ final class ViewportHostViewMemoryTests: XCTestCase {
         XCTAssertEqual(typed.filter, "typed while loading", "a late restore never overwrites a person's change")
     }
 
+    func testALeaveBeforeTheLateRestoreKeepsTheSavedView() throws {
+        let (host, parent) = makeHost(store: loadedStore())
+        defer { _ = parent }
+        try show(host, .init(url: fixture.bundle)).filter = "kept"
+        try show(host, .init(url: other))
+
+        try show(host, .init(url: fixture.bundle, pending: true))
+        host.captureActive()
+        try show(host, .init(url: other))
+
+        XCTAssertEqual(try show(host, .init(url: fixture.bundle)).filter, "kept",
+                       "a visit that ends before the adopter's own load commits keeps the saved view")
+    }
+
+    func testAPendingAdopterWithNoKeptViewMovesItsStartAtApply() throws {
+        let store = loadedStore()
+        let (host, parent) = makeHost(store: store)
+        defer { _ = parent }
+        let key = try XCTUnwrap(store.key(for: ViewMemoryItem.read(at: fixture.bundle)))
+        let loading = try show(host, .init(url: fixture.bundle, pending: true))
+        loading.filter = "app default"
+        loading.viewMemoryHandle?.applyPending(startingView: ViewMemoryTestView(filter: "app default"))
+        try show(host, .init(url: other))
+        XCTAssertFalse(store.hasRecord(for: key), "the app's own default is never kept as a person's choice (VS S3)")
+
+        let again = try show(host, .init(url: fixture.bundle, pending: true))
+        again.filter = "app default"
+        again.viewMemoryHandle?.applyPending(startingView: ViewMemoryTestView(filter: "app default"))
+        again.filter = "Salmo"
+        try show(host, .init(url: other))
+        XCTAssertEqual(try show(host, .init(url: fixture.bundle)).filter, "Salmo", "a change after the apply is kept")
+    }
+
+    func testALateApplyAfterTheSurfaceWasRemovedDrawsNoLine() throws {
+        let (host, parent) = makeHost(store: loadedStore())
+        defer { _ = parent }
+        let first = try show(host, .init(url: fixture.bundle))
+        first.filter = "kept"
+        first.selection = ["x"]
+        try show(host, .init(url: other))
+
+        let removed = try show(host, .init(url: fixture.bundle, dataKey: "data-2", pending: true))
+        let handle = try XCTUnwrap(removed.viewMemoryHandle)
+        let installed = try show(host, .init(url: other))
+        handle.applyPending()
+
+        XCTAssertNil(host.resetLine, "a late restore draws nothing over the surface that took its place")
+        XCTAssertEqual(removed.filter, "", "a removed surface takes no late restore")
+        XCTAssertTrue(host.activeViewport === installed)
+    }
+
     func testTwoWindowsOnOneBundleShareOneEntryAndTheLastChangeWins() throws {
         let store = loadedStore()
         let (one, oneParent) = makeHost(store: store)
