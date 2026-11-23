@@ -17,7 +17,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishCLI | library | Sources/LungfishCLI | 1 | LungfishCore, LungfishIO, LungfishWorkflow, LungfishWorkflowTwelveS |
 | LungfishCLIExecutable | executable | Sources/LungfishCLIExecutable | 0 | LungfishCLI |
 | LungfishCore | library | Sources/LungfishCore | 344 | LungfishPortable |
-| LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 6 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishEsVirituUI | library | Sources/LungfishEsVirituUI | 7 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 689 | LungfishCore |
@@ -29,7 +29,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishPortable | library | Sources/LungfishPortable | 13 | none |
 | LungfishRNASeqUI | library | Sources/LungfishRNASeqUI | 51 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTaxTriageUI | library | Sources/LungfishTaxTriageUI | 5 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
-| LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 13 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
+| LungfishTaxonomyUI | library | Sources/LungfishTaxonomyUI | 15 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishTwelveSUI | library | Sources/LungfishTwelveSUI | 16 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow, LungfishWorkflowTwelveS |
 | LungfishWorkflow | library | Sources/LungfishWorkflow | 1628 | LungfishCore, LungfishIO |
 | LungfishWorkflowTwelveS | library | Sources/LungfishWorkflowTwelveS | 38 | LungfishCore, LungfishIO, LungfishWorkflow |
@@ -784,6 +784,7 @@ None.
 - `EsVirituDetailPane` class, `Sources/LungfishEsVirituUI/EsVirituDetailPane.swift`
 - `EsVirituResultViewController` class, `Sources/LungfishEsVirituUI/EsVirituResultViewController.swift`
 - `EsVirituSurface` class, `Sources/LungfishEsVirituUI/EsVirituSurface.swift`
+- `EsVirituViewState` struct, `Sources/LungfishEsVirituUI/EsVirituSurface+ViewMemory.swift`
 - `SegmentCompletenessView` class, `Sources/LungfishEsVirituUI/SegmentCompletenessView.swift`
 - `ViralCoverageSparklineView` class, `Sources/LungfishEsVirituUI/ViralCoverageSparklineView.swift`
 - `ViralDetectionTableView` class, `Sources/LungfishEsVirituUI/ViralDetectionTableView.swift`
@@ -2044,7 +2045,9 @@ None.
 - `AppSystemSymbolImage` enum, `Sources/LungfishTaxonomyUI/AppSystemSymbolImage.swift`
 - `CzIdResultViewController` class, `Sources/LungfishTaxonomyUI/CzIdResultViewController.swift`
 - `CzIdSurface` class, `Sources/LungfishTaxonomyUI/CzIdSurface.swift`
+- `CzIdViewState` struct, `Sources/LungfishTaxonomyUI/CzIdSurface+ViewMemory.swift`
 - `Kraken2Surface` class, `Sources/LungfishTaxonomyUI/Kraken2Surface.swift`
+- `Kraken2ViewState` struct, `Sources/LungfishTaxonomyUI/Kraken2Surface+ViewMemory.swift`
 - `SunburstLayout` struct, `Sources/LungfishTaxonomyUI/SunburstGeometry.swift`
 - `SunburstSegment` struct, `Sources/LungfishTaxonomyUI/SunburstGeometry.swift`
 - `TaxaCollectionsDrawerDelegate` protocol, `Sources/LungfishTaxonomyUI/TaxaCollectionsDrawerDelegate.swift`

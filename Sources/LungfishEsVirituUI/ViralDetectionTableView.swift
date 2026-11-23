@@ -271,7 +271,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     private var filteredItems: [ViralAssemblyItem]?
 
     /// Current filter text. Empty string means no filter.
-    private var filterText: String = ""
+    var filterText: String = ""
 
     /// Debounced work item for search-field filtering.
     private var filterWorkItem: DispatchWorkItem?
@@ -289,7 +289,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     private var suppressSelectionCallback = false
 
     /// Stable selection IDs for sort/filter/reload preservation.
-    private var selectionIdentities = SelectionIdentityStore<String>()
+    var selectionIdentities = SelectionIdentityStore<String>()
 
     /// Cached root items in their current sorted order.
     private var sortedDisplayItems: [ViralAssemblyItem] = []
@@ -332,8 +332,8 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     let metadataColumns = MetadataColumnController(contentTypographyOwnership: .embedded)
 
     private let scrollView = NSScrollView()
-    private let outlineView = NSOutlineView()
-    private let searchField = NSSearchField()
+    let outlineView = NSOutlineView()
+    let searchField = NSSearchField()
     private let countLabel = NSTextField(labelWithString: "")
     private var searchHeightConstraint: NSLayoutConstraint?
     private let contentTypographyApplicator = ContentTypographyViewApplicator()
@@ -688,7 +688,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         filterGeneration += 1
     }
 
-    private func applyFilterImmediately() {
+    func applyFilterImmediately() {
         cancelPendingFilterApplication()
         applyFilter()
     }
@@ -1442,7 +1442,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         }
     }
 
-    private func restoreSelectionAfterDisplayedItemsChanged(notifySelectionCallbacks: Bool = true) {
+    func restoreSelectionAfterDisplayedItemsChanged(notifySelectionCallbacks: Bool = true) {
         guard let visibleIDs = visibleSelectionIdentities() else { return }
         let previousIDs = selectionIdentities.selectedIDs
         guard !previousIDs.isEmpty else {
@@ -1490,7 +1490,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         }
     }
 
-    private func visibleSelectionIdentities() -> [String]? {
+    func visibleSelectionIdentities() -> [String]? {
         visibleSelectionItemsAndIdentities()?.map(\.identity)
     }
 
@@ -1507,7 +1507,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         return visible
     }
 
-    private func selectionIdentity(for item: Any) -> String? {
+    func selectionIdentity(for item: Any) -> String? {
         let resultPath = resultIdentity ?? "unknown-result"
         if let assemblyItem = item as? ViralAssemblyItem {
             let assembly = assemblyItem.assembly

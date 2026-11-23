@@ -194,12 +194,12 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     // MARK: - Child Views
 
     private let summaryBar = TaxonomySummaryBar()
-    private let breadcrumbBar = TaxonomyBreadcrumbBar()
+    let breadcrumbBar = TaxonomyBreadcrumbBar()
     let splitView = NSSplitView()
     private let sunburstContainer = SplitPaneFillContainerView()
     private let tableContainer = SplitPaneFillContainerView()
-    private let sunburstView = TaxonomySunburstView()
-    private let taxonomyTableView = TaxonomyTableView()
+    let sunburstView = TaxonomySunburstView()
+    let taxonomyTableView = TaxonomyTableView()
     /// The shared classifier actions (lane K2): the bar, its BLAST Results button and the extraction hand-off.
     public let resultActions = ClassifierResultActions()
     var actionBar: ClassifierActionBar { resultActions.bar }
@@ -576,7 +576,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         }
     }
 
-    private func applyBatchSampleFilter() {
+    func applyBatchSampleFilter() {
         guard let state = samplePickerState else { return }
         renderBatchSelection(sampleIds: state.selectedSamples.sorted())
     }

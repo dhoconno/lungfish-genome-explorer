@@ -138,7 +138,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     ///
     /// Composes with the per-column header filters: a node is a direct match
     /// only when it satisfies both the query and every active column filter.
-    private var filterText: String = "" {
+    var filterText: String = "" {
         didSet {
             guard filterText != oldValue else { return }
             applyFilter()
@@ -197,13 +197,13 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     private var suppressSelectionCallback = false
 
     /// Stable selection IDs for sort/filter/tree replacement preservation.
-    private var selectionIdentities = SelectionIdentityStore<String>()
+    var selectionIdentities = SelectionIdentityStore<String>()
 
     // MARK: - Subviews
 
     private let scrollView = NSScrollView()
     internal let outlineView = TaxonomyOutlineView()
-    private let searchField = NSSearchField()
+    let searchField = NSSearchField()
     private let countLabel = NSTextField(labelWithString: "")
     private let contentTypographyApplicator = ContentTypographyViewApplicator()
     private var contentTypographyObservation: ContentTypographyViewObservation?
@@ -1173,7 +1173,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         }
     }
 
-    private func restoreSelectionAfterDisplayedNodesChanged() {
+    func restoreSelectionAfterDisplayedNodesChanged() {
         guard let visibleIDs = visibleSelectionIdentities() else { return }
         let previousIDs = selectionIdentities.selectedIDs
         guard !previousIDs.isEmpty else {
@@ -1215,7 +1215,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         }
     }
 
-    private func visibleSelectionIdentities() -> [String]? {
+    func visibleSelectionIdentities() -> [String]? {
         visibleSelectionNodesAndIdentities()?.map(\.identity)
     }
 
@@ -1232,7 +1232,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         return visible
     }
 
-    private func selectionIdentity(for node: TaxonNode) -> String? {
+    func selectionIdentity(for node: TaxonNode) -> String? {
         [
             "kraken2",
             resultIdentity ?? "unknown-result",

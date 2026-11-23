@@ -11,8 +11,8 @@ import LungfishKit
 public final class CzIdResultViewController: NSViewController, NSPopoverDelegate {
     /// The embedded Kraken2 taxonomy view, whose drawer ``CzIdSurface`` answers for.
     let taxonomyViewController = TaxonomyViewController()
-    private var manifest: CzIdImportManifest?
-    private var bundleURL: URL?
+    var manifest: CzIdImportManifest?
+    var bundleURL: URL?
     private var provenancePopover: NSPopover?
     private var didEmbedTaxonomy = false
 

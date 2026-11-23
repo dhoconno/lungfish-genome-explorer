@@ -286,12 +286,12 @@ extension MainSplitViewController {
             return
         }
         if let esVirituVC = viewerController.esVirituViewController {
-            esVirituVC.samplePickerState?.selectedSamples = [sampleId]
+            esVirituVC.selectSampleFromRoute(sampleId)
             NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil, userInfo: ScopedEventFilter.scopedUserInfo(scope: windowStateScope))
             return
         }
         if let taxonomyVC = viewerController.taxonomyViewController {
-            taxonomyVC.samplePickerState?.selectedSamples = [sampleId]
+            taxonomyVC.selectSampleFromRoute(sampleId)
             NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil, userInfo: ScopedEventFilter.scopedUserInfo(scope: windowStateScope))
             return
         }

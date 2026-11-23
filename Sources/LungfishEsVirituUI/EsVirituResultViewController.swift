@@ -205,7 +205,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     private let detailContainer = SplitPaneFillContainerView()
     private let rightPaneContainer = SplitPaneFillContainerView()
     private let detailPane = EsVirituDetailPane()
-    private let detectionTableView = ViralDetectionTableView()
+    let detectionTableView = ViralDetectionTableView()
     /// The shared bar, BLAST Results button and BLAST results pane (lane ADOPT, plan exit check 4).
     public private(set) lazy var resultActions = ClassifierResultActions(
         blastDrawer: blastDrawerContainer.blastResultsTab
