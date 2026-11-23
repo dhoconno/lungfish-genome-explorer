@@ -38,6 +38,15 @@ struct MHCReferenceBundleViewportModel: Equatable {
     let embeddedReferenceBundleURL: URL?
     let embeddedReferenceManifest: BundleManifest?
     let warnings: [MHCReferenceBundleWarning]
+    /// Where the bundle lives, read off the main actor by the async load, for the Mode picker's kept view (VS-MAP).
+    var viewMemoryItem: ViewMemoryItem? = nil
+
+    /// The data key of VS B1, from the manifest the load read: the name, the record count and the definitions.
+    var viewMemoryDataKey: String {
+        let reference = embeddedReferenceBundleURL == nil ? "no reference" : "reference"
+        return (["MHC reference v1", title, String(referenceCount), reference] + definitionSummaries.map(\.id))
+            .joined(separator: "\n")
+    }
 
     var preferredMode: MHCReferenceBundleViewportMode {
         embeddedReferenceBundleURL == nil ? .haplotypes : .reference
@@ -88,6 +97,7 @@ struct MHCReferenceBundleViewportModel: Equatable {
             FASTAPreview(text: "", isTruncated: false, fileSize: 0)
         }
         let definitions = try MHCAmpliconReferenceBundle.haplotypeDefinitions(in: standardizedBundleURL)
+        let item = await Task.detached(priority: .userInitiated) { ViewMemoryItem.read(at: standardizedBundleURL) }.value
         return MHCReferenceBundleViewportModel(
             bundleURL: standardizedBundleURL,
             title: manifest.name,
@@ -98,7 +108,8 @@ struct MHCReferenceBundleViewportModel: Equatable {
             definitionSummaries: definitions.map(Self.summary(for:)),
             embeddedReferenceBundleURL: embeddedReferenceBundleURL,
             embeddedReferenceManifest: embeddedReferenceManifest,
-            warnings: manifest.warnings
+            warnings: manifest.warnings,
+            viewMemoryItem: item
         )
     }
 
@@ -137,22 +148,40 @@ struct MHCReferenceBundleViewportModel: Equatable {
     }
 }
 
+/// The MHC viewer's view as a person set it, injected so the surface reads and sets it (VS-MAP, k12): the Mode
+/// picker. The reference view inside keeps its own view for the embedded bundle, in the store this names.
+@MainActor
+final class MHCReferenceBundleViewportState: ObservableObject {
+    @Published var mode: MHCReferenceBundleViewportMode
+    /// The store of the surface host that shows the viewer, which the embedded reference viewer keeps its view in.
+    var viewMemoryStore: ViewMemoryStore?
+    /// The embedded reference viewport while the Reference mode shows it.
+    weak var embeddedViewport: ReferenceBundleViewportController?
+
+    init(mode: MHCReferenceBundleViewportMode) {
+        self.mode = mode
+    }
+}
+
 struct MHCReferenceBundleViewport: View {
     let model: MHCReferenceBundleViewportModel
     let onEditHaplotypes: () -> Void
-    @State private var mode: MHCReferenceBundleViewportMode
+    @ObservedObject var state: MHCReferenceBundleViewportState
 
-    init(model: MHCReferenceBundleViewportModel, onEditHaplotypes: @escaping () -> Void) {
+    init(
+        model: MHCReferenceBundleViewportModel, onEditHaplotypes: @escaping () -> Void,
+        state: MHCReferenceBundleViewportState? = nil
+    ) {
         self.model = model
         self.onEditHaplotypes = onEditHaplotypes
-        _mode = State(initialValue: model.preferredMode)
+        self.state = state ?? MHCReferenceBundleViewportState(mode: model.preferredMode)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            switch mode {
+            switch state.mode {
             case .reference:
                 referencePane
             case .haplotypes:
@@ -178,7 +207,7 @@ struct MHCReferenceBundleViewport: View {
             }
             Spacer()
             if model.embeddedReferenceBundleURL != nil {
-                Picker("Mode", selection: $mode) {
+                Picker("Mode", selection: $state.mode) {
                     ForEach(MHCReferenceBundleViewportMode.allCases, id: \.self) { mode in
                         Text(mode.rawValue).tag(mode)
                     }
@@ -200,7 +229,7 @@ struct MHCReferenceBundleViewport: View {
     private var referencePane: some View {
         if let bundleURL = model.embeddedReferenceBundleURL,
            let manifest = model.embeddedReferenceManifest {
-            EmbeddedMHCReferenceBundleViewport(bundleURL: bundleURL, manifest: manifest)
+            EmbeddedMHCReferenceBundleViewport(bundleURL: bundleURL, manifest: manifest, state: state)
                 .accessibilityIdentifier("mhc-embedded-reference-viewport")
         } else {
             fastaPane
@@ -323,11 +352,20 @@ struct MHCReferenceBundleViewport: View {
 private struct EmbeddedMHCReferenceBundleViewport: NSViewControllerRepresentable {
     let bundleURL: URL
     let manifest: BundleManifest
+    let state: MHCReferenceBundleViewportState
 
     func makeNSViewController(context: Context) -> ReferenceBundleViewportController {
         let controller = ReferenceBundleViewportController()
+        // The viewer is not yet a child of the host's viewer here, so it takes the host's store by name (VS A6).
+        if let store = state.viewMemoryStore { controller.embeddedViewerController.viewMemoryStore = store }
+        state.embeddedViewport = controller
         try? controller.configure(input: .directBundle(bundleURL: bundleURL, manifest: manifest))
         return controller
+    }
+
+    /// The Haplotype mode removes the reference view, so its view is kept first (VS-REF SWIFT SF-1).
+    static func dismantleNSViewController(_ controller: ReferenceBundleViewportController, coordinator: ()) {
+        controller.stopWorkForRemoval()
     }
 
     func updateNSViewController(

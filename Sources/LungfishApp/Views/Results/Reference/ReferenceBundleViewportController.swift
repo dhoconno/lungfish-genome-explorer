@@ -72,7 +72,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private var metadataPresentationContext: SampleMetadataPresentationContext?
     private var metadataPresentationObserverToken: SampleMetadataPresentationContext.ObserverToken?
     private var alignmentActionContextGeneration = 0
-    private var alignmentActionContextTask: Task<Void, Never>?
+    var alignmentActionContextTask: Task<Void, Never>?
     /// The running mapping row refresh, `nil` once it finishes. A newer refresh cancels it,
     /// which stops its samtools children, and the ready announcement waits for it.
     var mappingRowsRefreshTask: Task<Void, Never>?
@@ -94,7 +94,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     var onSequenceSelectionStateChanged: ((SequenceRegionSelectionState?) -> Void)?
     var onConsensusActionStateChanged: (() -> Void)?
 
-    private let embeddedViewerController = ViewerViewController()
+    let embeddedViewerController = ViewerViewController()
     private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
 
     let summaryBar: NSView = {
@@ -126,7 +126,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         return container
     }()
 
-    private let focusedBackButton: NSButton = {
+    let focusedBackButton: NSButton = {
         let button = NSButton(title: "Back", target: nil, action: nil)
         button.bezelStyle = .rounded
         LungfishKitControlStyle.applyInspectorMetrics(to: button)
@@ -406,14 +406,14 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         returnToListDetailMode()
     }
 
-    private func enterFocusedDetailMode() {
+    func enterFocusedDetailMode() {
         guard presentationMode != .focusedDetail else { return }
         presentationMode = .focusedDetail
         applyPresentationMode()
         publishAnnotationScopeAndReconcileSequenceSelection()
     }
 
-    private func returnToListDetailMode() {
+    func returnToListDetailMode() {
         guard presentationMode != .listDetail else { return }
         presentationMode = .listDetail
         applyPresentationMode()
@@ -1175,13 +1175,13 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         embeddedViewerController.view.isHidden = true
     }
 
-    private func currentSelectedContig() -> MappingContigSummary? {
+    func currentSelectedContig() -> MappingContigSummary? {
         let selectedRow = contigTableView.tableView.selectedRow
         guard selectedRow >= 0, selectedRow < contigTableView.displayedRows.count else { return nil }
         return contigTableView.displayedRows[selectedRow]
     }
 
-    private func currentSelectedSequence() -> ReferenceBundleRecordRow? {
+    func currentSelectedSequence() -> ReferenceBundleRecordRow? {
         let selectedRow = sequenceTableView.tableView.selectedRow
         guard selectedRow >= 0, selectedRow < sequenceTableView.displayedRows.count else { return nil }
         return sequenceTableView.displayedRows[selectedRow]
@@ -1430,7 +1430,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         return bundleURL.appendingPathComponent(path)
     }
 
-    private func installAlignmentActionContext(
+    func installAlignmentActionContext(
         for row: MappingContigSummary,
         bundleURL: URL
     ) {
@@ -1481,7 +1481,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         ))
     }
 
-    private func installAlignmentActionContext(for row: ReferenceBundleRecordRow) {
+    func installAlignmentActionContext(for row: ReferenceBundleRecordRow) {
         guard let input = currentInput,
               input.kind == .directBundle,
               let bundleURL = input.renderedBundleURL,

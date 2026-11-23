@@ -1,5 +1,6 @@
 import AppKit
 import LungfishCore
+import LungfishKit
 import SwiftUI
 
 extension ViewerViewController {
@@ -16,10 +17,14 @@ extension ViewerViewController {
         hideProgress()
         contentMode = .genomics
 
+        // The Mode picker's model, which the surface keeps, and the host's store for the reference view inside (VS-MAP).
+        let state = MHCReferenceBundleViewportState(mode: model.preferredMode)
+        state.viewMemoryStore = surfaceHost.viewMemoryStore
         let controller = NSHostingController(
             rootView: MHCReferenceBundleViewport(
                 model: model,
-                onEditHaplotypes: onEditHaplotypes
+                onEditHaplotypes: onEditHaplotypes,
+                state: state
             )
         )
         _ = try showSurface(.bundle(.mhcReference), input: controller, as: MHCReferenceBundleSurface.self)
