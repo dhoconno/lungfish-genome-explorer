@@ -41,6 +41,14 @@ final class TaxTriageExportLoaderStaleTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: databaseURL.path), "the export leaves the database as it was")
     }
 
+    /// TT-m2 BIO S-2. After TT-STRAIN-GROUP every database built before it is stale, and most of those read the right
+    /// Reads, so the reason covers the counts of an organism with several references or strains. Red at the base.
+    func testRefusalWordsNameStrainsAsWellAsReferences() {
+        let words = TaxTriageExportLoader.LoadError.staleDatabase(path: "/r/taxtriage.sqlite", resultPath: "/r").errorDescription ?? ""
+
+        XCTAssertTrue(words.contains("or strains"), "the reason covers organisms with several strains: \(words)")
+    }
+
     /// A database that carries the current mark loads, so the refusal reaches only the old ones.
     func testExportOfADatabaseWithTheCurrentMarkLoads() throws {
         _ = try makeBatch(metadata: [

@@ -29,4 +29,17 @@ final class TaxTriageStaleDatabaseRebuildsTests: XCTestCase {
         XCTAssertTrue(words.contains("build-db taxtriage"), words)
         XCTAssertTrue(words.contains("--force"), words)
     }
+
+    /// TT-m2 BIO S-2. After TT-STRAIN-GROUP every database built before it is stale, and most of those read the right
+    /// Reads, so the placeholder and the not-shown words give the reason that holds for them: the counts, on an
+    /// organism with several references or strains. Red at the base.
+    func testNotShownMessageNamesStrainsAsWellAsReferences() {
+        let result = FileManager.default.temporaryDirectory.appendingPathComponent("taxtriage-batch-2026-11-23T10-00-00")
+        let words = TaxTriageStaleDatabaseRebuilds.notShownMessage(resultURL: result)
+        XCTAssertTrue(words.contains("or strains"), words)
+    }
+
+    func testRecountSubtitleSaysTheCountsNotTheReads() {
+        XCTAssertTrue(TaxTriageStaleDatabaseRebuilds.recountSubtitle.contains("counts could read"), TaxTriageStaleDatabaseRebuilds.recountSubtitle)
+    }
 }
