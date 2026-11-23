@@ -110,15 +110,21 @@ extension TwelveSAmpliconMatchingWorkflow {
                 case .mates:
                     break
                 case .unmarked:
+                    // Two loose files whose names carry no mate number are refused as out of step, as every other loose
+                    // pair is (FIX-ROUTES-7, BIO-ROUTES-5 item 9). A pair inside a bundle keeps the legacy pairing by
+                    // position, and the warning below reaches the result.
+                    if !Self.liesInFASTQBundle(r1), !Self.liesInFASTQBundle(r2) {
+                        throw TwelveSAmpliconMatchingError.mateMismatch(
+                            Self.outOfStepWords(record: pairs + 1, r1: r1, r2: r2, mate1: mate1, mate2: mate2)
+                        )
+                    }
                     pairedByPosition += 1
                     if firstPairedByPosition == nil {
                         firstPairedByPosition = (mate1.identifier, mate2.identifier)
                     }
                 case .notMates:
                     throw TwelveSAmpliconMatchingError.mateMismatch(
-                        "Record \(pairs + 1) of \(r1.lastPathComponent) is \(readName(mate1)) and of "
-                            + "\(r2.lastPathComponent) is \(readName(mate2)), so the two files do not hold "
-                            + "the same fragments in the same order."
+                        Self.outOfStepWords(record: pairs + 1, r1: r1, r2: r2, mate1: mate1, mate2: mate2)
                     )
                 }
                 pairs += 1
@@ -134,6 +140,20 @@ extension TwelveSAmpliconMatchingWorkflow {
                 )
             }
         }
+    }
+
+    /// The words of a record pair whose names say the files are out of step, the `.notMates` text unchanged.
+    private static func outOfStepWords(
+        record: Int, r1: URL, r2: URL, mate1: TwelveSFastqRecord, mate2: TwelveSFastqRecord
+    ) -> String {
+        "Record \(record) of \(r1.lastPathComponent) is \(readName(mate1)) and of "
+            + "\(r2.lastPathComponent) is \(readName(mate2)), so the two files do not hold "
+            + "the same fragments in the same order."
+    }
+
+    /// Whether `url` lies in a `.lungfishfastq` bundle, whose legacy mates may carry no mate number.
+    private static func liesInFASTQBundle(_ url: URL) -> Bool {
+        url.standardizedFileURL.pathComponents.contains { $0.lowercased().hasSuffix(".lungfishfastq") }
     }
 
     /// One file in which every R1 record is followed by its R2 record.

@@ -617,7 +617,8 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
         let sampleMetadataSnapshot = try writeSampleMetadataSnapshot(
             config: config,
             bundleURL: bundleURL,
-            sampleOrder: classified.sampleOrder
+            sampleOrder: classified.sampleOrder,
+            readWarnings: classified.readWarnings
         )
         let samples = makeSamples(
             classified: classified,
@@ -837,7 +838,8 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
     private func writeSampleMetadataSnapshot(
         config: TwelveSAmpliconMatchingConfiguration,
         bundleURL: URL,
-        sampleOrder: [String]
+        sampleOrder: [String],
+        readWarnings: [String]
     ) throws -> SampleMetadataSnapshot {
         let metadataDirectory = bundleURL.appendingPathComponent("metadata", isDirectory: true)
         try FileManager.default.createDirectory(at: metadataDirectory, withIntermediateDirectories: true)
@@ -885,7 +887,7 @@ public struct TwelveSAmpliconMatchingWorkflow: Sendable {
             sampleCount: sampleOrder.count,
             columns: resolved.columns,
             sources: resolved.sources,
-            warnings: resolved.warnings
+            warnings: resolved.warnings + readWarnings
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
