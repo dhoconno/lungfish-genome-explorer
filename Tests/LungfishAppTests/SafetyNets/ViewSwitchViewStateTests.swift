@@ -508,7 +508,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         let first = try XCTUnwrap(viewer())
         first.samplePickerState?.selectedSamples = ["HG002"]
         first.applyBatchSampleFilter()
-        let table = first.batchTableView.tableView
+        let table = try XCTUnwrap(first.batchTableView.tableView)
         XCTAssertGreaterThan(table.numberOfRows, 0, "the HG002 rows show")
         table.selectRowIndexes(IndexSet(integer: table.numberOfRows - 1), byExtendingSelection: false)
         let selected = table.selectedRowIndexes
@@ -524,7 +524,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
             inspectorShows, "the Inspector shows \(String(describing: summary.classifierPickerState?.selectedSamples))"
         )
         harness.window.displayIfNeeded()
-        XCTAssertEqual(back.batchTableView.tableView.selectedRowIndexes, selected, "the restored row stays selected")
+        XCTAssertEqual(back.batchTableView.tableView?.selectedRowIndexes, selected, "the restored row stays selected")
     }
 
     /// VS A10 and QA 6: the Kraken2 and EsViritu tables write no column layout to the account's defaults when the route
