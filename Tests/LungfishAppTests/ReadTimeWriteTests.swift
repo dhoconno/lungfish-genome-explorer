@@ -19,6 +19,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishKit
 @testable import LungfishOperations
 import LungfishTestSupport
 import LungfishWorkflow
@@ -58,7 +59,7 @@ final class ReadTimeWriteTests: XCTestCase {
     /// debounce and the incremental search update, before it hashes the project again.
     private static let settleTime: Duration = .milliseconds(1_800)
 
-    private var scratch: URL!
+    var scratch: URL!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -320,60 +321,51 @@ final class ReadTimeWriteTests: XCTestCase {
         )
     }
 
-    /// A change that a person makes is still saved, by the debounce and when the viewer leaves
-    /// the bundle, and a later save that repeats it writes nothing more.
-    func testAUserChangeIsSavedByTheDebounceAndByLeavingTheBundle() async throws {
+    /// A change that a person makes is kept in the view memory store on this Mac, by the debounce and
+    /// when the viewer leaves the bundle, and never in the bundle. The revisit of 2.6 S11 turned this pin,
+    /// which said the change was saved into `.viewstate.json`, since no build writes app state into a
+    /// bundle any more.
+    func testAUserChangeIsKeptInTheStoreAndNotTheBundleByTheDebounceAndByLeavingTheBundle() async throws {
         let (first, second) = try makeTwoReferences()
-        let viewer = makeViewer()
+        let store = makeViewMemoryStore()
+        let viewer = makeViewer(store: store)
         let viewStateURL = first.url.appendingPathComponent(BundleViewState.filename)
-        try viewer.displayBundle(at: first.url, mode: .sequence(name: first.firstSequence, restoreViewState: false))
-        try await Task.sleep(for: .milliseconds(400))
-        let restoredScale = try XCTUnwrap(viewer.referenceFrame?.scale)
+        try await displayRemembered(first, in: viewer)
+        let openedSpan = try XCTUnwrap(viewer.referenceFrame.map { $0.end - $0.start })
 
         viewer.zoomIn() // a user event handler, which marks the state changed
-        try await Task.sleep(for: Self.settleTime)
+        let debounced = await waitUntil(budget: .lookup) { viewer.viewStateSaveWorkItem == nil }
+        XCTAssertTrue(debounced, "The debounce did not run.")
+        let kept = try XCTUnwrap(keptReferenceView(of: first.url, in: store)?.locus, "The debounce did not keep the zoom.")
+        XCTAssertLessThan(kept.end - kept.start, openedSpan, "The kept place is the zoomed one.")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: viewStateURL.path), "A user change wrote into the bundle.")
 
-        let saved = BundleViewState.load(from: first.url)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: viewStateURL.path), "The debounce did not save a zoom.")
-        XCTAssertLessThan(try XCTUnwrap(saved.lastScale), restoredScale, "The saved scale is the zoomed one.")
-        let writtenBytes = try Data(contentsOf: viewStateURL)
-        let writtenDate = try XCTUnwrap(
-            try FileManager.default.attributesOfItem(atPath: viewStateURL.path)[.modificationDate] as? Date
-        )
-
-        viewer.scheduleViewStateSave() // nothing new since the save
-        try await Task.sleep(for: Self.settleTime)
-        XCTAssertEqual(try Data(contentsOf: viewStateURL), writtenBytes)
-        XCTAssertEqual(
-            try FileManager.default.attributesOfItem(atPath: viewStateURL.path)[.modificationDate] as? Date, writtenDate,
-            "A save that repeated what was already saved rewrote the file."
-        )
-
-        // A change made just before the viewer leaves, inside the debounce, is flushed on the way out.
+        // A change made just before the viewer leaves, inside the debounce, is kept on the way out.
         viewer.zoomOut()
-        try viewer.displayBundle(at: second.url, mode: .sequence(name: second.firstSequence, restoreViewState: false))
-        let flushed = BundleViewState.load(from: first.url)
-        XCTAssertGreaterThan(try XCTUnwrap(flushed.lastScale), try XCTUnwrap(saved.lastScale), "Leaving flushed the zoom out.")
+        try await displayRemembered(second, in: viewer)
+        let flushed = try XCTUnwrap(keptReferenceView(of: first.url, in: store)?.locus)
+        XCTAssertGreaterThan(flushed.end - flushed.start, kept.end - kept.start, "Leaving kept the zoom out.")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: viewStateURL.path), "Leaving wrote into the bundle.")
     }
 
     /// Adding or removing an annotation track shows the same bundle again. A change that a person made
-    /// just before is still pending then, and the settle that follows the new display must not drop it.
-    func testAUserChangeBeforeTheAnnotationTrackReloadIsSaved() async throws {
+    /// just before is still pending then, and the reload keeps it in the store, never in the bundle.
+    func testAUserChangeBeforeTheAnnotationTrackReloadIsKeptInTheStore() async throws {
         let (first, _) = try makeTwoReferences()
-        let viewer = makeViewer()
-        try viewer.displayBundle(at: first.url, mode: .sequence(name: first.firstSequence, restoreViewState: false))
-        try await Task.sleep(for: .milliseconds(400))
-        let restoredScale = try XCTUnwrap(viewer.referenceFrame?.scale)
+        let store = makeViewMemoryStore()
+        let viewer = makeViewer(store: store)
+        try await displayRemembered(first, in: viewer)
+        let openedSpan = try XCTUnwrap(viewer.referenceFrame.map { $0.end - $0.start })
 
         viewer.zoomIn() // marks the state changed, and the debounce has not run
         try viewer.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: first.url)
-        try await Task.sleep(for: Self.settleTime)
 
-        XCTAssertTrue(
+        let kept = try XCTUnwrap(keptReferenceView(of: first.url, in: store)?.locus, "The reload dropped the pending zoom.")
+        XCTAssertLessThan(kept.end - kept.start, openedSpan, "The kept place is the zoomed one.")
+        XCTAssertFalse(
             FileManager.default.fileExists(atPath: first.url.appendingPathComponent(BundleViewState.filename).path),
-            "The reload dropped the zoom that was pending when it began."
+            "The reload wrote the pending zoom into the bundle."
         )
-        XCTAssertLessThan(try XCTUnwrap(BundleViewState.load(from: first.url).lastScale), restoredScale, "The saved scale is the zoomed one.")
     }
 
     // MARK: - Window and project
@@ -455,19 +447,21 @@ final class ReadTimeWriteTests: XCTestCase {
 
     // MARK: - Viewer fixtures
 
-    private struct ReferenceFixture {
+    struct ReferenceFixture {
         let url: URL
         let firstSequence: String
     }
 
-    private func makeViewer() -> ViewerViewController {
+    /// A viewer that keeps its views in `store`, or in a store of its own under the scratch folder.
+    func makeViewer(store: ViewMemoryStore? = nil) -> ViewerViewController {
         let viewer = ViewerViewController()
+        viewer.viewMemoryStore = store ?? makeViewMemoryStore()
         _ = viewer.view
         return viewer
     }
 
     /// Two copies of the committed reference bundles under a scratch folder.
-    private func makeTwoReferences() throws -> (ReferenceFixture, ReferenceFixture) {
+    func makeTwoReferences() throws -> (ReferenceFixture, ReferenceFixture) {
         let folder = scratch.appendingPathComponent("references-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         func copy(_ name: String) throws -> ReferenceFixture {
