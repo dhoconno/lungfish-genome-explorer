@@ -125,7 +125,10 @@ final class ViewSwitchViewStateTests: XCTestCase {
             ViewStateDeclaredGaps.all.count, ViewStateDeclaredGaps.ceiling,
             "The declared gaps only shrink. Lower the ceiling in the change that adopts a kind."
         )
-        XCTAssertEqual(ViewStateDeclaredGaps.ceiling, 16, "the ceiling after VS-REF, VS-RNA and VS-TAX, which each family lane lowers")
+        XCTAssertEqual(
+            ViewStateDeclaredGaps.ceiling, 15,
+            "the ceiling after VS-REF, VS-RNA, VS-TAX and VS-GENO, which each family lane lowers"
+        )
     }
 
     // MARK: - 12S
