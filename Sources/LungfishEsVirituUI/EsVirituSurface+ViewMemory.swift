@@ -36,6 +36,7 @@ extension EsVirituSurface: ViewMemoryAdopting {
     func readViewMemoryIdentity(of viewer: EsVirituResultViewController) {
         viewMemoryItem = viewer.viewMemoryFolderURL.map { ViewMemoryItem.read(at: $0) }
         viewMemoryDataKey = viewer.viewMemoryDataKey()
+        viewer.keepCollapsedAssembliesThroughRefilters()
     }
 
     /// The view as the viewer's controls hold it now. It reads no file and no store.

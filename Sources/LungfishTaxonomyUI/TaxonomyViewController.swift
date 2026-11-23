@@ -464,7 +464,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     // MARK: - Database-backed Batch Mode
 
     /// The SQLite database backing this VC when loaded via `configureFromDatabase`.
-    private var kraken2Database: Kraken2Database?
+    private(set) var kraken2Database: Kraken2Database?
 
     /// Configures this VC from a pre-built SQLite database instead of parsing
     /// per-sample kreport files or manifest caches.

@@ -454,7 +454,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     // MARK: - SQLite Database Mode
 
     /// The SQLite database backing this VC when loaded via `configureFromDatabase`.
-    private var esVirituDatabase: EsVirituDatabase?
+    private(set) var esVirituDatabase: EsVirituDatabase?
 
     /// Configures this VC from a pre-built SQLite database instead of parsing
     /// per-sample files or manifest caches.

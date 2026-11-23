@@ -71,18 +71,25 @@ extension TaxonomyViewController {
         isBatchMode ? batchURL : classificationResult?.config.outputDirectory
     }
 
-    /// The data key of VS B1, from what the viewer loaded when the result opened, so it reads no file. A key part not
-    /// read gives nil, which never compares equal. A rerun that changes a count changes the key.
+    /// The data key of VS B1, which a rerun must change even when every count comes out the same. A batch result keys
+    /// on the run record its database holds, the `created_at` that `build-db` writes, and not on the file's date,
+    /// which the sample metadata cache moves on a visit. A one-sample result keys on its provenance run id. A
+    /// database or result with neither keys as "no run", which a rerun's record never equals. The counts the viewer
+    /// loaded follow. The metadata table is read once, in the surface's load, on the main actor where the route has
+    /// just read the whole database (SWIFT ruling R2). A key part not read gives nil, which never compares equal.
     func viewMemoryDataKey() -> String? {
         if isBatchMode {
-            guard !sampleEntries.isEmpty else { return nil }
+            guard !sampleEntries.isEmpty, let database = kraken2Database,
+                  let metadata = try? database.fetchMetadata() else { return nil }
             let samples = sampleEntries.map { "\($0.id)=\($0.classifiedReads)" }
-            return (["kraken2 batch v1", "rows \(allBatchRows.count)"] + samples).joined(separator: "\n")
+            let run = "built \(metadata["created_at"] ?? "no run")"
+            return (["kraken2 batch v2", run, "rows \(allBatchRows.count)"] + samples).joined(separator: "\n")
         }
-        guard let tree = classificationResult?.tree else { return nil }
+        guard let result = classificationResult else { return nil }
+        let tree = result.tree
         return [
-            "kraken2 v1", "reads \(tree.totalReads)", "classified \(tree.classifiedReads)",
-            "species \(tree.speciesCount)",
+            "kraken2 v2", "run \(result.provenanceId?.uuidString ?? "no run")", "reads \(tree.totalReads)",
+            "classified \(tree.classifiedReads)", "species \(tree.speciesCount)",
         ].joined(separator: "\n")
     }
 

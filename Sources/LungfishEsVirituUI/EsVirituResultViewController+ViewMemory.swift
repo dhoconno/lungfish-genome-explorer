@@ -52,6 +52,8 @@ struct EsVirituViewMemory: Codable, Sendable, Equatable {
 final class EsVirituVisitMemo {
     var routedSample: String?
     var samplesBeforeRoute: SamplePickerMemory?
+    /// Whether the viewer's table keeps its collapsed assemblies through its re-filter (`keepCollapsedAssembliesThroughRefilters()`).
+    var keepsCollapseThroughRefilters = false
 
     private static let registry = NSMapTable<EsVirituResultViewController, EsVirituVisitMemo>.weakToStrongObjects()
 
@@ -67,13 +69,18 @@ extension EsVirituResultViewController {
     /// The result folder the view's memory belongs to, from facts the viewer already holds. Nil keeps nothing.
     var viewMemoryFolderURL: URL? { batchURL }
 
-    /// The data key of VS B1, from what the viewer loaded when the result opened, so it reads no file. A key part not
-    /// read gives nil, which never compares equal. A rerun that changes a count changes the key.
+    /// The data key of VS B1, which a rerun must change even when every count comes out the same. A batch result keys
+    /// on the run record its database holds, the `created_at` that `build-db` writes, and a database without one keys
+    /// as "no run", which a rerun's record never equals. The counts the viewer loaded follow. The metadata table is
+    /// read once, in the surface's load, on the main actor where the route has just read the whole database (SWIFT
+    /// ruling R2). A key part not read gives nil, which never compares equal.
     func viewMemoryDataKey() -> String? {
         if isBatchMode {
-            guard !sampleEntries.isEmpty else { return nil }
+            guard !sampleEntries.isEmpty, let database = esVirituDatabase,
+                  let metadata = try? database.fetchMetadata() else { return nil }
             let samples = sampleEntries.map { "\($0.id)=\($0.detectedVirusCount)" }
-            return (["esviritu batch v1", "rows \(allBatchRows.count)"] + samples).joined(separator: "\n")
+            let run = "built \(metadata["created_at"] ?? "no run")"
+            return (["esviritu batch v2", run, "rows \(allBatchRows.count)"] + samples).joined(separator: "\n")
         }
         guard let result = esVirituResult else { return nil }
         return ["esviritu v1", result.sampleId, "detections \(result.detections.count)"].joined(separator: "\n")
@@ -83,16 +90,11 @@ extension EsVirituResultViewController {
     func captureEsVirituViewMemory() -> EsVirituViewMemory {
         var memory = EsVirituViewMemory()
         let table = detectionTableView
-        let outline = table.outlineView
         memory.filterText = table.filterText
         // The header menu sets the table's own key and leaves the outline's descriptors, so the table's key is read.
         memory.sort = BatchTableMemory.Sort(key: table.exportSortKey, ascending: table.exportSortAscending)
         memory.selectedIdentities = table.selectionIdentities.selectedIDs.map(EsVirituRowIdentity.portable).sorted()
-        for row in 0..<outline.numberOfRows {
-            guard let item = outline.item(atRow: row), outline.isExpandable(item), !outline.isItemExpanded(item),
-                  let identity = table.selectionIdentity(for: item) else { continue }
-            memory.collapsedIdentities.append(EsVirituRowIdentity.portable(identity))
-        }
+        memory.collapsedIdentities = collapsedAssemblyIdentities()
         if isBatchMode, let picker = samplePickerState {
             var picked = picker.captureViewMemory(allSampleIDs: Set(sampleEntries.map(\.id)))
             // The route's pick is the app's, not a choice, unless the person changed it afterwards (VS B9, S3).
@@ -151,8 +153,45 @@ extension EsVirituResultViewController {
         table.restoreSelectionAfterDisplayedItemsChanged()
         if kept.droppedCount > 0 { lost.insert(.selection) }
 
-        // Expansion last: a collapse hides rows, and the selection above is already in place.
-        let collapsed = Set(memory.collapsedIdentities)
+        // Expansion last: a collapse hides rows, and the selection above is already in place. The collapse is kept by
+        // the assembly's identity with its sample (VS B4), also on a changed data key: it hides no count, since the
+        // assembly row sums its detections, so it is presentation and not a filter (VS B6).
+        applyCollapsedAssemblies(Set(memory.collapsedIdentities))
+        return lost
+    }
+
+    /// The assemblies shown collapsed, by identity without the result's path.
+    func collapsedAssemblyIdentities() -> [String] {
+        let table = detectionTableView
+        let outline = table.outlineView
+        return (0..<outline.numberOfRows).compactMap { row in
+            guard let item = outline.item(atRow: row), outline.isExpandable(item), !outline.isItemExpanded(item),
+                  let identity = table.selectionIdentity(for: item) else { return nil }
+            return EsVirituRowIdentity.portable(identity)
+        }
+    }
+
+    /// The table filters again on every column or metadata change, and while a filter shows that opens every
+    /// assembly. The route's metadata hand-off and the window's first layout are such changes, so a restored
+    /// collapse, or a person's, would open again at once. This keeps the collapsed assemblies through that re-filter.
+    /// It is installed once a viewer, in the surface's load, and starts nothing (VS S4).
+    func keepCollapsedAssembliesThroughRefilters() {
+        let memo = EsVirituVisitMemo.memo(for: self)
+        guard !memo.keepsCollapseThroughRefilters else { return }
+        memo.keepsCollapseThroughRefilters = true
+        let columns = detectionTableView.metadataColumns
+        let refilter = columns.onColumnsOrStoreChanged
+        columns.onColumnsOrStoreChanged = { [weak self] in
+            let collapsed = self?.collapsedAssemblyIdentities() ?? []
+            refilter?()
+            if let self, !collapsed.isEmpty { self.applyCollapsedAssemblies(Set(collapsed)) }
+        }
+    }
+
+    /// Collapses each assembly whose identity is in `collapsed` and opens every other one, as a person's clicks do.
+    private func applyCollapsedAssemblies(_ collapsed: Set<String>) {
+        let table = detectionTableView
+        let outline = table.outlineView
         for _ in 0..<3 {
             var changed = false
             var row = 0
@@ -169,7 +208,6 @@ extension EsVirituResultViewController {
             }
             if !changed { break }
         }
-        return lost
     }
 
     /// The sidebar route's sample (VS B9). It sets the picker as the route always did, and notes the picker the visit
