@@ -1011,8 +1011,8 @@ public class ViewerViewController: NSViewController {
         lastAppliedAppVariantThemeName = settings.variantColorThemeName
     }
 
-    /// The store that keeps the reference view of each item on this Mac. A test injects its own.
-    var viewMemoryStore: ViewMemoryStore = .shared
+    /// The store a test injects for this viewer, else nil (`viewMemoryStore`).
+    var injectedViewMemoryStore: ViewMemoryStore?
 
     /// The visit to the bundle on show that a reference or mapping route opened with view memory.
     var viewMemory: ReferenceViewerMemorySession?

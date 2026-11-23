@@ -167,6 +167,22 @@ extension ViewerViewController {
         }
     }
 
+    /// The store that keeps the reference view of each item on this Mac: the one a test injects, else the store of
+    /// the surface host of the viewer that shows this one, so a window keeps every view in one store. In the app
+    /// both are `.shared`.
+    var viewMemoryStore: ViewMemoryStore {
+        get {
+            if let injectedViewMemoryStore { return injectedViewMemoryStore }
+            var next = parent
+            while let controller = next {
+                if let host = controller as? ViewerViewController { return host.surfaceHost.viewMemoryStore }
+                next = controller.parent
+            }
+            return .shared
+        }
+        set { injectedViewMemoryStore = newValue }
+    }
+
     /// Whether the open's restore has run, for a test to wait on.
     var viewMemoryIsSettled: Bool { viewMemory?.applied ?? true }
 
