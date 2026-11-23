@@ -169,25 +169,30 @@ final class ViewMemoryWindowCloseObserver: NSObject {
 
 /// The quit of view memory (VS A1, S1). At `NSApplication.willTerminateNotification` every live host keeps its
 /// installed view, and then each store writes its changed items and joins its writer, so `AppDelegate.swift` gains no
-/// line. Nothing removes the active surface on the way out, so the views stand as the person left them.
+/// line. Nothing removes the active surface on the way out, so the views stand as the person left them. The app posts
+/// the notification on the main thread, where a selector observer runs it with no escape hatch.
 @MainActor
-enum ViewMemoryQuit {
+final class ViewMemoryQuit: NSObject {
     private struct WeakHost {
         weak var host: ViewportHost?
     }
 
     private static var hosts: [WeakHost] = []
-    private static var observer: (any NSObjectProtocol)?
+    private static var observer: ViewMemoryQuit?
 
     static func register(_ host: ViewportHost) {
         hosts.removeAll { $0.host == nil }
         hosts.append(WeakHost(host: host))
         guard observer == nil else { return }
-        observer = NotificationCenter.default.addObserver(
-            forName: NSApplication.willTerminateNotification, object: nil, queue: nil
-        ) { _ in
-            MainActor.assumeIsolated { captureEveryHostAndFlush() }
-        }
+        let quit = ViewMemoryQuit()
+        NotificationCenter.default.addObserver(
+            quit, selector: #selector(applicationWillTerminate(_:)), name: NSApplication.willTerminateNotification,
+            object: nil)
+        observer = quit
+    }
+
+    @objc private func applicationWillTerminate(_ notification: Notification) {
+        Self.captureEveryHostAndFlush()
     }
 
     /// Has every live host capture, then flushes each store once.
