@@ -26,7 +26,7 @@ protocol ViewStateDriver {
     /// Whether the window shows this kind's view now.
     func isShown(in harness: ViewSwitchWindowHarness) -> Bool
     /// Makes a person's change in the shown view through its own controls.
-    func change(in harness: ViewSwitchWindowHarness) throws
+    func change(in harness: ViewSwitchWindowHarness) async throws
     /// Reads the shown view from its own controls, one line a field.
     func read(in harness: ViewSwitchWindowHarness) throws -> [String]
     /// Changes the bundle of `fixture` on disk so its data key differs.
@@ -35,12 +35,21 @@ protocol ViewStateDriver {
     func readingAfterChangedBundle(changed: [String]) -> [String]
     /// The reset line after a changed bundle, nil for none.
     var lineAfterChangedBundle: String? { get }
+    /// The words of the reset line the shown view draws, nil when none shows.
+    func resetLineWords(in harness: ViewSwitchWindowHarness) -> String?
+}
+
+extension ViewStateDriver {
+    /// A surface's line, which the host draws over it.
+    func resetLineWords(in harness: ViewSwitchWindowHarness) -> String? { harness.resetLineWords }
 }
 
 @MainActor
 enum ViewStateDrivers {
     /// One driver a kind that keeps its view.
-    static let all: [any ViewStateDriver] = [TwelveSViewStateDriver()]
+    static let all: [any ViewStateDriver] = [
+        TwelveSViewStateDriver(), ReferenceViewStateDriver(route: .reference), ReferenceViewStateDriver(route: .mapping),
+    ]
 }
 
 extension ViewSwitchWindowHarness {
@@ -93,7 +102,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
             ViewStateDeclaredGaps.all.count, ViewStateDeclaredGaps.ceiling,
             "The declared gaps only shrink. Lower the ceiling in the change that adopts a kind."
         )
-        XCTAssertEqual(ViewStateDeclaredGaps.ceiling, 23, "the ceiling after VS-CORE, which each family lane lowers")
+        XCTAssertEqual(ViewStateDeclaredGaps.ceiling, 21, "the ceiling after VS-REF, which each family lane lowers")
     }
 
     // MARK: - 12S
@@ -119,7 +128,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         defer { harness.close() }
         harness.keepViews(in: loadedStore())
         try await show(fixture, in: harness, driver: driver)
-        try driver.change(in: harness)
+        try await driver.change(in: harness)
         try await leave(for: other, in: harness, driver: driver)
         try await show(fixture, in: harness, driver: driver)
 
@@ -234,6 +243,53 @@ final class ViewSwitchViewStateTests: XCTestCase {
         XCTAssertEqual(surface.viewMemoryDataKey, key, "the data key is the one the load read")
     }
 
+    // MARK: - Reference and mapping result (VS-REF)
+
+    func testReferenceKeepsItsPlaceAndLookThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(ReferenceViewStateDriver(route: .reference))
+    }
+
+    func testReferenceKeepsItsPlaceAndLookThroughARelaunch() async throws {
+        try await assertRelaunch(ReferenceViewStateDriver(route: .reference))
+    }
+
+    func testReferenceOpensAShorterSequenceWholeWithOneLine() async throws {
+        try await assertChangedBundle(ReferenceViewStateDriver(route: .reference))
+    }
+
+    func testMappingResultKeepsItsPlaceAndLookThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(ReferenceViewStateDriver(route: .mapping))
+    }
+
+    func testMappingResultKeepsItsPlaceAndLookThroughARelaunch() async throws {
+        try await assertRelaunch(ReferenceViewStateDriver(route: .mapping))
+    }
+
+    func testMappingResultOpensAShorterSequenceWholeWithOneLine() async throws {
+        try await assertChangedBundle(ReferenceViewStateDriver(route: .mapping))
+    }
+
+    /// The route wires the Inspector before the restore, which lands after the viewer's settle, so the restored row
+    /// height reaches the Inspector only through the viewer's announce. Without it, the Inspector's next change sends
+    /// its stale height back over the restored one.
+    func testReferenceInspectorFollowsTheKeptView() async throws {
+        let driver = ReferenceViewStateDriver(route: .reference)
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        let annotations = harness.split.inspectorController.annotationSectionViewModel
+        try await show(fixture, in: harness, driver: driver)
+        XCTAssertNotEqual(annotations.annotationHeight, 30, "the Inspector starts at another row height")
+        try await driver.change(in: harness)
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+
+        await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { annotations.annotationHeight == 30 }
+        XCTAssertEqual(annotations.annotationHeight, 30, "the Inspector shows the restored row height")
+        XCTAssertEqual(annotations.showAnnotations, true)
+    }
+
     // MARK: - The three cases
 
     private func assertSwitchAwayAndBack(_ driver: any ViewStateDriver) async throws {
@@ -244,14 +300,14 @@ final class ViewSwitchViewStateTests: XCTestCase {
         harness.keepViews(in: store)
         try await show(fixture, in: harness, driver: driver)
         let start = try driver.read(in: harness)
-        try driver.change(in: harness)
+        try await driver.change(in: harness)
         let changed = try driver.read(in: harness)
         XCTAssertNotEqual(changed, start, "\(driver.kind): the change shows in the view's controls")
 
         try await leave(for: other, in: harness, driver: driver)
         try await show(fixture, in: harness, driver: driver)
         XCTAssertEqual(try driver.read(in: harness), changed, "\(driver.kind): the view as left")
-        XCTAssertNil(harness.resetLineWords, "\(driver.kind): nothing was lost, so no line shows")
+        XCTAssertNil(driver.resetLineWords(in: harness), "\(driver.kind): nothing was lost, so no line shows")
     }
 
     private func assertRelaunch(_ driver: any ViewStateDriver) async throws {
@@ -262,7 +318,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
             let harness = try ViewSwitchWindowHarness()
             harness.keepViews(in: store)
             try await show(fixture, in: harness, driver: driver)
-            try driver.change(in: harness)
+            try await driver.change(in: harness)
             changed = try driver.read(in: harness)
             // The quit keeps the installed view with no switch and writes it (VS S1).
             harness.split.viewerController.surfaceHost.captureActive()
@@ -275,7 +331,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         harness.keepViews(in: relaunched)
         try await show(fixture, in: harness, driver: driver)
         XCTAssertEqual(try driver.read(in: harness), changed, "\(driver.kind): the view as left before the relaunch")
-        XCTAssertNil(harness.resetLineWords, "\(driver.kind): nothing was lost, so no line shows")
+        XCTAssertNil(driver.resetLineWords(in: harness), "\(driver.kind): nothing was lost, so no line shows")
     }
 
     private func assertChangedBundle(_ driver: any ViewStateDriver) async throws {
@@ -285,14 +341,14 @@ final class ViewSwitchViewStateTests: XCTestCase {
         defer { harness.close() }
         harness.keepViews(in: store)
         try await show(fixture, in: harness, driver: driver)
-        try driver.change(in: harness)
+        try await driver.change(in: harness)
         let changed = try driver.read(in: harness)
 
         try await leave(for: other, in: harness, driver: driver)
         try driver.changeBundle(of: fixture)
         try await show(fixture, in: harness, driver: driver)
         XCTAssertEqual(try driver.read(in: harness), driver.readingAfterChangedBundle(changed: changed), driver.kind)
-        XCTAssertEqual(harness.resetLineWords, driver.lineAfterChangedBundle, "\(driver.kind): the one line")
+        XCTAssertEqual(driver.resetLineWords(in: harness), driver.lineAfterChangedBundle, "\(driver.kind): the one line")
     }
 
     // MARK: - Support

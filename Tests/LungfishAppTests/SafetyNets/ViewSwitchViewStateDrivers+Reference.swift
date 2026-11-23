@@ -2,10 +2,11 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The view-state phase, lane VS-REF. Each kind runs a person's change, a switch away and back, a relaunch on the same
-// injected store, and three changed bundles (a shorter sequence, a renamed sequence, a gone sequence). Each case reads
-// the view's own controls, the visible range and the row height, never the kept state. `ViewSwitchViewStateTests` and
-// its coverage table come with VS-CORE item 3, which folds these cases into it.
+// The view-state phase, lane VS-REF. `ReferenceViewStateDriver` runs k08 and k22 in ViewSwitchViewStateTests' real
+// window: a person's change, a switch away and back, a relaunch, and a shorter sequence. It reads the embedded viewer's
+// own controls, the visible range and the row height, never the kept state. `ViewSwitchViewStateReferenceTests` adds
+// what the fixture's one sequence cannot show: a renamed and a gone sequence of a bundle with two, and the start clamp
+// that Extract the visible region reads (VS B2).
 
 import AppKit
 import XCTest
@@ -16,13 +17,103 @@ import XCTest
 @testable import LungfishWorkflow
 import LungfishTestSupport
 
+/// The words of the one line when a changed bundle drops the place (VS U2, word 2).
+private let yourPlaceWasNotKept = "The data changed since your last visit, so your place was not kept."
+
+/// The reference and mapping result kinds, which show one embedded viewer on the fixture's one SARS-CoV-2 sequence.
+@MainActor
+struct ReferenceViewStateDriver: ViewStateDriver {
+    enum Route { case reference, mapping }
+
+    let route: Route
+    var kind: String { route == .reference ? "Reference" : "Mapping result" }
+
+    /// The fixture's one sequence (`RoutingSafetyNetFixtures.sarsCoV2ReferenceBundle`) and its length after a change.
+    private static let sequence = "MT192765.1"
+    private static let shorterLength: Int64 = 20_000
+
+    /// The viewer the reference surface embeds, while it shows this route.
+    func viewer(in harness: ViewSwitchWindowHarness) -> ViewerViewController? {
+        guard let viewport = (harness.split.viewerController.installedSurface as? ReferenceBundleSurface)?.controller,
+              let input = viewport.currentInput, (input.kind == .mappingResult) == (route == .mapping) else { return nil }
+        return viewport.testEmbeddedViewerController
+    }
+
+    /// Shown once the viewer has a frame on the bundle and its restore has run.
+    func isShown(in harness: ViewSwitchWindowHarness) -> Bool {
+        guard let viewer = viewer(in: harness) else { return false }
+        return viewer.currentBundleURL != nil && viewer.referenceFrame != nil && viewer.viewMemory?.applied == true
+    }
+
+    /// Zooms into the sequence and makes the rows taller, as a person does, and lets the half second's debounce keep
+    /// it. A switch inside that half second is the surface's leave, which VS-MAP owns (VS-REF Finding 2).
+    func change(in harness: ViewSwitchWindowHarness) async throws {
+        let viewer = try XCTUnwrap(viewer(in: harness))
+        XCTAssertTrue(viewer.navigateToPosition(chromosome: Self.sequence, start: 1_000, end: 1_600))
+        viewer.annotationDisplayHeight = 30
+        viewer.viewerView.annotationHeight = 30
+        viewer.zoomIn() // a user event handler, which marks the view changed
+        let kept = await waitUntil(budget: .standard, pollInterval: .milliseconds(25)) {
+            viewer.viewStateSaveWorkItem == nil
+        }
+        XCTAssertTrue(kept, "\(kind): the debounce kept the change")
+    }
+
+    /// The sequence, the visible range and the row height.
+    func read(in harness: ViewSwitchWindowHarness) throws -> [String] {
+        let viewer = try XCTUnwrap(viewer(in: harness))
+        let frame = try XCTUnwrap(viewer.referenceFrame)
+        return [
+            "sequence \(frame.chromosome)",
+            "start \(Int(frame.start.rounded()))",
+            "end \(Int(frame.end.rounded()))",
+            "row height \(Int(viewer.viewerView.annotationHeight))",
+        ]
+    }
+
+    /// Writes the viewer bundle's manifest with its one sequence shorter, as a rebuilt bundle would.
+    func changeBundle(of fixture: ViewSwitchFixture) throws {
+        let item = try XCTUnwrap(fixture.item.url)
+        let bundle = try route == .reference ? item : XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: item, includingPropertiesForKeys: nil)
+                .first { $0.pathExtension == "lungfishref" },
+            "\(kind): the result holds its viewer bundle")
+        let manifest = try BundleManifest.load(from: bundle)
+        let genome = try XCTUnwrap(manifest.genome)
+        let shorter = genome.chromosomes.map {
+            ChromosomeInfo(
+                name: $0.name, length: Self.shorterLength, offset: $0.offset, lineBases: $0.lineBases,
+                lineWidth: $0.lineWidth)
+        }
+        try BundleManifest(
+            name: manifest.name, identifier: manifest.identifier, source: manifest.source,
+            genome: GenomeInfo(
+                path: genome.path, indexPath: genome.indexPath, totalLength: Self.shorterLength, chromosomes: shorter),
+            variants: manifest.variants, alignments: manifest.alignments
+        ).save(to: bundle)
+    }
+
+    /// The kept place names a length the sequence no longer has, so it opens whole (VS B2). The row height needs no
+    /// data key and comes back.
+    func readingAfterChangedBundle(changed: [String]) -> [String] {
+        ["sequence \(Self.sequence)", "start 0", "end \(Self.shorterLength)", changed[3]]
+    }
+
+    var lineAfterChangedBundle: String? { yourPlaceWasNotKept }
+
+    /// The line over the embedded viewer, which the viewer draws itself.
+    func resetLineWords(in harness: ViewSwitchWindowHarness) -> String? {
+        viewer(in: harness)?.view.subviews.compactMap { $0 as? ViewMemoryResetLineView }.first?.words
+    }
+}
+
+/// The changed bundles that need a bundle of two sequences, and the start clamp of VS B2.
 @MainActor
 final class ViewSwitchViewStateReferenceTests: XCTestCase {
     private enum Kind: CaseIterable { case reference, mapping }
 
     private typealias Sequence = MappingRoutingFixture.Chromosome
     private static let original: [Sequence] = [.init(name: "chr1", length: 5_000), .init(name: "chr2", length: 3_000)]
-    private static let yourPlace = "The data changed since your last visit, so your place was not kept."
 
     private var root: URL!
 
@@ -38,30 +129,6 @@ final class ViewSwitchViewStateReferenceTests: XCTestCase {
     }
 
     // MARK: - Cases
-
-    func testSwitchAwayAndBackKeepsThePlaceAndTheLook() async throws {
-        for kind in Kind.allCases {
-            let store = makeStore()
-            let left = try await openAndChange(kind, store: store)
-            let other = try await open(kind, bundle: try bundle("Other", Self.original), store: store)
-            other.testEmbeddedViewerController.clearBundleDisplay()
-            try await assertKept(left, in: try await open(kind, bundle: try bundle("Kept", Self.original), store: store), kind)
-        }
-    }
-
-    func testRelaunchKeepsThePlaceAndTheLook() async throws {
-        for kind in Kind.allCases {
-            let store = makeStore()
-            let left = try await openAndChange(kind, store: store)
-            store.flushSynchronously()
-            let relaunched = ViewMemoryStore(root: store.root)
-            try await assertKept(left, in: try await open(kind, bundle: try bundle("Kept", Self.original), store: relaunched), kind)
-        }
-    }
-
-    func testAShorterSequenceDropsThePlaceAndSaysSo() async throws {
-        try await assertChangedBundleDropsThePlace([.init(name: "chr1", length: 4_000), .init(name: "chr2", length: 3_000)])
-    }
 
     func testARenamedSequenceDropsThePlaceAndSaysSo() async throws {
         try await assertChangedBundleDropsThePlace([.init(name: "chrA", length: 5_000), .init(name: "chr2", length: 3_000)])
@@ -95,13 +162,7 @@ final class ViewSwitchViewStateReferenceTests: XCTestCase {
         XCTAssertNil(resetLine(in: viewer), "a clamp alone draws no line")
     }
 
-    // MARK: - Drivers
-
-    private struct Left {
-        let chromosome: String
-        let start: Double
-        let end: Double
-    }
+    // MARK: - Support
 
     private func makeStore() -> ViewMemoryStore {
         ViewMemoryStore(root: root.appendingPathComponent("view-memory-\(UUID().uuidString)", isDirectory: true))
@@ -143,39 +204,26 @@ final class ViewSwitchViewStateReferenceTests: XCTestCase {
     }
 
     /// Opens the kept bundle, zooms into chr1 and makes the rows taller, as a person does, and leaves it.
-    private func openAndChange(_ kind: Kind, store: ViewMemoryStore) async throws -> Left {
+    private func openAndChange(_ kind: Kind, store: ViewMemoryStore) async throws {
         let viewer = try await open(kind, bundle: try bundle("Kept", Self.original), store: store).testEmbeddedViewerController
         XCTAssertTrue(viewer.navigateToPosition(chromosome: "chr1", start: 1_000, end: 1_600))
         viewer.annotationDisplayHeight = 30
         viewer.viewerView.annotationHeight = 30
         viewer.zoomIn() // a user event handler, which marks the view changed
-        let frame = try XCTUnwrap(viewer.referenceFrame)
-        let left = Left(chromosome: frame.chromosome, start: frame.start, end: frame.end)
         viewer.clearBundleDisplay()
-        return left
-    }
-
-    private func assertKept(_ left: Left, in viewport: ReferenceBundleViewportController, _ kind: Kind) async throws {
-        let viewer = viewport.testEmbeddedViewerController
-        let frame = try XCTUnwrap(viewer.referenceFrame)
-        XCTAssertEqual(frame.chromosome, left.chromosome, "\(kind) came back on its sequence")
-        XCTAssertEqual(frame.start, left.start, accuracy: 0.5, "\(kind) came back at its place")
-        XCTAssertEqual(frame.end, left.end, accuracy: 0.5, "\(kind) came back at its zoom")
-        XCTAssertEqual(viewer.viewerView.annotationHeight, 30, "\(kind) came back with its row height")
-        XCTAssertNil(resetLine(in: viewer), "\(kind) lost nothing, so no line shows")
     }
 
     /// Keeps a place on chr1, changes the bundle in place, and requires the place dropped with "your place".
     private func assertChangedBundleDropsThePlace(_ changed: [Sequence]) async throws {
         for kind in Kind.allCases {
             let store = makeStore()
-            _ = try await openAndChange(kind, store: store)
+            try await openAndChange(kind, store: store)
             let viewer = try await open(kind, bundle: try bundle("Kept", changed), store: store).testEmbeddedViewerController
             let frame = try XCTUnwrap(viewer.referenceFrame)
             XCTAssertEqual(frame.start, 0, "\(kind) opened at the start of its first sequence")
             XCTAssertEqual(frame.end, Double(frame.sequenceLength), "\(kind) opened its first sequence whole")
             XCTAssertEqual(viewer.viewerView.annotationHeight, 30, "\(kind) kept its row height, which needs no data key")
-            XCTAssertEqual(resetLine(in: viewer), Self.yourPlace, "\(kind) says the place was not kept")
+            XCTAssertEqual(resetLine(in: viewer), yourPlaceWasNotKept, "\(kind) says the place was not kept")
             try FileManager.default.removeItem(at: root.appendingPathComponent("Kept.lungfishref"))
         }
     }
