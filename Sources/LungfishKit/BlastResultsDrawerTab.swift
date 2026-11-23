@@ -74,7 +74,7 @@ extension BlastVerificationResult.Confidence {
         case .notSpecific:  return NSColor.systemOrange.withAlphaComponent(0.15)
         case .mixed:        return NSColor.systemYellow.withAlphaComponent(0.15)
         case .unsupported:  return NSColor.blastVerdictDanger.withAlphaComponent(0.15)
-        case .inconclusive: return NSColor.systemGray.withAlphaComponent(0.15)
+        case .inconclusive, .notJudged: return NSColor.systemGray.withAlphaComponent(0.15)
         }
     }
 
@@ -85,7 +85,7 @@ extension BlastVerificationResult.Confidence {
         case .notSpecific:  return .systemOrange
         case .mixed:        return .systemYellow
         case .unsupported:  return .blastVerdictDanger
-        case .inconclusive: return .systemGray
+        case .inconclusive, .notJudged: return .systemGray
         }
     }
 
@@ -97,6 +97,7 @@ extension BlastVerificationResult.Confidence {
         case .mixed:        return "Mixed"
         case .unsupported:  return "Unsupported"
         case .inconclusive: return "Inconclusive"
+        case .notJudged:    return "Not judged"
         }
     }
 }
@@ -443,7 +444,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         displayState = .results(result, recordURL: recordURL)
         shownSubject = subject
         let total = result.totalReads
-        judgedAtLabel.show(presentationStyle == .verification ? result.judgedAt?.judgedAtWords : nil)
+        judgedAtLabel.show(presentationStyle == .verification ? result.judgedAtWords : nil)
 
         switch presentationStyle {
         case .verification:
@@ -458,7 +459,8 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
                 total: total
             )
             confidenceDots.textColor = confidence.accentColor
-            confidenceDots.isHidden = false
+            // A result that was not judged gives no counts for or against, so it shows no dots (UX-BLAST-NOTAX item 5).
+            confidenceDots.isHidden = confidence == .notJudged
             confidenceLabel.isHidden = false
             summaryBar.layer?.backgroundColor = confidence.tintColor.cgColor
 
@@ -473,6 +475,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
             case .mixed:        summaryIconName = "exclamationmark.triangle.fill"
             case .unsupported:  summaryIconName = "xmark.circle.fill"
             case .inconclusive: summaryIconName = "questionmark.circle.fill"
+            case .notJudged:    summaryIconName = "minus.circle.fill"
             }
             summaryIcon.image = NSImage(
                 systemSymbolName: summaryIconName,

@@ -8,34 +8,31 @@ extension BlastTaxonomyContext {
     /// What a verdict was judged at (BLAST-ESVIRITU-FIRST-WORD, BIO ruling of the Phase 3.2 meeting).
     ///
     /// A count of accepted tax IDs cannot tell these apart, since a species can hold one ID, so the plan that builds
-    /// the request records which one it used. The verdict rule does not change. A record from before this field has
-    /// no basis and shows no line.
+    /// the request records which one it used. A verdict is given only at `species` (UX-BLAST-NOTAX). The raw values are
+    /// the ones saved records and `--judged-at` use, so an older build still decodes a new record. A record from before
+    /// this field has no basis and shows no line.
     public enum Basis: String, Sendable, Codable, CaseIterable {
-        /// The NCBI Taxonomy's lineage, or the classifier's own tree, gave the clade, so a hit is judged at species level.
+        /// The NCBI Taxonomy's lineage gave the clade, so a hit is judged at species level.
         case species
-        /// Only the row's own tax ID and name were known. A best match filed under another name in the same species
-        /// counts as contradicting.
+        /// No NCBI Taxonomy lineage was found for the row (not installed, or it does not list the tax ID), so no verdict
+        /// is given.
         case rowTaxId
-        /// No tax ID was known, so organism names alone judged the row.
+        /// The row has no tax ID, so no verdict is given.
         case names
 
-        /// The line the pane shows beside the counts, or nil when the reading needs no caveat. BIO's words, which UX may
-        /// change.
-        public var judgedAtWords: String? {
+        /// The line the pane shows beside the badge for a row with tax ID `taxId`, or nil when the reading needs no
+        /// caveat. UX's words (UX-BLAST-NOTAX item 5).
+        public func judgedAtWords(taxId: Int) -> String? {
             switch self {
             case .species:
                 return nil
             case .rowTaxId:
-                return "Judged by this row's own tax ID and name, because LGE could not look up its species. "
-                    + "A best match filed under another name in the same species counts as contradicting. "
-                    + "If NCBI Taxonomy is not installed, install it in the Databases tab of the Plugin Manager and run Verify with BLAST… again."
+                return "Not judged: without NCBI Taxonomy, LGE cannot tell this species from another species whose name holds this row's name. "
+                    + "Install NCBI Taxonomy in the Databases tab of the Plugin Manager, or update it if it does not list tax ID \(taxId), "
+                    + "then run Verify with BLAST… again. Each read's best match is listed below."
             case .names:
-                return "Judged by organism names, because LGE could not look up the species of this row. "
-                    + "A read whose best match starts with the same word as the row's name but is another name, "
-                    + "such as Rotavirus C for Rotavirus A, counts neither for nor against this row. "
-                    + "A read whose best match starts with another word counts against this row, "
-                    + "even when it is the same virus under another name. "
-                    + "If NCBI Taxonomy is not installed, install it in the Databases tab of the Plugin Manager and run Verify with BLAST… again."
+                return "Not judged: this row has no tax ID, so LGE cannot tell its species from another species whose name holds this row's name. "
+                    + "Each read's best match is listed below."
             }
         }
     }
@@ -47,5 +44,17 @@ extension BlastVerificationResult {
         var copy = self
         copy.judgedAt = basis
         return copy
+    }
+
+    /// The line the pane shows beside the badge, from ``judgedAt`` and this row's tax ID, or nil for a species-level
+    /// verdict and for a record from before the field.
+    public var judgedAtWords: String? {
+        judgedAt?.judgedAtWords(taxId: taxId)
+    }
+
+    /// The number of reads with a significant hit, which a result that was not judged gives in place of its counts for
+    /// and against.
+    public var significantHitCount: Int {
+        supportingCount + contradictingCount
     }
 }

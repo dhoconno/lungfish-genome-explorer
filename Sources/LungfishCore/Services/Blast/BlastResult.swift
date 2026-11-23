@@ -446,6 +446,10 @@ public struct BlastVerificationResult: Sendable, Codable {
     /// | `.mixed` | 40-79% of significant hits match |
     /// | `.unsupported` | < 40% match, or most hits are to different organisms |
     /// | `.inconclusive` | No significant hits found at all |
+    /// | `.notJudged` | Significant hits, but no NCBI Taxonomy lineage gave the row's species (`judgedAt` `.rowTaxId` or `.names`) |
+    ///
+    /// The raw values are what `blast verify --format json` and the provenance print. No saved record holds a
+    /// `Confidence`, since it is read from the saved marks and `judgedAt` each time.
     public enum Confidence: String, Sendable, Codable {
         /// >= 80% of reads with significant hits match the queried taxon
         case supported
@@ -457,6 +461,9 @@ public struct BlastVerificationResult: Sendable, Codable {
         case unsupported
         /// No significant hits found at all
         case inconclusive
+        /// Significant hits, but no species lookup, so a record of another species whose name holds the row's name
+        /// cannot be told apart and no verdict is given (UX-BLAST-NOTAX)
+        case notJudged
     }
 
     /// The computed confidence level based on taxon-match rate among
@@ -464,11 +471,16 @@ public struct BlastVerificationResult: Sendable, Codable {
     ///
     /// This measures whether BLAST results SUPPORT the Kraken2 classification,
     /// not just whether reads have high-identity hits. A read with 100% identity
-    /// to a different organism contradicts the classification.
+    /// to a different organism contradicts the classification. A verdict is given only when ``judgedAt`` is `.species`
+    /// (an NCBI Taxonomy lineage) or nil (a record from before the field). With `.rowTaxId` or `.names` the result reads
+    /// `.notJudged`, and nothing saved changes (UX-BLAST-NOTAX).
     public var confidence: Confidence {
         let significantHits = supportingCount + contradictingCount
         guard significantHits > 0 else {
             return .inconclusive
+        }
+        if judgedAt == .rowTaxId || judgedAt == .names {
+            return .notJudged
         }
         let rate = supportRate
         if rate >= 0.8 {

@@ -368,12 +368,15 @@ final class BlastTaxIdMatchingTests: XCTestCase {
         XCTAssertTrue(BlastService.organismMatchesTaxon(hitOrganism: "Rotavirus C", queriedTaxonName: "Rotavirus A"))
     }
 
-    /// The `.names` line says what the verdict rule does with a shared first word. UX sets the final words.
+    /// The `.names` line. UX-BLAST-NOTAX item 5 set the final words: a row judged by names alone gives no verdict, so the
+    /// line no longer says what a shared first word counts for.
     func testTheNamesBasisWordsSayThatAFirstWordOnlyMatchCountsNeitherWay() {
-        let words = BlastTaxonomyContext.Basis.names.judgedAtWords ?? ""
-        XCTAssertTrue(words.hasPrefix("Judged by organism names, because LGE could not look up the species of this row."), words)
-        XCTAssertTrue(words.contains("starts with the same word as the row's name"), words)
-        XCTAssertTrue(words.contains("counts neither for nor against this row"), words)
+        let words = BlastTaxonomyContext.Basis.names.judgedAtWords(taxId: 0) ?? ""
+        XCTAssertEqual(
+            words,
+            "Not judged: this row has no tax ID, so LGE cannot tell its species from another species whose name holds this row's name. "
+                + "Each read's best match is listed below."
+        )
         XCTAssertFalse(words.contains("happens to share"), "the sentence that said a shared name counts either way")
     }
 

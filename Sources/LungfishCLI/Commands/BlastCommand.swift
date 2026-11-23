@@ -380,15 +380,23 @@ extension BlastCommand {
             print("")
             print(formatter.header("Verification Results"))
             print("")
+            // A result that was not judged gives no counts for or against (UX-BLAST-NOTAX item 6).
+            let notJudged = result.confidence == .notJudged
+            let confidenceWords: String
+            switch result.confidence {
+            case .notSpecific: confidenceWords = "Not specific"
+            case .notJudged: confidenceWords = "Not judged"
+            default: confidenceWords = result.confidence.rawValue.capitalized
+            }
             var tableRows: [(String, String)] = [
                 ("Taxon", "\(result.taxonName) (txid\(result.taxId))"),
-                ("Supporting", "\(result.supportingCount)/\(result.totalReads) (top hit matches taxon)"),
-                ("Contradicting", "\(result.contradictingCount)/\(result.totalReads) (top hit differs)"),
+                ("Supporting", notJudged ? "not judged" : "\(result.supportingCount)/\(result.totalReads) (top hit matches taxon)"),
+                ("Contradicting", notJudged ? "not judged" : "\(result.contradictingCount)/\(result.totalReads) (top hit differs)"),
                 ("Inconclusive", "\(result.inconclusiveCount) (no significant hit)"),
                 ("Ambiguous", "\(result.ambiguousCount)"),
                 ("Unverified", "\(result.unverifiedCount)"),
                 ("Errors", "\(result.errorCount)"),
-                ("Confidence", result.confidence == .notSpecific ? "Not specific" : result.confidence.rawValue.capitalized),
+                ("Confidence", confidenceWords),
                 ("BLAST RID", result.rid),
                 ("Program", result.blastProgram),
                 ("Database", result.database),
@@ -443,6 +451,7 @@ extension BlastCommand {
             case .mixed:        confidenceLabel = "MIXED"
             case .unsupported:  confidenceLabel = "UNSUPPORTED"
             case .inconclusive: confidenceLabel = "INCONCLUSIVE"
+            case .notJudged:    confidenceLabel = "NOT JUDGED"
             }
 
             let supportInfo = "\(result.supportingCount) supporting, \(result.contradictingCount) contradicting"
@@ -460,6 +469,12 @@ extension BlastCommand {
                 return [formatter.colored("Verification: \(confidenceLabel) (\(supportInfo))", .red)]
             case .inconclusive:
                 return [formatter.dim("Verification: \(confidenceLabel) (no significant hits)")]
+            case .notJudged:
+                // UX-BLAST-NOTAX item 6. The search ran and saved, so the exit status stays 0.
+                return [formatter.dim(
+                    "Verification: \(confidenceLabel) (NCBI Taxonomy not installed or missing txid\(result.taxId); "
+                        + "\(result.significantHitCount) reads with significant hits)"
+                )]
             }
         }
 
@@ -658,13 +673,14 @@ private func blastOpenKrakenOutputStream(url: URL) throws -> BlastKrakenOutputSt
 /// JSON shape printed by `lungfish blast verify --format json`.
 ///
 /// Carries the summary counts the text output shows plus the full per-read
-/// results, including which mate of each paired fragment was submitted.
+/// results, including which mate of each paired fragment was submitted. A result that was not judged carries
+/// `"confidence": "notJudged"` with `supporting` and `contradicting` null (UX-BLAST-NOTAX item 6).
 struct BlastVerifyCLISummary: Encodable {
     let taxonName: String
     let taxId: Int
     let totalReads: Int
-    let supporting: Int
-    let contradicting: Int
+    let supporting: Int?
+    let contradicting: Int?
     let inconclusive: Int
     let verified: Int
     let ambiguous: Int
@@ -680,8 +696,9 @@ struct BlastVerifyCLISummary: Encodable {
         taxonName = result.taxonName
         taxId = result.taxId
         totalReads = result.totalReads
-        supporting = result.supportingCount
-        contradicting = result.contradictingCount
+        let judged = result.confidence != .notJudged
+        supporting = judged ? result.supportingCount : nil
+        contradicting = judged ? result.contradictingCount : nil
         inconclusive = result.inconclusiveCount
         verified = result.verifiedCount
         ambiguous = result.ambiguousCount
@@ -692,5 +709,31 @@ struct BlastVerifyCLISummary: Encodable {
         program = result.blastProgram
         database = result.database
         readResults = result.readResults
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case taxonName, taxId, totalReads, supporting, contradicting, inconclusive, verified, ambiguous, unverified, errors
+        case confidence, rid, program, database, readResults
+    }
+
+    /// Writes every key, and `null` for the counts of a result that was not judged, where the synthesized coding would
+    /// leave them out.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(taxonName, forKey: .taxonName)
+        try container.encode(taxId, forKey: .taxId)
+        try container.encode(totalReads, forKey: .totalReads)
+        try container.encode(supporting, forKey: .supporting)
+        try container.encode(contradicting, forKey: .contradicting)
+        try container.encode(inconclusive, forKey: .inconclusive)
+        try container.encode(verified, forKey: .verified)
+        try container.encode(ambiguous, forKey: .ambiguous)
+        try container.encode(unverified, forKey: .unverified)
+        try container.encode(errors, forKey: .errors)
+        try container.encode(confidence, forKey: .confidence)
+        try container.encode(rid, forKey: .rid)
+        try container.encode(program, forKey: .program)
+        try container.encode(database, forKey: .database)
+        try container.encode(readResults, forKey: .readResults)
     }
 }

@@ -75,15 +75,16 @@ final class BlastResultsDrawerTabExportTests: XCTestCase {
     }
 
     func testRowJudgedByNamesSaysSoBesideItsCounts() {
+        // UX-BLAST-NOTAX item 5 moved these words: a row with no species lookup is not judged.
         let words = tab(judgedAt: .names).judgedAtLabel.stringValue
-        XCTAssertTrue(words.contains("Judged by organism names"), words)
-        XCTAssertTrue(words.contains("NCBI Taxonomy"), words)
+        XCTAssertTrue(words.hasPrefix("Not judged: this row has no tax ID"), words)
+        XCTAssertTrue(words.hasSuffix("Each read's best match is listed below."), words)
     }
 
     func testRowJudgedByItsOwnTaxIdSaysSoBesideItsCounts() {
         let words = tab(judgedAt: .rowTaxId).judgedAtLabel.stringValue
-        XCTAssertTrue(words.contains("Judged by this row's own tax ID and name"), words)
-        XCTAssertTrue(words.contains("NCBI Taxonomy"), words)
+        XCTAssertTrue(words.hasPrefix("Not judged: without NCBI Taxonomy"), words)
+        XCTAssertTrue(words.contains("if it does not list tax ID 12345"), words)
     }
 
     func testASpeciesLevelRowAndAnOlderRecordShowNoJudgedLine() {
@@ -97,7 +98,7 @@ final class BlastResultsDrawerTabExportTests: XCTestCase {
     func testJudgedAtLineIsItsOwnLabelUnderTheSummary() {
         for basis in [BlastTaxonomyContext.Basis.rowTaxId, .names] {
             let pane = tab(judgedAt: basis)
-            XCTAssertEqual(pane.judgedAtLabel.stringValue, basis.judgedAtWords)
+            XCTAssertEqual(pane.judgedAtLabel.stringValue, basis.judgedAtWords(taxId: 12345))
             XCTAssertGreaterThan(pane.judgedAtLabel.frame.height, 0, "the line has a row of its own at 600 pt")
             XCTAssertEqual(pane.judgedAtLabel.maximumNumberOfLines, 0, "the line wraps and is never cut")
             XCTAssertFalse(pane.summaryLabel.stringValue.contains("Judged by"), "the summary label cuts its tail")
@@ -116,24 +117,25 @@ final class BlastResultsDrawerTabExportTests: XCTestCase {
         XCTAssertEqual(contig.judgedAtLabel.frame.height, 0, "another presentation style shows no judged-at row")
     }
 
-    /// The cause is that LGE could not look the species up, which holds for a row with no tax ID and for a taxon missing
-    /// from a classifier's own tree, where installing NCBI Taxonomy changes nothing. The way out is conditional, and it
-    /// names the place that installs the database, the Databases tab of the Plugin Manager, since the app has no
-    /// database manager.
+    /// UX-BLAST-NOTAX item 5 moved these words. A row judged at its own tax ID names the place that installs NCBI
+    /// Taxonomy, the Databases tab of the Plugin Manager, since the app has no database manager, and the tax ID an older
+    /// dump may lack. A row with no tax ID gets no verdict even with NCBI Taxonomy installed, so its line names no install.
     func testTheJudgedAtWordsNameALookupAsTheCauseAndTheDatabasesTabAsThePlace() {
-        for basis in [BlastTaxonomyContext.Basis.rowTaxId, .names] {
-            let words = basis.judgedAtWords ?? ""
-            XCTAssertTrue(words.contains("could not look up"), words)
-            XCTAssertFalse(
-                words.contains("because the NCBI Taxonomy database is not installed"),
-                "installing is not the cause for every row: \(words)"
-            )
-            XCTAssertTrue(
-                words.contains("If NCBI Taxonomy is not installed, install it in the Databases tab of the Plugin Manager and run Verify with BLAST… again."),
-                words
-            )
+        let rowTaxId = BlastTaxonomyContext.Basis.rowTaxId.judgedAtWords(taxId: 10407) ?? ""
+        XCTAssertTrue(
+            rowTaxId.contains(
+                "Install NCBI Taxonomy in the Databases tab of the Plugin Manager, or update it if it does not list tax ID 10407, "
+                    + "then run Verify with BLAST… again."
+            ),
+            rowTaxId
+        )
+        let names = BlastTaxonomyContext.Basis.names.judgedAtWords(taxId: 0) ?? ""
+        XCTAssertFalse(names.contains("Install"), names)
+        for words in [rowTaxId, names] {
+            XCTAssertTrue(words.hasPrefix("Not judged: "), words)
             XCTAssertFalse(words.contains("database manager"), words)
         }
+        XCTAssertNil(BlastTaxonomyContext.Basis.species.judgedAtWords(taxId: 10407))
     }
 
     func testExportNamesTheBasisOfEachRow() {
