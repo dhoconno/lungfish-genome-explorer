@@ -340,11 +340,12 @@ final class ReadTimeWriteTests: XCTestCase {
         XCTAssertLessThan(kept.end - kept.start, openedSpan, "The kept place is the zoomed one.")
         XCTAssertFalse(FileManager.default.fileExists(atPath: viewStateURL.path), "A user change wrote into the bundle.")
 
-        // A change made just before the viewer leaves, inside the debounce, is kept on the way out.
-        viewer.zoomOut()
+        // A change made just before the viewer leaves, inside the debounce, is kept on the way out. A zoom out
+        // would return to the opening view, which the store keeps nothing for (VS S3), so this zooms in again.
+        viewer.zoomIn()
         try await displayRemembered(second, in: viewer)
         let flushed = try XCTUnwrap(keptReferenceView(of: first.url, in: store)?.locus)
-        XCTAssertGreaterThan(flushed.end - flushed.start, kept.end - kept.start, "Leaving kept the zoom out.")
+        XCTAssertLessThan(flushed.end - flushed.start, kept.end - kept.start, "Leaving kept the second zoom in.")
         XCTAssertFalse(FileManager.default.fileExists(atPath: viewStateURL.path), "Leaving wrote into the bundle.")
     }
 
