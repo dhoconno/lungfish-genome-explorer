@@ -138,10 +138,14 @@ final class RoutingTableSafetyNetTests: XCTestCase {
         let label = "\(row.family.rawValue)/\(row.name)"
         let root = try TestTempDirectory.make(prefix: "RoutingSafetyNet")
         defer { TestTempDirectory.cleanup(root) }
-        // The result views save their column layouts to `UserDefaults.standard` under the row's path. The restore
-        // runs when the row ends, before its folder goes.
+        // The result tables keep their column layouts in a suite of the row's own, never the runner's defaults (QA 6).
+        // The restorer puts back any other key a view writes under the row's path, when the row ends and before its
+        // folder goes.
         let hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
         defer { hostDefaults.restore() }
+        let layouts = makeTestDefaultsSuite(prefix: "RoutingTableSafetyNetTests")
+        MetadataLayoutDefaults.redirect(to: layouts.defaults)
+        defer { MetadataLayoutDefaults.restore(from: layouts.defaults) }
         let context = RoutingRowContext(root: root, paths: SafetyNetPathRenderer(root: root))
 
         let fixture: RoutingRowFixture

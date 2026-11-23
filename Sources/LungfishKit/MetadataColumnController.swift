@@ -60,7 +60,7 @@ public final class MetadataColumnController {
 
     public init(
         contentTypographyOwnership: ContentTypographyOwnership = .standalone,
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = MetadataColumnController.defaultUserDefaults
     ) {
         self.contentTypographyOwnership = contentTypographyOwnership
         self.userDefaults = userDefaults

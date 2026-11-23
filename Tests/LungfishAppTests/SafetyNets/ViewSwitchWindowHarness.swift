@@ -14,8 +14,9 @@
 // the routing table, and no project is open, so a route that would ask for a
 // name stops where the routing table row says it does.
 //
-// A 12S viewer the window shows saves its column layouts to a suite of the
-// window's own, and `close()` takes its tables' identity away, so a viewer that
+// Every result table the window shows keeps its column layouts in a suite of
+// the window's own (`MetadataLayoutDefaults`), never the runner's defaults. A
+// 12S viewer the window shows saves its column layouts to that suite, and `close()` takes its tables' identity away, so a viewer that
 // outlives the window saves nothing in the runner's defaults on a later test's
 // text-size change (FULL1-12S-LEAK).
 //
@@ -28,6 +29,8 @@ import XCTest
 @testable import LungfishApp
 import LungfishCore
 @testable import LungfishKit
+@testable import LungfishNaoMgsUI
+@testable import LungfishNvdUI
 import LungfishTestSupport
 @testable import LungfishTwelveSUI
 
@@ -55,6 +58,8 @@ final class ViewSwitchWindowHarness {
         // outlive a test's release wait (CLOSEHOLD). This window opens and closes at once.
         window.animationBehavior = .none
         split = try XCTUnwrap(controller.mainSplitViewController)
+        // Every result table this window shows keeps its column layouts in the window's suite, from its first key on.
+        MetadataLayoutDefaults.redirect(to: twelveSLayouts.defaults)
         // The App's 12S factory with its BLAST wiring, plus the suite, given
         // before `configure(result:)` keys the tables' layouts by the result.
         let viewer: ViewerViewController = split.viewerController
@@ -120,11 +125,13 @@ final class ViewSwitchWindowHarness {
         split.viewerController.clearViewport()
         split.inspectorController.clearSelection()
         controller.close()
+        MetadataLayoutDefaults.restore(from: twelveSLayouts.defaults)
         releaseTwelveSLayouts()
     }
 
     /// A test that drops the window without `close()` still leaves no 12S layout behind.
     isolated deinit {
+        MetadataLayoutDefaults.restore(from: twelveSLayouts.defaults)
         releaseTwelveSLayouts()
     }
 
@@ -147,6 +154,23 @@ final class ViewSwitchWindowHarness {
 @MainActor
 enum MetadataLayoutDefaults {
     static let layoutPrefix = "org.lungfish.metadata-column-layout."
+
+    /// Points the Kit default of every column controller made from now on, and the NAO-MGS and NVD overrides, at
+    /// `defaults`. The tables that do not adopt view memory yet (TaxTriage, NAO-MGS, NVD, the mapping contig table)
+    /// write their layouts there and not to the runner's defaults.
+    static func redirect(to defaults: UserDefaults) {
+        MetadataColumnController.defaultUserDefaults = defaults
+        NaoMgsResultViewController.testMetadataUserDefaultsOverride = defaults
+        NvdResultViewController.testMetadataUserDefaultsOverride = defaults
+    }
+
+    /// Points them back at the app's defaults, when they still name `defaults`, so a later window's redirect stays.
+    static func restore(from defaults: UserDefaults) {
+        guard MetadataColumnController.defaultUserDefaults === defaults else { return }
+        MetadataColumnController.defaultUserDefaults = .standard
+        NaoMgsResultViewController.testMetadataUserDefaultsOverride = nil
+        NvdResultViewController.testMetadataUserDefaultsOverride = nil
+    }
 
     /// The layout keys in the runner's defaults that name `folder`.
     static func hostKeys(naming folder: String) -> [String] {
