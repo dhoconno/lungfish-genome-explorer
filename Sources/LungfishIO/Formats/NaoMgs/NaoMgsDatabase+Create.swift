@@ -433,26 +433,41 @@ extension NaoMgsDatabase {
                     acc.accessions.insert(subjectSeqId)
                     if acc.name.isEmpty { acc.name = subjectTitle }
 
-                    if r1Placed {
-                        let r1Len = qLen > 0 ? qLen : readSeq.count
-                        let r1SigHash = alignmentHash(
+                    // A mate keys on its whole pair (the accession, both starts, both strands and both lengths), as
+                    // `NaoMgsDatabase+Summaries.swift` keys a pair, and on its slot in the pair. So a mate is a duplicate
+                    // only when its pair is one, and the two mates of a pair stay two reads. A lone placed mate keys
+                    // alone, with no half for the other mate (NAOMGS-DEDUP-READ-COUNT).
+                    let r1Half: UInt64? = r1Placed
+                        ? alignmentHash(
                             accession: subjectSeqId,
                             refStart: refStart,
                             isRC: isRC,
-                            qLen: r1Len
+                            qLen: qLen > 0 ? qLen : readSeq.count
                         )
+                        : nil
+                    let r2Half: UInt64? = hasR2 && r2HasStart
+                        ? alignmentHash(
+                            accession: subjectSeqId,
+                            refStart: refStartRev,
+                            isRC: isRCRev,
+                            qLen: qLenRev > 0 ? qLenRev : readSeqRev.count
+                        )
+                        : nil
+                    func mateSignature(slot: Int) -> UInt64 {
+                        var hasher = Hasher()
+                        hasher.combine(r1Half)
+                        hasher.combine(r2Half)
+                        hasher.combine(slot)
+                        return UInt64(bitPattern: Int64(hasher.finalize()))
+                    }
+                    if r1Placed {
+                        let r1SigHash = mateSignature(slot: 1)
                         acc.alignmentSignatures.insert(r1SigHash)
                         acc.accessionSignatures[subjectSeqId, default: []].insert(r1SigHash)
                         acc.accessionReadCounts[subjectSeqId, default: 0] += 1
                     }
                     if hasR2 && r2HasStart {
-                        let r2Len = qLenRev > 0 ? qLenRev : readSeqRev.count
-                        let r2SigHash = alignmentHash(
-                            accession: subjectSeqId,
-                            refStart: refStartRev,
-                            isRC: isRCRev,
-                            qLen: r2Len
-                        )
+                        let r2SigHash = mateSignature(slot: 2)
                         acc.alignmentSignatures.insert(r2SigHash)
                         acc.accessionSignatures[subjectSeqId, default: []].insert(r2SigHash)
                         acc.accessionReadCounts[subjectSeqId, default: 0] += 1

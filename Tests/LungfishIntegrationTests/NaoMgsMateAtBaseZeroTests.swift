@@ -160,8 +160,8 @@ struct NaoMgsMateAtBaseZeroTests {
         let taxa = try db.fetchTaxonSummaryRows()
         let taxon = try #require(taxa.first)
         #expect(taxon.hitCount == 430, "215 pairs are 430 mates, the 133 at base 0 included")
-        // 215 R1 signatures, one shared by the 133 R2 at base 0, and 82 more for the R2 elsewhere.
-        #expect(taxon.uniqueReadCount == 298)
+        // The 215 pairs are all distinct, so each of the 430 mates is unique, the 133 R2 at base 0 included, since they belong to 133 different pairs.
+        #expect(taxon.uniqueReadCount == 430)
         let accessions = try db.fetchAccessionSummaries(sample: Self.sample, taxId: Self.taxId)
         let accession = try #require(accessions.first)
         #expect(accession.readCount == 430, "Hits and the accession's reads agree")
