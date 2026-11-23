@@ -314,7 +314,8 @@ struct FastqIngestRun {
         )
     }
 
-    private func writeRecord(
+    /// Internal so a pin can ask for the record this run writes with no tool run (FIX-ROUTES-7, BIO-ROUTES-5 item 3).
+    func writeRecord(
         result: FASTQIngestionResult,
         staged: URL,
         output: URL,

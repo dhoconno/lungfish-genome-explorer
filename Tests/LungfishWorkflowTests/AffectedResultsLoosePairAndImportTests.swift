@@ -21,7 +21,7 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
     ]
 
     /// The new rows a build holds for the kind of raw value `kind`, or nil when no such kind exists.
-    private func ids(_ build: Int, _ kind: String) -> [String]? {
+    func ids(_ build: Int, _ kind: String) -> [String]? {
         AffectedResultKind(rawValue: kind).map {
             AffectedResults.rows(forAppVersion: "Lungfish 2026.11.15 (\(build))", kind: $0).map(\.backlogID)
                 .filter(newRows.contains)
@@ -41,6 +41,8 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
         "fastqRecipeImport": ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"],
         "fastqLoosePairImport": ["LOOSE-PAIR-OUT-OF-STEP"],
         "rnaSeqPlanRun": ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"],
+        "fastqIngestLoosePair": ["LOOSE-PAIR-OUT-OF-STEP"],
+        "fastqRiboFilterLoosePair": ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"],
         "czIdImport": ["CZID-REAL-EXPORT-FORMAT"],
     ]
 
@@ -52,11 +54,12 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
             ("GROUPER-CROSS-FOLDER-PAIR", ["kraken2", "esViritu"], "d998a3371"),
             ("LOOSE-PAIR-SHORT-MATE",
              ["taxTriage", "kraken2", "esViritu", "mappingLoosePair", "assembly", "viralRecon", "fastqRecipeImport",
-              "rnaSeqPlanRun"],
+              "rnaSeqPlanRun", "fastqRiboFilterLoosePair"],
              "c9ed8e3ef"),
             ("LOOSE-PAIR-OUT-OF-STEP",
              ["taxTriage", "kraken2", "esViritu", "mappingLoosePair", "assembly", "viralRecon", "fastqRecipeImport",
-              "fastqLoosePairImport", "rnaSeqPlanRun"], "c9ed8e3ef"),
+              "fastqLoosePairImport", "fastqIngestLoosePair", "rnaSeqPlanRun",
+              "fastqRiboFilterLoosePair"], "c9ed8e3ef"),
             ("CZID-REAL-EXPORT-FORMAT", ["czIdImport"], "f58ecdaae"),
         ]
         for (id, kinds, fix) in expected {
@@ -69,7 +72,7 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
     }
 
     func testEveryKindHoldsItsRowsUpToPreview20261115AndNoneAfter() {
-        for kind in AffectedResultKind.allCases.map(\.rawValue) + ["mappingLoosePair", "fastqLoosePairImport", "czIdImport", "rnaSeqPlanRun"] {
+        for kind in AffectedResultKind.allCases.map(\.rawValue) + ["mappingLoosePair", "fastqLoosePairImport", "czIdImport", "rnaSeqPlanRun", "fastqIngestLoosePair", "fastqRiboFilterLoosePair"] {
             let held = heldAtTheLastBuild[kind] ?? []
             XCTAssertEqual(ids(14072, kind), held, "\(kind) at Preview 2026.11.15")
             XCTAssertEqual(ids(13927, kind), held, "\(kind) at Stable 2026.11.14, a patch build")
@@ -92,7 +95,7 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
 
     // MARK: - The kind a record names
 
-    private func record(
+    func record(
         _ workflow: String, explicit: [String: ParameterValue] = [:], inputs: [String] = [], steps: [ProvenanceStep] = []
     ) -> ProvenanceEnvelope {
         var envelope = ProvenanceEnvelope.fixture()
@@ -107,9 +110,9 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
         return envelope
     }
 
-    private func file(_ path: String) -> ParameterValue { .file(URL(fileURLWithPath: path)) }
+    func file(_ path: String) -> ParameterValue { .file(URL(fileURLWithPath: path)) }
 
-    private func kind(_ envelope: ProvenanceEnvelope) -> String? { AffectedResults.kind(of: envelope)?.rawValue }
+    func kind(_ envelope: ProvenanceEnvelope) -> String? { AffectedResults.kind(of: envelope)?.rawValue }
 
     func testAnImportOfTwoLooseFilesIsTheLoosePairImportKindAndOneFileOrABundlePairIsNot() {
         // `FASTQBatchImporter.provenanceParameters` records the pair as `r1` and `r2`, `.null` for one file, on this Mac
