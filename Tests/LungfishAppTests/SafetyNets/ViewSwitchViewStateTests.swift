@@ -178,7 +178,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         try await leave(for: other, in: harness, driver: driver)
         try await show(fixture, in: harness, driver: driver)
         viewer = try XCTUnwrap(harness.split.viewerController.twelveSAmpliconResultViewController)
-        let table = viewer.targetTable.tableView
+        let table = try XCTUnwrap(viewer.targetTable.tableView)
         XCTAssertEqual(table.selectedRowIndexes.count, 1)
         XCTAssertEqual(viewer.testingTargetText(row: table.selectedRow, column: "sampleName"), chosen)
         XCTAssertEqual(viewer.testingTargetText(row: table.selectedRow, column: "scientificName"), "Homo sapiens")
