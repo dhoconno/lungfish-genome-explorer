@@ -49,6 +49,15 @@ LungfishCore, LungfishIO, LungfishWorkflow, AppKit, SwiftUI and Combine. Never L
 - Kit types are `public` and free of App types.
 - Every `Notification.Name` declared under Sources is a window event or an application event in `ScopedEventFilter.classifications` (R9). The poster of a window event attaches its window's scope through `ScopedEventFilter.scopedUserInfo(_:scope:)`. An observer that belongs to a window checks `ScopedEventFilter.accept(_:for:)` with its own scope and drops a window event that carries no scope or another window's scope. An application event reaches every observer. A view that a container embeds without a scope finds its window's scope with `ScopedEventFilter.hostingWindowScope(of:)`. `ScopedEventClassificationTests` fails when a declared name is missing from the table or a table entry is no longer declared.
 
+## View memory
+
+Every viewport reopens at its last view, kept on this Mac outside the project (Sources/LungfishKit/ViewMemory/). To adopt it, copy `Sources/LungfishTwelveSUI/TwelveSSurface+ViewMemory.swift`.
+- One `ViewMemoryState` struct beside the surface copies the view fields, with `kind`, `schemaVersion` and a selection held by `rowIdentity`, never by an index. It is public only when the surface is, and its fields stay internal.
+- The surface conforms to `ViewMemoryAdopting` in a new `<Type>+ViewMemory.swift`. `viewMemoryItem` and `viewMemoryDataKey` (VS B1, read from a manifest or a record, never by hashing a file) come from the load. A load that runs on after `load` returns sets `viewMemoryLoadIsPending` and calls `applyPending(startingView:)` on its handle when it commits.
+- `restoreViewMemory(_:dataChanged:)` applies each field through the control's own path and returns what it lost. A search text, a count filter and a coordinate selection come back only on an equal key. Rows come back by identity, samples by id (VS B4, B5), and the shared parts do it (`BatchTableView+ViewMemory.swift`, `ClassifierSamplePickerState+ViewMemory.swift`, `TrackedDividerSplitView+ViewMemory.swift`, `ViewMemoryRules`). A restore starts nothing (VS S4).
+- A filter that only the Inspector shows gets the in-view line `ViewMemoryFilterLineView` (word 5), or is not kept. The host draws the reset line of words 2 to 4.
+- Tests add a driver in `Tests/LungfishAppTests/SafetyNets/ViewSwitchViewStateDrivers+<Family>.swift` and remove the kind from `ViewStateDeclaredGaps.swift`, and `ReadTimeWriteTests+<Family>.swift` shows the project unchanged.
+
 ## Tests
 
 Target LungfishKitTests in Tests/LungfishKitTests (OperationCenter suites, row actions, BLAST drawer). Run only it with `swift test --skip-update --filter LungfishKitTests`. Test doubles and helpers for Kit types, such as `RecordingOperationReporter`, `OperationStartResult.rowID`, `OperationFailureReportStore.temporaryForTesting()` and the `ScopeOwningWindowController` project-window stand-in, are in the LungfishKitTestSupport library at Tests/Support/LungfishKitTestSupport.
