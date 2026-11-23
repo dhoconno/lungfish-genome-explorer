@@ -315,7 +315,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     // MARK: - Welcome Window
 
-    private func showWelcomeWindow() {
+    func showWelcomeWindow() {
         let storageConfigStore = ManagedStorageConfigStore.shared
         welcomeWindowController = WelcomeWindowController(
             storageConfigStore: storageConfigStore,
@@ -1013,7 +1013,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             controller.mainSplitViewController?.invalidateDisplayRequest()
         }
         await ProjectTaskTerminationRegistry.cancelAndWait()
-        return await GenotypeEditQuitConfirmation.mayQuit(presentingOn: mainWindowController?.window)
+        return await GenotypeEditQuitConfirmation.mayQuit(hostProvider: { self.windowForGenotypeQuitSheet() })
     }
 
     private func prepareForManualHaplotypeTermination(
