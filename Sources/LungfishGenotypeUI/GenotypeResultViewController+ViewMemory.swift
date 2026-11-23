@@ -24,15 +24,40 @@ import ObjectiveC
 /// - `summaryViewMode`, Haplotype Calls or Genotype Matrix, and `layout`, the panel layout, are presentation and come
 ///   back on any data key. The result's presentation policy still normalizes them, so a result that cannot show the
 ///   kept mode shows its own, as at the base.
+/// - `cellColorMode` and `hideFilteredHighlights`, the Cell Color picker and the highlight switch, are presentation and
+///   come back on any data key. They colour cells and hide no row.
+/// - `supportDenominator` and `matrixPercentDenominator`, the two percent bases, are settings that change values
+///   (VS B6). They come back only on an equal data key, and the viewport then says so in one line (word 5c) until
+///   the person changes them or uses Reset View. On another key they start at the open's values, and the line of
+///   word 2 names the filters when a kept basis differed.
+///
+/// The count filters that hide rows (the minimum reads, percent and prevalence, the low-support switch and its
+/// minimum, the row and sample filter texts, diagnostic alleles only, the ancillary and included loci) and the cohort
+/// flag are not kept: they show only in the Inspector, and the line for hidden rows (word 5a) has no genotype noun.
 ///
 /// The older in-bundle file also holds `viewMode`, `panelLayout`, `cardDensity` and `cardDensityThreshold`, which no
 /// control of the viewer reads, so only its `preferredSummaryViewMode` is taken. It holds no count filter.
 struct GenotypeViewMemory: ViewMemoryState {
     static var kind: String { SurfaceKind.bundle(.genotypeResult).description }
-    static var schemaVersion: Int { 1 }
+    static var schemaVersion: Int { 2 }
 
     var summaryViewMode: String
     var layout: String
+    var cellColorMode = GenotypeResultCellColorMode.support.rawValue
+    var hideFilteredHighlights = true
+    var supportDenominator = ONTGenotypeSupportDenominator.viewedLocus.rawValue
+    var matrixPercentDenominator = ONTGenotypeSupportDenominator.viewedLocus.rawValue
+
+    /// The two percent bases, which need an equal data key.
+    var bases: [String] { [supportDenominator, matrixPercentDenominator] }
+
+    /// This view with the percent bases of `other`.
+    func withBases(of other: GenotypeViewMemory) -> GenotypeViewMemory {
+        var view = self
+        view.supportDenominator = other.supportDenominator
+        view.matrixPercentDenominator = other.matrixPercentDenominator
+        return view
+    }
 }
 
 /// What an open reads off the main actor: where the result lives, its data key, the kept view, and an older bundle's
@@ -95,6 +120,9 @@ final class GenotypeViewMemorySession {
     var applied = false
     var resetBeforeApply = false
     var line: ViewMemoryResetLineView?
+    /// The line of word 5c while restored percent bases show, and the bases it stands for.
+    var settingsLine: ViewMemoryFilterLineView?
+    var restoredBases: [String]?
     var task: Task<Void, Never>?
 
     init(store: ViewMemoryStore, bundleURL: URL, opening: GenotypeViewMemory) {
@@ -147,7 +175,20 @@ extension GenotypeResultViewController {
         if presentationPolicy?.persistencePolicy == .preserveStoredPreference, let start = viewMemory?.start {
             mode = start.summaryViewMode
         }
-        return GenotypeViewMemory(summaryViewMode: mode, layout: displayState.layout.rawValue)
+        return GenotypeViewMemory(
+            summaryViewMode: mode, layout: displayState.layout.rawValue, cellColorMode: displayState.cellColorMode.rawValue,
+            hideFilteredHighlights: displayState.hideFilteredHighlights,
+            supportDenominator: displayState.supportDenominator.rawValue,
+            matrixPercentDenominator: displayState.matrixPercentDenominator.rawValue)
+    }
+
+    /// A person's change through `applyDisplayState`, the path of the viewport's controls and the Inspector. It keeps
+    /// the view at once, so a quit with no switch finds it, and a change of a restored percent basis ends its line.
+    func noteViewMemoryChange(from previousViewMode: GenotypeSummaryViewMode) {
+        recordSummaryViewChoice(from: previousViewMode, to: displayState.summaryViewMode)
+        guard let session = viewMemory else { return }
+        if let restored = session.restoredBases, captureViewMemory().bases != restored { clearSettingsLine(in: session) }
+        keepViewMemory()
     }
 
     /// Starts a visit after the configure, and reads off the main actor.
@@ -178,15 +219,26 @@ extension GenotypeResultViewController {
         // A late restore applies only while the view is as the open showed it, so a change made before it stays.
         guard captureViewMemory() == session.opening else { return }
         switch read.kept {
-        case .view(let kept, _, _):
+        case .view(let kept, let keptDataKey, _):
+            // The percent bases change values, so they come back only on the data they were set on (VS B6).
+            guard keptDataKey != nil, keptDataKey == read.dataKey else {
+                restoreViewMemory(kept.withBases(of: session.opening))
+                if kept.bases != session.opening.bases, let words = ViewMemoryWords.dataChanged(.filters) {
+                    showViewMemoryLine(words, in: session)
+                }
+                return
+            }
             restoreViewMemory(kept)
+            if captureViewMemory().bases != session.opening.bases { showSettingsLine(in: session) }
         case .folderChanged:
             showViewMemoryLine(ViewMemoryWords.viewReset, in: session)
             fallthrough
         case .nothing:
             guard let older = read.olderFile?.preferredSummaryViewMode else { return }
             // An older bundle's look is a starting view, never a person's choice (VS S3).
-            restoreViewMemory(GenotypeViewMemory(summaryViewMode: older, layout: session.opening.layout))
+            var view = session.opening
+            view.summaryViewMode = older
+            restoreViewMemory(view)
             session.start = captureViewMemory()
         }
     }
@@ -196,6 +248,12 @@ extension GenotypeResultViewController {
         var state = displayState
         if let mode = GenotypeSummaryViewMode(rawValue: kept.summaryViewMode) { state.summaryViewMode = mode }
         if let layout = GenotypeResultPanelLayout(rawValue: kept.layout) { state.layout = layout }
+        if let color = GenotypeResultCellColorMode(rawValue: kept.cellColorMode) { state.cellColorMode = color }
+        state.hideFilteredHighlights = kept.hideFilteredHighlights
+        if let basis = ONTGenotypeSupportDenominator(rawValue: kept.supportDenominator) { state.supportDenominator = basis }
+        if let basis = ONTGenotypeSupportDenominator(rawValue: kept.matrixPercentDenominator) {
+            state.matrixPercentDenominator = basis
+        }
         guard state != displayState else { return }
         applyDisplayStateImmediately(state)
         onDisplayStateChanged?(displayState)
@@ -214,6 +272,7 @@ extension GenotypeResultViewController {
         keepViewMemory()
         session.task?.cancel()
         session.line?.removeFromSuperview()
+        session.settingsLine?.removeFromSuperview()
         viewMemory = nil
     }
 
@@ -226,6 +285,7 @@ extension GenotypeResultViewController {
         session.start = captureViewMemory()
         session.line?.removeFromSuperview()
         session.line = nil
+        clearSettingsLine(in: session)
         guard session.applied else {
             session.resetBeforeApply = true
             return
@@ -249,6 +309,31 @@ extension GenotypeResultViewController {
         NSAccessibility.post(element: line.label, notification: .announcementRequested, userInfo: [
             .announcement: words, .priority: NSAccessibilityPriorityLevel.high.rawValue,
         ])
+    }
+
+    /// Shows word 5c at the foot of the viewport while restored percent bases differ from the open's, since the
+    /// bases show only in the Inspector (VS B6). It announces once and starts nothing (VS S4).
+    private func showSettingsLine(in session: GenotypeViewMemorySession) {
+        let line = session.settingsLine ?? ViewMemoryFilterLineView()
+        if session.settingsLine == nil {
+            line.wantsLayer = true
+            line.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+            view.addSubview(line)
+            NSLayoutConstraint.activate([
+                line.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+                line.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                line.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            ])
+            session.settingsLine = line
+        }
+        session.restoredBases = captureViewMemory().bases
+        line.showRestored(.changesValues)
+    }
+
+    /// The person changed a restored basis, or Reset View ran, so the line goes.
+    private func clearSettingsLine(in session: GenotypeViewMemorySession) {
+        session.settingsLine?.clear()
+        session.restoredBases = nil
     }
 
     /// Keeps the view when the window closes or the app quits, since nothing removes the viewer on those ways out, and
