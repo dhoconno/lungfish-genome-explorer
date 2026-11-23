@@ -80,7 +80,7 @@ public final class MetadataColumnController {
     private static let metadataCellTextFieldTag = 51_001
     private static let persistencePrefix = "org.lungfish.metadata-column-layout."
 
-    private struct PersistedLayout: Codable {
+    struct PersistedLayout: Codable {
         let version: Int
         let visibleMetadata: [String]
         let columnOrder: [String]
@@ -111,7 +111,9 @@ public final class MetadataColumnController {
 
     /// An optional stable result-and-table-role key used to remember the user's
     /// metadata selection and table column order. A nil key retains the
-    /// controller's previous in-memory-only behavior.
+    /// controller's previous in-memory-only behavior. Every table builds it as a
+    /// table role, a colon and the result folder's standardized path, so a layout
+    /// is per result bundle and per table, and a moved project does not carry it.
     public var persistenceKey: String? {
         didSet {
             guard persistenceKey != oldValue else { return }
@@ -137,8 +139,13 @@ public final class MetadataColumnController {
 
     /// The table view (NSTableView or NSOutlineView) this controller manages columns on.
     private weak var tableView: NSTableView?
-    public var userDefaults: UserDefaults // Where layouts persist. A test sets a suite before the first persistenceKey.
-    private var persistedLayout: PersistedLayout?
+    /// The old home of layouts. Until `applyViewMemory(_:)` runs, layouts persist here.
+    /// After it, this is read only as the starting value of a key that view memory
+    /// holds no layout for, and it is never written. A test sets a suite before the first persistenceKey.
+    public var userDefaults: UserDefaults
+    var persistedLayout: PersistedLayout?
+    /// The layouts by key once view memory owns them, and nil before (VS A10).
+    var viewMemoryLayouts: [String: PersistedLayout]?
     private var defaultStandardColumnOrder: [String] = []
 
     /// Default widths captured at installation or column creation for restoring disabled columns.
@@ -329,7 +336,7 @@ public final class MetadataColumnController {
 
     // MARK: - Layout Persistence
 
-    private func persistenceDefaultsKey(for key: String) -> String {
+    func persistenceDefaultsKey(for key: String) -> String {
         Self.persistencePrefix + key
     }
 
@@ -340,18 +347,11 @@ public final class MetadataColumnController {
             return
         }
 
-        let defaultsKey = persistenceDefaultsKey(for: persistenceKey)
-        if let data = userDefaults.data(forKey: defaultsKey),
-           let decoded = try? JSONDecoder().decode(PersistedLayout.self, from: data),
-           decoded.version == 1 {
-            persistedLayout = decoded
-        } else {
-            persistedLayout = nil
-        }
+        persistedLayout = loadLayout(forKey: persistenceKey)
         applyPersistedLayout()
     }
 
-    private func applyPersistedLayout() {
+    func applyPersistedLayout() {
         let wasApplyingColumnVisibility = isApplyingColumnVisibility
         isApplyingColumnVisibility = true
         visibleColumns = Set(persistedLayout?.visibleMetadata ?? [])
@@ -425,8 +425,7 @@ public final class MetadataColumnController {
                 ? mergedMetadataWidths(currentWidths, preservingUnavailableFrom: previousLayout)
                 : currentWidths
         )
-        guard let data = try? JSONEncoder().encode(layout) else { return }
-        userDefaults.set(data, forKey: persistenceDefaultsKey(for: storageKey))
+        storeLayout(layout, forKey: storageKey)
         if storageKey == persistenceKey {
             persistedLayout = layout
         }
