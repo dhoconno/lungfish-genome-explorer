@@ -154,4 +154,63 @@ final class RNASeqCellMapViewMemoryTests: XCTestCase {
         XCTAssertNil(controller.selection?.form)
         XCTAssertNil(surface.captureViewMemory().cellMap?.selection, "a nil form keeps no selection, and no mask or rows")
     }
+
+    // MARK: - The zoom a capture keeps (VS-RNA review BIO SF-1, SWIFT SF2)
+
+    /// A double click that shows every cell after a restored zoom is the person's view, so the next capture keeps no zoom.
+    func testAZoomShownAgainAfterARestoreIsWhatTheNextCaptureKeeps() async throws {
+        let (first, left) = try await open()
+        left.plot.onWindowChange?(RNASeqEmbeddingWindow(minX: 0, minY: -120, maxX: 120, maxY: 0))
+        let kept = first.captureViewMemory()
+        XCTAssertNotNil(kept.cellMap?.window)
+
+        let (second, back) = try await open()
+        XCTAssertEqual(second.restoreViewMemory(kept, dataChanged: false), [])
+        await settle(back)
+        XCTAssertEqual(back.plotWindow, left.plotWindow)
+        back.plot.onWindowChange?(nil)
+        XCTAssertNil(back.plotWindow, "a double click on the plot shows every cell")
+        XCTAssertNil(second.captureViewMemory().cellMap?.window, "the person's view of every cell is the one to keep")
+    }
+
+    /// While another embedding is read, the zoom on show belongs to the embedding it was drawn in, so a capture keeps the
+    /// new embedding's name with no zoom.
+    func testACaptureWhileAnotherEmbeddingReadsKeepsNoZoomOfTheOldOne() async throws {
+        let (surface, controller) = try await open()
+        controller.plot.onWindowChange?(RNASeqEmbeddingWindow(minX: 0, minY: -120, maxX: 120, maxY: 0))
+        let pca = try XCTUnwrap(controller.snapshot?.facts.embeddings.first { $0.name == "PCA" })
+        controller.chooseEmbedding(pca.embedding)
+        let kept = surface.captureViewMemory().cellMap
+        await settle(controller)
+        XCTAssertEqual(kept?.embedding, "PCA")
+        XCTAssertNil(kept?.window, "a zoom drawn on the UMAP is never kept as the PCA's")
+    }
+
+    /// VS A2: a zoom or a selection a person makes before the restore's read ends stands, and the kept zoom and selection
+    /// never land over it. Each assertion fails if its guard in `finishRestore` or `applies` is removed.
+    func testAZoomOrASelectionMadeBeforeTheRestoresReadEndsWins() async throws {
+        let (first, left) = try await open()
+        left.plot.onWindowChange?(RNASeqEmbeddingWindow(minX: 0, minY: 0, maxX: 100, maxY: 100))
+        left.selectAllCells()
+        await settle(left)
+        var kept = first.captureViewMemory()
+        kept.cellMap?.colouring = .sample
+        XCTAssertNotNil(kept.cellMap?.window)
+        XCTAssertNotNil(kept.cellMap?.selection)
+
+        let (zoomed, zoomedMap) = try await open()
+        _ = zoomed.restoreViewMemory(kept, dataChanged: false)
+        let mine = RNASeqEmbeddingWindow(minX: 1, minY: 1, maxX: 50, maxY: 50)
+        zoomedMap.plot.onWindowChange?(mine)
+        await settle(zoomedMap)
+        XCTAssertEqual(zoomedMap.plotWindow, mine, "the person's zoom stands")
+        XCTAssertNil(zoomedMap.selection, "the kept selection never lands over it")
+
+        let (picked, pickedMap) = try await open()
+        _ = picked.restoreViewMemory(kept, dataChanged: false)
+        pickedMap.selectLegendRow(0, adding: false)
+        await settle(pickedMap)
+        XCTAssertNil(pickedMap.plotWindow, "the kept zoom never lands over the person's selection")
+        XCTAssertEqual(pickedMap.selection?.rows, [0])
+    }
 }
