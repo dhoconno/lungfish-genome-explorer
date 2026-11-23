@@ -20,8 +20,17 @@ extension TaxonTree {
     ///   with the genus name leading the related names. A taxon at or above
     ///   genus rank has no relatives.
     ///
+    /// With NCBI Taxonomy installed (`taxonomyDirectory`, the folder of its `nodes.dmp` and `names.dmp`), the clade
+    /// is judged as the NAO-MGS, EsViritu, TaxTriage and NVD routes judge theirs
+    /// (``NCBITaxonomyLineage/blastTaxonomyContext(of:names:taxonomyDirectory:limit:)``): the dump's clade IDs join the
+    /// tree's, and a clade name that a taxon of another species holds judges nothing, so a Woolly monkey hepatitis B
+    /// virus record does not support a Hepatitis B virus row by name (BLAST-NAME-PHRASE-LEAK, BIO-BLAST ruling B). The
+    /// relatives are then the tree's genus members outside that joined clade. With no directory, or a dump that does
+    /// not hold `taxId`, the context is the tree's alone.
+    ///
     /// A taxon missing from the tree yields a clade of just `taxId`. The context's basis is `species` for a clade the
-    /// tree gave and `rowTaxId` for that lone tax ID (BLAST-ESVIRITU-FIRST-WORD).
+    /// tree gave and `rowTaxId` for that lone tax ID (BLAST-ESVIRITU-FIRST-WORD). Reading the dump walks whole files, so
+    /// a caller with a directory calls this off the main actor.
     public func blastTaxonomyContext(for taxId: Int, taxonomyDirectory: URL? = nil) -> BlastTaxonomyContext {
         guard let node = node(taxId: taxId) else {
             return BlastTaxonomyContext(cladeTaxIds: [taxId], basis: .rowTaxId)
@@ -37,8 +46,12 @@ extension TaxonTree {
         }
         // `allDescendants()` starts with the node itself, so the root is in the clade.
         let clade = root.allDescendants()
-        let cladeIds = Set(clade.map(\.taxId))
-        let cladeNames = Array(Set(clade.map(\.name))).sorted()
+        let treeNames = Array(Set(clade.map(\.name))).sorted()
+        let lineage = NCBITaxonomyLineage.blastTaxonomyContext(
+            of: taxId, names: treeNames, taxonomyDirectory: taxonomyDirectory
+        )
+        let cladeIds = Set(clade.map(\.taxId)).union(lineage?.cladeTaxIds ?? [])
+        let cladeNames = lineage?.cladeNames ?? treeNames
 
         var genus: TaxonNode?
         var cursor: TaxonNode? = node.parent

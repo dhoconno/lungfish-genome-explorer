@@ -376,6 +376,11 @@ private func showTaxonomyExtractionAlert(_ words: TaxonomyExtractionAlertWords) 
 /// the single reads, so a fragment whose evidence is on mate 2 is sent from
 /// the R2 file and a merged fragment is found (D8). `lungfish-cli blast
 /// verify` with one `--source` per input builds the same request.
+///
+/// `taxonomyDirectory` is the installed NCBI Taxonomy
+/// (``ViewerViewController/installedNCBITaxonomyDirectory()``), with which a
+/// clade name another species holds judges nothing (BIO-BLAST ruling B). It
+/// reads whole files, so call this off the main actor.
 func kraken2BlastVerificationRequest(
     taxonName: String,
     taxId: Int,
@@ -383,6 +388,7 @@ func kraken2BlastVerificationRequest(
     classificationOutput: URL,
     sourceInputs: [URL],
     readCount: Int,
+    taxonomyDirectory: URL? = nil,
     service: BlastService = .shared
 ) async throws -> BlastVerificationRequest {
     // A trimmed or oriented subset is materialized for this request only.
@@ -422,8 +428,9 @@ func kraken2BlastVerificationRequest(
     // Build read ID set for this taxon using the indexed
     // sidecar when available (O(k) vs O(n) linear scan).
     // Clade (sampling targets and supporting hits) plus the
-    // genus relatives the tree knows about.
-    let taxonomyContext = tree.blastTaxonomyContext(for: taxId)
+    // genus relatives the tree knows about, judged with the installed NCBI
+    // Taxonomy when there is one.
+    let taxonomyContext = tree.blastTaxonomyContext(for: taxId, taxonomyDirectory: taxonomyDirectory)
     let targetTaxIds = taxonomyContext.cladeTaxIds
     let acceptedTaxonNames = taxonomyContext.cladeNames
 

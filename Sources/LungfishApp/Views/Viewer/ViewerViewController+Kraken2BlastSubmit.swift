@@ -38,7 +38,8 @@ extension ViewerViewController {
             lookup: {
                 try await Self.kraken2BlastLookup(
                     taxonName: taxonName, taxId: taxId, tree: tree, classificationOutput: classificationOutput,
-                    sourceInputs: sourceInputs, readCount: readCount
+                    sourceInputs: sourceInputs, readCount: readCount,
+                    taxonomyDirectory: await Self.installedNCBITaxonomyDirectory()
                 )
             },
             readsChangedNote: {
@@ -144,18 +145,20 @@ extension ViewerViewController {
         return BlastSubmitPlan(request: submit, queryData: plan.queryData)
     }
 
-    /// The read lookup of a Kraken2 taxon off the main actor.
+    /// The read lookup of a Kraken2 taxon off the main actor. `taxonomyDirectory` is the installed NCBI Taxonomy, which
+    /// the clade is judged with there (BIO-BLAST ruling B), nil when it is not installed.
     @concurrent nonisolated static func kraken2BlastLookup(
         taxonName: String,
         taxId: Int,
         tree: TaxonTree,
         classificationOutput: URL,
         sourceInputs: [URL],
-        readCount: Int
+        readCount: Int,
+        taxonomyDirectory: URL? = nil
     ) async throws -> BlastVerificationRequest {
         try await kraken2BlastVerificationRequest(
             taxonName: taxonName, taxId: taxId, tree: tree, classificationOutput: classificationOutput,
-            sourceInputs: sourceInputs, readCount: readCount
+            sourceInputs: sourceInputs, readCount: readCount, taxonomyDirectory: taxonomyDirectory
         )
     }
 

@@ -170,11 +170,14 @@ extension BlastCommand {
         /// network. It samples the taxon's fragments, with its descendants
         /// under `--include-children`. Hits are always judged against the
         /// whole clade and its genus relatives, even when only reads assigned
-        /// directly to the taxon are sampled.
+        /// directly to the taxon are sampled. With `taxonomyDirectory`, the
+        /// installed NCBI Taxonomy, a clade name another species holds judges
+        /// nothing, as in the app (BIO-BLAST ruling B).
         func verificationRequest(
             tree: TaxonTree,
             readFiles: KrakenResultReadSources,
-            service: BlastService
+            service: BlastService,
+            taxonomyDirectory: URL? = nil
         ) async throws -> BlastVerificationRequest {
             let targetTaxIds = includeChildren
                 ? blastCollectDescendantTaxIds(Set([taxId]), tree: tree)
@@ -187,7 +190,7 @@ extension BlastCommand {
                 sources: readFiles.blastReadSources,
                 readCount: readCount,
                 acceptedTaxonNames: targetTaxIds.compactMap { tree.node(taxId: $0)?.name }.sorted(),
-                taxonomyContext: tree.blastTaxonomyContext(for: taxId),
+                taxonomyContext: tree.blastTaxonomyContext(for: taxId, taxonomyDirectory: taxonomyDirectory),
                 seed: seed
             )
         }
@@ -279,8 +282,12 @@ extension BlastCommand {
             let service = BlastService.shared
             let runClock = ProvenanceRunClock()
             let built: BlastVerificationRequest
+            // The installed NCBI Taxonomy, which the app's Kraken 2 route reads too. It only looks, and never downloads.
+            let taxonomyDirectory = try? await MetagenomicsDatabaseRegistry.shared.installedDatabase(tool: .ncbiTaxonomy)?.path
             do {
-                built = try await verificationRequest(tree: tree, readFiles: readFiles, service: service)
+                built = try await verificationRequest(
+                    tree: tree, readFiles: readFiles, service: service, taxonomyDirectory: taxonomyDirectory
+                )
             } catch BlastServiceError.noSequences {
                 print(formatter.warning("No reads for taxon \(taxId) could be read from the classification output and source FASTQ"))
                 throw CLIExitCode.inputError.exitCode
