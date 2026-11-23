@@ -24,38 +24,65 @@ private final class EsVirituRecordingEvidenceViewer: NSObject, ClassifierAlignme
 }
 
 final class EsVirituResultViewControllerSmokeTests: XCTestCase {
-    @MainActor func testMetadataLayoutSurvivesRecreatingEsVirituList() throws {
-        let identity = "metadata-layout-test-\(UUID().uuidString)"
-        defer {
-            for key in UserDefaults.standard.dictionaryRepresentation().keys where key.contains(identity) {
-                UserDefaults.standard.removeObject(forKey: key)
-            }
-        }
+    /// A recreated EsViritu list writes no layout and starts from an old key's value (VS A10, QA 6). The EsViritu view
+    /// keeps its two layouts in view memory, and every route that makes a new list for a result on show goes through the
+    /// surface host's leave, which captures the view, and its restore before the install. So a person's shown and moved
+    /// columns come back through the store, which the EsViritu case of `ViewSwitchViewStateTests` pins, and never
+    /// through the account's defaults. Before VS A10 this pin read the layout back from `UserDefaults.standard`.
+    @MainActor func testARecreatedEsVirituListWritesNoLayoutAndStartsFromAnOldKeysValue() throws {
+        let suite = makeTestDefaultsSuite(prefix: "EsVirituResultViewControllerSmokeTests")
+        let identity = "/metadata-layout-test-\(UUID().uuidString)"
+        let oldKey = "org.lungfish.metadata-column-layout.esviritu.detections:" + identity
         let store = try SampleMetadataStore(
             csvData: Data("Sample\tGroup\nS1\tcase\n".utf8),
             knownSampleIds: ["S1"]
         )
-        let savedOrder: [String] = {
-            let first = ViralDetectionTableView()
-            first.resultIdentity = identity
-            first.metadataColumns.visibleColumns = ["Group"]
-            first.metadataColumns.update(store: store, sampleId: "S1")
-            let table = first.testOutlineView
-            table.moveColumn(table.column(withIdentifier: .init("metadata_Group")), toColumn: 0)
-            table.moveColumn(table.column(withIdentifier: .init("reads")), toColumn: 1)
-            return table.tableColumns.map { $0.identifier.rawValue }
-        }()
+        func layoutKeys() -> [String] {
+            (suite.defaults.persistentDomain(forName: suite.name) ?? [:]).keys.filter { $0.contains(identity) }.sorted()
+        }
+        func order(_ list: ViralDetectionTableView) -> [String] {
+            list.testOutlineView.tableColumns.map { $0.identifier.rawValue }
+        }
+        func makeList() -> ViralDetectionTableView {
+            let list = ViralDetectionTableView()
+            list.metadataColumns.userDefaults = suite.defaults
+            list.resultIdentity = identity
+            list.metadataColumns.update(store: store, sampleId: "S1")
+            return list
+        }
 
-        let other = ViralDetectionTableView()
-        other.resultIdentity = identity + "-other"
-        other.metadataColumns.update(store: store, sampleId: "S1")
-        XCTAssertTrue(other.metadataColumns.visibleColumns.isEmpty)
+        let first = ViralDetectionTableView()
+        first.metadataColumns.userDefaults = suite.defaults
+        first.resultIdentity = identity
+        first.metadataColumns.visibleColumns = ["Group"]
+        first.metadataColumns.update(store: store, sampleId: "S1")
+        let table = first.testOutlineView
+        table.moveColumn(table.column(withIdentifier: .init("metadata_Group")), toColumn: 0)
+        table.moveColumn(table.column(withIdentifier: .init("reads")), toColumn: 1)
+        let movedOrder = order(first)
+        // Leaving the key wrote its layout to the defaults before VS A10.
+        first.resultIdentity = identity + "-other"
+        XCTAssertEqual(layoutKeys(), [], "the list wrote a layout that view memory holds")
 
-        let restored = ViralDetectionTableView()
-        restored.resultIdentity = identity
-        restored.metadataColumns.update(store: store, sampleId: "S1")
-        XCTAssertEqual(restored.metadataColumns.visibleColumns, ["Group"])
-        XCTAssertEqual(restored.testOutlineView.tableColumns.map { $0.identifier.rawValue }, savedOrder)
+        let recreated = makeList()
+        XCTAssertTrue(recreated.metadataColumns.visibleColumns.isEmpty, "a new list read a layout no version saved")
+        XCTAssertNotEqual(order(recreated), movedOrder)
+
+        // A layout an older version saved under the key is the starting value, and it is never written back.
+        let saved = try JSONSerialization.data(withJSONObject: [
+            "version": 1, "visibleMetadata": ["Group"], "columnOrder": movedOrder, "metadataWidths": [String: Double](),
+        ] as [String: Any])
+        suite.defaults.set(saved, forKey: oldKey)
+        let fromOldKey = makeList()
+        XCTAssertEqual(fromOldKey.metadataColumns.visibleColumns, ["Group"])
+        XCTAssertEqual(order(fromOldKey), movedOrder)
+        let moved = fromOldKey.testOutlineView
+        moved.moveColumn(moved.column(withIdentifier: .init("reads")), toColumn: 0)
+        fromOldKey.resultIdentity = identity + "-other"
+        XCTAssertEqual(layoutKeys(), [oldKey], "the list wrote a key besides the old one")
+        XCTAssertEqual(suite.defaults.data(forKey: oldKey), saved, "the old value was written back")
+        let leaked = UserDefaults.standard.dictionaryRepresentation().keys.filter { $0.contains(identity) }
+        XCTAssertTrue(leaked.isEmpty, "\(leaked) reached the test host's own domain")
     }
 
     @MainActor func testDatabaseSelectionBuildsDetachedEvidenceRequestForDuplicateAccession() throws {
