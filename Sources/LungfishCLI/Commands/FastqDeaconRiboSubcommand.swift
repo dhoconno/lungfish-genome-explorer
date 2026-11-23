@@ -466,6 +466,12 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         }
 
         let urls = resolvedInputs.map(\.executionURL)
+        // FIX-ROUTES-6 C. Deacon pairs the two input files of `filter ... R1 R2` by position, so two loose files are read
+        // whole first. A pair that is cut, out of step by name, or not FASTQ or FASTA by name is refused with the words of
+        // every other route that runs a tool on a pair, exit 3, before the database is looked up and the tool starts.
+        if urls.count == 2, let words = try LooseMatePairCheck.refusal(r1: urls[0], r2: urls[1]) {
+            throw CLIError.validationFailed(errors: [words])
+        }
         _ = try Self.plannedOutputs(
             inputURLs: urls,
             namedAfter: resolvedInputs.map(\.originalURL),
