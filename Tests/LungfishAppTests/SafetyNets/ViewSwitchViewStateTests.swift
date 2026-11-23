@@ -44,7 +44,8 @@ protocol ViewStateDriver {
     func resetLineWords(in harness: ViewSwitchWindowHarness) -> String?
     /// Waits for the view's own reads after a show or a change, for a view whose controls settle off the main actor.
     func settle(in harness: ViewSwitchWindowHarness) async
-    /// Shapes the kind's fixture on disk before its first show, when the routing fixture is too small to change.
+    /// Shapes the kind's fixture on disk before its first show, when the routing fixture is too small to change
+    /// or a view needs more of it to show its controls, such as an MHC bundle given the reference its picker needs.
     func prepare(_ fixture: ViewSwitchFixture) throws
 }
 
@@ -53,6 +54,8 @@ extension ViewStateDriver {
     func resetLineWords(in harness: ViewSwitchWindowHarness) -> String? { harness.resetLineWords }
     /// A view whose controls hold the change at once has nothing to wait for.
     func settle(in harness: ViewSwitchWindowHarness) async {}
+
+    /// A fixture that holds a view to change as it is built needs nothing more.
     func prepare(_ fixture: ViewSwitchFixture) throws {}
 }
 
@@ -60,7 +63,8 @@ extension ViewStateDriver {
 enum ViewStateDrivers {
     /// One driver a kind that keeps its view.
     static let all: [any ViewStateDriver] = [
-        TwelveSViewStateDriver(), ReferenceViewStateDriver(route: .reference), ReferenceViewStateDriver(route: .mapping),
+        TwelveSViewStateDriver(), ReferenceViewportViewStateDriver(route: .reference),
+        ReferenceViewportViewStateDriver(route: .mapping), MHCReferenceViewStateDriver(),
         RNASeqViewStateDriver(), CellMapViewStateDriver(),
         Kraken2ViewStateDriver(), EsVirituViewStateDriver(), CzIdViewStateDriver(),
         GenotypeViewStateDriver(),
@@ -126,8 +130,8 @@ final class ViewSwitchViewStateTests: XCTestCase {
             "The declared gaps only shrink. Lower the ceiling in the change that adopts a kind."
         )
         XCTAssertEqual(
-            ViewStateDeclaredGaps.ceiling, 15,
-            "the ceiling after VS-REF, VS-RNA, VS-TAX and VS-GENO, which each family lane lowers"
+            ViewStateDeclaredGaps.ceiling, 14,
+            "the ceiling after VS-REF, VS-RNA, VS-TAX, VS-GENO and VS-MAP, which each family lane lowers"
         )
     }
 
@@ -836,6 +840,54 @@ final class ViewSwitchViewStateTests: XCTestCase {
         try driver.changeBundle(of: fixture)
         try await show(fixture, in: harness, driver: driver)
         XCTAssertNil(driver.settingsLineWords(in: harness), "a changed bundle restores no basis, so no settings line")
+    }
+
+    // MARK: - Reference and mapping viewport, MHC reference (VS-MAP)
+
+    /// A change made inside the viewer's half second debounce reaches the store when the next sidebar click removes
+    /// the surface (VS-REF SWIFT SF-1).
+    func testReferenceKeepsAChangeMadeInsideTheDebounceBeforeASwitch() async throws {
+        try await assertSwitchAwayAndBack(ReferenceViewportViewStateDriver(route: .reference, waitsForDebounce: false))
+    }
+
+    func testMappingResultKeepsAChangeMadeInsideTheDebounceBeforeASwitch() async throws {
+        try await assertSwitchAwayAndBack(ReferenceViewportViewStateDriver(route: .mapping, waitsForDebounce: false))
+    }
+
+    func testReferenceKeepsItsFocusedModeThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(ReferenceViewportViewStateDriver(route: .reference))
+    }
+
+    func testReferenceKeepsItsFocusedModeThroughARelaunch() async throws {
+        try await assertRelaunch(ReferenceViewportViewStateDriver(route: .reference))
+    }
+
+    func testReferenceKeepsItsFocusedModeOnAChangedBundle() async throws {
+        try await assertChangedBundle(ReferenceViewportViewStateDriver(route: .reference))
+    }
+
+    func testMappingResultKeepsItsFocusedModeThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(ReferenceViewportViewStateDriver(route: .mapping))
+    }
+
+    func testMappingResultKeepsItsFocusedModeThroughARelaunch() async throws {
+        try await assertRelaunch(ReferenceViewportViewStateDriver(route: .mapping))
+    }
+
+    func testMappingResultKeepsItsFocusedModeOnAChangedBundle() async throws {
+        try await assertChangedBundle(ReferenceViewportViewStateDriver(route: .mapping))
+    }
+
+    func testMHCReferenceKeepsItsModeThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(MHCReferenceViewStateDriver())
+    }
+
+    func testMHCReferenceKeepsItsModeThroughARelaunch() async throws {
+        try await assertRelaunch(MHCReferenceViewStateDriver())
+    }
+
+    func testMHCReferenceKeepsItsModeOnAChangedBundle() async throws {
+        try await assertChangedBundle(MHCReferenceViewStateDriver())
     }
 
     // MARK: - The three cases
