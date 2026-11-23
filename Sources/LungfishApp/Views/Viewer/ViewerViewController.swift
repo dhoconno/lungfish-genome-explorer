@@ -1014,6 +1014,9 @@ public class ViewerViewController: NSViewController {
     /// The store that keeps the reference view of each item on this Mac. A test injects its own.
     var viewMemoryStore: ViewMemoryStore = .shared
 
+    /// The visit to the bundle on show that a reference or mapping route opened with view memory.
+    var viewMemory: ReferenceViewerMemorySession?
+
     /// Handles Reset View for the bundle on show (`ViewerViewController+ViewMemory.swift`).
     @objc private func handleBundleViewStateResetRequested(_ notification: Notification) {
         guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }

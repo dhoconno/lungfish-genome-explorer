@@ -43,7 +43,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
 
     /// Displays a reference genome bundle using the harmonized viewport or direct sequence mode.
     public func displayBundle(at url: URL, mode: BundleDisplayMode, manifest: BundleManifest? = nil, bundle: ReferenceBundle? = nil) throws {
-        saveCurrentViewState()
+        leaveViewMemory()
         let context = try loadBundleDisplayContext(at: url, manifest: manifest, bundle: bundle)
         let displayRoute = ViewerDisplayRouteFactory.referenceBundleDisplayRoute(
             bundleURL: context.url,
@@ -55,14 +55,10 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         case .referenceViewport(let route):
             try display(route)
             (parent as? MainSplitViewController)?.wireDirectReferenceViewportInspectorUpdates()
-        case .sequence(let name, let restoreViewState):
+        case .sequence(let name, _):
+            // The reference and mapping routes restore a kept view after the settle (`ViewerViewController+ViewMemory.swift`).
             activateBundleDisplayContext(context)
-            try displayBundleSequence(
-                preferredSequenceName: name,
-                context: context,
-                installChromosomeNavigator: false,
-                restoreViewState: restoreViewState
-            )
+            try displayBundleSequence(preferredSequenceName: name, context: context, installChromosomeNavigator: false)
         }
     }
 
@@ -73,8 +69,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         try displayBundleSequence(
             preferredSequenceName: previousFrame?.chromosome,
             context: context,
-            installChromosomeNavigator: false,
-            restoreViewState: false
+            installChromosomeNavigator: false
         )
 
         if let previousFrame,
@@ -123,13 +118,9 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         let bundle = suppliedBundle ?? ReferenceBundle(url: url, manifest: manifest)
         let provider = BundleDataProvider(bundleURL: url, manifest: manifest, referenceBundle: bundle)
 
-        let viewStateURL = url.appendingPathComponent(BundleViewState.filename)
-        let viewState = FileManager.default.fileExists(atPath: viewStateURL.path)
-            ? BundleViewState.load(from: url)
-            : Self.defaultBundleViewStateFromAppSettings()
-        bundleLogger.info(
-            "displayBundle: Loaded view state (overrides=\(viewState.typeColorOverrides.count), chrom=\(viewState.lastChromosome ?? "none", privacy: .public))"
-        )
+        // A bundle's own file is never read on the main actor. The reference and mapping routes read an older
+        // bundle's file off it, as a starting view (`ViewerViewController+ViewMemory.swift`).
+        let viewState = Self.defaultBundleViewStateFromAppSettings()
 
         let chromosomes = resolvedChromosomes(for: manifest, bundle: bundle)
 
@@ -194,8 +185,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
     private func displayBundleSequence(
         preferredSequenceName: String?,
         context: BundleDisplayContext,
-        installChromosomeNavigator: Bool,
-        restoreViewState: Bool
+        installChromosomeNavigator: Bool
     ) throws {
         clearSurfaceForNewContent()
         hideCollectionBackButton()
@@ -245,10 +235,6 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         if let preferredSequenceName,
            let matchingChromosome = context.chromosomes.first(where: { $0.name == preferredSequenceName }) {
             targetChromosome = matchingChromosome
-        } else if restoreViewState,
-                  let savedChromosome = context.viewState.lastChromosome,
-                  let matchingChromosome = context.chromosomes.first(where: { $0.name == savedChromosome }) {
-            targetChromosome = matchingChromosome
         } else if let firstChromosome = firstChromosomeInNaturalOrder(context.chromosomes) {
             targetChromosome = firstChromosome
         } else {
@@ -263,24 +249,11 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             "displayBundle: Navigating to chromosome '\(targetChromosome.name, privacy: .public)' length=\(chromosomeLength)"
         )
 
-        let startPosition: Double
-        let endPosition: Double
-        if restoreViewState,
-           let savedOrigin = context.viewState.lastOrigin,
-           let savedScale = context.viewState.lastScale,
-           context.viewState.lastChromosome == targetChromosome.name {
-            startPosition = max(0, savedOrigin)
-            let span = savedScale * Double(effectiveWidth)
-            endPosition = min(Double(max(1, chromosomeLength)), startPosition + span)
-        } else {
-            startPosition = 0
-            endPosition = Double(max(1, chromosomeLength))
-        }
-
+        // The whole sequence. A kept place applies after the settle, clamped under VS B2.
         referenceFrame = ReferenceFrame(
             chromosome: targetChromosome.name,
-            start: startPosition,
-            end: endPosition,
+            start: 0,
+            end: Double(max(1, chromosomeLength)),
             pixelWidth: effectiveWidth,
             sequenceLength: chromosomeLength
         )
@@ -318,14 +291,13 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
                 if let frame = self.referenceFrame, self.viewerView.bounds.width > 0 {
                     frame.pixelWidth = Int(self.viewerView.bounds.width)
                 }
-                // The restore has settled. A save marked while it ran was its own echo, so drop it. A later save
-                // is compared with this state, so only a user change shows (S11).
+                // The display has settled. A save marked while it ran was its own echo, so drop it, then apply
+                // the view kept for the item, which a later capture compares with (VS S3).
                 if self.currentBundleURL == context.url {
                     self.viewStateSaveWorkItem?.cancel()
                     self.viewStateSaveWorkItem = nil
-                    var restored = self.capturedViewState()
-                    restored.markRestored()
-                    self.currentBundleViewState = restored
+                    self.currentBundleViewState = self.capturedViewState()
+                    self.viewMemorySettled(at: context.url)
                 }
 
                 self.viewerView.needsDisplay = true
@@ -662,11 +634,10 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
 
     /// Clears all bundle display state, removing the navigator and data provider.
     ///
-    /// Saves the current view state to the bundle before clearing so that
-    /// settings persist when the user navigates away.
+    /// Keeps a pending change in the view memory store before clearing, so
+    /// it persists when the user navigates away.
     public func clearBundleDisplay() {
-        // Save view state before clearing
-        saveCurrentViewState()
+        leaveViewMemory()
 
         bundleLogger.info("clearBundleDisplay: Clearing bundle state")
         hideBundleBackNavigationButton()
@@ -723,21 +694,20 @@ extension ViewerViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
     }
 
-    /// Writes the pending view state ahead of the debounce. Showing another bundle and clearing the display call
-    /// this. With no save pending it writes nothing, and neither does a state equal to the one restored, because
-    /// the Inspector reports a change when it takes restored settings and that save carries the restored values.
+    /// Keeps the pending view state ahead of the debounce, in the view memory store and never in the bundle (the
+    /// revisit of 2.6 S11). Showing another bundle and clearing the display call this. With no save pending it keeps
+    /// nothing, and the store keeps no view equal to the starting view (VS S3), such as the Inspector's echo.
     public func saveCurrentViewState() {
         guard let pending = viewStateSaveWorkItem else { return }
         pending.cancel()
         viewStateSaveWorkItem = nil
-        guard let bundleURL = currentBundleURL else { return }
-        var state = capturedViewState()
-        state.saveUnlessRestored(to: bundleURL)
-        currentBundleViewState = state
+        guard currentBundleURL != nil else { return }
+        currentBundleViewState = capturedViewState()
+        keepViewMemory()
     }
 
     /// The stored state with the viewer's live display settings and position written into it.
-    private func capturedViewState() -> BundleViewState {
+    func capturedViewState() -> BundleViewState {
         var state = currentBundleViewState ?? .default
         state.annotationHeight = Double(annotationDisplayHeight)
         state.annotationSpacing = Double(annotationDisplaySpacing)
