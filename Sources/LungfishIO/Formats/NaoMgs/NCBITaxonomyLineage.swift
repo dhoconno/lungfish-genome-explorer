@@ -60,9 +60,12 @@ public enum NCBITaxonomyLineage {
     /// the path's names, less any that a taxon outside the species root holds as a whole phrase, unless every such
     /// taxon sits under 28384 other sequences: Influenza A keeps "Influenza A virus", whose one outside holder is the
     /// lab construct synthetic Influenza A virus, and a Bat norovirus row drops "Bat norovirus", which Jingmen bat
-    /// norovirus 1, another Norovirus species, holds (BIO-BLAST ruling A). The clade has no relatives, as a route with no
-    /// tree has none. Its basis is `species` (BLAST-ESVIRITU-FIRST-WORD), and a caller that falls back to the row's own
-    /// tax ID or name sets its own.
+    /// norovirus 1, another Norovirus species, holds (BIO-BLAST ruling A). A species' own scientific name always stays,
+    /// whoever else holds it, since a species too large to list has no other way to judge its strains: Salmonella enterica
+    /// stays though hybrid taxa such as "Salmonella enterica subsp. enterica serovar Typhi x Shigella flexneri 2a" hold it
+    /// whole (BLAST-BIO-UX blocker 1). A root above species rank has no such exemption, since phages hold a genus name.
+    /// The clade has no relatives, as a route with no tree has none. Its basis is `species` (BLAST-ESVIRITU-FIRST-WORD),
+    /// and a caller that falls back to the row's own tax ID or name sets its own.
     public static func blastTaxonomyContext(
         of taxId: Int,
         names: [String],
@@ -87,8 +90,13 @@ public enum NCBITaxonomyLineage {
             let holders = scan.holders + (pathNames.isEmpty ? [] : scanScientificNames(
                 of: [], holding: pathNames, taxonomyDirectory: taxonomyDirectory
             ).holders)
+            // A species too large to list is judged by names alone, so its own scientific name always judges, whoever else
+            // holds it (hybrids such as Salmonella enterica subsp. enterica serovar Typhi x Shigella flexneri 2a hold it).
+            // A root above species rank has no such exemption: phages hold a genus name.
+            let speciesName = found.table.isSpeciesRank(clade.root) ? scan.names[clade.root] : nil
             let judging = accepted.indices.filter { index in
-                holders[index].allSatisfy { found.table.isUnder($0, clade.root) || found.table.isUnder($0, otherSequences) }
+                accepted[index] == speciesName
+                    || holders[index].allSatisfy { found.table.isUnder($0, clade.root) || found.table.isUnder($0, otherSequences) }
             }.map { accepted[$0] }
             return BlastTaxonomyContext(cladeTaxIds: clade.taxIds, cladeNames: judging, basis: .species)
         }
@@ -304,6 +312,11 @@ public enum NCBITaxonomyLineage {
                 current = parent
             }
             return false
+        }
+
+        /// Whether `taxId` has the rank species.
+        func isSpeciesRank(_ taxId: Int) -> Bool {
+            taxId > 0 && taxId < isSpecies.count && isSpecies[taxId]
         }
 
         /// The taxon and its ancestors up to the nearest species, or the taxon alone when it is a species or has none above it.

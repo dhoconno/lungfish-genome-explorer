@@ -181,4 +181,34 @@ final class NCBITaxonomyLineagePhraseLeakTests: XCTestCase {
         XCTAssertEqual(context.cladeNames, ["Norwalk virus", "Norovirus norwalkense"])
         XCTAssertEqual(relation("Norwalk virus Hu/X", 600_003, claim: "Bat norovirus", context), .clade)
     }
+
+    /// BLAST-BIO-UX blocker 1, red at `b77143ece`: the capped filter dropped the species' own name for Salmonella enterica
+    /// (28901, 5,778 descendants in the dump of 2026-10-09), because three hybrid taxa outside the species, such as 1985422
+    /// "Salmonella enterica subsp. enterica serovar Typhi x Shigella flexneri 2a" under 36866, hold it whole. A true
+    /// Salmonella enterica read topped by a strain record the clade does not list (220341, Typhi CT18) then read outside and
+    /// the row read Unsupported or Mixed. A species too large to list has no way to judge its strains but its own name, so
+    /// that name always judges, whoever else holds it. The names of the Norovirus and Influenza A tests above stay as they are.
+    func testASpeciesTooLargeToListKeepsItsOwnNameWhenOnlyHybridsHoldIt() throws {
+        try writeTaxonomy(Self.root + [
+            (590, 1, "genus", "Salmonella"),
+            (28901, 590, "species", "Salmonella enterica"),
+            (59201, 28901, "subspecies", "Salmonella enterica subsp. enterica"),
+            (90370, 59201, "no rank", "Salmonella enterica subsp. enterica serovar Typhi"),
+            (36866, 1, "no rank", "unclassified Enterobacteriaceae"),
+            (1985422, 36866, "no rank", "Salmonella enterica subsp. enterica serovar Typhi x Shigella flexneri 2a"),
+        ])
+        let serovar = "Salmonella enterica subsp. enterica serovar Typhi"
+
+        let typhi = try XCTUnwrap(
+            NCBITaxonomyLineage.blastTaxonomyContext(of: 90370, names: [serovar], taxonomyDirectory: directory, limit: 1)
+        )
+        XCTAssertEqual(typhi.cladeTaxIds, [90370, 59201, 28901], "the clade is too large to list, so it keeps its path")
+        XCTAssertEqual(typhi.cladeNames, ["Salmonella enterica"], "the hybrid holds the serovar and the subspecies, not the species' own name")
+        XCTAssertEqual(relation("\(serovar) str. CT18", 220341, claim: serovar, typhi), .clade)
+
+        let species = try XCTUnwrap(
+            NCBITaxonomyLineage.blastTaxonomyContext(of: 28901, names: ["Salmonella enterica"], taxonomyDirectory: directory, limit: 1)
+        )
+        XCTAssertEqual(species.cladeNames, ["Salmonella enterica"])
+    }
 }
