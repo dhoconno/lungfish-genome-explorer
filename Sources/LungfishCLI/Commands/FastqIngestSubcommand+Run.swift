@@ -334,6 +334,7 @@ struct FastqIngestRun {
         // outputs pointing at the new file (ruling on A47 M3, section 1).
         let existing = try Self.existingRecord(folder: folder, inputs: inputs)
         let replaced = options.deleteOriginals ? inputs : []
+        let originalInputs = inputs
         // The record takes each original's digest from the read above and never reopens the file,
         // which `--delete-originals` removes next. An input that stays as the output is read as usual.
         let consumed = Set(
@@ -364,10 +365,13 @@ struct FastqIngestRun {
             outputDirectory: folder,
             envelopeTransform: existing.map { found in
                 { fresh in
+                    // The merge takes the folder's root record, or else the first record among the inputs' own. The record of
+                    // an input's own that it did not take is the extraction's, and `retireSidecars` removes it with the
+                    // original, so its steps join the run before the merge (PAIRING-RECORD-LOST).
                     try InPlaceIngestionProvenance.mergedInPlaceIngestionEnvelope(
                         existingEnvelope: found.envelope,
                         sourceProvenanceURL: found.sourceURL,
-                        ingestionEnvelope: fresh,
+                        ingestionEnvelope: Self.carryingOwnRecords(of: originalInputs, into: fresh, besides: found),
                         replacedInputFiles: replaced,
                         finalFASTQURL: output,
                         finalFASTQDescriptor: ProvenanceFileDescriptor(fileRecord: outputRecord)
@@ -375,6 +379,40 @@ struct FastqIngestRun {
                 }
             }
         )
+    }
+
+    /// The steps of each input's own record, which the merge did not take, put in front of the run's steps in the order
+    /// they ran. An input's own record, `<file>.lungfish-provenance.json`, is the extraction's for a file that
+    /// `extract taxa-collection` wrote. It holds the source FASTQ with its digest, and the extraction's options, which the
+    /// step keeps as its resolved options. A step that the folder's record or the run holds already, by id, is not added
+    /// again, and a record that cannot be read is left out, since the run's own record is the one that must be written.
+    static func carryingOwnRecords(
+        of inputs: [URL],
+        into fresh: ProvenanceEnvelope,
+        besides found: (envelope: ProvenanceEnvelope, sourceURL: URL?)
+    ) -> ProvenanceEnvelope {
+        let mergedPath = found.sourceURL?.standardizedFileURL.path
+        var known = Set((found.envelope.steps + fresh.steps).map(\.id))
+        var carried: [ProvenanceStep] = []
+        for input in inputs {
+            let sidecar = ProvenanceRecorder.fileSidecarURL(for: input)
+            guard sidecar.standardizedFileURL.path != mergedPath,
+                  let own = try? ProvenanceEnvelopeReader.load(fromSidecar: sidecar)
+            else { continue }
+            let facts = own.options.resolvedDefaults
+                .merging(own.options.defaults) { _, option in option }
+                .merging(own.options.explicit) { _, option in option }
+            for step in own.steps where known.insert(step.id).inserted {
+                var carriedStep = step
+                carriedStep.resolvedOptions = facts.merging(step.resolvedOptions) { _, stepOption in stepOption }
+                carried.append(carriedStep)
+            }
+        }
+        guard !carried.isEmpty else { return fresh }
+        return fresh.with {
+            $0.steps = carried + fresh.steps
+            $0.files = fresh.files + carried.flatMap(\.inputs)
+        }
     }
 
     /// The name the run's record carries, which a cancelled run's record carries too.
@@ -399,10 +437,11 @@ struct FastqIngestRun {
 
     /// A removed original takes its own record and metadata sidecars with it, since both describe a file that
     /// is gone (WF-1). The output's sidecar carries the first input's metadata on. The run's record merges the
-    /// folder's root record when there is one, else the first record found among the inputs' own, so an
-    /// original's own record is carried only when it was the one merged. A retired record that was not merged,
-    /// the per-file extraction record of a taxa-collection file, is gone, and the folder keeps one record for
-    /// each file in it. The second file of a pair keeps its metadata sidecar, which the output's does not carry.
+    /// folder's root record when there is one, else the first record found among the inputs' own. An original's own
+    /// record that the merge did not take, the per-file extraction record of a taxa-collection file, is read by
+    /// `carryingOwnRecords` before the merge, so its steps stay in the folder's record when the file is gone
+    /// (PAIRING-RECORD-LOST), and the folder keeps one record for each file in it. The second file of a pair keeps
+    /// its metadata sidecar, which the output's does not carry.
     /// A sidecar that cannot be removed does not fail a run whose output is in place.
     private func retireSidecars(of original: URL) {
         var sidecars = [ProvenanceRecorder.fileSidecarURL(for: original)]
