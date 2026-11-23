@@ -188,8 +188,8 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
         )
         XCTAssertEqual(metadata[TaxTriageDatabase.fittedBAMSamplesMetadataKey], "[]", "no BAM in the copy, so none is fitted")
         XCTAssertEqual(
-            metadata[TaxTriageDatabase.readCountMetadataKey], "odr_reads_aligned+organism_references",
-            "Reads keep the report's # Reads Aligned, and every reference of each row's organism is stored"
+            metadata[TaxTriageDatabase.readCountMetadataKey], "odr_reads_aligned+organism_references+strain_groups",
+            "Reads keep the report's # Reads Aligned, and every reference of each row's organism is stored, and each strain a row sums"
         )
         XCTAssertEqual(metadata["tool"], "taxtriage")
         XCTAssertEqual(metadata["source_dir"], result.path, "the absolute path of the folder it was built from")
