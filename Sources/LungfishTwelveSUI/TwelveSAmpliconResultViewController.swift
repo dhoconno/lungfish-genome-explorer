@@ -1364,7 +1364,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         ].joined(separator: "\u{1}")
     }
 
-    private func notifyDisplaySummaryChanged() {
+    func notifyDisplaySummaryChanged() {
         #if DEBUG
         displaySummaryNotificationCount += 1
         #endif
@@ -1441,7 +1441,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         Dictionary(uniqueKeysWithValues: result?.samples.map { ($0.sampleID, $0.displayName) } ?? [])
     }
 
-    private func handleTargetSelection(_ rows: [TwelveSTargetSampleRow]) {
+    func handleTargetSelection(_ rows: [TwelveSTargetSampleRow]) {
         guard mode == .targets else { return }
         updateActionBar()
         if rows.count == 1, let row = rows.first {

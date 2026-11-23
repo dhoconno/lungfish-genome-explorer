@@ -41,7 +41,8 @@ public enum SurfaceShowOutcome: Sendable {
 ///
 /// The host also keeps each view (`Sources/LungfishKit/ViewMemory/`). It captures a ``ViewMemoryAdopting`` surface
 /// before ``ResultViewport/willDeactivate(replacedBy:)``, hands a new one its kept view after `load` and before the
-/// install, and draws the reset line above it when part of that view was not kept.
+/// install, and draws the reset line above it when part of that view was not kept. On the main actor's next turn,
+/// after the route has wired the surface's callbacks, it has the surface announce its view to them.
 @MainActor
 public final class ViewportHost {
     /// The installed surface, or nil while nothing is installed or a load is in flight.
@@ -181,6 +182,7 @@ public final class ViewportHost {
         viewMemorySession = memory?.session
         if let words = memory?.words { showResetLine(words) }
         activeViewportDidChange?(viewport)
+        if let memory { announceAfterTheRoute(memory) }
         return true
     }
 

@@ -52,6 +52,7 @@ extension ViewportHost {
                 if let line = ViewMemoryWords.line(loss: loss, selectionDropped: kept.selectionDropped) {
                     self.showResetLine(line)
                 }
+                adopter.announceViewMemory()
             }
             adopter.viewMemoryHandle = handle
             pending = handle
@@ -72,8 +73,23 @@ extension ViewportHost {
                 store.reset(key, kind: Adopter.ViewState.kind, folder: item.folder)
                 self?.removeResetLine()
                 _ = adopter?.restoreViewMemory(start.view, dataChanged: false)
-            })
-        return ViewMemoryOpening(session: session, words: words)
+                adopter?.announceViewMemory()
+            },
+            announce: { [weak adopter] in adopter?.announceViewMemory() })
+        return ViewMemoryOpening(session: session, words: words, announcesAtInstall: pending == nil)
+    }
+
+    /// Has the installed adopter announce its view on the main actor's next turn (SWIFT SF-1). The restore runs
+    /// inside `show`, and a route wires the surface's callbacks, such as the Inspector's, after `show` returns in the
+    /// same turn, so this one call in the host reaches every adopter's listeners and no route adds a line. Nothing is
+    /// told when another show or a clear removed the surface first.
+    func announceAfterTheRoute(_ opening: ViewMemoryOpening) {
+        guard opening.announcesAtInstall else { return }
+        let session = opening.session
+        Task { @MainActor [weak self] in
+            guard let self, self.viewMemorySession === session else { return }
+            session.announce()
+        }
     }
 
     /// Whether the data changed since the view was kept. A key part not read never compares equal (VS B1).

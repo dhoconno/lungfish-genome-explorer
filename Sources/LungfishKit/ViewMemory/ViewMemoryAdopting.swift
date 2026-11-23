@@ -36,9 +36,18 @@ public protocol ViewMemoryAdopting: ResultViewport {
     /// its rule. It returns what it could not bring back, where a clamp alone is no loss. It starts nothing: no write,
     /// tool, search or long load, and a restored selection runs no command (VS S4).
     func restoreViewMemory(_ state: ViewState, dataChanged: Bool) -> ViewMemoryLoss
+
+    /// Tells what listens to the surface, such as the Inspector, the view it shows now, as a person's change would.
+    /// A route wires those callbacks after `show` returns, which is after the restore, so the host calls this on the
+    /// main actor's next turn after the install, when the route has wired them, and at once after a late apply or a
+    /// reset. No route adds a line for it. It starts nothing a click does not (VS S4).
+    func announceViewMemory()
 }
 
 extension ViewMemoryAdopting {
+    /// An adopter with no listeners of its own tells nothing.
+    public func announceViewMemory() {}
+
     /// An adopter whose view is whole when `load` returns has no load of its own pending.
     public var viewMemoryLoadIsPending: Bool { false }
 
@@ -101,22 +110,26 @@ public enum ViewMemoryWords {
     }
 }
 
-/// The installed adopter's capture and reset, which the host keeps while the surface is installed.
+/// The installed adopter's capture, reset and announce, which the host keeps while the surface is installed.
 @MainActor
 final class ViewMemorySession {
     let capture: () -> Void
     let reset: () -> Void
+    let announce: () -> Void
 
-    init(capture: @escaping () -> Void, reset: @escaping () -> Void) {
+    init(capture: @escaping () -> Void, reset: @escaping () -> Void, announce: @escaping () -> Void) {
         self.capture = capture
         self.reset = reset
+        self.announce = announce
     }
 }
 
-/// A session and the words of its reset line, from the step between `load` and the install.
+/// A session and the words of its reset line, from the step between `load` and the install. A pending adopter
+/// announces its view when it applies, not at the install.
 struct ViewMemoryOpening {
     let session: ViewMemorySession
     let words: String?
+    let announcesAtInstall: Bool
 }
 
 /// The view an adopter started from, which a pending adopter may move once its own load commits.

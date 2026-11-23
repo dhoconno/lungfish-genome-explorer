@@ -22,6 +22,11 @@ public final class TwelveSSurface: ResultViewport {
     /// Detail tab out of the Inspector.
     public var onWillDeactivate: (@MainActor () -> Void)?
 
+    /// Where the result lives and its data key (VS B1), read once in `load`
+    /// (`TwelveSSurface+ViewMemory.swift`), never in a getter.
+    public internal(set) var viewMemoryItem: ViewMemoryItem?
+    public internal(set) var viewMemoryDataKey: String?
+
     /// A surface whose `configure` wires what the App owns, such as the BLAST
     /// submission of unresolved sequences, before the result is shown.
     public init(configure: @escaping @MainActor (TwelveSAmpliconResultViewController) -> Void = { _ in }) {
@@ -53,6 +58,7 @@ public final class TwelveSSurface: ResultViewport {
         let result = try expectInput(input, as: TwelveSAmpliconResultBundleData.self)
         configure(controller)
         controller.configure(result: result)
+        readViewMemoryIdentity(of: result)
 
         let sampleEntries = result.samples.map { sample in
             TwelveSSampleEntry(

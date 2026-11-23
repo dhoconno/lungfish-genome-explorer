@@ -53,18 +53,18 @@ public struct TwelveSViewState: ViewMemoryState {
 }
 
 extension TwelveSSurface: ViewMemoryAdopting {
-    /// Where the result lives. The 12S route reads the whole result before the show
-    /// (`MainSplitViewController+ContentDisplay.swift`), so this surface's load does not suspend and the host reads
-    /// this once, right after that load, for a few file attributes.
-    public var viewMemoryItem: ViewMemoryItem? {
-        controller.result.map { ViewMemoryItem.read(at: $0.bundleURL) }
-    }
-
-    /// The data key of VS B1: the manifest's output name and date with the size and modification time of each result
-    /// table, which the viewer read when the result opened (`heldResultStamp`). A rerun or an edit of a table changes
-    /// it, a metadata import does not, and a table that could not be read leaves the key unread.
-    public var viewMemoryDataKey: String? {
-        controller.result.flatMap { Self.viewMemoryDataKey(of: $0, stamp: controller.heldResultStamp) }
+    /// Reads where the result lives and its data key once, in `load`, and stores both in `viewMemoryItem` and
+    /// `viewMemoryDataKey`, so a capture and a restore read only memory. A surface whose load runs off the main actor
+    /// reads `ViewMemoryItem.read(at:)` there, which is what a family lane copies. The 12S route reads the whole result
+    /// on the main actor before the show (`MainSplitViewController+ContentDisplay.swift`) and this load cannot suspend,
+    /// so 12S reads the item's few file attributes on the main actor, once a show (SWIFT ruling R2).
+    ///
+    /// The data key of VS B1 is the manifest's output name and date with the size and modification time of each
+    /// result table, which the viewer read when the result opened (`heldResultStamp`). A rerun or an edit of a table
+    /// changes it, a metadata import does not, and a table that could not be read leaves the key unread.
+    func readViewMemoryIdentity(of result: TwelveSAmpliconResultBundleData) {
+        viewMemoryItem = ViewMemoryItem.read(at: result.bundleURL)
+        viewMemoryDataKey = Self.viewMemoryDataKey(of: result, stamp: controller.heldResultStamp)
     }
 
     static func viewMemoryDataKey(of result: TwelveSAmpliconResultBundleData, stamp: [String]) -> String? {
@@ -87,8 +87,8 @@ extension TwelveSSurface: ViewMemoryAdopting {
         )
     }
 
-    /// Applies a kept view, each field by its rule, through the same paths a person's change takes. A restored
-    /// selection reaches the viewer's own selection callback, as a click does, and nothing else starts.
+    /// Applies a kept view, each field by its rule, through the same paths a person's change takes, and starts
+    /// nothing. The route wires the Inspector after this runs, so `announceViewMemory()` tells it the view.
     public func restoreViewMemory(_ state: TwelveSViewState, dataChanged: Bool) -> ViewMemoryLoss {
         var lost: ViewMemoryLoss = []
         if let samples = state.samples, let picker = controller.samplePickerState {
@@ -100,22 +100,23 @@ extension TwelveSSurface: ViewMemoryAdopting {
             }
         }
 
+        let table = controller.targetTable
+        if !dataChanged, state.targetTable.columnFilters.activeFilters.isEmpty {
+            // Reset View hands back the starting view, whose empty filters the table part leaves alone. They clear
+            // before `applyDisplayState` runs its one pass, which redraws the rows, the column marks and the count.
+            table.columnFilterSet = state.targetTable.columnFilters
+        }
         var display = controller.displayState
         display.filterText = dataChanged ? "" : state.filterText
         if dataChanged, !state.filterText.isEmpty { lost.insert(.filters) }
         controller.applyDisplayState(display)
         controller.rebuildSampleColumns()
 
-        let table = controller.targetTable
         for column in table.tableView.tableColumns {
             if let width = state.columnWidths[column.identifier.rawValue] { column.width = CGFloat(width) }
         }
         var tableView = state.targetTable
         tableView.filterText = display.filterText
-        if !dataChanged, tableView.columnFilters.activeFilters.isEmpty {
-            // Reset View hands back the starting view, whose empty filters the table part leaves alone.
-            table.columnFilterSet = tableView.columnFilters
-        }
         if tableView.selectedIdentities.isEmpty, !table.tableView.selectedRowIndexes.isEmpty {
             table.tableView.deselectAll(nil)
         }
@@ -123,5 +124,15 @@ extension TwelveSSurface: ViewMemoryAdopting {
         if report.filtersDropped { lost.insert(.filters) }
         if report.selection?.lostAny == true { lost.insert(.selection) }
         return lost
+    }
+
+    /// Sends the Inspector the filters, the row count and the selected row's Detail through the viewer's own
+    /// callbacks. The host calls it after the route wired them (SWIFT SF-1). A selected row reads its species'
+    /// reference sequences off the main actor and moves the Inspector to its Detail tab, as a click does (SWIFT R8).
+    public func announceViewMemory() {
+        controller.onDisplayStateChanged?(controller.displayState)
+        controller.notifyDisplaySummaryChanged()
+        let selected = controller.targetTable.selectedRowsByIdentity()
+        if !selected.isEmpty { controller.handleTargetSelection(selected) }
     }
 }
