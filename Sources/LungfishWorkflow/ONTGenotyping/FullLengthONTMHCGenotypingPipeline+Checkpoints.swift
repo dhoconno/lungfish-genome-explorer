@@ -282,7 +282,8 @@ extension FullLengthONTMHCGenotypingPipeline {
                 referenceFASTAURL: referenceFASTAURL,
                 execution: execution
               )),
-              durableSampleCheckpointOutputsExist(for: checkpoint.result) else {
+              durableSampleCheckpointOutputsExist(for: checkpoint.result),
+              try sampleCheckpointOutputsAreIntact(checkpoint) else {
             return nil
         }
         return (checkpointURL, checkpoint.result)
@@ -313,6 +314,7 @@ extension FullLengthONTMHCGenotypingPipeline {
                 execution: execution
             ),
             result: result,
+            outputs: try sampleCheckpointOutputFingerprints(for: result),
             createdAt: Date()
         )
         let encoder = JSONEncoder()
@@ -320,6 +322,61 @@ extension FullLengthONTMHCGenotypingPipeline {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(checkpoint).write(to: checkpointURL, options: .atomic)
         return result
+    }
+
+    /// The outputs inside the sample's own directory, which a run of the sample writes and a stopped run can rewrite.
+    internal func sampleCheckpointOutputURLs(for result: FullLengthONTMHCSampleResult) -> [URL] {
+        var seen = Set<String>()
+        return (result.steps.flatMap(\.outputs) + [result.clustersFASTAURL])
+            .map(\.standardizedFileURL)
+            .filter { $0.path.contains("/samples/\(result.sample)/") }
+            .filter { seen.insert($0.path).inserted }
+            .sorted { $0.path < $1.path }
+    }
+
+    /// An output's path under `samples/<sample>/`, the same before and after the result bundle moves.
+    internal func sampleCheckpointRelativePath(of url: URL, sample: String) -> String? {
+        let path = url.standardizedFileURL.path
+        guard let range = path.range(of: "/samples/\(sample)/", options: .backwards) else { return nil }
+        return String(path[range.upperBound...])
+    }
+
+    internal func sampleCheckpointOutputFingerprints(
+        for result: FullLengthONTMHCSampleResult
+    ) throws -> [FullLengthONTMHCSampleOutputFingerprint] {
+        try sampleCheckpointOutputURLs(for: result).compactMap { url in
+            guard FileManager.default.fileExists(atPath: url.path),
+                  let relativePath = sampleCheckpointRelativePath(of: url, sample: result.sample) else { return nil }
+            let fingerprint = try FullLengthONTMHCFileFingerprint.fingerprint(url: url)
+            return FullLengthONTMHCSampleOutputFingerprint(
+                relativePath: relativePath, sha256: fingerprint.sha256, fileSizeBytes: fingerprint.fileSizeBytes
+            )
+        }
+    }
+
+    /// Every output of the sample is the file the checkpoint recorded when it was saved. A stopped rerun under another
+    /// signature can overwrite some outputs and leave the rest, which files that merely exist do not show.
+    internal func sampleCheckpointOutputsAreIntact(_ checkpoint: FullLengthONTMHCSampleCheckpoint) throws -> Bool {
+        let recorded = Dictionary(
+            checkpoint.outputs.map { ($0.relativePath, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        for url in sampleCheckpointOutputURLs(for: checkpoint.result) {
+            guard let relativePath = sampleCheckpointRelativePath(of: url, sample: checkpoint.result.sample),
+                  let expected = recorded[relativePath] else { return false }
+            let current: FullLengthONTMHCFileFingerprint
+            do {
+                current = try FullLengthONTMHCFileFingerprint.fingerprint(url: url)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                return false
+            }
+            guard current.sha256 == expected.sha256, current.fileSizeBytes == expected.fileSizeBytes else {
+                return false
+            }
+        }
+        return true
     }
 
     internal func sampleCheckpointURL(

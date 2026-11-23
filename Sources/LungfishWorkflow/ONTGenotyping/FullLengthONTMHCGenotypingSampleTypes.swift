@@ -134,23 +134,35 @@ internal struct FullLengthONTMHCSampleResult: Sendable, Codable {
 }
 
 internal struct FullLengthONTMHCSampleCheckpoint: Sendable, Codable {
-    static let schemaVersion = "full-length-ont-mhc-sample-checkpoint/3"
+    /// /4 records the fingerprint of each sample output, so a checkpoint of /3 has nothing to check reuse against.
+    static let schemaVersion = "full-length-ont-mhc-sample-checkpoint/4"
 
     let schemaVersion: String
     let signature: FullLengthONTMHCSampleCheckpointSignature
     let result: FullLengthONTMHCSampleResult
+    /// Each output of the sample as it stood when this checkpoint was saved. Reuse needs every output to match.
+    let outputs: [FullLengthONTMHCSampleOutputFingerprint]
     let createdAt: Date
 
     init(
         signature: FullLengthONTMHCSampleCheckpointSignature,
         result: FullLengthONTMHCSampleResult,
+        outputs: [FullLengthONTMHCSampleOutputFingerprint],
         createdAt: Date
     ) {
         self.schemaVersion = Self.schemaVersion
         self.signature = signature
         self.result = result
+        self.outputs = outputs
         self.createdAt = createdAt
     }
+}
+
+/// A sample output at save time, named by its path under `samples/<sample>/` so the record holds when the bundle moves.
+internal struct FullLengthONTMHCSampleOutputFingerprint: Sendable, Codable, Equatable {
+    let relativePath: String
+    let sha256: String
+    let fileSizeBytes: UInt64
 }
 
 internal struct FullLengthONTMHCSampleCheckpointSignature: Sendable, Codable, Equatable {
