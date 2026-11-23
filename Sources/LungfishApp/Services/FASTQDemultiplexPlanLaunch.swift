@@ -66,12 +66,26 @@ struct DemultiplexPlanDefinition {
             }
             outputs[output.lowercased()] = label
             let barcode = (row.forwardBarcodeID ?? row.reverseBarcodeID).flatMap { id in kit.barcodes.first { $0.id == id } }
-            guard let sequence = barcode?.i7Sequence ?? row.forwardSequence, !sequence.isEmpty else {
+            // The 5' and 3' Sequence cells the person typed are the run's, and the kit's sequence fills an untyped one
+            // (DEMUXPLAN K5).
+            let i7s = Set(kit.barcodes.map { $0.i7Sequence.uppercased() })
+            let typedFirst = Self.typedSequence(row.forwardSequence, kitSequence: barcode?.i7Sequence, kitSequences: i7s)
+            var first = typedFirst ?? barcode?.i7Sequence ?? row.forwardSequence
+            if !hasSecondary,
+               let typedLast = Self.typedSequence(row.reverseSequence, kitSequence: barcode?.i7Sequence, kitSequences: i7s) {
+                if let typedFirst, typedFirst != typedLast {
+                    throw DemultiplexPlanRefusal(words: "\(label) has the 5' sequence \(typedFirst) and the 3' sequence \(typedLast). \(kit.displayName) gives each sample one barcode, so the run searches one sequence. Type the same sequence in both cells.")
+                }
+                first = typedLast
+            }
+            guard let sequence = first, !sequence.isEmpty else {
                 throw DemultiplexPlanRefusal(words: "\(label) has no barcode sequence. Choose its barcode in the table.")
             }
             var fields = [output, sequence]
             if hasSecondary {
-                guard let secondary = barcode?.i5Sequence else {
+                let i5s = Set(kit.barcodes.compactMap { $0.i5Sequence?.uppercased() })
+                let typedLast = Self.typedSequence(row.reverseSequence, kitSequence: barcode?.i5Sequence, kitSequences: i5s)
+                guard let secondary = typedLast ?? barcode?.i5Sequence else {
                     throw DemultiplexPlanRefusal(words: "\(label) has no second index in \(kit.displayName). Choose one of the kit's barcodes in the table.")
                 }
                 fields.append(secondary)
@@ -80,6 +94,16 @@ struct DemultiplexPlanDefinition {
             lines.append(fields.map(Self.csvField).joined(separator: ","))
         }
         csvText = lines.joined(separator: "\n") + "\n"
+    }
+
+    /// The sequence the person typed in a row's cell, or nil when the cell is empty or holds the kit's sequence of the
+    /// row's barcode. A cell that holds another barcode's sequence of the kit is nil too: the drawer keeps a cell's
+    /// sequence when the person changes the row's barcode ID, so that sequence is the earlier barcode's and not typed.
+    /// A row with no barcode of the kit gives its cell as it is.
+    private static func typedSequence(_ cell: String?, kitSequence: String?, kitSequences: Set<String>) -> String? {
+        guard let cell = cell?.uppercased(), !cell.isEmpty else { return nil }
+        if kitSequence != nil, cell == kitSequence?.uppercased() || kitSequences.contains(cell) { return nil }
+        return cell
     }
 
     /// A CSV field, quoted as RFC 4180 quotes one when it holds a comma, a quote or a tab.
@@ -130,7 +154,8 @@ struct FASTQDemultiplexPlanLaunch {
         return Self(definitionURL: url, inputURLs: [datasetURL], step: step)
     }
 
-    /// Sets Demultiplex Barcodes to the plan's definition, location, error rate, distances and trim. When a row of the
+    /// Sets Demultiplex Barcodes to the plan's definition, location, error rate, distances, trim, Min Overlap, Allow
+    /// Indels and Search reverse complement. When a row of the
     /// plan records the read-name route, as Detect's Proceed writes it for a count from the read names, the engine is
     /// Read Names, which writes `--engine header-index`, so the plan's route no longer rests on the probe (ruling
     /// ARCH-DEMUX-PLAN-CONTROL C5, ARCH pin 6). Otherwise the engine stays at the dialog's default, which writes no
@@ -150,5 +175,9 @@ struct FASTQDemultiplexPlanLaunch {
         state.demultiplexMaxDistanceFrom5Prime = step.maxSearchDistance5Prime
         state.demultiplexMaxDistanceFrom3Prime = step.maxSearchDistance3Prime
         state.demultiplexTrimBarcodes = step.trimBarcodes
+        // The Demux tab's Min Overlap, Allow Indels and Search reverse complement (DEMUXPLAN K2).
+        state.demultiplexMinimumOverlap = step.minimumOverlap
+        state.demultiplexAllowIndels = step.allowIndels
+        state.demultiplexSearchReverseComplement = step.searchReverseComplement
     }
 }
