@@ -2342,7 +2342,7 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
     }
 
 
-    func testHaplotypedBundleRemembersGenotypeMatrixSummaryPreference() throws {
+    func testHaplotypedBundleRemembersGenotypeMatrixSummaryPreference() async throws {
         let projectRoot = try TestTempDirectory.make(prefix: "GenotypeSummaryPreference")
         defer { TestTempDirectory.cleanup(projectRoot) }
         let bundleURL = projectRoot
@@ -2375,19 +2375,27 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
             ]
         )
         let result = makeResult(bundleURL: bundleURL, samples: [], calls: calls, haplotypeAnalysis: analysis)
+        let storeRoot = try TestTempDirectory.make(prefix: "GenotypeSummaryPreferenceStore")
+        defer { TestTempDirectory.cleanup(storeRoot) }
+        let store = ViewMemoryStore(root: storeRoot.appendingPathComponent("view-memory", isDirectory: true))
         let controller = makeMatrixAnnotationGuardedController()
+        controller.viewMemoryStore = store
         _ = controller.view
         controller.configure(result: result)
+        await waitUntil(budget: .standard) { controller.viewMemoryIsSettled }
         XCTAssertEqual(controller.testingSummaryViewMode, .outline)
 
         controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix))
-        // The choice is app state since plan decision S11, so annotations.json stays unwritten.
+        // The choice is view memory in the store since the revisit of plan decision S11, so the bundle stays unwritten.
         XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename).path))
-        XCTAssertEqual(GenotypeResultViewState.load(fromBundleAt: bundleURL)?.preferredSummaryViewMode, GenotypeSummaryViewMode.matrix.rawValue)
+        XCTAssertNil(GenotypeResultViewState.load(fromBundleAt: bundleURL), "the choice writes no app state file")
+        controller.detachHostPresentationCallbacks()
 
         let restored = makeMatrixAnnotationGuardedController()
+        restored.viewMemoryStore = store
         _ = restored.view
         restored.configure(result: result)
+        await waitUntil(budget: .standard) { restored.viewMemoryIsSettled }
 
         XCTAssertEqual(restored.testingSummaryViewMode, .matrix)
     }
