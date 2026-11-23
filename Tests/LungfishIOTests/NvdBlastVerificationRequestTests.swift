@@ -107,7 +107,10 @@ final class NvdBlastVerificationRequestTests: XCTestCase {
 
         let judged = hit.blastVerificationRequest(taxonName: "Human rotavirus A", sequence: "ACGT", taxonomyDirectory: directory)
         XCTAssertEqual(judged.acceptedTaxIds, [3432193, 28875, 10941, 42567])
-        XCTAssertEqual(judged.acceptedTaxonNames, ["Human rotavirus A", "Rotavirus A", "Rotavirus alphagastroenteritidis"])
+        XCTAssertEqual(
+            judged.acceptedTaxonNames, ["Human rotavirus A"],
+            "the clade lists every tax ID, so no path name judges (BLAST-NAME-PHRASE-LEAK)"
+        )
         XCTAssertEqual(judged.taxId, 10941, "the claim stays the row's own taxon")
         let result = try BlastService().buildVerificationResult(
             request: judged, searchResults: search, rid: "RID", submittedAt: Date(), completedAt: Date()

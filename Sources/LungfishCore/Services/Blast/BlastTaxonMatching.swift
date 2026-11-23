@@ -29,7 +29,8 @@ public struct BlastTaxonomyContext: Sendable, Codable, Equatable {
     /// Tax IDs of the queried taxon and its descendants.
     public var cladeTaxIds: Set<Int>
 
-    /// Names of the queried taxon and its descendants.
+    /// Names of the queried taxon and its descendants, the only names that can put a tax ID the clade does not list
+    /// in the clade. A builder leaves out a name that a taxon outside the clade holds (BLAST-NAME-PHRASE-LEAK).
     public var cladeNames: [String]
 
     /// Tax IDs in the queried taxon's genus but outside the clade.
@@ -69,13 +70,16 @@ public struct BlastTaxonomyContext: Sendable, Codable, Equatable {
 ///
 /// 1. A hit that reports a tax ID is judged by tax ID. A tax ID in the clade
 ///    is `.clade`, one in the related set is `.relative`.
-/// 2. A tax ID the classifier's tree does not contain (NCBI nt often files
-///    records under strain-level tax IDs such as 10299, HSV-1 strain 17, that
-///    a Kraken 2 report never lists) is judged by name: whole-phrase
-///    containment of a clade name makes it `.clade`, a genus name or a
+/// 2. A tax ID the clade does not list (NCBI nt often files records under
+///    strain-level tax IDs such as 10299, HSV-1 strain 17, that a Kraken 2
+///    report never lists) is judged by name: whole-phrase containment of one
+///    of the context's clade names makes it `.clade`, a genus name or a
 ///    sibling in a numbered virus series ("Human alphaherpesvirus 2" beside
 ///    "Human alphaherpesvirus 1") makes it `.relative`, anything else is
-///    `.outside`. The first-word "genus" rule is never used here, because
+///    `.outside`. The queried name never makes a hit `.clade` here: a builder
+///    that reads the NCBI Taxonomy leaves out a name that a taxon outside the
+///    clade holds, so a record the dump files in another species is `.outside`
+///    (BLAST-NAME-PHRASE-LEAK). The first-word "genus" rule is never used here, because
 ///    host-prefixed virus names ("Human alphaherpesvirus 1", "Human
 ///    gammaherpesvirus 4") share a first word without sharing a genus.
 /// 3. Only when the hit has no tax ID, or the caller supplied no clade tax
@@ -98,14 +102,15 @@ public enum BlastTaxonMatching {
         if context.relatedTaxIds.contains(hitTaxId) { return .relative }
 
         let organism = hitOrganism ?? ""
-        let cladeNames = context.cladeNames + [queriedTaxonName]
-        if cladeNames.contains(where: { containsPhrase(organism, $0) }) {
+        // Only the context's clade names put an unlisted tax ID in the clade. A builder leaves out a name that a taxon
+        // outside the clade holds, so the queried name is never added back here (BLAST-NAME-PHRASE-LEAK).
+        if context.cladeNames.contains(where: { containsPhrase(organism, $0) }) {
             return .clade
         }
         if context.relatedNames.contains(where: { containsPhrase(organism, $0) }) {
             return .relative
         }
-        if cladeNames.contains(where: { isNumberedSeriesSibling(organism, of: $0) }) {
+        if (context.cladeNames + [queriedTaxonName]).contains(where: { isNumberedSeriesSibling(organism, of: $0) }) {
             return .relative
         }
         return .outside

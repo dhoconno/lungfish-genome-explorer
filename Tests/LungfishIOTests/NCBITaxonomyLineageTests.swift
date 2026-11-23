@@ -160,11 +160,20 @@ final class NCBITaxonomyLineageTests: XCTestCase {
 
         XCTAssertEqual(context.cladeTaxIds, [3432193, 28875, 10941, 42567])
         XCTAssertEqual(
-            context.cladeNames, ["Human rotavirus A", "Rotavirus A", "Rotavirus alphagastroenteritidis"],
-            "the row's own names lead, then the path's names, and a sibling or the genus adds no name"
+            context.cladeNames, ["Human rotavirus A"],
+            "the clade lists every tax ID, so only the row's own name judges and no path name does (BLAST-LINEAGE-PATH-NAMES)"
         )
         XCTAssertTrue(context.relatedTaxIds.isEmpty)
         XCTAssertTrue(context.relatedNames.isEmpty)
+
+        let capped = try XCTUnwrap(
+            NCBITaxonomyLineage.blastTaxonomyContext(of: 10941, names: ["Human rotavirus A"], taxonomyDirectory: directory, limit: 2)
+        )
+        XCTAssertEqual(capped.cladeTaxIds, [10941, 28875, 3432193])
+        XCTAssertEqual(
+            capped.cladeNames, ["Human rotavirus A", "Rotavirus A", "Rotavirus alphagastroenteritidis"],
+            "a clade too large to list keeps the path's names after the row's own, and a sibling or the genus adds no name"
+        )
     }
 
     func testTheBlastContextIsNilWithNoLineageAndKeepsTheRowsNamesWithNoNamesFile() throws {
@@ -211,9 +220,10 @@ final class NCBITaxonomyLineageTests: XCTestCase {
             "28875\t|\tRotavirus A\t|\t\t|\tauthority\t|",
             "3432193\t|\tRotavirus alphagastroenteritidis\t|\t\t|\tscientific na",
         ]
+        // A clade too large to list reads the path's names (BLAST-NAME-PHRASE-LEAK keeps them only there).
         func context() throws -> BlastTaxonomyContext {
             try XCTUnwrap(
-                NCBITaxonomyLineage.blastTaxonomyContext(of: 10941, names: ["Human rotavirus A"], taxonomyDirectory: directory)
+                NCBITaxonomyLineage.blastTaxonomyContext(of: 10941, names: ["Human rotavirus A"], taxonomyDirectory: directory, limit: 2)
             )
         }
 
@@ -221,7 +231,7 @@ final class NCBITaxonomyLineageTests: XCTestCase {
         try shapes.joined(separator: "\n").write(to: namesURL, atomically: true, encoding: .utf8)
         let odd = try context()
         XCTAssertEqual(odd.cladeNames, ["Human rotavirus A"])
-        XCTAssertEqual(odd.cladeTaxIds, [3432193, 28875, 10941, 42567])
+        XCTAssertEqual(odd.cladeTaxIds, [10941, 28875, 3432193])
 
         // A real scientific-name row ahead of them adds its name.
         let real = "28875\t|\tRotavirus A\t|\t\t|\tscientific name\t|"
@@ -252,7 +262,7 @@ final class NCBITaxonomyLineageTests: XCTestCase {
         try lines.joined(separator: "\n").write(to: directory.appendingPathComponent("names.dmp"), atomically: true, encoding: .utf8)
 
         let context = try XCTUnwrap(
-            NCBITaxonomyLineage.blastTaxonomyContext(of: 10941, names: ["Human rotavirus A"], taxonomyDirectory: directory)
+            NCBITaxonomyLineage.blastTaxonomyContext(of: 10941, names: ["Human rotavirus A"], taxonomyDirectory: directory, limit: 2)
         )
         XCTAssertEqual(context.cladeNames, ["Human rotavirus A", "Rotavirus A", "Rotavirus alphagastroenteritidis"])
 

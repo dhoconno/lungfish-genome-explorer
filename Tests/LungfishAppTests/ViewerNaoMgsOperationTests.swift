@@ -244,7 +244,7 @@ final class ViewerNaoMgsOperationTests: XCTestCase {
             projectURL: fixture.project, taxonomyDirectory: fixture.taxonomy
         )
         XCTAssertEqual(Set(plan.request.acceptedTaxIds), [3432193, 28875, 10941, 42567])
-        XCTAssertEqual(plan.request.acceptedNames, ["Human rotavirus A", "Rotavirus A", "Rotavirus alphagastroenteritidis"])
+        XCTAssertEqual(plan.request.acceptedNames, ["Human rotavirus A"], "no path name judges (BLAST-NAME-PHRASE-LEAK)")
         XCTAssertEqual(plan.request.taxId, 10941, "the claim stays the row's own taxon")
 
         let result = judge(Self.tiedParentReads, taxon: "Human rotavirus A", taxId: 10941, plan: plan)
@@ -283,9 +283,10 @@ final class ViewerNaoMgsOperationTests: XCTestCase {
         XCTAssertEqual(host.contradictingCount, 1, "a real other organism still contradicts")
     }
 
-    /// The plan adds the scientific name of every node on the path up to the species (BLAST-LINEAGE BIO SF3), so a record
-    /// the dump does not list still counts when its organism holds a path name whole, and a record of another species does not.
-    func testNaoMgsPathNameCountsAnUnlistedRecordOfTheSpeciesAndNoOtherSpecies() throws {
+    /// The clade lists every tax ID, so no path name judges (BLAST-NAME-PHRASE-LEAK, which reverses BLAST-LINEAGE BIO SF3):
+    /// a record the dump does not list counts only when its organism holds the row's own name, and a record of another
+    /// species never does.
+    func testNaoMgsRecordTheDumpDoesNotListCountsOnlyByTheRowsOwnName() throws {
         let scratch = try TestTempDirectory.make(prefix: "nao-mgs-path-name")
         defer { TestTempDirectory.cleanup(scratch) }
         let fixture = try Self.makeSpeciesFixture(scratch)
@@ -300,7 +301,11 @@ final class ViewerNaoMgsOperationTests: XCTestCase {
         let newer = judge(
             readTopped(by: ("Rotavirus A strain RVA/Human-wt/Z1", 99_999_999)), taxon: "Human rotavirus A", taxId: 10941, plan: plan
         )
-        XCTAssertEqual(newer.supportingCount, 1, "a record newer than the dump counts by the path name Rotavirus A")
+        XCTAssertEqual(newer.supportingCount, 0, "a record newer than the dump no longer counts by the path name Rotavirus A")
+        let newerHuman = judge(
+            readTopped(by: ("Human rotavirus A strain Z1", 99_999_999)), taxon: "Human rotavirus A", taxId: 10941, plan: plan
+        )
+        XCTAssertEqual(newerHuman.supportingCount, 1, "a record newer than the dump counts by the row's own name")
 
         let other = judge(readTopped(by: ("Rotavirus B", 28876)), taxon: "Human rotavirus A", taxId: 10941, plan: plan)
         XCTAssertEqual(other.readResults.first?.matchesQueriedTaxon, false, "Rotavirus B is another species and holds no path name")

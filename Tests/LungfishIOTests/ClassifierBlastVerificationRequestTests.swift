@@ -104,7 +104,10 @@ final class ClassifierBlastVerificationRequestTests: XCTestCase {
 
         let judged = organism.blastVerificationRequest(sequences: [("read1", "ACGT")], taxonomyDirectory: directory)
         XCTAssertEqual(judged.acceptedTaxIds, [3432193, 28875, 10941, 42567])
-        XCTAssertEqual(judged.acceptedTaxonNames, ["Human rotavirus A", "Rotavirus A", "Rotavirus alphagastroenteritidis"])
+        XCTAssertEqual(
+            judged.acceptedTaxonNames, ["Human rotavirus A"],
+            "the clade lists every tax ID, so no path name judges (BLAST-NAME-PHRASE-LEAK)"
+        )
         XCTAssertEqual(judged.taxId, 10941, "the claim stays the row's own taxon")
         let result = try judge(judged, against: top)
         XCTAssertEqual(result.supportingCount, 1)

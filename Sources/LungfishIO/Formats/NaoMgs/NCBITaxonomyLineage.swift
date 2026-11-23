@@ -24,16 +24,68 @@ public enum NCBITaxonomyLineage {
         public let path: [Int]
         /// `path`, plus every descendant of `root` when there are at most `limit` of them.
         public let taxIds: Set<Int>
+        /// Whether `taxIds` lists every tax ID of the clade, false when the root has more than `limit` descendants.
+        public let listsEveryTaxId: Bool
     }
 
     /// The clade of `taxId`, or nil when `nodes.dmp` is missing or does not hold `taxId`. An ID NCBI merged into another is
     /// not in `nodes.dmp`, so `merged.dmp`, when present, names the ID it became, and the clade is that ID's. `path` then
     /// starts at the new ID.
     ///
+    /// A species whose scientific name ends in " sp.", such as "Human rhinovirus sp.", is NCBI's catch-all for records
+    /// whose species nobody named, so it roots no clade (BLAST-CATCHALL-SPECIES). A claim below it is judged at the
+    /// claimed taxon and its own descendants, and a claim on it keeps none of its children, since they need not be one
+    /// species. Its name is read from `names.dmp`, and without that file every species roots its clade.
+    ///
     /// - Parameter limit: The most descendants of the root the clade lists, which keeps the `--accepted-taxid` pairs of
     ///   `blast submit` well under the argv limit. A root with more keeps only `path`, and the name rule of
     ///   `BlastTaxonMatching` still takes a strain record that holds a path name.
     public static func speciesClade(of taxId: Int, taxonomyDirectory: URL, limit: Int = 5_000) -> SpeciesClade? {
+        guard let found = nodeTable(holding: taxId, taxonomyDirectory: taxonomyDirectory) else { return nil }
+        let path = found.table.pathToSpecies(from: found.taxId)
+        let speciesRoot = path.last ?? found.taxId
+        let rootName = scanScientificNames(of: [speciesRoot], holding: [], taxonomyDirectory: taxonomyDirectory).names[speciesRoot]
+        return buildClade(of: found.taxId, speciesPath: path, in: found.table, speciesName: rootName, limit: limit)
+    }
+
+    /// The taxonomy a BLAST claim of `taxId` is judged against at species level, or nil when the directory is nil, the
+    /// tax ID is 0 or less, or the taxonomy does not hold it, so the caller keeps its own `[taxId]`.
+    ///
+    /// When the clade lists every tax ID, a hit's tax ID decides, and names judge only an ID the dump lacks, such as a
+    /// strain newer than the dump. The clade names are then `names`, the row's own, less any name that the scientific
+    /// name of a taxon outside the clade holds as a whole phrase, so no record the dump files in another species, such
+    /// as Woolly monkey hepatitis B virus for a Hepatitis B virus row, matches by name. No path name judges
+    /// (BLAST-NAME-PHRASE-LEAK, BLAST-LINEAGE-PATH-NAMES). When the species has more descendants than `limit` (Influenza A
+    /// and B and Norovirus in the dump of 2026-10-09), names must judge its strains, so the clade names stay `names`
+    /// and the path's names, as before. The clade has no relatives, as a route with no tree has none. Its basis is
+    /// `species` (BLAST-ESVIRITU-FIRST-WORD), and a caller that falls back to the row's own tax ID or name sets its own.
+    public static func blastTaxonomyContext(
+        of taxId: Int,
+        names: [String],
+        taxonomyDirectory: URL?,
+        limit: Int = 5_000
+    ) -> BlastTaxonomyContext? {
+        guard let taxonomyDirectory, let found = nodeTable(holding: taxId, taxonomyDirectory: taxonomyDirectory)
+        else { return nil }
+        let path = found.table.pathToSpecies(from: found.taxId)
+        let scan = scanScientificNames(of: Set(path), holding: names, taxonomyDirectory: taxonomyDirectory)
+        let clade = buildClade(
+            of: found.taxId, speciesPath: path, in: found.table, speciesName: scan.names[path.last ?? found.taxId], limit: limit
+        )
+        guard clade.listsEveryTaxId else {
+            var accepted = names
+            for id in clade.path {
+                if let name = scan.names[id], !accepted.contains(name) { accepted.append(name) }
+            }
+            return BlastTaxonomyContext(cladeTaxIds: clade.taxIds, cladeNames: accepted, basis: .species)
+        }
+        let judging = names.indices.filter { scan.holders[$0].allSatisfy(clade.taxIds.contains) }.map { names[$0] }
+        return BlastTaxonomyContext(cladeTaxIds: clade.taxIds, cladeNames: judging, basis: .species)
+    }
+
+    /// The table of one read of `nodes.dmp` and the ID `taxId` stands under there, its own or the one `merged.dmp` says
+    /// it became, or nil when the file is missing or holds neither.
+    private static func nodeTable(holding taxId: Int, taxonomyDirectory: URL) -> (table: NodeTable, taxId: Int)? {
         guard taxId > 0, taxId < largestTaxId,
               let dump = try? Data(contentsOf: taxonomyDirectory.appendingPathComponent("nodes.dmp"), options: .mappedIfSafe)
         else { return nil }
@@ -41,38 +93,24 @@ public enum NCBITaxonomyLineage {
         guard let current = table.holds(taxId) ? taxId : mergedTaxId(of: taxId, taxonomyDirectory: taxonomyDirectory),
               table.holds(current)
         else { return nil }
-
-        let path = table.pathToSpecies(from: current)
-        let root = path.last ?? current
-        var taxIds = Set(path)
-        if let descendants = table.descendants(of: root, limit: limit) {
-            taxIds.formUnion(descendants)
-        }
-        return SpeciesClade(root: root, path: path, taxIds: taxIds)
+        return (table, current)
     }
 
-    /// The taxonomy a BLAST claim of `taxId` is judged against at species level, or nil when the directory is nil, the
-    /// tax ID is 0 or less, or the taxonomy does not hold it, so the caller keeps its own `[taxId]`.
-    ///
-    /// The clade names are `names`, the row's own, then the scientific names of the path that `names.dmp` holds. A path
-    /// name puts "Rotavirus A" beside "Human rotavirus A", so a strain record the clade does not list still counts when
-    /// its organism holds one. The clade has no relatives, as a route with no tree has none. Its basis is `species`
-    /// (BLAST-ESVIRITU-FIRST-WORD), and a caller that falls back to the row's own tax ID or name sets its own.
-    public static func blastTaxonomyContext(
-        of taxId: Int,
-        names: [String],
-        taxonomyDirectory: URL?,
-        limit: Int = 5_000
-    ) -> BlastTaxonomyContext? {
-        guard let taxonomyDirectory,
-              let clade = speciesClade(of: taxId, taxonomyDirectory: taxonomyDirectory, limit: limit)
-        else { return nil }
-        let pathNames = scientificNames(of: clade.path, taxonomyDirectory: taxonomyDirectory)
-        var accepted = names
-        for id in clade.path {
-            if let name = pathNames[id], !accepted.contains(name) { accepted.append(name) }
+    /// The clade of `taxId` from its path up to the nearest species, with the catch-all rule of ``speciesClade(of:taxonomyDirectory:limit:)``.
+    private static func buildClade(
+        of taxId: Int, speciesPath: [Int], in table: NodeTable, speciesName: String?, limit: Int
+    ) -> SpeciesClade {
+        let speciesRoot = speciesPath.last ?? taxId
+        let isCatchAll = speciesName?.hasSuffix(" sp.") ?? false
+        if isCatchAll, taxId == speciesRoot {
+            return SpeciesClade(root: taxId, path: [taxId], taxIds: [taxId], listsEveryTaxId: true)
         }
-        return BlastTaxonomyContext(cladeTaxIds: clade.taxIds, cladeNames: accepted, basis: .species)
+        let path = isCatchAll ? [taxId] : speciesPath
+        let root = path.last ?? taxId
+        let descendants = table.descendants(of: root, limit: limit)
+        return SpeciesClade(
+            root: root, path: path, taxIds: Set(path).union(descendants ?? []), listsEveryTaxId: descendants != nil
+        )
     }
 
     // MARK: - merged.dmp
@@ -93,28 +131,61 @@ public enum NCBITaxonomyLineage {
 
     // MARK: - names.dmp
 
-    /// The scientific names of `taxIds` that `names.dmp` holds, none when the file is missing. It takes only the few IDs
-    /// of a path, so it looks at each row's first field and decodes only the rows it keeps, where
-    /// `TaxonomyNameResolver.resolveFromFile` decodes every chunk of the 317 MB file.
-    private static func scientificNames(of taxIds: [Int], taxonomyDirectory: URL) -> [Int: String] {
+    /// One pass over the scientific names of `names.dmp`: the names of `taxIds`, and for each of `phrases` the IDs whose
+    /// name holds it as a whole phrase, in any case, as ``BlastTaxonMatching`` reads a hit's organism. With no phrase
+    /// it stops once it has every name it wants, and it decodes only the rows it keeps, where
+    /// `TaxonomyNameResolver.resolveFromFile` decodes every chunk of the 317 MB file. A missing file gives nothing.
+    private static func scanScientificNames(
+        of taxIds: Set<Int>, holding phrases: [String], taxonomyDirectory: URL
+    ) -> (names: [Int: String], holders: [[Int]]) {
+        var holders = Array(repeating: [Int](), count: phrases.count)
         guard let dump = try? Data(contentsOf: taxonomyDirectory.appendingPathComponent("names.dmp"), options: .mappedIfSafe)
-        else { return [:] }
-        let wanted = Set(taxIds)
+        else { return ([:], holders) }
+        let needles = phrases.map { Array($0.lowercased().trimmingCharacters(in: .whitespaces).utf8) }
         let nameClass: StaticString = "\t|\tscientific name\t|"
         var found: [Int: String] = [:]
+        var lowered: [UInt8] = []
         forEachLine(of: dump) { bytes, start, end in
             var cursor = start
-            guard let id = readNumber(bytes, &cursor, end), wanted.contains(id),
+            guard let id = readNumber(bytes, &cursor, end), needles.isEmpty ? taxIds.contains(id) : true,
                   skipSeparator(bytes, &cursor, end),
                   end - cursor > nameClass.utf8CodeUnitCount,
                   memcmp(bytes + end - nameClass.utf8CodeUnitCount, nameClass.utf8Start, nameClass.utf8CodeUnitCount) == 0,
                   let tab = memchr(bytes + cursor, 0x09, end - cursor)
             else { return true }
             let length = UnsafePointer(bytes + cursor).distance(to: tab.assumingMemoryBound(to: UInt8.self))
-            found[id] = String(decoding: UnsafeBufferPointer(start: bytes + cursor, count: length), as: UTF8.self)
-            return found.count < wanted.count
+            if taxIds.contains(id) {
+                found[id] = String(decoding: UnsafeBufferPointer(start: bytes + cursor, count: length), as: UTF8.self)
+            }
+            guard !needles.isEmpty else { return found.count < taxIds.count }
+            lowered.removeAll(keepingCapacity: true)
+            for offset in 0..<length {
+                let byte = bytes[cursor + offset]
+                lowered.append(byte >= 0x41 && byte <= 0x5A ? byte + 0x20 : byte)
+            }
+            for (index, needle) in needles.enumerated() where holdsPhrase(lowered, needle) {
+                holders[index].append(id)
+            }
+            return true
         }
-        return found
+        return (found, holders)
+    }
+
+    /// Whether lower-case `text` holds `phrase` with no letter or digit on either side, the bytes of
+    /// `BlastTaxonMatching.containsPhrase`. A byte of a multi-byte character counts as a letter.
+    private static func holdsPhrase(_ text: [UInt8], _ phrase: [UInt8]) -> Bool {
+        guard let first = phrase.first, text.count >= phrase.count else { return false }
+        func isWordByte(_ byte: UInt8) -> Bool { (byte >= 0x30 && byte <= 0x39) || (byte >= 0x61 && byte <= 0x7A) || byte >= 0x80 }
+        var start = 0
+        while start <= text.count - phrase.count {
+            if text[start] == first, text[start..<(start + phrase.count)].elementsEqual(phrase),
+               start == 0 || !isWordByte(text[start - 1]),
+               start + phrase.count == text.count || !isWordByte(text[start + phrase.count]) {
+                return true
+            }
+            start += 1
+        }
+        return false
     }
 
     // MARK: - The rows of a dump

@@ -75,7 +75,10 @@ final class ViralDetectionBlastTaxonomyTests: XCTestCase {
         let context = oc43Detection().blastTaxonomyContext(databaseDirectory: database, taxonomyDirectory: taxonomy)
 
         XCTAssertEqual(context.cladeTaxIds, [3433757, 694003, 31631, 11128, 215681])
-        XCTAssertEqual(context.cladeNames, ["Human coronavirus OC43", "Betacoronavirus 1", "Betacoronavirus gravedinis"])
+        XCTAssertEqual(
+            context.cladeNames, ["Human coronavirus OC43"],
+            "the clade lists every tax ID, so no path name judges (BLAST-NAME-PHRASE-LEAK)"
+        )
         XCTAssertEqual(context.relatedNames, ["Betacoronavirus"])
         XCTAssertEqual(context.basis, .species, "a lineage judges at species level (BLAST-ESVIRITU-FIRST-WORD)")
     }
