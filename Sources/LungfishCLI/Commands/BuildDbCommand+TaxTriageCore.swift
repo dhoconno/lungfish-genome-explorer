@@ -216,6 +216,7 @@ extension BuildDbCommand {
                     globalOptions: options.globalOptions,
                     runClock: runClock,
                     inputRecords: provenanceInputs,
+                    stderr: carried?.warning(databaseName: dbURL.lastPathComponent),
                     additionalSteps: samtoolsProvenance.steps,
                     writesFolderRecord: options.writesFolderRecord,
                     events: events
