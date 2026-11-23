@@ -275,3 +275,44 @@ None. The panel decided the open rows in round 2 (owner direction 2026-11-06). T
 ## Open rows
 
 None. Round 2 closed all eleven (`SCR/challenge/APPLIED.md`). The manager settled both splits on 2026-11-21 (`SCR/challenge/SPLITS.md`). D7's construct clause is unruled words, so UX's field places it, in the kit picker's help tag, and BIO allowed either home. T5 walks in background, as the 5.5 walk did, with the owner list as its fallback.
+
+## Status at the close
+
+Sub-phase 5.6 closed on 2026-11-22 with Preview 2026.11.16, build 14223 from `330177c76`. Its record is `docs/reports/2026.11.16-technical.md` and its owner list is `docs/reports/2026.11.16-owner-checks.md`. The close of 5.6 is also the close of Phase 5 (`docs/plans/2026-11-13-phase-5-rnaseq-reproduction.md`).
+
+### Lanes
+
+| Lane | Status | Landing and evidence |
+|---|---|---|
+| TV-HELP | Landed | land-1, `ffabea7a0` to `7e069265a` (4 commits), with FIX-TV-HELP (`land-1.md`) |
+| TV-INSPECT, TV-SHELL | Landed | land-2, `e1375024c` to `22bc86a7a` (15), with the FACTS-W1 H1 fold (`land-2.md`) |
+| TV-CELLMAP, TV-DEMUX, TV-PSEUDOBULK | Landed with their fix lanes | land-3, `8ff800ce5` to `0fc81e0d0` (22). The cell map's walk state reads 54 words against 193 at the base (`land-3.md`) |
+| TV-SCVIEW, TV-ALIGN, FIX-TV-DEMUX-2 | Landed | land-4, `cf76c0d00` to `13e9c7419` (14) |
+| TV-SHELL-WIZ, VR-INVENTORY | Landed | land-5, `8a77c2735` to `09f3f08ef` (11), with three review folds and four file-size raises |
+| TT-PAIR, TT-GROUP | Landed | land-6, `24f07bbc2` to `e02aec555` (12). The row TAXTRIAGE-BUNDLE-NAMES-PAIRED is closed by `cf12d6ba7` |
+| FIX-A, FIX-B, FIX-B2 | Landed | land-7 (15), the grouper, the short second file and the pair out of step |
+| FIX-CZID | Landed | land-8 (8), the CZ ID CSV and its tab copy |
+| FIX-ROUTES, FIX-ROUTES-2 | Landed | land-9 (5), `dd295a88b` to `ea0c7f3c0` |
+| FIX-ROUTES-4, AFFECTED-5.6 | Landed | land-10 (11), `587132c01` to `4999464f0` |
+| FIX-ROUTES-5 | Landed | land-11 (10), head `4281a9d43` |
+| TV-NOTES | Landed in three rounds and the notes-14223 commits | the notes, the record, the owner list and the lines on the Stable 2026.11.14 page |
+| FIX-ROUTES-6 | Landed in land-12, not in build 14223 | land-12, `1e0b64545` to `f56577c52` (4 commits, original head `51f0f3f8f`), review verdict Merge with 0 blockers (`FIX-ROUTES-6-SWIFT-BIO.md`) |
+| FIX-ROUTES-7 | Landed in land-12, not in build 14223 | land-12, `bbc1e082c` to `3c58c1fb3` (6 commits, pushed 2026-11-23 00:16 CST), with the affected kinds and the 12S fix |
+
+### Exit checks
+
+| Check | Result | Evidence |
+|---|---|---|
+| X1 | Met | cell map 88 executed with 2 skipped by design (`land-3.md`), TV-SCVIEW 73 (`land-4.md`), 0 failures |
+| X2 | Met | TV-SHELL 389 (`land-2.md`), demultiplex 249, pseudobulk 191 and shared dialogs 64 (`land-3.md`), TV-SHELL-WIZ 247 (`land-5.md`), 0 failures |
+| X3 | Met | 46 executed, 0 failures (`land-2.md`) |
+| X4 | Met | golden compare passed in 132.7 s with 0 differences, and replay `gate-20261122-174506-330177c76-30571` and executor replay `gate-20261122-181008-330177c76-59301` pass at `330177c76` |
+| X5 | Met | smoke-r3b passed 15 of 15 with none skipped, and its payload equals the receipt's |
+| X6 | Met for the walk and the publish, not for open rows | T1, T3 and T6 pass at build 14169, T5 passes, and T2's words pass while its Space and Esc steps go to the owner list. The Preview was published on 2026-11-22 at 20:04 CST. Four S1 are open, so this row's clause on open S1 and S2 rows does not hold, by the owner's decision of 2026-11-22 |
+| TT1 | Met | TT-PAIR filter 97 executed with 0 failures, and SF3 with the replay 32 (`land-6.md`) |
+| TT2 | Met | BIO's filter green, the line run 74 and the wide run 662, each with 0 failures (`land-6.md`) |
+| TT3 | Met | the seven items stand on the 2026.11.14 page since 20:05 CST, read back equal |
+
+### The close
+
+Preview 2026.11.16 was published on 2026-11-22 at 20:04 CST from build 14223 (tag `v2026.11.16` on `330177c76`), by the owner's decision "Publish 14223 now", which goes against SAD:34. Four S1 stay open as known issues on the Preview page and on the Stable 2026.11.14 page (SAD:23). They are `fastq ingest --pair` with `debug fastq-ingest --pair`, `fastq ribodetector` and `fastq deacon-ribo` on two files, and 12S loose mates whose names carry no mate number (`BIO-ROUTES-5.md`). Their fixes, FIX-ROUTES-6 and FIX-ROUTES-7, landed on main as land-12 (`3c58c1fb3`, pushed 2026-11-23 00:16 CST) and ship in Preview 2026.11.17, due by 2026-11-30 (SAD:22). The full tier on a commit after the publish is the Phase 5 close check, and its result is in the full-tier row of the record. The full tier at `f149c6cb7` went red twice, and ruling QA-PLUGIN-PACK-HANG (`QA-PLUGIN-PACK-HANG.md`) found no hang, because the serial LungfishWorkflowTests bundle outgrew its 2,100 second bound. FIX-WORKFLOW-BOUND raised that bound to 4,800 seconds, and the full tier reruns at `eb9b36a38`.
