@@ -16,6 +16,7 @@ import XCTest
 @testable import LungfishKit
 import LungfishRNASeqUI
 import LungfishTestSupport
+@testable import LungfishTaxonomyUI
 @testable import LungfishTwelveSUI
 import LungfishWorkflow
 
@@ -433,6 +434,46 @@ final class ViewSwitchViewStateTests: XCTestCase {
     /// reset line says so (word 3).
     func testCzIdOpensARecreatedBundleAtItsStartWithTheResetLine() async throws {
         try await assertChangedBundle(CzIdViewStateDriver())
+    }
+
+    /// The sidebar's sample folder row shows its sample for that visit, and the next visit by the batch row brings back
+    /// the samples the person chose, not the route's (VS B9, S3). The restore runs before the route.
+    func testKraken2RouteSampleShowsForItsVisitAndTheBatchRowBringsBackThePicker() async throws {
+        let analyses = try SafetyNetFiles.makeDirectory(project.appendingPathComponent("Analyses", isDirectory: true))
+        let batch = try RoutingSafetyNetFixtures.kraken2Result(
+            named: "kraken2-batch-2026-01-15T12-00-00", in: analyses, samples: ["HG002", "MMU-17"],
+            sampleSubdirectories: true
+        )
+        try RoutingSafetyNetTable.metadata("kraken2", isBatch: true, in: batch)
+        let batchRow = SidebarItem(title: batch.lastPathComponent, type: .classificationResult, url: batch)
+        let sampleRow = SidebarItem(
+            title: "MMU-17", type: .classificationResult, url: batch.appendingPathComponent("MMU-17", isDirectory: true)
+        )
+        let other = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: "Status only"), in: project)
+        let driver = Kraken2ViewStateDriver()
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        func picker() -> Set<String>? {
+            (harness.split.viewerController.surfaceHost.activeViewport as? Kraken2Surface)?
+                .controller?.samplePickerState?.selectedSamples
+        }
+        func visit(_ item: SidebarItem, expecting samples: Set<String>) async {
+            harness.select(item)
+            let shown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { picker() == samples }
+            XCTAssertTrue(shown, "\(item.title): the picker shows \(String(describing: picker())), not \(samples)")
+        }
+
+        await visit(batchRow, expecting: ["HG002", "MMU-17"])
+        let viewer = try XCTUnwrap((harness.split.viewerController.surfaceHost.activeViewport as? Kraken2Surface)?.controller)
+        viewer.samplePickerState?.selectedSamples = ["HG002"]
+        viewer.applyBatchSampleFilter()
+        try await leave(for: other, in: harness, driver: driver)
+
+        await visit(sampleRow, expecting: ["MMU-17"])
+        try await leave(for: other, in: harness, driver: driver)
+        await visit(batchRow, expecting: ["HG002"])
+        XCTAssertNil(harness.resetLineWords, "the route's pick is not a loss, so no line shows")
     }
 
     // MARK: - The three cases
