@@ -25,6 +25,7 @@ extension ViewerViewController {
         let controller = GenotypeResultViewController()
         controller.annotationAuthorProvider = { AppSettings.shared.resolvedAnalystIdentity() }
         controller.windowStateScope = windowStateScope
+        controller.viewMemoryStore = surfaceHost.viewMemoryStore
         controller.manualHaplotypeBandDisclosureStore =
             genotypeManualHaplotypeBandDisclosureStore
 

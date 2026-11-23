@@ -233,6 +233,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     }
 
     public func detachHostPresentationCallbacks() {
+        leaveViewMemory()
         onSelectionStateChanged = nil
         onDisplaySummaryChanged = nil
         onDisplayStateChanged = nil
@@ -1027,7 +1028,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         )
     }
 
-    private func normalizedDisplayState(
+    func normalizedDisplayState(
         _ state: GenotypeResultDisplayState
     ) -> GenotypeResultDisplayState {
         if let presentationPolicy {
@@ -1038,7 +1039,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         )
     }
 
-    private func defaultSummaryViewMode(for result: ONTGenotypeResultBundleData) -> GenotypeSummaryViewMode {
+    func defaultSummaryViewMode(for result: ONTGenotypeResultBundleData) -> GenotypeSummaryViewMode {
         let policy = presentationPolicy ?? GenotypeResultPresentationPolicy(
             legacyBundleKind: result.manifest.kind,
             legacyWorkflowDeclarationsAbsent:
@@ -1054,19 +1055,6 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             isReadOnly: annotationStore?.isReadOnly ?? true
         )
         return policy.defaultSummaryViewMode
-    }
-
-    private func initialSummaryViewMode(for result: ONTGenotypeResultBundleData) -> GenotypeSummaryViewMode {
-        if let rawValue = annotationStore?.startingViewState.preferredSummaryViewMode,
-           let mode = GenotypeSummaryViewMode(rawValue: rawValue) {
-            var state = GenotypeResultDisplayState(
-                viewportLens: .summary,
-                summaryViewMode: mode
-            )
-            state = normalizedDisplayState(state)
-            return state.summaryViewMode
-        }
-        return defaultSummaryViewMode(for: result)
     }
 
     // MARK: - Review Commands (menu items with key equivalents)
@@ -1226,6 +1214,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
     }
 
     private func configureImmediately(result: ONTGenotypeResultBundleData) {
+        leaveViewMemory()
         resultConfigurationGeneration &+= 1
         teardownSampleCurationWorkbench()
         candidateSettingsPersistenceTask?.cancel()
@@ -1379,6 +1368,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         applyViewportHeaderVisibility()
         showEmptySelection()
         showLens(.summary)
+        beginViewMemoryVisit(for: result)
     }
 
     private func rebuildResultIndexes(for result: ONTGenotypeResultBundleData) {
@@ -1608,7 +1598,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         recordSummaryViewChoice(from: previousViewMode, to: displayState.summaryViewMode)
     }
 
-    private func applyDisplayStateImmediately(_ state: GenotypeResultDisplayState) {
+    func applyDisplayStateImmediately(_ state: GenotypeResultDisplayState) {
         let focusedManualHaplotypeCombo =
             focusedManualHaplotypeComboBox()
         defer {
@@ -5682,7 +5672,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
         applyViewportHeaderVisibility()
         rebuildMatrixAnnotationIndexes()
         publishMatrixReviewCapability(for: currentSelectionState?.matrixTargets ?? [])
-        displayState.summaryViewMode = initialSummaryViewMode(for: updatedResult)
+        displayState.summaryViewMode = visitSummaryViewMode(for: updatedResult) ?? initialSummaryViewMode(for: updatedResult)
         displayState.genotypeLocusDisplayOrder = annotationStore?.sidecar.settings.genotypeLocusDisplayOrder
         aiHaplotypingStatus = "AI haplotype revision created. Calls require manual review."
         if hasHaplotypingResult {
