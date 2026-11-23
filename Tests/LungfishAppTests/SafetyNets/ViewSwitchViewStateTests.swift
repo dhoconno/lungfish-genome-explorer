@@ -54,6 +54,7 @@ enum ViewStateDrivers {
     /// One driver a kind that keeps its view.
     static let all: [any ViewStateDriver] = [
         TwelveSViewStateDriver(), ReferenceViewStateDriver(route: .reference), ReferenceViewStateDriver(route: .mapping),
+        RNASeqViewStateDriver(), CellMapViewStateDriver(),
     ]
 }
 
@@ -107,7 +108,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
             ViewStateDeclaredGaps.all.count, ViewStateDeclaredGaps.ceiling,
             "The declared gaps only shrink. Lower the ceiling in the change that adopts a kind."
         )
-        XCTAssertEqual(ViewStateDeclaredGaps.ceiling, 21, "the ceiling after VS-REF, which each family lane lowers")
+        XCTAssertEqual(ViewStateDeclaredGaps.ceiling, 19, "the ceiling after VS-RNA, which each family lane lowers")
     }
 
     // MARK: - 12S

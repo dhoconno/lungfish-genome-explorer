@@ -15,7 +15,7 @@ struct ViewStateDeclaredGap: Sendable {
 
 enum ViewStateDeclaredGaps {
     /// The most rows the table may hold. Lower it in the commit that removes a row.
-    static let ceiling = 21
+    static let ceiling = 19
 
     static let all: [ViewStateDeclaredGap] = [
         gap("Kraken2", "VS-TAX", "samples, sunburst, taxon, filter, sort, split and drawer are not kept yet"),
@@ -37,8 +37,6 @@ enum ViewStateDeclaredGaps {
         gap("Status only", "none", "a status line holds no view (VS U8)"),
         gap("PDF", "VS-PRIMER", "page and scale are not kept yet (VS U8)"),
         gap("FASTA collection", "VS-DATA", "filter, selection, sort and split are not kept yet"),
-        gap("RNA-seq", "VS-RNA", "open child, gene search, count-table tab and table are not kept yet"),
-        gap("Cell map", "VS-RNA", "embedding, colouring, point size, zoom, pan and selection are not kept yet"),
     ]
 
     private static func gap(_ kind: String, _ lane: String, _ reason: String) -> ViewStateDeclaredGap {
