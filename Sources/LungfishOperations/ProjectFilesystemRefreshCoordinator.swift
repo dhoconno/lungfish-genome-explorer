@@ -16,14 +16,6 @@ public final class ProjectFilesystemRefreshCoordinator {
 
     public static let shared = ProjectFilesystemRefreshCoordinator()
 
-    /// Continuity evidence only; native format and write access are revalidated
-    /// by the existing project-open path after a successful filesystem rebind.
-    package struct RootIdentity: Equatable, Sendable {
-        let volume: String
-        let fileNumber: UInt64
-        let createdAt: Date
-    }
-
     private final class ProjectWatcher {
         var projectURL: URL
         let watcher: FileSystemWatcher
@@ -213,18 +205,6 @@ public final class ProjectFilesystemRefreshCoordinator {
         guard entry.unavailableReason != reason else { return }
         entry.unavailableReason = reason
         for handler in Array(entry.handlers.values) { handler(.unavailable(reason: reason)) }
-    }
-
-    package nonisolated static func rootIdentity(at url: URL) throws -> RootIdentity {
-        let canonical = url.standardizedFileURL.resolvingSymlinksInPath()
-        let attributes = try FileManager.default.attributesOfItem(atPath: canonical.path)
-        guard attributes[.type] as? FileAttributeType == .typeDirectory,
-              FileManager.default.isReadableFile(atPath: canonical.path),
-              let file = attributes[.systemFileNumber] as? NSNumber,
-              let device = attributes[.systemNumber] as? NSNumber,
-              let created = attributes[.creationDate] as? Date else { throw CocoaError(.fileReadUnknown) }
-        let volume = try? canonical.resourceValues(forKeys: [.volumeUUIDStringKey]).volumeUUIDString
-        return RootIdentity(volume: volume ?? "device:\(device.uint64Value)", fileNumber: file.uint64Value, createdAt: created)
     }
 
     private static func canonicalProjectURL(_ url: URL) -> URL { url.standardizedFileURL.resolvingSymlinksInPath() }
