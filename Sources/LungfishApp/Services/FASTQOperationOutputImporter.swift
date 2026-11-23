@@ -113,17 +113,27 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
             )
             let finalOutputURL = finalBundleURL.appendingPathComponent(result.outputFile.lastPathComponent)
 
+            // The bundle stores the statistics of the file it stores. The storage pass writes every called Q0 or Q1 as
+            // Q2 (BBToolsQualityArguments.keepEveryScore), so the source measured above can read differently from the
+            // stored file. A stored file that cannot be measured fails the import, since no number of the source
+            // stands in for it.
+            let outputStats: FASTQDatasetStatistics
+            if result.outputFile == sourceURL {
+                outputStats = stats
+            } else {
+                outputStats = try await computeStatistics(from: result.outputFile)
+            }
+
             // Only delete the pre-ingestion source once the re-ingested
             // output has at least as many reads as the source had. A lower
             // count means the pipeline dropped or filtered reads (e.g. a
             // length cutoff), and the source must be kept.
             if result.outputFile != sourceURL {
-                let outputStats = try? await computeStatistics(from: result.outputFile)
-                if let outputStats, outputStats.readCount >= stats.readCount {
+                if outputStats.readCount >= stats.readCount {
                     try? fileManager.removeItem(at: sourceURL)
                 } else {
                     logger.warning(
-                        "importFASTQOutput: keeping source \(sourceURL.lastPathComponent, privacy: .public) — re-ingested read count (\(outputStats?.readCount ?? -1)) did not meet or exceed the source count (\(stats.readCount))"
+                        "importFASTQOutput: keeping source \(sourceURL.lastPathComponent, privacy: .public) — re-ingested read count (\(outputStats.readCount)) did not meet or exceed the source count (\(stats.readCount))"
                     )
                 }
             }
@@ -151,7 +161,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                 recordedOutputURL: finalOutputURL,
                 originalRequest: originalRequest,
                 sourceInputURL: sourceInputURL,
-                stats: stats,
+                stats: outputStats,
                 pairingMode: metadata.ingestion?.pairingMode
             )
             try await writeOperationProvenance(
