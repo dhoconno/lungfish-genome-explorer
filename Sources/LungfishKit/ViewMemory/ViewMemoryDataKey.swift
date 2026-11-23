@@ -19,28 +19,41 @@ public struct ViewMemoryFileEntry: Sendable, Equatable {
     }
 
     /// The regular files under `folder` with their sizes, sorted by relative path, or nil when
-    /// the folder cannot be read. Hidden files are skipped. No file is opened or hashed.
+    /// the folder is missing or any part of it cannot be read, since a list that skipped a
+    /// file would give a key that misses an edit to it. Hidden files are skipped. No file is
+    /// opened or hashed.
     public static func entries(inFolder folder: URL) -> [ViewMemoryFileEntry]? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else {
+            return nil
+        }
         let base = folder.standardizedFileURL.path
+        var enumerationFailed = false
         guard let enumerator = FileManager.default.enumerator(
             at: folder,
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: [.skipsHiddenFiles]
+            options: [.skipsHiddenFiles],
+            errorHandler: { _, _ in
+                enumerationFailed = true
+                return false
+            }
         ) else {
             return nil
         }
         var entries: [ViewMemoryFileEntry] = []
         while let next = enumerator.nextObject() as? URL {
-            guard let values = try? next.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                  values.isRegularFile == true,
-                  let size = values.fileSize
-            else {
-                continue
+            guard let values = try? next.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]) else {
+                return nil
             }
+            guard values.isRegularFile == true else { continue }
+            guard let size = values.fileSize else { return nil }
             let full = next.standardizedFileURL.path
             let relative = full.hasPrefix(base + "/") ? String(full.dropFirst(base.count + 1)) : next.lastPathComponent
             entries.append(ViewMemoryFileEntry(path: relative, size: Int64(size)))
         }
+        guard !enumerationFailed else { return nil }
         return entries.sorted { $0.path < $1.path }
     }
 }
