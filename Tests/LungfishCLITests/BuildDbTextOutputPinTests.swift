@@ -58,10 +58,16 @@ final class BuildDbTextOutputPinTests: XCTestCase {
         XCTAssertEqual(output.standardError, [])
     }
 
+    /// The fixture's only intermediate folder was `top/`, which the cleanup keeps since lane TT-m1, so the copy is
+    /// given one file in `count/`, a folder the cleanup removes, and the line `Removed intermediate files (<size>).`
+    /// stays covered.
     func testTaxTriagePrintsTheBaseLines() async throws {
         let scratch = try ImportStreamCapture.Scratch()
         defer { scratch.remove() }
         let result = try BuildDbStreamCapture.taxTriageResultWithoutBAMs(in: scratch)
+        let count = result.appendingPathComponent("count", isDirectory: true)
+        try FileManager.default.createDirectory(at: count, withIntermediateDirectories: true)
+        try Data("@r1\nACGT\n+\nIIII\n".utf8).write(to: count.appendingPathComponent("x.fastq.gz"))
 
         let output = try await BuildDbStreamCapture.run("build-db taxtriage", result, in: scratch)
 

@@ -412,11 +412,12 @@ enum TaxTriageParityRawBytes {
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
                 "9258be6db5312208997cff147c71bcd143d5238b9816f7c3d322790bde975c05",
         ],
+        // TT-m1: the app's rebuild passes `--no-cleanup`, which both records' argv name.
         .x7: [
             "Project.lungfish/Analyses/<analysis>/.lungfish-provenance.json":
-                "250a6f5de4eb412018fb209c8a06351f16858e3520800b340bf4fe6953437477",
+                "f650f59a3b2a46c452e5205114ec56abeb50d7f6d5b81b12534b74569945c302",
             "Project.lungfish/Analyses/<analysis>/taxtriage.sqlite.lungfish-provenance.json":
-                "8c38e97836cad9c908fb73f02db075c1cb6bff8cdbbf16821ab739e7b3e5da98",
+                "b7213f82e99a40c843ba6a1f2ca88e4eed27df824de978dca8d832165cf524d7",
             "Project.lungfish/Imports/sarscov2-pair.lungfishfastq/analyses-manifest.json":
                 "5611608100d74f07efc953f90a871ca9e1f566118b36b09ea701b00cab4c8585",
         ],
