@@ -12,6 +12,12 @@ extension AffectedResults.RecordName {
     public static let czIdImport = "CZ-ID Import"
     /// The root record of the adopt of an RNA-seq plan counts (`ExecutorRunAdoption+RNASeqRecord.swift:31`). It names no read file.
     public static let rnaSeqAdopt = "RNA-seq adopt"
+    /// `lungfish fastq ingest`, a completed or cancelled run (`FastqIngestSubcommand+Run.swift:380`).
+    public static let fastqIngest = "lungfish fastq ingest"
+    /// `lungfish fastq ribodetector` (`FastqRiboDetectorSubcommand.swift:327`).
+    public static let fastqRiboDetector = "RiboDetector FASTQ filter"
+    /// `lungfish fastq deacon-ribo` (`FastqDeaconRiboSubcommand.swift:379`).
+    public static let fastqDeaconRibo = "Deacon rRNA FASTQ filter"
 }
 
 extension AffectedResults {

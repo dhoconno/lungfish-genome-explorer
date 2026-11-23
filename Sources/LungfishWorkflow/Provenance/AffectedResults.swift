@@ -700,12 +700,6 @@ extension AffectedResults {
         public static let classifierReadExtraction = "Classifier Read Extraction"
         /// The record of the File destination of the app (`TaxonomyReadExtractionAction.swift:690`).
         public static let appClassifierReadExtraction = "lungfish app classifier read extraction"
-        /// `lungfish fastq ingest`, a completed or cancelled run (`FastqIngestSubcommand+Run.swift:380`).
-        public static let fastqIngest = "lungfish fastq ingest"
-        /// `lungfish fastq ribodetector` (`FastqRiboDetectorSubcommand.swift:327`).
-        public static let fastqRiboDetector = "RiboDetector FASTQ filter"
-        /// `lungfish fastq deacon-ribo` (`FastqDeaconRiboSubcommand.swift:379`).
-        public static let fastqDeaconRibo = "Deacon rRNA FASTQ filter"
     }
 
     /// The `tool` option of a `lungfish extract reads` record that took its reads from a TaxTriage result, the raw value
