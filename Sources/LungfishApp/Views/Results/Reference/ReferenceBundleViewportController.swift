@@ -813,11 +813,10 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         embeddedViewerController.annotationSearchIndex = nil
         // The manifest and bundle the open built once, never a second decode or index build here.
         let held = standardized == currentInput?.renderedBundleURL ? currentInput : nil
-        try embeddedViewerController.displayBundle(
-            at: standardized,
-            mode: .sequence(name: sequenceName, restoreViewState: false),
-            manifest: held?.manifest ?? held?.viewerBundleManifest,
-            bundle: held?.preparedBundle
+        // The reference and mapping routes restore the view kept for the item, after the viewer's settle.
+        try embeddedViewerController.displayRememberedBundle(
+            at: standardized, sequenceName: sequenceName,
+            memory: ReferenceViewerMemoryRequest(input: currentInput, bundleURL: standardized), bundle: held?.preparedBundle
         )
         rebuildEmbeddedAnnotationSearchIndex()
         loadedViewerBundleURL = standardized

@@ -1011,57 +1011,14 @@ public class ViewerViewController: NSViewController {
         lastAppliedAppVariantThemeName = settings.variantColorThemeName
     }
 
-    /// Handles request to reset bundle view state to defaults.
-    ///
-    /// Clears type color overrides, deletes the `.viewstate.json` file,
-    /// and resets the in-memory `BundleViewState` to defaults.
+    /// The store that keeps the reference view of each item on this Mac. A test injects its own.
+    var viewMemoryStore: ViewMemoryStore = .shared
+
+    /// Handles Reset View for the bundle on show (`ViewerViewController+ViewMemory.swift`).
     @objc private func handleBundleViewStateResetRequested(_ notification: Notification) {
         guard ScopedEventFilter.accept(notification, for: windowEventScope) else { return }
         logger.info("handleBundleViewStateResetRequested: Resetting bundle view state to defaults")
-
-        // Clear type color caches and per-annotation colors (reverts to defaults)
-        viewerView.resetTypeColorCaches()
-        viewerView.clearAnnotationColorOverrides()
-
-        let settings = AppSettings.shared
-
-        // Reset in-memory state using current app defaults for annotation dimensions.
-        currentBundleViewState = BundleViewState(
-            typeColorOverrides: [:],
-            annotationColorOverrides: [:],
-            annotationHeight: settings.defaultAnnotationHeight,
-            annotationSpacing: settings.defaultAnnotationSpacing,
-            showAnnotations: true,
-            visibleAnnotationTypes: nil,
-            showVariants: true,
-            visibleVariantTypes: nil,
-            translationColorScheme: .zappo,
-            isRNAMode: false,
-            lastChromosome: nil,
-            lastOrigin: nil,
-            lastScale: nil
-        )
-
-        // Delete persisted file
-        if let url = currentBundleURL {
-            BundleViewState.delete(from: url)
-            logger.info("handleBundleViewStateResetRequested: Deleted .viewstate.json from bundle")
-        }
-
-        // Reset annotation display settings to defaults
-        showAnnotations = true
-        annotationDisplayHeight = CGFloat(settings.defaultAnnotationHeight)
-        annotationDisplaySpacing = CGFloat(settings.defaultAnnotationSpacing)
-        visibleAnnotationTypes = nil
-        isRNAMode = false
-        viewerView.translationColorScheme = .zappo
-        viewerView.showVariants = true
-        viewerView.visibleVariantTypes = nil
-        viewerView.setHiddenVariantTrackIDs([])
-        annotationDrawerView?.setHiddenVariantTrackIDs([])
-        viewerView.annotationHeight = annotationDisplayHeight
-        viewerView.annotationRowSpacing = annotationDisplaySpacing
-        viewerView.invalidateFilteredVariantCache()
+        resetBundleViewToDefaults()
     }
 
     @objc private func handleBundleVariantTracksDeleted(_ notification: Notification) {
