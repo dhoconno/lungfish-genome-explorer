@@ -128,17 +128,62 @@ final class FASTQDemultiplexPlanLaunchSettingsTests: XCTestCase {
     }
 
     /// A row whose barcode ID was changed keeps the sequence of its earlier barcode in the table, since the drawer does
-    /// not refill the cell. A cell that holds another barcode's sequence of the kit is not a typed sequence, so the
-    /// definition keeps the kit's sequence of the row's barcode, as it did at the base.
-    func testAnotherBarcodesSequenceLeftInARowKeepsTheKitsSequence() throws {
+    /// not refill the cell, and a person may also type another barcode's sequence on purpose. The definition cannot
+    /// tell the two apart, so a cell that holds another barcode's sequence of the kit refuses in words and writes no
+    /// file (ruling BIO-DEMUX item 10, K5). At `7627eb48d` the definition took the kit's sequence of the row's barcode,
+    /// so the table showed one sequence and the run searched another.
+    func testAnotherBarcodesSequenceInAFivePrimeCellRefusesInWords() throws {
         let kit = try kit("truseq-single-a")
         let (chosen, earlier) = (kit.barcodes[1], kit.barcodes[0])
         let row = FASTQSampleBarcodeAssignment(
             sampleID: chosen.id, sampleName: "S1", forwardBarcodeID: chosen.id, forwardSequence: earlier.i7Sequence,
             reverseBarcodeID: chosen.id, reverseSequence: earlier.i7Sequence
         )
+        XCTAssertThrowsError(try launch(step(kit, rows: [row]))) { error in
+            XCTAssertEqual(
+                (error as? DemultiplexPlanRefusal)?.words,
+                "The sample name S1 has the barcode \(chosen.id), and its 5' Sequence cell holds \(earlier.i7Sequence), "
+                    + "the sequence of \(earlier.id). Choose \(earlier.id) as its barcode, or clear the cell to use "
+                    + "\(chosen.id)'s sequence."
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: project.appendingPathComponent("Barcode Definitions").path))
+    }
+
+    /// The 3' cell of a dual kit's row that holds another barcode's second index refuses the same way.
+    func testAnotherBarcodesSecondIndexInAThreePrimeCellRefusesInWords() throws {
+        let kit = try kit("truseq-ht-dual")
+        let chosen = kit.barcodes[0]
+        let i5 = try XCTUnwrap(chosen.i5Sequence, "\(kit.id) has no second index")
+        let earlier = try XCTUnwrap(
+            kit.barcodes.first { $0.i5Sequence != nil && $0.i5Sequence?.uppercased() != i5.uppercased() },
+            "\(kit.id) has one second index"
+        )
+        let other = try XCTUnwrap(earlier.i5Sequence)
+        let row = FASTQSampleBarcodeAssignment(
+            sampleID: chosen.id, sampleName: nil, forwardBarcodeID: chosen.id, forwardSequence: chosen.i7Sequence,
+            reverseBarcodeID: chosen.id, reverseSequence: other
+        )
+        XCTAssertThrowsError(try launch(step(kit, rows: [row]))) { error in
+            XCTAssertEqual(
+                (error as? DemultiplexPlanRefusal)?.words,
+                "The unnamed sample of barcode \(chosen.id) has the barcode \(chosen.id), and its 3' Sequence cell holds "
+                    + "\(other), the sequence of \(earlier.id). Choose \(earlier.id) as its barcode, or clear the cell to "
+                    + "use \(chosen.id)'s sequence."
+            )
+        }
+    }
+
+    /// An empty cell, or a cell that holds the kit's own sequence of the row's barcode, is not typed and runs the kit's.
+    func testEmptyOrOwnSequenceCellsRunTheKitsSequence() throws {
+        let kit = try kit("truseq-single-a")
+        let barcode = kit.barcodes[1]
+        let row = FASTQSampleBarcodeAssignment(
+            sampleID: barcode.id, sampleName: "S1", forwardBarcodeID: barcode.id, forwardSequence: "",
+            reverseBarcodeID: barcode.id, reverseSequence: barcode.i7Sequence.lowercased()
+        )
         let rows = try definitionRows(try launch(step(kit, rows: [row])))
-        XCTAssertEqual(rows, ["S1,\(chosen.i7Sequence),S1"])
+        XCTAssertEqual(rows, ["S1,\(barcode.i7Sequence),S1"])
     }
 
     /// A one-index kit's definition holds one sequence a row, so two different typed sequences refuse in words and
