@@ -95,7 +95,6 @@ final class FASTQDemultiplexPlanLaunchSettingsTests: XCTestCase {
         )))
         XCTAssertEqual(state.demultiplexMinimumOverlap, 5, "the plan's Min Overlap did not reach the dialog")
         XCTAssertEqual(state.demultiplexAllowIndels, false, "the plan's Allow Indels did not reach the dialog")
-        XCTAssertEqual(state.demultiplexSearchReverseComplement, true, "the plan's reverse complement did not reach the dialog")
     }
 
     // MARK: - K5

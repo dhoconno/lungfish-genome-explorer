@@ -89,6 +89,8 @@ OPTIONS:
                           Cutadapt maximum error rate for barcode matching
                           (default: 0.15)
   --overlap <overlap>     Cutadapt minimum overlap length (default: 3)
+  --no-indels             Disallow indels in barcode matching (read-base search
+                          only)
   --engine <engine>       Demultiplexing engine: cutadapt, exact-bare or
                           header-index. Without it, a file whose read names
                           carry the indexes of two or more of the kit's

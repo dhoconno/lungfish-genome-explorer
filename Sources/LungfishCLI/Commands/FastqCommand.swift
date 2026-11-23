@@ -205,6 +205,10 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             help: "Cutadapt minimum overlap length")
     var overlap: Int = 3
 
+    /// Cutadapt's `--no-indels`, which a Demux-tab plan writes when Allow indels is off (ruling BIO-DEMUX item 6).
+    @Flag(name: .customLong("no-indels"), help: "Disallow indels in barcode matching (read-base search only)")
+    var noIndels: Bool = false
+
     @Option(name: .customLong("engine"),
             help: "Demultiplexing engine: cutadapt, exact-bare or header-index. Without it, a file whose read names carry the indexes of two or more of the kit's barcodes is split by those names (header-index) and any other file is searched with cutadapt. Naming cutadapt or exact-bare always searches the read sequences")
     var engine: String?
@@ -333,6 +337,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
                 rootFASTQFilename: fastaInput ? nil : rootFASTQFilename,
                 inputPairingMode: inputPairingMode,
                 inputSequenceFormat: inputSequenceFormat,
+                useNoIndels: noIndels,
                 keepsUncheckedSamples: keepUncheckedSamples
             )
         }
@@ -398,6 +403,9 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             }
             if overlap != 3 {
                 cliArguments += ["--overlap", String(overlap)]
+            }
+            if noIndels {
+                cliArguments.append("--no-indels")
             }
             if noTrim {
                 cliArguments.append("--no-trim")
@@ -480,6 +488,10 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             provenanceParameters["maxDistanceFrom3Prime"] = .integer(maxDistanceFrom3Prime)
             provenanceParameters["errorRate"] = .number(errorRate)
             provenanceParameters["overlap"] = .integer(overlap)
+            // Recorded only when given, against a default of false, as the defaults of --no-trim and
+            // --discard-unassigned are recorded (ruling BIO-DEMUX item 7).
+            if noIndels { provenanceParameters["noIndels"] = .boolean(true) }
+            provenanceDefaults["noIndels"] = .boolean(false)
             provenanceParameters["trimBarcodes"] = .boolean(effectiveTrimBarcodes)
             provenanceParameters["threads"] = .integer(threads)
             provenanceDefaults["location"] = .string("bothends")

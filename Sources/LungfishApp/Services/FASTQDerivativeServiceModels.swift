@@ -61,6 +61,11 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         errorRate: Double,
         engine: DemultiplexEngine,
         trimBarcodes: Bool,
+        /// The Demux tab's Min Overlap and Allow indels, which Demultiplex… carries from the plan step, `--overlap` and
+        /// `--no-indels` of a cutadapt run (ruling BIO-DEMUX items 4 and 5, DEMUXPLAN K2). Nil is not set, and the run
+        /// takes the command's overlap of 3 with indels allowed.
+        minimumOverlap: Int? = nil,
+        allowIndels: Bool? = nil,
         sampleAssignments: [FASTQSampleBarcodeAssignment]?,
         kitOverride: BarcodeKitDefinition?,
         /// The person's Keep Unchecked Samples, `lungfish-cli fastq demultiplex --keep-unchecked-samples`, true only when
@@ -293,7 +298,7 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
             return [:]
         case .translate(let frameOffset):
             return ["frame": "\(frameOffset + 1)"]
-        case .demultiplex(let kitID, _, let location, _, _, _, let errorRate, let engine, let trimBarcodes, _, _, _):
+        case .demultiplex(let kitID, _, let location, _, _, _, let errorRate, let engine, let trimBarcodes, _, _, _, _, _):
             if engine == .headerIndex { return ["kitID": kitID, "engine": engine.rawValue, "indexMismatches": "\(DemultiplexSearchRouteOwner.indexMismatches)"] }
             if engine == .exactBareBarcode {
                 return [

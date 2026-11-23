@@ -632,6 +632,8 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             let errorRate,
             let engine,
             let trimBarcodes,
+            let minimumOverlap,
+            let allowIndels,
             let sampleAssignments,
             let kitOverride,
             let keepUncheckedSamples
@@ -666,6 +668,10 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 "--max-distance-3prime", "\(maxDistanceFrom3Prime)",
                 "--error-rate", String(format: "%.2f", errorRate),
             ]
+            // The Demux tab's Min Overlap and Allow indels, set only by a plan, so the dialog alone writes neither and
+            // keeps today's argv (ruling BIO-DEMUX item 5, DEMUXPLAN K2).
+            if let minimumOverlap { arguments += ["--overlap", "\(minimumOverlap)"] }
+            if allowIndels == false { arguments.append("--no-indels") }
             // The dialog's default engine writes no --engine, so the run asks the route owner, which reads the read
             // names before it searches the bases (L4 of the 3.3 tally). A picked other engine is written above.
             if !trimBarcodes { arguments.append("--no-trim") }

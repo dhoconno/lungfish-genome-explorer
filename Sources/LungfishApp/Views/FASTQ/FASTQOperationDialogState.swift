@@ -141,12 +141,11 @@ final class FASTQOperationDialogState {
         didSet { normalizeDemultiplexSelectionForCurrentEngine() }
     }
     var demultiplexTrimBarcodes: Bool
-    /// The Demux tab's Min Overlap, Allow Indels and Search reverse complement, which Demultiplex… sets from the plan
-    /// step (DEMUXPLAN K2). Nil overlap and reverse complement are the command's defaults. The request does not carry
-    /// them yet, so a run still takes the command's defaults (lane DEMUX Handoff).
+    /// The Demux tab's Min Overlap and Allow indels, which Demultiplex… sets from the plan step and the request carries
+    /// to `--overlap` and `--no-indels` (ruling BIO-DEMUX item 8, DEMUXPLAN K2). The dialog opened without a plan holds
+    /// nil and true, which write neither, so its argv is unchanged.
     var demultiplexMinimumOverlap: Int? = nil
     var demultiplexAllowIndels = true
-    var demultiplexSearchReverseComplement: Bool? = nil
     var demultiplexChanceCheck = FASTQDemultiplexChanceCheck()
 
     var mafftAdvancedOptionsExpanded: Bool
@@ -499,6 +498,8 @@ final class FASTQOperationDialogState {
                     errorRate: demultiplexErrorRate,
                     engine: demultiplexEngine,
                     trimBarcodes: demultiplexEngine == .exactBareBarcode ? false : demultiplexTrimBarcodes,
+                    minimumOverlap: demultiplexMinimumOverlap,
+                    allowIndels: demultiplexAllowIndels,
                     sampleAssignments: nil,
                     kitOverride: nil, keepUncheckedSamples: demultiplexKeepUncheckedSamplesForRun
                 ),

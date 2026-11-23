@@ -67,12 +67,18 @@ struct DemultiplexPlanDefinition {
             outputs[output.lowercased()] = label
             let barcode = (row.forwardBarcodeID ?? row.reverseBarcodeID).flatMap { id in kit.barcodes.first { $0.id == id } }
             // The 5' and 3' Sequence cells the person typed are the run's, and the kit's sequence fills an untyped one
-            // (DEMUXPLAN K5).
-            let i7s = Set(kit.barcodes.map { $0.i7Sequence.uppercased() })
-            let typedFirst = Self.typedSequence(row.forwardSequence, kitSequence: barcode?.i7Sequence, kitSequences: i7s)
+            // (DEMUXPLAN K5). A cell that holds another barcode's sequence of the kit refuses (ruling BIO-DEMUX item 10).
+            let i7s = kit.barcodes.map { (id: $0.id, sequence: $0.i7Sequence) }
+            let typedFirst = try Self.typedSequence(
+                row.forwardSequence, end: "5'", label: label, barcode: barcode, kitSequence: barcode?.i7Sequence,
+                kitSequences: i7s
+            )
             var first = typedFirst ?? barcode?.i7Sequence ?? row.forwardSequence
             if !hasSecondary,
-               let typedLast = Self.typedSequence(row.reverseSequence, kitSequence: barcode?.i7Sequence, kitSequences: i7s) {
+               let typedLast = try Self.typedSequence(
+                   row.reverseSequence, end: "3'", label: label, barcode: barcode, kitSequence: barcode?.i7Sequence,
+                   kitSequences: i7s
+               ) {
                 if let typedFirst, typedFirst != typedLast {
                     throw DemultiplexPlanRefusal(words: "\(label) has the 5' sequence \(typedFirst) and the 3' sequence \(typedLast). \(kit.displayName) gives each sample one barcode, so the run searches one sequence. Type the same sequence in both cells.")
                 }
@@ -83,8 +89,11 @@ struct DemultiplexPlanDefinition {
             }
             var fields = [output, sequence]
             if hasSecondary {
-                let i5s = Set(kit.barcodes.compactMap { $0.i5Sequence?.uppercased() })
-                let typedLast = Self.typedSequence(row.reverseSequence, kitSequence: barcode?.i5Sequence, kitSequences: i5s)
+                let i5s = kit.barcodes.compactMap { entry in entry.i5Sequence.map { (id: entry.id, sequence: $0) } }
+                let typedLast = try Self.typedSequence(
+                    row.reverseSequence, end: "3'", label: label, barcode: barcode, kitSequence: barcode?.i5Sequence,
+                    kitSequences: i5s
+                )
                 guard let secondary = typedLast ?? barcode?.i5Sequence else {
                     throw DemultiplexPlanRefusal(words: "\(label) has no second index in \(kit.displayName). Choose one of the kit's barcodes in the table.")
                 }
@@ -96,13 +105,21 @@ struct DemultiplexPlanDefinition {
         csvText = lines.joined(separator: "\n") + "\n"
     }
 
-    /// The sequence the person typed in a row's cell, or nil when the cell is empty or holds the kit's sequence of the
-    /// row's barcode. A cell that holds another barcode's sequence of the kit is nil too: the drawer keeps a cell's
-    /// sequence when the person changes the row's barcode ID, so that sequence is the earlier barcode's and not typed.
-    /// A row with no barcode of the kit gives its cell as it is.
-    private static func typedSequence(_ cell: String?, kitSequence: String?, kitSequences: Set<String>) -> String? {
+    /// The sequence the person typed in a row's `end` cell, or nil when the cell is empty or holds the kit's sequence of
+    /// the row's barcode. A cell that holds another barcode's sequence of the kit refuses in words: the drawer keeps a
+    /// cell's sequence when the person changes the row's barcode ID, and a person may type another barcode's sequence on
+    /// purpose, and the plan cannot tell the two apart (ruling BIO-DEMUX item 10). A row with no barcode of the kit gives
+    /// its cell as it is.
+    private static func typedSequence(
+        _ cell: String?, end: String, label: String, barcode: BarcodeEntry?, kitSequence: String?,
+        kitSequences: [(id: String, sequence: String)]
+    ) throws -> String? {
         guard let cell = cell?.uppercased(), !cell.isEmpty else { return nil }
-        if kitSequence != nil, cell == kitSequence?.uppercased() || kitSequences.contains(cell) { return nil }
+        guard let barcode, let kitSequence else { return cell }
+        if cell == kitSequence.uppercased() { return nil }
+        if let other = kitSequences.first(where: { $0.id != barcode.id && $0.sequence.uppercased() == cell }) {
+            throw DemultiplexPlanRefusal(words: "\(label) has the barcode \(barcode.id), and its \(end) Sequence cell holds \(cell), the sequence of \(other.id). Choose \(other.id) as its barcode, or clear the cell to use \(barcode.id)'s sequence.")
+        }
         return cell
     }
 
@@ -154,8 +171,8 @@ struct FASTQDemultiplexPlanLaunch {
         return Self(definitionURL: url, inputURLs: [datasetURL], step: step)
     }
 
-    /// Sets Demultiplex Barcodes to the plan's definition, location, error rate, distances, trim, Min Overlap, Allow
-    /// Indels and Search reverse complement. When a row of the
+    /// Sets Demultiplex Barcodes to the plan's definition, location, error rate, distances, trim, Min Overlap and Allow
+    /// indels. When a row of the
     /// plan records the read-name route, as Detect's Proceed writes it for a count from the read names, the engine is
     /// Read Names, which writes `--engine header-index`, so the plan's route no longer rests on the probe (ruling
     /// ARCH-DEMUX-PLAN-CONTROL C5, ARCH pin 6). Otherwise the engine stays at the dialog's default, which writes no
@@ -175,9 +192,9 @@ struct FASTQDemultiplexPlanLaunch {
         state.demultiplexMaxDistanceFrom5Prime = step.maxSearchDistance5Prime
         state.demultiplexMaxDistanceFrom3Prime = step.maxSearchDistance3Prime
         state.demultiplexTrimBarcodes = step.trimBarcodes
-        // The Demux tab's Min Overlap, Allow Indels and Search reverse complement (DEMUXPLAN K2).
+        // The Demux tab's Min Overlap and Allow indels (ruling BIO-DEMUX item 8). The step's reverse complement is no
+        // setting a person chose, so it is not carried (BIO-DEMUX Question 3).
         state.demultiplexMinimumOverlap = step.minimumOverlap
         state.demultiplexAllowIndels = step.allowIndels
-        state.demultiplexSearchReverseComplement = step.searchReverseComplement
     }
 }
