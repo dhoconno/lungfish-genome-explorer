@@ -2360,8 +2360,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Flags every organism that TaxTriage detected in a negative-control
     /// sample, across all samples and independent of the Sample Filter.
     private func loadContaminationRiskOrganisms(from db: TaxTriageDatabase) {
-        // Words above the table when the controls are not recorded, failed, cannot be found or share a name (`controlNoticeWords`).
-        controlsNotRecordedNotice.show(controlNoticeWords())
+        // Words above the table for samples a rebuild did not recount, and controls not recorded, failed, unfound or renamed.
+        controlsNotRecordedNotice.show(noticeStripWords(for: db))
         batchFlatTableView.contaminationRiskOrganismKeys = []
         let controls = negativeControlSampleIds().filter { sampleIds.contains($0) }
         guard !controls.isEmpty else { return }
