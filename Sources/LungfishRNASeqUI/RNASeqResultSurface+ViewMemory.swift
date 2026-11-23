@@ -44,10 +44,10 @@ extension RNASeqResultSurface {
         }
     }
 
-    /// The data key of VS B1: the manifest's modality, name and date with the path and sha256 of every file it lists,
-    /// as `RNASeqResultBundle.verifyChecksums` lists them, read from the manifest and never by hashing a file. A rerun
-    /// writes new checksums, so a cell map with new coordinates under the same names has another key. A result that
-    /// did not read has no key, which never compares equal.
+    /// The data key of VS B1: the manifest's modality, name and date with one digest of the path and sha256 of every
+    /// file it lists, as `RNASeqResultBundle.verifyChecksums` lists them, read from the manifest and never by hashing
+    /// a file. A rerun writes new checksums, so a cell map with new coordinates under the same names has another key.
+    /// A result that did not read has no key, which never compares equal.
     nonisolated static func viewMemoryDataKey(of outcome: RNASeqResultLoadOutcome) -> String? {
         guard case .loaded(let result) = outcome else { return nil }
         let manifest = result.manifest
@@ -61,8 +61,10 @@ extension RNASeqResultSurface {
         if let quality = manifest.quality { listed.append((quality.path, quality.sha256)) }
         if let cellMap = manifest.cellMap { listed.append((cellMap.path, cellMap.sha256)) }
         listed += (manifest.labelTables ?? []).map { ($0.path, $0.sha256) }
-        let head = ["RNA-seq v1", manifest.modality.rawValue, manifest.name, manifest.createdAt]
-        return (head + listed.map { "\($0.0) \($0.1)" }).joined(separator: "\n")
+        // One digest of the listed paths and sha256 values keeps the key short for a result of hundreds of samples. The raw
+        // lines pass the store's 64 KB record cap at about 600 files, and the store then drops the whole record.
+        let files = RNASeqResultBundle.sha256Hex(Data(listed.map { "\($0.0) \($0.1)" }.joined(separator: "\n").utf8))
+        return ["RNA-seq v1", manifest.modality.rawValue, manifest.name, manifest.createdAt, files].joined(separator: "\n")
     }
 
     /// The child on show, as the manifest names its modality, or "none" when the folder did not read.
