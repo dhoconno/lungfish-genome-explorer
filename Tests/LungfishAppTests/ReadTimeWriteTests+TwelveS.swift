@@ -18,9 +18,10 @@ extension ReadTimeWriteTests {
         let twelveS = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: "12S"), in: project)
         let other = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: "Status only"), in: project)
         let storeRoot = root.appendingPathComponent("view-memory", isDirectory: true)
+        // The digest comes before the store reads the project, so a write by that read shows too.
+        let before = try ProjectDigest(of: project)
         let store = ViewMemoryStore(root: storeRoot)
         store.loadProject(at: project)
-        let before = try ProjectDigest(of: project)
 
         let driver = TwelveSViewStateDriver()
         let harness = try ViewSwitchWindowHarness()
@@ -42,6 +43,6 @@ extension ReadTimeWriteTests {
         let after = try ProjectDigest(of: project)
         XCTAssertEqual(after.entries, before.entries, "viewing and switching write nothing into the project (UX 6)")
         let kept = try FileManager.default.subpathsOfDirectory(atPath: storeRoot.path)
-        XCTAssertTrue(kept.contains { $0.hasSuffix(".json") || !$0.contains(".") }, "the view sits in the store: \(kept)")
+        XCTAssertTrue(kept.contains { $0.hasSuffix(".json") }, "the view sits in the store: \(kept)")
     }
 }

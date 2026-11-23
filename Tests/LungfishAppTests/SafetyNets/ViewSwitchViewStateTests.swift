@@ -15,6 +15,8 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishKit
 import LungfishTestSupport
+@testable import LungfishTwelveSUI
+import LungfishWorkflow
 
 /// What a kind's case needs: a person's change, a reading of the view's controls and a change to the bundle.
 @MainActor
@@ -108,6 +110,130 @@ final class ViewSwitchViewStateTests: XCTestCase {
         try await assertChangedBundle(TwelveSViewStateDriver())
     }
 
+    /// The route wires the Inspector after the show that restores the view, so the restored filter text, row count
+    /// and selected row reach it only through the host's announce (SWIFT SF-1).
+    func testTwelveSInspectorFollowsTheKeptView() async throws {
+        let driver = TwelveSViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        try driver.change(in: harness)
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+
+        let display = harness.split.inspectorController.twelveSResultDisplaySectionViewModel
+        let detail = harness.split.inspectorController.twelveSDetailSectionViewModel
+        await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) {
+            display.displayState.filterText == "Homo" && display.visibleRowCount == 1 && detail.hasDetail
+        }
+        XCTAssertEqual(display.displayState.filterText, "Homo", "the Inspector shows the restored filter text")
+        XCTAssertEqual(display.visibleRowCount, 1, "the Inspector counts the rows the restored view shows")
+        XCTAssertTrue(detail.hasDetail, "the Inspector's Detail shows the restored row")
+        XCTAssertEqual(detail.title, "Homo sapiens")
+    }
+
+    /// Reset View hands back the starting view, so a column filter set since the open clears with its mark and
+    /// every row shows again (BIO SF-1).
+    func testTwelveSResetViewClearsAColumnFilterAndShowsEveryRow() async throws {
+        let driver = TwelveSViewStateDriver()
+        let (fixture, _) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let viewer = try XCTUnwrap(harness.split.viewerController.twelveSAmpliconResultViewController)
+        let all = viewer.targetTable.tableView.numberOfRows
+        XCTAssertEqual(all, 3)
+        filterScientificNamesForHomo(in: viewer)
+        XCTAssertEqual(viewer.targetTable.tableView.numberOfRows, 2)
+        XCTAssertEqual(scientificNameTitle(in: viewer)?.hasSuffix(" ◆"), true, "the column shows its filter")
+
+        harness.split.viewerController.surfaceHost.resetViewMemory()
+        XCTAssertEqual(viewer.targetTable.tableView.numberOfRows, all, "every row shows after Reset View")
+        XCTAssertFalse(viewer.targetTable.columnFilterSet.isActive)
+        XCTAssertEqual(scientificNameTitle(in: viewer)?.hasSuffix(" ◆"), false, "the column's filter mark is gone")
+    }
+
+    /// The selection comes back by the row's identity, which holds its sample, so of two samples that show the same
+    /// species the row of the sample the person picked is the one selected again (BIO SF-2, VS B4).
+    func testTwelveSRestoresTheSelectedRowOfItsOwnSampleWhenTwoSamplesShowTheSameSpecies() async throws {
+        let driver = TwelveSViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        var viewer = try XCTUnwrap(harness.split.viewerController.twelveSAmpliconResultViewController)
+        let rows = 0..<viewer.targetTable.tableView.numberOfRows
+        let human = rows.filter { viewer.testingTargetText(row: $0, column: "scientificName") == "Homo sapiens" }
+        XCTAssertEqual(human.count, 2, "HG002 and the extraction blank both show human")
+        let first = try XCTUnwrap(human.first)
+        let later = try XCTUnwrap(human.last)
+        let chosen = viewer.testingTargetText(row: later, column: "sampleName")
+        XCTAssertNotEqual(chosen, viewer.testingTargetText(row: first, column: "sampleName"))
+        viewer.selectTargetForTesting(row: later)
+
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        viewer = try XCTUnwrap(harness.split.viewerController.twelveSAmpliconResultViewController)
+        let table = viewer.targetTable.tableView
+        XCTAssertEqual(table.selectedRowIndexes.count, 1)
+        XCTAssertEqual(viewer.testingTargetText(row: table.selectedRow, column: "sampleName"), chosen)
+        XCTAssertEqual(viewer.testingTargetText(row: table.selectedRow, column: "scientificName"), "Homo sapiens")
+    }
+
+    /// A restored column filter keeps its mark on the column title, and a changed bundle drops it, shows every row
+    /// and says so in one line (BIO SF-3, VS B6).
+    func testTwelveSKeepsAColumnFilterWithItsMarkAndDropsItOnAChangedBundle() async throws {
+        let driver = TwelveSViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        filterScientificNamesForHomo(in: try XCTUnwrap(harness.split.viewerController.twelveSAmpliconResultViewController))
+
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        var viewer = try XCTUnwrap(harness.split.viewerController.twelveSAmpliconResultViewController)
+        XCTAssertEqual(viewer.targetTable.tableView.numberOfRows, 2, "the kept column filter hides the macaque row")
+        XCTAssertEqual(scientificNameTitle(in: viewer)?.hasSuffix(" ◆"), true, "the kept filter shows its mark")
+        XCTAssertNil(harness.resetLineWords)
+
+        try await leave(for: other, in: harness, driver: driver)
+        try driver.changeBundle(of: fixture)
+        try await show(fixture, in: harness, driver: driver)
+        viewer = try XCTUnwrap(harness.split.viewerController.twelveSAmpliconResultViewController)
+        XCTAssertEqual(viewer.targetTable.tableView.numberOfRows, 3, "a changed bundle drops the column filter")
+        XCTAssertEqual(scientificNameTitle(in: viewer)?.hasSuffix(" ◆"), false)
+        XCTAssertEqual(harness.resetLineWords, "The data changed since your last visit, so your filters were not kept.")
+    }
+
+    /// The surface reads its item and data key once in its load and never in a getter (SWIFT SF-3), so a folder
+    /// moved after the show leaves both as the load read them.
+    func testTwelveSReadsItsItemAndKeyOnceInItsLoad() async throws {
+        let driver = TwelveSViewStateDriver()
+        let (fixture, _) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let surface = try XCTUnwrap(harness.split.viewerController.surfaceHost.activeViewport as? TwelveSSurface)
+        let item = surface.viewMemoryItem
+        let key = surface.viewMemoryDataKey
+        XCTAssertNotNil(item?.folder, "the load read the folder")
+        XCTAssertNotNil(key, "the load read the data key")
+
+        let bundle = try XCTUnwrap(fixture.item.url)
+        let moved = bundle.deletingLastPathComponent().appendingPathComponent("moved-away", isDirectory: true)
+        try FileManager.default.moveItem(at: bundle, to: moved)
+        defer { try? FileManager.default.moveItem(at: moved, to: bundle) }
+        XCTAssertEqual(surface.viewMemoryItem, item, "the item is the one the load read")
+        XCTAssertEqual(surface.viewMemoryDataKey, key, "the data key is the one the load read")
+    }
+
     // MARK: - The three cases
 
     private func assertSwitchAwayAndBack(_ driver: any ViewStateDriver) async throws {
@@ -170,6 +296,18 @@ final class ViewSwitchViewStateTests: XCTestCase {
     }
 
     // MARK: - Support
+
+    /// Filters the scientific name column for "Homo" through the table's own path, as its header menu does.
+    private func filterScientificNamesForHomo(in viewer: TwelveSAmpliconResultViewController) {
+        viewer.targetTable.setColumnFilter(
+            ColumnFilter(columnId: "scientificName", op: .contains, value: "Homo"), for: "scientificName"
+        )
+    }
+
+    /// The scientific name column's title, which ends with " ◆" while a filter on it is active.
+    private func scientificNameTitle(in viewer: TwelveSAmpliconResultViewController) -> String? {
+        viewer.targetTable.tableView.tableColumn(withIdentifier: .init("scientificName"))?.title
+    }
 
     /// The driver's kind and a kind to switch to, built in the project.
     private func fixtures(for driver: any ViewStateDriver) async throws -> (ViewSwitchFixture, ViewSwitchFixture) {

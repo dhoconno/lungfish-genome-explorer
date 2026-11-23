@@ -5,6 +5,7 @@
 import AppKit
 import XCTest
 @testable import LungfishKit
+import LungfishTestSupport
 
 private final class MemoryStandInController: NSViewController {
     override func loadView() {
@@ -34,6 +35,8 @@ private final class MemoryStandInSurface: ViewMemoryAdopting {
     var selection: [String] = []
     var restoredWithChangedData: Bool?
     var clearsOnDeactivate = false
+    /// What the surface announced to its listeners, one filter a call, as an Inspector would hear it.
+    var announced: [String] = []
 
     func load(input: Any, token: AsyncRequestToken<SurfaceRequest>) async throws {
         let input = try expectInput(input, as: Input.self)
@@ -62,6 +65,10 @@ private final class MemoryStandInSurface: ViewMemoryAdopting {
         filter = state.filter
         selection = state.selection
         return []
+    }
+
+    func announceViewMemory() {
+        announced.append(filter)
     }
 
     /// A surface that tears its view down as it goes, so only a capture before this call sees the view.
@@ -280,6 +287,50 @@ final class ViewportHostViewMemoryTests: XCTestCase {
         try show(host, .init(url: other))
         store.flushSynchronously()
         XCTAssertTrue(fixture.itemFiles().isEmpty)
+    }
+
+    // MARK: - The view reaches the surface's listeners (SWIFT SF-1)
+
+    /// The host restores inside `show` and a route wires the surface's callbacks after `show` returns, in the same
+    /// turn, so the host has the surface announce its restored view on the main actor's next turn, once.
+    func testTheRestoredViewIsAnnouncedAfterTheRouteThatShowedIt() async throws {
+        let (host, parent) = makeHost(store: loadedStore())
+        defer { _ = parent }
+        try show(host, .init(url: fixture.bundle)).filter = "Salmo"
+        try show(host, .init(url: other))
+        let back = try show(host, .init(url: fixture.bundle))
+        XCTAssertEqual(back.announced, [], "the route that showed it has not wired its listeners yet")
+
+        let told = await waitUntil(budget: .standard) { !back.announced.isEmpty }
+        XCTAssertTrue(told, "the restored view is announced once the route's turn ends")
+        XCTAssertEqual(back.announced, ["Salmo"])
+    }
+
+    /// A surface that another show replaced before its turn announces nothing, and its successor announces once.
+    func testASurfaceReplacedBeforeItsTurnAnnouncesNothing() async throws {
+        let (host, parent) = makeHost(store: loadedStore())
+        defer { _ = parent }
+        let replaced = try show(host, .init(url: fixture.bundle))
+        let installed = try show(host, .init(url: other))
+
+        let told = await waitUntil(budget: .standard) { !installed.announced.isEmpty }
+        XCTAssertTrue(told, "the installed surface announces its view")
+        XCTAssertEqual(installed.announced, [""])
+        XCTAssertEqual(replaced.announced, [], "a surface removed before its turn tells nobody")
+    }
+
+    /// A reset and a late apply run after the route wired the listeners, so each announces at once.
+    func testAResetAndALateApplyAnnounceAtOnce() throws {
+        let (host, parent) = makeHost(store: loadedStore())
+        defer { _ = parent }
+        try show(host, .init(url: fixture.bundle)).filter = "kept"
+        try show(host, .init(url: other))
+
+        let late = try show(host, .init(url: fixture.bundle, pending: true))
+        late.viewMemoryHandle?.applyPending()
+        XCTAssertEqual(late.announced, ["kept"], "the late apply announces the restored view")
+        host.resetViewMemory()
+        XCTAssertEqual(late.announced, ["kept", ""], "Reset View announces the starting view")
     }
 
     // MARK: - A data key not read (VS B1)
