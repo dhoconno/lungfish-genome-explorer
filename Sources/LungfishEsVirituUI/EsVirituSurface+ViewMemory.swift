@@ -29,14 +29,14 @@ public struct EsVirituViewState: ViewMemoryState {
 }
 
 extension EsVirituSurface: ViewMemoryAdopting {
-    /// Where the result lives. The App configures the viewer before the show, so this reads nothing but the folder's
-    /// own attributes, once, right after the load.
-    public var viewMemoryItem: ViewMemoryItem? {
-        controller?.viewMemoryFolderURL.map { ViewMemoryItem.read(at: $0) }
+    /// Reads where the result lives and its data key once, in `load`, and stores both, so a capture and a restore
+    /// read only memory (SWIFT SF-3). The App configures the viewer before the show and this load cannot suspend,
+    /// so the folder's few attributes are read on the main actor, once a show (SWIFT ruling R2). The data key is
+    /// made from what the viewer loaded (`EsVirituResultViewController.viewMemoryDataKey()`).
+    func readViewMemoryIdentity(of viewer: EsVirituResultViewController) {
+        viewMemoryItem = viewer.viewMemoryFolderURL.map { ViewMemoryItem.read(at: $0) }
+        viewMemoryDataKey = viewer.viewMemoryDataKey()
     }
-
-    /// The data key of VS B1, from what the viewer loaded. See `EsVirituResultViewController.viewMemoryDataKey()`.
-    public var viewMemoryDataKey: String? { controller?.viewMemoryDataKey() }
 
     /// The view as the viewer's controls hold it now. It reads no file and no store.
     public func captureViewMemory() -> EsVirituViewState {

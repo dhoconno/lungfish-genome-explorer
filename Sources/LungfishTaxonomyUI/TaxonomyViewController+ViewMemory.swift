@@ -90,9 +90,10 @@ extension TaxonomyViewController {
     func captureTaxonomyViewMemory() -> TaxonomyViewMemory {
         var memory = TaxonomyViewMemory()
         memory.filterText = taxonomyTableView.filterText
-        if let descriptor = taxonomyTableView.outlineView.sortDescriptors.first, let key = descriptor.key {
-            memory.sort = BatchTableMemory.Sort(key: key, ascending: descriptor.ascending)
-        }
+        // The header menu sets the table's own key and leaves the outline's descriptors, so the table's key is read.
+        memory.sort = BatchTableMemory.Sort(
+            key: taxonomyTableView.currentSortKey, ascending: taxonomyTableView.currentSortAscending
+        )
         memory.selectedIdentities = taxonomyTableView.selectionIdentities.selectedIDs
             .map(TaxonomyRowIdentity.portable).sorted()
         if let centre = sunburstView.centerNode, let identity = taxonomyTableView.selectionIdentity(for: centre) {
@@ -136,9 +137,12 @@ extension TaxonomyViewController {
         }
 
         let sort = memory.sort ?? BatchTableMemory.Sort(key: "reads", ascending: false)
-        let current = table.outlineView.sortDescriptors.first
-        if current?.key != sort.key || current?.ascending != sort.ascending {
+        if table.currentSortKey != sort.key || table.currentSortAscending != sort.ascending {
             table.outlineView.sortDescriptors = [NSSortDescriptor(key: sort.key, ascending: sort.ascending)]
+            // The delegate sets the key from the descriptor. When it did not run, the menu's path sets it.
+            if table.currentSortKey != sort.key || table.currentSortAscending != sort.ascending {
+                table.columnHeaderFilterMenu(sortByKey: sort.key, ascending: sort.ascending)
+            }
         }
 
         let visible = table.visibleSelectionIdentities() ?? []

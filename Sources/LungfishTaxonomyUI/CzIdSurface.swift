@@ -19,6 +19,11 @@ public final class CzIdSurface: ResultViewport {
     /// The result viewer the host installs, the one the load adopted.
     public private(set) var controller: CzIdResultViewController?
 
+    /// Where the result lives and its data key (VS B1), read once in `load`
+    /// (`CzIdSurface+ViewMemory.swift`), never in a getter.
+    public internal(set) var viewMemoryItem: ViewMemoryItem?
+    public internal(set) var viewMemoryDataKey: String?
+
     /// What `viewController` answers before a load, which the host never reads.
     private lazy var unloaded: NSViewController = {
         let empty = NSViewController()
@@ -53,5 +58,6 @@ public final class CzIdSurface: ResultViewport {
         adopted.view.setAccessibilityElement(true)
         adopted.view.setAccessibilityRole(.group)
         controller = adopted
+        readViewMemoryIdentity(of: adopted)
     }
 }

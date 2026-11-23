@@ -55,6 +55,7 @@ enum ViewStateDrivers {
     static let all: [any ViewStateDriver] = [
         TwelveSViewStateDriver(), ReferenceViewStateDriver(route: .reference), ReferenceViewStateDriver(route: .mapping),
         RNASeqViewStateDriver(), CellMapViewStateDriver(),
+        Kraken2ViewStateDriver(), EsVirituViewStateDriver(), CzIdViewStateDriver(),
     ]
 }
 
@@ -108,7 +109,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
             ViewStateDeclaredGaps.all.count, ViewStateDeclaredGaps.ceiling,
             "The declared gaps only shrink. Lower the ceiling in the change that adopts a kind."
         )
-        XCTAssertEqual(ViewStateDeclaredGaps.ceiling, 19, "the ceiling after VS-RNA, which each family lane lowers")
+        XCTAssertEqual(ViewStateDeclaredGaps.ceiling, 16, "the ceiling after VS-REF, VS-RNA and VS-TAX, which each family lane lowers")
     }
 
     // MARK: - 12S
@@ -382,6 +383,44 @@ final class ViewSwitchViewStateTests: XCTestCase {
         harness.split.viewerController.surfaceHost.resetViewMemory()
         await driver.settle(in: harness)
         XCTAssertEqual(try driver.read(in: harness), start, "Reset View shows the view the result opened with")
+    }
+
+    // MARK: - Kraken2, EsViritu and CZ ID (VS-TAX)
+
+    func testKraken2KeepsItsViewThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(Kraken2ViewStateDriver())
+    }
+
+    func testKraken2KeepsItsViewThroughARelaunch() async throws {
+        try await assertRelaunch(Kraken2ViewStateDriver())
+    }
+
+    func testKraken2OpensAChangedBundleWithItsFilterDroppedAndOneLine() async throws {
+        try await assertChangedBundle(Kraken2ViewStateDriver())
+    }
+
+    func testEsVirituKeepsItsViewThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(EsVirituViewStateDriver())
+    }
+
+    func testEsVirituKeepsItsViewThroughARelaunch() async throws {
+        try await assertRelaunch(EsVirituViewStateDriver())
+    }
+
+    func testEsVirituOpensAChangedBundleWithItsFilterDroppedAndOneLine() async throws {
+        try await assertChangedBundle(EsVirituViewStateDriver())
+    }
+
+    func testCzIdKeepsItsViewThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(CzIdViewStateDriver())
+    }
+
+    func testCzIdKeepsItsViewThroughARelaunch() async throws {
+        try await assertRelaunch(CzIdViewStateDriver())
+    }
+
+    func testCzIdOpensAChangedBundleWithItsFilterDroppedAndOneLine() async throws {
+        try await assertChangedBundle(CzIdViewStateDriver())
     }
 
     // MARK: - The three cases

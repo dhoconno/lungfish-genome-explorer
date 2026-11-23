@@ -22,6 +22,11 @@ public final class Kraken2Surface: ResultViewport {
     /// The result viewer the host installs, the one the load adopted.
     public private(set) var controller: TaxonomyViewController?
 
+    /// Where the result lives and its data key (VS B1), read once in `load`
+    /// (`Kraken2Surface+ViewMemory.swift`), never in a getter.
+    public internal(set) var viewMemoryItem: ViewMemoryItem?
+    public internal(set) var viewMemoryDataKey: String?
+
     /// Called whenever the host removes this viewer, so the App can take the Kraken2 block out
     /// of the Inspector. It runs for its own kind too: the App gives the Inspector a new
     /// result's block only after that result's show.
@@ -68,5 +73,6 @@ public final class Kraken2Surface: ResultViewport {
         adopted.view.setAccessibilityElement(true)
         adopted.view.setAccessibilityRole(.group)
         controller = adopted
+        readViewMemoryIdentity(of: adopted)
     }
 }

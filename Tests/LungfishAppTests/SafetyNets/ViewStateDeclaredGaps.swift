@@ -15,15 +15,12 @@ struct ViewStateDeclaredGap: Sendable {
 
 enum ViewStateDeclaredGaps {
     /// The most rows the table may hold. Lower it in the commit that removes a row.
-    static let ceiling = 19
+    static let ceiling = 16
 
     static let all: [ViewStateDeclaredGap] = [
-        gap("Kraken2", "VS-TAX", "samples, sunburst, taxon, filter, sort, split and drawer are not kept yet"),
-        gap("EsViritu", "VS-TAX", "expansion, selection, filter, sort, split and samples are not kept yet"),
         gap("TaxTriage", "VS-CLASS", "sample, filter, batch facet, selection, sort and split are not kept yet"),
         gap("NAO-MGS", "VS-CLASS", "sample filter, filter, selection, sort and split are not kept yet"),
         gap("NVD", "VS-CLASS", "grouping, sample filter, search, expansion, selection and split are not kept yet"),
-        gap("CZ ID", "VS-TAX", "not read by any seat, VS-TAX reads it first"),
         gap("Assembly", "VS-DATA", "contig selection, sort, filter and split are not kept yet"),
         gap("FASTQ", "VS-DATA", "middle tab and splits are not kept yet"),
         gap("Genotype", "VS-GENO", "view mode, layout, density, pickers, filters and selection are not kept yet"),

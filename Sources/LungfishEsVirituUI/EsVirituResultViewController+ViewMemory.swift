@@ -85,9 +85,8 @@ extension EsVirituResultViewController {
         let table = detectionTableView
         let outline = table.outlineView
         memory.filterText = table.filterText
-        if let descriptor = outline.sortDescriptors.first, let key = descriptor.key {
-            memory.sort = BatchTableMemory.Sort(key: key, ascending: descriptor.ascending)
-        }
+        // The header menu sets the table's own key and leaves the outline's descriptors, so the table's key is read.
+        memory.sort = BatchTableMemory.Sort(key: table.exportSortKey, ascending: table.exportSortAscending)
         memory.selectedIdentities = table.selectionIdentities.selectedIDs.map(EsVirituRowIdentity.portable).sorted()
         for row in 0..<outline.numberOfRows {
             guard let item = outline.item(atRow: row), outline.isExpandable(item), !outline.isItemExpanded(item),
@@ -133,9 +132,12 @@ extension EsVirituResultViewController {
         }
 
         let sort = memory.sort ?? BatchTableMemory.Sort(key: "reads", ascending: false)
-        let current = outline.sortDescriptors.first
-        if current?.key != sort.key || current?.ascending != sort.ascending {
+        if table.exportSortKey != sort.key || table.exportSortAscending != sort.ascending {
             outline.sortDescriptors = [NSSortDescriptor(key: sort.key, ascending: sort.ascending)]
+            // The delegate sets the key from the descriptor. When it did not run, the menu's path sets it.
+            if table.exportSortKey != sort.key || table.exportSortAscending != sort.ascending {
+                table.columnHeaderFilterMenu(sortByKey: sort.key, ascending: sort.ascending)
+            }
         }
 
         let visible = table.visibleSelectionIdentities() ?? []

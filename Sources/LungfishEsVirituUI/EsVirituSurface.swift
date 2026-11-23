@@ -17,6 +17,11 @@ public final class EsVirituSurface: ResultViewport {
     /// The result viewer the host installs, the one the load adopted.
     public private(set) var controller: EsVirituResultViewController?
 
+    /// Where the result lives and its data key (VS B1), read once in `load`
+    /// (`EsVirituSurface+ViewMemory.swift`), never in a getter.
+    public internal(set) var viewMemoryItem: ViewMemoryItem?
+    public internal(set) var viewMemoryDataKey: String?
+
     /// Called whenever the host removes this viewer, so the App can take the EsViritu
     /// block out of the Inspector. It runs for its own kind too: the App gives the
     /// Inspector a new result's block only after that result's show.
@@ -49,6 +54,8 @@ public final class EsVirituSurface: ResultViewport {
 
     /// Adopts the controller the App passed as `input`.
     public func load(input: Any, token: AsyncRequestToken<SurfaceRequest>) async throws {
-        controller = try expectInput(input, as: EsVirituResultViewController.self)
+        let adopted = try expectInput(input, as: EsVirituResultViewController.self)
+        controller = adopted
+        readViewMemoryIdentity(of: adopted)
     }
 }

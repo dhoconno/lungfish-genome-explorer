@@ -37,12 +37,14 @@ extension CzIdResultViewController {
 }
 
 extension CzIdSurface: ViewMemoryAdopting {
-    /// Where the import lives, from the folder the App passed to `configure`.
-    public var viewMemoryItem: ViewMemoryItem? {
-        controller?.bundleURL.map { ViewMemoryItem.read(at: $0) }
+    /// Reads where the result lives and its data key once, in `load`, and stores both, so a capture and a restore
+    /// read only memory (SWIFT SF-3). The App configures the viewer before the show and this load cannot suspend,
+    /// so the folder's few attributes are read on the main actor, once a show (SWIFT ruling R2). The data key is
+    /// made from what the viewer loaded (`CzIdResultViewController.czIdViewMemoryDataKey()`).
+    func readViewMemoryIdentity(of viewer: CzIdResultViewController) {
+        viewMemoryItem = viewer.bundleURL.map { ViewMemoryItem.read(at: $0) }
+        viewMemoryDataKey = viewer.czIdViewMemoryDataKey()
     }
-
-    public var viewMemoryDataKey: String? { controller?.czIdViewMemoryDataKey() }
 
     /// The view as the embedded viewer's controls hold it now. It reads no file and no store.
     public func captureViewMemory() -> CzIdViewState {

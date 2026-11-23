@@ -154,8 +154,8 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     // MARK: - Sort State
 
     /// Current sort descriptor (nil = default: clade descending).
-    private var currentSortKey: String = ColumnID.reads
-    private var currentSortAscending: Bool = false
+    private(set) var currentSortKey: String = ColumnID.reads
+    private(set) var currentSortAscending: Bool = false
 
     // MARK: - Per-Column Filters
 
