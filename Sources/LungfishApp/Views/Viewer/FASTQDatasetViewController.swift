@@ -15,7 +15,8 @@ struct FASTQReadPreviewRecord {
     let readID: String
     let sequence: String
     let length: Int
-    let meanQuality: Double
+    /// The mean quality of the read's scores, or nil for a read that carries none, whose cell then shows no number.
+    let meanQuality: Double?
 }
 
 /// Turns the first records of a FASTQ file into preview rows, numbered from 1 in file order.
@@ -29,7 +30,7 @@ private func makeFASTQReadPreviewRecords(from fastqRecords: [FASTQRecord]) -> [F
             length: record.length,
             // Per-read Mean Q uses the same error-probability definition as the
             // dataset Mean Q card and seqkit, not an arithmetic Phred average.
-            meanQuality: record.quality.isEmpty ? 0 : record.quality.errorProbabilityMeanQuality
+            meanQuality: record.quality.isEmpty ? nil : record.quality.errorProbabilityMeanQuality
         )
     }
 }
@@ -1837,13 +1838,19 @@ extension FASTQDatasetViewController: NSTableViewDataSource, NSTableViewDelegate
             return cell
 
         case "rp_meanQ":
-            let cell = NSTextField(labelWithString: String(format: "%.1f", record.meanQuality))
+            // A read with no scores has no mean quality, so its cell shows no number.
+            guard let meanQuality = record.meanQuality else {
+                let empty = NSTextField(labelWithString: "")
+                empty.alignment = .right
+                return empty
+            }
+            let cell = NSTextField(labelWithString: String(format: "%.1f", meanQuality))
             cell.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             cell.alignment = .right
             // Color-code quality
-            if record.meanQuality >= 30 {
+            if meanQuality >= 30 {
                 cell.textColor = .systemGreen
-            } else if record.meanQuality >= 20 {
+            } else if meanQuality >= 20 {
                 cell.textColor = .systemYellow
             } else {
                 cell.textColor = .lungfishDanger

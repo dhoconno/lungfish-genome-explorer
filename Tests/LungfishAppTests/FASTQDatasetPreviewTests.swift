@@ -184,7 +184,7 @@ enum FASTQDatasetPreviewFixture {
             XCTAssertEqual(actual.sequence, want.sequence, "sequence of row \(want.index)", file: file, line: line)
             XCTAssertEqual(actual.length, want.length, "length of row \(want.index)", file: file, line: line)
             XCTAssertEqual(
-                actual.meanQuality, want.meanQuality, accuracy: 1e-9,
+                actual.meanQuality ?? .nan, want.meanQuality, accuracy: 1e-9,
                 "mean quality of row \(want.index)", file: file, line: line)
         }
     }
