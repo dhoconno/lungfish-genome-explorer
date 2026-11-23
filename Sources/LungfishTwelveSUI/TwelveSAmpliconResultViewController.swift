@@ -241,7 +241,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         action: nil
     )
     private let searchField = NSSearchField()
-    private let sampleFilterButton = NSButton(title: "All Samples", target: nil, action: nil)
+    let sampleFilterButton = NSButton(title: "All Samples", target: nil, action: nil)
     private let tableContainer = NSView()
     let targetTable = TwelveSTargetTableView()
     let unresolvedTable = TwelveSUnresolvedTableView()
@@ -267,7 +267,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
     private(set) var result: TwelveSAmpliconResultBundleData?
     private var mode: Mode = .targets
-    private var displayState = TwelveSResultDisplayState()
+    var displayState = TwelveSResultDisplayState()
     private var allTargetRows: [TwelveSScientificNameCountRow] = []
     private var allTargetSampleRows: [TwelveSTargetSampleRow] = []
     private var targetRows: [TwelveSTargetSampleRow] = []
@@ -285,10 +285,10 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
     /// Shared picker state observed for sample-selection changes. `nil` until
     /// the host wires samples via ``configureSamples(_:state:)``.
-    private var samplePickerState: ClassifierSamplePickerState?
+    var samplePickerState: ClassifierSamplePickerState?
     private var sampleEntries: [TwelveSSampleEntry] = []
-    private var allSampleIDs: Set<String> = []
-    private var selectedSamples: Set<String> = []
+    var allSampleIDs: Set<String> = []
+    var selectedSamples: Set<String> = []
     private var samplePopover: NSPopover?
     private var sampleNameStrippedPrefix = ""
 
@@ -585,7 +585,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
 
     /// Rebuilds the per-sample matrix columns on the target table and updates
     /// the suppressed-columns note.
-    private func rebuildSampleColumns() {
+    func rebuildSampleColumns() {
         let ids = orderedSelectedSampleIDs
         let names = Dictionary(uniqueKeysWithValues: sampleEntries.map { ($0.id, $0.displayName) })
         targetTable.setSampleColumns(
@@ -600,7 +600,7 @@ public final class TwelveSAmpliconResultViewController: NSViewController {
         updateActionBar()
     }
 
-    private func updateSampleFilterButtonTitle() {
+    func updateSampleFilterButtonTitle() {
         let total = allSampleIDs.count
         let selected = selectedSamples.count
         sampleFilterButton.title = (selected == total || total == 0)

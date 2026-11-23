@@ -58,12 +58,7 @@ final class ViewSwitchMatrixTests: XCTestCase {
         try super.tearDownWithError()
     }
 
-    private struct Fixture {
-        let kind: ViewSwitchKind
-        let root: URL
-        let item: SidebarItem
-        let alone: ViewSwitchReading
-    }
+    private typealias Fixture = ViewSwitchFixture
 
     // MARK: - The kind list
 
@@ -192,18 +187,9 @@ final class ViewSwitchMatrixTests: XCTestCase {
 
     // MARK: - Support
 
-    /// Builds the representative row of every kind under its own folder.
+    /// Builds the representative row of every kind under its own folder (ViewSwitchFixtures).
     private func buildFixtures(in root: URL) async throws -> [Fixture] {
-        var fixtures: [Fixture] = []
-        for kind in ViewSwitchKinds.all {
-            let row = try XCTUnwrap(ViewSwitchKinds.row(of: kind), "\(kind.name) names no routing row \(kind.row)")
-            let kindRoot = try SafetyNetFiles.makeDirectory(root.appendingPathComponent(kind.folder, isDirectory: true))
-            let built = try await row.build(RoutingRowContext(root: kindRoot, paths: SafetyNetPathRenderer(root: kindRoot)))
-            XCTAssertEqual(ViewSwitchKinds.outcome(of: built.expected), kind.outcome, "\(kind.name): its row \(kind.row) opens another kind")
-            XCTAssertLessThanOrEqual(built.expected.viewports.count, 1, "\(kind.name) alone installs more than one viewer")
-            fixtures.append(Fixture(kind: kind, root: kindRoot, item: built.item, alone: .alone(built.expected, kind: kind)))
-        }
-        return fixtures
+        try await ViewSwitchFixtures.build(in: root)
     }
 
     /// Waits until the window reads as `fixture`'s kind alone with the
