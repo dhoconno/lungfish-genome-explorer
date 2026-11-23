@@ -74,6 +74,29 @@ final class BuildDbTaxTriageStrainGroupTests: XCTestCase {
         XCTAssertEqual(try Self.references(of: second, in: database), ["ACC5"], "ACC3's reads count in one row only")
     }
 
+    /// Red at the base, where the first organism the gcfmap lists for ACC3, `Human adenovirus 5`, has no report row, so
+    /// ACC3 landed in no row, and `Human mastadenovirus C` read 1 unique read and held ACC4 alone, though TaxTriage
+    /// counted ACC3 in it (TT-m2 BIO S-1). ACC3 belongs to the first organism that lists it and has a row. samtools
+    /// prints 5 over ACC3 ACC4, the same records as the case above (lane TT-m2 report).
+    func testSharedAccessionGoesToTheOrganismThatHasARow() async throws {
+        let result = try Self.stage(
+            in: root,
+            rows: [("Human mastadenovirus C", 129951, 5)],
+            gcfmap: [
+                ("ACC3", "Human adenovirus 5"), ("ACC3", "Human mastadenovirus C"), ("ACC4", "Human mastadenovirus C"),
+            ],
+            reads: [("ACC3", 4), ("ACC4", 1)]
+        )
+        let database = try await Self.build(result)
+
+        let row = try Self.row("Human mastadenovirus C", in: database)
+        XCTAssertEqual(row.uniqueReads, 5, "samtools prints 5 over ACC3 ACC4, the two references the row owns")
+        XCTAssertEqual(
+            try Self.references(of: row, in: database), ["ACC3", "ACC4"],
+            "ACC3 is listed first under an organism with no row, so it goes to the organism that has one"
+        )
+    }
+
     /// Green at the base too. When the report has a row for a strain as well as for its organism, the strain's
     /// references stay with the strain's own row, so no read counts in both.
     func testStrainWithItsOwnRowStaysInThatRow() async throws {
