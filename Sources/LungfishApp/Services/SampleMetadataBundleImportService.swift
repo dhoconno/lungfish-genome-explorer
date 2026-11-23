@@ -146,12 +146,19 @@ struct SampleMetadataBundleImportService {
             builder = try builder.output(metadataURL, format: .text, role: .output)
             builder = try builder.output(editJournalURL, format: .json, role: .output)
 
+            let endedAt = runClock.now
             let envelope = try builder.complete(
                 exitStatus: 0,
                 startedAt: runClock.startedAt,
-                endedAt: runClock.now
+                endedAt: endedAt
             )
-            let provenanceURL = try ProvenanceWriter().write(envelope, to: bundleURL)
+            // A record that stands in the bundle is the run that made it, such as the 12S matching, and the import joins
+            // it as a later step, as an edit does. The import writes its own record only when the bundle has none
+            // (TWELVES-IMPORT-REPLACES-RUN-RECORD). A throw here restores the bundle as the snapshot holds it.
+            let recorded = try ProvenanceEnvelopeReader.load(from: bundleURL).map {
+                appending(envelope, to: $0, startedAt: runClock.startedAt, endedAt: endedAt)
+            } ?? envelope
+            let provenanceURL = try ProvenanceWriter().write(recorded, to: bundleURL)
             SampleMetadataEditPersistenceService().wire(store: store, bundleURL: bundleURL)
 
             return SampleMetadataBundleImportResult(
@@ -163,6 +170,58 @@ struct SampleMetadataBundleImportService {
             try snapshot.restore()
             throw error
         }
+    }
+
+    /// The import as a step of the record that stands in the bundle, built as the edit builds its own
+    /// (`SampleMetadataEditPersistenceService.persist`). It depends on the record's last step. The record keeps its name,
+    /// argv, options, exit status and earlier steps, and its files and outputs gain the import's. The import's own options
+    /// are the step's resolved options.
+    private func appending(
+        _ run: ProvenanceEnvelope,
+        to existing: ProvenanceEnvelope,
+        startedAt: Date,
+        endedAt: Date
+    ) -> ProvenanceEnvelope {
+        let inputs = run.files.filter { $0.role != .output }
+        let step = ProvenanceStep(
+            toolName: run.workflowName,
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: run.argv,
+            durableReplayArgv: run.durableReplayArgv,
+            reproducibleCommand: run.reproducibleCommand,
+            resolvedOptions: run.options.resolvedDefaults
+                .merging(run.options.defaults) { _, option in option }
+                .merging(run.options.explicit) { _, option in option },
+            runtimeIdentity: run.runtimeIdentity,
+            inputs: inputs,
+            outputs: run.outputs,
+            exitStatus: 0,
+            wallTimeSeconds: endedAt.timeIntervalSince(startedAt),
+            dependsOn: existing.steps.last.map { [$0.id] } ?? [],
+            startedAt: startedAt,
+            completedAt: endedAt
+        )
+        return existing.with { copy in
+            copy.files = deduplicatedPreferringLast(existing.files + inputs + run.outputs)
+            copy.outputs = deduplicatedPreferringLast(existing.outputs + run.outputs)
+            copy.steps = existing.steps + [step]
+            copy.wallTimeSeconds = (existing.wallTimeSeconds ?? 0) + (step.wallTimeSeconds ?? 0)
+            copy.exitStatus = existing.exitStatus ?? 0
+        }
+    }
+
+    private func deduplicatedPreferringLast(
+        _ descriptors: [ProvenanceFileDescriptor]
+    ) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var result: [ProvenanceFileDescriptor] = []
+        for descriptor in descriptors.reversed() {
+            let key = "\(descriptor.role.rawValue)\u{1F}\(descriptor.path)"
+            if seen.insert(key).inserted {
+                result.append(descriptor)
+            }
+        }
+        return result.reversed()
     }
 
     private func rekey(_ store: SampleMetadataStore, using identityIndex: SampleIdentityIndex) throws {
