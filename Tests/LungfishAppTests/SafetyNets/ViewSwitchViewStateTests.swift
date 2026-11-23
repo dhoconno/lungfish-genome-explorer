@@ -14,6 +14,7 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishKit
+import LungfishRNASeqUI
 import LungfishTestSupport
 @testable import LungfishTwelveSUI
 import LungfishWorkflow
@@ -37,11 +38,15 @@ protocol ViewStateDriver {
     var lineAfterChangedBundle: String? { get }
     /// The words of the reset line the shown view draws, nil when none shows.
     func resetLineWords(in harness: ViewSwitchWindowHarness) -> String?
+    /// Waits for the view's own reads after a show or a change, for a view whose controls settle off the main actor.
+    func settle(in harness: ViewSwitchWindowHarness) async
 }
 
 extension ViewStateDriver {
     /// A surface's line, which the host draws over it.
     func resetLineWords(in harness: ViewSwitchWindowHarness) -> String? { harness.resetLineWords }
+    /// A view whose controls hold the change at once has nothing to wait for.
+    func settle(in harness: ViewSwitchWindowHarness) async {}
 }
 
 @MainActor
@@ -290,6 +295,75 @@ final class ViewSwitchViewStateTests: XCTestCase {
         XCTAssertEqual(annotations.showAnnotations, true)
     }
 
+    // MARK: - RNA-seq and cell map (VS-RNA)
+
+    func testRNASeqKeepsItsViewThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(RNASeqViewStateDriver())
+    }
+
+    func testRNASeqKeepsItsViewThroughARelaunch() async throws {
+        try await assertRelaunch(RNASeqViewStateDriver())
+    }
+
+    func testRNASeqOpensAChangedBundleWithItsSearchDroppedAndOneLine() async throws {
+        try await assertChangedBundle(RNASeqViewStateDriver())
+    }
+
+    func testCellMapKeepsItsViewThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(CellMapViewStateDriver())
+    }
+
+    func testCellMapKeepsItsViewThroughARelaunch() async throws {
+        try await assertRelaunch(CellMapViewStateDriver())
+    }
+
+    /// A rerun that keeps the embedding's name with new coordinates drops the zoom and the lasso (BIO OBJECT 2).
+    func testCellMapOpensARerunWithItsZoomAndSelectionDroppedAndOneLine() async throws {
+        try await assertChangedBundle(CellMapViewStateDriver())
+    }
+
+    /// A rerun whose embedding list no longer holds the kept embedding opens the first one, keeps the colouring and the
+    /// size by name, and says the place was not kept (VS B7).
+    func testCellMapOpensARerunWithAnotherEmbeddingListAtItsFirstEmbeddingAndOneLine() async throws {
+        let driver = CellMapViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let map = try XCTUnwrap(driver.map(in: harness))
+        map.colourPopUp.selectItem(withTitle: "UMIs per cell")
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(map.colourPopUp.action), to: map.colourPopUp.target, from: map.colourPopUp))
+        map.choosePointSize(6)
+        await driver.settle(in: harness)
+
+        try await leave(for: other, in: harness, driver: driver)
+        try RNASeqViewStateControls.rerunCellMap(try XCTUnwrap(fixture.item.url), embedding: "tSNE", shift: 0)
+        try await show(fixture, in: harness, driver: driver)
+        XCTAssertEqual(try driver.read(in: harness), [
+            "embedding tSNE", "colour UMIs per cell", "point size 6.0", "window all cells", "selection No cells selected",
+        ])
+        XCTAssertEqual(harness.resetLineWords, "The data changed since your last visit, so your place was not kept.")
+    }
+
+    /// Reset View hands back the starting view: the first colouring, the default size, every cell and no selection.
+    func testCellMapResetViewReturnsTheStartingView() async throws {
+        let driver = CellMapViewStateDriver()
+        let (fixture, _) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let start = try driver.read(in: harness)
+        try driver.change(in: harness)
+        await driver.settle(in: harness)
+        XCTAssertNotEqual(try driver.read(in: harness), start)
+
+        harness.split.viewerController.surfaceHost.resetViewMemory()
+        await driver.settle(in: harness)
+        XCTAssertEqual(try driver.read(in: harness), start, "Reset View shows the view the result opened with")
+    }
+
     // MARK: - The three cases
 
     private func assertSwitchAwayAndBack(_ driver: any ViewStateDriver) async throws {
@@ -301,6 +375,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         try await show(fixture, in: harness, driver: driver)
         let start = try driver.read(in: harness)
         try await driver.change(in: harness)
+        await driver.settle(in: harness)
         let changed = try driver.read(in: harness)
         XCTAssertNotEqual(changed, start, "\(driver.kind): the change shows in the view's controls")
 
@@ -319,6 +394,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
             harness.keepViews(in: store)
             try await show(fixture, in: harness, driver: driver)
             try await driver.change(in: harness)
+            await driver.settle(in: harness)
             changed = try driver.read(in: harness)
             // The quit keeps the installed view with no switch and writes it (VS S1).
             harness.split.viewerController.surfaceHost.captureActive()
@@ -342,6 +418,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         harness.keepViews(in: store)
         try await show(fixture, in: harness, driver: driver)
         try await driver.change(in: harness)
+        await driver.settle(in: harness)
         let changed = try driver.read(in: harness)
 
         try await leave(for: other, in: harness, driver: driver)
@@ -385,6 +462,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         harness.select(fixture.item)
         let shown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { driver.isShown(in: harness) }
         XCTAssertTrue(shown, "\(driver.kind) did not show")
+        await driver.settle(in: harness)
     }
 
     private func leave(for other: ViewSwitchFixture, in harness: ViewSwitchWindowHarness, driver: any ViewStateDriver) async throws {
