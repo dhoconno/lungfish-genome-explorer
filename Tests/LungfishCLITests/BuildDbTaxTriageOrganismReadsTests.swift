@@ -134,7 +134,6 @@ final class BuildDbTaxTriageOrganismReadsTests: XCTestCase {
         case "$flag" in
           2308) kind=total ;;
           3332) kind=unique ;;
-          4|1028) echo 0; exit 0 ;;
           *) exit 1 ;;
         esac
         sample=$(/usr/bin/basename "$bam")

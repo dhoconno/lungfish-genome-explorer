@@ -13,9 +13,9 @@ public struct MarkdupResult: Sendable {
     public let outputURL: URL
     /// True if the BAM already had a `@PG ID:samtools.markdup` header and was skipped.
     public let wasAlreadyMarkduped: Bool
-    /// Total mapped reads after markdup (samtools view -c -F 0x004).
+    /// Total reads after markdup: the primary mapped reads (samtools view -c -F 0x904, as MarkdupService counts).
     public let totalReads: Int
-    /// Reads flagged as duplicates (totalReads - nonDuplicateReads).
+    /// Primary reads flagged as duplicates (totalReads minus the non-duplicate count, samtools view -c -F 0xD04).
     public let duplicateReads: Int
     /// Wall-clock time for the full pipeline including indexing.
     public let durationSeconds: Double
