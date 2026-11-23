@@ -119,6 +119,52 @@ extension ReadTimeWriteTests {
             "An item with an entry read the older file again.")
     }
 
+    // MARK: - A change or a reset made before the restore lands
+
+    /// A change made after the open but before the read lands is refused by the capture until the restore has run, so
+    /// the restore keeps it once it finds the view changed (SWIFT SF-2). `displayRememberedBundle` returns before the
+    /// settle and the read hops back to the main actor only when the test awaits, so the order is fixed.
+    func testAChangeMadeBeforeTheRestoreLandsIsStillKept() async throws {
+        let (first, _) = try makeTwoReferences()
+        let store = makeViewMemoryStore()
+        let viewer = makeViewer(store: store)
+        try viewer.displayRememberedBundle(
+            at: first.url, sequenceName: first.firstSequence,
+            memory: ReferenceViewerMemoryRequest(input: nil, bundleURL: first.url), bundle: nil)
+        let openedSpan = try XCTUnwrap(viewer.referenceFrame.map { $0.end - $0.start })
+
+        viewer.zoomIn() // a person's change, before the read has landed
+        viewer.saveCurrentViewState() // the debounce firing early
+        let settled = await waitUntil(budget: .lookup) { viewer.viewMemoryIsSettled }
+        XCTAssertTrue(settled, "The restore did not run.")
+
+        let kept = try XCTUnwrap(
+            keptReferenceView(of: first.url, in: store)?.locus, "A change made before the restore landed was not kept.")
+        XCTAssertLessThan(kept.end - kept.start, openedSpan, "The kept place is the zoomed one.")
+    }
+
+    /// Reset View pressed before the older file's read lands stays reset: the late restore must neither apply the older
+    /// file over it nor leave the next open to read it again (SWIFT SF-2).
+    func testResetViewBeforeTheRestoreLandsIsNotUndone() async throws {
+        let (first, second) = try makeTwoReferences()
+        try writeOlderViewStateFile(into: first)
+        let store = makeViewMemoryStore()
+        let viewer = makeViewer(store: store)
+        try viewer.displayRememberedBundle(
+            at: first.url, sequenceName: first.firstSequence,
+            memory: ReferenceViewerMemoryRequest(input: nil, bundleURL: first.url), bundle: nil)
+
+        viewer.resetBundleViewToDefaults() // before the read lands
+        let settled = await waitUntil(budget: .lookup) { viewer.viewMemoryIsSettled }
+        XCTAssertTrue(settled, "The restore did not run.")
+        let defaultHeight = CGFloat(AppSettings.shared.defaultAnnotationHeight)
+        XCTAssertEqual(viewer.viewerView.annotationHeight, defaultHeight, "The late restore undid Reset View.")
+
+        try await displayRemembered(second, in: viewer)
+        try await displayRemembered(first, in: viewer)
+        XCTAssertEqual(viewer.viewerView.annotationHeight, defaultHeight, "The next open read the old file again.")
+    }
+
     // MARK: - Helpers
 
     /// A view memory store under the scratch folder, never the account's.

@@ -135,6 +135,9 @@ final class ReferenceViewerMemorySession {
     var settled = false
     /// Whether the restore ran. Until it has, a capture keeps nothing.
     var applied = false
+    /// A person changed the view, or reset it, before the restore ran. The restore must neither lose nor undo that.
+    var changedBeforeApply = false
+    var resetBeforeApply = false
     /// The line that says what was not kept (VS U2), removed when the visit ends.
     var line: ViewMemoryResetLineView?
 
@@ -203,7 +206,17 @@ extension ViewerViewController {
         guard session.settled, !session.applied, let read = session.read else { return }
         session.applied = true
         // A late restore applies only while the view is as the open left it, so a change made before it stays (VS A2).
-        guard captureViewerMemory() == session.opening else { return }
+        if session.resetBeforeApply {
+            // Reset View ran before the read landed, so the reset stands and the retire mark is left now.
+            if let key = read.key { session.store.reset(key, kind: ReferenceViewerMemory.kind, folder: read.item.folder) }
+            if session.changedBeforeApply { keepViewMemory() }
+            return
+        }
+        guard captureViewerMemory() == session.opening else {
+            // A person changed the view first. It stays, and the change the debounce could not keep is kept now.
+            if session.changedBeforeApply { keepViewMemory() }
+            return
+        }
         var words: String?
         if case .view(let kept, _, _) = read.kept {
             words = ViewMemoryWords.dataChanged(restoreViewerMemory(kept))
@@ -290,8 +303,12 @@ extension ViewerViewController {
 
     /// Keeps the view as it stands for the item on show, in the store and never in the bundle (VS S1, S3).
     func keepViewMemory() {
-        guard let session = viewMemory, session.applied, session.bundleURL == currentBundleURL,
-              let read = session.read, let key = read.key else { return }
+        guard let session = viewMemory, session.bundleURL == currentBundleURL else { return }
+        guard session.applied else {
+            session.changedBeforeApply = true
+            return
+        }
+        guard let read = session.read, let key = read.key else { return }
         session.store.keep(
             captureViewerMemory(), startingView: session.start, for: key, dataKey: read.dataKey, folder: read.item.folder)
     }
@@ -367,13 +384,18 @@ extension ViewerViewController {
         viewerView.invalidateFilteredVariantCache()
         announceViewMemory()
 
-        guard let session = viewMemory, let read = session.read, let key = read.key else { return }
+        guard let session = viewMemory else { return }
         viewStateSaveWorkItem?.cancel()
         viewStateSaveWorkItem = nil
-        session.store.reset(key, kind: ReferenceViewerMemory.kind, folder: read.item.folder)
         session.start = captureViewerMemory()
         session.line?.removeFromSuperview()
         session.line = nil
+        guard session.applied else {
+            session.resetBeforeApply = true
+            return
+        }
+        guard let read = session.read, let key = read.key else { return }
+        session.store.reset(key, kind: ReferenceViewerMemory.kind, folder: read.item.folder)
         viewMemoryLogger.info("resetBundleViewToDefaults: left the item's retire mark in the view memory store")
     }
 }
