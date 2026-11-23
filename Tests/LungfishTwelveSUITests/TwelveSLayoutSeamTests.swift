@@ -33,8 +33,8 @@ final class TwelveSLayoutSeamTests: XCTestCase {
         )
         table.resultIdentity = "\(result)-second"
         let saved = (suite.defaults.persistentDomain(forName: suite.name) ?? [:]).keys.filter { $0.contains(result) }
-        XCTAssertEqual(saved.count, 1, "the table saved the layout of the key it left in the suite", file: file, line: line)
-        XCTAssertTrue(saved.allSatisfy { $0.hasSuffix("\(result)-first") }, "\(saved)", file: file, line: line)
+        // The 12S view keeps the layout in view memory, so the table saves none (VS A10, QA 6).
+        XCTAssertEqual(saved, [], "the table saved a layout that view memory holds", file: file, line: line)
         let leaked = UserDefaults.standard.dictionaryRepresentation().keys.filter { $0.contains(result) }
         XCTAssertTrue(leaked.isEmpty, "\(leaked) reached the test host's own domain", file: file, line: line)
     }

@@ -32,14 +32,11 @@ final class BatchClassificationTableLayoutKeyTests: XCTestCase {
         table.resultIdentity = identity
         XCTAssertTrue(layoutKeys(in: suite.defaults).isEmpty, "showing a result saves nothing")
 
-        // Leaving a result saves its layout under the key it was shown with.
+        // The Kraken2 view keeps this layout in view memory, so leaving a result writes no key (VS A10, QA 6). The old
+        // key is only read, under the LungfishApp type name, as the next test pins.
         table.resultIdentity = "/pins/other-result-folder"
 
-        XCTAssertEqual(
-            layoutKeys(in: suite.defaults),
-            [layoutPrefix + savedTypeName + ":" + identity],
-            "the layout is saved under the key of the LungfishApp type name, not of the module that holds the table"
-        )
+        XCTAssertEqual(layoutKeys(in: suite.defaults), [], "leaving a result wrote a layout that view memory holds")
     }
 
     func testTheTableReadsALayoutThatWasSavedUnderTheKeyItHadBeforeTheMove() {

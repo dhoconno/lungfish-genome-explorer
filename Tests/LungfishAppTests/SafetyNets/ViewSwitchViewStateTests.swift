@@ -13,6 +13,7 @@
 import AppKit
 import XCTest
 @testable import LungfishApp
+@testable import LungfishEsVirituUI
 @testable import LungfishKit
 import LungfishRNASeqUI
 import LungfishTestSupport
@@ -474,6 +475,44 @@ final class ViewSwitchViewStateTests: XCTestCase {
         try await leave(for: other, in: harness, driver: driver)
         await visit(batchRow, expecting: ["HG002"])
         XCTAssertNil(harness.resetLineWords, "the route's pick is not a loss, so no line shows")
+    }
+
+    /// VS A10 and QA 6: the Kraken2 and EsViritu tables write no column layout to the account's defaults when the route
+    /// sets their result, and a moved column comes back after a switch, from view memory.
+    func testKraken2AndEsVirituKeepAMovedColumnInViewMemoryAndWriteNoLayoutToTheAccountDefaults() async throws {
+        let kraken2 = Kraken2ViewStateDriver()
+        let esViritu = EsVirituViewStateDriver()
+        let (kraken2Fixture, other) = try await fixtures(for: kraken2)
+        let esVirituFixture = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: esViritu.kind), in: project)
+        try esViritu.prepare(esVirituFixture)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        func kraken2Outline() -> NSTableView? {
+            (harness.split.viewerController.surfaceHost.activeViewport as? Kraken2Surface)?.controller?
+                .taxonomyTableView.outlineView
+        }
+        func esVirituOutline() -> NSTableView? {
+            (harness.split.viewerController.surfaceHost.activeViewport as? EsVirituSurface)?.controller?
+                .detectionTableView.outlineView
+        }
+        let cases: [(any ViewStateDriver, ViewSwitchFixture, () -> NSTableView?)] = [
+            (kraken2, kraken2Fixture, kraken2Outline), (esViritu, esVirituFixture, esVirituOutline),
+        ]
+        for (driver, fixture, outline) in cases {
+            try await show(fixture, in: harness, driver: driver)
+            let table = try XCTUnwrap(outline(), driver.kind)
+            table.moveColumn(table.numberOfColumns - 1, toColumn: 1)
+            let moved = table.tableColumns.map(\.identifier.rawValue)
+            try await leave(for: other, in: harness, driver: driver)
+            try await show(fixture, in: harness, driver: driver)
+            let order = try XCTUnwrap(outline(), driver.kind).tableColumns.map(\.identifier.rawValue)
+            XCTAssertEqual(order, moved, "\(driver.kind): the moved column comes back")
+        }
+        let written = UserDefaults.standard.dictionaryRepresentation().keys.filter {
+            $0.hasPrefix("org.lungfish.metadata-column-layout.") && $0.contains(root.lastPathComponent)
+        }
+        XCTAssertEqual(written.sorted(), [], "a table wrote its column layout to the account's defaults")
     }
 
     // MARK: - The three cases

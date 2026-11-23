@@ -110,9 +110,9 @@ final class EsVirituStoredUniqueReadsPinTests: XCTestCase {
         }
 
         XCTAssertEqual(try Self.fileDigests(in: root), before, "opening and selecting changed the result folder")
-        XCTAssertFalse(
+        XCTAssertTrue(
             (layouts.defaults.persistentDomain(forName: layouts.name) ?? [:]).isEmpty,
-            "the tables saved their layouts to the suite"
+            "the tables saved a layout that view memory holds (VS A10)"
         )
         let leaked = UserDefaults.standard.dictionaryRepresentation().keys.filter { $0.contains(root.lastPathComponent) }
         XCTAssertTrue(leaked.isEmpty, "the pin wrote \(leaked) to UserDefaults.standard")

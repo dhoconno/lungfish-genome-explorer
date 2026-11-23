@@ -56,24 +56,44 @@ final class MetadataLayoutEveryTableSeamTests: XCTestCase {
         assertTheLayoutStaysInTheSuite(suite, open: open, file: file, line: line)
     }
 
+    /// A table whose owner keeps its view in view memory saves no layout at all, in its suite or in the host's domain,
+    /// from its first key on (VS A10, QA 6). It still reads an old key as its starting value, which
+    /// `BatchClassificationTableLayoutKeyTests` pins.
+    private func assertAnAdoptingTableSavesNothing(
+        _ columns: MetadataColumnController,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        open: (String) -> Void
+    ) {
+        let suite = makeTestDefaultsSuite(prefix: "MetadataLayoutEveryTableSeamTests")
+        columns.userDefaults = suite.defaults
+        let folder = "layout-seam-\(UUID().uuidString)"
+        open("/\(folder)/first")
+        open("/\(folder)/second")
+        let saved = (suite.defaults.persistentDomain(forName: suite.name) ?? [:]).keys.filter { $0.contains(folder) }
+        XCTAssertEqual(saved, [], "the table saved a layout that view memory holds", file: file, line: line)
+        let leaked = UserDefaults.standard.dictionaryRepresentation().keys.filter { $0.contains(folder) }
+        XCTAssertTrue(leaked.isEmpty, "\(leaked) reached the test host's own domain", file: file, line: line)
+    }
+
     func testTheTaxonomyTableSavesOnlyToItsSuite() {
         let table = TaxonomyTableView(frame: .zero)
-        assertATableSavesOnlyToItsSuite(table.metadataColumns) { table.resultIdentity = $0 }
+        assertAnAdoptingTableSavesNothing(table.metadataColumns) { table.resultIdentity = $0 }
     }
 
     func testTheViralDetectionTableSavesOnlyToItsSuite() {
         let table = ViralDetectionTableView(frame: .zero)
-        assertATableSavesOnlyToItsSuite(table.metadataColumns) { table.resultIdentity = $0 }
+        assertAnAdoptingTableSavesNothing(table.metadataColumns) { table.resultIdentity = $0 }
     }
 
     func testTheBatchClassificationTableSavesOnlyToItsSuite() {
         let table = BatchClassificationTableView(frame: .zero)
-        assertATableSavesOnlyToItsSuite(table.metadataColumns) { table.resultIdentity = $0 }
+        assertAnAdoptingTableSavesNothing(table.metadataColumns) { table.resultIdentity = $0 }
     }
 
     func testTheBatchEsVirituTableSavesOnlyToItsSuite() {
         let table = BatchEsVirituTableView(frame: .zero)
-        assertATableSavesOnlyToItsSuite(table.metadataColumns) { table.resultIdentity = $0 }
+        assertAnAdoptingTableSavesNothing(table.metadataColumns) { table.resultIdentity = $0 }
     }
 
     func testTheMappingContigTableSavesOnlyToItsSuite() {
@@ -84,18 +104,18 @@ final class MetadataLayoutEveryTableSeamTests: XCTestCase {
     /// The Taxonomy view owns two tables and hands both out through its test accessors.
     func testTheTaxonomyViewsTwoTablesSaveOnlyToTheirSuites() {
         let view = TaxonomyViewController()
-        assertATableSavesOnlyToItsSuite(view.testTableView.metadataColumns) { view.testTableView.resultIdentity = $0 }
-        assertATableSavesOnlyToItsSuite(view.testBatchTableView.metadataColumns) { view.testBatchTableView.resultIdentity = $0 }
+        assertAnAdoptingTableSavesNothing(view.testTableView.metadataColumns) { view.testTableView.resultIdentity = $0 }
+        assertAnAdoptingTableSavesNothing(view.testBatchTableView.metadataColumns) { view.testBatchTableView.resultIdentity = $0 }
     }
 
     /// The EsViritu view owns two tables and hands both out through its test accessors, which the stored unique reads
     /// pin of `LungfishEsVirituUITests` uses before it opens a result (decision MD45).
     func testTheEsVirituViewsTwoTablesSaveOnlyToTheirSuites() {
         let view = EsVirituResultViewController()
-        assertATableSavesOnlyToItsSuite(view.testDetectionTableView.metadataColumns) {
+        assertAnAdoptingTableSavesNothing(view.testDetectionTableView.metadataColumns) {
             view.testDetectionTableView.resultIdentity = $0
         }
-        assertATableSavesOnlyToItsSuite(view.testBatchTableView.metadataColumns) { view.testBatchTableView.resultIdentity = $0 }
+        assertAnAdoptingTableSavesNothing(view.testBatchTableView.metadataColumns) { view.testBatchTableView.resultIdentity = $0 }
     }
 
     func testTheNaoMgsViewKeepsItsLayoutOnTheSuiteOfItsOverride() {

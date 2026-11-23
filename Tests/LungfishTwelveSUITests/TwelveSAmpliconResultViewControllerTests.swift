@@ -540,7 +540,8 @@ final class TwelveSAmpliconResultViewControllerTests: XCTestCase {
         controller.targetTable.resultIdentity = identity + "-moved"
         controller.unresolvedTable.resultIdentity = identity + "-moved"
         let saved = layouts.defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(prefix) }
-        XCTAssertTrue(saved.contains(targetKey), "the target table saved its layout in the suite, found \(saved)")
+        // The view keeps the layouts in view memory, so neither the suite nor the standard defaults get one (VS A10).
+        XCTAssertFalse(saved.contains(targetKey), "the target table saved a layout that view memory holds, \(saved)")
         XCTAssertEqual(UserDefaults.standard.data(forKey: targetKey), standardBefore,
                        "the standard defaults hold the layout they held before the test")
     }

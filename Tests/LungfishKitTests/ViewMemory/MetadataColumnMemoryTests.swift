@@ -171,6 +171,37 @@ final class MetadataColumnMemoryTests: XCTestCase {
         XCTAssertEqual(layoutKeys(in: defaults), [])
     }
 
+    /// VS A10 and QA 6: a controller whose owner adopts view memory declares it before its first key, so the key, a
+    /// refresh of its columns, a shown or moved column and a key change write nothing to its defaults, while a key with
+    /// an old value still starts from that value and the old value is left as it was.
+    func testAnAdoptingControllerWritesNoLayoutFromItsFirstKeyOn() throws {
+        let store = try makeStore()
+        let oldKey = Self.layoutKeyPrefix + "result-D"
+        let oldBytes = try JSONEncoder().encode(MetadataColumnController.PersistedLayout(
+            version: 1, visibleMetadata: ["Type"], columnOrder: ["sample", "score", "metadata_Type"], metadataWidths: [:]
+        ))
+        defaults.set(oldBytes, forKey: oldKey)
+
+        let controller = MetadataColumnController.adoptingViewMemory(userDefaults: defaults)
+        XCTAssertTrue(controller.isViewMemoryAdopted, "the declaration comes before any key")
+        let table = makeTable()
+        controller.install(on: table)
+        controller.persistenceKey = "result-D"
+        controller.update(store: store, sampleId: "S1")
+        XCTAssertEqual(controller.visibleColumns, ["Type"], "the old key is the starting value")
+        controller.visibleColumns = ["Type", "Location"]
+        controller.update(store: store, sampleId: "S1")
+        table.moveColumn(3, toColumn: 0)
+        controller.persistenceKey = "result-E"
+        controller.update(store: store, sampleId: "S2")
+
+        XCTAssertEqual(layoutKeys(in: defaults), [oldKey], "no other key was written")
+        XCTAssertEqual(defaults.data(forKey: oldKey), oldBytes, "the old value is left as it was")
+        controller.persistenceKey = "result-D"
+        XCTAssertEqual(controller.visibleColumns, ["Type", "Location"], "the key's layout is kept in memory")
+        XCTAssertEqual(defaults.data(forKey: oldKey), oldBytes, "the old value is still as it was")
+    }
+
     func testTheLayoutMemoryRoundTripsThroughJSON() throws {
         let memory = MetadataColumnLayoutMemory(
             visibleMetadata: ["Location"],
