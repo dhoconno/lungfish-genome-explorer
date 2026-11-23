@@ -346,6 +346,26 @@ final class TaxTriageOrganismReportTests: XCTestCase {
         XCTAssertTrue(firstReferenceOnly.isStale(forResultDirectory: batch), "a row's actions reached its first reference alone")
     }
 
+    /// TT-STRAIN-GROUP. A build of lane TTACCESSIONS gave a row the references of the first gcfmap organism its name
+    /// matched, so a row TaxTriage sums over several strains read Unique Reads, Extract Reads, BLAST Verify and the pane
+    /// on one strain, and a reference listed under two organisms counted in both rows. Its mark,
+    /// `odr_reads_aligned+organism_references`, now reads as stale, so the app rebuilds such a database once. Red at the
+    /// base, where that mark was current.
+    func testDatabaseThatCountedEachRowOnOneStrainIsStaleWhenODRExists() throws {
+        let batch = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: batch) }
+        try FileManager.default.copyItem(at: try fixtureSampleDir(), to: batch.appendingPathComponent("SRR12486983"))
+        let row = TaxTriageOrganismReport.parse(tsv: try String(contentsOf: try fixtureODR(), encoding: .utf8))[0]
+        let built = ["tool": "taxtriage", "taxonomy_source": "organism_report", "tass_scale": "0-1"]
+
+        let oneStrain = try TaxTriageDatabase.create(
+            at: batch.appendingPathComponent("one-strain.sqlite"),
+            rows: [row],
+            metadata: built.merging(["read_count": "odr_reads_aligned+organism_references"]) { _, new in new }
+        )
+        XCTAssertTrue(oneStrain.isStale(forResultDirectory: batch), "a row's Unique Reads and references covered one strain")
+    }
+
     /// ARCH should-fix 1. A database that the build published before its count pass ended carries no `read_count`, so
     /// it is stale. `markReadsCounted(at:)` records the mark once the pass has ended.
     func testMarkReadsCountedMakesAFirstReferenceDatabaseCurrent() throws {
