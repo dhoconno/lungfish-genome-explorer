@@ -97,7 +97,7 @@ The copy column is the folder of the target project where `CrossProjectItemCopie
 | `phylogenetic-tree` | Frozen. A root `.lungfish-provenance.json` in the bundle's own schema | None | None |
 | `primer-scheme` | Frozen. `PROVENANCE.md` | None | None |
 | `primer-analysis` | Frozen. `provenance/wrapper.json` | None | None |
-| `reference` | The standard rule | `.viewstate.json` | None |
+| `reference` | The standard rule | `.viewstate.json` of older builds, read only | None |
 | `genotype-result` | The standard rule | `.genotype-viewstate.json` | `ont-genotyping` |
 | `cz-id-result` | The standard rule | None | `cz-id` |
 | The other nine kinds | The standard rule | None | None |
@@ -106,7 +106,7 @@ The standard rule is `SidecarNaming.rootRecordAndProvenanceFolder`. A bundle has
 
 The four frozen formats keep their own record names, and the rule for new writes below never applies to them. An alignment also writes `metadata/annotation-edit-provenance.json` after an annotation edit (`BundleKindRegistry.swift`).
 
-App state is a file inside the bundle that holds viewer settings rather than scientific data (plan decision S11). Two kinds declare one, the reference kind's `.viewstate.json` ([reference-bundle.md](reference-bundle.md)) and the genotype result kind's `.genotype-viewstate.json` (`Sources/LungfishIO/Bundles/GenotypeResultViewState.swift`), each outside every checksum and record and written only after a user change. An alignment or tree bundle also holds a `.viewstate.json`, but its creation writes it and its manifest checksums cover it, so it is not app state (`MultipleSequenceAlignmentBundle.swift`, `PhylogeneticTreeBundle.swift`).
+App state is a file inside the bundle that holds viewer settings rather than scientific data (plan decision S11). Two kinds declare one, each outside every checksum and record. The reference kind's `.viewstate.json` is what older builds wrote. No build writes it now, and the viewer reads an older bundle's file only for its presentation fields as a starting view ([reference-bundle.md](reference-bundle.md)). The genotype result kind's `.genotype-viewstate.json` (`Sources/LungfishIO/Bundles/GenotypeResultViewState.swift`) is written only after a user change. An alignment or tree bundle also holds a `.viewstate.json`, but its creation writes it and its manifest checksums cover it, so it is not app state (`MultipleSequenceAlignmentBundle.swift`, `PhylogeneticTreeBundle.swift`).
 
 The produced by column lists the analyses whose sidebar row is a folder of the kind, and every id it names must exist in `AnalysisToolRegistry`, which `BundleKindAgreementTests` checks. The join runs one way, from the bundle kind to the analysis. Viral Recon and mapping results show as generic analysis rows, so the reference kind names no producer. The genotyping pipeline names its result folder `illumina-amplicon-genotyping` or `ont-sample-bundle-genotyping` in its other two modes (`Sources/LungfishWorkflow/ONTGenotyping/ONTBarcodeDemuxGenotypingPipeline.swift`), and lane B56 added both ids to the analysis registry. `SidebarProjectScanner.analysisItemType` gives the genotype row type to `ont-genotyping` alone, so the genotype kind lists only that id.
 
