@@ -8,9 +8,25 @@
 import AppKit
 import XCTest
 @testable import LungfishApp
+@testable import LungfishGenotypeUI
 
 @MainActor
 final class GenotypeEditQuitConfirmationTests: XCTestCase {
+    /// UX-QUIT-LOSES-EDIT. With an edit waiting and no window to host the sheet, Quit must not go on unasked. The
+    /// test host shows no window, and `testingAnswer` stays nil, so the sheet's own no-window branch decides.
+    func testQuitWithAWaitingEditAndNoWindowDoesNotGoOnWithoutAnAnswer() async throws {
+        try requireNoPendingAnnotationEditsForTest()
+        _ = NSApplication.shared
+        GenotypeEditQuitConfirmation.testingAnswer = nil
+        let hold = GenotypeWaitingRetryHold()
+        defer { hold.release() }
+        XCTAssertTrue(GenotypeResultViewController.isSavingAnnotationEdits, "a waiting retry counts as saving")
+
+        let mayQuit = await GenotypeEditQuitConfirmation.mayQuit(presentingOn: nil)
+
+        XCTAssertFalse(mayQuit, "Quit went on with a genotype edit waiting and nobody asked the person")
+    }
+
     func testTheQuitSheetGivesReturnToDontQuitOnlyAndKeepsQuitAnywayDestructiveAndFirst() {
         let alert = GenotypeEditQuitConfirmation.makeAlert()
         XCTAssertEqual(
