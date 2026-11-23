@@ -71,6 +71,8 @@ public final class RNASeqResultSurface: ResultViewport {
     var cellMapRestore: RNASeqCellMapPendingRestore?
     /// The bulk view a restore applied, which the announce after the route selects again (`announceViewMemory`).
     var bulkRestore: RNASeqBulkViewMemory?
+    /// The wait for the quality read that selects the kept genes again once its reload has run (`announceViewMemory`).
+    var bulkReselect: Task<Void, Never>?
 
     /// Called with a cell map's fact lines (label and value) on each refresh of its view, and with none when the map
     /// closes or a reread fails, so the App can show them in the Inspector. The values are already on the main actor.

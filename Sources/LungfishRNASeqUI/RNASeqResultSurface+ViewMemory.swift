@@ -82,6 +82,8 @@ extension RNASeqResultSurface: ViewMemoryAdopting {
     public func restoreViewMemory(_ state: ViewState, dataChanged: Bool) -> ViewMemoryLoss {
         cellMapRestore?.cancelled = true
         cellMapRestore = nil
+        bulkReselect?.cancel()
+        bulkReselect = nil
         guard state.child == shownChild else {
             var lost: ViewMemoryLoss = [.place]
             if let bulk = state.bulk, !bulk.search.isEmpty { lost.insert(.filters) }
@@ -102,9 +104,22 @@ extension RNASeqResultSurface: ViewMemoryAdopting {
     }
 
     /// The host calls this once the route has installed the surface. The bulk view selects its kept genes again where a
-    /// table dropped them at the model's reload after the restore. It starts nothing.
+    /// table dropped them at the model's reload after the restore, and once more after the quality read's reload. It
+    /// starts nothing.
     public func announceViewMemory() {
-        if let kept = bulkRestore { controller.bulk?.reselectKeptRows(kept) }
+        guard let kept = bulkRestore, let bulk = controller.bulk else {
+            bulkRestore = nil
+            return
+        }
         bulkRestore = nil
+        bulk.reselectKeptRows(kept)
+        // The quality read ends later and the reload it causes can drop the rows of a table no window shows. The read is
+        // already running, so waiting for it starts nothing (VS S4). `reselectKeptRows` leaves a table that has rows.
+        bulkReselect?.cancel()
+        bulkReselect = Task { [weak bulk] in
+            await bulk?.model.qualityRead()
+            guard !Task.isCancelled else { return }
+            bulk?.reselectKeptRows(kept)
+        }
     }
 }
