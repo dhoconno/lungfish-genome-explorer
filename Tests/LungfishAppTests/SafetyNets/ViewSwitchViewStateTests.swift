@@ -310,6 +310,25 @@ final class ViewSwitchViewStateTests: XCTestCase {
         try await assertChangedBundle(RNASeqViewStateDriver())
     }
 
+    /// The selected gene stays through the quality read's reload, before a switch and after the return, so a restored
+    /// selection does not show for a moment and go when the read ends (VS-RNA review BIO SF-3, SWIFT SF1).
+    func testRNASeqSelectedGeneSurvivesTheQualityReadBeforeAndAfterAReturn() async throws {
+        let driver = RNASeqViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        try driver.change(in: harness)
+        await driver.settle(in: harness)
+        XCTAssertTrue(try driver.read(in: harness).contains("selected G2"), "the gene picked before the switch")
+
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        await driver.settle(in: harness)
+        XCTAssertTrue(try driver.read(in: harness).contains("selected G2"), "the gene after the return and the quality read")
+    }
+
     func testCellMapKeepsItsViewThroughASwitch() async throws {
         try await assertSwitchAwayAndBack(CellMapViewStateDriver())
     }

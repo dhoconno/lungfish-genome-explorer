@@ -80,6 +80,13 @@ struct RNASeqViewStateDriver: ViewStateDriver {
         bulk(in: harness)?.countTables.isEmpty == false
     }
 
+    /// Waits for the quality read and the reload it causes, which can drop the rows of a table no window shows, so a
+    /// reading comes after the count tables' last reload (VS-RNA review SWIFT SF1, BIO SF-3).
+    func settle(in harness: ViewSwitchWindowHarness) async {
+        await bulk(in: harness)?.model.qualityRead()
+        await Task.yield()
+    }
+
     /// Types G2 in the gene search as a person does, picks its row and opens the Quality tab.
     func change(in harness: ViewSwitchWindowHarness) throws {
         let bulk = try XCTUnwrap(bulk(in: harness))
