@@ -759,6 +759,62 @@ final class BlastResultsDrawerTests: XCTestCase {
         XCTAssertEqual(BlastVerificationResult.Confidence.inconclusive.displayLabel, "Inconclusive")
     }
 
+    /// A Hepatitis B virus row whose one read is topped by a Woolly monkey hepatitis B virus record, which the name rule
+    /// marks as supporting, judged at `basis`.
+    private func woollyMonkeyRow(judgedAt basis: BlastTaxonomyContext.Basis) -> BlastVerificationResult {
+        var result = BlastVerificationResult(
+            taxonName: "Hepatitis B virus", taxId: 10407,
+            readResults: [BlastReadResult(
+                id: "SRR1.1", verdict: .verified, topHitOrganism: "Woolly monkey hepatitis B virus", topHitAccession: "AF046996.1",
+                percentIdentity: 100, eValue: 1e-30, matchesQueriedTaxon: true
+            )],
+            submittedAt: Date(), completedAt: Date(), rid: "R", blastProgram: "blastn", database: "core_nt"
+        )
+        result.judgedAt = basis
+        return result
+    }
+
+    /// Fix BLAST-FIX m2, ruling UX-BLAST-NOTAX items 5 and 8, red at `611610d57`: the badge read Supported beside the dots.
+    /// With no NCBI Taxonomy lineage the pane gives no verdict: the badge reads Not judged in gray, the line says why and
+    /// how to install NCBI Taxonomy, the dots are hidden, and the summary and the Operations row give no counts for or
+    /// against.
+    func testARowJudgedAtItsOwnTaxIdReadsNotJudgedWithItsLineAndNoDots() throws {
+        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let result = woollyMonkeyRow(judgedAt: .rowTaxId)
+        tab.showResults(result, recordURL: nil, subject: "S1")
+        tab.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(tab.confidenceLabel.stringValue, "Not judged")
+        XCTAssertEqual(tab.confidenceLabel.textColor, NSColor.systemGray)
+        XCTAssertTrue(tab.confidenceDots.isHidden, "no dots for a verdict that was not given")
+        XCTAssertEqual(
+            tab.judgedAtLabel.stringValue,
+            "Not judged: without NCBI Taxonomy, LGE cannot tell this species from another species whose name holds this row's name. "
+                + "Install NCBI Taxonomy in the Databases tab of the Plugin Manager, or update it if it does not list tax ID 10407, "
+                + "then run Verify with BLAST… again. Each read's best match is listed below."
+        )
+        XCTAssertEqual(
+            tab.summaryLabel.stringValue,
+            "BLAST for Hepatitis B virus (sample S1): not judged, 1 of 1 reads with a significant hit. NCBI Taxonomy is needed to judge them."
+        )
+        XCTAssertEqual(
+            blastVerificationCompletionDetail(result),
+            "not judged, 1 of 1 reads with a significant hit. NCBI Taxonomy is needed to judge them."
+        )
+
+        tab.showResults(woollyMonkeyRow(judgedAt: .names), recordURL: nil)
+        XCTAssertEqual(tab.confidenceLabel.stringValue, "Not judged")
+        XCTAssertEqual(
+            tab.judgedAtLabel.stringValue,
+            "Not judged: this row has no tax ID, so LGE cannot tell its species from another species whose name holds this row's name. "
+                + "Each read's best match is listed below."
+        )
+
+        tab.showResults(woollyMonkeyRow(judgedAt: .species), recordURL: nil)
+        XCTAssertEqual(tab.confidenceLabel.stringValue, "Supported", "a lineage-backed verdict keeps its badge")
+        XCTAssertFalse(tab.confidenceDots.isHidden)
+    }
+
     // MARK: - Confidence Dots
 
     func testConfidenceDotsAllSupporting() throws {

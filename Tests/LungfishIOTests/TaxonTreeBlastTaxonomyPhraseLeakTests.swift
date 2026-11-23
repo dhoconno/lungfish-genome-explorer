@@ -128,4 +128,25 @@ final class TaxonTreeBlastTaxonomyPhraseLeakTests: XCTestCase {
         XCTAssertEqual(noLineage.relatedTaxIds, [10405])
         XCTAssertEqual(noLineage.relatedNames, ["Orthohepadnavirus"])
     }
+
+    /// Fix BLAST-FIX m2, ruling UX-BLAST-NOTAX items 3 and 8, red at `611610d57`: `.species`. The report's tree alone
+    /// cannot tell a Woolly monkey hepatitis B virus record from a Hepatitis B virus one, so with no NCBI Taxonomy lineage
+    /// the context is judged at the row's tax ID, and the verification reads Not judged. The IDs, names and relatives
+    /// stay the tree's (the guard above). A dump that holds the claim still judges at species level.
+    func testWithNoNCBITaxonomyLineageTheKraken2ContextIsJudgedAtTheRowsTaxId() throws {
+        let tree = try KreportParser.parse(text: hepadnaReport)
+
+        XCTAssertEqual(tree.blastTaxonomyContext(for: 10407, taxonomyDirectory: nil).basis, .rowTaxId, "no NCBI Taxonomy")
+        try writeTaxonomy(Self.root + Self.simplex)
+        XCTAssertEqual(
+            tree.blastTaxonomyContext(for: 10407, taxonomyDirectory: directory).basis, .rowTaxId, "the dump does not hold 10407"
+        )
+        let simplexTree = try KreportParser.parse(text: simplexReport)
+        XCTAssertEqual(
+            simplexTree.blastTaxonomyContext(for: 10294, taxonomyDirectory: nil).basis, .rowTaxId, "a genus claim with no lineage"
+        )
+
+        try writeTaxonomy(Self.root + Self.hepadna)
+        XCTAssertEqual(tree.blastTaxonomyContext(for: 10407, taxonomyDirectory: directory).basis, .species, "a lineage")
+    }
 }

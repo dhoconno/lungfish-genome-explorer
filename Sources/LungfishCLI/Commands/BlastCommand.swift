@@ -431,6 +431,11 @@ extension BlastCommand {
             }
             print("")
 
+            Self.verdictLines(for: result, formatter: formatter).forEach { print($0) }
+        }
+
+        /// The lines `blast verify` ends with, which give the verdict and its counts.
+        static func verdictLines(for result: BlastVerificationResult, formatter: TerminalFormatter) -> [String] {
             let confidenceLabel: String
             switch result.confidence {
             case .supported:    confidenceLabel = "SUPPORTED"
@@ -443,16 +448,18 @@ extension BlastCommand {
             let supportInfo = "\(result.supportingCount) supporting, \(result.contradictingCount) contradicting"
             switch result.confidence {
             case .supported:
-                print(formatter.success("Verification: \(confidenceLabel) (\(supportInfo))"))
+                return [formatter.success("Verification: \(confidenceLabel) (\(supportInfo))")]
             case .notSpecific:
-                print(formatter.warning("Verification: \(confidenceLabel) (\(supportInfo))"))
-                print(BlastTieWords.notSpecificSummary(for: result) ?? "")
+                return [
+                    formatter.warning("Verification: \(confidenceLabel) (\(supportInfo))"),
+                    BlastTieWords.notSpecificSummary(for: result) ?? "",
+                ]
             case .mixed:
-                print(formatter.warning("Verification: \(confidenceLabel) (\(supportInfo))"))
+                return [formatter.warning("Verification: \(confidenceLabel) (\(supportInfo))")]
             case .unsupported:
-                print(formatter.colored("Verification: \(confidenceLabel) (\(supportInfo))", .red))
+                return [formatter.colored("Verification: \(confidenceLabel) (\(supportInfo))", .red)]
             case .inconclusive:
-                print(formatter.dim("Verification: \(confidenceLabel) (no significant hits)"))
+                return [formatter.dim("Verification: \(confidenceLabel) (no significant hits)")]
             }
         }
 
