@@ -657,25 +657,18 @@ extension BuildDbCommand.TaxTriageSubcommand {
     /// strain, so a row takes every gcfmap organism whose name, ignoring case, is the row's or begins with the row's and
     /// then a character that is not a letter or digit, such as `Influenza A virus (A/one(H1N1))` under
     /// `Influenza A virus`. Each gcfmap organism goes to the one row with the longest such name, so a strain with a row
-    /// of its own stays there. An accession listed under two organism names belongs to the first, the one whose tax ID
-    /// TaxTriage keeps for it (`match_paths.py:1559-1560`), so its reads count in one row only. A row that takes no
-    /// organism this way falls back to the first organism whose name begins its own or begins with it, as the earlier
-    /// match did. It takes that organism when no row holds it, and otherwise shares the list of the row that does, as a
-    /// genus row of the Kraken top report shares its species' (the top report counts nested clades).
+    /// of its own stays there. An accession listed under two organism names belongs to the first organism, in gcfmap
+    /// order, that has a report row, so its reads count in one row only. The gcfmap is sorted by line
+    /// (`combine_mapfiles.nf:28`), so that order is not known to be the match-file order whose first tax ID TaxTriage
+    /// keeps (`match_paths.py:1559-1560`). A row that takes no organism this way falls back to the first organism whose
+    /// name begins its own or begins with it, as the earlier match did. It takes that organism when no row holds it,
+    /// and otherwise shares the list of the row that does, as a genus row of the Kraken top report shares its species'
+    /// (the top report counts nested clades).
     static func taxTriageStrainGroups(
         organisms: [String],
         gcfmap: [(accession: String, organism: String)]
     ) -> [String: [String]] {
-        var organismOf: [String: String] = [:]
-        var names: [String] = []
-        var accessionsOf: [String: [String]] = [:]
-        for entry in gcfmap where organismOf[entry.accession] == nil {
-            organismOf[entry.accession] = entry.organism
-            if accessionsOf[entry.organism] == nil { names.append(entry.organism) }
-            accessionsOf[entry.organism, default: []].append(entry.accession)
-        }
-        var rowOf: [String: String] = [:]
-        for name in names {
+        func ownRow(_ name: String) -> String? {
             let lowered = name.lowercased()
             let rows = organisms.filter { row in
                 let prefix = row.lowercased()
@@ -683,8 +676,20 @@ extension BuildDbCommand.TaxTriageSubcommand {
                 guard let next = lowered.dropFirst(prefix.count).first else { return true }
                 return !(next.isLetter || next.isNumber)
             }
-            rowOf[name] = rows.max { $0.count < $1.count }
+            return rows.max { $0.count < $1.count }
         }
+        var organismOf: [String: String] = [:]
+        for entry in gcfmap where organismOf[entry.accession] == nil && ownRow(entry.organism) != nil {
+            organismOf[entry.accession] = entry.organism
+        }
+        for entry in gcfmap where organismOf[entry.accession] == nil { organismOf[entry.accession] = entry.organism }
+        var names: [String] = []
+        var seen: Set<String> = []
+        for entry in gcfmap where organismOf[entry.accession] == entry.organism {
+            if seen.insert(entry.organism).inserted { names.append(entry.organism) }
+        }
+        var rowOf: [String: String] = [:]
+        for name in names { rowOf[name] = ownRow(name) }
         var sharers: [String: String] = [:]
         for organism in organisms where !organism.isEmpty && !rowOf.values.contains(organism) {
             let lowered = organism.lowercased()
