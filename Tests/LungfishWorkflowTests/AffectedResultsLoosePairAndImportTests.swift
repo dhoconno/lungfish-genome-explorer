@@ -6,9 +6,11 @@
 // named like two mates run as one sample (TAXTRIAGE-BUNDLE-NAMES-PAIRED), files of one name from two folders paired in a
 // command line batch (GROUPER-CROSS-FOLDER-PAIR), a loose pair of unequal counts (LOOSE-PAIR-SHORT-MATE) or of equal counts
 // out of step by name (LOOSE-PAIR-OUT-OF-STEP), and a CZ ID report table imported with 0 reads (CZID-REAL-EXPORT-FORMAT).
-// Every published build up to Preview 2026.11.15 (14072) lacks each fix, and so does Stable 2026.11.14, build 13927 of a
-// patch branch. The new kinds are read by their raw values and the record names as literal text, so the tests build at
-// the base.
+// Every published build up to Preview 2026.11.15 (14072) lacks each of these five fixes, and so does Stable 2026.11.14,
+// build 13927 of a patch branch. Preview 2026.11.16 (14223) holds them. It was published before FIX-ROUTES-6 refused a
+// cut or shuffled R2 on `fastq ingest --pair`, `fastq ribodetector` and `fastq deacon-ribo`, so the three rows of those
+// routes end at 14223 (BIO-AFFECTED-14223). The new kinds are read by their raw values and the record names as literal
+// text, so the tests build at the base.
 
 import XCTest
 import LungfishCore
@@ -17,7 +19,8 @@ import LungfishCore
 final class AffectedResultsLoosePairAndImportTests: XCTestCase {
     private let newRows: Set<String> = [
         "TAXTRIAGE-BUNDLE-NAMES-PAIRED", "GROUPER-CROSS-FOLDER-PAIR", "LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP",
-        "CZID-REAL-EXPORT-FORMAT",
+        "CZID-REAL-EXPORT-FORMAT", "FASTQ-INGEST-PAIR-NO-MATE-CHECK", "RIBODETECTOR-TWO-FILES-NO-MATE-CHECK",
+        "DEACON-RIBO-TWO-FILES-NO-MATE-CHECK",
     ]
 
     /// The new rows a build holds for the kind of raw value `kind`, or nil when no such kind exists.
@@ -41,8 +44,8 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
         "fastqRecipeImport": ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"],
         "fastqLoosePairImport": ["LOOSE-PAIR-OUT-OF-STEP"],
         "rnaSeqPlanRun": ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"],
-        "fastqIngestLoosePair": ["LOOSE-PAIR-OUT-OF-STEP"],
-        "fastqRiboFilterLoosePair": ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"],
+        "fastqIngestLoosePair": ["FASTQ-INGEST-PAIR-NO-MATE-CHECK"],
+        "fastqRiboFilterLoosePair": ["RIBODETECTOR-TWO-FILES-NO-MATE-CHECK", "DEACON-RIBO-TWO-FILES-NO-MATE-CHECK"],
         "czIdImport": ["CZID-REAL-EXPORT-FORMAT"],
     ]
 
@@ -54,12 +57,11 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
             ("GROUPER-CROSS-FOLDER-PAIR", ["kraken2", "esViritu"], "d998a3371"),
             ("LOOSE-PAIR-SHORT-MATE",
              ["taxTriage", "kraken2", "esViritu", "mappingLoosePair", "assembly", "viralRecon", "fastqRecipeImport",
-              "rnaSeqPlanRun", "fastqRiboFilterLoosePair"],
+              "rnaSeqPlanRun"],
              "c9ed8e3ef"),
             ("LOOSE-PAIR-OUT-OF-STEP",
              ["taxTriage", "kraken2", "esViritu", "mappingLoosePair", "assembly", "viralRecon", "fastqRecipeImport",
-              "fastqLoosePairImport", "fastqIngestLoosePair", "rnaSeqPlanRun",
-              "fastqRiboFilterLoosePair"], "c9ed8e3ef"),
+              "fastqLoosePairImport", "rnaSeqPlanRun"], "c9ed8e3ef"),
             ("CZID-REAL-EXPORT-FORMAT", ["czIdImport"], "f58ecdaae"),
         ]
         for (id, kinds, fix) in expected {
@@ -77,20 +79,64 @@ final class AffectedResultsLoosePairAndImportTests: XCTestCase {
             XCTAssertEqual(ids(14072, kind), held, "\(kind) at Preview 2026.11.15")
             XCTAssertEqual(ids(13927, kind), held, "\(kind) at Stable 2026.11.14, a patch build")
             XCTAssertEqual(ids(4192, kind), held, "\(kind) at 2026.8.1, the first published build")
-            XCTAssertEqual(ids(14073, kind), [], "\(kind) at the first build with every fix")
+            // The kinds of the three routes FIX-ROUTES-6 refuses still hold Preview 2026.11.16 (14223), published without it.
+            let stillHeld = ["fastqIngestLoosePair", "fastqRiboFilterLoosePair"].contains(kind) ? held : []
+            XCTAssertEqual(ids(14073, kind), stillHeld, "\(kind) at the first build after Preview 2026.11.15")
+            XCTAssertEqual(ids(14223, kind), stillHeld, "\(kind) at Preview 2026.11.16")
+            XCTAssertEqual(ids(14224, kind), [], "\(kind) at the first build with every fix")
         }
     }
 
     func testTheVersionsOfThe2026Point11Point13To15ReleasesNameTheirBuilds() {
-        // 2026.11.13 and 2026.11.15 are the commit counts of their tags. Stable 2026.11.14 was packaged from a patch
-        // branch and stamped 13927, so its version names the builds between the two Previews, which hold 13927.
+        // 2026.11.13, 2026.11.15 and 2026.11.16 are the commit counts of their tags. Stable 2026.11.14 was packaged from
+        // a patch branch and stamped 13927, so its version names the builds between the two Previews, which hold 13927.
         XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.11.13"), 13765...13924)
         XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.11.14"), 13925...14071)
         XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.11.15"), 13925...14072)
-        XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.11.16"), nil)
+        XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.11.16"), 14073...14223)
+        XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.11.17"), nil)
         var stable = ProvenanceEnvelope.fixture()
         stable.runtimeIdentity = ProvenanceRuntimeIdentity(appVersion: "Lungfish 2026.11.14 (13927)")
         XCTAssertEqual(AffectedResults.builds(of: stable), 13927...13927)
+    }
+
+    /// BIO-AFFECTED-14223. Preview 2026.11.16 (14223) was published without FIX-ROUTES-6, so a file it wrote through
+    /// `fastq ingest --pair`, `fastq ribodetector` or `fastq deacon-ribo` on two loose files shows its rows.
+    func testAResultThatPreview20261116WroteThroughEachRouteShowsItsRows() {
+        let loose = [file("/data/run/S_R1.fastq"), file("/data/run/S_R2.fastq")]
+        var ingest = record("lungfish fastq ingest", explicit: ["input": loose[0], "pair": loose[1]])
+        ingest.runtimeIdentity = ProvenanceRuntimeIdentity(appVersion: "Lungfish 2026.11.16 (14223)")
+        XCTAssertEqual(AffectedResults.builds(of: ingest), 14223...14223)
+        XCTAssertEqual(AffectedResults.rows(for: ingest, kind: .fastqIngestLoosePair).map(\.backlogID),
+                       ["FASTQ-INGEST-PAIR-NO-MATE-CHECK"])
+        for name in ["RiboDetector FASTQ filter", "Deacon rRNA FASTQ filter"] {
+            var ribo = record(name, explicit: ["inputs": .array(loose)])
+            ribo.runtimeIdentity = ProvenanceRuntimeIdentity(appVersion: "Lungfish 2026.11.16 (14223)")
+            XCTAssertEqual(AffectedResults.rows(for: ribo, kind: .fastqRiboFilterLoosePair).map(\.backlogID),
+                           ["RIBODETECTOR-TWO-FILES-NO-MATE-CHECK", "DEACON-RIBO-TWO-FILES-NO-MATE-CHECK"], name)
+        }
+    }
+
+    func testTheRowsOfPreview20261116NameTheirKindsBuildsAndFix() {
+        let expected: [(String, [String])] = [
+            ("FASTQ-INGEST-PAIR-NO-MATE-CHECK", ["fastqIngestLoosePair"]),
+            ("RIBODETECTOR-TWO-FILES-NO-MATE-CHECK", ["fastqRiboFilterLoosePair"]),
+            ("DEACON-RIBO-TWO-FILES-NO-MATE-CHECK", ["fastqRiboFilterLoosePair"]),
+        ]
+        for (id, kinds) in expected {
+            let row = AffectedResults.rows.first { $0.backlogID == id }
+            XCTAssertEqual(row?.kinds.map(\.rawValue), kinds, id)
+            XCTAssertEqual(row.map(\.firstBuild), .some(nil), "\(id) is older than any build a row names")
+            XCTAssertEqual(row?.lastBuild, 14223, "\(id): Preview 2026.11.16 is the newest build without the fix")
+            XCTAssertEqual(row?.fixCommit, "f56577c52", id)
+        }
+    }
+
+    func testTheRowsOfPreview20261116SayTheDecidedLoosePairWords() {
+        func words(_ id: String) -> String? { AffectedResults.rows.first { $0.backlogID == id }?.words }
+        XCTAssertEqual(words("FASTQ-INGEST-PAIR-NO-MATE-CHECK"), words("LOOSE-PAIR-OUT-OF-STEP"))
+        XCTAssertEqual(words("RIBODETECTOR-TWO-FILES-NO-MATE-CHECK"), words("LOOSE-PAIR-SHORT-MATE"))
+        XCTAssertEqual(words("DEACON-RIBO-TWO-FILES-NO-MATE-CHECK"), words("LOOSE-PAIR-OUT-OF-STEP"))
     }
 
     // MARK: - The kind a record names

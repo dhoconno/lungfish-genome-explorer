@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 //
 // FIX-ROUTES-7 (BIO-ROUTES-5 items 2 to 4). `fastq ingest --pair`, `debug fastq-ingest --pair`, `fastq ribodetector` and
-// `fastq deacon-ribo` on two files paired the loose files by position in every build up to Preview 2026.11.15 (14072) and in
+// `fastq deacon-ribo` on two files paired the loose files by position in every build up to Preview 2026.11.16 (14223) and in
 // Stable 2026.11.14 (13927). Each pin reads the record by the root name and the keys its writer saves, as literal text, so
 // the tests build at the base. The records the writers of `fastq ingest` and `fastq ribodetector` make are pinned in
 // `AffectedResultsIngestAndRiboRecordTests` (LungfishCLITests), which reaches the CLI. `fastq deacon-ribo` records after the
@@ -27,8 +27,12 @@ extension AffectedResultsLoosePairAndImportTests {
         // `FastqIngestSubcommand.swift:194-195` records `input` and `pair` as files, and `pair` as null for one file.
         let loose = ingestKeys("/data/run/S_R1.fastq", "/data/run/S_R2.fastq")
         XCTAssertEqual(kind(record("lungfish fastq ingest", explicit: loose)), "fastqIngestLoosePair")
-        XCTAssertEqual(ids(14072, "fastqIngestLoosePair"), ["LOOSE-PAIR-OUT-OF-STEP"], "Preview 2026.11.15")
-        XCTAssertEqual(rowIDs("Lungfish 2026.11.14 (13927)", "fastqIngestLoosePair"), ["LOOSE-PAIR-OUT-OF-STEP"], "Stable 2026.11.14")
+        for build in [4192, 13927, 14072, 14073, 14223] {
+            XCTAssertEqual(ids(build, "fastqIngestLoosePair"), ["FASTQ-INGEST-PAIR-NO-MATE-CHECK"], "\(build)")
+        }
+        XCTAssertEqual(ids(14224, "fastqIngestLoosePair"), [], "the first build after Preview 2026.11.16")
+        XCTAssertEqual(rowIDs("Lungfish 2026.11.15 (14072)", "fastqIngestLoosePair"), ["FASTQ-INGEST-PAIR-NO-MATE-CHECK"], "Preview 2026.11.15")
+        XCTAssertEqual(rowIDs("Lungfish 2026.11.14 (13927)", "fastqIngestLoosePair"), ["FASTQ-INGEST-PAIR-NO-MATE-CHECK"], "Stable 2026.11.14")
     }
 
     func testAnIngestOfOneFileOrABundleIsNoKind() {
@@ -48,8 +52,12 @@ extension AffectedResultsLoosePairAndImportTests {
             XCTAssertEqual(kind(record(name, explicit: ["input": file("/data/run/S_R1.fastq"), "inputs": inputs])),
                            "fastqRiboFilterLoosePair", name)
         }
-        let both = ["LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP"]
-        XCTAssertEqual(ids(14072, "fastqRiboFilterLoosePair"), both, "Preview 2026.11.15")
+        let both = ["RIBODETECTOR-TWO-FILES-NO-MATE-CHECK", "DEACON-RIBO-TWO-FILES-NO-MATE-CHECK"]
+        for build in [4192, 13927, 14072, 14073, 14223] {
+            XCTAssertEqual(ids(build, "fastqRiboFilterLoosePair"), both, "\(build)")
+        }
+        XCTAssertEqual(ids(14224, "fastqRiboFilterLoosePair"), [], "the first build after Preview 2026.11.16")
+        XCTAssertEqual(rowIDs("Lungfish 2026.11.15 (14072)", "fastqRiboFilterLoosePair"), both, "Preview 2026.11.15, each sentence once")
         XCTAssertEqual(rowIDs("Lungfish 2026.11.14 (13927)", "fastqRiboFilterLoosePair"), both, "Stable 2026.11.14")
     }
 
