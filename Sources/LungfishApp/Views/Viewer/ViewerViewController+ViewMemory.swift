@@ -207,10 +207,12 @@ extension ViewerViewController {
         var words: String?
         if case .view(let kept, _, _) = read.kept {
             words = ViewMemoryWords.dataChanged(restoreViewerMemory(kept))
+            announceViewMemory()
         } else if let olderFile = read.olderFile {
             // An older bundle's look is a starting view, never a person's choice (VS S3).
             applyViewerDisplay(olderFile)
             session.start = captureViewerMemory()
+            announceViewMemory()
         }
         if case .folderChanged = read.kept { words = ViewMemoryWords.viewReset }
         if let words { showViewMemoryLine(words, in: session) }
@@ -267,6 +269,23 @@ extension ViewerViewController {
             viewerView.applyTypeColorOverrides(display.typeColorOverrides)
         }
         viewerView.needsDisplay = true
+    }
+
+    /// Tells the Inspector the view the viewer shows now, as a person's change in it would: the show switches, the row
+    /// height and the spacing. The route wires the Inspector before a restore, which lands after the settle, so without
+    /// this the Inspector keeps its own values and sends them back over the restored ones at its next change. It runs
+    /// after a restore, an older bundle's starting view and a reset, and starts nothing (VS S4). A surface adopter of
+    /// the reference kind (VS-MAP) calls it from its own `announceViewMemory()`.
+    func announceViewMemory() {
+        var next = parent
+        while let controller = next, !(controller is MainSplitViewController) { next = controller.parent }
+        guard let annotations = (next as? MainSplitViewController)?.inspectorController.annotationSectionViewModel else {
+            return
+        }
+        annotations.showAnnotations = showAnnotations
+        annotations.annotationHeight = Double(annotationDisplayHeight)
+        annotations.annotationSpacing = Double(annotationDisplaySpacing)
+        annotations.showVariants = viewerView.showVariants
     }
 
     /// Keeps the view as it stands for the item on show, in the store and never in the bundle (VS S1, S3).
@@ -346,6 +365,7 @@ extension ViewerViewController {
         viewerView.annotationHeight = annotationDisplayHeight
         viewerView.annotationRowSpacing = annotationDisplaySpacing
         viewerView.invalidateFilteredVariantCache()
+        announceViewMemory()
 
         guard let session = viewMemory, let read = session.read, let key = read.key else { return }
         viewStateSaveWorkItem?.cancel()
