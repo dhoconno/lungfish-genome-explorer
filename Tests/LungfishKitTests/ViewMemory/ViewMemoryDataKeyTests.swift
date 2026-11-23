@@ -244,6 +244,23 @@ final class ViewMemoryDataKeyTests: XCTestCase {
         XCTAssertNotEqual(byEnvelope, byFiles)
     }
 
+    func testAnAnalysisKeyWithNoRecordAndAnUnreadableFolderIsUnreadAndTheFolderIsWalkedOnlyWhenNeeded() {
+        let unread = ViewMemoryDataKey.analysis(provenanceEnvelopeID: nil, manifestModifiedDate: nil, files: nil)
+        XCTAssertFalse(unread.isComplete)
+        XCTAssertFalse(unread.matches(unread))
+
+        var walks = 0
+        func list() -> [ViewMemoryFileEntry]? {
+            walks += 1
+            return []
+        }
+        _ = ViewMemoryDataKey.analysis(provenanceEnvelopeID: UUID(), manifestModifiedDate: nil, files: list())
+        _ = ViewMemoryDataKey.analysis(provenanceEnvelopeID: nil, manifestModifiedDate: Date(), files: list())
+        XCTAssertEqual(walks, 0, "a record or a manifest date makes the folder walk needless")
+        _ = ViewMemoryDataKey.analysis(provenanceEnvelopeID: nil, manifestModifiedDate: nil, files: list())
+        XCTAssertEqual(walks, 1)
+    }
+
     func testTheFileListIgnoresTheOrderOfTheEntries() {
         let one = ViewMemoryFileEntry(path: "a", size: 1)
         let two = ViewMemoryFileEntry(path: "b", size: 2)
