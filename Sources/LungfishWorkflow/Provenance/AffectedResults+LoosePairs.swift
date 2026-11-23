@@ -45,11 +45,12 @@ extension AffectedResults {
         // pair before the recipe of an import, whose fastp pairs two files by position and leaves equal counts that no
         // later check sees, so the row holds the recipe import. The import with no recipe refused unequal counts after
         // its tools (BIO-ROUTES-3 D1), so the row leaves that kind out.
+        // FIX-ROUTES-6 (51f0f3f8f) refuses both on `fastq ingest --pair`, `fastq ribodetector` and `fastq deacon-ribo` (BIO-ROUTES-5).
         AffectedResultRow(
             backlogID: "LOOSE-PAIR-SHORT-MATE",
             kinds: [
                 .taxTriage, .kraken2, .esViritu, .mappingLoosePair, .assembly, .viralRecon, .fastqRecipeImport,
-                .rnaSeqPlanRun,
+                .rnaSeqPlanRun, .fastqRiboFilterLoosePair,
             ],
             firstBuild: nil, lastBuild: 14072,
             sentence: "If this result used separate R1 and R2 files, the old version did not check for equal read "
@@ -62,12 +63,13 @@ extension AffectedResults {
         // Viral Recon, FIX-ROUTES-2 (ab7520464) on the import with a recipe, and FIX-ROUTES-4 (cccc812a2) on the
         // import with no recipe and on executor plans (BIO-ROUTES-3 D1 and D2). FIX-B2 and FIX-ROUTES fix three kinds
         // each, so the row names FIX-ROUTES, as LOOSE-PAIR-SHORT-MATE does.
+        // FIX-ROUTES-6 (51f0f3f8f) refuses both on `fastq ingest --pair`, `fastq ribodetector` and `fastq deacon-ribo` (BIO-ROUTES-5).
         AffectedResultRow(
             backlogID: "LOOSE-PAIR-OUT-OF-STEP",
             kinds: [
                 .taxTriage, .kraken2, .esViritu, .mappingLoosePair, .assembly, .viralRecon, .fastqRecipeImport,
-                .fastqLoosePairImport,
-                .rnaSeqPlanRun,
+                .fastqLoosePairImport, .fastqIngestLoosePair,
+                .rnaSeqPlanRun, .fastqRiboFilterLoosePair,
             ],
             firstBuild: nil, lastBuild: 14072,
             sentence: "If this result used separate R1 and R2 files with equal read counts but different read orders, "
@@ -94,6 +96,36 @@ extension AffectedResults {
         let explicit = envelope.options.explicit
         guard case .file(let r1)? = explicit["r1"], case .file(let r2)? = explicit["r2"] else { return false }
         return liesInNoBundle(r1.path) && liesInNoBundle(r2.path)
+    }
+
+    /// Whether a `lungfish fastq ingest` record names an R2 as `pair` beside its `input`, both outside any bundle
+    /// (`FastqIngestSubcommand.swift:194-195`). One file records `pair` as null.
+    static func ingestedTwoLooseFiles(_ envelope: ProvenanceEnvelope) -> Bool {
+        let explicit = envelope.options.explicit
+        guard case .file(let r1)? = explicit["input"], case .file(let r2)? = explicit["pair"] else { return false }
+        return liesInNoBundle(r1.path) && liesInNoBundle(r2.path)
+    }
+
+    /// Whether a record that is not a `lungfish fastq ingest` record holds the step of one that read two loose files. An
+    /// in-place ingest merges into the record that stands in the folder, such as a download, and the merge keeps the root
+    /// name of that record (`InPlaceIngestionProvenance.swift:42`). The ingest then shows as its step, `FASTQIngestionPipeline`
+    /// with `--pair` in its argv (`FastqIngestSubcommand+Run.swift:347-351`), and as the merged `input` and `pair` options.
+    static func mergedIngestOfTwoLooseFiles(_ envelope: ProvenanceEnvelope) -> Bool {
+        let steppedIngest = envelope.steps.contains { step in
+            step.toolName == "FASTQIngestionPipeline" && step.argv.contains("--pair")
+        }
+        return steppedIngest && ingestedTwoLooseFiles(envelope)
+    }
+
+    /// Whether a RiboDetector or Deacon rRNA record names exactly two input files, both outside any bundle
+    /// (`FastqRiboDetectorSubcommand.swift:307`, `FastqDeaconRiboSubcommand.swift:382`). One file, an interleaved file
+    /// or a bundle is no kind.
+    static func filteredTwoLooseFiles(_ envelope: ProvenanceEnvelope) -> Bool {
+        guard case .array(let inputs)? = envelope.options.explicit["inputs"], inputs.count == 2 else { return false }
+        return inputs.allSatisfy { value in
+            guard case .file(let file) = value else { return false }
+            return liesInNoBundle(file.path)
+        }
     }
 
     /// Whether a mapping record bound its reads as a pair (`pairedEnd`) from exactly two input files that lie in no

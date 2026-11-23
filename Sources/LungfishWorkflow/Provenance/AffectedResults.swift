@@ -77,6 +77,13 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     /// LOOSE-PAIR-OUT-OF-STEP). The record names no read file, so a pair of loose files staged on the cluster and a pair
     /// of a bundle look alike, and the kind holds every such result.
     case rnaSeqPlanRun
+    /// A FASTQ file that `lungfish fastq ingest <R1> --pair <R2>` or `lungfish debug fastq-ingest --pair` wrote from two
+    /// loose files, which the ingestion pipeline paired by position (LOOSE-PAIR-OUT-OF-STEP, BIO-ROUTES-5 item 2). A cut R2
+    /// stopped after the tool, so LOOSE-PAIR-SHORT-MATE leaves it out, as it leaves out ``fastqLoosePairImport``.
+    case fastqIngestLoosePair
+    /// The reads `lungfish fastq ribodetector` or `lungfish fastq deacon-ribo` kept from two loose files, which the tool
+    /// paired by position (LOOSE-PAIR-SHORT-MATE, LOOSE-PAIR-OUT-OF-STEP, BIO-ROUTES-5 item 2).
+    case fastqRiboFilterLoosePair
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -693,6 +700,12 @@ extension AffectedResults {
         public static let classifierReadExtraction = "Classifier Read Extraction"
         /// The record of the File destination of the app (`TaxonomyReadExtractionAction.swift:690`).
         public static let appClassifierReadExtraction = "lungfish app classifier read extraction"
+        /// `lungfish fastq ingest`, a completed or cancelled run (`FastqIngestSubcommand+Run.swift:380`).
+        public static let fastqIngest = "lungfish fastq ingest"
+        /// `lungfish fastq ribodetector` (`FastqRiboDetectorSubcommand.swift:327`).
+        public static let fastqRiboDetector = "RiboDetector FASTQ filter"
+        /// `lungfish fastq deacon-ribo` (`FastqDeaconRiboSubcommand.swift:379`).
+        public static let fastqDeaconRibo = "Deacon rRNA FASTQ filter"
     }
 
     /// The `tool` option of a `lungfish extract reads` record that took its reads from a TaxTriage result, the raw value
@@ -746,8 +759,14 @@ extension AffectedResults {
             return envelope.steps.contains { runs("ivar", $0) } ? .variantCalls : nil
         case RecordName.extractReads, RecordName.classifierReadExtraction, RecordName.appClassifierReadExtraction:
             return takesReadsFromTaxTriage(envelope) ? .taxTriageReadExtraction : nil
+        case RecordName.fastqIngest:
+            return ingestedTwoLooseFiles(envelope) ? .fastqIngestLoosePair : nil
+        case RecordName.fastqRiboDetector, RecordName.fastqDeaconRibo:
+            return filteredTwoLooseFiles(envelope) ? .fastqRiboFilterLoosePair : nil
         default:
-            return nil
+            // An in-place ingest merges into the record that stands in the folder, which keeps its own root name, so the
+            // ingest shows only as its step (BIO-ROUTES-5 item 4).
+            return mergedIngestOfTwoLooseFiles(envelope) ? .fastqIngestLoosePair : nil
         }
     }
 
