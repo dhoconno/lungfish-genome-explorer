@@ -220,7 +220,7 @@ public enum TaxTriageExportLoader {
             case .staleDatabase(let path, let resultPath):
                 return "The TaxTriage database at \(path) was built by an older Lungfish, and its counts can read 0 or too few for organisms with several references or strains, such as the segments of Influenza A. Rebuild it with lungfish-cli build-db taxtriage \"\(resultPath)\" --force, or open the result in Lungfish, then export again."
             case .notRecounted(let path, let samples):
-                return "The TaxTriage database at \(path) keeps the rows of \(samples.joined(separator: ", ")) from an earlier build without recounting them, and their Reads can read 0 or too few for organisms with several references, such as the segments of Influenza A. To export them, import the original TaxTriage run folder again, if you still have it. To export the other samples, leave these out of the sample list, then export again."
+                return "The TaxTriage database at \(path) keeps the rows of \(samples.joined(separator: ", ")) from an earlier build without recounting them, and their counts can read 0 or too few for organisms with several references or strains, such as the segments of Influenza A. To export them, import the original TaxTriage run folder again, if you still have it. To export the other samples, leave these out of the sample list, then export again."
             }
         }
     }
