@@ -260,14 +260,22 @@ public enum TaxTriageExportLoader {
         )
     }
 
+    /// The samples `build-db taxtriage` kept from an earlier database without recounting them (TT-m1), the JSON array
+    /// under `not_recounted_samples`.
+    private static func notRecountedSamples(in database: TaxTriageDatabase) -> [String] {
+        guard let value = (try? database.fetchMetadata())?["not_recounted_samples"],
+              let samples = try? JSONDecoder().decode([String].self, from: Data(value.utf8)) else { return [] }
+        return samples
+    }
+
     /// Reads the result folder for `samples` (every sample when empty) and the organism `searchText`.
     ///
     /// The metrics are the rows the viewer holds after it loads the same samples and search, in the database's
     /// order. The sidecar is optional because the viewer shows a result without it, and a sidecar that exists must
     /// decode.
     ///
-    /// - Throws: ``LoadError`` for a database that cannot be read, a sample the database does not hold or a sidecar
-    ///   that does not decode.
+    /// - Throws: ``LoadError`` for a database that cannot be read, a sample the database does not hold, a selected
+    ///   sample that a rebuild kept without recounting it or a sidecar that does not decode.
     public static func load(resultURL: URL, samples: [String], searchText: String?) throws -> TaxTriageExportSource {
         let databaseURL = resultURL.appendingPathComponent(databaseFileName)
         let database: TaxTriageDatabase
@@ -287,6 +295,10 @@ public enum TaxTriageExportLoader {
         }
         let requested = Set(samples)
         let selected = samples.isEmpty ? sampleIds : sampleIds.filter { requested.contains($0) }
+        let notRecounted = Self.notRecountedSamples(in: database).filter { selected.contains($0) }
+        guard notRecounted.isEmpty else {
+            throw LoadError.notRecounted(path: databaseURL.path, samples: notRecounted)
+        }
 
         var rows: [TaxTriageTaxonomyRow] = []
         var offset = 0
