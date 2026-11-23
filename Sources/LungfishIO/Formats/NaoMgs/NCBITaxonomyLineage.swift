@@ -56,9 +56,13 @@ public enum NCBITaxonomyLineage {
     /// name of a taxon outside the clade holds as a whole phrase, so no record the dump files in another species, such
     /// as Woolly monkey hepatitis B virus for a Hepatitis B virus row, matches by name. No path name judges
     /// (BLAST-NAME-PHRASE-LEAK, BLAST-LINEAGE-PATH-NAMES). When the species has more descendants than `limit` (Influenza A
-    /// and B and Norovirus in the dump of 2026-10-09), names must judge its strains, so the clade names stay `names`
-    /// and the path's names, as before. The clade has no relatives, as a route with no tree has none. Its basis is
-    /// `species` (BLAST-ESVIRITU-FIRST-WORD), and a caller that falls back to the row's own tax ID or name sets its own.
+    /// and B and Norovirus in the dump of 2026-10-09), names must judge its strains, so the clade names are `names` and
+    /// the path's names, less any that a taxon outside the species root holds as a whole phrase, unless every such
+    /// taxon sits under 28384 other sequences: Influenza A keeps "Influenza A virus", whose one outside holder is the
+    /// lab construct synthetic Influenza A virus, and a Bat norovirus row drops "Bat norovirus", which Jingmen bat
+    /// norovirus 1, another Norovirus species, holds (BIO-BLAST ruling A). The clade has no relatives, as a route with no
+    /// tree has none. Its basis is `species` (BLAST-ESVIRITU-FIRST-WORD), and a caller that falls back to the row's own
+    /// tax ID or name sets its own.
     public static func blastTaxonomyContext(
         of taxId: Int,
         names: [String],
@@ -77,7 +81,16 @@ public enum NCBITaxonomyLineage {
             for id in clade.path {
                 if let name = scan.names[id], !accepted.contains(name) { accepted.append(name) }
             }
-            return BlastTaxonomyContext(cladeTaxIds: clade.taxIds, cladeNames: accepted, basis: .species)
+            // One more pass finds the taxa that hold each path name, and a name a taxon outside the species holds
+            // judges nothing, unless every such taxon is a construct under 28384 other sequences (BIO-BLAST ruling A).
+            let pathNames = Array(accepted.dropFirst(names.count))
+            let holders = scan.holders + (pathNames.isEmpty ? [] : scanScientificNames(
+                of: [], holding: pathNames, taxonomyDirectory: taxonomyDirectory
+            ).holders)
+            let judging = accepted.indices.filter { index in
+                holders[index].allSatisfy { found.table.isUnder($0, clade.root) || found.table.isUnder($0, otherSequences) }
+            }.map { accepted[$0] }
+            return BlastTaxonomyContext(cladeTaxIds: clade.taxIds, cladeNames: judging, basis: .species)
         }
         let judging = names.indices.filter { scan.holders[$0].allSatisfy(clade.taxIds.contains) }.map { names[$0] }
         return BlastTaxonomyContext(cladeTaxIds: clade.taxIds, cladeNames: judging, basis: .species)
@@ -194,6 +207,11 @@ public enum NCBITaxonomyLineage {
     /// about 220 MB at most.
     private static let largestTaxId = 1 << 24
 
+    /// NCBI's "other sequences" (28384), where artificial sequences such as synthetic Influenza A virus (1522430) sit.
+    /// Their records are sequence of the organism made in a lab, so a name only they hold outside the species still
+    /// judges (BIO-BLAST ruling A, backlog BLAST-SYNTHETIC-SUPPORT).
+    private static let otherSequences = 28384
+
     /// Calls `body` with the offsets of each line until it returns false.
     private static func forEachLine(of dump: Data, _ body: (UnsafePointer<UInt8>, Int, Int) -> Bool) {
         dump.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
@@ -273,6 +291,19 @@ public enum NCBITaxonomyLineage {
 
         func holds(_ taxId: Int) -> Bool {
             taxId > 0 && taxId < parents.count && parents[taxId] != 0
+        }
+
+        /// Whether `taxId` is `ancestor` or below it, false for an ID with no row or a walk that never reaches it.
+        func isUnder(_ taxId: Int, _ ancestor: Int) -> Bool {
+            var current = taxId
+            for _ in 0..<Self.deepestLineage {
+                if current == ancestor { return true }
+                guard holds(current) else { return false }
+                let parent = Int(parents[current])
+                guard parent != current else { return false }
+                current = parent
+            }
+            return false
         }
 
         /// The taxon and its ancestors up to the nearest species, or the taxon alone when it is a species or has none above it.
